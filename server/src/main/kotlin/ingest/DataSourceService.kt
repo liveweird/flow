@@ -167,6 +167,42 @@ class DataSourceService(private val database: R2dbcDatabase, private val cipher:
         DataSourceUpdateResult(tokenRotated, siteHost(request.jira.siteUrl))
     }
 
+    /**
+     * The decrypted material the stored-connection Test-connection variant needs
+     * (`POST /api/v1/data-sources/{id}/test`) — never returned in any HTTP response, only handed
+     * to [ch.nokillswit.ingest.Connector.testConnection] in-process.
+     */
+    data class StoredJiraConnection(
+        val siteUrl: String,
+        val email: String,
+        val apiToken: String,
+        val projectKeys: List<String>,
+        val authScheme: JiraAuthScheme,
+    )
+
+    suspend fun readForTest(id: UInt): StoredJiraConnection? = suspendTransaction(database) {
+        val row = activeConnection(id) ?: return@suspendTransaction null
+        val settings = decodeSettings(row[Connections.settings])
+        StoredJiraConnection(
+            siteUrl = settings.siteUrl,
+            email = settings.email,
+            apiToken = cipher.decrypt(row[Connections.secret]),
+            projectKeys = settings.projectKeys,
+            authScheme = settings.authScheme,
+        )
+    }
+
+    /** Persists the `cloudId` a successful `tenant_info` probe resolved — first-write-wins is fine; it never changes for a tenant. */
+    suspend fun persistCloudId(id: UInt, cloudId: String) {
+        suspendTransaction(database) {
+            val row = activeConnection(id) ?: return@suspendTransaction
+            val settings = decodeSettings(row[Connections.settings]).copy(cloudId = cloudId)
+            Connections.update({ (Connections.id eq id) and Connections.active() }) {
+                it[Connections.settings] = encodeSettings(settings)
+            }
+        }
+    }
+
     /** Soft delete: disables the connection (its jobs will be cancelled once the queue lands) and bumps `configRevision`. */
     suspend fun delete(id: UInt): Int = suspendTransaction(database) {
         Connections.update({ (Connections.id eq id) and Connections.active() }) {

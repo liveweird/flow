@@ -207,19 +207,34 @@ the connection's identity (a changed value is `409`, not silently accepted; see
 resolved-address guard below is defense in depth once the Jira client actually calls out (plan
 commit 4).
 
-**Outbound HTTP calls (SSRF posture — applies from v0.2.0).** No server code makes outbound HTTP
-calls yet. When the Jira Cloud connector lands, **port Toadie's `UrlFetch.kt` guard rather than
-inventing a new one**: absolute `https` only, no userinfo; every resolved address checked and
-refused if loopback, site-local, link-local, any-local, multicast, IPv6 unique-local `fc00::/7`,
-CGNAT `100.64.0.0/10`, `192.0.0.0/24`, benchmarking `198.18.0.0/15`, or a NAT64 `64:ff9b::/96`
-address embedding a non-public IPv4 (unresolvable hosts refused too); `followRedirects(NEVER)`
-(checking-then-following would defeat the address check — load-bearing); bounded connect/read
-timeouts and a bounded response read (never an unbounded `ofString`). Audit every guard rejection
-uniformly (scheme/host only — never the full URL, which may embed tokens) and every successful
-fetch the same shape, so the security log records who had the server pull from where. A Jira
-Cloud API host is always public, so this guard is a defense-in-depth backstop; the primary trust
-boundary is the scoped, read-only API token (see "Encryption at rest" below, whose first consumer
-that token will be).
+**Outbound HTTP calls (SSRF posture — implemented, v0.2.0 plan commit 4).**
+`infra/outbound/OutboundGuard.kt` ports Toadie's `UrlFetch.kt` `isBlockedAddress` VERBATIM (loopback,
+site-local, link-local, any-local, multicast, IPv6 unique-local `fc00::/7`, CGNAT `100.64.0.0/10`,
+`192.0.0.0/24`, benchmarking `198.18.0.0/15`, a NAT64 `64:ff9b::/96` address embedding a
+non-public IPv4 — JDK auto-folds an IPv4-mapped IPv6 literal into an `Inet4Address`, so the plain
+IPv4 checks cover that case too, pinned by `OutboundGuardTest`) as defense in depth. The PRIMARY
+boundary is the host allow-list (`isAllowedJiraHost`): exactly `api.atlassian.com`, a genuine
+`*.atlassian.net` tenant per the SAME shape/reserved-label check `ingest/DataSource.kt` enforces at
+create/update time (one source of truth), or — development mode ONLY — the configured
+`jira.stubBaseUrl` host. `GuardedDns` (an `okhttp3.Dns`) re-checks the allow-list and re-resolves +
+re-checks addresses on EVERY call (not just once per request, since the Jira `HttpClient` is
+long-lived and shared across every connection); a `skipAddressCheck` predicate exempts ONLY the
+already-allow-listed stub host from the address-range check, since the dev/compose/in-JVM stub is,
+by construction, a loopback or docker-network-private address — the allow-list still gates it
+unconditionally, this only skips the address-SHAPE check for that one host. The guarded
+`OkHttpClient` (`guardedOkHttpClient`) sets `Proxy.NO_PROXY`, `followRedirects(false)` (both at the
+OkHttp engine level AND Ktor's own client-side `HttpRedirect` plugin — `HttpClient { followRedirects
+= false }` in `jira/Jira.kt` — checking-then-following would defeat the address check either way),
+`retryOnConnectionFailure(false)`, no cookies, no proxy authenticator. `jira/JiraHttp.kt` layers a
+bounded response read (Covenant's `ToadieGraphqlClient` shape, capped at `jira.maxResponseBytes`)
+and exponential backoff with jitter (`JiraBackoff`) on top. Every guard rejection is audited as
+`outbound.blocked` (scheme + host ONLY — never the full URL, which may embed a token).
+`jira.stubBaseUrl` is fail-closed: production startup refuses a non-blank value (`jira/Jira.kt`,
+pinned by `OutboundGuardTest`'s boot test) — the same shape as the crypto-key/mail-transport
+checks. A Jira Cloud API host is always public, so this guard is a defense-in-depth backstop; the
+primary trust boundary is the scoped, read-only API token (see "Encryption at rest" below, whose
+first consumer that token is). See `.claude/docs/jira-integration.md` for the client/auth/rate-limit
+shape built on top of this guard.
 
 **CORS is off by default** (`plugins/Http.kt`): the plugin is installed only when
 `http.corsHosts` (`$CORS_ALLOWED_HOSTS`, comma-separated hosts) is non-empty. Production is

@@ -125,6 +125,29 @@ data class DataSourceResponse(
 
 typealias DataSourcePageResponse = PageResponse<DataSourceResponse>
 
+/** The ad-hoc Test-connection request body (`POST /api/v1/data-sources/test`) — `jira` alone, incl. the token. */
+@Serializable
+data class DataSourceTestRequest(val jira: JiraConnectionRequest)
+
+/** One probed endpoint's outcome (v0.2.0 plan §6 `JiraConnector.testConnection`). Never carries the token. */
+@Serializable
+data class ConnectionTestRow(
+    val name: String,
+    val path: String,
+    val required: Boolean,
+    val ok: Boolean,
+    val status: Int? = null,
+    val code: String? = null,
+    val scopeHint: String? = null,
+)
+
+/** The full Test-connection outcome; `cloudId` is populated once `tenant_info` succeeds. */
+@Serializable
+data class ConnectionTestResult(
+    val rows: List<ConnectionTestRow>,
+    val cloudId: String? = null,
+)
+
 data class DataSourceListFilter(val name: String? = null)
 
 data class DataSourceListResult(val items: List<DataSourceResponse>, val total: Long)
@@ -154,14 +177,21 @@ private fun backfillFloor(): LocalDate =
 fun sanitizedDataSourceRequest(request: DataSourceRequest): DataSourceRequest = request.copy(
     name = sanitizeSingleLine(request.name, "Name"),
     backfillFrom = sanitizeSingleLine(request.backfillFrom ?: defaultBackfillFrom(), "Backfill date"),
-    jira = request.jira.copy(
-        siteUrl = sanitizeSingleLine(request.jira.siteUrl, "Site URL"),
-        email = canonicalEmail(sanitizeSingleLine(request.jira.email, "Email")),
-        // Blank is the SPA's "unchanged" signal for a masked password-style field (same as an
-        // omitted/null token) — never a 1-char token, so fold it to null before validation.
-        apiToken = request.jira.apiToken?.let { sanitizeSingleLine(it, "API token") }?.takeIf { it.isNotBlank() },
-        projectKeys = request.jira.projectKeys.map { sanitizeSingleLine(it, "Project key") }.distinct(),
-    ),
+    jira = sanitizedJiraConnectionRequest(request.jira),
+)
+
+/**
+ * The `jira` block alone, sanitized the same way [sanitizedDataSourceRequest] does — shared with
+ * the ad-hoc Test-connection request (`POST /api/v1/data-sources/test`), which carries no other
+ * `DataSourceRequest` field.
+ */
+fun sanitizedJiraConnectionRequest(jira: JiraConnectionRequest): JiraConnectionRequest = jira.copy(
+    siteUrl = sanitizeSingleLine(jira.siteUrl, "Site URL"),
+    email = canonicalEmail(sanitizeSingleLine(jira.email, "Email")),
+    // Blank is the SPA's "unchanged" signal for a masked password-style field (same as an
+    // omitted/null token) — never a 1-char token, so fold it to null before validation.
+    apiToken = jira.apiToken?.let { sanitizeSingleLine(it, "API token") }?.takeIf { it.isNotBlank() },
+    projectKeys = jira.projectKeys.map { sanitizeSingleLine(it, "Project key") }.distinct(),
 )
 
 /** The data-source rules — enforced by the route; the service takes an already-validated request and does not re-check. */
@@ -191,7 +221,8 @@ fun validateDataSource(request: DataSourceRequest, apiTokenRequired: Boolean) {
     validateJira(request.jira, apiTokenRequired)
 }
 
-private fun validateJira(jira: JiraConnectionRequest, apiTokenRequired: Boolean) {
+/** `internal`, not `private`: the Test-connection routes (`DataSourceRoutes.kt`) validate an ad-hoc `jira` block directly. */
+internal fun validateJira(jira: JiraConnectionRequest, apiTokenRequired: Boolean) {
     val siteLabel = jira.siteUrl.takeIf { it.length <= MAX_SITE_URL_LENGTH }
         ?.let { JIRA_SITE_URL_PATTERN.matchEntire(it) }?.groupValues?.get(1)
     if (siteLabel == null || siteLabel in ATLASSIAN_RESERVED_SITE_LABELS) {

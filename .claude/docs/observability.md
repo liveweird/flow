@@ -68,9 +68,14 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
   `siteUrl`, and never the API token) / `.updated` (byUserId/dataSourceId/name/siteHost) /
   `.token_rotated` (byUserId/dataSourceId — its own event, separate from `.updated`, so the audit
   trail can tell a credential rotation from an ordinary settings edit without ever naming the
-  token) / `.deleted` (byUserId/dataSourceId) — the v0.2.0 data-sources CRUD (V8); worker-side
-  sync-job events (`sync_job.*`, `outbound.blocked`) arrive with the sync-job queue (plan
+  token) / `.deleted` (byUserId/dataSourceId) — the v0.2.0 data-sources CRUD (V8) /
+  `.tested` (byUserId/siteHost/ok/failedEndpoints — emitted by both `POST /api/v1/data-sources/test`
+  and `.../{id}/test`; `failedEndpoints` names the probe rows that failed, never a token or the
+  full request) — worker-side sync-job events (`sync_job.*`) arrive with the sync-job queue (plan
   commit 5).
+- `outbound.blocked` (scheme/host ONLY — never the full URL) — every rejection from
+  `infra/outbound/OutboundGuard.kt`'s host allow-list or address-range check, emitted by
+  `GuardedDns` on the Jira HTTP client's every outbound call (`.claude/docs/jira-integration.md`).
 
 Field-naming convention: the acting caller is `byUserId` everywhere except the auth lifecycle
 events (`login.*`, `logout`, `refresh.rejected`), where `userId` identifies the account being
@@ -94,6 +99,6 @@ one).
 
 ### Not yet ported
 
-The data-sources CRUD audit trail above has landed; sync-job lifecycle events (`sync_job.started`/
-`.succeeded`/`.failed`/`.released`, `outbound.blocked`) arrive with the sync-job queue and worker
-(plan commit 5) and get their own paragraph here.
+The data-sources CRUD and Test-connection audit trail, plus `outbound.blocked`, have landed;
+sync-job lifecycle events (`sync_job.started`/`.succeeded`/`.failed`/`.released`) arrive with the
+sync-job queue and worker (plan commit 5) and get their own paragraph here.

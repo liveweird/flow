@@ -727,6 +727,61 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/data-sources/test:
+    post:
+      tags: [data-sources]
+      operationId: testDataSourceAdHoc
+      summary: Test a Jira connection before saving it
+      description: |
+        ADMIN only (guarded before the body decodes), rate-limited (10/min per IP, bucket
+        `data-source-test`). Probes each Jira endpoint the ingestion pipeline needs in sequence
+        (at most 10s each, 30s total) and NEVER answers `502` — every probe outcome is a row in
+        the response, `ok: false` included. `jira.apiToken` is required here (an ad-hoc test
+        before the connection is saved).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DataSourceTestRequest'
+      responses:
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '200':
+          description: The probe results (never a failure status — see the row shapes)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConnectionTestResult'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/data-sources/{id}/test:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    post:
+      tags: [data-sources]
+      operationId: testDataSourceStored
+      summary: Test a saved data source's connection
+      description: |
+        ADMIN only, rate-limited (10/min per IP, bucket `data-source-test`). Uses the STORED,
+        decrypted token — no request body. A successful `tenant_info` probe persists the
+        resolved `cloudId` on the connection.
+      responses:
+        '200':
+          description: The probe results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConnectionTestResult'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/data-sources/{id}:
     parameters:
       - $ref: '#/components/parameters/ResourceId'
@@ -1285,6 +1340,41 @@ components:
           type: integer
           format: int64
           minimum: 0
+    DataSourceTestRequest:
+      type: object
+      required: [jira]
+      properties:
+        jira:
+          $ref: '#/components/schemas/JiraConnectionRequest'
+    ConnectionTestRow:
+      type: object
+      required: [name, path, required, ok]
+      properties:
+        name: { type: string, description: "The probe's short identifier (e.g. myself, project_statuses:ENG)." }
+        path: { type: string, description: The Jira endpoint path probed. }
+        required: { type: boolean, description: Whether a real sync depends on this endpoint. }
+        ok: { type: boolean }
+        status: { type: integer, nullable: true, description: "The upstream HTTP status, when the probe ran." }
+        code:
+          type: string
+          nullable: true
+          description: A `JiraFetchException` code on failure (e.g. `AUTHENTICATION_FAILED`, `FORBIDDEN_SCOPE`).
+        scopeHint:
+          type: string
+          nullable: true
+          description: The Jira OAuth/API-token scope this endpoint likely needs, for a failed optional/required row.
+    ConnectionTestResult:
+      type: object
+      required: [rows]
+      properties:
+        rows:
+          type: array
+          items:
+            $ref: '#/components/schemas/ConnectionTestRow'
+        cloudId:
+          type: string
+          nullable: true
+          description: Resolved once the `tenant_info` probe succeeds.
 
     ProblemDetail:
       type: object

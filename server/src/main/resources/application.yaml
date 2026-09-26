@@ -34,6 +34,9 @@ ktor:
       # Public liveness/readiness probes (/api/v1/health, /api/v1/ready); after Database (the probe
       # round-trips it).
       - ch.nokillswit.plugins.HealthKt.configureHealth
+      # The guarded Jira HTTP stack (outbound guard + Test-connection service) — before the
+      # data-sources routes, which read the JiraConnector off attributes.
+      - ch.nokillswit.jira.JiraKt.configureJira
       # — features
       - ch.nokillswit.users.UserRoutesKt.configureUserRoutes
       - ch.nokillswit.teams.TeamRoutesKt.configureTeamRoutes
@@ -178,6 +181,21 @@ mail:
   # Optional absolute URL of this deployment (e.g. https://flow.example.com);
   # when set, outbound emails include a sign-in link.
   appUrl: "$MAIL_APP_URL:"
+
+jira:
+  # Outbound HTTP behavior for the Jira Cloud client (v0.2.0 plan §5/§6,
+  # `.claude/docs/jira-integration.md`). Every call is bounded by this timeout (HttpTimeout, both
+  # request and connect) and retried with exponential backoff on 429/5xx/IOException.
+  requestTimeoutSeconds: "$JIRA_REQUEST_TIMEOUT_SECONDS:30"
+  # The Covenant-shaped bounded-read ceiling on a single response body (32 MiB default).
+  maxResponseBytes: "$JIRA_MAX_RESPONSE_BYTES:33554432"
+  # A Semaphore cap on concurrent in-flight Jira calls (per process).
+  maxConcurrentRequests: "$JIRA_MAX_CONCURRENT_REQUESTS:4"
+  maxRetries: "$JIRA_MAX_RETRIES:4"
+  # Reroutes BOTH the tenant_info host and the gateway host to the in-JVM/compose Jira stub
+  # (sample-data/jira-stub) — DEVELOPMENT ONLY; production startup refuses a non-blank value
+  # (jira/Jira.kt's fail-closed check, ported from the crypto-key/mail-transport precedent).
+  stubBaseUrl: "$JIRA_STUB_BASE_URL:"
 
 postgres:
   # Local-dev defaults point at the docker-compose Postgres, which maps host port

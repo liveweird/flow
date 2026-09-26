@@ -8,6 +8,8 @@ import ch.nokillswit.authz.requireAdmin
 import ch.nokillswit.infra.paging.optionalString
 import ch.nokillswit.infra.paging.parsePaging
 import ch.nokillswit.infra.paging.toPage
+import ch.nokillswit.jira.JiraConnectorKey
+import ch.nokillswit.plugins.RateLimits
 import ch.nokillswit.plugins.servesApi
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
@@ -20,6 +22,8 @@ import io.ktor.server.resources.delete
 import io.ktor.server.resources.get
 import io.ktor.server.resources.post
 import io.ktor.server.resources.put
+import io.ktor.server.plugins.ratelimit.RateLimitName
+import io.ktor.server.plugins.ratelimit.rateLimit
 import io.ktor.server.response.header
 import io.ktor.server.response.respond
 import io.ktor.server.routing.routing
@@ -30,7 +34,15 @@ import kotlinx.serialization.Serializable
 class DataSourcesRoute {
     @Serializable
     @Resource("{id}")
-    class Id(val parent: DataSourcesRoute = DataSourcesRoute(), val id: UInt)
+    class Id(val parent: DataSourcesRoute = DataSourcesRoute(), val id: UInt) {
+        @Serializable
+        @Resource("test")
+        class Test(val parent: Id)
+    }
+
+    @Serializable
+    @Resource("test")
+    class Test(val parent: DataSourcesRoute = DataSourcesRoute())
 }
 
 /**
@@ -45,9 +57,42 @@ fun Application.configureDataSourceRoutes() {
     if (!servesApi()) return
 
     val service = attributes[DataSourceServiceKey]
+    val connector = attributes[JiraConnectorKey]
 
     routing {
         authenticate {
+            rateLimit(RateLimitName(RateLimits.DATA_SOURCE_TEST)) {
+                post<DataSourcesRoute.Test> {
+                    val caller = call.caller()
+                    requireAdmin(caller)
+                    val jira = sanitizedJiraConnectionRequest(call.receive<DataSourceTestRequest>().jira)
+                    validateJira(jira, apiTokenRequired = true)
+                    val result = connector.testConnection(
+                        siteUrl = jira.siteUrl,
+                        email = jira.email,
+                        apiToken = checkNotNull(jira.apiToken) { "apiToken is required on the ad-hoc test" },
+                        projectKeys = jira.projectKeys,
+                        authScheme = jira.authScheme,
+                    )
+                    auditConnectionTest(caller.userId, siteHost(jira.siteUrl), result)
+                    call.respond(HttpStatusCode.OK, result)
+                }
+                post<DataSourcesRoute.Id.Test> { route ->
+                    val caller = call.caller()
+                    requireAdmin(caller)
+                    val stored = service.readForTest(route.parent.id).orNotFound("Data source")
+                    val result = connector.testConnection(
+                        siteUrl = stored.siteUrl,
+                        email = stored.email,
+                        apiToken = stored.apiToken,
+                        projectKeys = stored.projectKeys,
+                        authScheme = stored.authScheme,
+                    )
+                    result.cloudId?.let { service.persistCloudId(route.parent.id, it) }
+                    auditConnectionTest(caller.userId, siteHost(stored.siteUrl), result)
+                    call.respond(HttpStatusCode.OK, result)
+                }
+            }
             get<DataSourcesRoute> {
                 val caller = call.caller()
                 requireAdmin(caller)
@@ -104,4 +149,16 @@ fun Application.configureDataSourceRoutes() {
             }
         }
     }
+}
+
+/** `data_source.tested` (v0.2.0 plan §9): siteHost, overall ok and the failed probe names — NEVER the token. */
+private fun auditConnectionTest(byUserId: UInt, siteHost: String, result: ConnectionTestResult) {
+    val failedEndpoints = result.rows.filterNot { it.ok }.map { it.name }
+    audit(
+        "data_source.tested",
+        "byUserId" to byUserId.toLong(),
+        "siteHost" to siteHost,
+        "ok" to failedEndpoints.isEmpty(),
+        "failedEndpoints" to failedEndpoints,
+    )
 }

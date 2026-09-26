@@ -264,6 +264,7 @@ covered the moment its spec entry lands.
 @.claude/docs/dependency-reproducibility.md
 @.claude/docs/app-releases.md
 @.claude/docs/ingestion.md
+@.claude/docs/jira-integration.md
 
 ### Frontend (`web/`)
 

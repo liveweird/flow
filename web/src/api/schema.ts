@@ -469,6 +469,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/data-sources/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test a Jira connection before saving it
+         * @description ADMIN only (guarded before the body decodes), rate-limited (10/min per IP, bucket
+         *     `data-source-test`). Probes each Jira endpoint the ingestion pipeline needs in sequence
+         *     (at most 10s each, 30s total) and NEVER answers `502` — every probe outcome is a row in
+         *     the response, `ok: false` included. `jira.apiToken` is required here (an ad-hoc test
+         *     before the connection is saved).
+         */
+        post: operations["testDataSourceAdHoc"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/data-sources/{id}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test a saved data source's connection
+         * @description ADMIN only, rate-limited (10/min per IP, bucket `data-source-test`). Uses the STORED,
+         *     decrypted token — no request body. A successful `tenant_info` probe persists the
+         *     resolved `cloudId` on the connection.
+         */
+        post: operations["testDataSourceStored"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/data-sources/{id}": {
         parameters: {
             query?: never;
@@ -779,6 +827,29 @@ export interface components {
             pageSize: number;
             /** Format: int64 */
             total: number;
+        };
+        DataSourceTestRequest: {
+            jira: components["schemas"]["JiraConnectionRequest"];
+        };
+        ConnectionTestRow: {
+            /** @description The probe's short identifier (e.g. myself, project_statuses:ENG). */
+            name: string;
+            /** @description The Jira endpoint path probed. */
+            path: string;
+            /** @description Whether a real sync depends on this endpoint. */
+            required: boolean;
+            ok: boolean;
+            /** @description The upstream HTTP status, when the probe ran. */
+            status?: number | null;
+            /** @description A `JiraFetchException` code on failure (e.g. `AUTHENTICATION_FAILED`, `FORBIDDEN_SCOPE`). */
+            code?: string | null;
+            /** @description The Jira OAuth/API-token scope this endpoint likely needs, for a failed optional/required row. */
+            scopeHint?: string | null;
+        };
+        ConnectionTestResult: {
+            rows: components["schemas"]["ConnectionTestRow"][];
+            /** @description Resolved once the `tenant_info` probe succeeds. */
+            cloudId?: string | null;
         };
         /** @description RFC 7807 problem detail. Served as `application/problem+json`; instance is the request path without query parameters. */
         ProblemDetail: {
@@ -1675,6 +1746,65 @@ export interface operations {
             409: components["responses"]["Conflict"];
             413: components["responses"]["PayloadTooLarge"];
             415: components["responses"]["UnsupportedMediaType"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    testDataSourceAdHoc: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DataSourceTestRequest"];
+            };
+        };
+        responses: {
+            /** @description The probe results (never a failure status — see the row shapes) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectionTestResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            413: components["responses"]["PayloadTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    testDataSourceStored: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The probe results */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectionTestResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalServerError"];
         };
     };
