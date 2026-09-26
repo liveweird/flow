@@ -1,0 +1,7 @@
+# This is a Gradle generated file for dependency locking.
+# Manual edits can break the build and are not advised.
+# This file is expected to be part of source control.
+# To regenerate this file, run: ./gradlew dependencies --write-locks
+io.gitlab.arturbosch.detekt:detekt-gradle-plugin:1.23.8=classpath
+io.gitlab.arturbosch.detekt:io.gitlab.arturbosch.detekt.gradle.plugin:1.23.8=classpath
+empty=
