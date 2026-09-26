@@ -1,0 +1,44 @@
+# Weekly dependency bumps, grouped so one PR per workspace per week carries the minor/patch set
+# and majors arrive alone (a major deserves its own review — see the pin rationales in
+# gradle/libs.versions.toml).
+version: 2
+updates:
+  - package-ecosystem: gradle
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      gradle-minor-patch:
+        update-types: [minor, patch]
+        # These families carry compatibility pins; review their updates independently.
+        exclude-patterns: ["io.opentelemetry:*", "io.opentelemetry.instrumentation:*", "io.netty:*", "io.projectreactor.netty:*", "org.jetbrains.exposed:*"]
+  - package-ecosystem: npm
+    directory: /web
+    schedule:
+      interval: weekly
+    groups:
+      web-minor-patch:
+        update-types: [minor, patch]
+        exclude-patterns: ["vitest", "@vitest/*"]
+      vitest:
+        patterns: ["vitest", "@vitest/*"]
+  - package-ecosystem: npm
+    directory: /e2e
+    schedule:
+      interval: weekly
+    groups:
+      e2e-minor-patch:
+        update-types: [minor, patch]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+  # External image tags and digests are reviewed just like application dependencies.
+  - package-ecosystem: docker
+    directories: ["/", "/k8s"]
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: weekly

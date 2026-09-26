@@ -1,0 +1,154 @@
+name: ci
+
+# The push/PR gate — every local gate (CLAUDE.md "Commands") re-run on a clean runner:
+# server (detekt + Testcontainers tests + Kover + OpenAPI coverage + dependency alignment), web
+# (the spec → schema.ts drift check, lint, knip, tests with coverage floors, build), and the
+# Docker-free e2e statics (lint, knip, typecheck, spec↔scenario parity). The blackbox Playwright
+# suite runs nightly and on demand (e2e.yml).
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  server:
+    # ubuntu-24.04 ships a Docker daemon — Testcontainers starts the pinned PostgreSQL 18 image on it.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+      # `build` = compile + detekt + test + koverVerify + checkDependencyAlignment (`check`).
+      - run: ./gradlew build --no-daemon --stacktrace
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ !cancelled() }}
+        with:
+          name: server-reports
+          path: server/build/reports/
+          retention-days: 7
+
+  gradle-vulnerability-scan:
+    # Scan resolved project and plugin classpaths, including build and test dependencies.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+      - run: ./gradlew :verifySettingsPluginAudit --no-daemon
+      - name: Scan Gradle lockfiles
+        run: |
+          mkdir -p "$RUNNER_TEMP/gradle-locks/core" "$RUNNER_TEMP/gradle-locks/server" "$RUNNER_TEMP/trivy-cache"
+          cp gradle.lockfile settings-gradle.lockfile buildscript-gradle.lockfile "$RUNNER_TEMP/gradle-locks/"
+          cp core/gradle.lockfile core/buildscript-gradle.lockfile "$RUNNER_TEMP/gradle-locks/core/"
+          cp server/gradle.lockfile server/buildscript-gradle.lockfile "$RUNNER_TEMP/gradle-locks/server/"
+          docker run --rm \
+            -v "$RUNNER_TEMP/gradle-locks:/scan:ro" \
+            -v "$RUNNER_TEMP/trivy-cache:/cache" \
+            -v "$RUNNER_TEMP:/out" \
+            ghcr.io/aquasecurity/trivy:0.74.0@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969 \
+            fs --scanners vuln --include-dev-deps --format json \
+            --output /out/gradle-vulnerabilities.json --cache-dir /cache --no-progress /scan
+          python3 - <<'PY'
+          import collections
+          import json
+          import os
+
+          with open(os.path.join(os.environ["RUNNER_TEMP"], "gradle-vulnerabilities.json")) as report:
+              results = json.load(report)["Results"]
+          counts = collections.Counter(
+              vulnerability["Severity"]
+              for result in results
+              for vulnerability in result.get("Vulnerabilities") or []
+          )
+          print("Gradle dependency advisories:", dict(counts))
+          if counts["CRITICAL"] or counts["HIGH"]:
+              raise SystemExit("HIGH or CRITICAL Gradle dependency advisory")
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ always() }}
+        with:
+          name: gradle-vulnerabilities
+          path: ${{ runner.temp }}/gradle-vulnerabilities.json
+          retention-days: 7
+
+  web:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      # --legacy-peer-deps per web/README.md (openapi-typescript declares TS ^5, the repo uses TS 6).
+      - run: npm ci --legacy-peer-deps
+      # The same-commit rule made mechanical: a spec change must land with its regenerated
+      # src/api/schema.ts, or the SPA type-checks against a stale client surface.
+      - name: OpenAPI → schema.ts drift
+        run: |
+          npm run gen:api
+          git diff --exit-code -- src/api/schema.ts \
+            || { echo "::error::web/src/api/schema.ts is stale — run 'cd web && npm run gen:api' and commit the result"; exit 1; }
+      - run: npm run lint
+      - run: npm run knip
+      - run: npm run test:coverage
+      - run: npm run build
+        env:
+          # The runner's checkout is a detached HEAD; stamp the build from the event instead of
+          # the vite config's `git status` dirty check (see web/CLAUDE.md "Build version stamp").
+          GIT_SHA: ${{ github.sha }}
+
+  e2e-static:
+    # The Docker-free e2e gates: eslint+sonarjs and knip (the web sibling), typecheck
+    # (Playwright only TRANSPILES TS), and spec↔scenario parity — the same-commit rule made
+    # mechanical (e2e/README.md).
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: e2e
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run knip
+      - run: npm run typecheck
+      - run: npm run check:scenarios
+      - run: npm run test:setup
+
+  images:
+    # Dockerfile drift guard on the default branch: the image must still build. Push-only —
+    # the multi-stage build is the slowest job here.
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The SPA build stage reads the commit sha and time from .git.
+          fetch-depth: 0
+      - run: docker compose build
