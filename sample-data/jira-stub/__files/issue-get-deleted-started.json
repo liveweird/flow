@@ -1,0 +1,61 @@
+{
+  "id": "30546",
+  "key": "OPS-66",
+  "fields": {
+    "summary": "Story OPS-66: sample work item",
+    "status": {
+      "id": "3",
+      "name": "In Progress",
+      "statusCategory": {
+        "id": 4,
+        "key": "indeterminate",
+        "name": "In Progress",
+        "colorName": "yellow"
+      }
+    },
+    "issuetype": {
+      "id": "10001",
+      "name": "Story",
+      "subtask": false
+    },
+    "project": {
+      "id": "10003",
+      "key": "OPS",
+      "name": "Operations"
+    },
+    "created": "2026-02-03T23:57:21.464Z",
+    "updated": "2026-02-07T23:57:21.464Z",
+    "resolutiondate": null,
+    "assignee": {
+      "accountId": "5f8a1b2c3d4e5f6a7b8c9d20",
+      "displayName": "Sample User 20"
+    },
+    "reporter": {
+      "accountId": "5f8a1b2c3d4e5f6a7b8c9d18",
+      "displayName": "Sample User 18"
+    },
+    "priority": {
+      "id": "3",
+      "name": "Medium"
+    },
+    "resolution": null,
+    "labels": [],
+    "components": [
+      {
+        "id": "Tooling",
+        "name": "Tooling"
+      }
+    ],
+    "parent": {
+      "id": "30158",
+      "key": "OPS-21"
+    },
+    "customfield_10019": "0|i10054:",
+    "customfield_10021": [],
+    "timetracking": {
+      "originalEstimateSeconds": 10800,
+      "remainingEstimateSeconds": 10800,
+      "timeSpentSeconds": 0
+    }
+  }
+}

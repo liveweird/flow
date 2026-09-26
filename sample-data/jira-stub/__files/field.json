@@ -1,0 +1,171 @@
+[
+  {
+    "id": "summary",
+    "key": "summary",
+    "name": "Summary",
+    "custom": false,
+    "schema": {
+      "type": "string",
+      "system": "summary"
+    }
+  },
+  {
+    "id": "status",
+    "key": "status",
+    "name": "Status",
+    "custom": false,
+    "schema": {
+      "type": "status",
+      "system": "status"
+    }
+  },
+  {
+    "id": "assignee",
+    "key": "assignee",
+    "name": "Assignee",
+    "custom": false,
+    "schema": {
+      "type": "user",
+      "system": "assignee"
+    }
+  },
+  {
+    "id": "reporter",
+    "key": "reporter",
+    "name": "Reporter",
+    "custom": false,
+    "schema": {
+      "type": "user",
+      "system": "reporter"
+    }
+  },
+  {
+    "id": "priority",
+    "key": "priority",
+    "name": "Priority",
+    "custom": false,
+    "schema": {
+      "type": "priority",
+      "system": "priority"
+    }
+  },
+  {
+    "id": "resolution",
+    "key": "resolution",
+    "name": "Resolution",
+    "custom": false,
+    "schema": {
+      "type": "resolution",
+      "system": "resolution"
+    }
+  },
+  {
+    "id": "labels",
+    "key": "labels",
+    "name": "Labels",
+    "custom": false,
+    "schema": {
+      "type": "array",
+      "items": "string",
+      "system": "labels"
+    }
+  },
+  {
+    "id": "components",
+    "key": "components",
+    "name": "Components",
+    "custom": false,
+    "schema": {
+      "type": "array",
+      "items": "component",
+      "system": "components"
+    }
+  },
+  {
+    "id": "issuetype",
+    "key": "issuetype",
+    "name": "Issue Type",
+    "custom": false,
+    "schema": {
+      "type": "issuetype",
+      "system": "issuetype"
+    }
+  },
+  {
+    "id": "project",
+    "key": "project",
+    "name": "Project",
+    "custom": false,
+    "schema": {
+      "type": "project",
+      "system": "project"
+    }
+  },
+  {
+    "id": "parent",
+    "key": "parent",
+    "name": "Parent",
+    "custom": false,
+    "schema": {
+      "type": "issuelink",
+      "system": "parent"
+    }
+  },
+  {
+    "id": "customfield_10001",
+    "key": "customfield_10001",
+    "name": "Team",
+    "custom": true,
+    "schema": {
+      "type": "team",
+      "custom": "com.atlassian.jira.plugin.system.customfieldtypes:atlassian-team",
+      "customId": 10001
+    }
+  },
+  {
+    "id": "customfield_10016",
+    "key": "customfield_10016",
+    "name": "Story point estimate",
+    "custom": true,
+    "schema": {
+      "type": "number",
+      "custom": "com.atlassian.jira.plugin.system.customfieldtypes:float",
+      "customId": 10016
+    }
+  },
+  {
+    "id": "customfield_10019",
+    "key": "customfield_10019",
+    "name": "Rank",
+    "custom": true,
+    "schema": {
+      "type": "any",
+      "custom": "com.pyxis.greenhopper.jira:gh-lexo-rank",
+      "customId": 10019
+    }
+  },
+  {
+    "id": "customfield_10020",
+    "key": "customfield_10020",
+    "name": "Sprint",
+    "custom": true,
+    "schema": {
+      "type": "array",
+      "items": "json",
+      "custom": "com.pyxis.greenhopper.jira:gh-sprint",
+      "customId": 10020
+    }
+  },
+  {
+    "id": "customfield_10021",
+    "key": "customfield_10021",
+    "name": "Flagged",
+    "custom": true,
+    "schema": {
+      "type": "array",
+      "items": "option",
+      "custom": "com.atlassian.jira.plugin.system.customfieldtypes:multicheckboxes",
+      "customId": 10021
+    }
+  }
+]

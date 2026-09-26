@@ -1,0 +1,26 @@
+{
+  "maxResults": 2,
+  "startAt": 0,
+  "total": 5,
+  "isLast": false,
+  "values": [
+    {
+      "id": 1,
+      "name": "Flow Core board",
+      "type": "scrum",
+      "location": {
+        "projectId": 10000,
+        "projectKey": "FLO"
+      }
+    },
+    {
+      "id": 2,
+      "name": "Platform board",
+      "type": "scrum",
+      "location": {
+        "projectId": 10001,
+        "projectKey": "PLT"
+      }
+    }
+  ]
+}

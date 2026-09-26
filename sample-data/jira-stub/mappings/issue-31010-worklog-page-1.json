@@ -1,0 +1,19 @@
+{
+  "priority": 5,
+  "request": {
+    "method": "GET",
+    "urlPath": "/ex/jira/b3f1a2c4-5d6e-4f7a-8b9c-0d1e2f3a4b5c/rest/api/3/issue/31010/worklog",
+    "headers": {
+      "Authorization": {
+        "matches": "^(Basic|Bearer) .+$"
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "bodyFileName": "issue-31010-worklog-page-1.json"
+  }
+}

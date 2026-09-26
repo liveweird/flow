@@ -1,0 +1,58 @@
+{
+  "startAt": 0,
+  "maxResults": 3,
+  "total": 5,
+  "histories": [
+    {
+      "id": "501220",
+      "created": "2025-11-17T03:56:31.836Z",
+      "author": {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d24"
+      },
+      "items": [
+        {
+          "field": "Sprint",
+          "fieldId": "customfield_10020",
+          "from": null,
+          "fromString": null,
+          "to": "3061",
+          "toString": "Sprint 3061"
+        }
+      ]
+    },
+    {
+      "id": "501221",
+      "created": "2025-11-18T19:56:31.836Z",
+      "author": {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d25"
+      },
+      "items": [
+        {
+          "field": "assignee",
+          "fieldId": "assignee",
+          "from": "5f8a1b2c3d4e5f6a7b8c9d27",
+          "fromString": "Sample User 27",
+          "to": "5f8a1b2c3d4e5f6a7b8c9d18",
+          "toString": "Sample User 18"
+        }
+      ]
+    },
+    {
+      "id": "501222",
+      "created": "2025-11-20T11:56:31.836Z",
+      "author": {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d08"
+      },
+      "items": [
+        {
+          "field": "assignee",
+          "fieldId": "assignee",
+          "from": "5f8a1b2c3d4e5f6a7b8c9d18",
+          "fromString": "Sample User 18",
+          "to": "5f8a1b2c3d4e5f6a7b8c9d20",
+          "toString": "Sample User 20"
+        }
+      ]
+    }
+  ]
+}

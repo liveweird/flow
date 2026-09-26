@@ -1,0 +1,28 @@
+{
+  "maxResults": 50,
+  "startAt": 0,
+  "total": 5,
+  "isLast": true,
+  "values": [
+    {
+      "id": "1",
+      "name": "Highest"
+    },
+    {
+      "id": "2",
+      "name": "High"
+    },
+    {
+      "id": "3",
+      "name": "Medium"
+    },
+    {
+      "id": "4",
+      "name": "Low"
+    },
+    {
+      "id": "5",
+      "name": "Lowest"
+    }
+  ]
+}

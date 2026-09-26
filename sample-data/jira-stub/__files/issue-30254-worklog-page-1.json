@@ -1,0 +1,29 @@
+{
+  "startAt": 0,
+  "maxResults": 3,
+  "total": 2,
+  "worklogs": [
+    {
+      "id": "700278",
+      "issueId": "30254",
+      "author": {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d29"
+      },
+      "started": "2025-11-11T08:44:03.758Z",
+      "created": "2025-11-11T08:44:03.758Z",
+      "updated": "2025-11-11T08:44:03.758Z",
+      "timeSpentSeconds": 5400
+    },
+    {
+      "id": "700279",
+      "issueId": "30254",
+      "author": {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d06"
+      },
+      "started": "2025-11-11T08:44:03.758Z",
+      "created": "2025-11-11T08:44:03.758Z",
+      "updated": "2025-11-11T08:44:03.758Z",
+      "timeSpentSeconds": 9000
+    }
+  ]
+}

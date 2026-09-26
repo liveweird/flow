@@ -1,0 +1,58 @@
+{
+  "startAt": 0,
+  "maxResults": 3,
+  "total": 3,
+  "histories": [
+    {
+      "id": "501175",
+      "created": "2025-11-15T00:28:53.543Z",
+      "author": {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d09"
+      },
+      "items": [
+        {
+          "field": "Sprint",
+          "fieldId": "customfield_10020",
+          "from": null,
+          "fromString": null,
+          "to": "3005",
+          "toString": "Sprint 3005"
+        }
+      ]
+    },
+    {
+      "id": "501176",
+      "created": "2025-11-16T00:28:53.543Z",
+      "author": {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d11"
+      },
+      "items": [
+        {
+          "field": "assignee",
+          "fieldId": "assignee",
+          "from": "5f8a1b2c3d4e5f6a7b8c9d15",
+          "fromString": "Sample User 15",
+          "to": "5f8a1b2c3d4e5f6a7b8c9d20",
+          "toString": "Sample User 20"
+        }
+      ]
+    },
+    {
+      "id": "501177",
+      "created": "2025-11-17T00:28:53.543Z",
+      "author": {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d27"
+      },
+      "items": [
+        {
+          "field": "status",
+          "fieldId": "status",
+          "from": "1",
+          "fromString": "To Do",
+          "to": "3",
+          "toString": "In Progress"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,66 @@
+{
+  "id": "31167",
+  "key": "FLO-366",
+  "fields": {
+    "summary": "Story FLO-366: sample work item",
+    "status": {
+      "id": "10002",
+      "name": "Done",
+      "statusCategory": {
+        "id": 3,
+        "key": "done",
+        "name": "Done",
+        "colorName": "green"
+      }
+    },
+    "issuetype": {
+      "id": "10001",
+      "name": "Story",
+      "subtask": false
+    },
+    "project": {
+      "id": "10000",
+      "key": "FLO",
+      "name": "Flow Core"
+    },
+    "created": "2026-08-01T06:41:45.860Z",
+    "updated": "2026-08-06T06:41:45.860Z",
+    "resolutiondate": "2026-08-06T06:41:45.860Z",
+    "assignee": null,
+    "reporter": {
+      "accountId": "5f8a1b2c3d4e5f6a7b8c9d26",
+      "displayName": "Sample User 26"
+    },
+    "priority": {
+      "id": "5",
+      "name": "Lowest"
+    },
+    "resolution": {
+      "id": "10001",
+      "name": "Won't Do"
+    },
+    "labels": [
+      "perf"
+    ],
+    "components": [
+      {
+        "id": "Web",
+        "name": "Web"
+      }
+    ],
+    "customfield_10016": 5,
+    "customfield_10019": "0|i32751:",
+    "customfield_10021": [],
+    "customfield_10020": [
+      {
+        "id": 3023,
+        "name": "FLO Sprint 24",
+        "state": "closed",
+        "boardId": 1,
+        "startDate": "2026-07-20T00:00:00.000Z",
+        "endDate": "2026-08-03T00:00:00.000Z",
+        "goal": "Sprint 24 goal for Flow Core"
+      }
+    ]
+  }
+}

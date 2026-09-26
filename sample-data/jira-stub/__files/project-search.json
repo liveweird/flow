@@ -1,0 +1,48 @@
+{
+  "maxResults": 50,
+  "startAt": 0,
+  "total": 5,
+  "isLast": true,
+  "values": [
+    {
+      "id": "10000",
+      "key": "FLO",
+      "name": "Flow Core",
+      "projectTypeKey": "software",
+      "simplified": false,
+      "style": "classic"
+    },
+    {
+      "id": "10001",
+      "key": "PLT",
+      "name": "Platform",
+      "projectTypeKey": "software",
+      "simplified": false,
+      "style": "classic"
+    },
+    {
+      "id": "10002",
+      "key": "GTM",
+      "name": "Go To Market",
+      "projectTypeKey": "software",
+      "simplified": false,
+      "style": "classic"
+    },
+    {
+      "id": "10003",
+      "key": "OPS",
+      "name": "Operations",
+      "projectTypeKey": "software",
+      "simplified": false,
+      "style": "classic"
+    },
+    {
+      "id": "10004",
+      "key": "SEC",
+      "name": "Security",
+      "projectTypeKey": "software",
+      "simplified": false,
+      "style": "classic"
+    }
+  ]
+}

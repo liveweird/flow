@@ -1,0 +1,40 @@
+{
+  "startAt": 0,
+  "maxResults": 3,
+  "total": 4,
+  "worklogs": [
+    {
+      "id": "701118",
+      "issueId": "31142",
+      "author": {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d01"
+      },
+      "started": "2026-07-27T06:45:35.518Z",
+      "created": "2026-07-27T06:45:35.518Z",
+      "updated": "2026-07-27T06:45:35.518Z",
+      "timeSpentSeconds": 7200
+    },
+    {
+      "id": "701119",
+      "issueId": "31142",
+      "author": {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d22"
+      },
+      "started": "2026-07-28T06:45:35.518Z",
+      "created": "2026-07-28T06:45:35.518Z",
+      "updated": "2026-07-28T06:45:35.518Z",
+      "timeSpentSeconds": 10800
+    },
+    {
+      "id": "701120",
+      "issueId": "31142",
+      "author": {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d19"
+      },
+      "started": "2026-07-26T06:45:35.518Z",
+      "created": "2026-07-26T06:45:35.518Z",
+      "updated": "2026-07-26T06:45:35.518Z",
+      "timeSpentSeconds": 7200
+    }
+  ]
+}

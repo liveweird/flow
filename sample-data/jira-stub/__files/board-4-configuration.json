@@ -1,0 +1,37 @@
+{
+  "id": 4,
+  "name": "Operations board",
+  "type": "kanban",
+  "columnConfig": {
+    "columns": [
+      {
+        "name": "To Do",
+        "statuses": [
+          {
+            "id": "1"
+          }
+        ]
+      },
+      {
+        "name": "In Progress",
+        "statuses": [
+          {
+            "id": "3"
+          },
+          {
+            "id": "10003"
+          }
+        ]
+      },
+      {
+        "name": "Done",
+        "statuses": [
+          {
+            "id": "10002"
+          }
+        ]
+      }
+    ],
+    "constraintType": "issueCount"
+  }
+}
