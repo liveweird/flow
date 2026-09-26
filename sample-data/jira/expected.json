@@ -95,7 +95,8 @@
     "day2DeletedWorklogIssueId": "30003"
   },
   "reopens": {
-    "count": 57
+    "count": 57,
+    "inScopeCount": 53
   },
   "flagged": {
     "count": 61

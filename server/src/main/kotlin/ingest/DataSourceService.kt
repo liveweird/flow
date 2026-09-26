@@ -299,6 +299,26 @@ class DataSourceService(private val database: R2dbcDatabase, private val cipher:
         }
     }
 
+    /**
+     * The PROFILE step's own write (v0.2.0 plan §8/§12 item 9) — [profileJson] is
+     * `DataProfileSections`, canonicalized and stored verbatim.
+     */
+    suspend fun updateProfile(id: UInt, profileJson: String, now: Long = nowMillis()) {
+        suspendTransaction(database) {
+            Connections.update({ Connections.id eq id }) {
+                it[profile] = canonicalJson(profileJson)
+                it[profileAt] = now
+            }
+        }
+    }
+
+    /** `GET /api/v1/data-sources/{id}/profile`'s own read (v0.2.0 plan §9/§12 item 9) — null [profileJson] means "never computed". */
+    data class StoredProfile(val profileJson: String?, val profileAt: Long?)
+
+    suspend fun readProfile(id: UInt): StoredProfile? = suspendTransaction(database) {
+        activeConnection(id)?.let { StoredProfile(it[Connections.profile], it[Connections.profileAt]) }
+    }
+
     private suspend fun activeConnection(id: UInt): ResultRow? =
         Connections.selectAll().where { (Connections.id eq id) and Connections.active() }.toList().singleOrNull()
 

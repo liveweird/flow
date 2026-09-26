@@ -1,5 +1,7 @@
 package ch.nokillswit.norm
 
+import kotlinx.serialization.Serializable
+
 /**
  * The connector-agnostic PROCESS glue (v0.2.0 plan §8): combines [Tiling]'s pure interval math with
  * a per-issue set of already-Jira-parsed facts (`jira/JiraNormalizer.kt` is the one producer today)
@@ -78,6 +80,8 @@ data class IssueNormalizationInput(
     val worklogs: List<WorklogFact>,
 )
 
+/** Serializable: the raw issue inspector's response shape (v0.2.0 plan §9/§12 item 8b) returns these verbatim. */
+@Serializable
 data class NormalizedStatusInterval(
     val seq: Int,
     val statusId: String,
@@ -88,6 +92,7 @@ data class NormalizedStatusInterval(
     val source: IntervalSource,
 )
 
+@Serializable
 data class NormalizedFieldInterval(
     val field: TrackedField,
     val seq: Int,

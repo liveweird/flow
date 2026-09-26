@@ -10,6 +10,7 @@ import ch.nokillswit.ingest.DataSourceKind
 import ch.nokillswit.ingest.DataSourceServiceKey
 import ch.nokillswit.ingest.SyncCursorsServiceKey
 import ch.nokillswit.norm.WorkItemStore
+import ch.nokillswit.norm.WorkItemStoreKey
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.HttpTimeout
@@ -74,6 +75,7 @@ fun Application.configureJira() {
     // WorkItemStore (V13) — the normalized layer's write target (plan §0 A3/§8), the PROCESS
     // stream's/PURGE's one consumer; same composition-root shape as rawStore above.
     val workItemStore = WorkItemStore(attributes[R2dbcDatabaseKey])
+    attributes.put(WorkItemStoreKey, workItemStore)
     val connector = JiraConnector(
         newClient = { siteUrl, email, apiToken, authScheme ->
             val tenantInfoBaseUrl = stubBaseUrl ?: siteUrl

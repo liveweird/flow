@@ -986,6 +986,65 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/data-sources/{id}/raw-issues/{issueKey}:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+      - name: issueKey
+        in: path
+        required: true
+        schema:
+          type: string
+          # The union of the "all digits" (issue id) and issue-key branches `RawIssueInspectorRoutes.kt` accepts.
+          pattern: '^([0-9]+|[A-Z][A-Z0-9_]{1,9}-[0-9]{1,10})$'
+          maxLength: 20
+        description: >-
+          An all-digits string is looked up by the stable Jira issue id; anything else must match
+          `^[A-Z][A-Z0-9_]{1,9}-[0-9]{1,10}$` (e.g. `ENG-123`) or is `400`.
+    get:
+      tags: [data-sources]
+      operationId: getRawIssue
+      summary: Inspect one raw Jira issue
+      description: |
+        ADMIN only, read-only (v0.2.0 plan §9/§12 item 8b). The stored raw payload, its changelog
+        histories and worklogs (oldest first), and — once it has been through PROCESS at least
+        once — its `norm.*` shape (`workItem`, `statusIntervals`, `fieldIntervals`, `anomalies`). A
+        tombstoned issue (`deletedAt`/`movedOutAt` set) is still returned, never `404`.
+      responses:
+        '200':
+          description: The raw issue inspection
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RawIssueInspection'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/data-sources/{id}/profile:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    get:
+      tags: [data-sources]
+      operationId: getDataSourceProfile
+      summary: Get a data source's data profile
+      description: |
+        ADMIN only, read-only (v0.2.0 plan §8/§9/§12 item 9). SQL aggregates over this
+        connection's `raw.*`/`norm.*` rows, computed by the PROFILE step after every successful
+        SYNC/REPROCESS. `computedAt` is `null` before the connection's first PROCESS pass — every
+        section then carries its own empty default rather than the endpoint `404`ing.
+      responses:
+        '200':
+          description: The data profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataProfile'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
 
 components:
   securitySchemes:
@@ -1641,6 +1700,240 @@ components:
         currentJob:
           allOf: [{ $ref: '#/components/schemas/SyncJobResponse' }]
           nullable: true
+
+    NormalizedStatusInterval:
+      type: object
+      required: [seq, statusId, statusName, category, fromAtMs, source]
+      properties:
+        seq: { type: integer, format: int32, minimum: 1 }
+        statusId: { type: string }
+        statusName: { type: string }
+        category: { $ref: '#/components/schemas/StatusCategory' }
+        fromAtMs: { type: integer, format: int64, description: Epoch millis }
+        toAtMs: { type: integer, format: int64, nullable: true, description: "Epoch millis; null means the open (current) interval." }
+        source:
+          type: string
+          enum: [CREATED, CHANGE]
+    NormalizedFieldInterval:
+      type: object
+      required: [field, seq, fromAtMs]
+      properties:
+        field:
+          type: string
+          enum: [ASSIGNEE, SPRINT, FLAGGED]
+        seq: { type: integer, format: int32, minimum: 1 }
+        valueId: { type: string, nullable: true }
+        valueText: { type: string, nullable: true }
+        fromAtMs: { type: integer, format: int64, description: Epoch millis }
+        toAtMs: { type: integer, format: int64, nullable: true }
+    StatusCategory:
+      type: string
+      enum: [TODO, IN_PROGRESS, DONE, UNKNOWN]
+    RawIssueWorkItem:
+      type: object
+      required: [issueKey, projectKey, issueType, statusId, statusName, statusCategory, processedAt, processingVersion]
+      properties:
+        issueKey: { type: string }
+        projectKey: { type: string }
+        issueType: { type: string }
+        statusId: { type: string }
+        statusName: { type: string }
+        statusCategory: { $ref: '#/components/schemas/StatusCategory' }
+        assigneeAccountId: { type: string, nullable: true }
+        processedAt: { type: integer, format: int64, description: Epoch millis }
+        processingVersion: { type: integer, format: int32 }
+        deletedAt: { type: integer, format: int64, nullable: true }
+        movedOutAt: { type: integer, format: int64, nullable: true }
+    RawIssueInspection:
+      type: object
+      required: [issueId, issueKey, fetchedAt, changedAt, sha256, needsProcessing, payload]
+      properties:
+        issueId: { type: integer, format: int64 }
+        issueKey: { type: string }
+        fetchedAt: { type: integer, format: int64, description: Epoch millis }
+        changedAt: { type: integer, format: int64, description: Epoch millis }
+        sha256: { type: string }
+        deletedAt: { type: integer, format: int64, nullable: true }
+        movedOutAt: { type: integer, format: int64, nullable: true }
+        needsProcessing: { type: boolean }
+        payload:
+          type: object
+          additionalProperties: true
+          description: The `search/jql` issue document exactly as Jira returned it (canonicalized).
+        changelogs:
+          type: array
+          items: { type: object, additionalProperties: true }
+          description: Every stored changelog history for this issue, oldest first.
+        worklogs:
+          type: array
+          items: { type: object, additionalProperties: true }
+          description: This issue's non-tombstoned worklogs, exactly as Jira returned them.
+        workItem:
+          allOf: [{ $ref: '#/components/schemas/RawIssueWorkItem' }]
+          nullable: true
+          description: Null until this issue has been through PROCESS at least once.
+        statusIntervals:
+          type: array
+          items: { $ref: '#/components/schemas/NormalizedStatusInterval' }
+        fieldIntervals:
+          type: array
+          items: { $ref: '#/components/schemas/NormalizedFieldInterval' }
+        anomalies:
+          type: array
+          items: { type: string, enum: [STATUS_CHANGE_BEFORE_CREATED, STATUS_CHAIN_BROKEN, STATUS_MISMATCH_WITH_CURRENT] }
+
+    DataProfileRange:
+      type: object
+      required: [earliestCreatedAt, latestUpdatedAt]
+      properties:
+        earliestCreatedAt: { type: integer, format: int64, description: Epoch millis }
+        latestUpdatedAt: { type: integer, format: int64, description: Epoch millis }
+    ProjectProfile:
+      type: object
+      required: [projectKey, issueCounts]
+      properties:
+        projectKey: { type: string }
+        issueCounts:
+          type: object
+          additionalProperties: { type: integer, format: int64, minimum: 0 }
+          description: Keyed by issue type name.
+    WorkflowStatusProfile:
+      type: object
+      required: [statusId, name, category, transitionCount]
+      properties:
+        statusId: { type: string }
+        name: { type: string }
+        category: { $ref: '#/components/schemas/StatusCategory' }
+        transitionCount:
+          type: integer
+          format: int64
+          minimum: 0
+          description: How many status-interval transitions INTO this status this project×type's own issues recorded.
+    WorkflowProfile:
+      type: object
+      required: [projectKey, issueType, observedStatuses, referenceStatusNames]
+      properties:
+        projectKey: { type: string }
+        issueType: { type: string }
+        observedStatuses:
+          type: array
+          items: { $ref: '#/components/schemas/WorkflowStatusProfile' }
+        referenceStatusNames:
+          type: array
+          items: { type: string }
+          description: This project's own workflow for this issue type, from Jira's `project/{key}/statuses`.
+    BoardColumnProfile:
+      type: object
+      required: [name, statusNames]
+      properties:
+        name: { type: string }
+        statusNames:
+          type: array
+          items: { type: string }
+    BoardProfile:
+      type: object
+      required: [boardId, name, boardType, columns, unmappedStatusNames]
+      properties:
+        boardId: { type: integer, format: int64 }
+        name: { type: string }
+        boardType: { type: string }
+        projectKey: { type: string, nullable: true }
+        columns:
+          type: array
+          items: { $ref: '#/components/schemas/BoardColumnProfile' }
+        unmappedStatusNames:
+          type: array
+          items: { type: string }
+          description: Statuses observed on this board's project that map to no column.
+    CustomFieldProfile:
+      type: object
+      required: [id, name, type, nonNullCount, fillPercent, role]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        type: { type: string, description: Jira's own `schema.type` for this field. }
+        nonNullCount: { type: integer, format: int64, minimum: 0 }
+        fillPercent: { type: number, format: double, minimum: 0, maximum: 100 }
+        role:
+          type: string
+          enum: [SPRINT, RANK, TEAM, STORY_POINTS, FLAGGED, OTHER]
+    EstimatesProfile:
+      type: object
+      required: [totalIssues, storyPointsCount, storyPointsPercent, originalEstimateCount, originalEstimatePercent]
+      properties:
+        totalIssues: { type: integer, format: int64, minimum: 0 }
+        storyPointsCount: { type: integer, format: int64, minimum: 0 }
+        storyPointsPercent: { type: number, format: double, minimum: 0, maximum: 100 }
+        originalEstimateCount: { type: integer, format: int64, minimum: 0 }
+        originalEstimatePercent: { type: number, format: double, minimum: 0, maximum: 100 }
+    WorklogsProfile:
+      type: object
+      required: [count, totalHours, itemsWithWorklog, itemsWithWorklogPercent, authorCount]
+      properties:
+        count: { type: integer, format: int64, minimum: 0 }
+        totalHours: { type: number, format: double, minimum: 0 }
+        itemsWithWorklog: { type: integer, format: int64, minimum: 0 }
+        itemsWithWorklogPercent: { type: number, format: double, minimum: 0, maximum: 100 }
+        authorCount: { type: integer, format: int64, minimum: 0 }
+    ReopensProfile:
+      type: object
+      required: [count, totalIssues, percent]
+      properties:
+        count: { type: integer, format: int64, minimum: 0 }
+        totalIssues: { type: integer, format: int64, minimum: 0 }
+        percent: { type: number, format: double, minimum: 0, maximum: 100 }
+    SprintsProfile:
+      type: object
+      required: [count, stateCounts, itemsWithSprint, itemsWithSprintPercent, carryOverCount, carryOverPercent]
+      properties:
+        count: { type: integer, format: int64, minimum: 0 }
+        stateCounts:
+          type: object
+          additionalProperties: { type: integer, format: int64, minimum: 0 }
+        itemsWithSprint: { type: integer, format: int64, minimum: 0 }
+        itemsWithSprintPercent: { type: number, format: double, minimum: 0, maximum: 100 }
+        carryOverCount: { type: integer, format: int64, minimum: 0 }
+        carryOverPercent: { type: number, format: double, minimum: 0, maximum: 100 }
+    PeopleProfile:
+      type: object
+      required: [activeAssignees, unassignedPercent]
+      properties:
+        activeAssignees: { type: integer, format: int64, minimum: 0 }
+        unassignedPercent: { type: number, format: double, minimum: 0, maximum: 100 }
+    DataProfile:
+      type: object
+      required: [estimates, worklogs, reopens, sprints, people]
+      properties:
+        computedAt: { type: integer, format: int64, nullable: true, description: "Epoch millis; null before the first PROCESS pass." }
+        range:
+          allOf: [{ $ref: '#/components/schemas/DataProfileRange' }]
+          nullable: true
+        projects:
+          type: array
+          items: { $ref: '#/components/schemas/ProjectProfile' }
+        workflows:
+          type: array
+          items: { $ref: '#/components/schemas/WorkflowProfile' }
+        boards:
+          type: array
+          items: { $ref: '#/components/schemas/BoardProfile' }
+        customFields:
+          type: array
+          items: { $ref: '#/components/schemas/CustomFieldProfile' }
+        estimates:
+          $ref: '#/components/schemas/EstimatesProfile'
+        worklogs:
+          $ref: '#/components/schemas/WorklogsProfile'
+        reopens:
+          $ref: '#/components/schemas/ReopensProfile'
+        sprints:
+          $ref: '#/components/schemas/SprintsProfile'
+        people:
+          $ref: '#/components/schemas/PeopleProfile'
+        anomalyCounts:
+          type: object
+          additionalProperties: { type: integer, format: int64, minimum: 0 }
+          description: Keyed by anomaly code (`STATUS_CHANGE_BEFORE_CREATED`/`STATUS_CHAIN_BROKEN`/`STATUS_MISMATCH_WITH_CURRENT`).
 
     ProblemDetail:
       type: object

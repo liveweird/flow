@@ -658,6 +658,58 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/data-sources/{id}/raw-issues/{issueKey}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description An all-digits string is looked up by the stable Jira issue id; anything else must match `^[A-Z][A-Z0-9_]{1,9}-[0-9]{1,10}$` (e.g. `ENG-123`) or is `400`. */
+                issueKey: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * Inspect one raw Jira issue
+         * @description ADMIN only, read-only (v0.2.0 plan §9/§12 item 8b). The stored raw payload, its changelog
+         *     histories and worklogs (oldest first), and — once it has been through PROCESS at least
+         *     once — its `norm.*` shape (`workItem`, `statusIntervals`, `fieldIntervals`, `anomalies`). A
+         *     tombstoned issue (`deletedAt`/`movedOutAt` set) is still returned, never `404`.
+         */
+        get: operations["getRawIssue"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/data-sources/{id}/profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Get a data source's data profile
+         * @description ADMIN only, read-only (v0.2.0 plan §8/§9/§12 item 9). SQL aggregates over this
+         *     connection's `raw.*`/`norm.*` rows, computed by the PROFILE step after every successful
+         *     SYNC/REPROCESS. `computedAt` is `null` before the connection's first PROCESS pass — every
+         *     section then carries its own empty default rather than the endpoint `404`ing.
+         */
+        get: operations["getDataSourceProfile"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1078,6 +1130,236 @@ export interface components {
                 [key: string]: components["schemas"]["SyncJobResponse"];
             };
             currentJob?: components["schemas"]["SyncJobResponse"] | null;
+        };
+        NormalizedStatusInterval: {
+            /** Format: int32 */
+            seq: number;
+            statusId: string;
+            statusName: string;
+            category: components["schemas"]["StatusCategory"];
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            fromAtMs: number;
+            /**
+             * Format: int64
+             * @description Epoch millis; null means the open (current) interval.
+             */
+            toAtMs?: number | null;
+            /** @enum {string} */
+            source: "CREATED" | "CHANGE";
+        };
+        NormalizedFieldInterval: {
+            /** @enum {string} */
+            field: "ASSIGNEE" | "SPRINT" | "FLAGGED";
+            /** Format: int32 */
+            seq: number;
+            valueId?: string | null;
+            valueText?: string | null;
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            fromAtMs: number;
+            /** Format: int64 */
+            toAtMs?: number | null;
+        };
+        /** @enum {string} */
+        StatusCategory: "TODO" | "IN_PROGRESS" | "DONE" | "UNKNOWN";
+        RawIssueWorkItem: {
+            issueKey: string;
+            projectKey: string;
+            issueType: string;
+            statusId: string;
+            statusName: string;
+            statusCategory: components["schemas"]["StatusCategory"];
+            assigneeAccountId?: string | null;
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            processedAt: number;
+            /** Format: int32 */
+            processingVersion: number;
+            /** Format: int64 */
+            deletedAt?: number | null;
+            /** Format: int64 */
+            movedOutAt?: number | null;
+        };
+        RawIssueInspection: {
+            /** Format: int64 */
+            issueId: number;
+            issueKey: string;
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            fetchedAt: number;
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            changedAt: number;
+            sha256: string;
+            /** Format: int64 */
+            deletedAt?: number | null;
+            /** Format: int64 */
+            movedOutAt?: number | null;
+            needsProcessing: boolean;
+            /** @description The `search/jql` issue document exactly as Jira returned it (canonicalized). */
+            payload: {
+                [key: string]: unknown;
+            };
+            /** @description Every stored changelog history for this issue, oldest first. */
+            changelogs?: {
+                [key: string]: unknown;
+            }[];
+            /** @description This issue's non-tombstoned worklogs, exactly as Jira returned them. */
+            worklogs?: {
+                [key: string]: unknown;
+            }[];
+            /** @description Null until this issue has been through PROCESS at least once. */
+            workItem?: components["schemas"]["RawIssueWorkItem"] | null;
+            statusIntervals?: components["schemas"]["NormalizedStatusInterval"][];
+            fieldIntervals?: components["schemas"]["NormalizedFieldInterval"][];
+            anomalies?: ("STATUS_CHANGE_BEFORE_CREATED" | "STATUS_CHAIN_BROKEN" | "STATUS_MISMATCH_WITH_CURRENT")[];
+        };
+        DataProfileRange: {
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            earliestCreatedAt: number;
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            latestUpdatedAt: number;
+        };
+        ProjectProfile: {
+            projectKey: string;
+            /** @description Keyed by issue type name. */
+            issueCounts: {
+                [key: string]: number;
+            };
+        };
+        WorkflowStatusProfile: {
+            statusId: string;
+            name: string;
+            category: components["schemas"]["StatusCategory"];
+            /**
+             * Format: int64
+             * @description How many status-interval transitions INTO this status this project×type's own issues recorded.
+             */
+            transitionCount: number;
+        };
+        WorkflowProfile: {
+            projectKey: string;
+            issueType: string;
+            observedStatuses: components["schemas"]["WorkflowStatusProfile"][];
+            /** @description This project's own workflow for this issue type, from Jira's `project/{key}/statuses`. */
+            referenceStatusNames: string[];
+        };
+        BoardColumnProfile: {
+            name: string;
+            statusNames: string[];
+        };
+        BoardProfile: {
+            /** Format: int64 */
+            boardId: number;
+            name: string;
+            boardType: string;
+            projectKey?: string | null;
+            columns: components["schemas"]["BoardColumnProfile"][];
+            /** @description Statuses observed on this board's project that map to no column. */
+            unmappedStatusNames: string[];
+        };
+        CustomFieldProfile: {
+            id: string;
+            name: string;
+            /** @description Jira's own `schema.type` for this field. */
+            type: string;
+            /** Format: int64 */
+            nonNullCount: number;
+            /** Format: double */
+            fillPercent: number;
+            /** @enum {string} */
+            role: "SPRINT" | "RANK" | "TEAM" | "STORY_POINTS" | "FLAGGED" | "OTHER";
+        };
+        EstimatesProfile: {
+            /** Format: int64 */
+            totalIssues: number;
+            /** Format: int64 */
+            storyPointsCount: number;
+            /** Format: double */
+            storyPointsPercent: number;
+            /** Format: int64 */
+            originalEstimateCount: number;
+            /** Format: double */
+            originalEstimatePercent: number;
+        };
+        WorklogsProfile: {
+            /** Format: int64 */
+            count: number;
+            /** Format: double */
+            totalHours: number;
+            /** Format: int64 */
+            itemsWithWorklog: number;
+            /** Format: double */
+            itemsWithWorklogPercent: number;
+            /** Format: int64 */
+            authorCount: number;
+        };
+        ReopensProfile: {
+            /** Format: int64 */
+            count: number;
+            /** Format: int64 */
+            totalIssues: number;
+            /** Format: double */
+            percent: number;
+        };
+        SprintsProfile: {
+            /** Format: int64 */
+            count: number;
+            stateCounts: {
+                [key: string]: number;
+            };
+            /** Format: int64 */
+            itemsWithSprint: number;
+            /** Format: double */
+            itemsWithSprintPercent: number;
+            /** Format: int64 */
+            carryOverCount: number;
+            /** Format: double */
+            carryOverPercent: number;
+        };
+        PeopleProfile: {
+            /** Format: int64 */
+            activeAssignees: number;
+            /** Format: double */
+            unassignedPercent: number;
+        };
+        DataProfile: {
+            /**
+             * Format: int64
+             * @description Epoch millis; null before the first PROCESS pass.
+             */
+            computedAt?: number | null;
+            range?: components["schemas"]["DataProfileRange"] | null;
+            projects?: components["schemas"]["ProjectProfile"][];
+            workflows?: components["schemas"]["WorkflowProfile"][];
+            boards?: components["schemas"]["BoardProfile"][];
+            customFields?: components["schemas"]["CustomFieldProfile"][];
+            estimates: components["schemas"]["EstimatesProfile"];
+            worklogs: components["schemas"]["WorklogsProfile"];
+            reopens: components["schemas"]["ReopensProfile"];
+            sprints: components["schemas"]["SprintsProfile"];
+            people: components["schemas"]["PeopleProfile"];
+            /** @description Keyed by anomaly code (`STATUS_CHANGE_BEFORE_CREATED`/`STATUS_CHAIN_BROKEN`/`STATUS_MISMATCH_WITH_CURRENT`). */
+            anomalyCounts?: {
+                [key: string]: number;
+            };
         };
         /** @description RFC 7807 problem detail. Served as `application/problem+json`; instance is the request path without query parameters. */
         ProblemDetail: {
@@ -2267,6 +2549,62 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SyncStatusResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getRawIssue: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description An all-digits string is looked up by the stable Jira issue id; anything else must match `^[A-Z][A-Z0-9_]{1,9}-[0-9]{1,10}$` (e.g. `ENG-123`) or is `400`. */
+                issueKey: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The raw issue inspection */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RawIssueInspection"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getDataSourceProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The data profile */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DataProfile"];
                 };
             };
             400: components["responses"]["BadRequest"];

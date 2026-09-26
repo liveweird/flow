@@ -1,5 +1,7 @@
 package ch.nokillswit.norm
 
+import kotlinx.serialization.Serializable
+
 /**
  * The normalized layer's tiling algorithm (v0.2.0 plan §8) — PURE, no DB, no Jira-specific shapes:
  * every input is already resolved to plain ids/strings by the caller (`jira/JiraNormalizer.kt`),
@@ -15,14 +17,18 @@ package ch.nokillswit.norm
  * by construction. Zero-length intervals are allowed (two events at the same millisecond, or an
  * event exactly at `createdAtMs`).
  */
+@Serializable
 enum class StatusCategory { TODO, IN_PROGRESS, DONE, UNKNOWN }
 
+@Serializable
 enum class IntervalSource { CREATED, CHANGE }
 
 /** The three anomaly codes plan §8 names — flagged on `norm.work_items.anomalies`, never used to alter a stored fact. */
+@Serializable
 enum class TilingAnomaly { STATUS_CHANGE_BEFORE_CREATED, STATUS_CHAIN_BROKEN, STATUS_MISMATCH_WITH_CURRENT }
 
 /** The four field kinds `norm.work_item_field_intervals`/`_field_changes` track by their own interval table (plan §4). */
+@Serializable
 enum class TrackedField { ASSIGNEE, SPRINT, FLAGGED }
 
 /** One status-changelog transition, ids only — [atMs] need not be sorted or monotonic; [statusIntervals] clamps defensively. */

@@ -89,9 +89,11 @@ class JiraConnector(
         } ?: emptyList()
 
     /**
-     * The sync-job stream runner (v0.2.0 plan §7/§8/§12 item 7-8): SYNC runs REFERENCE → ISSUES →
-     * CHANGELOGS → WORKLOGS → PROCESS; RECONCILE runs its own stream then PROCESS; REPROCESS flags
-     * every raw issue for the connection, then runs PROCESS alone. PURGE drains [purgeSteps].
+     * The sync-job stream runner (v0.2.0 plan §7/§8/§12 item 7-9): SYNC runs REFERENCE → ISSUES →
+     * CHANGELOGS → WORKLOGS → PROCESS → PROFILE; RECONCILE runs its own stream then PROCESS (never
+     * PROFILE — a daily drift check is not itself a reason to recompute the whole data profile);
+     * REPROCESS flags every raw issue for the connection, then runs PROCESS → PROFILE. PURGE drains
+     * [purgeSteps].
      */
     override suspend fun run(context: SyncJobRunContext) {
         when (context.claim.kind) {
@@ -121,6 +123,7 @@ class JiraConnector(
             JiraChangelogStream(client, deps.rawStore, deps.changelogBulkSize),
             JiraWorklogStream(client, deps.rawStore),
             JiraProcessStream(deps.rawStore, deps.workItems),
+            JiraProfileStream(deps.rawStore, deps.workItems, deps.dataSources),
         )
         streams.forEach { stream ->
             streamContext.currentStreamName = stream.name
@@ -152,17 +155,23 @@ class JiraConnector(
     }
 
     /**
-     * REPROCESS (v0.2.0 plan §7/§8/§12 item 8): flags EVERY raw issue for the connection, then runs
-     * `process` alone — a version bump or a manually requested full rebuild, never touching Jira.
+     * REPROCESS (v0.2.0 plan §7/§8/§12 item 8-9): flags EVERY raw issue for the connection, then
+     * runs `process` → `profile` — a version bump or a manually requested full rebuild, never
+     * touching Jira.
      */
     private suspend fun runReprocess(context: SyncJobRunContext) {
         val deps = checkNotNull(sync) { "JiraConnector.run(REPROCESS) requires JiraSyncDependencies (jira/Jira.kt's configureJira)" }
         val claim = context.claim
         deps.rawStore.markAllNeedsProcessing(claim.connectionId)
         val streamContext = StreamContext(claim.connectionId, claim.id, deps.database, deps.cursors, context.heartbeat, now)
-        val stream = JiraProcessStream(deps.rawStore, deps.workItems)
-        streamContext.currentStreamName = stream.name
-        stream.run(streamContext)
+        val streams: List<Stream> = listOf(
+            JiraProcessStream(deps.rawStore, deps.workItems),
+            JiraProfileStream(deps.rawStore, deps.workItems, deps.dataSources),
+        )
+        streams.forEach { stream ->
+            streamContext.currentStreamName = stream.name
+            stream.run(streamContext)
+        }
     }
 
     override suspend fun testConnection(

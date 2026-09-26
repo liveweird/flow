@@ -47,6 +47,8 @@ ktor:
       - ch.nokillswit.ingest.DataSourceRoutesKt.configureDataSourceRoutes
       - ch.nokillswit.ingest.SyncJobRoutesKt.configureSyncJobRoutes
       - ch.nokillswit.ingest.SyncStatusRoutesKt.configureSyncStatusRoutes
+      - ch.nokillswit.ingest.RawIssueInspectorRoutesKt.configureRawIssueInspectorRoutes
+      - ch.nokillswit.ingest.DataProfileRoutesKt.configureDataProfileRoutes
       # — catch-all router
       - ch.nokillswit.plugins.RoutingKt.configureRouting
 

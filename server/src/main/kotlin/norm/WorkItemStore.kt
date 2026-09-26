@@ -2,10 +2,14 @@ package ch.nokillswit.norm
 
 import ch.nokillswit.infra.db.jsonb
 import ch.nokillswit.ingest.DataSourceService
+import io.ktor.util.AttributeKey
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.toList
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonPrimitive
 import org.jetbrains.exposed.v1.core.*
 import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
 import org.jetbrains.exposed.v1.r2dbc.batchInsert
@@ -19,10 +23,20 @@ import org.jetbrains.exposed.v1.r2dbc.update
 /** Batch size for the PURGE step's cleanup over the bigger `norm.*` tables — mirrors `jira/JiraRawStore.kt`'s `JIRA_PURGE_BATCH_SIZE`. */
 internal const val NORM_PURGE_BATCH_SIZE = 500
 
+/** Published by `jira/Jira.kt`'s `configureJira` — the raw issue inspector and the data profile step both read it back. */
+val WorkItemStoreKey = AttributeKey<WorkItemStore>("WorkItemStore")
+
 private fun stringArrayJson(values: List<String>): String = buildJsonArray { values.forEach { add(JsonPrimitive(it)) } }.toString()
 private fun longArrayJson(values: List<Long>): String = buildJsonArray { values.forEach { add(JsonPrimitive(it)) } }.toString()
 private fun anomaliesJson(values: List<TilingAnomaly>): String =
     buildJsonArray { values.forEach { add(JsonPrimitive(it.name)) } }.toString()
+
+/** The inverse of [anomaliesJson] — the raw issue inspector's/data profile's own read path. */
+private fun parseAnomalies(json: String): List<TilingAnomaly> =
+    Json.parseToJsonElement(json).jsonArray.map { TilingAnomaly.valueOf(it.jsonPrimitive.content) }
+
+/** The inverse of [stringArrayJson]. */
+private fun parseStringArray(json: String): List<String> = Json.parseToJsonElement(json).jsonArray.map { it.jsonPrimitive.content }
 
 /** A rebuilt reference row (plan §8: "reference rows ... rebuilt per connection each PROCESS") — one per `norm.statuses` row. */
 data class StatusRef(val statusId: String, val name: String, val category: StatusCategory)
@@ -385,6 +399,102 @@ class WorkItemStore(private val database: R2dbcDatabase) {
         Worklogs.selectAll().where { Worklogs.connectionId eq connectionId }.count()
     }
 
+    /** One issue's PROFILE-relevant `norm.work_items` columns (v0.2.0 plan §8/§12 item 9) — `jira/JiraProfile.kt`'s bulk read. */
+    data class ProfileWorkItemRow(
+        val issueId: Long,
+        val projectKey: String,
+        val issueType: String,
+        val assigneeAccountId: String?,
+        val storyPoints: Double?,
+        val originalEstimateSeconds: Long?,
+        val createdAt: Long,
+        val updatedAt: Long,
+        val anomalies: List<TilingAnomaly>,
+    )
+
+    /**
+     * Every LIVE (non-tombstoned) work item for a connection (v0.2.0 plan §8/§12 item 9) — the data
+     * profile's own base row set; every section is derived from this plus the interval/reference
+     * reads below, never a second raw-store pass.
+     */
+    suspend fun profileWorkItems(connectionId: UInt): List<ProfileWorkItemRow> = suspendTransaction(database) {
+        WorkItems.selectAll().where {
+            (WorkItems.connectionId eq connectionId) and WorkItems.deletedAt.isNull() and WorkItems.movedOutAt.isNull()
+        }.toList().map { row ->
+            ProfileWorkItemRow(
+                issueId = row[WorkItems.issueId],
+                projectKey = row[WorkItems.projectKey],
+                issueType = row[WorkItems.issueType],
+                assigneeAccountId = row[WorkItems.assigneeAccountId],
+                storyPoints = row[WorkItems.storyPoints],
+                originalEstimateSeconds = row[WorkItems.originalEstimateSeconds],
+                createdAt = row[WorkItems.createdAt],
+                updatedAt = row[WorkItems.updatedAt],
+                anomalies = parseAnomalies(row[WorkItems.anomalies]),
+            )
+        }
+    }
+
+    data class WorklogRow(val issueId: Long, val authorAccountId: String?, val timeSpentSeconds: Long)
+
+    /** Every `norm.work_item_worklogs` row for a connection — the caller (`jira/JiraProfile.kt`) filters to live issue ids itself. */
+    suspend fun worklogRows(connectionId: UInt): List<WorklogRow> = suspendTransaction(database) {
+        Worklogs.selectAll().where { Worklogs.connectionId eq connectionId }
+            .map { WorklogRow(it[Worklogs.issueId], it[Worklogs.authorAccountId], it[Worklogs.timeSpentSeconds]) }.toList()
+    }
+
+    /**
+     * Every `norm.work_item_field_intervals` row of [field] for a connection, as `(issueId,
+     * valueId)` pairs — the sprint profile's own read.
+     */
+    suspend fun fieldIntervalValues(connectionId: UInt, field: TrackedField): List<Pair<Long, String?>> = suspendTransaction(database) {
+        FieldIntervals.select(FieldIntervals.issueId, FieldIntervals.valueId)
+            .where { (FieldIntervals.connectionId eq connectionId) and (FieldIntervals.field eq field.name) }
+            .map { it[FieldIntervals.issueId] to it[FieldIntervals.valueId] }.toList()
+    }
+
+    /**
+     * Every `norm.sprints` reference row for a connection (v0.2.0 plan §8/§12 item 9) — rebuilt
+     * wholesale per PROCESS run, read back as-is.
+     */
+    suspend fun allSprintRefs(connectionId: UInt): List<SprintRef> = suspendTransaction(database) {
+        Sprints.selectAll().where { Sprints.connectionId eq connectionId }.toList().map { row ->
+            SprintRef(
+                sprintId = row[Sprints.sprintId],
+                boardId = row[Sprints.boardId],
+                name = row[Sprints.name],
+                state = row[Sprints.state],
+                startAtMs = row[Sprints.startAt],
+                endAtMs = row[Sprints.endAt],
+                goal = row[Sprints.goal],
+            )
+        }
+    }
+
+    /** Every `norm.boards`/`norm.board_columns` reference row for a connection, joined back into [BoardRef] shape. */
+    suspend fun allBoardRefs(connectionId: UInt): List<BoardRef> = suspendTransaction(database) {
+        val columnsByBoard = BoardColumns.selectAll().where { BoardColumns.connectionId eq connectionId }
+            .toList().sortedBy { it[BoardColumns.seq] }
+            .groupBy({ it[BoardColumns.boardId] }) { BoardColumnRef(it[BoardColumns.name], parseStringArray(it[BoardColumns.statusIds])) }
+        Boards.selectAll().where { Boards.connectionId eq connectionId }.toList().map { row ->
+            val boardId = row[Boards.boardId]
+            BoardRef(
+                boardId = boardId,
+                name = row[Boards.name],
+                boardType = row[Boards.boardType],
+                projectKey = row[Boards.projectKey],
+                columns = columnsByBoard[boardId] ?: emptyList(),
+            )
+        }
+    }
+
+    /** Every `norm.statuses` reference row for a connection — the data profile's status-id-to-name lookup for board columns. */
+    suspend fun allStatusRefs(connectionId: UInt): List<StatusRef> = suspendTransaction(database) {
+        Statuses.selectAll().where { Statuses.connectionId eq connectionId }.toList().map { row ->
+            StatusRef(row[Statuses.statusId], row[Statuses.name], StatusCategory.valueOf(row[Statuses.category]))
+        }
+    }
+
     /** Every work item's tiled status intervals, ordered — the pipeline test's SQL-invariant-sweep/reopen-count source. */
     suspend fun statusIntervalsByIssue(connectionId: UInt): Map<Long, List<NormalizedStatusInterval>> = suspendTransaction(database) {
         StatusIntervals.selectAll().where { StatusIntervals.connectionId eq connectionId }
@@ -405,6 +515,78 @@ class WorkItemStore(private val database: R2dbcDatabase) {
 
     suspend fun workItemRow(connectionId: UInt, issueId: Long): org.jetbrains.exposed.v1.core.ResultRow? = suspendTransaction(database) {
         WorkItems.selectAll().where { (WorkItems.connectionId eq connectionId) and (WorkItems.issueId eq issueId) }.toList().singleOrNull()
+    }
+
+    /**
+     * One issue's `norm.work_items` row, as a DTO (v0.2.0 plan §9/§12 item 8b) — the raw issue
+     * inspector's read shape ("route handlers never touch tables", `.claude/docs/persistence.md`).
+     */
+    data class WorkItemView(
+        val issueKey: String,
+        val projectKey: String,
+        val issueType: String,
+        val statusId: String,
+        val statusName: String,
+        val statusCategory: StatusCategory,
+        val assigneeAccountId: String?,
+        val anomalies: List<TilingAnomaly>,
+        val processedAt: Long,
+        val processingVersion: Int,
+        val deletedAt: Long?,
+        val movedOutAt: Long?,
+    )
+
+    suspend fun workItemView(connectionId: UInt, issueId: Long): WorkItemView? = suspendTransaction(database) {
+        WorkItems.selectAll().where { (WorkItems.connectionId eq connectionId) and (WorkItems.issueId eq issueId) }
+            .toList().singleOrNull()?.let { row ->
+                WorkItemView(
+                    issueKey = row[WorkItems.issueKey],
+                    projectKey = row[WorkItems.projectKey],
+                    issueType = row[WorkItems.issueType],
+                    statusId = row[WorkItems.statusId],
+                    statusName = row[WorkItems.statusName],
+                    statusCategory = StatusCategory.valueOf(row[WorkItems.statusCategory]),
+                    assigneeAccountId = row[WorkItems.assigneeAccountId],
+                    anomalies = parseAnomalies(row[WorkItems.anomalies]),
+                    processedAt = row[WorkItems.processedAt],
+                    processingVersion = row[WorkItems.processingVersion],
+                    deletedAt = row[WorkItems.deletedAt],
+                    movedOutAt = row[WorkItems.movedOutAt],
+                )
+            }
+    }
+
+    /** One issue's tiled status intervals, ordered by `seq` (v0.2.0 plan §9/§12 item 8b — the raw issue inspector). */
+    suspend fun statusIntervalsForIssue(connectionId: UInt, issueId: Long): List<NormalizedStatusInterval> = suspendTransaction(database) {
+        StatusIntervals.selectAll().where { (StatusIntervals.connectionId eq connectionId) and (StatusIntervals.issueId eq issueId) }
+            .toList().sortedBy { it[StatusIntervals.seq] }
+            .map {
+                NormalizedStatusInterval(
+                    seq = it[StatusIntervals.seq],
+                    statusId = it[StatusIntervals.statusId],
+                    statusName = it[StatusIntervals.statusName],
+                    category = StatusCategory.valueOf(it[StatusIntervals.statusCategory]),
+                    fromAtMs = it[StatusIntervals.fromAt],
+                    toAtMs = it[StatusIntervals.toAt],
+                    source = IntervalSource.valueOf(it[StatusIntervals.intervalSource]),
+                )
+            }
+    }
+
+    /** One issue's tiled field intervals (ASSIGNEE/SPRINT/FLAGGED), ordered — the raw issue inspector (v0.2.0 plan §9/§12 item 8b). */
+    suspend fun fieldIntervalsForIssue(connectionId: UInt, issueId: Long): List<NormalizedFieldInterval> = suspendTransaction(database) {
+        FieldIntervals.selectAll().where { (FieldIntervals.connectionId eq connectionId) and (FieldIntervals.issueId eq issueId) }
+            .toList().sortedWith(compareBy({ it[FieldIntervals.field] }, { it[FieldIntervals.seq] }))
+            .map {
+                NormalizedFieldInterval(
+                    field = TrackedField.valueOf(it[FieldIntervals.field]),
+                    seq = it[FieldIntervals.seq],
+                    valueId = it[FieldIntervals.valueId],
+                    valueText = it[FieldIntervals.valueText],
+                    fromAtMs = it[FieldIntervals.fromAt],
+                    toAtMs = it[FieldIntervals.toAt],
+                )
+            }
     }
 
     /** One batch of a connection's `norm.work_items` rows (the PURGE step, plan §0 A2). */

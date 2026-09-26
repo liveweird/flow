@@ -544,6 +544,66 @@ class JiraRawStore(private val database: R2dbcDatabase) {
             .map { it[Entities.payload] }.toList()
     }
 
+    /** One raw issue's full detail (v0.2.0 plan §9/§12 item 8b) — the raw issue inspector's own read shape. */
+    data class RawIssueDetail(
+        val issueId: Long,
+        val issueKey: String,
+        val payloadJson: String,
+        val sha256: String,
+        val fetchedAt: Long,
+        val changedAt: Long,
+        val deletedAt: Long?,
+        val movedOutAt: Long?,
+        val needsProcessing: Boolean,
+    )
+
+    private fun ResultRow.toRawIssueDetail() = RawIssueDetail(
+        issueId = this[Issues.issueId],
+        issueKey = this[Issues.issueKey],
+        payloadJson = this[Issues.payload],
+        sha256 = this[Issues.sha256],
+        fetchedAt = this[Issues.fetchedAt],
+        changedAt = this[Issues.changedAt],
+        deletedAt = this[Issues.deletedAt],
+        movedOutAt = this[Issues.movedOutAt],
+        needsProcessing = this[Issues.needsProcessing],
+    )
+
+    /** The raw issue inspector's "all digits" branch (v0.2.0 plan §9/§12 item 8b) — looked up by the stable Jira id. */
+    suspend fun issueById(connectionId: UInt, issueId: Long): RawIssueDetail? = suspendTransaction(database) {
+        Issues.selectAll().where { (Issues.connectionId eq connectionId) and (Issues.issueId eq issueId) }
+            .toList().singleOrNull()?.toRawIssueDetail()
+    }
+
+    /** The raw issue inspector's key branch (v0.2.0 plan §9/§12 item 8b) — looked up by the CURRENT `issue_key` (a move rewrites it). */
+    suspend fun issueByKey(connectionId: UInt, issueKey: String): RawIssueDetail? = suspendTransaction(database) {
+        Issues.selectAll().where { (Issues.connectionId eq connectionId) and (Issues.issueKey eq issueKey) }
+            .toList().singleOrNull()?.toRawIssueDetail()
+    }
+
+    /**
+     * Every non-deleted `raw.jira_entities` row of [kind] for a connection, WITH its `entity_id`
+     * (v0.2.0 plan §8/§12 item 9) — unlike [entityPayloadsByKind], which drops the id since PROCESS's
+     * reference-row rebuild never needs it (the payload alone carries its own `id` field). The data
+     * profile's workflow section needs the id (here, a project KEY for `PROJECT_STATUSES`) to know
+     * WHICH project a payload belongs to.
+     */
+    suspend fun entityRowsByKind(connectionId: UInt, kind: String): List<Pair<String, String>> = suspendTransaction(database) {
+        Entities.select(Entities.entityId, Entities.payload)
+            .where { (Entities.connectionId eq connectionId) and (Entities.kind eq kind) and Entities.deletedAt.isNull() }
+            .map { it[Entities.entityId] to it[Entities.payload] }.toList()
+    }
+
+    /**
+     * Every LIVE (non-tombstoned) issue's raw payload for a connection (v0.2.0 plan §8/§12 item 9)
+     * — the data profile's custom-field fill-rate scan.
+     */
+    suspend fun issuePayloads(connectionId: UInt): List<String> = suspendTransaction(database) {
+        Issues.select(Issues.payload)
+            .where { (Issues.connectionId eq connectionId) and Issues.deletedAt.isNull() and Issues.movedOutAt.isNull() }
+            .map { it[Issues.payload] }.toList()
+    }
+
     /** One issue's changelog histories, oldest first — `(created_at, history_id)` (v0.2.0 plan §8's tiling input order). */
     suspend fun changelogPayloadsForIssue(connectionId: UInt, issueId: Long): List<String> = suspendTransaction(database) {
         Changelogs.selectAll().where { (Changelogs.connectionId eq connectionId) and (Changelogs.issueId eq issueId) }

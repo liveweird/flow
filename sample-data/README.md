@@ -60,7 +60,9 @@ simulated event timeline* as each issue's current field values, never authored i
 they can never disagree:
 
 - **Status transitions**, including a Blocked/Waiting excursion on some projects, ~5% reopens
-  (Done → In Progress) — see `expected.json` `reopens.count`.
+  (Done → In Progress) — see `expected.json` `reopens.count` (whole-dataset, incl. the
+  out-of-scope `SEC` project) and `reopens.inScopeCount` (the figure the data profile's own
+  reopen count, computed only over this connection's in-scope `norm.*` rows, can actually match).
 - **Sprint membership** (`customfield_10020`, `schema.custom` = `com.pyxis.greenhopper.jira:gh-sprint`)
   on the three Scrum projects: 2-week sprints spanning the backfill window plus one future sprint;
   ~20% of Scrum issues carry over into the next sprint (a direct ~20% draw gated on the issue's

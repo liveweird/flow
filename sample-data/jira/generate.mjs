@@ -1331,6 +1331,11 @@ const inScopeChangelogHistories = inScopeIdsAscending.reduce(
   (sum, id) => sum + historiesJson(String(id), REFERENCE_MS).length,
   0,
 );
+// reopenCount/flaggedCount above loop over EVERY project (including the out-of-scope SEC project),
+// same "whole-dataset vs in-scope-reachable" split as inScopeChangelogHistories/inScopeWorklogCount
+// below — the data profile (v0.2.0 plan §8/§12 item 9) is computed ONLY over this connection's own
+// in-scope norm.* rows, so its own reopen count can only ever match the in-scope-reachable figure.
+const inScopeReopenCount = inScopeIssues.filter((i) => i.reopened).length;
 const inScopeBackfillWorklogCounts = inScopeIssues.map(
   (issue) => (worklogsByIssue.get(issue.id) ?? []).filter((w) => Date.parse(w.started) <= REFERENCE_MS).length,
 );
@@ -1383,7 +1388,7 @@ const expected = {
     day2DeletedWorklogId: day2DeletedWorklog.id,
     day2DeletedWorklogIssueId: day2DeletedWorklogSourceIssue.id,
   },
-  reopens: { count: reopenCount },
+  reopens: { count: reopenCount, inScopeCount: inScopeReopenCount },
   flagged: { count: flaggedCount },
   sprints: {
     carryOverCount: carryoverCount,
