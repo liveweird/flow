@@ -1,0 +1,145 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    io.kompose.service: app
+  name: app
+  namespace: flow
+spec:
+  replicas: 1
+  # Never overlap old password writers with the credential-revision-aware server (V20).
+  # This single-instance deployment accepts brief downtime during application upgrades.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      io.kompose.service: app
+  template:
+    metadata:
+      labels:
+        io.kompose.service: app
+    spec:
+      # The image runs as uid 10001 (Dockerfile), the root filesystem is read-only (the JVM
+      # only needs a writable /tmp), no privilege escalation.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - env:
+            # Secrets come from the `flow-secrets` Secret — see k8s/secret.yaml for how to
+            # create it (never commit real values). The app fail-closes on placeholder/burned
+            # JWT secrets and on unrotated seed passwords, so a misconfigured deploy crash-loops
+            # instead of running with a backdoor.
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: flow-secrets
+                  key: JWT_SECRET
+            - name: DATA_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: flow-secrets
+                  key: DATA_ENCRYPTION_KEY
+            - name: ADMIN_INITIAL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: flow-secrets
+                  key: ADMIN_INITIAL_PASSWORD
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: flow-secrets
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: flow-secrets
+                  key: POSTGRES_USER
+            - name: POSTGRES_JDBC_URL
+              value: jdbc:postgresql://postgres:5432/flow
+            - name: POSTGRES_R2DBC_URL
+              value: r2dbc:postgresql://postgres:5432/flow
+            # Production posture (the image default). For throwaway local-cluster testing over
+            # plain HTTP (no TLS ingress), set this to "true" — HTTPS redirect / HSTS turn off
+            # and the seed credentials are tolerated, exactly like the compose demo.
+            - name: KTOR_DEVELOPMENT
+              value: "false"
+            # The app sits behind an ingress / LB that must terminate TLS and set
+            # X-Forwarded-For + X-Forwarded-Proto (and strip client-supplied values), so rate
+            # limiting keys on the real client IP and the HTTPS redirect sees the real scheme.
+            - name: HTTP_BEHIND_PROXY
+              value: "true"
+            # Password reset and email MFA need outbound mail. This deployment ships with
+            # mail disabled — set "smtp" plus real SMTP_HOST/MAIL_FROM/MAIL_APP_URL to enable
+            # those flows (production refuses the `log` transport).
+            # SMTP credentials come from the Secret.
+            - name: MAIL_TRANSPORT
+              value: "disabled"
+            - name: SMTP_HOST
+              value: ""
+            - name: SMTP_PORT
+              value: "587"
+            - name: SMTP_STARTTLS
+              value: "true"
+            - name: MAIL_FROM
+              value: "flow@localhost"
+            - name: MAIL_APP_URL
+              value: ""
+            - name: SMTP_USER
+              valueFrom:
+                secretKeyRef:
+                  name: flow-secrets
+                  key: SMTP_USER
+                  optional: true
+            - name: SMTP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: flow-secrets
+                  key: SMTP_PASSWORD
+                  optional: true
+          # Local render placeholder. apply-local.sh substitutes an immutable per-build tag
+          # before kubectl sees the manifest; OrbStack shares Docker's image store.
+          image: flow-app:local-build
+          imagePullPolicy: IfNotPresent
+          name: flow-app
+          ports:
+            - containerPort: 8084
+              protocol: TCP
+          # Sized for the tuned JVM baked into the image (SerialGC + -Xmx256m + C1): ~270 MiB RSS
+          # under light load. Request covers steady state; the 512 MiB limit bounds it with headroom.
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "320Mi"
+            limits:
+              memory: "512Mi"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          # /api/v1/ready round-trips the database (SELECT 1) — the pod leaves the Service while
+          # postgres is unreachable; /api/v1/health only proves the process answers. Initial delays
+          # cover JVM boot + Flyway; until postgres is ready the app restarts, which the rollout absorbs.
+          readinessProbe:
+            httpGet:
+              path: /api/v1/ready
+              port: 8084
+            initialDelaySeconds: 15
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 8084
+            initialDelaySeconds: 30
+            periodSeconds: 10
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      restartPolicy: Always

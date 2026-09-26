@@ -1,0 +1,88 @@
+services:
+  postgres:
+    image: postgres:18.6-alpine@sha256:6c538e7206ea40ff740ef27883529390a690b6ead6ba96b44c67a9f7c638e8fd
+    container_name: flow-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: flow
+      POSTGRES_USER: flow
+      POSTGRES_PASSWORD: flow
+    ports:
+      # Host port 5435 (not 5432/5433/5434) so Flow can run beside other local stacks on the same
+      # machine; in-network consumers still use postgres:5432. Loopback-bound: the demo database
+      # is never reachable from the LAN.
+      - "127.0.0.1:5435:5432"
+    volumes:
+      # postgres 18+ images keep data in a versioned subdir of /var/lib/postgresql;
+      # mounting the pre-18 /var/lib/postgresql/data path makes the container unhealthy.
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U flow -d flow"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    # Bounded like the app; the demo's data volume is tiny.
+    mem_limit: 512m
+
+  mailpit:
+    # Local mail catcher for the demo: password-reset and MFA email lands here.
+    # Read it at http://localhost:8028 (8025/8026/8027 belong to other local stacks).
+    image: axllent/mailpit:v1.31.2@sha256:74d609a42ec279aa63c6b4622a6fa9b5408d1ad5b1d76a1c4be40a265ce0863d
+    container_name: flow-mailpit
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8028:8025"
+    mem_limit: 128m
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: flow-app
+    restart: unless-stopped
+    # Resolve host-run integrations (including Toadie) on Linux as well as Docker Desktop/OrbStack.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      POSTGRES_JDBC_URL: jdbc:postgresql://postgres:5432/flow
+      POSTGRES_R2DBC_URL: r2dbc:postgresql://postgres:5432/flow
+      POSTGRES_USER: flow
+      POSTGRES_PASSWORD: flow
+      # This compose file is the LOCAL DEMO (clone & run over plain http://localhost:8084).
+      # Development mode keeps HSTS/HTTPS-redirect off and tolerates the demo credentials
+      # below. Any real deployment runs the image as shipped (KTOR_DEVELOPMENT=false), which
+      # fail-closes on this JWT key and on the seeded 'changeme' password.
+      KTOR_DEVELOPMENT: "true"
+      # Bundled-demo signing key so tokens can't be forged with the placeholder "secret".
+      # It is committed to the repo and therefore BURNED: production mode refuses to start
+      # with it. Set your own (e.g. `openssl rand -hex 32`) for any real deployment.
+      JWT_SECRET: "${JWT_SECRET:-dev-only-6923ce629cb95ce814e8e2464ca2c40124802f6b7738c1fced65ae115817faa8}"
+      # Demo key for stored credentials, e.g. the Jira token (encrypted at rest). Committed and
+      # therefore BURNED like the JWT key: production mode refuses it. `openssl rand -hex 32`.
+      DATA_ENCRYPTION_KEY: "${DATA_ENCRYPTION_KEY:-384d2d8bbba13a255d5de897de4fa2d7c3029d0563b7a3a1a3a76437861adfca}"
+      # Real SMTP delivery into the bundled Mailpit (the image default is MAIL_TRANSPORT=disabled).
+      MAIL_TRANSPORT: smtp
+      SMTP_HOST: mailpit
+      SMTP_PORT: "1025"
+      SMTP_STARTTLS: "false"
+      MAIL_FROM: flow@localhost
+      MAIL_APP_URL: http://localhost:8084
+    ports:
+      - "127.0.0.1:8084:8084"
+    # Mirrors the image's HEALTHCHECK (stated here so `depends_on: service_healthy` and the e2e
+    # global setup can wait on the app the way the app waits on postgres).
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8084/api/v1/health >/dev/null || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 30s
+    # Ceiling for the tuned JVM (SerialGC + -Xmx256m + C1, baked into bin/server): ~270 MiB RSS
+    # under light load, so 512 MiB leaves comfortable headroom and bounds the container.
+    mem_limit: 512m
+
+volumes:
+  postgres-data:

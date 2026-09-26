@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    io.kompose.service: app
+  name: app
+  namespace: flow
+spec:
+  # OrbStack provisions local LoadBalancers; `kubectl -n flow port-forward svc/app` is
+  # the fallback. Port 8084 (not 8080/8081/8082) so Flow's LB can coexist with other
+  # local stacks.
+  type: LoadBalancer
+  ports:
+    - name: "8084"
+      port: 8084
+      targetPort: 8084
+  selector:
+    io.kompose.service: app
