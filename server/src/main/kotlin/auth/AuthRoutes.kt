@@ -45,6 +45,16 @@ import kotlinx.serialization.json.jsonObject
 import java.nio.charset.StandardCharsets
 import java.util.Base64
 
+/**
+ * The upper bound for the lockout/reset durations configured in SECONDS below, before their
+ * `* 1000` millis conversion: `requireConfigLong`'s own default max is `Long.MAX_VALUE`, and a
+ * value near it overflows into a negative millis figure on that multiplication — which would
+ * silently DISABLE the lockout/throttle (every comparison against a negative "locked until"
+ * timestamp fails) instead of refusing to start. 30 days is far beyond any legitimate value for
+ * either setting.
+ */
+internal const val MAX_DURATION_SECONDS = 30L * 24 * 3600
+
 @Serializable
 data class LoginRequest(val email: String, val password: String)
 
@@ -173,14 +183,20 @@ fun Application.configureAuthRoutes() {
         // N consecutive failures for one email → locked for the configured window.
         loginThrottle = LoginThrottle(
             threshold = requireConfigInt(environment.config, "security.lockout.threshold", min = 1),
-            lockoutMillis = requireConfigLong(environment.config, "security.lockout.durationSeconds", min = 1) * 1000,
+            // Bounded above (30 days) as well as below: an unbounded value survives the *1000
+            // millis conversion right up until it doesn't — a durationSeconds near Long.MAX_VALUE
+            // overflows into a negative millis figure, which would silently DISABLE the lockout
+            // instead of refusing to start.
+            lockoutMillis = requireConfigLong(
+                environment.config, "security.lockout.durationSeconds", min = 1, max = MAX_DURATION_SECONDS,
+            ) * 1000,
             maxTracked = environment.config.property("security.lockout.maxTracked").getString().toInt(),
         ),
         // Self-service password reset: one request per submitted email per interval, uniformly
         // whether or not the account exists (the 429 carries no enumeration signal).
         resetThrottle = PasswordResetThrottle(
             minIntervalMillis = requireConfigLong(
-                environment.config, "security.passwordReset.minIntervalSeconds", min = 1,
+                environment.config, "security.passwordReset.minIntervalSeconds", min = 1, max = MAX_DURATION_SECONDS,
             ) * 1000,
             maxTracked = environment.config.property("security.passwordReset.maxTracked").getString().toInt(),
         ),
@@ -460,14 +476,22 @@ private fun Route.logout(deps: AuthDeps) {
             null
         } catch (cause: CannotTransformContentToTypeException) {
             // A body-less/Content-Type-less POST never enters ContentNegotiation.
-            call.application.log.debug("Logout sent no body — skipping refresh-token revocation", cause)
+            call.application.log.debug(
+                "Logout sent no body — skipping refresh-token revocation ({})",
+                cause.javaClass.simpleName,
+            )
             null
         }
         body?.refreshToken?.let { rt ->
             val decoded = try {
                 refreshVerifier.verify(rt)
             } catch (cause: JWTVerificationException) {
-                call.application.log.debug("Logout refresh token invalid — nothing to revoke", cause)
+                // auth0's JWTDecodeException message can embed the decoded token segment —
+                // class name only, same errorType rule as above.
+                call.application.log.debug(
+                    "Logout refresh token invalid — nothing to revoke ({})",
+                    cause.javaClass.simpleName,
+                )
                 null
             }
             decoded?.id?.let { rjti ->

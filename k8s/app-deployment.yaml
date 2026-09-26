@@ -136,7 +136,10 @@ spec:
           # sets (HTTP_BEHIND_PROXY above makes the app trust it). Without it, production mode
           # answers the plain-HTTP probe with a 301 to https://<pod-ip>/, which the kubelet
           # FOLLOWS (same host) into a refused :443 — probes never pass and the pod crash-loops
-          # (Lettuce's v3.6.1 incident, reproduced in production here).
+          # (Lettuce's v3.6.1 incident, reproduced in production here). startupProbe/livenessProbe
+          # hit /api/v1/health, which never waits on the database (plugins/Health.kt) — the
+          # kubelet's default timeoutSeconds: 1 is sane as-is; only readinessProbe (below) needs
+          # a longer one.
           startupProbe:
             httpGet:
               path: /api/v1/health
@@ -154,6 +157,15 @@ spec:
                 - name: X-Forwarded-Proto
                   value: https
             periodSeconds: 5
+            # /ready can wait in the R2DBC pool queue up to READINESS_TIMEOUT_MS (3s,
+            # plugins/Health.kt) before answering — the kubelet's default 1s probe timeout would
+            # abort the HTTP call (and count it as a failed probe) well before that budget is
+            # spent. timeoutSeconds must exceed 3s; failureThreshold above the kubelet default
+            # (3) tolerates a few probes landing during a brief pool-saturation spike (a burst of
+            # concurrent requests, not an actual outage) without flapping the pod out of the
+            # Service.
+            timeoutSeconds: 4
+            failureThreshold: 6
           livenessProbe:
             httpGet:
               path: /api/v1/health

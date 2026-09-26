@@ -115,15 +115,21 @@ http:
   # Set true when the app runs behind a reverse proxy / ingress that terminates TLS.
   # Installs XForwardedHeaders so the client IP (rate limiting) and scheme (HTTPS
   # redirect) come from X-Forwarded-* headers. The proxy MUST set X-Forwarded-For,
-  # X-Forwarded-Proto and X-Forwarded-Host (the app reads only those plus
-  # X-Forwarded-Port) and overwrite client-supplied values — k8s/app-deployment.yaml
-  # is the reference.
+  # X-Forwarded-Proto and X-Forwarded-Host and overwrite client-supplied values —
+  # k8s/app-deployment.yaml is the reference. X-Forwarded-Port is NOT read (cleared
+  # in plugins/Http.kt — nothing needs it, and a non-numeric client value used to
+  # throw a 500 out of CallSetup before any route ran).
   behindProxy: "$HTTP_BEHIND_PROXY:false"
   # Trusted proxies in front of the app when behindProxy is true (default 1 = the
-  # ingress alone). X-Forwarded-For is read from the END of the list: 1 trusts the
-  # value the last proxy wrote; N skips the N-1 addresses trusted proxies appended
-  # after the client's. Only count proxies that APPEND (nginx
-  # proxy_add_x_forwarded_for, ingress-nginx with compute-full-forwarded-for);
+  # ingress alone). X-Forwarded-For is folded from every header LINE the request
+  # carries (plugins/Http.kt's resolveForwardedForOrigin, installed ahead of
+  # XForwardedHeaders — a proxy that APPENDS a fresh line instead of merging into an
+  # existing one, e.g. HAProxy's `option forwardedfor`, would otherwise leave a
+  # client-supplied first line as the trusted value; Ktor's own header reader only
+  # ever sees the first line) and then read from the END of the combined, comma-
+  # joined list: 1 trusts the value the last proxy wrote; N skips the N-1 addresses
+  # trusted proxies appended after the client's. Only count proxies that APPEND
+  # (nginx proxy_add_x_forwarded_for, ingress-nginx with compute-full-forwarded-for);
   # ingress-nginx's default REPLACES the header, so 1 is right. Anything before the
   # values your proxies wrote is client-supplied and spoofable — never the first value.
   proxyHops: "$HTTP_PROXY_HOPS:1"
@@ -178,8 +184,11 @@ postgres:
     # The ceiling on concurrent pooled connections for this instance.
     maxSize: "$POSTGRES_POOL_MAX_SIZE:20"
     # The floor the pool fills up to on its FIRST acquire (r2dbc-pool warms up lazily — no
-    # explicit warmup() call — but configureBootstrap's backfill transactions acquire during
-    # boot, so these connections are already open before the first request is served).
+    # explicit warmup() call). Outside development mode, configureBootstrap's seed-password check
+    # queries the database during boot, so these connections are already open before the first
+    # request there; in development (the common local/test path) nothing acquires during boot
+    # unless ADMIN_INITIAL_PASSWORD is set — the encrypted-at-rest backfill would be the other
+    # boot-time acquirer, but that registry is empty today.
     initialSize: "$POSTGRES_POOL_INITIAL_SIZE:2"
     # How long a caller waits for a free connection before failing (surfaces as a 500 —
     # see "Connection pool" in persistence.md — rather than a new declared status).

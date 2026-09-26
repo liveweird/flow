@@ -149,21 +149,25 @@ class ConnectionPoolTest {
 
     @Test
     fun `the pool is released even when a later module refuses startup`() {
-        // configureBootstrap runs AFTER configureDatabase (application.yaml module order) and
-        // refuses a burned ADMIN_INITIAL_PASSWORD in production mode in EVERY case — so the pool
-        // has already been built when startup aborts. Stopping the half-started application must
-        // still dispose it.
+        // configureBootstrap runs AFTER configureDatabase (application.yaml module order).
+        // Deliberately WITHOUT bootstrap.adminInitialPassword: that branch's burned-value check
+        // (`check(...)` against BURNED_INITIAL_PASSWORDS) runs BEFORE any DB call and would make
+        // this test pass vacuously — the lazy pool never opens a connection, so "every connection
+        // released" is trivially true. Omitting it instead reaches the SEED-PASSWORD check
+        // (`userService.countActiveWithPasswordHash`), which issues a real query — the pool MUST
+        // open at least one backend — before refusing startup, so disposal is genuinely exercised.
         val appName = "flow-test-${UUID.randomUUID()}"
         testApplication {
             configureApp(
                 "postgres.pool.applicationName" to appName,
-                "bootstrap.adminInitialPassword" to "changeme",
                 "jwt.secret" to strongJwtSecret(),
                 "security.encryption.key" to strongEncryptionKey(),
                 "mail.transport" to "disabled",
             )
             serverConfig { developmentMode = false }
-            assertStartupFails("ADMIN_INITIAL_PASSWORD is a publicly known value") { startApplication() }
+            withSeedRestored {
+                assertStartupFails("seed password") { startApplication() }
+            }
         }
         runBlocking {
             val cleared = withTimeoutOrNull(5_000) {

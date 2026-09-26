@@ -88,6 +88,30 @@ class BlocklistOutageTest {
     }
 
     @Test
+    fun `a jti-less token never reaches the lookup and stays 401 during an outage`() = testApplication {
+        // Structurally valid (right audience/issuer/typ) but with NO jti — every server-minted
+        // token carries one; a token without it could never be blocklisted, so plugins/Security.kt
+        // rejects it outright (`credential.payload.id ?: return@validate null`) BEFORE any
+        // database lookup — the same "no outage-500 branch applies" guarantee a malformed token
+        // gets below.
+        configureApp()
+        application { attributes.put(TokenBlocklistServiceKey, brokenBlocklist()) }
+        startApplication()
+
+        val jtiLess = com.auth0.jwt.JWT.create()
+            .withAudience("flow-api")
+            .withIssuer("http://0.0.0.0:8084/")
+            .withClaim("typ", "access")
+            .withExpiresAt(java.util.Date(System.currentTimeMillis() + 60_000))
+            .sign(com.auth0.jwt.algorithms.Algorithm.HMAC256("secret"))
+
+        val response = jsonClient().get("/api/v1/teams") {
+            header(HttpHeaders.Authorization, "Bearer $jtiLess")
+        }
+        assertEquals(HttpStatusCode.Unauthorized, response.status)
+    }
+
+    @Test
     fun `a malformed token never reaches the lookup and stays 401 during an outage`() = testApplication {
         configureApp()
         application { attributes.put(TokenBlocklistServiceKey, brokenBlocklist()) }

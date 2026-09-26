@@ -101,4 +101,40 @@ class LogoutTest {
                 appLog.detach()
             }
         }
+
+    @Test
+    fun `an invalid refresh token on logout never logs the raw exception`() = testApplication {
+        usePostgresTestcontainer()
+        val email = uniqueEmail("logout-badrefresh")
+        TestUsers.seed(email = email, password = "pw")
+        val client = jsonClient()
+        val session = client.login(email, "pw").body<LoginResponse>()
+
+        val loggerName = application.log.name
+        val logger = LoggerFactory.getLogger(loggerName) as Logger
+        val originalLevel = logger.level
+        logger.level = Level.DEBUG
+        val appLog = LogCapture(loggerName)
+        try {
+            val response = client.post("/api/v1/logout") {
+                header(HttpHeaders.Authorization, "Bearer ${session.token}")
+                contentType(ContentType.Application.Json)
+                // Not a JWT auth0 can even attempt to decode structurally — but the point
+                // stands for any shape: auth0's JWTDecodeException message can embed a decoded
+                // token segment, so the CAUSE itself (not just its class name) must never reach
+                // the application log.
+                setBody("""{"refreshToken":"not-a-jwt"}""")
+            }
+            assertEquals(HttpStatusCode.NoContent, response.status)
+
+            val debugLine = appLog.events.firstOrNull {
+                it.formattedMessage.startsWith("Logout refresh token invalid")
+            }
+            assertNotNull(debugLine, "expected the invalid-refresh-token debug line to be captured")
+            assertTrue(debugLine.throwableProxy == null, "the throwable itself must not be logged")
+        } finally {
+            logger.level = originalLevel
+            appLog.detach()
+        }
+    }
 }

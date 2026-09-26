@@ -66,6 +66,16 @@ RUN groupadd --system --gid 10001 flow \
 USER 10001
 EXPOSE 8084
 # /api/v1/health is the liveness probe (process up); /api/v1/ready adds the database round trip.
+# In production mode (the image default, KTOR_DEVELOPMENT=false above) a plain-HTTP request gets
+# a 301 to https://..., which curl -f treats as success — the check would prove nothing but that
+# the redirect itself answers. X-Forwarded-Proto: https marks the request already-secure, the same
+# header every k8s probe sends (k8s/app-deployment.yaml), so curl gets a real 200 instead of a
+# redirect it can't distinguish from success. Ktor only trusts this header when HTTP_BEHIND_PROXY
+# is also set (plugins/Http.kt's XForwardedHeaders); every deployment that ships this image in
+# production mode (k8s) also sets it, so the header makes the check meaningful there. A
+# hypothetical production-mode-without-a-proxy run (not one this repo's manifests produce) would
+# still see the 301-as-success gap — there is no request path that is both meaningful in that
+# combination and still exercises the liveness endpoint over plain HTTP.
 HEALTHCHECK --interval=15s --timeout=3s --start-period=45s --retries=3 \
-    CMD curl -fsS http://127.0.0.1:8084/api/v1/health >/dev/null || exit 1
+    CMD curl -fsS -H 'X-Forwarded-Proto: https' http://127.0.0.1:8084/api/v1/health >/dev/null || exit 1
 ENTRYPOINT ["/app/bin/server"]

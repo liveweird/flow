@@ -17,9 +17,10 @@ import kotlin.test.assertTrue
 class FlywayLogTest {
 
     @Test
-    fun `a malformed URL renders as a fixed placeholder instead of crashing`() {
-        assertEquals("<unparseable jdbc url>", jdbcUrlForLogging("not a url at all"))
-        assertEquals("<unparseable jdbc url>", jdbcUrlForLogging("jdbc:postgresql://"))
+    fun `a URL without a host authority degrades to its scheme, never throws`() {
+        assertEquals("not a url at all:…", jdbcUrlForLogging("not a url at all"))
+        assertEquals("", jdbcUrlForLogging("jdbc:postgresql://"))
+        assertEquals("jdbc:…", jdbcUrlForLogging("jdbc:postgresql:flow"))
     }
 
     @Test
@@ -29,6 +30,27 @@ class FlywayLogTest {
         assertEquals("localhost:5435/flow", rendered)
         assertFalse(rendered.contains(marker))
         assertFalse(rendered.contains("password"))
+    }
+
+    @Test
+    fun `a semicolon-delimited parameter block carrying credentials never reaches the rendered value`() {
+        // Some JDBC URLs append properties after a `;` rather than a `?query` — sails straight
+        // through java.net.URI's path component untouched (the bug this string-based port fixes).
+        val marker = "marker-${UUID.randomUUID().toString().take(8)}"
+        val rendered = jdbcUrlForLogging("jdbc:postgresql://db:5432/flow;password=$marker")
+        assertEquals("db:5432/flow", rendered)
+        assertFalse(rendered.contains(marker))
+        assertFalse(rendered.contains("password"))
+    }
+
+    @Test
+    fun `an unescaped slash in the userinfo password never leaks past the authority`() {
+        // A password containing a raw '/' (or '@') can confuse java.net.URI's authority parsing
+        // outright; substringAfterLast('@') strips userinfo without relying on strict URI syntax.
+        val rendered = jdbcUrlForLogging("jdbc:postgresql://user:5678/abc@db:5432/flow")
+        assertEquals("db:5432/flow", rendered)
+        assertFalse(rendered.contains("5678"))
+        assertFalse(rendered.contains("abc"))
     }
 
     @Test

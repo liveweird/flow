@@ -46,9 +46,13 @@ in-network consumers use `postgres:5432`). There is one persistence stack:
   `requireConfigInt`/`requireConfigLong` helpers, also ported from Lettuce): `maxSize`
   (`POSTGRES_POOL_MAX_SIZE`, default 20, 1..1000), `initialSize` (`POSTGRES_POOL_INITIAL_SIZE`,
   default 2, 0..maxSize — the floor the pool fills up to on its FIRST acquire, not at
-  construction: r2dbc-pool warms up lazily and `warmup()` is deliberately not called; in practice
-  `configureBootstrap`'s backfill transactions acquire during boot, so the floor is open before
-  the first request), `maxAcquireTimeSeconds` (`POSTGRES_POOL_MAX_ACQUIRE_SECONDS`, default 10,
+  construction: r2dbc-pool warms up lazily and `warmup()` is deliberately not called. Outside
+  development mode, `configureBootstrap`'s seed-password check (`countActiveWithPasswordHash`)
+  issues a query during boot, so the floor is open before the first request there; in development
+  (the common local/test path) nothing acquires during boot unless `ADMIN_INITIAL_PASSWORD` is
+  set — the encrypted-at-rest backfill (`encryptedAtRestServices()`) is the OTHER boot-time
+  acquirer, but that registry is empty today, so it is not yet a source of warmup either),
+  `maxAcquireTimeSeconds` (`POSTGRES_POOL_MAX_ACQUIRE_SECONDS`, default 10,
   1..600) and `maxIdleTimeSeconds` (`POSTGRES_POOL_MAX_IDLE_SECONDS`, default 600, 1..86400). Every
   pooled connection carries `application_name = flow` (`postgres.pool.applicationName`, test-only
   override), so operators count this instance's backends with
