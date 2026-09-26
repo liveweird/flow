@@ -25,6 +25,7 @@ import ch.nokillswit.jira.JiraIssuesStream
 import ch.nokillswit.jira.JiraRawStore
 import ch.nokillswit.jira.JiraSyncDependencies
 import ch.nokillswit.jira.JiraWorklogStream
+import ch.nokillswit.norm.WorkItemStore
 import com.github.tomakehurst.wiremock.client.WireMock.aResponse
 import com.github.tomakehurst.wiremock.client.WireMock.equalTo
 import com.github.tomakehurst.wiremock.client.WireMock.get
@@ -116,6 +117,7 @@ class JiraSyncPipelineTest {
     private fun dataSources() = DataSourceService(sharedDatabaseForTests(), FieldCipher(DEV_DATA_ENCRYPTION_KEY))
     private fun rawStore() = JiraRawStore(sharedDatabaseForTests())
     private fun cursors() = SyncCursorsService(sharedDatabaseForTests())
+    private fun workItems() = WorkItemStore(sharedDatabaseForTests())
 
     private suspend fun createConnection(
         dataSources: DataSourceService,
@@ -169,6 +171,7 @@ class JiraSyncPipelineTest {
             rawStore = rawStore(),
             cursors = cursors(),
             database = sharedDatabaseForTests(),
+            workItems = workItems(),
             incrementalOverlapMinutes = 10,
             issuesPageSize = 100,
         ),
@@ -314,7 +317,7 @@ class JiraSyncPipelineTest {
         val connector = JiraConnector(
             newClient = { _, _, _, _ -> error("PURGE never calls the client") },
             sync = JiraSyncDependencies(
-                ds, store, cursors(), sharedDatabaseForTests(),
+                ds, store, cursors(), sharedDatabaseForTests(), workItems(),
                 incrementalOverlapMinutes = 10, issuesPageSize = 100,
             ),
         )
@@ -483,7 +486,7 @@ class JiraSyncPipelineTest {
     }
 
     @Test
-    fun `RECONCILE tombstones the day2 deleted and moved issues, flags them for processing, and is idempotent`() = runBlocking {
+    fun `RECONCILE tombstones the day2 deleted and moved issues, processes them in the same job, and is idempotent`() = runBlocking {
         ensureMigrated()
         val ds = dataSources()
         val connId = createConnection(ds)
@@ -505,7 +508,13 @@ class JiraSyncPipelineTest {
                 deletedRow[JiraRawStore.Issues.deletedAt],
                 "sample-data/jira/expected.json day2.deletedIssueId must be tombstoned",
             )
-            assertTrue(deletedRow[JiraRawStore.Issues.needsProcessing], "a tombstone must flag the issue for processing")
+            // A tombstone flags the issue for processing (needs_processing = true), but this job
+            // runs RECONCILE then PROCESS itself (jira/JiraConnector.kt's runReconcile, plan §7/§8)
+            // — by the time this reads the row back, PROCESS has already cleared the flag and
+            // stamped processed_at, mirroring the tombstone into norm.work_items in the SAME job
+            // (NormalizationPipelineTest's own dedicated assertion for that mirror).
+            assertFalse(deletedRow[JiraRawStore.Issues.needsProcessing], "the same job's PROCESS step must have already cleared this")
+            assertNotNull(deletedRow[JiraRawStore.Issues.processedAt], "the same job's PROCESS step must have processed this tombstone")
 
             val movedRow = rows.getValue(movedId)
             assertNotNull(
@@ -513,7 +522,8 @@ class JiraSyncPipelineTest {
                 "sample-data/jira/expected.json day2.movedIssueId must be tombstoned as moved-out",
             )
             assertEquals(expectedFixture.day2.movedToProjectKey, movedRow[JiraRawStore.Issues.projectKey])
-            assertTrue(movedRow[JiraRawStore.Issues.needsProcessing], "a tombstone must flag the issue for processing")
+            assertFalse(movedRow[JiraRawStore.Issues.needsProcessing], "the same job's PROCESS step must have already cleared this")
+            assertNotNull(movedRow[JiraRawStore.Issues.processedAt], "the same job's PROCESS step must have processed this tombstone")
 
             assertEquals(0L, store.countReconcileSeen(connId), "the scratch table must be empty after a completed pass")
 

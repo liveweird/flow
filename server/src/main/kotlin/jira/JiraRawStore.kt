@@ -483,6 +483,82 @@ class JiraRawStore(private val database: R2dbcDatabase) {
         }
     }
 
+    /**
+     * The PROCESS step's claim scan (v0.2.0 plan §7/§8, plan commit 8a): every raw issue still
+     * needing a rebuild — flagged `needs_processing`, OR whose `processing_version` disagrees with
+     * [currentProcessingVersion] (a version bump reprocesses everything automatically, plan §8),
+     * ascending issue id, batches of [limit] (`jira/JiraProcessStream.kt`'s batch size of 50).
+     */
+    suspend fun issuesToProcess(connectionId: UInt, currentProcessingVersion: Int, limit: Int): List<Long> = suspendTransaction(database) {
+        Issues.select(Issues.issueId)
+            .where {
+                (Issues.connectionId eq connectionId) and
+                    (
+                        (Issues.needsProcessing eq true) or
+                            Issues.processingVersion.isNull() or
+                            (Issues.processingVersion neq currentProcessingVersion)
+                        )
+            }
+            .orderBy(Issues.issueId)
+            .limit(limit)
+            .map { it[Issues.issueId] }.toList()
+    }
+
+    /** One raw issue's PROCESS input (v0.2.0 plan §8): the canonicalized payload plus its current tombstone/process bookkeeping. */
+    data class RawIssueForProcessing(
+        val issueId: Long,
+        val payloadJson: String,
+        val sha256: String,
+        val deletedAt: Long?,
+        val movedOutAt: Long?,
+    )
+
+    suspend fun issueForProcessing(connectionId: UInt, issueId: Long): RawIssueForProcessing? = suspendTransaction(database) {
+        Issues.selectAll().where { (Issues.connectionId eq connectionId) and (Issues.issueId eq issueId) }
+            .toList().singleOrNull()?.let {
+                RawIssueForProcessing(issueId, it[Issues.payload], it[Issues.sha256], it[Issues.deletedAt], it[Issues.movedOutAt])
+            }
+    }
+
+    /** Marks one issue processed (v0.2.0 plan §8 step 5) — called in the SAME transaction as its `norm.*` rows' write. */
+    suspend fun markProcessed(connectionId: UInt, issueId: Long, processedHash: String, now: Long, processingVersion: Int) {
+        suspendTransaction(database) {
+            Issues.update({ (Issues.connectionId eq connectionId) and (Issues.issueId eq issueId) }) {
+                it[Issues.processedAt] = now
+                it[Issues.processedHash] = processedHash
+                it[Issues.processingVersion] = processingVersion
+                it[Issues.needsProcessing] = false
+            }
+        }
+    }
+
+    /** REPROCESS (v0.2.0 plan §7/§12 item 8): flags EVERY raw issue for [connectionId] for the next PROCESS pass. */
+    suspend fun markAllNeedsProcessing(connectionId: UInt): Int = suspendTransaction(database) {
+        Issues.update({ Issues.connectionId eq connectionId }) { it[needsProcessing] = true }
+    }
+
+    /** Every non-deleted `raw.jira_entities` payload of [kind] for a connection (plan §8) — PROCESS's own reference-row source. */
+    suspend fun entityPayloadsByKind(connectionId: UInt, kind: String): List<String> = suspendTransaction(database) {
+        Entities.select(Entities.payload)
+            .where { (Entities.connectionId eq connectionId) and (Entities.kind eq kind) and Entities.deletedAt.isNull() }
+            .map { it[Entities.payload] }.toList()
+    }
+
+    /** One issue's changelog histories, oldest first — `(created_at, history_id)` (v0.2.0 plan §8's tiling input order). */
+    suspend fun changelogPayloadsForIssue(connectionId: UInt, issueId: Long): List<String> = suspendTransaction(database) {
+        Changelogs.selectAll().where { (Changelogs.connectionId eq connectionId) and (Changelogs.issueId eq issueId) }
+            .toList()
+            .sortedWith(compareBy({ it[Changelogs.createdAt] }, { it[Changelogs.historyId] }))
+            .map { it[Changelogs.payload] }
+    }
+
+    /** One issue's non-tombstoned worklogs (v0.2.0 plan §8) — `norm.work_item_worklogs`' source. */
+    suspend fun worklogPayloadsForIssue(connectionId: UInt, issueId: Long): List<String> = suspendTransaction(database) {
+        Worklogs.selectAll().where {
+            (Worklogs.connectionId eq connectionId) and (Worklogs.issueId eq issueId) and Worklogs.deletedAt.isNull()
+        }.map { it[Worklogs.payload] }.toList()
+    }
+
     /** `GET …/{id}/status` counts (v0.2.0 plan §9): every `raw.jira_entities` row for a connection, grouped by kind. */
     suspend fun entityCountsByKind(connectionId: UInt): Map<String, Long> = suspendTransaction(database) {
         Entities.select(Entities.kind).where { Entities.connectionId eq connectionId }

@@ -12,6 +12,8 @@ import ch.nokillswit.ingest.StreamContext
 import ch.nokillswit.ingest.SyncCursorsService
 import ch.nokillswit.ingest.SyncJobKind
 import ch.nokillswit.ingest.SyncJobRunContext
+import ch.nokillswit.norm.WorkItemStore
+import ch.nokillswit.norm.purgeAll
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withTimeout
@@ -51,6 +53,8 @@ class JiraSyncDependencies(
     val rawStore: JiraRawStore,
     val cursors: SyncCursorsService,
     val database: R2dbcDatabase,
+    /** The normalized layer's write target (v0.2.0 plan §0 A3/§8, `norm/WorkItemStore.kt`) — PROCESS's and PURGE's one consumer. */
+    val workItems: WorkItemStore,
     /** `jira.incrementalOverlapMinutes` (default 10, plan §5/§7) — the ISSUES stream's re-fetch window past the last watermark. */
     val incrementalOverlapMinutes: Long,
     val issuesPageSize: Int,
@@ -74,23 +78,27 @@ class JiraConnector(
 
     /**
      * PURGE's connector-owned cleanup step (v0.2.0 plan §0 A2): drains this connection's
-     * `raw.jira_issues`/`raw.jira_entities` rows in batches.
+     * `raw.jira_*` rows AND its `norm.*` rows (plan §8) in batches.
      */
     override val purgeSteps: List<PurgeStep>
-        get() = sync?.let { deps -> listOf(PurgeStep { connectionId -> deps.rawStore.purgeAll(connectionId) }) } ?: emptyList()
+        get() = sync?.let { deps ->
+            listOf(
+                PurgeStep { connectionId -> deps.rawStore.purgeAll(connectionId) },
+                PurgeStep { connectionId -> deps.workItems.purgeAll(connectionId) },
+            )
+        } ?: emptyList()
 
     /**
-     * The sync-job stream runner (v0.2.0 plan §7/§12 item 7): SYNC runs REFERENCE → ISSUES →
-     * CHANGELOGS → WORKLOGS; RECONCILE runs its own single stream — PROCESS/PROFILE join this
-     * ordered list in later commits. PURGE drains [purgeSteps]; REPROCESS still succeeds trivially
-     * until its own commit lands.
+     * The sync-job stream runner (v0.2.0 plan §7/§8/§12 item 7-8): SYNC runs REFERENCE → ISSUES →
+     * CHANGELOGS → WORKLOGS → PROCESS; RECONCILE runs its own stream then PROCESS; REPROCESS flags
+     * every raw issue for the connection, then runs PROCESS alone. PURGE drains [purgeSteps].
      */
     override suspend fun run(context: SyncJobRunContext) {
         when (context.claim.kind) {
             SyncJobKind.SYNC -> runSync(context)
             SyncJobKind.RECONCILE -> runReconcile(context)
             SyncJobKind.PURGE -> purgeSteps.forEach { it.purge(context.claim.connectionId) }
-            SyncJobKind.REPROCESS -> Unit
+            SyncJobKind.REPROCESS -> runReprocess(context)
         }
     }
 
@@ -112,6 +120,7 @@ class JiraConnector(
             ),
             JiraChangelogStream(client, deps.rawStore, deps.changelogBulkSize),
             JiraWorklogStream(client, deps.rawStore),
+            JiraProcessStream(deps.rawStore, deps.workItems),
         )
         streams.forEach { stream ->
             streamContext.currentStreamName = stream.name
@@ -119,7 +128,12 @@ class JiraConnector(
         }
     }
 
-    /** RECONCILE runs the one `reconcile` stream (v0.2.0 plan §7/§12 item 7); `IngestWorker.onSucceeded` stamps `last_reconcile_at`. */
+    /**
+     * RECONCILE runs `reconcile` then `process` (v0.2.0 plan §7/§8/§12 item 7-8) — a RECONCILE
+     * tombstone flags its issue `needs_processing` (`jira/JiraRawStore.kt`'s `markIssueDeleted`/
+     * `markIssueMovedOut`), so the SAME job mirrors it into `norm.work_items` immediately, not on
+     * the next scheduled SYNC. `IngestWorker.onSucceeded` stamps `last_reconcile_at`.
+     */
     private suspend fun runReconcile(context: SyncJobRunContext) {
         val deps = checkNotNull(sync) { "JiraConnector.run(RECONCILE) requires JiraSyncDependencies (jira/Jira.kt's configureJira)" }
         val claim = context.claim
@@ -127,7 +141,26 @@ class JiraConnector(
         val client = newClient(stored.siteUrl, stored.email, stored.apiToken, stored.authScheme)
         deps.dataSources.persistCloudId(claim.connectionId, client.resolveCloudId())
         val streamContext = StreamContext(claim.connectionId, claim.id, deps.database, deps.cursors, context.heartbeat, now)
-        val stream = JiraReconcileStream(client, deps.rawStore, stored.projectKeys)
+        val streams: List<Stream> = listOf(
+            JiraReconcileStream(client, deps.rawStore, stored.projectKeys),
+            JiraProcessStream(deps.rawStore, deps.workItems),
+        )
+        streams.forEach { stream ->
+            streamContext.currentStreamName = stream.name
+            stream.run(streamContext)
+        }
+    }
+
+    /**
+     * REPROCESS (v0.2.0 plan §7/§8/§12 item 8): flags EVERY raw issue for the connection, then runs
+     * `process` alone — a version bump or a manually requested full rebuild, never touching Jira.
+     */
+    private suspend fun runReprocess(context: SyncJobRunContext) {
+        val deps = checkNotNull(sync) { "JiraConnector.run(REPROCESS) requires JiraSyncDependencies (jira/Jira.kt's configureJira)" }
+        val claim = context.claim
+        deps.rawStore.markAllNeedsProcessing(claim.connectionId)
+        val streamContext = StreamContext(claim.connectionId, claim.id, deps.database, deps.cursors, context.heartbeat, now)
+        val stream = JiraProcessStream(deps.rawStore, deps.workItems)
         streamContext.currentStreamName = stream.name
         stream.run(streamContext)
     }

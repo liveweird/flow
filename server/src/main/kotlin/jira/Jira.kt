@@ -9,6 +9,7 @@ import ch.nokillswit.ingest.ConnectorRegistryKey
 import ch.nokillswit.ingest.DataSourceKind
 import ch.nokillswit.ingest.DataSourceServiceKey
 import ch.nokillswit.ingest.SyncCursorsServiceKey
+import ch.nokillswit.norm.WorkItemStore
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.HttpTimeout
@@ -70,6 +71,9 @@ fun Application.configureJira() {
     // published (module order: Database before this — application.yaml).
     val rawStore = JiraRawStore(attributes[R2dbcDatabaseKey])
     attributes.put(JiraRawStoreKey, rawStore)
+    // WorkItemStore (V13) — the normalized layer's write target (plan §0 A3/§8), the PROCESS
+    // stream's/PURGE's one consumer; same composition-root shape as rawStore above.
+    val workItemStore = WorkItemStore(attributes[R2dbcDatabaseKey])
     val connector = JiraConnector(
         newClient = { siteUrl, email, apiToken, authScheme ->
             val tenantInfoBaseUrl = stubBaseUrl ?: siteUrl
@@ -80,6 +84,7 @@ fun Application.configureJira() {
             rawStore = rawStore,
             cursors = attributes[SyncCursorsServiceKey],
             database = attributes[R2dbcDatabaseKey],
+            workItems = workItemStore,
             incrementalOverlapMinutes = incrementalOverlapMinutes,
             issuesPageSize = issuesPageSize,
             changelogBulkSize = changelogBulkSize,
