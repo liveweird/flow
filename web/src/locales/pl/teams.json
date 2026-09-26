@@ -1,0 +1,50 @@
+{
+  "title": "Zespoły",
+  "intro": "Zespoły, między którymi Twoja organizacja porównuje metryki przepływu pracy. Każdy widzi, kto jest w zespole; administratorzy/rki zarządzają zespołami i ich członkami/członkiniami.",
+  "newTeam": "Nowy zespół",
+  "createTitle": "Nowy zespół",
+  "editTitle": "Edytuj zespół",
+  "empty": "Nie ma jeszcze zespołów",
+  "loadFailed": "Nie udało się wczytać zespołów",
+  "notFound": "Ten zespół nie istnieje (albo został usunięty).",
+  "backToTeams": "Wróć do zespołów",
+  "openAria": "Otwórz zespół {{name}}",
+  "manageMembers": "Członkowie/kinie",
+  "membersOfAria": "Członkowie/kinie zespołu {{name}}",
+  "column": {
+    "members": "Członkowie/kinie"
+  },
+  "noMembers": "Nie ma jeszcze członków/kiń",
+  "deletedMember": "usunięty/a",
+  "addMember": "Dodaj członka/kinię",
+  "pickUser": "Szukaj użytkowników/czek po nazwie…",
+  "noMatchingUsers": "Brak pasujących użytkowników/czek",
+  "add": "Dodaj",
+  "remove": "Usuń z zespołu",
+  "removeAria": "Usuń {{name}} z zespołu",
+  "removeTitle": "Usunąć z zespołu?",
+  "removeBody": "{{name}} nie będzie już członkiem/członkinią zespołu {{team}}.",
+  "removeFailed": "Nie udało się usunąć członka/kini",
+  "addFailed": "Nie udało się dodać członka/kini",
+  "addConflict": "Ten użytkownik/czka już należy do zespołu.",
+  "addGone": "Ten użytkownik/czka już nie istnieje — odśwież listę.",
+  "deleteTitle": "Usunąć zespół?",
+  "deleteBody": "Zespół „{{name}}” zostanie usunięty. Jego członkowie/kinie zachowują swoje konta.",
+  "deleteFailed": "Nie udało się usunąć zespołu",
+  "deleteConflict": "Ten zespół jest nadal gdzieś używany i nie można go jeszcze usunąć.",
+  "saveForbidden": "Tylko administratorzy/rki mogą edytować zespoły",
+  "saveConflict": "Zespół o tej nazwie już istnieje",
+  "saveInvalid": "Jedno lub więcej pól jest nieprawidłowe",
+  "saveGone": "Ten zespół już nie istnieje — odśwież stronę",
+  "validation": {
+    "nameLength": "Nazwa musi mieć od 1 do 100 znaków",
+    "descriptionLength": "Opis może mieć najwyżej 500 znaków"
+  },
+  "toast": {
+    "created": "Zespół utworzony",
+    "saved": "Zespół zapisany",
+    "deleted": "Zespół usunięty",
+    "memberAdded": "Członek/kini dodany/a",
+    "memberRemoved": "Członek/kini usunięty/a"
+  }
+}

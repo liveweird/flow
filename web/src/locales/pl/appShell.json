@@ -1,0 +1,32 @@
+{
+  "brand": "Flow",
+  "skipToContent": "Przejdź do treści",
+  "toggleNav": "Pokaż lub ukryj nawigację",
+  "nav": {
+    "home": "Strona główna",
+    "users": "Użytkownicy/czki",
+    "changePassword": "Zmiana hasła",
+    "featureFlags": "Flagi funkcji",
+    "changelog": "Historia zmian",
+    "teams": "Zespoły"
+  },
+  "section": {
+    "overview": "Przegląd",
+    "administration": "Administracja"
+  },
+  "userMenu": {
+    "open": "Menu konta",
+    "language": "Język",
+    "theme": "Motyw",
+    "themeLight": "Jasny",
+    "themeDark": "Ciemny",
+    "themeAuto": "Systemowy",
+    "signOut": "Wyloguj"
+  },
+  "palette": {
+    "open": "Szukaj i przejdź do…",
+    "placeholder": "Szukaj lub przejdź do strony…",
+    "groupPages": "Strony",
+    "nothingFound": "Nic nie znaleziono"
+  }
+}

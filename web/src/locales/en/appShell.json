@@ -1,0 +1,32 @@
+{
+  "brand": "Flow",
+  "skipToContent": "Skip to main content",
+  "toggleNav": "Show or hide the navigation",
+  "nav": {
+    "home": "Home",
+    "users": "Users",
+    "changePassword": "Change password",
+    "featureFlags": "Feature flags",
+    "changelog": "Changelog",
+    "teams": "Teams"
+  },
+  "section": {
+    "overview": "Overview",
+    "administration": "Administration"
+  },
+  "userMenu": {
+    "open": "Account menu",
+    "language": "Language",
+    "theme": "Theme",
+    "themeLight": "Light",
+    "themeDark": "Dark",
+    "themeAuto": "System",
+    "signOut": "Sign out"
+  },
+  "palette": {
+    "open": "Search and jump to…",
+    "placeholder": "Search or jump to a page…",
+    "groupPages": "Pages",
+    "nothingFound": "Nothing found"
+  }
+}

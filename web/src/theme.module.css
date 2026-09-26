@@ -1,0 +1,244 @@
+/* Theme-wide classNames, wired via the component extensions in theme.ts (v1.35.0, the
+   "clean enterprise SaaS" pass). Everything here is scheme-aware via light-dark(). */
+
+/* Every data table becomes a quiet card on the tinted canvas: own surface, hairline frame,
+   rounded corners. border-collapse must be separate for the radius to clip; the frame then
+   owns the outer edge, so the last row drops its own border. */
+.table {
+  background-color: var(--mantine-color-body);
+  border: 1px solid light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4));
+  border-radius: var(--mantine-radius-md);
+  border-collapse: separate;
+  border-spacing: 0;
+  overflow: hidden;
+}
+
+.table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* Neutral, compact table headers: dimmed 600-weight labels on a faint surface tint, with a
+   crisper rule under the header row (replaces the former brand-green wash). */
+.tableHead {
+  background-color: light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-6));
+}
+
+.tableHead th {
+  font-size: var(--mantine-font-size-xs);
+  font-weight: 600;
+  color: var(--mantine-color-dimmed);
+  white-space: nowrap;
+  border-bottom: 1px solid light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4));
+}
+
+/* The shell: white (dark: dark-7) header + navbar surfaces over a faintly tinted main canvas,
+   separated by hairlines — surfaces (Papers, tables) lift off the canvas instead of blending. */
+.appMain {
+  background-color: var(--flow-canvas);
+}
+
+.appHeader {
+  background-color: light-dark(var(--mantine-color-white), var(--mantine-color-dark-7));
+  border-bottom: 1px solid light-dark(var(--mantine-color-gray-2), var(--mantine-color-dark-4));
+}
+
+.brandText {
+  letter-spacing: -0.01em;
+}
+
+.appNavbar {
+  background-color: light-dark(var(--mantine-color-white), var(--mantine-color-dark-7));
+  border-right: 1px solid light-dark(var(--mantine-color-gray-2), var(--mantine-color-dark-4));
+}
+
+/* Navbar items: compact, rounded, with the icon following the text colour. The active
+   state is the sidebar's ONLY blue — a light tint plus a 3px accent bar on the left edge,
+   the "you are here" marker — so the brand reads as a precise pointer, not a wash. */
+.navLink {
+  border-radius: var(--mantine-radius-sm);
+  margin-bottom: 1px;
+  padding-block: 6px;
+  font-size: var(--mantine-font-size-sm);
+}
+
+.navLinkSection {
+  color: inherit;
+}
+
+.navLink[data-active] {
+  font-weight: 600;
+  background-color: var(--mantine-color-flow-light);
+  color: var(--mantine-color-flow-light-color);
+  box-shadow: inset 3px 0 0 var(--flow-accent-ink);
+}
+
+/* The sidebar's section labels (Catalog / Registries / Administration): a static caption,
+   never a toggle — every leaf stays in the DOM. */
+.navSectionLabel {
+  padding: 14px 12px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--mantine-color-dimmed);
+}
+
+/* The collapsed sidebar's icon rail (.navLink above still applies via the NavLink.extend
+   classNames, so the active accent bar carries over): icon-only, label hidden. */
+.railLink {
+  justify-content: center;
+  padding: 8px;
+}
+
+.railLink :global(.mantine-NavLink-section) {
+  margin: 0;
+}
+
+.railLink :global(.mantine-NavLink-body) {
+  display: none;
+}
+
+/* Links are text, not accent: dark by default, the brand colour only as the hover
+   underline. Every Anchor in the app inherits this through the theme. */
+.anchor {
+  color: var(--mantine-color-text);
+}
+
+.anchor:hover {
+  text-decoration-color: var(--flow-accent-ink);
+}
+
+/* The header's command-palette trigger: reads as a search field (hairline, hover-tinted,
+   dimmed placeholder text, the shortcut as a Kbd on the right) but is a button. */
+.paletteTrigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+  height: 32px;
+  min-width: 260px;
+  padding: 0 var(--mantine-spacing-sm);
+  border: 1px solid light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4));
+  border-radius: var(--mantine-radius-md);
+  background-color: light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-6));
+  color: var(--mantine-color-dimmed);
+  font-size: var(--mantine-font-size-sm);
+}
+
+.paletteTrigger:hover {
+  border-color: light-dark(var(--mantine-color-gray-4), var(--mantine-color-dark-3));
+}
+
+.paletteTrigger > span:first-of-type {
+  flex: 1;
+  text-align: start;
+}
+
+/* The Hierarchy's tree rows: a hover tint on the row, a hairline guide down each branch
+   (quieter than default-border — the guide is orientation, not a divider). */
+.treeRow {
+  border-radius: var(--mantine-radius-sm);
+}
+
+.treeRow:hover {
+  background-color: light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-6));
+}
+
+.treeBranch {
+  border-left: 1px solid light-dark(var(--mantine-color-gray-2), var(--mantine-color-dark-5));
+}
+
+/* A count riding a filter chip (the Errors severity/source chips): tabular, lighter in weight
+   and NOT part of the chip's accessible name (aria-hidden at the call site). Never dimmed by
+   opacity — the chip's ink is AA-tested at full strength only, and the axe sweep over /errors
+   pins that a faded count fails 4.5:1 (Toadie's 0.7/0.4 opacities were the first casualty). */
+.chipCount {
+  margin-inline-start: 6px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 400;
+}
+
+/* Form sections: a flat block under a small-caps legend on a hairline (v1.20.0) —
+   `Fieldset variant="unstyled"` keeps the fieldset/legend semantics without the frame. */
+.formSection {
+  padding: 0;
+  scroll-margin-top: 80px;
+}
+
+.formSection + .formSection {
+  margin-top: var(--mantine-spacing-lg);
+}
+
+.formSectionLegend {
+  width: 100%;
+  padding: 0 0 6px;
+  margin-bottom: var(--mantine-spacing-sm);
+  font-size: var(--mantine-font-size-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--mantine-color-dimmed);
+  border-bottom: 1px solid light-dark(var(--mantine-color-gray-2), var(--mantine-color-dark-4));
+}
+
+/* A form's action bar pinned to the bottom of the viewport while the form scrolls (the
+   catalog editor, the dictionary editors): the body surface, a hairline on top, and
+   negative margins so it spans the card edge to edge. */
+.stickyActions {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  margin: 0 calc(-1 * var(--mantine-spacing-lg)) calc(-1 * var(--mantine-spacing-lg));
+  padding: var(--mantine-spacing-sm) var(--mantine-spacing-lg);
+  background-color: var(--mantine-color-body);
+  border-top: 1px solid light-dark(var(--mantine-color-gray-2), var(--mantine-color-dark-4));
+  border-bottom-left-radius: var(--mantine-radius-md);
+  border-bottom-right-radius: var(--mantine-radius-md);
+}
+
+/* The same bar sitting directly on the page (the new-version, import and infer screens):
+   the shell pads by `md`, not `lg`, so the edge-to-edge margins must match it — the `lg`
+   pair overflows the viewport by four pixels and gives the page a horizontal scrollbar. */
+.stickyActionsPage {
+  margin: 0 calc(-1 * var(--mantine-spacing-md)) calc(-1 * var(--mantine-spacing-md));
+}
+
+/* The editor's preview column, and the version page's single side panel (Contents above
+   Findings): sticks under the header, offset from the shell's own vars, and caps its own
+   height so a tall panel scrolls as one instead of running past the viewport. */
+.stickyAside {
+  position: sticky;
+  top: calc(var(--app-shell-header-height, 0px) + var(--mantine-spacing-md));
+  max-height: calc(100vh - var(--app-shell-header-height, 0px) - 2 * var(--mantine-spacing-md));
+  overflow-y: auto;
+}
+
+/* The reader's table of contents inside the version page's side panel, capped so Findings stay
+   reachable below it even when the document declares a long table of contents. */
+.asideToc {
+  max-height: 40vh;
+  overflow-y: auto;
+}
+
+/* A finding's deep link into the reader: the element it lands on wears the accent ring briefly. */
+[data-highlight="true"] {
+  outline: 2px solid var(--flow-accent-ink);
+  outline-offset: 2px;
+  border-radius: var(--mantine-radius-sm);
+}
+
+/* An ordered-list editor's rows (the namespaces/lifecycles dictionaries): one bordered
+   list, hairlines between rows — not a mini-card per row. */
+.listRows {
+  border: 1px solid light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4));
+  border-radius: var(--mantine-radius-md);
+  background-color: var(--mantine-color-body);
+  overflow: hidden;
+}
+
+.listRow {
+  padding: 8px var(--mantine-spacing-sm);
+}
+
+.listRow + .listRow {
+  border-top: 1px solid light-dark(var(--mantine-color-gray-2), var(--mantine-color-dark-5));
+}

@@ -1,0 +1,6 @@
+{
+  "title": "Flow",
+  "intro": "Flow shows how work flows through your teams — flow metrics, bottlenecks and trends from Jira.",
+  "empty": "No data source connected yet",
+  "emptyAdmin": "No data source connected yet. Data sources arrive in the next release."
+}

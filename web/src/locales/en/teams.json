@@ -1,0 +1,50 @@
+{
+  "title": "Teams",
+  "intro": "The teams your organization compares flow metrics across. Everyone can see who is on a team; administrators manage teams and their members.",
+  "newTeam": "New team",
+  "createTitle": "New team",
+  "editTitle": "Edit team",
+  "empty": "No teams yet",
+  "loadFailed": "Could not load the teams",
+  "notFound": "This team does not exist (or was deleted).",
+  "backToTeams": "Back to teams",
+  "openAria": "Open team {{name}}",
+  "manageMembers": "Members",
+  "membersOfAria": "Members of {{name}}",
+  "column": {
+    "members": "Members"
+  },
+  "noMembers": "No members yet",
+  "deletedMember": "deleted",
+  "addMember": "Add a member",
+  "pickUser": "Search users by name…",
+  "noMatchingUsers": "No matching users",
+  "add": "Add",
+  "remove": "Remove from team",
+  "removeAria": "Remove {{name}} from the team",
+  "removeTitle": "Remove from team?",
+  "removeBody": "{{name}} will no longer be a member of {{team}}.",
+  "removeFailed": "Could not remove the member",
+  "addFailed": "Could not add the member",
+  "addConflict": "This user is already a member.",
+  "addGone": "This user no longer exists — refresh the list.",
+  "deleteTitle": "Delete team?",
+  "deleteBody": "\"{{name}}\" will be deleted. Its members keep their accounts.",
+  "deleteFailed": "Could not delete the team",
+  "deleteConflict": "This team is still referenced elsewhere and cannot be deleted yet.",
+  "saveForbidden": "Only administrators can edit teams",
+  "saveConflict": "A team with this name already exists",
+  "saveInvalid": "One or more fields are invalid",
+  "saveGone": "This team no longer exists — reload the page",
+  "validation": {
+    "nameLength": "Name must be 1–100 characters",
+    "descriptionLength": "Description must be at most 500 characters"
+  },
+  "toast": {
+    "created": "Team created",
+    "saved": "Team saved",
+    "deleted": "Team deleted",
+    "memberAdded": "Member added",
+    "memberRemoved": "Member removed"
+  }
+}

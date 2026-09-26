@@ -1,0 +1,75 @@
+{
+  "action": {
+    "create": "Utwórz",
+    "save": "Zapisz",
+    "cancel": "Anuluj",
+    "delete": "Usuń",
+    "edit": "Edytuj",
+    "close": "Zamknij",
+    "editAria": "Edytuj {{name}}",
+    "deleteAria": "Usuń {{name}}",
+    "showPassword": "Pokaż hasło",
+    "hidePassword": "Ukryj hasło"
+  },
+  "field": {
+    "email": "E-mail",
+    "name": "Nazwa",
+    "role": "Rola",
+    "description": "Opis"
+  },
+  "state": {
+    "any": "Dowolna"
+  },
+  "filter": {
+    "title": "Filtry",
+    "contains": "Zawiera…",
+    "clearName": "Wyczyść filtr nazwy"
+  },
+  "table": {
+    "rowsPerPage": "Wierszy na stronę",
+    "total": "Łącznie: {{count}}",
+    "perPage": "{{count}} / stronę",
+    "firstPage": "Pierwsza strona",
+    "previousPage": "Poprzednia strona",
+    "nextPage": "Następna strona",
+    "lastPage": "Ostatnia strona",
+    "operations": "Operacje",
+    "operationsAria": "Operacje dla {{name}}"
+  },
+  "error": {
+    "timeout": "Przekroczono limit czasu żądania. Spróbuj ponownie.",
+    "network": "Błąd sieci. Sprawdź połączenie i spróbuj ponownie.",
+    "loadFailedStatus": "Wczytywanie nie powiodło się ({{status}})",
+    "actionFailed": "Akcja nie powiodła się. Sprawdź połączenie i spróbuj ponownie.",
+    "actionFailedStatus": "Akcja nie powiodła się ({{status}})",
+    "createFailedStatus": "Tworzenie nie powiodło się ({{status}})",
+    "createFailedNetwork": "Tworzenie nie powiodło się. Sprawdź połączenie i spróbuj ponownie.",
+    "saveFailedStatus": "Zapis nie powiódł się ({{status}})",
+    "saveFailedNetwork": "Zapis nie powiódł się. Sprawdź połączenie i spróbuj ponownie."
+  },
+  "charCount": "{{current}} / {{max}}",
+  "language": {
+    "label": "Język"
+  },
+  "errorBoundary": {
+    "title": "Coś poszło nie tak",
+    "message": "Ta część aplikacji uległa awarii. Odświeżenie strony zwykle pomaga.",
+    "reload": "Odśwież"
+  },
+  "notFound": {
+    "title": "Nie znaleziono strony",
+    "message": "Ten adres nie pasuje do żadnej strony. Mogła zostać przeniesiona albo link zawiera literówkę.",
+    "backHome": "Wróć do strony głównej"
+  },
+  "buildInfo": "Wersja aplikacji",
+  "role": {
+    "ADMIN": "Admin"
+  },
+  "feature": {
+    "MFA": "MFA e-mail"
+  },
+  "featureHint": {
+    "MFA": "6-cyfrowy kod wysyłany e-mailem przy każdym logowaniu (drugi składnik)."
+  },
+  "loading": "Ładowanie…"
+}

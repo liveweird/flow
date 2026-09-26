@@ -1,0 +1,75 @@
+{
+  "action": {
+    "create": "Create",
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "edit": "Edit",
+    "close": "Close",
+    "editAria": "Edit {{name}}",
+    "deleteAria": "Delete {{name}}",
+    "showPassword": "Show password",
+    "hidePassword": "Hide password"
+  },
+  "field": {
+    "email": "Email",
+    "name": "Name",
+    "role": "Role",
+    "description": "Description"
+  },
+  "state": {
+    "any": "Any"
+  },
+  "filter": {
+    "title": "Filters",
+    "contains": "Contains…",
+    "clearName": "Clear name filter"
+  },
+  "table": {
+    "rowsPerPage": "Rows per page",
+    "total": "{{count}} total",
+    "perPage": "{{count}} / page",
+    "firstPage": "First page",
+    "previousPage": "Previous page",
+    "nextPage": "Next page",
+    "lastPage": "Last page",
+    "operations": "Operations",
+    "operationsAria": "Operations for {{name}}"
+  },
+  "error": {
+    "timeout": "The request timed out. Try again.",
+    "network": "Network error. Check your connection and try again.",
+    "loadFailedStatus": "Load failed ({{status}})",
+    "actionFailed": "Action failed. Check your connection and try again.",
+    "actionFailedStatus": "Action failed ({{status}})",
+    "createFailedStatus": "Create failed ({{status}})",
+    "createFailedNetwork": "Create failed. Check your connection and try again.",
+    "saveFailedStatus": "Save failed ({{status}})",
+    "saveFailedNetwork": "Save failed. Check your connection and try again."
+  },
+  "charCount": "{{current}} / {{max}}",
+  "language": {
+    "label": "Language"
+  },
+  "errorBoundary": {
+    "title": "Something went wrong",
+    "message": "This part of the app crashed. Reloading the page usually fixes it.",
+    "reload": "Reload"
+  },
+  "notFound": {
+    "title": "Page not found",
+    "message": "This address doesn't match any page. It may have moved, or the link is mistyped.",
+    "backHome": "Back to home"
+  },
+  "buildInfo": "Build version",
+  "role": {
+    "ADMIN": "Admin"
+  },
+  "feature": {
+    "MFA": "Email MFA"
+  },
+  "featureHint": {
+    "MFA": "A 6-digit code emailed at every sign-in (second factor)."
+  },
+  "loading": "Loading…"
+}

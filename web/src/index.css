@@ -1,0 +1,36 @@
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+/* First tab stop on every page; visually hidden until keyboard-focused. */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  z-index: 1000;
+  padding: 8px 12px;
+  border-radius: 4px;
+  background: var(--mantine-color-body);
+  color: var(--mantine-color-text);
+}
+
+.skip-link:focus {
+  left: 8px;
+  top: 8px;
+}
+
+/* Focus target of the skip link, not an interactive stop — no ring. */
+#main-content:focus {
+  outline: none;
+}
+
+/* The canvas colour before Mantine's variables mount (public/color-scheme.js stamps the
+   scheme attribute first, so a dark-scheme user never sees a white flash). The two hexes
+   duplicate LIGHT_TOKENS.canvas / DARK_TOKENS.canvas (src/themeVariables.ts) — the bundle's
+   CSS variables don't exist yet at first paint; theme.test.ts pins them equal. */
+html {
+  color-scheme: light dark;
+  background-color: light-dark(#f5f7fb, #1f1f1f);
+}

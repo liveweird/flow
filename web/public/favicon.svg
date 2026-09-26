@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" role="img" aria-labelledby="t d">
+  <title id="t">Flow</title>
+  <desc id="d">Three smooth streamlines on a blue tile — work flowing steadily through the system.</desc>
+  <rect x="2" y="2" width="44" height="44" rx="11" fill="#1c7ed6"/>
+  <g fill="none" stroke-width="3.2" stroke-linecap="round">
+    <path d="M10 16.5 C14 12.5 18.5 12.5 22.5 16.5 S31 20.5 35 16.5" stroke="#ffffff"/>
+    <path d="M13 24 C17 20 21.5 20 25.5 24 S34 28 38 24" stroke="#d0ebff"/>
+    <path d="M10 31.5 C14 27.5 18.5 27.5 22.5 31.5 S31 35.5 35 31.5" stroke="#ffffff"/>
+  </g>
+</svg>
