@@ -43,8 +43,18 @@ it, the revoke path prunes expired rows). Blocklist verdicts are served through 
 in-memory cache (`REVOCATION_CACHE_TTL_MS`) so the per-request check is not a DB round-trip;
 `revoke()` seeds its own instance, so on this single-replica deployment a logout is visible
 immediately and the TTL only bounds staleness across a restart (covered by
-`TokenBlocklistCacheTest`). Full token/refresh/logout semantics: see "Authorization model" in
-`.claude/docs/authorization.md`.
+`TokenBlocklistCacheTest`). **A blocklist lookup that THROWS inside the JWT `validate` block
+(database unreachable, pool acquire timeout) is an outage, not a bad token:** ported from
+Lettuce, `validate` runs the cache-missed lookup through `catchingFailures` (`infra/Failures.kt`)
+and, on failure, stashes the cause on the call (`BlocklistFailureKey` in `plugins/Security.kt`);
+Ktor's JWT provider turns any throw out of `validate` into a plain challenge, so the challenge
+answers the catch-all's logged `500` (`respondInternalError`, `plugins/ErrorHandling.kt`) instead
+of `401` — the SPA reads a `401` as session expiry and would sign the user out over a transient
+outage. A malformed/expired/wrong-audience/wrong-`typ` token never reaches the lookup and stays
+the uniform `401`. Pinned by `BlocklistOutageTest`; the OpenAPI spec already declares `500` on
+every operation and the coverage gate ignores it (`CROSS_CUTTING_STATUSES` in
+`OpenApiConformance.kt`), so no spec change is needed. Full token/refresh/logout semantics: see
+"Authorization model" in `.claude/docs/authorization.md`.
 
 **Token storage & response headers (the XSS posture).** The SPA keeps BOTH tokens in
 `localStorage` under `flow.auth.*` (`web/src/api/session.ts` — access, refresh, roles, userId,

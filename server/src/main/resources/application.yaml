@@ -158,3 +158,21 @@ postgres:
   r2dbcUrl: "$POSTGRES_R2DBC_URL:r2dbc:postgresql://localhost:5435/flow"
   user: "$POSTGRES_USER:flow"
   password: "$POSTGRES_PASSWORD:flow"
+  # Bounded R2DBC connection pool (infra/db/Database.kt, `.claude/docs/persistence.md`
+  # "Connection pool") — a plain r2dbc:postgresql:// connect opens one PostgreSQL backend
+  # per suspendTransaction with nothing capping how many run at once. Sizing assumes a
+  # SINGLE replica: `maxSize × replicas` must stay well under PostgreSQL's default
+  # `max_connections = 100`, with room left for Flyway's one short-lived JDBC connection
+  # (infra/db/Flyway.kt) and any other client.
+  pool:
+    # The ceiling on concurrent pooled connections for this instance.
+    maxSize: "$POSTGRES_POOL_MAX_SIZE:20"
+    # The floor the pool fills up to on its FIRST acquire (r2dbc-pool warms up lazily — no
+    # explicit warmup() call — but configureBootstrap's backfill transactions acquire during
+    # boot, so these connections are already open before the first request is served).
+    initialSize: "$POSTGRES_POOL_INITIAL_SIZE:2"
+    # How long a caller waits for a free connection before failing (surfaces as a 500 —
+    # see "Connection pool" in persistence.md — rather than a new declared status).
+    maxAcquireTimeSeconds: "$POSTGRES_POOL_MAX_ACQUIRE_SECONDS:10"
+    # How long an idle pooled connection may sit before the pool recycles it.
+    maxIdleTimeSeconds: "$POSTGRES_POOL_MAX_IDLE_SECONDS:600"

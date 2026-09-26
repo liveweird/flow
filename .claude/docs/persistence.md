@@ -28,6 +28,57 @@ in-network consumers use `postgres:5432`). There is one persistence stack:
   documented so nobody "fixes" one to match the other without a migration (an `INTEGER` FK column
   may reference the `BIGINT` id; Postgres compares them fine).
 
+### Connection pool
+
+- **Applies when:** touching `infra/db/Database.kt`'s connect call, the `postgres.pool.*`
+  configuration, or reasoning about how many PostgreSQL backends one Flow instance can hold.
+- **Requirement:** Exposed connects through ONE bounded `io.r2dbc:r2dbc-pool` `ConnectionPool`
+  (ported from Lettuce) wrapping the plain PostgreSQL R2DBC factory — never a raw
+  `r2dbc:postgresql://` connect, which opens one backend per `suspendTransaction` with nothing
+  capping concurrency (measured in Lettuce, v3.16.1, against its compose stack: 120 parallel
+  requests against one endpoint took ALL 100 backends of PostgreSQL's default `max_connections`
+  taken, 6 × `500` "sorry, too many clients already" and 7 × `401` — the JWT validation's
+  blocklist read failed and surfaced as an invalid token — fixed in Lettuce v3.16.2: a throwing
+  blocklist lookup now answers the catch-all's 500, never 401, the same fix ported into Flow's
+  `plugins/Security.kt` alongside this pool, see "JWT model" in `.claude/docs/security.md`).
+  Bounds come from `application.yaml`'s `postgres.pool` block, each boot-validated (startup fails
+  outside the range, the `security.lockout.*` idiom, via the shared `infra/config/`
+  `requireConfigInt`/`requireConfigLong` helpers, also ported from Lettuce): `maxSize`
+  (`POSTGRES_POOL_MAX_SIZE`, default 20, 1..1000), `initialSize` (`POSTGRES_POOL_INITIAL_SIZE`,
+  default 2, 0..maxSize — the floor the pool fills up to on its FIRST acquire, not at
+  construction: r2dbc-pool warms up lazily and `warmup()` is deliberately not called; in practice
+  `configureBootstrap`'s backfill transactions acquire during boot, so the floor is open before
+  the first request), `maxAcquireTimeSeconds` (`POSTGRES_POOL_MAX_ACQUIRE_SECONDS`, default 10,
+  1..600) and `maxIdleTimeSeconds` (`POSTGRES_POOL_MAX_IDLE_SECONDS`, default 600, 1..86400). Every
+  pooled connection carries `application_name = flow` (`postgres.pool.applicationName`, test-only
+  override), so operators count this instance's backends with
+  `SELECT count(*) FROM pg_stat_activity WHERE application_name = 'flow'`. Size it as
+  `maxSize × replicas + 1` (Flyway's short-lived JDBC connection, `infra/db/Flyway.kt`) well under
+  the server's `max_connections`. A caller that waits past the acquire deadline fails with the
+  pool's timeout exception, which `plugins/ErrorHandling.kt`'s catch-all renders as a logged
+  `500` — deliberately NOT a new declared status, since the OpenAPI conformance gate would need it
+  on every operation. The pool is disposed on `ApplicationStopped`, so every `testApplication` the
+  suite boots releases its connections. Exposed's
+  `R2dbcDatabase.connect(connectionFactory, databaseConfig)` derives the dialect from
+  `databaseConfig.connectionFactoryOptions` alone, so the parsed options (still
+  `driver=postgresql`) are threaded into the config unchanged while traffic goes through the
+  pool. The same config pins `defaultMaxAttempts = 1`: Exposed would otherwise retry ANY
+  `R2dbcException` three times, and the pool's acquire timeout is one — a saturated pool would
+  cost 3 × the acquire budget per request and re-enter the acquire queue each time; Flow's writes
+  have no path relying on that retry. **Dependency alignment:** r2dbc-pool 1.0.2 declares
+  reactor-pool 1.0.8 (built on reactor-core 3.5.20), but Flow resolves a newer reactor-core, so
+  `server/build.gradle.kts` imports the Reactor BOM (`reactor-bom` in
+  `gradle/libs.versions.toml`) as a platform — it pins reactor-core, reactor-pool and
+  reactor-netty as one release train, and `:server:checkDependencyAlignment` fails when any
+  reactor module resolves to a version other than the BOM's. Move the `reactor-bom` catalog line
+  together with the `netty` pin (reactor-netty's Netty version tracks the BOM). Covered by
+  `ConnectionPoolTest` (bounded concurrency, a saturated pool's acquire timeout, disposal on
+  `ApplicationStopped` and on a later module's failed startup, and the four config range-check
+  cases) and `checkDependencyAlignment`'s own Reactor guard.
+- **Exception:** the pool runs r2dbc-pool's defaults for liveness (`ValidationDepth.LOCAL`, no
+  `maxLifeTime`): a connection killed server-side between uses is handed out once and fails that
+  request with a 500 — accepted until a deployment introduces an idle killer or proxy.
+
 The `org.postgresql:postgresql` JDBC driver is on the classpath solely for Flyway; runtime queries
 go through R2DBC.
 
