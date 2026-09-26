@@ -1,0 +1,23 @@
+<configuration>
+    <!-- Single pipeline: all logs go through the OpenTelemetry logs SDK (see plugins/OpenTelemetry.kt).
+         The interim `console` logs exporter prints records to System.out, so the OTEL appender is the
+         only root appender — adding STDOUT back would double every line. STDOUT is kept defined but
+         unreferenced so dev-pretty console output is a one-line change to re-enable. -->
+    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{YYYY-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+    <appender name="OTEL" class="io.opentelemetry.instrumentation.logback.appender.v1_0.OpenTelemetryAppender">
+        <captureCodeAttributes>true</captureCodeAttributes>
+        <captureMarkerAttribute>true</captureMarkerAttribute>
+        <captureKeyValuePairAttributes>true</captureKeyValuePairAttributes>
+        <captureMdcAttributes>*</captureMdcAttributes>
+        <numLogsCapturedBeforeOtelInstall>1000</numLogsCapturedBeforeOtelInstall>
+    </appender>
+    <root level="INFO">
+        <appender-ref ref="OTEL"/>
+    </root>
+    <logger name="org.eclipse.jetty" level="INFO"/>
+    <logger name="io.netty" level="INFO"/>
+</configuration>

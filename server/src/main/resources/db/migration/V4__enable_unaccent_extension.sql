@@ -1,0 +1,15 @@
+-- Diacritics-insensitive substring filters. Every list-endpoint text filter renders
+-- LOWER(public.unaccent(col)) LIKE LOWER(public.unaccent(<pattern>)) (see the shared
+-- containsNormalized helper in infra/db/Sql.kt), so a user typing plain ASCII ("zolw")
+-- matches stored Polish diacritics ("Żółw") and vice versa. Folding both sides through the
+-- SAME PostgreSQL function means the rules can never drift between the query text and the
+-- stored text (ł→l, ß→ss, æ→ae, …).
+--
+-- unaccent ships in postgres contrib (present in the official postgres:18-alpine image used
+-- by compose, k8s, and Testcontainers) and has been a TRUSTED extension since PG 13 — the
+-- application role only needs CREATE on the database (the owner role everywhere here), no
+-- superuser. The extension's objects install into the first schema on search_path (public);
+-- the query side schema-qualifies public.unaccent() so lookups never depend on search_path.
+-- Note the single-arg unaccent(text) form resolves its "unaccent" text-search dictionary via
+-- search_path at call time — fine for this app, which lives entirely in public.
+CREATE EXTENSION IF NOT EXISTS unaccent;

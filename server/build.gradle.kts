@@ -1,0 +1,240 @@
+
+plugins {
+    alias(libs.plugins.kotlin.jvm)
+    alias(ktorLibs.plugins.ktor)
+    alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.kover)
+    alias(libs.plugins.detekt)
+}
+
+buildscript {
+    configurations.classpath {
+        resolutionStrategy.activateDependencyLocking()
+    }
+    dependencies {
+        constraints {
+            // Ktor's Gradle plugin loads these via its Shadow and Jib integrations during the
+            // build. Keep the script classpath above the reviewed advisory floors too.
+            classpath("com.fasterxml.jackson.core:jackson-core:2.22.2")
+            classpath("com.fasterxml.jackson.core:jackson-databind:2.22.2")
+            classpath("com.fasterxml.jackson.core:jackson-annotations:2.22")
+            classpath("com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.22.2")
+            classpath("org.apache.logging.log4j:log4j-api:2.25.5")
+            classpath("org.apache.logging.log4j:log4j-core:2.25.5")
+            classpath("org.codehaus.plexus:plexus-utils:4.0.3")
+        }
+    }
+}
+
+
+application {
+    mainClass = "io.ktor.server.netty.EngineMain"
+    // Footprint tuning for this small, I/O-bound, low-traffic service. Baked into the installDist
+    // launcher (bin/server → the Docker image) and `:server:run`; `test` is unaffected. Measured
+    // (in Lettuce, the same stack) on a 512 MiB Linux container: baseline G1 drifts ~345→410 MiB
+    // RSS as it grows its heap; this config sits at a steady ~270 MiB — ~25% lower and
+    // predictable. Startup is ~1.6 s either way; the win is memory, not startup.
+    //   - UseSerialGC        : G1's concurrent threads + region metadata are pure overhead for a
+    //                          small heap / few cores; SerialGC alone saved ~75 MiB here.
+    //   - Xmx256m            : the app holds no large caches; 256 MiB is comfortable headroom for
+    //                          light bursts (drop to 192m to trim ~25 MiB more if traffic stays low).
+    //   - TieredStopAtLevel=1: C1-only JIT — trims code-cache + C2-compiler memory (~50 MiB here).
+    //                          Peak CPU-bound throughput is lower, which is irrelevant for an
+    //                          I/O-bound tool; REMOVE this flag if the service ever runs hot.
+    // Override per-deployment with the JAVA_OPTS / SERVER_OPTS env vars (the launcher appends both).
+    applicationDefaultJvmArgs = listOf(
+        "-XX:+UseSerialGC",
+        "-Xmx256m",
+        "-XX:TieredStopAtLevel=1",
+    )
+}
+
+kotlin {
+    jvmToolchain(21)
+}
+
+kover {
+    reports {
+        filters {
+            excludes {
+                // @Serializable data classes are wire shapes: kotlinx-serialization synthesizes one branch
+                // per optional property (the default-value mask in the generated constructor and
+                // serializer) that no test can meaningfully exercise — the reader's ~40 view DTOs alone
+                // added a thousand such branches. Behavior never lives in them (services, validators and
+                // renderers are plain classes and stay measured; a DTO's companion object stays measured
+                // too, since the annotation sits on the class).
+                annotatedBy("kotlinx.serialization.Serializable")
+            }
+        }
+        verify {
+            rule {
+                // Line-coverage floor (actual 94.49% on 2026-09-26, measured with the @Serializable
+                // exclusion above, after trimming the suite down to the generic foundation —
+                // re-measure with `:server:koverXmlReport` and RAISE, never lower).
+                minBound(91)
+                // Branch-coverage floor (actual 77.20%, 2026-09-26). NOTE: `check` runs only
+                // koverVerify — run `:server:koverXmlReport` for fresh actuals.
+                minBound(74, coverageUnits = kotlinx.kover.gradle.plugin.dsl.CoverageUnit.BRANCH)
+            }
+        }
+    }
+}
+
+tasks.named("check") {
+    dependsOn(tasks.named("koverVerify"))
+}
+
+// Static analysis (plain rule sets only — no type resolution). Rule tuning lives in
+// config/detekt/detekt.yml; the task rides `check`, so `build` gates on it.
+detekt {
+    buildUponDefaultConfig = true
+    config.setFrom(rootProject.file("config/detekt/detekt.yml"))
+}
+dependencies {
+    constraints {
+        // Security floor for a vulnerable runtime transitive (scram-client, via r2dbc-postgresql).
+        // Kept as a constraint because server code does not consume its API directly; see the
+        // catalog note for provenance.
+        implementation(libs.scram.client)
+        implementation(libs.scram.common)
+    }
+    implementation(project(":core"))
+    implementation(ktorLibs.serialization.kotlinx.json)
+    implementation(ktorLibs.server.auth)
+    implementation(ktorLibs.server.auth.jwt)
+    implementation(ktorLibs.server.autoHeadResponse)
+    implementation(ktorLibs.server.bodyLimit)
+    implementation(ktorLibs.server.cachingHeaders)
+    implementation(ktorLibs.server.callId)
+    implementation(ktorLibs.server.callLogging)
+    implementation(ktorLibs.server.compression)
+    implementation(ktorLibs.server.config.yaml)
+    implementation(ktorLibs.server.contentNegotiation)
+    implementation(ktorLibs.server.core)
+    implementation(ktorLibs.server.cors)
+    implementation(ktorLibs.server.csrf)
+    implementation(ktorLibs.server.defaultHeaders)
+    implementation(ktorLibs.server.forwardedHeader)
+    implementation(ktorLibs.server.hsts)
+    implementation(ktorLibs.server.httpRedirect)
+    implementation(ktorLibs.server.metrics)
+    implementation(ktorLibs.server.netty)
+    implementation(ktorLibs.server.rateLimit)
+    implementation(ktorLibs.server.resources)
+    implementation(ktorLibs.server.statusPages)
+    implementation(ktorLibs.server.swagger)
+    implementation(libs.angus.mail)
+    implementation(libs.bcrypt)
+    implementation(libs.exposed.core)
+    implementation(libs.exposed.r2dbc)
+    implementation(libs.flyway.core)
+    implementation(libs.flyway.database.postgresql)
+    implementation(libs.logback.classic)
+    implementation(libs.opentelemetry.logbackAppender)
+    implementation(libs.postgresql)
+    implementation(libs.r2dbc.postgresql)
+    // Netty alignment — see the `netty` comment in gradle/libs.versions.toml: the BOM pins every
+    // io.netty module to one version and the explicit reactor-netty wins over the driver's older
+    // transitive request (Gradle picks the highest). Guarded by checkDependencyAlignment below.
+    implementation(platform(libs.netty.bom))
+    implementation(libs.reactor.netty.core)
+    // kotlin-reflect rides in transitively (Ktor loads the config modules through it) at whatever
+    // version Ktor/Exposed were built with; declaring it lets the Kotlin plugin align it with the
+    // stdlib. Guarded by checkDependencyAlignment below.
+    implementation(kotlin("reflect"))
+    // Jackson dataformat/module — see the `jackson` catalog note. The Jackson BOM pins the whole
+    // com.fasterxml.jackson family.
+    implementation(platform(libs.jackson.bom))
+    implementation(libs.jackson.dataformat.yaml)
+    implementation(libs.jackson.module.kotlin)
+
+    testImplementation(kotlin("test"))
+    testImplementation(ktorLibs.server.testHost)
+    // Test-only: the test HTTP clients (TestEnvironment.kt's jsonClient()/authedClient()) negotiate
+    // application/json and application/problem+json bodies.
+    testImplementation(ktorLibs.client.contentNegotiation)
+    // Test-only: the OpenAPI conformance/spec-validation harness (OpenApiConformance.kt,
+    // OpenApiSpecTest.kt) parses and validates documentation.yaml against real traffic — see the
+    // `swagger-parser`/`swagger-request-validator` catalog notes.
+    testImplementation(libs.swagger.parser.v3)
+    testImplementation(libs.swagger.request.validator.core)
+    testImplementation(libs.testcontainers.postgresql)
+}
+
+// Every test-client interaction with /api/ is validated against the OpenAPI spec (see
+// OpenApiConformance.kt). `-Dopenapi.conformance=warn|off` relaxes it for drift triage.
+tasks.withType<Test> {
+    systemProperty("openapi.conformance", System.getProperty("openapi.conformance", "fail"))
+}
+
+// The OpenAPI COVERAGE gate: OpenApiCoverage (test JVM shutdown hook) writes every declared
+// (operation, status) pair the suite never exercised to gaps.txt — minus the statuses shared plugins
+// produce for every route alike (400/401/413/415/429, pinned once each) and the unforceable 500/default.
+// A non-empty file fails the task, but only when the WHOLE suite ran (a `--tests` filter legitimately
+// leaves most of the spec unexercised).
+tasks.test {
+    val gapsFile = layout.buildDirectory.file("reports/openapi-conformance/gaps.txt")
+    // `--tests` lands in the start parameter's task arguments (the filter's command-line patterns are
+    // internal API); a filtered run is not the whole suite, so the gate stays quiet.
+    val filtered = gradle.startParameter.taskRequests.any { request -> "--tests" in request.args }
+    doLast {
+        if (filtered || filter.includePatterns.isNotEmpty()) return@doLast
+        val gaps = gapsFile.get().asFile.takeIf { it.exists() }?.readLines()?.filter { it.isNotBlank() } ?: emptyList()
+        check(gaps.isEmpty()) {
+            "OpenAPI coverage gate: ${gaps.size} declared (operation, status) pair(s) were never exercised by the suite — " +
+                "add a test per declared status, or trim the spec to what the route can answer:\n  " + gaps.joinToString("\n  ")
+        }
+    }
+}
+
+// Fails the build when a dependency FAMILY that must move as one resolves to several versions on
+// the server runtime classpath — the mixed Netty 4.1/4.2 set Ktor + reactor-netty produced, the
+// OpenTelemetry incubator drifting from the SDK, kotlin-reflect lagging the stdlib, or a Jackson 2
+// module drifting from the BOM (the catalog notes explain each pin). Docker-free, rides `check`
+// like detekt.
+val checkDependencyAlignment = tasks.register("checkDependencyAlignment") {
+    group = "verification"
+    description = "Asserts one version per aligned dependency family on the server runtime classpath."
+    val runtimeClasspath = configurations.runtimeClasspath
+    doLast {
+        val ids = runtimeClasspath.get().resolvedConfiguration.resolvedArtifacts.map { it.moduleVersion.id }
+        // family label -> (member predicate, version normalizer)
+        val families = mapOf(
+            "io.netty" to Pair({ g: String, _: String -> g == "io.netty" }, { v: String -> v }),
+            // The alpha/incubator artifacts carry a "-alpha" suffix on the same version number.
+            "io.opentelemetry" to Pair({ g: String, _: String -> g == "io.opentelemetry" }, { v: String -> v.removeSuffix("-alpha") }),
+            // stdlib-jdk7/jdk8 are empty relocation jars since Kotlin 1.8 — only these two matter.
+            "kotlin stdlib/reflect" to Pair(
+                { g: String, n: String -> g == "org.jetbrains.kotlin" && (n == "kotlin-stdlib" || n == "kotlin-reflect") },
+                { v: String -> v },
+            ),
+            // The test-only swagger-parser/swagger-request-validator stack rides Jackson 2 too; the
+            // BOM keeps every module together. Since 2.22 jackson-annotations is versioned by MINOR
+            // only ("2.22" beside "2.22.1"), so the family compares major.minor — a patch drift
+            // inside one minor is the BOM's business.
+            "com.fasterxml.jackson" to Pair(
+                { g: String, _: String -> g.startsWith("com.fasterxml.jackson") },
+                { v: String -> v.split('.').take(2).joinToString(".") },
+            ),
+        )
+        val drift = families.mapNotNull { (label, spec) ->
+            val (member, normalize) = spec
+            val versions = ids.filter { member(it.group, it.name) }.groupBy({ normalize(it.version) }, { it.name })
+            if (versions.size == 1) {
+                logger.lifecycle("$label aligned at ${versions.keys.single()} (${versions.values.single().size} modules)")
+                null
+            } else {
+                "$label: " + versions.entries.joinToString("; ") { (v, names) -> "$v -> ${names.sorted()}" }
+            }
+        }
+        check(drift.isEmpty()) { "Dependency families must resolve to ONE version each on the runtime classpath — " + drift.joinToString(" | ") }
+        // Jackson 3 (tools.jackson, a different Java package from com.fasterxml.jackson) rides in
+        // through Flyway 13 and coexists with the Jackson 2 line the validators use — the two never
+        // share a type. Logged, not failed: what matters is that OUR libraries stay on ONE of them
+        // (networknt 3.x would put JsonNode-incompatible trees next to swagger-parser's — see the
+        // catalog note), which the family check above guards.
+        val jackson3 = ids.filter { it.group.startsWith("tools.jackson") }.map { "${it.name}:${it.version}" }.sorted()
+        if (jackson3.isNotEmpty()) logger.lifecycle("tools.jackson (Jackson 3, via Flyway) present alongside Jackson 2: $jackson3")
+    }
+}
+tasks.named("check") { dependsOn(checkDependencyAlignment) }
