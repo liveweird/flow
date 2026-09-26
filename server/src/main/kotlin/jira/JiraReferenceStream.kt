@@ -144,6 +144,8 @@ class JiraReferenceStream(
             context.transaction {
                 rawStore.upsertEntity(context.connectionId, JiraEntityKind.PROJECT_STATUSES.name, key, statuses.toString(), context.clock())
                 context.putCursor(name, encode(ReferenceCursor(passStartedAt, JiraEntityKind.PROJECT_STATUSES, startAt = index + 1)))
+                context.incrementProgress("entities")
+                context.incrementProgress("pages")
             }
             context.heartbeat()
             index++
@@ -164,6 +166,8 @@ class JiraReferenceStream(
                     name,
                     encode(ReferenceCursor(passStartedAt, JiraEntityKind.BOARD_CONFIGURATION, boardId = boardId, startAt = index + 1)),
                 )
+                context.incrementProgress("entities")
+                context.incrementProgress("pages")
             }
             context.heartbeat()
             index++
@@ -226,6 +230,8 @@ class JiraReferenceStream(
             val obj = element.jsonObject
             rawStore.upsertEntity(context.connectionId, step.name, idOf(obj), element.toString(), context.clock())
         }
+        context.incrementProgress("entities", elements.size.toLong())
+        context.incrementProgress("pages")
     }
 
     private fun encode(cursor: ReferenceCursor): String = REFERENCE_CURSOR_JSON.encodeToString(cursor)

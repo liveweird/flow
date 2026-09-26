@@ -48,10 +48,16 @@ fun interface PurgeStep {
 /**
  * What a claimed job hands its connector: the claim itself plus a [heartbeat] callback
  * (`ingest/SyncJobs.kt`'s `heartbeat`, pre-bound to this job/worker) a real stream calls after
- * every page write. `false` means the lease is already lost — the connector must stop without
- * touching cursors (`ingest/IngestWorker.kt`'s ticker independently enforces the same contract).
+ * every page write, carrying that stream's own progress-counter JSON and current stream name
+ * (v0.2.0 plan §12 item 7, `ingest/Stream.kt`'s `StreamContext`) so they flush onto the job row
+ * alongside the lease renewal. `false` means the lease is already lost — the connector must stop
+ * without touching cursors (`ingest/IngestWorker.kt`'s ticker independently enforces the same
+ * contract).
  */
-class SyncJobRunContext(val claim: SyncJobClaim, val heartbeat: suspend () -> Boolean)
+class SyncJobRunContext(
+    val claim: SyncJobClaim,
+    val heartbeat: suspend (progress: String?, currentStream: String?) -> Boolean,
+)
 
 /** Every registered connector, keyed by the [DataSourceKind] it serves — populated by `jira/Jira.kt`'s `configureJira`. */
 val ConnectorRegistryKey = AttributeKey<Map<DataSourceKind, Connector>>("ConnectorRegistry")

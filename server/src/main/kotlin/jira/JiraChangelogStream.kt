@@ -99,6 +99,7 @@ class JiraChangelogStream(
         context.transaction {
             storeBulkResult(context, logs)
             rawStore.markChangelogSynced(context.connectionId, batch, context.clock())
+            context.incrementProgress("changelogs", logs.sumOf { it["changeHistories"]?.jsonArray?.size ?: 0 }.toLong())
         }
         context.heartbeat()
         return true
@@ -145,6 +146,7 @@ class JiraChangelogStream(
             context.transaction {
                 histories.forEach { storeHistory(context, issueId, it) }
                 rawStore.markChangelogSynced(context.connectionId, listOf(issueId), context.clock())
+                context.incrementProgress("changelogs", histories.size.toLong())
             }
             context.heartbeat()
         }

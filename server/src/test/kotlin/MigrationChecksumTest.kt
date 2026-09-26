@@ -31,6 +31,7 @@ class MigrationChecksumTest {
         "V9__create_sync_jobs.sql" to -1398573629,
         "V10__create_jira_raw_store.sql" to -496936825,
         "V11__create_jira_changelogs_worklogs.sql" to -1236733849,
+        "V12__create_jira_reconcile_seen.sql" to -21356434,
     )
 
     @Test

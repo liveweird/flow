@@ -633,6 +633,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/data-sources/{id}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Get a data source's sync status
+         * @description ADMIN only, read-only (v0.2.0 plan §9). Connection summary, every persisted stream cursor
+         *     (`reference`/`issues`/`changelogs`/`worklogs`/`reconcile` — a completed pass with nothing
+         *     left to resume has no row, so it is simply absent), raw-store row counts, the most recent
+         *     job of each kind, and the connection's currently RUNNING job, if any.
+         */
+        get: operations["getDataSourceStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1007,6 +1032,52 @@ export interface components {
             job: components["schemas"]["SyncJobResponse"];
             /** @description True when an already-open job for the same (connection, kind) was returned instead of a new one. */
             coalesced: boolean;
+        };
+        SyncCursorSummary: {
+            /** @description The stream's `sync_cursors.stream` key (e.g. issues, reference, reconcile). */
+            stream: string;
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            watermarkAt?: number | null;
+            /** @description The stream's own raw persisted cursor JSON — an opaque, per-stream-owned diagnostic string, not reparsed here. */
+            position: string;
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            lastCompletedAt?: number | null;
+        };
+        SyncCounts: {
+            /** Format: int64 */
+            rawIssues: number;
+            /** Format: int64 */
+            tombstonedDeleted: number;
+            /** Format: int64 */
+            tombstonedMovedOut: number;
+            /** Format: int64 */
+            changelogs: number;
+            /**
+             * Format: int64
+             * @description Live (non-tombstoned) worklogs.
+             */
+            worklogs: number;
+            entitiesByKind: {
+                [key: string]: number;
+            };
+            /** Format: int64 */
+            needsProcessing: number;
+        };
+        SyncStatusResponse: {
+            connection: components["schemas"]["DataSourceResponse"];
+            cursors: components["schemas"]["SyncCursorSummary"][];
+            counts: components["schemas"]["SyncCounts"];
+            /** @description Keyed by SyncJobKind name — the most recent job of each kind ever requested for this connection. */
+            lastJobs: {
+                [key: string]: components["schemas"]["SyncJobResponse"];
+            };
+            currentJob?: components["schemas"]["SyncJobResponse"] | null;
         };
         /** @description RFC 7807 problem detail. Served as `application/problem+json`; instance is the request path without query parameters. */
         ProblemDetail: {
@@ -2175,6 +2246,33 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getDataSourceStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The sync status */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SyncStatusResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
             500: components["responses"]["InternalServerError"];
         };
     };

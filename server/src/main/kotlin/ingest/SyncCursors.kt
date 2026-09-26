@@ -79,6 +79,20 @@ class SyncCursorsService(private val database: R2dbcDatabase) {
         }
     }
 
+    /** Every persisted cursor row for a connection — `GET …/{id}/status`'s `cursors[]` (v0.2.0 plan §9). */
+    suspend fun getAll(connectionId: UInt): List<SyncCursorRow> = suspendTransaction(database) {
+        Cursors.selectAll().where { Cursors.connectionId eq connectionId }.toList().map {
+            SyncCursorRow(
+                connectionId = it[Cursors.connectionId].value,
+                stream = it[Cursors.stream],
+                cursor = it[Cursors.cursor],
+                watermarkAt = it[Cursors.watermarkAt],
+                lastCompletedAt = it[Cursors.lastCompletedAt],
+                updatedAt = it[Cursors.updatedAt],
+            )
+        }
+    }
+
     /** A stream that just completed a whole logical pass (e.g. REFERENCE, plan §7) clears its own resumption state. */
     suspend fun clear(connectionId: UInt, stream: String) {
         suspendTransaction(database) {

@@ -35,10 +35,14 @@ import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.HttpTimeout
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.r2dbc.deleteWhere
 import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
+import java.io.File
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.test.Test
@@ -66,6 +70,32 @@ private fun ensureMigrated() {
 
 private val IN_SCOPE_PROJECT_KEYS = listOf("FLO", "PLT", "GTM", "OPS")
 private val ISSUES_TEST_JSON = Json { ignoreUnknownKeys = true }
+
+/**
+ * `sample-data/jira/expected.json`'s in-scope-reachable/day2 facts (v0.2.0 plan §12 item 7): read
+ * from the generated fixture rather than hand-copied, so a generator change can never drift
+ * silently from what this suite asserts.
+ */
+@Serializable
+private data class ExpectedChangelog(val inScopeHistories: Long)
+
+@Serializable
+private data class ExpectedWorklogs(val inScopeCount: Long)
+
+@Serializable
+private data class ExpectedDay2(val deletedIssueId: String, val movedIssueId: String, val movedToProjectKey: String)
+
+@Serializable
+private data class ExpectedFixture(val changelog: ExpectedChangelog, val worklogs: ExpectedWorklogs, val day2: ExpectedDay2)
+
+private val EXPECTED_FIXTURE_JSON = Json { ignoreUnknownKeys = true }
+
+private val expectedFixture: ExpectedFixture by lazy {
+    val file = listOf(File("sample-data/jira/expected.json"), File("../sample-data/jira/expected.json"))
+        .firstOrNull { it.isFile }
+        ?: error("sample-data/jira/expected.json not found from ${File(".").absolutePath}")
+    EXPECTED_FIXTURE_JSON.decodeFromString(file.readText())
+}
 
 /**
  * `jira/JiraConnector.kt`'s `run` (v0.2.0 plan §7/§11/§12 item 6): REFERENCE then ISSUES, driven
@@ -155,7 +185,11 @@ class JiraSyncPipelineTest {
     )
 
     private suspend fun runConnectorOnce(connector: JiraConnector, connId: UInt) {
-        connector.run(SyncJobRunContext(claimFor(connId)) { true })
+        connector.run(SyncJobRunContext(claimFor(connId)) { _, _ -> true })
+    }
+
+    private suspend fun runReconcileOnce(connector: JiraConnector, connId: UInt) {
+        connector.run(SyncJobRunContext(claimFor(connId).copy(kind = SyncJobKind.RECONCILE)) { _, _ -> true })
     }
 
     private suspend fun issueRows(connId: UInt): List<org.jetbrains.exposed.v1.core.ResultRow> =
@@ -214,16 +248,21 @@ class JiraSyncPipelineTest {
         assertNull(decoded.nextPageToken, "a completed ISSUES run clears its page token")
 
         val store = rawStore()
-        // expected.json's changelog.totalHistories (5372) and worklogs.inScopeTotalCount (1266) are
+        // expected.json's changelog.allProjectsHistories/worklogs.allProjectsTotalCount are
         // WHOLE-DATASET stats — the generator's own counters loop over every project INCLUDING the
         // out-of-scope SEC project (`sample-data/jira/generate.mjs`'s "issues" array), so they also
-        // count history/worklog rows on issues A1 deliberately never fetches. The numbers below are
-        // the in-scope-reachable totals: the 23 real bulkfetch chunks' histories plus the omitted
-        // chunk's 50-issue fallback (4903 + 222), and every in-scope issue's own worklog page total.
+        // count history/worklog rows on issues A1 deliberately never fetches. changelog.inScopeHistories/
+        // worklogs.inScopeCount are the in-scope-reachable totals this backfill actually stores: the
+        // 23 real bulkfetch chunks' histories plus the omitted chunk's 50-issue fallback, and every
+        // in-scope issue's own worklog page total.
         assertEquals(
-            5125L, store.countChangelogs(connId), "in-scope-reachable changelog histories (23 bulk chunks + the omitted chunk's fallback)",
+            expectedFixture.changelog.inScopeHistories, store.countChangelogs(connId),
+            "sample-data/jira/expected.json changelog.inScopeHistories (23 bulk chunks + the omitted chunk's fallback)",
         )
-        assertEquals(1187L, store.countWorklogs(connId), "in-scope-reachable worklogs (sample-data/jira-stub's per-issue worklog pages)")
+        assertEquals(
+            expectedFixture.worklogs.inScopeCount, store.countWorklogs(connId),
+            "sample-data/jira/expected.json worklogs.inScopeCount (sample-data/jira-stub's per-issue worklog pages)",
+        )
         assertEquals(
             1200, rows.count { it[JiraRawStore.Issues.worklogsSyncedAt] != null },
             "worklogs_synced_at must be set on every in-scope issue",
@@ -310,11 +349,11 @@ class JiraSyncPipelineTest {
         try {
             val client = buildClient(maxRetries = 0)
             val worklogStream = JiraWorklogStream(client, store)
-            val context = StreamContext(connId, 1u, sharedDatabaseForTests(), cursors(), jobHeartbeat = { true })
+            val context = StreamContext(connId, 1u, sharedDatabaseForTests(), cursors(), jobHeartbeat = { _, _ -> true })
             worklogStream.run(context)
 
             assertEquals(
-                2L, worklogStream.lastRunOutOfScopeCount,
+                2L, context.progressSnapshot()["worklogsOutOfScope"] ?: 0L,
                 "sample-data/jira/expected.json worklogs.outOfScopeDay2FeedCount — SEC worklogs dropped",
             )
 
@@ -350,7 +389,7 @@ class JiraSyncPipelineTest {
         val cursorService = cursors()
         val client = buildClient(maxRetries = 0)
         val stream = JiraIssuesStream(client, store, IN_SCOPE_PROJECT_KEYS, 0L, 10L, 100)
-        val context = StreamContext(connId, 1u, sharedDatabaseForTests(), cursorService, jobHeartbeat = { true })
+        val context = StreamContext(connId, 1u, sharedDatabaseForTests(), cursorService, jobHeartbeat = { _, _ -> true })
 
         val fault = JiraStubServer.addOverride(
             get(urlPathMatching(".*/rest/api/3/search/jql"))
@@ -384,7 +423,7 @@ class JiraSyncPipelineTest {
         val cursorService = cursors()
         val client = buildClient(maxRetries = 0)
         val stream = JiraIssuesStream(client, store, IN_SCOPE_PROJECT_KEYS, 0L, 10L, 100)
-        val context = StreamContext(connId, 1u, sharedDatabaseForTests(), cursorService, jobHeartbeat = { true })
+        val context = StreamContext(connId, 1u, sharedDatabaseForTests(), cursorService, jobHeartbeat = { _, _ -> true })
 
         // A ONE-SHOT 410 via a dedicated WireMock scenario: it fires exactly once (then flips its
         // own state away), so the retried page-2 request falls through to the real mapping and
@@ -422,7 +461,7 @@ class JiraSyncPipelineTest {
         val client = buildClient()
         val stream = JiraIssuesStream(client, store, IN_SCOPE_PROJECT_KEYS, 0L, 10L, 100)
         var heartbeats = 0
-        val context = StreamContext(connId, 1u, sharedDatabaseForTests(), cursorService, jobHeartbeat = {
+        val context = StreamContext(connId, 1u, sharedDatabaseForTests(), cursorService, jobHeartbeat = { _, _ ->
             heartbeats++
             heartbeats <= 2
         })
@@ -441,5 +480,88 @@ class JiraSyncPipelineTest {
             ISSUES_TEST_JSON.decodeFromString<IssuesCursor>(cursor.cursor).nextPageToken,
             "the cursor must point at the NEXT page to fetch — that page must never have been requested",
         )
+    }
+
+    @Test
+    fun `RECONCILE tombstones the day2 deleted and moved issues, flags them for processing, and is idempotent`() = runBlocking {
+        ensureMigrated()
+        val ds = dataSources()
+        val connId = createConnection(ds)
+        val connector = buildConnector()
+        val store = rawStore()
+
+        runConnectorOnce(connector, connId) // full backfill: raw.jira_issues must know every in-scope issue first
+
+        JiraStubServer.setScenarioState("jira-day2", "day2")
+        try {
+            runReconcileOnce(connector, connId)
+
+            val deletedId = expectedFixture.day2.deletedIssueId.toLong()
+            val movedId = expectedFixture.day2.movedIssueId.toLong()
+            val rows = issueRows(connId).associateBy { it[JiraRawStore.Issues.issueId] }
+
+            val deletedRow = rows.getValue(deletedId)
+            assertNotNull(
+                deletedRow[JiraRawStore.Issues.deletedAt],
+                "sample-data/jira/expected.json day2.deletedIssueId must be tombstoned",
+            )
+            assertTrue(deletedRow[JiraRawStore.Issues.needsProcessing], "a tombstone must flag the issue for processing")
+
+            val movedRow = rows.getValue(movedId)
+            assertNotNull(
+                movedRow[JiraRawStore.Issues.movedOutAt],
+                "sample-data/jira/expected.json day2.movedIssueId must be tombstoned as moved-out",
+            )
+            assertEquals(expectedFixture.day2.movedToProjectKey, movedRow[JiraRawStore.Issues.projectKey])
+            assertTrue(movedRow[JiraRawStore.Issues.needsProcessing], "a tombstone must flag the issue for processing")
+
+            assertEquals(0L, store.countReconcileSeen(connId), "the scratch table must be empty after a completed pass")
+
+            // Idempotence: a second RECONCILE against the SAME day2 state changes nothing further.
+            val deletedAtBefore = deletedRow[JiraRawStore.Issues.deletedAt]
+            val movedAtBefore = movedRow[JiraRawStore.Issues.movedOutAt]
+            runReconcileOnce(connector, connId)
+            val rowsAfter = issueRows(connId).associateBy { it[JiraRawStore.Issues.issueId] }
+            assertEquals(
+                deletedAtBefore, rowsAfter.getValue(deletedId)[JiraRawStore.Issues.deletedAt], "a second RECONCILE must be idempotent",
+            )
+            assertEquals(
+                movedAtBefore, rowsAfter.getValue(movedId)[JiraRawStore.Issues.movedOutAt], "a second RECONCILE must be idempotent",
+            )
+            assertEquals(0L, store.countReconcileSeen(connId), "a second pass must also leave the scratch table empty")
+            Unit
+        } finally {
+            JiraStubServer.resetScenarios()
+        }
+    }
+
+    @Test
+    fun `RECONCILE fetches and re-stores an issue the id-sweep saw but raw storage never had (index gap)`() = runBlocking {
+        ensureMigrated()
+        val ds = dataSources()
+        val connId = createConnection(ds)
+        val connector = buildConnector()
+        val store = rawStore()
+
+        runConnectorOnce(connector, connId)
+        // `sample-data/README.md`'s "issue-get-probe" mapping is the ONE arbitrary in-scope issue
+        // id the stub maps `GET /issue/{id}` for unconditionally (no requiredState) — it is always
+        // the lowest issue id among the in-scope set (ids are assigned in one global chronological
+        // pass, `sample-data/README.md`), which is exactly what's stored here.
+        val probeIssueId = issueRows(connId).minOf { it[JiraRawStore.Issues.issueId] }
+        suspendTransaction(sharedDatabaseForTests()) {
+            JiraRawStore.Issues.deleteWhere {
+                (JiraRawStore.Issues.connectionId eq connId) and (JiraRawStore.Issues.issueId eq probeIssueId)
+            }
+        }
+        assertEquals(1199L, store.countIssues(connId), "the simulated index gap must have removed exactly one row")
+
+        runReconcileOnce(connector, connId)
+
+        assertEquals(1200L, store.countIssues(connId), "the index gap must be fetched and re-stored")
+        val restored = issueRows(connId).single { it[JiraRawStore.Issues.issueId] == probeIssueId }
+        assertNull(restored[JiraRawStore.Issues.deletedAt])
+        assertNull(restored[JiraRawStore.Issues.movedOutAt])
+        assertEquals(0L, store.countReconcileSeen(connId), "the scratch table must be empty after a completed pass")
     }
 }

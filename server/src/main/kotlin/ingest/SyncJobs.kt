@@ -114,6 +114,26 @@ class SyncJobsService(
         }
     }
 
+    /** The connection's currently RUNNING job, in full — `GET …/{id}/status`'s `currentJob` (v0.2.0 plan §9). */
+    suspend fun runningJob(connectionId: UInt): SyncJobResponse? = suspendTransaction(database) {
+        Jobs.selectAll().where { (Jobs.connectionId eq connectionId) and (Jobs.status eq SyncJobStatus.RUNNING.name) }
+            .limit(1).toList().singleOrNull()?.toResponse()
+    }
+
+    /**
+     * `GET …/{id}/status`'s `lastJobs` (v0.2.0 plan §9): the most recently requested job of each
+     * kind ever run against this connection (terminal or not), keyed by [SyncJobKind.name] — a kind
+     * never requested is simply absent from the map.
+     */
+    suspend fun lastJobsByKind(connectionId: UInt): Map<String, SyncJobResponse> = suspendTransaction(database) {
+        SyncJobKind.entries.mapNotNull { kind ->
+            Jobs.selectAll().where { (Jobs.connectionId eq connectionId) and (Jobs.kind eq kind.name) }
+                .orderBy(Jobs.requestedAt to SortOrder.DESC)
+                .limit(1)
+                .toList().singleOrNull()?.let { kind.name to it.toResponse() }
+        }.toMap()
+    }
+
     /**
      * `PENDING` → `CANCELLED` immediately; `RUNNING` → `cancel_requested_at` (the worker honours
      * it); terminal → [CancelOutcome.ALREADY_TERMINAL].
@@ -255,12 +275,27 @@ class SyncJobsService(
         }
     }
 
-    /** Extends the lease; `false` means the lease was already lost (reclaimed by another worker, or the job is no longer RUNNING). */
-    suspend fun heartbeat(jobId: UInt, workerId: String, leaseSeconds: Long, now: Long = clock()): Boolean =
+    /**
+     * Extends the lease; `false` means the lease was already lost (reclaimed by another worker, or
+     * the job is no longer RUNNING). [progress]/[currentStream] (v0.2.0 plan §12 item 7,
+     * `ingest/Stream.kt`'s `StreamContext`) are written only when non-null — the ticker's own
+     * lease-only heartbeat (`ingest/IngestWorker.kt`) omits them so it never blanks out the last
+     * value a stream's own heartbeat flushed.
+     */
+    suspend fun heartbeat(
+        jobId: UInt,
+        workerId: String,
+        leaseSeconds: Long,
+        now: Long = clock(),
+        progress: String? = null,
+        currentStream: String? = null,
+    ): Boolean =
         suspendTransaction(database) {
             Jobs.update({ (Jobs.id eq jobId) and (Jobs.leaseOwner eq workerId) and (Jobs.status eq SyncJobStatus.RUNNING.name) }) {
                 it[heartbeatAt] = now
                 it[leaseUntil] = now + leaseSeconds * 1000
+                if (progress != null) it[Jobs.progress] = progress
+                if (currentStream != null) it[Jobs.currentStream] = currentStream
             } > 0
         }
 

@@ -25,7 +25,8 @@
     "outOfScopeTotal": 80
   },
   "changelog": {
-    "totalHistories": 5372,
+    "allProjectsHistories": 5372,
+    "inScopeHistories": 5125,
     "bulkfetchChunkSize": 50,
     "bulkfetchChunkCount": 24,
     "omittedBulkfetchChunkIndex": 5,
@@ -84,8 +85,10 @@
     "fallbackIssueCount": 50
   },
   "worklogs": {
-    "inScopeIssueCount": 495,
-    "inScopeTotalCount": 1266,
+    "allProjectsIssueCount": 495,
+    "allProjectsTotalCount": 1266,
+    "inScopeCount": 1187,
+    "inScopeIssueCount": 468,
     "outOfScopeDay2FeedCount": 2,
     "day2NewInScopeCount": 2,
     "day2DeletedWorklogId": "700000",

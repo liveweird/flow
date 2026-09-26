@@ -38,8 +38,8 @@ private const val BACKFILL_BATCH_SIZE = 100
  * ever covers the connection's own lifetime. `/worklog/updated` returns bare `{worklogId,
  * updatedTime}` pairs with no `issueId`, so every id is resolved through `POST /worklog/list`
  * (≤1000 ids) BEFORE the scope filter can run; anything whose `issueId` isn't a known,
- * non-tombstoned raw issue of this connection is dropped before any write and counted (`lastRunOutOfScopeCount`,
- * A1's `worklogsOutOfScope`). Each page's `since` advances to its own `until` once that page
+ * non-tombstoned raw issue of this connection is dropped before any write and counted (A1's
+ * `worklogsOutOfScope` progress counter, `StreamContext.incrementProgress`). Each page's `since` advances to its own `until` once that page
  * commits — the client never follows Jira's absolute `nextPage` URL, only re-issues the SAME call
  * with the advanced `since` (a security-review requirement: an absolute URL from an upstream
  * response is untrusted input the outbound guard never gets to re-check). `/worklog/deleted` runs
@@ -52,12 +52,7 @@ class JiraWorklogStream(
 ) : Stream {
     override val name: String = "worklogs"
 
-    /** How many worklogs THIS run's incremental step saw on the instance-wide feed but dropped as out of scope (A1). */
-    var lastRunOutOfScopeCount: Long = 0
-        private set
-
     override suspend fun run(context: StreamContext) {
-        lastRunOutOfScopeCount = 0
         backfillPerIssue(context)
         val runStartedAt = context.clock()
         val updatedSinceFinal = runIncrementalUpdated(context, runStartedAt)
@@ -77,6 +72,7 @@ class JiraWorklogStream(
         context.transaction {
             worklogs.forEach { storeWorklog(context, issueId, it) }
             rawStore.markWorklogsSynced(context.connectionId, issueId, context.clock())
+            context.incrementProgress("worklogs", worklogs.size.toLong())
         }
         context.heartbeat()
     }
@@ -104,6 +100,7 @@ class JiraWorklogStream(
         while (true) {
             val page = client.worklogUpdated(since)
             var outOfScopeThisPage = 0
+            var storedThisPage = 0
             if (page.values.isNotEmpty()) {
                 val details = client.worklogList(page.values.map { it.worklogId }).map { it.jsonObject }
                 val candidateIssueIds = details.map { it.issueIdLong() }.toSet()
@@ -111,15 +108,21 @@ class JiraWorklogStream(
                 context.transaction {
                     details.forEach { obj ->
                         val issueId = obj.issueIdLong()
-                        if (issueId in knownIds) storeWorklog(context, issueId, obj) else outOfScopeThisPage++
+                        if (issueId in knownIds) {
+                            storeWorklog(context, issueId, obj)
+                            storedThisPage++
+                        } else {
+                            outOfScopeThisPage++
+                        }
                     }
                     context.putCursor(name, encode(WorklogsCursor(page.until, deletedSince)))
+                    context.incrementProgress("worklogs", storedThisPage.toLong())
+                    context.incrementProgress("worklogsOutOfScope", outOfScopeThisPage.toLong())
                 }
             } else {
                 context.transaction { context.putCursor(name, encode(WorklogsCursor(page.until, deletedSince))) }
             }
             context.heartbeat()
-            lastRunOutOfScopeCount += outOfScopeThisPage
             if (page.lastPage) return page.until
             since = page.until
         }
@@ -133,6 +136,7 @@ class JiraWorklogStream(
             context.transaction {
                 page.values.forEach { entry -> rawStore.tombstoneWorklog(context.connectionId, entry.worklogId, context.clock()) }
                 context.putCursor(name, encode(WorklogsCursor(updatedSinceFinal, page.until)))
+                context.incrementProgress("tombstoned", page.values.size.toLong())
             }
             context.heartbeat()
             if (page.lastPage) break

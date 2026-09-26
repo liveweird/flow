@@ -392,6 +392,119 @@ class JiraRawStore(private val database: R2dbcDatabase) {
             }) { it[deletedAt] = now }
         }
 
+    object ReconcileSeen : Table("raw.jira_reconcile_seen") {
+        val connectionId = reference("connection_id", DataSourceService.Connections)
+        val jobId = integer("job_id")
+        val issueId = long("issue_id")
+        override val primaryKey = PrimaryKey(connectionId, jobId, issueId)
+    }
+
+    /**
+     * The RECONCILE stream's id-sweep write (v0.2.0 plan §7/§12 item 7): `ON CONFLICT DO NOTHING`
+     * on the `(connectionId, jobId, issueId)` PK makes a resumed page (same job, after a lease
+     * loss/reclaim) idempotent rather than duplicating.
+     */
+    suspend fun insertReconcileSeen(connectionId: UInt, jobId: UInt, issueId: Long) {
+        suspendTransaction(database) {
+            ReconcileSeen.insertIgnore {
+                it[ReconcileSeen.connectionId] = connectionId
+                it[ReconcileSeen.jobId] = jobId.toInt()
+                it[ReconcileSeen.issueId] = issueId
+            }
+        }
+    }
+
+    /**
+     * The RECONCILE stream's anti-join (v0.2.0 plan §7): non-tombstoned raw issues for
+     * [connectionId] absent from [jobId]'s seen set — Jira either deleted or moved them out of
+     * scope while Flow wasn't looking.
+     */
+    suspend fun issuesMissingFromSeen(connectionId: UInt, jobId: UInt): List<Long> = suspendTransaction(database) {
+        val seenIds = ReconcileSeen.select(ReconcileSeen.issueId)
+            .where { (ReconcileSeen.connectionId eq connectionId) and (ReconcileSeen.jobId eq jobId.toInt()) }
+            .map { it[ReconcileSeen.issueId] }.toList().toSet()
+        Issues.select(Issues.issueId)
+            .where { (Issues.connectionId eq connectionId) and Issues.deletedAt.isNull() and Issues.movedOutAt.isNull() }
+            .map { it[Issues.issueId] }.toList()
+            .filterNot { it in seenIds }
+    }
+
+    /** The RECONCILE stream's index-gap case (v0.2.0 plan §7): ids [jobId]'s sweep saw that `raw.jira_issues` never stored. */
+    suspend fun seenButUnknownIds(connectionId: UInt, jobId: UInt): List<Long> = suspendTransaction(database) {
+        val seenIds = ReconcileSeen.select(ReconcileSeen.issueId)
+            .where { (ReconcileSeen.connectionId eq connectionId) and (ReconcileSeen.jobId eq jobId.toInt()) }
+            .map { it[ReconcileSeen.issueId] }.toList().toSet()
+        val knownIds = Issues.select(Issues.issueId).where { Issues.connectionId eq connectionId }
+            .map { it[Issues.issueId] }.toList().toSet()
+        (seenIds - knownIds).toList()
+    }
+
+    /** Drains every scratch row for [connectionId] (v0.2.0 plan §7): called once a pass's anti-join step completes. */
+    suspend fun clearReconcileSeen(connectionId: UInt): Int = suspendTransaction(database) {
+        ReconcileSeen.deleteWhere { ReconcileSeen.connectionId eq connectionId }
+    }
+
+    /** Test-only inspection: the scratch table's row count for a connection (`JiraSyncPipelineTest`'s "empty after" assertion). */
+    internal suspend fun countReconcileSeen(connectionId: UInt): Long = suspendTransaction(database) {
+        ReconcileSeen.selectAll().where { ReconcileSeen.connectionId eq connectionId }.count()
+    }
+
+    /**
+     * The RECONCILE stream's "deleted" tombstone (v0.2.0 plan §7): a 404 on `GET /issue/{id}`.
+     * Guarded on `deletedAt.isNull()` so a repeat RECONCILE pass (idempotence) is a no-op once set.
+     */
+    suspend fun markIssueDeleted(connectionId: UInt, issueId: Long, now: Long): Int = suspendTransaction(database) {
+        Issues.update({ (Issues.connectionId eq connectionId) and (Issues.issueId eq issueId) and Issues.deletedAt.isNull() }) {
+            it[deletedAt] = now
+            it[needsProcessing] = true
+        }
+    }
+
+    /**
+     * The RECONCILE stream's "moved out of scope" tombstone (v0.2.0 plan §7): a 200 on
+     * `GET /issue/{id}` whose project is no longer in the connection's scope — the key/project
+     * columns are refreshed to their new value alongside the tombstone. Guarded on
+     * `movedOutAt.isNull()` so a repeat RECONCILE pass (idempotence) is a no-op once set.
+     */
+    suspend fun markIssueMovedOut(
+        connectionId: UInt,
+        issueId: Long,
+        newKey: String,
+        newProjectId: Long,
+        newProjectKey: String,
+        now: Long,
+    ): Int = suspendTransaction(database) {
+        Issues.update({ (Issues.connectionId eq connectionId) and (Issues.issueId eq issueId) and Issues.movedOutAt.isNull() }) {
+            it[issueKey] = newKey
+            it[projectId] = newProjectId
+            it[projectKey] = newProjectKey
+            it[movedOutAt] = now
+            it[needsProcessing] = true
+        }
+    }
+
+    /** `GET …/{id}/status` counts (v0.2.0 plan §9): every `raw.jira_entities` row for a connection, grouped by kind. */
+    suspend fun entityCountsByKind(connectionId: UInt): Map<String, Long> = suspendTransaction(database) {
+        Entities.select(Entities.kind).where { Entities.connectionId eq connectionId }
+            .toList().groupingBy { it[Entities.kind] }.eachCount().mapValues { it.value.toLong() }
+    }
+
+    /**
+     * `GET …/{id}/status` counts (v0.2.0 plan §9): raw issues tombstoned as deleted or moved out,
+     * and issues still flagged for processing.
+     */
+    suspend fun countIssuesDeleted(connectionId: UInt): Long = suspendTransaction(database) {
+        Issues.selectAll().where { (Issues.connectionId eq connectionId) and Issues.deletedAt.isNotNull() }.count()
+    }
+
+    suspend fun countIssuesMovedOut(connectionId: UInt): Long = suspendTransaction(database) {
+        Issues.selectAll().where { (Issues.connectionId eq connectionId) and Issues.movedOutAt.isNotNull() }.count()
+    }
+
+    suspend fun countNeedsProcessing(connectionId: UInt): Long = suspendTransaction(database) {
+        Issues.selectAll().where { (Issues.connectionId eq connectionId) and (Issues.needsProcessing eq true) }.count()
+    }
+
     /** One batch of a connection's `raw.jira_issues` rows, oldest-inserted-order-free (the PURGE step, plan §0 A2). */
     suspend fun purgeIssuesBatch(connectionId: UInt, batchSize: Int = JIRA_PURGE_BATCH_SIZE): Int = suspendTransaction(database) {
         val ids = Issues.select(Issues.issueId).where { Issues.connectionId eq connectionId }.limit(batchSize)

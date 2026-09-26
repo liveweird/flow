@@ -1320,6 +1320,23 @@ for (const project of PROJECTS) {
 
 const totalChangelogHistories = [...changeHistories.values()].reduce((s, l) => s + l.length, 0);
 
+// In-scope-reachable figures (v0.2.0 plan §12 item 7): the numbers a single backfill SYNC actually
+// stores, filtered to the REFERENCE-date cutoff the stub's own backfill mappings use
+// (historiesJson/the issue/{id}/worklog mappings above) and to in-scope issues only — UNLIKE
+// totalChangelogHistories/worklogIssueCount/worklogTotalCount below, which loop over EVERY project
+// (including the out-of-scope SEC project) and, for worklogs, also fold in the day2 scenario's
+// additions. Computed here, not hand-copied, so a generator change can never drift silently from
+// what JiraSyncPipelineTest actually asserts.
+const inScopeChangelogHistories = inScopeIdsAscending.reduce(
+  (sum, id) => sum + historiesJson(String(id), REFERENCE_MS).length,
+  0,
+);
+const inScopeBackfillWorklogCounts = inScopeIssues.map(
+  (issue) => (worklogsByIssue.get(issue.id) ?? []).filter((w) => Date.parse(w.started) <= REFERENCE_MS).length,
+);
+const inScopeWorklogCount = inScopeBackfillWorklogCounts.reduce((s, n) => s + n, 0);
+const inScopeWorklogIssueCount = inScopeBackfillWorklogCounts.filter((n) => n > 0).length;
+
 const expected = {
   referenceDate: REFERENCE_ISO,
   day2Date: DAY2_NOW_ISO,
@@ -1336,7 +1353,12 @@ const expected = {
     outOfScopeTotal: issues.filter((i) => i.project.key === "SEC").length,
   },
   changelog: {
-    totalHistories: totalChangelogHistories,
+    // Whole-dataset (all 5 projects incl. out-of-scope SEC): never asserted directly against a
+    // backfill's own stored row count — see inScopeHistories below for that.
+    allProjectsHistories: totalChangelogHistories,
+    // The in-scope-reachable total a single backfill SYNC actually stores: every in-scope issue's
+    // history, whether via a real bulkfetch chunk or the omitted chunk's per-issue fallback.
+    inScopeHistories: inScopeChangelogHistories,
     bulkfetchChunkSize: BULK_CHUNK_SIZE,
     bulkfetchChunkCount: bulkChunks.length,
     omittedBulkfetchChunkIndex: OMITTED_CHUNK_INDEX,
@@ -1344,8 +1366,18 @@ const expected = {
     fallbackIssueCount: omittedChunkIds.size,
   },
   worklogs: {
-    inScopeIssueCount: worklogIssueCount,
-    inScopeTotalCount: worklogTotalCount,
+    // Whole-dataset (all 5 projects incl. out-of-scope SEC), and — unlike every other
+    // allProjects* figure here — ALSO folding in the 2 day2-scenario in-scope worklog additions
+    // (worklogTotalCount/worklogIssueCount are mutated again in the day2 section above): never
+    // asserted directly against a backfill's own stored row count — see inScopeCount/
+    // inScopeIssueCount below for that.
+    allProjectsIssueCount: worklogIssueCount,
+    allProjectsTotalCount: worklogTotalCount,
+    // The in-scope-reachable total/issue-count a single backfill SYNC actually stores (every
+    // in-scope issue's own `issue/{id}/worklog` page, filtered to the REFERENCE-date cutoff —
+    // day2's additions are dated AFTER that cutoff, so they're correctly excluded here).
+    inScopeCount: inScopeWorklogCount,
+    inScopeIssueCount: inScopeWorklogIssueCount,
     outOfScopeDay2FeedCount: day2OutOfScopeWorklogs.length,
     day2NewInScopeCount: day2NewInScopeWorklogs.length,
     day2DeletedWorklogId: day2DeletedWorklog.id,

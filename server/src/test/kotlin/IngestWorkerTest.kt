@@ -27,6 +27,8 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.long
 import io.ktor.server.testing.testApplication
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
@@ -183,6 +185,28 @@ class IngestWorkerTest {
         val connection = assertNotNull(ds.read(connId))
         assertEquals(1, connection.status.consecutiveFailures)
         assertEquals("RUN_FAILED", connection.status.lastSyncErrorCode)
+    }
+
+    @Test
+    fun `a stream's heartbeat writes progress and current_stream onto the sync job`() = runBlocking {
+        ensureMigrated()
+        val ds = dataSources()
+        val jobs = syncJobs()
+        val connId = createConnection(ds)
+        val connector = FakeConnector { context -> context.heartbeat("""{"pages":1}""", "issues") }
+        val worker = IngestWorker(
+            jobs,
+            ds,
+            mapOf(DataSourceKind.JIRA_CLOUD to connector),
+            testConfig(workerSlots = 500),
+            fixedEarlyMorningClock(),
+        )
+
+        coroutineScope { worker.tick(this) }
+
+        val job = jobs.list(connId, SyncJobListFilter(), pagingAll()).items.single()
+        assertEquals("issues", job.currentStream)
+        assertEquals(1L, job.progress?.get("pages")?.jsonPrimitive?.long)
     }
 
     @Test

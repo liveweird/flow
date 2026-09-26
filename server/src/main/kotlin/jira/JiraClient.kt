@@ -29,7 +29,7 @@ interface JiraClient {
     suspend fun myself(): JsonObject
     suspend fun searchJql(jql: String, fields: String? = null, nextPageToken: String? = null, maxResults: Int = 100): JiraSearchPage
     suspend fun approximateCount(jql: String): Long
-    suspend fun issue(idOrKey: String): JsonObject
+    suspend fun issue(idOrKey: String, fields: String? = null): JsonObject
     suspend fun changelogBulk(issueIds: List<String>, nextPageToken: String? = null, maxResults: Int = 50): JsonObject
     suspend fun issueChangelogPage(issueId: String, startAt: Int = 0): JiraChangelogPage
     /** A1: per-issue worklog page — backfill and newly-in-scope issues. */
@@ -129,9 +129,11 @@ class HttpJiraClient(
             ?: throw JiraFetchException("INVALID_RESPONSE", null, endpoint)
     }
 
-    override suspend fun issue(idOrKey: String): JsonObject {
+    override suspend fun issue(idOrKey: String, fields: String?): JsonObject {
         val endpoint = "/rest/api/3/issue/{id}"
-        return decode(get("/rest/api/3/issue/${requireIssueIdOrKey(idOrKey, endpoint)}"), endpoint)
+        val id = requireIssueIdOrKey(idOrKey, endpoint)
+        val query = fields?.let { mapOf("fields" to it) } ?: emptyMap()
+        return decode(get("/rest/api/3/issue/$id", query), endpoint)
     }
 
     override suspend fun changelogBulk(issueIds: List<String>, nextPageToken: String?, maxResults: Int): JsonObject {

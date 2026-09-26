@@ -28,7 +28,7 @@ class JiraConnectorTest {
         override suspend fun myself() = fail()
         override suspend fun searchJql(jql: String, fields: String?, nextPageToken: String?, maxResults: Int) = fail()
         override suspend fun approximateCount(jql: String) = fail()
-        override suspend fun issue(idOrKey: String) = fail()
+        override suspend fun issue(idOrKey: String, fields: String?) = fail()
         override suspend fun changelogBulk(issueIds: List<String>, nextPageToken: String?, maxResults: Int) = fail()
         override suspend fun issueChangelogPage(issueId: String, startAt: Int) = fail()
         override suspend fun issueWorklogPage(issueId: String, startAt: Int) = fail()

@@ -81,15 +81,16 @@ class JiraConnector(
 
     /**
      * The sync-job stream runner (v0.2.0 plan §7/§12 item 7): SYNC runs REFERENCE → ISSUES →
-     * CHANGELOGS → WORKLOGS — RECONCILE/PROCESS/PROFILE join this ordered list in later commits.
-     * PURGE drains [purgeSteps] (now including the V11 changelog/worklog tables); RECONCILE/
-     * REPROCESS still succeed trivially until their own commits land.
+     * CHANGELOGS → WORKLOGS; RECONCILE runs its own single stream — PROCESS/PROFILE join this
+     * ordered list in later commits. PURGE drains [purgeSteps]; REPROCESS still succeeds trivially
+     * until its own commit lands.
      */
     override suspend fun run(context: SyncJobRunContext) {
         when (context.claim.kind) {
             SyncJobKind.SYNC -> runSync(context)
+            SyncJobKind.RECONCILE -> runReconcile(context)
             SyncJobKind.PURGE -> purgeSteps.forEach { it.purge(context.claim.connectionId) }
-            SyncJobKind.RECONCILE, SyncJobKind.REPROCESS -> Unit
+            SyncJobKind.REPROCESS -> Unit
         }
     }
 
@@ -112,7 +113,23 @@ class JiraConnector(
             JiraChangelogStream(client, deps.rawStore, deps.changelogBulkSize),
             JiraWorklogStream(client, deps.rawStore),
         )
-        streams.forEach { it.run(streamContext) }
+        streams.forEach { stream ->
+            streamContext.currentStreamName = stream.name
+            stream.run(streamContext)
+        }
+    }
+
+    /** RECONCILE runs the one `reconcile` stream (v0.2.0 plan §7/§12 item 7); `IngestWorker.onSucceeded` stamps `last_reconcile_at`. */
+    private suspend fun runReconcile(context: SyncJobRunContext) {
+        val deps = checkNotNull(sync) { "JiraConnector.run(RECONCILE) requires JiraSyncDependencies (jira/Jira.kt's configureJira)" }
+        val claim = context.claim
+        val stored = deps.dataSources.readForSync(claim.connectionId) ?: return
+        val client = newClient(stored.siteUrl, stored.email, stored.apiToken, stored.authScheme)
+        deps.dataSources.persistCloudId(claim.connectionId, client.resolveCloudId())
+        val streamContext = StreamContext(claim.connectionId, claim.id, deps.database, deps.cursors, context.heartbeat, now)
+        val stream = JiraReconcileStream(client, deps.rawStore, stored.projectKeys)
+        streamContext.currentStreamName = stream.name
+        stream.run(streamContext)
     }
 
     override suspend fun testConnection(

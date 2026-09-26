@@ -213,7 +213,11 @@ class IngestWorker(
                     }
                 }
                 val connector = connectors[claim.connectorKind]
-                connector?.run(SyncJobRunContext(claim) { syncJobs.heartbeat(claim.id, config.workerId, config.leaseSeconds, clock()) })
+                connector?.run(
+                    SyncJobRunContext(claim) { progress, currentStream ->
+                        syncJobs.heartbeat(claim.id, config.workerId, config.leaseSeconds, clock(), progress, currentStream)
+                    },
+                )
                 ticker.cancel()
             }
             onSucceeded(claim)

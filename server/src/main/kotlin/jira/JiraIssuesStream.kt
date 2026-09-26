@@ -95,6 +95,8 @@ class JiraIssuesStream(
                     watermarkAt = newWatermark,
                     lastCompletedAt = if (isLast) context.clock() else null,
                 )
+                context.incrementProgress("pages")
+                context.incrementProgress("issuesUpserted", page.issues.size.toLong())
             }
             context.heartbeat()
             if (isLast) break

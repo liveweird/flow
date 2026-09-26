@@ -962,6 +962,30 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/data-sources/{id}/status:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    get:
+      tags: [data-sources]
+      operationId: getDataSourceStatus
+      summary: Get a data source's sync status
+      description: |
+        ADMIN only, read-only (v0.2.0 plan §9). Connection summary, every persisted stream cursor
+        (`reference`/`issues`/`changelogs`/`worklogs`/`reconcile` — a completed pass with nothing
+        left to resume has no row, so it is simply absent), raw-store row counts, the most recent
+        job of each kind, and the connection's currently RUNNING job, if any.
+      responses:
+        '200':
+          description: The sync status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SyncStatusResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
 
 components:
   securitySchemes:
@@ -1572,6 +1596,51 @@ components:
         coalesced:
           type: boolean
           description: True when an already-open job for the same (connection, kind) was returned instead of a new one.
+
+    SyncCursorSummary:
+      type: object
+      required: [stream, position]
+      properties:
+        stream: { type: string, description: "The stream's `sync_cursors.stream` key (e.g. issues, reference, reconcile)." }
+        watermarkAt: { type: integer, format: int64, nullable: true, description: Epoch millis }
+        position:
+          type: string
+          description: >-
+            The stream's own raw persisted cursor JSON — an opaque, per-stream-owned diagnostic
+            string, not reparsed here.
+        lastCompletedAt: { type: integer, format: int64, nullable: true, description: Epoch millis }
+    SyncCounts:
+      type: object
+      required: [rawIssues, tombstonedDeleted, tombstonedMovedOut, changelogs, worklogs, entitiesByKind, needsProcessing]
+      properties:
+        rawIssues: { type: integer, format: int64, minimum: 0 }
+        tombstonedDeleted: { type: integer, format: int64, minimum: 0 }
+        tombstonedMovedOut: { type: integer, format: int64, minimum: 0 }
+        changelogs: { type: integer, format: int64, minimum: 0 }
+        worklogs: { type: integer, format: int64, minimum: 0, description: Live (non-tombstoned) worklogs. }
+        entitiesByKind:
+          type: object
+          additionalProperties: { type: integer, format: int64, minimum: 0 }
+        needsProcessing: { type: integer, format: int64, minimum: 0 }
+    SyncStatusResponse:
+      type: object
+      required: [connection, cursors, counts, lastJobs]
+      properties:
+        connection:
+          $ref: '#/components/schemas/DataSourceResponse'
+        cursors:
+          type: array
+          items:
+            $ref: '#/components/schemas/SyncCursorSummary'
+        counts:
+          $ref: '#/components/schemas/SyncCounts'
+        lastJobs:
+          type: object
+          additionalProperties: { $ref: '#/components/schemas/SyncJobResponse' }
+          description: Keyed by SyncJobKind name — the most recent job of each kind ever requested for this connection.
+        currentJob:
+          allOf: [{ $ref: '#/components/schemas/SyncJobResponse' }]
+          nullable: true
 
     ProblemDetail:
       type: object
