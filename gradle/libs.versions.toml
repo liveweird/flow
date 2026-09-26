@@ -20,7 +20,7 @@ opentelemetry = "1.65.0"
 # EVERY io.netty module to one version, Ktor's included. Keep the two in step (reactor-netty is
 # versioned by the `reactor-bom` line below; read its Netty version off reactor-netty's published
 # pom); `:server:checkDependencyAlignment` fails on drift.
-netty = "4.2.17.Final"
+netty = "4.2.18.Final"
 # The SDK line and the instrumentation line MUST pair (instrumentation BOM 2.31.x -> SDK 1.65.0 —
 # read the SDK version off the instrumentation BOM's pom before bumping either). The alpha BOM
 # imported in core pins every io.opentelemetry artifact, incubator/alpha ones included, to that
