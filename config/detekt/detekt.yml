@@ -1,0 +1,97 @@
+# Repo-specific detekt tuning, layered on top of the bundled defaults (buildUponDefaultConfig).
+# Policy: fix findings in code first; add a rule override here ONLY for a deliberate repo idiom,
+# and give every override a one-line comment naming that idiom. No baseline file.
+
+# The zero-findings gate, stated rather than inherited: detekt's bundled default is already 0, but a
+# major bump or a `buildUponDefaultConfig = false` must never be able to relax it silently.
+build:
+  maxIssues: 0
+
+complexity:
+  # Route registration is declarative by architecture — a configureXxxRoutes lists its endpoints, or
+  # (past ~100 lines) delegates to private `Route.xxx(deps)` functions grouped by concern, so
+  # *Routes.kt files are measured like everything else; only the complexity rule keeps its
+  # exemption (a handler is a straight-line ladder of guards). Tests are exempt from LongMethod:
+  # scenario tests are named sentences and read top-to-bottom.
+  LongMethod:
+    excludes: ['**/src/test/**']
+    threshold: 100
+  CyclomaticComplexMethod:
+    excludes: ['**/*Routes.kt']
+    threshold: 25
+  # Data-only wire DTOs (LoginResponse, UserResponse) and test fixture builders carry
+  # naturally wide signatures; nothing behavioral hides in them.
+  LongParameterList:
+    excludes: ['**/src/test/**']
+    functionThreshold: 12
+    constructorThreshold: 12
+  # One cohesive service per feature is the architecture (UserService, TeamService);
+  # splitting them by function count would fork feature logic across files.
+  TooManyFunctions:
+    active: false
+  # Per-feature route test suites are deliberately comprehensive (one file per feature).
+  LargeClass:
+    excludes: ['**/src/test/**']
+  # The documented guard/validation matrices (the last-admin checks, the team roster
+  # rules' branches) read best as single multi-clause conditions — the clause count IS
+  # the rule width.
+  ComplexCondition:
+    threshold: 5
+  # The OpenAPI conformance report writer (test infra) nests report sections naturally.
+  NestedBlockDepth:
+    excludes: ['**/src/test/**']
+
+exceptions:
+  # Generic catches are the documented best-effort boundaries (e.g. the password-reset and MFA
+  # email workers' delivery-failure handling) — every site rethrows cancellation and logs or
+  # classifies the exception rather than swallowing it.
+  TooGenericExceptionCaught:
+    active: false
+
+naming:
+  # Feature files pair the typed-routing Resource declaration with the configureXxx extension
+  # (UserRoutes.kt holds `Users` + `configureUserRoutes`); file names follow the feature-local
+  # layout convention, not the first declaration.
+  MatchingDeclarationName:
+    active: false
+  # The source layout is feature-first under src/main/kotlin/<feature>/ without the
+  # ch/nokillswit prefix directories (Ktor scaffolding style) — deliberate, repo-wide.
+  InvalidPackageDeclaration:
+    active: false
+
+performance:
+  # Varargs pass-through (audit(event, *fields), typed-route params) — the array copy is
+  # irrelevant at this service's traffic, and the call sites read better.
+  SpreadOperator:
+    active: false
+
+style:
+  # The per-field validation convention (validate* helpers throwing BadRequestException per
+  # check — see "Request payload validation" in .claude/docs/security.md) and route handlers
+  # throwing typed authz/domain exceptions make throw counts meaningless here.
+  ThrowsCount:
+    active: false
+  # Ktor-idiomatic wildcard imports (io.ktor.server.application.* etc.) are used throughout.
+  WildcardImport:
+    active: false
+  # Exposed column widths, time math (* 1000, / 60), bcrypt costs, and the descriptor-format
+  # caps are self-describing domain literals; naming each would hurt readability.
+  MagicNumber:
+    active: false
+  # De-facto wrap is ~120, but assertion lines and bilingual copy run longer; 140 is the gate.
+  MaxLineLength:
+    maxLineLength: 140
+  # Guard-clause early returns are the documented authz evaluation-order idiom (Guards.kt
+  # evaluates the read matrices rule-by-rule, cheapest first).
+  ReturnCount:
+    max: 6
+  # Guard-continues in row-independent sweep loops (the anonymous-access spec sweep) — each
+  # continue is one skip rule, not control-flow spaghetti.
+  LoopWithTooManyJumpStatements:
+    maxJumpCount: 3
+  # Unused imports are off in detekt's defaults (deprecated in favour of the ktlint wrapper,
+  # which is not installed); enabled here so helper-extraction leftovers can't accumulate
+  # (2026-08 review round found 16). If it ever false-positives on KDoc-only usage, prefer
+  # fixing the KDoc reference over disabling.
+  UnusedImports:
+    active: true

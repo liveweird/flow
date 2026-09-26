@@ -1,0 +1,65 @@
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+!**/src/**/build/
+!**/src/**/out/
+
+# Kotlin
+*.kotlin_module
+.kotlin/
+
+# IntelliJ IDEA / JetBrains
+.idea/
+*.iml
+*.ipr
+*.iws
+out/
+
+# Eclipse
+.classpath
+.project
+.settings/
+bin/
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Logs
+*.log
+logs/
+
+# Local environment / secrets
+.env
+.env.local
+*.local
+local.properties
+
+# Application runtime artifacts
+# Embedded H2 file DB configured in Exposed.kt (r2dbc:h2:file:///./h2)
+h2.mv.db
+h2.trace.db
+*.mv.db
+*.trace.db
+
+# Generated API docs (swagger-codegen output from the OpenAPI spec — never hand-edited,
+# regenerate rather than commit). Covers both the repo-root and server/ generation dirs.
+/docs/
+server/docs/
+
+# Schemathesis run cache (the manual fuzz pass documented in CLAUDE.md runs from the repo root).
+.schemathesis/
+
+# Node (web/ and e2e/ have their own ignores; this backstops stray root-level caches —
+# e.g. vitest run from the repo root once left node_modules/.vite here, and it got committed)
+node_modules/
+
+# Local compose overrides (machine-specific env, e.g. the harmonized dev encryption key)
+docker-compose.override.yaml

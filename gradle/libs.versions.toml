@@ -1,0 +1,79 @@
+[versions]
+angus-mail = "2.0.5"
+bcrypt = "0.10.2"
+# detekt 1.23.x embeds a pre-2.x Kotlin compiler — fine for the plain rule sets we run
+# (no type resolution); revisit the detekt 2.x line once it has a stable release.
+detekt = "1.23.8"
+# Exposed 1.4.0 stalled R2DBC work under full-suite load in Lettuce. The 1.5.0 retry
+# passed the full Docker-backed suite twice on 2026-09-20 (including the R2DBC
+# concurrency regressions); keep future upgrades gated on the same forced full-suite run.
+exposed = "1.5.0"
+flyway = "13.7.0"
+kotlin = "2.4.20"
+kover = "0.9.9"
+logback = "1.6.3"
+opentelemetry = "1.65.0"
+# Netty alignment (2026-09-04, Lettuce): Ktor's engine ships Netty 4.2 while r2dbc-postgresql 1.1.2
+# asks for reactor-netty 1.1.22 (built on 4.1.112) — Gradle lifted the shared modules to 4.2 and left
+# the six DNS/proxy modules only reactor-netty uses at 4.1, a mixed classpath under the driver's
+# hostname resolution. reactor-netty 1.3.x is built on Netty 4.2 (1.3.7 -> 4.2.17), and the BOM pins
+# EVERY io.netty module to one version, Ktor's included. Keep the two in step (the reactor-netty
+# line's Netty version is in its published pom); `:server:checkDependencyAlignment` fails on drift.
+netty = "4.2.17.Final"
+# The SDK line and the instrumentation line MUST pair (instrumentation BOM 2.31.x -> SDK 1.65.0 —
+# read the SDK version off the instrumentation BOM's pom before bumping either). The alpha BOM
+# imported in core pins every io.opentelemetry artifact, incubator/alpha ones included, to that
+# pair; `:server:checkDependencyAlignment` fails on drift.
+opentelemetry-ktor = "2.31.1-alpha"
+opentelemetry-semconv = "1.44.0"
+reactor-netty = "1.3.7"
+r2dbc-postgresql = "1.1.2.RELEASE"
+swagger-request-validator = "3.0.0"
+testcontainers = "2.0.5"
+# Runtime security floor (Trivy scan, 2026-09-24): scram-client is a transitive implementation
+# detail of r2dbc-postgresql (its SCRAM auth mechanism); the constraint selects the first fixed
+# release without forcing a coordinated r2dbc-postgresql upgrade.
+scram = "3.3"
+
+# Jackson 2.22.2; the jackson-bom platform pins the whole com.fasterxml.jackson family to it and
+# checkDependencyAlignment guards the family. (Flyway 13 itself rides Jackson 3 — a separate
+# package, coexisting; checkDependencyAlignment logs it.)
+jackson = "2.22.2"
+# swagger-parser-v3 only (OpenAPI 3.x): the `swagger-parser` aggregator drags in the Swagger 2.0
+# converter that this test-only OpenAPI-conformance/spec-validation harness never needs.
+swagger-parser = "2.1.48"
+
+[libraries]
+jackson-bom = { module = "com.fasterxml.jackson:jackson-bom", version.ref = "jackson" }
+jackson-dataformat-yaml = { module = "com.fasterxml.jackson.dataformat:jackson-dataformat-yaml" }
+jackson-module-kotlin = { module = "com.fasterxml.jackson.module:jackson-module-kotlin" }
+swagger-parser-v3 = { module = "io.swagger.parser.v3:swagger-parser-v3", version.ref = "swagger-parser" }
+angus-mail = { module = "org.eclipse.angus:angus-mail", version.ref = "angus-mail" }
+bcrypt = { module = "at.favre.lib:bcrypt", version.ref = "bcrypt" }
+exposed-core = { module = "org.jetbrains.exposed:exposed-core", version.ref = "exposed" }
+exposed-r2dbc = { module = "org.jetbrains.exposed:exposed-r2dbc", version.ref = "exposed" }
+flyway-core = { module = "org.flywaydb:flyway-core", version.ref = "flyway" }
+flyway-database-postgresql = { module = "org.flywaydb:flyway-database-postgresql", version.ref = "flyway" }
+logback-classic = { module = "ch.qos.logback:logback-classic", version.ref = "logback" }
+opentelemetry-exporterLogging = { module = "io.opentelemetry:opentelemetry-exporter-logging", version.ref = "opentelemetry" }
+opentelemetry-exporterOtlp = { module = "io.opentelemetry:opentelemetry-exporter-otlp", version.ref = "opentelemetry" }
+opentelemetry-instrumentationBomAlpha = { module = "io.opentelemetry.instrumentation:opentelemetry-instrumentation-bom-alpha", version.ref = "opentelemetry-ktor" }
+opentelemetry-logbackAppender = { module = "io.opentelemetry.instrumentation:opentelemetry-logback-appender-1.0", version.ref = "opentelemetry-ktor" }
+opentelemetry-ktorInstrumentation = { module = "io.opentelemetry.instrumentation:opentelemetry-ktor-3.0", version.ref = "opentelemetry-ktor" }
+opentelemetry-sdkAutoconfigure = { module = "io.opentelemetry:opentelemetry-sdk-extension-autoconfigure", version.ref = "opentelemetry" }
+opentelemetry-semconv = { module = "io.opentelemetry.semconv:opentelemetry-semconv", version.ref = "opentelemetry-semconv" }
+postgresql = { module = "org.postgresql:postgresql", version = "42.7.13" }
+netty-bom = { module = "io.netty:netty-bom", version.ref = "netty" }
+r2dbc-postgresql = { module = "org.postgresql:r2dbc-postgresql", version.ref = "r2dbc-postgresql" }
+reactor-netty-core = { module = "io.projectreactor.netty:reactor-netty-core", version.ref = "reactor-netty" }
+swagger-request-validator-core = { module = "com.atlassian.oai:openapi-request-validator-core", version.ref = "swagger-request-validator" }
+testcontainers-postgresql = { module = "org.testcontainers:testcontainers-postgresql", version.ref = "testcontainers" }
+scram-client = { module = "com.ongres.scram:scram-client", version.ref = "scram" }
+scram-common = { module = "com.ongres.scram:scram-common", version.ref = "scram" }
+
+[plugins]
+detekt = { id = "io.gitlab.arturbosch.detekt", version.ref = "detekt" }
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
+kotlin-multiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
+kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
+kover = { id = "org.jetbrains.kotlinx.kover", version.ref = "kover" }
