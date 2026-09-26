@@ -198,18 +198,25 @@ class DataProfileTest {
     }
 
     @Test
-    fun `a full SYNC's profile matches expected-json's in-scope reopens, worklog coverage, carry-over and the unmapped board status`() =
+    fun `a full SYNC's profile matches expected-json's in-scope reopens, worklog coverage, carry-over and the unmapped board status`() {
+        // The full SYNC (REFERENCE → … → PROCESS → PROFILE over ~1,200 stub issues) runs OUTSIDE
+        // testApplication: its body runs under kotlinx-coroutines-test's runTest, whose timeout a
+        // slow CI runner exceeds (UncompletedCoroutinesError) — the same split the pipeline tests use.
+        var connId = 0u
         testApplication {
             ensureDataProfileMigrated()
             configureApp("app.role" to "web")
             startApplication()
             val admin = seededClient("profilefull", UserRole.ADMIN)
-            val created = admin.postJson("/api/v1/data-sources", dataSourceRequest()).body<DataSourceResponse>()
-            val connId = created.id
+            connId = admin.postJson("/api/v1/data-sources", dataSourceRequest()).body<DataSourceResponse>().id
+        }
 
-            val connector = buildConnector()
-            runBlocking { runConnectorOnce(connector, connId) }
+        runBlocking { runConnectorOnce(buildConnector(), connId) }
 
+        testApplication {
+            configureApp("app.role" to "web")
+            startApplication()
+            val admin = seededClient("profilefull-read", UserRole.ADMIN)
             val profile = admin.get("/api/v1/data-sources/$connId/profile").body<DataProfile>()
             assertTrue(profile.computedAt != null, "PROFILE must run after PROCESS in a SYNC job")
 
@@ -246,4 +253,5 @@ class DataProfileTest {
                 "sample-data/jira/expected.json boards[projectKey=GTM].unmappedStatuses — the deliberately unmapped 'Waiting' status",
             )
         }
+    }
 }
