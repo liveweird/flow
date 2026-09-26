@@ -36,6 +36,21 @@ data class JiraWorklogStartAtPage(
     val worklogs: JsonArray = JsonArray(emptyList()),
 )
 
+/**
+ * `GET /rest/api/3/issue/{id}/changelog` — its own envelope shape (the array key is `histories`,
+ * NOT `values` — unlike every OTHER `startAt`-paged endpoint this client calls; the CHANGELOGS
+ * stream's per-issue fallback, `jira/JiraChangelogStream.kt`, is the one consumer, and
+ * `sample-data/jira-stub`'s generator emits exactly this shape).
+ */
+@Serializable
+data class JiraChangelogPage(
+    val startAt: Int = 0,
+    val maxResults: Int = 0,
+    val total: Int = 0,
+    val isLast: Boolean? = null,
+    val histories: JsonArray = JsonArray(emptyList()),
+)
+
 /** One id/timestamp pair from `worklog/updated` or `worklog/deleted`. */
 @Serializable
 data class JiraWorklogIdEntry(val worklogId: Long, val updatedTime: Long)

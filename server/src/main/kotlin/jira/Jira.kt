@@ -42,6 +42,7 @@ fun Application.configureJira() {
     val maxRetries = requireConfigInt(config, "jira.maxRetries", MIN_RETRIES, MAX_RETRIES)
     val incrementalOverlapMinutes = requireConfigLong(config, "jira.incrementalOverlapMinutes", MIN_OVERLAP_MINUTES, MAX_OVERLAP_MINUTES)
     val issuesPageSize = requireConfigInt(config, "jira.pageSize", MIN_PAGE_SIZE, MAX_PAGE_SIZE)
+    val changelogBulkSize = requireConfigInt(config, "jira.changelogBulkSize", MIN_CHANGELOG_BULK_SIZE, MAX_CHANGELOG_BULK_SIZE)
     val stubHost = stubBaseUrl?.let { URI(it).host }
     val stubScheme = stubBaseUrl?.let { URI(it).scheme }
 
@@ -81,6 +82,7 @@ fun Application.configureJira() {
             database = attributes[R2dbcDatabaseKey],
             incrementalOverlapMinutes = incrementalOverlapMinutes,
             issuesPageSize = issuesPageSize,
+            changelogBulkSize = changelogBulkSize,
         ),
     )
     attributes.put(JiraConnectorKey, connector)
@@ -135,6 +137,8 @@ private const val MIN_OVERLAP_MINUTES = 0L
 private const val MAX_OVERLAP_MINUTES = 1_440L
 private const val MIN_PAGE_SIZE = 1
 private const val MAX_PAGE_SIZE = 500
+private const val MIN_CHANGELOG_BULK_SIZE = 1
+private const val MAX_CHANGELOG_BULK_SIZE = 1_000
 private const val MIN_CONCURRENCY = 1
 private const val MAX_CONCURRENCY = 64
 private const val MIN_RETRIES = 0

@@ -54,7 +54,14 @@ class JiraSyncDependencies(
     /** `jira.incrementalOverlapMinutes` (default 10, plan §5/§7) — the ISSUES stream's re-fetch window past the last watermark. */
     val incrementalOverlapMinutes: Long,
     val issuesPageSize: Int,
+    /**
+     * `jira.changelogBulkSize` (default 50, plan §5/§7) — the CHANGELOGS stream's `changelog/bulkfetch`
+     * chunk size; MUST match the stub's chunking (`sample-data/README.md`).
+     */
+    val changelogBulkSize: Int = DEFAULT_CHANGELOG_BULK_SIZE,
 )
+
+private const val DEFAULT_CHANGELOG_BULK_SIZE = 50
 
 class JiraConnector(
     private val newClient: JiraClientFactory,
@@ -73,9 +80,10 @@ class JiraConnector(
         get() = sync?.let { deps -> listOf(PurgeStep { connectionId -> deps.rawStore.purgeAll(connectionId) }) } ?: emptyList()
 
     /**
-     * The sync-job stream runner (v0.2.0 plan §7/§12 item 6): SYNC runs REFERENCE then ISSUES —
-     * CHANGELOGS/WORKLOGS/PROCESS/PROFILE join this ordered list in later commits. PURGE drains
-     * [purgeSteps]; RECONCILE/REPROCESS still succeed trivially until their own commits land.
+     * The sync-job stream runner (v0.2.0 plan §7/§12 item 7): SYNC runs REFERENCE → ISSUES →
+     * CHANGELOGS → WORKLOGS — RECONCILE/PROCESS/PROFILE join this ordered list in later commits.
+     * PURGE drains [purgeSteps] (now including the V11 changelog/worklog tables); RECONCILE/
+     * REPROCESS still succeed trivially until their own commits land.
      */
     override suspend fun run(context: SyncJobRunContext) {
         when (context.claim.kind) {
@@ -101,6 +109,8 @@ class JiraConnector(
                 client, deps.rawStore, stored.projectKeys, backfillFromMillis,
                 deps.incrementalOverlapMinutes, deps.issuesPageSize,
             ),
+            JiraChangelogStream(client, deps.rawStore, deps.changelogBulkSize),
+            JiraWorklogStream(client, deps.rawStore),
         )
         streams.forEach { it.run(streamContext) }
     }

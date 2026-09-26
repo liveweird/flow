@@ -159,6 +159,7 @@ transport at startup (`.claude/docs/security.md`).
 | `JIRA_MAX_RETRIES` | `4` | Retries on 429/5xx/IOException before the Jira client fails terminally. |
 | `JIRA_PAGE_SIZE` | `100` | The ISSUES stream's `search/jql` page size (`maxResults`, 1..500); the stub ignores it and returns its own fixed-size pages. |
 | `JIRA_INCREMENTAL_OVERLAP_MINUTES` | `10` | How far the ISSUES stream re-widens its relative `updated` window past the last completed run's watermark (0..1440). |
+| `JIRA_CHANGELOG_BULK_SIZE` | `50` | The CHANGELOGS stream's `changelog/bulkfetch` chunk size (1..1000) — MUST match the stub's own fixed 50-id chunking. |
 | `JIRA_STUB_BASE_URL` | *(blank)* | Reroutes the Jira tenant_info + gateway hosts to the in-JVM/compose stub — development only; production refuses a non-blank value. |
 | `INGEST_SCHEDULER_TICK_SECONDS` | `15` | How often the `worker`-role scan loop runs: enqueue due jobs, prune old rows, claim+run. |
 | `INGEST_WORKER_SLOTS` | `2` | Cap on concurrently RUNNING sync jobs for this worker instance. |

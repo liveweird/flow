@@ -205,6 +205,10 @@ jira:
   # The ISSUES stream's (plan §7, jira/JiraIssuesStream.kt) `search/jql` page size — the stub
   # ignores this and returns its own fixed-size pages regardless (sample-data/README.md).
   pageSize: "$JIRA_PAGE_SIZE:100"
+  # The CHANGELOGS stream's (plan §7, jira/JiraChangelogStream.kt) `changelog/bulkfetch` chunk size
+  # — MUST match sample-data/jira-stub's own fixed 50-id chunking (sample-data/README.md) for the
+  # pipeline test's exact-count assertions (and a real tenant's own bulkfetch ceiling) to hold.
+  changelogBulkSize: "$JIRA_CHANGELOG_BULK_SIZE:50"
   # How far the ISSUES stream re-widens its relative `updated` window past the last completed
   # run's watermark, on every run AFTER the first (the first run's window is `backfillFrom`
   # instead) — covers clock skew/a slow last page committing an issue Jira stamped just before the

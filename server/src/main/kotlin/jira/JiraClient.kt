@@ -31,7 +31,7 @@ interface JiraClient {
     suspend fun approximateCount(jql: String): Long
     suspend fun issue(idOrKey: String): JsonObject
     suspend fun changelogBulk(issueIds: List<String>, nextPageToken: String? = null, maxResults: Int = 50): JsonObject
-    suspend fun issueChangelogPage(issueId: String, startAt: Int = 0): JiraStartAtPage
+    suspend fun issueChangelogPage(issueId: String, startAt: Int = 0): JiraChangelogPage
     /** A1: per-issue worklog page — backfill and newly-in-scope issues. */
     suspend fun issueWorklogPage(issueId: String, startAt: Int = 0): JiraWorklogStartAtPage
     suspend fun worklogUpdated(sinceEpochMillis: Long): JiraWorklogIdsPage
@@ -144,7 +144,7 @@ class HttpJiraClient(
         return decode(post(endpoint, body), endpoint)
     }
 
-    override suspend fun issueChangelogPage(issueId: String, startAt: Int): JiraStartAtPage {
+    override suspend fun issueChangelogPage(issueId: String, startAt: Int): JiraChangelogPage {
         val endpoint = "/rest/api/3/issue/{id}/changelog"
         val id = requireIssueIdOrKey(issueId, endpoint)
         return decode(get("/rest/api/3/issue/$id/changelog", mapOf("startAt" to startAt.toString())), endpoint)

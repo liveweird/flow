@@ -14,6 +14,7 @@ import ch.nokillswit.ingest.SyncCursorsService
 import ch.nokillswit.ingest.SyncJobClaim
 import ch.nokillswit.ingest.SyncJobKind
 import ch.nokillswit.ingest.SyncJobRunContext
+import ch.nokillswit.jira.ChangelogsCursor
 import ch.nokillswit.jira.HttpJiraClient
 import ch.nokillswit.jira.IssuesCursor
 import ch.nokillswit.jira.JiraClient
@@ -23,6 +24,7 @@ import ch.nokillswit.jira.JiraHttp
 import ch.nokillswit.jira.JiraIssuesStream
 import ch.nokillswit.jira.JiraRawStore
 import ch.nokillswit.jira.JiraSyncDependencies
+import ch.nokillswit.jira.JiraWorklogStream
 import com.github.tomakehurst.wiremock.client.WireMock.aResponse
 import com.github.tomakehurst.wiremock.client.WireMock.equalTo
 import com.github.tomakehurst.wiremock.client.WireMock.get
@@ -210,6 +212,31 @@ class JiraSyncPipelineTest {
         val issuesCursor = assertNotNull(cursors().get(connId, "issues"))
         val decoded = ISSUES_TEST_JSON.decodeFromString<IssuesCursor>(issuesCursor.cursor)
         assertNull(decoded.nextPageToken, "a completed ISSUES run clears its page token")
+
+        val store = rawStore()
+        // expected.json's changelog.totalHistories (5372) and worklogs.inScopeTotalCount (1266) are
+        // WHOLE-DATASET stats — the generator's own counters loop over every project INCLUDING the
+        // out-of-scope SEC project (`sample-data/jira/generate.mjs`'s "issues" array), so they also
+        // count history/worklog rows on issues A1 deliberately never fetches. The numbers below are
+        // the in-scope-reachable totals: the 23 real bulkfetch chunks' histories plus the omitted
+        // chunk's 50-issue fallback (4903 + 222), and every in-scope issue's own worklog page total.
+        assertEquals(
+            5125L, store.countChangelogs(connId), "in-scope-reachable changelog histories (23 bulk chunks + the omitted chunk's fallback)",
+        )
+        assertEquals(1187L, store.countWorklogs(connId), "in-scope-reachable worklogs (sample-data/jira-stub's per-issue worklog pages)")
+        assertEquals(
+            1200, rows.count { it[JiraRawStore.Issues.worklogsSyncedAt] != null },
+            "worklogs_synced_at must be set on every in-scope issue",
+        )
+
+        // changelog.omittedBulkfetchChunkIndex (5): that chunk's 50 issues must have gone through the
+        // per-issue fallback, which is the only thing that persists a "changelogs" cursor.
+        val changelogsCursor = assertNotNull(
+            cursors().get(connId, "changelogs"), "the omitted bulkfetch chunk must trigger the per-issue fallback",
+        )
+        val decodedChangelogs = ISSUES_TEST_JSON.decodeFromString<ChangelogsCursor>(changelogsCursor.cursor)
+        assertNotNull(decodedChangelogs.bulkUnavailableUntil, "a bulkfetch 404 must set the fallback cursor flag")
+        Unit
     }
 
     @Test
@@ -219,8 +246,11 @@ class JiraSyncPipelineTest {
         val connId = createConnection(ds)
         val connector = buildConnector()
 
+        val store = rawStore()
         runConnectorOnce(connector, connId)
         val before = issueRows(connId).associate { it[JiraRawStore.Issues.issueId] to it.shaChangedFetched() }
+        val changelogCountBefore = store.countChangelogs(connId)
+        val worklogCountBefore = store.countWorklogs(connId)
 
         runConnectorOnce(connector, connId)
         val after = issueRows(connId).associate { it[JiraRawStore.Issues.issueId] to it.shaChangedFetched() }
@@ -232,6 +262,8 @@ class JiraSyncPipelineTest {
             assertEquals(beforeTriple.second, afterTriple.second, "changed_at must not move on an unchanged re-fetch")
             assertTrue(afterTriple.third >= beforeTriple.third, "fetched_at must not go backward")
         }
+        assertEquals(changelogCountBefore, store.countChangelogs(connId), "a second SYNC must add no new changelog rows")
+        assertEquals(worklogCountBefore, store.countWorklogs(connId), "a second SYNC must add no new worklog rows")
     }
 
     @Test
@@ -250,6 +282,8 @@ class JiraSyncPipelineTest {
         val samplePayload = """{"id":"1","key":"FLO-1","fields":{"project":{"id":"1","key":"FLO"}}}"""
         store.upsertIssue(connId, ch.nokillswit.jira.RawIssueInput(1L, "FLO-1", 1L, "FLO", 1_000, samplePayload), 1_000)
         store.upsertEntity(connId, "FIELD", "summary", """{"id":"summary"}""", 1_000)
+        store.insertChangelog(connId, 500_900L, 1L, 1_000, "acc-1", """{"id":"500900"}""", 1_000)
+        store.upsertWorklog(connId, 1L, 700_900L, 1_000, """{"id":"700900","issueId":"1"}""", 1_000)
 
         val purgeSteps: List<PurgeStep> = connector.purgeSteps
         assertTrue(purgeSteps.isNotEmpty())
@@ -257,6 +291,54 @@ class JiraSyncPipelineTest {
 
         assertEquals(0L, store.countIssues(connId))
         assertEquals(emptyMap(), entityCounts(connId))
+        assertEquals(0L, store.countChangelogs(connId))
+        assertEquals(0L, store.countWorklogs(connId))
+    }
+
+    @Test
+    fun `day2 - new-in-scope worklogs stored, out-of-scope worklogs dropped and counted, deleted worklog tombstoned`() = runBlocking {
+        ensureMigrated()
+        val ds = dataSources()
+        val connId = createConnection(ds)
+        val connector = buildConnector()
+        val store = rawStore()
+
+        runConnectorOnce(connector, connId) // full backfill: raw.jira_issues must know every in-scope issue first
+        val worklogCountBefore = store.countWorklogs(connId)
+
+        JiraStubServer.setScenarioState("jira-day2", "day2")
+        try {
+            val client = buildClient(maxRetries = 0)
+            val worklogStream = JiraWorklogStream(client, store)
+            val context = StreamContext(connId, 1u, sharedDatabaseForTests(), cursors(), jobHeartbeat = { true })
+            worklogStream.run(context)
+
+            assertEquals(
+                2L, worklogStream.lastRunOutOfScopeCount,
+                "sample-data/jira/expected.json worklogs.outOfScopeDay2FeedCount — SEC worklogs dropped",
+            )
+
+            val rows = suspendTransaction(sharedDatabaseForTests()) {
+                JiraRawStore.Worklogs.selectAll().where { JiraRawStore.Worklogs.connectionId eq connId }.toList()
+            }
+            // +2 new in-scope worklogs, -1 for the one ALSO tombstoned in this same run — net +1 live.
+            val liveCount = rows.count { it[JiraRawStore.Worklogs.deletedAt] == null }
+            assertEquals(worklogCountBefore + 1, liveCount.toLong(), "day2NewInScopeCount net the deleted worklog")
+            assertEquals(worklogCountBefore + 2, rows.size.toLong(), "day2NewInScopeCount (total rows incl. the tombstoned one)")
+
+            val deletedWorklog = rows.single { it[JiraRawStore.Worklogs.worklogId] == 700_000L }
+            assertEquals(
+                30_003L, deletedWorklog[JiraRawStore.Worklogs.issueId],
+                "sample-data/jira/expected.json worklogs.day2DeletedWorklogIssueId",
+            )
+            assertNotNull(
+                deletedWorklog[JiraRawStore.Worklogs.deletedAt],
+                "sample-data/jira/expected.json worklogs.day2DeletedWorklogId must be tombstoned",
+            )
+            Unit
+        } finally {
+            JiraStubServer.resetScenarios()
+        }
     }
 
     @Test
