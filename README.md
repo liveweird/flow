@@ -152,6 +152,13 @@ transport at startup (`.claude/docs/security.md`).
 | `SMTP_STARTTLS` | `true` | STARTTLS on the SMTP connection. |
 | `MAIL_FROM` | `flow@localhost` | Sender address of every outbound email. |
 | `MAIL_APP_URL` | *(blank)* | Absolute URL of this deployment — emails carry a sign-in link when set. |
+| `INGEST_SCHEDULER_TICK_SECONDS` | `15` | How often the `worker`-role scan loop runs: enqueue due jobs, prune old rows, claim+run. |
+| `INGEST_WORKER_SLOTS` | `2` | Cap on concurrently RUNNING sync jobs for this worker instance. |
+| `INGEST_LEASE_SECONDS` | `300` | A claimed job's lease lifetime; heartbeated at `leaseSeconds/3`. An expired lease is reclaimable by any worker. |
+| `INGEST_MAX_ATTEMPTS` | `3` | How many times a job may be (re)claimed before it fails `RETRIES_EXHAUSTED`. |
+| `INGEST_JOB_RETENTION_DAYS` | `90` | Finished (`SUCCEEDED`/`FAILED`/`CANCELLED`) `sync_jobs` rows older than this are hard-deleted (the documented `sync_jobs` history-pruning exception, `.claude/docs/persistence.md`). |
+| `INGEST_PURGE_GRACE_DAYS` | `7` | Days a soft-deleted data source's connector rows survive before the internal `PURGE` job removes them. |
+| `INGEST_WORKER_ID` | *(blank)* | This worker instance's lease-owner identity; blank derives hostname + a random suffix. |
 | `POSTGRES_JDBC_URL` | `jdbc:postgresql://localhost:5435/flow` | Flyway's JDBC URL. |
 | `POSTGRES_R2DBC_URL` | `r2dbc:postgresql://localhost:5435/flow` | The runtime R2DBC URL. |
 | `POSTGRES_USER` | `flow` | Database user. |

@@ -4,6 +4,8 @@ import ch.nokillswit.infra.config.requireConfigInt
 import ch.nokillswit.infra.config.requireConfigLong
 import ch.nokillswit.infra.outbound.guardedOkHttpClient
 import ch.nokillswit.infra.outbound.isAllowedJiraHost
+import ch.nokillswit.ingest.ConnectorRegistryKey
+import ch.nokillswit.ingest.DataSourceKind
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.HttpTimeout
@@ -59,6 +61,9 @@ fun Application.configureJira() {
         HttpJiraClient(jiraHttp, tenantInfoBaseUrl, stubBaseUrl, email, apiToken, authScheme)
     }
     attributes.put(JiraConnectorKey, connector)
+    // The Connector registry (ingest/Connector.kt) — IngestWorker's claim loop dispatches a
+    // claimed job to its connector by DataSourceKind; a GitLab connector adds its own entry later.
+    attributes.put(ConnectorRegistryKey, mapOf(DataSourceKind.JIRA_CLOUD to connector))
 }
 
 private const val MIN_TIMEOUT_SECONDS = 1L

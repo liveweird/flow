@@ -96,7 +96,7 @@ display fields and the active-member counts, and checks member ids against activ
 the create/add transaction. List each new cross-feature read here as it lands — the list IS the
 permission.
 
-Current migrations are `V1`–`V8`:
+Current migrations are `V1`–`V9`:
 
 - `V1__init` — the `users` table: `name` (≤50), `email` (≤254), `password_hash`, `role` with
   `CHECK ("role" IN ('ADMIN', 'USER'))` (single-column role storage; the wire shape stays a
@@ -130,6 +130,7 @@ Current migrations are `V1`–`V8`:
   wrinkle).
 - `V7__user_credential_revision` — see "Credential revision" below.
 - `V8__create_source_connections` — see "Data sources (V8)" below.
+- `V9__create_sync_jobs` — see "Sync jobs and cursors (V9)" below.
 
 The `users`/`teams` tables follow Toadie's dialect (`SERIAL`/`INTEGER` ids, epoch-millis `BIGINT`
 timestamps, `marked_as_deleted` + partial unique indexes over active rows) and its idioms: a
@@ -142,8 +143,16 @@ otherwise.
 business entity follows the same convention. Only join/token tables (today: `revoked_tokens`, a
 pure token registry, `user_disabled_features`, a pure flag join whose PUT is a wholesale replace,
 and `team_members`, a pure membership join) hard-delete — a new hard-delete table needs a
-documented justification, exactly like Lettuce's exceptions list. To add soft-delete to a new
-entity, follow the established pattern (reference implementation: `users/UserService.kt`):
+documented justification, exactly like Lettuce's exceptions list. `sync_jobs` (V9) is the one
+non-join exception: `SyncJobsService.prune` hard-deletes terminal rows (`SUCCEEDED`/`FAILED`/
+`CANCELLED`) older than `ingest.jobRetentionDays` (default 90), run opportunistically on every
+`IngestWorker` scheduler tick. The table is pure operational history — it drives no soft-delete
+semantics of its own (a job's PENDING/RUNNING lifetime is what matters, and cancellation already
+covers "remove without physically removing" for anything still open) — and unbounded retention
+would grow it forever for a connector that syncs every few minutes; a fixed retention window with a
+documented default is the same shape as the JWT blocklist's opportunistic pruning of expired
+`revoked_tokens` rows. To add soft-delete to a new entity, follow the established pattern
+(reference implementation: `users/UserService.kt`):
 
 1. **Migration** — `marked_as_deleted BOOLEAN NOT NULL DEFAULT FALSE` in the CREATE (a retrofit
    adds the column plus `CREATE INDEX idx_<t>_marked_as_deleted ON <t>(marked_as_deleted);`).
@@ -225,8 +234,45 @@ store's per-payload hash (plan §4, V10) is the next consumer, over payloads Jir
 consistently. Covered by `CanonicalJsonTest` (key-order independence, recursive sorting, array
 order preserved, numbers/strings/unicode stable and idempotent, stable `sha256Hex`).
 
+### Sync jobs and cursors (V9)
+
+`sync_jobs` and `sync_cursors` (v0.2.0 plan §4/§5/§9, `.claude/docs/ingestion.md` "Sync-job queue"
+and "Sync cursors") stay in `public` alongside `source_connections` — operational state, not
+connector-raw or normalized data.
+
+`sync_jobs` (`ingest/SyncJobs.kt`'s `SyncJobsService`) is ONE table serving as both the job queue
+and its own history for every connector kind: `kind` (`SYNC`/`RECONCILE`/`REPROCESS`/`PURGE`) and
+`status` (`PENDING`/`RUNNING`/`SUCCEEDED`/`FAILED`/`CANCELLED`) are both `CHECK`-constrained
+(they drive claim/behavior, the `users.role` idiom); `priority` (`0` manual, `10` scheduled),
+`requested_by_user_id` (nullable — null for scheduler-enqueued jobs) and `config_revision` (the
+connection's revision at enqueue time, compared again at claim) round out the job identity.
+Timing/attempts (`requested_at`/`started_at`/`finished_at`/`attempt`/`max_attempts`) and the
+lease/heartbeat quartet (`lease_owner`/`lease_until`/`heartbeat_at`/`cancel_requested_at`) are
+plain nullable `BIGINT`/`VARCHAR` columns read and written only through the service, never a raw
+SQL update. `uq_sync_jobs_open_per_kind` — a partial unique index over `(connection_id, kind) WHERE
+status IN ('PENDING','RUNNING')` — is the coalescing mechanism: race-free by construction (an
+`INSERT` that would violate it fails at the database, not a check-then-insert TOCTOU in Kotlin).
+`idx_sync_jobs_claimable` backs the claim scan's `FOR UPDATE SKIP LOCKED`;
+`idx_sync_jobs_connection_history` backs the per-connection history list and the "already a RUNNING
+job for this connection" check. `SERIAL`/`INTEGER` id, epoch-millis `BIGINT` timestamps — the same
+dialect as every other v0.2.0 table.
+
+**The `sync_jobs` prune hard-delete exception.** Unlike every other business entity in this repo,
+finished `sync_jobs` rows are hard-deleted, not soft-deleted — see "Soft delete (convention)" above
+for why (unbounded job history has no reader that needs it once a row is old, and the same
+opportunistic-pruning shape already exists for `revoked_tokens`). `source_connections.purged_at`
+(added by this same migration, `ALTER TABLE`) is the companion column A2's PURGE job stamps on
+success, independent of `sync_jobs` row retention — deriving "already purged" from job history
+would regress once the SUCCEEDED `PURGE` row itself gets pruned.
+
+`sync_cursors` (`ingest/SyncCursors.kt`'s `SyncCursorsService`) has PK `(connection_id, stream)` —
+one row per incremental-sync phase within a connection — with a `jsonb` `cursor` column (via
+`infra/db/Jsonb.kt`, the V8 binding) whose shape is owned entirely by the stream that reads and
+writes it, plus `watermark_at`/`last_completed_at`/`updated_at` bookkeeping columns common to every
+stream. The streams themselves (and the cursor shapes they define) land in plan commit 6+.
+
 ### Not yet ported from Lettuce / Toadie / Covenant
 
-Nothing remains on the persistence list today; the next subsystem (the Jira raw store and
-incremental cursors, and the `raw`/`norm` PostgreSQL schemas — plan §0 A3, V10) arrives with its
-own paragraph here.
+Nothing remains on the persistence list today; the next subsystem (the Jira raw store and its
+incremental cursors' first consumers, and the `raw`/`norm` PostgreSQL schemas — plan §0 A3, V10)
+arrives with its own paragraph here.

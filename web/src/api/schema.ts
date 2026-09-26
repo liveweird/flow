@@ -551,6 +551,88 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/data-sources/{id}/sync-jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * List a data source's sync jobs
+         * @description ADMIN only. History and command queue for one connection (v0.2.0 plan §9).
+         *
+         *     - Sortable fields: `id`, `requestedAt`. Default `-requestedAt` (newest first).
+         *     - Filters: `kind` (`SYNC`/`RECONCILE`/`REPROCESS`/`PURGE`), `status`
+         *       (`PENDING`/`RUNNING`/`SUCCEEDED`/`FAILED`/`CANCELLED`).
+         */
+        get: operations["listSyncJobs"];
+        put?: never;
+        /**
+         * Enqueue a sync job ("Sync now" / "Reconcile now" / "Reprocess")
+         * @description ADMIN only (guarded before the body decodes). `400` when the connection is disabled, or
+         *     when `kind` is `PURGE` — PURGE is scheduled internally (a soft-deleted connection past
+         *     its grace period) and is never requester-initiated. A second request while one is already
+         *     `PENDING`/`RUNNING` for the same `(connection, kind)` is coalesced (`202`,
+         *     `coalesced: true`, the EXISTING job).
+         */
+        post: operations["requestSyncJob"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/data-sources/{id}/sync-jobs/{jobId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                jobId: number;
+            };
+            cookie?: never;
+        };
+        /**
+         * Get one sync job
+         * @description ADMIN only.
+         */
+        get: operations["getSyncJob"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/data-sources/{id}/sync-jobs/{jobId}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                jobId: number;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel a sync job
+         * @description ADMIN only. `PENDING` → `CANCELLED` immediately; `RUNNING` → `cancel_requested_at` is set
+         *     and the worker honours it cooperatively on its next heartbeat tick; an already-terminal
+         *     job (`SUCCEEDED`/`FAILED`/`CANCELLED`) is `409`.
+         */
+        post: operations["cancelSyncJob"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -791,7 +873,7 @@ export interface components {
             consecutiveFailures: number;
             /**
              * Format: int32
-             * @description Always null until the sync-job queue lands.
+             * @description The connection's currently RUNNING sync job, if any.
              */
             runningJobId?: number | null;
         };
@@ -850,6 +932,81 @@ export interface components {
             rows: components["schemas"]["ConnectionTestRow"][];
             /** @description Resolved once the `tenant_info` probe succeeds. */
             cloudId?: string | null;
+        };
+        /** @enum {string} */
+        SyncJobKind: "SYNC" | "RECONCILE" | "REPROCESS" | "PURGE";
+        /** @enum {string} */
+        SyncJobStatus: "PENDING" | "RUNNING" | "SUCCEEDED" | "FAILED" | "CANCELLED";
+        SyncJobRequest: {
+            /** @description `PURGE` is internal-only and rejected here with `400`. */
+            kind: components["schemas"]["SyncJobKind"];
+        };
+        SyncJobResponse: {
+            /** Format: int32 */
+            id: number;
+            /** Format: int32 */
+            connectionId: number;
+            kind: components["schemas"]["SyncJobKind"];
+            status: components["schemas"]["SyncJobStatus"];
+            /** @description 0 manual, 10 scheduler-enqueued. */
+            priority: number;
+            /**
+             * Format: int32
+             * @description Null for scheduler-enqueued jobs.
+             */
+            requestedByUserId?: number | null;
+            /** Format: int64 */
+            configRevision: number;
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            requestedAt: number;
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            startedAt?: number | null;
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            finishedAt?: number | null;
+            attempt: number;
+            maxAttempts: number;
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            leaseUntil?: number | null;
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            heartbeatAt?: number | null;
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            cancelRequestedAt?: number | null;
+            currentStream?: string | null;
+            progress?: {
+                [key: string]: unknown;
+            } | null;
+            errorCode?: string | null;
+            errorDetail?: string | null;
+        };
+        SyncJobPage: {
+            items: components["schemas"]["SyncJobResponse"][];
+            page: number;
+            pageSize: number;
+            /** Format: int64 */
+            total: number;
+        };
+        SyncJobActionResult: {
+            job: components["schemas"]["SyncJobResponse"];
+            /** @description True when an already-open job for the same (connection, kind) was returned instead of a new one. */
+            coalesced: boolean;
         };
         /** @description RFC 7807 problem detail. Served as `application/problem+json`; instance is the request path without query parameters. */
         ProblemDetail: {
@@ -1888,6 +2045,136 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    listSyncJobs: {
+        parameters: {
+            query?: {
+                /** @description 1-based page index. Defaults to 1. */
+                page?: components["parameters"]["Page"];
+                /** @description Rows per page. Defaults to 20, maximum 100. */
+                pageSize?: components["parameters"]["PageSize"];
+                /**
+                 * @description Sort spec. Format: `field` (ascending) or `-field` (descending). Multiple fields are
+                 *     comma-separated, leftmost wins: `sort=-updatedAt,name`. The endpoint declares its
+                 *     sortable-field whitelist; unknown fields are rejected with `400`. `id` ascending is
+                 *     always appended as a deterministic tiebreaker.
+                 */
+                sort?: components["parameters"]["Sort"];
+                kind?: components["schemas"]["SyncJobKind"];
+                status?: components["schemas"]["SyncJobStatus"];
+            };
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of sync jobs */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SyncJobPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    requestSyncJob: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SyncJobRequest"];
+            };
+        };
+        responses: {
+            /** @description Accepted (queued or coalesced with an already-open job) */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SyncJobActionResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            415: components["responses"]["UnsupportedMediaType"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getSyncJob: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                jobId: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The sync job */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SyncJobResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    cancelSyncJob: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                jobId: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Cancellation accepted (or already in effect) */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SyncJobResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
             500: components["responses"]["InternalServerError"];
         };
     };

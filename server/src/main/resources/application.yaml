@@ -34,14 +34,18 @@ ktor:
       # Public liveness/readiness probes (/api/v1/health, /api/v1/ready); after Database (the probe
       # round-trips it).
       - ch.nokillswit.plugins.HealthKt.configureHealth
-      # The guarded Jira HTTP stack (outbound guard + Test-connection service) — before the
-      # data-sources routes, which read the JiraConnector off attributes.
+      # The guarded Jira HTTP stack (outbound guard + Test-connection service + the Connector
+      # registry) — before the data-sources/sync-job routes, which read it off attributes.
       - ch.nokillswit.jira.JiraKt.configureJira
+      # The FLOW_ROLE=worker scheduler (v0.2.0 plan §5) — a no-op unless runsWorker(); after the
+      # Connector registry, before the feature route modules.
+      - ch.nokillswit.ingest.IngestWorkerKt.configureIngestWorker
       # — features
       - ch.nokillswit.users.UserRoutesKt.configureUserRoutes
       - ch.nokillswit.teams.TeamRoutesKt.configureTeamRoutes
       - ch.nokillswit.auth.AuthRoutesKt.configureAuthRoutes
       - ch.nokillswit.ingest.DataSourceRoutesKt.configureDataSourceRoutes
+      - ch.nokillswit.ingest.SyncJobRoutesKt.configureSyncJobRoutes
       # — catch-all router
       - ch.nokillswit.plugins.RoutingKt.configureRouting
 
@@ -76,7 +80,7 @@ security:
   # Not configurable, stated for the operator: the JWT blocklist (auth/TokenBlocklistService.kt)
   # serves revocation verdicts through a 30-second in-memory cache per instance. A logout revokes
   # on the instance that handled it immediately; on a SECOND instance the token would keep working
-  # for up to 30 s — the deployment is single-replica (k8s/app-deployment.yaml), like the throttles
+  # for up to 30 s — the deployment is single-replica (k8s/web-deployment.yaml), like the throttles
   # above assume; scale out only after moving these to a shared store.
   # Self-service password reset: at most one request per submitted email per interval,
   # uniformly whether or not the account exists. In-memory, per-instance, like the lockout.
@@ -131,7 +135,7 @@ http:
   # Installs XForwardedHeaders so the client IP (rate limiting) and scheme (HTTPS
   # redirect) come from X-Forwarded-* headers. The proxy MUST set X-Forwarded-For,
   # X-Forwarded-Proto and X-Forwarded-Host and overwrite client-supplied values —
-  # k8s/app-deployment.yaml is the reference. X-Forwarded-Port is NOT read (cleared
+  # k8s/web-deployment.yaml is the reference. X-Forwarded-Port is NOT read (cleared
   # in plugins/Http.kt — nothing needs it, and a non-numeric client value used to
   # throw a 500 out of CallSetup before any route ran).
   behindProxy: "$HTTP_BEHIND_PROXY:false"
@@ -196,6 +200,29 @@ jira:
   # (sample-data/jira-stub) — DEVELOPMENT ONLY; production startup refuses a non-blank value
   # (jira/Jira.kt's fail-closed check, ported from the crypto-key/mail-transport precedent).
   stubBaseUrl: "$JIRA_STUB_BASE_URL:"
+
+ingest:
+  # The sync-job queue and worker scheduler (v0.2.0 plan §5/§9, ingest/IngestWorker.kt,
+  # `.claude/docs/ingestion.md` "Worker scheduler"). Validated on every boot regardless of
+  # FLOW_ROLE (the configureRole/configureJira fail-fast idiom) — only the scan loop itself is
+  # worker-only.
+  # How often the worker's scan loop runs: enqueue due jobs, prune old rows, claim+run.
+  schedulerTickSeconds: "$INGEST_SCHEDULER_TICK_SECONDS:15"
+  # The Semaphore cap on concurrently RUNNING jobs for this worker instance.
+  workerSlots: "$INGEST_WORKER_SLOTS:2"
+  # A claimed job's lease lifetime; heartbeated at leaseSeconds/3. An expired RUNNING lease is
+  # reclaimable by any worker (a crashed/partitioned worker's job is not stuck forever).
+  leaseSeconds: "$INGEST_LEASE_SECONDS:300"
+  # How many times a job may be (re)claimed before the claim loop fails it RETRIES_EXHAUSTED.
+  maxAttempts: "$INGEST_MAX_ATTEMPTS:3"
+  # Finished (SUCCEEDED/FAILED/CANCELLED) rows older than this are hard-deleted — the documented
+  # sync_jobs history-pruning exception (`.claude/docs/persistence.md`).
+  jobRetentionDays: "$INGEST_JOB_RETENTION_DAYS:90"
+  # A soft-deleted connection becomes eligible for the internal PURGE job after this many days —
+  # a mistaken delete can be undone within the grace period (plan §0 A2).
+  purgeGraceDays: "$INGEST_PURGE_GRACE_DAYS:7"
+  # This worker instance's lease-owner identity. Blank derives hostname + a random suffix.
+  workerId: "$INGEST_WORKER_ID:"
 
 postgres:
   # Local-dev defaults point at the docker-compose Postgres, which maps host port

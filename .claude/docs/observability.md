@@ -71,8 +71,18 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
   token) / `.deleted` (byUserId/dataSourceId) — the v0.2.0 data-sources CRUD (V8) /
   `.tested` (byUserId/siteHost/ok/failedEndpoints — emitted by both `POST /api/v1/data-sources/test`
   and `.../{id}/test`; `failedEndpoints` names the probe rows that failed, never a token or the
-  full request) — worker-side sync-job events (`sync_job.*`) arrive with the sync-job queue (plan
-  commit 5).
+  full request),
+- `sync_job.requested` (byUserId/dataSourceId/jobId/kind/coalesced — `POST .../sync-jobs`;
+  emitted whether or not the request coalesced into an already-open job) / `.cancel_requested`
+  (byUserId/dataSourceId/jobId — `POST .../sync-jobs/{jobId}/cancel`) — the web-role surface
+  (`ingest/SyncJobRoutes.kt`); `.started` (jobId/dataSourceId/kind/attempt/workerId — a job the
+  worker just claimed) / `.succeeded` (jobId/dataSourceId/kind) / `.failed`
+  (jobId/dataSourceId/kind/errorCode — always `RUN_FAILED` today; the exception message itself
+  goes to `error_detail` on the row, not the audit line) / `.released`
+  (jobId/dataSourceId/workerId — a still-RUNNING job put back to `PENDING` on
+  `ApplicationStopping`) — the worker-role surface (`ingest/IngestWorker.kt`). A run that lost
+  its lease mid-way, or was cancelled via `cancel_requested_at`, logs a WARN/INFO instead of a
+  further audit event — the row's own `status`/`error_code` already carries that outcome.
 - `outbound.blocked` (scheme/host ONLY — never the full URL) — every rejection from
   `infra/outbound/OutboundGuard.kt`'s host allow-list or address-range check, emitted by
   `GuardedDns` on the Jira HTTP client's every outbound call (`.claude/docs/jira-integration.md`).
@@ -99,6 +109,10 @@ one).
 
 ### Not yet ported
 
-The data-sources CRUD and Test-connection audit trail, plus `outbound.blocked`, have landed;
-sync-job lifecycle events (`sync_job.started`/`.succeeded`/`.failed`/`.released`) arrive with the
-sync-job queue and worker (plan commit 5) and get their own paragraph here.
+The data-sources CRUD and Test-connection audit trail, `outbound.blocked`, and the sync-job queue's
+lifecycle events (`sync_job.requested`/`.cancel_requested`/`.started`/`.succeeded`/`.failed`/
+`.released`) have all landed. The Jira streams themselves (REFERENCE, ISSUES, CHANGELOGS,
+WORKLOGS, RECONCILE, PROCESS, PROFILE) run as a no-op today (`ingest/Connector.kt`'s default
+`run()`) and emit no events of their own yet — any stream-level audit trail (e.g. per-page counts,
+A1's `worklogsOutOfScope`) arrives with the streams in plan commits 6-9 and gets its own paragraph
+here.

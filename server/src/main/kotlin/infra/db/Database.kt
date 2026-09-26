@@ -7,6 +7,10 @@ import ch.nokillswit.infra.config.requireConfigLong
 import ch.nokillswit.infra.crypto.FieldCipherKey
 import ch.nokillswit.ingest.DataSourceService
 import ch.nokillswit.ingest.DataSourceServiceKey
+import ch.nokillswit.ingest.SyncCursorsService
+import ch.nokillswit.ingest.SyncCursorsServiceKey
+import ch.nokillswit.ingest.SyncJobsService
+import ch.nokillswit.ingest.SyncJobsServiceKey
 import ch.nokillswit.teams.TeamService
 import ch.nokillswit.teams.TeamServiceKey
 import ch.nokillswit.users.UserService
@@ -123,4 +127,10 @@ suspend fun Application.configureDatabase() {
     // The first EncryptedAtRest consumer (infra/crypto/EncryptedAtRest.kt) — the FieldCipher was
     // published by configureCrypto, which application.yaml runs before this module.
     attributes.put(DataSourceServiceKey, DataSourceService(database, attributes[FieldCipherKey]))
+    // The sync-job queue (v0.2.0 plan §5/§9): published here (not gated by role) since the web
+    // role's job API (ingest/SyncJobRoutes.kt) enqueues/lists/cancels jobs too — only the actual
+    // claim/scan loop (ingest/IngestWorker.kt) is worker-only.
+    val maxAttempts = requireConfigInt(environment.config, "ingest.maxAttempts", min = 1, max = 10)
+    attributes.put(SyncJobsServiceKey, SyncJobsService(database, maxAttempts))
+    attributes.put(SyncCursorsServiceKey, SyncCursorsService(database))
 }

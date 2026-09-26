@@ -88,6 +88,11 @@ class DataSourceService(private val database: R2dbcDatabase, private val cipher:
         val createdAt = long("created_at")
         val updatedAt = long("updated_at")
         override val markedAsDeleted = bool("marked_as_deleted").default(false)
+        // V9 (plan §0 A2): stamped once a PURGE job succeeds for this soft-deleted connection, so
+        // the worker's due-PURGE scan (ingest/DataSourceService.kt's dueForPurge) never re-enqueues
+        // it — independent of sync_jobs row retention (a SUCCEEDED PURGE row is itself eventually
+        // pruned by ingest.jobRetentionDays).
+        val purgedAt = long("purged_at").nullable()
     }
 
     override val encryptedRowLabel = "Jira API token"
@@ -213,6 +218,81 @@ class DataSourceService(private val database: R2dbcDatabase, private val cipher:
         }
     }
 
+    /** A due connection's id and its CURRENT `config_revision` (stamped onto the enqueued job). */
+    data class DueConnection(val id: UInt, val configRevision: Long)
+
+    /** Enabled, active connections whose schedule has arrived (`next_sync_at` null or past) — IngestWorker's scheduler tick. */
+    suspend fun dueForSync(now: Long): List<DueConnection> = suspendTransaction(database) {
+        Connections.selectAll().where {
+            Connections.active() and (Connections.enabled eq true) and
+                ((Connections.nextSyncAt.isNull()) or (Connections.nextSyncAt lessEq now))
+        }.toList().map { DueConnection(it[Connections.id].value, it[Connections.configRevision]) }
+    }
+
+    /** Enabled, active connections whose daily `reconcile_hour_utc` boundary has arrived since `last_reconcile_at`. */
+    suspend fun dueForReconcile(now: Long): List<DueConnection> = suspendTransaction(database) {
+        Connections.selectAll().where { Connections.active() and (Connections.enabled eq true) }.toList()
+            .filter { reconcileDue(it[Connections.lastReconcileAt], it[Connections.reconcileHourUtc], now) }
+            .map { DueConnection(it[Connections.id].value, it[Connections.configRevision]) }
+    }
+
+    /** Soft-deleted connections past the purge grace period and never successfully purged. */
+    suspend fun dueForPurge(now: Long, graceMillis: Long): List<DueConnection> = suspendTransaction(database) {
+        Connections.selectAll().where {
+            (Connections.markedAsDeleted eq true) and (Connections.purgedAt.isNull()) and (Connections.updatedAt lessEq (now - graceMillis))
+        }.toList().map { DueConnection(it[Connections.id].value, it[Connections.configRevision]) }
+    }
+
+    /**
+     * Applies a SYNC job's outcome to the connection's sync-status columns
+     * (`.claude/docs/ingestion.md` "Worker scheduler"): success resets the failure streak and
+     * schedules `now + syncIntervalMinutes`; a failure backs off `now + interval × 2^n` (n = the
+     * PRE-increment `consecutiveFailures`), capped at [MAX_BACKOFF_MILLIS] (6h).
+     */
+    suspend fun recordSyncOutcome(id: UInt, succeeded: Boolean, errorCode: String?, now: Long = nowMillis()) {
+        suspendTransaction(database) {
+            val row = Connections.selectAll().where { Connections.id eq id }.forUpdate().toList().singleOrNull()
+                ?: return@suspendTransaction
+            val intervalMillis = row[Connections.syncIntervalMinutes].toLong() * MILLIS_PER_MINUTE
+            if (succeeded) {
+                Connections.update({ Connections.id eq id }) {
+                    it[lastSyncSucceededAt] = now
+                    it[lastSyncErrorCode] = null
+                    it[consecutiveFailures] = 0
+                    it[nextSyncAt] = now + intervalMillis
+                }
+            } else {
+                val failuresBefore = row[Connections.consecutiveFailures]
+                Connections.update({ Connections.id eq id }) {
+                    it[lastSyncErrorCode] = errorCode
+                    it[consecutiveFailures] = failuresBefore + 1
+                    it[nextSyncAt] = now + backoffMillis(intervalMillis, failuresBefore)
+                }
+            }
+        }
+    }
+
+    /** A RECONCILE job succeeded — stamps `last_reconcile_at`; a failure leaves the connection's schedule untouched. */
+    suspend fun recordReconcileSucceeded(id: UInt, now: Long = nowMillis()) {
+        suspendTransaction(database) {
+            Connections.update({ Connections.id eq id }) { it[lastReconcileAt] = now }
+        }
+    }
+
+    /** A SYNC job's `started_at` claim — surfaces on the connection so a stuck/never-finished sync is still visible. */
+    suspend fun recordSyncStarted(id: UInt, now: Long = nowMillis()) {
+        suspendTransaction(database) {
+            Connections.update({ Connections.id eq id }) { it[lastSyncStartedAt] = now }
+        }
+    }
+
+    /** A PURGE job succeeded (plan §0 A2) — stops the due-PURGE scan from re-enqueueing this connection. */
+    suspend fun recordPurgeSucceeded(id: UInt, now: Long = nowMillis()) {
+        suspendTransaction(database) {
+            Connections.update({ Connections.id eq id }) { it[purgedAt] = now }
+        }
+    }
+
     private suspend fun activeConnection(id: UInt): ResultRow? =
         Connections.selectAll().where { (Connections.id eq id) and Connections.active() }.toList().singleOrNull()
 
@@ -271,6 +351,30 @@ class DataSourceService(private val database: R2dbcDatabase, private val cipher:
 
 /** The host only — never the full URL — for audit lines (`.claude/docs/security.md`). */
 internal fun siteHost(siteUrl: String): String = java.net.URI(siteUrl).host
+
+/** Today's `reconcileHourUtc` boundary (UTC), as epoch millis. */
+internal fun todayReconcileBoundary(reconcileHourUtc: Int, now: Long): Long {
+    val date = java.time.Instant.ofEpochMilli(now).atZone(java.time.ZoneOffset.UTC).toLocalDate()
+    return date.atTime(reconcileHourUtc, 0).toInstant(java.time.ZoneOffset.UTC).toEpochMilli()
+}
+
+/**
+ * True once today's `reconcileHourUtc` boundary has passed AND the last reconcile predates it —
+ * so a worker outage spanning the boundary still catches up the same day, and a job already run
+ * today is not re-enqueued (`ingest/DataSourceService.kt`'s `dueForReconcile`, polled every
+ * `ingest.schedulerTickSeconds`).
+ */
+internal fun reconcileDue(lastReconcileAt: Long?, reconcileHourUtc: Int, now: Long): Boolean {
+    val boundary = todayReconcileBoundary(reconcileHourUtc, now)
+    return now >= boundary && (lastReconcileAt == null || lastReconcileAt < boundary)
+}
+
+private const val MILLIS_PER_MINUTE = 60_000L
+internal const val MAX_BACKOFF_MILLIS = 6L * 60 * 60 * 1000
+
+/** `interval × 2^failures`, capped at [MAX_BACKOFF_MILLIS] — the shift is bounded so it can never overflow. */
+internal fun backoffMillis(intervalMillis: Long, failures: Int): Long =
+    minOf(intervalMillis * (1L shl minOf(failures, 32)), MAX_BACKOFF_MILLIS)
 
 private fun encodeSettings(settings: JiraConnectionSettings): String =
     canonicalJson(settingsJson.encodeToString(settings))

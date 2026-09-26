@@ -288,7 +288,8 @@ NOTHING`. The migration is kept **unchanged** (dev + e2e depend on it; checksums
 `kubectl create secret generic` command in its header; the app deployment consumes it via
 `secretKeyRef`).
 
-**Probes and the plain-HTTP crash-loop** (`k8s/app-deployment.yaml`, ported from Toadie): every
+**Probes and the plain-HTTP crash-loop** (`k8s/web-deployment.yaml` and `k8s/worker-deployment.yaml`,
+ported from Toadie): every
 probe (`startupProbe`/`readinessProbe`/`livenessProbe`) sends `X-Forwarded-Proto: https` — the
 header the TLS-terminating ingress sets, which `HTTP_BEHIND_PROXY`/`HTTP_PROXY_HOPS` above makes
 the app trust. Without it, production mode answers the kubelet's plain-HTTP probe request with a

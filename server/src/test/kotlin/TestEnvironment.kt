@@ -39,6 +39,11 @@ import org.jetbrains.exposed.v1.r2dbc.update
  * callers that assert startup behavior (fail-closed checks) add their own overrides and call
  * `startApplication()` themselves. Later duplicate keys win in [MapApplicationConfig], so
  * [overrides] may replace the defaults listed first.
+ *
+ * Tests default to the `web` role, NOT the production default `all`: every test shares ONE database,
+ * and a live ingest worker in every test would claim other tests' jobs and — once the streams land —
+ * sync the test connections (fake `*.atlassian.net` sites) against the real internet. Worker tests
+ * opt in with `"app.role" to "worker"` or `"all"`.
  */
 fun ApplicationTestBuilder.configureApp(vararg overrides: Pair<String, String>) {
     environment {
@@ -50,6 +55,7 @@ fun ApplicationTestBuilder.configureApp(vararg overrides: Pair<String, String>) 
                 "postgres.password" to PostgresTestSupport.password,
                 "security.csrf.enabled" to "false",
                 "lifecycle.reminders.enabled" to "false",
+                "app.role" to "web",
                 *overrides,
             )
         )

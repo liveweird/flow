@@ -844,6 +844,124 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/data-sources/{id}/sync-jobs:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    get:
+      tags: [data-sources]
+      operationId: listSyncJobs
+      summary: List a data source's sync jobs
+      description: |
+        ADMIN only. History and command queue for one connection (v0.2.0 plan §9).
+
+        - Sortable fields: `id`, `requestedAt`. Default `-requestedAt` (newest first).
+        - Filters: `kind` (`SYNC`/`RECONCILE`/`REPROCESS`/`PURGE`), `status`
+          (`PENDING`/`RUNNING`/`SUCCEEDED`/`FAILED`/`CANCELLED`).
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/Sort'
+        - name: kind
+          in: query
+          required: false
+          schema: { $ref: '#/components/schemas/SyncJobKind' }
+        - name: status
+          in: query
+          required: false
+          schema: { $ref: '#/components/schemas/SyncJobStatus' }
+      responses:
+        '200':
+          description: A page of sync jobs
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SyncJobPage'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    post:
+      tags: [data-sources]
+      operationId: requestSyncJob
+      summary: Enqueue a sync job ("Sync now" / "Reconcile now" / "Reprocess")
+      description: |
+        ADMIN only (guarded before the body decodes). `400` when the connection is disabled, or
+        when `kind` is `PURGE` — PURGE is scheduled internally (a soft-deleted connection past
+        its grace period) and is never requester-initiated. A second request while one is already
+        `PENDING`/`RUNNING` for the same `(connection, kind)` is coalesced (`202`,
+        `coalesced: true`, the EXISTING job).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SyncJobRequest'
+      responses:
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '202':
+          description: Accepted (queued or coalesced with an already-open job)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SyncJobActionResult'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/data-sources/{id}/sync-jobs/{jobId}:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+      - name: jobId
+        in: path
+        required: true
+        schema: { type: integer, format: int32, minimum: 0 }
+    get:
+      tags: [data-sources]
+      operationId: getSyncJob
+      summary: Get one sync job
+      description: ADMIN only.
+      responses:
+        '200':
+          description: The sync job
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SyncJobResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/data-sources/{id}/sync-jobs/{jobId}/cancel:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+      - name: jobId
+        in: path
+        required: true
+        schema: { type: integer, format: int32, minimum: 0 }
+    post:
+      tags: [data-sources]
+      operationId: cancelSyncJob
+      summary: Cancel a sync job
+      description: |
+        ADMIN only. `PENDING` → `CANCELLED` immediately; `RUNNING` → `cancel_requested_at` is set
+        and the worker honours it cooperatively on its next heartbeat tick; an already-terminal
+        job (`SUCCEEDED`/`FAILED`/`CANCELLED`) is `409`.
+      responses:
+        '202':
+          description: Cancellation accepted (or already in effect)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SyncJobResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
 
 components:
   securitySchemes:
@@ -1295,7 +1413,7 @@ components:
           format: int32
           minimum: 0
           nullable: true
-          description: Always null until the sync-job queue lands.
+          description: The connection's currently RUNNING sync job, if any.
     DataSourceResponse:
       type: object
       required:
@@ -1375,6 +1493,85 @@ components:
           type: string
           nullable: true
           description: Resolved once the `tenant_info` probe succeeds.
+
+    SyncJobKind:
+      type: string
+      enum: [SYNC, RECONCILE, REPROCESS, PURGE]
+    SyncJobStatus:
+      type: string
+      enum: [PENDING, RUNNING, SUCCEEDED, FAILED, CANCELLED]
+    SyncJobRequest:
+      type: object
+      required: [kind]
+      properties:
+        kind:
+          $ref: '#/components/schemas/SyncJobKind'
+          description: "`PURGE` is internal-only and rejected here with `400`."
+    SyncJobResponse:
+      type: object
+      required:
+        - id
+        - connectionId
+        - kind
+        - status
+        - priority
+        - configRevision
+        - requestedAt
+        - attempt
+        - maxAttempts
+      properties:
+        id: { type: integer, format: int32, minimum: 0 }
+        connectionId: { type: integer, format: int32, minimum: 0 }
+        kind:
+          $ref: '#/components/schemas/SyncJobKind'
+        status:
+          $ref: '#/components/schemas/SyncJobStatus'
+        priority: { type: integer, description: "0 manual, 10 scheduler-enqueued." }
+        requestedByUserId:
+          type: integer
+          format: int32
+          minimum: 0
+          nullable: true
+          description: Null for scheduler-enqueued jobs.
+        configRevision: { type: integer, format: int64 }
+        requestedAt: { type: integer, format: int64, description: Epoch millis }
+        startedAt: { type: integer, format: int64, nullable: true, description: Epoch millis }
+        finishedAt: { type: integer, format: int64, nullable: true, description: Epoch millis }
+        attempt: { type: integer, minimum: 0 }
+        maxAttempts: { type: integer, minimum: 1 }
+        leaseUntil: { type: integer, format: int64, nullable: true, description: Epoch millis }
+        heartbeatAt: { type: integer, format: int64, nullable: true, description: Epoch millis }
+        cancelRequestedAt: { type: integer, format: int64, nullable: true, description: Epoch millis }
+        currentStream: { type: string, nullable: true }
+        progress:
+          type: object
+          nullable: true
+          additionalProperties: true
+        errorCode: { type: string, nullable: true }
+        errorDetail: { type: string, nullable: true }
+    SyncJobPage:
+      type: object
+      required: [items, page, pageSize, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SyncJobResponse'
+        page: { type: integer, minimum: 1 }
+        pageSize: { type: integer, minimum: 1, maximum: 100 }
+        total:
+          type: integer
+          format: int64
+          minimum: 0
+    SyncJobActionResult:
+      type: object
+      required: [job, coalesced]
+      properties:
+        job:
+          $ref: '#/components/schemas/SyncJobResponse'
+        coalesced:
+          type: boolean
+          description: True when an already-open job for the same (connection, kind) was returned instead of a new one.
 
     ProblemDetail:
       type: object

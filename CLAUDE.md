@@ -220,6 +220,16 @@ ch.nokillswit
 │                       users; create with an initial roster; addMember/removeMember;
 │                       activeTeamIdsOf), TeamRoutes.kt — GET /api/v1/teams (+ {id}) any
 │                       authenticated, POST/PUT/DELETE + the members pair ADMIN only
+├── ingest/             v0.2.0 Jira ingestion (`.claude/docs/ingestion.md`): DataSource.kt/
+│                       DataSourceService.kt/DataSourceRoutes.kt — the generic connector registry
+│                       (V8, ADMIN-only CRUD, the first `EncryptedAtRest` consumer) + Connector.kt
+│                       (the per-kind interface every connector, e.g. `jira/`, implements —
+│                       `testConnection`/`run`/`purgeSteps`) + SyncJob.kt/SyncJobs.kt/
+│                       SyncJobRoutes.kt (V9 `sync_jobs` — the job queue and its ADMIN-only
+│                       enqueue/list/cancel API) + SyncCursors.kt (V9 `sync_cursors` — the
+│                       per-stream resumable cursor store) + IngestWorker.kt (the `FLOW_ROLE=worker`
+│                       scheduler: enqueues due jobs, claims with a lease/heartbeat under
+│                       `FOR UPDATE SKIP LOCKED`, runs each claim's connector, releases on shutdown)
 ```
 
 **Feature template — copy `teams/` (a small ADMIN-curated registry with a roster)**: it is the

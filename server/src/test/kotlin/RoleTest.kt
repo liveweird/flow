@@ -1,14 +1,18 @@
 package ch.nokillswit
 
+import ch.nokillswit.ingest.ingestWorkerStarted
 import ch.nokillswit.plugins.runsWorker
 import ch.nokillswit.plugins.servesApi
 import io.ktor.client.request.get
 import io.ktor.http.HttpStatusCode
+import io.ktor.server.application.Application
 import io.ktor.server.testing.testApplication
 import java.nio.file.Files
 import kotlin.io.path.writeText
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 /**
  * `FLOW_ROLE` (`plugins/Role.kt`, `app.role`): `worker` serves only the health/ready probes —
@@ -54,9 +58,11 @@ class RoleTest {
         configureApp("app.role" to "web")
         var servesApi: Boolean? = null
         var runsWorker: Boolean? = null
+        lateinit var app: Application
         application {
             servesApi = servesApi()
             runsWorker = runsWorker()
+            app = this
         }
         startApplication()
 
@@ -65,12 +71,24 @@ class RoleTest {
         assertEquals(HttpStatusCode.OK, jsonClient().get("/api/v1/health").status)
         // 401, not 404: the route is registered and the JWT challenge fires before requireAdmin.
         assertEquals(HttpStatusCode.Unauthorized, jsonClient().get("/api/v1/users").status)
+        // The scan loop starts on ApplicationStarted (ingest/IngestWorker.kt) — AFTER startApplication()
+        // returns, so this must be read via the captured Application, not inside the application{} block.
+        assertFalse(app.ingestWorkerStarted(), "the web role must start no ingest worker")
     }
 
     @Test
-    fun `all role (the default) serves the API and runs the worker`() = testApplication {
-        // No app.role override — proving the unset default is ALL.
-        configureApp()
+    fun `worker role starts the ingest worker`() = testApplication {
+        configureApp("app.role" to "worker")
+        lateinit var app: Application
+        application { app = this }
+        startApplication()
+
+        assertTrue(app.ingestWorkerStarted(), "the worker role must start the ingest worker")
+    }
+
+    @Test
+    fun `all role serves the API and runs the worker`() = testApplication {
+        configureApp("app.role" to "all")
         var servesApi: Boolean? = null
         var runsWorker: Boolean? = null
         application {
@@ -82,6 +100,13 @@ class RoleTest {
         assertEquals(true, servesApi, "app must have started")
         assertEquals(true, runsWorker, "app must have started")
         assertEquals(HttpStatusCode.Unauthorized, jsonClient().get("/api/v1/users").status)
+    }
+
+    @Test
+    fun `the shipped default role is all`() {
+        // configureApp() pins tests to "web"; the production default lives in application.yaml.
+        val shipped = io.ktor.server.config.ApplicationConfig("application.yaml").property("app.role").getString()
+        assertEquals(if (System.getenv("FLOW_ROLE").isNullOrBlank()) "all" else System.getenv("FLOW_ROLE"), shipped)
     }
 
     @Test

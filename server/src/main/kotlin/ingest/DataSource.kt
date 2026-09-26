@@ -103,7 +103,7 @@ data class DataSourceStatus(
     val lastSyncSucceededAt: Long? = null,
     val lastSyncErrorCode: String? = null,
     val consecutiveFailures: Int,
-    /** Always null until the sync-job queue lands (plan commit 5). */
+    /** The connection's currently RUNNING sync job, if any (`ingest/SyncJobsService.runningJobId`). */
     val runningJobId: UInt? = null,
 )
 
