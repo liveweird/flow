@@ -134,3 +134,55 @@ workspace here running the same tools:
   rather than a stale base. A config-only PR (`.github/**`) that doesn't change a Docker image can
   have its downstream image rebuild run in parallel with its own CI, since nothing about the image
   input changed.
+
+## Dependency batch 2026-09-26
+
+Weekly Dependabot round, applied on `chore/deps-2026-09-26` from `origin/master` (1eb7de7).
+
+**Moved:**
+
+- Gradle (`gradle-minor-patch` group, PR #11): `r2dbc-postgresql` 1.1.2.RELEASE → 1.1.3.RELEASE,
+  `scram` (client/common) 3.3 → 3.4, `jackson` 2.22.2 → 2.22.3 (catalog pin, plus the mirrored
+  `server/build.gradle.kts` buildscript constraints for `jackson-core`/`jackson-databind`/
+  `jackson-datatype-jsr310`), and the same PR's buildscript-only bumps `log4j-api`/`log4j-core`
+  2.25.5 → 2.26.1 and `plexus-utils` 4.0.3 → 4.1.0 (Ktor plugin's Shadow/Jib build-time classpath,
+  not the application runtime).
+- Gradle (PR #13): `netty` 4.2.17.Final → 4.2.18.Final. `reactor-bom` stayed at 2025.0.7 (its
+  pinned release train already carries `reactor-netty-core` 1.3.7, built on Netty 4.2.18 — no
+  reactor-side bump needed); `:server:checkDependencyAlignment` confirms `io.netty aligned at
+  4.2.18.Final (31 modules)` and `io.projectreactor aligned with reactor-bom 2025.0.7`.
+  Lockfiles/verification metadata regenerated from an empty `GRADLE_USER_HOME`; a clean-home
+  `--dependency-verification strict build` passed.
+- Docker (PR #10, #1): `postgres:18.6-alpine` digest `sha256:6c538e72...` →
+  `sha256:77f58511...` in both `k8s/postgres-deployment.yaml` and `docker-compose.yaml` (same tag,
+  refreshed multi-platform index digest — independently re-derived via
+  `docker buildx imagetools inspect postgres:18.6-alpine --raw | sha256sum` before pinning, per
+  this doc's provenance rule).
+- npm `/web` (PR #5) and `/e2e` (PR #3): `knip` 6.37.0 → 6.38.0 in both workspaces. Read the full
+  `npm run knip` output per this doc's own lesson above — no new or dropped findings in either
+  workspace this round.
+
+**Held back:**
+
+- **OpenTelemetry SDK (PR #12, 1.65.0 → 1.66.0) — held.** The SDK/instrumentation pair rule in
+  `gradle/libs.versions.toml` requires reading the paired SDK version off the instrumentation
+  alpha BOM's POM before bumping either. The instrumentation BOM's latest published release is
+  still `2.31.1-alpha` (Maven Central `maven-metadata.xml`, last updated 2026-08-23), and its POM
+  still declares SDK `1.65.0` — there is no instrumentation release yet that pairs with SDK
+  1.66.0. Bumping the SDK alone would break the pair `:server:checkDependencyAlignment` guards.
+  Re-attempt once a `2.32.x-alpha` (or later) instrumentation BOM ships pairing with 1.66.0.
+- **eclipse-temurin major (PR #2, 21 → 24)** — ignored going forward (JDK 21 LTS policy; matches
+  `jvmToolchain(21)` and `mise.toml`'s pinned JDK).
+- **node major (PR #8, 24.21.0 → 26.10.0)** — ignored going forward (Node 24 LTS line, pinned in
+  `mise.toml`).
+- **`@types/node` major, `/web` (PR #7) and `/e2e` (PR #6), 24.13.6 → 26.6.2** — ignored going
+  forward in both workspaces (tracks the Node major actually running in production).
+- **`typescript` major, `/e2e` (PR #4), 6.0.3 → 7.0.2** — ignored going forward in `/e2e`, matching
+  the existing `/web` ignore (same `openapi-typescript`/`typescript-eslint` compatibility reason —
+  `openapi-typescript` still declares TypeScript `^5` and drives compiler-factory APIs TypeScript 7
+  removed).
+
+`.github/dependabot.yml` gained one `ignore` entry per held-back major above (docker
+`eclipse-temurin`/`node` semver-major; npm `@types/node` semver-major in `/web` and `/e2e`; npm
+`typescript` semver-major in `/e2e`), each with a one-line rationale comment, so these stop
+recurring until deliberately revisited.

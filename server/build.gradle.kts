@@ -15,13 +15,13 @@ buildscript {
         constraints {
             // Ktor's Gradle plugin loads these via its Shadow and Jib integrations during the
             // build. Keep the script classpath above the reviewed advisory floors too.
-            classpath("com.fasterxml.jackson.core:jackson-core:2.22.2")
-            classpath("com.fasterxml.jackson.core:jackson-databind:2.22.2")
+            classpath("com.fasterxml.jackson.core:jackson-core:2.22.3")
+            classpath("com.fasterxml.jackson.core:jackson-databind:2.22.3")
             classpath("com.fasterxml.jackson.core:jackson-annotations:2.22")
-            classpath("com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.22.2")
-            classpath("org.apache.logging.log4j:log4j-api:2.25.5")
-            classpath("org.apache.logging.log4j:log4j-core:2.25.5")
-            classpath("org.codehaus.plexus:plexus-utils:4.0.3")
+            classpath("com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.22.3")
+            classpath("org.apache.logging.log4j:log4j-api:2.26.1")
+            classpath("org.apache.logging.log4j:log4j-core:2.26.1")
+            classpath("org.codehaus.plexus:plexus-utils:4.1.0")
         }
     }
 }
