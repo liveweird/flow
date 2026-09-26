@@ -106,6 +106,35 @@ OrbStack without `/var/run/docker.sock`, export `DOCKER_HOST=unix://$HOME/.orbst
 first. See [dependency maintenance](.claude/docs/dependencies.md) for compatibility pins,
 automated updates, and runtime verification.
 
+## Connecting Jira
+
+Once the stack is running, an ADMIN can point Flow at a real Jira Cloud site from the **Data
+sources** page (Administration nav). Before clicking New, have ready:
+
+- An **Atlassian service account** — a dedicated account for Flow's own reads, not a real person's.
+- A **scoped, read-only API token** for that account, carrying only the scopes Flow's Test
+  connection probes actually use: `read:jira-user`, `read:jql:jira`, `read:field:jira`,
+  `read:status:jira`, `read:project:jira`, `read:issue-details:jira`, `read:issue:jira`, and — if
+  boards/sprints matter to this connection — `read:board-scope:jira-software`,
+  `read:board-scope.admin:jira-software`, `read:sprint:jira-software` (see
+  `.claude/docs/jira-integration.md`'s "Test connection" table for the full probe-to-scope mapping;
+  a missing board/sprint scope only degrades those optional probes, it never fails the connection).
+- The Jira **site URL**, exactly `https://<site>.atlassian.net`.
+- The **project keys** to bring into scope (worklogs and issue data are stored for these projects
+  only, never the whole tenant — see `.claude/docs/ingestion.md`'s WORKLOGS "A1" note).
+
+In the editor modal, fill in the site URL, email and API token, pick the auth scheme (Basic is the
+usual choice), list the project keys, then run **Test connection** — every probe's result (ok/scope
+hint) shows before you save, so a scope problem surfaces immediately rather than after the first
+sync fails partway through. Save, then use the row's **Sync now** action to enqueue the first SYNC
+job. There is no details page yet (it lands with a later v0.2.0 commit): follow the job with
+`GET /api/v1/data-sources/{id}/status` (Swagger UI at `/openapi` in development mode, or any HTTP
+client, with the admin's bearer token). Once that job reaches `SUCCEEDED`, the connection's **data
+profile** — what workflows, boards, custom fields, estimate/worklog coverage and reopen rate this
+tenant's own data actually has — appears at `GET /api/v1/data-sources/{id}/profile`; see
+`.claude/docs/ingestion.md`'s "Reading the data profile after the first real sync" for the full
+walkthrough of what to look at first.
+
 ## Configuration (environment variables)
 
 `server/src/main/resources/application.yaml` is the authoritative reference — every setting there

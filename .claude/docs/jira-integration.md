@@ -150,6 +150,28 @@ the stub's `changelog/bulkfetch` WireMock mappings only match requests shaped as
 every bulk chunk after the first mismatch, not just the one deliberately-omitted chunk the stub
 already exercises.
 
+## Data profile: reuse of raw entities
+
+The data profile (v0.2.0 plan §8/§9/§12 item 9, `jira/JiraProfile.kt`, see
+`.claude/docs/ingestion.md` "Data profile") makes no outbound Jira call of its own — it is pure
+aggregation over what REFERENCE/ISSUES/CHANGELOGS/WORKLOGS and PROCESS already stored. Two raw
+entity kinds get a NEW reader here, on top of the uses already documented above:
+
+- **`PROJECT_STATUSES`** (`GET /project/{key}/statuses`, stored by REFERENCE, see "Streams" in
+  `.claude/docs/ingestion.md`) — until this commit its only consumer was the REFERENCE stream's own
+  upsert. The profile's `workflows` section is the first reader of its PAYLOAD: `JiraProfile`'s
+  `parseProjectStatuses` reads the per-issue-type status list straight off the stored `raw.jira_entities`
+  payload (`JiraRawStore.entityRowsByKind`, which — unlike `entityPayloadsByKind`, PROCESS's own
+  reader — keeps the `entity_id` alongside the payload, since the profile needs to know WHICH
+  project a `PROJECT_STATUSES` row belongs to) and reports it as `referenceStatusNames`, alongside
+  the statuses ACTUALLY observed in that project/type's own tiled status intervals.
+- **`BOARD_CONFIGURATION`** (`GET /board/{id}/configuration`) — already PROCESS's own input since
+  V13 (`JiraNormalizer.boardRefs`, rebuilding `norm.boards`/`norm.board_columns` every PROCESS run,
+  see "Normalized layer" in `.claude/docs/ingestion.md`); the profile's `boards` section reads only
+  the already-rebuilt `norm.boards`/`norm.board_columns` rows back (`WorkItemStore.allBoardRefs`),
+  never the raw `BOARD_CONFIGURATION` payload directly — no new Jira-shape parsing here, only a new
+  consumer of PROCESS's existing output.
+
 ## RECONCILE stream: endpoints
 
 Landed with the RECONCILE stream (plan §7/§12 item 7, plan commit 7, V12 — see

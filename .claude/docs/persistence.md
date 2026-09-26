@@ -443,6 +443,18 @@ order), so "round-trips" means the same VALUES survive, not the same bytes. Cove
 `JsonbColumnTest` (insert/select/update, null, nested objects/arrays, through Exposed R2DBC against
 Testcontainers PG).
 
+**`source_connections.profile` (V8's `jsonb` column, populated as of plan commit 9).** `profile` was
+declared nullable in the V8 migration alongside `settings` but stayed unwritten until the PROFILE
+step (`jira/JiraProfileStream.kt`) landed; `profile_at` (nullable `BIGINT`) is its companion
+timestamp. `DataSourceService.updateProfile` writes `DataProfileSections`
+(`ingest/DataProfile.kt`) — canonicalized the SAME way `settings` is
+(`infra/json/CanonicalJson.kt`'s `canonicalJson`) — and `readProfile` reads it back as
+`StoredProfile{profileJson, profileAt}`; both null fields mean "never computed", not an empty
+object. `ingest/DataProfileRoutes.kt`'s one call site decodes `profileJson` (falling back to an
+all-default `DataProfileSections()` when null) and wraps it with `profileAt` into the wire
+`DataProfile` response (`withComputedAt`) — see `.claude/docs/ingestion.md` "Data profile" for what
+each section measures.
+
 **`infra/json/CanonicalJson.kt`** — canonical JSON for anything stored through `Jsonb.kt`: object
 keys sorted RECURSIVELY (arrays keep their own order — position is meaning), rendered via
 kotlinx.serialization's compact `JsonElement.toString()`, plus a `sha256Hex` digest of the result.

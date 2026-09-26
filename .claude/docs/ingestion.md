@@ -134,49 +134,54 @@ a claimed job), `.succeeded`, `.failed` (`RUN_FAILED`, with the truncated except
 `.released` (shutdown). Web-side: `sync_job.requested` (`POST .../sync-jobs`, with `coalesced`) and
 `.cancel_requested` (`POST .../sync-jobs/{jobId}/cancel`).
 
-A SYNC job runs REFERENCE → ISSUES → CHANGELOGS → WORKLOGS → PROCESS
-(`jira/JiraConnector.kt`'s `runSync`, see "Streams" below and "Normalized layer" further down). A
-RECONCILE job runs its own `reconcile` stream followed by PROCESS (`runReconcile`, see "RECONCILE
-stream" below) — it does NOT join the SYNC ordered list, but ends the SAME way SYNC does, so a
-RECONCILE tombstone is mirrored into `norm.work_items` in the same job, not on the next scheduled
-SYNC. A REPROCESS job flags every raw issue `needs_processing` (`JiraRawStore.markAllNeedsProcessing`)
-then runs PROCESS alone (`runReprocess`) — a version bump or a manually requested full rebuild,
-never touching Jira. `JiraConnector.run` dispatches on `context.claim.kind`
-(`SYNC`/`RECONCILE`/`REPROCESS`/`PURGE` each run their own connector method). PROFILE still joins a
-later v0.2.0 commit (plan commit 9). PURGE's connector-owned cleanup step (`purgeSteps`) drains
-`raw.jira_issues`/`raw.jira_entities` (V10, plan §0 A2), `raw.jira_changelogs`/`raw.jira_worklogs`
-(V11) AND `norm.*`'s work items/intervals/changes/worklogs/reference rows (V13, plan §0 A3, see
-"Normalized layer" below), in that order.
+A SYNC job runs REFERENCE → ISSUES → CHANGELOGS → WORKLOGS → PROCESS → PROFILE
+(`jira/JiraConnector.kt`'s `runSync`, see "Streams" below, "Normalized layer" further down and "Data
+profile" below). A RECONCILE job runs its own `reconcile` stream followed by PROCESS (`runReconcile`,
+see "RECONCILE stream" below) — it does NOT join the SYNC ordered list, ends the SAME way SYNC does
+so a RECONCILE tombstone is mirrored into `norm.work_items` in the same job (not on the next
+scheduled SYNC), and never runs PROFILE — a daily drift check is not itself a reason to recompute
+the whole data profile. A REPROCESS job flags every raw issue `needs_processing`
+(`JiraRawStore.markAllNeedsProcessing`) then runs PROCESS → PROFILE (`runReprocess`) — a version
+bump or a manually requested full rebuild, never touching Jira. `JiraConnector.run` dispatches on
+`context.claim.kind` (`SYNC`/`RECONCILE`/`REPROCESS`/`PURGE` each run their own connector method).
+PURGE's connector-owned cleanup step (`purgeSteps`) drains `raw.jira_issues`/`raw.jira_entities`
+(V10, plan §0 A2), `raw.jira_changelogs`/`raw.jira_worklogs` (V11) AND `norm.*`'s work items/
+intervals/changes/worklogs/reference rows (V13, plan §0 A3, see "Normalized layer" below), in that
+order — `source_connections.profile`/`profile_at` are left untouched by PURGE (the connection's last
+computed profile stays visible until it either resyncs or is deleted outright).
 
 ## Sync cursors (V9)
 
 `sync_cursors` (`ingest/SyncCursors.kt`'s `SyncCursorsService`) is the resumable per-stream cursor
 store the sync streams read from and write to (REFERENCE, ISSUES, CHANGELOGS, WORKLOGS and
-RECONCILE; PROFILE joins them in a later commit): one row per `(connection_id, stream)` (composite
-PK), where `stream` names a phase within a job (e.g. `"issues"`, `"changelogs"` — the exact names
-are owned by each stream's implementation, not fixed here). `cursor` is jsonb text
-(`infra/db/Jsonb.kt`) with a per-stream shape; `watermark_at` and `last_completed_at` are the
-stream's own bookkeeping. `SyncCursorsService.put` upserts by `(connection_id, stream)` and runs in
-the SAME transaction as the stream's page write (REFERENCE and ISSUES do this as of this commit —
-see "Streams" below), so a crash never leaves a cursor pointing past data that was never committed.
-**PROCESS is deliberately the one stream with NO `sync_cursors` row of its own** — its resumability
-comes entirely from `raw.jira_issues`' own `needs_processing`/`processing_version` columns (see
-"Normalized layer" below), which already double as a durable, queryable "what's left to do" list;
-a parallel serialized cursor would just be a second copy of the same position.
+RECONCILE — PROCESS and PROFILE deliberately never join it, see below): one row per
+`(connection_id, stream)` (composite PK), where `stream` names a phase within a job (e.g.
+`"issues"`, `"changelogs"` — the exact names are owned by each stream's implementation, not fixed
+here). `cursor` is jsonb text (`infra/db/Jsonb.kt`) with a per-stream shape; `watermark_at` and
+`last_completed_at` are the stream's own bookkeeping. `SyncCursorsService.put` upserts by
+`(connection_id, stream)` and runs in the SAME transaction as the stream's page write (REFERENCE and
+ISSUES do this as of this commit — see "Streams" below), so a crash never leaves a cursor pointing
+past data that was never committed. **PROCESS is deliberately the one stream with NO `sync_cursors`
+row of its own** — its resumability comes entirely from `raw.jira_issues`' own
+`needs_processing`/`processing_version` columns (see "Normalized layer" below), which already double
+as a durable, queryable "what's left to do" list; a parallel serialized cursor would just be a
+second copy of the same position. **PROFILE has no `sync_cursors` row either, for a different
+reason**: it never pages and never resumes — a single wholesale recompute pass every time, with no
+partial-progress state worth persisting between attempts (see "Data profile" below).
 
 ## Streams
 
-The REFERENCE, ISSUES, CHANGELOGS, WORKLOGS and PROCESS streams (v0.2.0 plan §7/§8, plan commits
-6-8a) are the ordered list a SYNC job runs (`jira/JiraConnector.kt`'s `runSync`): **REFERENCE →
-ISSUES → CHANGELOGS → WORKLOGS → PROCESS** today; PROFILE joins the end of that list in a later
-plan commit (9). The RECONCILE stream (plan commit 7, V12, see "RECONCILE stream" below) is a
-SEPARATE, single-stream job kind, not a fifth entry in the SYNC list — a RECONCILE job runs
-`reconcile` then PROCESS (`runReconcile`, see "Normalized layer" below), never the other SYNC
-streams. Every stream implements `ingest/Stream.kt`'s `Stream` interface and shares one
-`StreamContext` per job (cursor read/write scoped to the connection, a `transaction {}` wrapper,
-`heartbeat()`, an injectable `clock`, plus the progress-counter API described in "Progress counters"
-below) — PROCESS is the one stream that never calls the cursor read/write half of that contract
-(see "Sync cursors (V9)" above).
+The REFERENCE, ISSUES, CHANGELOGS, WORKLOGS, PROCESS and PROFILE streams (v0.2.0 plan §7/§8/§9,
+plan commits 6-9) are the ordered list a SYNC job runs (`jira/JiraConnector.kt`'s `runSync`):
+**REFERENCE → ISSUES → CHANGELOGS → WORKLOGS → PROCESS → PROFILE**. The RECONCILE stream (plan
+commit 7, V12, see "RECONCILE stream" below) is a SEPARATE, single-stream job kind, not a sixth
+entry in the SYNC list — a RECONCILE job runs `reconcile` then PROCESS (`runReconcile`, see
+"Normalized layer" below), never PROFILE and never the other SYNC streams. Every stream implements
+`ingest/Stream.kt`'s `Stream` interface and shares one `StreamContext` per job (cursor read/write
+scoped to the connection, a `transaction {}` wrapper, `heartbeat()`, an injectable `clock`, plus the
+progress-counter API described in "Progress counters" below) — PROCESS and PROFILE are the two
+streams that never call the cursor read/write half of that contract (see "Sync cursors (V9)"
+above).
 
 **Cursor shapes.**
 
@@ -253,13 +258,16 @@ exactly that code and starts a fresh run from the last completed watermark (`fre
 `MAX_CURSOR_RESTARTS` (5) restarts within one stream invocation before letting the exception
 propagate — a bound against a pathologically misbehaving upstream, not an expected real-world count.
 
-**Lease loss.** Every stream (REFERENCE, ISSUES, CHANGELOGS, WORKLOGS, PROCESS) lets
+**Lease loss.** Every stream (REFERENCE, ISSUES, CHANGELOGS, WORKLOGS, PROCESS, PROFILE) lets
 `context.heartbeat()`'s `LeaseLostException` propagate uncaught after every committed
 page/step/transaction/batch — none of them catches it, matching `StreamContext`'s contract
 (`.claude/docs/ingestion.md` "Lease and heartbeat" above): the job stops exactly where its last
 committed cursor (or, for PROCESS, its last committed issue) left it, safe to reclaim and resume by
 any worker — every issue PROCESS hasn't yet reached is still `needs_processing = true` (or still
-`processing_version`-stale), so the next PROCESS pass simply claims it again.
+`processing_version`-stale), so the next PROCESS pass simply claims it again. PROFILE's single
+`heartbeat()` call comes AFTER `updateProfile` already committed the recomputed profile, so a lease
+lost right there still leaves the connection with its freshly recomputed profile in place — there is
+nothing left for a resumed PROFILE pass to redo.
 
 ## CHANGELOGS stream
 
@@ -494,9 +502,10 @@ touching Jira. `NormalizationPipelineTest`'s "REPROCESS leaves the normalized di
 proves REPROCESS rebuilds byte-for-byte identical `norm.work_item_status_intervals` rows (an MD5
 digest over every issue's ordered intervals) — REPLACE is idempotent, not merely re-run-safe.
 
-**Job orders.** A SYNC job runs REFERENCE → ISSUES → CHANGELOGS → WORKLOGS → **PROCESS**; a
-RECONCILE job runs `reconcile` → **PROCESS**; a REPROCESS job flags every issue then runs
-**PROCESS** alone (see "Sync-job queue (V9)" above for the full per-kind breakdown).
+**Job orders.** A SYNC job runs REFERENCE → ISSUES → CHANGELOGS → WORKLOGS → **PROCESS** →
+**PROFILE**; a RECONCILE job runs `reconcile` → **PROCESS** (never PROFILE); a REPROCESS job flags
+every issue then runs **PROCESS** → **PROFILE** (see "Sync-job queue (V9)" above for the full
+per-kind breakdown, and "Data profile" below for what PROFILE itself computes).
 
 ## Progress counters
 
@@ -517,7 +526,8 @@ name its own): `pages` (REFERENCE per-step-or-page, ISSUES per page, RECONCILE p
 index-gap fetch), `changelogs` (CHANGELOGS, per history inserted), `worklogs` (WORKLOGS, per worklog
 upserted), `worklogsOutOfScope` (WORKLOGS, A1's scope-filter drop count), `tombstoned` (RECONCILE,
 per issue flagged `deleted_at`/`moved_out_at`), `issuesProcessed`/`issuesFailed` (PROCESS, per issue
-in a batch — see "Normalized layer" above).
+in a batch — see "Normalized layer" above), `profileComputed` (PROFILE, always `1` — a single
+recompute pass, not a per-row counter, see "Data profile" below).
 
 ## Sync status endpoint
 
@@ -575,13 +585,142 @@ repeated `siteUrl` alone.
 The response's `status.state` (`NEVER_SYNCED`/`CURRENT`/`STALE`/`FAILED`/`DISABLED`) is derived
 from the sync-status columns; `runningJobId` names the connection's RUNNING sync job, if any (see
 "Sync-job queue (V9)"). Test connection lives at `POST /api/v1/data-sources/test` and
-`…/{id}/test` (see `.claude/docs/jira-integration.md`), the job API at `…/{id}/sync-jobs`; the
-status, profile and raw-issue endpoints arrive with the streams (later v0.2.0 commits).
+`…/{id}/test` (see `.claude/docs/jira-integration.md`), the job API at `…/{id}/sync-jobs`, the
+diagnostic status view at `…/{id}/status` (see "Sync status endpoint" above), the raw issue
+inspector at `…/{id}/raw-issues/{issueKey}` (see "Raw issue inspector" below) and the data profile
+at `…/{id}/profile` (see "Data profile" below).
 
 **`infra/db/Jsonb.kt` + `infra/json/CanonicalJson.kt`** (this commit's supporting infra, detailed
 in `.claude/docs/persistence.md` "Data sources (V8)"): the repo-local `jsonb` column binding
 `source_connections.settings` uses, and the canonical-JSON/sha256 helper the Jira raw store (V10)
 will hash payloads with.
+
+## Raw issue inspector
+
+`GET /api/v1/data-sources/{id}/raw-issues/{issueKey}` (v0.2.0 plan §9/§12 item 8b,
+`ingest/RawIssueInspectorRoutes.kt`'s `configureRawIssueInspectorRoutes`, `ingest/RawIssueInspection.kt`)
+is ADMIN-only and read-only — a per-issue debugging view over rows every stream above already
+writes, assembled here rather than duplicated:
+
+- **Lookup.** `issueKey` an all-digits string ([`ISSUE_ID_PATTERN`]) is ALWAYS an id lookup — the
+  stable Jira issue id, never an (impossible) numeric issue key — through `JiraRawStore.issueById`;
+  anything else must match [`ISSUE_KEY_PATTERN`] (`^[A-Z][A-Z0-9_]{1,9}-[0-9]{1,10}$`, e.g.
+  `ENG-123`) or is `400`, and is looked up by the CURRENT `issue_key` (`JiraRawStore.issueByKey`) —
+  a project move rewrites this column (see "The Jira raw store (V10)",
+  `.claude/docs/persistence.md`), so an old key from before a move 404s, not the new one.
+- **Response shape.** The raw payload exactly as Jira returned it (canonicalized), `fetchedAt`/
+  `changedAt`/`sha256`, the tombstone columns (`deletedAt`/`movedOutAt`) and `needsProcessing` —
+  straight off `raw.jira_issues` — plus every stored changelog history and every non-tombstoned
+  worklog for the issue, oldest first (`JiraRawStore.changelogPayloadsForIssue`/
+  `worklogPayloadsForIssue`). If the issue has been through PROCESS at least once, `workItem` (the
+  `norm.work_items` current snapshot), `statusIntervals`, `fieldIntervals` and `anomalies` are
+  populated too (`WorkItemStore.workItemView`/`statusIntervalsForIssue`/`fieldIntervalsForIssue`) —
+  `workItem` (and the interval lists) stay empty/absent for an issue this connection has fetched but
+  never yet processed.
+- **A tombstoned issue is still returned, never `404`.** `deletedAt`/`movedOutAt` being set is
+  itself part of the answer a debugging view exists to show; only a genuinely unknown id/key 404s.
+
+## Data profile
+
+`GET /api/v1/data-sources/{id}/profile` (v0.2.0 plan §8/§9/§12 item 9,
+`ingest/DataProfileRoutes.kt`'s `configureDataProfileRoutes`, `ingest/DataProfile.kt`) is ADMIN-only
+and read-only — SQL aggregates over a connection's `raw.*`/`norm.*` rows, computed by the PROFILE
+step (`jira/JiraProfileStream.kt`) after every successful SYNC/REPROCESS PROCESS pass (never
+RECONCILE — see "Sync-job queue (V9)" above) and stored verbatim on
+`source_connections.profile`/`profile_at` (`ingest/DataSourceService.kt`'s `updateProfile`/
+`readProfile`, `.claude/docs/persistence.md` "Data sources (V8)"). `computedAt` is `null` before the
+connection's first successful PROCESS pass — every section then carries its own empty default
+rather than the endpoint `404`ing or omitting fields (`DataProfileSections`/`withComputedAt`,
+`ingest/DataProfile.kt`). **No paging, no resume, unlike every other stream**: a PROFILE that
+crashes mid-run simply leaves the connection's PREVIOUS profile in place (or `null`, before a first
+success) — the next successful SYNC/REPROCESS recomputes it wholesale, exactly like PROCESS's own
+reference-row rebuild. `JiraProfile.compute` (`jira/JiraProfile.kt`) is pure aggregation over
+already-normalized/already-raw data — it makes no outbound Jira call of its own.
+
+**What each section measures (facts only — interpretation, e.g. which statuses count as "active"
+vs. "waiting", is a Phase 3 concern, see "Facts only — no interpretation" under "Normalized layer"
+above):**
+
+- **`range`** — the connection's live (non-tombstoned) work items' earliest `created_at` and latest
+  `updated_at`.
+- **`projects`** — issue counts by issue type, one entry per project key.
+- **`workflows`** — per (project, issue type): every status id ACTUALLY OBSERVED in that
+  project/type's own tiled status intervals (name, category, and a transition count — how many
+  `CHANGE`-sourced intervals landed on that status), alongside `referenceStatusNames` — that
+  project's OWN configured workflow for that issue type, read straight off the REFERENCE stream's
+  `PROJECT_STATUSES` entity payload (`GET /project/{key}/statuses`, `JiraRawStore.entityRowsByKind`,
+  parsed by `JiraProfile.parseProjectStatuses`) — a status name present in `referenceStatusNames` but
+  absent from `observedStatuses` is a status this project's issues have simply never visited yet;
+  the reverse (observed but not in the reference list) would flag a REFERENCE/ISSUES mismatch worth
+  a second look.
+- **`boards`** — one entry per `norm.boards`/`norm.board_columns` row (already rebuilt by PROCESS
+  from the REFERENCE stream's `BOARD`/`BOARD_CONFIGURATION` entities, see "Normalized layer" above):
+  each column's mapped status names, plus `unmappedStatusNames` — statuses observed on the board's
+  OWN project's issues that map to no column on this board at all (a real-tenant board almost always
+  has some: a resolution/workflow status the board's filter hides, or a status added to the
+  project's workflow after the board's column mapping was last edited).
+- **`customFields`** — every field REFERENCE's `FIELD` entity marks `custom: true`: its name, its
+  Jira `schema.type`, a fill rate (the fraction of live issues whose `fields[fieldId]` is non-null
+  and, for an array-shaped field like Sprint/Flagged, non-empty) and a detected `role`
+  (`SPRINT`/`RANK`/`TEAM`/`STORY_POINTS`/`FLAGGED`/`OTHER`) — the SAME schema-then-name discovery
+  `JiraNormalizer.discoverFieldIds` already runs for tiling (see "Custom-field discovery by schema"
+  under "Normalized layer" above), reused here rather than re-implemented.
+- **`estimates`** — story-point and original-estimate coverage: how many live issues carry each,
+  and the resulting fill percentage.
+- **`worklogs`** — total worklog count and hours logged, how many DISTINCT issues carry at least one
+  worklog (and its percentage of live issues), and how many distinct worklog authors this connection
+  has ever seen.
+- **`reopens`** — how many live issues have at least one DONE→non-DONE status transition
+  (`Normalization.reopenCount`, the SAME pure check `JiraSyncPipelineTest` asserts against — see
+  "sample-data/README.md"'s `reopens.inScopeCount`, the in-scope-reachable figure a real profile can
+  actually match, as opposed to `reopens.count`'s whole-dataset total).
+- **`sprints`** — every `norm.sprints` reference row's own state (`stateCounts`), how many live issues
+  carry a Sprint field value at all, and `carryOverCount`/`carryOverPercent` — issues whose SPRINT
+  field interval history names **two or more distinct sprint ids** over the issue's lifetime (moved
+  from one sprint into the next without closing).
+- **`people`** — how many distinct accounts are currently assigned to a live issue, and what
+  percentage of live issues are unassigned.
+- **`anomalyCounts`** — every `TilingAnomaly` code (`STATUS_CHANGE_BEFORE_CREATED`/
+  `STATUS_CHAIN_BROKEN`/`STATUS_MISMATCH_WITH_CURRENT`, see "Anomalies are flagged, never corrected"
+  under "Normalized layer" above), counted across every live issue that carries it — never per-status
+  or per-project, since an anomaly is a fact about ONE issue's own tiling, not a workflow-wide one.
+
+## Reading the data profile after the first real sync
+
+The phase-2 exit criterion for a real Jira Cloud tenant: create the connection with the
+service-account token, confirm it can actually reach the tenant, run a first sync, then read what
+Flow learned about the tenant's own data shape.
+
+1. **Create the connection** — Data sources → New (see the README's "Connecting Jira" section for
+   what the admin needs before starting: the service account, its scoped read-only API token, the
+   site URL, the project keys in scope).
+2. **Test connection** — confirms auth, scopes and reachability against every probe in
+   `.claude/docs/jira-integration.md`'s table BEFORE committing to a full sync; a required probe
+   failing here means the sync itself would fail the same way.
+3. **Sync now** — enqueues a manual (`priority = 0`) SYNC job; watch it via
+   `GET …/{id}/status` (or the Data sources page) until `currentJob` is gone and the connection's
+   `status.state` reads `CURRENT`.
+4. **Open the profile** (`GET …/{id}/profile`, or the Data sources page's own profile view) once the
+   job is `SUCCEEDED`, and look at:
+   - **Workflows and statuses per project** (`workflows`) — does every project's `referenceStatusNames`
+     roughly match what `observedStatuses` actually shows across its issues? A status that never
+     shows up as observed is one this project's real backlog hasn't exercised yet — expected on a
+     young project, worth a second look on an old one.
+   - **Unmapped board statuses** (`boards[].unmappedStatusNames`) — a non-empty list here means the
+     board's column mapping is out of date with the project's own workflow; Phase 3's active/waiting
+     stage grouping will need to know about these statuses from SOMEWHERE if they matter.
+   - **Custom fields in use and their detected roles** (`customFields`) — confirm Sprint/Rank/Team/
+     Story-points/Flagged were actually discovered (`role` other than `OTHER`) rather than silently
+     falling through un-mapped; a real tenant's own `customfield_NNNNN` ids are tenant-specific, so
+     this is the first real confirmation the discovery-by-schema logic found the right fields.
+   - **Worklog/estimate coverage** (`worklogs`, `estimates`) — low coverage here is a real signal
+     about how this specific team uses Jira (skips estimation, doesn't log time), not a bug; Phase 3's
+     flow-efficiency math will need to account for whichever gaps show up.
+   - **Reopen rate** (`reopens`) — how often a DONE issue comes back; a data point Phase 3's
+     bottleneck diagnosis will want as a baseline.
+   - **Anomalies** (`anomalyCounts`) — any non-zero count here is worth opening the raw issue
+     inspector for one of the affected issues (`GET …/{id}/raw-issues/{issueKey}`) to see the actual
+     changelog chain that produced it, before assuming it is noise.
 
 ## Jira stub
 

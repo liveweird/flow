@@ -144,6 +144,20 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     kind, the running job), assembled here rather than duplicated. No mutation, so no audit event of
     its own — see `.claude/docs/ingestion.md` "Sync status endpoint" for the response shape. Tests:
     `SyncStatusRoutesTest`.
+  - `GET /api/v1/data-sources/{id}/raw-issues/{issueKey}` (v0.2.0 plan §9/§12 item 8b,
+    `ingest/RawIssueInspectorRoutes.kt`) → **ADMIN only, read-only** — one raw Jira issue's stored
+    payload, changelog/worklog history and (once processed at least once) its `norm.*` shape.
+    `requireAdmin` runs before the data-source existence check (guard-before-read, the data-sources
+    idiom); `issueKey` is validated (`ISSUE_ID_PATTERN`/`ISSUE_KEY_PATTERN`, `400` otherwise) before
+    the lookup itself. A tombstoned issue is still returned, never `404`. No mutation, so no audit
+    event of its own — see `.claude/docs/ingestion.md` "Raw issue inspector". Tests:
+    `RawIssueInspectorTest`.
+  - `GET /api/v1/data-sources/{id}/profile` (v0.2.0 plan §8/§9/§12 item 9, `ingest/DataProfileRoutes.kt`)
+    → **ADMIN only, read-only** — the connection's stored data profile
+    (`source_connections.profile`/`profile_at`), computed by the PROFILE step after every successful
+    SYNC/REPROCESS. `computedAt` is `null` before the connection's first PROCESS pass rather than a
+    `404`. No mutation, so no audit event of its own — see `.claude/docs/ingestion.md` "Data profile".
+    Tests: `DataProfileTest`.
 - **Exceptions**: `UnauthorizedException` (→ 401), `ForbiddenException` (→ 403),
   `NotFoundException` (→ 404), `ConflictException` (→ 409), `TooManyRequestsException` (→ 429),
   and `BadGatewayException` (→ 502 — reserved for a future outbound-fetch upstream failure) live
