@@ -10,14 +10,13 @@ import io.ktor.util.AttributeKey
  * [ConnectionTestRow]).
  *
  * [run] is the sync-job stream runner (`ingest/IngestWorker.kt`'s claim loop calls it once per
- * claimed job): a no-op success for every [SyncJobKind] today — the actual streams (REFERENCE,
- * ISSUES, CHANGELOGS, WORKLOGS, RECONCILE, PROCESS, PROFILE) land in plan commits 6-9. It must
- * call [SyncJobRunContext.heartbeat] at least once per unit of work once real streams exist (the
- * lease/heartbeat contract, `.claude/docs/ingestion.md` "Worker scheduler") and honour
- * [SyncJobRunContext] cancellation cooperatively — for a no-op run there is nothing to honour yet.
- * [purgeSteps] is the extension point A2's PURGE job drains beyond the generic connection
- * housekeeping IngestWorker itself performs — empty until V10's raw tables (and V12's normalized
- * tables) exist to delete from.
+ * claimed job): it runs the job kind's ordered streams (`.claude/docs/ingestion.md` "Streams"; the
+ * Jira connector's order lives in `jira/JiraConnector.kt`). It must call
+ * [SyncJobRunContext.heartbeat] at least once per unit of work (the lease/heartbeat contract,
+ * `.claude/docs/ingestion.md` "Worker scheduler") and honour [SyncJobRunContext] cancellation
+ * cooperatively. [purgeSteps] is the extension point A2's PURGE job drains beyond the generic
+ * connection housekeeping IngestWorker itself performs — each connector deletes its own raw (and,
+ * later, normalized) rows.
  */
 interface Connector {
     val kind: DataSourceKind
@@ -31,7 +30,7 @@ interface Connector {
     ): ConnectionTestResult
 
     suspend fun run(context: SyncJobRunContext) {
-        // No streams exist yet (plan commits 6-9) — every job kind succeeds trivially.
+        // Default for a connector without streams: every job kind succeeds trivially.
     }
 
     val purgeSteps: List<PurgeStep>

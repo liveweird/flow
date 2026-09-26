@@ -114,7 +114,11 @@ class HttpJiraClient(
             nextPageToken?.let { put("nextPageToken", it) }
         }
         val endpoint = "/rest/api/3/search/jql"
-        return decode(get(endpoint, query), endpoint)
+        // CURSOR_EXPIRED (`.claude/docs/jira-integration.md`): only meaningful once a page carries
+        // a `nextPageToken` — the FIRST page's own 400/410 (a malformed/rejected JQL, say) is a
+        // genuine INVALID_RESPONSE, not an expired token that never existed.
+        val overrides = if (nextPageToken != null) mapOf(400 to "CURSOR_EXPIRED", 410 to "CURSOR_EXPIRED") else emptyMap()
+        return decode(http.request(HttpMethod.Get, "${requireGateway()}$endpoint", query, null, auth, overrides), endpoint)
     }
 
     override suspend fun approximateCount(jql: String): Long {

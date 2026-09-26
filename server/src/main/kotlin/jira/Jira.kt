@@ -2,10 +2,13 @@ package ch.nokillswit.jira
 
 import ch.nokillswit.infra.config.requireConfigInt
 import ch.nokillswit.infra.config.requireConfigLong
+import ch.nokillswit.infra.db.R2dbcDatabaseKey
 import ch.nokillswit.infra.outbound.guardedOkHttpClient
 import ch.nokillswit.infra.outbound.isAllowedJiraHost
 import ch.nokillswit.ingest.ConnectorRegistryKey
 import ch.nokillswit.ingest.DataSourceKind
+import ch.nokillswit.ingest.DataSourceServiceKey
+import ch.nokillswit.ingest.SyncCursorsServiceKey
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.HttpTimeout
@@ -37,6 +40,8 @@ fun Application.configureJira() {
     val maxResponseBytes = requireConfigLong(config, "jira.maxResponseBytes", MIN_RESPONSE_BYTES, MAX_RESPONSE_BYTES)
     val maxConcurrentRequests = requireConfigInt(config, "jira.maxConcurrentRequests", MIN_CONCURRENCY, MAX_CONCURRENCY)
     val maxRetries = requireConfigInt(config, "jira.maxRetries", MIN_RETRIES, MAX_RETRIES)
+    val incrementalOverlapMinutes = requireConfigLong(config, "jira.incrementalOverlapMinutes", MIN_OVERLAP_MINUTES, MAX_OVERLAP_MINUTES)
+    val issuesPageSize = requireConfigInt(config, "jira.pageSize", MIN_PAGE_SIZE, MAX_PAGE_SIZE)
     val stubHost = stubBaseUrl?.let { URI(it).host }
     val stubScheme = stubBaseUrl?.let { URI(it).scheme }
 
@@ -59,11 +64,24 @@ fun Application.configureJira() {
         maxConcurrentRequests,
         requestDeadlineMillis = requestDeadlineSeconds * MILLIS_PER_SECOND,
     )
+    // JiraRawStore (V10) lives next to the feature it serves rather than in infra/db/Database.kt's
+    // generic composition root — it only needs the R2dbcDatabase configureDatabase already
+    // published (module order: Database before this — application.yaml).
+    val rawStore = JiraRawStore(attributes[R2dbcDatabaseKey])
+    attributes.put(JiraRawStoreKey, rawStore)
     val connector = JiraConnector(
         newClient = { siteUrl, email, apiToken, authScheme ->
             val tenantInfoBaseUrl = stubBaseUrl ?: siteUrl
             HttpJiraClient(jiraHttp, tenantInfoBaseUrl, stubBaseUrl, email, apiToken, authScheme)
         },
+        sync = JiraSyncDependencies(
+            dataSources = attributes[DataSourceServiceKey],
+            rawStore = rawStore,
+            cursors = attributes[SyncCursorsServiceKey],
+            database = attributes[R2dbcDatabaseKey],
+            incrementalOverlapMinutes = incrementalOverlapMinutes,
+            issuesPageSize = issuesPageSize,
+        ),
     )
     attributes.put(JiraConnectorKey, connector)
     // The Connector registry (ingest/Connector.kt) — IngestWorker's claim loop dispatches a
@@ -113,6 +131,10 @@ private const val MIN_DEADLINE_SECONDS = 1L
 private const val MAX_DEADLINE_SECONDS = 1_800L
 private const val MIN_RESPONSE_BYTES = 1_024L
 private const val MAX_RESPONSE_BYTES = 128L * 1024 * 1024
+private const val MIN_OVERLAP_MINUTES = 0L
+private const val MAX_OVERLAP_MINUTES = 1_440L
+private const val MIN_PAGE_SIZE = 1
+private const val MAX_PAGE_SIZE = 500
 private const val MIN_CONCURRENCY = 1
 private const val MAX_CONCURRENCY = 64
 private const val MIN_RETRIES = 0

@@ -8,6 +8,7 @@ import org.jetbrains.exposed.v1.core.Table
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
+import org.jetbrains.exposed.v1.r2dbc.deleteWhere
 import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.r2dbc.upsert
@@ -75,6 +76,13 @@ class SyncCursorsService(private val database: R2dbcDatabase) {
                 it[Cursors.lastCompletedAt] = lastCompletedAt
                 it[Cursors.updatedAt] = now
             }
+        }
+    }
+
+    /** A stream that just completed a whole logical pass (e.g. REFERENCE, plan §7) clears its own resumption state. */
+    suspend fun clear(connectionId: UInt, stream: String) {
+        suspendTransaction(database) {
+            Cursors.deleteWhere { (Cursors.connectionId eq connectionId) and (Cursors.stream eq stream) }
         }
     }
 }

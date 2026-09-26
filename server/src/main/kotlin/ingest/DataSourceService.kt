@@ -183,6 +183,8 @@ class DataSourceService(private val database: R2dbcDatabase, private val cipher:
         val apiToken: String,
         val projectKeys: List<String>,
         val authScheme: JiraAuthScheme,
+        /** ISO date (`YYYY-MM-DD`) — the ISSUES stream's first-run watermark floor (`jira/JiraIssuesStream.kt`). */
+        val backfillFrom: String,
     )
 
     suspend fun readForTest(id: UInt): StoredJiraConnection? = suspendTransaction(database) {
@@ -194,8 +196,12 @@ class DataSourceService(private val database: R2dbcDatabase, private val cipher:
             apiToken = cipher.decrypt(row[Connections.secret]),
             projectKeys = settings.projectKeys,
             authScheme = settings.authScheme,
+            backfillFrom = row[Connections.backfillFrom],
         )
     }
+
+    /** The SYNC job's own read of the stored connection — same shape as [readForTest] (`jira/JiraConnector.kt`'s `run`). */
+    suspend fun readForSync(id: UInt): StoredJiraConnection? = readForTest(id)
 
     /** Persists the `cloudId` a successful `tenant_info` probe resolved — first-write-wins is fine; it never changes for a tenant. */
     suspend fun persistCloudId(id: UInt, cloudId: String) {

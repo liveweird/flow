@@ -29,6 +29,7 @@ class MigrationChecksumTest {
         "V7__user_credential_revision.sql" to 289120118,
         "V8__create_source_connections.sql" to -1370826313,
         "V9__create_sync_jobs.sql" to -1398573629,
+        "V10__create_jira_raw_store.sql" to -496936825,
     )
 
     @Test

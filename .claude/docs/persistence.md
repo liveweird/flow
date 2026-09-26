@@ -96,7 +96,83 @@ display fields and the active-member counts, and checks member ids against activ
 the create/add transaction. List each new cross-feature read here as it lands — the list IS the
 permission.
 
-Current migrations are `V1`–`V9`:
+### Schemas
+
+Flow's PostgreSQL database is split across three schemas (v0.2.0 plan §0 A3, the main-session
+amendment over the architect's original all-`public`-with-prefixes recommendation):
+
+- **`public`** — the v0.1.0 foundation tables (`users`, `teams`, `team_members`, `revoked_tokens`,
+  `user_disabled_features`, …) plus the connector-agnostic operational tables that describe *how*
+  ingestion runs rather than the data it pulls: `source_connections` (V8), `sync_jobs` and
+  `sync_cursors` (V9). Flyway's own history table also stays here — `flyway.schemas` is left at its
+  default, so it never needs to know the other schemas exist.
+- **`raw`** — every connector's raw store, one table set per connector, named with the connector's
+  own prefix so two connectors never collide: `raw.jira_issues` and `raw.jira_entities` (V10, see
+  below), joined by `raw.jira_raw_changelogs`/`raw.jira_raw_worklogs`/`raw.jira_reconcile_seen` in
+  V11 once the CHANGELOGS/WORKLOGS/RECONCILE streams land (plan commit 7). A future GitLab
+  connector adds `raw.gitlab_*` alongside these rather than inventing a fourth schema.
+- **`norm`** — the neutral, source-agnostic layer every connector normalizes into (`work_items`,
+  `sprints`, `boards`, …) — arrives with V12 (plan commit 8), upcoming as of this commit.
+- **`metrics`** (not yet created) — phase 3's pre-aggregated tables get their own schema once that
+  work starts (plan §4).
+
+**How Exposed addresses a schema-qualified table.** No Exposed `Schema` object and no
+`search_path` override are involved: `JiraRawStore.kt`'s `Issues`/`Entities` table objects simply
+pass the dotted, schema-qualified name straight to the `Table(...)` constructor — e.g. `object
+Issues : Table("raw.jira_issues")` — and Exposed/R2DBC resolve it as-is, including a cross-schema
+FK reference back to `public.source_connections` (`reference("connection_id",
+DataSourceService.Connections)`). The plan's fallback (setting `search_path` on the pooled
+connection, with fully-qualified SQL in `exec` blocks, if qualified names misbehaved) was not
+needed. `CREATE SCHEMA IF NOT EXISTS raw`/`norm` runs in the first migration that needs each schema
+(V10 for `raw`; V12 will do the same for `norm`) — never a standalone "create schemas" migration.
+
+### The Jira raw store (V10)
+
+`raw.jira_issues` and `raw.jira_entities` (v0.2.0 plan §4/§7, `jira/JiraRawStore.kt`) are the FIRST
+tables in the `raw` schema — the REFERENCE and ISSUES streams' target
+(`jira/JiraReferenceStream.kt`, `jira/JiraIssuesStream.kt`).
+
+- **`raw.jira_issues`** — PK `(connection_id, issue_id)` (the stable Jira numeric id; a project
+  move only changes the `issue_key`/`project_id`/`project_key` columns, never the PK). Identity
+  columns (`issue_key`, `project_id`, `project_key`, `issue_updated_at`) sit alongside `payload`
+  (the canonicalized `search/jql` issue document, `infra/json/CanonicalJson.kt`) and its `sha256`.
+  `changelog_synced_at`/`worklogs_synced_at` are NULL until the CHANGELOGS/WORKLOGS streams (plan
+  commit 7, A1) populate them. `needs_processing`/`processed_at`/`processed_hash`/
+  `processing_version` drive the PROCESS step (plan commit 8). `deleted_at`/`moved_out_at` are
+  tombstone columns the RECONCILE stream (plan commit 7) sets; nothing in this commit's REFERENCE/
+  ISSUES streams sets `moved_out_at` — a key/project change during an ISSUES page is just an
+  ordinary column update, not a distinct "move" code path. Three partial indexes back the streams'
+  own claim scans: `idx_raw_jira_issues_needs_processing` (PROCESS, commit 8),
+  `idx_raw_jira_issues_stale_changelog` (CHANGELOGS, commit 7, `changelog_synced_at IS NULL AND
+  deleted_at IS NULL`) and `idx_raw_jira_issues_stale_worklogs` (WORKLOGS, commit 7, A1's per-issue
+  backfill scan, same shape).
+- **`raw.jira_entities`** — PK `(connection_id, kind, entity_id)`, one row per REFERENCE-stream
+  entity kind (`JiraEntityKind`: `FIELD`, `STATUS`, `STATUS_CATEGORY`, `PROJECT`,
+  `PROJECT_STATUSES`, `ISSUE_TYPE`, `PRIORITY`, `RESOLUTION`, `ISSUE_LINK_TYPE`, `USER`, `BOARD`,
+  `BOARD_CONFIGURATION`, `SPRINT` — no CHECK constraint, since the Kotlin enum is the whitelist and
+  the column drives no SQL-level behavior, the `users.role`/`sync_jobs.status` idiom reserved for
+  columns a CHECK usefully pins). `entity_id` is `VARCHAR`, not `BIGINT`, because Jira ids are
+  numeric for most kinds but an opaque `accountId` string for `USER`. `idx_raw_jira_entities_last_seen`
+  (`connection_id, kind, last_seen_at`) backs the REFERENCE stream's end-of-pass tombstone sweep.
+- **sha256 change detection (both tables).** `JiraRawStore.upsertIssue`/`upsertEntity` canonicalize
+  the incoming payload (`infra/json/CanonicalJson.kt`) and hash it; an unchanged hash on a
+  non-tombstoned row bumps only `fetched_at`/`last_seen_at` (`RawUpsertOutcome.UNCHANGED`) — the
+  payload/`changed_at` columns are untouched, so `changed_at` tracks genuine content changes only,
+  never a re-fetch that happened to return the same document.
+- **Tombstones and resurrection.** `raw.jira_entities.deleted_at` is set by
+  `markEntitiesDeletedNotSeenSince` at the end of a REFERENCE pass, for every kind, over rows whose
+  `last_seen_at` is older than the pass's own start time (`passStartedAt`) and not already deleted —
+  entities genuinely absent from this pass, not ones simply not yet reached (a resumed pass's
+  `passStartedAt` is preserved across restarts, so a partial pass never tombstones entities its own
+  later steps haven't visited yet). A tombstoned entity or issue seen again on a later pass/page has
+  its `deleted_at`/`moved_out_at` cleared by the same upsert path that would otherwise report
+  `CHANGED` — reported instead as `RawUpsertOutcome.RESURRECTED`.
+- **PURGE (plan §0 A2).** `JiraRawStore.purgeIssuesBatch`/`purgeEntitiesBatch` (500 rows per call,
+  `JIRA_PURGE_BATCH_SIZE`) delete one connection's rows in batches; `JiraRawStore.purgeAll` (an
+  extension function) drains both tables by looping each batch call until it deletes zero rows.
+  `JiraConnector.purgeSteps` wires this as the PURGE job's one connector-owned cleanup step.
+
+Current migrations are `V1`–`V10`:
 
 - `V1__init` — the `users` table: `name` (≤50), `email` (≤254), `password_hash`, `role` with
   `CHECK ("role" IN ('ADMIN', 'USER'))` (single-column role storage; the wire shape stays a
@@ -131,6 +207,8 @@ Current migrations are `V1`–`V9`:
 - `V7__user_credential_revision` — see "Credential revision" below.
 - `V8__create_source_connections` — see "Data sources (V8)" below.
 - `V9__create_sync_jobs` — see "Sync jobs and cursors (V9)" below.
+- `V10__create_jira_raw_store` — see "The Jira raw store (V10)" above: `CREATE SCHEMA IF NOT EXISTS
+  raw` plus `raw.jira_issues`/`raw.jira_entities`, the first tables outside `public`.
 
 The `users`/`teams` tables follow Toadie's dialect (`SERIAL`/`INTEGER` ids, epoch-millis `BIGINT`
 timestamps, `marked_as_deleted` + partial unique indexes over active rows) and its idioms: a
@@ -273,6 +351,5 @@ stream. The streams themselves (and the cursor shapes they define) land in plan 
 
 ### Not yet ported from Lettuce / Toadie / Covenant
 
-Nothing remains on the persistence list today; the next subsystem (the Jira raw store and its
-incremental cursors' first consumers, and the `raw`/`norm` PostgreSQL schemas — plan §0 A3, V10)
-arrives with its own paragraph here.
+Nothing remains on the persistence list today; the next subsystem (the `norm` schema and its V12
+normalized layer, plan §0 A3/§8) arrives with its own paragraph here.

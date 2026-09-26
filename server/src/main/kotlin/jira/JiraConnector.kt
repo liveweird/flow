@@ -4,7 +4,14 @@ import ch.nokillswit.ingest.ConnectionTestResult
 import ch.nokillswit.ingest.ConnectionTestRow
 import ch.nokillswit.ingest.Connector
 import ch.nokillswit.ingest.DataSourceKind
+import ch.nokillswit.ingest.DataSourceService
 import ch.nokillswit.ingest.JiraAuthScheme
+import ch.nokillswit.ingest.PurgeStep
+import ch.nokillswit.ingest.Stream
+import ch.nokillswit.ingest.StreamContext
+import ch.nokillswit.ingest.SyncCursorsService
+import ch.nokillswit.ingest.SyncJobKind
+import ch.nokillswit.ingest.SyncJobRunContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withTimeout
@@ -12,6 +19,7 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
+import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
 
 private const val PROBE_TIMEOUT_MS = 10_000L
 private const val TOTAL_BUDGET_MS = 30_000L
@@ -32,13 +40,70 @@ private const val TOTAL_BUDGET_MS = 30_000L
  */
 typealias JiraClientFactory = (siteUrl: String, email: String, apiToken: String, authScheme: JiraAuthScheme) -> JiraClient
 
+/**
+ * What [JiraConnector.run] needs beyond [JiraClientFactory] — bundled so `JiraConnectorTest`'s
+ * `testConnection`-only fixtures (which never call `run`) keep constructing a bare `JiraConnector`
+ * without threading these through. `jira/Jira.kt`'s `configureJira` is the one production wiring
+ * site.
+ */
+class JiraSyncDependencies(
+    val dataSources: DataSourceService,
+    val rawStore: JiraRawStore,
+    val cursors: SyncCursorsService,
+    val database: R2dbcDatabase,
+    /** `jira.incrementalOverlapMinutes` (default 10, plan §5/§7) — the ISSUES stream's re-fetch window past the last watermark. */
+    val incrementalOverlapMinutes: Long,
+    val issuesPageSize: Int,
+)
+
 class JiraConnector(
     private val newClient: JiraClientFactory,
     /** [LOW-1] Test seam: an injected clock lets a test simulate the 30s TOTAL budget eroding
      * across probes without a real 30-second sleep. */
     private val now: () -> Long = System::currentTimeMillis,
+    private val sync: JiraSyncDependencies? = null,
 ) : Connector {
     override val kind = DataSourceKind.JIRA_CLOUD
+
+    /**
+     * PURGE's connector-owned cleanup step (v0.2.0 plan §0 A2): drains this connection's
+     * `raw.jira_issues`/`raw.jira_entities` rows in batches.
+     */
+    override val purgeSteps: List<PurgeStep>
+        get() = sync?.let { deps -> listOf(PurgeStep { connectionId -> deps.rawStore.purgeAll(connectionId) }) } ?: emptyList()
+
+    /**
+     * The sync-job stream runner (v0.2.0 plan §7/§12 item 6): SYNC runs REFERENCE then ISSUES —
+     * CHANGELOGS/WORKLOGS/PROCESS/PROFILE join this ordered list in later commits. PURGE drains
+     * [purgeSteps]; RECONCILE/REPROCESS still succeed trivially until their own commits land.
+     */
+    override suspend fun run(context: SyncJobRunContext) {
+        when (context.claim.kind) {
+            SyncJobKind.SYNC -> runSync(context)
+            SyncJobKind.PURGE -> purgeSteps.forEach { it.purge(context.claim.connectionId) }
+            SyncJobKind.RECONCILE, SyncJobKind.REPROCESS -> Unit
+        }
+    }
+
+    private suspend fun runSync(context: SyncJobRunContext) {
+        val deps = checkNotNull(sync) { "JiraConnector.run(SYNC) requires JiraSyncDependencies (jira/Jira.kt's configureJira)" }
+        val claim = context.claim
+        val stored = deps.dataSources.readForSync(claim.connectionId) ?: return
+        val client = newClient(stored.siteUrl, stored.email, stored.apiToken, stored.authScheme)
+        // [resolveCloudId] must run before any other gateway call (jira/JiraClient.kt's contract).
+        deps.dataSources.persistCloudId(claim.connectionId, client.resolveCloudId())
+        val backfillFromMillis = java.time.LocalDate.parse(stored.backfillFrom)
+            .atStartOfDay(java.time.ZoneOffset.UTC).toInstant().toEpochMilli()
+        val streamContext = StreamContext(claim.connectionId, claim.id, deps.database, deps.cursors, context.heartbeat, now)
+        val streams: List<Stream> = listOf(
+            JiraReferenceStream(client, deps.rawStore, stored.projectKeys),
+            JiraIssuesStream(
+                client, deps.rawStore, stored.projectKeys, backfillFromMillis,
+                deps.incrementalOverlapMinutes, deps.issuesPageSize,
+            ),
+        )
+        streams.forEach { it.run(streamContext) }
+    }
 
     override suspend fun testConnection(
         siteUrl: String,

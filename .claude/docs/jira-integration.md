@@ -79,6 +79,44 @@ rate-limited at 10/min per IP (`RateLimits.DATA_SOURCE_TEST`), and audited as `d
 (siteHost, ok, failedEndpoints — never a token). Never `502`: a probe failure is a row, not a
 failing HTTP status.
 
+## ISSUES stream: fields and JQL
+
+`jira/JiraIssuesStream.kt` (v0.2.0 plan §7, plan commit 6) pages `GET /rest/api/3/search/jql` with
+`fields = null` — the `fields` query parameter is omitted entirely rather than sent empty, matching
+Jira's OWN default of returning every field on the issue document (the stub mirrors this: a request
+with no `fields` param gets the full document, `sample-data/README.md`). Normalization (arriving
+plan commit 8) needs both every system field and every discovered custom field
+(`schema.custom`-tagged, e.g. Sprint/Story Points/Flagged/Team), and Jira offers no cheaper "all
+system + all discovered custom" shape than asking for everything — so `fields=null` is intentional,
+not a placeholder.
+
+**JQL shapes** (`jira/JiraJql.kt`, project keys pre-validated by `PROJECT_KEY_PATTERN`
+`^[A-Z][A-Z0-9_]{1,9}$`, so no quoting/escaping is ever needed):
+
+- `scope(projectKeys)` — `project in ("A","B")`, the base every other builder starts from.
+- `incremental(projectKeys, sinceMinutes)` — the ISSUES stream's own query:
+  `<scope> AND updated >= "-Nm" ORDER BY updated ASC` (a TZ-free RELATIVE bound — Jira's absolute
+  JQL dates are TZ-sensitive, a spike-identified risk this sidesteps entirely).
+- `reconcile(projectKeys)` — `<scope> ORDER BY id ASC`; defined now, not yet called anywhere — the
+  RECONCILE stream (plan commit 7) is its first consumer.
+
+Two more `jira.*` config keys are consumed for the first time by this stream (both already declared
+in `application.yaml` since an earlier commit, unread until now): `jira.pageSize` (default 100,
+1..500 — the `search/jql` `maxResults` per page; the stub ignores it and returns its own fixed-size
+pages regardless) and `jira.incrementalOverlapMinutes` (default 10, 0..1440 — the re-widening
+window past the last watermark described above).
+
+## `CURSOR_EXPIRED` detection
+
+Landed with the ISSUES stream (plan commit 6): `HttpJiraClient.searchJql` passes
+`statusCodeOverrides = mapOf(400 to "CURSOR_EXPIRED", 410 to "CURSOR_EXPIRED")` to `JiraHttp`, but
+ONLY when the request carries a `nextPageToken` — a bare first page's own 400/410 is a genuine
+`INVALID_RESPONSE` (there was no token to have expired). `JiraIssuesStream` catches exactly this
+code and restarts the run from the last completed watermark (`freshRun`), up to
+`MAX_CURSOR_RESTARTS` (5) restarts per stream invocation before letting the exception propagate.
+The error-codes table below is updated accordingly; `CURSOR_EXPIRED` is no longer a reserved,
+undetected code.
+
 ## Error codes (`JiraFetchException`)
 
 `AUTHENTICATION_FAILED` (401) · `FORBIDDEN_SCOPE` (403) · `NOT_FOUND` (404) · `RATE_LIMITED` (429,
@@ -93,9 +131,9 @@ one decode helper so a mismatch is always this code, never an uncaught exception
 refused the resolved host/address — `BlockedHostException` extends `UnknownHostException`, the
 `Dns` contract's own checked type, so OkHttp's async call path delivers it to Ktor unwrapped instead
 of re-wrapping it as a generic `IOException`; a single attempt, never retried) · `REDIRECT` (a 3xx —
-never followed) · `CURSOR_EXPIRED` (reserved for the `search/jql` `nextPageToken` expiry case — not
-yet detected specifically; falls back to `INVALID_RESPONSE` today, revisit once the ISSUES stream
-lands in plan commit 6).
+never followed) · `CURSOR_EXPIRED` (a `search/jql` `nextPageToken` page answering 400/410 — see
+"`CURSOR_EXPIRED` detection" above; the ISSUES stream restarts from the last watermark rather than
+propagating it, up to a bounded number of restarts).
 
 Every attempt (across every retry) is additionally bounded by a TOTAL per-request deadline
 (`jira.requestDeadlineSeconds`, default 180s, config-validated via `requireConfigInt`) — separate

@@ -202,6 +202,14 @@ jira:
   # A Semaphore cap on concurrent in-flight Jira calls (per process).
   maxConcurrentRequests: "$JIRA_MAX_CONCURRENT_REQUESTS:4"
   maxRetries: "$JIRA_MAX_RETRIES:4"
+  # The ISSUES stream's (plan §7, jira/JiraIssuesStream.kt) `search/jql` page size — the stub
+  # ignores this and returns its own fixed-size pages regardless (sample-data/README.md).
+  pageSize: "$JIRA_PAGE_SIZE:100"
+  # How far the ISSUES stream re-widens its relative `updated` window past the last completed
+  # run's watermark, on every run AFTER the first (the first run's window is `backfillFrom`
+  # instead) — covers clock skew/a slow last page committing an issue Jira stamped just before the
+  # watermark but the search only surfaced after it.
+  incrementalOverlapMinutes: "$JIRA_INCREMENTAL_OVERLAP_MINUTES:10"
   # Reroutes BOTH the tenant_info host and the gateway host to the in-JVM/compose Jira stub
   # (sample-data/jira-stub) — DEVELOPMENT ONLY; production startup refuses a non-blank value
   # (jira/Jira.kt's fail-closed check, ported from the crypto-key/mail-transport precedent).

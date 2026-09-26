@@ -99,8 +99,12 @@ class JiraHttp(
         query: Map<String, String> = emptyMap(),
         jsonBody: JsonElement? = null,
         authHeader: String? = null,
+        statusCodeOverrides: Map<Int, String> = emptyMap(),
     ): JsonElement = semaphore.withPermit {
-        requestWithRetries(method, url, query, jsonBody, authHeader, attempt = 0, deadline = clock() + requestDeadlineMillis)
+        requestWithRetries(
+            method, url, query, jsonBody, authHeader,
+            attempt = 0, deadline = clock() + requestDeadlineMillis, statusCodeOverrides = statusCodeOverrides,
+        )
     }
 
     private suspend fun requestWithRetries(
@@ -111,6 +115,7 @@ class JiraHttp(
         authHeader: String?,
         attempt: Int,
         deadline: Long,
+        statusCodeOverrides: Map<Int, String> = emptyMap(),
     ): JsonElement {
         val statement = client.prepareRequest(url) {
             this.method = method
@@ -136,7 +141,9 @@ class JiraHttp(
             // `HttpResponse` back to the caller with no guarantee its body/connection is ever
             // released if the caller (as `handleResponse`'s non-2xx/oversized/pre-retry branches
             // do) never reads it.
-            statement.execute { response -> handleResponse(response, method, url, query, jsonBody, authHeader, attempt, deadline) }
+            statement.execute { response ->
+                handleResponse(response, method, url, query, jsonBody, authHeader, attempt, deadline, statusCodeOverrides)
+            }
         } catch (cause: BlockedHostException) {
             throw JiraFetchException("BLOCKED_HOST", null, url).also { it.initCause(cause) }
         } catch (_: HttpRequestTimeoutException) {
@@ -146,7 +153,7 @@ class JiraHttp(
             // into `url`) is the safe substitute (`.claude/docs/security.md` "never log secrets").
             throw JiraFetchException("TIMEOUT", null, url)
         } catch (cause: IOException) {
-            retryOrThrow(attempt, null, method, url, query, jsonBody, authHeader, deadline) {
+            retryOrThrow(attempt, null, method, url, query, jsonBody, authHeader, deadline, statusCodeOverrides) {
                 JiraFetchException("UPSTREAM_UNAVAILABLE", null, url).also { it.initCause(cause) }
             }
         }
@@ -161,14 +168,21 @@ class JiraHttp(
         authHeader: String?,
         attempt: Int,
         deadline: Long,
+        statusCodeOverrides: Map<Int, String>,
     ): JsonElement {
         val status = response.status.value
         if (status == RATE_LIMITED_STATUS || status >= SERVER_ERROR_FLOOR) {
-            return retryOrThrow(attempt, retryAfterSeconds(response), method, url, query, jsonBody, authHeader, deadline) {
+            return retryOrThrow(
+                attempt, retryAfterSeconds(response), method, url, query, jsonBody, authHeader, deadline, statusCodeOverrides,
+            ) {
                 JiraFetchException(if (status == RATE_LIMITED_STATUS) "RATE_LIMITED" else "UPSTREAM_UNAVAILABLE", status, url)
             }
         }
-        if (status !in SUCCESS_RANGE) throw JiraFetchException(codeForStatus(status), status, url)
+        // [CURSOR_EXPIRED] `statusCodeOverrides` lets a specific endpoint reinterpret a status this
+        // generic transport would otherwise map to a less useful code — today only
+        // `HttpJiraClient.searchJql` uses it, mapping 400/410 to CURSOR_EXPIRED when the request
+        // carried a `nextPageToken` (`.claude/docs/jira-integration.md`).
+        if (status !in SUCCESS_RANGE) throw JiraFetchException(statusCodeOverrides[status] ?: codeForStatus(status), status, url)
         if (response.headers[NEAR_LIMIT_HEADER] == "true") sleeper(NEAR_LIMIT_PAUSE_MS)
         val bytes = readBounded(response)
         return try {
@@ -187,6 +201,7 @@ class JiraHttp(
         jsonBody: JsonElement?,
         authHeader: String?,
         deadline: Long,
+        statusCodeOverrides: Map<Int, String>,
         terminal: () -> JiraFetchException,
     ): JsonElement {
         if (attempt >= maxRetries) throw terminal()
@@ -199,7 +214,7 @@ class JiraHttp(
             throw if (retryAfterSeconds != null) JiraFetchException("RATE_LIMITED", null, url) else terminal()
         }
         sleeper(delayMs)
-        return requestWithRetries(method, url, query, jsonBody, authHeader, attempt + 1, deadline)
+        return requestWithRetries(method, url, query, jsonBody, authHeader, attempt + 1, deadline, statusCodeOverrides)
     }
 
     private suspend fun readBounded(response: HttpResponse): ByteArray {

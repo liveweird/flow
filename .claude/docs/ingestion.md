@@ -134,21 +134,101 @@ a claimed job), `.succeeded`, `.failed` (`RUN_FAILED`, with the truncated except
 `.released` (shutdown). Web-side: `sync_job.requested` (`POST .../sync-jobs`, with `coalesced`) and
 `.cancel_requested` (`POST .../sync-jobs/{jobId}/cancel`).
 
-Every job kind runs a no-op success today (`ingest/Connector.kt`'s default `run()`) — the actual
-streams (REFERENCE, ISSUES, CHANGELOGS, WORKLOGS, RECONCILE, PROCESS, PROFILE) and PURGE's
-connector-owned cleanup steps (`purgeSteps`) arrive in later v0.2.0 commits, once V10-V12 give them
-raw/normalized rows to act on.
+A SYNC job runs REFERENCE then ISSUES for real as of this commit (`jira/JiraConnector.kt`'s
+`runSync`, see "Streams" below); CHANGELOGS, WORKLOGS, RECONCILE, PROCESS and PROFILE still join
+that list in later v0.2.0 commits (plan commits 7-9). PURGE's connector-owned cleanup step
+(`purgeSteps`) already drains `raw.jira_issues`/`raw.jira_entities` in batches (V10, plan §0 A2);
+`ingest/Connector.kt`'s default no-op `run()` remains the fallback for `RECONCILE`/`REPROCESS` until
+their own commits land.
 
 ## Sync cursors (V9)
 
 `sync_cursors` (`ingest/SyncCursors.kt`'s `SyncCursorsService`) is the resumable per-stream cursor
-store the sync streams (arriving in later commits) read from and write to: one row per
+store the sync streams read from and write to (REFERENCE and ISSUES as of this commit; CHANGELOGS/
+WORKLOGS/RECONCILE/PROCESS/PROFILE join them in later commits): one row per
 `(connection_id, stream)` (composite PK), where `stream` names a phase within a job (e.g.
 `"issues"`, `"changelogs"` — the exact names are owned by each stream's implementation, not fixed
 here). `cursor` is jsonb text (`infra/db/Jsonb.kt`) with a per-stream shape; `watermark_at` and
 `last_completed_at` are the stream's own bookkeeping. `SyncCursorsService.put` upserts by
-`(connection_id, stream)` and is expected to run in the SAME transaction as the stream's page write
-once streams exist, so a crash never leaves a cursor pointing past data that was never committed.
+`(connection_id, stream)` and runs in the SAME transaction as the stream's page write (REFERENCE
+and ISSUES do this as of this commit — see "Streams" below), so a crash never leaves a cursor
+pointing past data that was never committed.
+
+## Streams
+
+The REFERENCE and ISSUES streams (v0.2.0 plan §7, plan commit 6) are the first two of the ordered
+list a SYNC job runs (`jira/JiraConnector.kt`'s `runSync`): **REFERENCE → ISSUES** today;
+CHANGELOGS → WORKLOGS → PROCESS → PROFILE join the end of that list in plan commits 7-9. Both
+streams implement `ingest/Stream.kt`'s `Stream` interface and share one `StreamContext` per job
+(cursor read/write scoped to the connection, a `transaction {}` wrapper, `heartbeat()`, an
+injectable `clock`).
+
+**Cursor shapes.**
+
+- **`reference`** (`jira/JiraReferenceStream.kt`'s `ReferenceCursor`): `passStartedAt` (fixed for
+  the whole pass, preserved across a resume), `step` (a `JiraEntityKind` — doubles as
+  `raw.jira_entities.kind`, in the FIXED order the enum declares: `FIELD`, `STATUS`,
+  `STATUS_CATEGORY`, `PROJECT`, `PROJECT_STATUSES`, `ISSUE_TYPE`, `PRIORITY`, `RESOLUTION`,
+  `ISSUE_LINK_TYPE`, `USER`, `BOARD`, `BOARD_CONFIGURATION`, `SPRINT`), an optional `boardId`
+  (diagnostic only, for the two board-scoped steps) and `startAt` (a real Jira `startAt` for the
+  `startAt`-paged steps, or an index into the in-scope project-key/board list for the per-item
+  steps).
+- **`issues`** (`jira/JiraIssuesStream.kt`'s `IssuesCursor`): `watermarkAt` (null until a first run
+  completes), `jql` (the exact query driving the CURRENT run, computed once and reused for every
+  page — a real tenant's paging must reuse the same query text), `nextPageToken` (Jira's opaque
+  cursor) and `runStartedAt` (this run's own start time, becoming the new watermark once the run's
+  LAST page is written).
+
+**Per-page transaction with the cursor advance.** Every page (or, for REFERENCE's single-shot
+steps, every whole step) writes its raw-store rows and its own `sync_cursors` row inside the SAME
+`context.transaction {}` block, so a crash between them is impossible: a committed cursor always
+describes a committed page. `context.heartbeat()` is called once per page, AFTER that transaction
+commits — a lost lease is caught here, never before the write.
+
+**Resume semantics.**
+
+- REFERENCE resumes at the `step`/`startAt` its last-written cursor named: single-shot steps
+  (`FIELD`, `STATUS_CATEGORY`, `ISSUE_TYPE`, `ISSUE_LINK_TYPE`) have no cursor of their own and
+  simply restart from scratch (idempotent, hash-diffed); `startAt`-paged steps
+  (`STATUS`/`PROJECT`/`PRIORITY`/`RESOLUTION`/`BOARD`), the per-project-key `PROJECT_STATUSES` loop,
+  the per-board `BOARD_CONFIGURATION` loop and the per-board-then-per-sprint-page `SPRINT` loop all
+  resume mid-list/mid-page from their persisted `startAt`/index. `users/search` (`USER`) has no
+  `total` in its response, so its own "last page" detection compares each page's size against the
+  FIRST page size seen, not a resumed one — a resume recomputes that from its own first fetched
+  page. Users are keyed by `accountId`, every other single/paged step's entity id is the payload's
+  own `id` field.
+- ISSUES resumes a persisted `nextPageToken` AS-IS (same `jql`/`runStartedAt`/token) if one exists —
+  meaning a prior run was interrupted mid-page; otherwise it starts a fresh run from the last
+  completed watermark.
+
+**Entity tombstoning at pass end.** Once every REFERENCE step completes, `JiraReferenceStream.run`
+tombstones every `JiraEntityKind` in one final transaction
+(`JiraRawStore.markEntitiesDeletedNotSeenSince`, per kind, entities whose `last_seen_at` predates
+`passStartedAt`) and clears the `reference` cursor (`context.clearCursor`) — a fresh pass starts
+clean next time. An entity or issue tombstoned in an earlier pass that reappears is resurrected
+(`deleted_at`/`moved_out_at` cleared) the moment the corresponding upsert sees it again, whether
+that is the next REFERENCE pass or, for issues, the next ISSUES page.
+
+**Watermark, overlap and relative JQL.** `JiraIssuesStream` computes `N` (Jira's relative
+`updated >= "-Nm"` window, `jira/JiraJql.incremental`) as minutes-since-`backfillFrom` on the very
+first run, or minutes-since-the-last-completed-watermark PLUS `jira.incrementalOverlapMinutes`
+(default 10) on every later run — the overlap re-covers a page that committed an issue Jira stamped
+just before the watermark but the search only surfaced after it. The watermark itself only advances
+to `runStartedAt` once the run's LAST page (`nextPageToken == null`) is written — a run that
+crashes mid-page leaves the watermark exactly where the previous completed run left it, so the next
+run's `-Nm` window naturally re-covers everything since then.
+
+**`CURSOR_EXPIRED` restart.** `HttpJiraClient.searchJql` (`jira/JiraClient.kt`) maps a 400/410
+response to `CURSOR_EXPIRED` only when the request carried a `nextPageToken` (a first page's own
+400/410 is a genuine `INVALID_RESPONSE` — there was no token to expire). `JiraIssuesStream` catches
+exactly that code and starts a fresh run from the last completed watermark (`freshRun`), up to
+`MAX_CURSOR_RESTARTS` (5) restarts within one stream invocation before letting the exception
+propagate — a bound against a pathologically misbehaving upstream, not an expected real-world count.
+
+**Lease loss.** Both streams let `context.heartbeat()`'s `LeaseLostException` propagate uncaught
+after every committed page/step — neither stream catches it, matching `StreamContext`'s contract
+(`.claude/docs/ingestion.md` "Lease and heartbeat" above): the job stops exactly where its last
+committed cursor left it, safe to reclaim and resume by any worker.
 
 ## Data sources
 

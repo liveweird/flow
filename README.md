@@ -152,6 +152,14 @@ transport at startup (`.claude/docs/security.md`).
 | `SMTP_STARTTLS` | `true` | STARTTLS on the SMTP connection. |
 | `MAIL_FROM` | `flow@localhost` | Sender address of every outbound email. |
 | `MAIL_APP_URL` | *(blank)* | Absolute URL of this deployment — emails carry a sign-in link when set. |
+| `JIRA_REQUEST_TIMEOUT_SECONDS` | `30` | Per-attempt HTTP timeout (request + connect) for the Jira client. |
+| `JIRA_REQUEST_DEADLINE_SECONDS` | `180` | Total budget for one logical Jira call across every retry/backoff attempt. |
+| `JIRA_MAX_RESPONSE_BYTES` | `33554432` | Bounded-read ceiling on a single Jira response body (32 MiB). |
+| `JIRA_MAX_CONCURRENT_REQUESTS` | `4` | Semaphore cap on concurrent in-flight Jira calls per process. |
+| `JIRA_MAX_RETRIES` | `4` | Retries on 429/5xx/IOException before the Jira client fails terminally. |
+| `JIRA_PAGE_SIZE` | `100` | The ISSUES stream's `search/jql` page size (`maxResults`, 1..500); the stub ignores it and returns its own fixed-size pages. |
+| `JIRA_INCREMENTAL_OVERLAP_MINUTES` | `10` | How far the ISSUES stream re-widens its relative `updated` window past the last completed run's watermark (0..1440). |
+| `JIRA_STUB_BASE_URL` | *(blank)* | Reroutes the Jira tenant_info + gateway hosts to the in-JVM/compose stub — development only; production refuses a non-blank value. |
 | `INGEST_SCHEDULER_TICK_SECONDS` | `15` | How often the `worker`-role scan loop runs: enqueue due jobs, prune old rows, claim+run. |
 | `INGEST_WORKER_SLOTS` | `2` | Cap on concurrently RUNNING sync jobs for this worker instance. |
 | `INGEST_LEASE_SECONDS` | `300` | A claimed job's lease lifetime; heartbeated at `leaseSeconds/3`. An expired lease is reclaimable by any worker. |
