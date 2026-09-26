@@ -1,7 +1,8 @@
 name: ci
 
 # The push/PR gate — every local gate (CLAUDE.md "Commands") re-run on a clean runner:
-# server (detekt + Testcontainers tests + Kover + OpenAPI coverage + dependency alignment), web
+# server (detekt + Testcontainers tests + Kover + OpenAPI coverage + dependency alignment +
+# strict Gradle dependency verification), web
 # (the spec → schema.ts drift check, lint, knip, tests with coverage floors, build), and the
 # Docker-free e2e statics (lint, knip, typecheck, spec↔scenario parity). The blackbox Playwright
 # suite runs nightly and on demand (e2e.yml).
@@ -29,8 +30,17 @@ jobs:
           distribution: temurin
           java-version: 21
           cache: gradle
+      - name: Check lockfiles and verification metadata are present
+        run: |
+          for state in gradle/verification-metadata.xml gradle.lockfile settings-gradle.lockfile buildscript-gradle.lockfile core/gradle.lockfile core/buildscript-gradle.lockfile server/gradle.lockfile server/buildscript-gradle.lockfile; do
+            test -s "$state"
+          done
       # `build` = compile + detekt + test + koverVerify + checkDependencyAlignment (`check`).
-      - run: ./gradlew build --no-daemon --stacktrace
+      # `--dependency-verification strict` is explicit here on top of the automatic enforcement
+      # gradle/verification-metadata.xml already triggers — see .claude/docs/dependency-reproducibility.md.
+      - run: ./gradlew --dependency-verification strict build --no-daemon --stacktrace
+      - name: Confirm lockfiles and verification metadata match the committed graph
+        run: git diff --exit-code -- gradle/verification-metadata.xml gradle.lockfile settings-gradle.lockfile buildscript-gradle.lockfile core/gradle.lockfile core/buildscript-gradle.lockfile server/gradle.lockfile server/buildscript-gradle.lockfile
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: ${{ !cancelled() }}
         with:

@@ -1,8 +1,11 @@
 # Dependency maintenance
 
-Dependency declarations and lockfiles are the source of truth. Keep Gradle and the two npm
-workspaces (`web/`, `e2e/`) independent; do not upgrade to the newest major merely because it is
-available.
+Dependency declarations, lockfiles and `gradle/verification-metadata.xml` are the source of truth.
+Keep Gradle and the two npm workspaces (`web/`, `e2e/`) independent; do not upgrade to the newest
+major merely because it is available. `.claude/docs/dependency-reproducibility.md` describes the
+Gradle lock/checksum mechanism itself (what is covered, the hard empty-`GRADLE_USER_HOME` rule for
+regenerating verification metadata, and how to review a regenerated file) — this doc stays focused
+on the maintenance workflow: grouping, compatibility pins, and acceptance checks.
 
 ## Update automation
 
@@ -78,6 +81,30 @@ then review the diff; do not hand-edit generated locks. `.github/workflows/ci.ym
 `gradle-vulnerability-scan` job scans all seven Gradle lockfiles (root/settings/core/server,
 project + buildscript) with Trivy and fails on a HIGH or CRITICAL advisory; the Docker build
 copies the locks before resolving server dependencies.
+
+A dependency or plugin change also needs `gradle/verification-metadata.xml` regenerated in the
+same commit — Gradle's separate SHA-256 checksum gate on every resolved artifact. This step has a
+hard rule: it **must** run from an empty `GRADLE_USER_HOME` (a warm one silently omits checksums
+for anything already cached), so it is a separate command from the plain `--write-locks` one above,
+not an extra flag tacked onto it:
+
+```
+export JAVA_HOME=$(mise where java)
+export DOCKER_HOST=unix://$HOME/.orbstack/run/docker.sock
+GRADLE_USER_HOME=$(mktemp -d) ./gradlew --write-verification-metadata sha256 \
+  :verifySettingsPluginAudit :buildEnvironment :core:buildEnvironment :server:buildEnvironment \
+  :dependencies :core:dependencies :server:dependencies \
+  build :server:installDist
+```
+
+Then validate from a second, also-empty `GRADLE_USER_HOME` with
+`./gradlew --dependency-verification strict build` before committing. See
+`.claude/docs/dependency-reproducibility.md` for what this covers, why the task list must resolve
+every configuration CI and the Docker build resolve, and how to review the generated checksums.
+`.github/workflows/ci.yml`'s `server` job checks `gradle/verification-metadata.xml` is present,
+runs `--dependency-verification strict`, and diffs it (with the lockfiles) after the build; the
+Docker build's `server` stage copies the whole `gradle/` directory, so it picks up the file
+automatically once it exists.
 
 ## Buildscript advisory follow-up (2026-09-26)
 
