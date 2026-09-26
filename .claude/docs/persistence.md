@@ -109,11 +109,11 @@ amendment over the architect's original all-`public`-with-prefixes recommendatio
 - **`raw`** — every connector's raw store, one table set per connector, named with the connector's
   own prefix so two connectors never collide: `raw.jira_issues` and `raw.jira_entities` (V10, see
   below), joined by `raw.jira_changelogs`/`raw.jira_worklogs` (V11, "The Jira changelog/worklog raw
-  store" below) once the CHANGELOGS/WORKLOGS streams land (plan commit 7) — a RECONCILE-owned
-  `raw.jira_reconcile_seen` table is still to come with that stream's own commit. A future GitLab
-  connector adds `raw.gitlab_*` alongside these rather than inventing a fourth schema.
+  store" below) and `raw.jira_reconcile_seen` (V12, "The Jira RECONCILE scratch table (V12)" below)
+  — the RECONCILE stream's own scratch table. A future GitLab connector adds `raw.gitlab_*`
+  alongside these rather than inventing a fourth schema.
 - **`norm`** — the neutral, source-agnostic layer every connector normalizes into (`work_items`,
-  `sprints`, `boards`, …) — arrives with V12 (plan commit 8), upcoming as of this commit.
+  `sprints`, `boards`, …) — arrives with V13 (plan commit 8), upcoming as of this commit.
 - **`metrics`** (not yet created) — phase 3's pre-aggregated tables get their own schema once that
   work starts (plan §4).
 
@@ -211,7 +211,28 @@ streams' target (`jira/JiraChangelogStream.kt`, `jira/JiraWorklogStream.kt`).
   worklogs FIRST (both reference `raw.jira_issues` by `issue_id` only, not a FK, so ordering is a
   convention, not a constraint requirement) before issues/entities.
 
-Current migrations are `V1`–`V11`:
+### The Jira RECONCILE scratch table (V12)
+
+`raw.jira_reconcile_seen` (v0.2.0 plan §4/§7/§12 item 7, `jira/JiraReconcileStream.kt`,
+`JiraRawStore.insertReconcileSeen`/`issuesMissingFromSeen`/`seenButUnknownIds`/`clearReconcileSeen`)
+is a scratch table, not a raw store proper: it holds every issue id the daily RECONCILE id-sweep
+(`search/jql fields=id`) saw during ONE pass, so the pass's own anti-join step (see
+`.claude/docs/ingestion.md` "RECONCILE stream") can diff it against `raw.jira_issues`.
+
+- **PK `(connection_id, job_id, issue_id)`** — scoped to the `sync_jobs` row driving the pass, not
+  just the connection: a resumed pass (same `job_id`, after a lease loss/reclaim) re-inserts
+  idempotently (`ON CONFLICT DO NOTHING`) rather than duplicating, and a stale/interrupted pass's
+  rows never collide with a LATER pass's own `job_id`.
+- **`job_id` is a plain `INTEGER` column, deliberately NOT a foreign key to `sync_jobs.id`.** The
+  table is cleared in full (`JiraRawStore.clearReconcileSeen`) once its pass's own anti-join step
+  completes; an FK would let a lingering scratch row from an interrupted pass that never reached
+  cleanup block that job row's own eventual hard-delete prune (`SyncJobsService.prune`, "The
+  `sync_jobs` prune hard-delete exception" above) — the scratch table must never be able to hold a
+  job row hostage.
+- Drained by `clearReconcileSeen` per connection (not per job), so any earlier pass's leftover rows
+  for the SAME connection are swept up alongside the current pass's own.
+
+Current migrations are `V1`–`V12`:
 
 - `V1__init` — the `users` table: `name` (≤50), `email` (≤254), `password_hash`, `role` with
   `CHECK ("role" IN ('ADMIN', 'USER'))` (single-column role storage; the wire shape stays a
@@ -250,6 +271,9 @@ Current migrations are `V1`–`V11`:
   raw` plus `raw.jira_issues`/`raw.jira_entities`, the first tables outside `public`.
 - `V11__create_jira_changelogs_worklogs` — see "The Jira changelog/worklog raw store (V11)" below:
   `raw.jira_changelogs`/`raw.jira_worklogs`, the CHANGELOGS/WORKLOGS streams' target.
+- `V12__create_jira_reconcile_seen` — see "The Jira RECONCILE scratch table (V12)" above:
+  `raw.jira_reconcile_seen`, the RECONCILE stream's scratch table. No FK on `job_id` (see above);
+  the normalized layer's own schema moves to V13.
 
 The `users`/`teams` tables follow Toadie's dialect (`SERIAL`/`INTEGER` ids, epoch-millis `BIGINT`
 timestamps, `marked_as_deleted` + partial unique indexes over active rows) and its idioms: a
@@ -392,5 +416,5 @@ stream. The streams themselves (and the cursor shapes they define) land in plan 
 
 ### Not yet ported from Lettuce / Toadie / Covenant
 
-Nothing remains on the persistence list today; the next subsystem (the `norm` schema and its V12
+Nothing remains on the persistence list today; the next subsystem (the `norm` schema and its V13
 normalized layer, plan §0 A3/§8) arrives with its own paragraph here.

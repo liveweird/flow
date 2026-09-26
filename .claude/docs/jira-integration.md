@@ -97,8 +97,10 @@ not a placeholder.
 - `incremental(projectKeys, sinceMinutes)` — the ISSUES stream's own query:
   `<scope> AND updated >= "-Nm" ORDER BY updated ASC` (a TZ-free RELATIVE bound — Jira's absolute
   JQL dates are TZ-sensitive, a spike-identified risk this sidesteps entirely).
-- `reconcile(projectKeys)` — `<scope> ORDER BY id ASC`; defined now, not yet called anywhere — a
-  future RECONCILE stream is its first consumer.
+- `reconcile(projectKeys)` — `<scope> ORDER BY id ASC`; the RECONCILE stream's own id-sweep query
+  (`jira/JiraReconcileStream.kt`, V12, see `.claude/docs/ingestion.md` "RECONCILE stream") — paged
+  via `search/jql` with `fields=id` (only the id, never the full document; the sweep only needs to
+  know WHICH issues Jira still reports in scope).
 
 Two more `jira.*` config keys are consumed for the first time by this stream (both already declared
 in `application.yaml` since an earlier commit, unread until now): `jira.pageSize` (default 100,
@@ -147,6 +149,29 @@ the stub's `changelog/bulkfetch` WireMock mappings only match requests shaped as
 50-id chunks (ascending, exact-order), so changing this value without regenerating the stub breaks
 every bulk chunk after the first mismatch, not just the one deliberately-omitted chunk the stub
 already exercises.
+
+## RECONCILE stream: endpoints
+
+Landed with the RECONCILE stream (plan §7/§12 item 7, plan commit 7, V12 — see
+`.claude/docs/ingestion.md` "RECONCILE stream" for the full behavior):
+
+- **`GET /rest/api/3/search/jql` with `fields=id`** (`JiraClient.searchJql`, the same method the
+  ISSUES stream uses, `jql = JiraJql.reconcile(projectKeys)`) — the daily id-sweep, paged at 5000
+  ids per page. Asking for `fields=id` only (never `fields=null`, unlike the ISSUES stream) is
+  deliberate: the sweep only needs to know WHICH issue ids Jira still reports in scope, not their
+  content.
+- **`GET /rest/api/3/issue/{id}` with `fields=project,key`** (`JiraClient.issue(idOrKey, fields)`) —
+  the anti-join's missing-issue probe: a stored issue this pass never saw is checked individually
+  with only the two fields the deleted/moved-out decision needs (`RECONCILE_ISSUE_FIELDS` in
+  `jira/JiraReconcileStream.kt`), never the full issue document.
+- **`GET /rest/api/3/issue/{id}`, no `fields` param** (`JiraClient.issue(idOrKey)`, `fields = null`
+  — the default) — the anti-join's index-gap fetch: an id the sweep saw that `raw.jira_issues` never
+  stored is fetched in FULL (same shape the ISSUES stream itself upserts) and written through
+  `JiraRawStore.upsertIssue`.
+
+`JiraClient.issue`'s `fields` parameter (added this commit) is optional and defaults to `null` (the
+full document) precisely so the ISSUES/index-gap-fetch call sites need no change — only the
+missing-issue probe passes a value.
 
 ## `CURSOR_EXPIRED` detection
 
@@ -210,7 +235,11 @@ never hold the `jira.maxConcurrentRequests` `Semaphore` permit indefinitely.
   no-op SYNC changing no changelog/worklog row, `PURGE` draining all four raw tables, and the
   `jira-day2` scenario's out-of-scope worklog drop/count and tombstone. Also drives `JiraIssuesStream`
   directly for the ISSUES cursor's own fault-injection/`CURSOR_EXPIRED`/lease-loss mechanics (unrelated
-  to CHANGELOGS/WORKLOGS, so run without the full connector's REFERENCE pass).
+  to CHANGELOGS/WORKLOGS, so run without the full connector's REFERENCE pass). Separately drives
+  `JiraConnector.run(RECONCILE)` against the `jira-day2` scenario: the day2 deleted/moved issue ids
+  tombstone correctly, flag `needs_processing`, and a second RECONCILE pass over the same drift is a
+  no-op (idempotence); plus the index-gap case (an id the sweep sees that `raw.jira_issues` never
+  stored gets fetched and upserted).
 - `JiraRawStoreTest` — `JiraRawStore`'s own write paths in isolation: the append-only changelog
   dedup (`ON CONFLICT DO NOTHING` on a re-inserted history id), the worklog sha256 diff/tombstone/
   resurrection cycle, `staleChangelogIssueIds`/`staleWorklogIssueIds`'s claim-scan predicates, and

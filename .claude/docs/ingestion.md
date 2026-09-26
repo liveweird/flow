@@ -135,12 +135,15 @@ a claimed job), `.succeeded`, `.failed` (`RUN_FAILED`, with the truncated except
 `.cancel_requested` (`POST .../sync-jobs/{jobId}/cancel`).
 
 A SYNC job runs REFERENCE → ISSUES → CHANGELOGS → WORKLOGS for real as of this commit
-(`jira/JiraConnector.kt`'s `runSync`, see "Streams" below); RECONCILE, PROCESS and PROFILE still
-join that list in later v0.2.0 commits (PROCESS with the `norm` schema, plan commit 8; PROFILE,
-plan commit 9; RECONCILE's own commit is not yet scheduled). PURGE's connector-owned cleanup step
-(`purgeSteps`) now drains `raw.jira_issues`/`raw.jira_entities` (V10, plan §0 A2) AND
-`raw.jira_changelogs`/`raw.jira_worklogs` (V11) in batches; `ingest/Connector.kt`'s default no-op
-`run()` remains the fallback for `RECONCILE`/`REPROCESS` until their own commits land.
+(`jira/JiraConnector.kt`'s `runSync`, see "Streams" below). A RECONCILE job runs its own single
+`reconcile` stream (`runReconcile`, see "RECONCILE stream" below) — it does NOT join the SYNC
+ordered list; `JiraConnector.run` dispatches on `context.claim.kind` (`SYNC`/`RECONCILE`/`PURGE`
+each run their own connector method, `REPROCESS` still succeeds trivially). PROCESS and PROFILE
+still join later v0.2.0 commits (PROCESS with the `norm` schema, plan commit 8; PROFILE, plan
+commit 9). PURGE's connector-owned cleanup step (`purgeSteps`) now drains
+`raw.jira_issues`/`raw.jira_entities` (V10, plan §0 A2) AND `raw.jira_changelogs`/`raw.jira_worklogs`
+(V11) in batches; `ingest/Connector.kt`'s default no-op `run()` remains the fallback for
+`REPROCESS` only, now that RECONCILE has its own commit.
 
 ## Sync cursors (V9)
 
@@ -159,10 +162,12 @@ pointing past data that was never committed.
 
 The REFERENCE, ISSUES, CHANGELOGS and WORKLOGS streams (v0.2.0 plan §7, plan commits 6-7) are the
 ordered list a SYNC job runs (`jira/JiraConnector.kt`'s `runSync`): **REFERENCE → ISSUES →
-CHANGELOGS → WORKLOGS** today; PROCESS → PROFILE join the end of that list in plan commits 8-9.
-Every stream implements `ingest/Stream.kt`'s `Stream` interface and shares one `StreamContext` per
-job (cursor read/write scoped to the connection, a `transaction {}` wrapper, `heartbeat()`, an
-injectable `clock`).
+CHANGELOGS → WORKLOGS** today; PROCESS → PROFILE join the end of that list in plan commits 8-9. The
+RECONCILE stream (plan commit 7, V12, see "RECONCILE stream" below) is a SEPARATE, single-stream job
+kind, not a fifth entry in the SYNC list — a RECONCILE job runs only `reconcile`. Every stream
+implements `ingest/Stream.kt`'s `Stream` interface and shares one `StreamContext` per job (cursor
+read/write scoped to the connection, a `transaction {}` wrapper, `heartbeat()`, an injectable
+`clock`, plus the progress-counter API described in "Progress counters" below).
 
 **Cursor shapes.**
 
@@ -188,6 +193,10 @@ injectable `clock`).
   see "WORKLOGS stream (A1)" below for their initialization and advance rule. The per-issue backfill
   half of the stream needs no cursor of its own either, for the same reason as CHANGELOGS: a stale
   issue (`worklogs_synced_at IS NULL`) simply stays stale until backfilled.
+- **`reconcile`** (`jira/JiraReconcileStream.kt`'s `ReconcileCursor`): `passStartedAt` (fixed for the
+  whole pass, preserved across a resume — diagnostic only, unlike REFERENCE's identically-named
+  field it drives no tombstone-sweep boundary here) and `nextPageToken` (the id-sweep's own resume
+  point) — see "RECONCILE stream" below.
 
 **Per-page transaction with the cursor advance.** Every page (or, for REFERENCE's single-shot
 steps, every whole step) writes its raw-store rows and its own `sync_cursors` row inside the SAME
@@ -320,6 +329,104 @@ handed back by an upstream response is untrusted input that the outbound guard (
 the next request from parameters this client already trusts keeps every outbound call subject to the
 same guard as the first one.
 
+## RECONCILE stream
+
+`jira/JiraReconcileStream.kt` (v0.2.0 plan §7/§12 item 7, V12) is the daily drift check: a stored
+issue can silently fall out of step with reality between SYNC's incremental runs (Jira deletes it,
+or moves it to a project outside `projectKeys`), and the incremental ISSUES stream — which only ever
+asks Jira about issues its OWN `updated >= "-Nm"` window names — has no way to notice either case on
+its own. RECONCILE runs as its OWN job kind (not a fifth SYNC stream, see "Streams" above); the
+scheduler enqueues it once a day, past `reconcile_hour_utc` (see "Scheduling" above), and
+`IngestWorker.onSucceeded` stamps `last_reconcile_at` (`DataSourceService.recordReconcileSucceeded`)
+once the stream returns — RECONCILE's OWN job-level bookkeeping, parallel to how a SYNC's
+`recordSyncOutcome` works.
+
+**The id-sweep.** `JiraJql.reconcile(projectKeys)` (`<scope> ORDER BY id ASC`) pages
+`search/jql fields=id` (`RECONCILE_PAGE_SIZE` = 5000 ids per page) into the `raw.jira_reconcile_seen`
+scratch table (V12, `.claude/docs/persistence.md` "The Jira RECONCILE scratch table (V12)") — every
+in-scope issue id Jira reports for THIS pass, nothing else. Each page's rows and its own
+`sync_cursors` row (the `ReconcileCursor`: `passStartedAt` fixed for the pass, `nextPageToken` for
+mid-page resume) commit in the SAME transaction, then `context.heartbeat()` — the same
+per-page-transaction-then-heartbeat shape every other stream uses.
+
+**The anti-join, once the sweep completes.** Two disjoint checks decide what changed while Flow
+wasn't looking, both keyed off the now-complete `raw.jira_reconcile_seen` set for this job:
+
+- **`JiraRawStore.issuesMissingFromSeen`** — a non-tombstoned `raw.jira_issues` row this pass never
+  saw. Probed individually via `GET /issue/{id}?fields=project,key` (`RECONCILE_ISSUE_FIELDS` — only
+  what the decision needs, never the full document): a **404** means Jira deleted it
+  (`JiraRawStore.markIssueDeleted` sets `deleted_at`); a **200** whose `fields.project.key` is no
+  longer in `projectKeys` means it moved out of scope (`markIssueMovedOut` sets `moved_out_at` AND
+  refreshes `issue_key`/`project_id`/`project_key` to their new value in the same update — the issue
+  really did get a new key when it moved projects). Either way `needs_processing` is flagged, so the
+  PROCESS step (once it lands) has a real reason to look at the row again. A 200 whose project is
+  STILL in scope is a no-op (a transient sweep/anti-join mismatch — the id-sweep should have listed
+  it; not expected in practice, so nothing is written).
+- **`JiraRawStore.seenButUnknownIds`** — an id the sweep saw that `raw.jira_issues` never stored (an
+  index gap: a missed ISSUES page, most likely). Fetched via `GET /issue/{id}` in full and written
+  through `JiraRawStore.upsertIssue` — the SAME write path the ISSUES stream itself uses, flagged
+  `needs_processing` by that path's own insert branch.
+
+**Idempotent by construction.** `markIssueDeleted`/`markIssueMovedOut` are guarded on
+`deletedAt.isNull()`/`movedOutAt.isNull()`, so a second RECONCILE pass over the SAME drift (e.g. a
+retry after a lease loss) is a no-op rather than re-flagging `needs_processing` or re-stamping the
+tombstone timestamp. The scratch table itself is scoped by `(connection_id, job_id)`, so a resumed
+pass under the SAME job re-inserts idempotently (`ON CONFLICT DO NOTHING`) rather than duplicating.
+
+**Scratch cleanup.** Once both anti-join checks complete, `JiraRawStore.clearReconcileSeen` drains
+every scratch row for the connection and `context.clearCursor("reconcile")` clears the cursor, in
+ONE final transaction — a crash before that point simply leaves the scratch table for the NEXT run's
+own anti-join to work from once the sweep re-completes (the ids are re-collected, never lost, and
+the PK's idempotent insert means re-collecting is always safe).
+
+## Progress counters
+
+`ingest/Stream.kt`'s `StreamContext.incrementProgress(key, by = 1)` accumulates a small per-stream
+counter map in memory; `currentStreamName` (set by the job runner — `jira/JiraConnector.kt`, before
+each stream's `run`) names which stream is currently active. Both are flushed onto
+`sync_jobs.progress`/`sync_jobs.current_stream` by `context.heartbeat()` on every call
+(`SyncJobsService.heartbeat`'s `progress`/`currentStream` parameters, written only when non-null —
+the ticker's own lease-only heartbeat in `ingest/IngestWorker.kt` omits them so it never blanks out
+the last value a stream's own heartbeat flushed). This is a lightweight, best-effort sync-progress
+signal for the status endpoint below, not itself part of any correctness invariant — a page that
+commits its raw-store write and cursor advance but then crashes before its heartbeat simply leaves
+`progress` one page stale, exactly as safe to resume as the cursor it describes.
+
+The counter names in use today (all stream-local, not enumerated anywhere — a new stream is free to
+name its own): `pages` (REFERENCE per-step-or-page, ISSUES per page, RECONCILE per id-sweep page),
+`entities` (REFERENCE, per entity upserted), `issuesUpserted` (ISSUES per page, and RECONCILE's own
+index-gap fetch), `changelogs` (CHANGELOGS, per history inserted), `worklogs` (WORKLOGS, per worklog
+upserted), `worklogsOutOfScope` (WORKLOGS, A1's scope-filter drop count), `tombstoned` (RECONCILE,
+per issue flagged `deleted_at`/`moved_out_at`).
+
+## Sync status endpoint
+
+`GET /api/v1/data-sources/{id}/status` (v0.2.0 plan §9/§12 item 7, `ingest/SyncStatusRoutes.kt`'s
+`configureSyncStatusRoutes`, `ingest/SyncStatus.kt`'s `SyncStatusResponse`) is ADMIN-only and
+read-only — a diagnostic view assembled over state every other endpoint already owns, not a new
+source of truth:
+
+- **`connection`** — the ordinary `DataSourceResponse`, with `status.runningJobId` refreshed to
+  match `currentJob` below (the same field the data-sources list/get responses carry, kept
+  consistent here rather than duplicated).
+- **`cursors`** — every persisted `sync_cursors` row (`SyncCursorsService.getAll`), one
+  `SyncCursorSummary{stream, watermarkAt, position, lastCompletedAt}` per row. `position` is the
+  stream's own raw cursor JSON verbatim, never reparsed (each stream owns its own cursor shape — see
+  "Cursor shapes" above). A stream with nothing left to resume (REFERENCE/RECONCILE's cursor cleared
+  at pass end) simply has no row, so it's absent from this list, not present with a null `position`.
+- **`counts`** (`SyncCounts`, `ingest/SyncStatusRoutes.kt`'s `counts` helper, backed by
+  `JiraRawStore`) — `rawIssues` (total `raw.jira_issues` rows), `tombstonedDeleted`/
+  `tombstonedMovedOut` (RECONCILE's two tombstone kinds, counted separately), `changelogs`/`worklogs`
+  (worklogs excludes tombstoned rows — "live" worklogs), `entitiesByKind` (per `JiraEntityKind`,
+  `raw.jira_entities` grouped by `kind`), `needsProcessing` (the PROCESS backlog RECONCILE and the
+  CHANGELOGS/WORKLOGS streams all flag into).
+- **`lastJobs`** — the most recently REQUESTED job of each `SyncJobKind`, keyed by name
+  (`SyncJobsService.lastJobsByKind`) — terminal or not, and a kind never requested is simply absent
+  from the map (not present with a null value).
+- **`currentJob`** — the connection's currently RUNNING job in full, if any
+  (`SyncJobsService.runningJob`) — this is where `progress`/`currentStream` above surface to an
+  operator.
+
 ## Data sources
 
 `source_connections` (V8, `ingest/DataSourceService.kt`) is the generic connector registry: `kind`
@@ -392,15 +499,19 @@ easily could.
 
 **`expected.json` figures must be in-scope-reachable, not whole-dataset counters.** A test asserting
 `JiraRawStore` counts against `expected.json` must only ever compare against a figure an A1-correct
-sync could actually produce — i.e. one computed over the four in-scope projects alone. Some of the
-generator's counters (`worklogs.inScopeIssueCount`/`inScopeTotalCount`, despite the name) are
-currently computed over the WHOLE simulated dataset, including the out-of-scope `SEC` project's own
-worklogs — a number no correct WORKLOGS-stream run can ever reach, since `SEC` issues are never
-fetched via `search/jql` and so never become a `raw.jira_issues` row eligible for the per-issue
-worklog backfill. A fix to `sample-data/jira/generate.mjs` to make these counters genuinely
-in-scope-only is landing in the next commit; until then, a test written against them should scope
-its own assertion to the in-scope projects rather than trust the field name.
+sync could actually produce — i.e. one computed over the four in-scope projects alone.
+`sample-data/jira/generate.mjs` computes both kinds and names them accordingly:
+`changelog.inScopeHistories` and `worklogs.inScopeCount`/`inScopeIssueCount` are the in-scope-reachable
+totals a single backfill SYNC actually stores (every in-scope issue's own changelog/worklog history,
+`worklogs.inScopeCount`/`inScopeIssueCount` additionally filtered to the `REFERENCE_MS` backfill
+cutoff so day2's later additions are correctly excluded) — these are what `JiraSyncPipelineTest`
+asserts against. The whole-dataset figures (all five projects, including the out-of-scope `SEC`
+project's own changelog/worklog rows — a number no correct sync can ever reach, since `SEC` issues
+are never fetched via `search/jql` and so never become a `raw.jira_issues` row) are named
+`changelog.allProjectsHistories` and `worklogs.allProjectsIssueCount`/`allProjectsTotalCount` (the
+latter two ALSO fold in the day2 scenario's own in-scope worklog additions, unlike every other
+`allProjects*` figure) — a test must never compare a raw-store count against one of these.
 
-The Jira HTTP client, the outbound guard and the REFERENCE/ISSUES/CHANGELOGS/WORKLOGS sync streams
-all read this stub as of this commit (`docker-compose.yaml`'s `app` service's `JIRA_STUB_BASE_URL`
-points at it); RECONCILE/PROCESS/PROFILE remain the only consumers still to land.
+The Jira HTTP client, the outbound guard and the REFERENCE/ISSUES/CHANGELOGS/WORKLOGS/RECONCILE
+streams all read this stub as of this commit (`docker-compose.yaml`'s `app` service's
+`JIRA_STUB_BASE_URL` points at it); PROCESS/PROFILE remain the only consumers still to land.

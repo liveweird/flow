@@ -111,8 +111,13 @@ one).
 
 The data-sources CRUD and Test-connection audit trail, `outbound.blocked`, and the sync-job queue's
 lifecycle events (`sync_job.requested`/`.cancel_requested`/`.started`/`.succeeded`/`.failed`/
-`.released`) have all landed. REFERENCE, ISSUES, CHANGELOGS and WORKLOGS (`.claude/docs/ingestion.md`
-"Streams") run for real now, but none of the four emits a stream-level audit event of its own yet —
-only `sync_job.*` brackets the whole job. RECONCILE, PROCESS and PROFILE still run as a no-op
-(`ingest/Connector.kt`'s default `run()`). Any stream-level audit trail (e.g. per-page counts, A1's
-`worklogsOutOfScope`) arrives with a later commit and gets its own paragraph here.
+`.released`) have all landed. REFERENCE, ISSUES, CHANGELOGS, WORKLOGS and RECONCILE
+(`.claude/docs/ingestion.md` "Streams") all run for real now, but none of them emits a stream-level
+audit event of its own — only `sync_job.*` brackets the whole job. **Per-stream progress instead
+lives entirely in `sync_jobs.progress`/`current_stream`** (`StreamContext.incrementProgress`/
+`currentStreamName`, flushed on every `heartbeat()`, surfaced read-only at
+`GET …/{id}/status` — see `.claude/docs/ingestion.md` "Progress counters"/"Sync status endpoint"),
+**not the audit trail**: it is a best-effort operational signal (a page count, which stream is
+active), not a security-relevant event, so it deliberately does not go through `audit(...)`. PROCESS
+and PROFILE still run as a no-op (`ingest/Connector.kt`'s default `run()`). Any FUTURE stream-level
+audit trail (as opposed to progress) arrives with a later commit and gets its own paragraph here.

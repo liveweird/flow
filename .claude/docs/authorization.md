@@ -133,6 +133,17 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     `jira.hasApiToken`. Delete is soft (disables the connection; the raw/normalized rows purge
     later per the v0.2.0 plan's grace-period amendment). Mutations audit
     `data_source.created`/`.updated`/`.token_rotated`/`.deleted`. Tests: `DataSourceRoutesTest`.
+  - `/api/v1/data-sources/{id}/sync-jobs` (`POST`/`GET`, `GET .../sync-jobs/{jobId}`,
+    `POST .../sync-jobs/{jobId}/cancel`, `ingest/SyncJobRoutes.kt`) → **ADMIN only**, `requireAdmin`
+    before `call.receive()` on the enqueue mutation (guard-before-read/-body, the data-sources
+    idiom). A caller-requested `PURGE` kind is `400` — only the scheduler enqueues it. Mutations
+    audit `sync_job.requested`/`.cancel_requested`. Tests: `SyncJobRoutesTest`.
+  - `GET /api/v1/data-sources/{id}/status` (v0.2.0 plan §9/§12 item 7, `ingest/SyncStatusRoutes.kt`)
+    → **ADMIN only, read-only** — a diagnostic view over state the data-sources/sync-jobs/cursors
+    surfaces above already own (connection summary, stream cursors, raw-store counts, last job per
+    kind, the running job), assembled here rather than duplicated. No mutation, so no audit event of
+    its own — see `.claude/docs/ingestion.md` "Sync status endpoint" for the response shape. Tests:
+    `SyncStatusRoutesTest`.
 - **Exceptions**: `UnauthorizedException` (→ 401), `ForbiddenException` (→ 403),
   `NotFoundException` (→ 404), `ConflictException` (→ 409), `TooManyRequestsException` (→ 429),
   and `BadGatewayException` (→ 502 — reserved for a future outbound-fetch upstream failure) live
