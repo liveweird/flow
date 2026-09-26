@@ -11,7 +11,9 @@ import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.server.application.*
 import io.ktor.util.AttributeKey
+import java.net.InetAddress
 import java.net.URI
+import okhttp3.EventListener
 
 val JiraConnectorKey = AttributeKey<JiraConnector>("JiraConnector")
 
@@ -31,19 +33,67 @@ fun Application.configureJira() {
         error("Config \"jira.stubBaseUrl\" must be blank outside development mode (a stub must never be reachable in production)")
     }
     val requestTimeoutSeconds = requireConfigLong(config, "jira.requestTimeoutSeconds", MIN_TIMEOUT_SECONDS, MAX_TIMEOUT_SECONDS)
+    val requestDeadlineSeconds = requireConfigLong(config, "jira.requestDeadlineSeconds", MIN_DEADLINE_SECONDS, MAX_DEADLINE_SECONDS)
     val maxResponseBytes = requireConfigLong(config, "jira.maxResponseBytes", MIN_RESPONSE_BYTES, MAX_RESPONSE_BYTES)
     val maxConcurrentRequests = requireConfigInt(config, "jira.maxConcurrentRequests", MIN_CONCURRENCY, MAX_CONCURRENCY)
     val maxRetries = requireConfigInt(config, "jira.maxRetries", MIN_RETRIES, MAX_RETRIES)
     val stubHost = stubBaseUrl?.let { URI(it).host }
+    val stubScheme = stubBaseUrl?.let { URI(it).scheme }
 
-    val okHttpClient = guardedOkHttpClient(
+    val httpClient = buildGuardedJiraHttpClient(
         allowedHost = { host -> isAllowedJiraHost(host, stubHost, developmentMode) },
-        timeoutSeconds = requestTimeoutSeconds,
         // The stub is a local compose/in-JVM fixture BY DESIGN (see GuardedDns's kdoc) — its
         // address is expected to be loopback/private, unlike a genuine Jira Cloud host.
         skipAddressCheck = { host -> developmentMode && stubHost != null && host.equals(stubHost, ignoreCase = true) },
+        // [LOW-5] The stub may be plain http:// (the compose demo) — audit its real scheme rather
+        // than the https constant that's correct for every genuine Jira Cloud host.
+        schemeFor = { host ->
+            if (developmentMode && stubHost != null && host.equals(stubHost, ignoreCase = true)) stubScheme ?: "https" else "https"
+        },
+        requestTimeoutSeconds = requestTimeoutSeconds,
     )
-    val httpClient = HttpClient(OkHttp) {
+    val jiraHttp = JiraHttp(
+        httpClient,
+        maxRetries,
+        maxResponseBytes,
+        maxConcurrentRequests,
+        requestDeadlineMillis = requestDeadlineSeconds * MILLIS_PER_SECOND,
+    )
+    val connector = JiraConnector(
+        newClient = { siteUrl, email, apiToken, authScheme ->
+            val tenantInfoBaseUrl = stubBaseUrl ?: siteUrl
+            HttpJiraClient(jiraHttp, tenantInfoBaseUrl, stubBaseUrl, email, apiToken, authScheme)
+        },
+    )
+    attributes.put(JiraConnectorKey, connector)
+    // The Connector registry (ingest/Connector.kt) — IngestWorker's claim loop dispatches a
+    // claimed job to its connector by DataSourceKind; a GitLab connector adds its own entry later.
+    attributes.put(ConnectorRegistryKey, mapOf(DataSourceKind.JIRA_CLOUD to connector))
+}
+
+/**
+ * [MED-3] Builds EXACTLY the guarded Ktor `HttpClient(OkHttp)` [configureJira] wires into
+ * production — factored out so a test can build the SAME client (not a hand-rolled approximation
+ * that could silently drift if the guard were ever unwired) and drive it against a real loopback
+ * WireMock fixture (`OutboundGuardTest`'s production-wiring integration test).
+ */
+fun buildGuardedJiraHttpClient(
+    allowedHost: (String) -> Boolean,
+    resolver: (String) -> List<InetAddress> = { InetAddress.getAllByName(it).toList() },
+    skipAddressCheck: (String) -> Boolean = { false },
+    schemeFor: (String) -> String = { "https" },
+    eventListener: EventListener = EventListener.NONE,
+    requestTimeoutSeconds: Long,
+): HttpClient {
+    val okHttpClient = guardedOkHttpClient(
+        allowedHost = allowedHost,
+        resolver = resolver,
+        timeoutSeconds = requestTimeoutSeconds,
+        skipAddressCheck = skipAddressCheck,
+        schemeFor = schemeFor,
+        eventListener = eventListener,
+    )
+    return HttpClient(OkHttp) {
         engine { preconfigured = okHttpClient }
         expectSuccess = false
         // Ktor's client-side HttpRedirect plugin is separate from the OkHttp engine's own
@@ -55,19 +105,12 @@ fun Application.configureJira() {
             connectTimeoutMillis = requestTimeoutSeconds * MILLIS_PER_SECOND
         }
     }
-    val jiraHttp = JiraHttp(httpClient, maxRetries, maxResponseBytes, maxConcurrentRequests)
-    val connector = JiraConnector { siteUrl, email, apiToken, authScheme ->
-        val tenantInfoBaseUrl = stubBaseUrl ?: siteUrl
-        HttpJiraClient(jiraHttp, tenantInfoBaseUrl, stubBaseUrl, email, apiToken, authScheme)
-    }
-    attributes.put(JiraConnectorKey, connector)
-    // The Connector registry (ingest/Connector.kt) — IngestWorker's claim loop dispatches a
-    // claimed job to its connector by DataSourceKind; a GitLab connector adds its own entry later.
-    attributes.put(ConnectorRegistryKey, mapOf(DataSourceKind.JIRA_CLOUD to connector))
 }
 
 private const val MIN_TIMEOUT_SECONDS = 1L
 private const val MAX_TIMEOUT_SECONDS = 120L
+private const val MIN_DEADLINE_SECONDS = 1L
+private const val MAX_DEADLINE_SECONDS = 1_800L
 private const val MIN_RESPONSE_BYTES = 1_024L
 private const val MAX_RESPONSE_BYTES = 128L * 1024 * 1024
 private const val MIN_CONCURRENCY = 1

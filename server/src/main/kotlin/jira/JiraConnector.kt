@@ -5,6 +5,7 @@ import ch.nokillswit.ingest.ConnectionTestRow
 import ch.nokillswit.ingest.Connector
 import ch.nokillswit.ingest.DataSourceKind
 import ch.nokillswit.ingest.JiraAuthScheme
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.contentOrNull
@@ -31,7 +32,12 @@ private const val TOTAL_BUDGET_MS = 30_000L
  */
 typealias JiraClientFactory = (siteUrl: String, email: String, apiToken: String, authScheme: JiraAuthScheme) -> JiraClient
 
-class JiraConnector(private val newClient: JiraClientFactory) : Connector {
+class JiraConnector(
+    private val newClient: JiraClientFactory,
+    /** [LOW-1] Test seam: an injected clock lets a test simulate the 30s TOTAL budget eroding
+     * across probes without a real 30-second sleep. */
+    private val now: () -> Long = System::currentTimeMillis,
+) : Connector {
     override val kind = DataSourceKind.JIRA_CLOUD
 
     override suspend fun testConnection(
@@ -46,18 +52,30 @@ class JiraConnector(private val newClient: JiraClientFactory) : Connector {
         var cloudId: String? = null
         var firstIssueId: String? = null
         var firstBoardId: Long? = null
-        val deadline = System.currentTimeMillis() + TOTAL_BUDGET_MS
+        val deadline = now() + TOTAL_BUDGET_MS
 
         suspend fun probe(name: String, path: String, required: Boolean, scopeHint: String? = null, block: suspend () -> Unit) {
-            if (System.currentTimeMillis() > deadline) {
+            // [LOW-1] The remaining TOTAL budget, not just [PROBE_TIMEOUT_MS] — a budget checked
+            // only ONCE per probe (before it starts) never shrinks the probe's OWN timeout, so a
+            // run of several near-the-cap probes could together run well past the documented 30s
+            // (each individually within its own 10s allowance). `withTimeout` below is always the
+            // SMALLER of the two.
+            val remaining = deadline - now()
+            if (remaining <= 0) {
                 rows += ConnectionTestRow(name, path, required, ok = false, code = "TIMEOUT", scopeHint = scopeHint)
                 return
             }
             try {
-                withTimeout(PROBE_TIMEOUT_MS) { block() }
+                withTimeout(minOf(PROBE_TIMEOUT_MS, remaining)) { block() }
                 rows += ConnectionTestRow(name, path, required, ok = true, scopeHint = scopeHint)
             } catch (_: TimeoutCancellationException) {
                 rows += ConnectionTestRow(name, path, required, ok = false, code = "TIMEOUT", scopeHint = scopeHint)
+            } catch (cause: CancellationException) {
+                // [MED-4] A GENUINE coroutine cancellation (the caller's scope was cancelled) is
+                // not a probe outcome — it must propagate, never get folded into a row. Distinct
+                // from TimeoutCancellationException above, which IS this function's own bounded
+                // wait expiring and is deliberately reported as a TIMEOUT row.
+                throw cause
             } catch (cause: JiraFetchException) {
                 rows += ConnectionTestRow(name, path, required, ok = false, status = cause.status, code = cause.code, scopeHint = scopeHint)
             } catch (_: IllegalStateException) {
@@ -65,6 +83,13 @@ class JiraConnector(private val newClient: JiraClientFactory) : Connector {
                 // itself timed out or failed) — every probe downstream of it is unreachable,
                 // not a distinct failure of ITS OWN endpoint.
                 rows += ConnectionTestRow(name, path, required, ok = false, code = "NOT_FOUND", scopeHint = scopeHint)
+            } catch (_: RuntimeException) {
+                // [MED-4] A raw `.jsonObject`/`.jsonArray`/`.jsonPrimitive` cast (here, or one a
+                // future client implementation forgets to route through its own decode helper)
+                // throws `IllegalArgumentException` on a shape mismatch — without this catch-all
+                // that crashed the WHOLE `testConnection` call (and 500'd the route), instead of
+                // reporting the one malformed probe as a row like every other failure mode.
+                rows += ConnectionTestRow(name, path, required, ok = false, code = "INVALID_RESPONSE", scopeHint = scopeHint)
             }
         }
 

@@ -6,7 +6,7 @@ import io.ktor.client.HttpClient
 import io.ktor.client.plugins.HttpRequestTimeoutException
 import io.ktor.client.request.header
 import io.ktor.client.request.parameter
-import io.ktor.client.request.request
+import io.ktor.client.request.prepareRequest
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsChannel
@@ -63,21 +63,33 @@ fun jiraAuthHeader(email: String, apiToken: String, scheme: JiraAuthScheme): Str
     JiraAuthScheme.BEARER -> "Bearer $apiToken"
 }
 
+private const val DEFAULT_REQUEST_DEADLINE_MILLIS = 180_000L
+
 /**
  * The shared, low-level Jira HTTP transport (v0.2.0 plan §6): retry with [JiraBackoff] on 429/5xx/
  * IOException up to [maxRetries], a [Semaphore] capping concurrent in-flight calls, a bounded
  * response read at [maxResponseBytes] (Covenant's `ToadieGraphqlClient` shape), and an
  * `X-RateLimit-NearLimit` pause. [client] is expected to already carry `HttpTimeout` and the
  * guarded OkHttp engine (`jira/Jira.kt`) — tests substitute a Ktor `MockEngine` client instead.
- * [random]/[sleeper] are the test seams `JiraBackoffTest`/`JiraClientTest` inject.
+ * [random]/[sleeper]/[clock] are the test seams `JiraBackoffTest`/`JiraClientTest` inject.
+ *
+ * [LOW-2] [requestDeadlineMillis] (config `jira.requestDeadlineSeconds`, default 180s) bounds the
+ * TOTAL time one logical call may spend across every attempt plus backoff — [requestTimeoutSeconds]
+ * (`HttpTimeout`, wired in `jira/Jira.kt`) only bounds a SINGLE attempt, so unbounded retries could
+ * otherwise hold the [Semaphore] permit above for as long as [maxRetries] deep exponential backoff
+ * sums to (~10 minutes at the ceiling). A `Retry-After` whose wait alone would cross the remaining
+ * deadline fails `RATE_LIMITED` immediately rather than sleeping past the budget; any other retry
+ * that would cross it fails with its own terminal code immediately the same way.
  */
 class JiraHttp(
     private val client: HttpClient,
     private val maxRetries: Int,
     private val maxResponseBytes: Long,
     maxConcurrentRequests: Int,
+    private val requestDeadlineMillis: Long = DEFAULT_REQUEST_DEADLINE_MILLIS,
     private val random: () -> Double = Math::random,
     private val sleeper: suspend (Long) -> Unit = { delay(it) },
+    private val clock: () -> Long = System::currentTimeMillis,
 ) {
     private val semaphore = Semaphore(maxConcurrentRequests)
 
@@ -87,7 +99,9 @@ class JiraHttp(
         query: Map<String, String> = emptyMap(),
         jsonBody: JsonElement? = null,
         authHeader: String? = null,
-    ): JsonElement = semaphore.withPermit { requestWithRetries(method, url, query, jsonBody, authHeader, attempt = 0) }
+    ): JsonElement = semaphore.withPermit {
+        requestWithRetries(method, url, query, jsonBody, authHeader, attempt = 0, deadline = clock() + requestDeadlineMillis)
+    }
 
     private suspend fun requestWithRetries(
         method: HttpMethod,
@@ -96,30 +110,61 @@ class JiraHttp(
         jsonBody: JsonElement?,
         authHeader: String?,
         attempt: Int,
+        deadline: Long,
     ): JsonElement {
-        val response = try {
-            client.request(url) {
-                this.method = method
-                query.forEach { (key, value) -> parameter(key, value) }
-                authHeader?.let { header(HttpHeaders.Authorization, it) }
-                header(HttpHeaders.Accept, "application/json")
-                jsonBody?.let {
-                    contentType(ContentType.Application.Json)
-                    setBody(it.toString())
-                }
+        val statement = client.prepareRequest(url) {
+            this.method = method
+            query.forEach { (key, value) -> parameter(key, value) }
+            authHeader?.let { header(HttpHeaders.Authorization, it) }
+            header(HttpHeaders.Accept, "application/json")
+            // [LOW-4] Ported from Toadie's `UrlFetch.kt`: request the identity encoding so
+            // maxResponseBytes counts the SAME bytes actually read off the wire — OkHttp otherwise
+            // adds `Accept-Encoding: gzip` itself and transparently decompresses, which would let
+            // [readBounded]'s cap be reached only after inflating a compressed body (still safely
+            // bounded — decoded bytes are the STRICTER count — but "identity" keeps the two the
+            // same rather than relying on that argument).
+            header(HttpHeaders.AcceptEncoding, "identity")
+            jsonBody?.let {
+                contentType(ContentType.Application.Json)
+                setBody(it.toString())
             }
+        }
+        return try {
+            // [LOW-3] `prepareRequest {}.execute {}` guarantees the response (and its underlying
+            // OkHttp connection) is released when the block returns OR throws — the recommended
+            // Ktor idiom over the plain `client.request(url) {}` this replaced, which hands the raw
+            // `HttpResponse` back to the caller with no guarantee its body/connection is ever
+            // released if the caller (as `handleResponse`'s non-2xx/oversized/pre-retry branches
+            // do) never reads it.
+            statement.execute { response -> handleResponse(response, method, url, query, jsonBody, authHeader, attempt, deadline) }
         } catch (cause: BlockedHostException) {
             throw JiraFetchException("BLOCKED_HOST", null, url).also { it.initCause(cause) }
-        } catch (cause: HttpRequestTimeoutException) {
-            throw JiraFetchException("TIMEOUT", null, url).also { it.initCause(cause) }
+        } catch (_: HttpRequestTimeoutException) {
+            // [LOW-5] Deliberately no `initCause`: HttpRequestTimeoutException's own message
+            // embeds the full request URL INCLUDING its query string (which may carry a token) —
+            // `endpoint` (host+path only, no query — query params are never string-concatenated
+            // into `url`) is the safe substitute (`.claude/docs/security.md` "never log secrets").
+            throw JiraFetchException("TIMEOUT", null, url)
         } catch (cause: IOException) {
-            return retryOrThrow(attempt, null, method, url, query, jsonBody, authHeader) {
+            retryOrThrow(attempt, null, method, url, query, jsonBody, authHeader, deadline) {
                 JiraFetchException("UPSTREAM_UNAVAILABLE", null, url).also { it.initCause(cause) }
             }
         }
+    }
+
+    private suspend fun handleResponse(
+        response: HttpResponse,
+        method: HttpMethod,
+        url: String,
+        query: Map<String, String>,
+        jsonBody: JsonElement?,
+        authHeader: String?,
+        attempt: Int,
+        deadline: Long,
+    ): JsonElement {
         val status = response.status.value
         if (status == RATE_LIMITED_STATUS || status >= SERVER_ERROR_FLOOR) {
-            return retryOrThrow(attempt, retryAfterSeconds(response), method, url, query, jsonBody, authHeader) {
+            return retryOrThrow(attempt, retryAfterSeconds(response), method, url, query, jsonBody, authHeader, deadline) {
                 JiraFetchException(if (status == RATE_LIMITED_STATUS) "RATE_LIMITED" else "UPSTREAM_UNAVAILABLE", status, url)
             }
         }
@@ -141,11 +186,20 @@ class JiraHttp(
         query: Map<String, String>,
         jsonBody: JsonElement?,
         authHeader: String?,
+        deadline: Long,
         terminal: () -> JiraFetchException,
     ): JsonElement {
         if (attempt >= maxRetries) throw terminal()
-        sleeper(JiraBackoff.delayMillis(attempt, retryAfterSeconds, random))
-        return requestWithRetries(method, url, query, jsonBody, authHeader, attempt + 1)
+        val delayMs = JiraBackoff.delayMillis(attempt, retryAfterSeconds, random)
+        if (clock() + delayMs > deadline) {
+            // The wait alone would cross the total per-request budget — a Retry-After that does
+            // this is reported as RATE_LIMITED specifically (the upstream told us how long to
+            // wait; we're refusing that wait, not failing on our own account); any other backoff
+            // in the same situation reports its own terminal code the same way.
+            throw if (retryAfterSeconds != null) JiraFetchException("RATE_LIMITED", null, url) else terminal()
+        }
+        sleeper(delayMs)
+        return requestWithRetries(method, url, query, jsonBody, authHeader, attempt + 1, deadline)
     }
 
     private suspend fun readBounded(response: HttpResponse): ByteArray {

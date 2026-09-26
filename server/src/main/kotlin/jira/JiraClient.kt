@@ -11,8 +11,6 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.decodeFromJsonElement
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
@@ -54,6 +52,15 @@ interface JiraClient {
     suspend fun boardSprints(boardId: Long, startAt: Int = 0): JiraStartAtPage
 }
 
+/** [MED-2] A genuine Atlassian `cloudId` — a UUID, matched case-insensitively then stored lowercase. */
+private val CLOUD_ID_PATTERN = Regex("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", RegexOption.IGNORE_CASE)
+
+/** [MED-2] A numeric Jira issue id, as `search`'s `id` field (never the display `key`) always is. */
+private val ISSUE_ID_PATTERN = Regex("^[0-9]{1,20}$")
+
+/** [MED-2] The Jira Cloud issue-KEY shape (`PROJ-123`) — [JiraClient.issue] accepts either an id or a key. */
+private val ISSUE_KEY_PATTERN = Regex("^[A-Z][A-Z0-9_]{1,9}-[0-9]{1,10}$")
+
 /**
  * [tenantInfoBaseUrl] is the connection's own site (or, in development, the stub host).
  * [stubBaseUrl] non-null means development mode: the gateway HOST becomes the same stub instance
@@ -74,16 +81,30 @@ class HttpJiraClient(
     private val auth = jiraAuthHeader(email, apiToken, authScheme)
     private var gatewayBase: String = ""
 
+    /**
+     * [MED-2] `cloudId` comes straight from an UNAUTHENTICATED response and is then (a) persisted
+     * (`DataSourceService.persistCloudId`), (b) echoed back in every `DataSourceResponse`, and (c)
+     * spliced into the trusted gateway URL every subsequent call uses — an unvalidated value could
+     * inject an extra path segment (or, with a `..`-style value, redirect the gateway path
+     * entirely) into that trusted URL. Validated against the UUID shape Atlassian's `tenant_info`
+     * always returns before it is used for ANY of the three; never persisted if invalid.
+     */
     override suspend fun resolveCloudId(): String {
-        val json = http.request(HttpMethod.Get, "$tenantInfoBaseUrl/_edge/tenant_info", authHeader = null)
-        val cloudId = json.jsonObject["cloudId"]?.jsonPrimitive?.contentOrNull
-            ?: throw JiraFetchException("INVALID_RESPONSE", null, "/_edge/tenant_info")
+        val endpoint = "/_edge/tenant_info"
+        val json = http.request(HttpMethod.Get, "$tenantInfoBaseUrl$endpoint", authHeader = null)
+        val rawCloudId = decode<JsonObject>(json, endpoint).primitiveOrNull("cloudId", endpoint)?.contentOrNull
+            ?: throw JiraFetchException("INVALID_RESPONSE", null, endpoint)
+        if (!CLOUD_ID_PATTERN.matches(rawCloudId)) throw JiraFetchException("INVALID_RESPONSE", null, endpoint)
+        val cloudId = rawCloudId.lowercase()
         val gatewayHost = stubBaseUrl ?: "https://$ATLASSIAN_GATEWAY_HOST"
         gatewayBase = "$gatewayHost/ex/jira/$cloudId"
         return cloudId
     }
 
-    override suspend fun myself(): JsonObject = get("/rest/api/3/myself").jsonObject
+    override suspend fun myself(): JsonObject {
+        val endpoint = "/rest/api/3/myself"
+        return decode(get(endpoint), endpoint)
+    }
 
     override suspend fun searchJql(jql: String, fields: String?, nextPageToken: String?, maxResults: Int): JiraSearchPage {
         val query = buildMap {
@@ -92,64 +113,125 @@ class HttpJiraClient(
             fields?.let { put("fields", it) }
             nextPageToken?.let { put("nextPageToken", it) }
         }
-        return decode(get("/rest/api/3/search/jql", query))
+        val endpoint = "/rest/api/3/search/jql"
+        return decode(get(endpoint, query), endpoint)
     }
 
     override suspend fun approximateCount(jql: String): Long {
+        val endpoint = "/rest/api/3/search/approximate-count"
         val body = buildJsonObject { put("jql", jql) }
-        val json = post("/rest/api/3/search/approximate-count", body)
-        return json.jsonObject["count"]?.jsonPrimitive?.longOrNull
-            ?: throw JiraFetchException("INVALID_RESPONSE", null, "/rest/api/3/search/approximate-count")
+        val json = post(endpoint, body)
+        return decode<JsonObject>(json, endpoint).primitiveOrNull("count", endpoint)?.longOrNull
+            ?: throw JiraFetchException("INVALID_RESPONSE", null, endpoint)
     }
 
-    override suspend fun issue(idOrKey: String): JsonObject = get("/rest/api/3/issue/$idOrKey").jsonObject
+    override suspend fun issue(idOrKey: String): JsonObject {
+        val endpoint = "/rest/api/3/issue/{id}"
+        return decode(get("/rest/api/3/issue/${requireIssueIdOrKey(idOrKey, endpoint)}"), endpoint)
+    }
 
     override suspend fun changelogBulk(issueIds: List<String>, nextPageToken: String?, maxResults: Int): JsonObject {
+        val endpoint = "/rest/api/3/changelog/bulkfetch"
         val body = buildJsonObject {
-            putJsonArray("issueIdsOrKeys") { issueIds.forEach { add(JsonPrimitive(it)) } }
+            putJsonArray("issueIdsOrKeys") { issueIds.forEach { add(JsonPrimitive(requireIssueIdOrKey(it, endpoint))) } }
             put("maxResults", maxResults)
             nextPageToken?.let { put("nextPageToken", it) }
         }
-        return post("/rest/api/3/changelog/bulkfetch", body).jsonObject
+        return decode(post(endpoint, body), endpoint)
     }
 
-    override suspend fun issueChangelogPage(issueId: String, startAt: Int): JiraStartAtPage =
-        decode(get("/rest/api/3/issue/$issueId/changelog", mapOf("startAt" to startAt.toString())))
+    override suspend fun issueChangelogPage(issueId: String, startAt: Int): JiraStartAtPage {
+        val endpoint = "/rest/api/3/issue/{id}/changelog"
+        val id = requireIssueIdOrKey(issueId, endpoint)
+        return decode(get("/rest/api/3/issue/$id/changelog", mapOf("startAt" to startAt.toString())), endpoint)
+    }
 
-    override suspend fun issueWorklogPage(issueId: String, startAt: Int): JiraWorklogStartAtPage =
-        decode(get("/rest/api/3/issue/$issueId/worklog", mapOf("startAt" to startAt.toString())))
+    override suspend fun issueWorklogPage(issueId: String, startAt: Int): JiraWorklogStartAtPage {
+        val endpoint = "/rest/api/3/issue/{id}/worklog"
+        val id = requireIssueIdOrKey(issueId, endpoint)
+        return decode(get("/rest/api/3/issue/$id/worklog", mapOf("startAt" to startAt.toString())), endpoint)
+    }
 
-    override suspend fun worklogUpdated(sinceEpochMillis: Long): JiraWorklogIdsPage =
-        decode(get("/rest/api/3/worklog/updated", mapOf("since" to sinceEpochMillis.toString())))
+    override suspend fun worklogUpdated(sinceEpochMillis: Long): JiraWorklogIdsPage {
+        val endpoint = "/rest/api/3/worklog/updated"
+        return decode(get(endpoint, mapOf("since" to sinceEpochMillis.toString())), endpoint)
+    }
 
-    override suspend fun worklogDeleted(sinceEpochMillis: Long): JiraWorklogIdsPage =
-        decode(get("/rest/api/3/worklog/deleted", mapOf("since" to sinceEpochMillis.toString())))
+    override suspend fun worklogDeleted(sinceEpochMillis: Long): JiraWorklogIdsPage {
+        val endpoint = "/rest/api/3/worklog/deleted"
+        return decode(get(endpoint, mapOf("since" to sinceEpochMillis.toString())), endpoint)
+    }
 
     override suspend fun worklogList(ids: List<Long>): JsonArray {
+        val endpoint = "/rest/api/3/worklog/list"
         val body = buildJsonObject { putJsonArray("ids") { ids.forEach { add(JsonPrimitive(it)) } } }
-        return post("/rest/api/3/worklog/list", body).jsonArray
+        return decode(post(endpoint, body), endpoint)
     }
 
-    override suspend fun fields(): JsonArray = get("/rest/api/3/field").jsonArray
-    override suspend fun statusesSearch(startAt: Int): JiraStartAtPage =
-        decode(get("/rest/api/3/statuses/search", mapOf("startAt" to startAt.toString())))
-    override suspend fun statusCategories(): JsonArray = get("/rest/api/3/statuscategory").jsonArray
-    override suspend fun projectsSearch(startAt: Int): JiraStartAtPage =
-        decode(get("/rest/api/3/project/search", mapOf("startAt" to startAt.toString())))
-    override suspend fun projectStatuses(projectKey: String): JsonArray = get("/rest/api/3/project/$projectKey/statuses").jsonArray
-    override suspend fun issueTypes(): JsonArray = get("/rest/api/3/issuetype").jsonArray
-    override suspend fun priorities(startAt: Int): JiraStartAtPage =
-        decode(get("/rest/api/3/priority/search", mapOf("startAt" to startAt.toString())))
-    override suspend fun resolutions(startAt: Int): JiraStartAtPage =
-        decode(get("/rest/api/3/resolution/search", mapOf("startAt" to startAt.toString())))
-    override suspend fun issueLinkTypes(): JsonObject = get("/rest/api/3/issueLinkType").jsonObject
-    override suspend fun usersSearch(startAt: Int): JsonArray =
-        get("/rest/api/3/users/search", mapOf("startAt" to startAt.toString())).jsonArray
-    override suspend fun boards(startAt: Int): JiraStartAtPage =
-        decode(get("/rest/agile/1.0/board", mapOf("startAt" to startAt.toString())))
-    override suspend fun boardConfiguration(boardId: Long): JsonObject = get("/rest/agile/1.0/board/$boardId/configuration").jsonObject
-    override suspend fun boardSprints(boardId: Long, startAt: Int): JiraStartAtPage =
-        decode(get("/rest/agile/1.0/board/$boardId/sprint", mapOf("startAt" to startAt.toString())))
+    override suspend fun fields(): JsonArray {
+        val endpoint = "/rest/api/3/field"
+        return decode(get(endpoint), endpoint)
+    }
+
+    override suspend fun statusesSearch(startAt: Int): JiraStartAtPage {
+        val endpoint = "/rest/api/3/statuses/search"
+        return decode(get(endpoint, mapOf("startAt" to startAt.toString())), endpoint)
+    }
+
+    override suspend fun statusCategories(): JsonArray {
+        val endpoint = "/rest/api/3/statuscategory"
+        return decode(get(endpoint), endpoint)
+    }
+
+    override suspend fun projectsSearch(startAt: Int): JiraStartAtPage {
+        val endpoint = "/rest/api/3/project/search"
+        return decode(get(endpoint, mapOf("startAt" to startAt.toString())), endpoint)
+    }
+
+    override suspend fun projectStatuses(projectKey: String): JsonArray {
+        val endpoint = "/rest/api/3/project/$projectKey/statuses"
+        return decode(get(endpoint), endpoint)
+    }
+
+    override suspend fun issueTypes(): JsonArray {
+        val endpoint = "/rest/api/3/issuetype"
+        return decode(get(endpoint), endpoint)
+    }
+
+    override suspend fun priorities(startAt: Int): JiraStartAtPage {
+        val endpoint = "/rest/api/3/priority/search"
+        return decode(get(endpoint, mapOf("startAt" to startAt.toString())), endpoint)
+    }
+
+    override suspend fun resolutions(startAt: Int): JiraStartAtPage {
+        val endpoint = "/rest/api/3/resolution/search"
+        return decode(get(endpoint, mapOf("startAt" to startAt.toString())), endpoint)
+    }
+
+    override suspend fun issueLinkTypes(): JsonObject {
+        val endpoint = "/rest/api/3/issueLinkType"
+        return decode(get(endpoint), endpoint)
+    }
+
+    override suspend fun usersSearch(startAt: Int): JsonArray {
+        val endpoint = "/rest/api/3/users/search"
+        return decode(get(endpoint, mapOf("startAt" to startAt.toString())), endpoint)
+    }
+
+    override suspend fun boards(startAt: Int): JiraStartAtPage {
+        val endpoint = "/rest/agile/1.0/board"
+        return decode(get(endpoint, mapOf("startAt" to startAt.toString())), endpoint)
+    }
+
+    override suspend fun boardConfiguration(boardId: Long): JsonObject {
+        val endpoint = "/rest/agile/1.0/board/{id}/configuration"
+        return decode(get("/rest/agile/1.0/board/$boardId/configuration"), endpoint)
+    }
+
+    override suspend fun boardSprints(boardId: Long, startAt: Int): JiraStartAtPage {
+        val endpoint = "/rest/agile/1.0/board/{id}/sprint"
+        return decode(get("/rest/agile/1.0/board/$boardId/sprint", mapOf("startAt" to startAt.toString())), endpoint)
+    }
 
     private fun requireGateway(): String =
         gatewayBase.ifBlank { throw IllegalStateException("resolveCloudId() must run before any gateway call") }
@@ -160,16 +242,42 @@ class HttpJiraClient(
     private suspend fun post(path: String, body: JsonElement, query: Map<String, String> = emptyMap()): JsonElement =
         http.request(HttpMethod.Post, "${requireGateway()}$path", query, body, auth)
 
-    private inline fun <reified T> decode(json: JsonElement): T = try {
-        LENIENT_JSON.decodeFromJsonElement(json)
-    } catch (cause: Exception) {
-        throw JiraFetchException("INVALID_RESPONSE").also { it.initCause(cause) }
+    /**
+     * [MED-2] Any Jira-supplied identifier spliced into a gateway PATH — the search probe's raw
+     * `id` field is the one live source today; the ISSUES stream landing in a later commit will
+     * add more. A malicious/compromised response must never inject an extra path segment into the
+     * trusted gateway URL this way.
+     */
+    private fun requireIssueIdOrKey(idOrKey: String, endpoint: String): String {
+        if (!ISSUE_ID_PATTERN.matches(idOrKey) && !ISSUE_KEY_PATTERN.matches(idOrKey)) {
+            throw JiraFetchException("INVALID_RESPONSE", null, endpoint)
+        }
+        return idOrKey
     }
+}
 
-    private companion object {
-        // The real Jira response carries many fields our envelopes don't declare (e.g.
-        // `warningMessages`, `expand`) — ignore them rather than 500 on a field this client
-        // never asked for.
-        val LENIENT_JSON = Json { ignoreUnknownKeys = true }
-    }
+// The real Jira response carries many fields our envelopes don't declare (e.g. `warningMessages`,
+// `expand`) — ignore them rather than 500 on a field this client never asked for.
+private val LENIENT_JSON = Json { ignoreUnknownKeys = true }
+
+/**
+ * [MED-4] The ONE decode path for every Jira response shape, structured OR raw (`JsonObject`/
+ * `JsonArray`). `kotlinx.serialization`'s `JsonObject`/`JsonArray` serializers throw
+ * `SerializationException` (a `RuntimeException`) — not the `IllegalArgumentException` a raw
+ * `.jsonObject`/`.jsonArray` postfix cast throws — on a shape mismatch (an HTML error page, a bare
+ * array where an object was expected, …) either way; routing every cast through here means EVERY
+ * such mismatch becomes `INVALID_RESPONSE` instead of an uncaught exception that 500s Test
+ * connection (`JiraConnectorTest`, `DataSourceTestConnectionTest`).
+ */
+private inline fun <reified T> decode(json: JsonElement, endpoint: String? = null): T = try {
+    LENIENT_JSON.decodeFromJsonElement(json)
+} catch (cause: Exception) {
+    throw JiraFetchException("INVALID_RESPONSE", null, endpoint).also { it.initCause(cause) }
+}
+
+/** [MED-4] `JsonObject["key"]?.jsonPrimitive` also raw-casts on a non-primitive value — same mapping. */
+private fun JsonObject.primitiveOrNull(key: String, endpoint: String): JsonPrimitive? = try {
+    this[key]?.jsonPrimitive
+} catch (cause: IllegalArgumentException) {
+    throw JiraFetchException("INVALID_RESPONSE", null, endpoint).also { it.initCause(cause) }
 }

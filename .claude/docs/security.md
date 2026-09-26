@@ -217,8 +217,9 @@ boundary is the host allow-list (`isAllowedJiraHost`): exactly `api.atlassian.co
 `*.atlassian.net` tenant per the SAME shape/reserved-label check `ingest/DataSource.kt` enforces at
 create/update time (one source of truth), or — development mode ONLY — the configured
 `jira.stubBaseUrl` host. `GuardedDns` (an `okhttp3.Dns`) re-checks the allow-list and re-resolves +
-re-checks addresses on EVERY call (not just once per request, since the Jira `HttpClient` is
-long-lived and shared across every connection); a `skipAddressCheck` predicate exempts ONLY the
+re-checks addresses on every NEW connection (not just once per request, since the Jira `HttpClient`
+is long-lived and shared across every connection — pooled connections REUSE an already-checked
+address rather than re-resolving on every call); a `skipAddressCheck` predicate exempts ONLY the
 already-allow-listed stub host from the address-range check, since the dev/compose/in-JVM stub is,
 by construction, a loopback or docker-network-private address — the allow-list still gates it
 unconditionally, this only skips the address-SHAPE check for that one host. The guarded

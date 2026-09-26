@@ -26,7 +26,13 @@ private val JSON_HEADERS = headersOf(HttpHeaders.ContentType, "application/json"
  */
 class JiraClientTest {
 
-    private fun jiraHttp(engine: MockEngine, maxRetries: Int = 2, maxResponseBytes: Long = 1_000_000): JiraHttp {
+    private fun jiraHttp(
+        engine: MockEngine,
+        maxRetries: Int = 2,
+        maxResponseBytes: Long = 1_000_000,
+        requestDeadlineMillis: Long = 180_000,
+        clock: () -> Long = { 0L },
+    ): JiraHttp {
         val httpClient = HttpClient(engine) {
             expectSuccess = false
             // Ktor's client-side HttpRedirect plugin (separate from the OkHttp engine's own
@@ -34,7 +40,16 @@ class JiraClientTest {
             // must be off too, or a 3xx never reaches JiraHttp's own REDIRECT mapping.
             followRedirects = false
         }
-        return JiraHttp(httpClient, maxRetries, maxResponseBytes, maxConcurrentRequests = 4, random = { 0.5 }, sleeper = {})
+        return JiraHttp(
+            httpClient,
+            maxRetries,
+            maxResponseBytes,
+            maxConcurrentRequests = 4,
+            requestDeadlineMillis = requestDeadlineMillis,
+            random = { 0.5 },
+            sleeper = {},
+            clock = clock,
+        )
     }
 
     private fun jiraClient(
@@ -133,7 +148,7 @@ class JiraClientTest {
         var authHeaderSeen: String? = null
         fun engineFor(): MockEngine = MockEngine { request ->
             if (request.url.encodedPath.endsWith("/_edge/tenant_info")) {
-                respond("""{"cloudId":"fake-cloud"}""", HttpStatusCode.OK, JSON_HEADERS)
+                respond("""{"cloudId":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"}""", HttpStatusCode.OK, JSON_HEADERS)
             } else {
                 authHeaderSeen = request.headers[HttpHeaders.Authorization]
                 respond("""{"accountId":"u1"}""", HttpStatusCode.OK, JSON_HEADERS)
@@ -156,7 +171,7 @@ class JiraClientTest {
         val seenTokens = mutableListOf<String?>()
         val engine = MockEngine { request ->
             if (request.url.encodedPath.endsWith("/_edge/tenant_info")) {
-                respond("""{"cloudId":"fake-cloud"}""", HttpStatusCode.OK, JSON_HEADERS)
+                respond("""{"cloudId":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"}""", HttpStatusCode.OK, JSON_HEADERS)
             } else {
                 seenTokens += request.url.parameters["nextPageToken"]
                 val body = if (seenTokens.size == 1) """{"issues":[],"nextPageToken":"page-2"}""" else """{"issues":[]}"""
@@ -176,10 +191,68 @@ class JiraClientTest {
         var sawAuthHeader = false
         val engine = MockEngine { request ->
             if (request.headers[HttpHeaders.Authorization] != null) sawAuthHeader = true
-            respond("""{"cloudId":"fake-cloud"}""", HttpStatusCode.OK, JSON_HEADERS)
+            respond("""{"cloudId":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"}""", HttpStatusCode.OK, JSON_HEADERS)
         }
         val client = jiraClient(engine, JiraAuthScheme.BASIC, apiToken = "tok")
         client.resolveCloudId()
         assertEquals(false, sawAuthHeader)
+    }
+
+    @Test
+    fun `a non-UUID cloudId is INVALID_RESPONSE and never becomes the gateway path`() = runBlocking {
+        val engine = MockEngine { respond("""{"cloudId":"not-a-uuid"}""", HttpStatusCode.OK, JSON_HEADERS) }
+        val client = jiraClient(engine, JiraAuthScheme.BASIC, apiToken = "tok")
+        val error = assertFailsWith<JiraFetchException> { client.resolveCloudId() }
+        assertEquals("INVALID_RESPONSE", error.code)
+    }
+
+    @Test
+    fun `a mixed-case cloudId is accepted and stored lowercase`() = runBlocking {
+        val engine = MockEngine { respond("""{"cloudId":"AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE"}""", HttpStatusCode.OK, JSON_HEADERS) }
+        val client = jiraClient(engine, JiraAuthScheme.BASIC, apiToken = "tok")
+        val cloudId = client.resolveCloudId()
+        assertEquals("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", cloudId)
+    }
+
+    @Test
+    fun `myself with a non-object body is INVALID_RESPONSE, not an uncaught raw-cast exception`() = runBlocking {
+        val engine = MockEngine { request ->
+            if (request.url.encodedPath.endsWith("/_edge/tenant_info")) {
+                respond("""{"cloudId":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"}""", HttpStatusCode.OK, JSON_HEADERS)
+            } else {
+                respond("[]", HttpStatusCode.OK, JSON_HEADERS)
+            }
+        }
+        val client = jiraClient(engine, JiraAuthScheme.BASIC, apiToken = "tok")
+        client.resolveCloudId()
+        val error = assertFailsWith<JiraFetchException> { client.myself() }
+        assertEquals("INVALID_RESPONSE", error.code)
+    }
+
+    @Test
+    fun `a Retry-After beyond the remaining request deadline fails RATE_LIMITED immediately, without waiting it out`() = runBlocking {
+        var calls = 0
+        val engine = MockEngine {
+            calls++
+            respond(
+                "{}",
+                HttpStatusCode.TooManyRequests,
+                headersOf(HttpHeaders.RetryAfter to listOf("9999"), HttpHeaders.ContentType to listOf("application/json")),
+            )
+        }
+        val http = jiraHttp(engine, maxRetries = 5, requestDeadlineMillis = 5_000, clock = { 0L })
+        val error = assertFailsWith<JiraFetchException> { http.request(HttpMethod.Get, "https://example.atlassian.net/probe") }
+        assertEquals("RATE_LIMITED", error.code)
+        assertEquals(1, calls, "must fail on the first attempt once Retry-After alone exceeds the whole budget")
+    }
+
+    @Test
+    fun `a 5xx retry that would exceed the remaining request deadline fails immediately instead of retrying past it`() = runBlocking {
+        var calls = 0
+        val engine = MockEngine { calls++; respond("{}", HttpStatusCode.ServiceUnavailable, JSON_HEADERS) }
+        val http = jiraHttp(engine, maxRetries = 5, requestDeadlineMillis = 1_000, clock = { 0L })
+        val error = assertFailsWith<JiraFetchException> { http.request(HttpMethod.Get, "https://example.atlassian.net/probe") }
+        assertEquals("UPSTREAM_UNAVAILABLE", error.code)
+        assertEquals(1, calls, "the backoff itself already exceeds the 1s deadline, so no retry happens")
     }
 }

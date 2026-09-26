@@ -82,19 +82,40 @@ failing HTTP status.
 ## Error codes (`JiraFetchException`)
 
 `AUTHENTICATION_FAILED` (401) · `FORBIDDEN_SCOPE` (403) · `NOT_FOUND` (404) · `RATE_LIMITED` (429,
-retries exhausted) · `UPSTREAM_UNAVAILABLE` (5xx or IOException, retries exhausted) · `TIMEOUT`
-(request/probe timeout) · `INVALID_RESPONSE` (malformed JSON or an unexpected shape) ·
+retries exhausted, OR a `Retry-After` whose wait alone would cross the remaining
+`jira.requestDeadlineSeconds` budget — reported immediately rather than waited out) ·
+`UPSTREAM_UNAVAILABLE` (5xx or IOException, retries exhausted, OR the next backoff would cross that
+same total-request deadline) · `TIMEOUT` (request/probe timeout) · `INVALID_RESPONSE` (malformed
+JSON, an unexpected shape — every `.jsonObject`/`.jsonArray`/`.jsonPrimitive` cast is routed through
+one decode helper so a mismatch is always this code, never an uncaught exception — an invalid
+`cloudId` shape, or a Jira-supplied issue id/key that doesn't match the expected path shape) ·
 `LIMIT_EXCEEDED` (response over `jira.maxResponseBytes`) · `BLOCKED_HOST` (the outbound guard
-refused the resolved host/address) · `REDIRECT` (a 3xx — never followed) · `CURSOR_EXPIRED`
-(reserved for the `search/jql` `nextPageToken` expiry case — not yet detected specifically; falls
-back to `INVALID_RESPONSE` today, revisit once the ISSUES stream lands in plan commit 6).
+refused the resolved host/address — `BlockedHostException` extends `UnknownHostException`, the
+`Dns` contract's own checked type, so OkHttp's async call path delivers it to Ktor unwrapped instead
+of re-wrapping it as a generic `IOException`; a single attempt, never retried) · `REDIRECT` (a 3xx —
+never followed) · `CURSOR_EXPIRED` (reserved for the `search/jql` `nextPageToken` expiry case — not
+yet detected specifically; falls back to `INVALID_RESPONSE` today, revisit once the ISSUES stream
+lands in plan commit 6).
+
+Every attempt (across every retry) is additionally bounded by a TOTAL per-request deadline
+(`jira.requestDeadlineSeconds`, default 180s, config-validated via `requireConfigInt`) — separate
+from `jira.requestTimeoutSeconds`, which only bounds a SINGLE attempt — so unbounded retries can
+never hold the `jira.maxConcurrentRequests` `Semaphore` permit indefinitely.
 
 ## Testing
 
 - `JiraBackoffTest` — pure backoff math, injected clock/random.
 - `JiraJqlTest` — `JiraJql`'s scope/incremental/reconcile builders.
 - `OutboundGuardTest` — the allow-list, every blocked address range (injected resolver), the
-  stub-host-only-in-dev rule, and a boot test pinning production's `jira.stubBaseUrl` refusal.
+  stub-host-only-in-dev rule, a boot test pinning production's `jira.stubBaseUrl` refusal, and a
+  set of production-wiring integration tests (`buildGuardedJiraHttpClient`, the SAME builder
+  `jira/Jira.kt` uses) against the real, loopback `JiraStubServer` over the real OkHttp engine:
+  `BLOCKED_HOST` in one attempt/no retry, a disallowed host never reaching the resolver, `Proxy.
+  NO_PROXY`, and a real 3xx never followed.
+- `JiraConnectorTest` — `testConnection`'s probe loop against a hand-written `JiraClient` fake: a
+  raw-cast `IllegalArgumentException` anywhere becomes an `INVALID_RESPONSE` row rather than an
+  uncaught crash, a genuine coroutine cancellation is never swallowed as a row, and a probe honours
+  the REMAINING 30s total budget, not just its own fixed 10s cap.
 - `JiraClientTest` — `JiraHttp`/`HttpJiraClient` against a Ktor `MockEngine`: status→code mapping,
   429-then-`RATE_LIMITED`, the byte cap, malformed JSON, a refused redirect, `nextPageToken`
   paging, and both auth header shapes.

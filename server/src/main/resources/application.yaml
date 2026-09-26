@@ -191,6 +191,12 @@ jira:
   # `.claude/docs/jira-integration.md`). Every call is bounded by this timeout (HttpTimeout, both
   # request and connect) and retried with exponential backoff on 429/5xx/IOException.
   requestTimeoutSeconds: "$JIRA_REQUEST_TIMEOUT_SECONDS:30"
+  # [LOW-2] The TOTAL budget for one logical call, covering every retry attempt plus backoff —
+  # `requestTimeoutSeconds` above only bounds a SINGLE attempt, so unbounded retries could
+  # otherwise hold a `jira.maxConcurrentRequests` Semaphore permit for the ~10 minutes a
+  # `maxRetries`-deep exponential backoff can sum to. A Retry-After beyond the remaining budget
+  # fails RATE_LIMITED immediately rather than waiting it out.
+  requestDeadlineSeconds: "$JIRA_REQUEST_DEADLINE_SECONDS:180"
   # The Covenant-shaped bounded-read ceiling on a single response body (32 MiB default).
   maxResponseBytes: "$JIRA_MAX_RESPONSE_BYTES:33554432"
   # A Semaphore cap on concurrent in-flight Jira calls (per process).

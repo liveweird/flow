@@ -145,4 +145,50 @@ class DataSourceTestConnectionTest {
         assertTrue(statuses.take(10).all { it == HttpStatusCode.OK }, "expected 200s first: $statuses")
         assertEquals(HttpStatusCode.TooManyRequests, statuses.last())
     }
+
+    // [MED-4] A raw `.jsonObject`/`.jsonPrimitive` cast on a shape-mismatched response used to
+    // throw an uncaught `IllegalArgumentException` — Test connection 500'd instead of reporting
+    // the probe as a row like every other failure mode.
+
+    @Test
+    fun `a malformed (non-object) tenant_info response is INVALID_RESPONSE, never a 500`() = testApplication {
+        configureApp("jira.stubBaseUrl" to JiraStubServer.start())
+        startApplication()
+        val admin = seededClient("dstestbadtenant", UserRole.ADMIN)
+        val override = JiraStubServer.addOverride(
+            get(urlPathMatching(".*/_edge/tenant_info")).atPriority(1).willReturn(aResponse().withStatus(200).withBody("[]")),
+        )
+        try {
+            val response = admin.postJson("/api/v1/data-sources/test", DataSourceTestRequest(jiraRequest()))
+            assertEquals(HttpStatusCode.OK, response.status, "a malformed probe response is a row, never a 500")
+            val result = response.body<ConnectionTestResult>()
+            val tenantRow = result.rows.single { it.name == "tenant_info" }
+            assertEquals(false, tenantRow.ok)
+            assertEquals("INVALID_RESPONSE", tenantRow.code)
+            assertNull(result.cloudId)
+        } finally {
+            JiraStubServer.removeOverride(override)
+        }
+    }
+
+    @Test
+    fun `a malformed (non-object) myself response is INVALID_RESPONSE, never a 500`() = testApplication {
+        configureApp("jira.stubBaseUrl" to JiraStubServer.start())
+        startApplication()
+        val admin = seededClient("dstestbadmyself", UserRole.ADMIN)
+        val override = JiraStubServer.addOverride(
+            get(urlPathMatching(".*/rest/api/3/myself")).atPriority(1).willReturn(aResponse().withStatus(200).withBody("[]")),
+        )
+        try {
+            val response = admin.postJson("/api/v1/data-sources/test", DataSourceTestRequest(jiraRequest()))
+            assertEquals(HttpStatusCode.OK, response.status, "a malformed probe response is a row, never a 500")
+            val result = response.body<ConnectionTestResult>()
+            val myselfRow = result.rows.single { it.name == "myself" }
+            assertEquals(false, myselfRow.ok)
+            assertEquals("INVALID_RESPONSE", myselfRow.code)
+            assertEquals(JiraStubServer.CLOUD_ID, result.cloudId, "tenant_info still succeeded normally")
+        } finally {
+            JiraStubServer.removeOverride(override)
+        }
+    }
 }

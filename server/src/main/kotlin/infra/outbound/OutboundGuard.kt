@@ -5,11 +5,15 @@ import ch.nokillswit.ingest.ATLASSIAN_RESERVED_SITE_LABELS
 import ch.nokillswit.ingest.JIRA_SITE_URL_PATTERN
 import java.net.InetAddress
 import java.net.Proxy
+import java.net.Socket
+import java.net.SocketException
 import java.net.UnknownHostException
 import java.util.concurrent.TimeUnit
+import javax.net.SocketFactory
 import okhttp3.Authenticator
 import okhttp3.CookieJar
 import okhttp3.Dns
+import okhttp3.EventListener
 import okhttp3.OkHttpClient
 
 /**
@@ -26,8 +30,27 @@ import okhttp3.OkHttpClient
  */
 const val ATLASSIAN_GATEWAY_HOST = "api.atlassian.com"
 
-/** Safe audit fields only — never the full URL, which may carry a query string. */
-class BlockedHostException(val scheme: String?, val host: String?) : RuntimeException("Blocked outbound host: $host")
+/**
+ * Safe audit fields only — never the full URL, which may carry a query string.
+ *
+ * [MED-1] Extends [java.net.UnknownHostException] — the checked exception [Dns.lookup]'s contract
+ * actually declares — rather than a bare [RuntimeException]. OkHttp 5.5's async call path
+ * (`RealCall$AsyncCall.run`, decompiled: `okhttp-jvm-5.5.0.jar`) only delivers an exception thrown
+ * out of the interceptor chain to `Callback.onFailure` UNCHANGED when it IS-A [java.io.IOException];
+ * anything else is caught by the generic `Throwable` branch, cancels the call and is RE-WRAPPED as
+ * `IOException("canceled due to $e").initCause(e)` — the original exception survives only as a
+ * suppressed cause. Ktor's `OkHttpCallback.onFailure` → `mapOkHttpException` never unwraps a cause
+ * chain either. A plain-`RuntimeException` [BlockedHostException] therefore arrived at
+ * `JiraHttp.request` as that wrapper `IOException`, missing `JiraHttp`'s
+ * `catch (cause: BlockedHostException)` entirely and falling into the generic `catch (cause:
+ * IOException)` retry branch instead — `BLOCKED_HOST` was retried [jira.maxRetries] times (~21s of
+ * backoff, 5 `outbound.blocked` audits) before surfacing as `UPSTREAM_UNAVAILABLE`. As an
+ * `IOException` subtype, [BlockedHostException] now reaches `Callback.onFailure` as itself (the
+ * `try`'s FIRST, `IOException`-only catch clause, not the `Throwable` one), so it reaches
+ * `JiraHttp`'s specific catch unchanged and is never retried. Pinned by
+ * `OutboundGuardTest`'s production-wiring integration test.
+ */
+class BlockedHostException(val scheme: String?, val host: String?) : UnknownHostException("Blocked outbound host: $host")
 
 /** True for a syntactically valid, non-reserved `*.atlassian.net` tenant host (no scheme/path here — host only). */
 fun isAllowedTenantHost(host: String): Boolean {
@@ -101,39 +124,77 @@ class GuardedDns(
      * host.
      */
     private val skipAddressCheck: (String) -> Boolean = { false },
+    /**
+     * [LOW-5] The scheme actually used to reach [hostname] — every genuine Jira Cloud host is
+     * `https`, but the development `jira.stubBaseUrl` may be plain `http://` (the compose demo).
+     * `Dns.lookup` only receives a hostname, never a scheme, so the caller (`jira/Jira.kt`) wires
+     * this from the ONE place that knows both: `jira.stubBaseUrl`'s own scheme for the stub host,
+     * `https` for everything else. Audited on every rejection so `outbound.blocked` never claims a
+     * scheme that wasn't actually used.
+     */
+    private val schemeFor: (String) -> String = { "https" },
 ) : Dns {
     override fun lookup(hostname: String): List<InetAddress> {
-        if (!allowedHost(hostname)) auditBlockedOutbound("https", hostname)
+        if (!allowedHost(hostname)) auditBlockedOutbound(schemeFor(hostname), hostname)
         val addresses = try {
             resolver(hostname)
         } catch (_: UnknownHostException) {
-            auditBlockedOutbound("https", hostname)
+            auditBlockedOutbound(schemeFor(hostname), hostname)
         }
-        if (addresses.isEmpty()) auditBlockedOutbound("https", hostname)
-        if (!skipAddressCheck(hostname) && addresses.any { it.isBlockedAddress() }) auditBlockedOutbound("https", hostname)
+        if (addresses.isEmpty()) auditBlockedOutbound(schemeFor(hostname), hostname)
+        if (!skipAddressCheck(hostname) && addresses.any { it.isBlockedAddress() }) {
+            auditBlockedOutbound(schemeFor(hostname), hostname)
+        }
         return addresses
     }
 }
 
 /**
- * The guarded OkHttp transport (v0.2.0 plan §6): [GuardedDns] above, `Proxy.NO_PROXY`, no
- * redirects, no connection-failure retries (`JiraHttp` owns the retry/backoff policy explicitly —
- * a silent OkHttp-level retry would double-count against it), no cookies/proxy-authenticator.
+ * [LOW-4] Ported from Toadie's `infra/fetch/UrlFetch.kt`: `Socket()` itself still consults the
+ * JVM's SOCKS `ProxySelector` regardless of OkHttp's own `Proxy.NO_PROXY`, so a direct physical
+ * socket factory closes that gap too. `createSocket(host, port)` overloads (which resolve their
+ * OWN address, bypassing [GuardedDns] entirely) are refused outright — OkHttp only ever calls the
+ * no-arg [createSocket] and connects the returned socket itself with an address [GuardedDns]
+ * already approved.
+ */
+internal object DirectSocketFactory : SocketFactory() {
+    override fun createSocket(): Socket = Socket(Proxy.NO_PROXY)
+    override fun createSocket(host: String, port: Int): Socket = unsupported()
+    override fun createSocket(host: String, port: Int, localHost: InetAddress, localPort: Int): Socket = unsupported()
+    override fun createSocket(host: InetAddress, port: Int): Socket = unsupported()
+    override fun createSocket(host: InetAddress, port: Int, localHost: InetAddress, localPort: Int): Socket = unsupported()
+
+    private fun unsupported(): Socket = throw SocketException("connected socket creation is disabled")
+}
+
+/**
+ * The guarded OkHttp transport (v0.2.0 plan §6): [GuardedDns] above, `Proxy.NO_PROXY` (backstopped
+ * by [DirectSocketFactory] — LOW-4), no redirects, no connection-failure retries (`JiraHttp` owns
+ * the retry/backoff policy explicitly — a silent OkHttp-level retry would double-count against
+ * it), `fastFallback(false)` (Toadie precedent: no parallel Happy-Eyeballs connection attempts
+ * outside the single already-checked address list), no cookies/proxy-authenticator. [eventListener]
+ * is a test seam (`OutboundGuardTest`'s connection-pool-leak test — LOW-3); production never sets
+ * one.
  */
 fun guardedOkHttpClient(
     allowedHost: (String) -> Boolean,
     resolver: (String) -> List<InetAddress> = { InetAddress.getAllByName(it).toList() },
     timeoutSeconds: Long,
     skipAddressCheck: (String) -> Boolean = { false },
+    schemeFor: (String) -> String = { "https" },
+    eventListener: EventListener = EventListener.NONE,
 ): OkHttpClient = OkHttpClient.Builder()
-    .dns(GuardedDns(allowedHost, resolver, skipAddressCheck))
+    .dns(GuardedDns(allowedHost, resolver, skipAddressCheck, schemeFor))
     .proxy(Proxy.NO_PROXY)
+    .socketFactory(DirectSocketFactory)
+    .fastFallback(false)
     .followRedirects(false)
     .followSslRedirects(false)
     .retryOnConnectionFailure(false)
     .cookieJar(CookieJar.NO_COOKIES)
     .authenticator(Authenticator.NONE)
     .proxyAuthenticator(Authenticator.NONE)
+    .eventListener(eventListener)
     .connectTimeout(timeoutSeconds, TimeUnit.SECONDS)
     .readTimeout(timeoutSeconds, TimeUnit.SECONDS)
     .writeTimeout(timeoutSeconds, TimeUnit.SECONDS)
