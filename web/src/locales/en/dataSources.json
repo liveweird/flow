@@ -6,6 +6,10 @@
   "editTitle": "Edit data source",
   "empty": "No data sources yet",
   "loadFailed": "Could not load the data sources",
+  "notFound": "This data source does not exist (or was deleted).",
+  "backToDataSources": "Back to data sources",
+  "open": "Open",
+  "openAria": "Open {{name}}",
   "column": {
     "site": "Site",
     "projects": "Projects",
@@ -22,6 +26,21 @@
     "STALE": "Stale",
     "FAILED": "Failed",
     "DISABLED": "Disabled"
+  },
+  "job": {
+    "kind": {
+      "SYNC": "Sync",
+      "RECONCILE": "Reconcile",
+      "REPROCESS": "Reprocess",
+      "PURGE": "Purge"
+    },
+    "status": {
+      "PENDING": "Pending",
+      "RUNNING": "Running",
+      "SUCCEEDED": "Succeeded",
+      "FAILED": "Failed",
+      "CANCELLED": "Cancelled"
+    }
   },
   "syncNow": "Sync now",
   "syncNowAria": "Sync now: {{name}}",
@@ -84,11 +103,190 @@
     "rateLimited": "Too many test attempts — wait a minute and try again",
     "failedGeneric": "Test connection failed. Check your connection and try again."
   },
+  "details": {
+    "backToDetails": "Back to data source",
+    "connection": "Connection",
+    "lastSyncStarted": "Last sync started",
+    "lastError": "Last error",
+    "consecutiveFailures": "Consecutive failures",
+    "currentJob": "Current job",
+    "currentStream": "Current stream",
+    "progressCounter": "Counter",
+    "progressValue": "Value",
+    "cursors": "Cursors",
+    "noCursors": "No cursors yet — this connection hasn't synced.",
+    "cursor": {
+      "stream": "Stream",
+      "watermark": "Watermark",
+      "lastCompleted": "Last completed"
+    },
+    "counts": "Raw store counts",
+    "count": {
+      "rawIssues": "Raw issues",
+      "tombstonedDeleted": "Tombstoned (deleted)",
+      "tombstonedMovedOut": "Tombstoned (moved out of scope)",
+      "changelogs": "Changelogs",
+      "worklogs": "Worklogs",
+      "entitiesByKind": "Entities by kind",
+      "needsProcessing": "Needs processing"
+    },
+    "jobsTitle": "Sync jobs",
+    "jobsLoadFailed": "Could not load the sync jobs",
+    "noJobs": "No sync jobs yet",
+    "jobKindFilter": "Kind",
+    "jobStatusFilter": "Status",
+    "jobColumn": {
+      "kind": "Kind",
+      "status": "Status",
+      "requested": "Requested",
+      "started": "Started",
+      "finished": "Finished",
+      "attempt": "Attempt",
+      "error": "Error"
+    },
+    "cancelJob": "Cancel",
+    "cancelJobAria": "Cancel job #{{id}}",
+    "syncNow": "Sync now",
+    "reconcileNow": "Reconcile now",
+    "reprocess": "Reprocess",
+    "reprocessTitle": "Reprocess this data source?",
+    "reprocessBody": "Rebuilds the normalized layer from the raw store for every issue. This can take a while and never touches the raw data or Jira itself.",
+    "cancel": "Cancel running job",
+    "cancelConflict": "This job already finished — nothing to cancel.",
+    "actionDisabled": "This data source is disabled — enable it first."
+  },
+  "profile": {
+    "title": "Data profile",
+    "empty": "Run a sync to compute the profile.",
+    "computedAt": "Computed at {{when}}",
+    "noData": "No data yet.",
+    "section": {
+      "range": "Range",
+      "projects": "Projects",
+      "workflows": "Workflows",
+      "boards": "Boards",
+      "customFields": "Custom fields",
+      "estimates": "Estimates",
+      "worklogs": "Worklogs",
+      "reopens": "Reopens",
+      "sprints": "Sprints",
+      "people": "People",
+      "anomalies": "Anomalies"
+    },
+    "range": {
+      "earliestCreated": "Earliest created",
+      "latestUpdated": "Latest updated"
+    },
+    "column": {
+      "project": "Project",
+      "issueType": "Issue type",
+      "count": "Count",
+      "status": "Status",
+      "category": "Category",
+      "transitions": "Transitions",
+      "board": "Board",
+      "boardType": "Type",
+      "columns": "Columns",
+      "unmappedStatuses": "Unmapped statuses",
+      "field": "Field",
+      "type": "Type",
+      "role": "Role",
+      "nonNullCount": "Non-null count",
+      "fillPercent": "Fill %"
+    },
+    "referenceWorkflow": "Reference workflow: {{statuses}}",
+    "category": {
+      "TODO": "To do",
+      "IN_PROGRESS": "In progress",
+      "DONE": "Done",
+      "UNKNOWN": "Unknown"
+    },
+    "fieldRole": {
+      "SPRINT": "Sprint",
+      "RANK": "Rank",
+      "TEAM": "Team",
+      "STORY_POINTS": "Story points",
+      "FLAGGED": "Flagged",
+      "OTHER": "Other"
+    },
+    "estimates": {
+      "totalIssues": "Total issues",
+      "storyPoints": "Story points",
+      "originalEstimate": "Original estimate"
+    },
+    "worklogs": {
+      "count": "Worklog entries",
+      "totalHours": "Total hours",
+      "itemsWithWorklog": "Issues with a worklog",
+      "authorCount": "Authors"
+    },
+    "reopens": {
+      "count": "Reopened",
+      "totalIssues": "Total issues",
+      "percent": "Reopen rate"
+    },
+    "sprints": {
+      "count": "Sprints",
+      "itemsWithSprint": "Issues in a sprint",
+      "carryOver": "Carried over",
+      "stateCounts": "By state"
+    },
+    "people": {
+      "activeAssignees": "Active assignees",
+      "unassignedPercent": "Unassigned"
+    }
+  },
+  "inspect": {
+    "title": "Raw issue inspector",
+    "keyLabel": "Issue key or id",
+    "keyHint": "A Jira issue key (e.g. ENG-123) or the stable numeric issue id",
+    "lookUp": "Look up",
+    "empty": "Look up an issue key or id to inspect its raw and normalized data.",
+    "invalidKey": "Enter a valid issue key (e.g. ENG-123) or numeric id",
+    "notFound": "No issue with that key or id was found for this data source",
+    "needsProcessing": "Needs processing",
+    "deleted": "Deleted",
+    "movedOut": "Moved out of scope",
+    "none": "None",
+    "entryNumber": "#{{index}}",
+    "noAnomalies": "No anomalies detected",
+    "notProcessed": "This issue has not been through PROCESS yet.",
+    "section": {
+      "workItem": "Work item",
+      "intervals": "Intervals",
+      "anomalies": "Anomalies",
+      "changelogs": "Changelogs ({{count}})",
+      "worklogs": "Worklogs ({{count}})",
+      "payload": "Raw payload"
+    },
+    "statusIntervals": "Status intervals",
+    "fieldIntervals": "Field intervals",
+    "column": {
+      "issueKey": "Issue key",
+      "project": "Project",
+      "issueType": "Issue type",
+      "status": "Status",
+      "assignee": "Assignee",
+      "processedAt": "Processed at",
+      "processingVersion": "Processing version",
+      "seq": "#",
+      "from": "From",
+      "to": "To",
+      "source": "Source",
+      "field": "Field",
+      "value": "Value"
+    }
+  },
   "toast": {
     "created": "Data source created",
     "saved": "Data source saved",
     "deleted": "Data source deleted",
     "syncRequested": "Sync queued",
-    "syncCoalesced": "A sync is already in progress"
+    "syncCoalesced": "A sync is already in progress",
+    "reconcileRequested": "Reconcile queued",
+    "reconcileCoalesced": "A reconcile is already in progress",
+    "reprocessRequested": "Reprocess queued",
+    "reprocessCoalesced": "A reprocess is already in progress",
+    "jobCancelled": "Cancellation requested"
   }
 }

@@ -6,6 +6,10 @@
   "editTitle": "Edytuj źródło danych",
   "empty": "Nie ma jeszcze źródeł danych",
   "loadFailed": "Nie udało się wczytać źródeł danych",
+  "notFound": "To źródło danych nie istnieje (lub zostało usunięte).",
+  "backToDataSources": "Wróć do źródeł danych",
+  "open": "Otwórz",
+  "openAria": "Otwórz {{name}}",
   "column": {
     "site": "Witryna",
     "projects": "Projekty",
@@ -22,6 +26,21 @@
     "STALE": "Nieaktualne",
     "FAILED": "Błąd",
     "DISABLED": "Wyłączone"
+  },
+  "job": {
+    "kind": {
+      "SYNC": "Synchronizacja",
+      "RECONCILE": "Uzgodnienie",
+      "REPROCESS": "Przetworzenie ponowne",
+      "PURGE": "Usunięcie trwałe"
+    },
+    "status": {
+      "PENDING": "Oczekuje",
+      "RUNNING": "W toku",
+      "SUCCEEDED": "Zakończone sukcesem",
+      "FAILED": "Błąd",
+      "CANCELLED": "Anulowane"
+    }
   },
   "syncNow": "Synchronizuj teraz",
   "syncNowAria": "Synchronizuj teraz: {{name}}",
@@ -84,11 +103,190 @@
     "rateLimited": "Zbyt wiele prób testu — poczekaj minutę i spróbuj ponownie",
     "failedGeneric": "Test połączenia nie powiódł się. Sprawdź połączenie i spróbuj ponownie."
   },
+  "details": {
+    "backToDetails": "Wróć do źródła danych",
+    "connection": "Połączenie",
+    "lastSyncStarted": "Ostatnia synchronizacja rozpoczęta",
+    "lastError": "Ostatni błąd",
+    "consecutiveFailures": "Kolejne niepowodzenia",
+    "currentJob": "Bieżące zadanie",
+    "currentStream": "Bieżący strumień",
+    "progressCounter": "Licznik",
+    "progressValue": "Wartość",
+    "cursors": "Kursory",
+    "noCursors": "Brak kursorów — to połączenie jeszcze się nie synchronizowało.",
+    "cursor": {
+      "stream": "Strumień",
+      "watermark": "Znak wodny",
+      "lastCompleted": "Ostatnio zakończono"
+    },
+    "counts": "Liczniki surowego magazynu",
+    "count": {
+      "rawIssues": "Surowe zgłoszenia",
+      "tombstonedDeleted": "Oznaczone jako usunięte",
+      "tombstonedMovedOut": "Oznaczone jako przeniesione poza zakres",
+      "changelogs": "Historie zmian",
+      "worklogs": "Dzienniki pracy",
+      "entitiesByKind": "Encje wg rodzaju",
+      "needsProcessing": "Oczekuje na przetworzenie"
+    },
+    "jobsTitle": "Zadania synchronizacji",
+    "jobsLoadFailed": "Nie udało się wczytać zadań synchronizacji",
+    "noJobs": "Brak jeszcze zadań synchronizacji",
+    "jobKindFilter": "Rodzaj",
+    "jobStatusFilter": "Stan",
+    "jobColumn": {
+      "kind": "Rodzaj",
+      "status": "Stan",
+      "requested": "Zażądano",
+      "started": "Rozpoczęto",
+      "finished": "Zakończono",
+      "attempt": "Próba",
+      "error": "Błąd"
+    },
+    "cancelJob": "Anuluj",
+    "cancelJobAria": "Anuluj zadanie #{{id}}",
+    "syncNow": "Synchronizuj teraz",
+    "reconcileNow": "Uzgodnij teraz",
+    "reprocess": "Przetwórz ponownie",
+    "reprocessTitle": "Przetworzyć ponownie to źródło danych?",
+    "reprocessBody": "Odbudowuje warstwę znormalizowaną z surowego magazynu dla każdego zgłoszenia. Może to potrwać chwilę i nigdy nie dotyka surowych danych ani samej Jiry.",
+    "cancel": "Anuluj trwające zadanie",
+    "cancelConflict": "To zadanie już się zakończyło — nie ma czego anulować.",
+    "actionDisabled": "To źródło danych jest wyłączone — najpierw je włącz."
+  },
+  "profile": {
+    "title": "Profil danych",
+    "empty": "Uruchom synchronizację, aby obliczyć profil.",
+    "computedAt": "Obliczono {{when}}",
+    "noData": "Brak jeszcze danych.",
+    "section": {
+      "range": "Zakres",
+      "projects": "Projekty",
+      "workflows": "Przepływy pracy",
+      "boards": "Tablice",
+      "customFields": "Pola niestandardowe",
+      "estimates": "Szacunki",
+      "worklogs": "Dzienniki pracy",
+      "reopens": "Ponowne otwarcia",
+      "sprints": "Sprinty",
+      "people": "Osoby",
+      "anomalies": "Anomalie"
+    },
+    "range": {
+      "earliestCreated": "Najwcześniej utworzone",
+      "latestUpdated": "Ostatnio zaktualizowane"
+    },
+    "column": {
+      "project": "Projekt",
+      "issueType": "Typ zgłoszenia",
+      "count": "Liczba",
+      "status": "Stan",
+      "category": "Kategoria",
+      "transitions": "Przejścia",
+      "board": "Tablica",
+      "boardType": "Typ",
+      "columns": "Kolumny",
+      "unmappedStatuses": "Niezmapowane stany",
+      "field": "Pole",
+      "type": "Typ",
+      "role": "Rola",
+      "nonNullCount": "Liczba wypełnionych",
+      "fillPercent": "Wypełnienie %"
+    },
+    "referenceWorkflow": "Referencyjny przepływ pracy: {{statuses}}",
+    "category": {
+      "TODO": "Do zrobienia",
+      "IN_PROGRESS": "W toku",
+      "DONE": "Zrobione",
+      "UNKNOWN": "Nieznana"
+    },
+    "fieldRole": {
+      "SPRINT": "Sprint",
+      "RANK": "Ranga",
+      "TEAM": "Zespół",
+      "STORY_POINTS": "Punkty historyjek",
+      "FLAGGED": "Oflagowane",
+      "OTHER": "Inne"
+    },
+    "estimates": {
+      "totalIssues": "Wszystkie zgłoszenia",
+      "storyPoints": "Punkty historyjek",
+      "originalEstimate": "Szacunek pierwotny"
+    },
+    "worklogs": {
+      "count": "Wpisy dziennika pracy",
+      "totalHours": "Suma godzin",
+      "itemsWithWorklog": "Zgłoszenia z dziennikiem pracy",
+      "authorCount": "Autorzy/rki"
+    },
+    "reopens": {
+      "count": "Ponownie otwarte",
+      "totalIssues": "Wszystkie zgłoszenia",
+      "percent": "Wskaźnik ponownych otwarć"
+    },
+    "sprints": {
+      "count": "Sprinty",
+      "itemsWithSprint": "Zgłoszenia w sprincie",
+      "carryOver": "Przeniesione dalej",
+      "stateCounts": "Wg stanu"
+    },
+    "people": {
+      "activeAssignees": "Aktywni/wne przypisani/ne",
+      "unassignedPercent": "Nieprzypisane"
+    }
+  },
+  "inspect": {
+    "title": "Inspektor surowych zgłoszeń",
+    "keyLabel": "Klucz lub id zgłoszenia",
+    "keyHint": "Klucz zgłoszenia Jira (np. ENG-123) albo stały numeryczny id zgłoszenia",
+    "lookUp": "Wyszukaj",
+    "empty": "Wyszukaj klucz lub id zgłoszenia, aby zobaczyć jego surowe i znormalizowane dane.",
+    "invalidKey": "Podaj poprawny klucz zgłoszenia (np. ENG-123) albo numeryczny id",
+    "notFound": "Nie znaleziono zgłoszenia o tym kluczu lub id dla tego źródła danych",
+    "needsProcessing": "Oczekuje na przetworzenie",
+    "deleted": "Usunięte",
+    "movedOut": "Przeniesione poza zakres",
+    "none": "Brak",
+    "entryNumber": "#{{index}}",
+    "noAnomalies": "Nie wykryto anomalii",
+    "notProcessed": "To zgłoszenie nie przeszło jeszcze przez PROCESS.",
+    "section": {
+      "workItem": "Element pracy",
+      "intervals": "Przedziały",
+      "anomalies": "Anomalie",
+      "changelogs": "Historie zmian ({{count}})",
+      "worklogs": "Dzienniki pracy ({{count}})",
+      "payload": "Surowy ładunek"
+    },
+    "statusIntervals": "Przedziały stanów",
+    "fieldIntervals": "Przedziały pól",
+    "column": {
+      "issueKey": "Klucz zgłoszenia",
+      "project": "Projekt",
+      "issueType": "Typ zgłoszenia",
+      "status": "Stan",
+      "assignee": "Przypisane/y",
+      "processedAt": "Przetworzono",
+      "processingVersion": "Wersja przetwarzania",
+      "seq": "#",
+      "from": "Od",
+      "to": "Do",
+      "source": "Źródło",
+      "field": "Pole",
+      "value": "Wartość"
+    }
+  },
   "toast": {
     "created": "Utworzono źródło danych",
     "saved": "Zapisano źródło danych",
     "deleted": "Usunięto źródło danych",
     "syncRequested": "Synchronizacja w kolejce",
-    "syncCoalesced": "Synchronizacja już trwa"
+    "syncCoalesced": "Synchronizacja już trwa",
+    "reconcileRequested": "Uzgodnienie w kolejce",
+    "reconcileCoalesced": "Uzgodnienie już trwa",
+    "reprocessRequested": "Ponowne przetworzenie w kolejce",
+    "reprocessCoalesced": "Ponowne przetworzenie już trwa",
+    "jobCancelled": "Zażądano anulowania"
   }
 }

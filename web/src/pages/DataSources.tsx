@@ -1,9 +1,9 @@
 import { useState } from "react";
-import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
-import { Alert, Badge, Button, Menu, Stack, Table, Text } from "@mantine/core";
+import { Link as RouterLink, useNavigate } from "react-router-dom";
+import { Alert, Anchor, Badge, Button, Menu, Stack, Table, Text } from "@mantine/core";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
-import { IconPencil, IconPlugConnected, IconPlus, IconRefresh, IconTrash } from "@tabler/icons-react";
+import { IconExternalLink, IconPencil, IconPlugConnected, IconPlus, IconRefresh, IconTrash } from "@tabler/icons-react";
 import { useAdmin } from "../auth";
 import {
   deleteDataSource,
@@ -11,7 +11,6 @@ import {
   requestSyncJob,
   type DataSourceListItem,
   type DataSourceResponse,
-  type DataSourceState,
 } from "../api/dataSources";
 import ClearableTextInput from "../components/ClearableTextInput";
 import ConfirmDeleteModal from "../components/ConfirmDeleteModal";
@@ -23,6 +22,8 @@ import RowActionsMenu from "../components/RowActionsMenu";
 import SortHeader from "../components/SortHeader";
 import { useDeleteConfirm } from "../hooks/useDeleteConfirm";
 import { useRegistryListControls } from "../hooks/useRegistryListControls";
+import { dataSourcePath } from "../utils/dataSourceLinks";
+import { dataSourceStateColor, formatEpochMillis } from "../utils/dataSourceState";
 import { saveErrorMessage } from "../utils/saveError";
 import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
 import { showSuccessToast } from "../utils/toast";
@@ -32,18 +33,6 @@ type SortField = (typeof SORT_FIELDS)[number];
 
 const SETTINGS_KEY = "dataSources";
 
-/** The state badge colour — the app-wide vocabulary, no new hue: teal success, red blocking, gray neutral. */
-function stateColor(state: DataSourceState): "teal" | "red" | "gray" {
-  if (state === "CURRENT") return "teal";
-  if (state === "FAILED") return "red";
-  return "gray";
-}
-
-function formatLastSuccess(epochMillis: number | null | undefined, t: TFunction): string {
-  if (epochMillis == null) return t("dataSources.never");
-  return new Date(epochMillis).toISOString().slice(0, 16).replace("T", " ");
-}
-
 /**
  * The Data sources registry (`/data-sources`, ADMIN only — plan §9/§10): the Teams registry
  * template (`useRegistryListControls` + `RegistryListTable`). Unlike Teams, a list row already
@@ -52,6 +41,7 @@ function formatLastSuccess(epochMillis: number | null | undefined, t: TFunction)
  */
 export default function DataSources() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const admin = useAdmin();
   const queryClient = useQueryClient();
   const { nameFilter, setNameFilter, debouncedName, nameFilterActive, page, setPage, pageSize, setPageSize, sortField, sortDir, sortParam, toggleSort } =
@@ -151,9 +141,16 @@ export default function DataSources() {
           return (
             <Table.Tr key={dataSource.id}>
               <Table.Td>
-                <Text fw={500} size="sm">
+                {/* The name is the way into the details page — a real link (the detail-link rule). */}
+                <Anchor
+                  component={RouterLink}
+                  to={dataSourcePath(dataSource.id)}
+                  fw={500}
+                  size="sm"
+                  aria-label={t("dataSources.openAria", { name: dataSource.name })}
+                >
                   {dataSource.name}
-                </Text>
+                </Anchor>
               </Table.Td>
               <Table.Td>
                 <Text size="sm">{host}</Text>
@@ -169,10 +166,10 @@ export default function DataSources() {
                 </Text>
               </Table.Td>
               <Table.Td>
-                <Text size="sm">{formatLastSuccess(dataSource.status.lastSyncSucceededAt, t)}</Text>
+                <Text size="sm">{formatEpochMillis(dataSource.status.lastSyncSucceededAt, t)}</Text>
               </Table.Td>
               <Table.Td>
-                <Badge color={stateColor(dataSource.status.state)} variant="light">
+                <Badge color={dataSourceStateColor(dataSource.status.state)} variant="light">
                   {t(`dataSources.state.${dataSource.status.state}`)}
                 </Badge>
               </Table.Td>
@@ -181,6 +178,12 @@ export default function DataSources() {
                   label={t("common.table.operationsAria", { name: dataSource.name })}
                   loading={syncingId === dataSource.id}
                 >
+                  <Menu.Item
+                    leftSection={<IconExternalLink size={14} />}
+                    onClick={() => navigate(dataSourcePath(dataSource.id))}
+                  >
+                    {t("dataSources.open")}
+                  </Menu.Item>
                   <Menu.Item
                     leftSection={<IconRefresh size={14} />}
                     onClick={() => void syncNow(dataSource)}

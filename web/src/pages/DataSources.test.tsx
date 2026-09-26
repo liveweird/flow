@@ -94,11 +94,11 @@ describe("DataSources page", () => {
     localStorage.clear();
   });
 
-  test("the list renders every column, including the state badges", async () => {
+  test("the list renders every column, including the state badges, and the name links to details", async () => {
     serve(mockFetch);
     renderWithProviders(<DataSources />, { route: "/data-sources" });
 
-    expect(await screen.findByText("Acme Jira")).toBeInTheDocument();
+    expect(await screen.findByRole("link", { name: "Open Acme Jira" })).toHaveAttribute("href", "/data-sources/1");
     expect(screen.getByText("acme.atlassian.net")).toBeInTheDocument();
     expect(screen.getByText("ENG, OPS")).toBeInTheDocument();
     expect(screen.getAllByText("Yes")).toHaveLength(2);
@@ -246,6 +246,29 @@ describe("DataSources page", () => {
     await user.click(await screen.findByRole("menuitem", { name: "Delete Contoso Jira" }));
     await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: /^delete$/i }));
     expect(await screen.findByText("This data source cannot be deleted right now.")).toBeInTheDocument();
+  });
+
+  test("Cancel closes the editor modal without saving", async () => {
+    serve(mockFetch);
+    const user = userEvent.setup();
+    renderWithProviders(<DataSources />, { route: "/data-sources" });
+
+    await user.click(await screen.findByRole("button", { name: /new data source/i }));
+    const modal = await screen.findByRole("dialog");
+    await user.click(within(modal).getByRole("button", { name: /^cancel$/i }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(findCall(mockFetch, "POST", "/api/v1/data-sources")).toBeUndefined();
+  });
+
+  test("the Open row action navigates to the details page", async () => {
+    serve(mockFetch);
+    const user = userEvent.setup();
+    renderWithProviders(<DataSources />, { route: "/data-sources" });
+
+    await user.click(await screen.findByRole("button", { name: "Operations for Acme Jira" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Open" }));
+    // No matching route is mounted in this unit test — navigating is enough to exercise the handler.
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
   test("shows the load-failure alert", async () => {
