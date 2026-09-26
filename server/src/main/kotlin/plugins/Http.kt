@@ -14,6 +14,7 @@ import io.ktor.server.plugins.httpsredirect.*
 import io.ktor.server.routing.*
 import io.ktor.server.plugins.swagger.*
 import io.ktor.server.plugins.bodylimit.*
+import ch.nokillswit.infra.config.requireConfigInt
 
 /**
  * Global request-body ceiling: a memory-DoS backstop, not a business rule — every payload
@@ -64,7 +65,23 @@ fun Application.configureHttp() {
     // (rate-limit buckets) and scheme (HTTPS redirect) are the real client's, not the proxy's.
     // Off by default: honoring these headers from direct clients would let them spoof both.
     if (environment.config.propertyOrNull("http.behindProxy")?.getString()?.toBoolean() == true) {
-        install(XForwardedHeaders)
+        val proxyHops = requireConfigInt(environment.config, "http.proxyHops", min = 1)
+        install(XForwardedHeaders) {
+            // Only the headers the proxy contract sets — and therefore overwrites. Ktor's defaults
+            // also honour X-Forwarded-Server / X-Forwarded-Protocol / X-Forwarded-SSL /
+            // Front-End-Https, which a proxy that sets just the canonical ones passes through
+            // from the client untouched (Lettuce's v3.6.2 finding; ForwardedHeadersTest).
+            hostHeaders.clear()
+            hostHeaders.add(HttpHeaders.XForwardedHost)
+            protoHeaders.clear()
+            protoHeaders.add(HttpHeaders.XForwardedProto)
+            httpsFlagHeaders.clear()
+            // Ktor's default is useFirstProxy() — the FIRST X-Forwarded-For value, i.e. whatever
+            // the client sent when a proxy appends rather than replaces. Trust from the END: the
+            // value the last proxy wrote, or the one http.proxyHops-1 places before it
+            // (application.yaml explains the count; ForwardedHeadersTest pins it).
+            if (proxyHops == 1) useLastProxy() else skipLastProxies(proxyHops - 1)
+        }
     }
     install(Compression)
     install(DefaultHeaders)

@@ -217,10 +217,19 @@ that token will be).
 `http.corsHosts` (`$CORS_ALLOWED_HOSTS`, comma-separated hosts) is non-empty. Production is
 single-origin (Ktor serves the SPA) and dev goes through the Vite proxy, so no cross-origin caller
 exists by default — no `anyHost()`. **Reverse proxy**: set `HTTP_BEHIND_PROXY=true` (config
-`http.behindProxy`) when TLS terminates at an ingress/proxy — it installs `XForwardedHeaders` so
-rate-limit buckets key on the real client IP and the HTTPS redirect sees the real scheme; the
-proxy must set (and strip client-supplied) `X-Forwarded-For`/`X-Forwarded-Proto`. Off by default
-because honoring those headers from direct clients lets them spoof both.
+`http.behindProxy`) when TLS terminates at an ingress/proxy — it installs `XForwardedHeaders`,
+configured to honour ONLY the canonical `X-Forwarded-Host`/`X-Forwarded-Proto` (Ktor's defaults
+also read `X-Forwarded-Server`/`X-Forwarded-Protocol`/`X-Forwarded-SSL`/`Front-End-Https`, which a
+proxy that sets just the canonical ones passes through from the client untouched — Lettuce's
+v3.6.2 finding, ported), so rate-limit buckets key on the real client IP and the HTTPS redirect
+sees the real scheme; the proxy must set (and strip client-supplied) `X-Forwarded-For`/
+`X-Forwarded-Proto`. `X-Forwarded-For` is read from the END of the list via `useLastProxy()`/
+`skipLastProxies()`, keyed on `HTTP_PROXY_HOPS` (config `http.proxyHops`, boot-validated ≥ 1 via
+`requireConfigInt` — a config error, not a runtime concern): 1 (the default, one TLS-terminating
+proxy that APPENDS) trusts the value the last proxy wrote; N skips the N-1 addresses trusted
+proxies appended after the client's — never the first value, which is client-supplied and
+spoofable. Off by default because honoring these headers from direct clients lets them spoof both.
+Covered by `ForwardedHeadersTest`.
 
 CSRF install is gated behind `security.csrf.enabled` (default **`false`** in `application.yaml`,
 env-overridable via `SECURITY_CSRF_ENABLED`); the configured `originMatchesHost()` +
@@ -238,6 +247,24 @@ NOTHING`. The migration is kept **unchanged** (dev + e2e depend on it; checksums
 (`k8s/secret.yaml` is a placeholder template — create the real one out-of-band with the
 `kubectl create secret generic` command in its header; the app deployment consumes it via
 `secretKeyRef`).
+
+**Probes and the plain-HTTP crash-loop** (`k8s/app-deployment.yaml`, ported from Toadie): every
+probe (`startupProbe`/`readinessProbe`/`livenessProbe`) sends `X-Forwarded-Proto: https` — the
+header the TLS-terminating ingress sets, which `HTTP_BEHIND_PROXY`/`HTTP_PROXY_HOPS` above makes
+the app trust. Without it, production mode answers the kubelet's plain-HTTP probe request with a
+301 to `https://<pod-ip>/`, which the kubelet FOLLOWS (same host) into a refused `:443` — every
+probe fails and the pod crash-loops (Lettuce's v3.6.1 incident, reproduced in production).
+`startupProbe` (30 x 5s = ~150s) covers JVM boot + Flyway migrations before the liveness clock
+starts, so a slow first boot cannot trigger a restart.
+
+**Log hygiene.** `infra/db/Flyway.kt`'s startup log line renders the operator-supplied JDBC URL
+through `jdbcUrlForLogging()` — `host:port/db` only, no userinfo or query string — so a
+`jdbc:postgresql://host/db?user=...&password=...` form never lands a credential in the log
+(`.claude/docs/observability.md`, "never log secrets"); covered by `FlywayLogTest`. `POST
+/api/v1/logout`'s malformed-body debug line (`auth/AuthRoutes.kt`) logs only the parse failure's
+exception CLASS NAME, never the throwable — the cause chain can embed a body excerpt (kotlinx's
+decode-error message), the same `errorType`-only rule as `login.mfa_send_failed`/
+`password_reset.send_failed`; covered by `LogoutTest`.
 
 **Outbound email** (`infra/mail/`, ported from Lettuce): `configureMail` (registered at the top of
 the infrastructure group, before Flyway) publishes `MailerKey` holding a `Mailer` or null.
