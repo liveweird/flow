@@ -1,8 +1,10 @@
 # Frontend (`web/`)
 
 Vite + React 19 + TypeScript SPA: the shell + auth, user/feature management, MFA, password reset,
-the changelog, and the flat-teams registry — v0.1.0's foundation, with no Jira/GitLab data yet
-(`pages/Home.tsx` states that plainly). Routes are lazy. New capability that Covenant, Toadie or
+the changelog, and the flat-teams registry — v0.1.0's foundation — plus, since v0.2.0, the Data
+sources registry (ADMIN-managed Jira Cloud connections). Ingested Jira data itself (details/sync
+jobs/profile pages, dashboards) lands in later v0.2.0 commits — `pages/Home.tsx` still states
+plainly that there is none to show yet. Routes are lazy. New capability that Covenant, Toadie or
 Lettuce already has? Port their building blocks (see "Not yet ported" at the bottom) rather than
 inventing new ones.
 
@@ -220,7 +222,8 @@ Every list page composes the same ported Lettuce blocks — copy `pages/Users.ts
 
 ## Registries (the Teams.tsx template)
 
-The small ADMIN-curated registries (today: Teams; more arrive with the Jira domain model) compose
+The small ADMIN-curated registries (Teams, and since v0.2.0 Data sources; more arrive with the
+Jira domain model) compose
 `useRegistryListControls` for their persisted name filter, debounce and paged sort, and
 `RegistryListTable` for the common load/error/empty/pagination states. Each page owns its query
 key and parameters, extra filters, columns, row actions and mutation refresh prefixes. Their
@@ -269,6 +272,57 @@ confirm — `hooks/useBulkFeatureUpdate.ts` loops the same per-user wholesale PU
 `ConfirmActionModal`). Both queries key under `["users", …]`. Mind the wholesale-replace
 semantics: a PUT whose disabled set omits `MFA` ENABLES it.
 
+## Data sources (`pages/DataSources.tsx`, `components/DataSourceEditorModal.tsx`)
+
+The first Jira-domain surface (v0.2.0 plan §9/§10), ADMIN-only end to end: the nav leaf
+(`IconPlugConnected`, `adminOnly`), the route (`/data-sources`, under the same `RequireAdmin`
+group as Users/Feature flags in `App.tsx`), and every endpoint (`requireAdmin` server-side).
+
+- **`api/dataSources.ts`** mirrors `api/teams.ts`'s shape — list/create/update/delete plus the two
+  Test-connection wrappers (`testDataSourceAdHoc`/`testDataSourceStored`) and `requestSyncJob`
+  (`POST …/sync-jobs`, the sync-jobs history/status wrappers arrive with the details page, plan
+  commit 11). Unlike Teams, `DataSourcePage.items` already carries the FULL `DataSourceResponse`
+  (minus the write-only token) — Edit opens straight from the row, no extra detail fetch.
+- **`pages/DataSources.tsx`** is the Teams registry template (`useRegistryListControls` +
+  `RegistryListTable`), sorted by name only (the server's other sortable fields — `id`,
+  `createdAt`, `updatedAt` — have no visible column). Columns: name, site host (parsed from
+  `jira.siteUrl` — always a bare origin, so `new URL(...).host` is safe), projects (joined
+  keys), enabled (plain Yes/No text — the state badge below is the one place this page spends
+  colour), last success (`YYYY-MM-DD HH:mm` sliced from the ISO string like `VersionStamp`, never
+  `toLocaleString()` — deterministic across test/CI locales; "Never" when null), and the
+  `DataSourceState` badge — teal `CURRENT`, red `FAILED`, gray everything else
+  (`NEVER_SYNCED`/`STALE`/`DISABLED`), the app's existing success/blocking/neutral vocabulary, no
+  new hue. Row actions (`RowActionsMenu`): **Sync now** (`POST …/sync-jobs {kind: SYNC}`, a direct
+  action with no confirm step — the success toast itself distinguishes a freshly queued job from
+  `coalesced: true`; a failure renders inline above the table, same rule as everywhere else:
+  never a toast), Edit, Delete (`ConfirmDeleteModal`, the same conflict-naming pattern as Teams).
+- **`components/DataSourceEditorModal.tsx`** ports Covenant's `ToadieConnectionEditorModal` (the
+  site URL disables once a connection exists — Toadie's `baseUrl` pattern — since a changed
+  `siteUrl` is a `409` server-side; that also means a saved `409` here is always the name clash,
+  so it marks the `name` field like Teams does). Fields: name, site URL (`https://<tenant>
+  .atlassian.net` hint), service-account email, a `PasswordInput` token ("leave blank to keep the
+  current token" on edit — blank travels as an omitted `apiToken`, which the server keeps), a
+  `TagsInput` for project keys (force-uppercased in `onChange`, after `form.getInputProps`, so the
+  wire value always matches `PROJECT_KEY_PATTERN`), a plain backfill-date `TextInput`
+  (`YYYY-MM-DD`, blank omits the field so the server computes its 24-months-back default — no
+  `@mantine/dates`), sync interval / reconcile hour `NumberInput`s, an auth-scheme `Select`
+  (Basic/Bearer), and an enabled `Switch`. **`utils/dataSourceForm.ts`** mirrors
+  `ingest/DataSource.kt`'s validation exactly (name/site-URL/email/token length caps, the Jira
+  site-URL and project-key regexes plus the Atlassian-reserved-label rejection, the
+  backfill-date range) — keep the two in sync.
+- **Test connection**: the same button drives both the ad-hoc probe (`POST /data-sources/test`,
+  the form's current values — required whenever creating or rotating the token) and the stored
+  probe (`POST /data-sources/{id}/test`, no body) when editing with a blank token field; it
+  validates only the four Jira fields the probe needs (not the whole form) before calling.
+  **`components/ConnectionTestResults.tsx`** renders the row table (endpoint + path / required /
+  a teal-or-red result badge / a detail cell combining the upstream status, the
+  `JiraFetchException` code and a failed row's `scopeHint`) and the resolved `cloudId` once
+  `tenant_info` succeeds — reused as-is by the future details page.
+- **`utils/dataSourceLinks.ts`** holds just `dataSourcesPath` today; the per-id `dataSourcePath`
+  helper arrives with the details page (plan commit 11) rather than sitting unused.
+- `pages/Home.tsx`'s admin empty state links to `/data-sources` (a plain `Anchor` under the
+  `EmptyState`, not a rewrite of that shared component) — "keep it simple" per the commit plan.
+
 ## Internationalization (i18n)
 
 The SPA is **N-language by architecture** via react-i18next (`src/i18n.ts`); the shipped bundles
@@ -276,7 +330,7 @@ are English (THE default and fallback everywhere) and Polish. All user-facing st
 `const { t } = useTranslation()` / `<Trans>` — **no hardcoded UI text**. Conventions:
 
 - **Resources** live in `src/locales/{en,pl}/<area>.json`, one file per area (`appShell`, `auth`,
-  `changelog`, `common`, `home`, `teams`, `users`); `i18n.ts` merges them into a single
+  `changelog`, `common`, `dataSources`, `home`, `teams`, `users`); `i18n.ts` merges them into a single
   `translation` namespace, so keys read `area.key` (e.g. `t("auth.signIn")`). Only EN is
   statically imported — its typed `en` tree is the key canon AND the runtime fallback; every other
   language is auto-discovered from `locales/<lang>/` via `import.meta.glob`. Bundles are eager on

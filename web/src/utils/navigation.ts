@@ -1,5 +1,6 @@
 import type { ParseKeys } from "i18next";
-import { IconHistory, IconHome2, IconKey, IconToggleLeft, IconUsers, IconUsersGroup, type Icon } from "@tabler/icons-react";
+import { IconHistory, IconHome2, IconKey, IconPlugConnected, IconToggleLeft, IconUsers, IconUsersGroup, type Icon } from "@tabler/icons-react";
+import { dataSourcesPath } from "./dataSourceLinks";
 import { teamsPath } from "./teamLinks";
 
 export type NavLeaf = {
@@ -25,8 +26,8 @@ export const homePath = "/";
  * always-open blocks (never collapsible groups): every leaf is always in the DOM, so tests and
  * deep links address the links directly, and a static label costs less vertical space than a
  * toggle. Home is visible to everyone; the Administration section holds Teams (everyone reads
- * the flat teams list; only its create/edit/delete are ADMIN) alongside the ADMIN-only Users
- * and Feature flags leaves — a non-admin session sees just Teams there.
+ * the flat teams list; only its create/edit/delete are ADMIN) alongside the ADMIN-only Users,
+ * Feature flags and Data sources leaves — a non-admin session sees just Teams there.
  */
 const NAV_SECTIONS: ReadonlyArray<NavSection> = [
   {
@@ -39,6 +40,7 @@ const NAV_SECTIONS: ReadonlyArray<NavSection> = [
       { to: teamsPath, label: "appShell.nav.teams", icon: IconUsersGroup },
       { to: "/users", label: "appShell.nav.users", icon: IconUsers, adminOnly: true },
       { to: "/feature-flags", label: "appShell.nav.featureFlags", icon: IconToggleLeft, adminOnly: true },
+      { to: dataSourcesPath, label: "appShell.nav.dataSources", icon: IconPlugConnected, adminOnly: true },
     ],
   },
 ];

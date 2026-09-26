@@ -61,6 +61,7 @@ describe("App shell", () => {
       expect(within(admin).getByRole("link", { name: "Teams" })).toHaveAttribute("href", "/teams");
       expect(within(admin).queryByRole("link", { name: "Users" })).not.toBeInTheDocument();
       expect(within(admin).queryByRole("link", { name: "Feature flags" })).not.toBeInTheDocument();
+      expect(within(admin).queryByRole("link", { name: "Data sources" })).not.toBeInTheDocument();
       // Account items live in the header menu, not the sidebar.
       expect(screen.queryByRole("link", { name: "Change password" })).not.toBeInTheDocument();
     });
@@ -97,6 +98,7 @@ describe("App shell", () => {
       expect(within(admin).getByRole("link", { name: "Teams" })).toHaveAttribute("href", "/teams");
       expect(within(admin).getByRole("link", { name: "Users" })).toHaveAttribute("href", "/users");
       expect(within(admin).getByRole("link", { name: "Feature flags" })).toHaveAttribute("href", "/feature-flags");
+      expect(within(admin).getByRole("link", { name: "Data sources" })).toHaveAttribute("href", "/data-sources");
     });
 
     test("the account menu holds the Changelog link; the stamp links there and the trigger carries the dot", async () => {

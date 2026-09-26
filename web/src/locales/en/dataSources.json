@@ -1,0 +1,94 @@
+{
+  "title": "Data sources",
+  "intro": "ADMIN-managed connections to Jira Cloud projects Flow ingests. Each connection runs its own sync schedule.",
+  "newDataSource": "New data source",
+  "createTitle": "New data source",
+  "editTitle": "Edit data source",
+  "empty": "No data sources yet",
+  "loadFailed": "Could not load the data sources",
+  "column": {
+    "site": "Site",
+    "projects": "Projects",
+    "enabled": "Enabled",
+    "lastSuccess": "Last success",
+    "state": "State"
+  },
+  "yes": "Yes",
+  "no": "No",
+  "never": "Never",
+  "state": {
+    "NEVER_SYNCED": "Never synced",
+    "CURRENT": "Current",
+    "STALE": "Stale",
+    "FAILED": "Failed",
+    "DISABLED": "Disabled"
+  },
+  "syncNow": "Sync now",
+  "syncNowAria": "Sync now: {{name}}",
+  "deleteTitle": "Delete data source?",
+  "deleteBody": "\"{{name}}\" will be deleted. Its Jira data is purged after a grace period.",
+  "deleteFailed": "Could not delete the data source",
+  "deleteConflict": "This data source cannot be deleted right now.",
+  "saveForbidden": "Only administrators can manage data sources",
+  "saveConflict": "A data source with this name already exists",
+  "saveInvalid": "One or more fields are invalid",
+  "saveGone": "This data source no longer exists — reload the page",
+  "field": {
+    "siteUrl": "Site URL",
+    "siteUrlHint": "https://<tenant>.atlassian.net — fixed once the connection is created",
+    "email": "Service-account email",
+    "apiToken": "API token",
+    "apiTokenKeep": "Leave blank to keep the current token",
+    "projectKeys": "Project keys",
+    "projectKeysHint": "Jira project keys, uppercase (e.g. ENG, OPS)",
+    "backfillFrom": "Backfill from",
+    "backfillFromHint": "ISO date (YYYY-MM-DD) — leave blank for 24 months back",
+    "syncInterval": "Sync interval (minutes)",
+    "reconcileHour": "Reconcile hour (UTC)",
+    "authScheme": "Auth scheme",
+    "enabled": "Enabled"
+  },
+  "authScheme": {
+    "BASIC": "Basic",
+    "BEARER": "Bearer"
+  },
+  "validation": {
+    "nameLength": "Name must be 1–100 characters",
+    "siteUrlInvalid": "Site URL must be exactly https://<tenant>.atlassian.net",
+    "emailInvalid": "Enter a valid email address",
+    "emailTooLong": "Email must be at most 254 characters",
+    "apiTokenRequired": "An API token is required",
+    "apiTokenTooLong": "API token must be at most 1000 characters",
+    "projectKeysCount": "Enter 1–50 project keys",
+    "projectKeysInvalid": "Invalid project key: {{key}} (uppercase letters, digits and underscores only)",
+    "syncIntervalRange": "Sync interval must be between 5 and 1440 minutes",
+    "reconcileHourRange": "Reconcile hour must be between 0 and 23",
+    "backfillFromInvalid": "Backfill date must be an ISO date (YYYY-MM-DD)",
+    "backfillFromFuture": "Backfill date must not be in the future",
+    "backfillFromTooOld": "Backfill date must not be before {{floor}}"
+  },
+  "testConnection": "Test connection",
+  "test": {
+    "column": {
+      "endpoint": "Endpoint",
+      "required": "Required",
+      "result": "Result",
+      "detail": "Detail"
+    },
+    "required": "Required",
+    "optional": "Optional",
+    "ok": "OK",
+    "failed": "Failed",
+    "scopeHint": "scope: {{scope}}",
+    "cloudId": "Cloud ID: {{cloudId}}",
+    "rateLimited": "Too many test attempts — wait a minute and try again",
+    "failedGeneric": "Test connection failed. Check your connection and try again."
+  },
+  "toast": {
+    "created": "Data source created",
+    "saved": "Data source saved",
+    "deleted": "Data source deleted",
+    "syncRequested": "Sync queued",
+    "syncCoalesced": "A sync is already in progress"
+  }
+}

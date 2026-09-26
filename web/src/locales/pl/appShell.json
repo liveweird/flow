@@ -8,7 +8,8 @@
     "changePassword": "Zmiana hasła",
     "featureFlags": "Flagi funkcji",
     "changelog": "Historia zmian",
-    "teams": "Zespoły"
+    "teams": "Zespoły",
+    "dataSources": "Źródła danych"
   },
   "section": {
     "overview": "Przegląd",

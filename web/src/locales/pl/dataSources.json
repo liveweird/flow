@@ -1,0 +1,94 @@
+{
+  "title": "Źródła danych",
+  "intro": "Połączenia z projektami Jira Cloud, zarządzane przez administratorów/rki, z których Flow pobiera dane. Każde połączenie ma własny harmonogram synchronizacji.",
+  "newDataSource": "Nowe źródło danych",
+  "createTitle": "Nowe źródło danych",
+  "editTitle": "Edytuj źródło danych",
+  "empty": "Nie ma jeszcze źródeł danych",
+  "loadFailed": "Nie udało się wczytać źródeł danych",
+  "column": {
+    "site": "Witryna",
+    "projects": "Projekty",
+    "enabled": "Włączone",
+    "lastSuccess": "Ostatni sukces",
+    "state": "Stan"
+  },
+  "yes": "Tak",
+  "no": "Nie",
+  "never": "Nigdy",
+  "state": {
+    "NEVER_SYNCED": "Jeszcze niezsynchronizowane",
+    "CURRENT": "Aktualne",
+    "STALE": "Nieaktualne",
+    "FAILED": "Błąd",
+    "DISABLED": "Wyłączone"
+  },
+  "syncNow": "Synchronizuj teraz",
+  "syncNowAria": "Synchronizuj teraz: {{name}}",
+  "deleteTitle": "Usunąć źródło danych?",
+  "deleteBody": "Źródło danych „{{name}}” zostanie usunięte. Jego dane z Jiry zostaną usunięte po okresie karencji.",
+  "deleteFailed": "Nie udało się usunąć źródła danych",
+  "deleteConflict": "Tego źródła danych nie można teraz usunąć.",
+  "saveForbidden": "Tylko administratorzy/rki mogą zarządzać źródłami danych",
+  "saveConflict": "Źródło danych o tej nazwie już istnieje",
+  "saveInvalid": "Jedno lub więcej pól jest nieprawidłowe",
+  "saveGone": "To źródło danych już nie istnieje — odśwież stronę",
+  "field": {
+    "siteUrl": "Adres URL witryny",
+    "siteUrlHint": "https://<tenant>.atlassian.net — ustalony przy tworzeniu połączenia",
+    "email": "E-mail konta serwisowego",
+    "apiToken": "Token API",
+    "apiTokenKeep": "Zostaw puste, aby zachować obecny token",
+    "projectKeys": "Klucze projektów",
+    "projectKeysHint": "Klucze projektów Jira, wielkimi literami (np. ENG, OPS)",
+    "backfillFrom": "Uzupełnij dane od",
+    "backfillFromHint": "Data ISO (RRRR-MM-DD) — zostaw puste, aby pobrać 24 miesiące wstecz",
+    "syncInterval": "Interwał synchronizacji (minuty)",
+    "reconcileHour": "Godzina uzgadniania (UTC)",
+    "authScheme": "Schemat uwierzytelniania",
+    "enabled": "Włączone"
+  },
+  "authScheme": {
+    "BASIC": "Basic",
+    "BEARER": "Bearer"
+  },
+  "validation": {
+    "nameLength": "Nazwa musi mieć od 1 do 100 znaków",
+    "siteUrlInvalid": "Adres URL witryny musi mieć dokładnie postać https://<tenant>.atlassian.net",
+    "emailInvalid": "Podaj poprawny adres e-mail",
+    "emailTooLong": "E-mail może mieć najwyżej 254 znaki",
+    "apiTokenRequired": "Token API jest wymagany",
+    "apiTokenTooLong": "Token API może mieć najwyżej 1000 znaków",
+    "projectKeysCount": "Podaj od 1 do 50 kluczy projektów",
+    "projectKeysInvalid": "Nieprawidłowy klucz projektu: {{key}} (tylko wielkie litery, cyfry i podkreślenia)",
+    "syncIntervalRange": "Interwał synchronizacji musi wynosić od 5 do 1440 minut",
+    "reconcileHourRange": "Godzina uzgadniania musi być z zakresu 0–23",
+    "backfillFromInvalid": "Data uzupełnienia musi być datą ISO (RRRR-MM-DD)",
+    "backfillFromFuture": "Data uzupełnienia nie może być w przyszłości",
+    "backfillFromTooOld": "Data uzupełnienia nie może być wcześniejsza niż {{floor}}"
+  },
+  "testConnection": "Testuj połączenie",
+  "test": {
+    "column": {
+      "endpoint": "Punkt końcowy",
+      "required": "Wymagane",
+      "result": "Wynik",
+      "detail": "Szczegóły"
+    },
+    "required": "Wymagane",
+    "optional": "Opcjonalne",
+    "ok": "OK",
+    "failed": "Błąd",
+    "scopeHint": "zakres: {{scope}}",
+    "cloudId": "Cloud ID: {{cloudId}}",
+    "rateLimited": "Zbyt wiele prób testu — poczekaj minutę i spróbuj ponownie",
+    "failedGeneric": "Test połączenia nie powiódł się. Sprawdź połączenie i spróbuj ponownie."
+  },
+  "toast": {
+    "created": "Utworzono źródło danych",
+    "saved": "Zapisano źródło danych",
+    "deleted": "Usunięto źródło danych",
+    "syncRequested": "Synchronizacja w kolejce",
+    "syncCoalesced": "Synchronizacja już trwa"
+  }
+}
