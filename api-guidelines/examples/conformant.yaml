@@ -1,0 +1,262 @@
+openapi: 3.0.3
+info:
+  title: Widgets API (conformant reference fixture)
+  version: "1.0.0"
+  termsOfService: https://example.com/terms          # API-META-002
+  description: |
+    Minimal spec that satisfies every rule in api-guidelines.spectral.yaml — including the
+    known-gaps-register hints (X-Request-Id, ETag, Idempotency-Key, Retry-After), so it
+    shows the "gap closed" end state. Used as the conformant reference for verification and
+    as a copy-paste starting point for a new resource.
+x-sla:                                                # API-META-001
+  availability: "99.9%"
+  rateLimit: "600/min"
+  support: "business-hours"
+security:                                             # API-AUTH-001
+  - bearerAuth: []
+paths:
+  /api/v1/widgets:                                    # API-VER-001 / API-RES-001/002
+    get:
+      operationId: listWidgets
+      description: >
+        List widgets. Sortable: id, name, createdAt (default: id ascending; `id` is always
+        appended as tiebreaker). Filterable: name (case-insensitive substring),
+        createdAt[gte]/[lte]. (API-NAME-004)
+      parameters:
+        - $ref: '#/components/parameters/Page'        # API-NAME-003 / API-LIST-002
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/Sort'        # API-LIST-003
+        - name: name                                  # API-LIST-005 (documented substring)
+          in: query
+          description: Case-insensitive substring match on the widget name.
+          schema: { type: string }
+        - name: createdAt[gte]                        # API-LIST-004 (range operator)
+          in: query
+          schema: { type: integer, format: int64 }
+        - name: createdAt[lte]
+          in: query
+          schema: { type: integer, format: int64 }
+      responses:
+        '200':
+          description: A page of widgets.
+          headers:
+            X-Request-Id: { $ref: '#/components/headers/RequestId' }
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WidgetPage' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429':
+          description: Rate limit exceeded.
+          headers:
+            Retry-After: { $ref: '#/components/headers/RetryAfter' }   # API-RATE-001
+            X-Request-Id: { $ref: '#/components/headers/RequestId' }
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/ProblemDetail' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    post:
+      operationId: createWidget
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'   # API-IDEM-001
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WidgetRequest' }
+      responses:
+        '201':
+          description: Created.
+          headers:
+            Location: { $ref: '#/components/headers/Location' }        # API-OK-001
+            X-Request-Id: { $ref: '#/components/headers/RequestId' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WidgetResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }             # API-ERR-007
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/widgets/{id}:
+    get:
+      operationId: getWidget
+      parameters:
+        - $ref: '#/components/parameters/WidgetId'
+      responses:
+        '200':
+          description: One widget.
+          headers:
+            X-Request-Id: { $ref: '#/components/headers/RequestId' }
+            ETag: { $ref: '#/components/headers/ETag' }                # API-CACHE-001
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WidgetResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    put:                                              # API-RES-004: full-document replace
+      operationId: updateWidget
+      parameters:
+        - $ref: '#/components/parameters/WidgetId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WidgetRequest' }
+      responses:
+        '204':                                        # API-OK-003/004
+          description: Updated.
+          headers:
+            X-Request-Id: { $ref: '#/components/headers/RequestId' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    delete:
+      operationId: deleteWidget
+      parameters:
+        - $ref: '#/components/parameters/WidgetId'
+      responses:
+        '204':
+          description: Deleted (repeat calls answer 404 — API-RES-007).
+          headers:
+            X-Request-Id: { $ref: '#/components/headers/RequestId' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+components:
+  securitySchemes:                                    # API-AUTH-001/002
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    Page:
+      name: page
+      in: query
+      description: 1-based page number (default 1, must be ≥ 1).
+      schema: { type: integer, minimum: 1, default: 1 }
+    PageSize:
+      name: pageSize
+      in: query
+      description: Page length (default 20, max 100).
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+    Sort:
+      name: sort
+      in: query
+      description: "`field` asc / `-field` desc, comma-separated, leftmost wins."
+      schema: { type: string }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      description: Replaying the same key with the same payload returns the original response.
+      schema: { type: string }
+    WidgetId:
+      name: id
+      in: path
+      required: true
+      schema: { type: integer, minimum: 1 }           # API-RES-005
+  headers:
+    RequestId:
+      description: Correlation id echoed on every response (API-ERR-004).
+      schema: { type: string }
+    ETag:
+      description: Entity tag for conditional requests.
+      schema: { type: string }
+    Location:
+      description: URL of the created resource.
+      schema: { type: string, format: uri }
+    RetryAfter:
+      description: Seconds to wait before retrying.
+      schema: { type: integer }
+  responses:
+    BadRequest:
+      description: Malformed request.
+      headers:
+        X-Request-Id: { $ref: '#/components/headers/RequestId' }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ProblemDetail' }
+    Unauthorized:
+      description: Missing or invalid token.
+      headers:
+        X-Request-Id: { $ref: '#/components/headers/RequestId' }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ProblemDetail' }
+    NotFound:
+      description: Resource not found.
+      headers:
+        X-Request-Id: { $ref: '#/components/headers/RequestId' }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ProblemDetail' }
+    Conflict:
+      description: Conflict with an existing resource (its URI is in `instance` — API-ERR-007).
+      headers:
+        X-Request-Id: { $ref: '#/components/headers/RequestId' }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ProblemDetail' }
+    InternalServerError:
+      description: Unexpected server error.
+      headers:
+        X-Request-Id: { $ref: '#/components/headers/RequestId' }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ProblemDetail' }
+  schemas:
+    WidgetResponse:                                   # API-STRUCT-003: flat camelCase DTO
+      type: object
+      required: [id, name, ownerId, createdAt]
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string }
+        ownerId:                                      # reference by id, not embedded object
+          type: integer
+          format: int64
+        ownerName:                                    # denormalized display field, read-only
+          type: string
+          readOnly: true
+        createdAt:                                    # API-DATA-001: epoch millis
+          type: integer
+          format: int64
+          description: Creation instant, epoch milliseconds (UTC).
+        dueDate:                                      # API-DATA-001: date-only ISO string
+          type: string
+          nullable: true
+          description: Optional due date, ISO YYYY-MM-DD (zero-padded).
+        status:                                       # API-DATA-003: string enum
+          type: string
+          enum: [ACTIVE, RETIRED]
+    WidgetRequest:
+      type: object
+      required: [name, ownerId]
+      properties:
+        name: { type: string, maxLength: 100 }
+        ownerId: { type: integer, format: int64 }
+        dueDate: { type: string, nullable: true }
+        status: { type: string, enum: [ACTIVE, RETIRED] }
+    WidgetPage:                                       # API-STRUCT-004: the list envelope
+      type: object
+      required: [items, page, pageSize, total]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/WidgetResponse' }
+        page: { type: integer, minimum: 1 }
+        pageSize: { type: integer, minimum: 1 }
+        total:
+          type: integer
+          minimum: 0
+          description: Row count after filters, before pagination (API-LIST-001).
+    ProblemDetail:                                    # API-ERR-001: RFC 7807
+      type: object
+      required: [title, status]
+      properties:
+        type: { type: string }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        instance: { type: string, nullable: true }

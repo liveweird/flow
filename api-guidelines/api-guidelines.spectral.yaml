@@ -1,0 +1,363 @@
+# Spectral ruleset encoding the machine-checkable subset of API-GUIDELINES.md.
+#
+# Run against any OpenAPI 3.x document:
+#   npx @stoplight/spectral-cli lint <openapi.yaml> --ruleset api-guidelines.spectral.yaml
+#
+# Every rule's `description` cites the guideline ID it enforces (see API-GUIDELINES.md).
+# Transport/security/protocol rules (API-SEC, API-HTTP) have NO Spectral equivalent — they
+# are runtime concerns, checked by review only.
+#
+# Severity model:
+#   error — a violation of the standard; must be fixed. A conformant spec lints with 0 errors.
+#   warn  — a SHOULD-level rule, or a known-gaps-register item that fires once per document
+#           (x-sla, termsOfService, Retry-After). Warnings should map onto the register.
+#   hint  — known-gaps-register items that would otherwise fire on every operation
+#           (X-Request-Id, ETag, Idempotency-Key). Informational until the gap is closed;
+#           promote to warn/error when adopting the header.
+#
+# The conformant reference fixture lives at examples/conformant.yaml (lints fully clean,
+# including warnings and hints).
+
+extends: [[spectral:oas, off]]
+
+rules:
+  # --- API-STRUCT (document shape & media types) -----------------------------
+
+  success-bodies-are-json:
+    description: "API-STRUCT-001: request and 2xx response bodies use application/json."
+    message: "Body must use `application/json` (API-STRUCT-001)."
+    severity: error
+    given:
+      - $.paths[*][*].responses[?(@property && @property.match(/^2\d\d$/))].content
+      - $..requestBody.content
+    then:
+      field: application/json
+      function: truthy
+
+  error-bodies-are-problem-json:
+    description: "API-STRUCT-001 / API-ERR-001: 4xx/5xx bodies are RFC 7807 application/problem+json."
+    message: "Error body must use `application/problem+json` (API-ERR-001)."
+    severity: error
+    given: $..responses[?(@property && @property.match(/^[45]\d\d$/))].content
+    then:
+      field: application/problem+json
+      function: truthy
+
+  errors-have-problem-shape:
+    description: "API-ERR-001: error bodies follow the shared ProblemDetail shape (title + status)."
+    message: "Error schema must carry RFC 7807 members `title` and `status` (API-ERR-001)."
+    severity: error
+    given: $..responses[?(@property && @property.match(/^[45]\d\d$/))].content[application/problem+json].schema
+    then:
+      - field: properties.title
+        function: truthy
+      - field: properties.status
+        function: truthy
+
+  no-top-level-array-response:
+    description: "API-STRUCT-002 / API-STRUCT-004: every body is a JSON object (list envelope), never a top-level array."
+    message: "Response body must be a JSON object, not a top-level array (API-STRUCT-002)."
+    severity: error
+    given: $..responses[*].content[*].schema
+    then:
+      field: type
+      function: pattern
+      functionOptions:
+        notMatch: "^array$"
+
+  # --- API-RES / API-VER (URLs & versioning) ---------------------------------
+
+  paths-are-versioned:
+    description: "API-RES-001 / API-VER-001: every path lives under the /api/v<major>/ prefix."
+    message: "{{property}} is not under the /api/v<major>/ version prefix (API-VER-001)."
+    severity: error
+    given: $.paths
+    then:
+      field: "@key"
+      function: pattern
+      functionOptions:
+        match: "^/api/v\\d+/"
+
+  collections-are-kebab-plural:
+    description: "API-RES-002: path segments are lowercase kebab-case or a {param}."
+    message: "{{property}} has a non-kebab-case segment (API-RES-002)."
+    severity: error
+    given: $.paths
+    then:
+      field: "@key"
+      function: pattern
+      functionOptions:
+        match: "^(/(\\{[a-zA-Z0-9]+\\}|[a-z0-9]+(-[a-z0-9]+)*))+$"
+
+  no-crud-verbs-in-paths:
+    description: >
+      API-RES-003: paths name resources; the operation lives in the HTTP method. A segment
+      starting with a CRUD verb (getUsers / list-users) is an anti-pattern. Curated list to
+      avoid flagging legitimate nouns (e.g. /posts); extend as needed.
+    message: "{{property}} looks like it puts a verb in the path (API-RES-003)."
+    severity: warn
+    given: $.paths
+    then:
+      field: "@key"
+      function: pattern
+      functionOptions:
+        notMatch: "/(get|list|create|fetch|retrieve)([A-Z]|-)"
+
+  get-and-delete-have-no-request-body:
+    description: "API-RES-004: GET is safe and DELETE idempotent — neither takes a request body."
+    message: "GET/DELETE must not declare a requestBody (API-RES-004)."
+    severity: warn
+    given:
+      - $.paths[*].get
+      - $.paths[*].delete
+    then:
+      field: requestBody
+      function: undefined
+
+  no-patch-operations:
+    description: "API-RES-004: updates are PUT full-document replaces; PATCH is not used."
+    message: "PATCH is not part of this standard — updates use PUT (API-RES-004)."
+    severity: warn
+    given: $.paths[*]
+    then:
+      field: patch
+      function: undefined
+
+  path-ids-are-constrained:
+    description: "API-RES-005: path-id parameters constrain their value (minimum / pattern / enum / format)."
+    message: "Path parameter must constrain its value (API-RES-005)."
+    severity: error
+    given: $..parameters[?(@.in == 'path')].schema
+    then:
+      function: schema
+      functionOptions:
+        schema:
+          anyOf:
+            - required: [minimum]
+            - required: [pattern]
+            - required: [enum]
+            - required: [format]
+
+  max-nesting-depth:
+    description: >
+      API-RES-006: keep nesting shallow (parent instance + child). Three or more {param}
+      segments is too deep.
+    message: "{{property}} nests too deeply (3+ path params) (API-RES-006)."
+    severity: warn
+    given: $.paths
+    then:
+      field: "@key"
+      function: pattern
+      functionOptions:
+        notMatch: "(\\{[^}]+\\}[^{]*){3,}"
+
+  deprecated-item-has-migration-note:
+    description: "API-VER-004: anything deprecated: true carries a description with the migration path."
+    message: "Deprecated item needs a `description` with the migration path (API-VER-004)."
+    severity: warn
+    given: $..[?(@.deprecated == true)]
+    then:
+      field: description
+      function: truthy
+
+  # --- API-LIST / API-NAME (collections & params) ----------------------------
+
+  query-param-shape:
+    description: >
+      API-NAME-002 / API-LIST-004: query params are camelCase, with brackets only as the
+      range-operator suffixes [gte]/[gt]/[lte]/[lt]. JSON:API family params (page[size],
+      filter[x], fields[t]) are not used.
+    message: "Query parameter `{{value}}` is not camelCase(+range-operator) (API-NAME-002)."
+    severity: error
+    given: $..parameters[?(@.in == 'query' && @.name)]
+    then:
+      field: name
+      function: pattern
+      functionOptions:
+        match: "^[a-z][a-zA-Z0-9]*(\\[(gte|gt|lte|lt)\\])?$"
+
+  paging-params-are-refs:
+    description: >
+      API-NAME-003 / API-LIST-002 / API-LIST-003: the shared paging/sort params (page,
+      pageSize, sort, q) must be $ref'd from #/components/parameters, never inlined.
+    message: "Parameter `{{value}}` must be a $ref to #/components/parameters (API-NAME-003)."
+    severity: warn
+    resolved: false # inspect the raw doc: a $ref param has no inline `name`
+    given: $.paths[*][*].parameters[?(@.name)]
+    then:
+      field: name
+      function: pattern
+      functionOptions:
+        notMatch: "^(page|pageSize|sort|q)$"
+
+  # --- API-OK (success status codes) -----------------------------------------
+
+  created-response-sets-location:
+    description: "API-OK-001: a 201 Created response points at the new resource via Location."
+    message: "201 response should declare a `Location` header (API-OK-001)."
+    severity: warn
+    given: $.paths[*].post.responses.201
+    then:
+      field: headers.Location
+      function: truthy
+
+  no-content-response-has-no-body:
+    description: "API-OK-004: a 204 No Content response must not carry a body."
+    message: "204 response must not declare `content` (API-OK-004)."
+    severity: warn
+    given: $.paths[*][get,post,put,delete].responses.204
+    then:
+      field: content
+      function: undefined
+
+  # --- API-ERR (declarations) ------------------------------------------------
+
+  operation-declares-500:
+    description: "API-ERR-005: every operation declares a 500 response."
+    message: "Operation is missing a 500 response (API-ERR-005)."
+    severity: warn
+    given: $.paths[*][get,post,put,delete]
+    then:
+      field: responses.500
+      function: truthy
+
+  input-operation-declares-400:
+    description: "API-ERR-005: operations that take a request body declare a 400 response."
+    message: "Body-taking operation is missing a 400 response (API-ERR-005)."
+    severity: warn
+    given: $.paths[*][post,put][?(@.requestBody)]
+    then:
+      field: responses.400
+      function: truthy
+
+  responses-declare-correlation-id:
+    description: >
+      API-ERR-004: every response echoes a correlation id header (X-Request-Id).
+      KNOWN-GAPS REGISTER item — hint severity until the header is adopted, then promote.
+    message: "Response should declare an `X-Request-Id` header (API-ERR-004, registered gap)."
+    severity: hint
+    given: $.paths[*][get,post,put,delete].responses[?(@property && @property.match(/^2\d\d$/))]
+    then:
+      field: headers.X-Request-Id
+      function: truthy
+
+  # --- API-CACHE -------------------------------------------------------------
+
+  cacheable-get-declares-etag:
+    description: >
+      API-CACHE-001: cacheable GET 200s send an ETag validator. KNOWN-GAPS REGISTER item —
+      hint severity until conditional requests are adopted, then promote (and disable
+      per-op for genuinely non-cacheable reads).
+    message: "GET 200 should declare an `ETag` header (API-CACHE-001, registered gap)."
+    severity: hint
+    given: $.paths[*].get.responses.200
+    then:
+      field: headers.ETag
+      function: truthy
+
+  # --- API-IDEM --------------------------------------------------------------
+
+  create-post-has-idempotency-key:
+    description: >
+      API-IDEM-001: non-idempotent POST accepts an Idempotency-Key header. KNOWN-GAPS
+      REGISTER item — hint severity; domain-level no-duplicate 409s cover double-submits
+      today. Fires only on POSTs that declare parameters.
+    message: "POST should accept an `Idempotency-Key` header (API-IDEM-001, registered gap)."
+    severity: hint
+    given: $.paths[*].post.parameters
+    then:
+      function: schema
+      functionOptions:
+        schema:
+          type: array
+          contains:
+            type: object
+            properties:
+              name: { const: Idempotency-Key }
+            required: [name]
+
+  # --- API-AUTH (authentication) ---------------------------------------------
+
+  security-is-declared:
+    description: "API-AUTH-001: authentication is declared (a top-level `security` requirement)."
+    message: "Declare a top-level `security` requirement (API-AUTH-001)."
+    severity: warn
+    given: $
+    then:
+      field: security
+      function: truthy
+
+  security-schemes-defined:
+    description: "API-AUTH-001: authentication schemes are defined under components.securitySchemes."
+    message: "Define `components.securitySchemes` (API-AUTH-001)."
+    severity: warn
+    given: $
+    then:
+      field: components.securitySchemes
+      function: truthy
+
+  no-apikey-in-query:
+    description: "API-AUTH-002: credentials travel in headers, never in the query string."
+    message: "API-key security scheme must not use `in: query` (API-AUTH-002)."
+    severity: error
+    given: $.components.securitySchemes[*]
+    then:
+      function: schema
+      functionOptions:
+        schema:
+          not:
+            type: object
+            required: [type, in]
+            properties:
+              type: { const: apiKey }
+              in: { const: query }
+
+  # --- API-RATE (rate limiting) ----------------------------------------------
+
+  rate-limited-declares-retry-after:
+    description: >
+      API-RATE-001: a 429 response carries a Retry-After header. KNOWN-GAPS REGISTER item —
+      hint severity until the header is adopted, then promote.
+    message: "429 response should declare a `Retry-After` header (API-RATE-001, registered gap)."
+    severity: hint
+    given: $.paths[*][*].responses['429']
+    then:
+      field: headers.Retry-After
+      function: truthy
+
+  # --- API-META (SLA & legal) ------------------------------------------------
+
+  sla-extension-present:
+    description: "API-META-001: publish machine-readable SLA as an x-sla extension. KNOWN-GAPS REGISTER item."
+    message: "Document should declare an `x-sla` extension (API-META-001, registered gap)."
+    severity: warn
+    given: $
+    then:
+      field: x-sla
+      function: truthy
+
+  terms-of-service-present:
+    description: "API-META-002: link the legal terms via info.termsOfService. KNOWN-GAPS REGISTER item."
+    message: "`info.termsOfService` should be set (API-META-002, registered gap)."
+    severity: warn
+    given: $.info
+    then:
+      field: termsOfService
+      function: truthy
+
+  # --- API-DOC ---------------------------------------------------------------
+
+  operation-operationId-unique: true # API-DOC-003 (built-in from spectral:oas)
+
+  no-openapi-31-null-type-arrays:
+    description: "API-DOC-002: use `nullable: true`, never `type: [..., \"null\"]` — the toolchain requires 3.0 compatibility."
+    message: "Avoid `type: [..., \"null\"]`; use `nullable: true` (API-DOC-002)."
+    severity: error
+    given: $..type
+    then:
+      function: schema
+      functionOptions:
+        schema:
+          not:
+            type: array
+            contains: { const: "null" }
