@@ -41,6 +41,10 @@ updates:
     ignore:
       - dependency-name: "typescript"
         update-types: ["version-update:semver-major"]
+      # @types/node tracks the Node major actually running in production (mise.toml); a newer
+      # major can expose APIs missing at runtime even if the build passes.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: npm
     directory: /e2e
     schedule:
@@ -48,6 +52,15 @@ updates:
     groups:
       e2e-minor-patch:
         update-types: [minor, patch]
+    # Same openapi-typescript/typescript-eslint reason as /web: TypeScript 7 needs a coordinated
+    # migration across both workspaces' tooling.
+    ignore:
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
+      # @types/node tracks the Node major actually running in production (mise.toml); a newer
+      # major can expose APIs missing at runtime even if the build passes.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
@@ -57,6 +70,14 @@ updates:
     directories: ["/", "/k8s"]
     schedule:
       interval: weekly
+    ignore:
+      # JDK 21 LTS policy — only LTS majors, decided deliberately; matches `jvmToolchain(21)` and
+      # mise.toml's pinned JDK.
+      - dependency-name: "eclipse-temurin"
+        update-types: ["version-update:semver-major"]
+      # Node 24 LTS line, pinned in mise.toml.
+      - dependency-name: "node"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: docker-compose
     directory: /
     schedule:
