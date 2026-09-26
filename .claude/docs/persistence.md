@@ -113,7 +113,7 @@ amendment over the architect's original all-`public`-with-prefixes recommendatio
   — the RECONCILE stream's own scratch table. A future GitLab connector adds `raw.gitlab_*`
   alongside these rather than inventing a fourth schema.
 - **`norm`** — the neutral, source-agnostic layer every connector normalizes into (`work_items`,
-  `sprints`, `boards`, …) — arrives with V13 (plan commit 8), upcoming as of this commit.
+  `sprints`, `boards`, …) — landed at V13 (plan commit 8a, "The normalized layer (V13)" below).
 - **`metrics`** (not yet created) — phase 3's pre-aggregated tables get their own schema once that
   work starts (plan §4).
 
@@ -125,7 +125,7 @@ FK reference back to `public.source_connections` (`reference("connection_id",
 DataSourceService.Connections)`). The plan's fallback (setting `search_path` on the pooled
 connection, with fully-qualified SQL in `exec` blocks, if qualified names misbehaved) was not
 needed. `CREATE SCHEMA IF NOT EXISTS raw`/`norm` runs in the first migration that needs each schema
-(V10 for `raw`; V12 will do the same for `norm`) — never a standalone "create schemas" migration.
+(V10 for `raw`; V13 does the same for `norm`) — never a standalone "create schemas" migration.
 
 ### The Jira raw store (V10)
 
@@ -140,14 +140,16 @@ tables in the `raw` schema — the REFERENCE and ISSUES streams' target
   `changelog_synced_at`/`worklogs_synced_at` are populated by the CHANGELOGS/WORKLOGS streams (plan
   commit 7, A1, `jira/JiraChangelogStream.kt`'s `markChangelogSynced`,
   `jira/JiraWorklogStream.kt`'s `markWorklogsSynced`) as of V11. `needs_processing`/`processed_at`/
-  `processed_hash`/`processing_version` drive the PROCESS step (plan commit 8, still to land — as of
-  this commit `markChangelogSynced`/`markWorklogsSynced` already flag `needs_processing = true` on
-  every issue they touch, so PROCESS has a real backlog to claim once it lands). `deleted_at`/
-  `moved_out_at` are tombstone columns a future RECONCILE stream sets; nothing in the REFERENCE/
-  ISSUES/CHANGELOGS/WORKLOGS streams landed so far sets `moved_out_at` — a key/project change during
-  an ISSUES page is just an ordinary column update, not a distinct "move" code path. Three partial
-  indexes back the streams' own claim scans: `idx_raw_jira_issues_needs_processing` (PROCESS, commit
-  8), `idx_raw_jira_issues_stale_changelog` (CHANGELOGS, plan commit 7, V10,
+  `processed_hash`/`processing_version` drive the PROCESS step (plan commit 8a, landed —
+  `jira/JiraProcessStream.kt`, see "The normalized layer (V13)" below): `markChangelogSynced`/
+  `markWorklogsSynced` flag `needs_processing = true` on every issue they touch, and
+  `JiraRawStore.issuesToProcess` claims the resulting backlog, ascending issue id, batches of 50.
+  `deleted_at`/`moved_out_at` are tombstone columns the RECONCILE stream sets (V12,
+  `jira/JiraReconcileStream.kt`); nothing in the REFERENCE/ISSUES/CHANGELOGS/WORKLOGS streams sets
+  `moved_out_at` on its own — a key/project change during an ISSUES page is just an ordinary column
+  update, not a distinct "move" code path. Three partial indexes back the streams' own claim scans:
+  `idx_raw_jira_issues_needs_processing` (PROCESS, plan commit 8a),
+  `idx_raw_jira_issues_stale_changelog` (CHANGELOGS, plan commit 7, V10,
   `changelog_synced_at IS NULL AND deleted_at IS NULL`, read by
   `JiraRawStore.staleChangelogIssueIds`) and `idx_raw_jira_issues_stale_worklogs` (WORKLOGS, plan
   commit 7, V10, A1's per-issue backfill scan, same shape, read by `JiraRawStore.staleWorklogIssueIds`).
@@ -232,7 +234,79 @@ is a scratch table, not a raw store proper: it holds every issue id the daily RE
 - Drained by `clearReconcileSeen` per connection (not per job), so any earlier pass's leftover rows
   for the SAME connection are swept up alongside the current pass's own.
 
-Current migrations are `V1`–`V12`:
+### The normalized layer (V13)
+
+`norm.*` (v0.2.0 plan §0 A3/§4/§8, plan commit 8a, `norm/WorkItemStore.kt`) is the FIRST schema
+outside `raw`/`public` — the connector-agnostic facts every connector's PROCESS step rebuilds a
+work item's rows into, one issue at a time, keyed the same way `raw.jira_issues` is
+`(connection_id, issue_id)`. `norm/Tiling.kt`/`norm/Normalization.kt` build the in-memory shape;
+`jira/JiraNormalizer.kt` is the Jira-specific parser that feeds it; `jira/JiraProcessStream.kt` is
+the PROCESS stream that drives the write. See `.claude/docs/ingestion.md` "Normalized layer" for
+the tiling invariants and stream mechanics — this section is the schema/persistence side only.
+
+- **`norm.work_items`** — PK `(connection_id, issue_id)`. Every column is the CURRENT snapshot
+  only — history lives in the interval/change tables below, never here. `status_category` is one
+  of `TODO|IN_PROGRESS|DONE|UNKNOWN` (Kotlin-enum-whitelisted, not CHECK-constrained — the
+  `raw.jira_entities.kind` idiom). `anomalies` is a JSONB array of anomaly codes flagged while
+  tiling this issue's status history — flagged only, never "fixed" (see ingestion.md). `deleted_at`/
+  `moved_out_at` mirror `raw.jira_issues`' own tombstones. `processed_at`/`processing_version` are
+  this row's own bookkeeping, separate from `raw.jira_issues.processed_at`/`processing_version` (the
+  raw row's own processing pointer) — both move together, written in the SAME transaction
+  (`WorkItemStore.replaceWorkItem` + `JiraRawStore.markProcessed`, inside
+  `JiraProcessStream`'s `context.transaction { }`).
+- **`norm.work_item_status_intervals`** — one row per tiled status interval, PK-less surrogate
+  `id SERIAL`, unique on `(connection_id, issue_id, seq)`. The first interval (`seq = 1`) always
+  starts at `work_items.created_at` with `source = 'CREATED'`; every later one is `'CHANGE'`.
+  `to_at IS NULL` marks the one interval that is always open. `idx_norm_work_item_status_intervals_issue`
+  (`connection_id, issue_id`) backs the per-issue replay this table's own REPLACE and the pipeline
+  test's invariant sweep both read.
+- **`norm.work_item_field_intervals`** — the same tiling shape for `ASSIGNEE`/`SPRINT`/`FLAGGED`
+  (`TrackedField`, Kotlin-enum-whitelisted, not CHECK-constrained), unique on
+  `(connection_id, issue_id, field, seq)`. SPRINT's `value_id` is the LAST sprint id of a
+  (possibly multi-valued) carry-over set; `value_text` is the comma-joined sprint names Jira's own
+  changelog `toString` already carries — never recomputed from ids.
+  `idx_norm_work_item_field_intervals_issue` (`connection_id, issue_id, field`) backs the same kind
+  of per-issue/per-field replay.
+- **`norm.work_item_field_changes`** — every tracked changelog item kept VERBATIM (never tiled):
+  status, assignee, Sprint, Flagged, Rank, priority, resolution, issuetype, project, Key and story
+  points. This is the only normalized record for the fields with no interval table of their own
+  (priority, resolution, issuetype, project, Key, story points, Rank). `idx_norm_work_item_field_changes_issue`
+  (`connection_id, issue_id`) backs the per-issue read.
+- **`norm.work_item_worklogs`** — PK `(connection_id, worklog_id)`, mirrored from
+  `raw.jira_worklogs` (already in-scope-filtered, A1) — PROCESS's own copy, so a metrics query
+  never has to join back into `raw`. `idx_norm_work_item_worklogs_issue` backs the per-issue read.
+- **Reference rows** (`norm.statuses`, `norm.people`, `norm.boards`, `norm.board_columns`,
+  `norm.sprints`) — rebuilt WHOLESALE per connection on every PROCESS run
+  (`WorkItemStore.replaceStatuses`/`replacePeople`/`replaceBoards`/`replaceSprints`), never
+  diffed/upserted row-by-row like `raw.jira_entities`, since PROCESS already reads the full current
+  `raw.jira_entities` set every time it runs. `norm.board_columns.status_ids` is a JSONB array of
+  status ids rather than a join table, since it is only ever read whole.
+
+**Per-issue REPLACE semantics.** `WorkItemStore.replaceWorkItem` is one transaction per issue
+(plan §8 step 5): delete `norm.work_item_status_intervals`/`_field_intervals`/`_field_changes`/
+`_worklogs` for that `(connection_id, issue_id)`, insert the freshly tiled rows, then upsert
+`norm.work_items` (insert if no existing row, update otherwise) — all inside the SAME transaction
+`JiraProcessStream` also uses for `JiraRawStore.markProcessed`, so a crash mid-issue never leaves a
+half-written normalized row or a raw row pointing at rows that were never written.
+
+**`PROCESSING_VERSION`** (`norm/Normalization.kt`, currently `1`) — bump it on ANY change to the
+tiling/write-shape rules. `JiraRawStore.issuesToProcess` claims a raw issue whose
+`processing_version IS DISTINCT FROM` the current constant (or is `NULL`, or `needs_processing` is
+flagged), so a version bump reprocesses every issue automatically on the next PROCESS pass — proven
+by `NormalizationPipelineTest`'s "a processing_version mismatch makes an issue eligible for the next
+PROCESS pass".
+
+**PURGE of `norm.*` rows (plan §0 A2).** `WorkItemStore.purgeWorkItemsBatch`/
+`purgeStatusIntervalsBatch`/`purgeFieldIntervalsBatch`/`purgeFieldChangesBatch`/
+`purgeWorklogsBatch` (500 rows per call, `NORM_PURGE_BATCH_SIZE`, mirroring
+`JIRA_PURGE_BATCH_SIZE`) delete one connection's rows in batches; the small reference tables are
+cleared outright (`purgeReferenceRows`, no batching needed — they are already rebuilt wholesale).
+`WorkItemStore.purgeAll` (an extension function) drains field changes, field intervals, status
+intervals, worklogs, then work items, in that order, before clearing the reference tables.
+`JiraConnector.purgeSteps` runs `JiraRawStore.purgeAll` (the `raw.*` tables) THEN
+`WorkItemStore.purgeAll` (the `norm.*` tables) as its two connector-owned PURGE steps.
+
+Current migrations are `V1`–`V13`:
 
 - `V1__init` — the `users` table: `name` (≤50), `email` (≤254), `password_hash`, `role` with
   `CHECK ("role" IN ('ADMIN', 'USER'))` (single-column role storage; the wire shape stays a
@@ -272,8 +346,11 @@ Current migrations are `V1`–`V12`:
 - `V11__create_jira_changelogs_worklogs` — see "The Jira changelog/worklog raw store (V11)" below:
   `raw.jira_changelogs`/`raw.jira_worklogs`, the CHANGELOGS/WORKLOGS streams' target.
 - `V12__create_jira_reconcile_seen` — see "The Jira RECONCILE scratch table (V12)" above:
-  `raw.jira_reconcile_seen`, the RECONCILE stream's scratch table. No FK on `job_id` (see above);
-  the normalized layer's own schema moves to V13.
+  `raw.jira_reconcile_seen`, the RECONCILE stream's scratch table. No FK on `job_id` (see above).
+- `V13__create_norm_layer` — see "The normalized layer (V13)" above: `CREATE SCHEMA IF NOT EXISTS
+  norm` plus `norm.work_items`/`_status_intervals`/`_field_intervals`/`_field_changes`/`_worklogs`
+  and the rebuilt-wholesale reference tables (`statuses`, `people`, `boards`, `board_columns`,
+  `sprints`) — the PROCESS step's write target, the first tables outside `public`/`raw`.
 
 The `users`/`teams` tables follow Toadie's dialect (`SERIAL`/`INTEGER` ids, epoch-millis `BIGINT`
 timestamps, `marked_as_deleted` + partial unique indexes over active rows) and its idioms: a
@@ -416,5 +493,5 @@ stream. The streams themselves (and the cursor shapes they define) land in plan 
 
 ### Not yet ported from Lettuce / Toadie / Covenant
 
-Nothing remains on the persistence list today; the next subsystem (the `norm` schema and its V13
-normalized layer, plan §0 A3/§8) arrives with its own paragraph here.
+Nothing remains on the persistence list today; the `metrics` schema (phase 3's pre-aggregated
+tables, plan §4) arrives with its own paragraph here.

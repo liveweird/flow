@@ -89,6 +89,34 @@ teardown. Other media queries retain their normal behavior; the application them
 `locales/parity.test.ts` enforces EN↔PL key parity for every shipped language (auto-discovers
 language folders; also pins folders == `SUPPORTED_LANGUAGES`).
 
+**The normalized-layer pipeline test (invariant SQL sweep + reprocess digest).**
+`NormalizationPipelineTest` (v0.2.0 plan §8/§11, `.claude/docs/ingestion.md` "Normalized layer")
+drives a full SYNC/RECONCILE/REPROCESS through `JiraConnector` against the shared `JiraStubServer`
+fixture and asserts over the PERSISTED `norm.*` rows, not `Tiling`/`Normalization`'s own in-memory
+guarantees (`TilingTest` already covers those exhaustively) — the DB is the thing that has to be
+right. Two patterns worth reusing for any other derived/rebuilt table set:
+
+- **The invariant SQL sweep.** Rather than asserting one golden fixture value, read back EVERY
+  persisted row for a connection (`WorkItemStore.statusIntervalsByIssue`) and re-check the domain's
+  own invariant list — contiguous `seq`, the first interval starting at `created_at`, exactly one
+  open interval per issue — against all 1,200 in-scope issues at once ("PROCESS after backfill
+  produces work items whose persisted intervals satisfy every invariant"). Where a count matters
+  (reopens), cross-check it against an INDEPENDENT re-derivation computed straight from
+  `raw.jira_issues`/`raw.jira_changelogs` using a hand-maintained, separately-sourced lookup table
+  (`EXPECTED_STATUS_CATEGORY`, never `Tiling`/`JiraNormalizer`'s own code path) — never trust the
+  same code path to grade its own homework twice. Treat a whole-dataset fixture figure
+  (`sample-data/jira/expected.json`, which includes the out-of-scope `SEC` project) as a
+  plausibility BOUND on the in-scope subset (`<=`), never an exact-equality assertion, since no
+  correct in-scope sync can ever reach a whole-dataset number.
+- **The reprocess digest.** `statusIntervalDigest` MD5-hashes every issue's ordered persisted
+  status intervals (issue id, seq, status id, `from_at`/`to_at`, source) into one string, taken
+  once after the initial SYNC and again after a REPROCESS run over the SAME connection; asserting
+  the two digests are EQUAL proves REPLACE is idempotent — byte-for-byte identical rows, not merely
+  "doesn't crash (or duplicate) the second time" ("REPROCESS leaves the normalized digest
+  unchanged"). This is the general pattern for testing an idempotent rebuild/replace pipeline: hash
+  the rebuilt state, re-run the rebuild, hash again, assert equality — cheaper and more precise than
+  comparing row counts alone, which would miss a REPLACE that silently reordered or reworded rows.
+
 **Runtime OpenAPI conformance.** Every `/api/` interaction the server test suite produces is
 validated against `documentation.yaml` by the `OpenApiConformance` Ktor client plugin
 (`server/src/test/kotlin/OpenApiConformance.kt`), installed via the shared test-client defaults —
