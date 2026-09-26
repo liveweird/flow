@@ -96,7 +96,7 @@ display fields and the active-member counts, and checks member ids against activ
 the create/add transaction. List each new cross-feature read here as it lands — the list IS the
 permission.
 
-Current migrations are `V1`–`V7`:
+Current migrations are `V1`–`V8`:
 
 - `V1__init` — the `users` table: `name` (≤50), `email` (≤254), `password_hash`, `role` with
   `CHECK ("role" IN ('ADMIN', 'USER'))` (single-column role storage; the wire shape stays a
@@ -129,6 +129,7 @@ Current migrations are `V1`–`V7`:
   keeps its roster for the record. `SERIAL`/`INTEGER` ids with a `BIGINT` FK to `users` (the V1
   wrinkle).
 - `V7__user_credential_revision` — see "Credential revision" below.
+- `V8__create_source_connections` — see "Data sources (V8)" below.
 
 The `users`/`teams` tables follow Toadie's dialect (`SERIAL`/`INTEGER` ids, epoch-millis `BIGINT`
 timestamps, `marked_as_deleted` + partial unique indexes over active rows) and its idioms: a
@@ -184,7 +185,48 @@ hash update. It is carried in signed refresh tokens and pending MFA challenges; 
 acceptance compares it with the current user row. It is not exposed in user DTOs.
 `password_changed_at` remains a timestamp, not an authorization boundary.
 
+### Data sources (V8)
+
+`source_connections` (v0.2.0 plan §3/§4) is a **generic connector registry**, in `public` (the
+main-session PG-schemas amendment keeps operational tables — `source_connections`, and later
+`sync_jobs`/`sync_cursors` — in `public`; connector-raw and normalized data get their own `raw`/
+`norm` schemas starting at V10): `kind` (`JIRA_CLOUD` today, `CHECK`-constrained since it drives
+behavior), typed common columns (schedule, sync status, `config_revision`) and a `settings` jsonb
+holding the connector-specific shape (Jira's `siteUrl`/`email`/`projectKeys`/`authScheme`/
+`cloudId`) — so a future GitLab connector reuses this table, its queue and its worker outright.
+`secret` is the FieldCipher-encrypted scoped API token — the first `EncryptedAtRest` consumer (see
+"Encryption at rest" in `.claude/docs/security.md`). Soft-deleted via `marked_as_deleted` with the
+usual partial unique index (`uq_source_connections_name_active`, case-insensitive over active
+rows). `backfill_from` is a plain `VARCHAR(10)` ISO-date string, not a SQL `DATE` column — the
+value is only ever read/written whole and validated in Kotlin (`ingest/DataSource.kt`), so adding
+an Exposed date-column dependency bought nothing. `ingest/DataSourceService.kt` is the reference
+service for this shape; `ingest/DataSourceRoutes.kt` the ADMIN-only CRUD (see
+`.claude/docs/authorization.md`).
+
+**`infra/db/Jsonb.kt`** — a repo-local `jsonb` column type, because `exposed-r2dbc` 1.5.0 ships no
+JSON column type of its own. It needs no reflection into the raw `io.r2dbc.spi.Statement`: Exposed
+already ships a `JsonColumnMarker` interface plus a `PostgresSpecificTypeMapper` that specifically
+recognizes any `IColumnType` implementing it (binding a null via `Statement.bindNull(index,
+Json::class)`, a `String` via `Statement.bind(index, Json.of(value))` —
+`io.r2dbc.postgresql.codec.Json`) — implementing the marker IS the whole binding. Values are the
+caller's JSON text verbatim; PostgreSQL's own `jsonb` storage reformats regardless (whitespace, key
+order), so "round-trips" means the same VALUES survive, not the same bytes. Covered by
+`JsonbColumnTest` (insert/select/update, null, nested objects/arrays, through Exposed R2DBC against
+Testcontainers PG).
+
+**`infra/json/CanonicalJson.kt`** — canonical JSON for anything stored through `Jsonb.kt`: object
+keys sorted RECURSIVELY (arrays keep their own order — position is meaning), rendered via
+kotlinx.serialization's compact `JsonElement.toString()`, plus a `sha256Hex` digest of the result.
+Two payloads that differ ONLY in object key order canonicalize to byte-identical text, so their
+digests agree — this is key-order independence, not general structural equality: canonicalization
+does not normalize number spelling (`1`, `1.0` and `1e0` parse to the same numeric value but stay
+distinct token text, so they canonicalize to different strings and hash differently). The Jira raw
+store's per-payload hash (plan §4, V10) is the next consumer, over payloads Jira itself serializes
+consistently. Covered by `CanonicalJsonTest` (key-order independence, recursive sorting, array
+order preserved, numbers/strings/unicode stable and idempotent, stable `sha256Hex`).
+
 ### Not yet ported from Lettuce / Toadie / Covenant
 
-Nothing remains on the persistence list today; a new subsystem (starting with v0.2.0's Jira raw
-store and incremental cursors) arrives with its own paragraph here.
+Nothing remains on the persistence list today; the next subsystem (the Jira raw store and
+incremental cursors, and the `raw`/`norm` PostgreSQL schemas — plan §0 A3, V10) arrives with its
+own paragraph here.

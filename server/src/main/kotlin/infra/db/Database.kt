@@ -4,6 +4,9 @@ import ch.nokillswit.auth.TokenBlocklistService
 import ch.nokillswit.auth.TokenBlocklistServiceKey
 import ch.nokillswit.infra.config.requireConfigInt
 import ch.nokillswit.infra.config.requireConfigLong
+import ch.nokillswit.infra.crypto.FieldCipherKey
+import ch.nokillswit.ingest.DataSourceService
+import ch.nokillswit.ingest.DataSourceServiceKey
 import ch.nokillswit.teams.TeamService
 import ch.nokillswit.teams.TeamServiceKey
 import ch.nokillswit.users.UserService
@@ -117,4 +120,7 @@ suspend fun Application.configureDatabase() {
     val teamService = TeamService(database)
     attributes.put(TeamServiceKey, teamService)
     attributes.put(TokenBlocklistServiceKey, TokenBlocklistService(database))
+    // The first EncryptedAtRest consumer (infra/crypto/EncryptedAtRest.kt) — the FieldCipher was
+    // published by configureCrypto, which application.yaml runs before this module.
+    attributes.put(DataSourceServiceKey, DataSourceService(database, attributes[FieldCipherKey]))
 }

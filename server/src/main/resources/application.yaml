@@ -38,6 +38,7 @@ ktor:
       - ch.nokillswit.users.UserRoutesKt.configureUserRoutes
       - ch.nokillswit.teams.TeamRoutesKt.configureTeamRoutes
       - ch.nokillswit.auth.AuthRoutesKt.configureAuthRoutes
+      - ch.nokillswit.ingest.DataSourceRoutesKt.configureDataSourceRoutes
       # — catch-all router
       - ch.nokillswit.plugins.RoutingKt.configureRouting
 

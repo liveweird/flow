@@ -27,6 +27,7 @@ class MigrationChecksumTest {
         "V5__user_disabled_features.sql" to -466290471,
         "V6__create_teams.sql" to -1993255374,
         "V7__user_credential_revision.sql" to 289120118,
+        "V8__create_source_connections.sql" to -1370826313,
     )
 
     @Test

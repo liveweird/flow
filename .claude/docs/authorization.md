@@ -122,6 +122,17 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
   `ForbiddenException` handler in `plugins/ErrorHandling.kt` — denials are part of the security
   trail, and route code gets it for free by **throwing**, never hand-rolling a 403 response. See
   "Audit trail" in `.claude/docs/observability.md`.
+  - `/api/v1/data-sources` (v0.2.0, V8) → **ADMIN only, the whole surface** — unlike teams, the
+    list/get reads are gated too (there is no any-authenticated read here; the connection holds a
+    credential). `requireAdmin` runs BEFORE `call.receive()` on every mutation (guard-before-read,
+    like teams). `jira.siteUrl` is the connection's identity (mirrors Toadie's `baseUrl` rule): a
+    PUT changing it is `409`; a case-insensitive name clash with an active data source is `409`
+    (the V8 partial index). `jira.apiToken` is write-only — required on create, optional on
+    update (omitted keeps the current token, present rotates it, audited separately as
+    `data_source.token_rotated`); no response or audit event ever carries it, only
+    `jira.hasApiToken`. Delete is soft (disables the connection; the raw/normalized rows purge
+    later per the v0.2.0 plan's grace-period amendment). Mutations audit
+    `data_source.created`/`.updated`/`.token_rotated`/`.deleted`. Tests: `DataSourceRoutesTest`.
 - **Exceptions**: `UnauthorizedException` (→ 401), `ForbiddenException` (→ 403),
   `NotFoundException` (→ 404), `ConflictException` (→ 409), `TooManyRequestsException` (→ 429),
   and `BadGatewayException` (→ 502 — reserved for a future outbound-fetch upstream failure) live

@@ -437,6 +437,72 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/data-sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List data sources
+         * @description ADMIN only. An ADMIN-managed connection to an external issue tracker — Jira Cloud today
+         *     (`kind: JIRA_CLOUD`).
+         *
+         *     - Sortable fields: `id`, `name`, `createdAt`, `updatedAt`. Default `id` ascending.
+         *     - Filters: `name` (case- and accent-insensitive substring).
+         */
+        get: operations["listDataSources"];
+        put?: never;
+        /**
+         * Create a data source
+         * @description ADMIN only (guarded before the body decodes — a non-admin's malformed body is still
+         *     403). `jira.siteUrl` must be exactly `https://<site>.atlassian.net` (origin only — the
+         *     outbound allow-list boundary); it becomes the connection's identity. `jira.apiToken` is
+         *     required here and never echoed back — the response carries `jira.hasApiToken` only. A
+         *     case-insensitive name clash with an active data source is `409`.
+         */
+        post: operations["createDataSource"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/data-sources/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Get a data source
+         * @description ADMIN only.
+         */
+        get: operations["getDataSource"];
+        /**
+         * Update a data source (full replace)
+         * @description ADMIN only, guard before the id lookup (uniform 403). A changed `jira.siteUrl` is `409`
+         *     — it is the connection's identity; create a new data source instead. Omitting OR
+         *     blanking `jira.apiToken` keeps the current token; any other value rotates it (audited
+         *     separately as `data_source.token_rotated`). Any successful update bumps
+         *     `configRevision`. A case-insensitive name clash with another active data source is `409`.
+         */
+        put: operations["updateDataSource"];
+        post?: never;
+        /**
+         * Delete a data source (soft)
+         * @description ADMIN only, guard before the id lookup. Soft delete — disables the connection and frees its name; the raw/normalized rows are purged after a grace period once the sync-job queue lands (plan §0 A2).
+         */
+        delete: operations["deleteDataSource"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -615,6 +681,100 @@ export interface components {
         };
         TeamPage: {
             items: components["schemas"]["TeamListItem"][];
+            page: number;
+            pageSize: number;
+            /** Format: int64 */
+            total: number;
+        };
+        JiraConnectionRequest: {
+            /** @description Exactly `https://<site>.atlassian.net` — origin only, no path/query/trailing slash (the outbound allow-list boundary). Fixed at create; a PUT changing it is `409`. */
+            siteUrl: string;
+            /** @description The Jira service-account email. */
+            email: string;
+            /** @description Write-only. Required (non-blank) on create. On update, omitted OR blank keeps the current token (the SPA's masked-password field sends an empty string for "unchanged"); any other value rotates it. Never echoed back in any response. */
+            apiToken?: string | null;
+            projectKeys: string[];
+            authScheme?: components["schemas"]["JiraAuthScheme"];
+        };
+        /**
+         * @default BASIC
+         * @enum {string}
+         */
+        JiraAuthScheme: "BASIC" | "BEARER";
+        DataSourceRequest: {
+            name: string;
+            /** @default true */
+            enabled: boolean;
+            syncIntervalMinutes: number;
+            /**
+             * Format: date
+             * @description ISO date (YYYY-MM-DD), not in the future and not more than 10 years back (nor before 2000-01-01). Omitted computes today minus 24 months.
+             */
+            backfillFrom?: string | null;
+            /** @default 3 */
+            reconcileHourUtc: number;
+            jira: components["schemas"]["JiraConnectionRequest"];
+        };
+        JiraConnectionResponse: {
+            siteUrl: string;
+            email: string;
+            /** @description The token itself is never returned. */
+            hasApiToken: boolean;
+            projectKeys: string[];
+            authScheme: components["schemas"]["JiraAuthScheme"];
+            /** @description Resolved on the first successful probe/sync (not populated by this commit's CRUD). */
+            cloudId?: string | null;
+        };
+        /** @enum {string} */
+        DataSourceState: "NEVER_SYNCED" | "CURRENT" | "STALE" | "FAILED" | "DISABLED";
+        DataSourceStatus: {
+            state: components["schemas"]["DataSourceState"];
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            lastSyncStartedAt?: number | null;
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            lastSyncSucceededAt?: number | null;
+            lastSyncErrorCode?: string | null;
+            consecutiveFailures: number;
+            /**
+             * Format: int32
+             * @description Always null until the sync-job queue lands.
+             */
+            runningJobId?: number | null;
+        };
+        DataSourceResponse: {
+            /** Format: int32 */
+            id: number;
+            /** @enum {string} */
+            kind: "JIRA_CLOUD";
+            name: string;
+            enabled: boolean;
+            syncIntervalMinutes: number;
+            /** Format: date */
+            backfillFrom: string;
+            reconcileHourUtc: number;
+            /** Format: int64 */
+            configRevision: number;
+            jira: components["schemas"]["JiraConnectionResponse"];
+            status: components["schemas"]["DataSourceStatus"];
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            createdAt: number;
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            updatedAt: number;
+        };
+        DataSourcePage: {
+            items: components["schemas"]["DataSourceResponse"][];
             page: number;
             pageSize: number;
             /** Format: int64 */
@@ -1436,6 +1596,158 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description Removed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    listDataSources: {
+        parameters: {
+            query?: {
+                /** @description 1-based page index. Defaults to 1. */
+                page?: components["parameters"]["Page"];
+                /** @description Rows per page. Defaults to 20, maximum 100. */
+                pageSize?: components["parameters"]["PageSize"];
+                /**
+                 * @description Sort spec. Format: `field` (ascending) or `-field` (descending). Multiple fields are
+                 *     comma-separated, leftmost wins: `sort=-updatedAt,name`. The endpoint declares its
+                 *     sortable-field whitelist; unknown fields are rejected with `400`. `id` ascending is
+                 *     always appended as a deterministic tiebreaker.
+                 */
+                sort?: components["parameters"]["Sort"];
+                name?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of data sources */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DataSourcePage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    createDataSource: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DataSourceRequest"];
+            };
+        };
+        responses: {
+            /** @description Created; `Location` points at the new data source */
+            201: {
+                headers: {
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DataSourceResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            413: components["responses"]["PayloadTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getDataSource: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The data source */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DataSourceResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    updateDataSource: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DataSourceRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            415: components["responses"]["UnsupportedMediaType"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    deleteDataSource: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
             204: {
                 headers: {
                     [name: string]: unknown;

@@ -45,6 +45,7 @@ class RoleTest {
         // would (rightly) flag it. CoverageGapsTest's "AutoHeadResponse" case documents the same
         // escape hatch: the plugin only wraps the shared test-client factories.
         assertEquals(HttpStatusCode.NotFound, client.get("/api/v1/users").status)
+        assertEquals(HttpStatusCode.NotFound, client.get("/api/v1/data-sources").status)
         assertEquals(HttpStatusCode.NotFound, client.get("/some-app-route").status)
     }
 

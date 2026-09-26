@@ -199,6 +199,14 @@ throw, and the 500-vs-401 split would be an account-enumeration oracle, so login
 validators feature-local and enforce them **after** the authz guard (403 wins over 400). Covered
 by `PayloadValidationTest`.
 
+**The Jira Cloud site allow-list (v0.2.0, `ingest/DataSource.kt`).** `jira.siteUrl` must match
+`^https://[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.atlassian\.net$` exactly — origin only, no path, no
+query, no port, no trailing slash — enforced on every create/update (400 otherwise) and fixed as
+the connection's identity (a changed value is `409`, not silently accepted; see
+`.claude/docs/authorization.md`). This is the allow-list half of the outbound boundary; the
+resolved-address guard below is defense in depth once the Jira client actually calls out (plan
+commit 4).
+
 **Outbound HTTP calls (SSRF posture — applies from v0.2.0).** No server code makes outbound HTTP
 calls yet. When the Jira Cloud connector lands, **port Toadie's `UrlFetch.kt` guard rather than
 inventing a new one**: absolute `https` only, no userinfo; every resolved address checked and
@@ -312,11 +320,17 @@ Rows written before a column was encrypted (legacy plaintext, returned unchanged
 are encrypted once at the next boot by the same backfill (`reencryptRows`, selecting through the
 ONE sanctioned SQL predicate over an encrypted column: `notLike "enc:v1:%"`). A service owning
 encrypted columns implements `EncryptedAtRest` and is registered in `infra/db/Bootstrap.kt`'s
-`encryptedAtRestServices()` list (empty today) — never remove a registration once one lands (a
-rotation would strand that feature's rows). **Never filter or sort on an encrypted column in
-SQL** — ciphertext carries no order or equality (every value has its own nonce). The v0.2.0 Jira
-API token is the planned first consumer. Tests: `FieldCipherTest` (roundtrip, fresh nonces, legacy
-passthrough, tamper, wrong key, rotation, malformed keys), `CryptoBootTest`.
+`encryptedAtRestServices()` list (`DataSourceService` is the first and, today, only entry — see
+below) — never remove a registration once one lands (a rotation would strand that feature's rows). **Never filter or sort on an encrypted column in
+SQL** — ciphertext carries no order or equality (every value has its own nonce). **The v0.2.0 Jira
+API token is the first consumer, landed**: `source_connections.secret` (V8,
+`ingest/DataSourceService.kt` implements `EncryptedAtRest`, registered in
+`infra/db/Bootstrap.kt`'s `encryptedAtRestServices()`) — write-only end to end: `POST`/`PUT
+/api/v1/data-sources` accept `jira.apiToken` but no response, and no audit event, ever returns it;
+every response instead carries `jira.hasApiToken`. Tests: `FieldCipherTest` (roundtrip, fresh
+nonces, legacy passthrough, tamper, wrong key, rotation, malformed keys), `CryptoBootTest`,
+`EncryptedAtRestBootTest` (seeds a connection, boots again with a rotated key, the token still
+decrypts under the new key alone).
 
 ### Not yet ported
 

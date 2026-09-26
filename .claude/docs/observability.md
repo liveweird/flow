@@ -63,7 +63,14 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
   `team.member_removed` (byUserId/teamId/targetUserId) — every team mutation; a rejected save
   emits nothing,
 - `authz.denied` (every 403, from the `ForbiddenException` handler in `plugins/ErrorHandling.kt`,
-  with method/path/byUserId/detail).
+  with method/path/byUserId/detail),
+- `data_source.created` (byUserId/dataSourceId/name/siteHost — HOST only, never the full
+  `siteUrl`, and never the API token) / `.updated` (byUserId/dataSourceId/name/siteHost) /
+  `.token_rotated` (byUserId/dataSourceId — its own event, separate from `.updated`, so the audit
+  trail can tell a credential rotation from an ordinary settings edit without ever naming the
+  token) / `.deleted` (byUserId/dataSourceId) — the v0.2.0 data-sources CRUD (V8); worker-side
+  sync-job events (`sync_job.*`, `outbound.blocked`) arrive with the sync-job queue (plan
+  commit 5).
 
 Field-naming convention: the acting caller is `byUserId` everywhere except the auth lifecycle
 events (`login.*`, `logout`, `refresh.rejected`), where `userId` identifies the account being
@@ -87,5 +94,6 @@ one).
 
 ### Not yet ported
 
-Nothing remains on the observability list; a domain feature (starting with v0.2.0's Jira
-ingestion — connection mutations, sync runs) arrives with its own audit-event paragraph here.
+The data-sources CRUD audit trail above has landed; sync-job lifecycle events (`sync_job.started`/
+`.succeeded`/`.failed`/`.released`, `outbound.blocked`) arrive with the sync-job queue and worker
+(plan commit 5) and get their own paragraph here.
