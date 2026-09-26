@@ -108,8 +108,9 @@ amendment over the architect's original all-`public`-with-prefixes recommendatio
   default, so it never needs to know the other schemas exist.
 - **`raw`** — every connector's raw store, one table set per connector, named with the connector's
   own prefix so two connectors never collide: `raw.jira_issues` and `raw.jira_entities` (V10, see
-  below), joined by `raw.jira_raw_changelogs`/`raw.jira_raw_worklogs`/`raw.jira_reconcile_seen` in
-  V11 once the CHANGELOGS/WORKLOGS/RECONCILE streams land (plan commit 7). A future GitLab
+  below), joined by `raw.jira_changelogs`/`raw.jira_worklogs` (V11, "The Jira changelog/worklog raw
+  store" below) once the CHANGELOGS/WORKLOGS streams land (plan commit 7) — a RECONCILE-owned
+  `raw.jira_reconcile_seen` table is still to come with that stream's own commit. A future GitLab
   connector adds `raw.gitlab_*` alongside these rather than inventing a fourth schema.
 - **`norm`** — the neutral, source-agnostic layer every connector normalizes into (`work_items`,
   `sprints`, `boards`, …) — arrives with V12 (plan commit 8), upcoming as of this commit.
@@ -136,16 +137,20 @@ tables in the `raw` schema — the REFERENCE and ISSUES streams' target
   move only changes the `issue_key`/`project_id`/`project_key` columns, never the PK). Identity
   columns (`issue_key`, `project_id`, `project_key`, `issue_updated_at`) sit alongside `payload`
   (the canonicalized `search/jql` issue document, `infra/json/CanonicalJson.kt`) and its `sha256`.
-  `changelog_synced_at`/`worklogs_synced_at` are NULL until the CHANGELOGS/WORKLOGS streams (plan
-  commit 7, A1) populate them. `needs_processing`/`processed_at`/`processed_hash`/
-  `processing_version` drive the PROCESS step (plan commit 8). `deleted_at`/`moved_out_at` are
-  tombstone columns the RECONCILE stream (plan commit 7) sets; nothing in this commit's REFERENCE/
-  ISSUES streams sets `moved_out_at` — a key/project change during an ISSUES page is just an
-  ordinary column update, not a distinct "move" code path. Three partial indexes back the streams'
-  own claim scans: `idx_raw_jira_issues_needs_processing` (PROCESS, commit 8),
-  `idx_raw_jira_issues_stale_changelog` (CHANGELOGS, commit 7, `changelog_synced_at IS NULL AND
-  deleted_at IS NULL`) and `idx_raw_jira_issues_stale_worklogs` (WORKLOGS, commit 7, A1's per-issue
-  backfill scan, same shape).
+  `changelog_synced_at`/`worklogs_synced_at` are populated by the CHANGELOGS/WORKLOGS streams (plan
+  commit 7, A1, `jira/JiraChangelogStream.kt`'s `markChangelogSynced`,
+  `jira/JiraWorklogStream.kt`'s `markWorklogsSynced`) as of V11. `needs_processing`/`processed_at`/
+  `processed_hash`/`processing_version` drive the PROCESS step (plan commit 8, still to land — as of
+  this commit `markChangelogSynced`/`markWorklogsSynced` already flag `needs_processing = true` on
+  every issue they touch, so PROCESS has a real backlog to claim once it lands). `deleted_at`/
+  `moved_out_at` are tombstone columns a future RECONCILE stream sets; nothing in the REFERENCE/
+  ISSUES/CHANGELOGS/WORKLOGS streams landed so far sets `moved_out_at` — a key/project change during
+  an ISSUES page is just an ordinary column update, not a distinct "move" code path. Three partial
+  indexes back the streams' own claim scans: `idx_raw_jira_issues_needs_processing` (PROCESS, commit
+  8), `idx_raw_jira_issues_stale_changelog` (CHANGELOGS, plan commit 7, V10,
+  `changelog_synced_at IS NULL AND deleted_at IS NULL`, read by
+  `JiraRawStore.staleChangelogIssueIds`) and `idx_raw_jira_issues_stale_worklogs` (WORKLOGS, plan
+  commit 7, V10, A1's per-issue backfill scan, same shape, read by `JiraRawStore.staleWorklogIssueIds`).
 - **`raw.jira_entities`** — PK `(connection_id, kind, entity_id)`, one row per REFERENCE-stream
   entity kind (`JiraEntityKind`: `FIELD`, `STATUS`, `STATUS_CATEGORY`, `PROJECT`,
   `PROJECT_STATUSES`, `ISSUE_TYPE`, `PRIORITY`, `RESOLUTION`, `ISSUE_LINK_TYPE`, `USER`, `BOARD`,
@@ -169,10 +174,44 @@ tables in the `raw` schema — the REFERENCE and ISSUES streams' target
   `CHANGED` — reported instead as `RawUpsertOutcome.RESURRECTED`.
 - **PURGE (plan §0 A2).** `JiraRawStore.purgeIssuesBatch`/`purgeEntitiesBatch` (500 rows per call,
   `JIRA_PURGE_BATCH_SIZE`) delete one connection's rows in batches; `JiraRawStore.purgeAll` (an
-  extension function) drains both tables by looping each batch call until it deletes zero rows.
+  extension function) drains all four `raw.jira_*` tables (issues/entities plus the V11
+  changelogs/worklogs tables below) by looping each batch call until it deletes zero rows.
   `JiraConnector.purgeSteps` wires this as the PURGE job's one connector-owned cleanup step.
 
-Current migrations are `V1`–`V10`:
+### The Jira changelog/worklog raw store (V11)
+
+`raw.jira_changelogs` and `raw.jira_worklogs` (v0.2.0 plan §4/§7 V11, A1, `jira/JiraRawStore.kt`)
+join `raw.jira_issues`/`raw.jira_entities` (V10) in the `raw` schema — the CHANGELOGS/WORKLOGS
+streams' target (`jira/JiraChangelogStream.kt`, `jira/JiraWorklogStream.kt`).
+
+- **`raw.jira_changelogs`** — PK `(connection_id, history_id)`, one row per Jira changelog history.
+  **Append-only**: a history is immutable once Jira creates it, so there is no diff/tombstone rule
+  here (unlike every other raw table) — `JiraRawStore.insertChangelog` is a plain `ON CONFLICT DO
+  NOTHING` keyed by the PK, safe to re-run after a crash, and correct whether the SAME history
+  reaches here via the bulkfetch batch path or the per-issue fallback path (both dedup identically).
+  `payload` is the history object exactly as Jira returned it (bulkfetch's `changeHistories[]` entry
+  or the per-issue fallback's `histories[]` entry — same shape either way), canonicalized. History
+  ids are numeric and globally unique on a real Jira instance, but the PK still scopes to
+  `connection_id` like every other raw table. `idx_raw_jira_changelogs_issue`
+  (`connection_id, issue_id, created_at`) backs the normalization layer's future per-issue changelog
+  replay (plan §8) and the pipeline test's own per-issue assertions — every history for one issue,
+  oldest first.
+- **`raw.jira_worklogs`** — PK `(connection_id, worklog_id)`, one row per Jira worklog —
+  **in-scope issues only** (plan §0 A1): this table only ever gets a row the WORKLOGS stream has
+  already checked against a known, non-tombstoned `raw.jira_issues` row for THIS connection
+  (`JiraRawStore.knownInScopeIssueIds`) — everything else is dropped before any write. Same
+  sha256 diff/tombstone rule as `raw.jira_issues`/`raw.jira_entities` (`JiraRawStore.upsertWorklog`/
+  `tombstoneWorklog`): a worklog CAN be edited after creation (a time-spent correction), unlike a
+  changelog history, so `changed_at` needs the same "moves only on genuine content change" rule the
+  issue/entity tables use. `idx_raw_jira_worklogs_issue` (`connection_id, issue_id`) backs the
+  WORKLOGS stream's own per-issue read path and the normalization layer's future per-issue worklog
+  replay (plan §8).
+- **PURGE (plan §0 A2, V11).** `JiraRawStore.purgeChangelogsBatch`/`purgeWorklogsBatch` (same
+  `JIRA_PURGE_BATCH_SIZE` shape as V10's) join `JiraRawStore.purgeAll`'s drain loop, changelogs and
+  worklogs FIRST (both reference `raw.jira_issues` by `issue_id` only, not a FK, so ordering is a
+  convention, not a constraint requirement) before issues/entities.
+
+Current migrations are `V1`–`V11`:
 
 - `V1__init` — the `users` table: `name` (≤50), `email` (≤254), `password_hash`, `role` with
   `CHECK ("role" IN ('ADMIN', 'USER'))` (single-column role storage; the wire shape stays a
@@ -209,6 +248,8 @@ Current migrations are `V1`–`V10`:
 - `V9__create_sync_jobs` — see "Sync jobs and cursors (V9)" below.
 - `V10__create_jira_raw_store` — see "The Jira raw store (V10)" above: `CREATE SCHEMA IF NOT EXISTS
   raw` plus `raw.jira_issues`/`raw.jira_entities`, the first tables outside `public`.
+- `V11__create_jira_changelogs_worklogs` — see "The Jira changelog/worklog raw store (V11)" below:
+  `raw.jira_changelogs`/`raw.jira_worklogs`, the CHANGELOGS/WORKLOGS streams' target.
 
 The `users`/`teams` tables follow Toadie's dialect (`SERIAL`/`INTEGER` ids, epoch-millis `BIGINT`
 timestamps, `marked_as_deleted` + partial unique indexes over active rows) and its idioms: a

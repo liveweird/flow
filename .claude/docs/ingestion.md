@@ -134,18 +134,19 @@ a claimed job), `.succeeded`, `.failed` (`RUN_FAILED`, with the truncated except
 `.released` (shutdown). Web-side: `sync_job.requested` (`POST .../sync-jobs`, with `coalesced`) and
 `.cancel_requested` (`POST .../sync-jobs/{jobId}/cancel`).
 
-A SYNC job runs REFERENCE then ISSUES for real as of this commit (`jira/JiraConnector.kt`'s
-`runSync`, see "Streams" below); CHANGELOGS, WORKLOGS, RECONCILE, PROCESS and PROFILE still join
-that list in later v0.2.0 commits (plan commits 7-9). PURGE's connector-owned cleanup step
-(`purgeSteps`) already drains `raw.jira_issues`/`raw.jira_entities` in batches (V10, plan §0 A2);
-`ingest/Connector.kt`'s default no-op `run()` remains the fallback for `RECONCILE`/`REPROCESS` until
-their own commits land.
+A SYNC job runs REFERENCE → ISSUES → CHANGELOGS → WORKLOGS for real as of this commit
+(`jira/JiraConnector.kt`'s `runSync`, see "Streams" below); RECONCILE, PROCESS and PROFILE still
+join that list in later v0.2.0 commits (PROCESS with the `norm` schema, plan commit 8; PROFILE,
+plan commit 9; RECONCILE's own commit is not yet scheduled). PURGE's connector-owned cleanup step
+(`purgeSteps`) now drains `raw.jira_issues`/`raw.jira_entities` (V10, plan §0 A2) AND
+`raw.jira_changelogs`/`raw.jira_worklogs` (V11) in batches; `ingest/Connector.kt`'s default no-op
+`run()` remains the fallback for `RECONCILE`/`REPROCESS` until their own commits land.
 
 ## Sync cursors (V9)
 
 `sync_cursors` (`ingest/SyncCursors.kt`'s `SyncCursorsService`) is the resumable per-stream cursor
-store the sync streams read from and write to (REFERENCE and ISSUES as of this commit; CHANGELOGS/
-WORKLOGS/RECONCILE/PROCESS/PROFILE join them in later commits): one row per
+store the sync streams read from and write to (REFERENCE, ISSUES, CHANGELOGS and WORKLOGS as of
+this commit; RECONCILE/PROCESS/PROFILE join them in later commits): one row per
 `(connection_id, stream)` (composite PK), where `stream` names a phase within a job (e.g.
 `"issues"`, `"changelogs"` — the exact names are owned by each stream's implementation, not fixed
 here). `cursor` is jsonb text (`infra/db/Jsonb.kt`) with a per-stream shape; `watermark_at` and
@@ -156,11 +157,11 @@ pointing past data that was never committed.
 
 ## Streams
 
-The REFERENCE and ISSUES streams (v0.2.0 plan §7, plan commit 6) are the first two of the ordered
-list a SYNC job runs (`jira/JiraConnector.kt`'s `runSync`): **REFERENCE → ISSUES** today;
-CHANGELOGS → WORKLOGS → PROCESS → PROFILE join the end of that list in plan commits 7-9. Both
-streams implement `ingest/Stream.kt`'s `Stream` interface and share one `StreamContext` per job
-(cursor read/write scoped to the connection, a `transaction {}` wrapper, `heartbeat()`, an
+The REFERENCE, ISSUES, CHANGELOGS and WORKLOGS streams (v0.2.0 plan §7, plan commits 6-7) are the
+ordered list a SYNC job runs (`jira/JiraConnector.kt`'s `runSync`): **REFERENCE → ISSUES →
+CHANGELOGS → WORKLOGS** today; PROCESS → PROFILE join the end of that list in plan commits 8-9.
+Every stream implements `ingest/Stream.kt`'s `Stream` interface and shares one `StreamContext` per
+job (cursor read/write scoped to the connection, a `transaction {}` wrapper, `heartbeat()`, an
 injectable `clock`).
 
 **Cursor shapes.**
@@ -178,6 +179,15 @@ injectable `clock`).
   page — a real tenant's paging must reuse the same query text), `nextPageToken` (Jira's opaque
   cursor) and `runStartedAt` (this run's own start time, becoming the new watermark once the run's
   LAST page is written).
+- **`changelogs`** (`jira/JiraChangelogStream.kt`'s `ChangelogsCursor`): a SINGLE field,
+  `bulkUnavailableUntil` (null by default) — see "CHANGELOGS stream" below for what sets/reads it.
+  The stream needs no page-position cursor of its own: an interrupted batch's issues are simply
+  still stale on the next run (nothing was marked synced, and `insertChangelog`'s `ON CONFLICT DO
+  NOTHING` makes a re-fetched history a no-op).
+- **`worklogs`** (`jira/JiraWorklogStream.kt`'s `WorklogsCursor`): `updatedSince`/`deletedSince` —
+  see "WORKLOGS stream (A1)" below for their initialization and advance rule. The per-issue backfill
+  half of the stream needs no cursor of its own either, for the same reason as CHANGELOGS: a stale
+  issue (`worklogs_synced_at IS NULL`) simply stays stale until backfilled.
 
 **Per-page transaction with the cursor advance.** Every page (or, for REFERENCE's single-shot
 steps, every whole step) writes its raw-store rows and its own `sync_cursors` row inside the SAME
@@ -225,10 +235,90 @@ exactly that code and starts a fresh run from the last completed watermark (`fre
 `MAX_CURSOR_RESTARTS` (5) restarts within one stream invocation before letting the exception
 propagate — a bound against a pathologically misbehaving upstream, not an expected real-world count.
 
-**Lease loss.** Both streams let `context.heartbeat()`'s `LeaseLostException` propagate uncaught
-after every committed page/step — neither stream catches it, matching `StreamContext`'s contract
-(`.claude/docs/ingestion.md` "Lease and heartbeat" above): the job stops exactly where its last
-committed cursor left it, safe to reclaim and resume by any worker.
+**Lease loss.** Every stream (REFERENCE, ISSUES, CHANGELOGS, WORKLOGS) lets `context.heartbeat()`'s
+`LeaseLostException` propagate uncaught after every committed page/step/transaction — none of them
+catches it, matching `StreamContext`'s contract (`.claude/docs/ingestion.md` "Lease and heartbeat"
+above): the job stops exactly where its last committed cursor left it, safe to reclaim and resume by
+any worker.
+
+## CHANGELOGS stream
+
+`jira/JiraChangelogStream.kt` (v0.2.0 plan §7, plan commit 7, V11) claims STALE in-scope issues —
+`changelog_synced_at IS NULL` (never synced) or older than `changed_at` (the issue changed since its
+last sync) — off `JiraRawStore.staleChangelogIssueIds`, ascending issue id, in batches of
+`jira.changelogBulkSize` (default 50, `.claude/docs/jira-integration.md`).
+
+**Bulk, then per-batch fallback.** Each batch is tried against `POST
+/rest/api/3/changelog/bulkfetch` first (paged by `nextPageToken`), all in ONE transaction with
+marking every issue in the batch `changelog_synced_at` (and `needs_processing = true`) via
+`JiraRawStore.markChangelogSynced`. A 404/405/410/501 response — the bulkfetch endpoint itself being
+unavailable (a GA/scope gap), not a transient failure — makes that ONE batch fall back to per-issue
+`GET /issue/{id}/changelog` (`startAt`-paged, reading the `histories` key — see
+`.claude/docs/jira-integration.md`), one issue per transaction+heartbeat instead of one transaction
+for the whole batch (finer-grained resumability, since each issue is its own sequence of HTTP
+calls). Any OTHER `JiraFetchException` status propagates rather than triggering the fallback.
+
+**Why the bulk-unavailable flag is decided ONCE at run start, not re-checked per batch.** A 24-hour
+`bulkUnavailableUntil` window is written to the `changelogs` cursor the FIRST time a batch falls
+back, but it is only ever READ at the very start of a run (`bulkUnavailableAtStart` in
+`JiraChangelogStream.run`) — a run that begins inside that window skips bulk entirely for EVERY
+batch it processes; a run that begins outside it still tries bulk fresh on every batch, even after
+one batch falls back mid-run. The sample dataset's OWN fixture (`sample-data/README.md`: exactly one
+50-id bulkfetch chunk is deliberately unmapped) is the reason this matters: one chunk-specific
+failure must not blind the REST of the SAME run's batches to a bulk endpoint that works fine for
+them — re-checking the flag per batch would do exactly that (treat a single unmapped chunk as
+"bulk is down" for the whole run), so the check happens once, at the boundary a NEW run naturally
+gives it.
+
+**Dedup and resumability.** `JiraRawStore.insertChangelog` is append-only — a changelog history is
+immutable once Jira creates it, so `ON CONFLICT DO NOTHING` keyed by `(connection_id, history_id)`
+is the whole dedup rule: the same history reaching here twice (a resumed batch, an overlapping
+bulk/per-issue-fallback pair across runs) is a silent no-op. The stream itself needs no
+page-position cursor: an interrupted batch's issues are simply still stale on the next run, since
+nothing was marked `changelog_synced_at` until the whole batch (or, in the fallback path, the whole
+issue) committed.
+
+## WORKLOGS stream (A1)
+
+`jira/JiraWorklogStream.kt` (v0.2.0 plan §0 A1/§7, plan commit 7, V11) is the direct implementation
+of amendment A1: **worklogs are stored for in-scope issues only**, never the whole Jira instance's
+time-tracking data.
+
+**Why A1 shapes the stream the way it does.** The architect's original design would have read the
+instance-wide `/worklog/updated` feed back to `backfillFrom` — the same historical depth every other
+stream backfills to. That would sweep every OTHER unit's time tracking into Flow the moment their
+worklogs touched an issue this connection happens to see on the feed, since `/worklog/updated`
+carries no project/scope filter of its own. A1's fix has two parts, run in this order:
+
+1. **Per-issue backfill first** (`backfillPerIssue`): issues with `worklogs_synced_at IS NULL` (not
+   tombstoned) — first ingested, or newly back in scope — are read via `GET /issue/{id}/worklog`
+   (`startAt`-paged), one issue per transaction+heartbeat, same shape as `JiraChangelogStream`'s
+   per-issue fallback. This is the only step that ever reaches back before the stream's own start —
+   but it only ever asks Jira about issues Flow already knows are in scope (a row in
+   `raw.jira_issues`), so it can never surface an out-of-scope worklog.
+2. **Then the instance-wide incremental feed, scoped to THIS connection's own lifetime, not
+   `backfillFrom`.** `updatedSince`/`deletedSince` (the `WorklogsCursor`) are initialized to THIS
+   RUN's own start time on a connection's very first WORKLOGS run — never `backfillFrom` — so
+   `/worklog/updated`/`/worklog/deleted` only ever cover time since Flow started watching this
+   connection, not history from before it existed.
+
+**Scope filtering happens before any write.** `/worklog/updated` returns bare `{worklogId,
+updatedTime}` pairs with no `issueId`, so every id on a page is resolved through `POST
+/worklog/list` (≤1000 ids) FIRST; `JiraRawStore.knownInScopeIssueIds` then checks each resolved
+`issueId` against `raw.jira_issues` for this connection (non-tombstoned only) — anything NOT in that
+set is dropped without ever reaching `raw.jira_worklogs`, and counted
+(`JiraWorklogStream.lastRunOutOfScopeCount`, A1's `worklogsOutOfScope`). `/worklog/deleted` runs the
+same way after `/worklog/updated` fully drains, tombstoning whatever it names — a no-op for an
+out-of-scope worklog Flow never stored.
+
+**Cursors are rebuilt from `since`/`until`, never Jira's `nextPage` URL.** Each page's `since`
+advances to that SAME page's own `until` once the page commits, and the NEXT call re-issues the
+identical request shape with the advanced `since` — the client never follows the `nextPage` URL
+Jira's response carries. This is a security-review rule, not a style preference: an absolute URL
+handed back by an upstream response is untrusted input that the outbound guard (see
+`.claude/docs/security.md` "Outbound HTTP calls") never gets a chance to re-validate — reconstructing
+the next request from parameters this client already trusts keeps every outbound call subject to the
+same guard as the first one.
 
 ## Data sources
 
@@ -289,18 +379,28 @@ easily could.
   without touching Atlassian's cloud, and so its `jira-day2` WireMock scenario can be flipped
   (`PUT /__admin/scenarios/jira-day2/state`) to see a reconcile/incremental-sync delta.
 - The server's integration tests (Testcontainers Postgres + an in-JVM WireMock instance loaded
-  from the same `sample-data/jira-stub/` directory, arriving with the Jira client and sync
-  pipeline in later commits) assert exact counts against `sample-data/jira/expected.json` — issues
-  per project, changelog histories, worklogs in scope, reopens, sprint carry-overs, flagged
-  issues, the deliberately-omitted changelog bulkfetch chunk (and which issue ids fall back to the
-  per-issue changelog endpoint because of it), and the day-2 deleted/moved issue ids and worklog
-  deltas.
+  from the same `sample-data/jira-stub/` directory) assert exact counts against
+  `sample-data/jira/expected.json` — issues per project, changelog histories, worklogs in scope,
+  reopens, sprint carry-overs, flagged issues, the deliberately-omitted changelog bulkfetch chunk
+  (and which issue ids fall back to the per-issue changelog endpoint because of it), and the day-2
+  deleted/moved issue ids and worklog deltas.
 - The dataset's four in-scope projects (three Scrum, one Kanban) plus one deliberately
   out-of-scope project let A1 (worklogs stored for in-scope issues only, per §0 of the plan) be
   tested directly: the out-of-scope project's issues are never requested via `search/jql`, but its
   worklogs still show up in the instance-wide `worklog/updated` feed in the `day2` scenario, so the
   WORKLOGS stream's scope filter has something real to drop.
 
-Nothing reads this stub yet — the Jira HTTP client, the outbound guard and the sync streams that
-call it land in later commits. `docker-compose.yaml`'s `app` service already carries a
-`JIRA_STUB_BASE_URL` pointing at it, harmlessly unread until then.
+**`expected.json` figures must be in-scope-reachable, not whole-dataset counters.** A test asserting
+`JiraRawStore` counts against `expected.json` must only ever compare against a figure an A1-correct
+sync could actually produce — i.e. one computed over the four in-scope projects alone. Some of the
+generator's counters (`worklogs.inScopeIssueCount`/`inScopeTotalCount`, despite the name) are
+currently computed over the WHOLE simulated dataset, including the out-of-scope `SEC` project's own
+worklogs — a number no correct WORKLOGS-stream run can ever reach, since `SEC` issues are never
+fetched via `search/jql` and so never become a `raw.jira_issues` row eligible for the per-issue
+worklog backfill. A fix to `sample-data/jira/generate.mjs` to make these counters genuinely
+in-scope-only is landing in the next commit; until then, a test written against them should scope
+its own assertion to the in-scope projects rather than trust the field name.
+
+The Jira HTTP client, the outbound guard and the REFERENCE/ISSUES/CHANGELOGS/WORKLOGS sync streams
+all read this stub as of this commit (`docker-compose.yaml`'s `app` service's `JIRA_STUB_BASE_URL`
+points at it); RECONCILE/PROCESS/PROFILE remain the only consumers still to land.

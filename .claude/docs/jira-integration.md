@@ -97,14 +97,56 @@ not a placeholder.
 - `incremental(projectKeys, sinceMinutes)` — the ISSUES stream's own query:
   `<scope> AND updated >= "-Nm" ORDER BY updated ASC` (a TZ-free RELATIVE bound — Jira's absolute
   JQL dates are TZ-sensitive, a spike-identified risk this sidesteps entirely).
-- `reconcile(projectKeys)` — `<scope> ORDER BY id ASC`; defined now, not yet called anywhere — the
-  RECONCILE stream (plan commit 7) is its first consumer.
+- `reconcile(projectKeys)` — `<scope> ORDER BY id ASC`; defined now, not yet called anywhere — a
+  future RECONCILE stream is its first consumer.
 
 Two more `jira.*` config keys are consumed for the first time by this stream (both already declared
 in `application.yaml` since an earlier commit, unread until now): `jira.pageSize` (default 100,
 1..500 — the `search/jql` `maxResults` per page; the stub ignores it and returns its own fixed-size
 pages regardless) and `jira.incrementalOverlapMinutes` (default 10, 0..1440 — the re-widening
 window past the last watermark described above).
+
+## CHANGELOGS and WORKLOGS streams: endpoints
+
+Landed with the CHANGELOGS/WORKLOGS streams (plan §7, plan commit 7, V11 — see
+`.claude/docs/ingestion.md` "CHANGELOGS stream"/"WORKLOGS stream (A1)" for the full behavior):
+
+- **`POST /rest/api/3/changelog/bulkfetch`** (`JiraClient.changelogBulk`) — the CHANGELOGS stream's
+  primary path, a chunk of `jira.changelogBulkSize` issue ids per call, paged by `nextPageToken`;
+  the response envelope is `{issueChangeLogs: [{issueId, changeHistories: [...]}], nextPageToken}`.
+  A 404/405/410/501 response means the endpoint itself is unavailable for that batch (GA/scope gap,
+  not a transient failure) — the CHANGELOGS stream falls back to the per-issue endpoint below for
+  exactly that batch, not a retry of bulkfetch itself.
+- **`GET /rest/api/3/issue/{id}/changelog`** (`JiraClient.issueChangelogPage`, `JiraChangelogPage`) —
+  the per-issue fallback, `startAt`-paged like most Jira list endpoints, but its array key is
+  **`histories`, NOT `values`** — the one envelope shape in this client that diverges from the
+  common `JiraStartAtPage` shape every OTHER `startAt`-paged endpoint uses (see "Test connection"'s
+  `issue_changelog` probe above, and `jira/JiraModels.kt`'s `JiraChangelogPage`). Reusing
+  `JiraStartAtPage` for this endpoint would silently deserialize an always-empty array (kotlinx
+  ignores an unknown `histories` key and defaults `values` to empty) rather than fail loudly, so it
+  gets its own data class.
+- **`GET /rest/api/3/issue/{id}/worklog`** (`JiraClient.issueWorklogPage`, `JiraWorklogStartAtPage`)
+  — the WORKLOGS stream's per-issue backfill path (A1); same envelope shape as most `startAt`-paged
+  endpoints, but the array key is `worklogs`, not `values` (its own data class for that reason,
+  `JiraWorklogStartAtPage`).
+- **`GET /rest/api/3/worklog/updated`** / **`GET /rest/api/3/worklog/deleted`**
+  (`JiraClient.worklogUpdated`/`worklogDeleted`, `JiraWorklogIdsPage`) — the WORKLOGS stream's
+  instance-wide incremental feed (A1): bare `{worklogId, updatedTime}` pairs, no `issueId`, with
+  their own `since`/`until`/`nextPage`/`lastPage` cursor shape (queried by `since`, never by
+  following `nextPage` — see "cursors are rebuilt from `since`/`until`" in
+  `.claude/docs/ingestion.md`).
+- **`POST /rest/api/3/worklog/list`** (`JiraClient.worklogList`, ≤1000 ids per call) — resolves the
+  bare ids `worklog/updated` returns into full worklog bodies (the only one of these calls whose
+  response carries `issueId`), which the WORKLOGS stream's scope filter needs before it can decide
+  what to keep.
+
+**`jira.changelogBulkSize`** (default 50, `JiraSyncDependencies.changelogBulkSize`,
+`JIRA_CHANGELOG_BULK_SIZE` env override) is the CHANGELOGS stream's `changelog/bulkfetch` chunk size
+— it **MUST match `sample-data/jira-stub`'s own fixed 50-id chunking** (`sample-data/README.md`):
+the stub's `changelog/bulkfetch` WireMock mappings only match requests shaped as its own generator's
+50-id chunks (ascending, exact-order), so changing this value without regenerating the stub breaks
+every bulk chunk after the first mismatch, not just the one deliberately-omitted chunk the stub
+already exercises.
 
 ## `CURSOR_EXPIRED` detection
 
@@ -161,3 +203,15 @@ never hold the `jira.maxConcurrentRequests` `Semaphore` permit indefinitely.
   mappings the compose stack serves); `DataSourceTestConnectionTest` drives the real Test-connection
   endpoints against it, including per-test WireMock override mappings for the `FORBIDDEN_SCOPE`/
   `AUTHENTICATION_FAILED` cases and the rate-limit bucket.
+- `JiraSyncPipelineTest` — the full `JiraConnector.run(SYNC)` (REFERENCE → ISSUES → CHANGELOGS →
+  WORKLOGS) against `JiraStubServer`, asserting in-scope-reachable counts (never the whole-dataset
+  `expected.json` figures, see `.claude/docs/ingestion.md` "Jira stub"): the omitted bulkfetch
+  chunk's per-issue fallback setting the `changelogs` cursor's `bulkUnavailableUntil`, a second
+  no-op SYNC changing no changelog/worklog row, `PURGE` draining all four raw tables, and the
+  `jira-day2` scenario's out-of-scope worklog drop/count and tombstone. Also drives `JiraIssuesStream`
+  directly for the ISSUES cursor's own fault-injection/`CURSOR_EXPIRED`/lease-loss mechanics (unrelated
+  to CHANGELOGS/WORKLOGS, so run without the full connector's REFERENCE pass).
+- `JiraRawStoreTest` — `JiraRawStore`'s own write paths in isolation: the append-only changelog
+  dedup (`ON CONFLICT DO NOTHING` on a re-inserted history id), the worklog sha256 diff/tombstone/
+  resurrection cycle, `staleChangelogIssueIds`/`staleWorklogIssueIds`'s claim-scan predicates, and
+  `knownInScopeIssueIds`'s scope filter.

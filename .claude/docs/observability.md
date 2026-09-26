@@ -111,8 +111,8 @@ one).
 
 The data-sources CRUD and Test-connection audit trail, `outbound.blocked`, and the sync-job queue's
 lifecycle events (`sync_job.requested`/`.cancel_requested`/`.started`/`.succeeded`/`.failed`/
-`.released`) have all landed. The Jira streams themselves (REFERENCE, ISSUES, CHANGELOGS,
-WORKLOGS, RECONCILE, PROCESS, PROFILE) run as a no-op today (`ingest/Connector.kt`'s default
-`run()`) and emit no events of their own yet — any stream-level audit trail (e.g. per-page counts,
-A1's `worklogsOutOfScope`) arrives with the streams in plan commits 6-9 and gets its own paragraph
-here.
+`.released`) have all landed. REFERENCE, ISSUES, CHANGELOGS and WORKLOGS (`.claude/docs/ingestion.md`
+"Streams") run for real now, but none of the four emits a stream-level audit event of its own yet —
+only `sync_job.*` brackets the whole job. RECONCILE, PROCESS and PROFILE still run as a no-op
+(`ingest/Connector.kt`'s default `run()`). Any stream-level audit trail (e.g. per-page counts, A1's
+`worklogsOutOfScope`) arrives with a later commit and gets its own paragraph here.
