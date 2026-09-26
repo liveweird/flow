@@ -3,6 +3,12 @@
 # gradle/libs.versions.toml).
 version: 2
 updates:
+  # Gradle: Dependabot regenerates the module lockfiles (`core/gradle.lockfile`,
+  # `server/gradle.lockfile`) in each bump PR but NOT the root `settings-gradle.lockfile`, which
+  # pins the `io.ktor:ktor-version-catalog` coordinate loaded in `settings.gradle.kts` (currently
+  # `3.6.0`, enforced by dependency locking). A Ktor catalog bump needs
+  # `./gradlew build --write-locks` run on the branch by hand before it can go green — see
+  # `.claude/docs/dependencies.md`'s lockfile-regeneration command.
   - package-ecosystem: gradle
     directory: /
     schedule:
@@ -22,6 +28,13 @@ updates:
         exclude-patterns: ["vitest", "@vitest/*"]
       vitest:
         patterns: ["vitest", "@vitest/*"]
+    # TypeScript majors are held back: `openapi-typescript` (peer `typescript ^5.x`, tolerated on
+    # 6.0 via `--legacy-peer-deps`) drives the compiler-factory API that TypeScript 7.0 removed —
+    # `npm run check:api` crashes on `createKeywordTypeNode`. Lift this ignore once
+    # openapi-typescript declares TypeScript 7 support.
+    ignore:
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: npm
     directory: /e2e
     schedule:

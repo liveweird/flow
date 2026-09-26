@@ -93,6 +93,9 @@ overrides, which protect exactly this idiom).
 - `cd web && npm run build && npm run lint && npm test`: type-check, bundle, lint, and run Vitest.
 - `cd web && npm run test:coverage`: run frontend coverage gates. `npm run knip`: dead-code gate.
 - `cd web && npm run gen:api`: regenerate `web/src/api/schema.ts` from the OpenAPI contract.
+- `cd web && npm run lint:api`: Spectral-lint the OpenAPI spec and the conformant fixture against
+  `api-guidelines/`. `cd web && npm run check:api`: diff an in-memory regeneration of
+  `schema.ts` against the committed file (never overwrites it).
 - `cd e2e && npm ci && npx playwright install chromium && npm test`: install and run Playwright
   against the full stack on port 8084. `npm run lint`, `npm run knip`, `npm run typecheck`, and
   `npm run check:scenarios`, and `npm run test:setup` are the Docker-free gates. Setup reuses or

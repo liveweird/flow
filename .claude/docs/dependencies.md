@@ -85,3 +85,25 @@ CI scans reported CVE-2026-84939 in the root plugin classpath's transitive
 `org.freemarker:freemarker` 2.3.32 (caught in Covenant first). A root buildscript constraint selects
 Apache FreeMarker 2.3.35, and the regenerated root buildscript lockfile records that version. This is a
 build-time dependency; it is not packaged in the application runtime.
+
+## Lessons ported from Toadie's Dependabot rounds (2026-09-26)
+
+Sibling project Toadie hit these in its own weekly Dependabot rounds; they generalize to any
+workspace here running the same tools:
+
+- **A `knip` bump can add or drop findings with no change to this repo's code.** Toadie's 6.36
+  started counting an export used only inside its own declaring file as unused, and separately
+  raised a "Configuration hint … Remove from ignore" finding for an `ignore` entry that no longer
+  suppressed anything. Read the whole `npm run knip` output on a Dependabot `knip` bump, not just
+  a `grep knip` on the CI log — the failure can hide behind an unrelated-looking hint line. Fix by
+  dropping the now-needless `export` keyword or `knip.json` ignore entry; do not silence the new
+  rule. Flow's own `knip.json` carried exactly this stale entry (`ignore: ["src/api/schema.ts"]`)
+  by the time this section was written — `schema.ts` is now fully consumed, so the entry was
+  removed rather than kept as a no-op.
+- **A required "Quality gate" style status check makes Dependabot PR merges serial, not
+  parallel.** If branch protection requires every PR to contain the target branch's current HEAD,
+  update-branch a Dependabot PR, wait for its checks, merge, then update-branch the next one —
+  merging cheapest/most-likely-green first keeps a later red PR attributable to its own diff
+  rather than a stale base. A config-only PR (`.github/**`) that doesn't change a Docker image can
+  have its downstream image rebuild run in parallel with its own CI, since nothing about the image
+  input changed.

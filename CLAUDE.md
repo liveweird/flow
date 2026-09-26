@@ -76,13 +76,15 @@ the mise shim on `PATH`), point it explicitly: `JAVA_HOME=$(mise where java) ./g
 - **Run the whole stack with one command: `docker compose up --build`** (only Docker required).
   See "Running the full stack" below.
 - Frontend: `cd web && npm install --legacy-peer-deps`, then
-  `npm run dev|build|lint|test|test:coverage|knip|gen:api` (details in `web/CLAUDE.md`).
+  `npm run dev|build|lint|test|test:coverage|knip|gen:api` (details in `web/CLAUDE.md`). The
+  API-contract gate is `npm run lint:api` (Spectral lint of the OpenAPI spec + the conformant
+  fixture against `api-guidelines/`) and `npm run check:api` (in-memory spec → `schema.ts` diff).
 - E2E: `cd e2e && npm ci && npx playwright install chromium && npm test` (plus `npm run lint`,
   `npm run knip`, `npm run typecheck` and `npm run check:scenarios`).
 - CI: `.github/workflows/ci.yml` re-runs every gate above on push/PR (server — incl. the OpenAPI
-  coverage gate and a HIGH/CRITICAL Gradle lockfile vulnerability scan, web — incl. the spec →
-  `schema.ts` drift check, e2e statics — lint/knip/typecheck/scenario parity/setup — an image build
-  on `master`); the blackbox Playwright suite (`e2e.yml`) runs nightly and on demand. Dependabot
+  coverage gate and a HIGH/CRITICAL Gradle lockfile vulnerability scan, web — incl. the API-contract
+  gate (`lint:api` + `check:api`), e2e statics — lint/knip/typecheck/scenario parity/setup — an
+  image build on `master`); the blackbox Playwright suite (`e2e.yml`) runs nightly and on demand. Dependabot
   (`.github/dependabot.yml`) checks every workspace, Actions and container manifests weekly;
   `.claude/docs/dependencies.md` describes grouping, compatibility pins and runtime verification.
 
