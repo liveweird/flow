@@ -1,7 +1,8 @@
 name: ci
 
 # The push/PR gate — every local gate (CLAUDE.md "Commands") re-run on a clean runner:
-# server (detekt + Testcontainers tests + Kover + OpenAPI coverage + dependency alignment), web
+# server (detekt + Testcontainers tests + Kover + OpenAPI coverage + dependency alignment +
+# strict Gradle dependency verification), web
 # (the spec → schema.ts drift check, lint, knip, tests with coverage floors, build), and the
 # Docker-free e2e statics (lint, knip, typecheck, spec↔scenario parity). The blackbox Playwright
 # suite runs nightly and on demand (e2e.yml).
@@ -29,8 +30,17 @@ jobs:
           distribution: temurin
           java-version: 21
           cache: gradle
+      - name: Check lockfiles and verification metadata are present
+        run: |
+          for state in gradle/verification-metadata.xml gradle.lockfile settings-gradle.lockfile buildscript-gradle.lockfile core/gradle.lockfile core/buildscript-gradle.lockfile server/gradle.lockfile server/buildscript-gradle.lockfile; do
+            test -s "$state"
+          done
       # `build` = compile + detekt + test + koverVerify + checkDependencyAlignment (`check`).
-      - run: ./gradlew build --no-daemon --stacktrace
+      # `--dependency-verification strict` is explicit here on top of the automatic enforcement
+      # gradle/verification-metadata.xml already triggers — see .claude/docs/dependency-reproducibility.md.
+      - run: ./gradlew --dependency-verification strict build --no-daemon --stacktrace
+      - name: Confirm lockfiles and verification metadata match the committed graph
+        run: git diff --exit-code -- gradle/verification-metadata.xml gradle.lockfile settings-gradle.lockfile buildscript-gradle.lockfile core/gradle.lockfile core/buildscript-gradle.lockfile server/gradle.lockfile server/buildscript-gradle.lockfile
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: ${{ !cancelled() }}
         with:
@@ -102,12 +112,12 @@ jobs:
       # --legacy-peer-deps per web/README.md (openapi-typescript declares TS ^5, the repo uses TS 6).
       - run: npm ci --legacy-peer-deps
       # The same-commit rule made mechanical: a spec change must land with its regenerated
-      # src/api/schema.ts, or the SPA type-checks against a stale client surface.
-      - name: OpenAPI → schema.ts drift
-        run: |
-          npm run gen:api
-          git diff --exit-code -- src/api/schema.ts \
-            || { echo "::error::web/src/api/schema.ts is stale — run 'cd web && npm run gen:api' and commit the result"; exit 1; }
+      # src/api/schema.ts, or the SPA type-checks against a stale client surface. `lint:api`
+      # Spectral-lints the spec (and the conformant fixture) against api-guidelines/; `check:api`
+      # regenerates schema.ts in memory and diffs it against the committed file without ever
+      # overwriting it (see web/scripts/check-api.mjs) — one step, not a duplicate gen:api run.
+      - name: Check API contract and generated types
+        run: npm run lint:api && npm run check:api
       - run: npm run lint
       - run: npm run knip
       - run: npm run test:coverage

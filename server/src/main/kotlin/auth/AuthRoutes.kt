@@ -3,6 +3,8 @@ package ch.nokillswit.auth
 import ch.nokillswit.audit.audit
 import ch.nokillswit.authz.TooManyRequestsException
 import ch.nokillswit.authz.UnauthorizedException
+import ch.nokillswit.infra.config.requireConfigInt
+import ch.nokillswit.infra.config.requireConfigLong
 import ch.nokillswit.infra.mail.mailAppUrl
 import ch.nokillswit.infra.mail.mailer
 import ch.nokillswit.infra.mail.respondMailUnavailable
@@ -42,6 +44,16 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 import java.nio.charset.StandardCharsets
 import java.util.Base64
+
+/**
+ * The upper bound for the lockout/reset durations configured in SECONDS below, before their
+ * `* 1000` millis conversion: `requireConfigLong`'s own default max is `Long.MAX_VALUE`, and a
+ * value near it overflows into a negative millis figure on that multiplication — which would
+ * silently DISABLE the lockout/throttle (every comparison against a negative "locked until"
+ * timestamp fails) instead of refusing to start. 30 days is far beyond any legitimate value for
+ * either setting.
+ */
+internal const val MAX_DURATION_SECONDS = 30L * 24 * 3600
 
 @Serializable
 data class LoginRequest(val email: String, val password: String)
@@ -155,6 +167,13 @@ private class AuthDeps(
 
 fun Application.configureAuthRoutes() {
     val jwtConfig = attributes[JwtConfigKey]
+    // Boot-validated through the shared requireConfigInt/requireConfigLong (Lettuce's ranges,
+    // ported) below: a malformed or out-of-range value is a config error, not a runtime concern —
+    // e.g. LOGIN_LOCKOUT_THRESHOLD=0 would lock out every account on its first attempt.
+    // codeTtlSeconds itself stays an ad-hoc read (not Lettuce's requireConfigLong-enforced
+    // min = 1): Flow's in-memory MfaChallenges (unlike Lettuce's DB-backed table) has no
+    // back-dating hook for `MfaLoginTest`'s "an expired challenge answers the same uniform 401"
+    // case, which mints a deliberately born-expired challenge via codeTtlSeconds=0.
     val mfaTtlSeconds = environment.config.property("security.mfa.codeTtlSeconds").getString().toLong()
     val deps = AuthDeps(
         jwtConfig = jwtConfig,
@@ -163,14 +182,22 @@ fun Application.configureAuthRoutes() {
         // Per-account lockout, complementing the per-IP bucket (which rotating hosts sidestep):
         // N consecutive failures for one email → locked for the configured window.
         loginThrottle = LoginThrottle(
-            threshold = environment.config.property("security.lockout.threshold").getString().toInt(),
-            lockoutMillis = environment.config.property("security.lockout.durationSeconds").getString().toLong() * 1000,
+            threshold = requireConfigInt(environment.config, "security.lockout.threshold", min = 1),
+            // Bounded above (30 days) as well as below: an unbounded value survives the *1000
+            // millis conversion right up until it doesn't — a durationSeconds near Long.MAX_VALUE
+            // overflows into a negative millis figure, which would silently DISABLE the lockout
+            // instead of refusing to start.
+            lockoutMillis = requireConfigLong(
+                environment.config, "security.lockout.durationSeconds", min = 1, max = MAX_DURATION_SECONDS,
+            ) * 1000,
             maxTracked = environment.config.property("security.lockout.maxTracked").getString().toInt(),
         ),
         // Self-service password reset: one request per submitted email per interval, uniformly
         // whether or not the account exists (the 429 carries no enumeration signal).
         resetThrottle = PasswordResetThrottle(
-            minIntervalMillis = environment.config.property("security.passwordReset.minIntervalSeconds").getString().toLong() * 1000,
+            minIntervalMillis = requireConfigLong(
+                environment.config, "security.passwordReset.minIntervalSeconds", min = 1, max = MAX_DURATION_SECONDS,
+            ) * 1000,
             maxTracked = environment.config.property("security.passwordReset.maxTracked").getString().toInt(),
         ),
         mailer = mailer(),
@@ -179,7 +206,7 @@ fun Application.configureAuthRoutes() {
         // like the throttles above. The issuance worker lives beside the email content (auth/MfaEmail.kt).
         mfaChallenges = MfaChallenges(
             ttlMillis = mfaTtlSeconds * 1000,
-            maxAttempts = environment.config.property("security.mfa.maxAttempts").getString().toInt(),
+            maxAttempts = requireConfigInt(environment.config, "security.mfa.maxAttempts", min = 1, max = 100),
             maxTracked = environment.config.property("security.mfa.maxTracked").getString().toInt(),
         ),
         mfaTtlMinutes = (mfaTtlSeconds + 59) / 60,
@@ -437,19 +464,34 @@ private fun Route.logout(deps: AuthDeps) {
         val body = try {
             call.receiveNullable<LogoutRequest>()
         } catch (cause: BadRequestException) {
-            // ContentNegotiation's malformed-JSON wrap.
-            call.application.log.debug("Logout body unparsable — skipping refresh-token revocation", cause)
+            // ContentNegotiation's malformed-JSON wrap. The cause chain can embed a body
+            // excerpt (kotlinx's decode error message) — log the exception CLASS NAME
+            // only, the login.mfa_send_failed/password_reset.send_failed `errorType` rule
+            // (.claude/docs/observability.md), never the throwable itself.
+            val errorType = cause.cause?.javaClass?.simpleName ?: cause.javaClass.simpleName
+            call.application.log.debug(
+                "Logout body unparsable — skipping refresh-token revocation ({})",
+                errorType,
+            )
             null
         } catch (cause: CannotTransformContentToTypeException) {
             // A body-less/Content-Type-less POST never enters ContentNegotiation.
-            call.application.log.debug("Logout sent no body — skipping refresh-token revocation", cause)
+            call.application.log.debug(
+                "Logout sent no body — skipping refresh-token revocation ({})",
+                cause.javaClass.simpleName,
+            )
             null
         }
         body?.refreshToken?.let { rt ->
             val decoded = try {
                 refreshVerifier.verify(rt)
             } catch (cause: JWTVerificationException) {
-                call.application.log.debug("Logout refresh token invalid — nothing to revoke", cause)
+                // auth0's JWTDecodeException message can embed the decoded token segment —
+                // class name only, same errorType rule as above.
+                call.application.log.debug(
+                    "Logout refresh token invalid — nothing to revoke ({})",
+                    cause.javaClass.simpleName,
+                )
                 null
             }
             decoded?.id?.let { rjti ->

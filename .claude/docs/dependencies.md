@@ -1,8 +1,11 @@
 # Dependency maintenance
 
-Dependency declarations and lockfiles are the source of truth. Keep Gradle and the two npm
-workspaces (`web/`, `e2e/`) independent; do not upgrade to the newest major merely because it is
-available.
+Dependency declarations, lockfiles and `gradle/verification-metadata.xml` are the source of truth.
+Keep Gradle and the two npm workspaces (`web/`, `e2e/`) independent; do not upgrade to the newest
+major merely because it is available. `.claude/docs/dependency-reproducibility.md` describes the
+Gradle lock/checksum mechanism itself (what is covered, the hard empty-`GRADLE_USER_HOME` rule for
+regenerating verification metadata, and how to review a regenerated file) — this doc stays focused
+on the maintenance workflow: grouping, compatibility pins, and acceptance checks.
 
 ## Update automation
 
@@ -79,9 +82,55 @@ then review the diff; do not hand-edit generated locks. `.github/workflows/ci.ym
 project + buildscript) with Trivy and fails on a HIGH or CRITICAL advisory; the Docker build
 copies the locks before resolving server dependencies.
 
+A dependency or plugin change also needs `gradle/verification-metadata.xml` regenerated in the
+same commit — Gradle's separate SHA-256 checksum gate on every resolved artifact. This step has a
+hard rule: it **must** run from an empty `GRADLE_USER_HOME` (a warm one silently omits checksums
+for anything already cached), so it is a separate command from the plain `--write-locks` one above,
+not an extra flag tacked onto it:
+
+```
+export JAVA_HOME=$(mise where java)
+export DOCKER_HOST=unix://$HOME/.orbstack/run/docker.sock
+GRADLE_USER_HOME=$(mktemp -d) ./gradlew --write-verification-metadata sha256 \
+  :verifySettingsPluginAudit :buildEnvironment :core:buildEnvironment :server:buildEnvironment \
+  :dependencies :core:dependencies :server:dependencies \
+  build :server:installDist
+```
+
+Then validate from a second, also-empty `GRADLE_USER_HOME` with
+`./gradlew --dependency-verification strict build` before committing. See
+`.claude/docs/dependency-reproducibility.md` for what this covers, why the task list must resolve
+every configuration CI and the Docker build resolve, and how to review the generated checksums.
+`.github/workflows/ci.yml`'s `server` job checks `gradle/verification-metadata.xml` is present,
+runs `--dependency-verification strict`, and diffs it (with the lockfiles) after the build; the
+Docker build's `server` stage copies the whole `gradle/` directory, so it picks up the file
+automatically once it exists.
+
 ## Buildscript advisory follow-up (2026-09-26)
 
 CI scans reported CVE-2026-84939 in the root plugin classpath's transitive
 `org.freemarker:freemarker` 2.3.32 (caught in Covenant first). A root buildscript constraint selects
 Apache FreeMarker 2.3.35, and the regenerated root buildscript lockfile records that version. This is a
 build-time dependency; it is not packaged in the application runtime.
+
+## Lessons ported from Toadie's Dependabot rounds (2026-09-26)
+
+Sibling project Toadie hit these in its own weekly Dependabot rounds; they generalize to any
+workspace here running the same tools:
+
+- **A `knip` bump can add or drop findings with no change to this repo's code.** Toadie's 6.36
+  started counting an export used only inside its own declaring file as unused, and separately
+  raised a "Configuration hint … Remove from ignore" finding for an `ignore` entry that no longer
+  suppressed anything. Read the whole `npm run knip` output on a Dependabot `knip` bump, not just
+  a `grep knip` on the CI log — the failure can hide behind an unrelated-looking hint line. Fix by
+  dropping the now-needless `export` keyword or `knip.json` ignore entry; do not silence the new
+  rule. Flow's own `knip.json` carried exactly this stale entry (`ignore: ["src/api/schema.ts"]`)
+  by the time this section was written — `schema.ts` is now fully consumed, so the entry was
+  removed rather than kept as a no-op.
+- **A required "Quality gate" style status check makes Dependabot PR merges serial, not
+  parallel.** If branch protection requires every PR to contain the target branch's current HEAD,
+  update-branch a Dependabot PR, wait for its checks, merge, then update-branch the next one —
+  merging cheapest/most-likely-green first keeps a later red PR attributable to its own diff
+  rather than a stale base. A config-only PR (`.github/**`) that doesn't change a Docker image can
+  have its downstream image rebuild run in parallel with its own CI, since nothing about the image
+  input changed.

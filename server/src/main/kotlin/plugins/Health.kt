@@ -1,5 +1,6 @@
 package ch.nokillswit.plugins
 
+import ch.nokillswit.infra.catchingFailures
 import ch.nokillswit.infra.db.R2dbcDatabaseKey
 import ch.nokillswit.users.UserService
 import io.ktor.http.HttpStatusCode
@@ -56,12 +57,12 @@ fun Application.configureHealth() {
 }
 
 /** True when one bounded round trip completes — a timeout, a refused connection or a pool failure all read "not ready". */
-private suspend fun databaseAnswers(database: R2dbcDatabase): Boolean = try {
+private suspend fun databaseAnswers(database: R2dbcDatabase): Boolean = catchingFailures({
     withTimeoutOrNull(READINESS_TIMEOUT_MS) {
         suspendTransaction(database) { UserService.Users.select(UserService.Users.id).limit(1).toList() }
         true
     } ?: false
-} catch (e: Exception) {
+}) { e ->
     // Probes fire every few seconds: the failure is the answer (503), the cause a debug line, not a stack trace per poll.
     log.debug("Readiness probe failed: {}", e.toString())
     false

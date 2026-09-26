@@ -127,6 +127,12 @@ dependencies {
     implementation(libs.bcrypt)
     implementation(libs.exposed.core)
     implementation(libs.exposed.r2dbc)
+    implementation(libs.r2dbc.pool)
+    // Reactor alignment — see the `reactor-bom` comment in gradle/libs.versions.toml: the BOM pins
+    // reactor-core/-pool/-netty to one release train (they carry different version numbers), so
+    // these two declarations carry no version of their own. Guarded by checkDependencyAlignment.
+    implementation(platform(libs.reactor.bom))
+    implementation(libs.reactor.pool)
     implementation(libs.flyway.core)
     implementation(libs.flyway.database.postgresql)
     implementation(libs.logback.classic)
@@ -134,8 +140,9 @@ dependencies {
     implementation(libs.postgresql)
     implementation(libs.r2dbc.postgresql)
     // Netty alignment — see the `netty` comment in gradle/libs.versions.toml: the BOM pins every
-    // io.netty module to one version and the explicit reactor-netty wins over the driver's older
-    // transitive request (Gradle picks the highest). Guarded by checkDependencyAlignment below.
+    // io.netty module to one version, and reactor-netty (versioned by the Reactor BOM above) wins
+    // over the driver's older transitive request (Gradle picks the highest). Guarded by
+    // checkDependencyAlignment below.
     implementation(platform(libs.netty.bom))
     implementation(libs.reactor.netty.core)
     // kotlin-reflect rides in transitively (Ktor loads the config modules through it) at whatever
@@ -189,15 +196,44 @@ tasks.test {
 
 // Fails the build when a dependency FAMILY that must move as one resolves to several versions on
 // the server runtime classpath — the mixed Netty 4.1/4.2 set Ktor + reactor-netty produced, the
-// OpenTelemetry incubator drifting from the SDK, kotlin-reflect lagging the stdlib, or a Jackson 2
-// module drifting from the BOM (the catalog notes explain each pin). Docker-free, rides `check`
-// like detekt.
+// OpenTelemetry incubator drifting from the SDK, kotlin-reflect lagging the stdlib, a Jackson 2
+// module drifting from the BOM, or a Reactor module drifting from the reactor-bom's release train
+// (the catalog notes explain each pin). Docker-free, rides `check` like detekt.
 val checkDependencyAlignment = tasks.register("checkDependencyAlignment") {
     group = "verification"
-    description = "Asserts one version per aligned dependency family on the server runtime classpath."
+    description = "Asserts one version per aligned dependency family (Reactor: the BOM's versions) on the server runtime classpath."
     val runtimeClasspath = configurations.runtimeClasspath
     doLast {
         val ids = runtimeClasspath.get().resolvedConfiguration.resolvedArtifacts.map { it.moduleVersion.id }
+        // The Reactor modules are the exception to one-version-per-family (reactor-core, reactor-pool
+        // and reactor-netty legitimately carry different version numbers as ONE release train), so
+        // they are checked against the Reactor BOM's own constraints instead — upstream's pairing
+        // table. Read off the platform node of the resolution graph, so no extra artifact is fetched
+        // and the documented `--write-locks` command records all it needs.
+        val bomCoordinates = "io.projectreactor:reactor-bom"
+        val bomNode = runtimeClasspath.get().incoming.resolutionResult.allComponents.singleOrNull {
+            (it.id as? org.gradle.api.artifacts.component.ModuleComponentIdentifier)
+                ?.let { id -> "${id.group}:${id.module}" == bomCoordinates } == true
+        } ?: error("$bomCoordinates is not on the runtime classpath — is the Reactor check still needed?")
+        val managed = bomNode.dependencies
+            .filter { it.isConstraint }
+            .mapNotNull { it.requested as? org.gradle.api.artifacts.component.ModuleComponentSelector }
+            .associate { "${it.group}:${it.module}" to it.version }
+        val reactorIds = ids.filter { it.group.startsWith("io.projectreactor") }
+        check(reactorIds.isNotEmpty()) { "No io.projectreactor module on the runtime classpath — is the Reactor check still needed?" }
+        val reactorDrift = reactorIds.mapNotNull { id ->
+            when (val declared = managed["${id.group}:${id.name}"]) {
+                null -> "${id.group}:${id.name}:${id.version} is not in reactor-bom"
+                id.version -> null
+                else -> "${id.group}:${id.name} resolved ${id.version}, reactor-bom declares $declared"
+            }
+        }
+        if (reactorDrift.isEmpty()) {
+            logger.lifecycle(
+                "io.projectreactor aligned with reactor-bom ${libs.versions.reactor.bom.get()} (" +
+                    reactorIds.joinToString { "${it.name} ${it.version}" } + ")",
+            )
+        }
         // family label -> (member predicate, version normalizer)
         val families = mapOf(
             "io.netty" to Pair({ g: String, _: String -> g == "io.netty" }, { v: String -> v }),
@@ -227,7 +263,10 @@ val checkDependencyAlignment = tasks.register("checkDependencyAlignment") {
                 "$label: " + versions.entries.joinToString("; ") { (v, names) -> "$v -> ${names.sorted()}" }
             }
         }
-        check(drift.isEmpty()) { "Dependency families must resolve to ONE version each on the runtime classpath — " + drift.joinToString(" | ") }
+        check(drift.isEmpty() && reactorDrift.isEmpty()) {
+            "Dependency families must resolve to ONE version each on the runtime classpath, and Reactor modules " +
+                "to the reactor-bom's versions — " + (drift + reactorDrift).joinToString(" | ")
+        }
         // Jackson 3 (tools.jackson, a different Java package from com.fasterxml.jackson) rides in
         // through Flyway 13 and coexists with the Jackson 2 line the validators use — the two never
         // share a type. Logged, not failed: what matters is that OUR libraries stay on ONE of them

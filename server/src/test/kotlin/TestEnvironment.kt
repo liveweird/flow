@@ -119,20 +119,29 @@ suspend fun ApplicationTestBuilder.seededClient(prefix: String, role: UserRole =
 }
 
 /**
- * Captures a logger's events with a Logback ListAppender (the audit trail on
- * `ch.nokillswit.audit`). Use in a try/finally with [detach]; [awaitEvent] polls for
- * asynchronously produced events.
+ * Captures a logger's events (the audit trail on `ch.nokillswit.audit`, or another logger — e.g.
+ * the ROOT logger during application startup). Use in a try/finally with [detach]; [awaitEvent]
+ * polls for asynchronously produced events.
  */
 class LogCapture(loggerName: String) {
     private val logger = org.slf4j.LoggerFactory.getLogger(loggerName) as ch.qos.logback.classic.Logger
-    private val appender = ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>()
+    // A copy-on-write list rather than Logback's ListAppender (a plain ArrayList): a capture on a
+    // busy logger — the ROOT logger during application start, say — is appended to from other
+    // threads while a test iterates `events`, which raised ConcurrentModificationException
+    // (ported from Toadie).
+    private val captured = java.util.concurrent.CopyOnWriteArrayList<ch.qos.logback.classic.spi.ILoggingEvent>()
+    private val appender = object : ch.qos.logback.core.AppenderBase<ch.qos.logback.classic.spi.ILoggingEvent>() {
+        override fun append(eventObject: ch.qos.logback.classic.spi.ILoggingEvent) {
+            captured.add(eventObject)
+        }
+    }
 
     init {
         appender.start()
         logger.addAppender(appender)
     }
 
-    val events: List<ch.qos.logback.classic.spi.ILoggingEvent> get() = appender.list
+    val events: List<ch.qos.logback.classic.spi.ILoggingEvent> get() = captured
 
     fun detach() = logger.detachAppender(appender)
 

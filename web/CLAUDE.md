@@ -23,9 +23,15 @@ inventing new ones.
   `eslint-plugin-sonarjs` (recommended) plus core size/complexity backstops — zero-findings gate;
   rule tuning lives in `eslint.config.js` ONLY, one commented override per deliberate idiom, and
   any inline `eslint-disable` needs a justifying comment. `npm run knip` is the dead-code gate
-  (unused files/exports/dependencies; `knip.json` ignores the generated `schema.ts`) — keep
-  exports that only the declaring file uses un-exported, and delete what knip flags rather than
-  ignoring it.
+  (unused files/exports/dependencies; `knip.json` ignores the generated `schema.ts` and the
+  `ajv` devDependency pinned only for `@stoplight/spectral-cli`'s resolution) — keep exports that
+  only the declaring file uses un-exported, and delete what knip flags rather than ignoring it.
+  **The API-contract gate**: `npm run lint:api` Spectral-lints the OpenAPI spec and
+  `api-guidelines/examples/conformant.yaml` against `api-guidelines/api-guidelines.spectral.yaml`
+  (the ruleset is the other team's area — a finding here is fixed in the spec, not the ruleset);
+  `npm run check:api` (`scripts/check-api.mjs`) regenerates the API types in memory and diffs
+  them against the committed `src/api/schema.ts` — it must never overwrite that file, so
+  `gen:api` stays the one command developers run to update it.
 - **Build version stamp**: `vite.config.ts` injects `__APP_COMMIT__` (short sha, `+dirty` when the
   worktree has uncommitted changes) and `__APP_COMMIT_TIME__` (commit ISO timestamp) via `define`,
   declared in `src/vite-env.d.ts`. Env vars `GIT_SHA`/`GIT_COMMIT_TIME` override the local-git

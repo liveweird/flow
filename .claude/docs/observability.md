@@ -37,12 +37,12 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
   unknown_challenge/expired/wrong_code/too_many_attempts/user_gone/credential_changed) /
   `login.mfa_unavailable` (MFA enabled on a mail-less deployment → 503) /
   `login.mfa_capacity_rejected` (the pending challenge store is full → 429, no code sent) /
-  `login.mfa_send_failed` (email/error),
+  `login.mfa_send_failed` (email/errorType),
 - `logout`,
 - `password_reset.requested` / `password_reset.unknown_email` / `password_reset.throttled` /
   `password_reset.capacity_rejected` (new identity at the full cooldown store, no worker started)
-  / `password_reset.completed` (email/userId) / `password_reset.send_failed` (email/error — the
-  email never left) / `password_reset.store_failed` (email/error — the email WAS delivered but
+  / `password_reset.completed` (email/userId) / `password_reset.send_failed` (email/errorType —
+  the email never left) / `password_reset.store_failed` (email/errorType — the email WAS delivered but
   the new hash was not stored, so the recipient holds a password that does not work) — the
   self-service reset trail; the async worker's events double as test barriers,
 - `refresh.rejected` (with `reason`: invalid_or_expired/wrong_token_type/revoked/malformed/

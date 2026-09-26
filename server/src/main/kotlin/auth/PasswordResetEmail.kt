@@ -85,7 +85,10 @@ internal suspend fun processPasswordReset(
         audit(
             if (delivered) "password_reset.store_failed" else "password_reset.send_failed",
             "email" to email,
-            "error" to e.message,
+            // errorType only — the class name, never e.message (the logout debug-line rule in
+            // auth/AuthRoutes.kt): a mail transport's exception message may embed server detail
+            // that does not belong in the audit trail.
+            "errorType" to e.javaClass.simpleName,
         )
         app.log.error("Password reset failed for $email (delivered=$delivered)", e)
     }

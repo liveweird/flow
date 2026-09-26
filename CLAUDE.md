@@ -76,15 +76,20 @@ the mise shim on `PATH`), point it explicitly: `JAVA_HOME=$(mise where java) ./g
 - **Run the whole stack with one command: `docker compose up --build`** (only Docker required).
   See "Running the full stack" below.
 - Frontend: `cd web && npm install --legacy-peer-deps`, then
-  `npm run dev|build|lint|test|test:coverage|knip|gen:api` (details in `web/CLAUDE.md`).
+  `npm run dev|build|lint|test|test:coverage|knip|gen:api` (details in `web/CLAUDE.md`). The
+  API-contract gate is `npm run lint:api` (Spectral lint of the OpenAPI spec + the conformant
+  fixture against `api-guidelines/`) and `npm run check:api` (in-memory spec → `schema.ts` diff).
 - E2E: `cd e2e && npm ci && npx playwright install chromium && npm test` (plus `npm run lint`,
   `npm run knip`, `npm run typecheck` and `npm run check:scenarios`).
 - CI: `.github/workflows/ci.yml` re-runs every gate above on push/PR (server — incl. the OpenAPI
-  coverage gate and a HIGH/CRITICAL Gradle lockfile vulnerability scan, web — incl. the spec →
-  `schema.ts` drift check, e2e statics — lint/knip/typecheck/scenario parity/setup — an image build
-  on `master`); the blackbox Playwright suite (`e2e.yml`) runs nightly and on demand. Dependabot
-  (`.github/dependabot.yml`) checks every workspace, Actions and container manifests weekly;
-  `.claude/docs/dependencies.md` describes grouping, compatibility pins and runtime verification.
+  coverage gate, strict Gradle dependency verification (`--dependency-verification strict`) plus a
+  lock/verification-metadata drift check, and a HIGH/CRITICAL Gradle lockfile vulnerability scan,
+  web — incl. the API-contract gate (`lint:api` + `check:api`), e2e statics —
+  lint/knip/typecheck/scenario parity/setup — an image build on `master`); the blackbox Playwright
+  suite (`e2e.yml`) runs nightly and on demand. Dependabot (`.github/dependabot.yml`) checks every
+  workspace, Actions and container manifests weekly; `.claude/docs/dependencies.md` describes
+  grouping, compatibility pins and runtime verification, and
+  `.claude/docs/dependency-reproducibility.md` describes the Gradle lock/checksum mechanism itself.
 
 ## Running the full stack
 
@@ -124,6 +129,10 @@ from the donor scaffold; renaming it is out of scope until it actually matters. 
 versions are centralized in `gradle/libs.versions.toml` (every pin carries its rationale); Ktor
 itself comes from a separate version catalog (`ktorLibs`) loaded from `io.ktor:ktor-version-catalog`
 in `settings.gradle.kts`.
+
+Resolved Gradle dependencies use strict locking and SHA-256 verification, including artifact
+metadata. Normal builds enforce the committed state; intentional updates follow
+`.claude/docs/dependency-reproducibility.md`. Docker packaging copies the same lock/checksum files.
 
 ### Server bootstrap model
 
@@ -237,6 +246,7 @@ covered the moment its spec entry lands.
 @.claude/docs/observability.md
 @.claude/docs/testing.md
 @.claude/docs/dependencies.md
+@.claude/docs/dependency-reproducibility.md
 @.claude/docs/app-releases.md
 
 ### Frontend (`web/`)
