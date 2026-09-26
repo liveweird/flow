@@ -117,6 +117,7 @@ transport at startup (`.claude/docs/security.md`).
 | Variable | Default | Purpose |
 |---|---|---|
 | `KTOR_DEVELOPMENT` | `true` | Development mode (`true`) vs production mode — HSTS/HTTPS redirect and the fail-closed startup checks. The image ships `false`. |
+| `FLOW_ROLE` | `all` | `web` (HTTP API + SPA, no ingestion worker), `worker` (health/ready probes only, runs the ingestion worker) or `all` (both, one process). An unrecognized value refuses to start. See `.claude/docs/ingestion.md` "Roles". |
 | `LOGIN_LOCKOUT_THRESHOLD` | `5` | Consecutive failures per account before `/login` answers 429. |
 | `LOGIN_LOCKOUT_DURATION_SECONDS` | `900` | How long a locked account stays locked. |
 | `LOGIN_LOCKOUT_MAX_TRACKED` | `10000` | Maximum in-memory login identities; new identities receive 429 at capacity while active counters and locks remain. |

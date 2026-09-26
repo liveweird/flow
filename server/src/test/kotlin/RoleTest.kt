@@ -1,0 +1,91 @@
+package ch.nokillswit
+
+import ch.nokillswit.plugins.runsWorker
+import ch.nokillswit.plugins.servesApi
+import io.ktor.client.request.get
+import io.ktor.http.HttpStatusCode
+import io.ktor.server.testing.testApplication
+import java.nio.file.Files
+import kotlin.io.path.writeText
+import kotlin.test.Test
+import kotlin.test.assertEquals
+
+/**
+ * `FLOW_ROLE` (`plugins/Role.kt`, `app.role`): `worker` serves only the health/ready probes —
+ * every feature route module and the SPA/static catch-all early-return via `servesApi()` — while
+ * `web`/`all` serve the full API. `.claude/docs/ingestion.md` "Roles" is the operator-facing
+ * writeup.
+ */
+class RoleTest {
+
+    @Test
+    fun `worker role serves only the health and ready probes`() = testApplication {
+        // A configured staticDir would normally serve the SPA — proving the early return in
+        // plugins/Routing.kt actually bites, not merely reproducing ServerTest's "no staticDir
+        // configured" 404.
+        val staticDir = Files.createTempDirectory("role-test-static")
+        staticDir.resolve("index.html").writeText("<html>spa</html>")
+
+        configureApp("app.role" to "worker", "web.staticDir" to staticDir.toString())
+        var servesApi: Boolean? = null
+        var runsWorker: Boolean? = null
+        application {
+            servesApi = servesApi()
+            runsWorker = runsWorker()
+        }
+        startApplication()
+
+        assertEquals(false, servesApi, "app must have started")
+        assertEquals(true, runsWorker, "app must have started")
+        assertEquals(HttpStatusCode.OK, jsonClient().get("/api/v1/health").status)
+        assertEquals(HttpStatusCode.OK, jsonClient().get("/api/v1/ready").status)
+        // The default (unvalidated) client on purpose: the spec declares 200/400/401/403 for GET
+        // /api/v1/users and no operation at all for a bare SPA path, so a genuine 404 here is
+        // undeclared drift as far as OpenApiConformance is concerned — jsonClient()/authedClient()
+        // would (rightly) flag it. CoverageGapsTest's "AutoHeadResponse" case documents the same
+        // escape hatch: the plugin only wraps the shared test-client factories.
+        assertEquals(HttpStatusCode.NotFound, client.get("/api/v1/users").status)
+        assertEquals(HttpStatusCode.NotFound, client.get("/some-app-route").status)
+    }
+
+    @Test
+    fun `web role serves the API but runs no worker`() = testApplication {
+        configureApp("app.role" to "web")
+        var servesApi: Boolean? = null
+        var runsWorker: Boolean? = null
+        application {
+            servesApi = servesApi()
+            runsWorker = runsWorker()
+        }
+        startApplication()
+
+        assertEquals(true, servesApi, "app must have started")
+        assertEquals(false, runsWorker, "app must have started")
+        assertEquals(HttpStatusCode.OK, jsonClient().get("/api/v1/health").status)
+        // 401, not 404: the route is registered and the JWT challenge fires before requireAdmin.
+        assertEquals(HttpStatusCode.Unauthorized, jsonClient().get("/api/v1/users").status)
+    }
+
+    @Test
+    fun `all role (the default) serves the API and runs the worker`() = testApplication {
+        // No app.role override — proving the unset default is ALL.
+        configureApp()
+        var servesApi: Boolean? = null
+        var runsWorker: Boolean? = null
+        application {
+            servesApi = servesApi()
+            runsWorker = runsWorker()
+        }
+        startApplication()
+
+        assertEquals(true, servesApi, "app must have started")
+        assertEquals(true, runsWorker, "app must have started")
+        assertEquals(HttpStatusCode.Unauthorized, jsonClient().get("/api/v1/users").status)
+    }
+
+    @Test
+    fun `an unrecognized role refuses to start`() = testApplication {
+        configureApp("app.role" to "bogus")
+        assertStartupFails("app.role") { startApplication() }
+    }
+}

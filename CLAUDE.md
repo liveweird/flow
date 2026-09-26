@@ -147,6 +147,18 @@ concern, create a `configureXxx()` extension under `plugins/` and register it in
 `application.yaml`; do not call it from `main.kt`. There is no DI framework — services travel via
 `attributes`.
 
+### Bootstrap model — the role switch
+
+`FLOW_ROLE` (`app.role` in `application.yaml`, default `all`) is read once at boot by
+`plugins/Role.kt` and published as `AppRole { WEB, WORKER, ALL }` on `Application.attributes`; an
+unrecognized value fails startup in every mode. `web` serves the HTTP API (feature routes plus the
+SPA/static catch-all); `worker` serves only the health/ready probes — its one HTTP surface — and
+runs the ingestion worker arriving in v0.2.0 commit 5; `all` (dev, `docker compose`, the test
+suite) does both in one process. Every feature `configureXRoutes()` and `RoutingKt.configureRouting`
+early-return via `Application.servesApi()`; `Application.runsWorker()` is the WORKER|ALL
+counterpart. `configureHealth` always registers, and Flyway/Bootstrap always run, regardless of
+role. See `.claude/docs/ingestion.md` "Roles" for the operator-facing writeup.
+
 ### Package layout
 
 Source files sit flat under `server/src/main/kotlin/<area>/` but declare `package ch.nokillswit.<area>`
@@ -159,10 +171,13 @@ ch.nokillswit
 ├── plugins/            cross-cutting Ktor wiring (configureXxx that only `install` plugins):
 │                       Http, SecurityHeaders, Monitoring, Serialization, Security (JWT),
 │                       ErrorHandling (RFC 7807), OpenTelemetry, AutoHeadResponse, Resources,
-│                       Routing (SPA catch-all)
-│                       + Health (the public /api/v1/health and /api/v1/ready probes, after Database)
+│                       Routing (SPA catch-all — early-returns unless `servesApi()`)
+│                       + Health (the public /api/v1/health and /api/v1/ready probes, after Database
+│                       — ALWAYS registered, regardless of role)
 │                       + RateLimits (every per-IP bucket and its name — login, refresh,
 │                       password-reset, MFA)
+│                       + Role (the FLOW_ROLE switch — AppRole/servesApi()/runsWorker(),
+│                       registered early, before the infra/feature modules)
 ├── infra/mail/         outbound email (Lettuce's, ported): Mailer/SmtpMailer/LogMailer +
 │                       LocalizedText/PasswordEmail (the recipient-language content layer) +
 │                       configureMail — MAIL_TRANSPORT log/smtp/disabled, the log-transport
@@ -248,6 +263,7 @@ covered the moment its spec entry lands.
 @.claude/docs/dependencies.md
 @.claude/docs/dependency-reproducibility.md
 @.claude/docs/app-releases.md
+@.claude/docs/ingestion.md
 
 ### Frontend (`web/`)
 

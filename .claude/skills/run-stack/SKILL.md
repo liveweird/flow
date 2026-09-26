@@ -32,6 +32,14 @@ in `docker-compose.yaml`, `resources.limits.memory: 512Mi` (request `320Mi`) in
 migration, which the reflection/ServiceLoader-heavy stack (Ktor config modules, Flyway, Exposed,
 OTel, Logback, java-jwt) makes costly for little benefit on a long-running internal service.
 
+## Roles
+
+`FLOW_ROLE` (`web`|`worker`|`all`, default `all` — `plugins/Role.kt`, `.claude/docs/ingestion.md`
+"Roles") switches which HTTP surface a process serves: `worker` answers only the health/ready
+probes and runs the ingestion worker (arriving in v0.2.0 commit 5); `web` serves the API and SPA
+with no worker; `all` does both. Dev, `docker compose` and Kubernetes all default to `all` today —
+a real `web`/`worker` Deployment split lands with the ingestion worker itself.
+
 ## Running the full stack
 
 Two ways to run, sharing the same `docker-compose.yaml`. All ports deliberately avoid Lettuce's

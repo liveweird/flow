@@ -19,6 +19,10 @@ ktor:
       - ch.nokillswit.plugins.OpenTelemetryKt.configureOpenTelemetry
       - ch.nokillswit.plugins.AutoHeadResponseKt.configureAutoHeadResponse
       - ch.nokillswit.plugins.ResourcesKt.configureResources
+      # The FLOW_ROLE switch (web|worker|all — app.role below). Early: no dependency on infra, and
+      # every later module (feature routes, the SPA catch-all) reads Application.servesApi() off
+      # the attribute this publishes.
+      - ch.nokillswit.plugins.RoleKt.configureRole
       # — infrastructure
       - ch.nokillswit.infra.mail.MailKt.configureMail
       # Crypto before Database: the composition root hands the FieldCipher to any service
@@ -36,6 +40,13 @@ ktor:
       - ch.nokillswit.auth.AuthRoutesKt.configureAuthRoutes
       # — catch-all router
       - ch.nokillswit.plugins.RoutingKt.configureRouting
+
+app:
+  # The FLOW_ROLE switch (plugins/Role.kt): web|worker|all, case-insensitive. `web` serves the
+  # HTTP API; `worker` serves only the health/ready probes and runs the ingestion worker (arriving
+  # in commit 5 of the v0.2.0 plan); `all` (the default — dev, docker compose, tests) does both in
+  # one process. An unrecognized value fails startup in every mode.
+  role: "$FLOW_ROLE:all"
 
 security:
   # Per-account login lockout (complements the per-IP rate limit): after `threshold`
