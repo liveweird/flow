@@ -335,4 +335,17 @@ describe("DataSourceDetails page", () => {
     await vi.advanceTimersByTimeAsync(20_000);
     expect(call).toBe(3);
   });
+
+  test("a sync-jobs list load failure renders the jobs error alert (the connection summary still loads)", async () => {
+    mockFetch.mockImplementation((url: string, init?: RequestInit) => {
+      const method = init?.method ?? "GET";
+      if (method === "GET" && url === "/api/v1/data-sources/1/status") return Promise.resolve(jsonResponse(200, statusWith(null)));
+      if (method === "GET" && url.startsWith("/api/v1/data-sources/1/sync-jobs?")) return Promise.resolve(jsonResponse(500, { title: "boom", status: 500 }));
+      return Promise.resolve(jsonResponse(404, { title: "Not Found", status: 404 }));
+    });
+    renderPage();
+
+    expect(await screen.findByText("Could not load the sync jobs")).toBeInTheDocument();
+    expect(screen.getByText("Acme Jira")).toBeInTheDocument();
+  });
 });

@@ -2,9 +2,9 @@
 
 Vite + React 19 + TypeScript SPA: the shell + auth, user/feature management, MFA, password reset,
 the changelog, and the flat-teams registry — v0.1.0's foundation — plus, since v0.2.0, the Data
-sources registry (ADMIN-managed Jira Cloud connections). Ingested Jira data itself (details/sync
-jobs/profile pages, dashboards) lands in later v0.2.0 commits — `pages/Home.tsx` still states
-plainly that there is none to show yet. Routes are lazy. New capability that Covenant, Toadie or
+sources pages (ADMIN-managed Jira Cloud connections, their sync jobs, data profile and raw-issue
+inspector — see "Data sources" below). Flow-metric dashboards arrive after the domain model;
+`pages/Home.tsx` still states plainly that there are none to show yet. Routes are lazy. New capability that Covenant, Toadie or
 Lettuce already has? Port their building blocks (see "Not yet ported" at the bottom) rather than
 inventing new ones.
 
@@ -272,16 +272,19 @@ confirm — `hooks/useBulkFeatureUpdate.ts` loops the same per-user wholesale PU
 `ConfirmActionModal`). Both queries key under `["users", …]`. Mind the wholesale-replace
 semantics: a PUT whose disabled set omits `MFA` ENABLES it.
 
-## Data sources (`pages/DataSources.tsx`, `components/DataSourceEditorModal.tsx`)
+## Data sources (`pages/DataSources|DataSourceDetails|DataSourceProfile|RawIssueInspector.tsx`)
 
 The first Jira-domain surface (v0.2.0 plan §9/§10), ADMIN-only end to end: the nav leaf
-(`IconPlugConnected`, `adminOnly`), the route (`/data-sources`, under the same `RequireAdmin`
-group as Users/Feature flags in `App.tsx`), and every endpoint (`requireAdmin` server-side).
+(`IconPlugConnected`, `adminOnly`), the four routes (`/data-sources`, `/data-sources/:id`,
+`…/:id/profile`, `…/:id/inspect`, all under the same `RequireAdmin` group as Users/Feature flags
+in `App.tsx`; every page's queries additionally stay `enabled` only for `useAdmin()`), and every
+endpoint (`requireAdmin` server-side).
 
 - **`api/dataSources.ts`** mirrors `api/teams.ts`'s shape — list/create/update/delete plus the two
   Test-connection wrappers (`testDataSourceAdHoc`/`testDataSourceStored`) and `requestSyncJob`
-  (`POST …/sync-jobs`, the sync-jobs history/status wrappers arrive with the details page, plan
-  commit 11). Unlike Teams, `DataSourcePage.items` already carries the FULL `DataSourceResponse`
+  and the per-connection reads/actions: `listSyncJobs`/`cancelSyncJob` (`…/sync-jobs`),
+  `getDataSourceStatus` (`…/status`), `getRawIssue` (`…/raw-issues/{issueKey}`) and
+  `getDataSourceProfile` (`…/profile`) — every type derived from `schema.ts`. Unlike Teams, `DataSourcePage.items` already carries the FULL `DataSourceResponse`
   (minus the write-only token) — Edit opens straight from the row, no extra detail fetch.
 - **`pages/DataSources.tsx`** is the Teams registry template (`useRegistryListControls` +
   `RegistryListTable`), sorted by name only (the server's other sortable fields — `id`,
@@ -317,9 +320,36 @@ group as Users/Feature flags in `App.tsx`), and every endpoint (`requireAdmin` s
   **`components/ConnectionTestResults.tsx`** renders the row table (endpoint + path / required /
   a teal-or-red result badge / a detail cell combining the upstream status, the
   `JiraFetchException` code and a failed row's `scopeHint`) and the resolved `cloudId` once
-  `tenant_info` succeeds — reused as-is by the future details page.
-- **`utils/dataSourceLinks.ts`** holds just `dataSourcesPath` today; the per-id `dataSourcePath`
-  helper arrives with the details page (plan commit 11) rather than sitting unused.
+  `tenant_info` succeeds.
+- **`pages/DataSourceDetails.tsx`** (`/data-sources/:id`, reached from the list's name link or its
+  Open row action) is the connection's operational view over ONE `GET …/status` query: summary
+  (state badge via `utils/dataSourceState.ts`), the current job (`JobStateBadge` + stream +
+  progress counters), `components/CursorTable.tsx` (each cursor's `position` rendered verbatim —
+  the server owns its shape) and the raw-store counts, plus the paged sync-jobs history
+  (`components/SyncJobsTable.tsx` on the `RegistryListTable` shell, kind/status filters, a Cancel
+  per still-open row). **Auto-refresh is conditional**: the status query's `refetchInterval` is 5s
+  only while `currentJob` is PENDING/RUNNING, `false` otherwise — never a fixed poll. Header actions
+  Sync now / Reconcile (direct, the toast distinguishes `coalesced`), Reprocess (behind
+  `ConfirmActionModal` — it rebuilds every normalized row), Cancel on the open job (direct; a `409`
+  means it finished meanwhile and renders inline, never a toast), Edit (the same
+  `DataSourceEditorModal`), and links to the profile and the inspector. A `404` or load failure goes
+  through `EditPageLoadState` with a back link, like the user editors.
+- **`pages/DataSourceProfile.tsx`** (`…/:id/profile`) renders `GET …/profile` as plain Mantine
+  tables, one per section (projects, workflows with observed-vs-reference statuses, boards with
+  unmapped statuses, custom fields with fill rate/role, estimates, worklogs, reopens, sprints,
+  people, anomaly counts) — deliberately no charts until phase 3's dashboards. `computedAt: null`
+  (no PROCESS pass yet) is an `EmptyState`, not an error; percentages print with one decimal,
+  matching the server's rounding.
+- **`pages/RawIssueInspector.tsx`** (`…/:id/inspect?key=`) — the looked-up key lives in the URL
+  (`useSearchParams`), so a lookup is a shareable deep link (`dataSourceInspectPath(id, key)`); the
+  query only runs once a key is present. Shows the canonical raw payload, tombstones, changelog/
+  worklog payloads, and — once processed — the `norm.*` work item, its status/field intervals and
+  anomaly badges (orange, the fixed `TilingAnomaly` vocabulary). A `400`/`404` renders INLINE under
+  the form, never replacing the page, so the admin can simply try another key.
+- **`utils/dataSourceLinks.ts`** is the ONE place the route family is spelled out
+  (`dataSourcesPath`, `dataSourcePath`, `dataSourceProfilePath`, `dataSourceInspectPath`) — never
+  hand-assemble these URLs. `utils/dataSourceState.ts` holds the state→colour map and
+  `formatEpochMillis` (the deterministic `YYYY-MM-DD HH:mm` rendering, "Never" for null).
 - `pages/Home.tsx`'s admin empty state links to `/data-sources` (a plain `Anchor` under the
   `EmptyState`, not a rewrite of that shared component) — "keep it simple" per the commit plan.
 
