@@ -148,7 +148,11 @@ PURGE's connector-owned cleanup step (`purgeSteps`) drains `raw.jira_issues`/`ra
 (V10, plan §0 A2), `raw.jira_changelogs`/`raw.jira_worklogs` (V11) AND `norm.*`'s work items/
 intervals/changes/worklogs/reference rows (V13, plan §0 A3, see "Normalized layer" below), in that
 order — `source_connections.profile`/`profile_at` are left untouched by PURGE (the connection's last
-computed profile stays visible until it either resyncs or is deleted outright).
+computed profile stays visible until it either resyncs or is deleted outright). **Not yet wired:**
+the per-connection `metrics.*` configuration tables landed in V15 (v0.3.0 M1 commit 3,
+`.claude/docs/persistence.md` "The `metrics` schema — configuration (V15)") get a generic
+worker-side PURGE drain step of their own once commit 4 lands a real per-connection consumer for
+them — no code today, since nothing writes those tables yet beyond the migration's own seed row.
 
 ## Sync cursors (V9)
 

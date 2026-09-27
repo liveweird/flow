@@ -158,6 +158,45 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     SYNC/REPROCESS. `computedAt` is `null` before the connection's first PROCESS pass rather than a
     `404`. No mutation, so no audit event of its own — see `.claude/docs/ingestion.md` "Data profile".
     Tests: `DataProfileTest`.
+  - `GET/PUT /api/v1/metrics-settings` (v0.3.0 M1 commit 3, `metrics/Metrics.kt`) →
+    **ADMIN only, the whole surface** — the ONE global `metrics.settings` singleton every DERIVE run
+    reads (`.claude/docs/domain-model.md` "Configuration"); `requireAdmin` runs before `call.receive()`
+    on the PUT (guard-before-body). A full-replace PUT bumps `config_revision` in the same
+    transaction, audited `metrics_settings.updated`. Tests: `MetricsSettingsRoutesTest`.
+  - `/api/v1/teams/{id}/jira-memberships` (D1, `metrics/TeamMembershipRoutes.kt`) → **reads any
+    authenticated** (the team-reads posture above), **writes ADMIN only**, guard before the id
+    lookup/body decode. **`GET` is read-before-guard, not guard-before-read**: the team need only
+    EXIST — a soft-deleted team's history stays visible (`200`), the `team_members` roster
+    precedent ("a soft-deleted team keeps its roster for the record"); only a team id that was
+    NEVER created is `404`. `POST` requires the team to be ACTIVE, and locks the team row
+    (`TeamService.Teams.lockActiveForUpdate`) for the whole transaction so a concurrent
+    `TeamService.delete` can never race an insert into a team mid-soft-delete — a missing,
+    soft-deleted, or concurrently-deleted team is `404`. `PUT`/`DELETE` of an EXISTING membership
+    row need no team-active check at all (the row's own `team_id` FK already proves the path's
+    `teamId` was real) — an admin can still correct or remove a historical row after its team is
+    gone. `accountId` (create only) must be known to `norm.people` for SOME connection — an unknown
+    Jira account id is `400` (the client-supplied-FK idiom, `TeamService`'s own
+    `requireActiveUsers` precedent). An overlapping `[validFrom, validTo)` interval for the same
+    account is `409` (the exclusion constraint, invariant 1 — `.claude/docs/persistence.md` "The
+    `metrics` schema — configuration (V15)"). **Soft-deleting a team closes/removes its own open
+    memberships in the SAME transaction** (`TeamService.delete`, a cross-feature write — see
+    persistence.md) — otherwise a deleted team could strand an account behind an open membership
+    it can never end, permanently blocking that account's `EXCLUDE` constraint from ever admitting
+    a new team. Every ACTUAL change (not a no-op PUT re-submitting the same dates) bumps the shared
+    `config_revision` (the same singleton `/metrics-settings` reads) and audits
+    `team.jira_membership_added`/`.updated`/`.removed`. Tests: `TeamMembershipRoutesTest`,
+    `TeamTest` (the team-delete membership-closing case).
+  - `GET /api/v1/jira-users` (v0.3.0 M1 commit 3, `metrics/JiraUsersRoutes.kt`) — **`scope=UNIT`
+    (default), any authenticated**: restricted to accounts already relevant to this unit's own data
+    (an assignee or worklog author on an ACTIVE connection's live work items, or one that ever held
+    a `metrics.team_membership` row) — D12 exposes only names another any-authenticated surface can
+    already produce; `/jira-memberships` itself only ever carries an `accountId`, never a display
+    name, so this is the FIRST place that pairs one with the other. **`scope=SITE`, ADMIN only**
+    (`requireAdmin` runs before any query-param-derived read — a non-admin gets a uniform `403`) —
+    the whole site directory, for picking a brand-new team member. `q` substrings the display name;
+    `teamId` narrows to that team's CURRENT membership, combined with `scope` by set intersection
+    (an unknown `teamId` is simply an empty page, not an error — no path id is involved). No
+    mutation, so no audit event of its own. Tests: `JiraUsersRoutesTest`.
 - **Exceptions**: `UnauthorizedException` (→ 401), `ForbiddenException` (→ 403),
   `NotFoundException` (→ 404), `ConflictException` (→ 409), `TooManyRequestsException` (→ 429),
   and `BadGatewayException` (→ 502 — reserved for a future outbound-fetch upstream failure) live

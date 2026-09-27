@@ -37,6 +37,13 @@ ktor:
       # The guarded Jira HTTP stack (outbound guard + Test-connection service + the Connector
       # registry) — before the data-sources/sync-job routes, which read it off attributes.
       - ch.nokillswit.jira.JiraKt.configureJira
+      # The metrics layer's composition root (v0.3.0 M1 commit 3, `.claude/docs/domain-model.md`
+      # "Configuration" — `metrics.md` itself arrives with commit 4, per the phase-3 plan):
+      # publishes MetricsConfigService/TeamMembershipService and registers the tiny
+      # /metrics-settings singleton's own routes. After configureJira (the metrics layer reads
+      # `norm`, which configureJira publishes), before the worker scheduler (which gains a DERIVE
+      # dispatch to this package from a later commit).
+      - ch.nokillswit.metrics.MetricsKt.configureMetrics
       # The FLOW_ROLE=worker scheduler (v0.2.0 plan §5) — a no-op unless runsWorker(); after the
       # Connector registry, before the feature route modules.
       - ch.nokillswit.ingest.IngestWorkerKt.configureIngestWorker
@@ -49,6 +56,8 @@ ktor:
       - ch.nokillswit.ingest.SyncStatusRoutesKt.configureSyncStatusRoutes
       - ch.nokillswit.ingest.RawIssueInspectorRoutesKt.configureRawIssueInspectorRoutes
       - ch.nokillswit.ingest.DataProfileRoutesKt.configureDataProfileRoutes
+      - ch.nokillswit.metrics.TeamMembershipRoutesKt.configureTeamMembershipRoutes
+      - ch.nokillswit.metrics.JiraUsersRoutesKt.configureJiraUsersRoutes
       # — catch-all router
       - ch.nokillswit.plugins.RoutingKt.configureRouting
 

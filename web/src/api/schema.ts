@@ -437,6 +437,63 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/teams/{id}/jira-memberships": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * List a team's dated Jira-user memberships (D1)
+         * @description Any authenticated user (the team-reads posture). Most recent `validFrom` first.
+         */
+        get: operations["listTeamJiraMemberships"];
+        put?: never;
+        /**
+         * Add a dated Jira-user membership to a team
+         * @description ADMIN only, guard before the id lookup and the body decode. The team must be active
+         *     (`404` otherwise); `accountId` must be known to `norm.people` for some connection (`400`
+         *     otherwise). An overlapping `[validFrom, validTo)` interval for the same account is `409`
+         *     (the exclusion constraint — invariant 1: a Jira user belongs to at most one team at any
+         *     instant).
+         */
+        post: operations["createTeamJiraMembership"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/teams/{id}/jira-memberships/{membershipId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                membershipId: number;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Replace a dated Jira-user membership's validity window
+         * @description ADMIN only. A full replace of `validFrom`/`validTo` only — the team and account id are the row's fixed identity. An overlap with another row for the same account is `409`.
+         */
+        put: operations["updateTeamJiraMembership"];
+        post?: never;
+        /**
+         * Remove a dated Jira-user membership
+         * @description ADMIN only. Hard delete (a pure dated join, the `team_members` idiom).
+         */
+        delete: operations["deleteTeamJiraMembership"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/data-sources": {
         parameters: {
             query?: never;
@@ -703,6 +760,61 @@ export interface paths {
          */
         get: operations["getDataSourceProfile"];
         put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/jira-users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Jira accounts, distinct across connections
+         * @description `scope=UNIT` (default) — any authenticated user, D12: only accounts already relevant to
+         *     this unit's own data (an assignee or worklog author on an ACTIVE connection's live work
+         *     items, or one that ever held a `metrics.team_membership` row) — the same population every
+         *     other any-authenticated surface can already name. `scope=SITE` — ADMIN only (guard before
+         *     any read; `403` for anyone else), the whole site directory, for picking a brand-new team
+         *     member.
+         *
+         *     - Sortable fields: `displayName`. Default ascending, `accountId` ascending tiebreaker.
+         *     - Filters: `q` (case- and accent-insensitive substring on display name), `teamId`
+         *       (that team's CURRENT membership only — combined with `scope` by set intersection).
+         */
+        get: operations["listJiraUsers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/metrics-settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the global metrics settings singleton
+         * @description ADMIN only. The ONE `metrics.settings` row every DERIVE run reads under its
+         *     `configRevision` — the calendar/thresholds the whole metrics layer is built against
+         *     (`.claude/docs/domain-model.md` "Configuration"). `timeZone` defaults to `Europe/Warsaw`.
+         */
+        get: operations["getMetricsSettings"];
+        /**
+         * Replace the global metrics settings
+         * @description ADMIN only, guard before the body decode. A full replace — every field is required. Bumps `configRevision`, which (from a later commit on) enqueues a `DERIVE` job for every enabled connection.
+         */
+        put: operations["updateMetricsSettings"];
         post?: never;
         delete?: never;
         options?: never;
@@ -1375,6 +1487,90 @@ export interface components {
                 [key: string]: number;
             };
         };
+        MetricsSettingsResponse: {
+            /** Format: int64 */
+            configRevision: number;
+            /** Format: double */
+            hoursPerDay: number;
+            /** @description An IANA zone id, e.g. Europe/Warsaw. */
+            timeZone: string;
+            /** @description ISO weekday numbers, 1 (Monday) .. 7 (Sunday). */
+            weekendDays: number[];
+            holidays: string[];
+            commitmentGraceMinutes: number;
+            minSampleSize: number;
+            agingWindowItems: number;
+            agingPercentiles: number[];
+            backlogWindowSprints: number;
+            epicDriftDays: number;
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            updatedAt: number;
+            /** Format: int64 */
+            updatedByUserId: number | null;
+        };
+        MetricsSettingsRequest: {
+            /** Format: double */
+            hoursPerDay: number;
+            timeZone: string;
+            weekendDays: number[];
+            holidays: string[];
+            commitmentGraceMinutes: number;
+            minSampleSize: number;
+            agingWindowItems: number;
+            agingPercentiles: number[];
+            backlogWindowSprints: number;
+            epicDriftDays: number;
+        };
+        JiraUserResponse: {
+            accountId: string;
+            displayName: string;
+        };
+        JiraUserPage: {
+            items: components["schemas"]["JiraUserResponse"][];
+            page: number;
+            pageSize: number;
+            /** Format: int64 */
+            total: number;
+        };
+        TeamMembershipListResponse: {
+            items: components["schemas"]["TeamMembershipResponse"][];
+        };
+        TeamMembershipResponse: {
+            /** Format: int32 */
+            id: number;
+            /** @description The Jira accountId — global across connections. */
+            accountId: string;
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            validFrom: number;
+            /**
+             * Format: int64
+             * @description Epoch millis; null = open-ended (the current membership).
+             */
+            validTo: number | null;
+            /** Format: int64 */
+            createdAt: number;
+            /** Format: int64 */
+            updatedAt: number;
+        };
+        TeamMembershipCreateRequest: {
+            accountId: string;
+            /** Format: int64 */
+            validFrom: number;
+            /** Format: int64 */
+            validTo?: number | null;
+        };
+        TeamMembershipUpdateRequest: {
+            /** Format: int64 */
+            validFrom: number;
+            /** Format: int64 */
+            validTo?: number | null;
+        };
         /** @description RFC 7807 problem detail. Served as `application/problem+json`; instance is the request path without query parameters. */
         ProblemDetail: {
             /**
@@ -1488,6 +1684,8 @@ export interface components {
          *     always appended as a deterministic tiebreaker.
          */
         Sort: string;
+        /** @description Free-text substring filter (case- and accent-insensitive) — API-LIST-005. */
+        Q: string;
     };
     requestBodies: never;
     headers: never;
@@ -2204,6 +2402,125 @@ export interface operations {
             500: components["responses"]["InternalServerError"];
         };
     };
+    listTeamJiraMemberships: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The team's membership rows */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamMembershipListResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    createTeamJiraMembership: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TeamMembershipCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    /** @description URL of the new membership resource */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamMembershipResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            415: components["responses"]["UnsupportedMediaType"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    updateTeamJiraMembership: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                membershipId: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TeamMembershipUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            415: components["responses"]["UnsupportedMediaType"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    deleteTeamJiraMembership: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                membershipId: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
     listDataSources: {
         parameters: {
             query?: {
@@ -2625,6 +2942,97 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    listJiraUsers: {
+        parameters: {
+            query?: {
+                /** @description 1-based page index. Defaults to 1. */
+                page?: components["parameters"]["Page"];
+                /** @description Rows per page. Defaults to 20, maximum 100. */
+                pageSize?: components["parameters"]["PageSize"];
+                /**
+                 * @description Sort spec. Format: `field` (ascending) or `-field` (descending). Multiple fields are
+                 *     comma-separated, leftmost wins: `sort=-updatedAt,name`. The endpoint declares its
+                 *     sortable-field whitelist; unknown fields are rejected with `400`. `id` ascending is
+                 *     always appended as a deterministic tiebreaker.
+                 */
+                sort?: components["parameters"]["Sort"];
+                /** @description Free-text substring filter (case- and accent-insensitive) — API-LIST-005. */
+                q?: components["parameters"]["Q"];
+                teamId?: number;
+                scope?: "UNIT" | "SITE";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of Jira accounts */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JiraUserPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getMetricsSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The current settings */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MetricsSettingsResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    updateMetricsSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MetricsSettingsRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            415: components["responses"]["UnsupportedMediaType"];
             500: components["responses"]["InternalServerError"];
         };
     };

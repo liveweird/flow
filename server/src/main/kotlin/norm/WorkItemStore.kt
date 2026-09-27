@@ -1,9 +1,13 @@
 package ch.nokillswit.norm
 
+import ch.nokillswit.infra.db.active
+import ch.nokillswit.infra.db.containsNormalized
 import ch.nokillswit.infra.db.jsonb
+import ch.nokillswit.infra.paging.PageRequest
 import ch.nokillswit.ingest.DataSourceService
 import io.ktor.util.AttributeKey
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.single
 import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -352,6 +356,70 @@ class WorkItemStore(private val database: R2dbcDatabase) {
                 this[Statuses.category] = it.category.name
             }
         }
+    }
+
+    /** One `norm.people` row collapsed to its account id (v0.3.0 M1 commit 3's `/api/v1/jira-users`). */
+    data class PersonRow(val accountId: String, val displayName: String)
+
+    data class PersonListResult(val items: List<PersonRow>, val total: Long)
+
+    /**
+     * Every Jira account known to an ACTIVE connection, DISTINCT by account id (v0.3.0 M1 commit
+     * 3): two connections to the same site share account ids (plan §12 risk note), so this
+     * collapses via `GROUP BY account_id` (picking the alphabetically-first display name via
+     * `MIN`) rather than a connection-scoped read. Excludes soft-deleted connections and inactive
+     * `norm.people` rows (a departed user is marked `active = false` on the NEXT REFERENCE pass'
+     * wholesale rebuild, never removed outright). [q] filters by [containsNormalized] on the
+     * display name; [accountIds] (when non-null) restricts to that exact set (e.g. a team's
+     * current membership, or the unit-relevant set `JiraUsersRoutes.kt` computes) — an empty set
+     * short-circuits to no rows. `count(DISTINCT)` and the grouped page read run in the SAME
+     * transaction (list-endpoints.md), ordered by the aggregated display name then account id (a
+     * deterministic tiebreaker — never left to whatever order `GROUP BY` happens to return).
+     */
+    suspend fun listPeople(paging: PageRequest, q: String? = null, accountIds: Set<String>? = null): PersonListResult =
+        suspendTransaction(database) {
+            if (accountIds != null && accountIds.isEmpty()) return@suspendTransaction PersonListResult(emptyList(), 0)
+            var predicate: Op<Boolean> = DataSourceService.Connections.active() and (People.active eq true)
+            q?.let { predicate = predicate and People.displayName.containsNormalized(it) }
+            accountIds?.let { ids -> predicate = predicate and (People.accountId inList ids) }
+
+            val joined = People.innerJoin(DataSourceService.Connections)
+            val countExpr = People.accountId.countDistinct()
+            val total = joined.select(countExpr).where { predicate }.single()[countExpr]
+
+            val nameAgg = People.displayName.min()
+            val descending = paging.sort.firstOrNull { it.name == "displayName" }?.descending == true
+            val rows = joined.select(People.accountId, nameAgg).where { predicate }
+                .groupBy(People.accountId)
+                .orderBy(nameAgg to (if (descending) SortOrder.DESC else SortOrder.ASC), People.accountId to SortOrder.ASC)
+                .limit(paging.pageSize)
+                .offset((paging.page - 1).toLong() * paging.pageSize)
+                .toList()
+                // MIN() over a non-null column is itself typed nullable by Exposed (an empty group
+                // yields SQL NULL in general) — never actually null here, since GROUP BY only ever
+                // emits a row for an account id that has at least one matching people row.
+                .map { PersonRow(it[People.accountId], it[nameAgg] ?: "") }
+            PersonListResult(rows, total)
+        }
+
+    /** Distinct assignee account ids across ACTIVE connections' LIVE work items — one input to `/jira-users`' UNIT scope. */
+    suspend fun distinctAssigneeAccountIds(): Set<String> = suspendTransaction(database) {
+        WorkItems.innerJoin(DataSourceService.Connections)
+            .select(WorkItems.assigneeAccountId).withDistinct()
+            .where { DataSourceService.Connections.active() and WorkItems.assigneeAccountId.isNotNull() and WorkItems.deletedAt.isNull() }
+            .toList()
+            .mapNotNull { it[WorkItems.assigneeAccountId] }
+            .toSet()
+    }
+
+    /** Distinct worklog author account ids across ACTIVE connections — the other input to `/jira-users`' UNIT scope. */
+    suspend fun distinctWorklogAuthorAccountIds(): Set<String> = suspendTransaction(database) {
+        Worklogs.innerJoin(DataSourceService.Connections)
+            .select(Worklogs.authorAccountId).withDistinct()
+            .where { DataSourceService.Connections.active() and Worklogs.authorAccountId.isNotNull() }
+            .toList()
+            .mapNotNull { it[Worklogs.authorAccountId] }
+            .toSet()
     }
 
     suspend fun replacePeople(connectionId: UInt, people: List<PersonRef>) = suspendTransaction(database) {

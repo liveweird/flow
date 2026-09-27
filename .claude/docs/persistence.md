@@ -87,15 +87,32 @@ in-network consumers use `postgres:5432`). There is one persistence stack:
 The `org.postgresql:postgresql` JDBC driver is on the classpath solely for Flyway; runtime queries
 go through R2DBC.
 
-**Cross-feature table reads (the service-layer rule, inherited from Lettuce).** A feature service
-MAY query another feature's Exposed table objects directly when the read must run **inside its
-own transaction** (SQL joins, atomic snapshots) — the transaction boundary must be explicit rather
-than relying on an unrelated service to preserve it. Exposed reuses an enclosing transaction for
-nested `suspendTransaction` calls on the same database. Route handlers never touch tables
-(services only). The reads in place: `TeamService` joins `UserService.Users` for the roster's
-display fields and the active-member counts, and checks member ids against active users inside
-the create/add transaction. List each new cross-feature read here as it lands — the list IS the
-permission.
+**Cross-feature table reads AND writes (the service-layer rule, inherited from Lettuce).** A
+feature service MAY query — or, since v0.3.0 M1 commit 3's team-delete/membership fix, WRITE —
+another feature's Exposed table objects directly when the operation must run **inside its own
+transaction** (SQL joins, atomic snapshots, a single soft-delete that must also close a dependent
+row elsewhere) — the transaction boundary must be explicit rather than relying on an unrelated
+service to preserve it. Exposed reuses an enclosing transaction for nested `suspendTransaction`
+calls on the same database. Route handlers never touch tables (services only). The reads/writes in
+place:
+
+- `TeamService` joins `UserService.Users` for the roster's display fields and the active-member
+  counts, and checks member ids against active users inside the create/add transaction.
+- `TeamService.delete` (v0.3.0 M1 commit 3) WRITES `metrics/TeamMembershipService.TeamMembership`
+  and `metrics/MetricsConfigService.Settings` directly, in the SAME transaction as the team's own
+  soft delete: it closes/removes the team's D1 Jira-user memberships and bumps the shared
+  `config_revision` — see "The `metrics` schema — configuration (V15)" below for why (a deleted
+  team must never strand an account behind an `EXCLUDE`-guarded open membership it can no longer
+  end).
+- `metrics/TeamMembershipService` (v0.3.0 M1 commit 3) queries `teams/TeamService.Teams` directly —
+  `list` only requires the team to EXIST (read-before-guard: a soft-deleted team's history stays
+  visible), `create` locks it ACTIVE for the whole transaction
+  (`TeamService.Teams.lockActiveForUpdate`, race-free against a concurrent `TeamService.delete`
+  trying to lock the SAME row) — and queries `norm/WorkItemStore.People` directly (an unknown Jira
+  account id is `400` — the client-supplied-FK idiom `TeamService.requireActiveUsers` already uses
+  for Flow user ids), all inside its own transactions.
+
+List each new cross-feature read/write here as it lands — the list IS the permission.
 
 ### Schemas
 
@@ -115,8 +132,9 @@ amendment over the architect's original all-`public`-with-prefixes recommendatio
   alongside these rather than inventing a fourth schema.
 - **`norm`** — the neutral, source-agnostic layer every connector normalizes into (`work_items`,
   `sprints`, `boards`, …) — landed at V13 (plan commit 8a, "The normalized layer (V13)" below).
-- **`metrics`** (not yet created) — phase 3's pre-aggregated tables get their own schema once that
-  work starts (plan §4).
+- **`metrics`** — the metrics layer's own schema: configuration lands first (V15, v0.3.0 M1 commit
+  3, "The `metrics` schema — configuration (V15)" below); the derived star (dimensions/bridges/
+  facts/daily aggregates) arrives in a later commit.
 
 **How Exposed addresses a schema-qualified table.** No Exposed `Schema` object and no
 `search_path` override are involved: `JiraRawStore.kt`'s `Issues`/`Entities` table objects simply
@@ -125,8 +143,9 @@ Issues : Table("raw.jira_issues")` — and Exposed/R2DBC resolve it as-is, inclu
 FK reference back to `public.source_connections` (`reference("connection_id",
 DataSourceService.Connections)`). The plan's fallback (setting `search_path` on the pooled
 connection, with fully-qualified SQL in `exec` blocks, if qualified names misbehaved) was not
-needed. `CREATE SCHEMA IF NOT EXISTS raw`/`norm` runs in the first migration that needs each schema
-(V10 for `raw`; V13 does the same for `norm`) — never a standalone "create schemas" migration.
+needed. `CREATE SCHEMA IF NOT EXISTS raw`/`norm`/`metrics` runs in the first migration that needs
+each schema (V10 for `raw`; V13 for `norm`; V15 for `metrics`) — never a standalone "create
+schemas" migration.
 
 ### The Jira raw store (V10)
 
@@ -356,7 +375,57 @@ PROCESS pass and backfills these columns without any migration-time `UPDATE`.
 
 `MigrationChecksumTest` gains V14's pin.
 
-Current migrations are `V1`–`V14`:
+### The `metrics` schema — configuration (V15)
+
+`V15__create_metrics_config.sql` (v0.3.0 M1 commit 3, `.claude/docs/domain-model.md`
+"Configuration") is the FIRST table set outside `public`/`raw`/`norm` — the metrics layer's own
+schema. `CREATE SCHEMA IF NOT EXISTS metrics; CREATE EXTENSION IF NOT EXISTS btree_gist;` opens the
+file (the V4 `unaccent` idiom: contrib, trusted since PG13, `CREATE` on the database suffices, no
+superuser — see the one-line note in `.claude/docs/security.md`). `btree_gist` is needed because
+`metrics.team_membership`'s exclusion constraint mixes an equality operator class (`account_id`, a
+plain `VARCHAR`) with a range-overlap operator class (`int8range(valid_from, valid_to, '[)')`) in
+ONE GiST index — `btree_gist` is what makes `=` available inside a GiST index at all.
+
+- **`metrics.settings`** — the ONE global configuration singleton (`id = 1` CHECK, seeded by the
+  migration with every column at its documented default), read/written by
+  `metrics/MetricsConfigService.kt`. `time_zone` defaults to `'Europe/Warsaw'`, not UTC (main-session
+  amendment A4 — the unit is Polish; an admin can change it). `hours_per_day` is a manual setting in
+  v0.3.0 (A5) — reading Jira's own time-tracking configuration is deferred to `BACKLOG.md`.
+  `config_revision` is the ONE revision the whole metrics layer is built against: bumped inside
+  EVERY config mutation's own transaction — this row's own PUT, `metrics/TeamMembershipService.kt`'s
+  create/update/delete (nested into the SAME transaction via `MetricsConfigService.bumpRevision`,
+  since both live in the `metrics` package — not a cross-feature read), and, from a later commit on,
+  every per-connection config PUT.
+- **`metrics.status_stage_map`/`field_config`/`domain_map`/`board_team_map`/`team_sprint_capacity`/
+  `activity_type_map`/`work_category_map`/`blocked_statuses`** — the per-connection configuration
+  tables the v0.3.0 plan's commit 4 (`GET/PUT /api/v1/data-sources/{id}/metrics-config`) reads and
+  writes; created here (priority item 1 of commit 3) so no later migration needs to add them.
+  `board_team_map` carries `CONSTRAINT uq_metrics_board_team_map_team_id UNIQUE (team_id)` — D10's
+  "one board maps to at most one team", named in `plugins/ErrorHandling.kt`'s
+  `UNIQUE_CONSTRAINT_DETAILS` for a friendly `409` (a real consumer, and its own route validation,
+  arrive with commit 4).
+- **`metrics.team_membership`** (D1) — Flow-owned, effective-dated Jira-user team membership, global
+  by `account_id` (Atlassian account ids span sites, so two connections to the same site share one).
+  `CONSTRAINT excl_metrics_team_membership_overlap EXCLUDE USING gist (account_id WITH =,
+  int8range(valid_from, valid_to, '[)') WITH &&)` is invariant 1 ("a user belongs to ≤1 team at any
+  instant") enforced race-free AT THE DATABASE — never a check-then-insert TOCTOU in Kotlin.
+  `valid_to IS NULL` is the open-ended (current) membership; adjacent half-open intervals
+  (`[a,b)` + `[b,c)`) never overlap, so back-to-back memberships for the same account are accepted.
+  A violation raises **SQLSTATE `23P01`** (exclusion violation), which
+  `plugins/ErrorHandling.kt`'s `respondDbFailure` now maps to `409 "Overlapping team membership for
+  this account"` alongside `23505` (unique violation) — the FIRST consumer of a second SQLSTATE on
+  that central 409 path. `team_id INTEGER REFERENCES teams(id)` (not `metrics.team_membership`'s own
+  schema) — the team registry stays in `public`. `metrics/TeamMembershipService.kt` is the reference
+  service: `GET/POST /api/v1/teams/{id}/jira-memberships`, `PUT/DELETE …/{membershipId}` (any
+  authenticated read, ADMIN write — `.claude/docs/authorization.md`).
+- **`metrics.derive_runs`** — one row per future DERIVE run (v0.3.0 M3+); created here so no later
+  migration needs to add it. `job_id` is a plain column, deliberately NOT a foreign key to
+  `sync_jobs.id` — the `raw.jira_reconcile_seen` rationale (above): a `derive_runs` row must never be
+  able to hold a `sync_jobs` row hostage from its own hard-delete prune.
+
+`MigrationChecksumTest` gains V15's pin.
+
+Current migrations are `V1`–`V15`:
 
 - `V1__init` — the `users` table: `name` (≤50), `email` (≤254), `password_hash`, `role` with
   `CHECK ("role" IN ('ADMIN', 'USER'))` (single-column role storage; the wire shape stays a
@@ -404,6 +473,10 @@ Current migrations are `V1`–`V14`:
 - `V14__norm_phase3_gaps` — see "The normalized layer gaps (V14)" above: additive columns on
   `norm.work_items`/`work_item_field_changes`/`work_item_worklogs`/`sprints`, paired with
   `PROCESSING_VERSION` bumping to `2`.
+- `V15__create_metrics_config` — see "The `metrics` schema — configuration (V15)" above:
+  `CREATE SCHEMA IF NOT EXISTS metrics` plus the `metrics.settings` singleton, every per-connection
+  configuration table, `metrics.team_membership` (D1, the EXCLUDE overlap guard) and
+  `metrics.derive_runs` — the first tables outside `public`/`raw`/`norm`.
 
 The `users`/`teams` tables follow Toadie's dialect (`SERIAL`/`INTEGER` ids, epoch-millis `BIGINT`
 timestamps, `marked_as_deleted` + partial unique indexes over active rows) and its idioms: a
@@ -415,8 +488,13 @@ otherwise.
 `users` and `teams` are **soft-deleted** — rows are flagged, never physically removed; every
 business entity follows the same convention. Only join/token tables (today: `revoked_tokens`, a
 pure token registry, `user_disabled_features`, a pure flag join whose PUT is a wholesale replace,
-and `team_members`, a pure membership join) hard-delete — a new hard-delete table needs a
-documented justification, exactly like Lettuce's exceptions list. `sync_jobs` (V9) is the one
+`team_members`, a pure membership join, and `metrics.team_membership` (V15, D1) — a pure DATED
+join: the deletable action is "this interval was entered by mistake", not "this person left" (which
+is already modeled by closing the interval — `validTo`), and a soft-delete flag would need a
+partial `WHERE NOT marked_as_deleted` exclusion constraint instead of the simpler table-wide one,
+for no benefit a removed row can always be re-added with corrected dates) hard-delete — a new
+hard-delete table needs a documented justification, exactly like Lettuce's exceptions list.
+`sync_jobs` (V9) is the one
 non-join exception: `SyncJobsService.prune` hard-deletes terminal rows (`SUCCEEDED`/`FAILED`/
 `CANCELLED`) older than `ingest.jobRetentionDays` (default 90), run opportunistically on every
 `IngestWorker` scheduler tick. The table is pure operational history — it drives no soft-delete
@@ -558,5 +636,5 @@ stream. The streams themselves (and the cursor shapes they define) land in plan 
 
 ### Not yet ported from Lettuce / Toadie / Covenant
 
-Nothing remains on the persistence list today; the `metrics` schema (phase 3's pre-aggregated
-tables, plan §4) arrives with its own paragraph here.
+Nothing remains on the persistence list today; the `metrics` schema's derived star (dimensions,
+bridges, facts, daily aggregates — v0.3.0 plan §4 "V16") arrives with its own paragraph here.
