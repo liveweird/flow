@@ -15,7 +15,6 @@ import ch.nokillswit.norm.StatusRef
 import ch.nokillswit.norm.TombstoneKind
 import ch.nokillswit.norm.WorkItemFacts
 import ch.nokillswit.norm.WorklogFact
-import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
 import kotlinx.serialization.json.Json
@@ -181,11 +180,11 @@ object JiraNormalizer {
             boardId = sprint["originBoardId"]?.jsonPrimitive?.longOrNull,
             name = sprint.getValue("name").jsonPrimitive.content,
             state = sprint.getValue("state").jsonPrimitive.content,
-            startAtMs = sprint["startDate"]?.jsonPrimitive?.contentOrNull?.let { Instant.parse(it).toEpochMilli() },
-            endAtMs = sprint["endDate"]?.jsonPrimitive?.contentOrNull?.let { Instant.parse(it).toEpochMilli() },
+            startAtMs = sprint["startDate"]?.jsonPrimitive?.contentOrNull?.let { parseJiraInstantEpochMillis(it) },
+            endAtMs = sprint["endDate"]?.jsonPrimitive?.contentOrNull?.let { parseJiraInstantEpochMillis(it) },
             goal = sprint["goal"]?.jsonPrimitive?.contentOrNull,
             // completeDate (v0.3.0 M1 commit 2) — the metrics layer keys sprint periods on completion, not endDate.
-            completeAtMs = sprint["completeDate"]?.jsonPrimitive?.contentOrNull?.let { Instant.parse(it).toEpochMilli() },
+            completeAtMs = sprint["completeDate"]?.jsonPrimitive?.contentOrNull?.let { parseJiraInstantEpochMillis(it) },
         )
     }
 
@@ -233,11 +232,11 @@ object JiraNormalizer {
 
         val worklogs = worklogPayloads.map { payload ->
             val worklog = NORMALIZER_JSON.parseToJsonElement(payload).jsonObject
-            val startedAtMs = Instant.parse(worklog.getValue("started").jsonPrimitive.content).toEpochMilli()
+            val startedAtMs = parseJiraInstantEpochMillis(worklog.getValue("started").jsonPrimitive.content)
             // Missing means missing — NEVER falls back to `startedAtMs`/`createdAtMs` (a review
             // fix): a genuinely absent `created`/`updated` is unknown data, not "no skew".
-            val createdAtMs = worklog["created"]?.jsonPrimitive?.contentOrNull?.let { Instant.parse(it).toEpochMilli() }
-            val updatedAtMs = worklog["updated"]?.jsonPrimitive?.contentOrNull?.let { Instant.parse(it).toEpochMilli() }
+            val createdAtMs = worklog["created"]?.jsonPrimitive?.contentOrNull?.let { parseJiraInstantEpochMillis(it) }
+            val updatedAtMs = worklog["updated"]?.jsonPrimitive?.contentOrNull?.let { parseJiraInstantEpochMillis(it) }
             WorklogFact(
                 worklogId = worklog.getValue("id").jsonPrimitive.content.toLong(),
                 authorAccountId = worklog["author"]?.jsonObject?.get("accountId")?.jsonPrimitive?.contentOrNull,
@@ -260,9 +259,9 @@ object JiraNormalizer {
             priority = priority?.get("name")?.jsonPrimitive?.contentOrNull,
             assigneeAccountId = assignee?.get("accountId")?.jsonPrimitive?.contentOrNull,
             reporterAccountId = reporter?.get("accountId")?.jsonPrimitive?.contentOrNull,
-            createdAtMs = Instant.parse(fields.getValue("created").jsonPrimitive.content).toEpochMilli(),
-            updatedAtMs = Instant.parse(fields.getValue("updated").jsonPrimitive.content).toEpochMilli(),
-            resolvedAtMs = fields["resolutiondate"]?.jsonPrimitive?.contentOrNull?.let { Instant.parse(it).toEpochMilli() },
+            createdAtMs = parseJiraInstantEpochMillis(fields.getValue("created").jsonPrimitive.content),
+            updatedAtMs = parseJiraInstantEpochMillis(fields.getValue("updated").jsonPrimitive.content),
+            resolvedAtMs = fields["resolutiondate"]?.jsonPrimitive?.contentOrNull?.let { parseJiraInstantEpochMillis(it) },
             storyPoints = fieldIds.storyPointsFieldId?.let { fields[it]?.jsonPrimitive?.doubleOrNull },
             originalEstimateSeconds = fields["timetracking"]?.jsonObject?.get("originalEstimateSeconds")?.jsonPrimitive?.longOrNull,
             // Computed from the issue's OWN worklogs, never `timetracking.timeSpentSeconds` (which a
@@ -309,7 +308,7 @@ object JiraNormalizer {
 
     private fun historyItems(historyPayload: String): Pair<Long, List<JsonObject>> {
         val history = NORMALIZER_JSON.parseToJsonElement(historyPayload).jsonObject
-        val atMs = Instant.parse(history.getValue("created").jsonPrimitive.content).toEpochMilli()
+        val atMs = parseJiraInstantEpochMillis(history.getValue("created").jsonPrimitive.content)
         return atMs to history.getValue("items").jsonArray.map { it.jsonObject }
     }
 

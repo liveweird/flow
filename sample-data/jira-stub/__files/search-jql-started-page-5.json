@@ -25,8 +25,8 @@
           "key": "GTM",
           "name": "Go To Market"
         },
-        "created": "2025-12-28T08:01:29.017Z",
-        "updated": "2026-01-02T08:01:29.017Z",
+        "created": "2025-12-28T08:01:29.017+0000",
+        "updated": "2026-01-02T08:01:29.017+0000",
         "resolutiondate": null,
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d30",
@@ -104,8 +104,8 @@
           "key": "FLO",
           "name": "Flow Core"
         },
-        "created": "2025-12-19T00:00:00.000Z",
-        "updated": "2026-01-13T10:44:53.583Z",
+        "created": "2025-12-19T00:00:00.000+0000",
+        "updated": "2026-01-13T10:44:53.583+0000",
         "resolutiondate": null,
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d17",
@@ -169,9 +169,9 @@
           "key": "GTM",
           "name": "Go To Market"
         },
-        "created": "2025-12-15T00:00:00.000Z",
-        "updated": "2026-01-22T21:55:52.321Z",
-        "resolutiondate": "2026-01-22T21:55:52.321Z",
+        "created": "2025-12-15T00:00:00.000+0000",
+        "updated": "2026-01-22T21:55:52.321+0000",
+        "resolutiondate": "2026-01-22T21:55:52.321+0000",
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d26",
           "displayName": "Sample User 26"
@@ -253,8 +253,8 @@
           "key": "GTM",
           "name": "Go To Market"
         },
-        "created": "2025-12-29T05:22:14.384Z",
-        "updated": "2026-01-03T05:22:14.384Z",
+        "created": "2025-12-29T05:22:14.384+0000",
+        "updated": "2026-01-03T05:22:14.384+0000",
         "resolutiondate": null,
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d11",
@@ -333,8 +333,8 @@
           "key": "FLO",
           "name": "Flow Core"
         },
-        "created": "2025-12-29T08:23:54.962Z",
-        "updated": "2026-01-01T08:23:54.962Z",
+        "created": "2025-12-29T08:23:54.962+0000",
+        "updated": "2026-01-01T08:23:54.962+0000",
         "resolutiondate": null,
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d19",
@@ -397,9 +397,9 @@
           "key": "PLT",
           "name": "Platform"
         },
-        "created": "2025-12-08T00:00:00.000Z",
-        "updated": "2026-01-05T15:46:16.254Z",
-        "resolutiondate": "2026-01-05T15:46:16.254Z",
+        "created": "2025-12-08T00:00:00.000+0000",
+        "updated": "2026-01-05T15:46:16.254+0000",
+        "resolutiondate": "2026-01-05T15:46:16.254+0000",
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d03",
           "displayName": "Sample User 3"
@@ -471,9 +471,9 @@
           "key": "OPS",
           "name": "Operations"
         },
-        "created": "2025-12-29T20:31:02.817Z",
-        "updated": "2026-01-05T20:31:02.817Z",
-        "resolutiondate": "2026-01-05T20:31:02.817Z",
+        "created": "2025-12-29T20:31:02.817+0000",
+        "updated": "2026-01-05T20:31:02.817+0000",
+        "resolutiondate": "2026-01-05T20:31:02.817+0000",
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d03",
           "displayName": "Sample User 3"
@@ -536,9 +536,9 @@
           "key": "FLO",
           "name": "Flow Core"
         },
-        "created": "2025-12-19T00:00:00.000Z",
-        "updated": "2026-01-03T02:08:47.541Z",
-        "resolutiondate": "2026-01-03T02:08:47.541Z",
+        "created": "2025-12-19T00:00:00.000+0000",
+        "updated": "2026-01-03T02:08:47.541+0000",
+        "resolutiondate": "2026-01-03T02:08:47.541+0000",
         "assignee": null,
         "reporter": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d17",
@@ -594,9 +594,9 @@
           "key": "PLT",
           "name": "Platform"
         },
-        "created": "2025-12-30T11:52:50.558Z",
-        "updated": "2026-01-29T11:52:50.558Z",
-        "resolutiondate": "2026-01-29T11:52:50.558Z",
+        "created": "2025-12-30T11:52:50.558+0000",
+        "updated": "2026-01-29T11:52:50.558+0000",
+        "resolutiondate": "2026-01-29T11:52:50.558+0000",
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d14",
           "displayName": "Sample User 14"
@@ -677,9 +677,9 @@
           "key": "FLO",
           "name": "Flow Core"
         },
-        "created": "2025-12-31T04:55:22.065Z",
-        "updated": "2026-01-10T04:55:22.065Z",
-        "resolutiondate": "2026-01-10T04:55:22.065Z",
+        "created": "2025-12-31T04:55:22.065+0000",
+        "updated": "2026-01-10T04:55:22.065+0000",
+        "resolutiondate": "2026-01-10T04:55:22.065+0000",
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d17",
           "displayName": "Sample User 17"
@@ -750,9 +750,9 @@
           "key": "PLT",
           "name": "Platform"
         },
-        "created": "2025-12-12T00:00:00.000Z",
-        "updated": "2026-01-05T16:24:27.440Z",
-        "resolutiondate": "2026-01-05T16:24:27.440Z",
+        "created": "2025-12-12T00:00:00.000+0000",
+        "updated": "2026-01-05T16:24:27.440+0000",
+        "resolutiondate": "2026-01-05T16:24:27.440+0000",
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d20",
           "displayName": "Sample User 20"
@@ -825,8 +825,8 @@
           "key": "GTM",
           "name": "Go To Market"
         },
-        "created": "2025-12-11T00:00:00.000Z",
-        "updated": "2026-01-16T13:40:35.014Z",
+        "created": "2025-12-11T00:00:00.000+0000",
+        "updated": "2026-01-16T13:40:35.014+0000",
         "resolutiondate": null,
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d19",
@@ -894,8 +894,8 @@
           "key": "GTM",
           "name": "Go To Market"
         },
-        "created": "2025-12-19T00:00:00.000Z",
-        "updated": "2026-01-07T14:23:42.688Z",
+        "created": "2025-12-19T00:00:00.000+0000",
+        "updated": "2026-01-07T14:23:42.688+0000",
         "resolutiondate": null,
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d16",
@@ -981,9 +981,9 @@
           "key": "GTM",
           "name": "Go To Market"
         },
-        "created": "2026-01-01T21:23:27.856Z",
-        "updated": "2026-01-11T21:23:27.856Z",
-        "resolutiondate": "2026-01-11T21:23:27.856Z",
+        "created": "2026-01-01T21:23:27.856+0000",
+        "updated": "2026-01-11T21:23:27.856+0000",
+        "resolutiondate": "2026-01-11T21:23:27.856+0000",
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d08",
           "displayName": "Sample User 8"
@@ -1056,9 +1056,9 @@
           "key": "PLT",
           "name": "Platform"
         },
-        "created": "2025-12-18T00:00:00.000Z",
-        "updated": "2026-01-15T02:55:17.049Z",
-        "resolutiondate": "2026-01-15T02:55:17.049Z",
+        "created": "2025-12-18T00:00:00.000+0000",
+        "updated": "2026-01-15T02:55:17.049+0000",
+        "resolutiondate": "2026-01-15T02:55:17.049+0000",
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d19",
           "displayName": "Sample User 19"
@@ -1127,9 +1127,9 @@
           "key": "GTM",
           "name": "Go To Market"
         },
-        "created": "2025-12-08T00:00:00.000Z",
-        "updated": "2026-01-12T06:38:00.375Z",
-        "resolutiondate": "2026-01-12T06:38:00.375Z",
+        "created": "2025-12-08T00:00:00.000+0000",
+        "updated": "2026-01-12T06:38:00.375+0000",
+        "resolutiondate": "2026-01-12T06:38:00.375+0000",
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d27",
           "displayName": "Sample User 27"
@@ -1204,8 +1204,8 @@
           "key": "OPS",
           "name": "Operations"
         },
-        "created": "2026-01-02T09:06:33.978Z",
-        "updated": "2026-01-05T09:06:33.978Z",
+        "created": "2026-01-02T09:06:33.978+0000",
+        "updated": "2026-01-05T09:06:33.978+0000",
         "resolutiondate": null,
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d12",
@@ -1267,9 +1267,9 @@
           "key": "PLT",
           "name": "Platform"
         },
-        "created": "2025-12-14T00:00:00.000Z",
-        "updated": "2026-01-07T10:51:14.661Z",
-        "resolutiondate": "2026-01-07T10:51:14.661Z",
+        "created": "2025-12-14T00:00:00.000+0000",
+        "updated": "2026-01-07T10:51:14.661+0000",
+        "resolutiondate": "2026-01-07T10:51:14.661+0000",
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d28",
           "displayName": "Sample User 28"
@@ -1346,8 +1346,8 @@
           "key": "GTM",
           "name": "Go To Market"
         },
-        "created": "2026-01-02T18:22:59.194Z",
-        "updated": "2026-01-05T18:22:59.194Z",
+        "created": "2026-01-02T18:22:59.194+0000",
+        "updated": "2026-01-05T18:22:59.194+0000",
         "resolutiondate": null,
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d18",
@@ -1431,9 +1431,9 @@
           "key": "FLO",
           "name": "Flow Core"
         },
-        "created": "2025-12-08T00:00:00.000Z",
-        "updated": "2026-02-01T09:33:55.244Z",
-        "resolutiondate": "2026-02-01T09:33:55.244Z",
+        "created": "2025-12-08T00:00:00.000+0000",
+        "updated": "2026-02-01T09:33:55.244+0000",
+        "resolutiondate": "2026-02-01T09:33:55.244+0000",
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d04",
           "displayName": "Sample User 4"
@@ -1504,9 +1504,9 @@
           "key": "GTM",
           "name": "Go To Market"
         },
-        "created": "2026-01-03T20:53:10.465Z",
-        "updated": "2026-02-06T20:53:10.465Z",
-        "resolutiondate": "2026-02-06T20:53:10.465Z",
+        "created": "2026-01-03T20:53:10.465+0000",
+        "updated": "2026-02-06T20:53:10.465+0000",
+        "resolutiondate": "2026-02-06T20:53:10.465+0000",
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d19",
           "displayName": "Sample User 19"
@@ -1587,9 +1587,9 @@
           "key": "FLO",
           "name": "Flow Core"
         },
-        "created": "2026-01-03T21:32:55.300Z",
-        "updated": "2026-01-06T21:32:55.300Z",
-        "resolutiondate": "2026-01-06T21:32:55.300Z",
+        "created": "2026-01-03T21:32:55.300+0000",
+        "updated": "2026-01-06T21:32:55.300+0000",
+        "resolutiondate": "2026-01-06T21:32:55.300+0000",
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d11",
           "displayName": "Sample User 11"
@@ -1668,8 +1668,8 @@
           "key": "OPS",
           "name": "Operations"
         },
-        "created": "2026-01-04T01:52:36.856Z",
-        "updated": "2026-01-12T01:52:36.856Z",
+        "created": "2026-01-04T01:52:36.856+0000",
+        "updated": "2026-01-12T01:52:36.856+0000",
         "resolutiondate": null,
         "assignee": null,
         "reporter": {
@@ -1720,9 +1720,9 @@
           "key": "PLT",
           "name": "Platform"
         },
-        "created": "2025-12-08T00:00:00.000Z",
-        "updated": "2026-01-13T02:36:24.581Z",
-        "resolutiondate": "2026-01-13T02:36:24.581Z",
+        "created": "2025-12-08T00:00:00.000+0000",
+        "updated": "2026-01-13T02:36:24.581+0000",
+        "resolutiondate": "2026-01-13T02:36:24.581+0000",
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d25",
           "displayName": "Sample User 25"
@@ -1792,9 +1792,9 @@
           "key": "GTM",
           "name": "Go To Market"
         },
-        "created": "2026-01-04T08:01:29.017Z",
-        "updated": "2026-01-12T08:01:29.017Z",
-        "resolutiondate": "2026-01-12T08:01:29.017Z",
+        "created": "2026-01-04T08:01:29.017+0000",
+        "updated": "2026-01-12T08:01:29.017+0000",
+        "resolutiondate": "2026-01-12T08:01:29.017+0000",
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d24",
           "displayName": "Sample User 24"
@@ -1870,8 +1870,8 @@
           "key": "OPS",
           "name": "Operations"
         },
-        "created": "2026-01-04T09:28:08.749Z",
-        "updated": "2026-01-05T09:28:08.749Z",
+        "created": "2026-01-04T09:28:08.749+0000",
+        "updated": "2026-01-05T09:28:08.749+0000",
         "resolutiondate": null,
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d08",
@@ -1932,8 +1932,8 @@
           "key": "PLT",
           "name": "Platform"
         },
-        "created": "2026-01-04T21:06:12.832Z",
-        "updated": "2026-01-20T21:06:12.832Z",
+        "created": "2026-01-04T21:06:12.832+0000",
+        "updated": "2026-01-20T21:06:12.832+0000",
         "resolutiondate": null,
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d11",
@@ -2005,9 +2005,9 @@
           "key": "OPS",
           "name": "Operations"
         },
-        "created": "2026-01-05T07:57:52.408Z",
-        "updated": "2026-01-10T07:57:52.408Z",
-        "resolutiondate": "2026-01-10T07:57:52.408Z",
+        "created": "2026-01-05T07:57:52.408+0000",
+        "updated": "2026-01-10T07:57:52.408+0000",
+        "resolutiondate": "2026-01-10T07:57:52.408+0000",
         "assignee": null,
         "reporter": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d01",
@@ -2061,9 +2061,9 @@
           "key": "FLO",
           "name": "Flow Core"
         },
-        "created": "2026-01-05T09:04:59.210Z",
-        "updated": "2026-01-18T09:04:59.210Z",
-        "resolutiondate": "2026-01-18T09:04:59.210Z",
+        "created": "2026-01-05T09:04:59.210+0000",
+        "updated": "2026-01-18T09:04:59.210+0000",
+        "resolutiondate": "2026-01-18T09:04:59.210+0000",
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d22",
           "displayName": "Sample User 22"
@@ -2134,9 +2134,9 @@
           "key": "PLT",
           "name": "Platform"
         },
-        "created": "2025-12-22T00:00:00.000Z",
-        "updated": "2026-01-11T11:21:35.148Z",
-        "resolutiondate": "2026-01-11T11:21:35.148Z",
+        "created": "2025-12-22T00:00:00.000+0000",
+        "updated": "2026-01-11T11:21:35.148+0000",
+        "resolutiondate": "2026-01-11T11:21:35.148+0000",
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d11",
           "displayName": "Sample User 11"
@@ -2209,9 +2209,9 @@
           "key": "OPS",
           "name": "Operations"
         },
-        "created": "2026-01-06T01:29:58.247Z",
-        "updated": "2026-01-19T01:29:58.247Z",
-        "resolutiondate": "2026-01-19T01:29:58.247Z",
+        "created": "2026-01-06T01:29:58.247+0000",
+        "updated": "2026-01-19T01:29:58.247+0000",
+        "resolutiondate": "2026-01-19T01:29:58.247+0000",
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d09",
           "displayName": "Sample User 9"
@@ -2276,9 +2276,9 @@
           "key": "GTM",
           "name": "Go To Market"
         },
-        "created": "2025-12-22T00:00:00.000Z",
-        "updated": "2026-01-10T03:42:24.536Z",
-        "resolutiondate": "2026-01-10T03:42:24.536Z",
+        "created": "2025-12-22T00:00:00.000+0000",
+        "updated": "2026-01-10T03:42:24.536+0000",
+        "resolutiondate": "2026-01-10T03:42:24.536+0000",
         "assignee": null,
         "reporter": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d29",
@@ -2338,9 +2338,9 @@
           "key": "PLT",
           "name": "Platform"
         },
-        "created": "2026-01-07T23:17:36.424Z",
-        "updated": "2026-01-23T23:17:36.424Z",
-        "resolutiondate": "2026-01-23T23:17:36.424Z",
+        "created": "2026-01-07T23:17:36.424+0000",
+        "updated": "2026-01-23T23:17:36.424+0000",
+        "resolutiondate": "2026-01-23T23:17:36.424+0000",
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d20",
           "displayName": "Sample User 20"
@@ -2425,8 +2425,8 @@
           "key": "PLT",
           "name": "Platform"
         },
-        "created": "2025-12-29T00:00:00.000Z",
-        "updated": "2026-01-08T23:23:05.201Z",
+        "created": "2025-12-29T00:00:00.000+0000",
+        "updated": "2026-01-08T23:23:05.201+0000",
         "resolutiondate": null,
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d24",
@@ -2501,9 +2501,9 @@
           "key": "GTM",
           "name": "Go To Market"
         },
-        "created": "2026-01-08T00:11:48.828Z",
-        "updated": "2026-01-19T00:11:48.828Z",
-        "resolutiondate": "2026-01-19T00:11:48.828Z",
+        "created": "2026-01-08T00:11:48.828+0000",
+        "updated": "2026-01-19T00:11:48.828+0000",
+        "resolutiondate": "2026-01-19T00:11:48.828+0000",
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d20",
           "displayName": "Sample User 20"
@@ -2571,9 +2571,9 @@
           "key": "PLT",
           "name": "Platform"
         },
-        "created": "2025-12-22T00:00:00.000Z",
-        "updated": "2026-01-12T03:59:47.436Z",
-        "resolutiondate": "2026-01-12T03:59:47.436Z",
+        "created": "2025-12-22T00:00:00.000+0000",
+        "updated": "2026-01-12T03:59:47.436+0000",
+        "resolutiondate": "2026-01-12T03:59:47.436+0000",
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d07",
           "displayName": "Sample User 7"
@@ -2642,8 +2642,8 @@
           "key": "FLO",
           "name": "Flow Core"
         },
-        "created": "2025-12-31T00:00:00.000Z",
-        "updated": "2026-01-09T09:13:48.277Z",
+        "created": "2025-12-31T00:00:00.000+0000",
+        "updated": "2026-01-09T09:13:48.277+0000",
         "resolutiondate": null,
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d09",
@@ -2720,9 +2720,9 @@
           "key": "GTM",
           "name": "Go To Market"
         },
-        "created": "2026-01-08T11:20:59.074Z",
-        "updated": "2026-02-17T11:20:59.074Z",
-        "resolutiondate": "2026-02-17T11:20:59.074Z",
+        "created": "2026-01-08T11:20:59.074+0000",
+        "updated": "2026-02-17T11:20:59.074+0000",
+        "resolutiondate": "2026-02-17T11:20:59.074+0000",
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d12",
           "displayName": "Sample User 12"
@@ -2794,9 +2794,9 @@
           "key": "GTM",
           "name": "Go To Market"
         },
-        "created": "2025-12-22T00:00:00.000Z",
-        "updated": "2026-01-21T22:08:33.929Z",
-        "resolutiondate": "2026-01-21T22:08:33.929Z",
+        "created": "2025-12-22T00:00:00.000+0000",
+        "updated": "2026-01-21T22:08:33.929+0000",
+        "resolutiondate": "2026-01-21T22:08:33.929+0000",
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d23",
           "displayName": "Sample User 23"
@@ -2867,9 +2867,9 @@
           "key": "FLO",
           "name": "Flow Core"
         },
-        "created": "2025-12-23T00:00:00.000Z",
-        "updated": "2026-01-18T03:25:25.376Z",
-        "resolutiondate": "2026-01-18T03:25:25.376Z",
+        "created": "2025-12-23T00:00:00.000+0000",
+        "updated": "2026-01-18T03:25:25.376+0000",
+        "resolutiondate": "2026-01-18T03:25:25.376+0000",
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d05",
           "displayName": "Sample User 5"
@@ -2938,9 +2938,9 @@
           "key": "FLO",
           "name": "Flow Core"
         },
-        "created": "2025-12-22T00:00:00.000Z",
-        "updated": "2026-02-15T12:21:26.780Z",
-        "resolutiondate": "2026-02-15T12:21:26.780Z",
+        "created": "2025-12-22T00:00:00.000+0000",
+        "updated": "2026-02-15T12:21:26.780+0000",
+        "resolutiondate": "2026-02-15T12:21:26.780+0000",
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d01",
           "displayName": "Sample User 1"
@@ -3025,9 +3025,9 @@
           "key": "FLO",
           "name": "Flow Core"
         },
-        "created": "2025-12-28T00:00:00.000Z",
-        "updated": "2026-01-31T10:24:39.640Z",
-        "resolutiondate": "2026-01-31T10:24:39.640Z",
+        "created": "2025-12-28T00:00:00.000+0000",
+        "updated": "2026-01-31T10:24:39.640+0000",
+        "resolutiondate": "2026-01-31T10:24:39.640+0000",
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d01",
           "displayName": "Sample User 1"
@@ -3104,8 +3104,8 @@
           "key": "FLO",
           "name": "Flow Core"
         },
-        "created": "2025-12-30T00:00:00.000Z",
-        "updated": "2026-01-27T23:59:15.239Z",
+        "created": "2025-12-30T00:00:00.000+0000",
+        "updated": "2026-01-27T23:59:15.239+0000",
         "resolutiondate": null,
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d13",
@@ -3174,8 +3174,8 @@
           "key": "GTM",
           "name": "Go To Market"
         },
-        "created": "2025-12-22T00:00:00.000Z",
-        "updated": "2026-01-14T14:00:12.043Z",
+        "created": "2025-12-22T00:00:00.000+0000",
+        "updated": "2026-01-14T14:00:12.043+0000",
         "resolutiondate": null,
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d06",
@@ -3241,9 +3241,9 @@
           "key": "FLO",
           "name": "Flow Core"
         },
-        "created": "2025-12-22T00:00:00.000Z",
-        "updated": "2026-01-21T18:51:45.513Z",
-        "resolutiondate": "2026-01-21T18:51:45.513Z",
+        "created": "2025-12-22T00:00:00.000+0000",
+        "updated": "2026-01-21T18:51:45.513+0000",
+        "resolutiondate": "2026-01-21T18:51:45.513+0000",
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d03",
           "displayName": "Sample User 3"
@@ -3319,8 +3319,8 @@
           "key": "GTM",
           "name": "Go To Market"
         },
-        "created": "2026-01-12T12:12:02.183Z",
-        "updated": "2026-01-14T12:12:02.183Z",
+        "created": "2026-01-12T12:12:02.183+0000",
+        "updated": "2026-01-14T12:12:02.183+0000",
         "resolutiondate": null,
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d27",
@@ -3385,9 +3385,9 @@
           "key": "OPS",
           "name": "Operations"
         },
-        "created": "2026-01-12T20:11:16.716Z",
-        "updated": "2026-01-21T20:11:16.716Z",
-        "resolutiondate": "2026-01-21T20:11:16.716Z",
+        "created": "2026-01-12T20:11:16.716+0000",
+        "updated": "2026-01-21T20:11:16.716+0000",
+        "resolutiondate": "2026-01-21T20:11:16.716+0000",
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d08",
           "displayName": "Sample User 8"
@@ -3453,8 +3453,8 @@
           "key": "FLO",
           "name": "Flow Core"
         },
-        "created": "2025-12-22T00:00:00.000Z",
-        "updated": "2026-01-18T14:43:00.149Z",
+        "created": "2025-12-22T00:00:00.000+0000",
+        "updated": "2026-01-18T14:43:00.149+0000",
         "resolutiondate": null,
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d01",
@@ -3529,9 +3529,9 @@
           "key": "OPS",
           "name": "Operations"
         },
-        "created": "2026-01-14T01:20:45.948Z",
-        "updated": "2026-01-24T01:20:45.948Z",
-        "resolutiondate": "2026-01-24T01:20:45.948Z",
+        "created": "2026-01-14T01:20:45.948+0000",
+        "updated": "2026-01-24T01:20:45.948+0000",
+        "resolutiondate": "2026-01-24T01:20:45.948+0000",
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d29",
           "displayName": "Sample User 29"
@@ -3586,8 +3586,8 @@
           "key": "GTM",
           "name": "Go To Market"
         },
-        "created": "2026-01-14T04:51:27.766Z",
-        "updated": "2026-02-19T04:51:27.766Z",
+        "created": "2026-01-14T04:51:27.766+0000",
+        "updated": "2026-02-19T04:51:27.766+0000",
         "resolutiondate": null,
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d17",
@@ -3661,9 +3661,9 @@
           "key": "PLT",
           "name": "Platform"
         },
-        "created": "2025-12-22T00:00:00.000Z",
-        "updated": "2026-01-22T08:06:45.881Z",
-        "resolutiondate": "2026-01-22T08:06:45.881Z",
+        "created": "2025-12-22T00:00:00.000+0000",
+        "updated": "2026-01-22T08:06:45.881+0000",
+        "resolutiondate": "2026-01-22T08:06:45.881+0000",
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d09",
           "displayName": "Sample User 9"
@@ -3727,9 +3727,9 @@
           "key": "PLT",
           "name": "Platform"
         },
-        "created": "2025-12-23T00:00:00.000Z",
-        "updated": "2026-01-24T15:43:04.434Z",
-        "resolutiondate": "2026-01-24T15:43:04.434Z",
+        "created": "2025-12-23T00:00:00.000+0000",
+        "updated": "2026-01-24T15:43:04.434+0000",
+        "resolutiondate": "2026-01-24T15:43:04.434+0000",
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d08",
           "displayName": "Sample User 8"
@@ -3799,8 +3799,8 @@
           "key": "FLO",
           "name": "Flow Core"
         },
-        "created": "2025-12-26T00:00:00.000Z",
-        "updated": "2026-01-15T17:56:53.047Z",
+        "created": "2025-12-26T00:00:00.000+0000",
+        "updated": "2026-01-15T17:56:53.047+0000",
         "resolutiondate": null,
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d11",
@@ -3877,8 +3877,8 @@
           "key": "FLO",
           "name": "Flow Core"
         },
-        "created": "2025-12-23T00:00:00.000Z",
-        "updated": "2026-01-16T04:44:55.937Z",
+        "created": "2025-12-23T00:00:00.000+0000",
+        "updated": "2026-01-16T04:44:55.937+0000",
         "resolutiondate": null,
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d27",
@@ -3944,9 +3944,9 @@
           "key": "PLT",
           "name": "Platform"
         },
-        "created": "2026-01-15T12:10:10.793Z",
-        "updated": "2026-02-24T12:10:10.793Z",
-        "resolutiondate": "2026-02-24T12:10:10.793Z",
+        "created": "2026-01-15T12:10:10.793+0000",
+        "updated": "2026-02-24T12:10:10.793+0000",
+        "resolutiondate": "2026-02-24T12:10:10.793+0000",
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d17",
           "displayName": "Sample User 17"
@@ -4029,9 +4029,9 @@
           "key": "GTM",
           "name": "Go To Market"
         },
-        "created": "2025-12-28T00:00:00.000Z",
-        "updated": "2026-01-24T01:42:14.166Z",
-        "resolutiondate": "2026-01-24T01:42:14.166Z",
+        "created": "2025-12-28T00:00:00.000+0000",
+        "updated": "2026-01-24T01:42:14.166+0000",
+        "resolutiondate": "2026-01-24T01:42:14.166+0000",
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d18",
           "displayName": "Sample User 18"
@@ -4098,9 +4098,9 @@
           "key": "PLT",
           "name": "Platform"
         },
-        "created": "2025-12-30T00:00:00.000Z",
-        "updated": "2026-01-21T09:23:21.509Z",
-        "resolutiondate": "2026-01-21T09:23:21.509Z",
+        "created": "2025-12-30T00:00:00.000+0000",
+        "updated": "2026-01-21T09:23:21.509+0000",
+        "resolutiondate": "2026-01-21T09:23:21.509+0000",
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d28",
           "displayName": "Sample User 28"
@@ -4159,9 +4159,9 @@
           "key": "FLO",
           "name": "Flow Core"
         },
-        "created": "2025-12-23T00:00:00.000Z",
-        "updated": "2026-02-19T11:26:53.722Z",
-        "resolutiondate": "2026-02-19T11:26:53.722Z",
+        "created": "2025-12-23T00:00:00.000+0000",
+        "updated": "2026-02-19T11:26:53.722+0000",
+        "resolutiondate": "2026-02-19T11:26:53.722+0000",
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d09",
           "displayName": "Sample User 9"
@@ -4241,8 +4241,8 @@
           "key": "PLT",
           "name": "Platform"
         },
-        "created": "2025-12-31T00:00:00.000Z",
-        "updated": "2026-01-23T18:11:13.742Z",
+        "created": "2025-12-31T00:00:00.000+0000",
+        "updated": "2026-01-23T18:11:13.742+0000",
         "resolutiondate": null,
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d27",
@@ -4311,9 +4311,9 @@
           "key": "FLO",
           "name": "Flow Core"
         },
-        "created": "2026-01-08T00:00:00.000Z",
-        "updated": "2026-01-26T00:55:49.818Z",
-        "resolutiondate": "2026-01-26T00:55:49.818Z",
+        "created": "2026-01-08T00:00:00.000+0000",
+        "updated": "2026-01-26T00:55:49.818+0000",
+        "resolutiondate": "2026-01-26T00:55:49.818+0000",
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d04",
           "displayName": "Sample User 4"
@@ -4376,9 +4376,9 @@
           "key": "GTM",
           "name": "Go To Market"
         },
-        "created": "2026-01-05T00:00:00.000Z",
-        "updated": "2026-01-24T05:32:42.546Z",
-        "resolutiondate": "2026-01-24T05:32:42.546Z",
+        "created": "2026-01-05T00:00:00.000+0000",
+        "updated": "2026-01-24T05:32:42.546+0000",
+        "resolutiondate": "2026-01-24T05:32:42.546+0000",
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d08",
           "displayName": "Sample User 8"
@@ -4458,9 +4458,9 @@
           "key": "FLO",
           "name": "Flow Core"
         },
-        "created": "2026-01-09T00:00:00.000Z",
-        "updated": "2026-02-21T10:15:30.229Z",
-        "resolutiondate": "2026-02-21T10:15:30.229Z",
+        "created": "2026-01-09T00:00:00.000+0000",
+        "updated": "2026-02-21T10:15:30.229+0000",
+        "resolutiondate": "2026-02-21T10:15:30.229+0000",
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d16",
           "displayName": "Sample User 16"
@@ -4536,9 +4536,9 @@
           "key": "GTM",
           "name": "Go To Market"
         },
-        "created": "2026-01-19T19:43:10.302Z",
-        "updated": "2026-01-23T19:43:10.302Z",
-        "resolutiondate": "2026-01-23T19:43:10.302Z",
+        "created": "2026-01-19T19:43:10.302+0000",
+        "updated": "2026-01-23T19:43:10.302+0000",
+        "resolutiondate": "2026-01-23T19:43:10.302+0000",
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d03",
           "displayName": "Sample User 3"
@@ -4611,9 +4611,9 @@
           "key": "OPS",
           "name": "Operations"
         },
-        "created": "2026-01-19T20:27:00.790Z",
-        "updated": "2026-01-31T20:27:00.790Z",
-        "resolutiondate": "2026-01-31T20:27:00.790Z",
+        "created": "2026-01-19T20:27:00.790+0000",
+        "updated": "2026-01-31T20:27:00.790+0000",
+        "resolutiondate": "2026-01-31T20:27:00.790+0000",
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d24",
           "displayName": "Sample User 24"
@@ -4671,8 +4671,8 @@
           "key": "FLO",
           "name": "Flow Core"
         },
-        "created": "2026-01-05T00:00:00.000Z",
-        "updated": "2026-01-26T01:30:51.175Z",
+        "created": "2026-01-05T00:00:00.000+0000",
+        "updated": "2026-01-26T01:30:51.175+0000",
         "resolutiondate": null,
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d04",
@@ -4735,9 +4735,9 @@
           "key": "PLT",
           "name": "Platform"
         },
-        "created": "2026-01-07T00:00:00.000Z",
-        "updated": "2026-01-25T17:54:07.625Z",
-        "resolutiondate": "2026-01-25T17:54:07.625Z",
+        "created": "2026-01-07T00:00:00.000+0000",
+        "updated": "2026-01-25T17:54:07.625+0000",
+        "resolutiondate": "2026-01-25T17:54:07.625+0000",
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d16",
           "displayName": "Sample User 16"
@@ -4816,9 +4816,9 @@
           "key": "PLT",
           "name": "Platform"
         },
-        "created": "2026-01-10T00:00:00.000Z",
-        "updated": "2026-02-13T01:02:00.689Z",
-        "resolutiondate": "2026-02-13T01:02:00.689Z",
+        "created": "2026-01-10T00:00:00.000+0000",
+        "updated": "2026-02-13T01:02:00.689+0000",
+        "resolutiondate": "2026-02-13T01:02:00.689+0000",
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d28",
           "displayName": "Sample User 28"
@@ -4898,9 +4898,9 @@
           "key": "OPS",
           "name": "Operations"
         },
-        "created": "2026-01-21T01:12:30.718Z",
-        "updated": "2026-02-01T01:12:30.718Z",
-        "resolutiondate": "2026-02-01T01:12:30.718Z",
+        "created": "2026-01-21T01:12:30.718+0000",
+        "updated": "2026-02-01T01:12:30.718+0000",
+        "resolutiondate": "2026-02-01T01:12:30.718+0000",
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d17",
           "displayName": "Sample User 17"
@@ -4965,9 +4965,9 @@
           "key": "FLO",
           "name": "Flow Core"
         },
-        "created": "2026-01-05T00:00:00.000Z",
-        "updated": "2026-02-02T13:11:21.812Z",
-        "resolutiondate": "2026-02-02T13:11:21.812Z",
+        "created": "2026-01-05T00:00:00.000+0000",
+        "updated": "2026-02-02T13:11:21.812+0000",
+        "resolutiondate": "2026-02-02T13:11:21.812+0000",
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d19",
           "displayName": "Sample User 19"
@@ -5033,8 +5033,8 @@
           "key": "FLO",
           "name": "Flow Core"
         },
-        "created": "2026-01-21T21:32:55.300Z",
-        "updated": "2026-01-24T21:32:55.300Z",
+        "created": "2026-01-21T21:32:55.300+0000",
+        "updated": "2026-01-24T21:32:55.300+0000",
         "resolutiondate": null,
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d24",
@@ -5099,8 +5099,8 @@
           "key": "FLO",
           "name": "Flow Core"
         },
-        "created": "2026-01-05T00:00:00.000Z",
-        "updated": "2026-01-28T23:18:46.069Z",
+        "created": "2026-01-05T00:00:00.000+0000",
+        "updated": "2026-01-28T23:18:46.069+0000",
         "resolutiondate": null,
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d14",
@@ -5172,9 +5172,9 @@
           "key": "FLO",
           "name": "Flow Core"
         },
-        "created": "2026-01-22T01:30:51.175Z",
-        "updated": "2026-02-03T01:30:51.175Z",
-        "resolutiondate": "2026-02-03T01:30:51.175Z",
+        "created": "2026-01-22T01:30:51.175+0000",
+        "updated": "2026-02-03T01:30:51.175+0000",
+        "resolutiondate": "2026-02-03T01:30:51.175+0000",
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d27",
           "displayName": "Sample User 27"
@@ -5247,8 +5247,8 @@
           "key": "GTM",
           "name": "Go To Market"
         },
-        "created": "2026-01-05T00:00:00.000Z",
-        "updated": "2026-01-27T11:25:06.598Z",
+        "created": "2026-01-05T00:00:00.000+0000",
+        "updated": "2026-01-27T11:25:06.598+0000",
         "resolutiondate": null,
         "assignee": null,
         "reporter": {
@@ -5310,9 +5310,9 @@
           "key": "FLO",
           "name": "Flow Core"
         },
-        "created": "2026-01-05T00:00:00.000Z",
-        "updated": "2026-01-26T17:19:42.601Z",
-        "resolutiondate": "2026-01-26T17:19:42.601Z",
+        "created": "2026-01-05T00:00:00.000+0000",
+        "updated": "2026-01-26T17:19:42.601+0000",
+        "resolutiondate": "2026-01-26T17:19:42.601+0000",
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d04",
           "displayName": "Sample User 4"
@@ -5382,9 +5382,9 @@
           "key": "PLT",
           "name": "Platform"
         },
-        "created": "2026-01-15T00:00:00.000Z",
-        "updated": "2026-02-07T17:21:23.277Z",
-        "resolutiondate": "2026-02-07T17:21:23.277Z",
+        "created": "2026-01-15T00:00:00.000+0000",
+        "updated": "2026-02-07T17:21:23.277+0000",
+        "resolutiondate": "2026-02-07T17:21:23.277+0000",
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d09",
           "displayName": "Sample User 9"
@@ -5465,9 +5465,9 @@
           "key": "GTM",
           "name": "Go To Market"
         },
-        "created": "2026-01-22T18:22:59.194Z",
-        "updated": "2026-01-29T18:22:59.194Z",
-        "resolutiondate": "2026-01-29T18:22:59.194Z",
+        "created": "2026-01-22T18:22:59.194+0000",
+        "updated": "2026-01-29T18:22:59.194+0000",
+        "resolutiondate": "2026-01-29T18:22:59.194+0000",
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d18",
           "displayName": "Sample User 18"
@@ -5541,9 +5541,9 @@
           "key": "FLO",
           "name": "Flow Core"
         },
-        "created": "2026-01-05T00:00:00.000Z",
-        "updated": "2026-02-15T19:33:31.280Z",
-        "resolutiondate": "2026-02-15T19:33:31.280Z",
+        "created": "2026-01-05T00:00:00.000+0000",
+        "updated": "2026-02-15T19:33:31.280+0000",
+        "resolutiondate": "2026-02-15T19:33:31.280+0000",
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d17",
           "displayName": "Sample User 17"
@@ -5619,9 +5619,9 @@
           "key": "OPS",
           "name": "Operations"
         },
-        "created": "2026-01-23T02:13:18.809Z",
-        "updated": "2026-02-02T02:13:18.809Z",
-        "resolutiondate": "2026-02-02T02:13:18.809Z",
+        "created": "2026-01-23T02:13:18.809+0000",
+        "updated": "2026-02-02T02:13:18.809+0000",
+        "resolutiondate": "2026-02-02T02:13:18.809+0000",
         "assignee": null,
         "reporter": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d12",
@@ -5674,9 +5674,9 @@
           "key": "GTM",
           "name": "Go To Market"
         },
-        "created": "2026-01-23T13:06:37.581Z",
-        "updated": "2026-01-28T13:06:37.581Z",
-        "resolutiondate": "2026-01-28T13:06:37.581Z",
+        "created": "2026-01-23T13:06:37.581+0000",
+        "updated": "2026-01-28T13:06:37.581+0000",
+        "resolutiondate": "2026-01-28T13:06:37.581+0000",
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d11",
           "displayName": "Sample User 11"
@@ -5744,9 +5744,9 @@
           "key": "OPS",
           "name": "Operations"
         },
-        "created": "2026-01-23T22:39:48.475Z",
-        "updated": "2026-02-01T22:39:48.475Z",
-        "resolutiondate": "2026-02-01T22:39:48.475Z",
+        "created": "2026-01-23T22:39:48.475+0000",
+        "updated": "2026-02-01T22:39:48.475+0000",
+        "resolutiondate": "2026-02-01T22:39:48.475+0000",
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d24",
           "displayName": "Sample User 24"
@@ -5809,9 +5809,9 @@
           "key": "PLT",
           "name": "Platform"
         },
-        "created": "2026-01-12T00:00:00.000Z",
-        "updated": "2026-01-29T04:06:59.472Z",
-        "resolutiondate": "2026-01-29T04:06:59.472Z",
+        "created": "2026-01-12T00:00:00.000+0000",
+        "updated": "2026-01-29T04:06:59.472+0000",
+        "resolutiondate": "2026-01-29T04:06:59.472+0000",
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d28",
           "displayName": "Sample User 28"
@@ -5886,8 +5886,8 @@
           "key": "GTM",
           "name": "Go To Market"
         },
-        "created": "2026-01-07T00:00:00.000Z",
-        "updated": "2026-02-04T09:28:11.282Z",
+        "created": "2026-01-07T00:00:00.000+0000",
+        "updated": "2026-02-04T09:28:11.282+0000",
         "resolutiondate": null,
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d26",
@@ -5959,9 +5959,9 @@
           "key": "GTM",
           "name": "Go To Market"
         },
-        "created": "2026-01-24T22:15:38.760Z",
-        "updated": "2026-01-30T22:15:38.760Z",
-        "resolutiondate": "2026-01-30T22:15:38.760Z",
+        "created": "2026-01-24T22:15:38.760+0000",
+        "updated": "2026-01-30T22:15:38.760+0000",
+        "resolutiondate": "2026-01-30T22:15:38.760+0000",
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d26",
           "displayName": "Sample User 26"
@@ -6041,9 +6041,9 @@
           "key": "GTM",
           "name": "Go To Market"
         },
-        "created": "2026-01-15T00:00:00.000Z",
-        "updated": "2026-01-28T02:04:52.701Z",
-        "resolutiondate": "2026-01-28T02:04:52.701Z",
+        "created": "2026-01-15T00:00:00.000+0000",
+        "updated": "2026-01-28T02:04:52.701+0000",
+        "resolutiondate": "2026-01-28T02:04:52.701+0000",
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d03",
           "displayName": "Sample User 3"
@@ -6108,9 +6108,9 @@
           "key": "FLO",
           "name": "Flow Core"
         },
-        "created": "2026-01-05T00:00:00.000Z",
-        "updated": "2026-02-05T18:20:56.703Z",
-        "resolutiondate": "2026-02-05T18:20:56.703Z",
+        "created": "2026-01-05T00:00:00.000+0000",
+        "updated": "2026-02-05T18:20:56.703+0000",
+        "resolutiondate": "2026-02-05T18:20:56.703+0000",
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d15",
           "displayName": "Sample User 15"
@@ -6183,8 +6183,8 @@
           "key": "FLO",
           "name": "Flow Core"
         },
-        "created": "2026-01-25T18:42:30.767Z",
-        "updated": "2026-01-31T18:42:30.767Z",
+        "created": "2026-01-25T18:42:30.767+0000",
+        "updated": "2026-01-31T18:42:30.767+0000",
         "resolutiondate": null,
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d01",
@@ -6267,9 +6267,9 @@
           "key": "FLO",
           "name": "Flow Core"
         },
-        "created": "2026-01-05T00:00:00.000Z",
-        "updated": "2026-01-30T21:22:26.380Z",
-        "resolutiondate": "2026-01-30T21:22:26.380Z",
+        "created": "2026-01-05T00:00:00.000+0000",
+        "updated": "2026-01-30T21:22:26.380+0000",
+        "resolutiondate": "2026-01-30T21:22:26.380+0000",
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d10",
           "displayName": "Sample User 10"
@@ -6347,8 +6347,8 @@
           "key": "FLO",
           "name": "Flow Core"
         },
-        "created": "2026-01-26T06:43:29.710Z",
-        "updated": "2026-01-29T06:43:29.710Z",
+        "created": "2026-01-26T06:43:29.710+0000",
+        "updated": "2026-01-29T06:43:29.710+0000",
         "resolutiondate": null,
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d14",
@@ -6421,9 +6421,9 @@
           "key": "GTM",
           "name": "Go To Market"
         },
-        "created": "2026-01-05T00:00:00.000Z",
-        "updated": "2026-02-03T08:24:17.152Z",
-        "resolutiondate": "2026-02-03T08:24:17.152Z",
+        "created": "2026-01-05T00:00:00.000+0000",
+        "updated": "2026-02-03T08:24:17.152+0000",
+        "resolutiondate": "2026-02-03T08:24:17.152+0000",
         "assignee": null,
         "reporter": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d02",
@@ -6501,9 +6501,9 @@
           "key": "GTM",
           "name": "Go To Market"
         },
-        "created": "2026-01-05T00:00:00.000Z",
-        "updated": "2026-03-05T12:55:10.072Z",
-        "resolutiondate": "2026-03-05T12:55:10.072Z",
+        "created": "2026-01-05T00:00:00.000+0000",
+        "updated": "2026-03-05T12:55:10.072+0000",
+        "resolutiondate": "2026-03-05T12:55:10.072+0000",
         "assignee": null,
         "reporter": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d04",
@@ -6583,9 +6583,9 @@
           "key": "PLT",
           "name": "Platform"
         },
-        "created": "2026-01-10T00:00:00.000Z",
-        "updated": "2026-02-09T07:10:04.349Z",
-        "resolutiondate": "2026-02-09T07:10:04.349Z",
+        "created": "2026-01-10T00:00:00.000+0000",
+        "updated": "2026-02-09T07:10:04.349+0000",
+        "resolutiondate": "2026-02-09T07:10:04.349+0000",
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d29",
           "displayName": "Sample User 29"
@@ -6652,9 +6652,9 @@
           "key": "FLO",
           "name": "Flow Core"
         },
-        "created": "2026-01-05T00:00:00.000Z",
-        "updated": "2026-02-01T15:04:51.519Z",
-        "resolutiondate": "2026-02-01T15:04:51.519Z",
+        "created": "2026-01-05T00:00:00.000+0000",
+        "updated": "2026-02-01T15:04:51.519+0000",
+        "resolutiondate": "2026-02-01T15:04:51.519+0000",
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d25",
           "displayName": "Sample User 25"
@@ -6731,9 +6731,9 @@
           "key": "GTM",
           "name": "Go To Market"
         },
-        "created": "2026-01-28T18:38:53.349Z",
-        "updated": "2026-02-08T18:38:53.349Z",
-        "resolutiondate": "2026-02-08T18:38:53.349Z",
+        "created": "2026-01-28T18:38:53.349+0000",
+        "updated": "2026-02-08T18:38:53.349+0000",
+        "resolutiondate": "2026-02-08T18:38:53.349+0000",
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d28",
           "displayName": "Sample User 28"
@@ -6794,9 +6794,9 @@
           "key": "PLT",
           "name": "Platform"
         },
-        "created": "2026-01-05T00:00:00.000Z",
-        "updated": "2026-02-03T10:35:26.443Z",
-        "resolutiondate": "2026-02-03T10:35:26.443Z",
+        "created": "2026-01-05T00:00:00.000+0000",
+        "updated": "2026-02-03T10:35:26.443+0000",
+        "resolutiondate": "2026-02-03T10:35:26.443+0000",
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d06",
           "displayName": "Sample User 6"
@@ -6865,9 +6865,9 @@
           "key": "FLO",
           "name": "Flow Core"
         },
-        "created": "2026-01-16T00:00:00.000Z",
-        "updated": "2026-02-09T07:35:30.407Z",
-        "resolutiondate": "2026-02-09T07:35:30.407Z",
+        "created": "2026-01-16T00:00:00.000+0000",
+        "updated": "2026-02-09T07:35:30.407+0000",
+        "resolutiondate": "2026-02-09T07:35:30.407+0000",
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d12",
           "displayName": "Sample User 12"
@@ -6934,9 +6934,9 @@
           "key": "OPS",
           "name": "Operations"
         },
-        "created": "2026-01-30T17:25:30.236Z",
-        "updated": "2026-02-06T17:25:30.236Z",
-        "resolutiondate": "2026-02-06T17:25:30.236Z",
+        "created": "2026-01-30T17:25:30.236+0000",
+        "updated": "2026-02-06T17:25:30.236+0000",
+        "resolutiondate": "2026-02-06T17:25:30.236+0000",
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d09",
           "displayName": "Sample User 9"
@@ -6990,9 +6990,9 @@
           "key": "FLO",
           "name": "Flow Core"
         },
-        "created": "2026-01-30T18:51:45.513Z",
-        "updated": "2026-02-12T18:51:45.513Z",
-        "resolutiondate": "2026-02-12T18:51:45.513Z",
+        "created": "2026-01-30T18:51:45.513+0000",
+        "updated": "2026-02-12T18:51:45.513+0000",
+        "resolutiondate": "2026-02-12T18:51:45.513+0000",
         "assignee": null,
         "reporter": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d30",
@@ -7063,9 +7063,9 @@
           "key": "PLT",
           "name": "Platform"
         },
-        "created": "2026-01-05T00:00:00.000Z",
-        "updated": "2026-02-25T17:50:46.209Z",
-        "resolutiondate": "2026-02-25T17:50:46.209Z",
+        "created": "2026-01-05T00:00:00.000+0000",
+        "updated": "2026-02-25T17:50:46.209+0000",
+        "resolutiondate": "2026-02-25T17:50:46.209+0000",
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d11",
           "displayName": "Sample User 11"
@@ -7148,9 +7148,9 @@
           "key": "PLT",
           "name": "Platform"
         },
-        "created": "2026-01-05T00:00:00.000Z",
-        "updated": "2026-02-10T20:50:29.132Z",
-        "resolutiondate": "2026-02-10T20:50:29.132Z",
+        "created": "2026-01-05T00:00:00.000+0000",
+        "updated": "2026-02-10T20:50:29.132+0000",
+        "resolutiondate": "2026-02-10T20:50:29.132+0000",
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d04",
           "displayName": "Sample User 4"
@@ -7221,8 +7221,8 @@
           "key": "FLO",
           "name": "Flow Core"
         },
-        "created": "2026-01-17T00:00:00.000Z",
-        "updated": "2026-02-19T16:52:29.860Z",
+        "created": "2026-01-17T00:00:00.000+0000",
+        "updated": "2026-02-19T16:52:29.860+0000",
         "resolutiondate": null,
         "assignee": {
           "accountId": "5f8a1b2c3d4e5f6a7b8c9d18",

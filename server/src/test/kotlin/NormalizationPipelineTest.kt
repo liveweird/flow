@@ -16,6 +16,7 @@ import ch.nokillswit.jira.JiraConnector
 import ch.nokillswit.jira.JiraHttp
 import ch.nokillswit.jira.JiraRawStore
 import ch.nokillswit.jira.JiraSyncDependencies
+import ch.nokillswit.jira.parseJiraInstantEpochMillis
 import ch.nokillswit.norm.PROCESSING_VERSION
 import ch.nokillswit.norm.StatusCategory
 import ch.nokillswit.norm.TrackedField
@@ -25,7 +26,6 @@ import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.HttpTimeout
 import java.io.File
 import java.security.MessageDigest
-import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.flow.map
@@ -552,9 +552,9 @@ class NormalizationPipelineTest {
         rawIssueIds.forEach { issueId ->
             store.worklogPayloadsForIssue(connId, issueId).forEach { payload ->
                 val worklog = json.parseToJsonElement(payload).jsonObject
-                val started = Instant.parse(worklog.getValue("started").jsonPrimitive.content).toEpochMilli()
-                val created = Instant.parse(worklog.getValue("created").jsonPrimitive.content).toEpochMilli()
-                val updated = Instant.parse(worklog.getValue("updated").jsonPrimitive.content).toEpochMilli()
+                val started = parseJiraInstantEpochMillis(worklog.getValue("started").jsonPrimitive.content)
+                val created = parseJiraInstantEpochMillis(worklog.getValue("created").jsonPrimitive.content)
+                val updated = parseJiraInstantEpochMillis(worklog.getValue("updated").jsonPrimitive.content)
                 if (created > started) independentCreatedLater++
                 if (updated > created) independentUpdatedLater++
             }

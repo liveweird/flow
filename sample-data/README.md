@@ -224,6 +224,30 @@ digest-pinning style as Lettuce's `teams-stub`).
   is scenario-independent** — it does not change between `Started` and `day2`. Only issues,
   changelog, worklogs and the two `search/jql` variants are scenario-gated.
 
+### Timestamp formats
+
+The stub deliberately emits **two different timestamp shapes**, matching what the two real Jira
+Cloud APIs actually return — a real-tenant blocker discovered in phase 2:
+`java.time.Instant.parse` only accepts strict ISO-8601 (`Z` or a colon-delimited `+HH:MM` offset)
+and REJECTS the form the REST API v3 actually uses
+(`Instant.parse("2024-01-15T10:20:30.123+0000")` throws `... could not be parsed at index 23`).
+
+- **REST API v3** (`generate.mjs`'s `restIso(ms)`) — `yyyy-MM-dd'T'HH:mm:ss.SSS+0000` (a colonless
+  offset, never a bare `Z`): an issue's own `created`/`updated`/`resolutiondate`, a changelog
+  history's `created`, and a worklog's `started`/`created`/`updated`.
+- **Agile API** (`generate.mjs`'s `iso(ms)`, ordinary `toISOString()`) — `yyyy-MM-ddTHH:mm:ss.SSSZ`:
+  a sprint's own `startDate`/`endDate`/`completeDate`, both on `GET board/{id}/sprint`'s response
+  and the identically-named dates Jira duplicates onto an issue's own Sprint custom-field array
+  (the latter isn't read by any Kotlin parser today — `JiraNormalizer.normalizeIssue` only reads
+  that array's `id`/`name` — kept as `Z` anyway since it's the same sprint-owned date, sourced from
+  the same Agile-API convention).
+
+`server/src/main/kotlin/jira/JiraTime.kt`'s `parseJiraInstant`/`parseJiraInstantEpochMillis` is the
+ONE parser every Jira-sourced timestamp in the server goes through — it accepts both shapes above
+(plus a bare `+HH:MM`/`-HH:MM` offset) — see `.claude/docs/jira-integration.md` "Timestamps". Never
+call `Instant.parse` directly on Jira-sourced text; never reintroduce a hand-rolled `iso()` call at
+one of the REST-API call sites above.
+
 ## Size
 
 `jira-stub/` is ~13 MiB (782 mapping/body file pairs), comfortably under the ~15 MB guideline —

@@ -2,7 +2,6 @@ package ch.nokillswit.jira
 
 import ch.nokillswit.ingest.Stream
 import ch.nokillswit.ingest.StreamContext
-import java.time.Instant
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -154,7 +153,7 @@ class JiraChangelogStream(
 
     private suspend fun storeHistory(context: StreamContext, issueId: Long, history: JsonObject) {
         val historyId = history.getValue("id").jsonPrimitive.content.toLong()
-        val createdAt = Instant.parse(history.getValue("created").jsonPrimitive.content).toEpochMilli()
+        val createdAt = parseJiraInstantEpochMillis(history.getValue("created").jsonPrimitive.content)
         val authorAccountId = history["author"]?.jsonObject?.get("accountId")?.jsonPrimitive?.contentOrNull
         rawStore.insertChangelog(context.connectionId, historyId, issueId, createdAt, authorAccountId, history.toString(), context.clock())
     }

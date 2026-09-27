@@ -137,6 +137,29 @@ function isoDate(ms) {
   return iso(ms).slice(0, 10);
 }
 
+// Jira Cloud's REST API v3 (`yyyy-MM-dd'T'HH:mm:ss.SSSZ`, i.e. a colonless `+0000`/`-0500` offset,
+// NEVER a colon and NEVER a bare `Z`) — verified against a real tenant, see
+// `sample-data/README.md`'s "Timestamp formats" section and
+// `server/src/main/kotlin/jira/JiraTime.kt`'s kdoc: `java.time.Instant.parse` rejects this shape
+// outright, which is exactly why the stub must emit it rather than the more convenient `iso()`/`Z`
+// form the Agile API actually returns. `pad2` mirrors the two-digit zero-padding `toISOString()`
+// already does for every other field; only the offset needs building by hand.
+function pad2(n) {
+  return String(n).padStart(2, "0");
+}
+
+function restIso(ms) {
+  const d = new Date(ms);
+  const y = d.getUTCFullYear();
+  const mo = pad2(d.getUTCMonth() + 1);
+  const day = pad2(d.getUTCDate());
+  const h = pad2(d.getUTCHours());
+  const mi = pad2(d.getUTCMinutes());
+  const s = pad2(d.getUTCSeconds());
+  const ms3 = String(d.getUTCMilliseconds()).padStart(3, "0");
+  return `${y}-${mo}-${day}T${h}:${mi}:${s}.${ms3}+0000`;
+}
+
 // ---------------------------------------------------------------------------------------------
 // Reference catalogs
 // ---------------------------------------------------------------------------------------------
@@ -474,7 +497,7 @@ function makeStatusItem(from, to) {
 
 function pushHistory(issueId, atMs, items) {
   const list = changeHistories.get(issueId) ?? [];
-  list.push({ id: String(nextHistoryId++), created: iso(atMs), author: pickAuthor(), items });
+  list.push({ id: String(nextHistoryId++), created: restIso(atMs), author: pickAuthor(), items });
   changeHistories.set(issueId, list);
 }
 
@@ -733,9 +756,9 @@ for (const issue of issues) {
         id: String(nextWorklogId++),
         issueId: issue.id,
         author: pickAuthor(),
-        started: iso(cappedStarted),
-        created: iso(cappedStarted),
-        updated: iso(cappedStarted),
+        started: restIso(cappedStarted),
+        created: restIso(cappedStarted),
+        updated: restIso(cappedStarted),
         timeSpentSeconds: rng.int(1, 8) * 1800,
       };
       list.push(worklog);
@@ -882,9 +905,9 @@ const day2NewInScopeWorklogs = updatedIssues.slice(0, 2).map((issue) => {
     id: String(nextWorklogId++),
     issueId: issue.id,
     author: pickAuthor(),
-    started: DAY2_NOW_ISO,
-    created: DAY2_NOW_ISO,
-    updated: DAY2_NOW_ISO,
+    started: restIso(DAY2_NOW_MS),
+    created: restIso(DAY2_NOW_MS),
+    updated: restIso(DAY2_NOW_MS),
     timeSpentSeconds: rng.int(1, 8) * 1800,
   };
   worklogsByIssue.get(issue.id).push(w);
@@ -895,9 +918,9 @@ const day2OutOfScopeWorklogs = rng.shuffle(secIssues).slice(0, 2).map((issue) =>
   id: String(nextWorklogId++),
   issueId: issue.id,
   author: pickAuthor(),
-  started: DAY2_NOW_ISO,
-  created: DAY2_NOW_ISO,
-  updated: DAY2_NOW_ISO,
+  started: restIso(DAY2_NOW_MS),
+  created: restIso(DAY2_NOW_MS),
+  updated: restIso(DAY2_NOW_MS),
   timeSpentSeconds: rng.int(1, 8) * 1800,
 }));
 const day2DeletedWorklogSourceIssue = inScopeIssues.find((i) => i !== deletedIssue && i !== movedIssue && worklogsByIssue.get(i.id).length > 0);
@@ -918,9 +941,9 @@ function issueFieldsJson(issue, scenario) {
     status: statusJson(status),
     issuetype: { id: issue.type.id, name: issue.type.name, subtask: issue.type.subtask },
     project: { id: project.id, key: project.key, name: project.name },
-    created: iso(issue.createdMs),
-    updated: iso(updatedMs),
-    resolutiondate: issue.resolvedAtMs !== null ? iso(issue.resolvedAtMs) : null,
+    created: restIso(issue.createdMs),
+    updated: restIso(updatedMs),
+    resolutiondate: issue.resolvedAtMs !== null ? restIso(issue.resolvedAtMs) : null,
     assignee: issue.assignee ? { accountId: issue.assignee.accountId, displayName: issue.assignee.displayName } : null,
     reporter: { accountId: issue.reporter.accountId, displayName: issue.reporter.displayName },
     priority: issue.priority,
@@ -1120,13 +1143,13 @@ for (const w of allWorklogs) {
     createdMs = startedMs + rng2.int(1, 5) * DAY_MS;
     worklogCreatedLaterCount++;
   }
-  w.created = iso(createdMs);
+  w.created = restIso(createdMs);
   let updatedMs = createdMs;
   if (rng2.bool(0.1)) {
     updatedMs = createdMs + rng2.int(1, 3) * DAY_MS;
     worklogUpdatedLaterCount++;
   }
-  w.updated = iso(updatedMs);
+  w.updated = restIso(updatedMs);
 }
 
 // --- Sprint completeDate skew: completeDate = endDate + 0..2 days on ~30% of closed sprints -------
@@ -1230,10 +1253,10 @@ function relocateSprintEntryHistory(issue, targetSprintId, oldAtMs, newAtMs) {
   const itemIdx = history.items.findIndex(matches);
   let split = false;
   if (history.items.length === 1) {
-    history.created = iso(newAtMs);
+    history.created = restIso(newAtMs);
   } else {
     const [item] = history.items.splice(itemIdx, 1);
-    list.push({ id: String(nextHistoryId++), created: iso(newAtMs), author: history.author, items: [item] });
+    list.push({ id: String(nextHistoryId++), created: restIso(newAtMs), author: history.author, items: [item] });
     split = true;
   }
   changeHistories.set(issue.id, list);
