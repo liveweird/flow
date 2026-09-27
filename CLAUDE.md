@@ -24,7 +24,7 @@ where work waits, not who is busy.
   `web/src/pages/Home.tsx` says so plainly instead of rendering an empty dashboard.
 - **Next — the domain model.** Agreed in `.claude/docs/domain-model.md` (DOMAIN/TASK/USER, TEAM,
   EPIC, SPRINT; plan/delivery/cost as PV/EV/AC in man-days; the configuration, the `metrics`
-  star, the ten target reports and its invariants); its implementation — PROCESS additions, the `metrics` schema, the
+  star, fourteen target reports and its invariants); its implementation — PROCESS additions, the `metrics` schema, the
   configuration UI, the first dashboards — is next (`BACKLOG.md`).
 
 Brand: blue (the `flow` colour tuple in `web/src/theme.ts`, `primaryShade: { light: 8, dark: 9 }`);
