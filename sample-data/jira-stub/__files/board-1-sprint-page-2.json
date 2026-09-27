@@ -22,7 +22,7 @@
       "name": "FLO Sprint 17",
       "startDate": "2026-04-13T00:00:00.000Z",
       "endDate": "2026-04-27T00:00:00.000Z",
-      "completeDate": "2026-04-27T00:00:00.000Z",
+      "completeDate": "2026-04-29T00:00:00.000Z",
       "originBoardId": 1,
       "goal": "Sprint 17 goal for Flow Core"
     },
@@ -33,7 +33,7 @@
       "name": "FLO Sprint 18",
       "startDate": "2026-04-27T00:00:00.000Z",
       "endDate": "2026-05-11T00:00:00.000Z",
-      "completeDate": "2026-05-11T00:00:00.000Z",
+      "completeDate": "2026-05-13T00:00:00.000Z",
       "originBoardId": 1,
       "goal": "Sprint 18 goal for Flow Core"
     },
@@ -44,7 +44,7 @@
       "name": "FLO Sprint 19",
       "startDate": "2026-05-11T00:00:00.000Z",
       "endDate": "2026-05-25T00:00:00.000Z",
-      "completeDate": "2026-05-25T00:00:00.000Z",
+      "completeDate": "2026-05-27T00:00:00.000Z",
       "originBoardId": 1,
       "goal": "Sprint 19 goal for Flow Core"
     },

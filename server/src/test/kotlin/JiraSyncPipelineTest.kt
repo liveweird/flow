@@ -229,7 +229,7 @@ class JiraSyncPipelineTest {
         val entities = entityCounts(connId)
         assertEquals(
             mapOf(
-                "FIELD" to 16,
+                "FIELD" to 19,
                 "STATUS" to 6,
                 "STATUS_CATEGORY" to 4,
                 "PROJECT" to 5,

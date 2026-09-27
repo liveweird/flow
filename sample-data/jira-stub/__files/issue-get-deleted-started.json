@@ -56,6 +56,10 @@
       "originalEstimateSeconds": 10800,
       "remainingEstimateSeconds": 10800,
       "timeSpentSeconds": 0
+    },
+    "customfield_10030": {
+      "id": "10101",
+      "value": "Maintenance"
     }
   }
 }

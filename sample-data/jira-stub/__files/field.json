@@ -112,6 +112,16 @@
     }
   },
   {
+    "id": "duedate",
+    "key": "duedate",
+    "name": "Due date",
+    "custom": false,
+    "schema": {
+      "type": "date",
+      "system": "duedate"
+    }
+  },
+  {
     "id": "customfield_10001",
     "key": "customfield_10001",
     "name": "Team",
@@ -166,6 +176,28 @@
       "items": "option",
       "custom": "com.atlassian.jira.plugin.system.customfieldtypes:multicheckboxes",
       "customId": 10021
+    }
+  },
+  {
+    "id": "customfield_10015",
+    "key": "customfield_10015",
+    "name": "Start date",
+    "custom": true,
+    "schema": {
+      "type": "date",
+      "custom": "com.atlassian.jira.plugin.system.customfieldtypes:datepicker",
+      "customId": 10015
+    }
+  },
+  {
+    "id": "customfield_10030",
+    "key": "customfield_10030",
+    "name": "Work category",
+    "custom": true,
+    "schema": {
+      "type": "option",
+      "custom": "com.atlassian.jira.plugin.system.customfieldtypes:select",
+      "customId": 10030
     }
   }
 ]

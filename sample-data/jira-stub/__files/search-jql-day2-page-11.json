@@ -90,7 +90,7 @@
           "key": "PLT",
           "name": "Platform"
         },
-        "created": "2026-06-29T11:29:06.685Z",
+        "created": "2026-06-08T00:00:00.000Z",
         "updated": "2026-07-04T11:29:06.685Z",
         "resolutiondate": "2026-07-04T11:29:06.685Z",
         "assignee": {
@@ -117,7 +117,7 @@
           "id": "8e6f8c9a-1a2b-4c3d-9e0f-222222222222",
           "name": "Platform Core"
         },
-        "customfield_10016": 1,
+        "customfield_10016": 2,
         "customfield_10019": "0|i34035:",
         "customfield_10021": [],
         "customfield_10020": [
@@ -163,7 +163,7 @@
           "key": "PLT",
           "name": "Platform"
         },
-        "created": "2026-06-29T14:39:30.351Z",
+        "created": "2026-06-20T00:00:00.000Z",
         "updated": "2026-07-02T14:39:30.351Z",
         "resolutiondate": null,
         "assignee": {
@@ -199,7 +199,11 @@
             "endDate": "2026-07-06T00:00:00.000Z",
             "goal": "Sprint 22 goal for Platform"
           }
-        ]
+        ],
+        "customfield_10030": {
+          "id": "10100",
+          "value": "Product Development"
+        }
       }
     },
     {
@@ -275,6 +279,10 @@
           "originalEstimateSeconds": 14400,
           "remainingEstimateSeconds": 14400,
           "timeSpentSeconds": 0
+        },
+        "customfield_10030": {
+          "id": "10102",
+          "value": "Cost of Poor Quality"
         }
       }
     },
@@ -303,7 +311,7 @@
           "key": "GTM",
           "name": "Go To Market"
         },
-        "created": "2026-06-30T02:55:49.482Z",
+        "created": "2026-06-10T00:00:00.000Z",
         "updated": "2026-07-11T02:55:49.482Z",
         "resolutiondate": "2026-07-11T02:55:49.482Z",
         "assignee": {
@@ -419,6 +427,10 @@
           "originalEstimateSeconds": 57600,
           "remainingEstimateSeconds": 57600,
           "timeSpentSeconds": 0
+        },
+        "customfield_10030": {
+          "id": "10101",
+          "value": "Maintenance"
         }
       }
     },
@@ -579,7 +591,7 @@
           "key": "FLO",
           "name": "Flow Core"
         },
-        "created": "2026-06-30T21:05:00.579Z",
+        "created": "2026-06-20T00:00:00.000Z",
         "updated": "2026-07-05T21:05:00.579Z",
         "resolutiondate": "2026-07-05T21:05:00.579Z",
         "assignee": {
@@ -651,7 +663,7 @@
           "key": "GTM",
           "name": "Go To Market"
         },
-        "created": "2026-06-30T21:13:24.677Z",
+        "created": "2026-06-08T00:00:00.000Z",
         "updated": "2026-07-04T21:13:24.677Z",
         "resolutiondate": "2026-07-04T21:13:24.677Z",
         "assignee": {
@@ -725,7 +737,7 @@
           "key": "PLT",
           "name": "Platform"
         },
-        "created": "2026-07-01T17:42:44.758Z",
+        "created": "2026-06-16T00:00:00.000Z",
         "updated": "2026-07-19T17:42:44.758Z",
         "resolutiondate": "2026-07-19T17:42:44.758Z",
         "assignee": {
@@ -769,7 +781,11 @@
             "endDate": "2026-07-20T00:00:00.000Z",
             "goal": "Sprint 23 goal for Platform"
           }
-        ]
+        ],
+        "customfield_10030": {
+          "id": "10102",
+          "value": "Cost of Poor Quality"
+        }
       }
     },
     {
@@ -958,7 +974,11 @@
             "endDate": "2026-07-06T00:00:00.000Z",
             "goal": "Sprint 22 goal for Go To Market"
           }
-        ]
+        ],
+        "customfield_10030": {
+          "id": "10101",
+          "value": "Maintenance"
+        }
       }
     },
     {
@@ -986,7 +1006,7 @@
           "key": "FLO",
           "name": "Flow Core"
         },
-        "created": "2026-07-02T05:49:20.445Z",
+        "created": "2026-06-08T00:00:00.000Z",
         "updated": "2026-07-13T05:49:20.445Z",
         "resolutiondate": "2026-07-13T05:49:20.445Z",
         "assignee": {
@@ -1037,6 +1057,10 @@
           "originalEstimateSeconds": 18000,
           "remainingEstimateSeconds": 18000,
           "timeSpentSeconds": 0
+        },
+        "customfield_10030": {
+          "id": "10101",
+          "value": "Maintenance"
         }
       }
     },
@@ -1065,7 +1089,7 @@
           "key": "FLO",
           "name": "Flow Core"
         },
-        "created": "2026-07-02T08:20:31.831Z",
+        "created": "2026-06-08T00:00:00.000Z",
         "updated": "2026-07-15T08:20:31.831Z",
         "resolutiondate": "2026-07-15T08:20:31.831Z",
         "assignee": {
@@ -1110,7 +1134,11 @@
             "endDate": "2026-07-06T00:00:00.000Z",
             "goal": "Sprint 22 goal for Flow Core"
           }
-        ]
+        ],
+        "customfield_10030": {
+          "id": "10100",
+          "value": "Product Development"
+        }
       }
     },
     {
@@ -1210,7 +1238,7 @@
           "key": "FLO",
           "name": "Flow Core"
         },
-        "created": "2026-07-03T12:59:58.603Z",
+        "created": "2026-06-10T00:00:00.000Z",
         "updated": "2026-07-24T12:59:58.603Z",
         "resolutiondate": "2026-07-24T12:59:58.603Z",
         "assignee": {
@@ -1296,7 +1324,7 @@
           "key": "GTM",
           "name": "Go To Market"
         },
-        "created": "2026-07-03T18:24:04.591Z",
+        "created": "2026-06-08T00:00:00.000Z",
         "updated": "2026-08-09T18:24:04.591Z",
         "resolutiondate": "2026-08-09T18:24:04.591Z",
         "assignee": {
@@ -1356,6 +1384,10 @@
           "originalEstimateSeconds": 43200,
           "remainingEstimateSeconds": 43200,
           "timeSpentSeconds": 0
+        },
+        "customfield_10030": {
+          "id": "10100",
+          "value": "Product Development"
         }
       }
     },
@@ -1384,7 +1416,7 @@
           "key": "FLO",
           "name": "Flow Core"
         },
-        "created": "2026-07-03T18:43:25.211Z",
+        "created": "2026-06-08T00:00:00.000Z",
         "updated": "2026-07-08T18:43:25.211Z",
         "resolutiondate": null,
         "assignee": null,
@@ -1425,6 +1457,10 @@
           "originalEstimateSeconds": 7200,
           "remainingEstimateSeconds": 7200,
           "timeSpentSeconds": 0
+        },
+        "customfield_10030": {
+          "id": "10101",
+          "value": "Maintenance"
         }
       }
     },
@@ -1453,7 +1489,7 @@
           "key": "FLO",
           "name": "Flow Core"
         },
-        "created": "2026-07-03T18:55:04.547Z",
+        "created": "2026-06-19T00:00:00.000Z",
         "updated": "2026-07-07T18:55:04.547Z",
         "resolutiondate": "2026-07-07T18:55:04.547Z",
         "assignee": {
@@ -1496,7 +1532,11 @@
             "endDate": "2026-07-06T00:00:00.000Z",
             "goal": "Sprint 22 goal for Flow Core"
           }
-        ]
+        ],
+        "customfield_10030": {
+          "id": "10101",
+          "value": "Maintenance"
+        }
       }
     },
     {
@@ -1524,7 +1564,7 @@
           "key": "FLO",
           "name": "Flow Core"
         },
-        "created": "2026-07-04T16:36:22.138Z",
+        "created": "2026-06-08T00:00:00.000Z",
         "updated": "2026-07-14T16:36:22.138Z",
         "resolutiondate": "2026-07-14T16:36:22.138Z",
         "assignee": {
@@ -1569,7 +1609,11 @@
             "endDate": "2026-07-06T00:00:00.000Z",
             "goal": "Sprint 22 goal for Flow Core"
           }
-        ]
+        ],
+        "customfield_10030": {
+          "id": "10102",
+          "value": "Cost of Poor Quality"
+        }
       }
     },
     {
@@ -1724,6 +1768,10 @@
           "originalEstimateSeconds": 36000,
           "remainingEstimateSeconds": 36000,
           "timeSpentSeconds": 0
+        },
+        "customfield_10030": {
+          "id": "10101",
+          "value": "Maintenance"
         }
       }
     },
@@ -1752,7 +1800,7 @@
           "key": "GTM",
           "name": "Go To Market"
         },
-        "created": "2026-07-05T07:17:22.875Z",
+        "created": "2026-06-13T00:00:00.000Z",
         "updated": "2026-07-15T07:17:22.875Z",
         "resolutiondate": "2026-07-15T07:17:22.875Z",
         "assignee": {
@@ -1792,7 +1840,11 @@
             "endDate": "2026-07-06T00:00:00.000Z",
             "goal": "Sprint 22 goal for Go To Market"
           }
-        ]
+        ],
+        "customfield_10030": {
+          "id": "10102",
+          "value": "Cost of Poor Quality"
+        }
       }
     },
     {
@@ -1862,6 +1914,10 @@
           "originalEstimateSeconds": 10800,
           "remainingEstimateSeconds": 10800,
           "timeSpentSeconds": 0
+        },
+        "customfield_10030": {
+          "id": "10101",
+          "value": "Maintenance"
         }
       }
     },
@@ -1935,7 +1991,11 @@
             "endDate": "2026-07-20T00:00:00.000Z",
             "goal": "Sprint 23 goal for Flow Core"
           }
-        ]
+        ],
+        "customfield_10030": {
+          "id": "10101",
+          "value": "Maintenance"
+        }
       }
     },
     {
@@ -1963,7 +2023,7 @@
           "key": "FLO",
           "name": "Flow Core"
         },
-        "created": "2026-07-06T14:36:09.182Z",
+        "created": "2026-07-01T00:00:00.000Z",
         "updated": "2026-07-10T14:36:09.182Z",
         "resolutiondate": "2026-07-10T14:36:09.182Z",
         "assignee": {
@@ -2037,7 +2097,7 @@
           "key": "GTM",
           "name": "Go To Market"
         },
-        "created": "2026-07-06T23:57:25.949Z",
+        "created": "2026-06-22T00:00:00.000Z",
         "updated": "2026-08-13T23:57:25.949Z",
         "resolutiondate": "2026-08-13T23:57:25.949Z",
         "assignee": {
@@ -2084,7 +2144,11 @@
             "endDate": "2026-08-03T00:00:00.000Z",
             "goal": "Sprint 24 goal for Go To Market"
           }
-        ]
+        ],
+        "customfield_10030": {
+          "id": "10101",
+          "value": "Maintenance"
+        }
       }
     },
     {
@@ -2166,7 +2230,7 @@
           "key": "FLO",
           "name": "Flow Core"
         },
-        "created": "2026-07-07T13:46:38.123Z",
+        "created": "2026-07-02T00:00:00.000Z",
         "updated": "2026-07-19T13:46:38.123Z",
         "resolutiondate": "2026-07-19T13:46:38.123Z",
         "assignee": {
@@ -2215,7 +2279,11 @@
             "endDate": "2026-07-20T00:00:00.000Z",
             "goal": "Sprint 23 goal for Flow Core"
           }
-        ]
+        ],
+        "customfield_10030": {
+          "id": "10101",
+          "value": "Maintenance"
+        }
       }
     },
     {
@@ -2243,7 +2311,7 @@
           "key": "PLT",
           "name": "Platform"
         },
-        "created": "2026-07-07T18:18:52.789Z",
+        "created": "2026-06-22T00:00:00.000Z",
         "updated": "2026-07-13T18:18:52.789Z",
         "resolutiondate": "2026-07-13T18:18:52.789Z",
         "assignee": {
@@ -2285,6 +2353,10 @@
           "originalEstimateSeconds": 64800,
           "remainingEstimateSeconds": 64800,
           "timeSpentSeconds": 0
+        },
+        "customfield_10030": {
+          "id": "10102",
+          "value": "Cost of Poor Quality"
         }
       }
     },
@@ -2313,7 +2385,7 @@
           "key": "PLT",
           "name": "Platform"
         },
-        "created": "2026-07-08T07:34:23.987Z",
+        "created": "2026-06-24T00:00:00.000Z",
         "updated": "2026-07-15T07:34:23.987Z",
         "resolutiondate": "2026-07-15T07:34:23.987Z",
         "assignee": {
@@ -2444,7 +2516,7 @@
           "key": "FLO",
           "name": "Flow Core"
         },
-        "created": "2026-07-09T07:26:15.781Z",
+        "created": "2026-06-24T00:00:00.000Z",
         "updated": "2026-07-22T07:26:15.781Z",
         "resolutiondate": "2026-07-22T07:26:15.781Z",
         "assignee": {
@@ -2487,6 +2559,10 @@
           "originalEstimateSeconds": 14400,
           "remainingEstimateSeconds": 14400,
           "timeSpentSeconds": 0
+        },
+        "customfield_10030": {
+          "id": "10101",
+          "value": "Maintenance"
         }
       }
     },
@@ -2568,6 +2644,10 @@
           "originalEstimateSeconds": 3600,
           "remainingEstimateSeconds": 3600,
           "timeSpentSeconds": 0
+        },
+        "customfield_10030": {
+          "id": "10100",
+          "value": "Product Development"
         }
       }
     },
@@ -2639,6 +2719,10 @@
           "originalEstimateSeconds": 57600,
           "remainingEstimateSeconds": 57600,
           "timeSpentSeconds": 0
+        },
+        "customfield_10030": {
+          "id": "10102",
+          "value": "Cost of Poor Quality"
         }
       }
     },
@@ -2717,6 +2801,10 @@
           "originalEstimateSeconds": 21600,
           "remainingEstimateSeconds": 21600,
           "timeSpentSeconds": 0
+        },
+        "customfield_10030": {
+          "id": "10101",
+          "value": "Maintenance"
         }
       }
     },
@@ -2745,7 +2833,7 @@
           "key": "GTM",
           "name": "Go To Market"
         },
-        "created": "2026-07-11T07:47:37.899Z",
+        "created": "2026-07-03T00:00:00.000Z",
         "updated": "2026-07-16T07:47:37.899Z",
         "resolutiondate": null,
         "assignee": {
@@ -2770,7 +2858,7 @@
             "name": "Reporting"
           }
         ],
-        "customfield_10016": 5,
+        "customfield_10016": 13,
         "customfield_10019": "0|i36058:",
         "customfield_10021": [],
         "customfield_10020": [
@@ -2820,7 +2908,7 @@
           "key": "FLO",
           "name": "Flow Core"
         },
-        "created": "2026-07-11T14:42:37.443Z",
+        "created": "2026-07-02T00:00:00.000Z",
         "updated": "2026-07-24T14:42:37.443Z",
         "resolutiondate": "2026-07-24T14:42:37.443Z",
         "assignee": null,
@@ -2885,7 +2973,7 @@
           "key": "FLO",
           "name": "Flow Core"
         },
-        "created": "2026-07-11T21:00:21.208Z",
+        "created": "2026-06-29T00:00:00.000Z",
         "updated": "2026-07-13T21:00:21.208Z",
         "resolutiondate": null,
         "assignee": {
@@ -2966,7 +3054,7 @@
           "key": "GTM",
           "name": "Go To Market"
         },
-        "created": "2026-07-12T03:06:29.635Z",
+        "created": "2026-06-30T00:00:00.000Z",
         "updated": "2026-07-18T03:06:29.635Z",
         "resolutiondate": null,
         "assignee": {
@@ -3004,7 +3092,11 @@
             "endDate": "2026-07-20T00:00:00.000Z",
             "goal": "Sprint 23 goal for Go To Market"
           }
-        ]
+        ],
+        "customfield_10030": {
+          "id": "10101",
+          "value": "Maintenance"
+        }
       }
     },
     {
@@ -3032,7 +3124,7 @@
           "key": "FLO",
           "name": "Flow Core"
         },
-        "created": "2026-07-12T13:10:23.467Z",
+        "created": "2026-06-24T00:00:00.000Z",
         "updated": "2026-07-19T13:10:23.467Z",
         "resolutiondate": "2026-07-19T13:10:23.467Z",
         "assignee": {
@@ -3077,7 +3169,11 @@
             "endDate": "2026-07-20T00:00:00.000Z",
             "goal": "Sprint 23 goal for Flow Core"
           }
-        ]
+        ],
+        "customfield_10030": {
+          "id": "10101",
+          "value": "Maintenance"
+        }
       }
     },
     {
@@ -3180,7 +3276,7 @@
           "key": "FLO",
           "name": "Flow Core"
         },
-        "created": "2026-07-12T22:53:53.370Z",
+        "created": "2026-06-22T00:00:00.000Z",
         "updated": "2026-07-17T22:53:53.370Z",
         "resolutiondate": null,
         "assignee": null,
@@ -3214,7 +3310,11 @@
             "endDate": "2026-07-20T00:00:00.000Z",
             "goal": "Sprint 23 goal for Flow Core"
           }
-        ]
+        ],
+        "customfield_10030": {
+          "id": "10102",
+          "value": "Cost of Poor Quality"
+        }
       }
     },
     {
@@ -3283,7 +3383,11 @@
             "endDate": "2026-08-03T00:00:00.000Z",
             "goal": "Sprint 24 goal for Go To Market"
           }
-        ]
+        ],
+        "customfield_10030": {
+          "id": "10100",
+          "value": "Product Development"
+        }
       }
     },
     {
@@ -3433,7 +3537,11 @@
             "endDate": "2026-07-20T00:00:00.000Z",
             "goal": "Sprint 23 goal for Flow Core"
           }
-        ]
+        ],
+        "customfield_10030": {
+          "id": "10102",
+          "value": "Cost of Poor Quality"
+        }
       }
     },
     {
@@ -3612,7 +3720,7 @@
           "key": "GTM",
           "name": "Go To Market"
         },
-        "created": "2026-07-14T21:21:40.824Z",
+        "created": "2026-07-01T00:00:00.000Z",
         "updated": "2026-07-24T21:21:40.824Z",
         "resolutiondate": "2026-07-24T21:21:40.824Z",
         "assignee": {
@@ -3652,7 +3760,11 @@
             "endDate": "2026-07-20T00:00:00.000Z",
             "goal": "Sprint 23 goal for Go To Market"
           }
-        ]
+        ],
+        "customfield_10030": {
+          "id": "10100",
+          "value": "Product Development"
+        }
       }
     },
     {
@@ -3680,7 +3792,7 @@
           "key": "PLT",
           "name": "Platform"
         },
-        "created": "2026-07-15T13:36:04.940Z",
+        "created": "2026-06-22T00:00:00.000Z",
         "updated": "2026-07-24T13:36:04.940Z",
         "resolutiondate": "2026-07-24T13:36:04.940Z",
         "assignee": {
@@ -3747,7 +3859,7 @@
           "key": "PLT",
           "name": "Platform"
         },
-        "created": "2026-07-16T00:33:42.949Z",
+        "created": "2026-07-02T00:00:00.000Z",
         "updated": "2026-07-19T00:33:42.949Z",
         "resolutiondate": null,
         "assignee": null,
@@ -3789,6 +3901,10 @@
           "originalEstimateSeconds": 43200,
           "remainingEstimateSeconds": 43200,
           "timeSpentSeconds": 0
+        },
+        "customfield_10030": {
+          "id": "10101",
+          "value": "Maintenance"
         }
       }
     },
@@ -3817,7 +3933,7 @@
           "key": "FLO",
           "name": "Flow Core"
         },
-        "created": "2026-07-16T14:31:49.975Z",
+        "created": "2026-06-22T00:00:00.000Z",
         "updated": "2026-08-21T14:31:49.975Z",
         "resolutiondate": "2026-08-21T14:31:49.975Z",
         "assignee": {
@@ -3870,7 +3986,11 @@
             "endDate": "2026-08-03T00:00:00.000Z",
             "goal": "Sprint 24 goal for Flow Core"
           }
-        ]
+        ],
+        "customfield_10030": {
+          "id": "10102",
+          "value": "Cost of Poor Quality"
+        }
       }
     },
     {
@@ -3898,7 +4018,7 @@
           "key": "PLT",
           "name": "Platform"
         },
-        "created": "2026-07-16T20:43:23.628Z",
+        "created": "2026-06-29T00:00:00.000Z",
         "updated": "2026-07-20T20:43:23.628Z",
         "resolutiondate": "2026-07-20T20:43:23.628Z",
         "assignee": null,
@@ -3964,7 +4084,7 @@
           "key": "GTM",
           "name": "Go To Market"
         },
-        "created": "2026-07-17T01:31:25.450Z",
+        "created": "2026-06-28T00:00:00.000Z",
         "updated": "2026-07-20T01:31:25.450Z",
         "resolutiondate": null,
         "assignee": {
@@ -4006,7 +4126,11 @@
             "endDate": "2026-07-20T00:00:00.000Z",
             "goal": "Sprint 23 goal for Go To Market"
           }
-        ]
+        ],
+        "customfield_10030": {
+          "id": "10100",
+          "value": "Product Development"
+        }
       }
     },
     {
@@ -4170,7 +4294,7 @@
           "key": "FLO",
           "name": "Flow Core"
         },
-        "created": "2026-07-18T13:31:47.944Z",
+        "created": "2026-07-03T00:00:00.000Z",
         "updated": "2026-07-22T13:31:47.944Z",
         "resolutiondate": null,
         "assignee": {
@@ -4197,7 +4321,7 @@
           "id": "8e6f8c9a-1a2b-4c3d-9e0f-444444444444",
           "name": "Reliability"
         },
-        "customfield_10016": 8,
+        "customfield_10016": 3,
         "customfield_10019": "0|i10748:",
         "customfield_10021": [],
         "customfield_10020": [
@@ -4210,7 +4334,11 @@
             "endDate": "2026-07-20T00:00:00.000Z",
             "goal": "Sprint 23 goal for Flow Core"
           }
-        ]
+        ],
+        "customfield_10030": {
+          "id": "10100",
+          "value": "Product Development"
+        }
       }
     },
     {
@@ -4238,7 +4366,7 @@
           "key": "GTM",
           "name": "Go To Market"
         },
-        "created": "2026-07-18T15:18:50.287Z",
+        "created": "2026-07-03T00:00:00.000Z",
         "updated": "2026-07-22T15:18:50.287Z",
         "resolutiondate": "2026-07-22T15:18:50.287Z",
         "assignee": {
@@ -4309,7 +4437,7 @@
           "key": "FLO",
           "name": "Flow Core"
         },
-        "created": "2026-07-18T18:45:53.311Z",
+        "created": "2026-07-02T00:00:00.000Z",
         "updated": "2026-07-23T18:45:53.311Z",
         "resolutiondate": "2026-07-23T18:45:53.311Z",
         "assignee": {
@@ -4375,7 +4503,7 @@
           "key": "GTM",
           "name": "Go To Market"
         },
-        "created": "2026-07-18T19:09:53.171Z",
+        "created": "2026-06-23T00:00:00.000Z",
         "updated": "2026-07-21T19:09:53.171Z",
         "resolutiondate": null,
         "assignee": {
@@ -4447,7 +4575,7 @@
           "key": "PLT",
           "name": "Platform"
         },
-        "created": "2026-07-19T02:25:51.654Z",
+        "created": "2026-06-26T00:00:00.000Z",
         "updated": "2026-07-31T02:25:51.654Z",
         "resolutiondate": "2026-07-31T02:25:51.654Z",
         "assignee": {
@@ -4485,7 +4613,11 @@
             "endDate": "2026-07-20T00:00:00.000Z",
             "goal": "Sprint 23 goal for Platform"
           }
-        ]
+        ],
+        "customfield_10030": {
+          "id": "10101",
+          "value": "Maintenance"
+        }
       }
     },
     {
@@ -4513,7 +4645,7 @@
           "key": "FLO",
           "name": "Flow Core"
         },
-        "created": "2026-07-20T01:39:43.748Z",
+        "created": "2026-07-09T00:00:00.000Z",
         "updated": "2026-07-28T01:39:43.748Z",
         "resolutiondate": "2026-07-28T01:39:43.748Z",
         "assignee": null,
@@ -4552,7 +4684,11 @@
             "endDate": "2026-08-03T00:00:00.000Z",
             "goal": "Sprint 24 goal for Flow Core"
           }
-        ]
+        ],
+        "customfield_10030": {
+          "id": "10100",
+          "value": "Product Development"
+        }
       }
     },
     {
@@ -4580,7 +4716,7 @@
           "key": "PLT",
           "name": "Platform"
         },
-        "created": "2026-07-21T07:55:26.710Z",
+        "created": "2026-07-06T00:00:00.000Z",
         "updated": "2026-08-01T07:55:26.710Z",
         "resolutiondate": "2026-08-01T07:55:26.710Z",
         "assignee": {
@@ -4646,7 +4782,7 @@
           "key": "PLT",
           "name": "Platform"
         },
-        "created": "2026-07-21T15:56:06.564Z",
+        "created": "2026-07-18T00:00:00.000Z",
         "updated": "2026-08-03T15:56:06.564Z",
         "resolutiondate": "2026-08-03T15:56:06.564Z",
         "assignee": {
@@ -4725,7 +4861,7 @@
           "key": "GTM",
           "name": "Go To Market"
         },
-        "created": "2026-07-22T10:52:29.596Z",
+        "created": "2026-07-11T00:00:00.000Z",
         "updated": "2026-07-29T10:52:29.596Z",
         "resolutiondate": "2026-07-29T10:52:29.596Z",
         "assignee": {
@@ -4770,7 +4906,11 @@
             "endDate": "2026-08-03T00:00:00.000Z",
             "goal": "Sprint 24 goal for Go To Market"
           }
-        ]
+        ],
+        "customfield_10030": {
+          "id": "10101",
+          "value": "Maintenance"
+        }
       }
     },
     {
@@ -4798,7 +4938,7 @@
           "key": "PLT",
           "name": "Platform"
         },
-        "created": "2026-07-22T12:36:38.009Z",
+        "created": "2026-07-06T00:00:00.000Z",
         "updated": "2026-07-28T12:36:38.009Z",
         "resolutiondate": "2026-07-28T12:36:38.009Z",
         "assignee": {
@@ -4871,7 +5011,7 @@
           "key": "PLT",
           "name": "Platform"
         },
-        "created": "2026-07-23T15:02:25.197Z",
+        "created": "2026-07-07T00:00:00.000Z",
         "updated": "2026-07-27T15:02:25.197Z",
         "resolutiondate": "2026-07-27T15:02:25.197Z",
         "assignee": {
@@ -4920,6 +5060,10 @@
           "originalEstimateSeconds": 28800,
           "remainingEstimateSeconds": 28800,
           "timeSpentSeconds": 0
+        },
+        "customfield_10030": {
+          "id": "10101",
+          "value": "Maintenance"
         }
       }
     },
@@ -4948,7 +5092,7 @@
           "key": "FLO",
           "name": "Flow Core"
         },
-        "created": "2026-07-23T17:59:27.173Z",
+        "created": "2026-07-06T00:00:00.000Z",
         "updated": "2026-07-24T17:59:27.173Z",
         "resolutiondate": null,
         "assignee": null,
@@ -4975,7 +5119,11 @@
             "endDate": "2026-08-03T00:00:00.000Z",
             "goal": "Sprint 24 goal for Flow Core"
           }
-        ]
+        ],
+        "customfield_10030": {
+          "id": "10100",
+          "value": "Product Development"
+        }
       }
     },
     {
@@ -5041,7 +5189,11 @@
             "endDate": "2026-08-03T00:00:00.000Z",
             "goal": "Sprint 24 goal for Platform"
           }
-        ]
+        ],
+        "customfield_10030": {
+          "id": "10100",
+          "value": "Product Development"
+        }
       }
     },
     {
@@ -5143,7 +5295,7 @@
           "key": "FLO",
           "name": "Flow Core"
         },
-        "created": "2026-07-24T19:32:00.324Z",
+        "created": "2026-07-06T00:00:00.000Z",
         "updated": "2026-07-30T19:32:00.324Z",
         "resolutiondate": "2026-07-30T19:32:00.324Z",
         "assignee": {
@@ -5189,6 +5341,10 @@
           "originalEstimateSeconds": 50400,
           "remainingEstimateSeconds": 50400,
           "timeSpentSeconds": 0
+        },
+        "customfield_10030": {
+          "id": "10100",
+          "value": "Product Development"
         }
       }
     },
@@ -5217,7 +5373,7 @@
           "key": "FLO",
           "name": "Flow Core"
         },
-        "created": "2026-07-25T05:50:04.752Z",
+        "created": "2026-07-06T00:00:00.000Z",
         "updated": "2026-07-29T05:50:04.752Z",
         "resolutiondate": "2026-07-29T05:50:04.752Z",
         "assignee": {
@@ -5258,7 +5414,11 @@
             "endDate": "2026-08-03T00:00:00.000Z",
             "goal": "Sprint 24 goal for Flow Core"
           }
-        ]
+        ],
+        "customfield_10030": {
+          "id": "10102",
+          "value": "Cost of Poor Quality"
+        }
       }
     },
     {
@@ -5334,7 +5494,11 @@
             "endDate": "2026-08-03T00:00:00.000Z",
             "goal": "Sprint 24 goal for Platform"
           }
-        ]
+        ],
+        "customfield_10030": {
+          "id": "10102",
+          "value": "Cost of Poor Quality"
+        }
       }
     },
     {
@@ -5362,7 +5526,7 @@
           "key": "PLT",
           "name": "Platform"
         },
-        "created": "2026-07-25T09:15:03.513Z",
+        "created": "2026-07-06T00:00:00.000Z",
         "updated": "2026-08-07T09:15:03.513Z",
         "resolutiondate": "2026-08-07T09:15:03.513Z",
         "assignee": {
@@ -5407,7 +5571,11 @@
             "endDate": "2026-08-03T00:00:00.000Z",
             "goal": "Sprint 24 goal for Platform"
           }
-        ]
+        ],
+        "customfield_10030": {
+          "id": "10102",
+          "value": "Cost of Poor Quality"
+        }
       }
     },
     {
@@ -5435,7 +5603,7 @@
           "key": "PLT",
           "name": "Platform"
         },
-        "created": "2026-07-25T15:56:06.917Z",
+        "created": "2026-07-12T00:00:00.000Z",
         "updated": "2026-07-30T15:56:06.917Z",
         "resolutiondate": "2026-07-30T15:56:06.917Z",
         "assignee": {
@@ -5476,7 +5644,11 @@
             "endDate": "2026-08-03T00:00:00.000Z",
             "goal": "Sprint 24 goal for Platform"
           }
-        ]
+        ],
+        "customfield_10030": {
+          "id": "10101",
+          "value": "Maintenance"
+        }
       }
     },
     {
@@ -5504,7 +5676,7 @@
           "key": "FLO",
           "name": "Flow Core"
         },
-        "created": "2026-07-25T18:47:35.701Z",
+        "created": "2026-07-12T00:00:00.000Z",
         "updated": "2026-08-10T18:47:35.701Z",
         "resolutiondate": "2026-08-10T18:47:35.701Z",
         "assignee": null,
@@ -5548,7 +5720,11 @@
             "endDate": "2026-08-17T00:00:00.000Z",
             "goal": "Sprint 25 goal for Flow Core"
           }
-        ]
+        ],
+        "customfield_10030": {
+          "id": "10101",
+          "value": "Maintenance"
+        }
       }
     },
     {
@@ -5576,7 +5752,7 @@
           "key": "PLT",
           "name": "Platform"
         },
-        "created": "2026-07-26T09:37:25.629Z",
+        "created": "2026-07-08T00:00:00.000Z",
         "updated": "2026-08-01T09:37:25.629Z",
         "resolutiondate": "2026-08-01T09:37:25.629Z",
         "assignee": {
@@ -5649,7 +5825,7 @@
           "key": "PLT",
           "name": "Platform"
         },
-        "created": "2026-07-27T05:47:56.020Z",
+        "created": "2026-07-12T00:00:00.000Z",
         "updated": "2026-07-31T05:47:56.020Z",
         "resolutiondate": "2026-07-31T05:47:56.020Z",
         "assignee": {
@@ -5694,7 +5870,11 @@
             "endDate": "2026-08-03T00:00:00.000Z",
             "goal": "Sprint 24 goal for Platform"
           }
-        ]
+        ],
+        "customfield_10030": {
+          "id": "10101",
+          "value": "Maintenance"
+        }
       }
     },
     {
@@ -5765,7 +5945,11 @@
             "endDate": "2026-08-03T00:00:00.000Z",
             "goal": "Sprint 24 goal for Flow Core"
           }
-        ]
+        ],
+        "customfield_10030": {
+          "id": "10100",
+          "value": "Product Development"
+        }
       }
     },
     {
@@ -5846,6 +6030,10 @@
           "originalEstimateSeconds": 21600,
           "remainingEstimateSeconds": 21600,
           "timeSpentSeconds": 0
+        },
+        "customfield_10030": {
+          "id": "10100",
+          "value": "Product Development"
         }
       }
     },
@@ -5874,7 +6062,7 @@
           "key": "FLO",
           "name": "Flow Core"
         },
-        "created": "2026-07-27T16:27:33.414Z",
+        "created": "2026-07-08T00:00:00.000Z",
         "updated": "2026-07-30T16:27:33.414Z",
         "resolutiondate": null,
         "assignee": {
@@ -5894,7 +6082,7 @@
           "tech-debt"
         ],
         "components": [],
-        "customfield_10016": 13,
+        "customfield_10016": 3,
         "customfield_10019": "0|i28055:",
         "customfield_10021": [],
         "customfield_10020": [
@@ -5912,6 +6100,10 @@
           "originalEstimateSeconds": 14400,
           "remainingEstimateSeconds": 14400,
           "timeSpentSeconds": 0
+        },
+        "customfield_10030": {
+          "id": "10100",
+          "value": "Product Development"
         }
       }
     },
@@ -5940,7 +6132,7 @@
           "key": "PLT",
           "name": "Platform"
         },
-        "created": "2026-07-28T09:27:08.038Z",
+        "created": "2026-07-18T00:00:00.000Z",
         "updated": "2026-08-13T09:27:08.038Z",
         "resolutiondate": "2026-08-13T09:27:08.038Z",
         "assignee": {
@@ -6076,7 +6268,7 @@
           "key": "GTM",
           "name": "Go To Market"
         },
-        "created": "2026-07-29T09:39:02.336Z",
+        "created": "2026-07-17T00:00:00.000Z",
         "updated": "2026-08-03T09:39:02.336Z",
         "resolutiondate": "2026-08-03T09:39:02.336Z",
         "assignee": {
@@ -6101,7 +6293,7 @@
           "id": "8e6f8c9a-1a2b-4c3d-9e0f-111111111111",
           "name": "Payments"
         },
-        "customfield_10016": 5,
+        "customfield_10016": 3,
         "customfield_10019": "0|i87210:",
         "customfield_10021": [],
         "customfield_10020": [
@@ -6114,7 +6306,11 @@
             "endDate": "2026-08-03T00:00:00.000Z",
             "goal": "Sprint 24 goal for Go To Market"
           }
-        ]
+        ],
+        "customfield_10030": {
+          "id": "10102",
+          "value": "Cost of Poor Quality"
+        }
       }
     },
     {
@@ -6168,7 +6364,11 @@
           "key": "OPS-21"
         },
         "customfield_10019": "0|i64597:",
-        "customfield_10021": []
+        "customfield_10021": [],
+        "customfield_10030": {
+          "id": "10102",
+          "value": "Cost of Poor Quality"
+        }
       }
     },
     {
@@ -6196,7 +6396,7 @@
           "key": "GTM",
           "name": "Go To Market"
         },
-        "created": "2026-07-30T06:43:44.472Z",
+        "created": "2026-07-17T00:00:00.000Z",
         "updated": "2026-07-31T06:43:44.472Z",
         "resolutiondate": null,
         "assignee": {
@@ -6402,7 +6602,7 @@
           "key": "FLO",
           "name": "Flow Core"
         },
-        "created": "2026-07-30T23:10:38.808Z",
+        "created": "2026-07-06T00:00:00.000Z",
         "updated": "2026-08-11T23:10:38.808Z",
         "resolutiondate": "2026-08-11T23:10:38.808Z",
         "assignee": null,
@@ -6520,7 +6720,7 @@
           "key": "GTM",
           "name": "Go To Market"
         },
-        "created": "2026-07-31T05:22:15.155Z",
+        "created": "2026-07-17T00:00:00.000Z",
         "updated": "2026-08-08T05:22:15.155Z",
         "resolutiondate": "2026-08-08T05:22:15.155Z",
         "assignee": {
@@ -6567,6 +6767,10 @@
           "originalEstimateSeconds": 3600,
           "remainingEstimateSeconds": 3600,
           "timeSpentSeconds": 0
+        },
+        "customfield_10030": {
+          "id": "10100",
+          "value": "Product Development"
         }
       }
     },
@@ -6642,6 +6846,10 @@
           "originalEstimateSeconds": 50400,
           "remainingEstimateSeconds": 50400,
           "timeSpentSeconds": 0
+        },
+        "customfield_10030": {
+          "id": "10100",
+          "value": "Product Development"
         }
       }
     },
@@ -6777,7 +6985,11 @@
             "endDate": "2026-08-03T00:00:00.000Z",
             "goal": "Sprint 24 goal for Flow Core"
           }
-        ]
+        ],
+        "customfield_10030": {
+          "id": "10101",
+          "value": "Maintenance"
+        }
       }
     },
     {
@@ -6805,7 +7017,7 @@
           "key": "FLO",
           "name": "Flow Core"
         },
-        "created": "2026-08-01T14:35:55.487Z",
+        "created": "2026-07-06T00:00:00.000Z",
         "updated": "2026-08-03T14:35:55.487Z",
         "resolutiondate": null,
         "assignee": {
@@ -6860,6 +7072,10 @@
           "originalEstimateSeconds": 21600,
           "remainingEstimateSeconds": 21600,
           "timeSpentSeconds": 0
+        },
+        "customfield_10030": {
+          "id": "10101",
+          "value": "Maintenance"
         }
       }
     },
@@ -6888,7 +7104,7 @@
           "key": "PLT",
           "name": "Platform"
         },
-        "created": "2026-08-03T07:02:49.159Z",
+        "created": "2026-07-20T00:00:00.000Z",
         "updated": "2026-08-19T07:02:49.159Z",
         "resolutiondate": "2026-08-19T07:02:49.159Z",
         "assignee": {
@@ -6939,7 +7155,11 @@
             "endDate": "2026-08-31T00:00:00.000Z",
             "goal": "Sprint 26 goal for Platform"
           }
-        ]
+        ],
+        "customfield_10030": {
+          "id": "10100",
+          "value": "Product Development"
+        }
       }
     },
     {
@@ -7010,7 +7230,11 @@
             "endDate": "2026-08-31T00:00:00.000Z",
             "goal": "Sprint 26 goal for Flow Core"
           }
-        ]
+        ],
+        "customfield_10030": {
+          "id": "10102",
+          "value": "Cost of Poor Quality"
+        }
       }
     },
     {
@@ -7068,7 +7292,11 @@
           "name": "Reliability"
         },
         "customfield_10019": "0|i50141:",
-        "customfield_10021": []
+        "customfield_10021": [],
+        "customfield_10030": {
+          "id": "10101",
+          "value": "Maintenance"
+        }
       }
     }
   ],

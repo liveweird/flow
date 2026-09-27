@@ -212,7 +212,7 @@
       "changeHistories": [
         {
           "id": "504985",
-          "created": "2026-08-04T15:02:45.103Z",
+          "created": "2026-08-02T15:00:00.000Z",
           "author": {
             "accountId": "5f8a1b2c3d4e5f6a7b8c9d29"
           },
@@ -285,7 +285,7 @@
       "changeHistories": [
         {
           "id": "504989",
-          "created": "2026-08-04T16:26:17.988Z",
+          "created": "2026-08-02T13:00:00.000Z",
           "author": {
             "accountId": "5f8a1b2c3d4e5f6a7b8c9d11"
           },
@@ -367,6 +367,23 @@
               "toString": "Done"
             }
           ]
+        },
+        {
+          "id": "505449",
+          "created": "2026-08-11T16:26:17.988Z",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d12"
+          },
+          "items": [
+            {
+              "field": "Story Points",
+              "fieldId": "customfield_10016",
+              "from": "13",
+              "fromString": "13",
+              "to": "1",
+              "toString": "1"
+            }
+          ]
         }
       ]
     },
@@ -375,7 +392,7 @@
       "changeHistories": [
         {
           "id": "504994",
-          "created": "2026-08-05T13:30:59.436Z",
+          "created": "2026-08-02T10:00:00.000Z",
           "author": {
             "accountId": "5f8a1b2c3d4e5f6a7b8c9d27"
           },
@@ -421,6 +438,23 @@
               "fromString": "In Progress",
               "to": "10002",
               "toString": "Done"
+            }
+          ]
+        },
+        {
+          "id": "505450",
+          "created": "2026-08-21T13:30:59.436Z",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d04"
+          },
+          "items": [
+            {
+              "field": "Story Points",
+              "fieldId": "customfield_10016",
+              "from": "",
+              "fromString": "",
+              "to": "13",
+              "toString": "13"
             }
           ]
         }
@@ -689,7 +723,7 @@
       "changeHistories": [
         {
           "id": "505011",
-          "created": "2026-08-08T00:51:02.638Z",
+          "created": "2026-08-02T05:00:00.000Z",
           "author": {
             "accountId": "5f8a1b2c3d4e5f6a7b8c9d10"
           },
@@ -779,7 +813,7 @@
       "changeHistories": [
         {
           "id": "505016",
-          "created": "2026-08-08T03:51:33.618Z",
+          "created": "2026-08-02T06:00:00.000Z",
           "author": {
             "accountId": "5f8a1b2c3d4e5f6a7b8c9d26"
           },
@@ -869,7 +903,7 @@
       "changeHistories": [
         {
           "id": "505021",
-          "created": "2026-08-08T08:26:25.584Z",
+          "created": "2026-08-02T14:00:00.000Z",
           "author": {
             "accountId": "5f8a1b2c3d4e5f6a7b8c9d27"
           },
@@ -951,6 +985,23 @@
               "toString": "Sprint 3080, Sprint 3081"
             }
           ]
+        },
+        {
+          "id": "505451",
+          "created": "2026-08-27T08:26:25.584Z",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d23"
+          },
+          "items": [
+            {
+              "field": "Story Points",
+              "fieldId": "customfield_10016",
+              "from": "1",
+              "fromString": "1",
+              "to": "13",
+              "toString": "13"
+            }
+          ]
         }
       ]
     },
@@ -959,7 +1010,7 @@
       "changeHistories": [
         {
           "id": "505026",
-          "created": "2026-08-08T08:32:10.032Z",
+          "created": "2026-08-02T18:00:00.000Z",
           "author": {
             "accountId": "5f8a1b2c3d4e5f6a7b8c9d11"
           },
@@ -1083,7 +1134,7 @@
       "changeHistories": [
         {
           "id": "505033",
-          "created": "2026-08-08T15:58:16.488Z",
+          "created": "2026-08-02T17:00:00.000Z",
           "author": {
             "accountId": "5f8a1b2c3d4e5f6a7b8c9d22"
           },
@@ -1156,7 +1207,7 @@
       "changeHistories": [
         {
           "id": "505037",
-          "created": "2026-08-08T17:02:19.351Z",
+          "created": "2026-08-02T05:00:00.000Z",
           "author": {
             "accountId": "5f8a1b2c3d4e5f6a7b8c9d15"
           },
@@ -1409,7 +1460,7 @@
       "changeHistories": [
         {
           "id": "505051",
-          "created": "2026-08-09T04:55:21.384Z",
+          "created": "2026-08-02T08:00:00.000Z",
           "author": {
             "accountId": "5f8a1b2c3d4e5f6a7b8c9d28"
           },
@@ -1455,6 +1506,23 @@
               "fromString": "In Progress",
               "to": "10002",
               "toString": "Done"
+            }
+          ]
+        },
+        {
+          "id": "505452",
+          "created": "2026-08-25T04:55:21.384Z",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d20"
+          },
+          "items": [
+            {
+              "field": "Story Points",
+              "fieldId": "customfield_10016",
+              "from": "13",
+              "fromString": "13",
+              "to": "3",
+              "toString": "3"
             }
           ]
         }
@@ -1589,7 +1657,7 @@
       "changeHistories": [
         {
           "id": "505061",
-          "created": "2026-08-09T10:00:47.986Z",
+          "created": "2026-08-02T12:00:00.000Z",
           "author": {
             "accountId": "5f8a1b2c3d4e5f6a7b8c9d06"
           },
@@ -1808,7 +1876,7 @@
       "changeHistories": [
         {
           "id": "505073",
-          "created": "2026-08-10T11:54:53.106Z",
+          "created": "2026-08-02T12:00:00.000Z",
           "author": {
             "accountId": "5f8a1b2c3d4e5f6a7b8c9d14"
           },
@@ -2122,7 +2190,7 @@
       "changeHistories": [
         {
           "id": "505090",
-          "created": "2026-08-11T04:46:06.319Z",
+          "created": "2026-08-02T11:00:00.000Z",
           "author": {
             "accountId": "5f8a1b2c3d4e5f6a7b8c9d26"
           },
@@ -2178,7 +2246,7 @@
       "changeHistories": [
         {
           "id": "505093",
-          "created": "2026-08-11T09:08:39.269Z",
+          "created": "2026-08-02T12:00:00.000Z",
           "author": {
             "accountId": "5f8a1b2c3d4e5f6a7b8c9d16"
           },
@@ -2251,7 +2319,7 @@
       "changeHistories": [
         {
           "id": "505097",
-          "created": "2026-08-11T13:02:24.741Z",
+          "created": "2026-08-02T10:00:00.000Z",
           "author": {
             "accountId": "5f8a1b2c3d4e5f6a7b8c9d22"
           },
@@ -2341,7 +2409,7 @@
       "changeHistories": [
         {
           "id": "505102",
-          "created": "2026-08-11T15:09:04.574Z",
+          "created": "2026-08-02T23:00:00.000Z",
           "author": {
             "accountId": "5f8a1b2c3d4e5f6a7b8c9d28"
           },
@@ -2465,7 +2533,7 @@
       "changeHistories": [
         {
           "id": "505109",
-          "created": "2026-08-11T19:22:56.760Z",
+          "created": "2026-08-02T10:00:00.000Z",
           "author": {
             "accountId": "5f8a1b2c3d4e5f6a7b8c9d21"
           },
@@ -2981,7 +3049,7 @@
       "changeHistories": [
         {
           "id": "505140",
-          "created": "2026-08-15T01:46:02.535Z",
+          "created": "2026-08-02T22:00:00.000Z",
           "author": {
             "accountId": "5f8a1b2c3d4e5f6a7b8c9d02"
           },
@@ -3110,7 +3178,7 @@
       "changeHistories": [
         {
           "id": "505147",
-          "created": "2026-08-15T16:33:02.847Z",
+          "created": "2026-08-02T04:00:00.000Z",
           "author": {
             "accountId": "5f8a1b2c3d4e5f6a7b8c9d23"
           },
@@ -3273,7 +3341,7 @@
       "changeHistories": [
         {
           "id": "505156",
-          "created": "2026-08-15T19:27:50.691Z",
+          "created": "2026-08-02T04:00:00.000Z",
           "author": {
             "accountId": "5f8a1b2c3d4e5f6a7b8c9d18"
           },
@@ -3419,7 +3487,7 @@
       "changeHistories": [
         {
           "id": "505166",
-          "created": "2026-08-16T07:40:13.359Z",
+          "created": "2026-08-02T19:00:00.000Z",
           "author": {
             "accountId": "5f8a1b2c3d4e5f6a7b8c9d12"
           },
@@ -3475,7 +3543,7 @@
       "changeHistories": [
         {
           "id": "505169",
-          "created": "2026-08-16T15:03:45.942Z",
+          "created": "2026-08-02T09:00:00.000Z",
           "author": {
             "accountId": "5f8a1b2c3d4e5f6a7b8c9d24"
           },
@@ -3523,6 +3591,23 @@
               "toString": "0|i45975:"
             }
           ]
+        },
+        {
+          "id": "505453",
+          "created": "2026-08-31T00:00:00.000Z",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d23"
+          },
+          "items": [
+            {
+              "field": "Story Points",
+              "fieldId": "customfield_10016",
+              "from": "8",
+              "fromString": "8",
+              "to": "13",
+              "toString": "13"
+            }
+          ]
         }
       ]
     },
@@ -3531,7 +3616,7 @@
       "changeHistories": [
         {
           "id": "505172",
-          "created": "2026-08-17T03:31:29.786Z",
+          "created": "2026-08-16T08:00:00.000Z",
           "author": {
             "accountId": "5f8a1b2c3d4e5f6a7b8c9d14"
           },

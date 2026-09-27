@@ -25,8 +25,8 @@
     "outOfScopeTotal": 80
   },
   "changelog": {
-    "allProjectsHistories": 5372,
-    "inScopeHistories": 5125,
+    "allProjectsHistories": 5436,
+    "inScopeHistories": 5183,
     "bulkfetchChunkSize": 50,
     "bulkfetchChunkCount": 24,
     "omittedBulkfetchChunkIndex": 5,
@@ -107,11 +107,44 @@
       "FLO": 28,
       "PLT": 28,
       "GTM": 28
-    }
+    },
+    "completeDateShiftedCount": 25,
+    "futureBacklogCount": 10,
+    "entryMovedToPlanningCount": 6,
+    "entryMovedHistorySplitCount": 0,
+    "backlogRefinedCount": 650,
+    "backlogRefinedHistorySplitCount": 0,
+    "backlogRefinedSubtaskPulledCount": 0
   },
   "estimates": {
     "storyPointsCount": 397,
-    "originalEstimateCount": 548
+    "originalEstimateCount": 548,
+    "epicStoryPointsCount": 15,
+    "taskEstimateChangedAfterStartCount": 55,
+    "taskEstimatedLateCount": 18
+  },
+  "epicDates": {
+    "datedEpicCount": 15,
+    "changedCount": 5
+  },
+  "parentMoves": {
+    "count": 6,
+    "issueIds": [
+      "30097",
+      "30160",
+      "30176",
+      "30672",
+      "30862",
+      "31263"
+    ]
+  },
+  "workCategory": {
+    "epicCount": 15,
+    "otherCount": 767
+  },
+  "worklogTimestamps": {
+    "createdLaterCount": 240,
+    "updatedLaterCount": 147
   },
   "workflows": {
     "FLO": [
@@ -317,5 +350,252 @@
   "users": {
     "count": 30
   },
-  "mappingCount": 782
+  "teams": {
+    "names": [
+      "Payments",
+      "Platform Core",
+      "Growth",
+      "Reliability"
+    ],
+    "roster": [
+      {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d01",
+        "displayName": "Sample User 1",
+        "team": "Platform Core"
+      },
+      {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d02",
+        "displayName": "Sample User 2",
+        "team": "Growth"
+      },
+      {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d03",
+        "displayName": "Sample User 3",
+        "team": "Platform Core"
+      },
+      {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d04",
+        "displayName": "Sample User 4",
+        "team": "Payments"
+      },
+      {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d05",
+        "displayName": "Sample User 5",
+        "team": "Reliability"
+      },
+      {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d06",
+        "displayName": "Sample User 6",
+        "team": "Payments"
+      },
+      {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d07",
+        "displayName": "Sample User 7",
+        "team": null
+      },
+      {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d08",
+        "displayName": "Sample User 8",
+        "team": "Payments"
+      },
+      {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d09",
+        "displayName": "Sample User 9",
+        "team": "Growth"
+      },
+      {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d10",
+        "displayName": "Sample User 10",
+        "team": "Growth"
+      },
+      {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d11",
+        "displayName": "Sample User 11",
+        "team": "Platform Core"
+      },
+      {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d12",
+        "displayName": "Sample User 12",
+        "team": "Growth"
+      },
+      {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d13",
+        "displayName": "Sample User 13",
+        "team": "Reliability"
+      },
+      {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d14",
+        "displayName": "Sample User 14",
+        "team": "Growth"
+      },
+      {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d15",
+        "displayName": "Sample User 15",
+        "team": "Reliability"
+      },
+      {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d16",
+        "displayName": "Sample User 16",
+        "team": "Growth"
+      },
+      {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d17",
+        "displayName": "Sample User 17",
+        "team": "Reliability"
+      },
+      {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d18",
+        "displayName": "Sample User 18",
+        "team": "Platform Core"
+      },
+      {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d19",
+        "displayName": "Sample User 19",
+        "team": "Platform Core"
+      },
+      {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d20",
+        "displayName": "Sample User 20",
+        "team": "Payments"
+      },
+      {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d21",
+        "displayName": "Sample User 21",
+        "team": "Reliability"
+      },
+      {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d22",
+        "displayName": "Sample User 22",
+        "team": "Payments"
+      },
+      {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d23",
+        "displayName": "Sample User 23",
+        "team": "Platform Core"
+      },
+      {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d24",
+        "displayName": "Sample User 24",
+        "team": "Payments"
+      },
+      {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d25",
+        "displayName": "Sample User 25",
+        "team": "Payments"
+      },
+      {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d26",
+        "displayName": "Sample User 26",
+        "team": "Reliability"
+      },
+      {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d27",
+        "displayName": "Sample User 27",
+        "team": null
+      },
+      {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d28",
+        "displayName": "Sample User 28",
+        "team": "Platform Core"
+      },
+      {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d29",
+        "displayName": "Sample User 29",
+        "team": "Growth"
+      },
+      {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d30",
+        "displayName": "Sample User 30",
+        "team": "Reliability"
+      }
+    ]
+  },
+  "golden": {
+    "sprint": {
+      "sprintId": 3003,
+      "name": "FLO Sprint 4",
+      "projectKey": "FLO",
+      "startDate": "2025-10-13",
+      "endDate": "2025-10-27",
+      "completeDate": "2025-10-27",
+      "committedMd": 61,
+      "committedItems": 20,
+      "committedIssueKeys": [
+        "FLO-28",
+        "FLO-38",
+        "FLO-42",
+        "FLO-45",
+        "FLO-46",
+        "FLO-47",
+        "FLO-48",
+        "FLO-49",
+        "FLO-50",
+        "FLO-52",
+        "FLO-53",
+        "FLO-54",
+        "FLO-55",
+        "FLO-57",
+        "FLO-58",
+        "FLO-59",
+        "FLO-60",
+        "FLO-61",
+        "FLO-63",
+        "FLO-64"
+      ],
+      "addedMd": 0,
+      "addedItems": 3,
+      "addedIssueKeys": [
+        "FLO-51",
+        "FLO-62",
+        "FLO-65"
+      ],
+      "removedMd": 0,
+      "removedItems": 0,
+      "removedIssueKeys": [],
+      "finalMd": 61,
+      "finalItems": 23,
+      "deliveredMd": 32,
+      "deliveredItems": 7,
+      "deliveredIssueKeys": [
+        "FLO-28",
+        "FLO-45",
+        "FLO-46",
+        "FLO-47",
+        "FLO-48",
+        "FLO-52",
+        "FLO-53"
+      ],
+      "carriedOverMd": 7,
+      "carriedOverItems": 4,
+      "carriedOverIssueKeys": [
+        "FLO-54",
+        "FLO-55",
+        "FLO-58",
+        "FLO-61"
+      ],
+      "droppedMd": 22,
+      "droppedItems": 9,
+      "droppedIssueKeys": [
+        "FLO-38",
+        "FLO-42",
+        "FLO-49",
+        "FLO-50",
+        "FLO-57",
+        "FLO-59",
+        "FLO-60",
+        "FLO-63",
+        "FLO-64"
+      ]
+    },
+    "epic": {
+      "issueId": "30109",
+      "issueKey": "FLO-33",
+      "budgetMd": 46,
+      "startDate": "2025-10-30",
+      "dueDate": "2025-12-02",
+      "childSumMd": 115,
+      "childCount": 30
+    }
+  },
+  "mappingCount": 785
 }
