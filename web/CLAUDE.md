@@ -441,8 +441,11 @@ are English (THE default and fallback everywhere) and Polish. All user-facing st
   `Drawer` passes `closeButtonProps={{ "aria-label": t("common.action.close") }}` — Mantine's
   close X has no default name — or hides the X with `withCloseButton={false}` when a footer
   button is the one deliberate exit (`OneTimePasswordModal`).
-- The logo SVGs (`public/logo-*.svg` — three curling streamlines meeting on a blue tile, rendered
-  by `components/BrandLogo.tsx`) are the brand mark. Restyle rule: keep aria-labels, roles, and
+- The logo SVGs (`public/logo-*.svg` + `favicon.svg` — "Rolling": one tapering stream running round a
+  blue disc and rolling inward into a curl, dark variant inverted to navy on `flow.4`; rendered by
+  `components/BrandLogo.tsx`) are the brand mark. The path is computed geometry (a tapered ribbon along
+  a circle-then-spiral spine, ~120 points) — change it in a vector editor, not by hand-editing the
+  path data. Restyle rule: keep aria-labels, roles, and
   real semantic elements stable — e2e and unit tests locate by role/name.
 
 ## Changelog & app versioning

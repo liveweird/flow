@@ -28,7 +28,8 @@ where work waits, not who is busy.
   configuration UI, the first dashboards — is next (`BACKLOG.md`).
 
 Brand: blue (the `flow` colour tuple in `web/src/theme.ts`, `primaryShade: { light: 8, dark: 9 }`);
-the logo is three streamlines on a blue tile (`web/src/components/BrandLogo.tsx`).
+the logo is "Rolling" — a stream running round a blue disc and rolling inward into a curl
+(`web/public/logo-{light,dark}.svg` + `favicon.svg`, rendered by `web/src/components/BrandLogo.tsx`).
 
 ## Donors
 
