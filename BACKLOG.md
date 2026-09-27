@@ -1,18 +1,13 @@
 # Product backlog
 
-Updated 2026-09-27 (evening). This file tracks **outstanding work only**. Implemented behaviour and release history belong elsewhere:
+Updated 2026-09-27. This file tracks **outstanding work only**. Implemented behaviour and release history belong elsewhere:
 - [README.md](README.md);
 - the [application changelog](web/src/changelog/entries.ts);
 - the topic guides under `.claude/docs/`.
 
 Entries are proposals, not delivery commitments.
 
-## Next: merge v0.2.0 (PR #15)
-
-- The code, tests, e2e journey, changelog and docs are all on the PR. What's left: wait for CI to go green, then merge.
-- After merging, tag `v0.2.0` per `.claude/docs/app-releases.md` (annotated tag at the merge SHA, GitHub release with EN + PL notes) — only once asked.
-
-## Then: the phase 2 exit — real Jira (needs the user)
+## Next: the phase 2 exit — real Jira (needs the user)
 
 - Create an Atlassian service account with a scoped, read-only API token (scopes in `.claude/docs/jira-integration.md`).
 - Add the data source, run Test connection, and fix any scope gaps it reports.
@@ -23,15 +18,24 @@ Entries are proposals, not delivery commitments.
   - the search page-size ceiling;
   - how Sprint changes appear in the changelog.
 
-## Phase 3: requirements
+## Phase 3: the domain model
 
-- Drafted from the data profile, then decided in short rounds:
-  - key assumptions;
-  - the conceptual model (work item levels; status → stage mapping with commitment and delivery points; team attribution over time; sprints, worklogs, estimates);
-  - domain invariants and constraints;
-  - the flow-metric definitions.
-- Output: `.claude/docs/domain-model.md` plus a decisions log.
-- After that: the metric catalogue, the interpretation layer (a `metrics` schema), and the first dashboards (port Lettuce's `@mantine/charts` + `recharts`).
+- **Agreed (2026-09-27):** `.claude/docs/domain-model.md`, covering:
+  - the entities: DOMAIN, TASK, USER, TEAM, EPIC, SPRINT, WORKLOG;
+  - plan, delivery and cost as PV, EV and AC, measured in man-days (1 SP = 1 MD);
+  - the configuration;
+  - the `metrics` star model and its invariants;
+  - decisions D1–D5.
+- **Next: an implementation plan**, in this order:
+  1. PROCESS additions: epic-membership history, estimate intervals and epic dates (the doc's "Gaps in `norm` today"), with a `PROCESSING_VERSION` bump.
+  2. The `metrics` schema with its configuration tables.
+  3. The configuration UI: status stages, estimate field, epic date fields, domain map, board → team, capacity, calendar, and dated team membership (D1).
+  4. The derivation, plus invariant SQL sweeps.
+  5. The first dashboards, porting Lettuce's `@mantine/charts` + `recharts` (load the `dataviz` skill).
+- Confirm the doc's Jira-dependent assumptions against the real tenant's data profile once it exists:
+  - the parent changelog spelling;
+  - the estimate and epic-date fields;
+  - board-to-team fit.
 
 ## Engineering follow-ups
 

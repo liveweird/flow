@@ -22,9 +22,10 @@ where work waits, not who is busy.
   normalized layer above it (`norm.*` — facts only, no interpretation), the data profile and the
   admin pages over all of it (`.claude/docs/ingestion.md`). There are still no flow metrics —
   `web/src/pages/Home.tsx` says so plainly instead of rendering an empty dashboard.
-- **Next — the domain model.** Assumptions, a conceptual model and its invariants for flow
-  metrics, built on the normalized layer, starting from a real tenant's data profile
-  (`BACKLOG.md`).
+- **Next — the domain model.** Agreed in `.claude/docs/domain-model.md` (DOMAIN/TASK/USER, TEAM,
+  EPIC, SPRINT; plan/delivery/cost as PV/EV/AC in man-days; the configuration, the `metrics`
+  star and its invariants); its implementation — PROCESS additions, the `metrics` schema, the
+  configuration UI, the first dashboards — is next (`BACKLOG.md`).
 
 Brand: blue (the `flow` colour tuple in `web/src/theme.ts`, `primaryShade: { light: 8, dark: 9 }`);
 the logo is three streamlines on a blue tile (`web/src/components/BrandLogo.tsx`).
@@ -299,6 +300,7 @@ covered the moment its spec entry lands.
 @.claude/docs/app-releases.md
 @.claude/docs/ingestion.md
 @.claude/docs/jira-integration.md
+@.claude/docs/domain-model.md
 
 ### Frontend (`web/`)
 
