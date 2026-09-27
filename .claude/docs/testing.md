@@ -91,10 +91,10 @@ language folders; also pins folders == `SUPPORTED_LANGUAGES`).
 
 **The normalized-layer pipeline test (invariant SQL sweep + reprocess digest).**
 `NormalizationPipelineTest` (v0.2.0 plan §8/§11, `.claude/docs/ingestion.md` "Normalized layer")
-drives a full SYNC/RECONCILE/REPROCESS through `JiraConnector` against the shared `JiraStubServer`
-fixture and asserts over the PERSISTED `norm.*` rows, not `Tiling`/`Normalization`'s own in-memory
-guarantees (`TilingTest` already covers those exhaustively) — the DB is the thing that has to be
-right. Two patterns worth reusing for any other derived/rebuilt table set:
+asserts over the PERSISTED `norm.*` rows produced by a SYNC/RECONCILE/REPROCESS against the shared
+`JiraStubServer` fixture, not `Tiling`/`Normalization`'s own in-memory guarantees (`TilingTest`
+already covers those exhaustively) — the DB is the thing that has to be right. Two patterns worth
+reusing for any other derived/rebuilt table set:
 
 - **The invariant SQL sweep.** Rather than asserting one golden fixture value, read back EVERY
   persisted row for a connection (`WorkItemStore.statusIntervalsByIssue`) and re-check the domain's
@@ -116,6 +116,40 @@ right. Two patterns worth reusing for any other derived/rebuilt table set:
   unchanged"). This is the general pattern for testing an idempotent rebuild/replace pipeline: hash
   the rebuilt state, re-run the rebuild, hash again, assert equality — cheaper and more precise than
   comparing row counts alone, which would miss a REPLACE that silently reordered or reworded rows.
+
+**Shared synced fixture (`SyncedStubFixture`, `server/src/test/kotlin/SyncedStubFixture.kt`).**
+`NormalizationPipelineTest`, `JiraSyncPipelineTest` and `DataProfileTest` each used to drive a
+COMPLETE `JiraConnector` SYNC of the ~1,200-issue stub from scratch per test — most of them only to
+READ the result, at ~30s a sync. `SyncedStubFixture.connectionId()` runs that same backfill (REFERENCE
+→ ISSUES → CHANGELOGS → WORKLOGS → PROCESS → PROFILE) exactly ONCE per JVM fork (a `Mutex`-guarded
+lazy init) and returns its connection id; whichever of those three classes' tests happens to run
+first pays that one-time cost, every later READ-ONLY test across all three classes reuses the SAME
+connection instead of syncing its own. The rule going forward:
+
+- **A test that only READS the result of a full backfill** (an invariant sweep, a count, the data
+  profile) calls `SyncedStubFixture.connectionId()` and reads straight from it — never mutates it.
+- **A test whose SUBJECT is REPROCESS, RECONCILE, or a raw-row simulation (a `processing_version`
+  downgrade, an index gap)** must never touch the shared connection — `SyncedStubFixture
+  .cloneRawData(fromConnectionId, toConnectionId)` copies `raw.jira_issues`/`raw.jira_entities`/
+  `raw.jira_changelogs`/`raw.jira_worklogs` verbatim (including `needs_processing`/
+  `processing_version`/the tombstone columns) into a fresh connection id via `INSERT … SELECT`-style
+  `batchInsert`s — cheap, no HTTP — and the test drives only the ONE stream under test
+  (`JiraProcessStream`, `JiraReconcileStream`, `JiraWorklogStream`, …) directly against that clone,
+  the same production code a real job would run, just without the surrounding streams that already
+  ran once to produce the shared fixture.
+- **A test whose SUBJECT is the sync streams themselves** (cursor resume, `CURSOR_EXPIRED`, lease
+  loss, the bulkfetch fallback, the day2 incremental/worklog feed) keeps a REAL HTTP sync — but
+  drives the smallest path that exercises it: a single stream directly where the fixture already
+  established the raw prerequisites (`JiraIssuesStream` alone for cursor mechanics — no `raw.*` rows
+  needed at all; a clone plus the ONE stream under test — RECONCILE, WORKLOGS — where the prior
+  streams' output is a prerequisite, not the subject).
+
+`SyncedStubFixtureTest` is the tripwire: it re-snapshots the shared connection's raw/norm row
+counts and its status-interval digest and compares them against the baseline `SyncedStubFixture`
+captured the moment its own backfill first completed — a read-only test that started mutating the
+shared connection by mistake fails this test, not silently corrupts every other test sharing it.
+Effect: these three classes' combined runtime fell from ~590s (one full sync per test, ~30 of them)
+to under 2 minutes (one full sync, plus a handful of cheap clones and small real-HTTP stream runs).
 
 **Runtime OpenAPI conformance.** Every `/api/` interaction the server test suite produces is
 validated against `documentation.yaml` by the `OpenApiConformance` Ktor client plugin

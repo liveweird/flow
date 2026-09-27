@@ -1,34 +1,15 @@
 package ch.nokillswit
 
-import ch.nokillswit.infra.crypto.DEV_DATA_ENCRYPTION_KEY
-import ch.nokillswit.infra.crypto.FieldCipher
-import ch.nokillswit.ingest.DataSourceKind
-import ch.nokillswit.ingest.DataSourceRequest
-import ch.nokillswit.ingest.DataSourceService
-import ch.nokillswit.ingest.JiraAuthScheme
-import ch.nokillswit.ingest.JiraConnectionRequest
-import ch.nokillswit.ingest.SyncCursorsService
-import ch.nokillswit.ingest.SyncJobClaim
-import ch.nokillswit.ingest.SyncJobKind
-import ch.nokillswit.ingest.SyncJobRunContext
-import ch.nokillswit.jira.HttpJiraClient
-import ch.nokillswit.jira.JiraConnector
-import ch.nokillswit.jira.JiraHttp
+import ch.nokillswit.jira.JiraProcessStream
 import ch.nokillswit.jira.JiraRawStore
-import ch.nokillswit.jira.JiraSyncDependencies
+import ch.nokillswit.jira.JiraReconcileStream
 import ch.nokillswit.jira.parseJiraInstantEpochMillis
 import ch.nokillswit.norm.PROCESSING_VERSION
 import ch.nokillswit.norm.StatusCategory
 import ch.nokillswit.norm.TrackedField
 import ch.nokillswit.norm.WorkItemStore
-import io.ktor.client.HttpClient
-import io.ktor.client.engine.okhttp.OkHttp
-import io.ktor.client.plugins.HttpTimeout
 import java.io.File
 import java.security.MessageDigest
-import java.util.UUID
-import java.util.concurrent.atomic.AtomicBoolean
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.Serializable
@@ -47,23 +28,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
-
-private val normMigrated = AtomicBoolean(false)
-
-// Same rationale as JiraSyncPipelineTest.kt's identical helper: this suite drives JiraConnector
-// directly against sharedDatabaseForTests(), so nothing else in this JVM fork is guaranteed to have
-// run Flyway first.
-private fun ensureNormMigrated() {
-    if (normMigrated.compareAndSet(false, true)) {
-        org.flywaydb.core.Flyway.configure()
-            .dataSource(PostgresTestSupport.jdbcUrl, PostgresTestSupport.user, PostgresTestSupport.password)
-            .locations("classpath:db/migration")
-            .load()
-            .migrate()
-    }
-}
-
-private val IN_SCOPE_PROJECT_KEYS = listOf("FLO", "PLT", "GTM", "OPS")
 
 /** `customfield_10030` (`sample-data/README.md` "Phase 3 (v0.3.0) additions") — the Work category select field, on every epic. */
 private const val WORK_CATEGORY_FIELD_ID = "customfield_10030"
@@ -97,10 +61,17 @@ private val expectedNormFixture: ExpectedFixtureNorm by lazy {
 
 /**
  * The normalized layer's own pipeline test (v0.2.0 plan §8/§11, plan commit 8a) — `JiraConnector`'s
- * PROCESS stream, driven through a full `SYNC` (REFERENCE → ISSUES → CHANGELOGS → WORKLOGS →
- * PROCESS) against the SAME `JiraStubServer` fixture `JiraSyncPipelineTest` uses. Asserts
- * invariants over the PERSISTED `norm.*` rows (not Tiling's in-memory guarantees, which
- * `TilingTest.kt` already covers exhaustively) — the DB is the thing that has to be right.
+ * PROCESS stream, asserting invariants over the PERSISTED `norm.*` rows (not Tiling's in-memory
+ * guarantees, which `TilingTest.kt` already covers exhaustively) — the DB is the thing that has to
+ * be right.
+ *
+ * **Shared synced fixture** (`.claude/docs/testing.md` "Shared synced fixture"): every test that
+ * only READS the result of a full backfill SYNC shares [SyncedStubFixture]'s ONE synced connection
+ * rather than running its own from scratch. A test whose subject is REPROCESS/RECONCILE/a
+ * `processing_version` simulation clones that connection's raw rows
+ * ([SyncedStubFixture.cloneRawData]) into a connection of its own and drives only the stream under
+ * test against the clone — the shared connection itself is never mutated (`SyncedStubFixtureTest`
+ * is the tripwire).
  *
  * `sample-data/jira/expected.json`'s `reopens`/`flagged` counters are computed over the WHOLE
  * simulated dataset, including the out-of-scope `SEC` project (`.claude/docs/ingestion.md`'s "Jira
@@ -111,82 +82,20 @@ private val expectedNormFixture: ExpectedFixtureNorm by lazy {
  * plausibility bounds against it instead of exact equality.
  */
 class NormalizationPipelineTest {
-    private fun unique(prefix: String) = "$prefix-${UUID.randomUUID().toString().substring(0, 8)}"
+    private fun rawStore() = SyncedStubFixture.rawStore()
+    private fun workItems() = SyncedStubFixture.workItems()
 
-    private fun dataSources() = DataSourceService(sharedDatabaseForTests(), FieldCipher(DEV_DATA_ENCRYPTION_KEY))
-    private fun rawStore() = JiraRawStore(sharedDatabaseForTests())
-    private fun cursors() = SyncCursorsService(sharedDatabaseForTests())
-    private fun workItems() = WorkItemStore(sharedDatabaseForTests())
-
-    private suspend fun createConnection(dataSources: DataSourceService): UInt = dataSources.create(
-        DataSourceRequest(
-            name = unique("jira-norm"),
-            enabled = true,
-            syncIntervalMinutes = 60,
-            backfillFrom = "2025-09-01",
-            reconcileHourUtc = 3,
-            jira = JiraConnectionRequest(
-                siteUrl = "https://${unique("site").lowercase()}.atlassian.net",
-                email = "svc-${unique("acct")}@example.com",
-                apiToken = "token-${UUID.randomUUID()}",
-                projectKeys = IN_SCOPE_PROJECT_KEYS,
-                authScheme = JiraAuthScheme.BASIC,
-            ),
-        ),
-    )
-
-    private fun buildJiraHttp(): JiraHttp {
-        val httpClient = HttpClient(OkHttp) {
-            engine { preconfigured = okhttp3.OkHttpClient() }
-            expectSuccess = false
-            followRedirects = false
-            install(HttpTimeout) {
-                requestTimeoutMillis = 10_000
-                connectTimeoutMillis = 10_000
-            }
-        }
-        return JiraHttp(httpClient, maxRetries = 4, maxResponseBytes = 33_554_432L, maxConcurrentRequests = 4)
-    }
-
-    private fun buildConnector(): JiraConnector = JiraConnector(
-        newClient = { _, email, apiToken, authScheme ->
-            val stubBaseUrl = JiraStubServer.start()
-            HttpJiraClient(buildJiraHttp(), stubBaseUrl, stubBaseUrl, email, apiToken, authScheme)
-        },
-        sync = JiraSyncDependencies(
-            dataSources = dataSources(),
-            rawStore = rawStore(),
-            cursors = cursors(),
-            database = sharedDatabaseForTests(),
-            workItems = workItems(),
-            incrementalOverlapMinutes = 10,
-            issuesPageSize = 100,
-        ),
-    )
-
-    private fun claimFor(connId: UInt, kind: SyncJobKind = SyncJobKind.SYNC) = SyncJobClaim(
-        id = 1u,
-        connectionId = connId,
-        connectorKind = DataSourceKind.JIRA_CLOUD,
-        kind = kind,
-        attempt = 1,
-        maxAttempts = 3,
-        syncIntervalMinutes = 60,
-    )
-
-    private suspend fun runConnectorOnce(connector: JiraConnector, connId: UInt, kind: SyncJobKind = SyncJobKind.SYNC) {
-        connector.run(SyncJobRunContext(claimFor(connId, kind)) { _, _ -> true })
+    /** A fresh connection with [sharedConnId]'s raw rows cloned in — the substrate a mutating test drives its own stream against. */
+    private suspend fun clonedConnection(sharedConnId: UInt): UInt {
+        val connId = SyncedStubFixture.createConnection(namePrefix = "jira-norm-clone")
+        SyncedStubFixture.cloneRawData(sharedConnId, connId)
+        return connId
     }
 
     @Test
     fun `PROCESS after backfill produces work items whose persisted intervals satisfy every invariant`() = runBlocking {
-        ensureNormMigrated()
-        val ds = dataSources()
-        val connId = createConnection(ds)
-        val connector = buildConnector()
+        val connId = SyncedStubFixture.connectionId()
         val items = workItems()
-
-        runConnectorOnce(connector, connId) // SYNC now runs REFERENCE -> ISSUES -> CHANGELOGS -> WORKLOGS -> PROCESS
 
         assertEquals(1200L, items.countWorkItems(connId), "one norm.work_items row per in-scope raw issue")
 
@@ -209,14 +118,9 @@ class NormalizationPipelineTest {
 
     @Test
     fun `reopen count from persisted intervals matches an independent re-derivation from the raw changelog`() = runBlocking {
-        ensureNormMigrated()
-        val ds = dataSources()
-        val connId = createConnection(ds)
-        val connector = buildConnector()
+        val connId = SyncedStubFixture.connectionId()
         val items = workItems()
         val store = rawStore()
-
-        runConnectorOnce(connector, connId)
 
         val fromPersistedIntervals = items.statusIntervalsByIssue(connId).values.sumOf { intervals ->
             intervals.zipWithNext().count { (a, b) -> a.category == StatusCategory.DONE && b.category != StatusCategory.DONE }
@@ -247,13 +151,7 @@ class NormalizationPipelineTest {
 
     @Test
     fun `flagged and sprint reference counts are plausible against expected_json`() = runBlocking {
-        ensureNormMigrated()
-        val ds = dataSources()
-        val connId = createConnection(ds)
-        val connector = buildConnector()
-        val items = workItems()
-
-        runConnectorOnce(connector, connId)
+        val connId = SyncedStubFixture.connectionId()
 
         val flaggedCount = suspendTransaction(sharedDatabaseForTests()) {
             WorkItemStore.WorkItems.selectAll()
@@ -297,16 +195,21 @@ class NormalizationPipelineTest {
 
     @Test
     fun `REPROCESS leaves the normalized digest unchanged`() = runBlocking {
-        ensureNormMigrated()
-        val ds = dataSources()
-        val connId = createConnection(ds)
-        val connector = buildConnector()
+        val sharedConnId = SyncedStubFixture.connectionId()
+        val connId = clonedConnection(sharedConnId)
+        val store = rawStore()
         val items = workItems()
+        val context = SyncedStubFixture.freshContext(connId)
 
-        runConnectorOnce(connector, connId)
+        // The clone reproduces the shared connection's own POST-process raw state (needs_processing
+        // = false), so — exactly like a real REPROCESS job (`JiraConnector.runReprocess`) — every
+        // issue must be flagged again before PROCESS has anything to rebuild.
+        store.markAllNeedsProcessing(connId)
+        JiraProcessStream(store, items).run(context)
         val digestBefore = normalizedDigest(items, connId)
 
-        runConnectorOnce(connector, connId, SyncJobKind.REPROCESS)
+        store.markAllNeedsProcessing(connId)
+        JiraProcessStream(store, items).run(context)
         val digestAfter = normalizedDigest(items, connId)
 
         assertEquals(digestBefore, digestAfter, "a REPROCESS must rebuild byte-for-byte identical normalized rows")
@@ -314,20 +217,18 @@ class NormalizationPipelineTest {
 
     @Test
     fun `a processing_version mismatch makes an issue eligible for the next PROCESS pass`() = runBlocking {
-        ensureNormMigrated()
-        val ds = dataSources()
-        val connId = createConnection(ds)
-        val connector = buildConnector()
+        val sharedConnId = SyncedStubFixture.connectionId()
+        val connId = clonedConnection(sharedConnId)
         val store = rawStore()
 
-        runConnectorOnce(connector, connId)
         val issueId = suspendTransaction(sharedDatabaseForTests()) {
             JiraRawStore.Issues.selectAll().where { JiraRawStore.Issues.connectionId eq connId }
                 .toList().first()[JiraRawStore.Issues.issueId]
         }
         // A freshly-synced issue's stored `processing_version` matches the CURRENT constant
         // (v0.3.0 M1 commit 2 bumped it to 2) — never a stale literal, or a later bump breaks this
-        // premise the moment the connector itself starts writing the new value.
+        // premise the moment the connector itself starts writing the new value. The clone carries
+        // this state verbatim from the shared connection's own completed backfill.
         assertEquals(
             emptyList(),
             store.issuesToProcess(connId, currentProcessingVersion = PROCESSING_VERSION, limit = 10).filter { it == issueId },
@@ -345,17 +246,17 @@ class NormalizationPipelineTest {
 
     @Test
     fun `RECONCILE's tombstone is mirrored onto norm work_items in the same job`() = runBlocking {
-        ensureNormMigrated()
-        val ds = dataSources()
-        val connId = createConnection(ds)
-        val connector = buildConnector()
+        val sharedConnId = SyncedStubFixture.connectionId()
+        val connId = clonedConnection(sharedConnId)
+        val store = rawStore()
         val items = workItems()
-
-        runConnectorOnce(connector, connId)
+        val context = SyncedStubFixture.freshContext(connId)
 
         JiraStubServer.setScenarioState("jira-day2", "day2")
         try {
-            runConnectorOnce(connector, connId, SyncJobKind.RECONCILE)
+            val client = SyncedStubFixture.buildClient()
+            JiraReconcileStream(client, store, SyncedStubFixture.IN_SCOPE_PROJECT_KEYS).run(context)
+            JiraProcessStream(store, items).run(context)
 
             val deletedId = expectedFixtureDay2Deleted()
             val movedId = expectedFixtureDay2Moved()
@@ -371,13 +272,8 @@ class NormalizationPipelineTest {
 
     @Test
     fun `PARENT intervals exist for the moved tasks and each one's last interval matches the current parent`() = runBlocking {
-        ensureNormMigrated()
-        val ds = dataSources()
-        val connId = createConnection(ds)
-        val connector = buildConnector()
+        val connId = SyncedStubFixture.connectionId()
         val items = workItems()
-
-        runConnectorOnce(connector, connId)
 
         val parentMoveIssueIds = expectedParentMoveIssueIds()
         assertTrue(parentMoveIssueIds.isNotEmpty(), "sample-data/jira/expected.json parentMoves.issueIds must list at least one move")
@@ -397,12 +293,7 @@ class NormalizationPipelineTest {
 
     @Test
     fun `custom_fields carries the work-category field for every epic, and hierarchy_level is resolved from ISSUE_TYPE`() = runBlocking {
-        ensureNormMigrated()
-        val ds = dataSources()
-        val connId = createConnection(ds)
-        val connector = buildConnector()
-
-        runConnectorOnce(connector, connId)
+        val connId = SyncedStubFixture.connectionId()
 
         val epicRows = suspendTransaction(sharedDatabaseForTests()) {
             WorkItemStore.WorkItems.selectAll()
@@ -425,12 +316,7 @@ class NormalizationPipelineTest {
 
     @Test
     fun `every persisted field_changes row carries a non-null field_id`() = runBlocking {
-        ensureNormMigrated()
-        val ds = dataSources()
-        val connId = createConnection(ds)
-        val connector = buildConnector()
-
-        runConnectorOnce(connector, connId)
+        val connId = SyncedStubFixture.connectionId()
 
         val rows = suspendTransaction(sharedDatabaseForTests()) {
             WorkItemStore.FieldChanges.selectAll().where { WorkItemStore.FieldChanges.connectionId eq connId }.toList()
@@ -444,13 +330,8 @@ class NormalizationPipelineTest {
 
     @Test
     fun `a field_id=parent row exists per moved issue, readable via fieldChangesByFieldIds and fieldIntervalsByIssue`() = runBlocking {
-        ensureNormMigrated()
-        val ds = dataSources()
-        val connId = createConnection(ds)
-        val connector = buildConnector()
+        val connId = SyncedStubFixture.connectionId()
         val items = workItems()
-
-        runConnectorOnce(connector, connId)
 
         val parentMoveIssueIds = expectedParentMoveIssueIds().toSet()
         val parentChanges = items.fieldChangesByFieldIds(connId, listOf("parent"))
@@ -473,13 +354,8 @@ class NormalizationPipelineTest {
 
     @Test
     fun `at least one non-tracked customfield_ change row exists (the widened tracked-field set)`() = runBlocking {
-        ensureNormMigrated()
-        val ds = dataSources()
-        val connId = createConnection(ds)
-        val connector = buildConnector()
+        val connId = SyncedStubFixture.connectionId()
         val items = workItems()
-
-        runConnectorOnce(connector, connId)
 
         // customfield_10015 ("Start date") is never in the OLD explicit tracked-field-id list
         // (status/assignee/priority/resolution/issuetype/project/issuekey plus the discovered
@@ -491,18 +367,18 @@ class NormalizationPipelineTest {
 
     @Test
     fun `a reprocess preserves the raw tombstone time instead of resetting it to the reprocess time`() = runBlocking {
-        ensureNormMigrated()
-        val ds = dataSources()
-        val connId = createConnection(ds)
-        val connector = buildConnector()
-        val items = workItems()
+        val sharedConnId = SyncedStubFixture.connectionId()
+        val connId = clonedConnection(sharedConnId)
         val store = rawStore()
-
-        runConnectorOnce(connector, connId)
+        val items = workItems()
+        val context = SyncedStubFixture.freshContext(connId)
 
         JiraStubServer.setScenarioState("jira-day2", "day2")
         try {
-            runConnectorOnce(connector, connId, SyncJobKind.RECONCILE)
+            val client = SyncedStubFixture.buildClient()
+            JiraReconcileStream(client, store, SyncedStubFixture.IN_SCOPE_PROJECT_KEYS).run(context)
+            JiraProcessStream(store, items).run(context)
+
             val deletedId = expectedFixtureDay2Deleted()
             val rawDeletedAt = assertNotNull(store.issueForProcessing(connId, deletedId)).deletedAt
             val normDeletedAtAfterReconcile = assertNotNull(items.workItemRow(connId, deletedId))[WorkItemStore.WorkItems.deletedAt]
@@ -510,7 +386,8 @@ class NormalizationPipelineTest {
 
             // A REPROCESS run happens strictly later — if deleted_at were reset to "now" on
             // reprocess (the bug this test guards against), it would move past rawDeletedAt.
-            runConnectorOnce(connector, connId, SyncJobKind.REPROCESS)
+            store.markAllNeedsProcessing(connId)
+            JiraProcessStream(store, items).run(context)
             val normDeletedAtAfterReprocess = assertNotNull(items.workItemRow(connId, deletedId))[WorkItemStore.WorkItems.deletedAt]
             assertEquals(
                 rawDeletedAt, normDeletedAtAfterReprocess,
@@ -523,13 +400,8 @@ class NormalizationPipelineTest {
 
     @Test
     fun `worklog created and updated skew matches an independent re-derivation from the raw worklog payload`() = runBlocking {
-        ensureNormMigrated()
-        val ds = dataSources()
-        val connId = createConnection(ds)
-        val connector = buildConnector()
+        val connId = SyncedStubFixture.connectionId()
         val store = rawStore()
-
-        runConnectorOnce(connector, connId)
 
         val persistedCreatedLater = suspendTransaction(sharedDatabaseForTests()) {
             WorkItemStore.Worklogs.selectAll().where { WorkItemStore.Worklogs.connectionId eq connId }.toList()
@@ -577,12 +449,7 @@ class NormalizationPipelineTest {
 
     @Test
     fun `complete_at is set on every closed sprint`() = runBlocking {
-        ensureNormMigrated()
-        val ds = dataSources()
-        val connId = createConnection(ds)
-        val connector = buildConnector()
-
-        runConnectorOnce(connector, connId)
+        val connId = SyncedStubFixture.connectionId()
 
         val closedSprints = suspendTransaction(sharedDatabaseForTests()) {
             WorkItemStore.Sprints.selectAll()

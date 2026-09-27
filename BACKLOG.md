@@ -45,11 +45,16 @@ Entries are proposals, not delivery commitments.
 
 ## Engineering follow-ups
 
-- **CI duration.** The server job takes about 15–20 minutes on CI (about 7 locally) because several tests run full stub-driven syncs. Options:
-  - share one synced fixture per test class;
-  - or tune CI test parallelism.
-
-  Rule already in force: a test that runs a full sync does it outside `testApplication` (its `runTest` timeout ends in `UncompletedCoroutinesError`).
+- **CI duration — resolved (2026-09-28).** `NormalizationPipelineTest` (14 tests, was 421s),
+  `JiraSyncPipelineTest` (9 tests, was 138s) and `DataProfileTest` (was 30s) each drove a complete
+  stub-driven SYNC from scratch per test, though most only read the result — 87% of the ~10.7 min
+  local server test run. `SyncedStubFixture` (`.claude/docs/testing.md` "Shared synced fixture")
+  now runs that backfill once per JVM fork; read-only tests share its one connection, and tests
+  whose subject is REPROCESS/RECONCILE/a raw-row simulation clone its raw rows
+  (`SyncedStubFixture.cloneRawData`) instead of re-syncing. Measured before/after (local,
+  `./gradlew :server:test`): the three classes together 589s → ~117s (76.9s + 8.8s + 30.6s), full
+  `:server:test` 10.7 min → 2m54s. Rule already in force: a test that runs a full sync does it
+  outside `testApplication` (its `runTest` timeout ends in `UncompletedCoroutinesError`).
 - **Review test gaps** (from the commit 4 security review; the fixes themselves landed):
   - The connection-release test does not fail with the old `client.request()` code in this Ktor/OkHttp version. A blocking interceptor could force the leak window open.
   - `DirectSocketFactory` and `fastFallback(false)` have no isolated tests.
