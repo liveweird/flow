@@ -3,10 +3,15 @@ package ch.nokillswit
 import ch.nokillswit.jira.JiraNormalizer
 import ch.nokillswit.norm.StatusCategory
 import ch.nokillswit.norm.TombstoneKind
+import java.time.LocalDate
+import java.time.ZoneOffset
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+
 
 /**
  * `jira/JiraNormalizer.kt` (v0.2.0 plan §8) in isolation — no DB, no stub, hand-crafted minimal
@@ -251,5 +256,183 @@ class JiraNormalizerTest {
         assertNull(sprint.startAtMs)
         assertNull(sprint.endAtMs)
         assertNull(sprint.goal)
+    }
+
+    @Test
+    fun `normalizeIssue parses the system duedate field into due_at (epoch millis, start of day UTC)`() {
+        val payload = """
+            {
+              "id": "50001",
+              "key": "FOO-2",
+              "fields": {
+                "issuetype": {"name": "Task"},
+                "project": {"key": "FOO"},
+                "status": {"id": "1"},
+                "created": "2026-01-01T00:00:00.000Z",
+                "updated": "2026-01-02T00:00:00.000Z",
+                "duedate": "2026-03-15"
+              }
+            }
+        """.trimIndent()
+        val input = JiraNormalizer.normalizeIssue(payload, emptyList(), emptyList(), noFieldIds, TombstoneKind.NONE)
+        val expected = LocalDate.parse("2026-03-15").atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+        assertEquals(expected, input.facts.dueAtMs)
+    }
+
+    @Test
+    fun `customFieldsJson keeps only FILLED customfield_ values (drops null, empty array, empty object, empty string)`() {
+        val payload = """
+            {
+              "id": "50002",
+              "key": "FOO-3",
+              "fields": {
+                "issuetype": {"name": "Task"},
+                "project": {"key": "FOO"},
+                "status": {"id": "1"},
+                "created": "2026-01-01T00:00:00.000Z",
+                "updated": "2026-01-02T00:00:00.000Z",
+                "customfield_10001": null,
+                "customfield_10002": [],
+                "customfield_10003": {},
+                "customfield_10004": "",
+                "customfield_10005": "filled",
+                "customfield_10006": ["a"],
+                "customfield_10007": {"id": "1"},
+                "customfield_10008": 42
+              }
+            }
+        """.trimIndent()
+        val input = JiraNormalizer.normalizeIssue(payload, emptyList(), emptyList(), noFieldIds, TombstoneKind.NONE)
+        val customFields = Json.parseToJsonElement(input.facts.customFieldsJson).jsonObject
+        assertEquals(
+            setOf("customfield_10005", "customfield_10006", "customfield_10007", "customfield_10008"),
+            customFields.keys,
+        )
+    }
+
+    @Test
+    fun `hierarchyLevel prefers the issue's own fields_issuetype_hierarchyLevel over the ISSUE_TYPE reference fallback`() {
+        val payloadWithOwnLevel = """
+            {
+              "id": "50003",
+              "key": "FOO-4",
+              "fields": {
+                "issuetype": {"id": "10000", "name": "Epic", "hierarchyLevel": 1},
+                "project": {"key": "FOO"},
+                "status": {"id": "1"},
+                "created": "2026-01-01T00:00:00.000Z",
+                "updated": "2026-01-02T00:00:00.000Z"
+              }
+            }
+        """.trimIndent()
+        val fromOwn = JiraNormalizer.normalizeIssue(
+            payloadWithOwnLevel, emptyList(), emptyList(), noFieldIds, TombstoneKind.NONE,
+            // Deliberately wrong reference value — proves the issue's OWN hierarchyLevel wins.
+            issueTypeHierarchy = mapOf("10000" to 99),
+        )
+        assertEquals(1, fromOwn.facts.hierarchyLevel)
+
+        val payloadWithoutOwnLevel = """
+            {
+              "id": "50004",
+              "key": "FOO-5",
+              "fields": {
+                "issuetype": {"id": "10000", "name": "Epic"},
+                "project": {"key": "FOO"},
+                "status": {"id": "1"},
+                "created": "2026-01-01T00:00:00.000Z",
+                "updated": "2026-01-02T00:00:00.000Z"
+              }
+            }
+        """.trimIndent()
+        val fromFallback = JiraNormalizer.normalizeIssue(
+            payloadWithoutOwnLevel, emptyList(), emptyList(), noFieldIds, TombstoneKind.NONE,
+            issueTypeHierarchy = mapOf("10000" to 1),
+        )
+        assertEquals(1, fromFallback.facts.hierarchyLevel)
+    }
+
+    @Test
+    fun `worklog created and updated are null when Jira omits them, never falling back to started or created`() {
+        val worklogs = listOf("""{"id":"900001","started":"2026-01-01T05:00:00.000Z","timeSpentSeconds":3600}""")
+        val input = JiraNormalizer.normalizeIssue(minimalIssuePayload(), emptyList(), worklogs, noFieldIds, TombstoneKind.NONE)
+        val worklog = input.worklogs.single()
+        assertNull(worklog.createdAtMs)
+        assertNull(worklog.updatedAtMs)
+    }
+
+    @Test
+    fun `a parent move detected only via the discovered gh-epic-link field is tiled and stored with field_id=parent`() {
+        val fieldIds = noFieldIds.copy(epicLinkFieldId = "customfield_10014")
+        val changelogs = listOf(
+            """{"id":"1","created":"2026-01-01T01:00:00.000Z","items":[
+                {"field":"Epic Link","fieldId":"customfield_10014","from":"100","fromString":"FOO-1","to":"200","toString":"FOO-2"}
+            ]}""",
+        )
+        val input = JiraNormalizer.normalizeIssue(minimalIssuePayload(), changelogs, emptyList(), fieldIds, TombstoneKind.NONE)
+
+        assertEquals(1, input.parentEvents.size)
+        assertEquals("200", input.parentEvents.single().toValueId)
+        assertEquals("FOO-2", input.parentEvents.single().toValueText)
+
+        val parentChange = input.fieldChanges.single { it.field == "Epic Link" }
+        assertEquals("parent", parentChange.fieldId, "every matched parent item is normalized to field_id=parent")
+    }
+
+    @Test
+    fun `a parent move detected only by the IssueParentAssociation display name (no fieldId) is tiled and stored with field_id=parent`() {
+        val changelogs = listOf(
+            """{"id":"1","created":"2026-01-01T01:00:00.000Z","items":[
+                {"field":"IssueParentAssociation","from":"100","fromString":"FOO-1","to":"200","toString":"FOO-2"}
+            ]}""",
+        )
+        val input = JiraNormalizer.normalizeIssue(minimalIssuePayload(), changelogs, emptyList(), noFieldIds, TombstoneKind.NONE)
+
+        assertEquals(1, input.parentEvents.size)
+        assertEquals("200", input.parentEvents.single().toValueId)
+
+        val parentChange = input.fieldChanges.single { it.field == "IssueParentAssociation" }
+        assertEquals("parent", parentChange.fieldId, "a name-only match must still be queryable via field_id=parent")
+    }
+
+    @Test
+    fun `two parent spellings for the same move in one history collapse to a single event, preferring fieldId=parent`() {
+        val fieldIds = noFieldIds.copy(epicLinkFieldId = "customfield_10014")
+        val changelogs = listOf(
+            """{"id":"1","created":"2026-01-01T01:00:00.000Z","items":[
+                {"field":"Epic Link","fieldId":"customfield_10014","from":"100","fromString":"FOO-1","to":"200","toString":"FOO-2"},
+                {"field":"Parent","fieldId":"parent","from":"100","fromString":"FOO-1","to":"200","toString":"FOO-2"}
+            ]}""",
+        )
+        val input = JiraNormalizer.normalizeIssue(minimalIssuePayload(), changelogs, emptyList(), fieldIds, TombstoneKind.NONE)
+        assertEquals(1, input.parentEvents.size, "one history must yield AT MOST one parent event, whatever spellings it carries")
+        assertEquals("200", input.parentEvents.single().toValueId)
+
+        // No fieldId=parent item present — the dedup-by-(from,to) fallback must still collapse to one.
+        val changelogsNoParentId = listOf(
+            """{"id":"2","created":"2026-01-01T02:00:00.000Z","items":[
+                {"field":"Epic Link","fieldId":"customfield_10014","from":"200","fromString":"FOO-2","to":"300","toString":"FOO-3"},
+                {"field":"IssueParentAssociation","from":"200","fromString":"FOO-2","to":"300","toString":"FOO-3"}
+            ]}""",
+        )
+        val inputNoParentId =
+            JiraNormalizer.normalizeIssue(minimalIssuePayload(), changelogsNoParentId, emptyList(), fieldIds, TombstoneKind.NONE)
+        assertEquals(
+            1, inputNoParentId.parentEvents.size,
+            "two spellings with identical (from,to) and no fieldId=parent item must still collapse to one",
+        )
+    }
+
+    @Test
+    fun `a parent removal (to=null) is tiled as an event whose toValueId is null`() {
+        val changelogs = listOf(
+            """{"id":"1","created":"2026-01-01T01:00:00.000Z","items":[
+                {"field":"Parent","fieldId":"parent","from":"100","fromString":"FOO-1","to":null,"toString":null}
+            ]}""",
+        )
+        val input = JiraNormalizer.normalizeIssue(minimalIssuePayload(), changelogs, emptyList(), noFieldIds, TombstoneKind.NONE)
+        assertEquals(1, input.parentEvents.size)
+        assertNull(input.parentEvents.single().toValueId)
+        assertEquals("100", input.parentEvents.single().fromValueId)
     }
 }

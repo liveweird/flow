@@ -16,13 +16,16 @@ import ch.nokillswit.jira.JiraConnector
 import ch.nokillswit.jira.JiraHttp
 import ch.nokillswit.jira.JiraRawStore
 import ch.nokillswit.jira.JiraSyncDependencies
+import ch.nokillswit.norm.PROCESSING_VERSION
 import ch.nokillswit.norm.StatusCategory
+import ch.nokillswit.norm.TrackedField
 import ch.nokillswit.norm.WorkItemStore
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.HttpTimeout
 import java.io.File
 import java.security.MessageDigest
+import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.flow.map
@@ -61,6 +64,9 @@ private fun ensureNormMigrated() {
 }
 
 private val IN_SCOPE_PROJECT_KEYS = listOf("FLO", "PLT", "GTM", "OPS")
+
+/** `customfield_10030` (`sample-data/README.md` "Phase 3 (v0.3.0) additions") — the Work category select field, on every epic. */
+private const val WORK_CATEGORY_FIELD_ID = "customfield_10030"
 
 /**
  * A hand-maintained, INDEPENDENT copy of `sample-data/jira/generate.mjs`'s STATUS_CATEGORIES map —
@@ -298,10 +304,10 @@ class NormalizationPipelineTest {
         val items = workItems()
 
         runConnectorOnce(connector, connId)
-        val digestBefore = statusIntervalDigest(items, connId)
+        val digestBefore = normalizedDigest(items, connId)
 
         runConnectorOnce(connector, connId, SyncJobKind.REPROCESS)
-        val digestAfter = statusIntervalDigest(items, connId)
+        val digestAfter = normalizedDigest(items, connId)
 
         assertEquals(digestBefore, digestAfter, "a REPROCESS must rebuild byte-for-byte identical normalized rows")
     }
@@ -319,7 +325,13 @@ class NormalizationPipelineTest {
             JiraRawStore.Issues.selectAll().where { JiraRawStore.Issues.connectionId eq connId }
                 .toList().first()[JiraRawStore.Issues.issueId]
         }
-        assertEquals(emptyList(), store.issuesToProcess(connId, currentProcessingVersion = 1, limit = 10).filter { it == issueId })
+        // A freshly-synced issue's stored `processing_version` matches the CURRENT constant
+        // (v0.3.0 M1 commit 2 bumped it to 2) — never a stale literal, or a later bump breaks this
+        // premise the moment the connector itself starts writing the new value.
+        assertEquals(
+            emptyList(),
+            store.issuesToProcess(connId, currentProcessingVersion = PROCESSING_VERSION, limit = 10).filter { it == issueId },
+        )
 
         // Simulate a PROCESSING_VERSION bump: downgrade one issue's stored version directly.
         suspendTransaction(sharedDatabaseForTests()) {
@@ -327,7 +339,7 @@ class NormalizationPipelineTest {
                 it[processingVersion] = 0
             }
         }
-        val eligible = store.issuesToProcess(connId, currentProcessingVersion = 1, limit = 2_000)
+        val eligible = store.issuesToProcess(connId, currentProcessingVersion = PROCESSING_VERSION, limit = 2_000)
         assertTrue(issueId in eligible, "a stale processing_version must make the issue eligible for the next PROCESS pass")
     }
 
@@ -357,6 +369,239 @@ class NormalizationPipelineTest {
         }
     }
 
+    @Test
+    fun `PARENT intervals exist for the moved tasks and each one's last interval matches the current parent`() = runBlocking {
+        ensureNormMigrated()
+        val ds = dataSources()
+        val connId = createConnection(ds)
+        val connector = buildConnector()
+        val items = workItems()
+
+        runConnectorOnce(connector, connId)
+
+        val parentMoveIssueIds = expectedParentMoveIssueIds()
+        assertTrue(parentMoveIssueIds.isNotEmpty(), "sample-data/jira/expected.json parentMoves.issueIds must list at least one move")
+
+        parentMoveIssueIds.forEach { issueId ->
+            val parentIntervals = items.fieldIntervalsForIssue(connId, issueId).filter { it.field == TrackedField.PARENT }
+            assertTrue(parentIntervals.size >= 2, "issue $issueId: a parent move must tile into at least two PARENT intervals")
+            val lastInterval = parentIntervals.maxBy { it.seq }
+            assertTrue(lastInterval.toAtMs == null, "issue $issueId: the LAST PARENT interval must be the open one")
+            val workItem = assertNotNull(items.workItemRow(connId, issueId), "issue $issueId")
+            assertEquals(
+                workItem[WorkItemStore.WorkItems.parentIssueId], lastInterval.valueId?.toLongOrNull(),
+                "issue $issueId: the LAST PARENT interval must match norm.work_items.parent_issue_id",
+            )
+        }
+    }
+
+    @Test
+    fun `custom_fields carries the work-category field for every epic, and hierarchy_level is resolved from ISSUE_TYPE`() = runBlocking {
+        ensureNormMigrated()
+        val ds = dataSources()
+        val connId = createConnection(ds)
+        val connector = buildConnector()
+
+        runConnectorOnce(connector, connId)
+
+        val epicRows = suspendTransaction(sharedDatabaseForTests()) {
+            WorkItemStore.WorkItems.selectAll()
+                .where { (WorkItemStore.WorkItems.connectionId eq connId) and (WorkItemStore.WorkItems.issueType eq "Epic") }
+                .toList()
+        }
+        assertTrue(epicRows.isNotEmpty(), "the in-scope dataset must contain at least one epic")
+        epicRows.forEach { row ->
+            val customFields = Json.parseToJsonElement(row[WorkItemStore.WorkItems.customFields]).jsonObject
+            assertTrue(
+                customFields.containsKey(WORK_CATEGORY_FIELD_ID),
+                "issue ${row[WorkItemStore.WorkItems.issueId]}: every epic must carry the work-category field in custom_fields",
+            )
+            assertEquals(
+                1, row[WorkItemStore.WorkItems.hierarchyLevel],
+                "issue ${row[WorkItemStore.WorkItems.issueId]}: an epic's hierarchy_level must be 1, from the ISSUE_TYPE reference entity",
+            )
+        }
+    }
+
+    @Test
+    fun `every persisted field_changes row carries a non-null field_id`() = runBlocking {
+        ensureNormMigrated()
+        val ds = dataSources()
+        val connId = createConnection(ds)
+        val connector = buildConnector()
+
+        runConnectorOnce(connector, connId)
+
+        val rows = suspendTransaction(sharedDatabaseForTests()) {
+            WorkItemStore.FieldChanges.selectAll().where { WorkItemStore.FieldChanges.connectionId eq connId }.toList()
+        }
+        assertTrue(rows.isNotEmpty(), "the in-scope dataset must have produced at least one field change")
+        assertTrue(
+            rows.all { it[WorkItemStore.FieldChanges.fieldId] != null },
+            "every norm.work_item_field_changes row must carry its own field_id (v0.3.0 M1 commit 2)",
+        )
+    }
+
+    @Test
+    fun `a field_id=parent row exists per moved issue, readable via fieldChangesByFieldIds and fieldIntervalsByIssue`() = runBlocking {
+        ensureNormMigrated()
+        val ds = dataSources()
+        val connId = createConnection(ds)
+        val connector = buildConnector()
+        val items = workItems()
+
+        runConnectorOnce(connector, connId)
+
+        val parentMoveIssueIds = expectedParentMoveIssueIds().toSet()
+        val parentChanges = items.fieldChangesByFieldIds(connId, listOf("parent"))
+        val parentChangeIssueIds = parentChanges.map { it.issueId }.toSet()
+        assertTrue(
+            parentMoveIssueIds.all { it in parentChangeIssueIds },
+            "every moved issue must have a field_id='parent' row readable via fieldChangesByFieldIds",
+        )
+        // Ordered by (issue_id, changed_at, seq) in SQL — assert the returned list is already sorted.
+        assertEquals(parentChanges.sortedWith(compareBy({ it.issueId }, { it.changedAt })), parentChanges)
+
+        val parentIntervalsByIssue = items.fieldIntervalsByIssue(connId, TrackedField.PARENT)
+        parentMoveIssueIds.forEach { issueId ->
+            assertTrue(
+                (parentIntervalsByIssue[issueId]?.size ?: 0) >= 2,
+                "issue $issueId: fieldIntervalsByIssue(PARENT) must carry at least two tiled intervals",
+            )
+        }
+    }
+
+    @Test
+    fun `at least one non-tracked customfield_ change row exists (the widened tracked-field set)`() = runBlocking {
+        ensureNormMigrated()
+        val ds = dataSources()
+        val connId = createConnection(ds)
+        val connector = buildConnector()
+        val items = workItems()
+
+        runConnectorOnce(connector, connId)
+
+        // customfield_10015 ("Start date") is never in the OLD explicit tracked-field-id list
+        // (status/assignee/priority/resolution/issuetype/project/issuekey plus the discovered
+        // sprint/flagged/rank/story-points ids) — its presence here proves the widened "every
+        // customfield_*" capture actually works, not just the fields already special-cased before.
+        val startDateChanges = items.fieldChangesByFieldIds(connId, listOf("customfield_10015"))
+        assertTrue(startDateChanges.isNotEmpty(), "sample-data's epic Start-date changelog entries must be captured (v0.3.0 M1 commit 2)")
+    }
+
+    @Test
+    fun `a reprocess preserves the raw tombstone time instead of resetting it to the reprocess time`() = runBlocking {
+        ensureNormMigrated()
+        val ds = dataSources()
+        val connId = createConnection(ds)
+        val connector = buildConnector()
+        val items = workItems()
+        val store = rawStore()
+
+        runConnectorOnce(connector, connId)
+
+        JiraStubServer.setScenarioState("jira-day2", "day2")
+        try {
+            runConnectorOnce(connector, connId, SyncJobKind.RECONCILE)
+            val deletedId = expectedFixtureDay2Deleted()
+            val rawDeletedAt = assertNotNull(store.issueForProcessing(connId, deletedId)).deletedAt
+            val normDeletedAtAfterReconcile = assertNotNull(items.workItemRow(connId, deletedId))[WorkItemStore.WorkItems.deletedAt]
+            assertEquals(rawDeletedAt, normDeletedAtAfterReconcile, "the mirrored deleted_at must equal the raw tombstone time")
+
+            // A REPROCESS run happens strictly later — if deleted_at were reset to "now" on
+            // reprocess (the bug this test guards against), it would move past rawDeletedAt.
+            runConnectorOnce(connector, connId, SyncJobKind.REPROCESS)
+            val normDeletedAtAfterReprocess = assertNotNull(items.workItemRow(connId, deletedId))[WorkItemStore.WorkItems.deletedAt]
+            assertEquals(
+                rawDeletedAt, normDeletedAtAfterReprocess,
+                "REPROCESS must preserve the raw tombstone time, not reset it to the reprocess time",
+            )
+        } finally {
+            JiraStubServer.resetScenarios()
+        }
+    }
+
+    @Test
+    fun `worklog created and updated skew matches an independent re-derivation from the raw worklog payload`() = runBlocking {
+        ensureNormMigrated()
+        val ds = dataSources()
+        val connId = createConnection(ds)
+        val connector = buildConnector()
+        val store = rawStore()
+
+        runConnectorOnce(connector, connId)
+
+        val persistedCreatedLater = suspendTransaction(sharedDatabaseForTests()) {
+            WorkItemStore.Worklogs.selectAll().where { WorkItemStore.Worklogs.connectionId eq connId }.toList()
+                .count { it[WorkItemStore.Worklogs.createdAt]!! > it[WorkItemStore.Worklogs.startedAt] }
+        }
+        val persistedUpdatedLater = suspendTransaction(sharedDatabaseForTests()) {
+            WorkItemStore.Worklogs.selectAll().where { WorkItemStore.Worklogs.connectionId eq connId }.toList()
+                .count { it[WorkItemStore.Worklogs.updatedAt]!! > it[WorkItemStore.Worklogs.createdAt]!! }
+        }
+
+        // Independent re-derivation straight from raw.jira_worklogs (already in-scope-filtered, A1) —
+        // the SAME rows PROCESS itself read, never JiraNormalizer's own code path.
+        val json = Json { ignoreUnknownKeys = true }
+        val rawIssueIds = suspendTransaction(sharedDatabaseForTests()) {
+            JiraRawStore.Issues.selectAll().where { JiraRawStore.Issues.connectionId eq connId }
+                .toList().map { it[JiraRawStore.Issues.issueId] }
+        }
+        var independentCreatedLater = 0
+        var independentUpdatedLater = 0
+        rawIssueIds.forEach { issueId ->
+            store.worklogPayloadsForIssue(connId, issueId).forEach { payload ->
+                val worklog = json.parseToJsonElement(payload).jsonObject
+                val started = Instant.parse(worklog.getValue("started").jsonPrimitive.content).toEpochMilli()
+                val created = Instant.parse(worklog.getValue("created").jsonPrimitive.content).toEpochMilli()
+                val updated = Instant.parse(worklog.getValue("updated").jsonPrimitive.content).toEpochMilli()
+                if (created > started) independentCreatedLater++
+                if (updated > created) independentUpdatedLater++
+            }
+        }
+
+        assertEquals(
+            independentCreatedLater, persistedCreatedLater,
+            "created_at > started_at count must match an independent re-derivation from the raw worklog payloads",
+        )
+        assertEquals(
+            independentUpdatedLater, persistedUpdatedLater,
+            "updated_at > created_at count must match an independent re-derivation from the raw worklog payloads",
+        )
+        assertTrue(persistedCreatedLater > 0, "the synthetic dataset's ~20% created-later skew must produce at least one in-scope worklog")
+        // Sanity bounds against the WHOLE-DATASET figures in expected.json (240/147, incl. the
+        // out-of-scope SEC project) — the in-scope subset can never exceed them.
+        assertTrue(persistedCreatedLater <= 240, "in-scope createdLaterCount can never exceed the whole-dataset expected.json figure")
+        assertTrue(persistedUpdatedLater <= 147, "in-scope updatedLaterCount can never exceed the whole-dataset expected.json figure")
+    }
+
+    @Test
+    fun `complete_at is set on every closed sprint`() = runBlocking {
+        ensureNormMigrated()
+        val ds = dataSources()
+        val connId = createConnection(ds)
+        val connector = buildConnector()
+
+        runConnectorOnce(connector, connId)
+
+        val closedSprints = suspendTransaction(sharedDatabaseForTests()) {
+            WorkItemStore.Sprints.selectAll()
+                .where { (WorkItemStore.Sprints.connectionId eq connId) and (WorkItemStore.Sprints.state eq "closed") }
+                .toList()
+        }
+        assertTrue(closedSprints.isNotEmpty(), "the in-scope dataset must contain at least one closed sprint")
+        assertTrue(
+            closedSprints.all { it[WorkItemStore.Sprints.completeAt] != null },
+            "every closed sprint must carry complete_at (`completeDate`, v0.3.0 M1 commit 2)",
+        )
+    }
+
+    private fun expectedParentMoveIssueIds(): List<Long> {
+        val file = listOf(File("sample-data/jira/expected.json"), File("../sample-data/jira/expected.json")).first { it.isFile }
+        val json = Json { ignoreUnknownKeys = true }.parseToJsonElement(file.readText()).jsonObject
+        return json.getValue("parentMoves").jsonObject.getValue("issueIds").jsonArray.map { it.jsonPrimitive.content.toLong() }
+    }
+
     private suspend fun statusTransitionReopens(store: JiraRawStore, connId: UInt, issueId: Long): Int {
         val json = Json { ignoreUnknownKeys = true }
         val issue = json.parseToJsonElement(assertNotNull(store.issueForProcessing(connId, issueId)).payloadJson).jsonObject
@@ -376,13 +621,38 @@ class NormalizationPipelineTest {
         return reopens
     }
 
-    private suspend fun statusIntervalDigest(items: WorkItemStore, connId: UInt): String {
+    /**
+     * MD5 over every persisted status interval, field interval (all four `TrackedField` kinds,
+     * PARENT included — v0.3.0 M1 commit 2 review fix widens this beyond status intervals alone)
+     * and field-change row, ordered deterministically — the REPROCESS idempotence proof needs to
+     * cover every table `replaceWorkItem` rewrites, not just `norm.work_item_status_intervals`.
+     */
+    private suspend fun normalizedDigest(items: WorkItemStore, connId: UInt): String {
         val digest = MessageDigest.getInstance("MD5")
         items.statusIntervalsByIssue(connId).toSortedMap().forEach { (issueId, intervals) ->
             intervals.forEach { interval ->
-                val line = "$issueId|${interval.seq}|${interval.statusId}|${interval.fromAtMs}|${interval.toAtMs}|${interval.source}\n"
+                val line = "S|$issueId|${interval.seq}|${interval.statusId}|${interval.fromAtMs}|${interval.toAtMs}|${interval.source}\n"
                 digest.update(line.toByteArray())
             }
+        }
+        TrackedField.entries.forEach { field ->
+            items.fieldIntervalsByIssue(connId, field).toSortedMap().forEach { (issueId, intervals) ->
+                intervals.forEach { interval ->
+                    val line = "F|$field|$issueId|${interval.seq}|${interval.valueId}|${interval.valueText}|" +
+                        "${interval.fromAtMs}|${interval.toAtMs}\n"
+                    digest.update(line.toByteArray())
+                }
+            }
+        }
+        val fieldChangeRows = suspendTransaction(sharedDatabaseForTests()) {
+            WorkItemStore.FieldChanges.selectAll().where { WorkItemStore.FieldChanges.connectionId eq connId }.toList()
+        }.sortedWith(compareBy({ it[WorkItemStore.FieldChanges.issueId] }, { it[WorkItemStore.FieldChanges.seq] }))
+        fieldChangeRows.forEach { row ->
+            val line = "C|${row[WorkItemStore.FieldChanges.issueId]}|${row[WorkItemStore.FieldChanges.seq]}|" +
+                "${row[WorkItemStore.FieldChanges.fieldId]}|${row[WorkItemStore.FieldChanges.field]}|" +
+                "${row[WorkItemStore.FieldChanges.changedAt]}|${row[WorkItemStore.FieldChanges.fromValue]}|" +
+                "${row[WorkItemStore.FieldChanges.toValue]}\n"
+            digest.update(line.toByteArray())
         }
         return digest.digest().joinToString("") { "%02x".format(it) }
     }

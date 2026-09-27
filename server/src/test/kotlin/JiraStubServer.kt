@@ -26,7 +26,12 @@ object JiraStubServer {
         WireMockServer(
             WireMockConfiguration.options()
                 .usingFilesUnderDirectory(stubRoot.absolutePath)
-                .dynamicPort(),
+                .dynamicPort()
+                // No test reads the request journal, and WireMock keeps it unbounded by default —
+                // every served request WITH its response body, for the whole suite's lifetime in
+                // this shared singleton. With the phase-3 dataset that retained heap tipped the
+                // 512 MiB test JVM into OutOfMemoryError (unrelated tests failing late in the run).
+                .disableRequestJournal(),
         ).apply {
             start()
             Runtime.getRuntime().addShutdownHook(Thread { stop() })

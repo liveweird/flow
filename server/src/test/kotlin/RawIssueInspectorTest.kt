@@ -182,6 +182,9 @@ class RawIssueInspectorTest {
             fixVersions = emptyList(),
             teamValueJson = null,
             rank = null,
+            hierarchyLevel = 0,
+            dueAtMs = 1_700_000_000_000L,
+            customFieldsJson = """{"customfield_10030":{"id":"10100","value":"Product Development"}}""",
             tombstone = TombstoneKind.NONE,
         )
         val statusInterval = NormalizedStatusInterval(
@@ -191,13 +194,16 @@ class RawIssueInspectorTest {
         val fieldInterval = NormalizedFieldInterval(
             field = TrackedField.ASSIGNEE, seq = 1, valueId = "acc-1", valueText = "Ada", fromAtMs = 1_000L, toAtMs = null,
         )
+        val parentInterval = NormalizedFieldInterval(
+            field = TrackedField.PARENT, seq = 1, valueId = "9000", valueText = "ENG-1", fromAtMs = 1_000L, toAtMs = null,
+        )
         val normalized = NormalizedIssue(
             issueId = 44L,
             facts = facts,
             currentStatusName = "In Progress",
             currentStatusCategory = StatusCategory.IN_PROGRESS,
             statusIntervals = listOf(statusInterval),
-            fieldIntervals = listOf(fieldInterval),
+            fieldIntervals = listOf(fieldInterval, parentInterval),
             fieldChanges = emptyList(),
             worklogs = emptyList(),
             currentSprintIds = emptyList(),
@@ -212,8 +218,12 @@ class RawIssueInspectorTest {
         assertEquals("In Progress", workItem.statusName)
         assertEquals(StatusCategory.IN_PROGRESS, workItem.statusCategory)
         assertEquals("acc-1", workItem.assigneeAccountId)
+        assertEquals(0, workItem.hierarchyLevel)
+        assertEquals(1_700_000_000_000L, workItem.dueAt)
+        assertTrue(workItem.customFields.containsKey("customfield_10030"), "custom_fields must carry every non-null customfield_*")
         assertEquals(1, inspection.statusIntervals.size)
-        assertEquals(1, inspection.fieldIntervals.size)
+        assertEquals(2, inspection.fieldIntervals.size)
+        assertTrue(inspection.fieldIntervals.any { it.field == TrackedField.PARENT }, "PARENT must be an allowed field interval kind")
         assertTrue(inspection.anomalies.isEmpty())
     }
 }

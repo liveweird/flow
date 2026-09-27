@@ -1152,7 +1152,7 @@ export interface components {
         };
         NormalizedFieldInterval: {
             /** @enum {string} */
-            field: "ASSIGNEE" | "SPRINT" | "FLAGGED";
+            field: "ASSIGNEE" | "SPRINT" | "FLAGGED" | "PARENT";
             /** Format: int32 */
             seq: number;
             valueId?: string | null;
@@ -1175,6 +1175,20 @@ export interface components {
             statusName: string;
             statusCategory: components["schemas"]["StatusCategory"];
             assigneeAccountId?: string | null;
+            /**
+             * Format: int32
+             * @description An epic is level 1, from the REFERENCE stream's ISSUE_TYPE entities — never "type name = Epic".
+             */
+            hierarchyLevel?: number | null;
+            /**
+             * Format: int64
+             * @description Epoch millis at start of day UTC (the system duedate field).
+             */
+            dueAt?: number | null;
+            /** @description Every non-null `customfield_*` current value, keyed by field id — never filtered. */
+            customFields?: {
+                [key: string]: unknown;
+            };
             /**
              * Format: int64
              * @description Epoch millis

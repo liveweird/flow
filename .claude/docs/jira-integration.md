@@ -150,6 +150,21 @@ the stub's `changelog/bulkfetch` WireMock mappings only match requests shaped as
 every bulk chunk after the first mismatch, not just the one deliberately-omitted chunk the stub
 already exercises.
 
+## Parent field spellings (open real-tenant question)
+
+`jira/JiraNormalizer.kt`'s PARENT tiling (v0.3.0 M1 commit 2, V14 — see "Normalized layer" in
+`.claude/docs/ingestion.md`) detects a parent-move changelog item three ways: `fieldId == "parent"`
+(the sample stub's own spelling, and Jira Cloud's current field, which replaced the older Epic
+Link), the REFERENCE stream's discovered legacy Epic Link custom field id (`gh-epic-link`,
+`JiraFieldIds.epicLinkFieldId`, matched by `schema.custom` the same way Sprint/Rank/Team are), or
+the changelog item's `field` display name being `Parent`/`IssueParentAssociation`/`Epic Link`. Only
+the first path is exercised by `sample-data/jira-stub` (`generate.mjs` emits parent-move history
+items as `{field: "Parent", fieldId: "parent", ...}`) — **the other two are defensive, unconfirmed
+against a real Jira Cloud tenant.** Before pointing this connector at a real site, verify with a
+`GET /issue/{id}/changelog` capture on a tenant that has migrated an issue between epics (or one
+still using the older Epic Link field) which spelling it actually emits, and drop whichever of the
+three paths turns out unused.
+
 ## Data profile: reuse of raw entities
 
 The data profile (v0.2.0 plan §8/§9/§12 item 9, `jira/JiraProfile.kt`, see

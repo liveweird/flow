@@ -6,9 +6,11 @@ import io.ktor.util.AttributeKey
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.jetbrains.exposed.v1.core.*
 import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
@@ -51,6 +53,20 @@ data class SprintRef(
     val startAtMs: Long?,
     val endAtMs: Long?,
     val goal: String?,
+    /** `completeDate` (v0.3.0 M1 commit 2) — the metrics layer keys sprint periods on completion, not `endAt`. */
+    val completeAtMs: Long? = null,
+)
+
+/** One `norm.work_item_field_changes` row, connection-wide (v0.3.0 M1 commit 2) — [fieldChangesByFieldIds]'s own read shape. */
+data class FieldChangeRow(
+    val issueId: Long,
+    val fieldId: String?,
+    val field: String,
+    val changedAt: Long,
+    val fromValue: String?,
+    val fromText: String?,
+    val toValue: String?,
+    val toText: String?,
 )
 
 /**
@@ -91,6 +107,9 @@ class WorkItemStore(private val database: R2dbcDatabase) {
         val teamValue = jsonb("team_value").nullable()
         val flagged = bool("flagged").default(false)
         val rank = varchar("rank", 100).nullable()
+        val hierarchyLevel = integer("hierarchy_level").nullable()
+        val dueAt = long("due_at").nullable()
+        val customFields = jsonb("custom_fields")
         val anomalies = jsonb("anomalies")
         val deletedAt = long("deleted_at").nullable()
         val movedOutAt = long("moved_out_at").nullable()
@@ -137,6 +156,7 @@ class WorkItemStore(private val database: R2dbcDatabase) {
         val fromText = text("from_text").nullable()
         val toValue = text("to_value").nullable()
         val toText = text("to_text").nullable()
+        val fieldId = varchar("field_id", 100).nullable()
         override val primaryKey = PrimaryKey(id)
     }
 
@@ -147,6 +167,8 @@ class WorkItemStore(private val database: R2dbcDatabase) {
         val authorAccountId = varchar("author_account_id", 100).nullable()
         val startedAt = long("started_at")
         val timeSpentSeconds = long("time_spent_seconds")
+        val createdAt = long("created_at").nullable()
+        val updatedAt = long("updated_at").nullable()
         override val primaryKey = PrimaryKey(connectionId, worklogId)
     }
 
@@ -194,6 +216,7 @@ class WorkItemStore(private val database: R2dbcDatabase) {
         val startAt = long("start_at").nullable()
         val endAt = long("end_at").nullable()
         val goal = text("goal").nullable()
+        val completeAt = long("complete_at").nullable()
         override val primaryKey = PrimaryKey(connectionId, sprintId)
     }
 
@@ -248,6 +271,7 @@ class WorkItemStore(private val database: R2dbcDatabase) {
                     this[FieldChanges.fromText] = change.fromText
                     this[FieldChanges.toValue] = change.toValue
                     this[FieldChanges.toText] = change.toText
+                    this[FieldChanges.fieldId] = change.fieldId
                 }
             }
             if (normalized.worklogs.isNotEmpty()) {
@@ -258,6 +282,8 @@ class WorkItemStore(private val database: R2dbcDatabase) {
                     this[Worklogs.authorAccountId] = worklog.authorAccountId
                     this[Worklogs.startedAt] = worklog.startedAtMs
                     this[Worklogs.timeSpentSeconds] = worklog.timeSpentSeconds
+                    this[Worklogs.createdAt] = worklog.createdAtMs
+                    this[Worklogs.updatedAt] = worklog.updatedAtMs
                 }
             }
 
@@ -294,9 +320,16 @@ class WorkItemStore(private val database: R2dbcDatabase) {
                 builder[WorkItems.teamValue] = facts.teamValueJson
                 builder[WorkItems.flagged] = normalized.flagged
                 builder[WorkItems.rank] = facts.rank
+                builder[WorkItems.hierarchyLevel] = facts.hierarchyLevel
+                builder[WorkItems.dueAt] = facts.dueAtMs
+                builder[WorkItems.customFields] = facts.customFieldsJson
                 builder[WorkItems.anomalies] = anomaliesJson(normalized.anomalies)
-                builder[WorkItems.deletedAt] = if (facts.tombstone == TombstoneKind.DELETED) now else null
-                builder[WorkItems.movedOutAt] = if (facts.tombstone == TombstoneKind.MOVED_OUT) now else null
+                // The RAW tombstone time, never `now` — a PROCESSING_VERSION bump reprocesses every
+                // already-tombstoned issue, and `now` would reset every one of them to the
+                // reprocess/deploy time (v0.3.0 M1 commit 2 review fix). `?: now` is a defensive
+                // fallback for a caller that (like a hand-built test fixture) omits `tombstoneAtMs`.
+                builder[WorkItems.deletedAt] = if (facts.tombstone == TombstoneKind.DELETED) (facts.tombstoneAtMs ?: now) else null
+                builder[WorkItems.movedOutAt] = if (facts.tombstone == TombstoneKind.MOVED_OUT) (facts.tombstoneAtMs ?: now) else null
                 builder[WorkItems.processedAt] = now
                 builder[WorkItems.processingVersion] = processingVersion
             }
@@ -371,6 +404,7 @@ class WorkItemStore(private val database: R2dbcDatabase) {
                 this[Sprints.startAt] = it.startAtMs
                 this[Sprints.endAt] = it.endAtMs
                 this[Sprints.goal] = it.goal
+                this[Sprints.completeAt] = it.completeAtMs
             }
         }
     }
@@ -454,6 +488,54 @@ class WorkItemStore(private val database: R2dbcDatabase) {
     }
 
     /**
+     * Every `norm.work_item_field_intervals` row of [field], connection-wide, grouped by issue and
+     * ordered by `seq` (v0.3.0 M1 commit 2) — the metrics layer's per-issue replay read (e.g. PARENT
+     * for `task_epic`, SPRINT for `task_sprint`), the connection-wide sibling of
+     * [fieldIntervalsForIssue].
+     */
+    suspend fun fieldIntervalsByIssue(connectionId: UInt, field: TrackedField): Map<Long, List<NormalizedFieldInterval>> =
+        suspendTransaction(database) {
+            FieldIntervals.selectAll().where { (FieldIntervals.connectionId eq connectionId) and (FieldIntervals.field eq field.name) }
+                .toList()
+                .groupBy({ it[FieldIntervals.issueId] }) {
+                    NormalizedFieldInterval(
+                        field = field,
+                        seq = it[FieldIntervals.seq],
+                        valueId = it[FieldIntervals.valueId],
+                        valueText = it[FieldIntervals.valueText],
+                        fromAtMs = it[FieldIntervals.fromAt],
+                        toAtMs = it[FieldIntervals.toAt],
+                    )
+                }
+                .mapValues { (_, intervals) -> intervals.sortedBy { it.seq } }
+        }
+
+    /**
+     * Every `norm.work_item_field_changes` row whose `field_id` is one of [fieldIds], connection-wide
+     * (v0.3.0 M1 commit 2) — the metrics layer's per-field estimate/epic-date replay read (e.g. the
+     * configured estimate field's changes, to build `item_estimate` timelines).
+     */
+    suspend fun fieldChangesByFieldIds(connectionId: UInt, fieldIds: Collection<String>): List<FieldChangeRow> =
+        suspendTransaction(database) {
+            if (fieldIds.isEmpty()) return@suspendTransaction emptyList()
+            FieldChanges.selectAll().where { (FieldChanges.connectionId eq connectionId) and (FieldChanges.fieldId inList fieldIds) }
+                .orderBy(FieldChanges.issueId to SortOrder.ASC, FieldChanges.changedAt to SortOrder.ASC, FieldChanges.seq to SortOrder.ASC)
+                .toList()
+                .map { row ->
+                    FieldChangeRow(
+                        issueId = row[FieldChanges.issueId],
+                        fieldId = row[FieldChanges.fieldId],
+                        field = row[FieldChanges.field],
+                        changedAt = row[FieldChanges.changedAt],
+                        fromValue = row[FieldChanges.fromValue],
+                        fromText = row[FieldChanges.fromText],
+                        toValue = row[FieldChanges.toValue],
+                        toText = row[FieldChanges.toText],
+                    )
+                }
+        }
+
+    /**
      * Every `norm.sprints` reference row for a connection (v0.2.0 plan §8/§12 item 9) — rebuilt
      * wholesale per PROCESS run, read back as-is.
      */
@@ -467,6 +549,7 @@ class WorkItemStore(private val database: R2dbcDatabase) {
                 startAtMs = row[Sprints.startAt],
                 endAtMs = row[Sprints.endAt],
                 goal = row[Sprints.goal],
+                completeAtMs = row[Sprints.completeAt],
             )
         }
     }
@@ -529,6 +612,9 @@ class WorkItemStore(private val database: R2dbcDatabase) {
         val statusName: String,
         val statusCategory: StatusCategory,
         val assigneeAccountId: String?,
+        val hierarchyLevel: Int?,
+        val dueAt: Long?,
+        val customFields: JsonObject,
         val anomalies: List<TilingAnomaly>,
         val processedAt: Long,
         val processingVersion: Int,
@@ -547,6 +633,9 @@ class WorkItemStore(private val database: R2dbcDatabase) {
                     statusName = row[WorkItems.statusName],
                     statusCategory = StatusCategory.valueOf(row[WorkItems.statusCategory]),
                     assigneeAccountId = row[WorkItems.assigneeAccountId],
+                    hierarchyLevel = row[WorkItems.hierarchyLevel],
+                    dueAt = row[WorkItems.dueAt],
+                    customFields = Json.parseToJsonElement(row[WorkItems.customFields]).jsonObject,
                     anomalies = parseAnomalies(row[WorkItems.anomalies]),
                     processedAt = row[WorkItems.processedAt],
                     processingVersion = row[WorkItems.processingVersion],

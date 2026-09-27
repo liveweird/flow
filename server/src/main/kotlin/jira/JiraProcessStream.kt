@@ -40,12 +40,14 @@ class JiraProcessStream(
         val connectionId = context.connectionId
         val fieldIds = JiraNormalizer.discoverFieldIds(rawStore.entityPayloadsByKind(connectionId, JiraEntityKind.FIELD.name))
         val statusLookup = buildStatusLookup(rawStore.entityPayloadsByKind(connectionId, JiraEntityKind.STATUS.name))
+        val issueTypeHierarchy =
+            JiraNormalizer.issueTypeHierarchy(rawStore.entityPayloadsByKind(connectionId, JiraEntityKind.ISSUE_TYPE.name))
         rebuildReferenceRows(connectionId)
 
         while (true) {
             val batchIds = rawStore.issuesToProcess(connectionId, PROCESSING_VERSION, PROCESS_BATCH_SIZE)
             if (batchIds.isEmpty()) break
-            processBatch(context, connectionId, batchIds, fieldIds, statusLookup)
+            processBatch(context, connectionId, batchIds, fieldIds, statusLookup, issueTypeHierarchy)
             context.heartbeat()
         }
     }
@@ -56,11 +58,12 @@ class JiraProcessStream(
         batchIds: List<Long>,
         fieldIds: JiraFieldIds,
         statusLookup: Map<String, Pair<String, StatusCategory>>,
+        issueTypeHierarchy: Map<String, Int>,
     ) {
         var firstFailure: Exception? = null
         var failedInBatch = 0
         batchIds.forEach { issueId ->
-            val failure = processOneIssueSafely(context, connectionId, issueId, fieldIds, statusLookup)
+            val failure = processOneIssueSafely(context, connectionId, issueId, fieldIds, statusLookup, issueTypeHierarchy)
             if (failure == null) {
                 context.incrementProgress("issuesProcessed")
             } else {
@@ -88,8 +91,9 @@ class JiraProcessStream(
         issueId: Long,
         fieldIds: JiraFieldIds,
         statusLookup: Map<String, Pair<String, StatusCategory>>,
+        issueTypeHierarchy: Map<String, Int>,
     ): Exception? = try {
-        context.transaction { processOneIssue(connectionId, issueId, fieldIds, statusLookup, context.clock()) }
+        context.transaction { processOneIssue(connectionId, issueId, fieldIds, statusLookup, issueTypeHierarchy, context.clock()) }
         null
     } catch (failure: Exception) {
         failure
@@ -100,6 +104,7 @@ class JiraProcessStream(
         issueId: Long,
         fieldIds: JiraFieldIds,
         statusLookup: Map<String, Pair<String, StatusCategory>>,
+        issueTypeHierarchy: Map<String, Int>,
         now: Long,
     ) {
         val raw = rawStore.issueForProcessing(connectionId, issueId) ?: return // a concurrent PURGE already removed it — nothing to do.
@@ -110,7 +115,12 @@ class JiraProcessStream(
             raw.movedOutAt != null -> TombstoneKind.MOVED_OUT
             else -> TombstoneKind.NONE
         }
-        val input = JiraNormalizer.normalizeIssue(raw.payloadJson, changelogs, worklogs, fieldIds, tombstone)
+        // The RAW tombstone time, verbatim — never `now`: a PROCESSING_VERSION bump reprocesses
+        // every already-tombstoned issue, and `now` would reset every one of them to THIS run's own
+        // clock (v0.3.0 M1 commit 2 review fix). Exactly one of the two is ever non-null.
+        val tombstoneAtMs = raw.deletedAt ?: raw.movedOutAt
+        val input =
+            JiraNormalizer.normalizeIssue(raw.payloadJson, changelogs, worklogs, fieldIds, tombstone, issueTypeHierarchy, tombstoneAtMs)
         val normalized = Normalization.normalize(input) { statusId -> statusLookup[statusId] ?: (statusId to StatusCategory.UNKNOWN) }
         workItemStore.replaceWorkItem(connectionId, normalized, now)
         rawStore.markProcessed(connectionId, issueId, raw.sha256, now, PROCESSING_VERSION)

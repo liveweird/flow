@@ -290,12 +290,12 @@ the tiling invariants and stream mechanics — this section is the schema/persis
 `JiraProcessStream` also uses for `JiraRawStore.markProcessed`, so a crash mid-issue never leaves a
 half-written normalized row or a raw row pointing at rows that were never written.
 
-**`PROCESSING_VERSION`** (`norm/Normalization.kt`, currently `1`) — bump it on ANY change to the
-tiling/write-shape rules. `JiraRawStore.issuesToProcess` claims a raw issue whose
-`processing_version IS DISTINCT FROM` the current constant (or is `NULL`, or `needs_processing` is
-flagged), so a version bump reprocesses every issue automatically on the next PROCESS pass — proven
-by `NormalizationPipelineTest`'s "a processing_version mismatch makes an issue eligible for the next
-PROCESS pass".
+**`PROCESSING_VERSION`** (`norm/Normalization.kt`, currently `2` — bumped from `1` by V14, "The
+normalized layer gaps (V14)" below) — bump it on ANY change to the tiling/write-shape rules.
+`JiraRawStore.issuesToProcess` claims a raw issue whose `processing_version IS DISTINCT FROM` the
+current constant (or is `NULL`, or `needs_processing` is flagged), so a version bump reprocesses
+every issue automatically on the next PROCESS pass — proven by `NormalizationPipelineTest`'s "a
+processing_version mismatch makes an issue eligible for the next PROCESS pass".
 
 **PURGE of `norm.*` rows (plan §0 A2).** `WorkItemStore.purgeWorkItemsBatch`/
 `purgeStatusIntervalsBatch`/`purgeFieldIntervalsBatch`/`purgeFieldChangesBatch`/
@@ -307,7 +307,56 @@ intervals, worklogs, then work items, in that order, before clearing the referen
 `JiraConnector.purgeSteps` runs `JiraRawStore.purgeAll` (the `raw.*` tables) THEN
 `WorkItemStore.purgeAll` (the `norm.*` tables) as its two connector-owned PURGE steps.
 
-Current migrations are `V1`–`V13`:
+### The normalized layer gaps (V14)
+
+`V14__norm_phase3_gaps.sql` (v0.3.0 M1 commit 2, `.claude/docs/domain-model.md` "Gaps in `norm`
+today") is purely additive — no existing V1–V13 file changes, no data migration, every new column
+is nullable except one — and pairs with `PROCESSING_VERSION` bumping `1` → `2`
+(`norm/Normalization.kt`), so every already-processed issue reprocesses automatically on the next
+PROCESS pass and backfills these columns without any migration-time `UPDATE`.
+
+- `norm.work_items` gains `hierarchy_level INTEGER` (an epic is level 1, never "type name = Epic" —
+  `jira/JiraNormalizer.kt` prefers the issue's OWN `fields.issuetype.hierarchyLevel` when a tenant
+  returns it, falling back to the REFERENCE stream's `ISSUE_TYPE` entities
+  (`issueTypeHierarchy`) only when the issue document itself is silent — the sample stub never
+  includes it on the issue document, but a real tenant sometimes does), `due_at BIGINT` (the system
+  `duedate` field's current value, epoch millis at start of day UTC) and
+  `custom_fields JSONB NOT NULL DEFAULT '{}'` (every FILLED `customfield_*` current value,
+  canonicalized via `infra/json/CanonicalJson.kt`, keyed by field id — deliberately unfiltered by
+  WHICH field, so a future configurable field re-derives without a REPROCESS; filtered by whether
+  it carries anything: a literal JSON `null` and an empty array/object/string are dropped, so "the
+  key is present" reliably means "the value is filled". **Known storage cost**: Rank (`gh-lexo-rank`)
+  and any ADF-shaped rich-text custom field land here verbatim, duplicating bytes `raw.jira_issues`
+  already stores — accepted for now since the metrics layer needs no filtering logic at read time;
+  revisit if a real tenant's row size becomes a problem).
+- `norm.work_item_field_changes` gains `field_id VARCHAR(100)` — the changelog item's own
+  `fieldId`, normalized to `field_id = 'parent'` for EVERY matched parent-move item regardless of
+  which of the three spellings actually matched (a real, name-only `IssueParentAssociation` item
+  carries no `fieldId` of its own — without this normalization it would be invisible to
+  `WorkItemStore.fieldChangesByFieldIds(connectionId, listOf("parent"))`; `field` alone is a
+  display name only, unreliable across a field rename anyway) — plus
+  `idx_norm_work_item_field_changes_field (connection_id, field_id, issue_id)`, the metrics layer's
+  per-field replay index. **`field_id IS NULL` only on a row written before the PROCESSING_VERSION
+  2 reprocess** (a pre-V14 row `norm/Normalization.kt`'s version bump has not yet rewritten) — every
+  row a version-2-or-later PROCESS pass writes always carries one. The tracked set itself widens in
+  code, not schema: EVERY `customfield_*` item, `duedate`, and a parent move (see below) — no
+  longer just the handful of explicitly-known field ids.
+- `norm.work_item_worklogs` gains `created_at BIGINT`/`updated_at BIGINT` — `raw.jira_worklogs`
+  already stores the full payload; only `started_at` was kept here until now. Report 14's
+  late-logging measure needs when a worklog was actually entered/last edited, not just the time it
+  claims to describe.
+- `norm.sprints` gains `complete_at BIGINT` (`completeDate`) — the metrics layer keys sprint
+  periods on completion, not `end_at`.
+- No DDL for **PARENT tiling**: `TrackedField.PARENT` (`norm/Tiling.kt`) is a plain new enum value
+  — `norm.work_item_field_intervals`/`_field_changes` already store `field` as a
+  Kotlin-enum-whitelisted string (the `raw.jira_entities.kind` idiom), so no CHECK/migration is
+  needed to add a fourth tracked field. PARENT tiles exactly like ASSIGNEE (`value_id` = the parent
+  issue id, `value_text` its key, `null` = unparented) — see "Normalized layer" in
+  `.claude/docs/ingestion.md` for the parent-change detection rule and its real-tenant spellings.
+
+`MigrationChecksumTest` gains V14's pin.
+
+Current migrations are `V1`–`V14`:
 
 - `V1__init` — the `users` table: `name` (≤50), `email` (≤254), `password_hash`, `role` with
   `CHECK ("role" IN ('ADMIN', 'USER'))` (single-column role storage; the wire shape stays a
@@ -352,6 +401,9 @@ Current migrations are `V1`–`V13`:
   norm` plus `norm.work_items`/`_status_intervals`/`_field_intervals`/`_field_changes`/`_worklogs`
   and the rebuilt-wholesale reference tables (`statuses`, `people`, `boards`, `board_columns`,
   `sprints`) — the PROCESS step's write target, the first tables outside `public`/`raw`.
+- `V14__norm_phase3_gaps` — see "The normalized layer gaps (V14)" above: additive columns on
+  `norm.work_items`/`work_item_field_changes`/`work_item_worklogs`/`sprints`, paired with
+  `PROCESSING_VERSION` bumping to `2`.
 
 The `users`/`teams` tables follow Toadie's dialect (`SERIAL`/`INTEGER` ids, epoch-millis `BIGINT`
 timestamps, `marked_as_deleted` + partial unique indexes over active rows) and its idioms: a
