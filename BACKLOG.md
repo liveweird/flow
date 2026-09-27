@@ -25,18 +25,19 @@ Entries are proposals, not delivery commitments.
   - plan, delivery and cost as PV, EV and AC, measured in man-days (1 SP = 1 MD);
   - the configuration;
   - the `metrics` star model and its invariants;
-  - the ten target reports mapped to facts (velocity, throughput, task and epic estimation accuracy, estimate adjustments, sprint consistency, cycle time, reported time ÷ cycle time, WIP, estimated backlog);
-  - decisions D1–D9 (D4 revised: an epic's budget is its own estimate).
+  - fourteen reports mapped to facts: velocity, throughput, task and epic estimation accuracy, estimate adjustments, sprint consistency, cycle time, reported time ÷ cycle time, WIP, estimated backlog, aging WIP, blocked time, items and backlog in sprints, data quality;
+  - decisions D1–D16 (D4 revised: an epic's budget is its own estimate).
 - **Next: an implementation plan**, in this order:
   1. PROCESS additions (the doc's "Gaps in `norm` today"), with a `PROCESSING_VERSION` bump:
      - epic-membership history;
      - estimate intervals for tasks and epics;
      - epic dates;
-     - configurable custom-field capture (work category).
+     - configurable custom-field capture (work category);
+     - worklog `created`/`updated` timestamps (late logging).
   2. The `metrics` schema with its configuration tables.
   3. The configuration UI: status stages, estimate field(s), epic date fields, domain map, board → team, capacity, calendar, activity-type and work-category maps, and dated team membership (D1).
-  4. The derivation, plus invariant SQL sweeps.
-  5. The report pages, one per report in the doc's "Reports" section. Each has the unit → team → user drill-down, a period picker (calendar and per-team sprints), domain, activity-type and work-category filters, and p50/p90/p95 plus full distributions. Port Lettuce's `@mantine/charts` + `recharts` and load the `dataviz` skill.
+  4. The derivation, plus invariant SQL sweeps. Freeze each sprint when it completes into `fact_sprint_snapshot` (D13).
+  5. The report pages (1–14), one per report in the doc's "Reports" section, open to every signed-in user (D12; configuration stays ADMIN-only). Each has the unit → team → user drill-down, a period picker (calendar and per-team sprints), domain, activity-type and work-category filters, and p50/p90/p95 plus full distributions. Port Lettuce's `@mantine/charts` + `recharts` and load the `dataviz` skill.
 - Confirm the doc's Jira-dependent assumptions against the real tenant's data profile once it exists:
   - the parent changelog spelling;
   - the estimate and epic-date fields;

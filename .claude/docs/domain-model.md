@@ -4,7 +4,7 @@ This doc defines what Flow's numbers MEAN: the entities, how they map to Jira, t
 measurement dimensions, the configuration they depend on, the analytical (`metrics`) model, the
 reports it serves, its invariants, and how known data imperfections are handled. It is the
 contract the metrics layer and every dashboard are built against. **Status: agreed 2026-09-27
-(D1–D9), validated against the target reports, not yet implemented** — the `metrics` schema, the
+(D1–D16), validated against the target reports, not yet implemented** — the `metrics` schema, the
 PROCESS additions in "Gaps in `norm` today" and the configuration UI arrive in a later
 implementation plan (`BACKLOG.md`).
 
@@ -67,7 +67,10 @@ convert by `hoursPerDay` (configuration, defaulting to Jira's own time-tracking 
 **Estimate snapshots.** Every task and epic keeps its estimate at four moments — at
 **commitment** (per sprint), at **start** (`started_at`), at **done** (`done_at`) and **current** —
 plus the number of estimate changes after start. An item with no estimate at start that gains one
-later is **estimated late**: counted separately, never as a +∞% change.
+later is **estimated late**: counted separately, never as a +∞% change. An estimate of **0 SP
+counts as unestimated**. A task with no estimate of its own but estimated sub-tasks takes the sum
+of its sub-tasks' estimates, marked `estimate_source = SUBTASKS` (the mirror of the epic fallback
+below).
 
 **Plan — PV (planned value).**
 
@@ -91,10 +94,18 @@ later is **estimated late**: counted separately, never as a +∞% change.
 - EV(t) = the sum of estimates of items with `done_at` ≤ t.
 - **Cycle time** = `done_at − started_at`, **lead time** = `done_at − created_at`, both stored as
   elapsed time **and in working days** (the configured calendar and time zone).
+- An epic's lifecycle comes from **its own status** (D11); where it disagrees with its children,
+  the epic is flagged, never re-dated.
+- **Blocked time** = time an item spent Flagged or in a configured **blocked status** (e.g.
+  Blocked, Waiting), in working days — per item, and as a share of its cycle time.
+- **Age** of an IN_PROGRESS item = working days since `started_at`, compared with its team's
+  cycle-time percentiles (aging WIP).
 
 **Cost — AC (actual cost).** AC(t) = the sum of worklog MD logged up to t, for any scope. A task's
 `actual_md` is its own worklogs plus its sub-tasks'; an epic's is every child's plus any logged on
-the epic itself.
+the epic itself. Logging time is expected for all work (D14), so actual cost is treated as
+trustworthy, and a DONE task with no worklogs is a data-quality finding rather than a zero-cost
+task.
 
 **Derived:** SV = EV − PV, SPI = EV / PV, CV = EV − AC, CPI = EV / AC, and the per-report measures
 below.
@@ -110,7 +121,11 @@ Flow uses the user's vocabulary, which differs slightly from common Scrum usage:
   while in the sprint.
 - **Commitment** — the sprint's scope at start + grace.
 - **Carry-over** — committed scope not done at completion that appears in the team's next sprint;
-  **dropped** scope is not done and in no later sprint.
+  **dropped** scope is not done and in no later sprint. A carried-over task counts in the velocity
+  of every sprint it was committed to, but in throughput only once — in the sprint where it was
+  done (Jira's own convention).
+- **Backlog in sprints** — estimated backlog SP ÷ the team's mean delivered SP over its last N
+  sprints: how far ahead the backlog reaches.
 - **Estimated backlog** — tasks ready to be picked up for sprint planning (D9, see Reports).
 - **Activity type / work category** — see Entities.
 
@@ -126,13 +141,17 @@ layer (the same idea as `PROCESSING_VERSION` for `norm`): history is always read
 | Estimate field | one field id (tasks) + an optional override for epics | the field the data profile detects as `STORY_POINTS` |
 | Epic start/due fields | two field ids | "Start date" + `duedate`, or Jira Plans' "Target start"/"Target end" |
 | Project → domain | map | 1:1 |
-| Board → team | map (makes a sprint a team's sprint, and owns its backlog) | none — must be set |
+| Board → team | 1:1 map (makes a sprint a team's sprint, and owns its backlog — D10) | none — must be set |
 | Team × sprint capacity | MD | members × working days − absence, editable per sprint |
 | `hoursPerDay`, working calendar, time zone | number; weekends + holidays; zone | Jira time-tracking setting; Mon–Fri; the unit's zone |
 | Commitment grace | duration after sprint start | 0 |
 | Issue type → activity type | map | 1:1 |
 | Work-category field + value → category | one field id + map | none (field must be chosen); 1:1 |
 | Minimum sample size | number | 5 — below it, percentiles and distributions are hidden with a note |
+| Blocked statuses | set of status ids | none (only Flagged counts until set) |
+| Aging-WIP window | N most recent done items + percentiles | 50; p50/p85/p95 |
+| Backlog-in-sprints window | N most recent closed sprints | 3 |
+| Epic drift threshold | days an epic may stay open after its last child is done | 14 |
 
 ## Analytical model (`metrics` schema)
 
@@ -142,7 +161,8 @@ counts and sums only.
 
 - **Configuration tables:** `status_stage_map`, `estimate_field`, `epic_date_fields`, `domain_map`,
   `board_team_map`, `team_sprint_capacity`, `calendar`, `activity_type_map`,
-  `work_category_field`, `work_category_map`, `config_revision`.
+  `work_category_field`, `work_category_map`, `blocked_statuses`, `report_windows`,
+  `config_revision`.
 - **Dimensions:** `dim_org` (unit → team → user, effective-dated through `team_membership`),
   `dim_domain`, `dim_team`, `dim_user`, `dim_epic` (SCD2 on dates and domain), `dim_task` (key,
   type, activity type, work category, `is_subtask`, parent task), `dim_sprint` (board → team,
@@ -164,13 +184,14 @@ counts and sums only.
 
 | Fact | Grain | Carries |
 |---|---|---|
-| `fact_task_delivery` (accumulating snapshot) | task | `created_at`/`started_at`/`done_at`, reopens, estimate at start/done/current + changes after start, `actual_md`, cycle/lead time (elapsed + working days), status-based active/wait time, assignee + assignee's team at done, sprint + sprint's team at done, own domain, epic + epic's domain, activity type, work category |
-| `fact_epic_delivery` (accumulating snapshot) | epic | `started_at`/`done_at`, own estimate at start/done/current + changes after start, child-sum estimate, `actual_md`, cycle time, domain, work category |
+| `fact_task_delivery` (accumulating snapshot) | task | `created_at`/`started_at`/`done_at`, reopens, estimate at start/done/current + `estimate_source` + changes after start, `actual_md`, `has_worklogs`, `blocked_time`, cycle/lead time (elapsed + working days), status-based active/wait time, assignee + assignee's team at done, sprint + sprint's team at done, own domain, epic + epic's domain, activity type, work category |
+| `fact_epic_delivery` (accumulating snapshot) | epic | `started_at`/`done_at`, own estimate at start/done/current + changes after start, child-sum estimate, `actual_md`, cycle time, blocked time, domain, work category, drift flags (D11) |
 | `fact_sprint_scope` | task × sprint | added/removed at, committed flag, `in_scope_at_close`, estimate at commitment and at close, assignee at commitment, done in sprint, carried over / dropped |
-| `fact_sprint` | sprint (→ team) | committed, added, removed, final, delivered, carried-over and dropped SP (+ item counts), capacity, load |
+| `fact_sprint` | sprint (→ team) | committed, added, removed, final, delivered, carried-over and dropped SP (+ item counts), capacity, load — always the live recomputation |
+| `fact_sprint_snapshot` | sprint (→ team) | the same figures (and the sprint's scope rows) frozen when the sprint completes, with the configuration revision and a `reconstructed` flag for sprints completed before Flow first processed them (D13) — never updated afterwards |
 | `fact_worklog` | worklog | author + **author's team at `started`**, task + its activity type/work category, **task's domain + epic + epic's domain at `started`**, MD |
 | `fact_epic_plan` | epic × baseline | start, due, budget MD, `budget_source` — PV curves can be redrawn "as originally planned" |
-| `agg_daily_{team,domain,epic}` | scope × working day | WIP per status and per stage (tasks and epics), estimated-backlog count and SP, PV(t), EV(t), AC(t), throughput |
+| `agg_daily_{team,domain,epic}` | scope × working day | WIP per status and per stage (tasks and epics), estimated-backlog count and SP, PV(t), EV(t), AC(t), throughput — item counts beside every SP figure |
 
 **Organization and periods.** Sprint facts attach to a team through the sprint's board; task and
 worklog facts attach to a user and, through `team_membership` at the relevant instant, to a team
@@ -187,17 +208,33 @@ because percentiles are not additive (a team's p90 is not derivable from its use
 smaller than the minimum sample size show counts only, with a note. Outliers are never dropped —
 the distribution shows them.
 
+**Access.** Every signed-in user sees every report at every level, individuals included (D12);
+configuration and data-source pages stay ADMIN-only. A Flow login may optionally be linked to its
+Jira user (by email) for "my numbers" shortcuts.
+
+**Reading the numbers.**
+
+- The two domain views of D3 **disagree by design** for cross-domain tasks: "delivered in domain
+  X" (task's own domain) and "earned in domain X" (epic's domain) count them differently. Every
+  domain-sliced chart labels which view it shows.
+- Attribution (team, domain, epic) is **as-was**; classification (activity type, work category,
+  status → stage) is **as-is**, under the current configuration — so live numbers for a past
+  period can move when configuration changes or late data arrives. Closed sprints are also frozen
+  at completion (D13); the live figure is shown beside the frozen one, and the difference is
+  flagged.
+
 ## Reports
 
-Each report names the facts it reads; every one of them filters by period and drills unit → team →
+Each report names the facts it reads (the SP figures always carry item counts beside them); every
+one of them filters by period and drills unit → team →
 user, and slices by domain, activity type and work category.
 
 | # | Report | Source | Definition |
 |---|---|---|---|
-| 1 | **Velocity** | `fact_sprint` | initial = committed SP; final = final-scope SP at completion; per user via `assignee_at_commitment` in `fact_sprint_scope` |
+| 1 | **Velocity** | `fact_sprint_snapshot` (+ live `fact_sprint`) | initial = committed SP; final = final-scope SP at completion; per user via `assignee_at_commitment` in `fact_sprint_scope` |
 | 2 | **Throughput** | `fact_sprint` (sprint view), `fact_task_delivery` (period view) | delivered SP; for a calendar period: SP of tasks with `done_at` in it |
-| 3 | **Task estimation accuracy** | `fact_task_delivery`, DONE tasks with an estimate | `actual_md ÷ estimate at done` (and vs estimate at start); full distribution; unestimated DONE tasks counted beside it |
-| 4 | **Epic estimation accuracy** | `fact_epic_delivery`, DONE epics | `actual_md ÷ own estimate at done` (and at start); the child-sum estimate shown alongside |
+| 3 | **Task estimation accuracy** | `fact_task_delivery`, DONE tasks with an estimate and worklogs | `actual_md ÷ estimate at start` (D15; vs estimate at done as a second view); full distribution; unestimated or worklog-less DONE tasks counted beside it, never in it |
+| 4 | **Epic estimation accuracy** | `fact_epic_delivery`, DONE epics | `actual_md ÷ own estimate at start` (D15; at done as a second view); the child-sum estimate shown alongside |
 | 5 | **Estimate adjustments** | `fact_task_delivery`, `fact_epic_delivery` | share of started items whose estimate changed after start, and the % change start → done (distribution); estimated-late items counted separately |
 | 6.1 | **Velocity vs throughput** | `fact_sprint` | committed and final vs delivered SP, sprint over sprint |
 | 6.2 | **Carry-over** | `fact_sprint` | carried-over SP (and dropped SP) per sprint |
@@ -206,6 +243,10 @@ user, and slices by domain, activity type and work category.
 | 8 | **Reported time ÷ cycle time** | `fact_task_delivery` | `actual_md ÷ cycle time in working days` — how much of the elapsed working time was logged; distinct from the status-based flow efficiency (active ÷ total time in stages) |
 | 9 | **WIP** | `agg_daily_*` over `item_status`/`item_stage` | items in parallel per status (or stage, or board column) over time — tasks and epics |
 | 10 | **Estimated backlog depth** | `agg_daily_*` | count and SP of estimated tasks ready for planning (D9), now and as a trend; owned by the team whose board shows them, `(unowned)` otherwise |
+| 11 | **Aging WIP** | `item_stage` + `fact_task_delivery` | the current age of every IN_PROGRESS task and epic against the team's cycle-time p50/p85/p95 over its last N done items; items past p85 highlighted |
+| 12 | **Blocked time** | `fact_task_delivery`, `fact_epic_delivery` | blocked time per item, as a share of cycle time, and as a distribution |
+| 13 | **Throughput in items; backlog in sprints** | `fact_sprint`, `agg_daily_*` | item counts beside SP in reports 1, 2, 6 and 10; backlog in sprints = estimated backlog SP ÷ mean delivered SP over the team's last N sprints |
+| 14 | **Data quality** | all facts | per team and domain: worklog coverage (DONE tasks with worklogs; logged hours per member per working day vs `hoursPerDay`), late logging (worklog created vs `started`), tasks without an estimate, epic or work category, epic drift (D11), unmapped statuses, work done outside any sprint, sprint-snapshot drift (D13) |
 
 ## Invariants
 
@@ -224,8 +265,10 @@ The implementation asserts these as SQL sweeps over the persisted rows (the
    **up** the hierarchy (sub-task → task → epic), never sideways — the sum of task `actual_md`
    equals the `fact_worklog` total for the same scope (worklogs on epics aside).
 8. `fact_sprint`'s totals equal the sums of its `fact_sprint_scope` rows.
-9. An estimated-backlog item is never also counted as WIP.
-10. Every number is reproducible from `norm` + one configuration revision.
+9. Estimated backlog, WIP and done are mutually exclusive for an item at any instant.
+10. A board maps to at most one team (D10).
+11. A `fact_sprint_snapshot` row never changes once written.
+12. Every live number is reproducible from `norm` + one configuration revision.
 
 ## Imperfections
 
@@ -241,7 +284,9 @@ Flagged and counted, never silently "fixed" (the same rule `norm` applies to its
   throughput, excluded from PV/EV and accuracy, listed), an epic with no estimate (budget from its
   children, flagged) or no dates (no PV curve), an unassigned task, a worklog author in no team, an
   estimate added only after start (estimated late), a sprint whose board maps to no team, a backlog
-  item no mapped board covers, an unmapped status, a task with no work category.
+  item no mapped board covers, an unmapped status, a task with no work category, a DONE task with
+  no worklogs (D14), work done outside any sprint (D10), an epic whose status disagrees with its
+  children (D11). All of them surface in the data-quality report (14).
 
 ## Decisions
 
@@ -265,7 +310,8 @@ Agreed with the user on 2026-09-27.
   estimate of its own. *(First agreed as "the sum of child estimates".)*
 - **D5 — Delivery credit: sprint team + assignee.** Team velocity and say/do go to the team whose
   sprint the task was done in (board → team); "a user's task" is the assignee at `done_at`. Work
-  done outside any sprint (Kanban) falls back to the assignee's team at `done_at`.
+  done outside any sprint falls back to the assignee's team at `done_at` — an anomaly path only,
+  since every team works in sprints (D10).
 - **D6 — Activity types are standard issue types**, one per task — so D2's sub-task roll-up loses
   no activity information.
 - **D7 — Epics carry their own story-point estimate**, compared to actual cost and tracked for
@@ -275,6 +321,23 @@ Agreed with the user on 2026-09-27.
   with an estimate that is not in an active or closed sprint — future sprints count as backlog —
   owned by the team whose board shows it. A narrower "ready statuses only" refinement is a possible
   later configuration option.
+- **D10 — One board per team; every team works in sprints.** Board → team is 1:1; there are no
+  Kanban teams, so sprint-based reports cover everyone.
+- **D11 — Epics follow their own status; drift is flagged.** An epic's started/done, WIP, cycle
+  time and accuracy come from its own status intervals. Three flags compare it with its children —
+  `EPIC_NOT_STARTED_WITH_ACTIVE_CHILDREN`, `EPIC_OPEN_AFTER_CHILDREN_DONE` (past the configured
+  threshold) and `EPIC_DONE_WITH_OPEN_CHILDREN` — shown in the data-quality report, never
+  corrected.
+- **D12 — Everyone sees every level.** Every signed-in user sees all reports down to individuals;
+  configuration and data sources stay ADMIN-only.
+- **D13 — Closed sprints are frozen at completion, with the live view beside them**; the difference
+  (late worklogs, re-estimates, re-mapped statuses) is flagged.
+- **D14 — Logging time is expected for all work**; a DONE task without worklogs is a data-quality
+  finding and is left out of estimation accuracy.
+- **D15 — Estimation accuracy is judged against the estimate at start**; the estimate at done is a
+  second view (report 5 shows the adjustments in between).
+- **D16 — Added reports:** aging WIP, blocked time, item counts beside SP with the backlog in
+  sprints, and a data-quality view (reports 11–14).
 
 ## Gaps in `norm` today
 
@@ -294,6 +357,9 @@ What the implementation must add to PROCESS (with a `PROCESSING_VERSION` bump) b
   Team, story points, Flagged); the work-category field (and any future configurable field) needs
   its current value and its changes kept — e.g. a `custom_fields` JSONB of current values plus
   change tracking for configured field ids.
+- **Worklog `created`/`updated` timestamps.** `norm.work_item_worklogs` keeps only `started`;
+  late logging (report 14) needs when the worklog was actually entered. `raw.jira_worklogs` already
+  has the full payload.
 - **Worklog time zone.** `started` carries its own offset; converting to working days uses Flow's
   calendar and zone, not the author's local day.
 - Sprints map to teams through their **board**, and a board may span several spaces — harmless
