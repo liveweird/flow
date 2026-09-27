@@ -23,15 +23,19 @@ rendered_dir=$(mktemp -d)
 trap 'rm -rf "$rendered_dir"' EXIT HUP INT TERM
 
 # The Secret is intentionally excluded: create it out of band using secret.yaml's header.
+# Both Deployments carry the same `image: flow-app:local-build` render placeholder, so both get
+# the tag substitution below.
 for manifest in "$script_dir"/*.yaml; do
     case "$(basename -- "$manifest")" in
-        secret.yaml | app-deployment.yaml) continue ;;
+        secret.yaml | web-deployment.yaml | worker-deployment.yaml) continue ;;
     esac
     cp "$manifest" "$rendered_dir/"
 done
 
-sed "s|image: flow-app:local-build|image: flow-app:$image_tag|" \
-    "$script_dir/app-deployment.yaml" >"$rendered_dir/app-deployment.yaml"
+for deployment in web-deployment.yaml worker-deployment.yaml; do
+    sed "s|image: flow-app:local-build|image: flow-app:$image_tag|" \
+        "$script_dir/$deployment" >"$rendered_dir/$deployment"
+done
 
 kubectl -n flow get secret flow-secrets >/dev/null
 kubectl apply -f "$rendered_dir"

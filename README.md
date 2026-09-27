@@ -8,10 +8,15 @@ outlier detection, and input for continuous improvement. The name refers to the 
 (Theory of Constraints, Kanban, Reinertsen's cost-of-delay economics): exposing where work waits,
 not who is busy.
 
-## What's here today (v0.1.0 — foundation)
+## What's here today (v0.2.0 — Jira ingestion)
 
-No Jira/GitLab data exists yet. This release is the generic foundation the rest of Flow is built
-on:
+- **Jira Cloud ingestion** — ADMIN-managed connections (a service account's scoped, read-only
+  API token, encrypted at rest), scheduled and on-demand syncs into a raw store with resumable
+  cursors, a daily reconcile, a neutral normalized layer (status/field intervals, worklogs,
+  sprints, boards), a data profile of what the tenant's data actually contains, and a raw issue
+  inspector — see "Connecting Jira" below. No flow metrics yet: they come with the domain model.
+
+Built on the v0.1.0 foundation:
 
 - accounts — JWT sign-in with a sliding refresh pair and a revocation blocklist, opt-in **email
   MFA**, self-service password reset, per-account lockout and per-IP rate limits,
@@ -24,11 +29,10 @@ on:
 
 ## Roadmap
 
-- **v0.2.0 — Jira ingestion.** An ADMIN-managed Jira Cloud connection (an Atlassian service
-  account + a scoped read-only API token, encrypted at rest), a raw store with incremental
-  cursors, and a neutral normalized layer above it.
 - **Next — the domain model.** Assumptions, a conceptual model and its invariants for flow
-  metrics, built on the normalized layer above.
+  metrics, built on the normalized layer and a real tenant's data profile.
+- **Then** — the metric catalogue, the interpretation layer and the first dashboards; GitLab as a
+  second connector on the same ingestion framework.
 
 See `CLAUDE.md`'s "Product" and "Donors" sections for the full roadmap and which sibling project
 (Covenant, Lettuce, Toadie) each future capability ports from.
@@ -39,8 +43,7 @@ See `CLAUDE.md`'s "Product" and "Donors" sections for the full roadmap and which
   server-side revocation blocklist, PostgreSQL with [Flyway](https://flywaydb.org) migrations and
   [Exposed](https://github.com/JetBrains/Exposed) (R2DBC), OpenTelemetry, RFC 7807 problem-detail
   errors, Swagger UI at `/openapi` (development mode). Application-level encryption at rest
-  (`infra/crypto/FieldCipher`, AES-256-GCM) is wired and ready for its first consumer (the Jira
-  API token, v0.2.0).
+  (`infra/crypto/FieldCipher`, AES-256-GCM) protects the stored Jira API token.
 - **Frontend**: [Vite](https://vite.dev) + React 19 + TypeScript + [Mantine](https://mantine.dev),
   react-i18next (English + Polish), a typed API client generated from the OpenAPI contract.
 - **Quality gates**: detekt (zero findings), Kover coverage floors, dependency-family alignment,
@@ -106,6 +109,42 @@ OrbStack without `/var/run/docker.sock`, export `DOCKER_HOST=unix://$HOME/.orbst
 first. See [dependency maintenance](.claude/docs/dependencies.md) for compatibility pins,
 automated updates, and runtime verification.
 
+## Connecting Jira
+
+Once the stack is running, an ADMIN can point Flow at a real Jira Cloud site from the **Data
+sources** page (Administration nav). Before clicking New, have ready:
+
+- An **Atlassian service account** — a dedicated account for Flow's own reads, not a real person's.
+- A **scoped, read-only API token** for that account, carrying only the scopes Flow's Test
+  connection probes actually use: `read:jira-user`, `read:jql:jira`, `read:field:jira`,
+  `read:status:jira`, `read:project:jira`, `read:issue-details:jira`, `read:issue:jira`, and — if
+  boards/sprints matter to this connection — `read:board-scope:jira-software`,
+  `read:board-scope.admin:jira-software`, `read:sprint:jira-software` (see
+  `.claude/docs/jira-integration.md`'s "Test connection" table for the full probe-to-scope mapping;
+  a missing board/sprint scope only degrades those optional probes, it never fails the connection).
+- The Jira **site URL**, exactly `https://<site>.atlassian.net`.
+- The **project keys** to bring into scope (worklogs and issue data are stored for these projects
+  only, never the whole tenant — see `.claude/docs/ingestion.md`'s WORKLOGS "A1" note).
+
+In the editor modal, fill in the site URL, email and API token, pick the auth scheme (Basic is the
+usual choice), list the project keys, then run **Test connection** — every probe's result (ok/scope
+hint) shows before you save, so a scope problem surfaces immediately rather than after the first
+sync fails partway through. Save, then open the connection (its name in the list) and click **Sync
+now** to enqueue the first SYNC job. The details page follows it live — the current job's stream and
+progress counters, the per-stream cursors and the raw-store counts refresh every 5 seconds while a
+job is open — and keeps the paged job history, with **Reconcile now**, **Reprocess** and **Cancel running job**
+beside it. Once that job reaches **Succeeded**, the **Data profile** page shows the connection's data
+profile: what workflows, boards, custom fields, estimate/worklog coverage and reopen rate this
+tenant's own data actually has. The **Raw issue inspector** looks one issue up by key or id and shows its
+raw payload, changelog, worklogs and normalized status intervals — the place to start when a
+profile number looks wrong. See `.claude/docs/ingestion.md`'s "Reading the data profile after the
+first real sync" for the full walkthrough of what to look at first.
+
+To try all of this without a real tenant, the compose stack's `jira-stub` service serves a
+deterministic sample dataset: create a data source with any `https://<name>.atlassian.net` site
+URL, any email and token, and the project keys `FLO`, `PLT`, `GTM`, `OPS` — the app reroutes every
+Jira call to the stub in development mode (`JIRA_STUB_BASE_URL`; see `sample-data/README.md`).
+
 ## Configuration (environment variables)
 
 `server/src/main/resources/application.yaml` is the authoritative reference — every setting there
@@ -117,6 +156,7 @@ transport at startup (`.claude/docs/security.md`).
 | Variable | Default | Purpose |
 |---|---|---|
 | `KTOR_DEVELOPMENT` | `true` | Development mode (`true`) vs production mode — HSTS/HTTPS redirect and the fail-closed startup checks. The image ships `false`. |
+| `FLOW_ROLE` | `all` | `web` (HTTP API + SPA, no ingestion worker), `worker` (health/ready probes only, runs the ingestion worker) or `all` (both, one process). An unrecognized value refuses to start. See `.claude/docs/ingestion.md` "Roles". |
 | `LOGIN_LOCKOUT_THRESHOLD` | `5` | Consecutive failures per account before `/login` answers 429. |
 | `LOGIN_LOCKOUT_DURATION_SECONDS` | `900` | How long a locked account stays locked. |
 | `LOGIN_LOCKOUT_MAX_TRACKED` | `10000` | Maximum in-memory login identities; new identities receive 429 at capacity while active counters and locks remain. |
@@ -128,7 +168,7 @@ transport at startup (`.claude/docs/security.md`).
 | `MFA_CODE_TTL_SECONDS` | `300` | Lifetime of an emailed MFA code. |
 | `MFA_MAX_ATTEMPTS` | `5` | Wrong-code attempts before a challenge dies. |
 | `MFA_MAX_TRACKED` | `10000` | Maximum pending email-MFA challenges; new issuance receives 429 at capacity. |
-| `DATA_ENCRYPTION_KEY` | *(dev key, burned)* | AES-256-GCM key (64 hex) for any future stored credential (the Jira API token, v0.2.0) — the dev default is burned, production refuses it. Back it up apart from the database. |
+| `DATA_ENCRYPTION_KEY` | *(dev key, burned)* | AES-256-GCM key (64 hex) for stored credentials (today: the Jira API token) — the dev default is burned, production refuses it. Back it up apart from the database. |
 | `DATA_ENCRYPTION_KEY_PREVIOUS` | *(blank)* | Decrypt-only fallback during a key rotation (boot once, then remove). |
 | `SECURITY_CSRF_ENABLED` | `false` | CSRF plugin gate — off (bearer JWT, no cookies). |
 | `JWT_SECRET` | `secret` | HMAC key for the access/refresh pair — production requires a private 64-hex key (`openssl rand -hex 32`); the placeholders and compose demo key are burned. |
@@ -151,6 +191,22 @@ transport at startup (`.claude/docs/security.md`).
 | `SMTP_STARTTLS` | `true` | STARTTLS on the SMTP connection. |
 | `MAIL_FROM` | `flow@localhost` | Sender address of every outbound email. |
 | `MAIL_APP_URL` | *(blank)* | Absolute URL of this deployment — emails carry a sign-in link when set. |
+| `JIRA_REQUEST_TIMEOUT_SECONDS` | `30` | Per-attempt HTTP timeout (request + connect) for the Jira client. |
+| `JIRA_REQUEST_DEADLINE_SECONDS` | `180` | Total budget for one logical Jira call across every retry/backoff attempt. |
+| `JIRA_MAX_RESPONSE_BYTES` | `33554432` | Bounded-read ceiling on a single Jira response body (32 MiB). |
+| `JIRA_MAX_CONCURRENT_REQUESTS` | `4` | Semaphore cap on concurrent in-flight Jira calls per process. |
+| `JIRA_MAX_RETRIES` | `4` | Retries on 429/5xx/IOException before the Jira client fails terminally. |
+| `JIRA_PAGE_SIZE` | `100` | The ISSUES stream's `search/jql` page size (`maxResults`, 1..500); the stub ignores it and returns its own fixed-size pages. |
+| `JIRA_INCREMENTAL_OVERLAP_MINUTES` | `10` | How far the ISSUES stream re-widens its relative `updated` window past the last completed run's watermark (0..1440). |
+| `JIRA_CHANGELOG_BULK_SIZE` | `50` | The CHANGELOGS stream's `changelog/bulkfetch` chunk size (1..1000) — MUST match the stub's own fixed 50-id chunking. |
+| `JIRA_STUB_BASE_URL` | *(blank)* | Reroutes the Jira tenant_info + gateway hosts to the in-JVM/compose stub — development only; production refuses a non-blank value. |
+| `INGEST_SCHEDULER_TICK_SECONDS` | `15` | How often the `worker`-role scan loop runs: enqueue due jobs, prune old rows, claim+run. |
+| `INGEST_WORKER_SLOTS` | `2` | Cap on concurrently RUNNING sync jobs for this worker instance. |
+| `INGEST_LEASE_SECONDS` | `300` | A claimed job's lease lifetime; heartbeated at `leaseSeconds/3`. An expired lease is reclaimable by any worker. |
+| `INGEST_MAX_ATTEMPTS` | `3` | How many times a job may be (re)claimed before it fails `RETRIES_EXHAUSTED`. |
+| `INGEST_JOB_RETENTION_DAYS` | `90` | Finished (`SUCCEEDED`/`FAILED`/`CANCELLED`) `sync_jobs` rows older than this are hard-deleted (the documented `sync_jobs` history-pruning exception, `.claude/docs/persistence.md`). |
+| `INGEST_PURGE_GRACE_DAYS` | `7` | Days a soft-deleted data source's connector rows survive before the internal `PURGE` job removes them. |
+| `INGEST_WORKER_ID` | *(blank)* | This worker instance's lease-owner identity; blank derives hostname + a random suffix. |
 | `POSTGRES_JDBC_URL` | `jdbc:postgresql://localhost:5435/flow` | Flyway's JDBC URL. |
 | `POSTGRES_R2DBC_URL` | `r2dbc:postgresql://localhost:5435/flow` | The runtime R2DBC URL. |
 | `POSTGRES_USER` | `flow` | Database user. |

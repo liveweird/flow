@@ -1,0 +1,18 @@
+{
+  "startAt": 3,
+  "maxResults": 3,
+  "total": 4,
+  "worklogs": [
+    {
+      "id": "701156",
+      "issueId": "31169",
+      "author": {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d08"
+      },
+      "started": "2026-08-05T11:28:39.108Z",
+      "created": "2026-08-05T11:28:39.108Z",
+      "updated": "2026-08-05T11:28:39.108Z",
+      "timeSpentSeconds": 7200
+    }
+  ]
+}

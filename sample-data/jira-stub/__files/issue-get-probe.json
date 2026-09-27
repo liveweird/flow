@@ -1,0 +1,57 @@
+{
+  "id": "30001",
+  "key": "OPS-1",
+  "fields": {
+    "summary": "Story OPS-1: sample work item",
+    "status": {
+      "id": "10002",
+      "name": "Done",
+      "statusCategory": {
+        "id": 3,
+        "key": "done",
+        "name": "Done",
+        "colorName": "green"
+      }
+    },
+    "issuetype": {
+      "id": "10001",
+      "name": "Story",
+      "subtask": false
+    },
+    "project": {
+      "id": "10003",
+      "key": "OPS",
+      "name": "Operations"
+    },
+    "created": "2025-09-02T12:40:17.309Z",
+    "updated": "2025-09-11T12:40:17.309Z",
+    "resolutiondate": "2025-09-11T12:40:17.309Z",
+    "assignee": {
+      "accountId": "5f8a1b2c3d4e5f6a7b8c9d28",
+      "displayName": "Sample User 28"
+    },
+    "reporter": {
+      "accountId": "5f8a1b2c3d4e5f6a7b8c9d10",
+      "displayName": "Sample User 10"
+    },
+    "priority": {
+      "id": "1",
+      "name": "Highest"
+    },
+    "resolution": {
+      "id": "10000",
+      "name": "Done"
+    },
+    "labels": [
+      "quick-win",
+      "regression"
+    ],
+    "components": [],
+    "customfield_10001": {
+      "id": "8e6f8c9a-1a2b-4c3d-9e0f-222222222222",
+      "name": "Platform Core"
+    },
+    "customfield_10019": "0|i78638:",
+    "customfield_10021": []
+  }
+}

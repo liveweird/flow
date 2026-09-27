@@ -63,7 +63,29 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
   `team.member_removed` (byUserId/teamId/targetUserId) — every team mutation; a rejected save
   emits nothing,
 - `authz.denied` (every 403, from the `ForbiddenException` handler in `plugins/ErrorHandling.kt`,
-  with method/path/byUserId/detail).
+  with method/path/byUserId/detail),
+- `data_source.created` (byUserId/dataSourceId/name/siteHost — HOST only, never the full
+  `siteUrl`, and never the API token) / `.updated` (byUserId/dataSourceId/name/siteHost) /
+  `.token_rotated` (byUserId/dataSourceId — its own event, separate from `.updated`, so the audit
+  trail can tell a credential rotation from an ordinary settings edit without ever naming the
+  token) / `.deleted` (byUserId/dataSourceId) — the v0.2.0 data-sources CRUD (V8) /
+  `.tested` (byUserId/siteHost/ok/failedEndpoints — emitted by both `POST /api/v1/data-sources/test`
+  and `.../{id}/test`; `failedEndpoints` names the probe rows that failed, never a token or the
+  full request),
+- `sync_job.requested` (byUserId/dataSourceId/jobId/kind/coalesced — `POST .../sync-jobs`;
+  emitted whether or not the request coalesced into an already-open job) / `.cancel_requested`
+  (byUserId/dataSourceId/jobId — `POST .../sync-jobs/{jobId}/cancel`) — the web-role surface
+  (`ingest/SyncJobRoutes.kt`); `.started` (jobId/dataSourceId/kind/attempt/workerId — a job the
+  worker just claimed) / `.succeeded` (jobId/dataSourceId/kind) / `.failed`
+  (jobId/dataSourceId/kind/errorCode — always `RUN_FAILED` today; the exception message itself
+  goes to `error_detail` on the row, not the audit line) / `.released`
+  (jobId/dataSourceId/workerId — a still-RUNNING job put back to `PENDING` on
+  `ApplicationStopping`) — the worker-role surface (`ingest/IngestWorker.kt`). A run that lost
+  its lease mid-way, or was cancelled via `cancel_requested_at`, logs a WARN/INFO instead of a
+  further audit event — the row's own `status`/`error_code` already carries that outcome.
+- `outbound.blocked` (scheme/host ONLY — never the full URL) — every rejection from
+  `infra/outbound/OutboundGuard.kt`'s host allow-list or address-range check, emitted by
+  `GuardedDns` on the Jira HTTP client's every outbound call (`.claude/docs/jira-integration.md`).
 
 Field-naming convention: the acting caller is `byUserId` everywhere except the auth lifecycle
 events (`login.*`, `logout`, `refresh.rejected`), where `userId` identifies the account being
@@ -87,5 +109,15 @@ one).
 
 ### Not yet ported
 
-Nothing remains on the observability list; a domain feature (starting with v0.2.0's Jira
-ingestion — connection mutations, sync runs) arrives with its own audit-event paragraph here.
+The data-sources CRUD and Test-connection audit trail, `outbound.blocked`, and the sync-job queue's
+lifecycle events (`sync_job.requested`/`.cancel_requested`/`.started`/`.succeeded`/`.failed`/
+`.released`) have all landed. REFERENCE, ISSUES, CHANGELOGS, WORKLOGS and RECONCILE
+(`.claude/docs/ingestion.md` "Streams") all run for real now, but none of them emits a stream-level
+audit event of its own — only `sync_job.*` brackets the whole job. **Per-stream progress instead
+lives entirely in `sync_jobs.progress`/`current_stream`** (`StreamContext.incrementProgress`/
+`currentStreamName`, flushed on every `heartbeat()`, surfaced read-only at
+`GET …/{id}/status` — see `.claude/docs/ingestion.md` "Progress counters"/"Sync status endpoint"),
+**not the audit trail**: it is a best-effort operational signal (a page count, which stream is
+active), not a security-relevant event, so it deliberately does not go through `audit(...)`. PROCESS
+and PROFILE follow the same rule (`issuesProcessed`/`issuesFailed`, `profileComputed`). Any FUTURE stream-level
+audit trail (as opposed to progress) arrives with a later commit and gets its own paragraph here.

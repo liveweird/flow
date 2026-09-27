@@ -1,0 +1,58 @@
+{
+  "startAt": 0,
+  "maxResults": 3,
+  "total": 5,
+  "histories": [
+    {
+      "id": "501235",
+      "created": "2025-11-18T03:17:21.535Z",
+      "author": {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d07"
+      },
+      "items": [
+        {
+          "field": "Sprint",
+          "fieldId": "customfield_10020",
+          "from": null,
+          "fromString": null,
+          "to": "3061",
+          "toString": "Sprint 3061"
+        }
+      ]
+    },
+    {
+      "id": "501236",
+      "created": "2025-11-21T03:17:21.535Z",
+      "author": {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d23"
+      },
+      "items": [
+        {
+          "field": "status",
+          "fieldId": "status",
+          "from": "1",
+          "fromString": "To Do",
+          "to": "3",
+          "toString": "In Progress"
+        }
+      ]
+    },
+    {
+      "id": "501237",
+      "created": "2025-11-21T15:17:21.535Z",
+      "author": {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d24"
+      },
+      "items": [
+        {
+          "field": "assignee",
+          "fieldId": "assignee",
+          "from": null,
+          "fromString": null,
+          "to": "5f8a1b2c3d4e5f6a7b8c9d10",
+          "toString": "Sample User 10"
+        }
+      ]
+    }
+  ]
+}

@@ -19,6 +19,10 @@ ktor:
       - ch.nokillswit.plugins.OpenTelemetryKt.configureOpenTelemetry
       - ch.nokillswit.plugins.AutoHeadResponseKt.configureAutoHeadResponse
       - ch.nokillswit.plugins.ResourcesKt.configureResources
+      # The FLOW_ROLE switch (web|worker|all — app.role below). Early: no dependency on infra, and
+      # every later module (feature routes, the SPA catch-all) reads Application.servesApi() off
+      # the attribute this publishes.
+      - ch.nokillswit.plugins.RoleKt.configureRole
       # — infrastructure
       - ch.nokillswit.infra.mail.MailKt.configureMail
       # Crypto before Database: the composition root hands the FieldCipher to any service
@@ -30,12 +34,30 @@ ktor:
       # Public liveness/readiness probes (/api/v1/health, /api/v1/ready); after Database (the probe
       # round-trips it).
       - ch.nokillswit.plugins.HealthKt.configureHealth
+      # The guarded Jira HTTP stack (outbound guard + Test-connection service + the Connector
+      # registry) — before the data-sources/sync-job routes, which read it off attributes.
+      - ch.nokillswit.jira.JiraKt.configureJira
+      # The FLOW_ROLE=worker scheduler (v0.2.0 plan §5) — a no-op unless runsWorker(); after the
+      # Connector registry, before the feature route modules.
+      - ch.nokillswit.ingest.IngestWorkerKt.configureIngestWorker
       # — features
       - ch.nokillswit.users.UserRoutesKt.configureUserRoutes
       - ch.nokillswit.teams.TeamRoutesKt.configureTeamRoutes
       - ch.nokillswit.auth.AuthRoutesKt.configureAuthRoutes
+      - ch.nokillswit.ingest.DataSourceRoutesKt.configureDataSourceRoutes
+      - ch.nokillswit.ingest.SyncJobRoutesKt.configureSyncJobRoutes
+      - ch.nokillswit.ingest.SyncStatusRoutesKt.configureSyncStatusRoutes
+      - ch.nokillswit.ingest.RawIssueInspectorRoutesKt.configureRawIssueInspectorRoutes
+      - ch.nokillswit.ingest.DataProfileRoutesKt.configureDataProfileRoutes
       # — catch-all router
       - ch.nokillswit.plugins.RoutingKt.configureRouting
+
+app:
+  # The FLOW_ROLE switch (plugins/Role.kt): web|worker|all, case-insensitive. `web` serves the
+  # HTTP API; `worker` serves only the health/ready probes and runs the ingestion worker (arriving
+  # in commit 5 of the v0.2.0 plan); `all` (the default — dev, docker compose, tests) does both in
+  # one process. An unrecognized value fails startup in every mode.
+  role: "$FLOW_ROLE:all"
 
 security:
   # Per-account login lockout (complements the per-IP rate limit): after `threshold`
@@ -61,7 +83,7 @@ security:
   # Not configurable, stated for the operator: the JWT blocklist (auth/TokenBlocklistService.kt)
   # serves revocation verdicts through a 30-second in-memory cache per instance. A logout revokes
   # on the instance that handled it immediately; on a SECOND instance the token would keep working
-  # for up to 30 s — the deployment is single-replica (k8s/app-deployment.yaml), like the throttles
+  # for up to 30 s — the deployment is single-replica (k8s/web-deployment.yaml), like the throttles
   # above assume; scale out only after moving these to a shared store.
   # Self-service password reset: at most one request per submitted email per interval,
   # uniformly whether or not the account exists. In-memory, per-instance, like the lockout.
@@ -116,7 +138,7 @@ http:
   # Installs XForwardedHeaders so the client IP (rate limiting) and scheme (HTTPS
   # redirect) come from X-Forwarded-* headers. The proxy MUST set X-Forwarded-For,
   # X-Forwarded-Proto and X-Forwarded-Host and overwrite client-supplied values —
-  # k8s/app-deployment.yaml is the reference. X-Forwarded-Port is NOT read (cleared
+  # k8s/web-deployment.yaml is the reference. X-Forwarded-Port is NOT read (cleared
   # in plugins/Http.kt — nothing needs it, and a non-numeric client value used to
   # throw a 500 out of CallSetup before any route ran).
   behindProxy: "$HTTP_BEHIND_PROXY:false"
@@ -166,6 +188,62 @@ mail:
   # Optional absolute URL of this deployment (e.g. https://flow.example.com);
   # when set, outbound emails include a sign-in link.
   appUrl: "$MAIL_APP_URL:"
+
+jira:
+  # Outbound HTTP behavior for the Jira Cloud client (v0.2.0 plan §5/§6,
+  # `.claude/docs/jira-integration.md`). Every call is bounded by this timeout (HttpTimeout, both
+  # request and connect) and retried with exponential backoff on 429/5xx/IOException.
+  requestTimeoutSeconds: "$JIRA_REQUEST_TIMEOUT_SECONDS:30"
+  # [LOW-2] The TOTAL budget for one logical call, covering every retry attempt plus backoff —
+  # `requestTimeoutSeconds` above only bounds a SINGLE attempt, so unbounded retries could
+  # otherwise hold a `jira.maxConcurrentRequests` Semaphore permit for the ~10 minutes a
+  # `maxRetries`-deep exponential backoff can sum to. A Retry-After beyond the remaining budget
+  # fails RATE_LIMITED immediately rather than waiting it out.
+  requestDeadlineSeconds: "$JIRA_REQUEST_DEADLINE_SECONDS:180"
+  # The Covenant-shaped bounded-read ceiling on a single response body (32 MiB default).
+  maxResponseBytes: "$JIRA_MAX_RESPONSE_BYTES:33554432"
+  # A Semaphore cap on concurrent in-flight Jira calls (per process).
+  maxConcurrentRequests: "$JIRA_MAX_CONCURRENT_REQUESTS:4"
+  maxRetries: "$JIRA_MAX_RETRIES:4"
+  # The ISSUES stream's (plan §7, jira/JiraIssuesStream.kt) `search/jql` page size — the stub
+  # ignores this and returns its own fixed-size pages regardless (sample-data/README.md).
+  pageSize: "$JIRA_PAGE_SIZE:100"
+  # The CHANGELOGS stream's (plan §7, jira/JiraChangelogStream.kt) `changelog/bulkfetch` chunk size
+  # — MUST match sample-data/jira-stub's own fixed 50-id chunking (sample-data/README.md) for the
+  # pipeline test's exact-count assertions (and a real tenant's own bulkfetch ceiling) to hold.
+  changelogBulkSize: "$JIRA_CHANGELOG_BULK_SIZE:50"
+  # How far the ISSUES stream re-widens its relative `updated` window past the last completed
+  # run's watermark, on every run AFTER the first (the first run's window is `backfillFrom`
+  # instead) — covers clock skew/a slow last page committing an issue Jira stamped just before the
+  # watermark but the search only surfaced after it.
+  incrementalOverlapMinutes: "$JIRA_INCREMENTAL_OVERLAP_MINUTES:10"
+  # Reroutes BOTH the tenant_info host and the gateway host to the in-JVM/compose Jira stub
+  # (sample-data/jira-stub) — DEVELOPMENT ONLY; production startup refuses a non-blank value
+  # (jira/Jira.kt's fail-closed check, ported from the crypto-key/mail-transport precedent).
+  stubBaseUrl: "$JIRA_STUB_BASE_URL:"
+
+ingest:
+  # The sync-job queue and worker scheduler (v0.2.0 plan §5/§9, ingest/IngestWorker.kt,
+  # `.claude/docs/ingestion.md` "Worker scheduler"). Validated on every boot regardless of
+  # FLOW_ROLE (the configureRole/configureJira fail-fast idiom) — only the scan loop itself is
+  # worker-only.
+  # How often the worker's scan loop runs: enqueue due jobs, prune old rows, claim+run.
+  schedulerTickSeconds: "$INGEST_SCHEDULER_TICK_SECONDS:15"
+  # The Semaphore cap on concurrently RUNNING jobs for this worker instance.
+  workerSlots: "$INGEST_WORKER_SLOTS:2"
+  # A claimed job's lease lifetime; heartbeated at leaseSeconds/3. An expired RUNNING lease is
+  # reclaimable by any worker (a crashed/partitioned worker's job is not stuck forever).
+  leaseSeconds: "$INGEST_LEASE_SECONDS:300"
+  # How many times a job may be (re)claimed before the claim loop fails it RETRIES_EXHAUSTED.
+  maxAttempts: "$INGEST_MAX_ATTEMPTS:3"
+  # Finished (SUCCEEDED/FAILED/CANCELLED) rows older than this are hard-deleted — the documented
+  # sync_jobs history-pruning exception (`.claude/docs/persistence.md`).
+  jobRetentionDays: "$INGEST_JOB_RETENTION_DAYS:90"
+  # A soft-deleted connection becomes eligible for the internal PURGE job after this many days —
+  # a mistaken delete can be undone within the grace period (plan §0 A2).
+  purgeGraceDays: "$INGEST_PURGE_GRACE_DAYS:7"
+  # This worker instance's lease-owner identity. Blank derives hostname + a random suffix.
+  workerId: "$INGEST_WORKER_ID:"
 
 postgres:
   # Local-dev defaults point at the docker-compose Postgres, which maps host port

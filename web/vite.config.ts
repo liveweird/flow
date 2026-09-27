@@ -71,12 +71,14 @@ export default defineConfig({
       // Floors set just below current measured coverage so they gate regressions without
       // blocking unrelated work. Raise as coverage improves, never lower.
       // (2026-09-26: measured after trimming the donor app's domain features down to Flow's —
-      // actuals lines 96.90 / statements 94.09 / functions 90.30 / branches 89.58.)
+      // actuals lines 96.90 / statements 94.09 / functions 90.30 / branches 89.58.
+      // 2026-09-27, v0.2.0 with the data-source pages and their tests: lines 97.71 /
+      // statements 95.11 / functions 92.15 / branches 90.23.)
       thresholds: {
-        lines: 95,
-        statements: 92,
-        functions: 88,
-        branches: 87,
+        lines: 97,
+        statements: 94,
+        functions: 91,
+        branches: 89,
       },
     },
   },

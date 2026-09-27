@@ -9,11 +9,12 @@ describe("visibleSections", () => {
     expect(paths).toContain("/teams");
     expect(paths).not.toContain("/users");
     expect(paths).not.toContain("/feature-flags");
+    expect(paths).not.toContain("/data-sources");
   });
 
-  test("an admin session gets Teams, Users and Feature flags in the Administration section", () => {
+  test("an admin session gets Teams, Users, Feature flags and Data sources in the Administration section", () => {
     const admin = visibleSections(true).find((s) => s.label === "appShell.section.administration");
-    expect(admin?.items.map((l) => l.to)).toEqual(["/teams", "/users", "/feature-flags"]);
+    expect(admin?.items.map((l) => l.to)).toEqual(["/teams", "/users", "/feature-flags", "/data-sources"]);
   });
 
   test("the account leaves never sit in a section", () => {

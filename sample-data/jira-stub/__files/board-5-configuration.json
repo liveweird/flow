@@ -1,0 +1,34 @@
+{
+  "id": 5,
+  "name": "Security board",
+  "type": "kanban",
+  "columnConfig": {
+    "columns": [
+      {
+        "name": "To Do",
+        "statuses": [
+          {
+            "id": "1"
+          }
+        ]
+      },
+      {
+        "name": "In Progress",
+        "statuses": [
+          {
+            "id": "3"
+          }
+        ]
+      },
+      {
+        "name": "Done",
+        "statuses": [
+          {
+            "id": "10002"
+          }
+        ]
+      }
+    ],
+    "constraintType": "issueCount"
+  }
+}

@@ -1,0 +1,26 @@
+[
+  {
+    "id": 1,
+    "key": "undefined",
+    "name": "No Category",
+    "colorName": "medium-gray"
+  },
+  {
+    "id": 2,
+    "key": "new",
+    "name": "To Do",
+    "colorName": "blue-gray"
+  },
+  {
+    "id": 3,
+    "key": "done",
+    "name": "Done",
+    "colorName": "green"
+  },
+  {
+    "id": 4,
+    "key": "indeterminate",
+    "name": "In Progress",
+    "colorName": "yellow"
+  }
+]

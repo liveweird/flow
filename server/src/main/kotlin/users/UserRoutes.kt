@@ -19,6 +19,7 @@ import ch.nokillswit.infra.paging.optionalString
 import ch.nokillswit.infra.paging.parsePaging
 import ch.nokillswit.infra.paging.toPage
 import ch.nokillswit.infra.validation.sanitizeSingleLine
+import ch.nokillswit.plugins.servesApi
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.resources.Resource
@@ -97,6 +98,9 @@ class Users {
 }
 
 fun Application.configureUserRoutes() {
+    // The worker role serves only the health/ready probes (plugins/Health.kt) — see Role.kt.
+    if (!servesApi()) return
+
     val userService = attributes[UserServiceKey]
 
     routing {

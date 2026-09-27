@@ -16,9 +16,12 @@ object RateLimits {
     const val REFRESH = "refresh"
     const val PASSWORD_RESET = "password-reset"
     const val MFA = "mfa"
+    /** `POST /api/v1/data-sources/test` and `.../{id}/test` (v0.2.0 plan §9) — the web role's one outbound call. */
+    const val DATA_SOURCE_TEST = "data-source-test"
 
     const val DEFAULT_REFRESH_PER_MINUTE = 30
     private const val MFA_PER_MINUTE = 10
+    private const val DATA_SOURCE_TEST_PER_MINUTE = 10
     private const val LOGIN_PER_MINUTE_PRODUCTION = 10
     private const val LOGIN_PER_MINUTE_DEVELOPMENT = 1000
     private const val RESET_PER_MINUTE_PRODUCTION = 5
@@ -38,6 +41,7 @@ object RateLimits {
         if (developmentMode) RESET_PER_MINUTE_DEVELOPMENT else RESET_PER_MINUTE_PRODUCTION,
     )
     internal fun mfaLimit() = MFA_PER_MINUTE
+    internal fun dataSourceTestLimit() = DATA_SOURCE_TEST_PER_MINUTE
 }
 
 /**
@@ -54,6 +58,7 @@ fun Application.configureRateLimits() {
             REFRESH to refreshLimit(),
             PASSWORD_RESET to passwordResetLimit(),
             MFA to mfaLimit(),
+            DATA_SOURCE_TEST to dataSourceTestLimit(),
         )
     }
     install(RateLimit) {

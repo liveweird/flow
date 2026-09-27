@@ -122,6 +122,42 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
   `ForbiddenException` handler in `plugins/ErrorHandling.kt` — denials are part of the security
   trail, and route code gets it for free by **throwing**, never hand-rolling a 403 response. See
   "Audit trail" in `.claude/docs/observability.md`.
+  - `/api/v1/data-sources` (v0.2.0, V8) → **ADMIN only, the whole surface** — unlike teams, the
+    list/get reads are gated too (there is no any-authenticated read here; the connection holds a
+    credential). `requireAdmin` runs BEFORE `call.receive()` on every mutation (guard-before-read,
+    like teams). `jira.siteUrl` is the connection's identity (mirrors Toadie's `baseUrl` rule): a
+    PUT changing it is `409`; a case-insensitive name clash with an active data source is `409`
+    (the V8 partial index). `jira.apiToken` is write-only — required on create, optional on
+    update (omitted keeps the current token, present rotates it, audited separately as
+    `data_source.token_rotated`); no response or audit event ever carries it, only
+    `jira.hasApiToken`. Delete is soft (disables the connection; the raw/normalized rows purge
+    later per the v0.2.0 plan's grace-period amendment). Mutations audit
+    `data_source.created`/`.updated`/`.token_rotated`/`.deleted`. Tests: `DataSourceRoutesTest`.
+  - `/api/v1/data-sources/{id}/sync-jobs` (`POST`/`GET`, `GET .../sync-jobs/{jobId}`,
+    `POST .../sync-jobs/{jobId}/cancel`, `ingest/SyncJobRoutes.kt`) → **ADMIN only**, `requireAdmin`
+    before `call.receive()` on the enqueue mutation (guard-before-read/-body, the data-sources
+    idiom). A caller-requested `PURGE` kind is `400` — only the scheduler enqueues it. Mutations
+    audit `sync_job.requested`/`.cancel_requested`. Tests: `SyncJobRoutesTest`.
+  - `GET /api/v1/data-sources/{id}/status` (v0.2.0 plan §9/§12 item 7, `ingest/SyncStatusRoutes.kt`)
+    → **ADMIN only, read-only** — a diagnostic view over state the data-sources/sync-jobs/cursors
+    surfaces above already own (connection summary, stream cursors, raw-store counts, last job per
+    kind, the running job), assembled here rather than duplicated. No mutation, so no audit event of
+    its own — see `.claude/docs/ingestion.md` "Sync status endpoint" for the response shape. Tests:
+    `SyncStatusRoutesTest`.
+  - `GET /api/v1/data-sources/{id}/raw-issues/{issueKey}` (v0.2.0 plan §9/§12 item 8b,
+    `ingest/RawIssueInspectorRoutes.kt`) → **ADMIN only, read-only** — one raw Jira issue's stored
+    payload, changelog/worklog history and (once processed at least once) its `norm.*` shape.
+    `requireAdmin` runs before the data-source existence check (guard-before-read, the data-sources
+    idiom); `issueKey` is validated (`ISSUE_ID_PATTERN`/`ISSUE_KEY_PATTERN`, `400` otherwise) before
+    the lookup itself. A tombstoned issue is still returned, never `404`. No mutation, so no audit
+    event of its own — see `.claude/docs/ingestion.md` "Raw issue inspector". Tests:
+    `RawIssueInspectorTest`.
+  - `GET /api/v1/data-sources/{id}/profile` (v0.2.0 plan §8/§9/§12 item 9, `ingest/DataProfileRoutes.kt`)
+    → **ADMIN only, read-only** — the connection's stored data profile
+    (`source_connections.profile`/`profile_at`), computed by the PROFILE step after every successful
+    SYNC/REPROCESS. `computedAt` is `null` before the connection's first PROCESS pass rather than a
+    `404`. No mutation, so no audit event of its own — see `.claude/docs/ingestion.md` "Data profile".
+    Tests: `DataProfileTest`.
 - **Exceptions**: `UnauthorizedException` (→ 401), `ForbiddenException` (→ 403),
   `NotFoundException` (→ 404), `ConflictException` (→ 409), `TooManyRequestsException` (→ 429),
   and `BadGatewayException` (→ 502 — reserved for a future outbound-fetch upstream failure) live

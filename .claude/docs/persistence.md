@@ -51,7 +51,8 @@ in-network consumers use `postgres:5432`). There is one persistence stack:
   issues a query during boot, so the floor is open before the first request there; in development
   (the common local/test path) nothing acquires during boot unless `ADMIN_INITIAL_PASSWORD` is
   set — the encrypted-at-rest backfill (`encryptedAtRestServices()`) is the OTHER boot-time
-  acquirer, but that registry is empty today, so it is not yet a source of warmup either),
+  acquirer — `DataSourceService` since v0.2.0, whose backfill select runs on every boot — so the
+  floor now opens during boot in every mode),
   `maxAcquireTimeSeconds` (`POSTGRES_POOL_MAX_ACQUIRE_SECONDS`, default 10,
   1..600) and `maxIdleTimeSeconds` (`POSTGRES_POOL_MAX_IDLE_SECONDS`, default 600, 1..86400). Every
   pooled connection carries `application_name = flow` (`postgres.pool.applicationName`, test-only
@@ -96,7 +97,217 @@ display fields and the active-member counts, and checks member ids against activ
 the create/add transaction. List each new cross-feature read here as it lands — the list IS the
 permission.
 
-Current migrations are `V1`–`V7`:
+### Schemas
+
+Flow's PostgreSQL database is split across three schemas (v0.2.0 plan §0 A3, the main-session
+amendment over the architect's original all-`public`-with-prefixes recommendation):
+
+- **`public`** — the v0.1.0 foundation tables (`users`, `teams`, `team_members`, `revoked_tokens`,
+  `user_disabled_features`, …) plus the connector-agnostic operational tables that describe *how*
+  ingestion runs rather than the data it pulls: `source_connections` (V8), `sync_jobs` and
+  `sync_cursors` (V9). Flyway's own history table also stays here — `flyway.schemas` is left at its
+  default, so it never needs to know the other schemas exist.
+- **`raw`** — every connector's raw store, one table set per connector, named with the connector's
+  own prefix so two connectors never collide: `raw.jira_issues` and `raw.jira_entities` (V10, see
+  below), joined by `raw.jira_changelogs`/`raw.jira_worklogs` (V11, "The Jira changelog/worklog raw
+  store" below) and `raw.jira_reconcile_seen` (V12, "The Jira RECONCILE scratch table (V12)" below)
+  — the RECONCILE stream's own scratch table. A future GitLab connector adds `raw.gitlab_*`
+  alongside these rather than inventing a fourth schema.
+- **`norm`** — the neutral, source-agnostic layer every connector normalizes into (`work_items`,
+  `sprints`, `boards`, …) — landed at V13 (plan commit 8a, "The normalized layer (V13)" below).
+- **`metrics`** (not yet created) — phase 3's pre-aggregated tables get their own schema once that
+  work starts (plan §4).
+
+**How Exposed addresses a schema-qualified table.** No Exposed `Schema` object and no
+`search_path` override are involved: `JiraRawStore.kt`'s `Issues`/`Entities` table objects simply
+pass the dotted, schema-qualified name straight to the `Table(...)` constructor — e.g. `object
+Issues : Table("raw.jira_issues")` — and Exposed/R2DBC resolve it as-is, including a cross-schema
+FK reference back to `public.source_connections` (`reference("connection_id",
+DataSourceService.Connections)`). The plan's fallback (setting `search_path` on the pooled
+connection, with fully-qualified SQL in `exec` blocks, if qualified names misbehaved) was not
+needed. `CREATE SCHEMA IF NOT EXISTS raw`/`norm` runs in the first migration that needs each schema
+(V10 for `raw`; V13 does the same for `norm`) — never a standalone "create schemas" migration.
+
+### The Jira raw store (V10)
+
+`raw.jira_issues` and `raw.jira_entities` (v0.2.0 plan §4/§7, `jira/JiraRawStore.kt`) are the FIRST
+tables in the `raw` schema — the REFERENCE and ISSUES streams' target
+(`jira/JiraReferenceStream.kt`, `jira/JiraIssuesStream.kt`).
+
+- **`raw.jira_issues`** — PK `(connection_id, issue_id)` (the stable Jira numeric id; a project
+  move only changes the `issue_key`/`project_id`/`project_key` columns, never the PK). Identity
+  columns (`issue_key`, `project_id`, `project_key`, `issue_updated_at`) sit alongside `payload`
+  (the canonicalized `search/jql` issue document, `infra/json/CanonicalJson.kt`) and its `sha256`.
+  `changelog_synced_at`/`worklogs_synced_at` are populated by the CHANGELOGS/WORKLOGS streams (plan
+  commit 7, A1, `jira/JiraChangelogStream.kt`'s `markChangelogSynced`,
+  `jira/JiraWorklogStream.kt`'s `markWorklogsSynced`) as of V11. `needs_processing`/`processed_at`/
+  `processed_hash`/`processing_version` drive the PROCESS step (plan commit 8a, landed —
+  `jira/JiraProcessStream.kt`, see "The normalized layer (V13)" below): `markChangelogSynced`/
+  `markWorklogsSynced` flag `needs_processing = true` on every issue they touch, and
+  `JiraRawStore.issuesToProcess` claims the resulting backlog, ascending issue id, batches of 50.
+  `deleted_at`/`moved_out_at` are tombstone columns the RECONCILE stream sets (V12,
+  `jira/JiraReconcileStream.kt`); nothing in the REFERENCE/ISSUES/CHANGELOGS/WORKLOGS streams sets
+  `moved_out_at` on its own — a key/project change during an ISSUES page is just an ordinary column
+  update, not a distinct "move" code path. Three partial indexes back the streams' own claim scans:
+  `idx_raw_jira_issues_needs_processing` (PROCESS, plan commit 8a),
+  `idx_raw_jira_issues_stale_changelog` (CHANGELOGS, plan commit 7, V10,
+  `changelog_synced_at IS NULL AND deleted_at IS NULL`, read by
+  `JiraRawStore.staleChangelogIssueIds`) and `idx_raw_jira_issues_stale_worklogs` (WORKLOGS, plan
+  commit 7, V10, A1's per-issue backfill scan, same shape, read by `JiraRawStore.staleWorklogIssueIds`).
+- **`raw.jira_entities`** — PK `(connection_id, kind, entity_id)`, one row per REFERENCE-stream
+  entity kind (`JiraEntityKind`: `FIELD`, `STATUS`, `STATUS_CATEGORY`, `PROJECT`,
+  `PROJECT_STATUSES`, `ISSUE_TYPE`, `PRIORITY`, `RESOLUTION`, `ISSUE_LINK_TYPE`, `USER`, `BOARD`,
+  `BOARD_CONFIGURATION`, `SPRINT` — no CHECK constraint, since the Kotlin enum is the whitelist and
+  the column drives no SQL-level behavior, the `users.role`/`sync_jobs.status` idiom reserved for
+  columns a CHECK usefully pins). `entity_id` is `VARCHAR`, not `BIGINT`, because Jira ids are
+  numeric for most kinds but an opaque `accountId` string for `USER`. `idx_raw_jira_entities_last_seen`
+  (`connection_id, kind, last_seen_at`) backs the REFERENCE stream's end-of-pass tombstone sweep.
+- **sha256 change detection (both tables).** `JiraRawStore.upsertIssue`/`upsertEntity` canonicalize
+  the incoming payload (`infra/json/CanonicalJson.kt`) and hash it; an unchanged hash on a
+  non-tombstoned row bumps only `fetched_at`/`last_seen_at` (`RawUpsertOutcome.UNCHANGED`) — the
+  payload/`changed_at` columns are untouched, so `changed_at` tracks genuine content changes only,
+  never a re-fetch that happened to return the same document.
+- **Tombstones and resurrection.** `raw.jira_entities.deleted_at` is set by
+  `markEntitiesDeletedNotSeenSince` at the end of a REFERENCE pass, for every kind, over rows whose
+  `last_seen_at` is older than the pass's own start time (`passStartedAt`) and not already deleted —
+  entities genuinely absent from this pass, not ones simply not yet reached (a resumed pass's
+  `passStartedAt` is preserved across restarts, so a partial pass never tombstones entities its own
+  later steps haven't visited yet). A tombstoned entity or issue seen again on a later pass/page has
+  its `deleted_at`/`moved_out_at` cleared by the same upsert path that would otherwise report
+  `CHANGED` — reported instead as `RawUpsertOutcome.RESURRECTED`.
+- **PURGE (plan §0 A2).** `JiraRawStore.purgeIssuesBatch`/`purgeEntitiesBatch` (500 rows per call,
+  `JIRA_PURGE_BATCH_SIZE`) delete one connection's rows in batches; `JiraRawStore.purgeAll` (an
+  extension function) drains all four `raw.jira_*` tables (issues/entities plus the V11
+  changelogs/worklogs tables below) by looping each batch call until it deletes zero rows.
+  `JiraConnector.purgeSteps` wires this as the PURGE job's one connector-owned cleanup step.
+
+### The Jira changelog/worklog raw store (V11)
+
+`raw.jira_changelogs` and `raw.jira_worklogs` (v0.2.0 plan §4/§7 V11, A1, `jira/JiraRawStore.kt`)
+join `raw.jira_issues`/`raw.jira_entities` (V10) in the `raw` schema — the CHANGELOGS/WORKLOGS
+streams' target (`jira/JiraChangelogStream.kt`, `jira/JiraWorklogStream.kt`).
+
+- **`raw.jira_changelogs`** — PK `(connection_id, history_id)`, one row per Jira changelog history.
+  **Append-only**: a history is immutable once Jira creates it, so there is no diff/tombstone rule
+  here (unlike every other raw table) — `JiraRawStore.insertChangelog` is a plain `ON CONFLICT DO
+  NOTHING` keyed by the PK, safe to re-run after a crash, and correct whether the SAME history
+  reaches here via the bulkfetch batch path or the per-issue fallback path (both dedup identically).
+  `payload` is the history object exactly as Jira returned it (bulkfetch's `changeHistories[]` entry
+  or the per-issue fallback's `histories[]` entry — same shape either way), canonicalized. History
+  ids are numeric and globally unique on a real Jira instance, but the PK still scopes to
+  `connection_id` like every other raw table. `idx_raw_jira_changelogs_issue`
+  (`connection_id, issue_id, created_at`) backs the normalization layer's future per-issue changelog
+  replay (plan §8) and the pipeline test's own per-issue assertions — every history for one issue,
+  oldest first.
+- **`raw.jira_worklogs`** — PK `(connection_id, worklog_id)`, one row per Jira worklog —
+  **in-scope issues only** (plan §0 A1): this table only ever gets a row the WORKLOGS stream has
+  already checked against a known, non-tombstoned `raw.jira_issues` row for THIS connection
+  (`JiraRawStore.knownInScopeIssueIds`) — everything else is dropped before any write. Same
+  sha256 diff/tombstone rule as `raw.jira_issues`/`raw.jira_entities` (`JiraRawStore.upsertWorklog`/
+  `tombstoneWorklog`): a worklog CAN be edited after creation (a time-spent correction), unlike a
+  changelog history, so `changed_at` needs the same "moves only on genuine content change" rule the
+  issue/entity tables use. `idx_raw_jira_worklogs_issue` (`connection_id, issue_id`) backs the
+  WORKLOGS stream's own per-issue read path and the normalization layer's future per-issue worklog
+  replay (plan §8).
+- **PURGE (plan §0 A2, V11).** `JiraRawStore.purgeChangelogsBatch`/`purgeWorklogsBatch` (same
+  `JIRA_PURGE_BATCH_SIZE` shape as V10's) join `JiraRawStore.purgeAll`'s drain loop, changelogs and
+  worklogs FIRST (both reference `raw.jira_issues` by `issue_id` only, not a FK, so ordering is a
+  convention, not a constraint requirement) before issues/entities.
+
+### The Jira RECONCILE scratch table (V12)
+
+`raw.jira_reconcile_seen` (v0.2.0 plan §4/§7/§12 item 7, `jira/JiraReconcileStream.kt`,
+`JiraRawStore.insertReconcileSeen`/`issuesMissingFromSeen`/`seenButUnknownIds`/`clearReconcileSeen`)
+is a scratch table, not a raw store proper: it holds every issue id the daily RECONCILE id-sweep
+(`search/jql fields=id`) saw during ONE pass, so the pass's own anti-join step (see
+`.claude/docs/ingestion.md` "RECONCILE stream") can diff it against `raw.jira_issues`.
+
+- **PK `(connection_id, job_id, issue_id)`** — scoped to the `sync_jobs` row driving the pass, not
+  just the connection: a resumed pass (same `job_id`, after a lease loss/reclaim) re-inserts
+  idempotently (`ON CONFLICT DO NOTHING`) rather than duplicating, and a stale/interrupted pass's
+  rows never collide with a LATER pass's own `job_id`.
+- **`job_id` is a plain `INTEGER` column, deliberately NOT a foreign key to `sync_jobs.id`.** The
+  table is cleared in full (`JiraRawStore.clearReconcileSeen`) once its pass's own anti-join step
+  completes; an FK would let a lingering scratch row from an interrupted pass that never reached
+  cleanup block that job row's own eventual hard-delete prune (`SyncJobsService.prune`, "The
+  `sync_jobs` prune hard-delete exception" above) — the scratch table must never be able to hold a
+  job row hostage.
+- Drained by `clearReconcileSeen` per connection (not per job), so any earlier pass's leftover rows
+  for the SAME connection are swept up alongside the current pass's own.
+
+### The normalized layer (V13)
+
+`norm.*` (v0.2.0 plan §0 A3/§4/§8, plan commit 8a, `norm/WorkItemStore.kt`) is the FIRST schema
+outside `raw`/`public` — the connector-agnostic facts every connector's PROCESS step rebuilds a
+work item's rows into, one issue at a time, keyed the same way `raw.jira_issues` is
+`(connection_id, issue_id)`. `norm/Tiling.kt`/`norm/Normalization.kt` build the in-memory shape;
+`jira/JiraNormalizer.kt` is the Jira-specific parser that feeds it; `jira/JiraProcessStream.kt` is
+the PROCESS stream that drives the write. See `.claude/docs/ingestion.md` "Normalized layer" for
+the tiling invariants and stream mechanics — this section is the schema/persistence side only.
+
+- **`norm.work_items`** — PK `(connection_id, issue_id)`. Every column is the CURRENT snapshot
+  only — history lives in the interval/change tables below, never here. `status_category` is one
+  of `TODO|IN_PROGRESS|DONE|UNKNOWN` (Kotlin-enum-whitelisted, not CHECK-constrained — the
+  `raw.jira_entities.kind` idiom). `anomalies` is a JSONB array of anomaly codes flagged while
+  tiling this issue's status history — flagged only, never "fixed" (see ingestion.md). `deleted_at`/
+  `moved_out_at` mirror `raw.jira_issues`' own tombstones. `processed_at`/`processing_version` are
+  this row's own bookkeeping, separate from `raw.jira_issues.processed_at`/`processing_version` (the
+  raw row's own processing pointer) — both move together, written in the SAME transaction
+  (`WorkItemStore.replaceWorkItem` + `JiraRawStore.markProcessed`, inside
+  `JiraProcessStream`'s `context.transaction { }`).
+- **`norm.work_item_status_intervals`** — one row per tiled status interval, PK-less surrogate
+  `id SERIAL`, unique on `(connection_id, issue_id, seq)`. The first interval (`seq = 1`) always
+  starts at `work_items.created_at` with `source = 'CREATED'`; every later one is `'CHANGE'`.
+  `to_at IS NULL` marks the one interval that is always open. `idx_norm_work_item_status_intervals_issue`
+  (`connection_id, issue_id`) backs the per-issue replay this table's own REPLACE and the pipeline
+  test's invariant sweep both read.
+- **`norm.work_item_field_intervals`** — the same tiling shape for `ASSIGNEE`/`SPRINT`/`FLAGGED`
+  (`TrackedField`, Kotlin-enum-whitelisted, not CHECK-constrained), unique on
+  `(connection_id, issue_id, field, seq)`. SPRINT's `value_id` is the LAST sprint id of a
+  (possibly multi-valued) carry-over set; `value_text` is the comma-joined sprint names Jira's own
+  changelog `toString` already carries — never recomputed from ids.
+  `idx_norm_work_item_field_intervals_issue` (`connection_id, issue_id, field`) backs the same kind
+  of per-issue/per-field replay.
+- **`norm.work_item_field_changes`** — every tracked changelog item kept VERBATIM (never tiled):
+  status, assignee, Sprint, Flagged, Rank, priority, resolution, issuetype, project, Key and story
+  points. This is the only normalized record for the fields with no interval table of their own
+  (priority, resolution, issuetype, project, Key, story points, Rank). `idx_norm_work_item_field_changes_issue`
+  (`connection_id, issue_id`) backs the per-issue read.
+- **`norm.work_item_worklogs`** — PK `(connection_id, worklog_id)`, mirrored from
+  `raw.jira_worklogs` (already in-scope-filtered, A1) — PROCESS's own copy, so a metrics query
+  never has to join back into `raw`. `idx_norm_work_item_worklogs_issue` backs the per-issue read.
+- **Reference rows** (`norm.statuses`, `norm.people`, `norm.boards`, `norm.board_columns`,
+  `norm.sprints`) — rebuilt WHOLESALE per connection on every PROCESS run
+  (`WorkItemStore.replaceStatuses`/`replacePeople`/`replaceBoards`/`replaceSprints`), never
+  diffed/upserted row-by-row like `raw.jira_entities`, since PROCESS already reads the full current
+  `raw.jira_entities` set every time it runs. `norm.board_columns.status_ids` is a JSONB array of
+  status ids rather than a join table, since it is only ever read whole.
+
+**Per-issue REPLACE semantics.** `WorkItemStore.replaceWorkItem` is one transaction per issue
+(plan §8 step 5): delete `norm.work_item_status_intervals`/`_field_intervals`/`_field_changes`/
+`_worklogs` for that `(connection_id, issue_id)`, insert the freshly tiled rows, then upsert
+`norm.work_items` (insert if no existing row, update otherwise) — all inside the SAME transaction
+`JiraProcessStream` also uses for `JiraRawStore.markProcessed`, so a crash mid-issue never leaves a
+half-written normalized row or a raw row pointing at rows that were never written.
+
+**`PROCESSING_VERSION`** (`norm/Normalization.kt`, currently `1`) — bump it on ANY change to the
+tiling/write-shape rules. `JiraRawStore.issuesToProcess` claims a raw issue whose
+`processing_version IS DISTINCT FROM` the current constant (or is `NULL`, or `needs_processing` is
+flagged), so a version bump reprocesses every issue automatically on the next PROCESS pass — proven
+by `NormalizationPipelineTest`'s "a processing_version mismatch makes an issue eligible for the next
+PROCESS pass".
+
+**PURGE of `norm.*` rows (plan §0 A2).** `WorkItemStore.purgeWorkItemsBatch`/
+`purgeStatusIntervalsBatch`/`purgeFieldIntervalsBatch`/`purgeFieldChangesBatch`/
+`purgeWorklogsBatch` (500 rows per call, `NORM_PURGE_BATCH_SIZE`, mirroring
+`JIRA_PURGE_BATCH_SIZE`) delete one connection's rows in batches; the small reference tables are
+cleared outright (`purgeReferenceRows`, no batching needed — they are already rebuilt wholesale).
+`WorkItemStore.purgeAll` (an extension function) drains field changes, field intervals, status
+intervals, worklogs, then work items, in that order, before clearing the reference tables.
+`JiraConnector.purgeSteps` runs `JiraRawStore.purgeAll` (the `raw.*` tables) THEN
+`WorkItemStore.purgeAll` (the `norm.*` tables) as its two connector-owned PURGE steps.
+
+Current migrations are `V1`–`V13`:
 
 - `V1__init` — the `users` table: `name` (≤50), `email` (≤254), `password_hash`, `role` with
   `CHECK ("role" IN ('ADMIN', 'USER'))` (single-column role storage; the wire shape stays a
@@ -129,6 +340,18 @@ Current migrations are `V1`–`V7`:
   keeps its roster for the record. `SERIAL`/`INTEGER` ids with a `BIGINT` FK to `users` (the V1
   wrinkle).
 - `V7__user_credential_revision` — see "Credential revision" below.
+- `V8__create_source_connections` — see "Data sources (V8)" below.
+- `V9__create_sync_jobs` — see "Sync jobs and cursors (V9)" below.
+- `V10__create_jira_raw_store` — see "The Jira raw store (V10)" above: `CREATE SCHEMA IF NOT EXISTS
+  raw` plus `raw.jira_issues`/`raw.jira_entities`, the first tables outside `public`.
+- `V11__create_jira_changelogs_worklogs` — see "The Jira changelog/worklog raw store (V11)" below:
+  `raw.jira_changelogs`/`raw.jira_worklogs`, the CHANGELOGS/WORKLOGS streams' target.
+- `V12__create_jira_reconcile_seen` — see "The Jira RECONCILE scratch table (V12)" above:
+  `raw.jira_reconcile_seen`, the RECONCILE stream's scratch table. No FK on `job_id` (see above).
+- `V13__create_norm_layer` — see "The normalized layer (V13)" above: `CREATE SCHEMA IF NOT EXISTS
+  norm` plus `norm.work_items`/`_status_intervals`/`_field_intervals`/`_field_changes`/`_worklogs`
+  and the rebuilt-wholesale reference tables (`statuses`, `people`, `boards`, `board_columns`,
+  `sprints`) — the PROCESS step's write target, the first tables outside `public`/`raw`.
 
 The `users`/`teams` tables follow Toadie's dialect (`SERIAL`/`INTEGER` ids, epoch-millis `BIGINT`
 timestamps, `marked_as_deleted` + partial unique indexes over active rows) and its idioms: a
@@ -141,8 +364,16 @@ otherwise.
 business entity follows the same convention. Only join/token tables (today: `revoked_tokens`, a
 pure token registry, `user_disabled_features`, a pure flag join whose PUT is a wholesale replace,
 and `team_members`, a pure membership join) hard-delete — a new hard-delete table needs a
-documented justification, exactly like Lettuce's exceptions list. To add soft-delete to a new
-entity, follow the established pattern (reference implementation: `users/UserService.kt`):
+documented justification, exactly like Lettuce's exceptions list. `sync_jobs` (V9) is the one
+non-join exception: `SyncJobsService.prune` hard-deletes terminal rows (`SUCCEEDED`/`FAILED`/
+`CANCELLED`) older than `ingest.jobRetentionDays` (default 90), run opportunistically on every
+`IngestWorker` scheduler tick. The table is pure operational history — it drives no soft-delete
+semantics of its own (a job's PENDING/RUNNING lifetime is what matters, and cancellation already
+covers "remove without physically removing" for anything still open) — and unbounded retention
+would grow it forever for a connector that syncs every few minutes; a fixed retention window with a
+documented default is the same shape as the JWT blocklist's opportunistic pruning of expired
+`revoked_tokens` rows. To add soft-delete to a new entity, follow the established pattern
+(reference implementation: `users/UserService.kt`):
 
 1. **Migration** — `marked_as_deleted BOOLEAN NOT NULL DEFAULT FALSE` in the CREATE (a retrofit
    adds the column plus `CREATE INDEX idx_<t>_marked_as_deleted ON <t>(marked_as_deleted);`).
@@ -184,7 +415,96 @@ hash update. It is carried in signed refresh tokens and pending MFA challenges; 
 acceptance compares it with the current user row. It is not exposed in user DTOs.
 `password_changed_at` remains a timestamp, not an authorization boundary.
 
+### Data sources (V8)
+
+`source_connections` (v0.2.0 plan §3/§4) is a **generic connector registry**, in `public` (the
+main-session PG-schemas amendment keeps operational tables — `source_connections`, and later
+`sync_jobs`/`sync_cursors` — in `public`; connector-raw and normalized data get their own `raw`/
+`norm` schemas starting at V10): `kind` (`JIRA_CLOUD` today, `CHECK`-constrained since it drives
+behavior), typed common columns (schedule, sync status, `config_revision`) and a `settings` jsonb
+holding the connector-specific shape (Jira's `siteUrl`/`email`/`projectKeys`/`authScheme`/
+`cloudId`) — so a future GitLab connector reuses this table, its queue and its worker outright.
+`secret` is the FieldCipher-encrypted scoped API token — the first `EncryptedAtRest` consumer (see
+"Encryption at rest" in `.claude/docs/security.md`). Soft-deleted via `marked_as_deleted` with the
+usual partial unique index (`uq_source_connections_name_active`, case-insensitive over active
+rows). `backfill_from` is a plain `VARCHAR(10)` ISO-date string, not a SQL `DATE` column — the
+value is only ever read/written whole and validated in Kotlin (`ingest/DataSource.kt`), so adding
+an Exposed date-column dependency bought nothing. `ingest/DataSourceService.kt` is the reference
+service for this shape; `ingest/DataSourceRoutes.kt` the ADMIN-only CRUD (see
+`.claude/docs/authorization.md`).
+
+**`infra/db/Jsonb.kt`** — a repo-local `jsonb` column type, because `exposed-r2dbc` 1.5.0 ships no
+JSON column type of its own. It needs no reflection into the raw `io.r2dbc.spi.Statement`: Exposed
+already ships a `JsonColumnMarker` interface plus a `PostgresSpecificTypeMapper` that specifically
+recognizes any `IColumnType` implementing it (binding a null via `Statement.bindNull(index,
+Json::class)`, a `String` via `Statement.bind(index, Json.of(value))` —
+`io.r2dbc.postgresql.codec.Json`) — implementing the marker IS the whole binding. Values are the
+caller's JSON text verbatim; PostgreSQL's own `jsonb` storage reformats regardless (whitespace, key
+order), so "round-trips" means the same VALUES survive, not the same bytes. Covered by
+`JsonbColumnTest` (insert/select/update, null, nested objects/arrays, through Exposed R2DBC against
+Testcontainers PG).
+
+**`source_connections.profile` (V8's `jsonb` column, populated as of plan commit 9).** `profile` was
+declared nullable in the V8 migration alongside `settings` but stayed unwritten until the PROFILE
+step (`jira/JiraProfileStream.kt`) landed; `profile_at` (nullable `BIGINT`) is its companion
+timestamp. `DataSourceService.updateProfile` writes `DataProfileSections`
+(`ingest/DataProfile.kt`) — canonicalized the SAME way `settings` is
+(`infra/json/CanonicalJson.kt`'s `canonicalJson`) — and `readProfile` reads it back as
+`StoredProfile{profileJson, profileAt}`; both null fields mean "never computed", not an empty
+object. `ingest/DataProfileRoutes.kt`'s one call site decodes `profileJson` (falling back to an
+all-default `DataProfileSections()` when null) and wraps it with `profileAt` into the wire
+`DataProfile` response (`withComputedAt`) — see `.claude/docs/ingestion.md` "Data profile" for what
+each section measures.
+
+**`infra/json/CanonicalJson.kt`** — canonical JSON for anything stored through `Jsonb.kt`: object
+keys sorted RECURSIVELY (arrays keep their own order — position is meaning), rendered via
+kotlinx.serialization's compact `JsonElement.toString()`, plus a `sha256Hex` digest of the result.
+Two payloads that differ ONLY in object key order canonicalize to byte-identical text, so their
+digests agree — this is key-order independence, not general structural equality: canonicalization
+does not normalize number spelling (`1`, `1.0` and `1e0` parse to the same numeric value but stay
+distinct token text, so they canonicalize to different strings and hash differently). The Jira raw
+store's per-payload hash (plan §4, V10) is the next consumer, over payloads Jira itself serializes
+consistently. Covered by `CanonicalJsonTest` (key-order independence, recursive sorting, array
+order preserved, numbers/strings/unicode stable and idempotent, stable `sha256Hex`).
+
+### Sync jobs and cursors (V9)
+
+`sync_jobs` and `sync_cursors` (v0.2.0 plan §4/§5/§9, `.claude/docs/ingestion.md` "Sync-job queue"
+and "Sync cursors") stay in `public` alongside `source_connections` — operational state, not
+connector-raw or normalized data.
+
+`sync_jobs` (`ingest/SyncJobs.kt`'s `SyncJobsService`) is ONE table serving as both the job queue
+and its own history for every connector kind: `kind` (`SYNC`/`RECONCILE`/`REPROCESS`/`PURGE`) and
+`status` (`PENDING`/`RUNNING`/`SUCCEEDED`/`FAILED`/`CANCELLED`) are both `CHECK`-constrained
+(they drive claim/behavior, the `users.role` idiom); `priority` (`0` manual, `10` scheduled),
+`requested_by_user_id` (nullable — null for scheduler-enqueued jobs) and `config_revision` (the
+connection's revision at enqueue time, compared again at claim) round out the job identity.
+Timing/attempts (`requested_at`/`started_at`/`finished_at`/`attempt`/`max_attempts`) and the
+lease/heartbeat quartet (`lease_owner`/`lease_until`/`heartbeat_at`/`cancel_requested_at`) are
+plain nullable `BIGINT`/`VARCHAR` columns read and written only through the service, never a raw
+SQL update. `uq_sync_jobs_open_per_kind` — a partial unique index over `(connection_id, kind) WHERE
+status IN ('PENDING','RUNNING')` — is the coalescing mechanism: race-free by construction (an
+`INSERT` that would violate it fails at the database, not a check-then-insert TOCTOU in Kotlin).
+`idx_sync_jobs_claimable` backs the claim scan's `FOR UPDATE SKIP LOCKED`;
+`idx_sync_jobs_connection_history` backs the per-connection history list and the "already a RUNNING
+job for this connection" check. `SERIAL`/`INTEGER` id, epoch-millis `BIGINT` timestamps — the same
+dialect as every other v0.2.0 table.
+
+**The `sync_jobs` prune hard-delete exception.** Unlike every other business entity in this repo,
+finished `sync_jobs` rows are hard-deleted, not soft-deleted — see "Soft delete (convention)" above
+for why (unbounded job history has no reader that needs it once a row is old, and the same
+opportunistic-pruning shape already exists for `revoked_tokens`). `source_connections.purged_at`
+(added by this same migration, `ALTER TABLE`) is the companion column A2's PURGE job stamps on
+success, independent of `sync_jobs` row retention — deriving "already purged" from job history
+would regress once the SUCCEEDED `PURGE` row itself gets pruned.
+
+`sync_cursors` (`ingest/SyncCursors.kt`'s `SyncCursorsService`) has PK `(connection_id, stream)` —
+one row per incremental-sync phase within a connection — with a `jsonb` `cursor` column (via
+`infra/db/Jsonb.kt`, the V8 binding) whose shape is owned entirely by the stream that reads and
+writes it, plus `watermark_at`/`last_completed_at`/`updated_at` bookkeeping columns common to every
+stream. The streams themselves (and the cursor shapes they define) land in plan commit 6+.
+
 ### Not yet ported from Lettuce / Toadie / Covenant
 
-Nothing remains on the persistence list today; a new subsystem (starting with v0.2.0's Jira raw
-store and incremental cursors) arrives with its own paragraph here.
+Nothing remains on the persistence list today; the `metrics` schema (phase 3's pre-aggregated
+tables, plan §4) arrives with its own paragraph here.

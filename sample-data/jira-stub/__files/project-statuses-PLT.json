@@ -1,0 +1,287 @@
+[
+  {
+    "id": "10001",
+    "name": "Story",
+    "subtask": false,
+    "statuses": [
+      {
+        "id": "1",
+        "name": "To Do",
+        "statusCategory": {
+          "id": 2,
+          "key": "new",
+          "name": "To Do",
+          "colorName": "blue-gray"
+        }
+      },
+      {
+        "id": "3",
+        "name": "In Progress",
+        "statusCategory": {
+          "id": 4,
+          "key": "indeterminate",
+          "name": "In Progress",
+          "colorName": "yellow"
+        }
+      },
+      {
+        "id": "10003",
+        "name": "Blocked",
+        "statusCategory": {
+          "id": 4,
+          "key": "indeterminate",
+          "name": "In Progress",
+          "colorName": "yellow"
+        }
+      },
+      {
+        "id": "10001",
+        "name": "In Review",
+        "statusCategory": {
+          "id": 4,
+          "key": "indeterminate",
+          "name": "In Progress",
+          "colorName": "yellow"
+        }
+      },
+      {
+        "id": "10002",
+        "name": "Done",
+        "statusCategory": {
+          "id": 3,
+          "key": "done",
+          "name": "Done",
+          "colorName": "green"
+        }
+      }
+    ]
+  },
+  {
+    "id": "10002",
+    "name": "Task",
+    "subtask": false,
+    "statuses": [
+      {
+        "id": "1",
+        "name": "To Do",
+        "statusCategory": {
+          "id": 2,
+          "key": "new",
+          "name": "To Do",
+          "colorName": "blue-gray"
+        }
+      },
+      {
+        "id": "3",
+        "name": "In Progress",
+        "statusCategory": {
+          "id": 4,
+          "key": "indeterminate",
+          "name": "In Progress",
+          "colorName": "yellow"
+        }
+      },
+      {
+        "id": "10003",
+        "name": "Blocked",
+        "statusCategory": {
+          "id": 4,
+          "key": "indeterminate",
+          "name": "In Progress",
+          "colorName": "yellow"
+        }
+      },
+      {
+        "id": "10001",
+        "name": "In Review",
+        "statusCategory": {
+          "id": 4,
+          "key": "indeterminate",
+          "name": "In Progress",
+          "colorName": "yellow"
+        }
+      },
+      {
+        "id": "10002",
+        "name": "Done",
+        "statusCategory": {
+          "id": 3,
+          "key": "done",
+          "name": "Done",
+          "colorName": "green"
+        }
+      }
+    ]
+  },
+  {
+    "id": "10003",
+    "name": "Bug",
+    "subtask": false,
+    "statuses": [
+      {
+        "id": "1",
+        "name": "To Do",
+        "statusCategory": {
+          "id": 2,
+          "key": "new",
+          "name": "To Do",
+          "colorName": "blue-gray"
+        }
+      },
+      {
+        "id": "3",
+        "name": "In Progress",
+        "statusCategory": {
+          "id": 4,
+          "key": "indeterminate",
+          "name": "In Progress",
+          "colorName": "yellow"
+        }
+      },
+      {
+        "id": "10003",
+        "name": "Blocked",
+        "statusCategory": {
+          "id": 4,
+          "key": "indeterminate",
+          "name": "In Progress",
+          "colorName": "yellow"
+        }
+      },
+      {
+        "id": "10001",
+        "name": "In Review",
+        "statusCategory": {
+          "id": 4,
+          "key": "indeterminate",
+          "name": "In Progress",
+          "colorName": "yellow"
+        }
+      },
+      {
+        "id": "10002",
+        "name": "Done",
+        "statusCategory": {
+          "id": 3,
+          "key": "done",
+          "name": "Done",
+          "colorName": "green"
+        }
+      }
+    ]
+  },
+  {
+    "id": "10004",
+    "name": "Sub-task",
+    "subtask": true,
+    "statuses": [
+      {
+        "id": "1",
+        "name": "To Do",
+        "statusCategory": {
+          "id": 2,
+          "key": "new",
+          "name": "To Do",
+          "colorName": "blue-gray"
+        }
+      },
+      {
+        "id": "3",
+        "name": "In Progress",
+        "statusCategory": {
+          "id": 4,
+          "key": "indeterminate",
+          "name": "In Progress",
+          "colorName": "yellow"
+        }
+      },
+      {
+        "id": "10003",
+        "name": "Blocked",
+        "statusCategory": {
+          "id": 4,
+          "key": "indeterminate",
+          "name": "In Progress",
+          "colorName": "yellow"
+        }
+      },
+      {
+        "id": "10001",
+        "name": "In Review",
+        "statusCategory": {
+          "id": 4,
+          "key": "indeterminate",
+          "name": "In Progress",
+          "colorName": "yellow"
+        }
+      },
+      {
+        "id": "10002",
+        "name": "Done",
+        "statusCategory": {
+          "id": 3,
+          "key": "done",
+          "name": "Done",
+          "colorName": "green"
+        }
+      }
+    ]
+  },
+  {
+    "id": "10000",
+    "name": "Epic",
+    "subtask": false,
+    "statuses": [
+      {
+        "id": "1",
+        "name": "To Do",
+        "statusCategory": {
+          "id": 2,
+          "key": "new",
+          "name": "To Do",
+          "colorName": "blue-gray"
+        }
+      },
+      {
+        "id": "3",
+        "name": "In Progress",
+        "statusCategory": {
+          "id": 4,
+          "key": "indeterminate",
+          "name": "In Progress",
+          "colorName": "yellow"
+        }
+      },
+      {
+        "id": "10003",
+        "name": "Blocked",
+        "statusCategory": {
+          "id": 4,
+          "key": "indeterminate",
+          "name": "In Progress",
+          "colorName": "yellow"
+        }
+      },
+      {
+        "id": "10001",
+        "name": "In Review",
+        "statusCategory": {
+          "id": 4,
+          "key": "indeterminate",
+          "name": "In Progress",
+          "colorName": "yellow"
+        }
+      },
+      {
+        "id": "10002",
+        "name": "Done",
+        "statusCategory": {
+          "id": 3,
+          "key": "done",
+          "name": "Done",
+          "colorName": "green"
+        }
+      }
+    ]
+  }
+]

@@ -1,0 +1,7077 @@
+{
+  "issues": [
+    {
+      "id": "31064",
+      "key": "PLT-297",
+      "fields": {
+        "summary": "Task PLT-297: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10002",
+          "name": "Task",
+          "subtask": false
+        },
+        "project": {
+          "id": "10001",
+          "key": "PLT",
+          "name": "Platform"
+        },
+        "created": "2026-06-29T08:13:12.244Z",
+        "updated": "2026-07-02T08:13:12.244Z",
+        "resolutiondate": "2026-07-02T08:13:12.244Z",
+        "assignee": null,
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d22",
+          "displayName": "Sample User 22"
+        },
+        "priority": {
+          "id": "1",
+          "name": "Highest"
+        },
+        "resolution": {
+          "id": "10002",
+          "name": "Duplicate"
+        },
+        "labels": [
+          "regression"
+        ],
+        "components": [
+          {
+            "id": "Infra",
+            "name": "Infra"
+          }
+        ],
+        "customfield_10019": "0|i44489:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3049,
+            "name": "PLT Sprint 22",
+            "state": "closed",
+            "boardId": 2,
+            "startDate": "2026-06-22T00:00:00.000Z",
+            "endDate": "2026-07-06T00:00:00.000Z",
+            "goal": "Sprint 22 goal for Platform"
+          }
+        ]
+      }
+    },
+    {
+      "id": "31065",
+      "key": "PLT-298",
+      "fields": {
+        "summary": "Story PLT-298: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10001",
+          "name": "Story",
+          "subtask": false
+        },
+        "project": {
+          "id": "10001",
+          "key": "PLT",
+          "name": "Platform"
+        },
+        "created": "2026-06-29T11:29:06.685Z",
+        "updated": "2026-07-04T11:29:06.685Z",
+        "resolutiondate": "2026-07-04T11:29:06.685Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d03",
+          "displayName": "Sample User 3"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d08",
+          "displayName": "Sample User 8"
+        },
+        "priority": {
+          "id": "1",
+          "name": "Highest"
+        },
+        "resolution": {
+          "id": "10000",
+          "name": "Done"
+        },
+        "labels": [
+          "needs-design"
+        ],
+        "components": [],
+        "customfield_10001": {
+          "id": "8e6f8c9a-1a2b-4c3d-9e0f-222222222222",
+          "name": "Platform Core"
+        },
+        "customfield_10016": 1,
+        "customfield_10019": "0|i34035:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3049,
+            "name": "PLT Sprint 22",
+            "state": "closed",
+            "boardId": 2,
+            "startDate": "2026-06-22T00:00:00.000Z",
+            "endDate": "2026-07-06T00:00:00.000Z",
+            "goal": "Sprint 22 goal for Platform"
+          }
+        ],
+        "timetracking": {
+          "originalEstimateSeconds": 14400,
+          "remainingEstimateSeconds": 14400,
+          "timeSpentSeconds": 0
+        }
+      }
+    },
+    {
+      "id": "31066",
+      "key": "PLT-299",
+      "fields": {
+        "summary": "Story PLT-299: sample work item",
+        "status": {
+          "id": "3",
+          "name": "In Progress",
+          "statusCategory": {
+            "id": 4,
+            "key": "indeterminate",
+            "name": "In Progress",
+            "colorName": "yellow"
+          }
+        },
+        "issuetype": {
+          "id": "10001",
+          "name": "Story",
+          "subtask": false
+        },
+        "project": {
+          "id": "10001",
+          "key": "PLT",
+          "name": "Platform"
+        },
+        "created": "2026-06-29T14:39:30.351Z",
+        "updated": "2026-07-02T14:39:30.351Z",
+        "resolutiondate": null,
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d26",
+          "displayName": "Sample User 26"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d12",
+          "displayName": "Sample User 12"
+        },
+        "priority": {
+          "id": "3",
+          "name": "Medium"
+        },
+        "resolution": null,
+        "labels": [],
+        "components": [
+          {
+            "id": "Observability",
+            "name": "Observability"
+          }
+        ],
+        "customfield_10016": 5,
+        "customfield_10019": "0|i14348:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3049,
+            "name": "PLT Sprint 22",
+            "state": "closed",
+            "boardId": 2,
+            "startDate": "2026-06-22T00:00:00.000Z",
+            "endDate": "2026-07-06T00:00:00.000Z",
+            "goal": "Sprint 22 goal for Platform"
+          }
+        ]
+      }
+    },
+    {
+      "id": "31067",
+      "key": "PLT-300",
+      "fields": {
+        "summary": "Story PLT-300: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10001",
+          "name": "Story",
+          "subtask": false
+        },
+        "project": {
+          "id": "10001",
+          "key": "PLT",
+          "name": "Platform"
+        },
+        "created": "2026-06-29T21:31:21.914Z",
+        "updated": "2026-07-12T21:31:21.914Z",
+        "resolutiondate": "2026-07-12T21:31:21.914Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d24",
+          "displayName": "Sample User 24"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d15",
+          "displayName": "Sample User 15"
+        },
+        "priority": {
+          "id": "3",
+          "name": "Medium"
+        },
+        "resolution": {
+          "id": "10000",
+          "name": "Done"
+        },
+        "labels": [],
+        "components": [],
+        "parent": {
+          "id": "30128",
+          "key": "PLT-32"
+        },
+        "customfield_10016": 2,
+        "customfield_10019": "0|i25414:",
+        "customfield_10021": [
+          {
+            "value": "Impediment",
+            "id": "10019"
+          }
+        ],
+        "customfield_10020": [
+          {
+            "id": 3049,
+            "name": "PLT Sprint 22",
+            "state": "closed",
+            "boardId": 2,
+            "startDate": "2026-06-22T00:00:00.000Z",
+            "endDate": "2026-07-06T00:00:00.000Z",
+            "goal": "Sprint 22 goal for Platform"
+          }
+        ],
+        "timetracking": {
+          "originalEstimateSeconds": 14400,
+          "remainingEstimateSeconds": 14400,
+          "timeSpentSeconds": 0
+        }
+      }
+    },
+    {
+      "id": "31068",
+      "key": "GTM-251",
+      "fields": {
+        "summary": "Task GTM-251: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10002",
+          "name": "Task",
+          "subtask": false
+        },
+        "project": {
+          "id": "10002",
+          "key": "GTM",
+          "name": "Go To Market"
+        },
+        "created": "2026-06-30T02:55:49.482Z",
+        "updated": "2026-07-11T02:55:49.482Z",
+        "resolutiondate": "2026-07-11T02:55:49.482Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d27",
+          "displayName": "Sample User 27"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d04",
+          "displayName": "Sample User 4"
+        },
+        "priority": {
+          "id": "5",
+          "name": "Lowest"
+        },
+        "resolution": {
+          "id": "10000",
+          "name": "Done"
+        },
+        "labels": [],
+        "components": [
+          {
+            "id": "Onboarding",
+            "name": "Onboarding"
+          }
+        ],
+        "customfield_10019": "0|i33168:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3077,
+            "name": "GTM Sprint 22",
+            "state": "closed",
+            "boardId": 3,
+            "startDate": "2026-06-22T00:00:00.000Z",
+            "endDate": "2026-07-06T00:00:00.000Z",
+            "goal": "Sprint 22 goal for Go To Market"
+          }
+        ],
+        "timetracking": {
+          "originalEstimateSeconds": 3600,
+          "remainingEstimateSeconds": 3600,
+          "timeSpentSeconds": 0
+        }
+      }
+    },
+    {
+      "id": "31069",
+      "key": "FLO-330",
+      "fields": {
+        "summary": "Bug FLO-330: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10003",
+          "name": "Bug",
+          "subtask": false
+        },
+        "project": {
+          "id": "10000",
+          "key": "FLO",
+          "name": "Flow Core"
+        },
+        "created": "2026-06-30T06:40:03.621Z",
+        "updated": "2026-07-06T06:40:03.621Z",
+        "resolutiondate": "2026-07-06T06:40:03.621Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d14",
+          "displayName": "Sample User 14"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d17",
+          "displayName": "Sample User 17"
+        },
+        "priority": {
+          "id": "2",
+          "name": "High"
+        },
+        "resolution": {
+          "id": "10002",
+          "name": "Duplicate"
+        },
+        "labels": [
+          "perf"
+        ],
+        "components": [
+          {
+            "id": "API",
+            "name": "API"
+          }
+        ],
+        "customfield_10019": "0|i62539:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3021,
+            "name": "FLO Sprint 22",
+            "state": "closed",
+            "boardId": 1,
+            "startDate": "2026-06-22T00:00:00.000Z",
+            "endDate": "2026-07-06T00:00:00.000Z",
+            "goal": "Sprint 22 goal for Flow Core"
+          }
+        ],
+        "timetracking": {
+          "originalEstimateSeconds": 57600,
+          "remainingEstimateSeconds": 57600,
+          "timeSpentSeconds": 0
+        }
+      }
+    },
+    {
+      "id": "31070",
+      "key": "FLO-331",
+      "fields": {
+        "summary": "Story FLO-331: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10001",
+          "name": "Story",
+          "subtask": false
+        },
+        "project": {
+          "id": "10000",
+          "key": "FLO",
+          "name": "Flow Core"
+        },
+        "created": "2026-06-30T10:52:12.062Z",
+        "updated": "2026-09-02T00:00:00.000Z",
+        "resolutiondate": "2026-07-04T10:52:12.062Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d19",
+          "displayName": "Sample User 19"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d21",
+          "displayName": "Sample User 21"
+        },
+        "priority": {
+          "id": "4",
+          "name": "Low"
+        },
+        "resolution": {
+          "id": "10000",
+          "name": "Done"
+        },
+        "labels": [
+          "customer-reported"
+        ],
+        "components": [],
+        "customfield_10001": {
+          "id": "8e6f8c9a-1a2b-4c3d-9e0f-222222222222",
+          "name": "Platform Core"
+        },
+        "customfield_10016": 3,
+        "customfield_10019": "0|i17779:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3021,
+            "name": "FLO Sprint 22",
+            "state": "closed",
+            "boardId": 1,
+            "startDate": "2026-06-22T00:00:00.000Z",
+            "endDate": "2026-07-06T00:00:00.000Z",
+            "goal": "Sprint 22 goal for Flow Core"
+          }
+        ]
+      }
+    },
+    {
+      "id": "31071",
+      "key": "OPS-127",
+      "fields": {
+        "summary": "Sub-task OPS-127: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10004",
+          "name": "Sub-task",
+          "subtask": true
+        },
+        "project": {
+          "id": "10003",
+          "key": "OPS",
+          "name": "Operations"
+        },
+        "created": "2026-06-30T15:07:55.573Z",
+        "updated": "2026-07-04T15:07:55.573Z",
+        "resolutiondate": "2026-07-04T15:07:55.573Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d11",
+          "displayName": "Sample User 11"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d22",
+          "displayName": "Sample User 22"
+        },
+        "priority": {
+          "id": "2",
+          "name": "High"
+        },
+        "resolution": {
+          "id": "10001",
+          "name": "Won't Do"
+        },
+        "labels": [],
+        "components": [
+          {
+            "id": "Support",
+            "name": "Support"
+          }
+        ],
+        "parent": {
+          "id": "31052",
+          "key": "OPS-125"
+        },
+        "customfield_10019": "0|i27614:",
+        "customfield_10021": [],
+        "timetracking": {
+          "originalEstimateSeconds": 21600,
+          "remainingEstimateSeconds": 21600,
+          "timeSpentSeconds": 0
+        }
+      }
+    },
+    {
+      "id": "31072",
+      "key": "FLO-332",
+      "fields": {
+        "summary": "Bug FLO-332: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10003",
+          "name": "Bug",
+          "subtask": false
+        },
+        "project": {
+          "id": "10000",
+          "key": "FLO",
+          "name": "Flow Core"
+        },
+        "created": "2026-06-30T21:05:00.579Z",
+        "updated": "2026-07-05T21:05:00.579Z",
+        "resolutiondate": "2026-07-05T21:05:00.579Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d04",
+          "displayName": "Sample User 4"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d05",
+          "displayName": "Sample User 5"
+        },
+        "priority": {
+          "id": "2",
+          "name": "High"
+        },
+        "resolution": {
+          "id": "10002",
+          "name": "Duplicate"
+        },
+        "labels": [
+          "tech-debt"
+        ],
+        "components": [
+          {
+            "id": "Web",
+            "name": "Web"
+          }
+        ],
+        "customfield_10001": {
+          "id": "8e6f8c9a-1a2b-4c3d-9e0f-222222222222",
+          "name": "Platform Core"
+        },
+        "customfield_10019": "0|i80842:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3021,
+            "name": "FLO Sprint 22",
+            "state": "closed",
+            "boardId": 1,
+            "startDate": "2026-06-22T00:00:00.000Z",
+            "endDate": "2026-07-06T00:00:00.000Z",
+            "goal": "Sprint 22 goal for Flow Core"
+          }
+        ]
+      }
+    },
+    {
+      "id": "31073",
+      "key": "GTM-252",
+      "fields": {
+        "summary": "Bug GTM-252: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10003",
+          "name": "Bug",
+          "subtask": false
+        },
+        "project": {
+          "id": "10002",
+          "key": "GTM",
+          "name": "Go To Market"
+        },
+        "created": "2026-06-30T21:13:24.677Z",
+        "updated": "2026-07-04T21:13:24.677Z",
+        "resolutiondate": "2026-07-04T21:13:24.677Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d30",
+          "displayName": "Sample User 30"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d09",
+          "displayName": "Sample User 9"
+        },
+        "priority": {
+          "id": "2",
+          "name": "High"
+        },
+        "resolution": {
+          "id": "10002",
+          "name": "Duplicate"
+        },
+        "labels": [
+          "security",
+          "customer-reported"
+        ],
+        "components": [
+          {
+            "id": "Reporting",
+            "name": "Reporting"
+          }
+        ],
+        "customfield_10019": "0|i39452:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3077,
+            "name": "GTM Sprint 22",
+            "state": "closed",
+            "boardId": 3,
+            "startDate": "2026-06-22T00:00:00.000Z",
+            "endDate": "2026-07-06T00:00:00.000Z",
+            "goal": "Sprint 22 goal for Go To Market"
+          }
+        ],
+        "timetracking": {
+          "originalEstimateSeconds": 72000,
+          "remainingEstimateSeconds": 72000,
+          "timeSpentSeconds": 0
+        }
+      }
+    },
+    {
+      "id": "31074",
+      "key": "PLT-301",
+      "fields": {
+        "summary": "Bug PLT-301: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10003",
+          "name": "Bug",
+          "subtask": false
+        },
+        "project": {
+          "id": "10001",
+          "key": "PLT",
+          "name": "Platform"
+        },
+        "created": "2026-07-01T17:42:44.758Z",
+        "updated": "2026-07-19T17:42:44.758Z",
+        "resolutiondate": "2026-07-19T17:42:44.758Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d13",
+          "displayName": "Sample User 13"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d08",
+          "displayName": "Sample User 8"
+        },
+        "priority": {
+          "id": "3",
+          "name": "Medium"
+        },
+        "resolution": {
+          "id": "10003",
+          "name": "Cannot Reproduce"
+        },
+        "labels": [
+          "needs-design"
+        ],
+        "components": [],
+        "customfield_10019": "0|i85210:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3049,
+            "name": "PLT Sprint 22",
+            "state": "closed",
+            "boardId": 2,
+            "startDate": "2026-06-22T00:00:00.000Z",
+            "endDate": "2026-07-06T00:00:00.000Z",
+            "goal": "Sprint 22 goal for Platform"
+          },
+          {
+            "id": 3050,
+            "name": "PLT Sprint 23",
+            "state": "closed",
+            "boardId": 2,
+            "startDate": "2026-07-06T00:00:00.000Z",
+            "endDate": "2026-07-20T00:00:00.000Z",
+            "goal": "Sprint 23 goal for Platform"
+          }
+        ]
+      }
+    },
+    {
+      "id": "31075",
+      "key": "FLO-333",
+      "fields": {
+        "summary": "Bug FLO-333: sample work item",
+        "status": {
+          "id": "3",
+          "name": "In Progress",
+          "statusCategory": {
+            "id": 4,
+            "key": "indeterminate",
+            "name": "In Progress",
+            "colorName": "yellow"
+          }
+        },
+        "issuetype": {
+          "id": "10003",
+          "name": "Bug",
+          "subtask": false
+        },
+        "project": {
+          "id": "10000",
+          "key": "FLO",
+          "name": "Flow Core"
+        },
+        "created": "2026-07-01T22:17:49.641Z",
+        "updated": "2026-07-02T22:17:49.641Z",
+        "resolutiondate": null,
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d07",
+          "displayName": "Sample User 7"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d30",
+          "displayName": "Sample User 30"
+        },
+        "priority": {
+          "id": "5",
+          "name": "Lowest"
+        },
+        "resolution": null,
+        "labels": [
+          "regression",
+          "tech-debt"
+        ],
+        "components": [],
+        "customfield_10001": {
+          "id": "8e6f8c9a-1a2b-4c3d-9e0f-444444444444",
+          "name": "Reliability"
+        },
+        "customfield_10019": "0|i17651:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3021,
+            "name": "FLO Sprint 22",
+            "state": "closed",
+            "boardId": 1,
+            "startDate": "2026-06-22T00:00:00.000Z",
+            "endDate": "2026-07-06T00:00:00.000Z",
+            "goal": "Sprint 22 goal for Flow Core"
+          }
+        ],
+        "timetracking": {
+          "originalEstimateSeconds": 64800,
+          "remainingEstimateSeconds": 64800,
+          "timeSpentSeconds": 0
+        }
+      }
+    },
+    {
+      "id": "31076",
+      "key": "OPS-128",
+      "fields": {
+        "summary": "Story OPS-128: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10001",
+          "name": "Story",
+          "subtask": false
+        },
+        "project": {
+          "id": "10003",
+          "key": "OPS",
+          "name": "Operations"
+        },
+        "created": "2026-07-02T03:00:49.567Z",
+        "updated": "2026-07-23T03:00:49.567Z",
+        "resolutiondate": "2026-07-23T03:00:49.567Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d19",
+          "displayName": "Sample User 19"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d10",
+          "displayName": "Sample User 10"
+        },
+        "priority": {
+          "id": "2",
+          "name": "High"
+        },
+        "resolution": {
+          "id": "10002",
+          "name": "Duplicate"
+        },
+        "labels": [],
+        "components": [],
+        "customfield_10019": "0|i62060:",
+        "customfield_10021": []
+      }
+    },
+    {
+      "id": "31077",
+      "key": "GTM-253",
+      "fields": {
+        "summary": "Sub-task GTM-253: sample work item",
+        "status": {
+          "id": "3",
+          "name": "In Progress",
+          "statusCategory": {
+            "id": 4,
+            "key": "indeterminate",
+            "name": "In Progress",
+            "colorName": "yellow"
+          }
+        },
+        "issuetype": {
+          "id": "10004",
+          "name": "Sub-task",
+          "subtask": true
+        },
+        "project": {
+          "id": "10002",
+          "key": "GTM",
+          "name": "Go To Market"
+        },
+        "created": "2026-07-02T04:13:42.565Z",
+        "updated": "2026-07-05T04:13:42.565Z",
+        "resolutiondate": null,
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d28",
+          "displayName": "Sample User 28"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d18",
+          "displayName": "Sample User 18"
+        },
+        "priority": {
+          "id": "2",
+          "name": "High"
+        },
+        "resolution": null,
+        "labels": [
+          "needs-design"
+        ],
+        "components": [
+          {
+            "id": "Onboarding",
+            "name": "Onboarding"
+          }
+        ],
+        "parent": {
+          "id": "31031",
+          "key": "GTM-242"
+        },
+        "customfield_10019": "0|i42624:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3077,
+            "name": "GTM Sprint 22",
+            "state": "closed",
+            "boardId": 3,
+            "startDate": "2026-06-22T00:00:00.000Z",
+            "endDate": "2026-07-06T00:00:00.000Z",
+            "goal": "Sprint 22 goal for Go To Market"
+          }
+        ]
+      }
+    },
+    {
+      "id": "31078",
+      "key": "FLO-334",
+      "fields": {
+        "summary": "Story FLO-334: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10001",
+          "name": "Story",
+          "subtask": false
+        },
+        "project": {
+          "id": "10000",
+          "key": "FLO",
+          "name": "Flow Core"
+        },
+        "created": "2026-07-02T05:49:20.445Z",
+        "updated": "2026-07-13T05:49:20.445Z",
+        "resolutiondate": "2026-07-13T05:49:20.445Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d23",
+          "displayName": "Sample User 23"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d28",
+          "displayName": "Sample User 28"
+        },
+        "priority": {
+          "id": "2",
+          "name": "High"
+        },
+        "resolution": {
+          "id": "10000",
+          "name": "Done"
+        },
+        "labels": [
+          "security",
+          "needs-design"
+        ],
+        "components": [
+          {
+            "id": "API",
+            "name": "API"
+          }
+        ],
+        "customfield_10001": {
+          "id": "8e6f8c9a-1a2b-4c3d-9e0f-444444444444",
+          "name": "Reliability"
+        },
+        "customfield_10016": 2,
+        "customfield_10019": "0|i83309:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3021,
+            "name": "FLO Sprint 22",
+            "state": "closed",
+            "boardId": 1,
+            "startDate": "2026-06-22T00:00:00.000Z",
+            "endDate": "2026-07-06T00:00:00.000Z",
+            "goal": "Sprint 22 goal for Flow Core"
+          }
+        ],
+        "timetracking": {
+          "originalEstimateSeconds": 18000,
+          "remainingEstimateSeconds": 18000,
+          "timeSpentSeconds": 0
+        }
+      }
+    },
+    {
+      "id": "31079",
+      "key": "FLO-335",
+      "fields": {
+        "summary": "Story FLO-335: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10001",
+          "name": "Story",
+          "subtask": false
+        },
+        "project": {
+          "id": "10000",
+          "key": "FLO",
+          "name": "Flow Core"
+        },
+        "created": "2026-07-02T08:20:31.831Z",
+        "updated": "2026-07-15T08:20:31.831Z",
+        "resolutiondate": "2026-07-15T08:20:31.831Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d25",
+          "displayName": "Sample User 25"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d03",
+          "displayName": "Sample User 3"
+        },
+        "priority": {
+          "id": "4",
+          "name": "Low"
+        },
+        "resolution": {
+          "id": "10000",
+          "name": "Done"
+        },
+        "labels": [
+          "quick-win"
+        ],
+        "components": [
+          {
+            "id": "API",
+            "name": "API"
+          }
+        ],
+        "customfield_10001": {
+          "id": "8e6f8c9a-1a2b-4c3d-9e0f-111111111111",
+          "name": "Payments"
+        },
+        "customfield_10016": 8,
+        "customfield_10019": "0|i39108:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3021,
+            "name": "FLO Sprint 22",
+            "state": "closed",
+            "boardId": 1,
+            "startDate": "2026-06-22T00:00:00.000Z",
+            "endDate": "2026-07-06T00:00:00.000Z",
+            "goal": "Sprint 22 goal for Flow Core"
+          }
+        ]
+      }
+    },
+    {
+      "id": "31080",
+      "key": "FLO-336",
+      "fields": {
+        "summary": "Task FLO-336: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10002",
+          "name": "Task",
+          "subtask": false
+        },
+        "project": {
+          "id": "10000",
+          "key": "FLO",
+          "name": "Flow Core"
+        },
+        "created": "2026-07-03T04:14:07.801Z",
+        "updated": "2026-07-14T04:14:07.801Z",
+        "resolutiondate": "2026-07-14T04:14:07.801Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d10",
+          "displayName": "Sample User 10"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d22",
+          "displayName": "Sample User 22"
+        },
+        "priority": {
+          "id": "1",
+          "name": "Highest"
+        },
+        "resolution": {
+          "id": "10002",
+          "name": "Duplicate"
+        },
+        "labels": [
+          "perf"
+        ],
+        "components": [
+          {
+            "id": "Web",
+            "name": "Web"
+          }
+        ],
+        "parent": {
+          "id": "30033",
+          "key": "FLO-8"
+        },
+        "customfield_10019": "0|i60371:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3021,
+            "name": "FLO Sprint 22",
+            "state": "closed",
+            "boardId": 1,
+            "startDate": "2026-06-22T00:00:00.000Z",
+            "endDate": "2026-07-06T00:00:00.000Z",
+            "goal": "Sprint 22 goal for Flow Core"
+          }
+        ]
+      }
+    },
+    {
+      "id": "31081",
+      "key": "FLO-337",
+      "fields": {
+        "summary": "Task FLO-337: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10002",
+          "name": "Task",
+          "subtask": false
+        },
+        "project": {
+          "id": "10000",
+          "key": "FLO",
+          "name": "Flow Core"
+        },
+        "created": "2026-07-03T12:59:58.603Z",
+        "updated": "2026-07-24T12:59:58.603Z",
+        "resolutiondate": "2026-07-24T12:59:58.603Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d16",
+          "displayName": "Sample User 16"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d25",
+          "displayName": "Sample User 25"
+        },
+        "priority": {
+          "id": "4",
+          "name": "Low"
+        },
+        "resolution": {
+          "id": "10000",
+          "name": "Done"
+        },
+        "labels": [
+          "perf"
+        ],
+        "components": [
+          {
+            "id": "Web",
+            "name": "Web"
+          }
+        ],
+        "parent": {
+          "id": "30125",
+          "key": "FLO-36"
+        },
+        "customfield_10019": "0|i86389:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3021,
+            "name": "FLO Sprint 22",
+            "state": "closed",
+            "boardId": 1,
+            "startDate": "2026-06-22T00:00:00.000Z",
+            "endDate": "2026-07-06T00:00:00.000Z",
+            "goal": "Sprint 22 goal for Flow Core"
+          },
+          {
+            "id": 3022,
+            "name": "FLO Sprint 23",
+            "state": "closed",
+            "boardId": 1,
+            "startDate": "2026-07-06T00:00:00.000Z",
+            "endDate": "2026-07-20T00:00:00.000Z",
+            "goal": "Sprint 23 goal for Flow Core"
+          }
+        ],
+        "timetracking": {
+          "originalEstimateSeconds": 57600,
+          "remainingEstimateSeconds": 57600,
+          "timeSpentSeconds": 0
+        }
+      }
+    },
+    {
+      "id": "31082",
+      "key": "GTM-254",
+      "fields": {
+        "summary": "Story GTM-254: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10001",
+          "name": "Story",
+          "subtask": false
+        },
+        "project": {
+          "id": "10002",
+          "key": "GTM",
+          "name": "Go To Market"
+        },
+        "created": "2026-07-03T18:24:04.591Z",
+        "updated": "2026-08-09T18:24:04.591Z",
+        "resolutiondate": "2026-08-09T18:24:04.591Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d27",
+          "displayName": "Sample User 27"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d27",
+          "displayName": "Sample User 27"
+        },
+        "priority": {
+          "id": "5",
+          "name": "Lowest"
+        },
+        "resolution": {
+          "id": "10003",
+          "name": "Cannot Reproduce"
+        },
+        "labels": [
+          "flaky-test",
+          "tech-debt"
+        ],
+        "components": [
+          {
+            "id": "Reporting",
+            "name": "Reporting"
+          }
+        ],
+        "customfield_10001": {
+          "id": "8e6f8c9a-1a2b-4c3d-9e0f-111111111111",
+          "name": "Payments"
+        },
+        "customfield_10016": 1,
+        "customfield_10019": "0|i62851:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3077,
+            "name": "GTM Sprint 22",
+            "state": "closed",
+            "boardId": 3,
+            "startDate": "2026-06-22T00:00:00.000Z",
+            "endDate": "2026-07-06T00:00:00.000Z",
+            "goal": "Sprint 22 goal for Go To Market"
+          },
+          {
+            "id": 3078,
+            "name": "GTM Sprint 23",
+            "state": "closed",
+            "boardId": 3,
+            "startDate": "2026-07-06T00:00:00.000Z",
+            "endDate": "2026-07-20T00:00:00.000Z",
+            "goal": "Sprint 23 goal for Go To Market"
+          }
+        ],
+        "timetracking": {
+          "originalEstimateSeconds": 43200,
+          "remainingEstimateSeconds": 43200,
+          "timeSpentSeconds": 0
+        }
+      }
+    },
+    {
+      "id": "31083",
+      "key": "FLO-338",
+      "fields": {
+        "summary": "Story FLO-338: sample work item",
+        "status": {
+          "id": "3",
+          "name": "In Progress",
+          "statusCategory": {
+            "id": 4,
+            "key": "indeterminate",
+            "name": "In Progress",
+            "colorName": "yellow"
+          }
+        },
+        "issuetype": {
+          "id": "10001",
+          "name": "Story",
+          "subtask": false
+        },
+        "project": {
+          "id": "10000",
+          "key": "FLO",
+          "name": "Flow Core"
+        },
+        "created": "2026-07-03T18:43:25.211Z",
+        "updated": "2026-07-08T18:43:25.211Z",
+        "resolutiondate": null,
+        "assignee": null,
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d06",
+          "displayName": "Sample User 6"
+        },
+        "priority": {
+          "id": "1",
+          "name": "Highest"
+        },
+        "resolution": null,
+        "labels": [
+          "needs-design",
+          "tech-debt"
+        ],
+        "components": [
+          {
+            "id": "Worker",
+            "name": "Worker"
+          }
+        ],
+        "customfield_10016": 5,
+        "customfield_10019": "0|i23189:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3021,
+            "name": "FLO Sprint 22",
+            "state": "closed",
+            "boardId": 1,
+            "startDate": "2026-06-22T00:00:00.000Z",
+            "endDate": "2026-07-06T00:00:00.000Z",
+            "goal": "Sprint 22 goal for Flow Core"
+          }
+        ],
+        "timetracking": {
+          "originalEstimateSeconds": 7200,
+          "remainingEstimateSeconds": 7200,
+          "timeSpentSeconds": 0
+        }
+      }
+    },
+    {
+      "id": "31084",
+      "key": "FLO-339",
+      "fields": {
+        "summary": "Story FLO-339: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10001",
+          "name": "Story",
+          "subtask": false
+        },
+        "project": {
+          "id": "10000",
+          "key": "FLO",
+          "name": "Flow Core"
+        },
+        "created": "2026-07-03T18:55:04.547Z",
+        "updated": "2026-07-07T18:55:04.547Z",
+        "resolutiondate": "2026-07-07T18:55:04.547Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d28",
+          "displayName": "Sample User 28"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d02",
+          "displayName": "Sample User 2"
+        },
+        "priority": {
+          "id": "1",
+          "name": "Highest"
+        },
+        "resolution": {
+          "id": "10000",
+          "name": "Done"
+        },
+        "labels": [],
+        "components": [
+          {
+            "id": "API",
+            "name": "API"
+          }
+        ],
+        "customfield_10001": {
+          "id": "8e6f8c9a-1a2b-4c3d-9e0f-222222222222",
+          "name": "Platform Core"
+        },
+        "customfield_10016": 2,
+        "customfield_10019": "0|i63439:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3021,
+            "name": "FLO Sprint 22",
+            "state": "closed",
+            "boardId": 1,
+            "startDate": "2026-06-22T00:00:00.000Z",
+            "endDate": "2026-07-06T00:00:00.000Z",
+            "goal": "Sprint 22 goal for Flow Core"
+          }
+        ]
+      }
+    },
+    {
+      "id": "31085",
+      "key": "FLO-340",
+      "fields": {
+        "summary": "Task FLO-340: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10002",
+          "name": "Task",
+          "subtask": false
+        },
+        "project": {
+          "id": "10000",
+          "key": "FLO",
+          "name": "Flow Core"
+        },
+        "created": "2026-07-04T16:36:22.138Z",
+        "updated": "2026-07-14T16:36:22.138Z",
+        "resolutiondate": "2026-07-14T16:36:22.138Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d01",
+          "displayName": "Sample User 1"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d02",
+          "displayName": "Sample User 2"
+        },
+        "priority": {
+          "id": "1",
+          "name": "Highest"
+        },
+        "resolution": {
+          "id": "10000",
+          "name": "Done"
+        },
+        "labels": [
+          "tech-debt",
+          "flaky-test"
+        ],
+        "components": [
+          {
+            "id": "API",
+            "name": "API"
+          }
+        ],
+        "parent": {
+          "id": "30033",
+          "key": "FLO-8"
+        },
+        "customfield_10019": "0|i88610:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3021,
+            "name": "FLO Sprint 22",
+            "state": "closed",
+            "boardId": 1,
+            "startDate": "2026-06-22T00:00:00.000Z",
+            "endDate": "2026-07-06T00:00:00.000Z",
+            "goal": "Sprint 22 goal for Flow Core"
+          }
+        ]
+      }
+    },
+    {
+      "id": "31086",
+      "key": "GTM-255",
+      "fields": {
+        "summary": "Story GTM-255: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10001",
+          "name": "Story",
+          "subtask": false
+        },
+        "project": {
+          "id": "10002",
+          "key": "GTM",
+          "name": "Go To Market"
+        },
+        "created": "2026-07-04T16:49:32.902Z",
+        "updated": "2026-07-12T16:49:32.902Z",
+        "resolutiondate": "2026-07-12T16:49:32.902Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d18",
+          "displayName": "Sample User 18"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d15",
+          "displayName": "Sample User 15"
+        },
+        "priority": {
+          "id": "1",
+          "name": "Highest"
+        },
+        "resolution": {
+          "id": "10002",
+          "name": "Duplicate"
+        },
+        "labels": [
+          "customer-reported",
+          "regression"
+        ],
+        "components": [
+          {
+            "id": "Reporting",
+            "name": "Reporting"
+          }
+        ],
+        "parent": {
+          "id": "30070",
+          "key": "GTM-19"
+        },
+        "customfield_10001": {
+          "id": "8e6f8c9a-1a2b-4c3d-9e0f-444444444444",
+          "name": "Reliability"
+        },
+        "customfield_10016": 5,
+        "customfield_10019": "0|i54942:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3077,
+            "name": "GTM Sprint 22",
+            "state": "closed",
+            "boardId": 3,
+            "startDate": "2026-06-22T00:00:00.000Z",
+            "endDate": "2026-07-06T00:00:00.000Z",
+            "goal": "Sprint 22 goal for Go To Market"
+          }
+        ]
+      }
+    },
+    {
+      "id": "31087",
+      "key": "PLT-302",
+      "fields": {
+        "summary": "Sub-task PLT-302: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10004",
+          "name": "Sub-task",
+          "subtask": true
+        },
+        "project": {
+          "id": "10001",
+          "key": "PLT",
+          "name": "Platform"
+        },
+        "created": "2026-07-05T07:05:44.349Z",
+        "updated": "2026-07-13T07:05:44.349Z",
+        "resolutiondate": "2026-07-13T07:05:44.349Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d08",
+          "displayName": "Sample User 8"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d07",
+          "displayName": "Sample User 7"
+        },
+        "priority": {
+          "id": "5",
+          "name": "Lowest"
+        },
+        "resolution": {
+          "id": "10000",
+          "name": "Done"
+        },
+        "labels": [
+          "tech-debt"
+        ],
+        "components": [
+          {
+            "id": "Observability",
+            "name": "Observability"
+          }
+        ],
+        "parent": {
+          "id": "31029",
+          "key": "PLT-284"
+        },
+        "customfield_10019": "0|i95844:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3049,
+            "name": "PLT Sprint 22",
+            "state": "closed",
+            "boardId": 2,
+            "startDate": "2026-06-22T00:00:00.000Z",
+            "endDate": "2026-07-06T00:00:00.000Z",
+            "goal": "Sprint 22 goal for Platform"
+          }
+        ],
+        "timetracking": {
+          "originalEstimateSeconds": 36000,
+          "remainingEstimateSeconds": 36000,
+          "timeSpentSeconds": 0
+        }
+      }
+    },
+    {
+      "id": "31088",
+      "key": "GTM-256",
+      "fields": {
+        "summary": "Story GTM-256: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10001",
+          "name": "Story",
+          "subtask": false
+        },
+        "project": {
+          "id": "10002",
+          "key": "GTM",
+          "name": "Go To Market"
+        },
+        "created": "2026-07-05T07:17:22.875Z",
+        "updated": "2026-07-15T07:17:22.875Z",
+        "resolutiondate": "2026-07-15T07:17:22.875Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d19",
+          "displayName": "Sample User 19"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d25",
+          "displayName": "Sample User 25"
+        },
+        "priority": {
+          "id": "4",
+          "name": "Low"
+        },
+        "resolution": {
+          "id": "10000",
+          "name": "Done"
+        },
+        "labels": [
+          "flaky-test"
+        ],
+        "components": [],
+        "parent": {
+          "id": "30049",
+          "key": "GTM-14"
+        },
+        "customfield_10016": 13,
+        "customfield_10019": "0|i70307:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3077,
+            "name": "GTM Sprint 22",
+            "state": "closed",
+            "boardId": 3,
+            "startDate": "2026-06-22T00:00:00.000Z",
+            "endDate": "2026-07-06T00:00:00.000Z",
+            "goal": "Sprint 22 goal for Go To Market"
+          }
+        ]
+      }
+    },
+    {
+      "id": "31089",
+      "key": "PLT-303",
+      "fields": {
+        "summary": "Task PLT-303: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10002",
+          "name": "Task",
+          "subtask": false
+        },
+        "project": {
+          "id": "10001",
+          "key": "PLT",
+          "name": "Platform"
+        },
+        "created": "2026-07-05T18:50:47.549Z",
+        "updated": "2026-07-11T18:50:47.549Z",
+        "resolutiondate": "2026-07-11T18:50:47.549Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d21",
+          "displayName": "Sample User 21"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d25",
+          "displayName": "Sample User 25"
+        },
+        "priority": {
+          "id": "1",
+          "name": "Highest"
+        },
+        "resolution": {
+          "id": "10003",
+          "name": "Cannot Reproduce"
+        },
+        "labels": [],
+        "components": [],
+        "customfield_10001": {
+          "id": "8e6f8c9a-1a2b-4c3d-9e0f-222222222222",
+          "name": "Platform Core"
+        },
+        "customfield_10019": "0|i17880:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3049,
+            "name": "PLT Sprint 22",
+            "state": "closed",
+            "boardId": 2,
+            "startDate": "2026-06-22T00:00:00.000Z",
+            "endDate": "2026-07-06T00:00:00.000Z",
+            "goal": "Sprint 22 goal for Platform"
+          }
+        ],
+        "timetracking": {
+          "originalEstimateSeconds": 10800,
+          "remainingEstimateSeconds": 10800,
+          "timeSpentSeconds": 0
+        }
+      }
+    },
+    {
+      "id": "31090",
+      "key": "FLO-341",
+      "fields": {
+        "summary": "Sub-task FLO-341: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10004",
+          "name": "Sub-task",
+          "subtask": true
+        },
+        "project": {
+          "id": "10000",
+          "key": "FLO",
+          "name": "Flow Core"
+        },
+        "created": "2026-07-06T03:30:14.477Z",
+        "updated": "2026-07-16T03:30:14.477Z",
+        "resolutiondate": "2026-07-16T03:30:14.477Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d18",
+          "displayName": "Sample User 18"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d18",
+          "displayName": "Sample User 18"
+        },
+        "priority": {
+          "id": "2",
+          "name": "High"
+        },
+        "resolution": {
+          "id": "10000",
+          "name": "Done"
+        },
+        "labels": [
+          "security",
+          "customer-reported"
+        ],
+        "components": [
+          {
+            "id": "Worker",
+            "name": "Worker"
+          }
+        ],
+        "parent": {
+          "id": "30995",
+          "key": "FLO-314"
+        },
+        "customfield_10019": "0|i59470:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3022,
+            "name": "FLO Sprint 23",
+            "state": "closed",
+            "boardId": 1,
+            "startDate": "2026-07-06T00:00:00.000Z",
+            "endDate": "2026-07-20T00:00:00.000Z",
+            "goal": "Sprint 23 goal for Flow Core"
+          }
+        ]
+      }
+    },
+    {
+      "id": "31091",
+      "key": "FLO-342",
+      "fields": {
+        "summary": "Bug FLO-342: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10003",
+          "name": "Bug",
+          "subtask": false
+        },
+        "project": {
+          "id": "10000",
+          "key": "FLO",
+          "name": "Flow Core"
+        },
+        "created": "2026-07-06T14:36:09.182Z",
+        "updated": "2026-07-10T14:36:09.182Z",
+        "resolutiondate": "2026-07-10T14:36:09.182Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d20",
+          "displayName": "Sample User 20"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d14",
+          "displayName": "Sample User 14"
+        },
+        "priority": {
+          "id": "3",
+          "name": "Medium"
+        },
+        "resolution": {
+          "id": "10000",
+          "name": "Done"
+        },
+        "labels": [
+          "security",
+          "flaky-test"
+        ],
+        "components": [
+          {
+            "id": "Web",
+            "name": "Web"
+          }
+        ],
+        "customfield_10019": "0|i83660:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3022,
+            "name": "FLO Sprint 23",
+            "state": "closed",
+            "boardId": 1,
+            "startDate": "2026-07-06T00:00:00.000Z",
+            "endDate": "2026-07-20T00:00:00.000Z",
+            "goal": "Sprint 23 goal for Flow Core"
+          }
+        ],
+        "timetracking": {
+          "originalEstimateSeconds": 50400,
+          "remainingEstimateSeconds": 50400,
+          "timeSpentSeconds": 0
+        }
+      }
+    },
+    {
+      "id": "31092",
+      "key": "GTM-257",
+      "fields": {
+        "summary": "Task GTM-257: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10002",
+          "name": "Task",
+          "subtask": false
+        },
+        "project": {
+          "id": "10002",
+          "key": "GTM",
+          "name": "Go To Market"
+        },
+        "created": "2026-07-06T23:57:25.949Z",
+        "updated": "2026-08-13T23:57:25.949Z",
+        "resolutiondate": "2026-08-13T23:57:25.949Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d07",
+          "displayName": "Sample User 7"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d12",
+          "displayName": "Sample User 12"
+        },
+        "priority": {
+          "id": "2",
+          "name": "High"
+        },
+        "resolution": {
+          "id": "10003",
+          "name": "Cannot Reproduce"
+        },
+        "labels": [],
+        "components": [
+          {
+            "id": "Reporting",
+            "name": "Reporting"
+          }
+        ],
+        "customfield_10019": "0|i53497:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3078,
+            "name": "GTM Sprint 23",
+            "state": "closed",
+            "boardId": 3,
+            "startDate": "2026-07-06T00:00:00.000Z",
+            "endDate": "2026-07-20T00:00:00.000Z",
+            "goal": "Sprint 23 goal for Go To Market"
+          },
+          {
+            "id": 3079,
+            "name": "GTM Sprint 24",
+            "state": "closed",
+            "boardId": 3,
+            "startDate": "2026-07-20T00:00:00.000Z",
+            "endDate": "2026-08-03T00:00:00.000Z",
+            "goal": "Sprint 24 goal for Go To Market"
+          }
+        ]
+      }
+    },
+    {
+      "id": "31094",
+      "key": "OPS-129",
+      "fields": {
+        "summary": "Bug OPS-129: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10003",
+          "name": "Bug",
+          "subtask": false
+        },
+        "project": {
+          "id": "10003",
+          "key": "OPS",
+          "name": "Operations"
+        },
+        "created": "2026-07-07T09:31:24.087Z",
+        "updated": "2026-07-17T09:31:24.087Z",
+        "resolutiondate": "2026-07-17T09:31:24.087Z",
+        "assignee": null,
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d16",
+          "displayName": "Sample User 16"
+        },
+        "priority": {
+          "id": "2",
+          "name": "High"
+        },
+        "resolution": {
+          "id": "10003",
+          "name": "Cannot Reproduce"
+        },
+        "labels": [
+          "customer-reported"
+        ],
+        "components": [],
+        "customfield_10019": "0|i55337:",
+        "customfield_10021": [],
+        "timetracking": {
+          "originalEstimateSeconds": 10800,
+          "remainingEstimateSeconds": 10800,
+          "timeSpentSeconds": 0
+        }
+      }
+    },
+    {
+      "id": "31095",
+      "key": "FLO-343",
+      "fields": {
+        "summary": "Task FLO-343: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10002",
+          "name": "Task",
+          "subtask": false
+        },
+        "project": {
+          "id": "10000",
+          "key": "FLO",
+          "name": "Flow Core"
+        },
+        "created": "2026-07-07T13:46:38.123Z",
+        "updated": "2026-07-19T13:46:38.123Z",
+        "resolutiondate": "2026-07-19T13:46:38.123Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d21",
+          "displayName": "Sample User 21"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d30",
+          "displayName": "Sample User 30"
+        },
+        "priority": {
+          "id": "2",
+          "name": "High"
+        },
+        "resolution": {
+          "id": "10000",
+          "name": "Done"
+        },
+        "labels": [
+          "quick-win"
+        ],
+        "components": [
+          {
+            "id": "API",
+            "name": "API"
+          }
+        ],
+        "parent": {
+          "id": "30125",
+          "key": "FLO-36"
+        },
+        "customfield_10019": "0|i70859:",
+        "customfield_10021": [
+          {
+            "value": "Impediment",
+            "id": "10019"
+          }
+        ],
+        "customfield_10020": [
+          {
+            "id": 3022,
+            "name": "FLO Sprint 23",
+            "state": "closed",
+            "boardId": 1,
+            "startDate": "2026-07-06T00:00:00.000Z",
+            "endDate": "2026-07-20T00:00:00.000Z",
+            "goal": "Sprint 23 goal for Flow Core"
+          }
+        ]
+      }
+    },
+    {
+      "id": "31096",
+      "key": "PLT-304",
+      "fields": {
+        "summary": "Task PLT-304: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10002",
+          "name": "Task",
+          "subtask": false
+        },
+        "project": {
+          "id": "10001",
+          "key": "PLT",
+          "name": "Platform"
+        },
+        "created": "2026-07-07T18:18:52.789Z",
+        "updated": "2026-07-13T18:18:52.789Z",
+        "resolutiondate": "2026-07-13T18:18:52.789Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d20",
+          "displayName": "Sample User 20"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d15",
+          "displayName": "Sample User 15"
+        },
+        "priority": {
+          "id": "2",
+          "name": "High"
+        },
+        "resolution": {
+          "id": "10000",
+          "name": "Done"
+        },
+        "labels": [],
+        "components": [],
+        "parent": {
+          "id": "30019",
+          "key": "PLT-5"
+        },
+        "customfield_10019": "0|i75862:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3050,
+            "name": "PLT Sprint 23",
+            "state": "closed",
+            "boardId": 2,
+            "startDate": "2026-07-06T00:00:00.000Z",
+            "endDate": "2026-07-20T00:00:00.000Z",
+            "goal": "Sprint 23 goal for Platform"
+          }
+        ],
+        "timetracking": {
+          "originalEstimateSeconds": 64800,
+          "remainingEstimateSeconds": 64800,
+          "timeSpentSeconds": 0
+        }
+      }
+    },
+    {
+      "id": "31097",
+      "key": "PLT-305",
+      "fields": {
+        "summary": "Story PLT-305: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10001",
+          "name": "Story",
+          "subtask": false
+        },
+        "project": {
+          "id": "10001",
+          "key": "PLT",
+          "name": "Platform"
+        },
+        "created": "2026-07-08T07:34:23.987Z",
+        "updated": "2026-07-15T07:34:23.987Z",
+        "resolutiondate": "2026-07-15T07:34:23.987Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d17",
+          "displayName": "Sample User 17"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d23",
+          "displayName": "Sample User 23"
+        },
+        "priority": {
+          "id": "4",
+          "name": "Low"
+        },
+        "resolution": {
+          "id": "10000",
+          "name": "Done"
+        },
+        "labels": [
+          "quick-win"
+        ],
+        "components": [],
+        "customfield_10016": 8,
+        "customfield_10019": "0|i65758:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3050,
+            "name": "PLT Sprint 23",
+            "state": "closed",
+            "boardId": 2,
+            "startDate": "2026-07-06T00:00:00.000Z",
+            "endDate": "2026-07-20T00:00:00.000Z",
+            "goal": "Sprint 23 goal for Platform"
+          }
+        ]
+      }
+    },
+    {
+      "id": "31098",
+      "key": "GTM-258",
+      "fields": {
+        "summary": "Story GTM-258: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10001",
+          "name": "Story",
+          "subtask": false
+        },
+        "project": {
+          "id": "10002",
+          "key": "GTM",
+          "name": "Go To Market"
+        },
+        "created": "2026-07-09T06:29:10.406Z",
+        "updated": "2026-07-18T06:29:10.406Z",
+        "resolutiondate": "2026-07-18T06:29:10.406Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d12",
+          "displayName": "Sample User 12"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d24",
+          "displayName": "Sample User 24"
+        },
+        "priority": {
+          "id": "3",
+          "name": "Medium"
+        },
+        "resolution": {
+          "id": "10000",
+          "name": "Done"
+        },
+        "labels": [],
+        "components": [
+          {
+            "id": "Onboarding",
+            "name": "Onboarding"
+          }
+        ],
+        "customfield_10016": 3,
+        "customfield_10019": "0|i66047:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3078,
+            "name": "GTM Sprint 23",
+            "state": "closed",
+            "boardId": 3,
+            "startDate": "2026-07-06T00:00:00.000Z",
+            "endDate": "2026-07-20T00:00:00.000Z",
+            "goal": "Sprint 23 goal for Go To Market"
+          }
+        ]
+      }
+    },
+    {
+      "id": "31099",
+      "key": "FLO-344",
+      "fields": {
+        "summary": "Task FLO-344: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10002",
+          "name": "Task",
+          "subtask": false
+        },
+        "project": {
+          "id": "10000",
+          "key": "FLO",
+          "name": "Flow Core"
+        },
+        "created": "2026-07-09T07:26:15.781Z",
+        "updated": "2026-07-22T07:26:15.781Z",
+        "resolutiondate": "2026-07-22T07:26:15.781Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d04",
+          "displayName": "Sample User 4"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d16",
+          "displayName": "Sample User 16"
+        },
+        "priority": {
+          "id": "4",
+          "name": "Low"
+        },
+        "resolution": {
+          "id": "10001",
+          "name": "Won't Do"
+        },
+        "labels": [],
+        "components": [
+          {
+            "id": "API",
+            "name": "API"
+          }
+        ],
+        "customfield_10019": "0|i84175:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3022,
+            "name": "FLO Sprint 23",
+            "state": "closed",
+            "boardId": 1,
+            "startDate": "2026-07-06T00:00:00.000Z",
+            "endDate": "2026-07-20T00:00:00.000Z",
+            "goal": "Sprint 23 goal for Flow Core"
+          }
+        ],
+        "timetracking": {
+          "originalEstimateSeconds": 14400,
+          "remainingEstimateSeconds": 14400,
+          "timeSpentSeconds": 0
+        }
+      }
+    },
+    {
+      "id": "31100",
+      "key": "FLO-345",
+      "fields": {
+        "summary": "Sub-task FLO-345: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10004",
+          "name": "Sub-task",
+          "subtask": true
+        },
+        "project": {
+          "id": "10000",
+          "key": "FLO",
+          "name": "Flow Core"
+        },
+        "created": "2026-07-09T18:43:25.211Z",
+        "updated": "2026-08-04T18:43:25.211Z",
+        "resolutiondate": "2026-08-04T18:43:25.211Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d06",
+          "displayName": "Sample User 6"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d22",
+          "displayName": "Sample User 22"
+        },
+        "priority": {
+          "id": "3",
+          "name": "Medium"
+        },
+        "resolution": {
+          "id": "10002",
+          "name": "Duplicate"
+        },
+        "labels": [
+          "security"
+        ],
+        "components": [],
+        "parent": {
+          "id": "31083",
+          "key": "FLO-338"
+        },
+        "customfield_10019": "0|i74769:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3022,
+            "name": "FLO Sprint 23",
+            "state": "closed",
+            "boardId": 1,
+            "startDate": "2026-07-06T00:00:00.000Z",
+            "endDate": "2026-07-20T00:00:00.000Z",
+            "goal": "Sprint 23 goal for Flow Core"
+          },
+          {
+            "id": 3023,
+            "name": "FLO Sprint 24",
+            "state": "closed",
+            "boardId": 1,
+            "startDate": "2026-07-20T00:00:00.000Z",
+            "endDate": "2026-08-03T00:00:00.000Z",
+            "goal": "Sprint 24 goal for Flow Core"
+          }
+        ],
+        "timetracking": {
+          "originalEstimateSeconds": 3600,
+          "remainingEstimateSeconds": 3600,
+          "timeSpentSeconds": 0
+        }
+      }
+    },
+    {
+      "id": "31101",
+      "key": "GTM-259",
+      "fields": {
+        "summary": "Story GTM-259: sample work item",
+        "status": {
+          "id": "3",
+          "name": "In Progress",
+          "statusCategory": {
+            "id": 4,
+            "key": "indeterminate",
+            "name": "In Progress",
+            "colorName": "yellow"
+          }
+        },
+        "issuetype": {
+          "id": "10001",
+          "name": "Story",
+          "subtask": false
+        },
+        "project": {
+          "id": "10002",
+          "key": "GTM",
+          "name": "Go To Market"
+        },
+        "created": "2026-07-10T20:00:46.446Z",
+        "updated": "2026-07-13T20:00:46.446Z",
+        "resolutiondate": null,
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d10",
+          "displayName": "Sample User 10"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d24",
+          "displayName": "Sample User 24"
+        },
+        "priority": {
+          "id": "4",
+          "name": "Low"
+        },
+        "resolution": null,
+        "labels": [
+          "perf"
+        ],
+        "components": [
+          {
+            "id": "Onboarding",
+            "name": "Onboarding"
+          }
+        ],
+        "customfield_10016": 3,
+        "customfield_10019": "0|i34568:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3078,
+            "name": "GTM Sprint 23",
+            "state": "closed",
+            "boardId": 3,
+            "startDate": "2026-07-06T00:00:00.000Z",
+            "endDate": "2026-07-20T00:00:00.000Z",
+            "goal": "Sprint 23 goal for Go To Market"
+          }
+        ],
+        "timetracking": {
+          "originalEstimateSeconds": 57600,
+          "remainingEstimateSeconds": 57600,
+          "timeSpentSeconds": 0
+        }
+      }
+    },
+    {
+      "id": "31102",
+      "key": "PLT-306",
+      "fields": {
+        "summary": "Sub-task PLT-306: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10004",
+          "name": "Sub-task",
+          "subtask": true
+        },
+        "project": {
+          "id": "10001",
+          "key": "PLT",
+          "name": "Platform"
+        },
+        "created": "2026-07-11T03:01:29.007Z",
+        "updated": "2026-07-19T03:01:29.007Z",
+        "resolutiondate": "2026-07-19T03:01:29.007Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d13",
+          "displayName": "Sample User 13"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d28",
+          "displayName": "Sample User 28"
+        },
+        "priority": {
+          "id": "2",
+          "name": "High"
+        },
+        "resolution": {
+          "id": "10003",
+          "name": "Cannot Reproduce"
+        },
+        "labels": [
+          "quick-win",
+          "perf"
+        ],
+        "components": [
+          {
+            "id": "CI/CD",
+            "name": "CI/CD"
+          }
+        ],
+        "parent": {
+          "id": "31025",
+          "key": "PLT-283"
+        },
+        "customfield_10019": "0|i44776:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3050,
+            "name": "PLT Sprint 23",
+            "state": "closed",
+            "boardId": 2,
+            "startDate": "2026-07-06T00:00:00.000Z",
+            "endDate": "2026-07-20T00:00:00.000Z",
+            "goal": "Sprint 23 goal for Platform"
+          }
+        ],
+        "timetracking": {
+          "originalEstimateSeconds": 21600,
+          "remainingEstimateSeconds": 21600,
+          "timeSpentSeconds": 0
+        }
+      }
+    },
+    {
+      "id": "31103",
+      "key": "GTM-260",
+      "fields": {
+        "summary": "Story GTM-260: sample work item",
+        "status": {
+          "id": "3",
+          "name": "In Progress",
+          "statusCategory": {
+            "id": 4,
+            "key": "indeterminate",
+            "name": "In Progress",
+            "colorName": "yellow"
+          }
+        },
+        "issuetype": {
+          "id": "10001",
+          "name": "Story",
+          "subtask": false
+        },
+        "project": {
+          "id": "10002",
+          "key": "GTM",
+          "name": "Go To Market"
+        },
+        "created": "2026-07-11T07:47:37.899Z",
+        "updated": "2026-07-16T07:47:37.899Z",
+        "resolutiondate": null,
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d08",
+          "displayName": "Sample User 8"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d03",
+          "displayName": "Sample User 3"
+        },
+        "priority": {
+          "id": "5",
+          "name": "Lowest"
+        },
+        "resolution": null,
+        "labels": [
+          "flaky-test"
+        ],
+        "components": [
+          {
+            "id": "Reporting",
+            "name": "Reporting"
+          }
+        ],
+        "customfield_10016": 5,
+        "customfield_10019": "0|i36058:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3078,
+            "name": "GTM Sprint 23",
+            "state": "closed",
+            "boardId": 3,
+            "startDate": "2026-07-06T00:00:00.000Z",
+            "endDate": "2026-07-20T00:00:00.000Z",
+            "goal": "Sprint 23 goal for Go To Market"
+          },
+          {
+            "id": 3079,
+            "name": "GTM Sprint 24",
+            "state": "closed",
+            "boardId": 3,
+            "startDate": "2026-07-20T00:00:00.000Z",
+            "endDate": "2026-08-03T00:00:00.000Z",
+            "goal": "Sprint 24 goal for Go To Market"
+          }
+        ]
+      }
+    },
+    {
+      "id": "31104",
+      "key": "FLO-346",
+      "fields": {
+        "summary": "Bug FLO-346: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10003",
+          "name": "Bug",
+          "subtask": false
+        },
+        "project": {
+          "id": "10000",
+          "key": "FLO",
+          "name": "Flow Core"
+        },
+        "created": "2026-07-11T14:42:37.443Z",
+        "updated": "2026-07-24T14:42:37.443Z",
+        "resolutiondate": "2026-07-24T14:42:37.443Z",
+        "assignee": null,
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d25",
+          "displayName": "Sample User 25"
+        },
+        "priority": {
+          "id": "5",
+          "name": "Lowest"
+        },
+        "resolution": {
+          "id": "10002",
+          "name": "Duplicate"
+        },
+        "labels": [
+          "regression"
+        ],
+        "components": [],
+        "customfield_10019": "0|i43798:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3022,
+            "name": "FLO Sprint 23",
+            "state": "closed",
+            "boardId": 1,
+            "startDate": "2026-07-06T00:00:00.000Z",
+            "endDate": "2026-07-20T00:00:00.000Z",
+            "goal": "Sprint 23 goal for Flow Core"
+          }
+        ],
+        "timetracking": {
+          "originalEstimateSeconds": 21600,
+          "remainingEstimateSeconds": 21600,
+          "timeSpentSeconds": 0
+        }
+      }
+    },
+    {
+      "id": "31105",
+      "key": "FLO-347",
+      "fields": {
+        "summary": "Story FLO-347: sample work item",
+        "status": {
+          "id": "3",
+          "name": "In Progress",
+          "statusCategory": {
+            "id": 4,
+            "key": "indeterminate",
+            "name": "In Progress",
+            "colorName": "yellow"
+          }
+        },
+        "issuetype": {
+          "id": "10001",
+          "name": "Story",
+          "subtask": false
+        },
+        "project": {
+          "id": "10000",
+          "key": "FLO",
+          "name": "Flow Core"
+        },
+        "created": "2026-07-11T21:00:21.208Z",
+        "updated": "2026-07-13T21:00:21.208Z",
+        "resolutiondate": null,
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d27",
+          "displayName": "Sample User 27"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d23",
+          "displayName": "Sample User 23"
+        },
+        "priority": {
+          "id": "1",
+          "name": "Highest"
+        },
+        "resolution": null,
+        "labels": [],
+        "components": [
+          {
+            "id": "API",
+            "name": "API"
+          }
+        ],
+        "parent": {
+          "id": "30151",
+          "key": "FLO-44"
+        },
+        "customfield_10001": {
+          "id": "8e6f8c9a-1a2b-4c3d-9e0f-333333333333",
+          "name": "Growth"
+        },
+        "customfield_10016": 3,
+        "customfield_10019": "0|i86712:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3022,
+            "name": "FLO Sprint 23",
+            "state": "closed",
+            "boardId": 1,
+            "startDate": "2026-07-06T00:00:00.000Z",
+            "endDate": "2026-07-20T00:00:00.000Z",
+            "goal": "Sprint 23 goal for Flow Core"
+          },
+          {
+            "id": 3023,
+            "name": "FLO Sprint 24",
+            "state": "closed",
+            "boardId": 1,
+            "startDate": "2026-07-20T00:00:00.000Z",
+            "endDate": "2026-08-03T00:00:00.000Z",
+            "goal": "Sprint 24 goal for Flow Core"
+          }
+        ]
+      }
+    },
+    {
+      "id": "31107",
+      "key": "GTM-261",
+      "fields": {
+        "summary": "Story GTM-261: sample work item",
+        "status": {
+          "id": "10001",
+          "name": "In Review",
+          "statusCategory": {
+            "id": 4,
+            "key": "indeterminate",
+            "name": "In Progress",
+            "colorName": "yellow"
+          }
+        },
+        "issuetype": {
+          "id": "10001",
+          "name": "Story",
+          "subtask": false
+        },
+        "project": {
+          "id": "10002",
+          "key": "GTM",
+          "name": "Go To Market"
+        },
+        "created": "2026-07-12T03:06:29.635Z",
+        "updated": "2026-07-18T03:06:29.635Z",
+        "resolutiondate": null,
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d24",
+          "displayName": "Sample User 24"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d13",
+          "displayName": "Sample User 13"
+        },
+        "priority": {
+          "id": "1",
+          "name": "Highest"
+        },
+        "resolution": null,
+        "labels": [
+          "perf"
+        ],
+        "components": [
+          {
+            "id": "Onboarding",
+            "name": "Onboarding"
+          }
+        ],
+        "customfield_10016": 5,
+        "customfield_10019": "0|i41306:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3078,
+            "name": "GTM Sprint 23",
+            "state": "closed",
+            "boardId": 3,
+            "startDate": "2026-07-06T00:00:00.000Z",
+            "endDate": "2026-07-20T00:00:00.000Z",
+            "goal": "Sprint 23 goal for Go To Market"
+          }
+        ]
+      }
+    },
+    {
+      "id": "31109",
+      "key": "FLO-348",
+      "fields": {
+        "summary": "Task FLO-348: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10002",
+          "name": "Task",
+          "subtask": false
+        },
+        "project": {
+          "id": "10000",
+          "key": "FLO",
+          "name": "Flow Core"
+        },
+        "created": "2026-07-12T13:10:23.467Z",
+        "updated": "2026-07-19T13:10:23.467Z",
+        "resolutiondate": "2026-07-19T13:10:23.467Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d11",
+          "displayName": "Sample User 11"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d07",
+          "displayName": "Sample User 7"
+        },
+        "priority": {
+          "id": "2",
+          "name": "High"
+        },
+        "resolution": {
+          "id": "10001",
+          "name": "Won't Do"
+        },
+        "labels": [
+          "flaky-test",
+          "security"
+        ],
+        "components": [
+          {
+            "id": "API",
+            "name": "API"
+          }
+        ],
+        "parent": {
+          "id": "30109",
+          "key": "FLO-33"
+        },
+        "customfield_10019": "0|i67348:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3022,
+            "name": "FLO Sprint 23",
+            "state": "closed",
+            "boardId": 1,
+            "startDate": "2026-07-06T00:00:00.000Z",
+            "endDate": "2026-07-20T00:00:00.000Z",
+            "goal": "Sprint 23 goal for Flow Core"
+          }
+        ]
+      }
+    },
+    {
+      "id": "31110",
+      "key": "PLT-307",
+      "fields": {
+        "summary": "Story PLT-307: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10001",
+          "name": "Story",
+          "subtask": false
+        },
+        "project": {
+          "id": "10001",
+          "key": "PLT",
+          "name": "Platform"
+        },
+        "created": "2026-07-12T18:13:00.400Z",
+        "updated": "2026-07-19T18:13:00.400Z",
+        "resolutiondate": "2026-07-19T18:13:00.400Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d15",
+          "displayName": "Sample User 15"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d22",
+          "displayName": "Sample User 22"
+        },
+        "priority": {
+          "id": "2",
+          "name": "High"
+        },
+        "resolution": {
+          "id": "10001",
+          "name": "Won't Do"
+        },
+        "labels": [
+          "security",
+          "flaky-test"
+        ],
+        "components": [
+          {
+            "id": "Observability",
+            "name": "Observability"
+          }
+        ],
+        "customfield_10016": 8,
+        "customfield_10019": "0|i99014:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3050,
+            "name": "PLT Sprint 23",
+            "state": "closed",
+            "boardId": 2,
+            "startDate": "2026-07-06T00:00:00.000Z",
+            "endDate": "2026-07-20T00:00:00.000Z",
+            "goal": "Sprint 23 goal for Platform"
+          }
+        ],
+        "timetracking": {
+          "originalEstimateSeconds": 3600,
+          "remainingEstimateSeconds": 3600,
+          "timeSpentSeconds": 0
+        }
+      }
+    },
+    {
+      "id": "31111",
+      "key": "FLO-349",
+      "fields": {
+        "summary": "Task FLO-349: sample work item",
+        "status": {
+          "id": "10001",
+          "name": "In Review",
+          "statusCategory": {
+            "id": 4,
+            "key": "indeterminate",
+            "name": "In Progress",
+            "colorName": "yellow"
+          }
+        },
+        "issuetype": {
+          "id": "10002",
+          "name": "Task",
+          "subtask": false
+        },
+        "project": {
+          "id": "10000",
+          "key": "FLO",
+          "name": "Flow Core"
+        },
+        "created": "2026-07-12T22:53:53.370Z",
+        "updated": "2026-07-17T22:53:53.370Z",
+        "resolutiondate": null,
+        "assignee": null,
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d29",
+          "displayName": "Sample User 29"
+        },
+        "priority": {
+          "id": "1",
+          "name": "Highest"
+        },
+        "resolution": null,
+        "labels": [
+          "perf"
+        ],
+        "components": [
+          {
+            "id": "API",
+            "name": "API"
+          }
+        ],
+        "customfield_10019": "0|i91452:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3022,
+            "name": "FLO Sprint 23",
+            "state": "closed",
+            "boardId": 1,
+            "startDate": "2026-07-06T00:00:00.000Z",
+            "endDate": "2026-07-20T00:00:00.000Z",
+            "goal": "Sprint 23 goal for Flow Core"
+          }
+        ]
+      }
+    },
+    {
+      "id": "31112",
+      "key": "GTM-262",
+      "fields": {
+        "summary": "Bug GTM-262: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10003",
+          "name": "Bug",
+          "subtask": false
+        },
+        "project": {
+          "id": "10002",
+          "key": "GTM",
+          "name": "Go To Market"
+        },
+        "created": "2026-07-13T16:28:04.716Z",
+        "updated": "2026-08-14T16:28:04.716Z",
+        "resolutiondate": "2026-08-14T16:28:04.716Z",
+        "assignee": null,
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d03",
+          "displayName": "Sample User 3"
+        },
+        "priority": {
+          "id": "5",
+          "name": "Lowest"
+        },
+        "resolution": {
+          "id": "10000",
+          "name": "Done"
+        },
+        "labels": [
+          "regression"
+        ],
+        "components": [],
+        "customfield_10019": "0|i90274:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3078,
+            "name": "GTM Sprint 23",
+            "state": "closed",
+            "boardId": 3,
+            "startDate": "2026-07-06T00:00:00.000Z",
+            "endDate": "2026-07-20T00:00:00.000Z",
+            "goal": "Sprint 23 goal for Go To Market"
+          },
+          {
+            "id": 3079,
+            "name": "GTM Sprint 24",
+            "state": "closed",
+            "boardId": 3,
+            "startDate": "2026-07-20T00:00:00.000Z",
+            "endDate": "2026-08-03T00:00:00.000Z",
+            "goal": "Sprint 24 goal for Go To Market"
+          }
+        ]
+      }
+    },
+    {
+      "id": "31113",
+      "key": "PLT-308",
+      "fields": {
+        "summary": "Task PLT-308: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10002",
+          "name": "Task",
+          "subtask": false
+        },
+        "project": {
+          "id": "10001",
+          "key": "PLT",
+          "name": "Platform"
+        },
+        "created": "2026-07-13T18:19:21.315Z",
+        "updated": "2026-07-24T18:19:21.315Z",
+        "resolutiondate": "2026-07-24T18:19:21.315Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d29",
+          "displayName": "Sample User 29"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d13",
+          "displayName": "Sample User 13"
+        },
+        "priority": {
+          "id": "4",
+          "name": "Low"
+        },
+        "resolution": {
+          "id": "10002",
+          "name": "Duplicate"
+        },
+        "labels": [
+          "needs-design",
+          "customer-reported"
+        ],
+        "components": [
+          {
+            "id": "CI/CD",
+            "name": "CI/CD"
+          }
+        ],
+        "parent": {
+          "id": "30105",
+          "key": "PLT-28"
+        },
+        "customfield_10001": {
+          "id": "8e6f8c9a-1a2b-4c3d-9e0f-222222222222",
+          "name": "Platform Core"
+        },
+        "customfield_10019": "0|i12183:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3050,
+            "name": "PLT Sprint 23",
+            "state": "closed",
+            "boardId": 2,
+            "startDate": "2026-07-06T00:00:00.000Z",
+            "endDate": "2026-07-20T00:00:00.000Z",
+            "goal": "Sprint 23 goal for Platform"
+          }
+        ]
+      }
+    },
+    {
+      "id": "31114",
+      "key": "FLO-350",
+      "fields": {
+        "summary": "Sub-task FLO-350: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10004",
+          "name": "Sub-task",
+          "subtask": true
+        },
+        "project": {
+          "id": "10000",
+          "key": "FLO",
+          "name": "Flow Core"
+        },
+        "created": "2026-07-13T21:31:09.763Z",
+        "updated": "2026-07-24T21:31:09.763Z",
+        "resolutiondate": "2026-07-24T21:31:09.763Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d24",
+          "displayName": "Sample User 24"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d19",
+          "displayName": "Sample User 19"
+        },
+        "priority": {
+          "id": "2",
+          "name": "High"
+        },
+        "resolution": {
+          "id": "10001",
+          "name": "Won't Do"
+        },
+        "labels": [
+          "perf",
+          "customer-reported"
+        ],
+        "components": [
+          {
+            "id": "Web",
+            "name": "Web"
+          }
+        ],
+        "parent": {
+          "id": "31044",
+          "key": "FLO-325"
+        },
+        "customfield_10019": "0|i50800:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3022,
+            "name": "FLO Sprint 23",
+            "state": "closed",
+            "boardId": 1,
+            "startDate": "2026-07-06T00:00:00.000Z",
+            "endDate": "2026-07-20T00:00:00.000Z",
+            "goal": "Sprint 23 goal for Flow Core"
+          }
+        ]
+      }
+    },
+    {
+      "id": "31115",
+      "key": "FLO-351",
+      "fields": {
+        "summary": "Story FLO-351: sample work item",
+        "status": {
+          "id": "3",
+          "name": "In Progress",
+          "statusCategory": {
+            "id": 4,
+            "key": "indeterminate",
+            "name": "In Progress",
+            "colorName": "yellow"
+          }
+        },
+        "issuetype": {
+          "id": "10001",
+          "name": "Story",
+          "subtask": false
+        },
+        "project": {
+          "id": "10000",
+          "key": "FLO",
+          "name": "Flow Core"
+        },
+        "created": "2026-07-14T07:45:00.956Z",
+        "updated": "2026-07-19T07:45:00.956Z",
+        "resolutiondate": null,
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d06",
+          "displayName": "Sample User 6"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d19",
+          "displayName": "Sample User 19"
+        },
+        "priority": {
+          "id": "5",
+          "name": "Lowest"
+        },
+        "resolution": null,
+        "labels": [
+          "perf"
+        ],
+        "components": [
+          {
+            "id": "Web",
+            "name": "Web"
+          }
+        ],
+        "customfield_10016": 3,
+        "customfield_10019": "0|i67082:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3022,
+            "name": "FLO Sprint 23",
+            "state": "closed",
+            "boardId": 1,
+            "startDate": "2026-07-06T00:00:00.000Z",
+            "endDate": "2026-07-20T00:00:00.000Z",
+            "goal": "Sprint 23 goal for Flow Core"
+          }
+        ]
+      }
+    },
+    {
+      "id": "31116",
+      "key": "FLO-352",
+      "fields": {
+        "summary": "Sub-task FLO-352: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10004",
+          "name": "Sub-task",
+          "subtask": true
+        },
+        "project": {
+          "id": "10000",
+          "key": "FLO",
+          "name": "Flow Core"
+        },
+        "created": "2026-07-14T18:20:45.460Z",
+        "updated": "2026-08-03T18:20:45.460Z",
+        "resolutiondate": "2026-08-03T18:20:45.460Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d14",
+          "displayName": "Sample User 14"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d02",
+          "displayName": "Sample User 2"
+        },
+        "priority": {
+          "id": "1",
+          "name": "Highest"
+        },
+        "resolution": {
+          "id": "10000",
+          "name": "Done"
+        },
+        "labels": [
+          "flaky-test"
+        ],
+        "components": [
+          {
+            "id": "Worker",
+            "name": "Worker"
+          }
+        ],
+        "parent": {
+          "id": "31054",
+          "key": "FLO-327"
+        },
+        "customfield_10001": {
+          "id": "8e6f8c9a-1a2b-4c3d-9e0f-444444444444",
+          "name": "Reliability"
+        },
+        "customfield_10019": "0|i32967:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3022,
+            "name": "FLO Sprint 23",
+            "state": "closed",
+            "boardId": 1,
+            "startDate": "2026-07-06T00:00:00.000Z",
+            "endDate": "2026-07-20T00:00:00.000Z",
+            "goal": "Sprint 23 goal for Flow Core"
+          },
+          {
+            "id": 3023,
+            "name": "FLO Sprint 24",
+            "state": "closed",
+            "boardId": 1,
+            "startDate": "2026-07-20T00:00:00.000Z",
+            "endDate": "2026-08-03T00:00:00.000Z",
+            "goal": "Sprint 24 goal for Flow Core"
+          }
+        ]
+      }
+    },
+    {
+      "id": "31117",
+      "key": "GTM-263",
+      "fields": {
+        "summary": "Bug GTM-263: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10003",
+          "name": "Bug",
+          "subtask": false
+        },
+        "project": {
+          "id": "10002",
+          "key": "GTM",
+          "name": "Go To Market"
+        },
+        "created": "2026-07-14T21:21:40.824Z",
+        "updated": "2026-07-24T21:21:40.824Z",
+        "resolutiondate": "2026-07-24T21:21:40.824Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d28",
+          "displayName": "Sample User 28"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d17",
+          "displayName": "Sample User 17"
+        },
+        "priority": {
+          "id": "1",
+          "name": "Highest"
+        },
+        "resolution": {
+          "id": "10002",
+          "name": "Duplicate"
+        },
+        "labels": [
+          "perf"
+        ],
+        "components": [
+          {
+            "id": "Billing",
+            "name": "Billing"
+          }
+        ],
+        "customfield_10019": "0|i61253:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3078,
+            "name": "GTM Sprint 23",
+            "state": "closed",
+            "boardId": 3,
+            "startDate": "2026-07-06T00:00:00.000Z",
+            "endDate": "2026-07-20T00:00:00.000Z",
+            "goal": "Sprint 23 goal for Go To Market"
+          }
+        ]
+      }
+    },
+    {
+      "id": "31118",
+      "key": "PLT-309",
+      "fields": {
+        "summary": "Story PLT-309: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10001",
+          "name": "Story",
+          "subtask": false
+        },
+        "project": {
+          "id": "10001",
+          "key": "PLT",
+          "name": "Platform"
+        },
+        "created": "2026-07-15T13:36:04.940Z",
+        "updated": "2026-07-24T13:36:04.940Z",
+        "resolutiondate": "2026-07-24T13:36:04.940Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d01",
+          "displayName": "Sample User 1"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d25",
+          "displayName": "Sample User 25"
+        },
+        "priority": {
+          "id": "4",
+          "name": "Low"
+        },
+        "resolution": {
+          "id": "10002",
+          "name": "Duplicate"
+        },
+        "labels": [],
+        "components": [
+          {
+            "id": "Observability",
+            "name": "Observability"
+          }
+        ],
+        "customfield_10016": 8,
+        "customfield_10019": "0|i80369:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3050,
+            "name": "PLT Sprint 23",
+            "state": "closed",
+            "boardId": 2,
+            "startDate": "2026-07-06T00:00:00.000Z",
+            "endDate": "2026-07-20T00:00:00.000Z",
+            "goal": "Sprint 23 goal for Platform"
+          }
+        ]
+      }
+    },
+    {
+      "id": "31119",
+      "key": "PLT-310",
+      "fields": {
+        "summary": "Story PLT-310: sample work item",
+        "status": {
+          "id": "3",
+          "name": "In Progress",
+          "statusCategory": {
+            "id": 4,
+            "key": "indeterminate",
+            "name": "In Progress",
+            "colorName": "yellow"
+          }
+        },
+        "issuetype": {
+          "id": "10001",
+          "name": "Story",
+          "subtask": false
+        },
+        "project": {
+          "id": "10001",
+          "key": "PLT",
+          "name": "Platform"
+        },
+        "created": "2026-07-16T00:33:42.949Z",
+        "updated": "2026-07-19T00:33:42.949Z",
+        "resolutiondate": null,
+        "assignee": null,
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d07",
+          "displayName": "Sample User 7"
+        },
+        "priority": {
+          "id": "3",
+          "name": "Medium"
+        },
+        "resolution": null,
+        "labels": [],
+        "components": [
+          {
+            "id": "CI/CD",
+            "name": "CI/CD"
+          }
+        ],
+        "customfield_10001": {
+          "id": "8e6f8c9a-1a2b-4c3d-9e0f-222222222222",
+          "name": "Platform Core"
+        },
+        "customfield_10016": 13,
+        "customfield_10019": "0|i35713:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3050,
+            "name": "PLT Sprint 23",
+            "state": "closed",
+            "boardId": 2,
+            "startDate": "2026-07-06T00:00:00.000Z",
+            "endDate": "2026-07-20T00:00:00.000Z",
+            "goal": "Sprint 23 goal for Platform"
+          }
+        ],
+        "timetracking": {
+          "originalEstimateSeconds": 43200,
+          "remainingEstimateSeconds": 43200,
+          "timeSpentSeconds": 0
+        }
+      }
+    },
+    {
+      "id": "31121",
+      "key": "FLO-353",
+      "fields": {
+        "summary": "Bug FLO-353: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10003",
+          "name": "Bug",
+          "subtask": false
+        },
+        "project": {
+          "id": "10000",
+          "key": "FLO",
+          "name": "Flow Core"
+        },
+        "created": "2026-07-16T14:31:49.975Z",
+        "updated": "2026-08-21T14:31:49.975Z",
+        "resolutiondate": "2026-08-21T14:31:49.975Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d23",
+          "displayName": "Sample User 23"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d18",
+          "displayName": "Sample User 18"
+        },
+        "priority": {
+          "id": "2",
+          "name": "High"
+        },
+        "resolution": {
+          "id": "10001",
+          "name": "Won't Do"
+        },
+        "labels": [
+          "flaky-test"
+        ],
+        "components": [
+          {
+            "id": "API",
+            "name": "API"
+          }
+        ],
+        "customfield_10001": {
+          "id": "8e6f8c9a-1a2b-4c3d-9e0f-111111111111",
+          "name": "Payments"
+        },
+        "customfield_10019": "0|i60284:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3022,
+            "name": "FLO Sprint 23",
+            "state": "closed",
+            "boardId": 1,
+            "startDate": "2026-07-06T00:00:00.000Z",
+            "endDate": "2026-07-20T00:00:00.000Z",
+            "goal": "Sprint 23 goal for Flow Core"
+          },
+          {
+            "id": 3023,
+            "name": "FLO Sprint 24",
+            "state": "closed",
+            "boardId": 1,
+            "startDate": "2026-07-20T00:00:00.000Z",
+            "endDate": "2026-08-03T00:00:00.000Z",
+            "goal": "Sprint 24 goal for Flow Core"
+          }
+        ]
+      }
+    },
+    {
+      "id": "31122",
+      "key": "PLT-311",
+      "fields": {
+        "summary": "Story PLT-311: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10001",
+          "name": "Story",
+          "subtask": false
+        },
+        "project": {
+          "id": "10001",
+          "key": "PLT",
+          "name": "Platform"
+        },
+        "created": "2026-07-16T20:43:23.628Z",
+        "updated": "2026-07-20T20:43:23.628Z",
+        "resolutiondate": "2026-07-20T20:43:23.628Z",
+        "assignee": null,
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d25",
+          "displayName": "Sample User 25"
+        },
+        "priority": {
+          "id": "2",
+          "name": "High"
+        },
+        "resolution": {
+          "id": "10001",
+          "name": "Won't Do"
+        },
+        "labels": [
+          "customer-reported"
+        ],
+        "components": [],
+        "customfield_10016": 2,
+        "customfield_10019": "0|i26283:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3050,
+            "name": "PLT Sprint 23",
+            "state": "closed",
+            "boardId": 2,
+            "startDate": "2026-07-06T00:00:00.000Z",
+            "endDate": "2026-07-20T00:00:00.000Z",
+            "goal": "Sprint 23 goal for Platform"
+          }
+        ],
+        "timetracking": {
+          "originalEstimateSeconds": 32400,
+          "remainingEstimateSeconds": 32400,
+          "timeSpentSeconds": 0
+        }
+      }
+    },
+    {
+      "id": "31123",
+      "key": "GTM-264",
+      "fields": {
+        "summary": "Bug GTM-264: sample work item",
+        "status": {
+          "id": "10001",
+          "name": "In Review",
+          "statusCategory": {
+            "id": 4,
+            "key": "indeterminate",
+            "name": "In Progress",
+            "colorName": "yellow"
+          }
+        },
+        "issuetype": {
+          "id": "10003",
+          "name": "Bug",
+          "subtask": false
+        },
+        "project": {
+          "id": "10002",
+          "key": "GTM",
+          "name": "Go To Market"
+        },
+        "created": "2026-07-17T01:31:25.450Z",
+        "updated": "2026-07-20T01:31:25.450Z",
+        "resolutiondate": null,
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d10",
+          "displayName": "Sample User 10"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d11",
+          "displayName": "Sample User 11"
+        },
+        "priority": {
+          "id": "1",
+          "name": "Highest"
+        },
+        "resolution": null,
+        "labels": [
+          "tech-debt",
+          "regression"
+        ],
+        "components": [
+          {
+            "id": "Billing",
+            "name": "Billing"
+          }
+        ],
+        "customfield_10001": {
+          "id": "8e6f8c9a-1a2b-4c3d-9e0f-333333333333",
+          "name": "Growth"
+        },
+        "customfield_10019": "0|i19675:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3078,
+            "name": "GTM Sprint 23",
+            "state": "closed",
+            "boardId": 3,
+            "startDate": "2026-07-06T00:00:00.000Z",
+            "endDate": "2026-07-20T00:00:00.000Z",
+            "goal": "Sprint 23 goal for Go To Market"
+          }
+        ]
+      }
+    },
+    {
+      "id": "31124",
+      "key": "OPS-130",
+      "fields": {
+        "summary": "Sub-task OPS-130: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10004",
+          "name": "Sub-task",
+          "subtask": true
+        },
+        "project": {
+          "id": "10003",
+          "key": "OPS",
+          "name": "Operations"
+        },
+        "created": "2026-07-17T04:20:04.264Z",
+        "updated": "2026-07-23T04:20:04.264Z",
+        "resolutiondate": "2026-07-23T04:20:04.264Z",
+        "assignee": null,
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d21",
+          "displayName": "Sample User 21"
+        },
+        "priority": {
+          "id": "4",
+          "name": "Low"
+        },
+        "resolution": {
+          "id": "10003",
+          "name": "Cannot Reproduce"
+        },
+        "labels": [],
+        "components": [
+          {
+            "id": "Tooling",
+            "name": "Tooling"
+          }
+        ],
+        "parent": {
+          "id": "31032",
+          "key": "OPS-124"
+        },
+        "customfield_10019": "0|i22242:",
+        "customfield_10021": []
+      }
+    },
+    {
+      "id": "31126",
+      "key": "FLO-354",
+      "fields": {
+        "summary": "Story FLO-354: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10001",
+          "name": "Story",
+          "subtask": false
+        },
+        "project": {
+          "id": "10000",
+          "key": "FLO",
+          "name": "Flow Core"
+        },
+        "created": "2026-07-18T05:48:44.490Z",
+        "updated": "2026-08-07T05:48:44.490Z",
+        "resolutiondate": "2026-08-07T05:48:44.490Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d22",
+          "displayName": "Sample User 22"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d27",
+          "displayName": "Sample User 27"
+        },
+        "priority": {
+          "id": "2",
+          "name": "High"
+        },
+        "resolution": {
+          "id": "10000",
+          "name": "Done"
+        },
+        "labels": [],
+        "components": [
+          {
+            "id": "Worker",
+            "name": "Worker"
+          }
+        ],
+        "parent": {
+          "id": "30151",
+          "key": "FLO-44"
+        },
+        "customfield_10016": 3,
+        "customfield_10019": "0|i10867:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3022,
+            "name": "FLO Sprint 23",
+            "state": "closed",
+            "boardId": 1,
+            "startDate": "2026-07-06T00:00:00.000Z",
+            "endDate": "2026-07-20T00:00:00.000Z",
+            "goal": "Sprint 23 goal for Flow Core"
+          },
+          {
+            "id": 3023,
+            "name": "FLO Sprint 24",
+            "state": "closed",
+            "boardId": 1,
+            "startDate": "2026-07-20T00:00:00.000Z",
+            "endDate": "2026-08-03T00:00:00.000Z",
+            "goal": "Sprint 24 goal for Flow Core"
+          }
+        ]
+      }
+    },
+    {
+      "id": "31127",
+      "key": "FLO-355",
+      "fields": {
+        "summary": "Story FLO-355: sample work item",
+        "status": {
+          "id": "10001",
+          "name": "In Review",
+          "statusCategory": {
+            "id": 4,
+            "key": "indeterminate",
+            "name": "In Progress",
+            "colorName": "yellow"
+          }
+        },
+        "issuetype": {
+          "id": "10001",
+          "name": "Story",
+          "subtask": false
+        },
+        "project": {
+          "id": "10000",
+          "key": "FLO",
+          "name": "Flow Core"
+        },
+        "created": "2026-07-18T13:31:47.944Z",
+        "updated": "2026-07-22T13:31:47.944Z",
+        "resolutiondate": null,
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d09",
+          "displayName": "Sample User 9"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d12",
+          "displayName": "Sample User 12"
+        },
+        "priority": {
+          "id": "3",
+          "name": "Medium"
+        },
+        "resolution": null,
+        "labels": [],
+        "components": [
+          {
+            "id": "Worker",
+            "name": "Worker"
+          }
+        ],
+        "customfield_10001": {
+          "id": "8e6f8c9a-1a2b-4c3d-9e0f-444444444444",
+          "name": "Reliability"
+        },
+        "customfield_10016": 8,
+        "customfield_10019": "0|i10748:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3022,
+            "name": "FLO Sprint 23",
+            "state": "closed",
+            "boardId": 1,
+            "startDate": "2026-07-06T00:00:00.000Z",
+            "endDate": "2026-07-20T00:00:00.000Z",
+            "goal": "Sprint 23 goal for Flow Core"
+          }
+        ]
+      }
+    },
+    {
+      "id": "31128",
+      "key": "GTM-265",
+      "fields": {
+        "summary": "Task GTM-265: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10002",
+          "name": "Task",
+          "subtask": false
+        },
+        "project": {
+          "id": "10002",
+          "key": "GTM",
+          "name": "Go To Market"
+        },
+        "created": "2026-07-18T15:18:50.287Z",
+        "updated": "2026-07-22T15:18:50.287Z",
+        "resolutiondate": "2026-07-22T15:18:50.287Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d22",
+          "displayName": "Sample User 22"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d14",
+          "displayName": "Sample User 14"
+        },
+        "priority": {
+          "id": "4",
+          "name": "Low"
+        },
+        "resolution": {
+          "id": "10002",
+          "name": "Duplicate"
+        },
+        "labels": [
+          "customer-reported"
+        ],
+        "components": [],
+        "parent": {
+          "id": "30070",
+          "key": "GTM-19"
+        },
+        "customfield_10001": {
+          "id": "8e6f8c9a-1a2b-4c3d-9e0f-111111111111",
+          "name": "Payments"
+        },
+        "customfield_10019": "0|i92656:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3078,
+            "name": "GTM Sprint 23",
+            "state": "closed",
+            "boardId": 3,
+            "startDate": "2026-07-06T00:00:00.000Z",
+            "endDate": "2026-07-20T00:00:00.000Z",
+            "goal": "Sprint 23 goal for Go To Market"
+          }
+        ]
+      }
+    },
+    {
+      "id": "31129",
+      "key": "FLO-356",
+      "fields": {
+        "summary": "Bug FLO-356: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10003",
+          "name": "Bug",
+          "subtask": false
+        },
+        "project": {
+          "id": "10000",
+          "key": "FLO",
+          "name": "Flow Core"
+        },
+        "created": "2026-07-18T18:45:53.311Z",
+        "updated": "2026-07-23T18:45:53.311Z",
+        "resolutiondate": "2026-07-23T18:45:53.311Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d02",
+          "displayName": "Sample User 2"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d05",
+          "displayName": "Sample User 5"
+        },
+        "priority": {
+          "id": "5",
+          "name": "Lowest"
+        },
+        "resolution": {
+          "id": "10003",
+          "name": "Cannot Reproduce"
+        },
+        "labels": [],
+        "components": [
+          {
+            "id": "API",
+            "name": "API"
+          }
+        ],
+        "customfield_10019": "0|i35643:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3022,
+            "name": "FLO Sprint 23",
+            "state": "closed",
+            "boardId": 1,
+            "startDate": "2026-07-06T00:00:00.000Z",
+            "endDate": "2026-07-20T00:00:00.000Z",
+            "goal": "Sprint 23 goal for Flow Core"
+          }
+        ]
+      }
+    },
+    {
+      "id": "31130",
+      "key": "GTM-266",
+      "fields": {
+        "summary": "Task GTM-266: sample work item",
+        "status": {
+          "id": "3",
+          "name": "In Progress",
+          "statusCategory": {
+            "id": 4,
+            "key": "indeterminate",
+            "name": "In Progress",
+            "colorName": "yellow"
+          }
+        },
+        "issuetype": {
+          "id": "10002",
+          "name": "Task",
+          "subtask": false
+        },
+        "project": {
+          "id": "10002",
+          "key": "GTM",
+          "name": "Go To Market"
+        },
+        "created": "2026-07-18T19:09:53.171Z",
+        "updated": "2026-07-21T19:09:53.171Z",
+        "resolutiondate": null,
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d12",
+          "displayName": "Sample User 12"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d21",
+          "displayName": "Sample User 21"
+        },
+        "priority": {
+          "id": "2",
+          "name": "High"
+        },
+        "resolution": null,
+        "labels": [],
+        "components": [
+          {
+            "id": "Billing",
+            "name": "Billing"
+          }
+        ],
+        "customfield_10001": {
+          "id": "8e6f8c9a-1a2b-4c3d-9e0f-111111111111",
+          "name": "Payments"
+        },
+        "customfield_10019": "0|i15975:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3078,
+            "name": "GTM Sprint 23",
+            "state": "closed",
+            "boardId": 3,
+            "startDate": "2026-07-06T00:00:00.000Z",
+            "endDate": "2026-07-20T00:00:00.000Z",
+            "goal": "Sprint 23 goal for Go To Market"
+          }
+        ],
+        "timetracking": {
+          "originalEstimateSeconds": 14400,
+          "remainingEstimateSeconds": 14400,
+          "timeSpentSeconds": 0
+        }
+      }
+    },
+    {
+      "id": "31131",
+      "key": "PLT-312",
+      "fields": {
+        "summary": "Task PLT-312: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10002",
+          "name": "Task",
+          "subtask": false
+        },
+        "project": {
+          "id": "10001",
+          "key": "PLT",
+          "name": "Platform"
+        },
+        "created": "2026-07-19T02:25:51.654Z",
+        "updated": "2026-07-31T02:25:51.654Z",
+        "resolutiondate": "2026-07-31T02:25:51.654Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d27",
+          "displayName": "Sample User 27"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d23",
+          "displayName": "Sample User 23"
+        },
+        "priority": {
+          "id": "4",
+          "name": "Low"
+        },
+        "resolution": {
+          "id": "10000",
+          "name": "Done"
+        },
+        "labels": [],
+        "components": [
+          {
+            "id": "CI/CD",
+            "name": "CI/CD"
+          }
+        ],
+        "customfield_10019": "0|i60583:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3050,
+            "name": "PLT Sprint 23",
+            "state": "closed",
+            "boardId": 2,
+            "startDate": "2026-07-06T00:00:00.000Z",
+            "endDate": "2026-07-20T00:00:00.000Z",
+            "goal": "Sprint 23 goal for Platform"
+          }
+        ]
+      }
+    },
+    {
+      "id": "31132",
+      "key": "FLO-357",
+      "fields": {
+        "summary": "Story FLO-357: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10001",
+          "name": "Story",
+          "subtask": false
+        },
+        "project": {
+          "id": "10000",
+          "key": "FLO",
+          "name": "Flow Core"
+        },
+        "created": "2026-07-20T01:39:43.748Z",
+        "updated": "2026-07-28T01:39:43.748Z",
+        "resolutiondate": "2026-07-28T01:39:43.748Z",
+        "assignee": null,
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d15",
+          "displayName": "Sample User 15"
+        },
+        "priority": {
+          "id": "5",
+          "name": "Lowest"
+        },
+        "resolution": {
+          "id": "10000",
+          "name": "Done"
+        },
+        "labels": [
+          "tech-debt",
+          "perf"
+        ],
+        "components": [
+          {
+            "id": "API",
+            "name": "API"
+          }
+        ],
+        "customfield_10016": 3,
+        "customfield_10019": "0|i48132:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3023,
+            "name": "FLO Sprint 24",
+            "state": "closed",
+            "boardId": 1,
+            "startDate": "2026-07-20T00:00:00.000Z",
+            "endDate": "2026-08-03T00:00:00.000Z",
+            "goal": "Sprint 24 goal for Flow Core"
+          }
+        ]
+      }
+    },
+    {
+      "id": "31133",
+      "key": "PLT-313",
+      "fields": {
+        "summary": "Bug PLT-313: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10003",
+          "name": "Bug",
+          "subtask": false
+        },
+        "project": {
+          "id": "10001",
+          "key": "PLT",
+          "name": "Platform"
+        },
+        "created": "2026-07-21T07:55:26.710Z",
+        "updated": "2026-08-01T07:55:26.710Z",
+        "resolutiondate": "2026-08-01T07:55:26.710Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d12",
+          "displayName": "Sample User 12"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d20",
+          "displayName": "Sample User 20"
+        },
+        "priority": {
+          "id": "3",
+          "name": "Medium"
+        },
+        "resolution": {
+          "id": "10003",
+          "name": "Cannot Reproduce"
+        },
+        "labels": [],
+        "components": [
+          {
+            "id": "Observability",
+            "name": "Observability"
+          }
+        ],
+        "customfield_10019": "0|i57450:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3051,
+            "name": "PLT Sprint 24",
+            "state": "closed",
+            "boardId": 2,
+            "startDate": "2026-07-20T00:00:00.000Z",
+            "endDate": "2026-08-03T00:00:00.000Z",
+            "goal": "Sprint 24 goal for Platform"
+          }
+        ]
+      }
+    },
+    {
+      "id": "31134",
+      "key": "PLT-314",
+      "fields": {
+        "summary": "Story PLT-314: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10001",
+          "name": "Story",
+          "subtask": false
+        },
+        "project": {
+          "id": "10001",
+          "key": "PLT",
+          "name": "Platform"
+        },
+        "created": "2026-07-21T15:56:06.564Z",
+        "updated": "2026-08-03T15:56:06.564Z",
+        "resolutiondate": "2026-08-03T15:56:06.564Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d06",
+          "displayName": "Sample User 6"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d10",
+          "displayName": "Sample User 10"
+        },
+        "priority": {
+          "id": "2",
+          "name": "High"
+        },
+        "resolution": {
+          "id": "10000",
+          "name": "Done"
+        },
+        "labels": [
+          "perf",
+          "regression"
+        ],
+        "components": [
+          {
+            "id": "Infra",
+            "name": "Infra"
+          }
+        ],
+        "customfield_10001": {
+          "id": "8e6f8c9a-1a2b-4c3d-9e0f-222222222222",
+          "name": "Platform Core"
+        },
+        "customfield_10016": 1,
+        "customfield_10019": "0|i92705:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3051,
+            "name": "PLT Sprint 24",
+            "state": "closed",
+            "boardId": 2,
+            "startDate": "2026-07-20T00:00:00.000Z",
+            "endDate": "2026-08-03T00:00:00.000Z",
+            "goal": "Sprint 24 goal for Platform"
+          }
+        ],
+        "timetracking": {
+          "originalEstimateSeconds": 64800,
+          "remainingEstimateSeconds": 64800,
+          "timeSpentSeconds": 0
+        }
+      }
+    },
+    {
+      "id": "31136",
+      "key": "GTM-267",
+      "fields": {
+        "summary": "Story GTM-267: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10001",
+          "name": "Story",
+          "subtask": false
+        },
+        "project": {
+          "id": "10002",
+          "key": "GTM",
+          "name": "Go To Market"
+        },
+        "created": "2026-07-22T10:52:29.596Z",
+        "updated": "2026-07-29T10:52:29.596Z",
+        "resolutiondate": "2026-07-29T10:52:29.596Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d16",
+          "displayName": "Sample User 16"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d21",
+          "displayName": "Sample User 21"
+        },
+        "priority": {
+          "id": "4",
+          "name": "Low"
+        },
+        "resolution": {
+          "id": "10000",
+          "name": "Done"
+        },
+        "labels": [
+          "customer-reported"
+        ],
+        "components": [
+          {
+            "id": "Billing",
+            "name": "Billing"
+          }
+        ],
+        "customfield_10001": {
+          "id": "8e6f8c9a-1a2b-4c3d-9e0f-222222222222",
+          "name": "Platform Core"
+        },
+        "customfield_10016": 1,
+        "customfield_10019": "0|i74568:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3079,
+            "name": "GTM Sprint 24",
+            "state": "closed",
+            "boardId": 3,
+            "startDate": "2026-07-20T00:00:00.000Z",
+            "endDate": "2026-08-03T00:00:00.000Z",
+            "goal": "Sprint 24 goal for Go To Market"
+          }
+        ]
+      }
+    },
+    {
+      "id": "31137",
+      "key": "PLT-315",
+      "fields": {
+        "summary": "Bug PLT-315: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10003",
+          "name": "Bug",
+          "subtask": false
+        },
+        "project": {
+          "id": "10001",
+          "key": "PLT",
+          "name": "Platform"
+        },
+        "created": "2026-07-22T12:36:38.009Z",
+        "updated": "2026-07-28T12:36:38.009Z",
+        "resolutiondate": "2026-07-28T12:36:38.009Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d03",
+          "displayName": "Sample User 3"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d27",
+          "displayName": "Sample User 27"
+        },
+        "priority": {
+          "id": "5",
+          "name": "Lowest"
+        },
+        "resolution": {
+          "id": "10002",
+          "name": "Duplicate"
+        },
+        "labels": [
+          "flaky-test",
+          "security"
+        ],
+        "components": [
+          {
+            "id": "CI/CD",
+            "name": "CI/CD"
+          }
+        ],
+        "customfield_10001": {
+          "id": "8e6f8c9a-1a2b-4c3d-9e0f-222222222222",
+          "name": "Platform Core"
+        },
+        "customfield_10019": "0|i80423:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3051,
+            "name": "PLT Sprint 24",
+            "state": "closed",
+            "boardId": 2,
+            "startDate": "2026-07-20T00:00:00.000Z",
+            "endDate": "2026-08-03T00:00:00.000Z",
+            "goal": "Sprint 24 goal for Platform"
+          }
+        ]
+      }
+    },
+    {
+      "id": "31139",
+      "key": "PLT-316",
+      "fields": {
+        "summary": "Task PLT-316: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10002",
+          "name": "Task",
+          "subtask": false
+        },
+        "project": {
+          "id": "10001",
+          "key": "PLT",
+          "name": "Platform"
+        },
+        "created": "2026-07-23T15:02:25.197Z",
+        "updated": "2026-07-27T15:02:25.197Z",
+        "resolutiondate": "2026-07-27T15:02:25.197Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d12",
+          "displayName": "Sample User 12"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d27",
+          "displayName": "Sample User 27"
+        },
+        "priority": {
+          "id": "4",
+          "name": "Low"
+        },
+        "resolution": {
+          "id": "10001",
+          "name": "Won't Do"
+        },
+        "labels": [
+          "customer-reported"
+        ],
+        "components": [
+          {
+            "id": "CI/CD",
+            "name": "CI/CD"
+          }
+        ],
+        "customfield_10001": {
+          "id": "8e6f8c9a-1a2b-4c3d-9e0f-333333333333",
+          "name": "Growth"
+        },
+        "customfield_10019": "0|i86134:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3051,
+            "name": "PLT Sprint 24",
+            "state": "closed",
+            "boardId": 2,
+            "startDate": "2026-07-20T00:00:00.000Z",
+            "endDate": "2026-08-03T00:00:00.000Z",
+            "goal": "Sprint 24 goal for Platform"
+          }
+        ],
+        "timetracking": {
+          "originalEstimateSeconds": 28800,
+          "remainingEstimateSeconds": 28800,
+          "timeSpentSeconds": 0
+        }
+      }
+    },
+    {
+      "id": "31140",
+      "key": "FLO-358",
+      "fields": {
+        "summary": "Task FLO-358: sample work item",
+        "status": {
+          "id": "3",
+          "name": "In Progress",
+          "statusCategory": {
+            "id": 4,
+            "key": "indeterminate",
+            "name": "In Progress",
+            "colorName": "yellow"
+          }
+        },
+        "issuetype": {
+          "id": "10002",
+          "name": "Task",
+          "subtask": false
+        },
+        "project": {
+          "id": "10000",
+          "key": "FLO",
+          "name": "Flow Core"
+        },
+        "created": "2026-07-23T17:59:27.173Z",
+        "updated": "2026-07-24T17:59:27.173Z",
+        "resolutiondate": null,
+        "assignee": null,
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d07",
+          "displayName": "Sample User 7"
+        },
+        "priority": {
+          "id": "3",
+          "name": "Medium"
+        },
+        "resolution": null,
+        "labels": [],
+        "components": [],
+        "customfield_10019": "0|i56211:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3023,
+            "name": "FLO Sprint 24",
+            "state": "closed",
+            "boardId": 1,
+            "startDate": "2026-07-20T00:00:00.000Z",
+            "endDate": "2026-08-03T00:00:00.000Z",
+            "goal": "Sprint 24 goal for Flow Core"
+          }
+        ]
+      }
+    },
+    {
+      "id": "31141",
+      "key": "PLT-317",
+      "fields": {
+        "summary": "Task PLT-317: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10002",
+          "name": "Task",
+          "subtask": false
+        },
+        "project": {
+          "id": "10001",
+          "key": "PLT",
+          "name": "Platform"
+        },
+        "created": "2026-07-24T03:23:10.059Z",
+        "updated": "2026-07-27T03:23:10.059Z",
+        "resolutiondate": "2026-07-27T03:23:10.059Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d13",
+          "displayName": "Sample User 13"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d23",
+          "displayName": "Sample User 23"
+        },
+        "priority": {
+          "id": "5",
+          "name": "Lowest"
+        },
+        "resolution": {
+          "id": "10001",
+          "name": "Won't Do"
+        },
+        "labels": [],
+        "components": [
+          {
+            "id": "CI/CD",
+            "name": "CI/CD"
+          }
+        ],
+        "customfield_10019": "0|i77888:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3051,
+            "name": "PLT Sprint 24",
+            "state": "closed",
+            "boardId": 2,
+            "startDate": "2026-07-20T00:00:00.000Z",
+            "endDate": "2026-08-03T00:00:00.000Z",
+            "goal": "Sprint 24 goal for Platform"
+          }
+        ]
+      }
+    },
+    {
+      "id": "31142",
+      "key": "PLT-318",
+      "fields": {
+        "summary": "Task PLT-318: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10002",
+          "name": "Task",
+          "subtask": false
+        },
+        "project": {
+          "id": "10001",
+          "key": "PLT",
+          "name": "Platform"
+        },
+        "created": "2026-07-24T06:45:35.518Z",
+        "updated": "2026-07-28T06:45:35.518Z",
+        "resolutiondate": "2026-07-28T06:45:35.518Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d08",
+          "displayName": "Sample User 8"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d14",
+          "displayName": "Sample User 14"
+        },
+        "priority": {
+          "id": "3",
+          "name": "Medium"
+        },
+        "resolution": {
+          "id": "10000",
+          "name": "Done"
+        },
+        "labels": [
+          "tech-debt",
+          "regression"
+        ],
+        "components": [
+          {
+            "id": "Observability",
+            "name": "Observability"
+          }
+        ],
+        "customfield_10019": "0|i18388:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3051,
+            "name": "PLT Sprint 24",
+            "state": "closed",
+            "boardId": 2,
+            "startDate": "2026-07-20T00:00:00.000Z",
+            "endDate": "2026-08-03T00:00:00.000Z",
+            "goal": "Sprint 24 goal for Platform"
+          }
+        ],
+        "timetracking": {
+          "originalEstimateSeconds": 14400,
+          "remainingEstimateSeconds": 14400,
+          "timeSpentSeconds": 0
+        }
+      }
+    },
+    {
+      "id": "31143",
+      "key": "FLO-359",
+      "fields": {
+        "summary": "Bug FLO-359: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10003",
+          "name": "Bug",
+          "subtask": false
+        },
+        "project": {
+          "id": "10000",
+          "key": "FLO",
+          "name": "Flow Core"
+        },
+        "created": "2026-07-24T19:32:00.324Z",
+        "updated": "2026-07-30T19:32:00.324Z",
+        "resolutiondate": "2026-07-30T19:32:00.324Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d04",
+          "displayName": "Sample User 4"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d21",
+          "displayName": "Sample User 21"
+        },
+        "priority": {
+          "id": "5",
+          "name": "Lowest"
+        },
+        "resolution": {
+          "id": "10003",
+          "name": "Cannot Reproduce"
+        },
+        "labels": [
+          "tech-debt",
+          "customer-reported"
+        ],
+        "components": [
+          {
+            "id": "Worker",
+            "name": "Worker"
+          }
+        ],
+        "customfield_10019": "0|i32442:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3023,
+            "name": "FLO Sprint 24",
+            "state": "closed",
+            "boardId": 1,
+            "startDate": "2026-07-20T00:00:00.000Z",
+            "endDate": "2026-08-03T00:00:00.000Z",
+            "goal": "Sprint 24 goal for Flow Core"
+          }
+        ],
+        "timetracking": {
+          "originalEstimateSeconds": 50400,
+          "remainingEstimateSeconds": 50400,
+          "timeSpentSeconds": 0
+        }
+      }
+    },
+    {
+      "id": "31144",
+      "key": "FLO-360",
+      "fields": {
+        "summary": "Task FLO-360: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10002",
+          "name": "Task",
+          "subtask": false
+        },
+        "project": {
+          "id": "10000",
+          "key": "FLO",
+          "name": "Flow Core"
+        },
+        "created": "2026-07-25T05:50:04.752Z",
+        "updated": "2026-07-29T05:50:04.752Z",
+        "resolutiondate": "2026-07-29T05:50:04.752Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d25",
+          "displayName": "Sample User 25"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d25",
+          "displayName": "Sample User 25"
+        },
+        "priority": {
+          "id": "1",
+          "name": "Highest"
+        },
+        "resolution": {
+          "id": "10003",
+          "name": "Cannot Reproduce"
+        },
+        "labels": [
+          "tech-debt",
+          "customer-reported"
+        ],
+        "components": [
+          {
+            "id": "Web",
+            "name": "Web"
+          }
+        ],
+        "customfield_10019": "0|i22073:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3023,
+            "name": "FLO Sprint 24",
+            "state": "closed",
+            "boardId": 1,
+            "startDate": "2026-07-20T00:00:00.000Z",
+            "endDate": "2026-08-03T00:00:00.000Z",
+            "goal": "Sprint 24 goal for Flow Core"
+          }
+        ]
+      }
+    },
+    {
+      "id": "31145",
+      "key": "PLT-319",
+      "fields": {
+        "summary": "Sub-task PLT-319: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10004",
+          "name": "Sub-task",
+          "subtask": true
+        },
+        "project": {
+          "id": "10001",
+          "key": "PLT",
+          "name": "Platform"
+        },
+        "created": "2026-07-25T07:55:26.710Z",
+        "updated": "2026-07-29T07:55:26.710Z",
+        "resolutiondate": "2026-07-29T07:55:26.710Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d28",
+          "displayName": "Sample User 28"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d12",
+          "displayName": "Sample User 12"
+        },
+        "priority": {
+          "id": "2",
+          "name": "High"
+        },
+        "resolution": {
+          "id": "10001",
+          "name": "Won't Do"
+        },
+        "labels": [
+          "regression"
+        ],
+        "components": [
+          {
+            "id": "Observability",
+            "name": "Observability"
+          }
+        ],
+        "parent": {
+          "id": "31133",
+          "key": "PLT-313"
+        },
+        "customfield_10001": {
+          "id": "8e6f8c9a-1a2b-4c3d-9e0f-222222222222",
+          "name": "Platform Core"
+        },
+        "customfield_10019": "0|i23195:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3051,
+            "name": "PLT Sprint 24",
+            "state": "closed",
+            "boardId": 2,
+            "startDate": "2026-07-20T00:00:00.000Z",
+            "endDate": "2026-08-03T00:00:00.000Z",
+            "goal": "Sprint 24 goal for Platform"
+          }
+        ]
+      }
+    },
+    {
+      "id": "31146",
+      "key": "PLT-320",
+      "fields": {
+        "summary": "Bug PLT-320: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10003",
+          "name": "Bug",
+          "subtask": false
+        },
+        "project": {
+          "id": "10001",
+          "key": "PLT",
+          "name": "Platform"
+        },
+        "created": "2026-07-25T09:15:03.513Z",
+        "updated": "2026-08-07T09:15:03.513Z",
+        "resolutiondate": "2026-08-07T09:15:03.513Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d06",
+          "displayName": "Sample User 6"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d10",
+          "displayName": "Sample User 10"
+        },
+        "priority": {
+          "id": "3",
+          "name": "Medium"
+        },
+        "resolution": {
+          "id": "10003",
+          "name": "Cannot Reproduce"
+        },
+        "labels": [
+          "regression"
+        ],
+        "components": [
+          {
+            "id": "CI/CD",
+            "name": "CI/CD"
+          }
+        ],
+        "customfield_10019": "0|i13675:",
+        "customfield_10021": [
+          {
+            "value": "Impediment",
+            "id": "10019"
+          }
+        ],
+        "customfield_10020": [
+          {
+            "id": 3051,
+            "name": "PLT Sprint 24",
+            "state": "closed",
+            "boardId": 2,
+            "startDate": "2026-07-20T00:00:00.000Z",
+            "endDate": "2026-08-03T00:00:00.000Z",
+            "goal": "Sprint 24 goal for Platform"
+          }
+        ]
+      }
+    },
+    {
+      "id": "31147",
+      "key": "PLT-321",
+      "fields": {
+        "summary": "Story PLT-321: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10001",
+          "name": "Story",
+          "subtask": false
+        },
+        "project": {
+          "id": "10001",
+          "key": "PLT",
+          "name": "Platform"
+        },
+        "created": "2026-07-25T15:56:06.917Z",
+        "updated": "2026-07-30T15:56:06.917Z",
+        "resolutiondate": "2026-07-30T15:56:06.917Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d16",
+          "displayName": "Sample User 16"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d17",
+          "displayName": "Sample User 17"
+        },
+        "priority": {
+          "id": "4",
+          "name": "Low"
+        },
+        "resolution": {
+          "id": "10001",
+          "name": "Won't Do"
+        },
+        "labels": [
+          "tech-debt"
+        ],
+        "components": [],
+        "customfield_10016": 8,
+        "customfield_10019": "0|i20527:",
+        "customfield_10021": [
+          {
+            "value": "Impediment",
+            "id": "10019"
+          }
+        ],
+        "customfield_10020": [
+          {
+            "id": 3051,
+            "name": "PLT Sprint 24",
+            "state": "closed",
+            "boardId": 2,
+            "startDate": "2026-07-20T00:00:00.000Z",
+            "endDate": "2026-08-03T00:00:00.000Z",
+            "goal": "Sprint 24 goal for Platform"
+          }
+        ]
+      }
+    },
+    {
+      "id": "31148",
+      "key": "FLO-361",
+      "fields": {
+        "summary": "Story FLO-361: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10001",
+          "name": "Story",
+          "subtask": false
+        },
+        "project": {
+          "id": "10000",
+          "key": "FLO",
+          "name": "Flow Core"
+        },
+        "created": "2026-07-25T18:47:35.701Z",
+        "updated": "2026-08-10T18:47:35.701Z",
+        "resolutiondate": "2026-08-10T18:47:35.701Z",
+        "assignee": null,
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d08",
+          "displayName": "Sample User 8"
+        },
+        "priority": {
+          "id": "1",
+          "name": "Highest"
+        },
+        "resolution": {
+          "id": "10000",
+          "name": "Done"
+        },
+        "labels": [],
+        "components": [],
+        "parent": {
+          "id": "30125",
+          "key": "FLO-36"
+        },
+        "customfield_10016": 13,
+        "customfield_10019": "0|i45635:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3023,
+            "name": "FLO Sprint 24",
+            "state": "closed",
+            "boardId": 1,
+            "startDate": "2026-07-20T00:00:00.000Z",
+            "endDate": "2026-08-03T00:00:00.000Z",
+            "goal": "Sprint 24 goal for Flow Core"
+          },
+          {
+            "id": 3024,
+            "name": "FLO Sprint 25",
+            "state": "closed",
+            "boardId": 1,
+            "startDate": "2026-08-03T00:00:00.000Z",
+            "endDate": "2026-08-17T00:00:00.000Z",
+            "goal": "Sprint 25 goal for Flow Core"
+          }
+        ]
+      }
+    },
+    {
+      "id": "31149",
+      "key": "PLT-322",
+      "fields": {
+        "summary": "Bug PLT-322: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10003",
+          "name": "Bug",
+          "subtask": false
+        },
+        "project": {
+          "id": "10001",
+          "key": "PLT",
+          "name": "Platform"
+        },
+        "created": "2026-07-26T09:37:25.629Z",
+        "updated": "2026-08-01T09:37:25.629Z",
+        "resolutiondate": "2026-08-01T09:37:25.629Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d29",
+          "displayName": "Sample User 29"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d23",
+          "displayName": "Sample User 23"
+        },
+        "priority": {
+          "id": "4",
+          "name": "Low"
+        },
+        "resolution": {
+          "id": "10001",
+          "name": "Won't Do"
+        },
+        "labels": [
+          "flaky-test",
+          "security"
+        ],
+        "components": [],
+        "customfield_10001": {
+          "id": "8e6f8c9a-1a2b-4c3d-9e0f-444444444444",
+          "name": "Reliability"
+        },
+        "customfield_10019": "0|i28665:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3051,
+            "name": "PLT Sprint 24",
+            "state": "closed",
+            "boardId": 2,
+            "startDate": "2026-07-20T00:00:00.000Z",
+            "endDate": "2026-08-03T00:00:00.000Z",
+            "goal": "Sprint 24 goal for Platform"
+          }
+        ],
+        "timetracking": {
+          "originalEstimateSeconds": 28800,
+          "remainingEstimateSeconds": 28800,
+          "timeSpentSeconds": 0
+        }
+      }
+    },
+    {
+      "id": "31151",
+      "key": "PLT-323",
+      "fields": {
+        "summary": "Story PLT-323: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10001",
+          "name": "Story",
+          "subtask": false
+        },
+        "project": {
+          "id": "10001",
+          "key": "PLT",
+          "name": "Platform"
+        },
+        "created": "2026-07-27T05:47:56.020Z",
+        "updated": "2026-07-31T05:47:56.020Z",
+        "resolutiondate": "2026-07-31T05:47:56.020Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d10",
+          "displayName": "Sample User 10"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d03",
+          "displayName": "Sample User 3"
+        },
+        "priority": {
+          "id": "1",
+          "name": "Highest"
+        },
+        "resolution": {
+          "id": "10002",
+          "name": "Duplicate"
+        },
+        "labels": [
+          "perf"
+        ],
+        "components": [
+          {
+            "id": "CI/CD",
+            "name": "CI/CD"
+          }
+        ],
+        "parent": {
+          "id": "30003",
+          "key": "PLT-1"
+        },
+        "customfield_10016": 13,
+        "customfield_10019": "0|i65691:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3051,
+            "name": "PLT Sprint 24",
+            "state": "closed",
+            "boardId": 2,
+            "startDate": "2026-07-20T00:00:00.000Z",
+            "endDate": "2026-08-03T00:00:00.000Z",
+            "goal": "Sprint 24 goal for Platform"
+          }
+        ]
+      }
+    },
+    {
+      "id": "31152",
+      "key": "FLO-362",
+      "fields": {
+        "summary": "Story FLO-362: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10001",
+          "name": "Story",
+          "subtask": false
+        },
+        "project": {
+          "id": "10000",
+          "key": "FLO",
+          "name": "Flow Core"
+        },
+        "created": "2026-07-27T08:25:25.837Z",
+        "updated": "2026-08-01T08:25:25.837Z",
+        "resolutiondate": "2026-08-01T08:25:25.837Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d12",
+          "displayName": "Sample User 12"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d25",
+          "displayName": "Sample User 25"
+        },
+        "priority": {
+          "id": "3",
+          "name": "Medium"
+        },
+        "resolution": {
+          "id": "10001",
+          "name": "Won't Do"
+        },
+        "labels": [],
+        "components": [
+          {
+            "id": "Web",
+            "name": "Web"
+          }
+        ],
+        "customfield_10001": {
+          "id": "8e6f8c9a-1a2b-4c3d-9e0f-333333333333",
+          "name": "Growth"
+        },
+        "customfield_10016": 2,
+        "customfield_10019": "0|i81903:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3023,
+            "name": "FLO Sprint 24",
+            "state": "closed",
+            "boardId": 1,
+            "startDate": "2026-07-20T00:00:00.000Z",
+            "endDate": "2026-08-03T00:00:00.000Z",
+            "goal": "Sprint 24 goal for Flow Core"
+          }
+        ]
+      }
+    },
+    {
+      "id": "31153",
+      "key": "FLO-363",
+      "fields": {
+        "summary": "Task FLO-363: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10002",
+          "name": "Task",
+          "subtask": false
+        },
+        "project": {
+          "id": "10000",
+          "key": "FLO",
+          "name": "Flow Core"
+        },
+        "created": "2026-07-27T11:02:32.009Z",
+        "updated": "2026-08-01T11:02:32.009Z",
+        "resolutiondate": "2026-08-01T11:02:32.009Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d29",
+          "displayName": "Sample User 29"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d19",
+          "displayName": "Sample User 19"
+        },
+        "priority": {
+          "id": "1",
+          "name": "Highest"
+        },
+        "resolution": {
+          "id": "10002",
+          "name": "Duplicate"
+        },
+        "labels": [
+          "needs-design"
+        ],
+        "components": [
+          {
+            "id": "Worker",
+            "name": "Worker"
+          }
+        ],
+        "parent": {
+          "id": "30125",
+          "key": "FLO-36"
+        },
+        "customfield_10001": {
+          "id": "8e6f8c9a-1a2b-4c3d-9e0f-333333333333",
+          "name": "Growth"
+        },
+        "customfield_10019": "0|i58939:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3023,
+            "name": "FLO Sprint 24",
+            "state": "closed",
+            "boardId": 1,
+            "startDate": "2026-07-20T00:00:00.000Z",
+            "endDate": "2026-08-03T00:00:00.000Z",
+            "goal": "Sprint 24 goal for Flow Core"
+          }
+        ],
+        "timetracking": {
+          "originalEstimateSeconds": 21600,
+          "remainingEstimateSeconds": 21600,
+          "timeSpentSeconds": 0
+        }
+      }
+    },
+    {
+      "id": "31154",
+      "key": "FLO-364",
+      "fields": {
+        "summary": "Story FLO-364: sample work item",
+        "status": {
+          "id": "10001",
+          "name": "In Review",
+          "statusCategory": {
+            "id": 4,
+            "key": "indeterminate",
+            "name": "In Progress",
+            "colorName": "yellow"
+          }
+        },
+        "issuetype": {
+          "id": "10001",
+          "name": "Story",
+          "subtask": false
+        },
+        "project": {
+          "id": "10000",
+          "key": "FLO",
+          "name": "Flow Core"
+        },
+        "created": "2026-07-27T16:27:33.414Z",
+        "updated": "2026-07-30T16:27:33.414Z",
+        "resolutiondate": null,
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d17",
+          "displayName": "Sample User 17"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d28",
+          "displayName": "Sample User 28"
+        },
+        "priority": {
+          "id": "5",
+          "name": "Lowest"
+        },
+        "resolution": null,
+        "labels": [
+          "tech-debt"
+        ],
+        "components": [],
+        "customfield_10016": 13,
+        "customfield_10019": "0|i28055:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3023,
+            "name": "FLO Sprint 24",
+            "state": "closed",
+            "boardId": 1,
+            "startDate": "2026-07-20T00:00:00.000Z",
+            "endDate": "2026-08-03T00:00:00.000Z",
+            "goal": "Sprint 24 goal for Flow Core"
+          }
+        ],
+        "timetracking": {
+          "originalEstimateSeconds": 14400,
+          "remainingEstimateSeconds": 14400,
+          "timeSpentSeconds": 0
+        }
+      }
+    },
+    {
+      "id": "31155",
+      "key": "PLT-324",
+      "fields": {
+        "summary": "Task PLT-324: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10002",
+          "name": "Task",
+          "subtask": false
+        },
+        "project": {
+          "id": "10001",
+          "key": "PLT",
+          "name": "Platform"
+        },
+        "created": "2026-07-28T09:27:08.038Z",
+        "updated": "2026-08-13T09:27:08.038Z",
+        "resolutiondate": "2026-08-13T09:27:08.038Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d12",
+          "displayName": "Sample User 12"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d12",
+          "displayName": "Sample User 12"
+        },
+        "priority": {
+          "id": "2",
+          "name": "High"
+        },
+        "resolution": {
+          "id": "10002",
+          "name": "Duplicate"
+        },
+        "labels": [
+          "quick-win",
+          "perf"
+        ],
+        "components": [
+          {
+            "id": "Observability",
+            "name": "Observability"
+          }
+        ],
+        "customfield_10001": {
+          "id": "8e6f8c9a-1a2b-4c3d-9e0f-333333333333",
+          "name": "Growth"
+        },
+        "customfield_10019": "0|i45567:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3051,
+            "name": "PLT Sprint 24",
+            "state": "closed",
+            "boardId": 2,
+            "startDate": "2026-07-20T00:00:00.000Z",
+            "endDate": "2026-08-03T00:00:00.000Z",
+            "goal": "Sprint 24 goal for Platform"
+          }
+        ],
+        "timetracking": {
+          "originalEstimateSeconds": 7200,
+          "remainingEstimateSeconds": 7200,
+          "timeSpentSeconds": 0
+        }
+      }
+    },
+    {
+      "id": "31156",
+      "key": "OPS-131",
+      "fields": {
+        "summary": "Story OPS-131: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10001",
+          "name": "Story",
+          "subtask": false
+        },
+        "project": {
+          "id": "10003",
+          "key": "OPS",
+          "name": "Operations"
+        },
+        "created": "2026-07-29T05:21:33.332Z",
+        "updated": "2026-08-09T05:21:33.332Z",
+        "resolutiondate": "2026-08-09T05:21:33.332Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d06",
+          "displayName": "Sample User 6"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d23",
+          "displayName": "Sample User 23"
+        },
+        "priority": {
+          "id": "3",
+          "name": "Medium"
+        },
+        "resolution": {
+          "id": "10001",
+          "name": "Won't Do"
+        },
+        "labels": [
+          "perf",
+          "needs-design"
+        ],
+        "components": [],
+        "customfield_10019": "0|i73047:",
+        "customfield_10021": [],
+        "timetracking": {
+          "originalEstimateSeconds": 36000,
+          "remainingEstimateSeconds": 36000,
+          "timeSpentSeconds": 0
+        }
+      }
+    },
+    {
+      "id": "31157",
+      "key": "GTM-268",
+      "fields": {
+        "summary": "Story GTM-268: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10001",
+          "name": "Story",
+          "subtask": false
+        },
+        "project": {
+          "id": "10002",
+          "key": "GTM",
+          "name": "Go To Market"
+        },
+        "created": "2026-07-29T09:39:02.336Z",
+        "updated": "2026-08-03T09:39:02.336Z",
+        "resolutiondate": "2026-08-03T09:39:02.336Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d06",
+          "displayName": "Sample User 6"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d08",
+          "displayName": "Sample User 8"
+        },
+        "priority": {
+          "id": "5",
+          "name": "Lowest"
+        },
+        "resolution": {
+          "id": "10001",
+          "name": "Won't Do"
+        },
+        "labels": [],
+        "components": [],
+        "customfield_10001": {
+          "id": "8e6f8c9a-1a2b-4c3d-9e0f-111111111111",
+          "name": "Payments"
+        },
+        "customfield_10016": 5,
+        "customfield_10019": "0|i87210:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3079,
+            "name": "GTM Sprint 24",
+            "state": "closed",
+            "boardId": 3,
+            "startDate": "2026-07-20T00:00:00.000Z",
+            "endDate": "2026-08-03T00:00:00.000Z",
+            "goal": "Sprint 24 goal for Go To Market"
+          }
+        ]
+      }
+    },
+    {
+      "id": "31158",
+      "key": "OPS-132",
+      "fields": {
+        "summary": "Task OPS-132: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10002",
+          "name": "Task",
+          "subtask": false
+        },
+        "project": {
+          "id": "10003",
+          "key": "OPS",
+          "name": "Operations"
+        },
+        "created": "2026-07-29T21:24:27.647Z",
+        "updated": "2026-08-10T21:24:27.647Z",
+        "resolutiondate": "2026-08-10T21:24:27.647Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d10",
+          "displayName": "Sample User 10"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d15",
+          "displayName": "Sample User 15"
+        },
+        "priority": {
+          "id": "5",
+          "name": "Lowest"
+        },
+        "resolution": {
+          "id": "10002",
+          "name": "Duplicate"
+        },
+        "labels": [],
+        "components": [],
+        "parent": {
+          "id": "30158",
+          "key": "OPS-21"
+        },
+        "customfield_10019": "0|i64597:",
+        "customfield_10021": []
+      }
+    },
+    {
+      "id": "31159",
+      "key": "GTM-269",
+      "fields": {
+        "summary": "Story GTM-269: sample work item",
+        "status": {
+          "id": "3",
+          "name": "In Progress",
+          "statusCategory": {
+            "id": 4,
+            "key": "indeterminate",
+            "name": "In Progress",
+            "colorName": "yellow"
+          }
+        },
+        "issuetype": {
+          "id": "10001",
+          "name": "Story",
+          "subtask": false
+        },
+        "project": {
+          "id": "10002",
+          "key": "GTM",
+          "name": "Go To Market"
+        },
+        "created": "2026-07-30T06:43:44.472Z",
+        "updated": "2026-07-31T06:43:44.472Z",
+        "resolutiondate": null,
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d09",
+          "displayName": "Sample User 9"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d04",
+          "displayName": "Sample User 4"
+        },
+        "priority": {
+          "id": "4",
+          "name": "Low"
+        },
+        "resolution": null,
+        "labels": [],
+        "components": [
+          {
+            "id": "Billing",
+            "name": "Billing"
+          }
+        ],
+        "customfield_10016": 3,
+        "customfield_10019": "0|i73249:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3079,
+            "name": "GTM Sprint 24",
+            "state": "closed",
+            "boardId": 3,
+            "startDate": "2026-07-20T00:00:00.000Z",
+            "endDate": "2026-08-03T00:00:00.000Z",
+            "goal": "Sprint 24 goal for Go To Market"
+          }
+        ],
+        "timetracking": {
+          "originalEstimateSeconds": 64800,
+          "remainingEstimateSeconds": 64800,
+          "timeSpentSeconds": 0
+        }
+      }
+    },
+    {
+      "id": "31160",
+      "key": "GTM-270",
+      "fields": {
+        "summary": "Story GTM-270: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10001",
+          "name": "Story",
+          "subtask": false
+        },
+        "project": {
+          "id": "10002",
+          "key": "GTM",
+          "name": "Go To Market"
+        },
+        "created": "2026-07-30T11:05:20.204Z",
+        "updated": "2026-08-28T11:05:20.204Z",
+        "resolutiondate": "2026-08-28T11:05:20.204Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d08",
+          "displayName": "Sample User 8"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d28",
+          "displayName": "Sample User 28"
+        },
+        "priority": {
+          "id": "3",
+          "name": "Medium"
+        },
+        "resolution": {
+          "id": "10000",
+          "name": "Done"
+        },
+        "labels": [
+          "security",
+          "quick-win"
+        ],
+        "components": [],
+        "customfield_10016": 1,
+        "customfield_10019": "0|i77210:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3079,
+            "name": "GTM Sprint 24",
+            "state": "closed",
+            "boardId": 3,
+            "startDate": "2026-07-20T00:00:00.000Z",
+            "endDate": "2026-08-03T00:00:00.000Z",
+            "goal": "Sprint 24 goal for Go To Market"
+          },
+          {
+            "id": 3080,
+            "name": "GTM Sprint 25",
+            "state": "closed",
+            "boardId": 3,
+            "startDate": "2026-08-03T00:00:00.000Z",
+            "endDate": "2026-08-17T00:00:00.000Z",
+            "goal": "Sprint 25 goal for Go To Market"
+          }
+        ],
+        "timetracking": {
+          "originalEstimateSeconds": 36000,
+          "remainingEstimateSeconds": 36000,
+          "timeSpentSeconds": 0
+        }
+      }
+    },
+    {
+      "id": "31161",
+      "key": "OPS-133",
+      "fields": {
+        "summary": "Story OPS-133: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10001",
+          "name": "Story",
+          "subtask": false
+        },
+        "project": {
+          "id": "10003",
+          "key": "OPS",
+          "name": "Operations"
+        },
+        "created": "2026-07-30T11:38:59.892Z",
+        "updated": "2026-08-04T11:38:59.892Z",
+        "resolutiondate": "2026-08-04T11:38:59.892Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d08",
+          "displayName": "Sample User 8"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d18",
+          "displayName": "Sample User 18"
+        },
+        "priority": {
+          "id": "4",
+          "name": "Low"
+        },
+        "resolution": {
+          "id": "10002",
+          "name": "Duplicate"
+        },
+        "labels": [
+          "quick-win",
+          "tech-debt"
+        ],
+        "components": [
+          {
+            "id": "Tooling",
+            "name": "Tooling"
+          }
+        ],
+        "customfield_10019": "0|i47878:",
+        "customfield_10021": []
+      }
+    },
+    {
+      "id": "31162",
+      "key": "FLO-365",
+      "fields": {
+        "summary": "Bug FLO-365: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10003",
+          "name": "Bug",
+          "subtask": false
+        },
+        "project": {
+          "id": "10000",
+          "key": "FLO",
+          "name": "Flow Core"
+        },
+        "created": "2026-07-30T23:10:38.808Z",
+        "updated": "2026-08-11T23:10:38.808Z",
+        "resolutiondate": "2026-08-11T23:10:38.808Z",
+        "assignee": null,
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d18",
+          "displayName": "Sample User 18"
+        },
+        "priority": {
+          "id": "2",
+          "name": "High"
+        },
+        "resolution": {
+          "id": "10003",
+          "name": "Cannot Reproduce"
+        },
+        "labels": [],
+        "components": [
+          {
+            "id": "Web",
+            "name": "Web"
+          }
+        ],
+        "customfield_10019": "0|i12339:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3023,
+            "name": "FLO Sprint 24",
+            "state": "closed",
+            "boardId": 1,
+            "startDate": "2026-07-20T00:00:00.000Z",
+            "endDate": "2026-08-03T00:00:00.000Z",
+            "goal": "Sprint 24 goal for Flow Core"
+          }
+        ]
+      }
+    },
+    {
+      "id": "31163",
+      "key": "OPS-134",
+      "fields": {
+        "summary": "Story OPS-134: sample work item",
+        "status": {
+          "id": "3",
+          "name": "In Progress",
+          "statusCategory": {
+            "id": 4,
+            "key": "indeterminate",
+            "name": "In Progress",
+            "colorName": "yellow"
+          }
+        },
+        "issuetype": {
+          "id": "10001",
+          "name": "Story",
+          "subtask": false
+        },
+        "project": {
+          "id": "10003",
+          "key": "OPS",
+          "name": "Operations"
+        },
+        "created": "2026-07-31T02:38:23.291Z",
+        "updated": "2026-08-03T02:38:23.291Z",
+        "resolutiondate": null,
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d18",
+          "displayName": "Sample User 18"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d22",
+          "displayName": "Sample User 22"
+        },
+        "priority": {
+          "id": "3",
+          "name": "Medium"
+        },
+        "resolution": null,
+        "labels": [
+          "needs-design",
+          "regression"
+        ],
+        "components": [
+          {
+            "id": "Tooling",
+            "name": "Tooling"
+          }
+        ],
+        "customfield_10019": "0|i92513:",
+        "customfield_10021": []
+      }
+    },
+    {
+      "id": "31164",
+      "key": "GTM-271",
+      "fields": {
+        "summary": "Story GTM-271: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10001",
+          "name": "Story",
+          "subtask": false
+        },
+        "project": {
+          "id": "10002",
+          "key": "GTM",
+          "name": "Go To Market"
+        },
+        "created": "2026-07-31T05:22:15.155Z",
+        "updated": "2026-08-08T05:22:15.155Z",
+        "resolutiondate": "2026-08-08T05:22:15.155Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d14",
+          "displayName": "Sample User 14"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d15",
+          "displayName": "Sample User 15"
+        },
+        "priority": {
+          "id": "3",
+          "name": "Medium"
+        },
+        "resolution": {
+          "id": "10000",
+          "name": "Done"
+        },
+        "labels": [
+          "customer-reported",
+          "security"
+        ],
+        "components": [
+          {
+            "id": "Onboarding",
+            "name": "Onboarding"
+          }
+        ],
+        "customfield_10016": 2,
+        "customfield_10019": "0|i89418:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3079,
+            "name": "GTM Sprint 24",
+            "state": "closed",
+            "boardId": 3,
+            "startDate": "2026-07-20T00:00:00.000Z",
+            "endDate": "2026-08-03T00:00:00.000Z",
+            "goal": "Sprint 24 goal for Go To Market"
+          }
+        ],
+        "timetracking": {
+          "originalEstimateSeconds": 3600,
+          "remainingEstimateSeconds": 3600,
+          "timeSpentSeconds": 0
+        }
+      }
+    },
+    {
+      "id": "31165",
+      "key": "GTM-272",
+      "fields": {
+        "summary": "Task GTM-272: sample work item",
+        "status": {
+          "id": "3",
+          "name": "In Progress",
+          "statusCategory": {
+            "id": 4,
+            "key": "indeterminate",
+            "name": "In Progress",
+            "colorName": "yellow"
+          }
+        },
+        "issuetype": {
+          "id": "10002",
+          "name": "Task",
+          "subtask": false
+        },
+        "project": {
+          "id": "10002",
+          "key": "GTM",
+          "name": "Go To Market"
+        },
+        "created": "2026-07-31T11:19:10.570Z",
+        "updated": "2026-08-01T11:19:10.570Z",
+        "resolutiondate": null,
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d14",
+          "displayName": "Sample User 14"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d26",
+          "displayName": "Sample User 26"
+        },
+        "priority": {
+          "id": "5",
+          "name": "Lowest"
+        },
+        "resolution": null,
+        "labels": [
+          "security",
+          "needs-design"
+        ],
+        "components": [
+          {
+            "id": "Onboarding",
+            "name": "Onboarding"
+          }
+        ],
+        "parent": {
+          "id": "30070",
+          "key": "GTM-19"
+        },
+        "customfield_10019": "0|i40798:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3079,
+            "name": "GTM Sprint 24",
+            "state": "closed",
+            "boardId": 3,
+            "startDate": "2026-07-20T00:00:00.000Z",
+            "endDate": "2026-08-03T00:00:00.000Z",
+            "goal": "Sprint 24 goal for Go To Market"
+          }
+        ],
+        "timetracking": {
+          "originalEstimateSeconds": 50400,
+          "remainingEstimateSeconds": 50400,
+          "timeSpentSeconds": 0
+        }
+      }
+    },
+    {
+      "id": "31168",
+      "key": "PLT-325",
+      "fields": {
+        "summary": "Task PLT-325: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10002",
+          "name": "Task",
+          "subtask": false
+        },
+        "project": {
+          "id": "10001",
+          "key": "PLT",
+          "name": "Platform"
+        },
+        "created": "2026-08-01T07:18:08.508Z",
+        "updated": "2026-08-09T07:18:08.508Z",
+        "resolutiondate": "2026-08-09T07:18:08.508Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d07",
+          "displayName": "Sample User 7"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d04",
+          "displayName": "Sample User 4"
+        },
+        "priority": {
+          "id": "1",
+          "name": "Highest"
+        },
+        "resolution": {
+          "id": "10003",
+          "name": "Cannot Reproduce"
+        },
+        "labels": [
+          "needs-design",
+          "flaky-test"
+        ],
+        "components": [],
+        "parent": {
+          "id": "30003",
+          "key": "PLT-1"
+        },
+        "customfield_10019": "0|i23972:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3051,
+            "name": "PLT Sprint 24",
+            "state": "closed",
+            "boardId": 2,
+            "startDate": "2026-07-20T00:00:00.000Z",
+            "endDate": "2026-08-03T00:00:00.000Z",
+            "goal": "Sprint 24 goal for Platform"
+          }
+        ]
+      }
+    },
+    {
+      "id": "31169",
+      "key": "FLO-367",
+      "fields": {
+        "summary": "Bug FLO-367: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10003",
+          "name": "Bug",
+          "subtask": false
+        },
+        "project": {
+          "id": "10000",
+          "key": "FLO",
+          "name": "Flow Core"
+        },
+        "created": "2026-08-01T11:28:39.108Z",
+        "updated": "2026-08-07T11:28:39.108Z",
+        "resolutiondate": "2026-08-07T11:28:39.108Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d29",
+          "displayName": "Sample User 29"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d27",
+          "displayName": "Sample User 27"
+        },
+        "priority": {
+          "id": "3",
+          "name": "Medium"
+        },
+        "resolution": {
+          "id": "10000",
+          "name": "Done"
+        },
+        "labels": [
+          "needs-design"
+        ],
+        "components": [],
+        "customfield_10001": {
+          "id": "8e6f8c9a-1a2b-4c3d-9e0f-333333333333",
+          "name": "Growth"
+        },
+        "customfield_10019": "0|i58735:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3023,
+            "name": "FLO Sprint 24",
+            "state": "closed",
+            "boardId": 1,
+            "startDate": "2026-07-20T00:00:00.000Z",
+            "endDate": "2026-08-03T00:00:00.000Z",
+            "goal": "Sprint 24 goal for Flow Core"
+          }
+        ]
+      }
+    },
+    {
+      "id": "31170",
+      "key": "FLO-368",
+      "fields": {
+        "summary": "Task FLO-368: sample work item",
+        "status": {
+          "id": "3",
+          "name": "In Progress",
+          "statusCategory": {
+            "id": 4,
+            "key": "indeterminate",
+            "name": "In Progress",
+            "colorName": "yellow"
+          }
+        },
+        "issuetype": {
+          "id": "10002",
+          "name": "Task",
+          "subtask": false
+        },
+        "project": {
+          "id": "10000",
+          "key": "FLO",
+          "name": "Flow Core"
+        },
+        "created": "2026-08-01T14:35:55.487Z",
+        "updated": "2026-08-03T14:35:55.487Z",
+        "resolutiondate": null,
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d28",
+          "displayName": "Sample User 28"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d02",
+          "displayName": "Sample User 2"
+        },
+        "priority": {
+          "id": "3",
+          "name": "Medium"
+        },
+        "resolution": null,
+        "labels": [
+          "flaky-test"
+        ],
+        "components": [
+          {
+            "id": "Worker",
+            "name": "Worker"
+          }
+        ],
+        "customfield_10001": {
+          "id": "8e6f8c9a-1a2b-4c3d-9e0f-444444444444",
+          "name": "Reliability"
+        },
+        "customfield_10019": "0|i65241:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3023,
+            "name": "FLO Sprint 24",
+            "state": "closed",
+            "boardId": 1,
+            "startDate": "2026-07-20T00:00:00.000Z",
+            "endDate": "2026-08-03T00:00:00.000Z",
+            "goal": "Sprint 24 goal for Flow Core"
+          },
+          {
+            "id": 3024,
+            "name": "FLO Sprint 25",
+            "state": "closed",
+            "boardId": 1,
+            "startDate": "2026-08-03T00:00:00.000Z",
+            "endDate": "2026-08-17T00:00:00.000Z",
+            "goal": "Sprint 25 goal for Flow Core"
+          }
+        ],
+        "timetracking": {
+          "originalEstimateSeconds": 21600,
+          "remainingEstimateSeconds": 21600,
+          "timeSpentSeconds": 0
+        }
+      }
+    },
+    {
+      "id": "31171",
+      "key": "PLT-326",
+      "fields": {
+        "summary": "Story PLT-326: sample work item",
+        "status": {
+          "id": "10002",
+          "name": "Done",
+          "statusCategory": {
+            "id": 3,
+            "key": "done",
+            "name": "Done",
+            "colorName": "green"
+          }
+        },
+        "issuetype": {
+          "id": "10001",
+          "name": "Story",
+          "subtask": false
+        },
+        "project": {
+          "id": "10001",
+          "key": "PLT",
+          "name": "Platform"
+        },
+        "created": "2026-08-03T07:02:49.159Z",
+        "updated": "2026-08-19T07:02:49.159Z",
+        "resolutiondate": "2026-08-19T07:02:49.159Z",
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d02",
+          "displayName": "Sample User 2"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d01",
+          "displayName": "Sample User 1"
+        },
+        "priority": {
+          "id": "4",
+          "name": "Low"
+        },
+        "resolution": {
+          "id": "10003",
+          "name": "Cannot Reproduce"
+        },
+        "labels": [
+          "needs-design",
+          "quick-win"
+        ],
+        "components": [
+          {
+            "id": "Observability",
+            "name": "Observability"
+          }
+        ],
+        "customfield_10016": 2,
+        "customfield_10019": "0|i60166:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3052,
+            "name": "PLT Sprint 25",
+            "state": "closed",
+            "boardId": 2,
+            "startDate": "2026-08-03T00:00:00.000Z",
+            "endDate": "2026-08-17T00:00:00.000Z",
+            "goal": "Sprint 25 goal for Platform"
+          },
+          {
+            "id": 3053,
+            "name": "PLT Sprint 26",
+            "state": "closed",
+            "boardId": 2,
+            "startDate": "2026-08-17T00:00:00.000Z",
+            "endDate": "2026-08-31T00:00:00.000Z",
+            "goal": "Sprint 26 goal for Platform"
+          }
+        ]
+      }
+    },
+    {
+      "id": "31172",
+      "key": "FLO-369",
+      "fields": {
+        "summary": "Sub-task FLO-369: sample work item",
+        "status": {
+          "id": "3",
+          "name": "In Progress",
+          "statusCategory": {
+            "id": 4,
+            "key": "indeterminate",
+            "name": "In Progress",
+            "colorName": "yellow"
+          }
+        },
+        "issuetype": {
+          "id": "10004",
+          "name": "Sub-task",
+          "subtask": true
+        },
+        "project": {
+          "id": "10000",
+          "key": "FLO",
+          "name": "Flow Core"
+        },
+        "created": "2026-08-03T13:46:38.123Z",
+        "updated": "2026-08-07T13:46:38.123Z",
+        "resolutiondate": null,
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d05",
+          "displayName": "Sample User 5"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d05",
+          "displayName": "Sample User 5"
+        },
+        "priority": {
+          "id": "4",
+          "name": "Low"
+        },
+        "resolution": null,
+        "labels": [],
+        "components": [],
+        "parent": {
+          "id": "31095",
+          "key": "FLO-343"
+        },
+        "customfield_10019": "0|i86837:",
+        "customfield_10021": [],
+        "customfield_10020": [
+          {
+            "id": 3024,
+            "name": "FLO Sprint 25",
+            "state": "closed",
+            "boardId": 1,
+            "startDate": "2026-08-03T00:00:00.000Z",
+            "endDate": "2026-08-17T00:00:00.000Z",
+            "goal": "Sprint 25 goal for Flow Core"
+          },
+          {
+            "id": 3025,
+            "name": "FLO Sprint 26",
+            "state": "closed",
+            "boardId": 1,
+            "startDate": "2026-08-17T00:00:00.000Z",
+            "endDate": "2026-08-31T00:00:00.000Z",
+            "goal": "Sprint 26 goal for Flow Core"
+          }
+        ]
+      }
+    },
+    {
+      "id": "31174",
+      "key": "OPS-135",
+      "fields": {
+        "summary": "Bug OPS-135: sample work item",
+        "status": {
+          "id": "10003",
+          "name": "Blocked",
+          "statusCategory": {
+            "id": 4,
+            "key": "indeterminate",
+            "name": "In Progress",
+            "colorName": "yellow"
+          }
+        },
+        "issuetype": {
+          "id": "10003",
+          "name": "Bug",
+          "subtask": false
+        },
+        "project": {
+          "id": "10003",
+          "key": "OPS",
+          "name": "Operations"
+        },
+        "created": "2026-08-03T19:41:19.611Z",
+        "updated": "2026-08-09T19:41:19.611Z",
+        "resolutiondate": null,
+        "assignee": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d16",
+          "displayName": "Sample User 16"
+        },
+        "reporter": {
+          "accountId": "5f8a1b2c3d4e5f6a7b8c9d10",
+          "displayName": "Sample User 10"
+        },
+        "priority": {
+          "id": "4",
+          "name": "Low"
+        },
+        "resolution": null,
+        "labels": [
+          "tech-debt"
+        ],
+        "components": [
+          {
+            "id": "Tooling",
+            "name": "Tooling"
+          }
+        ],
+        "customfield_10001": {
+          "id": "8e6f8c9a-1a2b-4c3d-9e0f-444444444444",
+          "name": "Reliability"
+        },
+        "customfield_10019": "0|i50141:",
+        "customfield_10021": []
+      }
+    }
+  ],
+  "isLast": false,
+  "nextPageToken": "day2-page-12"
+}

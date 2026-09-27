@@ -1,0 +1,48 @@
+{
+  "maxResults": 4,
+  "startAt": 0,
+  "total": 6,
+  "isLast": false,
+  "values": [
+    {
+      "id": "1",
+      "name": "To Do",
+      "statusCategory": {
+        "id": 2,
+        "key": "new",
+        "name": "To Do",
+        "colorName": "blue-gray"
+      }
+    },
+    {
+      "id": "3",
+      "name": "In Progress",
+      "statusCategory": {
+        "id": 4,
+        "key": "indeterminate",
+        "name": "In Progress",
+        "colorName": "yellow"
+      }
+    },
+    {
+      "id": "10001",
+      "name": "In Review",
+      "statusCategory": {
+        "id": 4,
+        "key": "indeterminate",
+        "name": "In Progress",
+        "colorName": "yellow"
+      }
+    },
+    {
+      "id": "10002",
+      "name": "Done",
+      "statusCategory": {
+        "id": 3,
+        "key": "done",
+        "name": "Done",
+        "colorName": "green"
+      }
+    }
+  ]
+}

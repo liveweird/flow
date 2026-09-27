@@ -1,0 +1,149 @@
+{
+  "maxResults": 15,
+  "startAt": 15,
+  "total": 28,
+  "isLast": true,
+  "values": [
+    {
+      "id": 3043,
+      "self": "/ex/jira/b3f1a2c4-5d6e-4f7a-8b9c-0d1e2f3a4b5c/rest/agile/1.0/sprint/3043",
+      "state": "closed",
+      "name": "PLT Sprint 16",
+      "startDate": "2026-03-30T00:00:00.000Z",
+      "endDate": "2026-04-13T00:00:00.000Z",
+      "completeDate": "2026-04-13T00:00:00.000Z",
+      "originBoardId": 2,
+      "goal": "Sprint 16 goal for Platform"
+    },
+    {
+      "id": 3044,
+      "self": "/ex/jira/b3f1a2c4-5d6e-4f7a-8b9c-0d1e2f3a4b5c/rest/agile/1.0/sprint/3044",
+      "state": "closed",
+      "name": "PLT Sprint 17",
+      "startDate": "2026-04-13T00:00:00.000Z",
+      "endDate": "2026-04-27T00:00:00.000Z",
+      "completeDate": "2026-04-27T00:00:00.000Z",
+      "originBoardId": 2,
+      "goal": "Sprint 17 goal for Platform"
+    },
+    {
+      "id": 3045,
+      "self": "/ex/jira/b3f1a2c4-5d6e-4f7a-8b9c-0d1e2f3a4b5c/rest/agile/1.0/sprint/3045",
+      "state": "closed",
+      "name": "PLT Sprint 18",
+      "startDate": "2026-04-27T00:00:00.000Z",
+      "endDate": "2026-05-11T00:00:00.000Z",
+      "completeDate": "2026-05-11T00:00:00.000Z",
+      "originBoardId": 2,
+      "goal": "Sprint 18 goal for Platform"
+    },
+    {
+      "id": 3046,
+      "self": "/ex/jira/b3f1a2c4-5d6e-4f7a-8b9c-0d1e2f3a4b5c/rest/agile/1.0/sprint/3046",
+      "state": "closed",
+      "name": "PLT Sprint 19",
+      "startDate": "2026-05-11T00:00:00.000Z",
+      "endDate": "2026-05-25T00:00:00.000Z",
+      "completeDate": "2026-05-25T00:00:00.000Z",
+      "originBoardId": 2,
+      "goal": "Sprint 19 goal for Platform"
+    },
+    {
+      "id": 3047,
+      "self": "/ex/jira/b3f1a2c4-5d6e-4f7a-8b9c-0d1e2f3a4b5c/rest/agile/1.0/sprint/3047",
+      "state": "closed",
+      "name": "PLT Sprint 20",
+      "startDate": "2026-05-25T00:00:00.000Z",
+      "endDate": "2026-06-08T00:00:00.000Z",
+      "completeDate": "2026-06-08T00:00:00.000Z",
+      "originBoardId": 2,
+      "goal": "Sprint 20 goal for Platform"
+    },
+    {
+      "id": 3048,
+      "self": "/ex/jira/b3f1a2c4-5d6e-4f7a-8b9c-0d1e2f3a4b5c/rest/agile/1.0/sprint/3048",
+      "state": "closed",
+      "name": "PLT Sprint 21",
+      "startDate": "2026-06-08T00:00:00.000Z",
+      "endDate": "2026-06-22T00:00:00.000Z",
+      "completeDate": "2026-06-22T00:00:00.000Z",
+      "originBoardId": 2,
+      "goal": "Sprint 21 goal for Platform"
+    },
+    {
+      "id": 3049,
+      "self": "/ex/jira/b3f1a2c4-5d6e-4f7a-8b9c-0d1e2f3a4b5c/rest/agile/1.0/sprint/3049",
+      "state": "closed",
+      "name": "PLT Sprint 22",
+      "startDate": "2026-06-22T00:00:00.000Z",
+      "endDate": "2026-07-06T00:00:00.000Z",
+      "completeDate": "2026-07-06T00:00:00.000Z",
+      "originBoardId": 2,
+      "goal": "Sprint 22 goal for Platform"
+    },
+    {
+      "id": 3050,
+      "self": "/ex/jira/b3f1a2c4-5d6e-4f7a-8b9c-0d1e2f3a4b5c/rest/agile/1.0/sprint/3050",
+      "state": "closed",
+      "name": "PLT Sprint 23",
+      "startDate": "2026-07-06T00:00:00.000Z",
+      "endDate": "2026-07-20T00:00:00.000Z",
+      "completeDate": "2026-07-20T00:00:00.000Z",
+      "originBoardId": 2,
+      "goal": "Sprint 23 goal for Platform"
+    },
+    {
+      "id": 3051,
+      "self": "/ex/jira/b3f1a2c4-5d6e-4f7a-8b9c-0d1e2f3a4b5c/rest/agile/1.0/sprint/3051",
+      "state": "closed",
+      "name": "PLT Sprint 24",
+      "startDate": "2026-07-20T00:00:00.000Z",
+      "endDate": "2026-08-03T00:00:00.000Z",
+      "completeDate": "2026-08-03T00:00:00.000Z",
+      "originBoardId": 2,
+      "goal": "Sprint 24 goal for Platform"
+    },
+    {
+      "id": 3052,
+      "self": "/ex/jira/b3f1a2c4-5d6e-4f7a-8b9c-0d1e2f3a4b5c/rest/agile/1.0/sprint/3052",
+      "state": "closed",
+      "name": "PLT Sprint 25",
+      "startDate": "2026-08-03T00:00:00.000Z",
+      "endDate": "2026-08-17T00:00:00.000Z",
+      "completeDate": "2026-08-17T00:00:00.000Z",
+      "originBoardId": 2,
+      "goal": "Sprint 25 goal for Platform"
+    },
+    {
+      "id": 3053,
+      "self": "/ex/jira/b3f1a2c4-5d6e-4f7a-8b9c-0d1e2f3a4b5c/rest/agile/1.0/sprint/3053",
+      "state": "closed",
+      "name": "PLT Sprint 26",
+      "startDate": "2026-08-17T00:00:00.000Z",
+      "endDate": "2026-08-31T00:00:00.000Z",
+      "completeDate": "2026-08-31T00:00:00.000Z",
+      "originBoardId": 2,
+      "goal": "Sprint 26 goal for Platform"
+    },
+    {
+      "id": 3054,
+      "self": "/ex/jira/b3f1a2c4-5d6e-4f7a-8b9c-0d1e2f3a4b5c/rest/agile/1.0/sprint/3054",
+      "state": "active",
+      "name": "PLT Sprint 27",
+      "startDate": "2026-08-31T00:00:00.000Z",
+      "endDate": "2026-09-14T00:00:00.000Z",
+      "originBoardId": 2,
+      "goal": "Sprint 27 goal for Platform"
+    },
+    {
+      "id": 3055,
+      "self": "/ex/jira/b3f1a2c4-5d6e-4f7a-8b9c-0d1e2f3a4b5c/rest/agile/1.0/sprint/3055",
+      "state": "future",
+      "name": "PLT Sprint 28",
+      "startDate": "2026-09-14T00:00:00.000Z",
+      "endDate": "2026-09-28T00:00:00.000Z",
+      "originBoardId": 2,
+      "goal": "Sprint 28 goal for Platform"
+    }
+  ]
+}

@@ -43,6 +43,12 @@ r2dbc-pool = "1.0.2.RELEASE"
 reactor-bom = "2025.0.7"
 swagger-request-validator = "3.0.0"
 testcontainers = "2.0.5"
+# Matches the compose `jira-stub` image tag (docker-compose.yaml, sample-data/README.md) — the
+# in-JVM shared WireMock fixture (JiraStubServer.kt) runs the exact same mapping/response engine
+# version the compose stack does. The `-standalone` shaded artifact bundles its own Jackson/Jetty
+# under a relocated package, so it never drags a second Jackson family onto the runtime/test
+# classpath for `:server:checkDependencyAlignment` to trip over.
+wiremock = "3.13.2"
 # Runtime security floor (Trivy scan, 2026-09-24): scram-client is a transitive implementation
 # detail of r2dbc-postgresql (its SCRAM auth mechanism); the constraint selects the first fixed
 # release without forcing a coordinated r2dbc-postgresql upgrade.
@@ -87,6 +93,7 @@ swagger-request-validator-core = { module = "com.atlassian.oai:openapi-request-v
 testcontainers-postgresql = { module = "org.testcontainers:testcontainers-postgresql", version.ref = "testcontainers" }
 scram-client = { module = "com.ongres.scram:scram-client", version.ref = "scram" }
 scram-common = { module = "com.ongres.scram:scram-common", version.ref = "scram" }
+wiremock-standalone = { module = "org.wiremock:wiremock-standalone", version.ref = "wiremock" }
 
 [plugins]
 detekt = { id = "io.gitlab.arturbosch.detekt", version.ref = "detekt" }

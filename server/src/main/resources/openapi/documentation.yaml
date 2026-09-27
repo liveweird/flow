@@ -27,6 +27,7 @@ tags:
   - name: auth
   - name: users
   - name: teams
+  - name: data-sources
 
 paths:
   /api/v1/health:
@@ -663,6 +664,387 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/data-sources:
+    get:
+      tags: [data-sources]
+      operationId: listDataSources
+      summary: List data sources
+      description: |
+        ADMIN only. An ADMIN-managed connection to an external issue tracker — Jira Cloud today
+        (`kind: JIRA_CLOUD`).
+
+        - Sortable fields: `id`, `name`, `createdAt`, `updatedAt`. Default `id` ascending.
+        - Filters: `name` (case- and accent-insensitive substring).
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/Sort'
+        - name: name
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        '200':
+          description: A page of data sources
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataSourcePage'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    post:
+      tags: [data-sources]
+      operationId: createDataSource
+      summary: Create a data source
+      description: |
+        ADMIN only (guarded before the body decodes — a non-admin's malformed body is still
+        403). `jira.siteUrl` must be exactly `https://<site>.atlassian.net` (origin only — the
+        outbound allow-list boundary); it becomes the connection's identity. `jira.apiToken` is
+        required here and never echoed back — the response carries `jira.hasApiToken` only. A
+        case-insensitive name clash with an active data source is `409`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DataSourceRequest'
+      responses:
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '201':
+          description: Created; `Location` points at the new data source
+          headers:
+            Location:
+              schema: { type: string }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataSourceResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/data-sources/test:
+    post:
+      tags: [data-sources]
+      operationId: testDataSourceAdHoc
+      summary: Test a Jira connection before saving it
+      description: |
+        ADMIN only (guarded before the body decodes), rate-limited (10/min per IP, bucket
+        `data-source-test`). Probes each Jira endpoint the ingestion pipeline needs in sequence
+        (at most 10s each, 30s total) and NEVER answers `502` — every probe outcome is a row in
+        the response, `ok: false` included. `jira.apiToken` is required here (an ad-hoc test
+        before the connection is saved).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DataSourceTestRequest'
+      responses:
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '200':
+          description: The probe results (never a failure status — see the row shapes)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConnectionTestResult'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/data-sources/{id}/test:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    post:
+      tags: [data-sources]
+      operationId: testDataSourceStored
+      summary: Test a saved data source's connection
+      description: |
+        ADMIN only, rate-limited (10/min per IP, bucket `data-source-test`). Uses the STORED,
+        decrypted token — no request body. A successful `tenant_info` probe persists the
+        resolved `cloudId` on the connection.
+      responses:
+        '200':
+          description: The probe results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConnectionTestResult'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/data-sources/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    get:
+      tags: [data-sources]
+      operationId: getDataSource
+      summary: Get a data source
+      description: ADMIN only.
+      responses:
+        '200':
+          description: The data source
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataSourceResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    put:
+      tags: [data-sources]
+      operationId: updateDataSource
+      summary: Update a data source (full replace)
+      description: |
+        ADMIN only, guard before the id lookup (uniform 403). A changed `jira.siteUrl` is `409`
+        — it is the connection's identity; create a new data source instead. Omitting OR
+        blanking `jira.apiToken` keeps the current token; any other value rotates it (audited
+        separately as `data_source.token_rotated`). Any successful update bumps
+        `configRevision`. A case-insensitive name clash with another active data source is `409`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DataSourceRequest'
+      responses:
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '204':
+          description: Updated
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    delete:
+      tags: [data-sources]
+      operationId: deleteDataSource
+      summary: Delete a data source (soft)
+      description: >-
+        ADMIN only, guard before the id lookup. Soft delete — disables the connection and frees
+        its name; the raw/normalized rows are purged after a grace period once the sync-job
+        queue lands (plan §0 A2).
+      responses:
+        '204':
+          description: Deleted
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/data-sources/{id}/sync-jobs:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    get:
+      tags: [data-sources]
+      operationId: listSyncJobs
+      summary: List a data source's sync jobs
+      description: |
+        ADMIN only. History and command queue for one connection (v0.2.0 plan §9).
+
+        - Sortable fields: `id`, `requestedAt`. Default `-requestedAt` (newest first).
+        - Filters: `kind` (`SYNC`/`RECONCILE`/`REPROCESS`/`PURGE`), `status`
+          (`PENDING`/`RUNNING`/`SUCCEEDED`/`FAILED`/`CANCELLED`).
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/Sort'
+        - name: kind
+          in: query
+          required: false
+          schema: { $ref: '#/components/schemas/SyncJobKind' }
+        - name: status
+          in: query
+          required: false
+          schema: { $ref: '#/components/schemas/SyncJobStatus' }
+      responses:
+        '200':
+          description: A page of sync jobs
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SyncJobPage'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    post:
+      tags: [data-sources]
+      operationId: requestSyncJob
+      summary: Enqueue a sync job ("Sync now" / "Reconcile now" / "Reprocess")
+      description: |
+        ADMIN only (guarded before the body decodes). `400` when the connection is disabled, or
+        when `kind` is `PURGE` — PURGE is scheduled internally (a soft-deleted connection past
+        its grace period) and is never requester-initiated. A second request while one is already
+        `PENDING`/`RUNNING` for the same `(connection, kind)` is coalesced (`202`,
+        `coalesced: true`, the EXISTING job).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SyncJobRequest'
+      responses:
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '202':
+          description: Accepted (queued or coalesced with an already-open job)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SyncJobActionResult'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/data-sources/{id}/sync-jobs/{jobId}:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+      - name: jobId
+        in: path
+        required: true
+        schema: { type: integer, format: int32, minimum: 0 }
+    get:
+      tags: [data-sources]
+      operationId: getSyncJob
+      summary: Get one sync job
+      description: ADMIN only.
+      responses:
+        '200':
+          description: The sync job
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SyncJobResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/data-sources/{id}/sync-jobs/{jobId}/cancel:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+      - name: jobId
+        in: path
+        required: true
+        schema: { type: integer, format: int32, minimum: 0 }
+    post:
+      tags: [data-sources]
+      operationId: cancelSyncJob
+      summary: Cancel a sync job
+      description: |
+        ADMIN only. `PENDING` → `CANCELLED` immediately; `RUNNING` → `cancel_requested_at` is set
+        and the worker honours it cooperatively on its next heartbeat tick; an already-terminal
+        job (`SUCCEEDED`/`FAILED`/`CANCELLED`) is `409`.
+      responses:
+        '202':
+          description: Cancellation accepted (or already in effect)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SyncJobResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/data-sources/{id}/status:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    get:
+      tags: [data-sources]
+      operationId: getDataSourceStatus
+      summary: Get a data source's sync status
+      description: |
+        ADMIN only, read-only (v0.2.0 plan §9). Connection summary, every persisted stream cursor
+        (`reference`/`issues`/`changelogs`/`worklogs`/`reconcile` — a completed pass with nothing
+        left to resume has no row, so it is simply absent), raw-store row counts, the most recent
+        job of each kind, and the connection's currently RUNNING job, if any.
+      responses:
+        '200':
+          description: The sync status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SyncStatusResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/data-sources/{id}/raw-issues/{issueKey}:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+      - name: issueKey
+        in: path
+        required: true
+        schema:
+          type: string
+          # The union of the "all digits" (issue id) and issue-key branches `RawIssueInspectorRoutes.kt` accepts.
+          pattern: '^([0-9]+|[A-Z][A-Z0-9_]{1,9}-[0-9]{1,10})$'
+          maxLength: 20
+        description: >-
+          An all-digits string is looked up by the stable Jira issue id; anything else must match
+          `^[A-Z][A-Z0-9_]{1,9}-[0-9]{1,10}$` (e.g. `ENG-123`) or is `400`.
+    get:
+      tags: [data-sources]
+      operationId: getRawIssue
+      summary: Inspect one raw Jira issue
+      description: |
+        ADMIN only, read-only (v0.2.0 plan §9/§12 item 8b). The stored raw payload, its changelog
+        histories and worklogs (oldest first), and — once it has been through PROCESS at least
+        once — its `norm.*` shape (`workItem`, `statusIntervals`, `fieldIntervals`, `anomalies`). A
+        tombstoned issue (`deletedAt`/`movedOutAt` set) is still returned, never `404`.
+      responses:
+        '200':
+          description: The raw issue inspection
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RawIssueInspection'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/data-sources/{id}/profile:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    get:
+      tags: [data-sources]
+      operationId: getDataSourceProfile
+      summary: Get a data source's data profile
+      description: |
+        ADMIN only, read-only (v0.2.0 plan §8/§9/§12 item 9). SQL aggregates over this
+        connection's `raw.*`/`norm.*` rows, computed by the PROFILE step after every successful
+        SYNC/REPROCESS. `computedAt` is `null` before the connection's first PROCESS pass — every
+        section then carries its own empty default rather than the endpoint `404`ing.
+      responses:
+        '200':
+          description: The data profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataProfile'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
 
 components:
   securitySchemes:
@@ -1027,6 +1409,531 @@ components:
           type: integer
           format: int64
           minimum: 0
+
+    JiraConnectionRequest:
+      type: object
+      required: [siteUrl, email, projectKeys]
+      properties:
+        siteUrl:
+          type: string
+          maxLength: 253
+          description: >-
+            Exactly `https://<site>.atlassian.net` — origin only, no path/query/trailing slash
+            (the outbound allow-list boundary). Fixed at create; a PUT changing it is `409`.
+        email:
+          type: string
+          maxLength: 254
+          description: The Jira service-account email.
+        apiToken:
+          type: string
+          maxLength: 1000
+          nullable: true
+          description: >-
+            Write-only. Required (non-blank) on create. On update, omitted OR blank keeps the
+            current token (the SPA's masked-password field sends an empty string for
+            "unchanged"); any other value rotates it. Never echoed back in any response.
+        projectKeys:
+          type: array
+          minItems: 1
+          maxItems: 50
+          items: { type: string, pattern: '^[A-Z][A-Z0-9_]{1,9}$' }
+        authScheme:
+          $ref: '#/components/schemas/JiraAuthScheme'
+    JiraAuthScheme:
+      type: string
+      enum: [BASIC, BEARER]
+      default: BASIC
+    DataSourceRequest:
+      type: object
+      required: [name, syncIntervalMinutes, jira]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        enabled: { type: boolean, default: true }
+        syncIntervalMinutes: { type: integer, minimum: 5, maximum: 1440 }
+        backfillFrom:
+          type: string
+          format: date
+          nullable: true
+          description: >-
+            ISO date (YYYY-MM-DD), not in the future and not more than 10 years back (nor before
+            2000-01-01). Omitted computes today minus 24 months.
+        reconcileHourUtc: { type: integer, minimum: 0, maximum: 23, default: 3 }
+        jira:
+          $ref: '#/components/schemas/JiraConnectionRequest'
+    JiraConnectionResponse:
+      type: object
+      required: [siteUrl, email, hasApiToken, projectKeys, authScheme]
+      properties:
+        siteUrl: { type: string }
+        email: { type: string }
+        hasApiToken:
+          type: boolean
+          description: The token itself is never returned.
+        projectKeys:
+          type: array
+          items: { type: string }
+        authScheme:
+          $ref: '#/components/schemas/JiraAuthScheme'
+        cloudId:
+          type: string
+          nullable: true
+          description: Resolved on the first successful probe/sync (not populated by this commit's CRUD).
+    DataSourceState:
+      type: string
+      enum: [NEVER_SYNCED, CURRENT, STALE, FAILED, DISABLED]
+    DataSourceStatus:
+      type: object
+      required: [state, consecutiveFailures]
+      properties:
+        state:
+          $ref: '#/components/schemas/DataSourceState'
+        lastSyncStartedAt: { type: integer, format: int64, nullable: true, description: Epoch millis }
+        lastSyncSucceededAt: { type: integer, format: int64, nullable: true, description: Epoch millis }
+        lastSyncErrorCode: { type: string, nullable: true }
+        consecutiveFailures: { type: integer, minimum: 0 }
+        runningJobId:
+          type: integer
+          format: int32
+          minimum: 0
+          nullable: true
+          description: The connection's currently RUNNING sync job, if any.
+    DataSourceResponse:
+      type: object
+      required:
+        - id
+        - kind
+        - name
+        - enabled
+        - syncIntervalMinutes
+        - backfillFrom
+        - reconcileHourUtc
+        - configRevision
+        - jira
+        - status
+        - createdAt
+        - updatedAt
+      properties:
+        id: { type: integer, format: int32, minimum: 0 }
+        kind: { type: string, enum: [JIRA_CLOUD] }
+        name: { type: string }
+        enabled: { type: boolean }
+        syncIntervalMinutes: { type: integer }
+        backfillFrom: { type: string, format: date }
+        reconcileHourUtc: { type: integer }
+        configRevision: { type: integer, format: int64 }
+        jira:
+          $ref: '#/components/schemas/JiraConnectionResponse'
+        status:
+          $ref: '#/components/schemas/DataSourceStatus'
+        createdAt: { type: integer, format: int64, description: Epoch millis }
+        updatedAt: { type: integer, format: int64, description: Epoch millis }
+    DataSourcePage:
+      type: object
+      required: [items, page, pageSize, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/DataSourceResponse'
+        page: { type: integer, minimum: 1 }
+        pageSize: { type: integer, minimum: 1, maximum: 100 }
+        total:
+          type: integer
+          format: int64
+          minimum: 0
+    DataSourceTestRequest:
+      type: object
+      required: [jira]
+      properties:
+        jira:
+          $ref: '#/components/schemas/JiraConnectionRequest'
+    ConnectionTestRow:
+      type: object
+      required: [name, path, required, ok]
+      properties:
+        name: { type: string, description: "The probe's short identifier (e.g. myself, project_statuses:ENG)." }
+        path: { type: string, description: The Jira endpoint path probed. }
+        required: { type: boolean, description: Whether a real sync depends on this endpoint. }
+        ok: { type: boolean }
+        status: { type: integer, nullable: true, description: "The upstream HTTP status, when the probe ran." }
+        code:
+          type: string
+          nullable: true
+          description: A `JiraFetchException` code on failure (e.g. `AUTHENTICATION_FAILED`, `FORBIDDEN_SCOPE`).
+        scopeHint:
+          type: string
+          nullable: true
+          description: The Jira OAuth/API-token scope this endpoint likely needs, for a failed optional/required row.
+    ConnectionTestResult:
+      type: object
+      required: [rows]
+      properties:
+        rows:
+          type: array
+          items:
+            $ref: '#/components/schemas/ConnectionTestRow'
+        cloudId:
+          type: string
+          nullable: true
+          description: Resolved once the `tenant_info` probe succeeds.
+
+    SyncJobKind:
+      type: string
+      enum: [SYNC, RECONCILE, REPROCESS, PURGE]
+    SyncJobStatus:
+      type: string
+      enum: [PENDING, RUNNING, SUCCEEDED, FAILED, CANCELLED]
+    SyncJobRequest:
+      type: object
+      required: [kind]
+      properties:
+        kind:
+          $ref: '#/components/schemas/SyncJobKind'
+          description: "`PURGE` is internal-only and rejected here with `400`."
+    SyncJobResponse:
+      type: object
+      required:
+        - id
+        - connectionId
+        - kind
+        - status
+        - priority
+        - configRevision
+        - requestedAt
+        - attempt
+        - maxAttempts
+      properties:
+        id: { type: integer, format: int32, minimum: 0 }
+        connectionId: { type: integer, format: int32, minimum: 0 }
+        kind:
+          $ref: '#/components/schemas/SyncJobKind'
+        status:
+          $ref: '#/components/schemas/SyncJobStatus'
+        priority: { type: integer, description: "0 manual, 10 scheduler-enqueued." }
+        requestedByUserId:
+          type: integer
+          format: int32
+          minimum: 0
+          nullable: true
+          description: Null for scheduler-enqueued jobs.
+        configRevision: { type: integer, format: int64 }
+        requestedAt: { type: integer, format: int64, description: Epoch millis }
+        startedAt: { type: integer, format: int64, nullable: true, description: Epoch millis }
+        finishedAt: { type: integer, format: int64, nullable: true, description: Epoch millis }
+        attempt: { type: integer, minimum: 0 }
+        maxAttempts: { type: integer, minimum: 1 }
+        leaseUntil: { type: integer, format: int64, nullable: true, description: Epoch millis }
+        heartbeatAt: { type: integer, format: int64, nullable: true, description: Epoch millis }
+        cancelRequestedAt: { type: integer, format: int64, nullable: true, description: Epoch millis }
+        currentStream: { type: string, nullable: true }
+        progress:
+          type: object
+          nullable: true
+          additionalProperties: true
+        errorCode: { type: string, nullable: true }
+        errorDetail: { type: string, nullable: true }
+    SyncJobPage:
+      type: object
+      required: [items, page, pageSize, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SyncJobResponse'
+        page: { type: integer, minimum: 1 }
+        pageSize: { type: integer, minimum: 1, maximum: 100 }
+        total:
+          type: integer
+          format: int64
+          minimum: 0
+    SyncJobActionResult:
+      type: object
+      required: [job, coalesced]
+      properties:
+        job:
+          $ref: '#/components/schemas/SyncJobResponse'
+        coalesced:
+          type: boolean
+          description: True when an already-open job for the same (connection, kind) was returned instead of a new one.
+
+    SyncCursorSummary:
+      type: object
+      required: [stream, position]
+      properties:
+        stream: { type: string, description: "The stream's `sync_cursors.stream` key (e.g. issues, reference, reconcile)." }
+        watermarkAt: { type: integer, format: int64, nullable: true, description: Epoch millis }
+        position:
+          type: string
+          description: >-
+            The stream's own raw persisted cursor JSON — an opaque, per-stream-owned diagnostic
+            string, not reparsed here.
+        lastCompletedAt: { type: integer, format: int64, nullable: true, description: Epoch millis }
+    SyncCounts:
+      type: object
+      required: [rawIssues, tombstonedDeleted, tombstonedMovedOut, changelogs, worklogs, entitiesByKind, needsProcessing]
+      properties:
+        rawIssues: { type: integer, format: int64, minimum: 0 }
+        tombstonedDeleted: { type: integer, format: int64, minimum: 0 }
+        tombstonedMovedOut: { type: integer, format: int64, minimum: 0 }
+        changelogs: { type: integer, format: int64, minimum: 0 }
+        worklogs: { type: integer, format: int64, minimum: 0, description: Live (non-tombstoned) worklogs. }
+        entitiesByKind:
+          type: object
+          additionalProperties: { type: integer, format: int64, minimum: 0 }
+        needsProcessing: { type: integer, format: int64, minimum: 0 }
+    SyncStatusResponse:
+      type: object
+      required: [connection, cursors, counts, lastJobs]
+      properties:
+        connection:
+          $ref: '#/components/schemas/DataSourceResponse'
+        cursors:
+          type: array
+          items:
+            $ref: '#/components/schemas/SyncCursorSummary'
+        counts:
+          $ref: '#/components/schemas/SyncCounts'
+        lastJobs:
+          type: object
+          additionalProperties: { $ref: '#/components/schemas/SyncJobResponse' }
+          description: Keyed by SyncJobKind name — the most recent job of each kind ever requested for this connection.
+        currentJob:
+          allOf: [{ $ref: '#/components/schemas/SyncJobResponse' }]
+          nullable: true
+
+    NormalizedStatusInterval:
+      type: object
+      required: [seq, statusId, statusName, category, fromAtMs, source]
+      properties:
+        seq: { type: integer, format: int32, minimum: 1 }
+        statusId: { type: string }
+        statusName: { type: string }
+        category: { $ref: '#/components/schemas/StatusCategory' }
+        fromAtMs: { type: integer, format: int64, description: Epoch millis }
+        toAtMs: { type: integer, format: int64, nullable: true, description: "Epoch millis; null means the open (current) interval." }
+        source:
+          type: string
+          enum: [CREATED, CHANGE]
+    NormalizedFieldInterval:
+      type: object
+      required: [field, seq, fromAtMs]
+      properties:
+        field:
+          type: string
+          enum: [ASSIGNEE, SPRINT, FLAGGED]
+        seq: { type: integer, format: int32, minimum: 1 }
+        valueId: { type: string, nullable: true }
+        valueText: { type: string, nullable: true }
+        fromAtMs: { type: integer, format: int64, description: Epoch millis }
+        toAtMs: { type: integer, format: int64, nullable: true }
+    StatusCategory:
+      type: string
+      enum: [TODO, IN_PROGRESS, DONE, UNKNOWN]
+    RawIssueWorkItem:
+      type: object
+      required: [issueKey, projectKey, issueType, statusId, statusName, statusCategory, processedAt, processingVersion]
+      properties:
+        issueKey: { type: string }
+        projectKey: { type: string }
+        issueType: { type: string }
+        statusId: { type: string }
+        statusName: { type: string }
+        statusCategory: { $ref: '#/components/schemas/StatusCategory' }
+        assigneeAccountId: { type: string, nullable: true }
+        processedAt: { type: integer, format: int64, description: Epoch millis }
+        processingVersion: { type: integer, format: int32 }
+        deletedAt: { type: integer, format: int64, nullable: true }
+        movedOutAt: { type: integer, format: int64, nullable: true }
+    RawIssueInspection:
+      type: object
+      required: [issueId, issueKey, fetchedAt, changedAt, sha256, needsProcessing, payload]
+      properties:
+        issueId: { type: integer, format: int64 }
+        issueKey: { type: string }
+        fetchedAt: { type: integer, format: int64, description: Epoch millis }
+        changedAt: { type: integer, format: int64, description: Epoch millis }
+        sha256: { type: string }
+        deletedAt: { type: integer, format: int64, nullable: true }
+        movedOutAt: { type: integer, format: int64, nullable: true }
+        needsProcessing: { type: boolean }
+        payload:
+          type: object
+          additionalProperties: true
+          description: The `search/jql` issue document exactly as Jira returned it (canonicalized).
+        changelogs:
+          type: array
+          items: { type: object, additionalProperties: true }
+          description: Every stored changelog history for this issue, oldest first.
+        worklogs:
+          type: array
+          items: { type: object, additionalProperties: true }
+          description: This issue's non-tombstoned worklogs, exactly as Jira returned them.
+        workItem:
+          allOf: [{ $ref: '#/components/schemas/RawIssueWorkItem' }]
+          nullable: true
+          description: Null until this issue has been through PROCESS at least once.
+        statusIntervals:
+          type: array
+          items: { $ref: '#/components/schemas/NormalizedStatusInterval' }
+        fieldIntervals:
+          type: array
+          items: { $ref: '#/components/schemas/NormalizedFieldInterval' }
+        anomalies:
+          type: array
+          items: { type: string, enum: [STATUS_CHANGE_BEFORE_CREATED, STATUS_CHAIN_BROKEN, STATUS_MISMATCH_WITH_CURRENT] }
+
+    DataProfileRange:
+      type: object
+      required: [earliestCreatedAt, latestUpdatedAt]
+      properties:
+        earliestCreatedAt: { type: integer, format: int64, description: Epoch millis }
+        latestUpdatedAt: { type: integer, format: int64, description: Epoch millis }
+    ProjectProfile:
+      type: object
+      required: [projectKey, issueCounts]
+      properties:
+        projectKey: { type: string }
+        issueCounts:
+          type: object
+          additionalProperties: { type: integer, format: int64, minimum: 0 }
+          description: Keyed by issue type name.
+    WorkflowStatusProfile:
+      type: object
+      required: [statusId, name, category, transitionCount]
+      properties:
+        statusId: { type: string }
+        name: { type: string }
+        category: { $ref: '#/components/schemas/StatusCategory' }
+        transitionCount:
+          type: integer
+          format: int64
+          minimum: 0
+          description: How many status-interval transitions INTO this status this project×type's own issues recorded.
+    WorkflowProfile:
+      type: object
+      required: [projectKey, issueType, observedStatuses, referenceStatusNames]
+      properties:
+        projectKey: { type: string }
+        issueType: { type: string }
+        observedStatuses:
+          type: array
+          items: { $ref: '#/components/schemas/WorkflowStatusProfile' }
+        referenceStatusNames:
+          type: array
+          items: { type: string }
+          description: This project's own workflow for this issue type, from Jira's `project/{key}/statuses`.
+    BoardColumnProfile:
+      type: object
+      required: [name, statusNames]
+      properties:
+        name: { type: string }
+        statusNames:
+          type: array
+          items: { type: string }
+    BoardProfile:
+      type: object
+      required: [boardId, name, boardType, columns, unmappedStatusNames]
+      properties:
+        boardId: { type: integer, format: int64 }
+        name: { type: string }
+        boardType: { type: string }
+        projectKey: { type: string, nullable: true }
+        columns:
+          type: array
+          items: { $ref: '#/components/schemas/BoardColumnProfile' }
+        unmappedStatusNames:
+          type: array
+          items: { type: string }
+          description: Statuses observed on this board's project that map to no column.
+    CustomFieldProfile:
+      type: object
+      required: [id, name, type, nonNullCount, fillPercent, role]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        type: { type: string, description: Jira's own `schema.type` for this field. }
+        nonNullCount: { type: integer, format: int64, minimum: 0 }
+        fillPercent: { type: number, format: double, minimum: 0, maximum: 100 }
+        role:
+          type: string
+          enum: [SPRINT, RANK, TEAM, STORY_POINTS, FLAGGED, OTHER]
+    EstimatesProfile:
+      type: object
+      required: [totalIssues, storyPointsCount, storyPointsPercent, originalEstimateCount, originalEstimatePercent]
+      properties:
+        totalIssues: { type: integer, format: int64, minimum: 0 }
+        storyPointsCount: { type: integer, format: int64, minimum: 0 }
+        storyPointsPercent: { type: number, format: double, minimum: 0, maximum: 100 }
+        originalEstimateCount: { type: integer, format: int64, minimum: 0 }
+        originalEstimatePercent: { type: number, format: double, minimum: 0, maximum: 100 }
+    WorklogsProfile:
+      type: object
+      required: [count, totalHours, itemsWithWorklog, itemsWithWorklogPercent, authorCount]
+      properties:
+        count: { type: integer, format: int64, minimum: 0 }
+        totalHours: { type: number, format: double, minimum: 0 }
+        itemsWithWorklog: { type: integer, format: int64, minimum: 0 }
+        itemsWithWorklogPercent: { type: number, format: double, minimum: 0, maximum: 100 }
+        authorCount: { type: integer, format: int64, minimum: 0 }
+    ReopensProfile:
+      type: object
+      required: [count, totalIssues, percent]
+      properties:
+        count: { type: integer, format: int64, minimum: 0 }
+        totalIssues: { type: integer, format: int64, minimum: 0 }
+        percent: { type: number, format: double, minimum: 0, maximum: 100 }
+    SprintsProfile:
+      type: object
+      required: [count, stateCounts, itemsWithSprint, itemsWithSprintPercent, carryOverCount, carryOverPercent]
+      properties:
+        count: { type: integer, format: int64, minimum: 0 }
+        stateCounts:
+          type: object
+          additionalProperties: { type: integer, format: int64, minimum: 0 }
+        itemsWithSprint: { type: integer, format: int64, minimum: 0 }
+        itemsWithSprintPercent: { type: number, format: double, minimum: 0, maximum: 100 }
+        carryOverCount: { type: integer, format: int64, minimum: 0 }
+        carryOverPercent: { type: number, format: double, minimum: 0, maximum: 100 }
+    PeopleProfile:
+      type: object
+      required: [activeAssignees, unassignedPercent]
+      properties:
+        activeAssignees: { type: integer, format: int64, minimum: 0 }
+        unassignedPercent: { type: number, format: double, minimum: 0, maximum: 100 }
+    DataProfile:
+      type: object
+      required: [estimates, worklogs, reopens, sprints, people]
+      properties:
+        computedAt: { type: integer, format: int64, nullable: true, description: "Epoch millis; null before the first PROCESS pass." }
+        range:
+          allOf: [{ $ref: '#/components/schemas/DataProfileRange' }]
+          nullable: true
+        projects:
+          type: array
+          items: { $ref: '#/components/schemas/ProjectProfile' }
+        workflows:
+          type: array
+          items: { $ref: '#/components/schemas/WorkflowProfile' }
+        boards:
+          type: array
+          items: { $ref: '#/components/schemas/BoardProfile' }
+        customFields:
+          type: array
+          items: { $ref: '#/components/schemas/CustomFieldProfile' }
+        estimates:
+          $ref: '#/components/schemas/EstimatesProfile'
+        worklogs:
+          $ref: '#/components/schemas/WorklogsProfile'
+        reopens:
+          $ref: '#/components/schemas/ReopensProfile'
+        sprints:
+          $ref: '#/components/schemas/SprintsProfile'
+        people:
+          $ref: '#/components/schemas/PeopleProfile'
+        anomalyCounts:
+          type: object
+          additionalProperties: { type: integer, format: int64, minimum: 0 }
+          description: Keyed by anomaly code (`STATUS_CHANGE_BEFORE_CREATED`/`STATUS_CHAIN_BROKEN`/`STATUS_MISMATCH_WITH_CURRENT`).
 
     ProblemDetail:
       type: object

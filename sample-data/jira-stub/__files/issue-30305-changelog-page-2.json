@@ -1,0 +1,41 @@
+{
+  "startAt": 3,
+  "maxResults": 3,
+  "total": 5,
+  "histories": [
+    {
+      "id": "501295",
+      "created": "2025-11-30T17:59:53.577Z",
+      "author": {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d06"
+      },
+      "items": [
+        {
+          "field": "assignee",
+          "fieldId": "assignee",
+          "from": "5f8a1b2c3d4e5f6a7b8c9d29",
+          "fromString": "Sample User 29",
+          "to": "5f8a1b2c3d4e5f6a7b8c9d16",
+          "toString": "Sample User 16"
+        }
+      ]
+    },
+    {
+      "id": "501296",
+      "created": "2025-12-08T17:59:53.577Z",
+      "author": {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d25"
+      },
+      "items": [
+        {
+          "field": "status",
+          "fieldId": "status",
+          "from": "3",
+          "fromString": "In Progress",
+          "to": "10002",
+          "toString": "Done"
+        }
+      ]
+    }
+  ]
+}

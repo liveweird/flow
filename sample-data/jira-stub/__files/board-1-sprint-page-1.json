@@ -1,0 +1,173 @@
+{
+  "maxResults": 15,
+  "startAt": 0,
+  "total": 28,
+  "isLast": false,
+  "values": [
+    {
+      "id": 3000,
+      "self": "/ex/jira/b3f1a2c4-5d6e-4f7a-8b9c-0d1e2f3a4b5c/rest/agile/1.0/sprint/3000",
+      "state": "closed",
+      "name": "FLO Sprint 1",
+      "startDate": "2025-09-01T00:00:00.000Z",
+      "endDate": "2025-09-15T00:00:00.000Z",
+      "completeDate": "2025-09-15T00:00:00.000Z",
+      "originBoardId": 1,
+      "goal": "Sprint 1 goal for Flow Core"
+    },
+    {
+      "id": 3001,
+      "self": "/ex/jira/b3f1a2c4-5d6e-4f7a-8b9c-0d1e2f3a4b5c/rest/agile/1.0/sprint/3001",
+      "state": "closed",
+      "name": "FLO Sprint 2",
+      "startDate": "2025-09-15T00:00:00.000Z",
+      "endDate": "2025-09-29T00:00:00.000Z",
+      "completeDate": "2025-09-29T00:00:00.000Z",
+      "originBoardId": 1,
+      "goal": "Sprint 2 goal for Flow Core"
+    },
+    {
+      "id": 3002,
+      "self": "/ex/jira/b3f1a2c4-5d6e-4f7a-8b9c-0d1e2f3a4b5c/rest/agile/1.0/sprint/3002",
+      "state": "closed",
+      "name": "FLO Sprint 3",
+      "startDate": "2025-09-29T00:00:00.000Z",
+      "endDate": "2025-10-13T00:00:00.000Z",
+      "completeDate": "2025-10-13T00:00:00.000Z",
+      "originBoardId": 1,
+      "goal": "Sprint 3 goal for Flow Core"
+    },
+    {
+      "id": 3003,
+      "self": "/ex/jira/b3f1a2c4-5d6e-4f7a-8b9c-0d1e2f3a4b5c/rest/agile/1.0/sprint/3003",
+      "state": "closed",
+      "name": "FLO Sprint 4",
+      "startDate": "2025-10-13T00:00:00.000Z",
+      "endDate": "2025-10-27T00:00:00.000Z",
+      "completeDate": "2025-10-27T00:00:00.000Z",
+      "originBoardId": 1,
+      "goal": "Sprint 4 goal for Flow Core"
+    },
+    {
+      "id": 3004,
+      "self": "/ex/jira/b3f1a2c4-5d6e-4f7a-8b9c-0d1e2f3a4b5c/rest/agile/1.0/sprint/3004",
+      "state": "closed",
+      "name": "FLO Sprint 5",
+      "startDate": "2025-10-27T00:00:00.000Z",
+      "endDate": "2025-11-10T00:00:00.000Z",
+      "completeDate": "2025-11-10T00:00:00.000Z",
+      "originBoardId": 1,
+      "goal": "Sprint 5 goal for Flow Core"
+    },
+    {
+      "id": 3005,
+      "self": "/ex/jira/b3f1a2c4-5d6e-4f7a-8b9c-0d1e2f3a4b5c/rest/agile/1.0/sprint/3005",
+      "state": "closed",
+      "name": "FLO Sprint 6",
+      "startDate": "2025-11-10T00:00:00.000Z",
+      "endDate": "2025-11-24T00:00:00.000Z",
+      "completeDate": "2025-11-24T00:00:00.000Z",
+      "originBoardId": 1,
+      "goal": "Sprint 6 goal for Flow Core"
+    },
+    {
+      "id": 3006,
+      "self": "/ex/jira/b3f1a2c4-5d6e-4f7a-8b9c-0d1e2f3a4b5c/rest/agile/1.0/sprint/3006",
+      "state": "closed",
+      "name": "FLO Sprint 7",
+      "startDate": "2025-11-24T00:00:00.000Z",
+      "endDate": "2025-12-08T00:00:00.000Z",
+      "completeDate": "2025-12-08T00:00:00.000Z",
+      "originBoardId": 1,
+      "goal": "Sprint 7 goal for Flow Core"
+    },
+    {
+      "id": 3007,
+      "self": "/ex/jira/b3f1a2c4-5d6e-4f7a-8b9c-0d1e2f3a4b5c/rest/agile/1.0/sprint/3007",
+      "state": "closed",
+      "name": "FLO Sprint 8",
+      "startDate": "2025-12-08T00:00:00.000Z",
+      "endDate": "2025-12-22T00:00:00.000Z",
+      "completeDate": "2025-12-22T00:00:00.000Z",
+      "originBoardId": 1,
+      "goal": "Sprint 8 goal for Flow Core"
+    },
+    {
+      "id": 3008,
+      "self": "/ex/jira/b3f1a2c4-5d6e-4f7a-8b9c-0d1e2f3a4b5c/rest/agile/1.0/sprint/3008",
+      "state": "closed",
+      "name": "FLO Sprint 9",
+      "startDate": "2025-12-22T00:00:00.000Z",
+      "endDate": "2026-01-05T00:00:00.000Z",
+      "completeDate": "2026-01-05T00:00:00.000Z",
+      "originBoardId": 1,
+      "goal": "Sprint 9 goal for Flow Core"
+    },
+    {
+      "id": 3009,
+      "self": "/ex/jira/b3f1a2c4-5d6e-4f7a-8b9c-0d1e2f3a4b5c/rest/agile/1.0/sprint/3009",
+      "state": "closed",
+      "name": "FLO Sprint 10",
+      "startDate": "2026-01-05T00:00:00.000Z",
+      "endDate": "2026-01-19T00:00:00.000Z",
+      "completeDate": "2026-01-19T00:00:00.000Z",
+      "originBoardId": 1,
+      "goal": "Sprint 10 goal for Flow Core"
+    },
+    {
+      "id": 3010,
+      "self": "/ex/jira/b3f1a2c4-5d6e-4f7a-8b9c-0d1e2f3a4b5c/rest/agile/1.0/sprint/3010",
+      "state": "closed",
+      "name": "FLO Sprint 11",
+      "startDate": "2026-01-19T00:00:00.000Z",
+      "endDate": "2026-02-02T00:00:00.000Z",
+      "completeDate": "2026-02-02T00:00:00.000Z",
+      "originBoardId": 1,
+      "goal": "Sprint 11 goal for Flow Core"
+    },
+    {
+      "id": 3011,
+      "self": "/ex/jira/b3f1a2c4-5d6e-4f7a-8b9c-0d1e2f3a4b5c/rest/agile/1.0/sprint/3011",
+      "state": "closed",
+      "name": "FLO Sprint 12",
+      "startDate": "2026-02-02T00:00:00.000Z",
+      "endDate": "2026-02-16T00:00:00.000Z",
+      "completeDate": "2026-02-16T00:00:00.000Z",
+      "originBoardId": 1,
+      "goal": "Sprint 12 goal for Flow Core"
+    },
+    {
+      "id": 3012,
+      "self": "/ex/jira/b3f1a2c4-5d6e-4f7a-8b9c-0d1e2f3a4b5c/rest/agile/1.0/sprint/3012",
+      "state": "closed",
+      "name": "FLO Sprint 13",
+      "startDate": "2026-02-16T00:00:00.000Z",
+      "endDate": "2026-03-02T00:00:00.000Z",
+      "completeDate": "2026-03-02T00:00:00.000Z",
+      "originBoardId": 1,
+      "goal": "Sprint 13 goal for Flow Core"
+    },
+    {
+      "id": 3013,
+      "self": "/ex/jira/b3f1a2c4-5d6e-4f7a-8b9c-0d1e2f3a4b5c/rest/agile/1.0/sprint/3013",
+      "state": "closed",
+      "name": "FLO Sprint 14",
+      "startDate": "2026-03-02T00:00:00.000Z",
+      "endDate": "2026-03-16T00:00:00.000Z",
+      "completeDate": "2026-03-16T00:00:00.000Z",
+      "originBoardId": 1,
+      "goal": "Sprint 14 goal for Flow Core"
+    },
+    {
+      "id": 3014,
+      "self": "/ex/jira/b3f1a2c4-5d6e-4f7a-8b9c-0d1e2f3a4b5c/rest/agile/1.0/sprint/3014",
+      "state": "closed",
+      "name": "FLO Sprint 15",
+      "startDate": "2026-03-16T00:00:00.000Z",
+      "endDate": "2026-03-30T00:00:00.000Z",
+      "completeDate": "2026-03-30T00:00:00.000Z",
+      "originBoardId": 1,
+      "goal": "Sprint 15 goal for Flow Core"
+    }
+  ]
+}

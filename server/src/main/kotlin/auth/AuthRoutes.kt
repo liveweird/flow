@@ -10,6 +10,7 @@ import ch.nokillswit.infra.mail.mailer
 import ch.nokillswit.infra.mail.respondMailUnavailable
 import ch.nokillswit.plugins.JwtConfig
 import ch.nokillswit.plugins.JwtConfigKey
+import ch.nokillswit.plugins.servesApi
 import ch.nokillswit.users.Feature
 import ch.nokillswit.users.User
 import ch.nokillswit.users.UserRole
@@ -166,6 +167,9 @@ private class AuthDeps(
 )
 
 fun Application.configureAuthRoutes() {
+    // The worker role serves only the health/ready probes (plugins/Health.kt) — see Role.kt.
+    if (!servesApi()) return
+
     val jwtConfig = attributes[JwtConfigKey]
     // Boot-validated through the shared requireConfigInt/requireConfigLong (Lettuce's ranges,
     // ported) below: a malformed or out-of-range value is a config error, not a runtime concern —
