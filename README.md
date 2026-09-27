@@ -8,10 +8,15 @@ outlier detection, and input for continuous improvement. The name refers to the 
 (Theory of Constraints, Kanban, Reinertsen's cost-of-delay economics): exposing where work waits,
 not who is busy.
 
-## What's here today (v0.1.0 — foundation)
+## What's here today (v0.2.0 — Jira ingestion)
 
-No Jira/GitLab data exists yet. This release is the generic foundation the rest of Flow is built
-on:
+- **Jira Cloud ingestion** — ADMIN-managed connections (a service account's scoped, read-only
+  API token, encrypted at rest), scheduled and on-demand syncs into a raw store with resumable
+  cursors, a daily reconcile, a neutral normalized layer (status/field intervals, worklogs,
+  sprints, boards), a data profile of what the tenant's data actually contains, and a raw issue
+  inspector — see "Connecting Jira" below. No flow metrics yet: they come with the domain model.
+
+Built on the v0.1.0 foundation:
 
 - accounts — JWT sign-in with a sliding refresh pair and a revocation blocklist, opt-in **email
   MFA**, self-service password reset, per-account lockout and per-IP rate limits,
@@ -24,11 +29,10 @@ on:
 
 ## Roadmap
 
-- **v0.2.0 — Jira ingestion.** An ADMIN-managed Jira Cloud connection (an Atlassian service
-  account + a scoped read-only API token, encrypted at rest), a raw store with incremental
-  cursors, and a neutral normalized layer above it.
 - **Next — the domain model.** Assumptions, a conceptual model and its invariants for flow
-  metrics, built on the normalized layer above.
+  metrics, built on the normalized layer and a real tenant's data profile.
+- **Then** — the metric catalogue, the interpretation layer and the first dashboards; GitLab as a
+  second connector on the same ingestion framework.
 
 See `CLAUDE.md`'s "Product" and "Donors" sections for the full roadmap and which sibling project
 (Covenant, Lettuce, Toadie) each future capability ports from.
@@ -39,8 +43,7 @@ See `CLAUDE.md`'s "Product" and "Donors" sections for the full roadmap and which
   server-side revocation blocklist, PostgreSQL with [Flyway](https://flywaydb.org) migrations and
   [Exposed](https://github.com/JetBrains/Exposed) (R2DBC), OpenTelemetry, RFC 7807 problem-detail
   errors, Swagger UI at `/openapi` (development mode). Application-level encryption at rest
-  (`infra/crypto/FieldCipher`, AES-256-GCM) is wired and ready for its first consumer (the Jira
-  API token, v0.2.0).
+  (`infra/crypto/FieldCipher`, AES-256-GCM) protects the stored Jira API token.
 - **Frontend**: [Vite](https://vite.dev) + React 19 + TypeScript + [Mantine](https://mantine.dev),
   react-i18next (English + Polish), a typed API client generated from the OpenAPI contract.
 - **Quality gates**: detekt (zero findings), Kover coverage floors, dependency-family alignment,
@@ -126,14 +129,21 @@ sources** page (Administration nav). Before clicking New, have ready:
 In the editor modal, fill in the site URL, email and API token, pick the auth scheme (Basic is the
 usual choice), list the project keys, then run **Test connection** — every probe's result (ok/scope
 hint) shows before you save, so a scope problem surfaces immediately rather than after the first
-sync fails partway through. Save, then use the row's **Sync now** action to enqueue the first SYNC
-job. There is no details page yet (it lands with a later v0.2.0 commit): follow the job with
-`GET /api/v1/data-sources/{id}/status` (Swagger UI at `/openapi` in development mode, or any HTTP
-client, with the admin's bearer token). Once that job reaches `SUCCEEDED`, the connection's **data
-profile** — what workflows, boards, custom fields, estimate/worklog coverage and reopen rate this
-tenant's own data actually has — appears at `GET /api/v1/data-sources/{id}/profile`; see
-`.claude/docs/ingestion.md`'s "Reading the data profile after the first real sync" for the full
-walkthrough of what to look at first.
+sync fails partway through. Save, then open the connection (its name in the list) and click **Sync
+now** to enqueue the first SYNC job. The details page follows it live — the current job's stream and
+progress counters, the per-stream cursors and the raw-store counts refresh every 5 seconds while a
+job is open — and keeps the paged job history, with **Reconcile now**, **Reprocess** and **Cancel running job**
+beside it. Once that job reaches **Succeeded**, the **Data profile** page shows the connection's data
+profile: what workflows, boards, custom fields, estimate/worklog coverage and reopen rate this
+tenant's own data actually has. The **Raw issue inspector** looks one issue up by key or id and shows its
+raw payload, changelog, worklogs and normalized status intervals — the place to start when a
+profile number looks wrong. See `.claude/docs/ingestion.md`'s "Reading the data profile after the
+first real sync" for the full walkthrough of what to look at first.
+
+To try all of this without a real tenant, the compose stack's `jira-stub` service serves a
+deterministic sample dataset: create a data source with any `https://<name>.atlassian.net` site
+URL, any email and token, and the project keys `FLO`, `PLT`, `GTM`, `OPS` — the app reroutes every
+Jira call to the stub in development mode (`JIRA_STUB_BASE_URL`; see `sample-data/README.md`).
 
 ## Configuration (environment variables)
 
@@ -158,7 +168,7 @@ transport at startup (`.claude/docs/security.md`).
 | `MFA_CODE_TTL_SECONDS` | `300` | Lifetime of an emailed MFA code. |
 | `MFA_MAX_ATTEMPTS` | `5` | Wrong-code attempts before a challenge dies. |
 | `MFA_MAX_TRACKED` | `10000` | Maximum pending email-MFA challenges; new issuance receives 429 at capacity. |
-| `DATA_ENCRYPTION_KEY` | *(dev key, burned)* | AES-256-GCM key (64 hex) for any future stored credential (the Jira API token, v0.2.0) — the dev default is burned, production refuses it. Back it up apart from the database. |
+| `DATA_ENCRYPTION_KEY` | *(dev key, burned)* | AES-256-GCM key (64 hex) for stored credentials (today: the Jira API token) — the dev default is burned, production refuses it. Back it up apart from the database. |
 | `DATA_ENCRYPTION_KEY_PREVIOUS` | *(blank)* | Decrypt-only fallback during a key rotation (boot once, then remove). |
 | `SECURITY_CSRF_ENABLED` | `false` | CSRF plugin gate — off (bearer JWT, no cookies). |
 | `JWT_SECRET` | `secret` | HMAC key for the access/refresh pair — production requires a private 64-hex key (`openssl rand -hex 32`); the placeholders and compose demo key are burned. |

@@ -776,5 +776,5 @@ latter two ALSO fold in the day2 scenario's own in-scope worklog additions, unli
 The Jira HTTP client, the outbound guard and the REFERENCE/ISSUES/CHANGELOGS/WORKLOGS/RECONCILE
 streams all read this stub (`docker-compose.yaml`'s `app` service's `JIRA_STUB_BASE_URL` points at
 it); PROCESS reads no Jira data of its own (it only reads back `raw.*` rows the other streams
-already stored, see "Normalized layer" above) — PROFILE remains the only stub consumer still to
-land.
+already stored, see "Normalized layer" above) — and neither does PROFILE, which aggregates
+the stored `raw.*`/`norm.*` rows (see "Data profile" above).

@@ -119,5 +119,5 @@ lives entirely in `sync_jobs.progress`/`current_stream`** (`StreamContext.increm
 `GET …/{id}/status` — see `.claude/docs/ingestion.md` "Progress counters"/"Sync status endpoint"),
 **not the audit trail**: it is a best-effort operational signal (a page count, which stream is
 active), not a security-relevant event, so it deliberately does not go through `audit(...)`. PROCESS
-and PROFILE still run as a no-op (`ingest/Connector.kt`'s default `run()`). Any FUTURE stream-level
+and PROFILE follow the same rule (`issuesProcessed`/`issuesFailed`, `profileComputed`). Any FUTURE stream-level
 audit trail (as opposed to progress) arrives with a later commit and gets its own paragraph here.

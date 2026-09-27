@@ -323,8 +323,8 @@ content layer (`LocalizedText`/`passwordEmail`) lives beside the transports. Tes
 `ch.nokillswit.mail` LogCapture); production-mode boot tests must override `mail.transport` with
 `"disabled"`, since the dev-default `log` transport is refused in production.
 
-**Encryption at rest** (`infra/crypto/`, Lettuce's, ported verbatim, **wired but not yet
-consumed**). Sensitive columns are encrypted application-side with AES-256-GCM (`FieldCipher`: a
+**Encryption at rest** (`infra/crypto/`, Lettuce's, ported verbatim; its first consumer is the
+Jira API token, see the end of this section). Sensitive columns are encrypted application-side with AES-256-GCM (`FieldCipher`: a
 fresh 12-byte nonce per value, 128-bit tag, envelope `enc:v1:<base64(nonce||ciphertext)>`), so a
 database-level attacker — SQL access, `pg_dump`, a stolen volume or backup — sees ciphertext; the
 key lives with the app (`DATA_ENCRYPTION_KEY`, 64 hex chars from `openssl rand -hex 32`; compose

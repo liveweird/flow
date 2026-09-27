@@ -56,7 +56,11 @@ from Lettuce, that any new or edited spec must satisfy:
   bucket); `mfa` owns its throwaway accounts and toggles ONLY their MFA flags (the seed admin's
   MFA flag is never touched — enabling it would make every spec's login demand a code);
   `list-mutation-refresh` owns its own uniquely named users/teams, created and deleted through
-  the real API — all deleted by their own spec.
+  the real API — all deleted by their own spec; `data-sources` owns its own uniquely named
+  connection (`e2e-jira-*`) and a throwaway user — the synced connection's `raw.*`/`norm.*` rows
+  are left in place (purged only after the grace period, see its scenario file), a deliberate
+  exception to "each spec cleans up its own state" that costs no cross-spec interference since no
+  other spec reads Jira raw/normalized rows.
 - **The Teams registry is shared, append-only state.** Several specs create teams concurrently
   (`teams`, `accessibility`, `list-mutation-refresh`), so a spec only ever appends and removes its
   OWN uniquely named `e2e-*` rows, never edits or deletes another's or a shared seed — and every
@@ -83,10 +87,10 @@ the same commit** — this list is the coverage map, the scenario file is the de
 
 - [`accessibility.spec.ts`](scenarios/accessibility.md) — axe WCAG A/AA smoke: login + the
   authenticated list/form pages (`/`, `/teams`, `/users`, `/users/new`, `/feature-flags`,
-  `/change-password`, `/changelog`), the detail pages of an API-seeded fixture team (its roster
-  page, the admin's own edit-user and user-features pages), `/reset-password`, the not-found
-  page, and a registry editor modal scoped to its dialog; `color-contrast` included (the theme's
-  tokens are AA-tested in `web/src/theme.test.ts`).
+  `/data-sources`, `/change-password`, `/changelog`), the detail pages of an API-seeded fixture
+  team (its roster page, the admin's own edit-user and user-features pages), `/reset-password`,
+  the not-found page, and a registry editor modal scoped to its dialog; `color-contrast` included
+  (the theme's tokens are AA-tested in `web/src/theme.test.ts`).
 - [`auth.spec.ts`](scenarios/auth.md) — login / logout / invalid credentials / guarded deep link with query and hash;
   explicit sign-out from a non-home protected page returns the next sign-in to Home,
   including while server revocation is delayed.
@@ -110,6 +114,11 @@ the same commit** — this list is the coverage map, the scenario file is the de
   neutral confirmation + per-email throttle for unknown addresses; the full email roundtrip
   through the compose stack's Mailpit (new password works, old one is dead — skips itself
   without Mailpit).
+- [`data-sources.spec.ts`](scenarios/data-sources.md) — the v0.2.0 Jira ingestion admin surface:
+  create a connection against the Jira stub → test connection → sync it end to end (polling until
+  the job succeeds and the raw-store counts show the full 1,200-issue in-scope dataset) → read the
+  data profile and the raw issue inspector (a known key, then a malformed one) → delete from the
+  list; a regular user sees no Data sources nav link and is bounced from the URL.
 - [`teams.spec.ts`](scenarios/teams.md) — the flat-teams registry: create through the modal →
   add a member from the searchable picker → rename → remove the member → delete from the list;
   a regular user's read-only list and roster (no New team, no row menu, no picker).

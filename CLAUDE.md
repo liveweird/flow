@@ -14,16 +14,17 @@ where work waits, not who is busy.
 
 **Roadmap:**
 
-- **v0.1.0 (this codebase) — foundation.** Sign-in with email MFA, users, teams, feature flags,
-  EN/PL, light/dark theme. No Jira/GitLab data exists yet — `web/src/pages/Home.tsx` states that
-  plainly instead of rendering an empty dashboard.
-- **v0.2.0 — Jira ingestion.** An ADMIN-managed Jira Cloud connection (an Atlassian service
-  account + a scoped read-only API token, encrypted at rest with `infra/crypto/FieldCipher` —
-  wired and waiting, `infra/db/Bootstrap.kt`'s `encryptedAtRestServices()` is empty today), a raw
-  store with incremental cursors, and a neutral normalized layer above it. Port Covenant's
-  connector conventions (see "Donors" below) rather than inventing an ingestion shape.
+- **v0.1.0 — foundation.** Sign-in with email MFA, users, teams, feature flags, EN/PL,
+  light/dark theme.
+- **v0.2.0 (this codebase) — Jira ingestion.** An ADMIN-managed Jira Cloud connection (an
+  Atlassian service account + a scoped read-only API token, encrypted at rest with
+  `infra/crypto/FieldCipher`), a raw store with incremental cursors (`raw.*`), a neutral
+  normalized layer above it (`norm.*` — facts only, no interpretation), the data profile and the
+  admin pages over all of it (`.claude/docs/ingestion.md`). There are still no flow metrics —
+  `web/src/pages/Home.tsx` says so plainly instead of rendering an empty dashboard.
 - **Next — the domain model.** Assumptions, a conceptual model and its invariants for flow
-  metrics, built on the normalized layer above.
+  metrics, built on the normalized layer, starting from a real tenant's data profile
+  (`BACKLOG.md`).
 
 Brand: blue (the `flow` colour tuple in `web/src/theme.ts`, `primaryShade: { light: 8, dark: 9 }`);
 the logo is three streamlines on a blue tile (`web/src/components/BrandLogo.tsx`).
@@ -183,13 +184,13 @@ ch.nokillswit
 │                       configureMail — MAIL_TRANSPORT log/smtp/disabled, the log-transport
 │                       production refusal (fail-closed), null mailer = email features 503.
 │                       Consumers: self-service password reset and email MFA
-├── infra/crypto/       Lettuce's encryption at rest, ported and READY but not yet consumed:
+├── infra/crypto/       Lettuce's encryption at rest, ported:
 │                       FieldCipher (AES-256-GCM `enc:v1:` envelopes, a fresh nonce per value,
 │                       current + rotation key), Reencrypt.kt (the boot backfill body),
 │                       configureCrypto (DATA_ENCRYPTION_KEY, the burned-key fail-closed check),
 │                       EncryptedAtRest (the boot backfill registry in `infra/db/Bootstrap.kt`'s
-│                       `encryptedAtRestServices()` — empty today; the Jira API token in v0.2.0
-│                       is its first consumer)
+│                       `encryptedAtRestServices()` — the Jira API token,
+│                       `ingest/DataSourceService`, is its first and only consumer)
 ├── infra/db/           Flyway bootstrap + the R2DBC connection/composition root + the seed
 │                       bootstrap (admin rotation, prod fail-closed, `Bootstrap.kt`) +
 │                       SoftDelete.kt (the SoftDeletable table trait — ONE active() predicate,
@@ -197,6 +198,13 @@ ch.nokillswit
 ├── infra/paging/       the shared list-endpoint machinery (PageRequest/parsePaging/applyPaging/
 │                       PageResponse + the strict query-param readers) — Lettuce's, ported verbatim
 ├── infra/validation/   cross-feature input helpers (sanitizeSingleLine — trim + control-char 400)
+├── infra/outbound/     OutboundGuard.kt — the SSRF guard for every server-initiated call (Toadie's
+│                       address-range check + the Jira host allow-list, GuardedDns, the no-proxy/
+│                       no-redirect OkHttp client; `.claude/docs/security.md` "Outbound HTTP calls")
+├── infra/json/         CanonicalJson.kt — key-sorted canonical JSON + sha256 for stored payloads
+├── infra/config/       requireConfigInt/requireConfigLong — boot-validated numeric config (Lettuce's)
+├── infra/Failures.kt   catchingFailures — run a block, keep the failure without swallowing
+│                       cancellation (the blocklist-outage 500 path in plugins/Security.kt)
 ├── audit/              security audit trail: `audit(event, fields…)` → AUDIT-marked structured logs
 ├── authz/              CallerPrincipal + guards (requireAdmin, requireSelfOrAdmin) + typed
 │                       HTTP exceptions (401/403/404/409/429)
@@ -230,6 +238,22 @@ ch.nokillswit
 │                       per-stream resumable cursor store) + IngestWorker.kt (the `FLOW_ROLE=worker`
 │                       scheduler: enqueues due jobs, claims with a lease/heartbeat under
 │                       `FOR UPDATE SKIP LOCKED`, runs each claim's connector, releases on shutdown)
+│                       + Stream.kt (the `Stream`/`StreamContext` contract every stream implements)
+│                       + SyncStatus.kt/SyncStatusRoutes.kt (GET …/{id}/status), RawIssueInspection
+│                       .kt/RawIssueInspectorRoutes.kt (GET …/{id}/raw-issues/{issueKey}),
+│                       DataProfile.kt/DataProfileRoutes.kt (GET …/{id}/profile) — read-only views
+├── jira/               the Jira Cloud connector (`.claude/docs/jira-integration.md`): Jira.kt
+│                       (configureJira, the guarded HttpClient, the stub-URL production refusal),
+│                       JiraHttp.kt/JiraClient.kt/JiraModels.kt (backoff, bounded reads, typed
+│                       endpoints), JiraJql.kt, JiraConnector.kt (testConnection + the per-kind
+│                       stream order), JiraRawStore.kt (V10–V12 `raw.jira_*`), the streams
+│                       (JiraReferenceStream/IssuesStream/ChangelogStream/WorklogStream/
+│                       ReconcileStream/ProcessStream/ProfileStream), JiraNormalizer.kt (raw →
+│                       the neutral shape) and JiraProfile.kt (the data-profile aggregates)
+└── norm/               the connector-agnostic normalized layer (V13 `norm.*`): Tiling.kt (pure
+                        status/field interval tiling + anomaly flags), Normalization.kt
+                        (PROCESSING_VERSION, the glue), WorkItemStore.kt (per-issue REPLACE,
+                        reference-row rebuilds, purge)
 ```
 
 **Feature template — copy `teams/` (a small ADMIN-curated registry with a roster)**: it is the

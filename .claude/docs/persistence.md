@@ -51,7 +51,8 @@ in-network consumers use `postgres:5432`). There is one persistence stack:
   issues a query during boot, so the floor is open before the first request there; in development
   (the common local/test path) nothing acquires during boot unless `ADMIN_INITIAL_PASSWORD` is
   set — the encrypted-at-rest backfill (`encryptedAtRestServices()`) is the OTHER boot-time
-  acquirer, but that registry is empty today, so it is not yet a source of warmup either),
+  acquirer — `DataSourceService` since v0.2.0, whose backfill select runs on every boot — so the
+  floor now opens during boot in every mode),
   `maxAcquireTimeSeconds` (`POSTGRES_POOL_MAX_ACQUIRE_SECONDS`, default 10,
   1..600) and `maxIdleTimeSeconds` (`POSTGRES_POOL_MAX_IDLE_SECONDS`, default 600, 1..86400). Every
   pooled connection carries `application_name = flow` (`postgres.pool.applicationName`, test-only

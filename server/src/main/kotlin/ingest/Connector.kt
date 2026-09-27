@@ -15,8 +15,8 @@ import io.ktor.util.AttributeKey
  * [SyncJobRunContext.heartbeat] at least once per unit of work (the lease/heartbeat contract,
  * `.claude/docs/ingestion.md` "Worker scheduler") and honour [SyncJobRunContext] cancellation
  * cooperatively. [purgeSteps] is the extension point A2's PURGE job drains beyond the generic
- * connection housekeeping IngestWorker itself performs — each connector deletes its own raw (and,
- * later, normalized) rows.
+ * connection housekeeping IngestWorker itself performs — each connector deletes its own raw and
+ * normalized rows.
  */
 interface Connector {
     val kind: DataSourceKind
@@ -39,7 +39,7 @@ interface Connector {
 
 /**
  * One connector-owned cleanup step a PURGE job runs for a soft-deleted connection (plan §0 A2) —
- * e.g. a future "delete this connector's raw rows in batches" step, once V10 lands.
+ * e.g. `jira/JiraConnector.kt`'s batched drains of its `raw.jira_*` and `norm.*` rows.
  */
 fun interface PurgeStep {
     suspend fun purge(connectionId: UInt)

@@ -1,29 +1,16 @@
 # Product backlog
 
-Updated 2026-09-27. This file tracks **outstanding work only**. Implemented behaviour and release history belong elsewhere:
+Updated 2026-09-27 (evening). This file tracks **outstanding work only**. Implemented behaviour and release history belong elsewhere:
 - [README.md](README.md);
 - the [application changelog](web/src/changelog/entries.ts);
 - the topic guides under `.claude/docs/`.
 
 Entries are proposals, not delivery commitments.
 
-## Next: finish v0.2.0 (Jira ingestion, draft PR #15)
+## Next: merge v0.2.0 (PR #15)
 
-1. **Leftovers from the admin pages.**
-   - `web/CLAUDE.md`'s "Data sources" section doesn't cover the details, job history, raw-issue inspector or data-profile pages yet.
-   - Web branch coverage is 87.97% against an 87% floor; add tests to lift it above 88.5%.
-2. **The release commit.**
-   - An e2e journey against the compose `jira-stub`:
-     1. Create a data source and run Test connection.
-     2. Sync now and wait for SUCCEEDED.
-     3. Open the inspector and the profile.
-     4. Check that a non-admin sees no nav leaf.
-   - Its scenario doc and coverage-map line.
-   - The v0.2.0 changelog in EN and PL, plus `APP_VERSION`.
-   - A docs sweep: the README "Connecting Jira" section still says the profile has no page in the app.
-3. **Ship.**
-   - Full gates, rebuild the compose stack (the local one predates phase 2) and run the e2e suite.
-   - Mark PR #15 ready and merge when CI is green.
+- The code, tests, e2e journey, changelog and docs are all on the PR. What's left: wait for CI to go green, then merge.
+- After merging, tag `v0.2.0` per `.claude/docs/app-releases.md` (annotated tag at the merge SHA, GitHub release with EN + PL notes) — only once asked.
 
 ## Then: the phase 2 exit — real Jira (needs the user)
 
@@ -57,6 +44,7 @@ Entries are proposals, not delivery commitments.
   - The connection-release test does not fail with the old `client.request()` code in this Ktor/OkHttp version. A blocking interceptor could force the leak window open.
   - `DirectSocketFactory` and `fastFallback(false)` have no isolated tests.
 - **Data profile: multi-project boards.** A board whose filter spans several projects shows no observed or unmapped statuses, because `BoardRef` carries a single project key. Revisit if real boards span projects.
+- **Details page: the sync-jobs history doesn't auto-refresh.** Only the summary above it (connection, current job, counts) refetches every 5 s while a job is open, so a history row keeps saying Running until a reload. Refresh the history query on the same condition. (Found by the v0.2.0 e2e journey.)
 - **Two connections to one Jira site are allowed** (different project scopes). Confirm this is the wanted behaviour once real usage exists.
 
 ## Security and operations

@@ -17,8 +17,9 @@ conventions remain in the shared references rather than being copied here.
 Flow is a developer-intelligence tool for a ~70-developer SaaS unit (Jira Cloud today, GitLab
 later): raw data ingested incrementally, processed locally into flow metrics (cycle/lead time,
 throughput, WIP, flow efficiency, work-item age), bottleneck diagnosis, trends, team comparison,
-and outliers. Version 0.1.0 is the generic foundation only — no domain data exists yet. See
-`CLAUDE.md`'s "Product" section for the roadmap (v0.2.0: Jira ingestion; next: the domain model).
+and outliers. Version 0.2.0 adds Jira Cloud ingestion (raw store, normalized layer, data profile)
+on top of the v0.1.0 foundation; there are no flow metrics yet. See `CLAUDE.md`'s "Product" section
+for the roadmap (next: the domain model).
 
 Flow's repository was copied from [Covenant](https://github.com/liveweird/covenant) and trimmed to
 its generic foundation. The implemented surface is authentication/session handling (JWT pair,
@@ -40,16 +41,19 @@ This is a Kotlin/Gradle backend plus two standalone npm workspaces:
 - `core/` is Kotlin Multiplatform (currently JVM-targeted) and owns the shared OpenTelemetry SDK
   bootstrap.
 - `server/` is the Kotlin/JVM Ktor application. Feature packages live directly under
-  `server/src/main/kotlin/`: `auth`, `users`, and `teams` (the flat-teams registry with rosters —
-  the feature template for now). Cross-cutting wiring and policy live in `plugins/`, `audit/`, and
-  `authz/`; database, mail, encryption at rest (`infra/crypto`, wired but unconsumed until
-  v0.2.0), paging, and shared validation infrastructure live in `infra/`. See `CLAUDE.md`
+  `server/src/main/kotlin/`: `auth`, `users`, `teams` (the flat-teams registry with rosters —
+  the feature template), and the ingestion trio `ingest` (connector registry, job queue, worker,
+  status/inspector/profile views), `jira` (the Jira Cloud connector and its streams) and `norm`
+  (the neutral normalized layer). Cross-cutting wiring and policy live in `plugins/`, `audit/`, and
+  `authz/`; database, mail, encryption at rest (`infra/crypto`, consumed by the Jira API token),
+  outbound-call guarding (`infra/outbound`), paging, and shared validation infrastructure live in
+  `infra/`. See `CLAUDE.md`
   "Package layout" for the detailed map.
 - `server/src/main/resources/application.yaml` declaratively registers application modules.
   `main.kt` only starts `EngineMain`; do not wire features from it. Module order matters because
   modules publish and consume Ktor application attributes.
 - PostgreSQL is the only database. Flyway migrations under `server/src/main/resources/db/migration/`
-  (currently `V1`–`V7`) are the schema source of truth; Exposed over R2DBC is used for runtime
+  (currently `V1`–`V13`) are the schema source of truth; Exposed over R2DBC is used for runtime
   queries. Never introduce runtime DDL such as `SchemaUtils.create`, and never edit an applied
   migration, including its comments: Flyway checksums are pinned by `MigrationChecksumTest`; add a
   new migration instead.
@@ -143,7 +147,7 @@ conformance harness; `OpenApiSpecTest` guards this restriction. `AnonymousAccess
 spec for every operation missing `security: []` and probes it token-less (the "401 sweep") — a new
 route is covered the moment its spec entry lands.
 
-Use `V<number>__description.sql` for migrations (current range `V1`–`V7`). Business entities
+Use `V<number>__description.sql` for migrations (current range `V1`–`V13`). Business entities
 follow the established soft-delete convention (`marked_as_deleted`, active-row filtering on every
 read/count/mutation, and partial unique indexes where deleted values may be reused); follow the
 detailed pattern in `.claude/docs/persistence.md` (the `SoftDeletable` trait in
