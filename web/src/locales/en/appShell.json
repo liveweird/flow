@@ -9,7 +9,8 @@
     "featureFlags": "Feature flags",
     "changelog": "Changelog",
     "teams": "Teams",
-    "dataSources": "Data sources"
+    "dataSources": "Data sources",
+    "metricsSettings": "Metrics settings"
   },
   "section": {
     "overview": "Overview",

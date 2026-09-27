@@ -1,0 +1,88 @@
+{
+  "settings": {
+    "title": "Ustawienia metryk",
+    "intro": "Kalendarz i progi, względem których wyliczany jest każdy raport przepływu pracy. Zapis obowiązuje całą jednostkę.",
+    "field": {
+      "hoursPerDay": "Godzin dziennie",
+      "hoursPerDayHint": "Przelicza zalogowane sekundy z worklogów na osobodni.",
+      "timeZone": "Strefa czasowa",
+      "weekendDays": "Dni weekendu",
+      "holidays": "Dni świąteczne",
+      "holidaysHint": "Daty ISO (RRRR-MM-DD) wyłączone z każdego wyliczenia dni roboczych.",
+      "commitmentGraceMinutes": "Okres karencji zobowiązania (minuty)",
+      "minSampleSize": "Minimalna liczebność próby",
+      "agingWindowItems": "Okno starzenia WIP (elementy)",
+      "agingPercentiles": "Percentyle starzenia",
+      "agingPercentilesHint": "Musi zawierać 85 (przegląd jakości danych odczytuje go po nazwie).",
+      "backlogWindowSprints": "Okno zaległości (sprinty)",
+      "epicDriftDays": "Próg dryfu epika (dni)"
+    },
+    "weekday": {
+      "1": "Pon",
+      "2": "Wt",
+      "3": "Śr",
+      "4": "Czw",
+      "5": "Pt",
+      "6": "Sob",
+      "7": "Ndz"
+    },
+    "toast": {
+      "saved": "Zapisano — raporty przeliczą się wkrótce"
+    },
+    "saveForbidden": "Tylko administratorzy/rki mogą edytować ustawienia metryk",
+    "saveInvalid": "Jedno lub więcej pól jest nieprawidłowe",
+    "validation": {
+      "hoursPerDay": "Liczba godzin dziennie musi być większa od 0 i nie większa niż 24",
+      "timeZone": "Musi być prawidłową strefą czasową, np. Europe/Warsaw",
+      "weekendDaysInvalid": "Dni weekendu muszą mieścić się między poniedziałkiem a niedzielą",
+      "weekendDaysAllWeek": "Dni weekendu nie mogą oznaczać każdego dnia tygodnia jako niepracującego",
+      "holidaysCount": "Dozwolone jest najwyżej {{max}} dni świątecznych",
+      "holidaysInvalid": "Dni świąteczne muszą być datami ISO (RRRR-MM-DD): {{date}}",
+      "commitmentGraceMinutes": "Okres karencji musi wynosić 0 lub więcej",
+      "minSampleSize": "Minimalna liczebność próby musi wynosić co najmniej 1",
+      "agingWindowItems": "Okno starzenia WIP musi wynosić co najmniej 1",
+      "agingPercentilesEmpty": "Wymagany jest co najmniej jeden percentyl starzenia",
+      "agingPercentilesRange": "Percentyle starzenia muszą być liczbami całkowitymi od 1 do 99",
+      "agingPercentilesDuplicate": "Percentyle starzenia nie mogą się powtarzać",
+      "agingPercentilesMustInclude85": "Percentyle starzenia muszą zawierać {{required}}",
+      "backlogWindowSprints": "Okno zaległości musi obejmować co najmniej 1 sprint",
+      "epicDriftDays": "Próg dryfu epika musi wynosić 0 lub więcej"
+    }
+  },
+  "teamMembers": {
+    "title": "Członkowie/kinie Jira",
+    "addMember": "Dodaj członka/kinię Jira",
+    "addTitle": "Dodaj członka/kinię Jira",
+    "pickPerson": "Szukaj osób po nazwie…",
+    "noMatchingPeople": "Brak pasujących osób",
+    "field": {
+      "person": "Osoba",
+      "validFrom": "Ważne od",
+      "validTo": "Ważne do",
+      "validToHint": "Zostaw puste dla członkostwa otwartego (bieżącego)."
+    },
+    "empty": "Nie ma jeszcze członków/kiń Jira",
+    "tableAria": "Członkowie/kinie zespołu Jira",
+    "openEnded": "—",
+    "current": "bieżące",
+    "endMembership": "Zakończ członkostwo",
+    "removeTitle": "Usunąć wiersz członkostwa?",
+    "removeFailed": "Nie udało się usunąć wiersza członkostwa",
+    "removeBody": "Ten wiersz członkostwa dla {{name}} zostanie trwale usunięty.",
+    "toast": {
+      "added": "Dodano członka/kinię Jira",
+      "ended": "Członkostwo zakończone",
+      "removed": "Wiersz członkostwa usunięty"
+    },
+    "addOverlap": "Ta osoba ma już członkostwo obejmujące ten okres — najpierw zakończ lub edytuj istniejące.",
+    "addAccountUnknown": "To konto Jira nie jest jeszcze znane żadnemu połączeniu.",
+    "endConflict": "Ten okres nakłada się teraz na inny wiersz członkostwa.",
+    "endInvalid": "Nie udało się zakończyć tego członkostwa — mogło już się zakończyć.",
+    "validation": {
+      "accountIdRequired": "Wybierz osobę",
+      "validFromInvalid": "Ważne od musi być datą ISO (RRRR-MM-DD)",
+      "validToInvalid": "Ważne do musi być datą ISO (RRRR-MM-DD)",
+      "validToBeforeFrom": "Ważne do musi być późniejsze niż ważne od"
+    }
+  }
+}

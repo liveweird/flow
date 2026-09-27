@@ -9,7 +9,8 @@
     "featureFlags": "Flagi funkcji",
     "changelog": "Historia zmian",
     "teams": "Zespoły",
-    "dataSources": "Źródła danych"
+    "dataSources": "Źródła danych",
+    "metricsSettings": "Ustawienia metryk"
   },
   "section": {
     "overview": "Przegląd",
