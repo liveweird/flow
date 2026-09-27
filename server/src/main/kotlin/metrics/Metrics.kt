@@ -4,6 +4,8 @@ import ch.nokillswit.audit.audit
 import ch.nokillswit.authz.caller
 import ch.nokillswit.authz.requireAdmin
 import ch.nokillswit.infra.db.R2dbcDatabaseKey
+import ch.nokillswit.ingest.DataSourceServiceKey
+import ch.nokillswit.norm.WorkItemStoreKey
 import ch.nokillswit.plugins.servesApi
 import io.ktor.http.HttpStatusCode
 import io.ktor.resources.Resource
@@ -21,19 +23,21 @@ import kotlinx.serialization.Serializable
 class MetricsSettingsRoute
 
 /**
- * The `metrics` package's composition root (v0.3.0 M1 commit 3): constructs and publishes
- * [MetricsConfigService] (the `metrics.settings` singleton) and [TeamMembershipService] (D1's
+ * The `metrics` package's composition root (v0.3.0 M1 commit 3, extended in commit 4): constructs
+ * and publishes [MetricsConfigService] (the `metrics.settings` singleton AND, as of commit 4, the
+ * per-connection `metrics-config`/`options` reads `MetricsConfigRoutes.kt` serves — hence the
+ * `WorkItemStoreKey`/`DataSourceServiceKey` dependencies below) and [TeamMembershipService] (D1's
  * dated Jira-user membership), then — since the settings resource is a tiny ADMIN singleton with
  * no id of its own — registers its GET/PUT routes right here (the `plugins/Health.kt` shape: an
- * infra module that is also its own small route surface). `TeamMembershipService`'s and
- * `JiraUsersRoutes.kt`'s richer per-team/list surfaces get their own `configureXRoutes()`
- * modules instead. Registered in `application.yaml` after `configureJira` (needs nothing from it
- * yet, but the metrics layer as a whole reads `norm`, which `configureJira` publishes) and before
+ * infra module that is also its own small route surface). `TeamMembershipService`'s,
+ * `JiraUsersRoutes.kt`'s and `MetricsConfigRoutes.kt`'s richer per-resource surfaces get their own
+ * `configureXRoutes()` modules instead. Registered in `application.yaml` after `configureJira`
+ * (publishes `WorkItemStoreKey`, and the metrics layer as a whole reads `norm`) and before
  * `configureIngestWorker` (which gains a `DERIVE` dispatch to this package from commit 7 on).
  */
 fun Application.configureMetrics() {
     val database = attributes[R2dbcDatabaseKey]
-    val metricsConfig = MetricsConfigService(database)
+    val metricsConfig = MetricsConfigService(database, attributes[WorkItemStoreKey], attributes[DataSourceServiceKey])
     attributes.put(MetricsConfigServiceKey, metricsConfig)
     attributes.put(TeamMembershipServiceKey, TeamMembershipService(database, metricsConfig))
 

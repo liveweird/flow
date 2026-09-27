@@ -56,6 +56,7 @@ ktor:
       - ch.nokillswit.ingest.SyncStatusRoutesKt.configureSyncStatusRoutes
       - ch.nokillswit.ingest.RawIssueInspectorRoutesKt.configureRawIssueInspectorRoutes
       - ch.nokillswit.ingest.DataProfileRoutesKt.configureDataProfileRoutes
+      - ch.nokillswit.metrics.MetricsConfigRoutesKt.configureMetricsConfigRoutes
       - ch.nokillswit.metrics.TeamMembershipRoutesKt.configureTeamMembershipRoutes
       - ch.nokillswit.metrics.JiraUsersRoutesKt.configureJiraUsersRoutes
       # — catch-all router

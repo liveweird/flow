@@ -10,9 +10,13 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.single
 import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -29,6 +33,9 @@ import org.jetbrains.exposed.v1.r2dbc.update
 /** Batch size for the PURGE step's cleanup over the bigger `norm.*` tables — mirrors `jira/JiraRawStore.kt`'s `JIRA_PURGE_BATCH_SIZE`. */
 internal const val NORM_PURGE_BATCH_SIZE = 500
 
+/** `WorkItemStore.distinctCustomFieldValues`' response-size cap (v0.3.0 M1 commit 4 review fix). */
+internal const val MAX_DISTINCT_FIELD_VALUES = 200
+
 /** Published by `jira/Jira.kt`'s `configureJira` — the raw issue inspector and the data profile step both read it back. */
 val WorkItemStoreKey = AttributeKey<WorkItemStore>("WorkItemStore")
 
@@ -43,6 +50,22 @@ private fun parseAnomalies(json: String): List<TilingAnomaly> =
 
 /** The inverse of [stringArrayJson]. */
 private fun parseStringArray(json: String): List<String> = Json.parseToJsonElement(json).jsonArray.map { it.jsonPrimitive.content }
+
+/**
+ * One custom-field value, as `(valueId, valueName)` pairs — `WorkItemStore.distinctCustomFieldValues`'
+ * own reader, handling every shape a Jira field value can take (an object, a bare primitive, or an
+ * array of either) without ever casting blindly.
+ */
+internal fun fieldValueOptions(element: JsonElement?): List<Pair<String, String?>> = when {
+    element == null || element == JsonNull -> emptyList()
+    element is JsonArray -> element.flatMap { fieldValueOptions(it) }
+    element is JsonObject -> {
+        val id = element["id"]?.jsonPrimitive?.contentOrNull ?: element["value"]?.jsonPrimitive?.contentOrNull
+        val name = element["value"]?.jsonPrimitive?.contentOrNull ?: element["name"]?.jsonPrimitive?.contentOrNull
+        id?.let { listOf(it to name) } ?: emptyList()
+    }
+    else -> element.jsonPrimitive.contentOrNull?.takeIf { it.isNotBlank() }?.let { listOf(it to it) } ?: emptyList()
+}
 
 /** A rebuilt reference row (plan §8: "reference rows ... rebuilt per connection each PROCESS") — one per `norm.statuses` row. */
 data class StatusRef(val statusId: String, val name: String, val category: StatusCategory)
@@ -645,6 +668,45 @@ class WorkItemStore(private val database: R2dbcDatabase) {
             StatusRef(row[Statuses.statusId], row[Statuses.name], StatusCategory.valueOf(row[Statuses.category]))
         }
     }
+
+    /** Distinct project keys among a connection's LIVE work items (v0.3.0 M1 commit 4) — the metrics-config defaults' 1:1 domain map. */
+    suspend fun distinctProjectKeys(connectionId: UInt): Set<String> = suspendTransaction(database) {
+        WorkItems.select(WorkItems.projectKey).withDistinct()
+            .where { (WorkItems.connectionId eq connectionId) and WorkItems.deletedAt.isNull() and WorkItems.movedOutAt.isNull() }
+            .map { it[WorkItems.projectKey] }.toList().toSet()
+    }
+
+    /** Distinct issue types among a connection's LIVE work items (v0.3.0 M1 commit 4) — the metrics-config defaults' activity-type map. */
+    suspend fun distinctIssueTypes(connectionId: UInt): Set<String> = suspendTransaction(database) {
+        WorkItems.select(WorkItems.issueType).withDistinct()
+            .where { (WorkItems.connectionId eq connectionId) and WorkItems.deletedAt.isNull() and WorkItems.movedOutAt.isNull() }
+            .map { it[WorkItems.issueType] }.toList().toSet()
+    }
+
+    /**
+     * Every distinct `(valueId, valueName)` pair a `custom_fields[fieldId]` value carries across a
+     * connection's LIVE work items (v0.3.0 M1 commit 4) — the metrics-config options endpoint's
+     * `?workCategoryField=` read and `work_category_map`'s own id validation. Handles every shape
+     * Jira uses for a select-field value: an object (`{id, value}`), a bare string/number, or an
+     * array of either (a multi-select) — never a cast failure on an unexpected shape, since the
+     * field could be ANY custom field the admin picks, not necessarily a `select`. Returns the FULL
+     * set, uncapped: `work_category_map` id validation must never reject a legitimate value just
+     * because it fell outside the OPTIONS endpoint's own display cap
+     * (`MetricsConfigService.options`, [MAX_DISTINCT_FIELD_VALUES]) — the config table itself has
+     * no such limit.
+     */
+    suspend fun distinctCustomFieldValues(connectionId: UInt, fieldId: String): List<Pair<String, String?>> =
+        suspendTransaction(database) {
+            WorkItems.select(WorkItems.customFields)
+                .where { (WorkItems.connectionId eq connectionId) and WorkItems.deletedAt.isNull() and WorkItems.movedOutAt.isNull() }
+                .toList()
+                .flatMap { row ->
+                    val element = Json.parseToJsonElement(row[WorkItems.customFields]).jsonObject[fieldId]
+                    fieldValueOptions(element)
+                }
+                .distinctBy { it.first }
+                .sortedBy { it.first }
+        }
 
     /** Every work item's tiled status intervals, ordered — the pipeline test's SQL-invariant-sweep/reopen-count source. */
     suspend fun statusIntervalsByIssue(connectionId: UInt): Map<Long, List<NormalizedStatusInterval>> = suspendTransaction(database) {

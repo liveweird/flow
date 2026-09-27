@@ -148,11 +148,16 @@ PURGE's connector-owned cleanup step (`purgeSteps`) drains `raw.jira_issues`/`ra
 (V10, plan §0 A2), `raw.jira_changelogs`/`raw.jira_worklogs` (V11) AND `norm.*`'s work items/
 intervals/changes/worklogs/reference rows (V13, plan §0 A3, see "Normalized layer" below), in that
 order — `source_connections.profile`/`profile_at` are left untouched by PURGE (the connection's last
-computed profile stays visible until it either resyncs or is deleted outright). **Not yet wired:**
-the per-connection `metrics.*` configuration tables landed in V15 (v0.3.0 M1 commit 3,
-`.claude/docs/persistence.md` "The `metrics` schema — configuration (V15)") get a generic
-worker-side PURGE drain step of their own once commit 4 lands a real per-connection consumer for
-them — no code today, since nothing writes those tables yet beyond the migration's own seed row.
+computed profile stays visible until it either resyncs or is deleted outright). **A generic,
+connector-agnostic PURGE step runs AFTER the connector's own `purgeSteps`** (v0.3.0 M1 commit 4,
+`ingest/IngestWorker.kt`'s `runJob`, gated on `claim.kind == PURGE`):
+`MetricsConfigService.purgeConnectionConfig` drains this connection's eight per-connection
+`metrics.*` configuration tables (V15, `.claude/docs/persistence.md` "The `metrics` schema —
+configuration (V15)", `.claude/docs/metrics.md` "PURGE and the metrics config") — small tables,
+rebuilt wholesale on every config PUT already, cleared outright rather than batched. Deliberately
+NOT part of `JiraConnector.purgeSteps`: the config it drains holds no Jira-specific shape, so it
+lives beside the worker's OTHER connector-agnostic PURGE work instead of being duplicated per
+connector kind (a future GitLab connection's PURGE job runs the exact same step).
 
 ## Sync cursors (V9)
 

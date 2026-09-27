@@ -767,6 +767,63 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/data-sources/{id}/metrics-config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Get a data source's metrics configuration
+         * @description ADMIN only (`.claude/docs/domain-model.md` "Configuration"). `configured: false` means
+         *     nothing is stored yet — every field is a COMPUTED default (status → stage from Jira's
+         *     status category; the profile-detected story-points field for both estimate roles;
+         *     `duedate` for the epic due date; 1:1 project → domain and issue type → activity type; no
+         *     board → team mappings, blocked statuses, work categories or sprint capacities).
+         */
+        get: operations["getDataSourceMetricsConfig"];
+        /**
+         * Replace a data source's metrics configuration
+         * @description ADMIN only, guard before the body decode. A full replace over all eight per-connection config tables in one transaction — every id is validated against this connection's own `norm` reference rows (statuses, boards, sprints, project keys, issue types) and its stored data profile (field ids), else `400`; a board mapped to a team already mapped elsewhere is `409` (D10: one board per team). Bumps the shared `configRevision` unless the request is byte-for-byte identical to what is already stored.
+         */
+        put: operations["updateDataSourceMetricsConfig"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/data-sources/{id}/metrics-config/options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Get the reference data for a data source's metrics configuration
+         * @description ADMIN only, read-only. Statuses (with category), custom fields (with the profile's
+         *     detected role), project keys, boards, issue types and sprints per board — the picklists
+         *     the metrics-config editor uses. `workCategoryValues` is populated only when
+         *     `?workCategoryField=` names a field id, from that field's own distinct observed values
+         *     across this connection's live work items, capped at 200 (`workCategoryValuesTruncated:
+         *     true` when more exist).
+         */
+        get: operations["getDataSourceMetricsConfigOptions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/jira-users": {
         parameters: {
             query?: never;
@@ -1486,6 +1543,108 @@ export interface components {
             anomalyCounts?: {
                 [key: string]: number;
             };
+        };
+        MetricsStatusStage: {
+            statusId: string;
+            /** @enum {string} */
+            stage: "NOT_STARTED" | "IN_PROGRESS" | "DONE";
+        };
+        MetricsFieldConfig: {
+            estimateTask?: string | null;
+            estimateEpic?: string | null;
+            epicStart?: string | null;
+            epicDue?: string | null;
+            workCategory?: string | null;
+        };
+        MetricsDomainMapping: {
+            projectKey: string;
+            domainKey: string;
+            domainName: string;
+        };
+        MetricsBoardTeamMapping: {
+            /** Format: int64 */
+            boardId: number;
+            /** Format: int32 */
+            teamId: number;
+        };
+        MetricsActivityTypeMapping: {
+            issueType: string;
+            activityType: string;
+        };
+        MetricsWorkCategoryMapping: {
+            valueId: string;
+            valueName?: string | null;
+            category: string;
+        };
+        MetricsSprintCapacity: {
+            /** Format: int64 */
+            sprintId: number;
+            /** Format: double */
+            capacityMd: number;
+        };
+        DataSourceMetricsConfig: {
+            /** @description False means every field below is a COMPUTED default, nothing is stored yet. */
+            configured: boolean;
+            statusStages: components["schemas"]["MetricsStatusStage"][];
+            fields: components["schemas"]["MetricsFieldConfig"];
+            domains: components["schemas"]["MetricsDomainMapping"][];
+            boards: components["schemas"]["MetricsBoardTeamMapping"][];
+            activityTypes: components["schemas"]["MetricsActivityTypeMapping"][];
+            workCategories: components["schemas"]["MetricsWorkCategoryMapping"][];
+            blockedStatuses: string[];
+            sprintCapacities: components["schemas"]["MetricsSprintCapacity"][];
+        };
+        DataSourceMetricsConfigRequest: {
+            statusStages?: components["schemas"]["MetricsStatusStage"][];
+            fields?: components["schemas"]["MetricsFieldConfig"];
+            domains?: components["schemas"]["MetricsDomainMapping"][];
+            boards?: components["schemas"]["MetricsBoardTeamMapping"][];
+            activityTypes?: components["schemas"]["MetricsActivityTypeMapping"][];
+            workCategories?: components["schemas"]["MetricsWorkCategoryMapping"][];
+            blockedStatuses?: string[];
+            sprintCapacities?: components["schemas"]["MetricsSprintCapacity"][];
+        };
+        MetricsStatusOption: {
+            statusId: string;
+            name: string;
+            /** @enum {string} */
+            category: "TODO" | "IN_PROGRESS" | "DONE" | "UNKNOWN";
+        };
+        MetricsFieldOption: {
+            fieldId: string;
+            name: string;
+            type: string;
+            /** @description SPRINT/RANK/TEAM/STORY_POINTS/FLAGGED/OTHER — `jira/JiraProfile.kt`'s detection. */
+            detectedRole: string;
+        };
+        MetricsBoardOption: {
+            /** Format: int64 */
+            boardId: number;
+            name: string;
+            projectKey?: string | null;
+        };
+        MetricsSprintOption: {
+            /** Format: int64 */
+            sprintId: number;
+            /** Format: int64 */
+            boardId?: number | null;
+            name: string;
+            state: string;
+        };
+        MetricsFieldValueOption: {
+            valueId: string;
+            valueName?: string | null;
+        };
+        DataSourceMetricsConfigOptions: {
+            statuses: components["schemas"]["MetricsStatusOption"][];
+            fields: components["schemas"]["MetricsFieldOption"][];
+            projects: string[];
+            boards: components["schemas"]["MetricsBoardOption"][];
+            issueTypes: string[];
+            workCategoryValues: components["schemas"]["MetricsFieldValueOption"][];
+            /** @description True when the field carries more than 200 distinct values — the response shows only the first 200 (by id). */
+            workCategoryValuesTruncated: boolean;
+            sprints: components["schemas"]["MetricsSprintOption"][];
         };
         MetricsSettingsResponse: {
             /** Format: int64 */
@@ -2936,6 +3095,93 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DataProfile"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getDataSourceMetricsConfig: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The connection's effective metrics configuration */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DataSourceMetricsConfig"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    updateDataSourceMetricsConfig: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DataSourceMetricsConfigRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            415: components["responses"]["UnsupportedMediaType"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getDataSourceMetricsConfigOptions: {
+        parameters: {
+            query?: {
+                workCategoryField?: string;
+            };
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The metrics-config reference data */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DataSourceMetricsConfigOptions"];
                 };
             };
             400: components["responses"]["BadRequest"];

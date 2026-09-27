@@ -197,6 +197,20 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     `teamId` narrows to that team's CURRENT membership, combined with `scope` by set intersection
     (an unknown `teamId` is simply an empty page, not an error — no path id is involved). No
     mutation, so no audit event of its own. Tests: `JiraUsersRoutesTest`.
+  - `GET/PUT /api/v1/data-sources/{id}/metrics-config` + `GET .../metrics-config/options` (v0.3.0
+    M1 commit 4, `metrics/MetricsConfigRoutes.kt`) → **ADMIN only, the whole surface** —
+    `requireAdmin` runs before the data-source existence check, which itself runs before the body
+    decodes on the PUT (the data-sources idiom: `403` wins over `404` wins over `400`). `GET`
+    returns the connection's stored per-connection config, or the computed DEFAULTS when nothing is
+    stored (`configured: false`, `.claude/docs/metrics.md` "Configuration model"). `PUT` is a full
+    replace over all eight per-connection tables in one transaction; every id is validated against
+    this connection's own `norm` reference rows (and its stored data profile, for field ids) —
+    `400`, the client-supplied-FK idiom, never `404` (there is no path id inside the body). A board
+    mapped to a team already mapped elsewhere is `409` (D10, the `uq_metrics_board_team_map_team_id`
+    unique violation). Bumps the shared `config_revision` unless the PUT is byte-for-byte identical
+    to what is already stored (the features-PUT no-op precedent), audited
+    `metrics_config.updated`. `options` is read-only, no audit event. Tests:
+    `MetricsConfigRoutesTest`.
 - **Exceptions**: `UnauthorizedException` (→ 401), `ForbiddenException` (→ 403),
   `NotFoundException` (→ 404), `ConflictException` (→ 409), `TooManyRequestsException` (→ 429),
   and `BadGatewayException` (→ 502 — reserved for a future outbound-fetch upstream failure) live

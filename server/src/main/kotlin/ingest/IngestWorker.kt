@@ -3,6 +3,8 @@ package ch.nokillswit.ingest
 import ch.nokillswit.audit.audit
 import ch.nokillswit.infra.config.requireConfigInt
 import ch.nokillswit.infra.config.requireConfigLong
+import ch.nokillswit.metrics.MetricsConfigService
+import ch.nokillswit.metrics.MetricsConfigServiceKey
 import ch.nokillswit.plugins.runsWorker
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationStarted
@@ -96,6 +98,7 @@ fun Application.configureIngestWorker() {
         val worker = IngestWorker(
             syncJobs = app.attributes[SyncJobsServiceKey],
             dataSources = app.attributes[DataSourceServiceKey],
+            metricsConfig = app.attributes[MetricsConfigServiceKey],
             connectors = connectors,
             config = config,
             clock = clock,
@@ -136,6 +139,7 @@ class JobCancelRequestedException(jobId: UInt) : Exception("Cancel requested for
 class IngestWorker(
     private val syncJobs: SyncJobsService,
     private val dataSources: DataSourceService,
+    private val metricsConfig: MetricsConfigService,
     private val connectors: Map<DataSourceKind, Connector>,
     private val config: IngestConfig,
     private val clock: () -> Long,
@@ -218,6 +222,12 @@ class IngestWorker(
                         syncJobs.heartbeat(claim.id, config.workerId, config.leaseSeconds, clock(), progress, currentStream)
                     },
                 )
+                // The generic, connector-agnostic PURGE step (v0.3.0 M1 commit 4,
+                // `.claude/docs/ingestion.md` "PURGE"): runs AFTER the connector's own
+                // `purgeSteps` (which drain its `raw.*`/`norm.*` rows) — every per-connection
+                // `metrics.*` config row is connector-agnostic, so it is drained here rather than
+                // inside `JiraConnector.purgeSteps`.
+                if (claim.kind == SyncJobKind.PURGE) metricsConfig.purgeConnectionConfig(claim.connectionId)
                 ticker.cancel()
             }
             onSucceeded(claim)
