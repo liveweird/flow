@@ -43,6 +43,7 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A16 over
   - A per-domain status→stage override UI.
   - Seed memberships from the Team field (D1).
   - Cache validators for the report endpoints.
+  - Round each item's estimate before summing in `DeriveKernels.sprintTotals`, so `fact_sprint` and the per-user report groups agree exactly (today Σ groups can differ from the team by 0.01 MD per sprint when estimates have more than two decimals).
 
 ## Engineering follow-ups
 

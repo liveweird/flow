@@ -956,6 +956,39 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/reports/sprint-consistency": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Reports 6.1-6.3 — sprint consistency (committed, added, removed, final, delivered, carried over, dropped per sprint)
+         * @description Any authenticated user (D12), read-only — `.claude/docs/measures.md` "Report 6" (with the item
+         *     counts of report 13). Every sprint bucket in MD and items, straight off `fact_sprint`: committed,
+         *     added, removed (in no other bucket), final, delivered, carried over and dropped — A17 partition:
+         *     final = delivered + carried over + dropped always, and committed + added = final in items. `snapshot`
+         *     is the frozen `fact_sprint_snapshot` figures (null until the sprint was first seen closed and
+         *     team-mapped by a DERIVE run — D13); `drift` is true when any live figure differs from it (0.005 MD
+         *     tolerance, item counts exactly). Same period/level semantics as velocity: UNIT (default) — `groups`
+         *     sum every figure per team; `teamId` narrows to TEAM level, `sprints` to that team's own sprints and
+         *     `groups` becomes a per-user split (`fact_sprint_scope.assignee_at_commitment`, the same bucket
+         *     predicates the team figures use, so Σ groups == the team figures for every bucket; a null
+         *     `accountId` is the unassigned-at-commitment bucket); `teamId` AND `accountId` narrow to USER level —
+         *     `sprints` narrows to that account's own rows per sprint (`snapshot` null, `drift` false) and
+         *     `groups` is empty. `teamId=0` (UNASSIGNED) is always empty. An active or future sprint
+         *     (`completedAt` null) is reachable only by an explicit `sprintId`: its live figures, `snapshot` null.
+         */
+        get: operations["getReportSprintConsistency"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/metrics-settings": {
         parameters: {
             query?: never;
@@ -2026,6 +2059,98 @@ export interface components {
             bySprint: components["schemas"]["ThroughputSprint"][];
             byBucket: components["schemas"]["ThroughputBucketRow"][];
             groups: components["schemas"]["ThroughputGroup"][];
+        };
+        /** @description The fourteen sprint figures (MD beside items), live or frozen. */
+        SprintFigures: {
+            /** Format: double */
+            committedMd: number;
+            committedItems: number;
+            /** Format: double */
+            addedMd: number;
+            addedItems: number;
+            /** Format: double */
+            removedMd: number;
+            removedItems: number;
+            /** Format: double */
+            finalMd: number;
+            finalItems: number;
+            /** Format: double */
+            deliveredMd: number;
+            deliveredItems: number;
+            /** Format: double */
+            carriedOverMd: number;
+            carriedOverItems: number;
+            /** Format: double */
+            droppedMd: number;
+            droppedItems: number;
+        };
+        SprintConsistencySprint: {
+            /** Format: int64 */
+            sprintId: number;
+            name: string;
+            /** Format: int32 */
+            teamId: number;
+            /**
+             * Format: int64
+             * @description Null only for an active/future sprint, reachable through an explicit sprintId.
+             */
+            completedAt: number | null;
+            /** Format: double */
+            committedMd: number;
+            committedItems: number;
+            /** Format: double */
+            addedMd: number;
+            addedItems: number;
+            /** Format: double */
+            removedMd: number;
+            removedItems: number;
+            /** Format: double */
+            finalMd: number;
+            finalItems: number;
+            /** Format: double */
+            deliveredMd: number;
+            deliveredItems: number;
+            /** Format: double */
+            carriedOverMd: number;
+            carriedOverItems: number;
+            /** Format: double */
+            droppedMd: number;
+            droppedItems: number;
+            snapshot: components["schemas"]["SprintFigures"] | null;
+            drift: boolean;
+        };
+        /** @description A team's summed figures (UNIT level, `teamId` set) or one user's `assignee_at_commitment` figures (TEAM level; a null `accountId` with a null `label` is the unassigned-at-commitment bucket) — always empty at USER level. */
+        SprintConsistencyGroup: {
+            /** Format: int32 */
+            teamId?: number | null;
+            accountId?: string | null;
+            label?: string | null;
+            /** Format: double */
+            committedMd: number;
+            committedItems: number;
+            /** Format: double */
+            addedMd: number;
+            addedItems: number;
+            /** Format: double */
+            removedMd: number;
+            removedItems: number;
+            /** Format: double */
+            finalMd: number;
+            finalItems: number;
+            /** Format: double */
+            deliveredMd: number;
+            deliveredItems: number;
+            /** Format: double */
+            carriedOverMd: number;
+            carriedOverItems: number;
+            /** Format: double */
+            droppedMd: number;
+            droppedItems: number;
+        };
+        SprintConsistencyReport: {
+            meta: components["schemas"]["ReportMeta"];
+            sprints: components["schemas"]["SprintConsistencySprint"][];
+            groups: components["schemas"]["SprintConsistencyGroup"][];
         };
         /** @description RFC 7807 problem detail. Served as `application/problem+json`; instance is the request path without query parameters. */
         ProblemDetail: {
@@ -3657,6 +3782,46 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ThroughputReport"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getReportSprintConsistency: {
+        parameters: {
+            query?: {
+                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. */
+                from?: components["parameters"]["ReportFrom"];
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
+                to?: components["parameters"]["ReportTo"];
+                /** @description Each team's own last N closed sprints (union at unit level). Mutually exclusive with `from`/`to`/`sprintId`. */
+                lastSprints?: components["parameters"]["ReportLastSprints"];
+                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
+                sprintId?: components["parameters"]["ReportSprintId"];
+                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
+                teamId?: components["parameters"]["ReportTeamId"];
+                /** @description One Jira account id — sets the level to USER. Requires `teamId`. */
+                accountId?: components["parameters"]["ReportAccountId"];
+                /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
+                domainView?: components["parameters"]["ReportDomainView"];
+                /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
+                connectionId?: components["parameters"]["ReportConnectionId"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The sprint consistency report */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SprintConsistencyReport"];
                 };
             };
             400: components["responses"]["BadRequest"];

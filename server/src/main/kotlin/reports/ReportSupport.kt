@@ -51,6 +51,8 @@ internal data class SprintRow(
     val completedAt: Long?,
     val live: VelocitySnapshot,
     val delivered: ThroughputSnapshot,
+    /** Every one of the fourteen `fact_sprint` figures (sprint consistency, report 6). */
+    val full: SprintFigures,
 )
 
 internal data class SnapshotRow(
@@ -58,6 +60,7 @@ internal data class SnapshotRow(
     val sprintId: Long,
     val figures: VelocitySnapshot,
     val delivered: ThroughputSnapshot,
+    val full: SprintFigures,
 )
 
 /** `meta.resolvedSprints`: empty for a `from`/`to` period (it names no sprints), else each team's own resolved set. */
@@ -127,6 +130,10 @@ private fun sprintJoinQuery() = MetricsStore.FactSprint.join(
     MetricsStore.FactSprint.committedMd, MetricsStore.FactSprint.committedItems,
     MetricsStore.FactSprint.finalMd, MetricsStore.FactSprint.finalItems,
     MetricsStore.FactSprint.deliveredMd, MetricsStore.FactSprint.deliveredItems,
+    MetricsStore.FactSprint.addedMd, MetricsStore.FactSprint.addedItems,
+    MetricsStore.FactSprint.removedMd, MetricsStore.FactSprint.removedItems,
+    MetricsStore.FactSprint.carriedOverMd, MetricsStore.FactSprint.carriedOverItems,
+    MetricsStore.FactSprint.droppedMd, MetricsStore.FactSprint.droppedItems,
 )
 
 private fun ResultRow.toSprintRow() = SprintRow(
@@ -145,6 +152,22 @@ private fun ResultRow.toSprintRow() = SprintRow(
     delivered = ThroughputSnapshot(
         deliveredMd = this[MetricsStore.FactSprint.deliveredMd].toDouble(),
         deliveredItems = this[MetricsStore.FactSprint.deliveredItems],
+    ),
+    full = SprintFigures(
+        committedMd = this[MetricsStore.FactSprint.committedMd].toDouble(),
+        committedItems = this[MetricsStore.FactSprint.committedItems],
+        addedMd = this[MetricsStore.FactSprint.addedMd].toDouble(),
+        addedItems = this[MetricsStore.FactSprint.addedItems],
+        removedMd = this[MetricsStore.FactSprint.removedMd].toDouble(),
+        removedItems = this[MetricsStore.FactSprint.removedItems],
+        finalMd = this[MetricsStore.FactSprint.finalMd].toDouble(),
+        finalItems = this[MetricsStore.FactSprint.finalItems],
+        deliveredMd = this[MetricsStore.FactSprint.deliveredMd].toDouble(),
+        deliveredItems = this[MetricsStore.FactSprint.deliveredItems],
+        carriedOverMd = this[MetricsStore.FactSprint.carriedOverMd].toDouble(),
+        carriedOverItems = this[MetricsStore.FactSprint.carriedOverItems],
+        droppedMd = this[MetricsStore.FactSprint.droppedMd].toDouble(),
+        droppedItems = this[MetricsStore.FactSprint.droppedItems],
     ),
 )
 
@@ -210,6 +233,22 @@ internal suspend fun fetchSnapshots(sprintRows: List<SprintRow>): List<SnapshotR
                 delivered = ThroughputSnapshot(
                     deliveredMd = it[MetricsStore.FactSprintSnapshot.deliveredMd].toDouble(),
                     deliveredItems = it[MetricsStore.FactSprintSnapshot.deliveredItems],
+                ),
+                full = SprintFigures(
+                    committedMd = it[MetricsStore.FactSprintSnapshot.committedMd].toDouble(),
+                    committedItems = it[MetricsStore.FactSprintSnapshot.committedItems],
+                    addedMd = it[MetricsStore.FactSprintSnapshot.addedMd].toDouble(),
+                    addedItems = it[MetricsStore.FactSprintSnapshot.addedItems],
+                    removedMd = it[MetricsStore.FactSprintSnapshot.removedMd].toDouble(),
+                    removedItems = it[MetricsStore.FactSprintSnapshot.removedItems],
+                    finalMd = it[MetricsStore.FactSprintSnapshot.finalMd].toDouble(),
+                    finalItems = it[MetricsStore.FactSprintSnapshot.finalItems],
+                    deliveredMd = it[MetricsStore.FactSprintSnapshot.deliveredMd].toDouble(),
+                    deliveredItems = it[MetricsStore.FactSprintSnapshot.deliveredItems],
+                    carriedOverMd = it[MetricsStore.FactSprintSnapshot.carriedOverMd].toDouble(),
+                    carriedOverItems = it[MetricsStore.FactSprintSnapshot.carriedOverItems],
+                    droppedMd = it[MetricsStore.FactSprintSnapshot.droppedMd].toDouble(),
+                    droppedItems = it[MetricsStore.FactSprintSnapshot.droppedItems],
                 ),
             )
         }

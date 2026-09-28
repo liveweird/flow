@@ -32,6 +32,10 @@ class ReportVelocityRoute
 @Resource("/api/v1/reports/throughput")
 class ReportThroughputRoute
 
+@Serializable
+@Resource("/api/v1/reports/sprint-consistency")
+class ReportSprintConsistencyRoute
+
 val ReportServiceKey = AttributeKey<ReportService>("ReportService")
 
 /**
@@ -45,9 +49,9 @@ val ReportServiceKey = AttributeKey<ReportService>("ReportService")
  * `JiraUsersRoutes.kt`.
  *
  * v0.3.0 M4 commit 10a built `/reports/filters`; commit 10b adds `/reports/velocity` (Report 1), 10c
- * `/reports/throughput` (Report 2) — sprint-consistency and every later report land as their own commits (plan §10) and
- * register their own `get<...>` blocks in this SAME `routing { authenticate { … } }` block, the
- * `MetricsConfigRoutes.kt` shape (one registrar per resource, several routes inside).
+ * `/reports/throughput` (Report 2), 10d `/reports/sprint-consistency` (Reports 6.1-6.3) — every later report
+ * lands as its own commit (plan §10) and registers its own `get<...>` block in this SAME
+ * `routing { authenticate { … } }` block, the `MetricsConfigRoutes.kt` shape (one registrar per resource, several routes inside).
  */
 fun Application.configureReportRoutes() {
     // The worker role serves only the health/ready probes (plugins/Health.kt) — see Role.kt.
@@ -87,6 +91,14 @@ fun Application.configureReportRoutes() {
                 val filter = params.parseReportFilter(calendar, nowMillis(), DomainView.TASK)
                 val bucket = params.optionalEnum<ThroughputBucket>("bucket") ?: ThroughputBucket.WEEK
                 call.respond(HttpStatusCode.OK, reportService.throughput(filter, bucket, nowMillis()))
+            }
+            // Sprint consistency (reports 6.1-6.3) is sprint-scoped like velocity: no domain slice, so the
+            // TASK/EPIC default is a harmless placeholder echoed in `meta`.
+            get<ReportSprintConsistencyRoute> {
+                call.caller()
+                val calendar = reportsWorkingCalendar(metricsConfig)
+                val filter = call.request.queryParameters.parseReportFilter(calendar, nowMillis(), DomainView.TASK)
+                call.respond(HttpStatusCode.OK, reportService.sprintConsistency(filter))
             }
         }
     }

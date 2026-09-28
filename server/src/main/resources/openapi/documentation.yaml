@@ -1381,6 +1381,45 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/reports/sprint-consistency:
+    get:
+      tags: [reports]
+      operationId: getReportSprintConsistency
+      summary: Reports 6.1-6.3 — sprint consistency (committed, added, removed, final, delivered, carried over, dropped per sprint)
+      description: |
+        Any authenticated user (D12), read-only — `.claude/docs/measures.md` "Report 6" (with the item
+        counts of report 13). Every sprint bucket in MD and items, straight off `fact_sprint`: committed,
+        added, removed (in no other bucket), final, delivered, carried over and dropped — A17 partition:
+        final = delivered + carried over + dropped always, and committed + added = final in items. `snapshot`
+        is the frozen `fact_sprint_snapshot` figures (null until the sprint was first seen closed and
+        team-mapped by a DERIVE run — D13); `drift` is true when any live figure differs from it (0.005 MD
+        tolerance, item counts exactly). Same period/level semantics as velocity: UNIT (default) — `groups`
+        sum every figure per team; `teamId` narrows to TEAM level, `sprints` to that team's own sprints and
+        `groups` becomes a per-user split (`fact_sprint_scope.assignee_at_commitment`, the same bucket
+        predicates the team figures use, so Σ groups == the team figures for every bucket; a null
+        `accountId` is the unassigned-at-commitment bucket); `teamId` AND `accountId` narrow to USER level —
+        `sprints` narrows to that account's own rows per sprint (`snapshot` null, `drift` false) and
+        `groups` is empty. `teamId=0` (UNASSIGNED) is always empty. An active or future sprint
+        (`completedAt` null) is reachable only by an explicit `sprintId`: its live figures, `snapshot` null.
+      parameters:
+        - { $ref: '#/components/parameters/ReportFrom' }
+        - { $ref: '#/components/parameters/ReportTo' }
+        - { $ref: '#/components/parameters/ReportLastSprints' }
+        - { $ref: '#/components/parameters/ReportSprintId' }
+        - { $ref: '#/components/parameters/ReportTeamId' }
+        - { $ref: '#/components/parameters/ReportAccountId' }
+        - { $ref: '#/components/parameters/ReportDomainView' }
+        - { $ref: '#/components/parameters/ReportConnectionId' }
+      responses:
+        '200':
+          description: The sprint consistency report
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SprintConsistencyReport'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/metrics-settings:
     get:
       tags: [metrics]
@@ -2926,6 +2965,88 @@ components:
         groups:
           type: array
           items: { $ref: '#/components/schemas/ThroughputGroup' }
+
+    SprintFigures:
+      type: object
+      description: The fourteen sprint figures (MD beside items), live or frozen.
+      required: [committedMd, committedItems, addedMd, addedItems, removedMd, removedItems, finalMd, finalItems, deliveredMd, deliveredItems, carriedOverMd, carriedOverItems, droppedMd, droppedItems]
+      properties:
+        committedMd: { type: number, format: double }
+        committedItems: { type: integer }
+        addedMd: { type: number, format: double }
+        addedItems: { type: integer }
+        removedMd: { type: number, format: double }
+        removedItems: { type: integer }
+        finalMd: { type: number, format: double }
+        finalItems: { type: integer }
+        deliveredMd: { type: number, format: double }
+        deliveredItems: { type: integer }
+        carriedOverMd: { type: number, format: double }
+        carriedOverItems: { type: integer }
+        droppedMd: { type: number, format: double }
+        droppedItems: { type: integer }
+    SprintConsistencySprint:
+      type: object
+      required: [sprintId, name, teamId, completedAt, committedMd, committedItems, addedMd, addedItems, removedMd, removedItems, finalMd, finalItems, deliveredMd, deliveredItems, carriedOverMd, carriedOverItems, droppedMd, droppedItems, snapshot, drift]
+      properties:
+        sprintId: { type: integer, format: int64 }
+        name: { type: string }
+        teamId: { type: integer, format: int32, minimum: 0 }
+        completedAt: { type: integer, format: int64, nullable: true, description: "Null only for an active/future sprint, reachable through an explicit sprintId." }
+        committedMd: { type: number, format: double }
+        committedItems: { type: integer }
+        addedMd: { type: number, format: double }
+        addedItems: { type: integer }
+        removedMd: { type: number, format: double }
+        removedItems: { type: integer }
+        finalMd: { type: number, format: double }
+        finalItems: { type: integer }
+        deliveredMd: { type: number, format: double }
+        deliveredItems: { type: integer }
+        carriedOverMd: { type: number, format: double }
+        carriedOverItems: { type: integer }
+        droppedMd: { type: number, format: double }
+        droppedItems: { type: integer }
+        snapshot:
+          allOf: [{ $ref: '#/components/schemas/SprintFigures' }]
+          nullable: true
+        drift: { type: boolean }
+    SprintConsistencyGroup:
+      type: object
+      description: >-
+        A team's summed figures (UNIT level, `teamId` set) or one user's `assignee_at_commitment` figures
+        (TEAM level; a null `accountId` with a null `label` is the unassigned-at-commitment bucket) —
+        always empty at USER level.
+      required: [committedMd, committedItems, addedMd, addedItems, removedMd, removedItems, finalMd, finalItems, deliveredMd, deliveredItems, carriedOverMd, carriedOverItems, droppedMd, droppedItems]
+      properties:
+        teamId: { type: integer, format: int32, minimum: 0, nullable: true }
+        accountId: { type: string, nullable: true }
+        label: { type: string, nullable: true }
+        committedMd: { type: number, format: double }
+        committedItems: { type: integer }
+        addedMd: { type: number, format: double }
+        addedItems: { type: integer }
+        removedMd: { type: number, format: double }
+        removedItems: { type: integer }
+        finalMd: { type: number, format: double }
+        finalItems: { type: integer }
+        deliveredMd: { type: number, format: double }
+        deliveredItems: { type: integer }
+        carriedOverMd: { type: number, format: double }
+        carriedOverItems: { type: integer }
+        droppedMd: { type: number, format: double }
+        droppedItems: { type: integer }
+    SprintConsistencyReport:
+      type: object
+      required: [meta, sprints, groups]
+      properties:
+        meta: { $ref: '#/components/schemas/ReportMeta' }
+        sprints:
+          type: array
+          items: { $ref: '#/components/schemas/SprintConsistencySprint' }
+        groups:
+          type: array
+          items: { $ref: '#/components/schemas/SprintConsistencyGroup' }
 
     ProblemDetail:
       type: object

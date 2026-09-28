@@ -133,7 +133,12 @@ private suspend fun fetchScopeContributions(sprintRows: List<SprintRow>, account
     var predicate: Op<Boolean> = (MetricsStore.FactSprintScope.connectionId inList connectionIds) and
         (MetricsStore.FactSprintScope.sprintId inList sprintIds)
     accountId?.let { predicate = predicate and (MetricsStore.FactSprintScope.assigneeAtCommitment eq it) }
-    return MetricsStore.FactSprintScope.selectAll().where { predicate }.toList().map {
+    // connection IN (...) AND sprint IN (...) is a cross product: keep exactly the (connection, sprint) pairs
+    // in scope, since two connections to one Jira site share sprint ids.
+    val inScope = sprintRows.map { it.connectionId to it.sprintId }.toSet()
+    return MetricsStore.FactSprintScope.selectAll().where { predicate }.toList().filter {
+        (it[MetricsStore.FactSprintScope.connectionId].value to it[MetricsStore.FactSprintScope.sprintId]) in inScope
+    }.map {
         ScopeContribution(
             connectionId = it[MetricsStore.FactSprintScope.connectionId].value,
             sprintId = it[MetricsStore.FactSprintScope.sprintId],
@@ -181,7 +186,7 @@ private suspend fun userGroups(contributions: List<ScopeContribution>): List<Vel
             finalMd = rows.filter { it.inScopeAtClose }.sumOf { it.closeMd ?: 0.0 },
             finalItems = rows.count { it.inScopeAtClose },
         )
-    }.sortedBy { it.label ?: "" }
+    }.sortedWith(compareBy(nullsLast()) { it.label }) // the unassigned (null) group last, as sprint consistency
 }
 
 /**
