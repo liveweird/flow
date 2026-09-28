@@ -59,6 +59,9 @@ ktor:
       - ch.nokillswit.metrics.MetricsConfigRoutesKt.configureMetricsConfigRoutes
       - ch.nokillswit.metrics.TeamMembershipRoutesKt.configureTeamMembershipRoutes
       - ch.nokillswit.metrics.JiraUsersRoutesKt.configureJiraUsersRoutes
+      # The reports API (v0.3.0 M4 commit 10a) — read-only, any authenticated (D12); after the
+      # metrics feature routes it reads from.
+      - ch.nokillswit.reports.ReportRoutesKt.configureReportRoutes
       # — catch-all router
       - ch.nokillswit.plugins.RoutingKt.configureRouting
 

@@ -116,6 +116,11 @@ place:
 - `metrics/MetricsDeriver.activeTeamIds` (v0.3.0 M3 commit 9d) reads `teams/TeamService.Teams`
   (active teams) once per DERIVE, inside the rebuild transaction — the A22 rule that now-evaluated
   team columns and the domain owner never name a soft-deleted team.
+- `reports/ReportService.filters` (v0.3.0 M4 commit 10a, `GET /api/v1/reports/filters`) reads
+  `teams/TeamService.Teams` (active teams), `norm/WorkItemStore.People` (display names for a
+  team's current D1 Jira members) and `ingest/DataSourceService.Connections` (id+name for active
+  connections — never `settings`/the encrypted API token) directly, all inside its own
+  transaction — a read-only reference-data assembly, never a write.
 
 List each new cross-feature read/write here as it lands — the list IS the permission.
 

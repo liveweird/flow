@@ -303,6 +303,7 @@ covered the moment its spec entry lands.
 @.claude/docs/jira-integration.md
 @.claude/docs/domain-model.md
 @.claude/docs/metrics.md
+@.claude/docs/reports.md
 
 ### Frontend (`web/`)
 

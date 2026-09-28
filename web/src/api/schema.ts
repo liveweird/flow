@@ -853,6 +853,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/reports/filters": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the reference data for the reports filter bar
+         * @description Any authenticated user (D12 — everyone sees every report level). No query parameters: the
+         *     reference data every report's own filter bar/validation reads before a report is even
+         *     requested — active teams with the sprints their board has ever produced and their CURRENT
+         *     Jira roster (D1, with display names), the domain/activity-type/work-category values a real
+         *     DERIVE run has actually produced, active connections (id+name only — never `settings`/the
+         *     encrypted API token), and the shared `derivedAt`/`configRevision`/`minSampleSize` figures
+         *     every report's own `meta` block also carries. Read-only — no audit event.
+         */
+        get: operations["getReportFilters"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/metrics-settings": {
         parameters: {
             query?: never;
@@ -1735,6 +1761,100 @@ export interface components {
             /** Format: int64 */
             validTo?: number | null;
         };
+        HistogramBucket: {
+            /** Format: double */
+            from: number;
+            /** Format: double */
+            to: number;
+            /** Format: int64 */
+            count: number;
+        };
+        /** @description `hidden = true` (fewer than `minSampleSize` items) means only `n` is meaningful — every other field is null/empty. */
+        Distribution: {
+            /** Format: int64 */
+            n: number;
+            hidden: boolean;
+            /** Format: double */
+            mean?: number | null;
+            /** Format: double */
+            min?: number | null;
+            /** Format: double */
+            max?: number | null;
+            /** Format: double */
+            p50?: number | null;
+            /** Format: double */
+            p90?: number | null;
+            /** Format: double */
+            p95?: number | null;
+            histogram: components["schemas"]["HistogramBucket"][];
+        };
+        ResolvedSprintGroup: {
+            /** Format: int32 */
+            teamId: number;
+            sprintIds: number[];
+        };
+        /** @description The `meta` block every report response carries beside its own body. */
+        ReportMeta: {
+            /**
+             * Format: int64
+             * @description Epoch millis; null before any connection has ever completed a DERIVE.
+             */
+            derivedAt: number | null;
+            /** Format: int64 */
+            configRevision: number;
+            /** @description ISO date; null for a lastSprints/sprintId-selected period. */
+            from: string | null;
+            /** @description ISO date; null for a lastSprints/sprintId-selected period. */
+            to: string | null;
+            /** @enum {string} */
+            level: "UNIT" | "TEAM" | "USER";
+            /** @enum {string} */
+            domainView: "TASK" | "EPIC";
+            resolvedSprints: components["schemas"]["ResolvedSprintGroup"][];
+            minSampleSize: number;
+        };
+        ReportFilterSprint: {
+            /** Format: int64 */
+            sprintId: number;
+            name: string;
+            state: string;
+            /** Format: int64 */
+            startAt: number | null;
+            /** Format: int64 */
+            completeAt: number | null;
+        };
+        ReportFilterMember: {
+            accountId: string;
+            displayName: string;
+        };
+        ReportFilterTeam: {
+            /** Format: int32 */
+            id: number;
+            name: string;
+            sprints: components["schemas"]["ReportFilterSprint"][];
+            members: components["schemas"]["ReportFilterMember"][];
+        };
+        ReportFilterDomain: {
+            domainKey: string;
+            domainName: string;
+        };
+        ReportFilterConnection: {
+            /** Format: int32 */
+            id: number;
+            name: string;
+        };
+        ReportFilters: {
+            teams: components["schemas"]["ReportFilterTeam"][];
+            domains: components["schemas"]["ReportFilterDomain"][];
+            activityTypes: string[];
+            workCategories: string[];
+            connections: components["schemas"]["ReportFilterConnection"][];
+            /** Format: int64 */
+            derivedAt: number | null;
+            /** Format: int64 */
+            configRevision: number;
+            minSampleSize: number;
+        };
         /** @description RFC 7807 problem detail. Served as `application/problem+json`; instance is the request path without query parameters. */
         ProblemDetail: {
             /**
@@ -1850,6 +1970,30 @@ export interface components {
         Sort: string;
         /** @description Free-text substring filter (case- and accent-insensitive) — API-LIST-005. */
         Q: string;
+        /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. */
+        ReportFrom: string;
+        /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
+        ReportTo: string;
+        /** @description Each team's own last N closed sprints (union at unit level). Mutually exclusive with `from`/`to`/`sprintId`. */
+        ReportLastSprints: number;
+        /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
+        ReportSprintId: number;
+        /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
+        ReportTeamId: number;
+        /** @description One Jira account id — sets the level to USER. Requires `teamId`. */
+        ReportAccountId: string;
+        /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
+        ReportDomainView: "TASK" | "EPIC";
+        /** @description Restricts to one domain key. */
+        ReportDomain: string;
+        /** @description Restricts to one activity type (a standard Jira issue type name). */
+        ReportActivityType: string;
+        /** @description Restricts to one work category, or the literal `UNCATEGORIZED`. */
+        ReportWorkCategory: string;
+        /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
+        ReportConnectionId: number;
+        /** @description Replaces the org drill inside a report's own `groups` with a slice by this dimension instead. */
+        ReportBreakdown: "NONE" | "DOMAIN" | "ACTIVITY_TYPE" | "WORK_CATEGORY";
     };
     requestBodies: never;
     headers: never;
@@ -3233,6 +3377,28 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getReportFilters: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The reports reference data */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportFilters"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
             500: components["responses"]["InternalServerError"];
         };
     };

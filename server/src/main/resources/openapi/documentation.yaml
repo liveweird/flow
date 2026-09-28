@@ -29,6 +29,7 @@ tags:
   - name: teams
   - name: data-sources
   - name: metrics
+  - name: reports
 
 paths:
   /api/v1/health:
@@ -1265,6 +1266,28 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/reports/filters:
+    get:
+      tags: [reports]
+      operationId: getReportFilters
+      summary: Get the reference data for the reports filter bar
+      description: |
+        Any authenticated user (D12 — everyone sees every report level). No query parameters: the
+        reference data every report's own filter bar/validation reads before a report is even
+        requested — active teams with the sprints their board has ever produced and their CURRENT
+        Jira roster (D1, with display names), the domain/activity-type/work-category values a real
+        DERIVE run has actually produced, active connections (id+name only — never `settings`/the
+        encrypted API token), and the shared `derivedAt`/`configRevision`/`minSampleSize` figures
+        every report's own `meta` block also carries. Read-only — no audit event.
+      responses:
+        '200':
+          description: The reports reference data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportFilters'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/metrics-settings:
     get:
       tags: [metrics]
@@ -1350,6 +1373,84 @@ components:
       required: false
       schema: { type: string }
       description: Free-text substring filter (case- and accent-insensitive) — API-LIST-005.
+
+    # The shared report filter parameters (v0.3.0 M4 commit 10a, `reports/ReportFilter.kt`) — not
+    # yet `$ref`'d by any path (this commit only builds `/reports/filters`, which takes none of
+    # them), declared here for the report endpoints landing in later commits (plan §10) to reuse.
+    ReportFrom:
+      name: from
+      in: query
+      required: false
+      schema: { type: string, description: "ISO date (YYYY-MM-DD)." }
+      description: >-
+        Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today).
+        Mutually exclusive with `lastSprints`/`sprintId`.
+    ReportTo:
+      name: to
+      in: query
+      required: false
+      schema: { type: string, description: "ISO date (YYYY-MM-DD)." }
+      description: Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days.
+    ReportLastSprints:
+      name: lastSprints
+      in: query
+      required: false
+      schema: { type: integer, minimum: 1, maximum: 52 }
+      description: Each team's own last N closed sprints (union at unit level). Mutually exclusive with `from`/`to`/`sprintId`.
+    ReportSprintId:
+      name: sprintId
+      in: query
+      required: false
+      schema: { type: integer, format: int64 }
+      description: One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`.
+    ReportTeamId:
+      name: teamId
+      in: query
+      required: false
+      schema: { type: integer, format: int32, minimum: 0 }
+      description: Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER.
+    ReportAccountId:
+      name: accountId
+      in: query
+      required: false
+      schema: { type: string }
+      description: One Jira account id — sets the level to USER. Requires `teamId`.
+    ReportDomainView:
+      name: domainView
+      in: query
+      required: false
+      schema: { type: string, enum: [TASK, EPIC] }
+      description: D3's two domain views ("delivered in" vs. "earned in"). Defaults per report.
+    ReportDomain:
+      name: domain
+      in: query
+      required: false
+      schema: { type: string }
+      description: Restricts to one domain key.
+    ReportActivityType:
+      name: activityType
+      in: query
+      required: false
+      schema: { type: string }
+      description: Restricts to one activity type (a standard Jira issue type name).
+    ReportWorkCategory:
+      name: workCategory
+      in: query
+      required: false
+      schema: { type: string }
+      description: Restricts to one work category, or the literal `UNCATEGORIZED`.
+    ReportConnectionId:
+      name: connectionId
+      in: query
+      required: false
+      schema: { type: integer, format: int32, minimum: 0 }
+      description: Restricts to one data source's own connection. Defaults to every enabled, active connection.
+    ReportBreakdown:
+      name: breakdown
+      in: query
+      required: false
+      schema: { type: string, enum: [NONE, DOMAIN, ACTIVITY_TYPE, WORK_CATEGORY], default: NONE }
+      description: Replaces the org drill inside a report's own `groups` with a slice by this dimension instead.
   responses:
     UnsupportedMediaType:
       description: Request body must use application/json. A missing body or Content-Type remains a 400.
@@ -2503,6 +2604,118 @@ components:
       properties:
         validFrom: { type: integer, format: int64 }
         validTo: { type: integer, format: int64, nullable: true }
+
+    # — reports (v0.3.0 M4 commit 10a) —
+
+    HistogramBucket:
+      type: object
+      required: [from, to, count]
+      properties:
+        from: { type: number, format: double }
+        to: { type: number, format: double }
+        count: { type: integer, format: int64, minimum: 0 }
+    Distribution:
+      type: object
+      description: >-
+        `hidden = true` (fewer than `minSampleSize` items) means only `n` is meaningful — every
+        other field is null/empty.
+      required: [n, hidden, histogram]
+      properties:
+        n: { type: integer, format: int64, minimum: 0 }
+        hidden: { type: boolean }
+        mean: { type: number, format: double, nullable: true }
+        min: { type: number, format: double, nullable: true }
+        max: { type: number, format: double, nullable: true }
+        p50: { type: number, format: double, nullable: true }
+        p90: { type: number, format: double, nullable: true }
+        p95: { type: number, format: double, nullable: true }
+        histogram:
+          type: array
+          items: { $ref: '#/components/schemas/HistogramBucket' }
+    ResolvedSprintGroup:
+      type: object
+      required: [teamId, sprintIds]
+      properties:
+        teamId: { type: integer, format: int32, minimum: 0 }
+        sprintIds:
+          type: array
+          items: { type: integer, format: int64 }
+    ReportMeta:
+      type: object
+      description: The `meta` block every report response carries beside its own body.
+      required: [derivedAt, configRevision, from, to, level, domainView, resolvedSprints, minSampleSize]
+      properties:
+        derivedAt: { type: integer, format: int64, nullable: true, description: "Epoch millis; null before any connection has ever completed a DERIVE." }
+        configRevision: { type: integer, format: int64, minimum: 1 }
+        from: { type: string, nullable: true, description: "ISO date; null for a lastSprints/sprintId-selected period." }
+        to: { type: string, nullable: true, description: "ISO date; null for a lastSprints/sprintId-selected period." }
+        level: { type: string, enum: [UNIT, TEAM, USER] }
+        domainView: { type: string, enum: [TASK, EPIC] }
+        resolvedSprints:
+          type: array
+          items: { $ref: '#/components/schemas/ResolvedSprintGroup' }
+        minSampleSize: { type: integer, minimum: 1 }
+    ReportFilterSprint:
+      type: object
+      required: [sprintId, name, state, startAt, completeAt]
+      properties:
+        sprintId: { type: integer, format: int64 }
+        name: { type: string }
+        state: { type: string }
+        startAt: { type: integer, format: int64, nullable: true }
+        completeAt: { type: integer, format: int64, nullable: true }
+    ReportFilterMember:
+      type: object
+      required: [accountId, displayName]
+      properties:
+        accountId: { type: string }
+        displayName: { type: string }
+    ReportFilterTeam:
+      type: object
+      required: [id, name, sprints, members]
+      properties:
+        id: { type: integer, format: int32, minimum: 0 }
+        name: { type: string }
+        sprints:
+          type: array
+          items: { $ref: '#/components/schemas/ReportFilterSprint' }
+        members:
+          type: array
+          items: { $ref: '#/components/schemas/ReportFilterMember' }
+    ReportFilterDomain:
+      type: object
+      required: [domainKey, domainName]
+      properties:
+        domainKey: { type: string }
+        domainName: { type: string }
+    ReportFilterConnection:
+      type: object
+      required: [id, name]
+      properties:
+        id: { type: integer, format: int32, minimum: 0 }
+        name: { type: string }
+    ReportFilters:
+      type: object
+      required: [teams, domains, activityTypes, workCategories, connections, derivedAt, configRevision, minSampleSize]
+      properties:
+        teams:
+          type: array
+          items: { $ref: '#/components/schemas/ReportFilterTeam' }
+        domains:
+          type: array
+          items: { $ref: '#/components/schemas/ReportFilterDomain' }
+        activityTypes:
+          type: array
+          items: { type: string }
+        workCategories:
+          type: array
+          items: { type: string }
+        connections:
+          type: array
+          items: { $ref: '#/components/schemas/ReportFilterConnection' }
+        derivedAt: { type: integer, format: int64, nullable: true }
+        configRevision: { type: integer, format: int64, minimum: 1 }
+        minSampleSize: { type: integer, minimum: 1 }
 
     ProblemDetail:
       type: object
