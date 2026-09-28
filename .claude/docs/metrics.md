@@ -146,3 +146,9 @@ connector kind.
 The derivation algorithm (`DeriveKernels`/`MetricsDeriver`, the `DERIVE` job kind, V16's star
 schema), the working-calendar math, the report API and the SPA pages all arrive with their own
 commits (7 onward) and their own sections here.
+
+**Membership history is permanent (by design).** Deleting a team closes its members' open
+memberships at that moment (so they can join another team from then on), but the history before
+that stays — `metrics.team_membership`'s EXCLUDE is per Jira account across all teams, so a new
+membership can never be backdated over a period the person already spent in another team, deleted
+or not. To correct a mistaken membership, edit or delete that row; don't delete the team first.
