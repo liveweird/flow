@@ -111,6 +111,11 @@ place:
   trying to lock the SAME row) — and queries `norm/WorkItemStore.People` directly (an unknown Jira
   account id is `400` — the client-supplied-FK idiom `TeamService.requireActiveUsers` already uses
   for Flow user ids), all inside its own transactions.
+- `metrics/MetricsConfigService.referenceData` (v0.3.0 M1 commit 4) reads `teams/TeamService.Teams`
+  (active teams) to validate `boards[].teamId` on the metrics-config PUT, inside its own transaction.
+- `metrics/MetricsDeriver.activeTeamIds` (v0.3.0 M3 commit 9d) reads `teams/TeamService.Teams`
+  (active teams) once per DERIVE, inside the rebuild transaction — the A22 rule that now-evaluated
+  team columns and the domain owner never name a soft-deleted team.
 
 List each new cross-feature read/write here as it lands — the list IS the permission.
 
@@ -469,7 +474,69 @@ its own until a connection is actually deleted).
 
 `MigrationChecksumTest` gains V15's pin.
 
-Current migrations are `V1`–`V16`:
+### The `metrics` schema — measure-contract corrections (V17)
+
+`V17__metrics_contract_columns.sql` (v0.3.0 M3 commit 9d, `.claude/docs/domain-model.md`
+"Amendments" A18/A19/A21/A22, `.claude/docs/measures.md`) is purely additive — every new column is
+nullable, no existing V1–V16 file changes, no data migration: the next DERIVE run backfills all of
+them wholesale (there is no `PROCESSING_VERSION`-style gate here, since `metrics.*` rows are
+already rebuilt WHOLESALE by every DERIVE run, unlike `norm.*`'s per-issue REPLACE).
+
+- **`metrics.domain_map.owner_team_id INTEGER NULL REFERENCES teams(id)`** (A19) — a domain's
+  project row may have an explicitly configured owner team, feeding `metrics/MetricsDeriver.kt`'s
+  `ownerTeamByDomain` (renamed from `ownerTeamByProject` — it resolves per DOMAIN key, since several
+  project rows may share one, not per project; see "Owner team" in `.claude/docs/metrics.md`'s
+  "Derivation corrections" for the full agreement/fallback algorithm and the A22 soft-deleted-team
+  exclusion). Not yet writable through the per-connection metrics-config request/response DTO or the
+  OpenAPI spec — that arrives with the config API/UI in a later commit; `MetricsConfigService
+  .replaceConfig` carries any already-stored value forward, unchanged, across its own
+  delete-and-reinsert full-replace PUT, so an unrelated field edit (statuses, boards, …) can never
+  silently wipe an owner an admin (or a future migration) already set.
+- **`metrics.fact_task_delivery.current_team_id INTEGER NULL REFERENCES teams(id)`,
+  `current_assignee_account_id VARCHAR(100) NULL`** (A21, A22) — D5 evaluated NOW rather than at
+  `done_at`, for every task, done or not: the team of the sprint in the task's SPRINT field
+  interval containing `now` (via `board_team_map`), else its assignee's team at this instant (the
+  ASSIGNEE field interval containing `now`, then `team_membership`) — never the `task_sprint`
+  bridge, which keeps every carried-over membership open. A22: a CLOSED
+  current sprint (`complete_at <= now`, or Jira `state == "closed"`) never resolves a team here — the
+  fallback runs straight to the assignee — and a currently soft-deleted team is skipped (a
+  soft-deleted sprint team falls back to the assignee's team; a soft-deleted assignee team gives
+  `null`) (never an as-was column's own concern — see
+  `.claude/docs/metrics.md`). `idx_metrics_fact_task_delivery_current_team`
+  (`connection_id, current_team_id`) is a PARTIAL index `WHERE done_at IS NULL` — the aging-WIP
+  report's own read pattern (report 11) only ever needs this column for STILL-OPEN items.
+- **`metrics.fact_worklog.assignee_account_id_at_started VARCHAR(100) NULL`,
+  `assignee_team_id_at_started INTEGER NULL REFERENCES teams(id)`** (A21) — the task's assignee
+  (and their team) at the worklog's own `started_at`, populated for EVERY worklog (task- or
+  epic-logged alike) as an informational bridge pair. For a TASK-logged worklog it also doubles as
+  the "assignments half" of foreign-work detection: `author team != assignee team at started_at`,
+  the fallback `isForeignWork` (`metrics/MetricsDeriver.kt`) applies when the task carries no sprint
+  team at that same instant. An EPIC-logged worklog's `foreign_work` instead compares the author
+  against the epic's own domain's OWNER team (A22, below) — these two columns are still filled for
+  it, but no longer feed that comparison.
+- **`metrics.fact_epic_delivery.owner_team_id INTEGER NULL REFERENCES teams(id)`** (A19) — an
+  epic's own domain's owner team, resolved by the SAME `ownerTeamByDomain` call `dim_domain
+  .owner_team_id` below reads from — stored so a future owner-scoped report (4/11/14) never has to
+  re-resolve it at query time, and so an epic-logged worklog's `foreign_work` (A22) can compare
+  against the SAME value a report reads back here.
+- **`metrics.dim_domain.owner_team_id INTEGER NULL REFERENCES teams(id)`** (A19, A22) — the
+  domain's OWN resolved owner team, written by every DERIVE run alongside the rest of `dim_domain`'s
+  wholesale rebuild, from the SAME `ownerTeamByDomain` map `fact_epic_delivery.owner_team_id` reads
+  — a report or the data-quality finding ("Domains without an owner team", report 14) reads this ONE
+  column rather than re-deriving the agreement/fallback algorithm itself.
+
+**`TeamService.delete` never touches `domain_map.owner_team_id`** — the same way it never touches
+`board_team_map.team_id` (V15 above): both are soft-delete-safe by construction. A soft-deleted
+team's row still exists, so the FK stays valid; nothing strands like `metrics.team_membership`'s
+open interval does (there is no exclusion constraint here to violate) — instead, `ownerTeamByDomain`
+filters a soft-deleted team OUT of its OWN resolution at DERIVE time (A22), and a future
+metrics-config PUT (or an admin re-pointing the owner) is the normal way to move the CONFIGURED
+value off a retired team once its config API lands. No cross-feature write was added for this
+migration — the persistence.md cross-feature list above is unchanged.
+
+`MigrationChecksumTest` gains V17's pin.
+
+Current migrations are `V1`–`V17`:
 
 - `V1__init` — the `users` table: `name` (≤50), `email` (≤254), `password_hash`, `role` with
   `CHECK ("role" IN ('ADMIN', 'USER'))` (single-column role storage; the wire shape stays a
@@ -524,6 +591,11 @@ Current migrations are `V1`–`V16`:
 - `V16__create_metrics_star` — see "The `metrics` schema — the derived star (V16)" above: adds
   `DERIVE` to `sync_jobs.kind`'s CHECK, every `metrics.*` dim/bridge/fact/agg table, and the first
   trigger in this repo (`fact_sprint_snapshot`'s immutability guard).
+- `V17__metrics_contract_columns` — see "The `metrics` schema — measure-contract corrections (V17)"
+  above: `domain_map.owner_team_id`, `fact_task_delivery.current_team_id`/
+  `current_assignee_account_id`, `fact_worklog.assignee_account_id_at_started`/
+  `assignee_team_id_at_started`, `fact_epic_delivery.owner_team_id`, `dim_domain.owner_team_id` —
+  additive columns backing A18/A19/A21/A22's derivation corrections.
 
 The `users`/`teams` tables follow Toadie's dialect (`SERIAL`/`INTEGER` ids, epoch-millis `BIGINT`
 timestamps, `marked_as_deleted` + partial unique indexes over active rows) and its idioms: a

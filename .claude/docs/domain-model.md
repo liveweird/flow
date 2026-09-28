@@ -381,6 +381,26 @@ carries the per-measure detail).
   WIP counts items at the end of each calendar day in the configured zone; foreign work also
   compares the author's team with the assignee's team when the task has no sprint team. The full
   list is in `measures.md`.
+- **A22 — Settled from the 9d Opus review** (main session, 2026-09-28; `.claude/docs/metrics.md`
+  "Derivation corrections from the measure contract" has the implementation detail):
+  - **Current sprint excludes closed sprints.** A sprint whose `complete_at ≤ now` (or whose Jira
+    `state` is `closed`) is never an open item's current sprint. A not-done task left in a closed
+    sprint is effectively backlog, so D5-at-now falls back to its assignee's team.
+  - **Now-evaluated team columns ignore soft-deleted teams.** This covers `current_team_id` and
+    `owner_team_id`: a board mapping or configured owner pointing at a soft-deleted team resolves to
+    none. As-was columns (`credit_team_id`, `author_team_id`, sprint team at done/started) keep the
+    historical team regardless.
+  - **The owner team belongs to the DOMAIN, not the project.** Resolution:
+    - use the configured owner if every project row of the domain agrees (a disagreeing PUT is a
+      400 once the API lands);
+    - else the team of the single mapped board across ALL the domain's projects;
+    - else none.
+
+    The resolved owner is persisted per domain on `dim_domain.owner_team_id` (V17), which reports
+    and data quality read.
+  - **Epic-logged worklogs.** For a worklog logged directly on an epic, foreign work compares the
+    author's team with the epic's OWNER team (A19), not the epic's assignee's team — epics carry no
+    sprint at all, so the sprint-team branch never applies to them either.
 
 ## Gaps in `norm` today
 

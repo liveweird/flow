@@ -172,6 +172,12 @@ maps the FLO board (id 1) to one freshly seeded team, and derives ONCE under a p
   membership setup, or a raw-row simulation** must never touch the shared derived connection — it
   clones its OWN connection via `SyncedStubFixture.cloneProcessedData` (PROCESS/PROFILE-free, same
   as any other processed-clone test) and derives it itself as many times as the test needs.
+- **A connection a metrics test derives itself is created DISABLED**
+  (`SyncedStubFixture.createConnection(enabled = false)`): every config change anywhere in the suite
+  (`MetricsConfigService.bumpRevision`) enqueues a DERIVE for every ENABLED connection, and a worker
+  running inside another test's `testApplication` would re-derive it with the REAL clock between
+  this test's own pinned-clock DERIVE and its assertions — a flake that only shows up in full-suite
+  order.
 - **Never re-run PROCESS/PROFILE in a metrics test unless PROCESS itself is the subject** —
   `cloneProcessedData` (or, for a read-only test, `DerivedStubFixture` outright) is always cheaper
   and exercises the exact same stored shape a real connection would have after its first sync.

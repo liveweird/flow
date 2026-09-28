@@ -13,6 +13,7 @@ import ch.nokillswit.metrics.MetricsDeriver
 import ch.nokillswit.metrics.MetricsSprintCapacity
 import ch.nokillswit.metrics.MetricsStore
 import ch.nokillswit.metrics.TeamMembershipCreateRequest
+import ch.nokillswit.metrics.TeamMembershipResponse
 import ch.nokillswit.metrics.TeamMembershipService
 import ch.nokillswit.metrics.WorkingCalendar
 import ch.nokillswit.norm.IntervalSource
@@ -23,6 +24,7 @@ import ch.nokillswit.norm.SprintRef
 import ch.nokillswit.norm.StatusCategory
 import ch.nokillswit.norm.StatusRef
 import ch.nokillswit.norm.TombstoneKind
+import ch.nokillswit.norm.TrackedField
 import ch.nokillswit.norm.WorkItemFacts
 import ch.nokillswit.norm.WorkItemStore
 import java.io.File
@@ -44,6 +46,9 @@ import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.isNotNull
+import org.jetbrains.exposed.v1.core.neq
+import org.jetbrains.exposed.v1.r2dbc.deleteWhere
+import org.jetbrains.exposed.v1.r2dbc.insert
 import org.jetbrains.exposed.v1.r2dbc.select
 import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
@@ -116,6 +121,16 @@ private val metricsDerivationGoldenSprint: GoldenSprintFixture by lazy { metrics
 
 private fun isoDateEpochMillis(isoDate: String): Long = LocalDate.parse(isoDate).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
 
+/** A generic `[fromAtMs, toAtMs)` bridge-table interval, for an independent re-derivation of a
+ * "value as of now" read against a persisted `metrics.*` bridge table — the same shape
+ * `metrics/MetricsDeriver.kt`'s own `valueAt`/`teamAt` read over in-memory intervals. */
+private data class BridgeInterval<T>(val value: T, val fromAtMs: Long, val toAtMs: Long?)
+
+/** The interval CONTAINING [atMs] — `metrics/MetricsDeriver.kt`'s `valueAt` predicate, applied to
+ * rows read back from a `metrics.*` bridge table rather than an in-memory interval list. */
+private fun <T> valueAtBridge(rows: List<BridgeInterval<T>>, atMs: Long): T? =
+    rows.firstOrNull { it.fromAtMs <= atMs && (it.toAtMs == null || atMs < it.toAtMs) }?.value
+
 /**
  * `metrics/MetricsDeriver.kt` (v0.3.0 M3 commit 7): DERIVE over a CLONE of `SyncedStubFixture`'s
  * shared connection (never the shared connection itself — `.claude/docs/testing.md` "Shared synced
@@ -150,7 +165,7 @@ class MetricsDerivationTest {
      */
     private suspend fun clonedProcessedConnection(): UInt {
         val sharedConnId = SyncedStubFixture.connectionId()
-        val connId = SyncedStubFixture.createConnection(namePrefix = "jira-derive-clone")
+        val connId = SyncedStubFixture.createConnection(namePrefix = "jira-derive-clone", enabled = false)
         SyncedStubFixture.cloneProcessedData(sharedConnId, connId)
         return connId
     }
@@ -476,7 +491,7 @@ class MetricsDerivationTest {
     @Test
     fun `DERIVE flags a deliberately UNMAPPED status - never counted as started or done, per the domain-model rule`() = runBlocking {
         val ds = dataSources()
-        val connId = SyncedStubFixture.createConnection(dataSources = ds, namePrefix = "jira-unmapped")
+        val connId = SyncedStubFixture.createConnection(dataSources = ds, namePrefix = "jira-unmapped", enabled = false)
         seedUnmappedStatusIssue(connId)
 
         val config = metricsConfig()
@@ -816,7 +831,7 @@ class MetricsDerivationTest {
     @Test
     fun `a connection whose profile detects no Sprint field gets no fabricated sprint scope, flagged sprintFieldUnresolved`() =
         runBlocking {
-            val connId = SyncedStubFixture.createConnection(namePrefix = "jira-nosprintfield")
+            val connId = SyncedStubFixture.createConnection(namePrefix = "jira-nosprintfield", enabled = false)
             // A sprint exists (so the step doesn't short-circuit on `sprints.isEmpty()`), but this
             // connection never ran PROCESS/PROFILE — `source_connections.profile` is null, so
             // `MetricsConfigService.detectedSprintFieldId` returns null: no SPRINT-role field is known.
@@ -873,72 +888,80 @@ class MetricsDerivationTest {
         val sprintBefore = workItems().allSprintRefs(connId).single { it.sprintId == sprintId }
         val membershipStart = sprintBefore.startAtMs!! - THIRTY_DAYS_MS
         val membershipService = teamMembership(config)
-        membershipService.create(teamId, TeamMembershipCreateRequest(accountA, membershipStart, null))
-        membershipService.create(teamId, TeamMembershipCreateRequest(accountB, membershipStart, null))
+        val membershipA = membershipService.create(teamId, TeamMembershipCreateRequest(accountA, membershipStart, null))
+        val membershipB = membershipService.create(teamId, TeamMembershipCreateRequest(accountB, membershipStart, null))
+        // `metrics.team_membership` is GLOBAL by account id (`.claude/docs/persistence.md` "metrics.team_membership
+        // (D1)") — even a synthetic UUID-keyed account row must be cleaned up so a later test's own
+        // "every membership row" sweep (`TeamMembershipService.allMembershipsByAccount`) never sees it (review
+        // round 2c fix).
+        try {
+            deriver(config).derive(SyncJobRunContext(deriveClaim(20u, connId), clock = { PINNED_NOW }) { _, _ -> true })
 
-        deriver(config).derive(SyncJobRunContext(deriveClaim(20u, connId), clock = { PINNED_NOW }) { _, _ -> true })
+            // Computed independently of `MetricsDeriver`'s own private `sprintCapacity` — the SAME
+            // `WorkingCalendar` class DERIVE itself uses (`WorkingCalendarTest` already proves its own
+            // math), fed the connection's CURRENT stored settings and OUR OWN two membership rows.
+            val settings = config.read()
+            val calendar = WorkingCalendar(
+                ZoneId.of(settings.timeZone),
+                settings.weekendDays.toSet(),
+                settings.holidays.mapNotNull { runCatching { LocalDate.parse(it) }.getOrNull() }.toSet(),
+            )
+            val sprintStartAt = sprintBefore.startAtMs!!
+            val endAt = sprintBefore.endAtMs ?: sprintBefore.completeAtMs ?: sprintStartAt
+            val expectedWorkingDays = calendar.workingDaysBetween(sprintStartAt, endAt)
+            val expectedDefaultCapacity = 2 * expectedWorkingDays
 
-        // Computed independently of `MetricsDeriver`'s own private `sprintCapacity` — the SAME
-        // `WorkingCalendar` class DERIVE itself uses (`WorkingCalendarTest` already proves its own
-        // math), fed the connection's CURRENT stored settings and OUR OWN two membership rows.
-        val settings = config.read()
-        val calendar = WorkingCalendar(
-            ZoneId.of(settings.timeZone),
-            settings.weekendDays.toSet(),
-            settings.holidays.mapNotNull { runCatching { LocalDate.parse(it) }.getOrNull() }.toSet(),
-        )
-        val sprintStartAt = sprintBefore.startAtMs!!
-        val endAt = sprintBefore.endAtMs ?: sprintBefore.completeAtMs ?: sprintStartAt
-        val expectedWorkingDays = calendar.workingDaysBetween(sprintStartAt, endAt)
-        val expectedDefaultCapacity = 2 * expectedWorkingDays
+            val dimRowDefault = suspendTransaction(sharedDatabaseForTests()) {
+                MetricsStore.DimSprint.selectAll()
+                    .where { (MetricsStore.DimSprint.connectionId eq connId) and (MetricsStore.DimSprint.sprintId eq sprintId) }
+                    .toList().single()
+            }
+            assertEquals("DEFAULT", dimRowDefault[MetricsStore.DimSprint.capacitySource])
+            assertTrue(
+                abs(expectedDefaultCapacity - dimRowDefault[MetricsStore.DimSprint.capacityMd]!!.toDouble()) < CAPACITY_TOLERANCE,
+                "default capacity must be Sigma members x working days over the sprint window " +
+                    "(expected $expectedDefaultCapacity, got ${dimRowDefault[MetricsStore.DimSprint.capacityMd]})",
+            )
 
-        val dimRowDefault = suspendTransaction(sharedDatabaseForTests()) {
-            MetricsStore.DimSprint.selectAll()
-                .where { (MetricsStore.DimSprint.connectionId eq connId) and (MetricsStore.DimSprint.sprintId eq sprintId) }
-                .toList().single()
+            // An admin now configures an explicit override for this one sprint.
+            val current = config.effectiveConfig(connId)
+            config.replaceConfig(
+                connId,
+                DataSourceMetricsConfigRequest(
+                    statusStages = current.statusStages,
+                    fields = current.fields,
+                    domains = current.domains,
+                    boards = listOf(MetricsBoardTeamMapping(1L, teamId)),
+                    activityTypes = current.activityTypes,
+                    workCategories = current.workCategories,
+                    blockedStatuses = current.blockedStatuses,
+                    sprintCapacities = listOf(MetricsSprintCapacity(sprintId, CONFIGURED_CAPACITY_MD)),
+                ),
+            )
+            deriver(config).derive(SyncJobRunContext(deriveClaim(21u, connId), clock = { PINNED_NOW }) { _, _ -> true })
+
+            val dimRowConfigured = suspendTransaction(sharedDatabaseForTests()) {
+                MetricsStore.DimSprint.selectAll()
+                    .where { (MetricsStore.DimSprint.connectionId eq connId) and (MetricsStore.DimSprint.sprintId eq sprintId) }
+                    .toList().single()
+            }
+            val factRowConfigured = suspendTransaction(sharedDatabaseForTests()) {
+                MetricsStore.FactSprint.selectAll()
+                    .where { (MetricsStore.FactSprint.connectionId eq connId) and (MetricsStore.FactSprint.sprintId eq sprintId) }
+                    .toList().single()
+            }
+            assertEquals("CONFIGURED", dimRowConfigured[MetricsStore.DimSprint.capacitySource])
+            assertEquals(CONFIGURED_CAPACITY_MD, dimRowConfigured[MetricsStore.DimSprint.capacityMd]!!.toDouble())
+            assertEquals(CONFIGURED_CAPACITY_MD, factRowConfigured[MetricsStore.FactSprint.capacityMd]!!.toDouble())
+            val expectedLoad = factRowConfigured[MetricsStore.FactSprint.committedMd].toDouble() / CONFIGURED_CAPACITY_MD
+            assertTrue(
+                abs(expectedLoad - factRowConfigured[MetricsStore.FactSprint.load]!!.toDouble()) < CAPACITY_TOLERANCE,
+                "load must equal committed / capacity",
+            )
+        } finally {
+            membershipService.delete(teamId, membershipA.id)
+            membershipService.delete(teamId, membershipB.id)
         }
-        assertEquals("DEFAULT", dimRowDefault[MetricsStore.DimSprint.capacitySource])
-        assertTrue(
-            abs(expectedDefaultCapacity - dimRowDefault[MetricsStore.DimSprint.capacityMd]!!.toDouble()) < CAPACITY_TOLERANCE,
-            "default capacity must be Sigma members x working days over the sprint window " +
-                "(expected $expectedDefaultCapacity, got ${dimRowDefault[MetricsStore.DimSprint.capacityMd]})",
-        )
-
-        // An admin now configures an explicit override for this one sprint.
-        val current = config.effectiveConfig(connId)
-        config.replaceConfig(
-            connId,
-            DataSourceMetricsConfigRequest(
-                statusStages = current.statusStages,
-                fields = current.fields,
-                domains = current.domains,
-                boards = listOf(MetricsBoardTeamMapping(1L, teamId)),
-                activityTypes = current.activityTypes,
-                workCategories = current.workCategories,
-                blockedStatuses = current.blockedStatuses,
-                sprintCapacities = listOf(MetricsSprintCapacity(sprintId, CONFIGURED_CAPACITY_MD)),
-            ),
-        )
-        deriver(config).derive(SyncJobRunContext(deriveClaim(21u, connId), clock = { PINNED_NOW }) { _, _ -> true })
-
-        val dimRowConfigured = suspendTransaction(sharedDatabaseForTests()) {
-            MetricsStore.DimSprint.selectAll()
-                .where { (MetricsStore.DimSprint.connectionId eq connId) and (MetricsStore.DimSprint.sprintId eq sprintId) }
-                .toList().single()
-        }
-        val factRowConfigured = suspendTransaction(sharedDatabaseForTests()) {
-            MetricsStore.FactSprint.selectAll()
-                .where { (MetricsStore.FactSprint.connectionId eq connId) and (MetricsStore.FactSprint.sprintId eq sprintId) }
-                .toList().single()
-        }
-        assertEquals("CONFIGURED", dimRowConfigured[MetricsStore.DimSprint.capacitySource])
-        assertEquals(CONFIGURED_CAPACITY_MD, dimRowConfigured[MetricsStore.DimSprint.capacityMd]!!.toDouble())
-        assertEquals(CONFIGURED_CAPACITY_MD, factRowConfigured[MetricsStore.FactSprint.capacityMd]!!.toDouble())
-        val expectedLoad = factRowConfigured[MetricsStore.FactSprint.committedMd].toDouble() / CONFIGURED_CAPACITY_MD
-        assertTrue(
-            abs(expectedLoad - factRowConfigured[MetricsStore.FactSprint.load]!!.toDouble()) < CAPACITY_TOLERANCE,
-            "load must equal committed / capacity",
-        )
     }
 
     @Test
@@ -979,32 +1002,43 @@ class MetricsDerivationTest {
 
             val teamId = TestTeams.seed(uniqueEmail("ops-credit-team"))
             val doneAt = target[MetricsStore.FactTaskDelivery.doneAt]!!
-            teamMembership(config).create(teamId, TeamMembershipCreateRequest(targetAccountId, doneAt - THIRTY_DAYS_MS, null))
+            val membershipService = teamMembership(config)
+            val membership = membershipService.create(teamId, TeamMembershipCreateRequest(targetAccountId, doneAt - THIRTY_DAYS_MS, null))
+            // `targetAccountId` is a REAL stub account id (an actual assignee in the sample dataset), not a
+            // synthetic UUID — `metrics.team_membership` is GLOBAL by account id, so a leftover open
+            // membership here would corrupt EVERY OTHER test's "current team" sweep for this same account,
+            // including the SHARED `DerivedStubFixture` connection (`.claude/docs/testing.md`'s tripwire
+            // rationale, review round 2c fix). Clean up regardless of assertion outcome.
+            try {
+                deriver(config).derive(SyncJobRunContext(deriveClaim(31u, connId), clock = { PINNED_NOW }) { _, _ -> true })
 
-            deriver(config).derive(SyncJobRunContext(deriveClaim(31u, connId), clock = { PINNED_NOW }) { _, _ -> true })
+                suspend fun reread(issueId: Long): ResultRow = suspendTransaction(sharedDatabaseForTests()) {
+                    MetricsStore.FactTaskDelivery.selectAll()
+                        .where {
+                            (MetricsStore.FactTaskDelivery.connectionId eq connId) and (MetricsStore.FactTaskDelivery.issueId eq issueId)
+                        }
+                        .toList().single()
+                }
 
-            suspend fun reread(issueId: Long): ResultRow = suspendTransaction(sharedDatabaseForTests()) {
-                MetricsStore.FactTaskDelivery.selectAll()
-                    .where { (MetricsStore.FactTaskDelivery.connectionId eq connId) and (MetricsStore.FactTaskDelivery.issueId eq issueId) }
-                    .toList().single()
+                val targetAfter = reread(target[MetricsStore.FactTaskDelivery.issueId])
+                assertNull(
+                    targetAfter[MetricsStore.FactTaskDelivery.sprintIdAtDone],
+                    "OPS still has no sprints — sprint_id_at_done stays NULL even once the assignee has a team",
+                )
+                assertEquals(
+                    teamId,
+                    targetAfter[MetricsStore.FactTaskDelivery.creditTeamId]?.value,
+                    "credit_team_id must fall back to the assignee's own team at done, once one exists",
+                )
+
+                val untouchedAfter = reread(untouched[MetricsStore.FactTaskDelivery.issueId])
+                assertNull(
+                    untouchedAfter[MetricsStore.FactTaskDelivery.creditTeamId],
+                    "an assignee still in no team keeps a null (0/UNASSIGNED) credit_team_id",
+                )
+            } finally {
+                membershipService.delete(teamId, membership.id)
             }
-
-            val targetAfter = reread(target[MetricsStore.FactTaskDelivery.issueId])
-            assertNull(
-                targetAfter[MetricsStore.FactTaskDelivery.sprintIdAtDone],
-                "OPS still has no sprints — sprint_id_at_done stays NULL even once the assignee has a team",
-            )
-            assertEquals(
-                teamId,
-                targetAfter[MetricsStore.FactTaskDelivery.creditTeamId]?.value,
-                "credit_team_id must fall back to the assignee's own team at done, once one exists",
-            )
-
-            val untouchedAfter = reread(untouched[MetricsStore.FactTaskDelivery.issueId])
-            assertNull(
-                untouchedAfter[MetricsStore.FactTaskDelivery.creditTeamId],
-                "an assignee still in no team keeps a null (0/UNASSIGNED) credit_team_id",
-            )
         }
 
     @Test
@@ -1164,8 +1198,712 @@ class MetricsDerivationTest {
         )
     }
 
+    // ---- Commit 9d: the measure-contract corrections (A18/A19/A21) ----------------------------
+
+    @Test
+    fun `fact_task_delivery - active plus wait equals cycle, both within 0 and cycle, for every DONE task (A18)`() = runBlocking {
+        val connId = DerivedStubFixture.connectionId()
+        val rows = suspendTransaction(sharedDatabaseForTests()) {
+            MetricsStore.FactTaskDelivery.selectAll()
+                .where { (MetricsStore.FactTaskDelivery.connectionId eq connId) and MetricsStore.FactTaskDelivery.doneAt.isNotNull() }
+                .toList()
+        }
+        assertTrue(rows.isNotEmpty(), "the golden connection must have at least one DONE task")
+        rows.forEach { row ->
+            val cycleMs = row[MetricsStore.FactTaskDelivery.cycleMs]!!
+            val activeMs = row[MetricsStore.FactTaskDelivery.activeMs]
+            val waitMs = row[MetricsStore.FactTaskDelivery.waitMs]
+            val issueId = row[MetricsStore.FactTaskDelivery.issueId]
+            assertEquals(cycleMs, activeMs + waitMs, "active + wait must equal cycle for issue $issueId")
+            assertTrue(activeMs in 0..cycleMs, "active must stay within [0, cycle]")
+            assertTrue(waitMs >= 0, "wait must never be negative")
+        }
+    }
+
+    @Test
+    fun `fact_task_delivery - current_team_id matches D5 evaluated now, via the open task_sprint or task_assignee bridge (A21)`() =
+        runBlocking {
+            val connId = DerivedStubFixture.connectionId()
+            val now = DerivedStubFixture.PINNED_NOW
+            suspendTransaction(sharedDatabaseForTests()) {
+                // The current sprint is re-derived from the SAME source production reads — the norm
+                // SPRINT field interval containing `now` (its last sprint id), tiled and
+                // non-overlapping by construction, ordered by `seq` — NOT `metrics.task_sprint`,
+                // whose carried-over memberships overlap (both sprints stay open), which would make a
+                // `firstOrNull` pick depend on row order. The assignee/membership reads below are
+                // non-overlapping too (tiled intervals; the EXCLUDE constraint), so their
+                // `.orderBy` only keeps the reads deterministic.
+                val sprintRowsByIssue = workItems().fieldIntervalsByIssue(connId, TrackedField.SPRINT)
+                    .mapValues { (_, intervals) ->
+                        intervals.sortedBy { it.seq }.map { BridgeInterval(it.valueId?.toLongOrNull(), it.fromAtMs, it.toAtMs) }
+                    }
+                // A22: a CLOSED sprint (Jira `state == "closed"`, or `complete_at <= now`) is never an
+                // open item's CURRENT sprint — the independent re-derivation must apply the same
+                // exclusion `MetricsDeriver.isSprintClosed`/`currentAttribution` do, or it would
+                // spuriously disagree wherever the golden dataset's own task_sprint bridge leaves a
+                // task's open membership interval pointing at an already-closed sprint (a task added
+                // to a sprint and never moved to a later one once that sprint itself closed).
+                val sprintTeamById = MetricsStore.DimSprint.selectAll().where { MetricsStore.DimSprint.connectionId eq connId }
+                    .toList().associate {
+                        val closed = it[MetricsStore.DimSprint.state].equals("closed", ignoreCase = true) ||
+                            (it[MetricsStore.DimSprint.completeAt] != null && it[MetricsStore.DimSprint.completeAt]!! <= now)
+                        it[MetricsStore.DimSprint.sprintId] to (it[MetricsStore.DimSprint.teamId]?.value.takeIf { !closed })
+                    }
+                val assigneeRowsByIssue = MetricsStore.TaskAssignee.selectAll()
+                    .where { MetricsStore.TaskAssignee.connectionId eq connId }
+                    .orderBy(MetricsStore.TaskAssignee.validFrom to SortOrder.ASC)
+                    .toList()
+                    .groupBy({ it[MetricsStore.TaskAssignee.issueId] }) {
+                        BridgeInterval(
+                            it[MetricsStore.TaskAssignee.accountId],
+                            it[MetricsStore.TaskAssignee.validFrom],
+                            it[MetricsStore.TaskAssignee.validTo],
+                        )
+                    }
+                val membership = TeamMembershipService.TeamMembership
+                val membershipRowsByAccount = membership.selectAll()
+                    .orderBy(membership.validFrom to SortOrder.ASC)
+                    .toList()
+                    .groupBy({ it[membership.accountId] }) {
+                        BridgeInterval(it[membership.teamId].value, it[membership.validFrom], it[membership.validTo])
+                    }
+
+                // Level-0 only (D2): a sub-task carries no `task_sprint` bridge row of its own
+                // (`.claude/docs/metrics.md` "Sprint scope, facts and snapshots") and would otherwise
+                // spuriously disagree with this independent, bridge-only re-derivation.
+                val rows = MetricsStore.FactTaskDelivery.selectAll()
+                    .where { (MetricsStore.FactTaskDelivery.connectionId eq connId) and (MetricsStore.FactTaskDelivery.isSubtask eq false) }
+                    .toList()
+                assertTrue(rows.isNotEmpty())
+                var checkedWithTeam = 0
+                rows.forEach { row ->
+                    val issueId = row[MetricsStore.FactTaskDelivery.issueId]
+                    // "Current" is the bridge interval CONTAINING the DERIVE run's own clock
+                    // (`valueAt`'s predicate, `metrics/MetricsDeriver.kt`) — NOT simply "the row
+                    // with `valid_to IS NULL`": the sample dataset's own day2/incremental data
+                    // carries changelog events dated AFTER `DerivedStubFixture.PINNED_NOW`, so an
+                    // issue's LATEST-tiled (open) interval can start in what is, relative to the
+                    // pinned clock, the future — the interval that actually contains `now` is an
+                    // earlier, already-closed one. Re-deriving "current" any other way would
+                    // spuriously disagree with production's own `now`-anchored read.
+                    val expectedAssignee = valueAtBridge(assigneeRowsByIssue[issueId].orEmpty(), now)
+                    assertEquals(
+                        expectedAssignee,
+                        row[MetricsStore.FactTaskDelivery.currentAssigneeAccountId],
+                        "current_assignee_account_id must equal the task_assignee interval containing now for issue $issueId",
+                    )
+                    val sprintTeam = valueAtBridge(sprintRowsByIssue[issueId].orEmpty(), now)?.let { sprintTeamById[it] }
+                    val expectedTeam = sprintTeam ?: expectedAssignee?.let { accountId ->
+                        valueAtBridge(membershipRowsByAccount[accountId].orEmpty(), now)
+                    }
+                    assertEquals(
+                        expectedTeam,
+                        row[MetricsStore.FactTaskDelivery.currentTeamId]?.value,
+                        "current_team_id must equal D5 evaluated now for issue $issueId",
+                    )
+                    if (expectedTeam != null) checkedWithTeam++
+                }
+                assertTrue(checkedWithTeam > 0, "at least one task must resolve a current team, or this sweep proves nothing")
+            }
+            Unit
+        }
+
+    @Test
+    fun `fact_worklog - task_domain_key is never null (invariant 6 strengthened, commit 9d)`() = runBlocking {
+        val connId = DerivedStubFixture.connectionId()
+        val rows = suspendTransaction(sharedDatabaseForTests()) {
+            MetricsStore.FactWorklog.selectAll().where { MetricsStore.FactWorklog.connectionId eq connId }.toList()
+        }
+        assertTrue(rows.isNotEmpty())
+        assertTrue(
+            rows.none { it[MetricsStore.FactWorklog.taskDomainKey] == null },
+            "every worklog must carry a domain — an epic-logged one gets the epic's own domain, never null",
+        )
+        // Where a worklog IS logged directly on an epic (epic_id == issue_id, by construction),
+        // its task_domain_key must equal its own epic_domain_key.
+        val epicLoggedRows = rows.filter { it[MetricsStore.FactWorklog.epicId] == it[MetricsStore.FactWorklog.issueId] }
+        assertTrue(
+            epicLoggedRows.isNotEmpty(),
+            "at least one epic-logged worklog must exist in the fixture, or the assertion above proves nothing (review round 2c fix)",
+        )
+        epicLoggedRows.forEach { row ->
+            assertEquals(row[MetricsStore.FactWorklog.epicDomainKey], row[MetricsStore.FactWorklog.taskDomainKey])
+        }
+    }
+
+    @Test
+    fun `fact_worklog - assignee_team_id_at_started, and foreign_work's task-vs-epic rule, match A21-A22`() =
+        runBlocking {
+            val connId = DerivedStubFixture.connectionId()
+            suspendTransaction(sharedDatabaseForTests()) {
+                // Re-derived INDEPENDENTLY from the raw ASSIGNEE field intervals + team_membership —
+                // never trusting the stored `assignee_team_id_at_started` column itself (review round
+                // 2c fix). Read straight off `norm.work_item_field_intervals` rather than the
+                // `metrics.task_assignee` bridge: that bridge is TASK-only (`MetricsDeriver.runPass2`
+                // skips epics), and an epic-logged worklog still needs its own assignee-at-started —
+                // `worklogRow` itself reads the SAME raw intervals, not the bridge, for exactly this
+                // reason.
+                // Explicit `.orderBy` (review round 2c fix, the same rationale as the current_team_id
+                // sweep above): `.seq` is `norm.work_item_field_intervals`' own chronological order,
+                // the SAME order `WorkItemStore.fieldIntervalsByIssue`'s `.sortedBy { it.seq }` gives
+                // production's own in-memory list.
+                val assigneeRowsByIssue = WorkItemStore.FieldIntervals.selectAll()
+                    .where { (WorkItemStore.FieldIntervals.connectionId eq connId) and (WorkItemStore.FieldIntervals.field eq "ASSIGNEE") }
+                    .orderBy(WorkItemStore.FieldIntervals.seq to SortOrder.ASC)
+                    .toList()
+                    .groupBy({ it[WorkItemStore.FieldIntervals.issueId] }) {
+                        BridgeInterval(
+                            it[WorkItemStore.FieldIntervals.valueId],
+                            it[WorkItemStore.FieldIntervals.fromAt],
+                            it[WorkItemStore.FieldIntervals.toAt],
+                        )
+                    }
+                val membership = TeamMembershipService.TeamMembership
+                val membershipRowsByAccount = membership.selectAll()
+                    .orderBy(membership.validFrom to SortOrder.ASC)
+                    .toList()
+                    .groupBy({ it[membership.accountId] }) {
+                        BridgeInterval(it[membership.teamId].value, it[membership.validFrom], it[membership.validTo])
+                    }
+                val ownerTeamByDomain = MetricsStore.DimDomain.selectAll().where { MetricsStore.DimDomain.connectionId eq connId }
+                    .toList().associate { it[MetricsStore.DimDomain.domainKey] to it[MetricsStore.DimDomain.ownerTeamId]?.value }
+
+                val rows = MetricsStore.FactWorklog.selectAll().where { MetricsStore.FactWorklog.connectionId eq connId }.toList()
+                assertTrue(rows.isNotEmpty())
+                var checkedEpicLogged = 0
+                rows.forEach { row ->
+                    val worklogId = row[MetricsStore.FactWorklog.worklogId]
+                    val issueId = row[MetricsStore.FactWorklog.issueId]
+                    val startedAt = row[MetricsStore.FactWorklog.startedAt]
+                    val expectedAssigneeAccountId = valueAtBridge(assigneeRowsByIssue[issueId].orEmpty(), startedAt)
+                    val expectedAssigneeTeamId = expectedAssigneeAccountId
+                        ?.let { accountId -> valueAtBridge(membershipRowsByAccount[accountId].orEmpty(), startedAt) }
+                    assertEquals(
+                        expectedAssigneeAccountId,
+                        row[MetricsStore.FactWorklog.assigneeAccountIdAtStarted],
+                        "assignee_account_id_at_started must equal the task_assignee interval containing started_at for worklog $worklogId",
+                    )
+                    assertEquals(
+                        expectedAssigneeTeamId,
+                        row[MetricsStore.FactWorklog.assigneeTeamIdAtStarted]?.value,
+                        "assignee_team_id_at_started must equal the assignee's own team_membership at started_at for worklog $worklogId",
+                    )
+
+                    val authorTeamId = row[MetricsStore.FactWorklog.authorTeamId]?.value
+                    // A worklog logged directly on an epic has epic_id == its own issue_id, by construction.
+                    val isEpicLogged = row[MetricsStore.FactWorklog.epicId] == issueId
+                    val expectedForeignWork = if (isEpicLogged) {
+                        checkedEpicLogged++
+                        // A22: epic-logged foreign work compares the author against the epic's OWN
+                        // domain's owner team (persisted on dim_domain by this same DERIVE run) —
+                        // never the epic's assignee's team.
+                        val ownerTeamId = row[MetricsStore.FactWorklog.epicDomainKey]?.let { ownerTeamByDomain[it] }
+                        authorTeamId != null && ownerTeamId != null && authorTeamId != ownerTeamId
+                    } else {
+                        val sprintTeamId = row[MetricsStore.FactWorklog.sprintTeamIdAtStarted]?.value
+                        when {
+                            authorTeamId == null -> false
+                            sprintTeamId != null -> authorTeamId != sprintTeamId
+                            else -> expectedAssigneeTeamId != null && authorTeamId != expectedAssigneeTeamId
+                        }
+                    }
+                    assertEquals(
+                        expectedForeignWork,
+                        row[MetricsStore.FactWorklog.foreignWork],
+                        "foreign_work must match A21/A22's rule for worklog $worklogId",
+                    )
+                }
+                assertTrue(checkedEpicLogged > 0, "at least one epic-logged worklog must exist, or the owner-team branch proves nothing")
+            }
+            Unit
+        }
+
+    @Test
+    fun `fact_epic_delivery - owner_team_id equals the FLO board's team for FLO epics (A19)`() = runBlocking {
+        val connId = DerivedStubFixture.connectionId()
+        suspendTransaction(sharedDatabaseForTests()) {
+            val floBoard = workItems().allBoardRefs(connId).single { it.boardId == FLO_BOARD_ID }
+            assertEquals("FLO", floBoard.projectKey, "board 1 must map to the FLO project in the sample dataset")
+
+            val boardTeamMap = MetricsConfigService.BoardTeamMap
+            val floTeamId = boardTeamMap.selectAll()
+                .where { (boardTeamMap.connectionId eq connId) and (boardTeamMap.boardId eq FLO_BOARD_ID) }
+                .toList().single()[boardTeamMap.teamId].value
+
+            val floEpicRows = MetricsStore.FactEpicDelivery
+                .join(
+                    MetricsStore.DimEpic,
+                    JoinType.INNER,
+                    onColumn = MetricsStore.FactEpicDelivery.issueId,
+                    otherColumn = MetricsStore.DimEpic.issueId,
+                    additionalConstraint = { MetricsStore.DimEpic.connectionId eq MetricsStore.FactEpicDelivery.connectionId },
+                )
+                .select(MetricsStore.FactEpicDelivery.issueId, MetricsStore.FactEpicDelivery.ownerTeamId)
+                .where { (MetricsStore.FactEpicDelivery.connectionId eq connId) and (MetricsStore.DimEpic.domainKey eq "FLO") }
+                .toList()
+            assertTrue(floEpicRows.isNotEmpty(), "the FLO project must carry at least one epic")
+            floEpicRows.forEach { row ->
+                assertEquals(
+                    floTeamId,
+                    row[MetricsStore.FactEpicDelivery.ownerTeamId]?.value,
+                    "a FLO epic's owner_team_id must equal the FLO board's own configured team",
+                )
+            }
+        }
+        Unit
+    }
+
+    /**
+     * A19/A22's owner-resolution algorithm (`MetricsDeriver.ownerTeamByDomain`), on its own clone —
+     * four cases in one DERIVE, over four of the fixture's own (real) boarded projects, remapped
+     * into three synthetic domains:
+     * - **`OWNERA`** (project A alone): a `metrics.domain_map.owner_team_id` set DIRECTLY (no PUT
+     *   support yet) must OVERRIDE project A's own mapped board's team.
+     * - **`OWNERB`** (projects B + C together): two boards mapped to two DIFFERENT teams, no
+     *   configured owner for either project — must resolve to NO owner (disagreement/ambiguity).
+     * - **`OWNERC`** (project D alone, deliberately left OUT of `boards[]`): a configured owner
+     *   whose team is then SOFT-DELETED must resolve to NO owner (A22), not fall back to a board
+     *   default that does not exist here either.
+     * - Whatever `OWNERA` resolves to must also be exactly what `fact_epic_delivery.owner_team_id`
+     *   carries for every one of project A's own epics (`dim_domain`/`fact_epic_delivery` agreement).
+     */
+    @Test
+    fun `owner team resolution (A19, A22) - a configured override, a disagreeing board pair, and a soft-deleted configured team`() =
+        runBlocking {
+            val connId = clonedProcessedConnection()
+            val config = metricsConfig()
+            val current = config.effectiveConfig(connId)
+
+            val boardsByProject = workItems().allBoardRefs(connId).filter { it.projectKey != null }
+                .groupBy { it.projectKey!! }
+                .mapValues { (_, boards) -> boards.first().boardId }
+            assertTrue(boardsByProject.size >= 3, "the fixture must map at least 3 distinct projects to boards for this test")
+            val boardedProjects = boardsByProject.keys.toList()
+            val projectA = boardedProjects[0]
+            val projectB = boardedProjects[1]
+            val projectC = boardedProjects[2]
+            val allProjects = workItems().distinctProjectKeys(connId)
+            val projectD = allProjects.firstOrNull { it !in setOf(projectA, projectB, projectC) }
+                ?: boardedProjects.getOrElse(3) { projectA }
+
+            val teamA = TestTeams.seed(uniqueEmail("owner-board-a"))
+            val teamB = TestTeams.seed(uniqueEmail("owner-board-b"))
+            val teamC = TestTeams.seed(uniqueEmail("owner-board-c"))
+            val teamOverride = TestTeams.seed(uniqueEmail("owner-override"))
+            val teamSoftDeleted = TestTeams.seed(uniqueEmail("owner-soft-deleted"))
+
+            val domains = current.domains.map { mapping ->
+                when (mapping.projectKey) {
+                    projectA -> mapping.copy(domainKey = "OWNERA", domainName = "OWNERA")
+                    projectB -> mapping.copy(domainKey = "OWNERB", domainName = "OWNERB")
+                    projectC -> mapping.copy(domainKey = "OWNERB", domainName = "OWNERB")
+                    projectD -> mapping.copy(domainKey = "OWNERC", domainName = "OWNERC")
+                    else -> mapping
+                }
+            }
+            val boards = listOf(
+                MetricsBoardTeamMapping(boardsByProject.getValue(projectA), teamA),
+                MetricsBoardTeamMapping(boardsByProject.getValue(projectB), teamB),
+                MetricsBoardTeamMapping(boardsByProject.getValue(projectC), teamC),
+                // projectD's own board (if it has one) is deliberately NOT mapped here — case (c)
+                // needs no board fallback available at all.
+            )
+            config.replaceConfig(
+                connId,
+                DataSourceMetricsConfigRequest(
+                    statusStages = current.statusStages,
+                    fields = current.fields,
+                    domains = domains,
+                    boards = boards,
+                    activityTypes = current.activityTypes,
+                    workCategories = current.workCategories,
+                    blockedStatuses = current.blockedStatuses,
+                    sprintCapacities = current.sprintCapacities,
+                ),
+            )
+
+            // owner_team_id has no PUT support yet (`.claude/docs/metrics.md` "Derivation corrections
+            // from the measure contract") — set it directly, the same way the brief's own review
+            // round documented for a future config API.
+            suspendTransaction(sharedDatabaseForTests()) {
+                val dm = MetricsConfigService.DomainMap
+                dm.update({ (dm.connectionId eq connId) and (dm.projectKey eq projectA) }) { it[ownerTeamId] = teamOverride }
+                dm.update({ (dm.connectionId eq connId) and (dm.projectKey eq projectD) }) { it[ownerTeamId] = teamSoftDeleted }
+            }
+            TestTeams.service.delete(teamSoftDeleted)
+
+            deriver(config).derive(SyncJobRunContext(deriveClaim(90u, connId), clock = { PINNED_NOW }) { _, _ -> true })
+
+            val domainRows = suspendTransaction(sharedDatabaseForTests()) {
+                MetricsStore.DimDomain.selectAll().where { MetricsStore.DimDomain.connectionId eq connId }
+                    .toList().associateBy { it[MetricsStore.DimDomain.domainKey] }
+            }
+            assertEquals(
+                teamOverride,
+                domainRows.getValue("OWNERA")[MetricsStore.DimDomain.ownerTeamId]?.value,
+                "a directly-configured owner must OVERRIDE project A's own mapped board's team",
+            )
+            assertNull(
+                domainRows.getValue("OWNERB")[MetricsStore.DimDomain.ownerTeamId]?.value,
+                "two boards on one domain mapped to two DIFFERENT teams, with no configured owner, must resolve to NO owner",
+            )
+            assertNull(
+                domainRows.getValue("OWNERC")[MetricsStore.DimDomain.ownerTeamId]?.value,
+                "a soft-deleted configured owner team must resolve to NO owner (A22), with no board fallback available either",
+            )
+
+            val epicsInA = suspendTransaction(sharedDatabaseForTests()) {
+                MetricsStore.FactEpicDelivery
+                    .join(
+                        MetricsStore.DimEpic,
+                        JoinType.INNER,
+                        onColumn = MetricsStore.FactEpicDelivery.issueId,
+                        otherColumn = MetricsStore.DimEpic.issueId,
+                        additionalConstraint = { MetricsStore.DimEpic.connectionId eq MetricsStore.FactEpicDelivery.connectionId },
+                    )
+                    .select(MetricsStore.FactEpicDelivery.ownerTeamId)
+                    .where { (MetricsStore.FactEpicDelivery.connectionId eq connId) and (MetricsStore.DimEpic.domainKey eq "OWNERA") }
+                    .toList()
+            }
+            assertTrue(
+                epicsInA.isNotEmpty(),
+                "project A must carry at least one epic, or the dim_domain/fact_epic_delivery agreement proves nothing",
+            )
+            epicsInA.forEach { row ->
+                assertEquals(
+                    teamOverride,
+                    row[MetricsStore.FactEpicDelivery.ownerTeamId]?.value,
+                    "fact_epic_delivery.owner_team_id must equal dim_domain's own resolved owner for the SAME domain",
+                )
+            }
+        }
+
+    @Test
+    fun `fact_task_delivery - domain is AS-WAS at done_at, not the current project (A21)`() = runBlocking {
+        val connId = clonedProcessedConnection()
+        val config = metricsConfig()
+        deriver(config).derive(SyncJobRunContext(deriveClaim(70u, connId), clock = { PINNED_NOW }) { _, _ -> true })
+
+        val target = suspendTransaction(sharedDatabaseForTests()) {
+            MetricsStore.FactTaskDelivery.selectAll()
+                .where {
+                    (MetricsStore.FactTaskDelivery.connectionId eq connId) and
+                        (MetricsStore.FactTaskDelivery.domainKey eq "OPS") and
+                        MetricsStore.FactTaskDelivery.doneAt.isNotNull()
+                }
+                .toList().first()
+        }
+        val issueId = target[MetricsStore.FactTaskDelivery.issueId]
+        val doneAt = target[MetricsStore.FactTaskDelivery.doneAt]!!
+        val originalKey = target[MetricsStore.FactTaskDelivery.issueKey]
+        val newKey = "FLO-" + (900_000_000L + issueId)
+
+        // The sample dataset has no real cross-project move to exercise this on — simulate one: a
+        // fake `issuekey` field change AFTER done_at (`DeriveKernels.projectKeyTimeline`'s own
+        // source) plus the CURRENT `norm.work_items` row's own issue_key/project_key updated
+        // directly, the exact shape a real project move leaves.
+        suspendTransaction(sharedDatabaseForTests()) {
+            WorkItemStore.FieldChanges.insert {
+                it[WorkItemStore.FieldChanges.connectionId] = connId
+                it[WorkItemStore.FieldChanges.issueId] = issueId
+                it[WorkItemStore.FieldChanges.seq] = 999
+                it[WorkItemStore.FieldChanges.field] = "Key"
+                it[WorkItemStore.FieldChanges.fieldId] = "issuekey"
+                it[WorkItemStore.FieldChanges.changedAt] = doneAt + THIRTY_DAYS_MS
+                it[WorkItemStore.FieldChanges.fromText] = originalKey
+                it[WorkItemStore.FieldChanges.toText] = newKey
+            }
+            val predicate = (WorkItemStore.WorkItems.connectionId eq connId) and (WorkItemStore.WorkItems.issueId eq issueId)
+            WorkItemStore.WorkItems.update({ predicate }) {
+                it[issueKey] = newKey
+                it[projectKey] = "FLO"
+            }
+        }
+
+        deriver(config).derive(SyncJobRunContext(deriveClaim(71u, connId), clock = { PINNED_NOW }) { _, _ -> true })
+
+        val after = suspendTransaction(sharedDatabaseForTests()) {
+            MetricsStore.FactTaskDelivery.selectAll()
+                .where { (MetricsStore.FactTaskDelivery.connectionId eq connId) and (MetricsStore.FactTaskDelivery.issueId eq issueId) }
+                .toList().single()
+        }
+        assertEquals(
+            "OPS",
+            after[MetricsStore.FactTaskDelivery.domainKey],
+            "a task moved to a new project AFTER its own done_at must keep its done-time domain (A21, as-was)",
+        )
+        assertEquals(newKey, after[MetricsStore.FactTaskDelivery.issueKey], "the row's own issueKey still tracks the CURRENT (moved) value")
+    }
+
+    @Test
+    fun `fact_task_delivery - epic is AS-WAS at done_at, a genuinely null covering value is never flattened into the current epic`() =
+        runBlocking {
+            val connId = clonedProcessedConnection()
+            val config = metricsConfig()
+            deriver(config).derive(SyncJobRunContext(deriveClaim(80u, connId), clock = { PINNED_NOW }) { _, _ -> true })
+
+            val target = suspendTransaction(sharedDatabaseForTests()) {
+                MetricsStore.FactTaskDelivery.selectAll()
+                    .where {
+                        (MetricsStore.FactTaskDelivery.connectionId eq connId) and MetricsStore.FactTaskDelivery.doneAt.isNotNull() and
+                            (MetricsStore.FactTaskDelivery.isSubtask eq false)
+                    }
+                    .toList().first()
+            }
+            val issueId = target[MetricsStore.FactTaskDelivery.issueId]
+            val createdAt = target[MetricsStore.FactTaskDelivery.createdAt]
+            val doneAt = target[MetricsStore.FactTaskDelivery.doneAt]!!
+            val taskDomainKey = target[MetricsStore.FactTaskDelivery.domainKey]
+            val epicIssueId = metricsDerivationGoldenEpic.issueId.toLong()
+            val epicChangedAt = doneAt + THIRTY_DAYS_MS
+
+            // The sample dataset has no task whose parent history reads "no epic, then an epic
+            // assigned only AFTER done_at" — simulate it directly on `norm.work_item_field_intervals`
+            // (what `MetricsDeriver.taskEpicHistory` actually replays, unlike the domain test above,
+            // which mutates raw `work_item_field_changes`): ONE interval covering `done_at` with a
+            // genuinely NULL `value_id` (no epic at that instant), then a SECOND interval opening
+            // strictly AFTER `done_at` naming the golden epic.
+            suspendTransaction(sharedDatabaseForTests()) {
+                WorkItemStore.FieldIntervals.deleteWhere {
+                    (WorkItemStore.FieldIntervals.connectionId eq connId) and (WorkItemStore.FieldIntervals.issueId eq issueId) and
+                        (WorkItemStore.FieldIntervals.field eq TrackedField.PARENT.name)
+                }
+                WorkItemStore.FieldIntervals.insert {
+                    it[WorkItemStore.FieldIntervals.connectionId] = connId
+                    it[WorkItemStore.FieldIntervals.issueId] = issueId
+                    it[WorkItemStore.FieldIntervals.field] = TrackedField.PARENT.name
+                    it[WorkItemStore.FieldIntervals.seq] = 1
+                    it[WorkItemStore.FieldIntervals.valueId] = null
+                    it[WorkItemStore.FieldIntervals.valueText] = null
+                    it[WorkItemStore.FieldIntervals.fromAt] = createdAt
+                    it[WorkItemStore.FieldIntervals.toAt] = epicChangedAt
+                }
+                WorkItemStore.FieldIntervals.insert {
+                    it[WorkItemStore.FieldIntervals.connectionId] = connId
+                    it[WorkItemStore.FieldIntervals.issueId] = issueId
+                    it[WorkItemStore.FieldIntervals.field] = TrackedField.PARENT.name
+                    it[WorkItemStore.FieldIntervals.seq] = 2
+                    it[WorkItemStore.FieldIntervals.valueId] = epicIssueId.toString()
+                    it[WorkItemStore.FieldIntervals.valueText] = metricsDerivationGoldenEpic.issueKey
+                    it[WorkItemStore.FieldIntervals.fromAt] = epicChangedAt
+                    it[WorkItemStore.FieldIntervals.toAt] = null
+                }
+                val predicate = (WorkItemStore.WorkItems.connectionId eq connId) and (WorkItemStore.WorkItems.issueId eq issueId)
+                WorkItemStore.WorkItems.update({ predicate }) { it[parentIssueId] = epicIssueId }
+            }
+
+            deriver(config).derive(SyncJobRunContext(deriveClaim(81u, connId), clock = { PINNED_NOW }) { _, _ -> true })
+
+            val after = suspendTransaction(sharedDatabaseForTests()) {
+                MetricsStore.FactTaskDelivery.selectAll()
+                    .where { (MetricsStore.FactTaskDelivery.connectionId eq connId) and (MetricsStore.FactTaskDelivery.issueId eq issueId) }
+                    .toList().single()
+            }
+            assertNull(
+                after[MetricsStore.FactTaskDelivery.epicId],
+                "the covering task_epic interval at done_at genuinely has no epic — the fix must NOT fall back to the current epic",
+            )
+            assertNull(after[MetricsStore.FactTaskDelivery.epicDomainKey], "no epic at done_at means no epic domain either")
+            assertEquals(
+                false,
+                after[MetricsStore.FactTaskDelivery.crossDomain],
+                "cross_domain requires a non-null epic_domain_key — never true with no epic",
+            )
+            // The task's own domain is untouched by this simulation (only PARENT history changed).
+            assertEquals(taskDomainKey, after[MetricsStore.FactTaskDelivery.domainKey])
+            // And the CURRENT epic (read via dim_task.epic_id, the one-indirection "now" view) IS the
+            // golden epic — proving the as-was fix is genuinely about `done_at`, not a plumbing miss.
+            val dimTask = suspendTransaction(sharedDatabaseForTests()) {
+                MetricsStore.DimTask.selectAll()
+                    .where { (MetricsStore.DimTask.connectionId eq connId) and (MetricsStore.DimTask.issueId eq issueId) }
+                    .toList().single()
+            }
+            assertEquals(
+                epicIssueId,
+                dimTask[MetricsStore.DimTask.epicId],
+                "dim_task.epic_id is the CURRENT epic, unaffected by the as-was fix",
+            )
+        }
+
+    @Test
+    fun `fact_task_delivery - current_team_id ignores a CLOSED current sprint, falling back to the assignee's team (A22)`() = runBlocking {
+        val connId = clonedProcessedConnection()
+        val config = metricsConfig()
+        val sprintTeamId = mapFloBoardToTeam(connId, config)
+        val closedSprint = workItems().allSprintRefs(connId)
+            .first { it.boardId == FLO_BOARD_ID && it.state.equals("closed", ignoreCase = true) }
+
+        val peopleConnId = SyncedStubFixture.createConnection(namePrefix = "current-team-people")
+        val assigneeAccountId = "current-team-assignee-${UUID.randomUUID()}"
+        workItems().replacePeople(peopleConnId, listOf(PersonRef(assigneeAccountId, "Current Team Assignee", null, active = true)))
+        val teamAssignee = TestTeams.seed(uniqueEmail("current-team-assignee"))
+        val membershipService = teamMembership(config)
+        val membership =
+            membershipService.create(teamAssignee, TeamMembershipCreateRequest(assigneeAccountId, PINNED_NOW - THIRTY_DAYS_MS, null))
+        try {
+            val target = suspendTransaction(sharedDatabaseForTests()) {
+                WorkItemStore.WorkItems.selectAll()
+                    .where {
+                        (WorkItemStore.WorkItems.connectionId eq connId) and (WorkItemStore.WorkItems.projectKey eq "FLO") and
+                            (WorkItemStore.WorkItems.isSubtask eq false) and (WorkItemStore.WorkItems.issueType neq "Epic")
+                    }
+                    .limit(1).toList().single()
+            }
+            val issueId = target[WorkItemStore.WorkItems.issueId]
+            val createdAt = target[WorkItemStore.WorkItems.createdAt]
+
+            // Replace the task's SPRINT/ASSIGNEE bridge history: a SINGLE open interval each, so the
+            // task is "currently" (as-of now) a member of an ALREADY-CLOSED sprint, and "currently"
+            // assigned to our own synthetic account.
+            suspendTransaction(sharedDatabaseForTests()) {
+                listOf(TrackedField.SPRINT, TrackedField.ASSIGNEE).forEach { field ->
+                    WorkItemStore.FieldIntervals.deleteWhere {
+                        (WorkItemStore.FieldIntervals.connectionId eq connId) and (WorkItemStore.FieldIntervals.issueId eq issueId) and
+                            (WorkItemStore.FieldIntervals.field eq field.name)
+                    }
+                }
+                WorkItemStore.FieldIntervals.insert {
+                    it[WorkItemStore.FieldIntervals.connectionId] = connId
+                    it[WorkItemStore.FieldIntervals.issueId] = issueId
+                    it[WorkItemStore.FieldIntervals.field] = TrackedField.SPRINT.name
+                    it[WorkItemStore.FieldIntervals.seq] = 1
+                    it[WorkItemStore.FieldIntervals.valueId] = closedSprint.sprintId.toString()
+                    it[WorkItemStore.FieldIntervals.valueText] = closedSprint.name
+                    it[WorkItemStore.FieldIntervals.fromAt] = createdAt
+                    it[WorkItemStore.FieldIntervals.toAt] = null
+                }
+                WorkItemStore.FieldIntervals.insert {
+                    it[WorkItemStore.FieldIntervals.connectionId] = connId
+                    it[WorkItemStore.FieldIntervals.issueId] = issueId
+                    it[WorkItemStore.FieldIntervals.field] = TrackedField.ASSIGNEE.name
+                    it[WorkItemStore.FieldIntervals.seq] = 1
+                    it[WorkItemStore.FieldIntervals.valueId] = assigneeAccountId
+                    it[WorkItemStore.FieldIntervals.valueText] = "Current Team Assignee"
+                    it[WorkItemStore.FieldIntervals.fromAt] = createdAt
+                    it[WorkItemStore.FieldIntervals.toAt] = null
+                }
+            }
+
+            deriver(config).derive(SyncJobRunContext(deriveClaim(95u, connId), clock = { PINNED_NOW }) { _, _ -> true })
+
+            val after = suspendTransaction(sharedDatabaseForTests()) {
+                MetricsStore.FactTaskDelivery.selectAll()
+                    .where { (MetricsStore.FactTaskDelivery.connectionId eq connId) and (MetricsStore.FactTaskDelivery.issueId eq issueId) }
+                    .toList().single()
+            }
+            assertEquals(
+                assigneeAccountId,
+                after[MetricsStore.FactTaskDelivery.currentAssigneeAccountId],
+                "current_assignee_account_id must reflect the open task_assignee interval",
+            )
+            assertTrue(sprintTeamId != teamAssignee, "the two teams must genuinely differ for this test to prove anything")
+            assertEquals(
+                teamAssignee,
+                after[MetricsStore.FactTaskDelivery.currentTeamId]?.value,
+                "a CLOSED current sprint must never resolve current_team_id — it must fall back to the assignee's own team (A22)",
+            )
+        } finally {
+            membershipService.delete(teamAssignee, membership.id)
+        }
+    }
+
+    @Test
+    fun `fact_worklog - foreign_work is true when author and assignee teams differ, with no sprint team known at started_at (A21)`() =
+        runBlocking {
+            val connId = clonedProcessedConnection()
+            val config = metricsConfig()
+
+            val peopleConnId = SyncedStubFixture.createConnection(namePrefix = "foreign-work-people")
+            val authorAccountId = "foreign-work-author-${UUID.randomUUID()}"
+            val assigneeAccountId = "foreign-work-assignee-${UUID.randomUUID()}"
+            workItems().replacePeople(
+                peopleConnId,
+                listOf(
+                    PersonRef(authorAccountId, "Foreign Work Author", null, active = true),
+                    PersonRef(assigneeAccountId, "Foreign Work Assignee", null, active = true),
+                ),
+            )
+            val teamAuthor = TestTeams.seed(uniqueEmail("foreign-work-author"))
+            val teamAssignee = TestTeams.seed(uniqueEmail("foreign-work-assignee"))
+            val membershipService = teamMembership(config)
+            var membershipAuthor: TeamMembershipResponse? = null
+            var membershipAssignee: TeamMembershipResponse? = null
+            try {
+                // OPS is Kanban (`.claude/docs/domain-model.md` D10, the D5-OPS test above's own
+                // precedent) — none of its issues carry a SPRINT field interval, so
+                // `sprint_team_id_at_started` is null by construction here, cleanly isolating the
+                // assignee fallback (A21) from the sprint-team branch.
+                val target = suspendTransaction(sharedDatabaseForTests()) {
+                    WorkItemStore.WorkItems.selectAll()
+                        .where {
+                            (WorkItemStore.WorkItems.connectionId eq connId) and (WorkItemStore.WorkItems.projectKey eq "OPS") and
+                                (WorkItemStore.WorkItems.isSubtask eq false) and (WorkItemStore.WorkItems.issueType neq "Epic")
+                        }
+                        .limit(1).toList().single()
+                }
+                val issueId = target[WorkItemStore.WorkItems.issueId]
+                val createdAt = target[WorkItemStore.WorkItems.createdAt]
+                val startedAt = createdAt + THIRTY_DAYS_MS
+                val worklogId = issueId * 1_000_000L + 1
+
+                // Membership must cover the WORKLOG's own started_at (createdAt + 30d), not just
+                // "now" — the task's own createdAt can sit up to a year before PINNED_NOW, so a
+                // membership starting only 30 days before now would leave started_at uncovered.
+                membershipAuthor = membershipService.create(teamAuthor, TeamMembershipCreateRequest(authorAccountId, createdAt, null))
+                membershipAssignee = membershipService.create(teamAssignee, TeamMembershipCreateRequest(assigneeAccountId, createdAt, null))
+
+                suspendTransaction(sharedDatabaseForTests()) {
+                    WorkItemStore.FieldIntervals.deleteWhere {
+                        (WorkItemStore.FieldIntervals.connectionId eq connId) and (WorkItemStore.FieldIntervals.issueId eq issueId) and
+                            (WorkItemStore.FieldIntervals.field eq TrackedField.ASSIGNEE.name)
+                    }
+                    WorkItemStore.FieldIntervals.insert {
+                        it[WorkItemStore.FieldIntervals.connectionId] = connId
+                        it[WorkItemStore.FieldIntervals.issueId] = issueId
+                        it[WorkItemStore.FieldIntervals.field] = TrackedField.ASSIGNEE.name
+                        it[WorkItemStore.FieldIntervals.seq] = 1
+                        it[WorkItemStore.FieldIntervals.valueId] = assigneeAccountId
+                        it[WorkItemStore.FieldIntervals.valueText] = "Foreign Work Assignee"
+                        it[WorkItemStore.FieldIntervals.fromAt] = createdAt
+                        it[WorkItemStore.FieldIntervals.toAt] = null
+                    }
+                    WorkItemStore.Worklogs.insert {
+                        it[WorkItemStore.Worklogs.connectionId] = connId
+                        it[WorkItemStore.Worklogs.worklogId] = worklogId
+                        it[WorkItemStore.Worklogs.issueId] = issueId
+                        it[WorkItemStore.Worklogs.authorAccountId] = authorAccountId
+                        it[WorkItemStore.Worklogs.startedAt] = startedAt
+                        it[WorkItemStore.Worklogs.timeSpentSeconds] = 3600L
+                        it[WorkItemStore.Worklogs.createdAt] = startedAt
+                        it[WorkItemStore.Worklogs.updatedAt] = startedAt
+                    }
+                }
+
+                deriver(config).derive(SyncJobRunContext(deriveClaim(96u, connId), clock = { PINNED_NOW }) { _, _ -> true })
+
+                val row = suspendTransaction(sharedDatabaseForTests()) {
+                    MetricsStore.FactWorklog.selectAll()
+                        .where { (MetricsStore.FactWorklog.connectionId eq connId) and (MetricsStore.FactWorklog.worklogId eq worklogId) }
+                        .toList().single()
+                }
+                assertNull(
+                    row[MetricsStore.FactWorklog.sprintTeamIdAtStarted],
+                    "OPS carries no sprint — sprint_team_id_at_started must be null",
+                )
+                assertEquals(teamAssignee, row[MetricsStore.FactWorklog.assigneeTeamIdAtStarted]?.value)
+                assertEquals(teamAuthor, row[MetricsStore.FactWorklog.authorTeamId]?.value)
+                assertTrue(
+                    row[MetricsStore.FactWorklog.foreignWork],
+                    "author team != assignee team, no sprint team known at started_at -> foreign_work must be true (A21)",
+                )
+            } finally {
+                membershipAuthor?.let { membershipService.delete(teamAuthor, it.id) }
+                membershipAssignee?.let { membershipService.delete(teamAssignee, it.id) }
+            }
+        }
+
     private companion object {
-        const val PINNED_NOW = 1_772_668_800_000L // 2026-09-02T00:00:00Z, per the v0.3.0 plan's pinned-clock convention
+        const val PINNED_NOW = 1_772_668_800_000L // 2026-03-05T00:00:00Z, per the v0.3.0 plan's pinned-clock convention
         const val THIRTY_DAYS_MS = 30L * 24 * 60 * 60 * 1000
         const val CONFIGURED_CAPACITY_MD = 42.0
         const val CAPACITY_TOLERANCE = 0.01

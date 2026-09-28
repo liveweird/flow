@@ -426,6 +426,8 @@ class IngestWorkerTest {
         sprintIdAtDone = null,
         sprintTeamIdAtDone = null,
         creditTeamId = null,
+        currentTeamId = null,
+        currentAssigneeAccountId = null,
         domainKey = null,
         epicId = null,
         epicDomainKey = null,

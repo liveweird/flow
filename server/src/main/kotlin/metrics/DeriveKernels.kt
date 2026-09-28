@@ -29,6 +29,14 @@ data class StartedDoneResult(val startedAtMs: Long?, val doneAtMs: Long?, val re
  */
 data class BlockedInterval(val fromAtMs: Long, val toAtMs: Long, val reason: String)
 
+/**
+ * Flow efficiency (A18, `.claude/docs/domain-model.md` "Delivery — EV (earned value)",
+ * `.claude/docs/measures.md` report 7/8): [activeMs] is time in `IN_PROGRESS`-stage intervals inside
+ * `[startedAtMs, doneAtMs)` MINUS blocked time in that same window; [waitMs] is the rest of the
+ * cycle (`cycle - active`). Both are `0` for an item that is not done — see [DeriveKernels.activeWaitMs].
+ */
+data class ActiveWait(val activeMs: Long, val waitMs: Long)
+
 data class EstimatePoint(val atMs: Long, val estimateMd: Double?)
 
 data class EstimateSnapshots(
@@ -203,6 +211,79 @@ object DeriveKernels {
         return merged.map { (from, to, isStatusSourced) ->
             BlockedInterval(from, to, if (isStatusSourced) REASON_STATUS else REASON_FLAGGED)
         }
+    }
+
+    /** The overlap, in milliseconds, of `[from, to ?: windowTo)` with `[windowFrom, windowTo)` — never negative. */
+    private fun overlapMs(from: Long, to: Long?, windowFrom: Long, windowTo: Long): Long {
+        val clampedFrom = maxOf(from, windowFrom)
+        val clampedTo = minOf(to ?: windowTo, windowTo)
+        return maxOf(0L, clampedTo - clampedFrom)
+    }
+
+    /**
+     * The overlap, in milliseconds, of ONE interval `[from, to ?: windowTo)` with EVERY IN_PROGRESS
+     * stage interval, each pairwise overlap clamped to `[windowFrom, windowTo)` and summed (review
+     * round 2c bug fix, `.claude/docs/measures.md`) — IN_PROGRESS stage intervals never overlap each
+     * other by construction (`stageIntervals` tiles one contiguous timeline), so summing pairwise
+     * overlaps can never double count the SAME instant twice, even when this one blocked interval
+     * spans more than one IN_PROGRESS stretch (a reopen with the blocked span continuing across the
+     * transition back into IN_PROGRESS).
+     */
+    private fun overlapWithInProgressMs(
+        from: Long,
+        to: Long?,
+        inProgressStages: List<StageInterval>,
+        windowFrom: Long,
+        windowTo: Long,
+    ): Long = inProgressStages.sumOf { stage ->
+        val overlapFrom = maxOf(from, stage.fromAtMs, windowFrom)
+        val overlapTo = minOf(to ?: windowTo, stage.toAtMs ?: windowTo, windowTo)
+        maxOf(0L, overlapTo - overlapFrom)
+    }
+
+    /**
+     * A18's flow efficiency, pure (`.claude/docs/measures.md` report 7/8: "active = IN_PROGRESS-stage
+     * time in `[started_at, done_at)` minus the blocked time that occurred WHILE IN_PROGRESS; wait =
+     * cycle − active"). `null` [startedAtMs]/[doneAtMs] (the item never started, or is not yet done)
+     * answers `(0, 0)` — flow efficiency is a DELIVERED measure. [stages] and [blocked] are the item's
+     * OWN full histories ([DeriveKernels.stageIntervals]/[DeriveKernels.blockedIntervals]) — [blocked]
+     * is already clipped to `[startedAtMs, doneAtMs)` by its own caller when the item is done, so no
+     * re-clipping happens here beyond [overlapMs]'s own window intersection (harmless either way,
+     * since a blocked interval outside the window would contribute `0`). A reopened item's
+     * IN_PROGRESS time is summed across its WHOLE history inside the window, including any stretch
+     * before the reopen — the window is `[startedAtMs, doneAtMs)`, not just the trailing DONE run's
+     * own lead-up.
+     *
+     * **The blocked subtraction is scoped to IN_PROGRESS time only (review round 2c bug fix).** Time
+     * blocked while the item is NOT IN_PROGRESS (e.g. blocked while UNMAPPED, or a blocked span that
+     * outlives an IN_PROGRESS stretch) is already counted as WAIT by construction — it was never
+     * summed into `inProgressMs` in the first place, since that sum only ever counts IN_PROGRESS-stage
+     * overlap. Subtracting the item's WHOLE blocked time (as the pre-fix version did) therefore
+     * double-subtracted that already-excluded time, silently inflating `wait` at active's expense.
+     * [overlapWithInProgressMs] instead intersects each blocked interval against the IN_PROGRESS stage
+     * intervals specifically (summing every pairwise overlap — safe from double counting, since
+     * IN_PROGRESS stage intervals never overlap each other by construction) before subtracting. Never
+     * negative: `active` is still clamped into `[0, cycle]` — a purely DEFENSIVE backstop now (rounding
+     * at interval boundaries, not a real "more blocked-while-IN_PROGRESS time than IN_PROGRESS time"
+     * case, since the intersection above can never exceed `inProgressMs` by construction) — and `wait`
+     * is `cycle - active`, itself then never negative either.
+     */
+    fun activeWaitMs(
+        stages: List<StageInterval>,
+        blocked: List<BlockedInterval>,
+        startedAtMs: Long?,
+        doneAtMs: Long?,
+    ): ActiveWait {
+        if (startedAtMs == null || doneAtMs == null) return ActiveWait(0, 0)
+        val cycleMs = doneAtMs - startedAtMs
+        val inProgressStages = stages.filter { it.stage == ItemStage.IN_PROGRESS }
+        val inProgressMs = inProgressStages.sumOf { overlapMs(it.fromAtMs, it.toAtMs, startedAtMs, doneAtMs) }
+        val blockedWhileInProgressMs = blocked.sumOf {
+            overlapWithInProgressMs(it.fromAtMs, it.toAtMs, inProgressStages, startedAtMs, doneAtMs)
+        }
+        val activeMs = (inProgressMs - blockedWhileInProgressMs).coerceIn(0L, cycleMs)
+        val waitMs = (cycleMs - activeMs).coerceAtLeast(0L)
+        return ActiveWait(activeMs, waitMs)
     }
 
     private const val UNESTIMATED: Double = 0.0

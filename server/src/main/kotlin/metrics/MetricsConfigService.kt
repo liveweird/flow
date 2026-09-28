@@ -123,6 +123,10 @@ class MetricsConfigService(
         val projectKey = varchar("project_key", 20)
         val domainKey = varchar("domain_key", 50)
         val domainName = varchar("domain_name", 100)
+        /** A19 (V17, commit 9d) — an explicitly configured owner team for this project; not yet
+         * writable through the request/response DTO (the config API/UI for it is the NEXT commit),
+         * so [replaceConfig] preserves whatever value is already stored across its own full-replace. */
+        val ownerTeamId = reference("owner_team_id", TeamService.Teams).nullable()
         override val primaryKey = PrimaryKey(connectionId, projectKey)
     }
 
@@ -300,6 +304,13 @@ class MetricsConfigService(
                 }
             }
 
+            // A19 (V17): owner_team_id has no writer of its own yet (the config API/UI arrives the
+            // NEXT commit) — carried forward by project key across this delete-and-reinsert so an
+            // UNRELATED field's PUT (statuses, boards, ...) never silently wipes an owner an admin
+            // (or a future migration) already set.
+            val existingOwners = DomainMap.select(DomainMap.projectKey, DomainMap.ownerTeamId)
+                .where { DomainMap.connectionId eq connectionId }
+                .toList().associate { it[DomainMap.projectKey] to it[DomainMap.ownerTeamId] }
             DomainMap.deleteWhere { DomainMap.connectionId eq connectionId }
             if (request.domains.isNotEmpty()) {
                 DomainMap.batchInsert(request.domains) { mapping ->
@@ -307,6 +318,7 @@ class MetricsConfigService(
                     this[DomainMap.projectKey] = mapping.projectKey
                     this[DomainMap.domainKey] = mapping.domainKey
                     this[DomainMap.domainName] = mapping.domainName
+                    this[DomainMap.ownerTeamId] = existingOwners[mapping.projectKey]
                 }
             }
 
@@ -536,5 +548,21 @@ class MetricsConfigService(
      */
     suspend fun detectedSprintFieldId(connectionId: UInt): String? = suspendTransaction(database) {
         readProfileSections(connectionId)?.customFields.orEmpty().firstOrNull { it.role == SPRINT_ROLE }?.id
+    }
+
+    /**
+     * A19/A22 (V17, commit 9d/9e, `.claude/docs/domain-model.md` "Amendments"): every project key
+     * this connection has an EXPLICITLY configured owner team for — `metrics/MetricsDeriver.kt`'s
+     * `ownerTeamByDomain` resolves per DOMAIN key (several project rows may share one), agreeing
+     * configured owners winning outright, a disagreement resolving to none, and only a project with
+     * NO configured owner at all falling back to the one mapped `board_team_map` board on it. Only
+     * rows with a non-null `owner_team_id` are returned here (an unconfigured project is simply
+     * absent, never present with a `null` value) — `ownerTeamByDomain` itself additionally drops any
+     * value pointing at a currently soft-deleted team (A22).
+     */
+    suspend fun domainOwnerTeamIds(connectionId: UInt): Map<String, UInt> = suspendTransaction(database) {
+        DomainMap.select(DomainMap.projectKey, DomainMap.ownerTeamId)
+            .where { (DomainMap.connectionId eq connectionId) and DomainMap.ownerTeamId.isNotNull() }
+            .toList().associate { it[DomainMap.projectKey] to it[DomainMap.ownerTeamId]!!.value }
     }
 }

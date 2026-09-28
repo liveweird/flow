@@ -1,7 +1,10 @@
 package ch.nokillswit
 
+import ch.nokillswit.metrics.ActiveWait
+import ch.nokillswit.metrics.BlockedInterval
 import ch.nokillswit.metrics.DeriveKernels
 import ch.nokillswit.metrics.ItemStage
+import ch.nokillswit.metrics.StageInterval
 import ch.nokillswit.norm.FieldChangeRow
 import ch.nokillswit.norm.IntervalSource
 import ch.nokillswit.norm.NormalizedFieldInterval
@@ -198,6 +201,118 @@ class DeriveKernelsTest {
         assertEquals(2, result.size, "two disjoint spans must stay separate, never merged")
         assertEquals("FLAGGED", result.first { it.fromAtMs == 5L }.reason)
         assertEquals("STATUS", result.first { it.fromAtMs == 40L }.reason)
+    }
+
+    // ---- activeWaitMs (A18, commit 9d) ---------------------------------------------------------
+
+    @Test
+    fun `activeWaitMs is 0,0 when the item never started or is not yet done`() {
+        val stages = listOf(StageInterval(ItemStage.IN_PROGRESS, "2", 0, null))
+        assertEquals(ActiveWait(0, 0), DeriveKernels.activeWaitMs(stages, emptyList(), null, null))
+        assertEquals(ActiveWait(0, 0), DeriveKernels.activeWaitMs(stages, emptyList(), 0, null), "started but not done")
+    }
+
+    @Test
+    fun `activeWaitMs sums IN_PROGRESS time inside the cycle window, minus blocked time, wait is the rest`() {
+        val stages = listOf(
+            StageInterval(ItemStage.IN_PROGRESS, "2", 0, 100),
+            StageInterval(ItemStage.DONE, "3", 100, null),
+        )
+        val blocked = listOf(BlockedInterval(20, 40, "STATUS"))
+        val result = DeriveKernels.activeWaitMs(stages, blocked, startedAtMs = 0, doneAtMs = 100)
+        assertEquals(80, result.activeMs, "100 in-progress minus 20 blocked")
+        assertEquals(20, result.waitMs, "cycle 100 - active 80")
+    }
+
+    @Test
+    fun `activeWaitMs sums IN_PROGRESS time across a reopen, both stretches inside the window`() {
+        // IN_PROGRESS [0,30) -> DONE [30,50) -> IN_PROGRESS (reopen) [50,70) -> DONE [70, null) (trailing)
+        val stages = listOf(
+            StageInterval(ItemStage.IN_PROGRESS, "2", 0, 30),
+            StageInterval(ItemStage.DONE, "3", 30, 50),
+            StageInterval(ItemStage.IN_PROGRESS, "2", 50, 70),
+            StageInterval(ItemStage.DONE, "3", 70, null),
+        )
+        // started = 0 (the FIRST IN_PROGRESS entry), done = 70 (the start of the trailing DONE run).
+        val result = DeriveKernels.activeWaitMs(stages, emptyList(), startedAtMs = 0, doneAtMs = 70)
+        assertEquals(50, result.activeMs, "30 (first IN_PROGRESS stretch) + 20 (post-reopen IN_PROGRESS stretch)")
+        assertEquals(20, result.waitMs, "cycle 70 - active 50")
+    }
+
+    @Test
+    fun `activeWaitMs ignores blocked time outside any IN_PROGRESS stage, never double-subtracting it (review round 2c fix)`() {
+        // A contrived-but-legal stage history: IN_PROGRESS [0,10) -> NOT_STARTED [10,30) (structurally
+        // unusual mid-cycle, but the kernel makes no assumption about which non-IN_PROGRESS stage it
+        // is) -> IN_PROGRESS [30,50) -> DONE [50, null). Blocked spans EXACTLY the NOT_STARTED gap —
+        // time that is already WAIT by construction (never summed into in-progress in the first
+        // place), so it must contribute ZERO to the blocked subtraction.
+        val notStarted = listOf(
+            StageInterval(ItemStage.IN_PROGRESS, "2", 0, 10),
+            StageInterval(ItemStage.NOT_STARTED, "1", 10, 30),
+            StageInterval(ItemStage.IN_PROGRESS, "2", 30, 50),
+            StageInterval(ItemStage.DONE, "3", 50, null),
+        )
+        val blockedDuringNotStarted = listOf(BlockedInterval(10, 30, "STATUS"))
+        val resultNotStarted = DeriveKernels.activeWaitMs(notStarted, blockedDuringNotStarted, startedAtMs = 0, doneAtMs = 50)
+        assertEquals(30, resultNotStarted.activeMs, "10 + 20 IN_PROGRESS time, untouched — the blocked span never overlapped IN_PROGRESS")
+        assertEquals(20, resultNotStarted.waitMs, "cycle 50 - active 30")
+
+        // The same shape with an UNMAPPED gap instead of NOT_STARTED — an unmapped status is just
+        // another non-IN_PROGRESS stage as far as this kernel is concerned.
+        val unmapped = listOf(
+            StageInterval(ItemStage.IN_PROGRESS, "2", 0, 10),
+            StageInterval(ItemStage.UNMAPPED, "9", 10, 30),
+            StageInterval(ItemStage.IN_PROGRESS, "2", 30, 50),
+            StageInterval(ItemStage.DONE, "3", 50, null),
+        )
+        val blockedDuringUnmapped = listOf(BlockedInterval(10, 30, "FLAGGED"))
+        val resultUnmapped = DeriveKernels.activeWaitMs(unmapped, blockedDuringUnmapped, startedAtMs = 0, doneAtMs = 50)
+        assertEquals(30, resultUnmapped.activeMs, "blocked-while-UNMAPPED must not subtract from IN_PROGRESS time")
+        assertEquals(20, resultUnmapped.waitMs)
+    }
+
+    @Test
+    fun `activeWaitMs subtracts a reopen-spanning blocked interval only where it overlaps each IN_PROGRESS stretch, not the DONE gap`() {
+        // IN_PROGRESS [0,20) -> DONE [20,40) -> IN_PROGRESS (reopen) [40,60) -> DONE [60, null).
+        // One blocked span [10,50) crosses ALL THREE: 10 ms of the first IN_PROGRESS stretch (10-20),
+        // the entire 20 ms DONE gap (20-40, already WAIT, never counted as in-progress), and 10 ms of
+        // the reopened IN_PROGRESS stretch (40-50). Only the two IN_PROGRESS overlaps (10 + 10 = 20 ms)
+        // may be subtracted — subtracting the WHOLE 40 ms span (the pre-fix bug) would double-count the
+        // DONE gap's own 20 ms, which was never part of `inProgressMs` to begin with.
+        val stages = listOf(
+            StageInterval(ItemStage.IN_PROGRESS, "2", 0, 20),
+            StageInterval(ItemStage.DONE, "3", 20, 40),
+            StageInterval(ItemStage.IN_PROGRESS, "2", 40, 60),
+            StageInterval(ItemStage.DONE, "3", 60, null),
+        )
+        val blocked = listOf(BlockedInterval(10, 50, "STATUS"))
+        val result = DeriveKernels.activeWaitMs(stages, blocked, startedAtMs = 0, doneAtMs = 60)
+        assertEquals(20, result.activeMs, "(20 + 20 IN_PROGRESS) - (10 + 10 blocked-while-IN_PROGRESS) = 20, never 0")
+        assertEquals(40, result.waitMs, "cycle 60 - active 20")
+    }
+
+    @Test
+    fun `activeWaitMs floors active at 0 as a defensive backstop, never negative`() {
+        // The intersection of blocked with IN_PROGRESS time can never exceed IN_PROGRESS time by
+        // construction, so this floor is defensive only (rounding at interval boundaries) — not a
+        // real-world "more blocked-while-in-progress than in-progress" case. Blocked here is fully
+        // INSIDE the one IN_PROGRESS interval and exactly equals it, so active floors at exactly 0.
+        val stages = listOf(StageInterval(ItemStage.IN_PROGRESS, "2", 0, 10), StageInterval(ItemStage.DONE, "3", 10, null))
+        val blocked = listOf(BlockedInterval(0, 10, "FLAGGED"))
+        val result = DeriveKernels.activeWaitMs(stages, blocked, startedAtMs = 0, doneAtMs = 10)
+        assertEquals(0, result.activeMs)
+        assertEquals(10, result.waitMs, "wait absorbs the whole cycle once active floors at 0")
+    }
+
+    @Test
+    fun `activeWaitMs is 0,0 for an item whose whole history is an UNMAPPED status`() {
+        val stageMap = emptyMap<String, ItemStage>() // "unmapped-status" resolves to ItemStage.UNMAPPED
+        val stages = DeriveKernels.stageIntervals(listOf(statusInterval("unmapped-status", 0, null, 1)), stageMap)
+        val startedDone = DeriveKernels.startedDoneAt(stages)
+        assertNull(startedDone.startedAtMs, "an UNMAPPED-only item is never started")
+        assertNull(startedDone.doneAtMs)
+        val result = DeriveKernels.activeWaitMs(stages, emptyList(), startedDone.startedAtMs, startedDone.doneAtMs)
+        assertEquals(ActiveWait(0, 0), result)
     }
 
     // ---- estimateTimeline / estimateSnapshots -------------------------------------------------

@@ -7,9 +7,8 @@ estimate snapshot and unit it uses, how missing data is treated, whether it is f
 which test pins it. It was drafted as a coherence check of the model against the M3 code; the
 decisions it forced are the plan's §0 amendments **A17–A21** (2026-09-28).
 
-Status markers: `planned` — the writer or reader does not exist yet (`agg_daily_*`, the reports
-API); `9c` — the cell describes the A17–A21 behaviour that lands with commit 9c (the code still
-does the old thing until then). A marked row becomes binding when its commit fills "Pinned by".
+Status marker: `planned` — the writer or reader does not exist yet (`agg_daily_*`, the reports
+API); a marked row becomes binding when its commit fills "Pinned by".
 
 ## Conventions (every row, unless the cell says otherwise)
 
@@ -29,19 +28,40 @@ does the old thing until then). A marked row becomes binding when its commit fil
   - `credit` = `fact_task_delivery.credit_team_id` — D5: the sprint's team at `done_at`, else the
     assignee's team at `done_at` (the fallback also covers a sprint on an unmapped board); null
     while not done.
-  - `current` = `current_team_id` (`9c`) — the same D5 rule evaluated at now, for open items.
+  - `current` = `current_team_id` — the same D5 rule evaluated at now, for open items, with TWO
+    A22 corrections over the as-was `credit` rule: a sprint whose `complete_at ≤ now` (or whose
+    Jira `state` is `closed`) is never an open item's current sprint — a not-done task left in a
+    closed sprint falls straight to the assignee fallback, effectively backlog; and a currently
+    soft-deleted team is skipped (a soft-deleted sprint team falls back to the assignee's team, a
+    soft-deleted assignee team gives no team) — never a retired team a report would have to
+    explain.
   - `sprint` = `dim_sprint.team_id` (board → team, as-is).
   - `author` = `fact_worklog.author_team_id` (membership at `started_at`, as-was).
-  - `owner` = the domain's owner team (A19, `metrics.domain_map.owner_team_id`, `9c`) — for epics
-    and the estimated backlog.
+  - `owner` = the domain's owner team (A19, persisted per domain on `dim_domain.owner_team_id`,
+    resolved by `MetricsDeriver.ownerTeamByDomain`: every one of the domain's project rows that
+    carries a CONFIGURED owner (`metrics.domain_map.owner_team_id`) must agree — a genuine
+    disagreement resolves to no owner outright, never a fallback; no configured owner at all falls
+    back to the ONE `board_team_map` board mapped across all the domain's projects) — for epics and
+    the estimated backlog. A22: both the configured owner and the board-mapped team are filtered to
+    currently ACTIVE teams first — a soft-deleted team resolves as if unconfigured/unmapped.
   - A null team is the UNASSIGNED bucket at query time — never a stored sentinel; a null owner is
     `UNOWNED`.
 - **User codes.** `assignee@done` = `assignee_account_id_at_done`; `assignee@now` =
-  `current_assignee_account_id` (`9c`); `assignee@commit` =
+  `current_assignee_account_id`; `assignee@commit` =
   `fact_sprint_scope.assignee_at_commitment`; `author` = `fact_worklog.author_account_id`.
 - **Domain codes (D3).** `TASK` = the task's own domain; `EPIC` = its epic's domain, falling back
   to the task's own domain when it has no epic (A21); `own` = an epic's own space. Task domain and
-  epic are **as-was** at `done_at ?: now` (A21, `9c` — the code reads the current value until then).
+  epic are **as-was** at `done_at ?: now` (A21) — a covering `task_domain`/`task_epic` history row
+  whose OWN value is genuinely `null` (no domain/epic resolved at that instant) is trusted as-is,
+  never flattened into the task's CURRENT value; only the ABSENCE of any covering row (a task that
+  has never moved) falls back to current. `epic_domain_key` itself is always the epic's CURRENT
+  domain — a known, deliberate limitation: no epic-domain HISTORY table exists (unlike
+  `task_domain`), so a worklog or task attributed to an epic's domain always sees that epic's
+  domain as of NOW, never as it was at the read's own anchor instant.
+- **As-of interval semantics.** Every "value active at instant `t`" read (a bridge row containing
+  `t`, an estimate/date timeline point, a team-membership interval) is **half-open, `[from, to)`**:
+  a change landing at EXACTLY `t` counts as the NEW value, never the old one still in effect one
+  millisecond before it.
 - **Estimate snapshots:** `@commit`, `@entry`, `@start`, `@done`, `@close` (sprint close),
   `current`; source `OWN|SUBTASKS|NONE` (tasks), `OWN|CHILDREN` (epic budget). `0` = unestimated
   (stored `null`).
@@ -99,7 +119,7 @@ the rest at close); removed is beside them.
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | Task accuracy @start (D15) | task, DONE | `done_at` | credit | assignee@done | TASK | @start, OWN or SUBTASKS | ratio, distribution | excluded, each counted in its own bucket: `unestimatedAtStart` (incl. estimated-late), `neverStarted` (no `started_at` — has no @start), `noWorklogs` (D14); n < `minSampleSize` → hidden | live | `actual_md / estimate_at_start_md` | kernel only: `DeriveKernelsTest` "estimateSnapshots …"; report value — |
 | Task accuracy @done | task, DONE | `done_at` | credit | assignee@done | TASK | @done | ratio | same buckets on `estimate_at_done_md` | live | `actual_md / estimate_at_done_md` | — |
-| Epic accuracy @start / @done | epic, DONE by its own status (D11) | `done_at` | owner (A19, `9c`) | — | own | own @start / @done; child sum beside | ratio | no own estimate (`budget_source = CHILDREN`) or `actual_md = 0` → excluded, counted | live | `fact_epic_delivery.actual_md / own_estimate_at_*_md`, `child_sum_estimate_md` | "golden epic's own budget, start-due dates and child sum" (values, not the ratio) |
+| Epic accuracy @start / @done | epic, DONE by its own status (D11) | `done_at` | owner (A19) | — | own | own @start / @done; child sum beside | ratio | no own estimate (`budget_source = CHILDREN`) or `actual_md = 0` → excluded, counted | live | `fact_epic_delivery.actual_md / own_estimate_at_*_md`, `child_sum_estimate_md` | "golden epic's own budget, start-due dates and child sum" (values, not the ratio); `MetricsDerivationTest` "owner_team_id equals the FLO board's team for FLO epics (A19)" |
 | Share changed after start | task/epic, started | `started_at` | credit (tasks), owner (epics) | assignee@done | TASK | timeline points after `started_at` | % | never started → excluded | live | `estimate_changes_after_start > 0` over `started_at IS NOT NULL` | `DeriveKernelsTest` "estimateSnapshots …" |
 | % change start → done | task/epic, DONE | `done_at` | credit / owner | assignee@done | TASK | (@done − @start) ÷ @start | %, distribution | either snapshot null → excluded; estimated-late counted separately, never +∞ | live | `estimate_at_done_md`, `estimate_at_start_md` | — |
 | Estimated late | task/epic, started | `started_at` | credit / owner | assignee@done | TASK | @start null ∧ current non-null | items | — | live | `estimated_late` | `DeriveKernelsTest` "reports estimated-late…", "is not estimated-late…" |
@@ -111,7 +131,7 @@ the rest at close); removed is beside them.
 | Cycle time | task (epics by own status) DONE | `done_at` | credit / owner | assignee@done | TASK | — | elapsed + wd | no `started_at` → excluded (`neverStarted`); reopened: first IN_PROGRESS → start of the trailing DONE run | live | `cycle_ms`, `cycle_working_days` | "invariants 3 and 4"; `DeriveKernelsTest` "startedDoneAt …"; `WorkingCalendarTest` |
 | Lead time | same | `done_at` | credit / owner | assignee@done | TASK | — | elapsed + wd | never null when done | live | `lead_ms`, `lead_working_days` | — |
 | Reported ÷ cycle | task DONE with worklogs | `done_at` | credit | assignee@done | TASK | — | ratio | no worklogs / `neverStarted` / `zeroCycle` (`cycle_working_days = 0`) → excluded, counted | live | `actual_md / cycle_working_days` | — |
-| Flow efficiency (A18) | task DONE | `done_at` | credit | assignee@done | TASK | — | ratio | `neverStarted` / `zeroCycle` → excluded, counted | live | `active_ms / cycle_ms`; active = IN_PROGRESS-stage time in `[started_at, done_at)` minus blocked; wait = cycle − active (`9c`) | — |
+| Flow efficiency (A18) | task DONE | `done_at` | credit | assignee@done | TASK | — | ratio | `neverStarted` / `zeroCycle` → excluded, counted | live | `active_ms / cycle_ms`; active = IN_PROGRESS-stage time in `[started_at, done_at)` minus blocked time that occurred WHILE IN_PROGRESS (blocked time outside any IN_PROGRESS stretch — e.g. blocked-while-UNMAPPED — is already WAIT, never subtracted a second time); wait = cycle − active | `DeriveKernelsTest` "sums IN_PROGRESS time inside the cycle window, minus blocked time, wait is the rest", "ignores blocked time outside any IN_PROGRESS stage, never double-subtracting it (review round 2c fix)", "subtracts a reopen-spanning blocked interval only where it overlaps each IN_PROGRESS stretch, not the DONE gap", "floors active at 0 as a defensive backstop, never negative"; `MetricsDerivationTest` "active plus wait equals cycle, both within 0 and cycle, for every DONE task (A18)" |
 
 ## Report 9 — WIP (`planned`)
 
@@ -123,14 +143,14 @@ the rest at close); removed is beside them.
 
 | Measure | Grain | Anchor | Team | User | Domain | Estimate | Unit | Missing data | Frozen/live | Source | Pinned by |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| Estimated backlog (D9) | scope × day | end of day d | owner of the task's domain (A19); none → `UNOWNED` | — | TASK | estimate at d | items + MD | level-0, NOT_STARTED, estimate > 0, in no sprint with `start_at ≤ end of d` (future sprints count as backlog) | live | `agg_daily_flow.backlog_items/_md` | — |
+| Estimated backlog (D9) | scope × day | end of day d | owner of the task's domain (`dim_domain.owner_team_id`, A19); none → `UNOWNED` | — | TASK | estimate at d | items + MD | level-0, NOT_STARTED, estimate > 0, in no sprint with `start_at ≤ end of d` (future sprints count as backlog) | live | `agg_daily_flow.backlog_items/_md` | — |
 | Backlog in sprints | team | as of the period end | owner = sprint team | — | — | — | sprints | ÷ mean `delivered_md` of the team's last N closed sprints (`backlog_window_sprints`); fewer than N → what exists; mean 0 → null | live | backlog MD ÷ avg(`fact_sprint.delivered_md`) | — |
 
 ## Report 11 — Aging WIP (`planned`)
 
 | Measure | Grain | Anchor | Team | User | Domain | Estimate | Unit | Missing data | Frozen/live | Source | Pinned by |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| Age | open task/epic, current stage IN_PROGRESS | request time − `started_at` | current (tasks, `9c`); owner (epics) | assignee@now (`9c`) | TASK | — | wd | UNMAPPED is not in progress → excluded | live | `fact_task_delivery`/`fact_epic_delivery` `started_at WHERE done_at IS NULL` | — |
+| Age | open task/epic, current stage IN_PROGRESS | request time − `started_at` | current (tasks); owner (epics) | assignee@now | TASK | — | wd | UNMAPPED is not in progress → excluded | live | `fact_task_delivery`/`fact_epic_delivery` `started_at WHERE done_at IS NULL` | `MetricsDerivationTest` "current_team_id matches D5 evaluated now …", "current_team_id ignores a CLOSED current sprint, falling back to the assignee's team (A22)" |
 | Thresholds p50/p85/p95 | team | the team's last N DONE items by `done_at` (`aging_window_items`) | credit | — | TASK | — | wd | n < `minSampleSize` → hidden | live | `cycle_working_days` of those items | — |
 
 ## Report 12 — Blocked time
@@ -154,8 +174,8 @@ the rest at close); removed is beside them.
 
 | Measure | Grain | Anchor | Team | User | Domain | Estimate | Unit | Missing data | Frozen/live | Source | Pinned by |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| Team × domain cost | author team × domain × period | `started_at` | author (rows) | author | toggle TASK / EPIC, both as-was at `started_at`; a worklog logged on an epic takes the epic's own domain in both views (A21, `9c`) | — | MD | UNASSIGNED row; EPIC view: a task with no epic uses its own domain | live | `fact_worklog.md`, `author_team_id`, `task_domain_key`, `epic_domain_key` | "fact_worklog - invariant 6" |
-| Foreign-work share | team | `started_at` | author | author | — | — | % of the team's MD | foreign = author team ≠ the task's sprint team at `started_at`; with no sprint team, ≠ the assignee's team at `started_at` (A21, `9c`); either side unknown → not foreign | live | `fact_worklog.foreign_work` (+ `assignee_team_id_at_started`, `9c`) | — |
+| Team × domain cost | author team × domain × period | `started_at` | author (rows) | author | toggle TASK / EPIC, both as-was at `started_at`; a worklog logged on an epic takes the epic's own domain in both views (A21) | — | MD | UNASSIGNED row; EPIC view: a task with no epic uses its own domain | live | `fact_worklog.md`, `author_team_id`, `task_domain_key`, `epic_domain_key` | "fact_worklog - invariant 6"; "task_domain_key is never null (invariant 6 strengthened, commit 9d)" |
+| Foreign-work share | team | `started_at` | author | author | — | — | % of the team's MD | **task-logged**: foreign = author team ≠ the task's sprint team at `started_at`; with no sprint team, ≠ the assignee's team at `started_at` (A21). **Epic-logged** (A22): foreign = author team ≠ the epic's own DOMAIN OWNER team (`dim_domain.owner_team_id`) — never the epic's assignee's team, since epics carry no sprint at all. Either side unknown → not foreign | live | `fact_worklog.foreign_work` (+ `assignee_team_id_at_started`) | `MetricsDerivationTest` "assignee_team_id_at_started, and foreign_work's task-vs-epic rule, match A21-A22"; "foreign_work is true when author and assignee teams differ, with no sprint team known at started_at (A21)" |
 
 ## Report 14 — Data quality (one row per finding; per team and per domain)
 
@@ -174,13 +194,13 @@ open started tasks; epic findings count epics open or done in the period.
 | Epics without an own estimate | epic | see populations | owner | — | own | current | items | budget from children | live | `budget_source = 'CHILDREN'` | golden epic test |
 | Epics without dates | epic | see populations | owner | — | own | — | items | no PV curve | live | `dim_epic.start_at IS NULL OR due_at IS NULL` | golden epic test |
 | Epic drift (D11) | epic | now | owner | — | own | — | items + flags | an epic with no children never flags | live | `fact_epic_delivery.drift_flags` | `DeriveKernelsTest` "epicDriftFlags …" |
-| Domains without an owner team (A19) | domain | — | — | — | own | — | domains | their epics and backlog land in `UNOWNED` | live | `domain_map.owner_team_id IS NULL` | — (`9c`) |
+| Domains without an owner team (A19, A22) | domain | — | — | — | own | — | domains | their epics and backlog land in `UNOWNED` — including a domain whose ONLY configured owner is now soft-deleted, or whose several projects disagree on a configured owner | live | `dim_domain.owner_team_id IS NULL` | `MetricsDerivationTest` "owner team resolution (A19, A22) - a configured override, a disagreeing board pair, and a soft-deleted configured team" |
 | Unmapped statuses | status; item | now | — | — | — | — | statuses, items | UNMAPPED time is never started/done | live | `norm.statuses` − `status_stage_map`; `item_stage.stage = 'UNMAPPED'` | "DERIVE flags a deliberately UNMAPPED status …" |
 | Unmapped boards | board | — | — | — | — | — | boards, sprints | their sprints have no team and no snapshot; their tasks fall back to the assignee's team (D5) | live | `norm.boards` − `board_team_map` | — |
 | Authors without a team | account | `started_at` | UNASSIGNED | author | — | — | accounts, MD | — | live | `fact_worklog.author_team_id IS NULL` | "fact_worklog - invariant 6" |
 | Work done outside any sprint (D10) | task DONE | `done_at` | credit (assignee fallback) | assignee@done | TASK | @done | items + MD | tasks done in an unmapped-board sprint are listed under "unmapped boards", not here | live | `sprint_id_at_done IS NULL` | "D5 - the OPS Kanban project's DONE tasks …" |
 | Sprint-snapshot drift (D13) | sprint × figure | `complete_at` | sprint | — | — | per figure | MD / items delta | live − frozen per figure (the seven MD figures, their item twins, capacity, load); non-zero → flagged | frozen vs live | `fact_sprint` − `fact_sprint_snapshot` | immutability only: "fact_sprint_snapshot … never updated afterwards", "reconstructed - …" |
-| Cross-domain tasks | task | `done_at` | credit | assignee@done | both | — | items | as-was (`9c`) | live | `cross_domain` | — |
+| Cross-domain tasks | task | `done_at` | credit | assignee@done | both | — | items | as-was | live | `cross_domain` | `MetricsDerivationTest` "domain is AS-WAS at done_at, not the current project (A21)" |
 | Derive warnings (A13) | connection × run | latest successful run | — | — | — | — | flag | the sprint step was skipped, nothing fabricated | live | `derive_runs.row_counts.sprintFieldUnresolved` → `deriveWarnings` | "… flagged sprintFieldUnresolved" |
 
 ## How this doc is kept true
@@ -188,7 +208,7 @@ open started tasks; epic findings count epics open or done in the period.
 - `domain-model.md` owns the meaning. When a row here and a sentence there disagree, change one of
   them deliberately in the same commit — never let the code silently decide.
 - Every report commit (plan commits 10–18) fills the "Pinned by" cells of the rows it reads with the
-  test that asserts the PERSISTED number or the endpoint's value, and drops the row's `planned`/`9c`
+  test that asserts the PERSISTED number or the endpoint's value, and drops the row's `planned`
   marker. A `—` after its report has landed is a gap, not a style choice.
 - A kernel or derivation change that moves a cell (a new anchor, a changed exclusion) edits the row
   in the same commit.

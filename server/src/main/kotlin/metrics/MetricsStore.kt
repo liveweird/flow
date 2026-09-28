@@ -46,7 +46,8 @@ private fun sprintScopeItemsJson(items: List<SprintScopeItem>): String = buildJs
 
 // ---- Row shapes MetricsDeriver assembles per connection --------------------------------------
 
-data class DimDomainRow(val domainKey: String, val name: String, val projectKeys: List<String>)
+/** [ownerTeamId] (V17, A19/A22) — this domain's resolved owner team, `MetricsDeriver.ownerTeamByDomain`'s own output. */
+data class DimDomainRow(val domainKey: String, val name: String, val projectKeys: List<String>, val ownerTeamId: UInt?)
 
 data class DimTaskRow(
     val issueId: Long,
@@ -107,8 +108,12 @@ data class FactTaskDeliveryRow(
     val assigneeTeamIdAtDone: UInt?,
     val sprintIdAtDone: Long?,
     val sprintTeamIdAtDone: UInt?,
-    /** D5's delivery credit (sprint team, else assignee's team) — `null` when neither resolves (no sentinel FK row exists for that). */
+    /** D5's delivery credit (sprint team, else assignee's team) — null when neither resolves (no sentinel FK row for that). */
     val creditTeamId: UInt?,
+    /** A21/A22: D5 evaluated NOW — the current (not closed) sprint's team, else the assignee's team, for every task. */
+    val currentTeamId: UInt?,
+    /** A21: the assignee at now (the norm ASSIGNEE interval containing it). */
+    val currentAssigneeAccountId: String?,
     val domainKey: String?,
     val epicId: Long?,
     val epicDomainKey: String?,
@@ -139,6 +144,8 @@ data class FactEpicDeliveryRow(
     val domainKey: String?,
     val workCategory: String?,
     val driftFlags: List<String>,
+    /** A19: the epic's own domain's owner team — configured, else the one mapped board on that project; null = UNOWNED. */
+    val ownerTeamId: UInt?,
 )
 
 /**
@@ -200,6 +207,9 @@ data class FactWorklogRow(
     val sprintIdAtStarted: Long?,
     val sprintTeamIdAtStarted: UInt?,
     val foreignWork: Boolean,
+    /** A21: the task's assignee (and their team) at the worklog's own started_at — foreign work's fallback with no sprint team. */
+    val assigneeAccountIdAtStarted: String?,
+    val assigneeTeamIdAtStarted: UInt?,
 )
 
 /**
@@ -272,6 +282,8 @@ class MetricsStore(private val database: R2dbcDatabase) {
         val domainKey = varchar("domain_key", 50)
         val name = varchar("name", 100)
         val projectKeys = jsonb("project_keys")
+        /** V17, A19/A22 — this domain's resolved owner team (`MetricsDeriver.ownerTeamByDomain`). */
+        val ownerTeamId = reference("owner_team_id", TeamService.Teams).nullable()
         val configRevision = long("config_revision")
         override val primaryKey = PrimaryKey(connectionId, domainKey)
     }
@@ -422,6 +434,8 @@ class MetricsStore(private val database: R2dbcDatabase) {
         val sprintIdAtDone = long("sprint_id_at_done").nullable()
         val sprintTeamIdAtDone = reference("sprint_team_id_at_done", TeamService.Teams).nullable()
         val creditTeamId = reference("credit_team_id", TeamService.Teams).nullable()
+        val currentTeamId = reference("current_team_id", TeamService.Teams).nullable()
+        val currentAssigneeAccountId = varchar("current_assignee_account_id", 100).nullable()
         val domainKey = varchar("domain_key", 50).nullable()
         val epicId = long("epic_id").nullable()
         val epicDomainKey = varchar("epic_domain_key", 50).nullable()
@@ -455,6 +469,7 @@ class MetricsStore(private val database: R2dbcDatabase) {
         val domainKey = varchar("domain_key", 50).nullable()
         val workCategory = varchar("work_category", 100).nullable()
         val driftFlags = jsonb("drift_flags")
+        val ownerTeamId = reference("owner_team_id", TeamService.Teams).nullable()
         val configRevision = long("config_revision")
         override val primaryKey = PrimaryKey(connectionId, issueId)
     }
@@ -551,6 +566,8 @@ class MetricsStore(private val database: R2dbcDatabase) {
         val sprintIdAtStarted = long("sprint_id_at_started").nullable()
         val sprintTeamIdAtStarted = reference("sprint_team_id_at_started", TeamService.Teams).nullable()
         val foreignWork = bool("foreign_work").default(false)
+        val assigneeAccountIdAtStarted = varchar("assignee_account_id_at_started", 100).nullable()
+        val assigneeTeamIdAtStarted = reference("assignee_team_id_at_started", TeamService.Teams).nullable()
         val configRevision = long("config_revision")
         override val primaryKey = PrimaryKey(connectionId, worklogId)
     }
@@ -609,6 +626,7 @@ class MetricsStore(private val database: R2dbcDatabase) {
             this[DimDomain.domainKey] = it.domainKey
             this[DimDomain.name] = it.name
             this[DimDomain.projectKeys] = stringArrayJson(it.projectKeys)
+            this[DimDomain.ownerTeamId] = it.ownerTeamId
             this[DimDomain.configRevision] = configRevision
         }
     }
@@ -819,6 +837,8 @@ class MetricsStore(private val database: R2dbcDatabase) {
             this[FactTaskDelivery.sprintIdAtDone] = it.sprintIdAtDone
             this[FactTaskDelivery.sprintTeamIdAtDone] = it.sprintTeamIdAtDone
             this[FactTaskDelivery.creditTeamId] = it.creditTeamId
+            this[FactTaskDelivery.currentTeamId] = it.currentTeamId
+            this[FactTaskDelivery.currentAssigneeAccountId] = it.currentAssigneeAccountId
             this[FactTaskDelivery.domainKey] = it.domainKey
             this[FactTaskDelivery.epicId] = it.epicId
             this[FactTaskDelivery.epicDomainKey] = it.epicDomainKey
@@ -865,6 +885,7 @@ class MetricsStore(private val database: R2dbcDatabase) {
             this[FactEpicDelivery.domainKey] = it.domainKey
             this[FactEpicDelivery.workCategory] = it.workCategory
             this[FactEpicDelivery.driftFlags] = stringArrayJson(it.driftFlags)
+            this[FactEpicDelivery.ownerTeamId] = it.ownerTeamId
             this[FactEpicDelivery.configRevision] = configRevision
         }
     }
@@ -1041,6 +1062,8 @@ class MetricsStore(private val database: R2dbcDatabase) {
             this[FactWorklog.sprintIdAtStarted] = it.sprintIdAtStarted
             this[FactWorklog.sprintTeamIdAtStarted] = it.sprintTeamIdAtStarted
             this[FactWorklog.foreignWork] = it.foreignWork
+            this[FactWorklog.assigneeAccountIdAtStarted] = it.assigneeAccountIdAtStarted
+            this[FactWorklog.assigneeTeamIdAtStarted] = it.assigneeTeamIdAtStarted
             this[FactWorklog.configRevision] = configRevision
         }
     }

@@ -40,7 +40,7 @@ import kotlin.test.assertEquals
  * by `DerivedStubFixtureTest`) is the tripwire.
  */
 object DerivedStubFixture {
-    /** 2026-09-02T00:00:00Z — the v0.3.0 plan's own pinned-clock convention; matches `MetricsDerivationTest`'s private constant. */
+    /** 2026-03-05T00:00:00Z — the v0.3.0 plan's own pinned-clock convention; matches `MetricsDerivationTest`'s private constant. */
     const val PINNED_NOW = 1_772_668_800_000L
     private const val HOURS_PER_DAY = 8.0
     private const val FLO_BOARD_ID = 1L
@@ -90,7 +90,7 @@ object DerivedStubFixture {
             derivedConnectionId?.let { return@withLock it }
             SyncedStubFixture.ensureMigrated()
             val sourceConnId = SyncedStubFixture.connectionId()
-            val connId = SyncedStubFixture.createConnection(namePrefix = "jira-derived-fixture")
+            val connId = SyncedStubFixture.createConnection(namePrefix = "jira-derived-fixture", enabled = false)
             SyncedStubFixture.cloneProcessedData(sourceConnId, connId)
 
             val config = metricsConfig()
@@ -233,6 +233,22 @@ object DerivedStubFixture {
                     MetricsStore.FactEpicPlan.budgetSource,
                     MetricsStore.FactEpicPlan.supersededAt,
                 ),
+            )
+            // `fact_epic_delivery` (v0.3.0 M3 commit 9d/9e, A19/A22's `owner_team_id`) — PK
+            // `(connection_id, issue_id)`, no surrogate id, ordered by issue id.
+            sprintDigest.hashRows(
+                MetricsStore.FactEpicDelivery.selectAll().where { MetricsStore.FactEpicDelivery.connectionId eq connId }
+                    .orderBy(MetricsStore.FactEpicDelivery.issueId to SortOrder.ASC)
+                    .toList(),
+                MetricsStore.FactEpicDelivery.columns,
+            )
+            // `dim_domain` (V17, A19/A22's `owner_team_id`) — PK `(connection_id, domain_key)`, no
+            // surrogate id, ordered by domain key (its own natural key).
+            sprintDigest.hashRows(
+                MetricsStore.DimDomain.selectAll().where { MetricsStore.DimDomain.connectionId eq connId }
+                    .orderBy(MetricsStore.DimDomain.domainKey to SortOrder.ASC)
+                    .toList(),
+                MetricsStore.DimDomain.columns,
             )
         }
         return "${factTaskDeliveryDigest(connId)}:${sprintDigest.hex()}"

@@ -499,6 +499,126 @@ math. `DerivedStubFixture`'s own tripwire digest folds in `fact_epic_plan`
 (`issue_id, baseline_seq` order, the surrogate `id` excluded — the same rule every other bridge's
 digest line already follows).
 
+## Derivation corrections from the measure contract (v0.3.0 M3 commit 9d)
+
+Writing `.claude/docs/measures.md` (commit 9c) surfaced five places where `MetricsDeriver.kt` fell
+short of, or simply hadn't yet implemented, the model `.claude/docs/domain-model.md`'s Amendments
+A18/A19/A21 describe. This commit closes all five, backed by the additive V17 columns
+(`.claude/docs/persistence.md` "The `metrics` schema — measure-contract corrections (V17)").
+
+- **Flow efficiency (A18).** `DeriveKernels.activeWaitMs` (pure, `metrics/DeriveKernels.kt`) sums
+  `IN_PROGRESS`-stage time inside `[started_at, done_at)`, subtracts ONLY the item's blocked time
+  that occurred WHILE IN_PROGRESS (`overlapWithInProgressMs` intersects each blocked interval
+  against the IN_PROGRESS stage intervals specifically, never the item's whole blocked time
+  — review round 2c bug fix: blocked time outside any IN_PROGRESS stretch, e.g. blocked-while-
+  UNMAPPED, is already WAIT by construction, since it was never summed into the IN_PROGRESS total
+  in the first place — subtracting it a second time silently inflated `wait` at `active`'s expense),
+  and floors/ceils the result into `[0, cycle]` (now a purely DEFENSIVE backstop, since the
+  intersection can never exceed the IN_PROGRESS sum by construction) — `wait = cycle - active`,
+  never negative either. A reopened item's earlier `IN_PROGRESS` stretch counts too (the window is
+  the WHOLE `[started_at, done_at)`, not just the trailing DONE run's lead-up), and a blocked
+  interval spanning a reopen (crossing OUT of and back INTO IN_PROGRESS) is subtracted only for the
+  portions that actually overlap an IN_PROGRESS stretch, never the DONE gap in between; an item that
+  never started or isn't yet done answers `(0, 0)`. `buildTaskRow` calls it once per task and writes
+  `fact_task_delivery.active_ms`/`wait_ms`.
+- **Current team and assignee (A21, A22).** `currentAttribution` (`metrics/MetricsDeriver.kt`)
+  evaluates D5 at `context.now` rather than at `done_at`: the team of the task's current sprint —
+  the norm SPRINT field interval containing `now` (its last sprint id), mapped through
+  `board_team_map` — else the assignee's team (the norm ASSIGNEE interval containing `now`, then
+  `team_membership` at now), via `DeriveContext.sprintIntervalsByIssue`/`assigneeIntervalsByIssue`.
+  The `task_sprint` bridge is not the source (it keeps every carried-over membership open). Written for EVERY task, done or not
+  (`fact_task_delivery.current_team_id`/`current_assignee_account_id`, V17) — the aging-WIP report's
+  own team attribution for still-open items, since `credit_team_id` stays `null` until `done_at` is
+  set. **Two A22 corrections, NOW-evaluated columns only:** a sprint whose `complete_at ≤ now` (or
+  whose Jira `state == "closed"`, `MetricsDeriver.isSprintClosed`) is never treated as an open item's
+  current sprint — a not-done task left in an already-closed sprint falls straight to the assignee
+  fallback (effectively backlog); and both the sprint's team and the assignee's team are filtered
+  through `DeriveContext.activeTeamIds` (every currently-ACTIVE team, read once per DERIVE inside the
+  rebuild transaction) — a soft-deleted SPRINT team is skipped, so the assignee's team applies; a
+  soft-deleted assignee team gives no team. AS-WAS columns (`credit_team_id`, `sprintTeamIdAtDone`,
+  `fact_worklog`'s author/sprint/assignee teams) are untouched by either correction — they keep
+  whatever team was actually true at that historical instant, soft-deleted or not.
+- **As-was domain and epic attribution (A21).** `asWasAttribution` replaces the old "read the
+  task's CURRENT project/epic" logic with `domainRowAt`/`epicRowAt` over the task's own
+  `task_domain`/`task_epic` history (`taskDomainRows`/`taskEpicRows`, the SAME rows `buildTaskRow`
+  already builds for the bridge tables), evaluated at `done_at ?: now`. **Review round 2c bug fix:**
+  the covering history row itself is now returned (not just its `domainKey`/`epicId`), so a row that
+  genuinely covers `atMs` with a `null` domain/epic ("this task had no epic/resolvable domain at
+  that instant") is trusted AS-IS — the earlier `?:`-based fallback wrongly flattened that genuine
+  `null` into the task's CURRENT value, indistinguishable from "no history covers this instant at
+  all" (a task that has never moved), which is the ONLY case that still falls back to current.
+  `fact_task_delivery.domain_key`/`epic_id`/`epic_domain_key`/`cross_domain` all move onto this
+  as-was read. A sub-task still has no `task_epic` history of its own (D2, the documented gap), so
+  it keeps the one-indirection CURRENT epic fallback `worklogRowsForItem` already used.
+  `epic_domain_key` itself is always the epic's CURRENT domain (no epic-domain history table exists,
+  unlike `task_domain`) — a known, deliberate limitation, not a bug.
+- **Epic-logged worklogs get the epic's own domain, never `null` (A21, strengthening invariant 6).**
+  `worklogRowsForItem`'s `taskDomainKey` used to read `null` for a worklog logged directly on an
+  epic; it now reads the epic's own (current) domain, same as `epicDomainKey` — every
+  `fact_worklog` row now carries a non-null `task_domain_key`. The SAME covering-row-vs-no-row
+  distinction above applies to a TASK-logged worklog's own as-was domain/epic read here.
+- **Foreign work (A21, A22).** `isForeignWork(authorTeamId, sprintTeamId, fallbackTeamId)`
+  (`metrics/MetricsDeriver.kt`) is `author team != sprintTeamId` when the sprint team is known, else
+  `author team != fallbackTeamId` — never `true` off an unknown team on either side. **A
+  TASK-logged** worklog passes the task's own sprint team at `started_at` and the task's assignee's
+  team at `started_at` (`assigneeAndTeamAt`, batch-scoped `ASSIGNEE` field intervals, V17's
+  `fact_worklog.assignee_account_id_at_started`/`assignee_team_id_at_started`) as the fallback — the
+  original A21 rule, unchanged. **An EPIC-logged** worklog (A22) instead passes `sprintTeamId = null`
+  (epics carry no sprint at all) and the epic's OWN DOMAIN's resolved owner team
+  (`context.ownerTeamByDomain[currentDomainKey]`) as the fallback — never the epic's assignee's team.
+  `assignee_account_id_at_started`/`assignee_team_id_at_started` are still populated for EVERY
+  worklog (epic-logged included) as informational bridge columns; only the `foreign_work`
+  COMPARISON itself branches on `isEpic`.
+- **Owner team (A19, A22) — storage and derivation, per DOMAIN not per project; the config API/UI
+  is a later commit.** `MetricsDeriver.ownerTeamByDomain` (renamed from `ownerTeamByProject`)
+  resolves each DOMAIN's (not project's — several project rows may share one `domainKey`) owner:
+  1) every project row of the domain that carries a CONFIGURED owner
+  (`metrics.domain_map.owner_team_id`, `MetricsConfigService.domainOwnerTeamIds`, filtered to
+  currently ACTIVE teams first — A22, a soft-deleted team's mapping resolves as if unconfigured)
+  must AGREE — rows with no configured owner are ignored when checking agreement (a single
+  configured row among unconfigured ones still "agrees" trivially); a genuine DISAGREEMENT between
+  two or more distinct configured owners resolves to NO owner outright (a future config-PUT
+  validation will `400` this — here it is simply unset, never falling through to the board
+  fallback); 2) absent any configured owner at all, the team of the SINGLE `board_team_map` board
+  (also active-team-filtered) mapped across ALL of the domain's project keys (`norm.boards
+  .project_key`) — no mapped board, or more than one distinct team among several boards across the
+  domain's projects, resolves to no owner; 3) otherwise absent — the report-time `UNOWNED` bucket.
+  `fact_epic_delivery.owner_team_id` (V17) and the NEW `metrics.dim_domain.owner_team_id` (V17,
+  `.claude/docs/persistence.md` "The `metrics` schema — measure-contract corrections (V17)") are
+  BOTH written from this SAME resolution, so a report can read either table and see the identical
+  owner for a domain's epics. `owner_team_id` (on `domain_map`, the CONFIGURED input) has no writer
+  of its own yet — `MetricsConfigService.replaceConfig`'s per-connection PUT carries whatever value
+  is already stored forward across its own full-replace (the request/response DTO and the OpenAPI
+  spec are untouched this commit), so an unrelated config PUT can never silently wipe an owner a
+  later migration or admin tool sets. `activeTeamIds` (`MetricsDeriver.activeTeamIds`, the SAME
+  `TeamService.Teams`/`active()` read `MetricsConfigService.referenceData` already runs for the
+  metrics-config PUT's own validation) is read ONCE per DERIVE, inside the rebuild transaction —
+  a separate transaction from the settings/config read that stamps the run's `config_revision`. A
+  team soft-delete landing between the two bumps the revision, so the post-run revision check
+  (`IngestWorker.onSucceeded`) enqueues a fresh DERIVE: the gap self-heals rather than persisting. A
+  configured owner that is now soft-deleted resolves to NO owner and does not fall back to a board
+  (A22 — the admin's explicit choice is never silently replaced).
+
+Tests: `DeriveKernelsTest` (`activeWaitMs`'s cases — never started/not done, the basic
+minus-blocked sum, blocked time outside any IN_PROGRESS stretch contributing nothing — NOT_STARTED
+and UNMAPPED gaps, a reopen-spanning blocked interval subtracted only where it overlaps IN_PROGRESS,
+and the defensive floor-at-zero backstop); `MetricsDerivationTest` (`DerivedStubFixture`-based
+sweeps for active+wait=cycle and 0≤active≤cycle over every DONE task, `current_team_id` against an
+independently re-derived D5-at-now read over the open bridge rows — with the SAME closed-sprint
+exclusion applied to the re-derivation, `fact_worklog.task_domain_key` never null (plus a guard that
+at least one epic-logged worklog actually exists in the fixture), `assignee_team_id_at_started` and
+`foreign_work` against an independent re-derivation of BOTH the task-logged sprint-else-assignee
+rule and the epic-logged owner-team rule, `fact_epic_delivery.owner_team_id` equalling the FLO
+board's own configured team for FLO epics; plus dedicated clone tests: an as-was epic test whose
+covering `task_epic` interval genuinely carries no epic at `done_at` (asserting `epic_id`,
+`epic_domain_key` and `cross_domain` all read as "no epic", never the task's later-assigned CURRENT
+epic), `current_team_id` falling back to the assignee once its current sprint is CLOSED,
+`foreign_work` true for a task-logged worklog with differing author/assignee teams and no sprint
+team known, and the four-case owner-resolution suite — a configured override beating the board
+default, two boards on one domain disagreeing (no owner), a soft-deleted configured owner (no
+owner, no board fallback available either), and `dim_domain`/`fact_epic_delivery` agreeing on the
+same resolved owner).
+
 ## Not yet ported / not yet written
 
 The daily aggregates (`agg_daily_wip`/`agg_daily_flow`, the DERIVE reprocess/perf checks) round out

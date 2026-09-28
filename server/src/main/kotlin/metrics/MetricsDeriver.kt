@@ -1,5 +1,6 @@
 package ch.nokillswit.metrics
 
+import ch.nokillswit.infra.db.active
 import ch.nokillswit.ingest.SyncJobRunContext
 import ch.nokillswit.norm.FieldChangeRow
 import ch.nokillswit.norm.NormalizedFieldInterval
@@ -9,11 +10,13 @@ import ch.nokillswit.norm.SprintRef
 import ch.nokillswit.norm.TrackedField
 import ch.nokillswit.norm.WorkItemStore
 import ch.nokillswit.norm.fieldValueOptions
+import ch.nokillswit.teams.TeamService
 import io.ktor.util.AttributeKey
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZoneOffset
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -24,6 +27,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
 import org.jetbrains.exposed.v1.r2dbc.insert
+import org.jetbrains.exposed.v1.r2dbc.select
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.r2dbc.update
 
@@ -105,10 +109,25 @@ private class DeriveContext(
     private val configMaps: ConfigMaps,
     val itemsById: Map<Long, WorkItemStore.DerivationWorkItemRow>,
     val sprintBoardById: Map<Long, Long?>,
+    /** Whether a sprint counts as CLOSED for A22's "current sprint excludes closed sprints" rule —
+     * `state == "closed"` OR `completeAtMs` at or before the DERIVE run's own clock; a sprint absent
+     * here (never fetched) is treated as not-closed by every reader ([Map.get] returning `null`). */
+    val sprintClosedById: Map<Long, Boolean>,
     val membershipsByAccount: Map<String, List<TeamMembershipService.MembershipInterval>>,
     /** Every issue's summed worklog seconds, connection-wide (review round 2b) — a small aggregate
      * `Map<Long, Long>`, never the full per-worklog row shape; see [WorkItemStore.worklogSecondsByIssue]. */
     val worklogSecondsByIssue: Map<Long, Long>,
+    /** A19/A22: each DOMAIN key's owner team — `domain_map.owner_team_id` if EVERY configured project
+     * row of the domain agrees (ignoring unconfigured rows), else the ONE `board_team_map` board
+     * mapped across ALL of the domain's project keys; absent (never a `null` value) when neither
+     * resolves. Both sources are filtered to currently ACTIVE teams first (A22: a soft-deleted team
+     * resolves as if unconfigured/unmapped) — see [MetricsDeriver.ownerTeamByDomain]'s own doc. */
+    val ownerTeamByDomain: Map<String, UInt>,
+    /** A22: team ids that are currently ACTIVE (not soft-deleted) — every NOW-evaluated team column
+     * (`current_team_id`, `ownerTeamByDomain`) is filtered through this; AS-WAS columns
+     * (`credit_team_id`, `author_team_id`, sprint team at done/started) keep the historical team
+     * regardless, per A22's own split. */
+    val activeTeamIds: Set<UInt>,
     val calendar: WorkingCalendar,
     val now: Long,
     val hoursPerDay: Double,
@@ -346,6 +365,15 @@ class MetricsDeriver(
     ): WorkItemStore.DerivationWorkItemRow =
         item.copy(customFields = JsonObject(item.customFields.filterKeys { it in relevantFieldIds }))
 
+    /**
+     * A22: a sprint counts as CLOSED for "current sprint excludes closed sprints" — either its own
+     * Jira `state == "closed"`, or a `complete_at` at or before the DERIVE run's own pinned clock
+     * [now] (the same `state`/`completeAtMs` OR the sprint step's own `closedAndMapped` check
+     * already applies for the D13 snapshot decision, `runSprintStep`).
+     */
+    private fun isSprintClosed(sprint: SprintRef, now: Long): Boolean =
+        sprint.state.equals("closed", ignoreCase = true) || (sprint.completeAtMs != null && sprint.completeAtMs <= now)
+
     private suspend fun buildContext(
         connectionId: UInt,
         workItems: List<WorkItemStore.DerivationWorkItemRow>,
@@ -367,16 +395,73 @@ class MetricsDeriver(
             epicStartFieldId = config.fields.epicStart,
             epicDueFieldId = config.fields.epicDue,
         )
+        val sprints = workItemStore.allSprintRefs(connectionId)
+        val activeTeamIds = activeTeamIds()
         return DeriveContext(
             configMaps = configMaps,
             itemsById = workItems.associateBy { it.issueId },
-            sprintBoardById = workItemStore.allSprintRefs(connectionId).associate { it.sprintId to it.boardId },
+            sprintBoardById = sprints.associate { it.sprintId to it.boardId },
+            sprintClosedById = sprints.associate { it.sprintId to isSprintClosed(it, now) },
             membershipsByAccount = teamMembership.allMembershipsByAccount(),
             worklogSecondsByIssue = workItemStore.worklogSecondsByIssue(connectionId),
+            ownerTeamByDomain = ownerTeamByDomain(connectionId, config, configMaps.boardTeamByBoardId, activeTeamIds),
+            activeTeamIds = activeTeamIds,
             calendar = calendar,
             now = now,
             hoursPerDay = hoursPerDay,
         )
+    }
+
+    /**
+     * A22: every team id currently ACTIVE (not soft-deleted) — read INSIDE `derive()`'s own
+     * transaction (`buildContext` is called from `runDerivation`, itself run inside `derive()`'s
+     * `suspendTransaction` at its ONE call site), so a config/team edit racing this run always sees a
+     * consistent snapshot. The SAME `TeamService.Teams`/`active()` read `MetricsConfigService
+     * .referenceData` already uses for the metrics-config PUT's own validation.
+     */
+    private suspend fun activeTeamIds(): Set<UInt> =
+        TeamService.Teams.select(TeamService.Teams.id).where { TeamService.Teams.active() }
+            .toList().map { it[TeamService.Teams.id].value }.toSet()
+
+    /**
+     * A19/A22 (`.claude/docs/domain-model.md` "Amendments", `.claude/docs/metrics.md`): each
+     * configured DOMAIN's (not project's — several project rows may share one `domainKey`) owner
+     * team:
+     * 1. Every project row belonging to the domain that carries a CONFIGURED owner
+     *    (`metrics.domain_map.owner_team_id`, filtered to currently ACTIVE teams first — A22, a
+     *    soft-deleted team's mapping resolves as if unconfigured) must AGREE on the same team — rows
+     *    with no configured owner are ignored when checking agreement, so a single configured row
+     *    among several unconfigured ones still "agrees" trivially. A genuine DISAGREEMENT between two
+     *    or more distinct configured owners resolves to NO owner outright (a future config-PUT
+     *    validation will 400 this; here it is simply treated as unset) — it does NOT fall through to
+     *    the board fallback below.
+     * 2. Absent any configured owner at all, the team of the SINGLE `board_team_map` board (also
+     *    active-team-filtered) mapped across ALL of the domain's project keys (`norm.boards
+     *    .project_key`) — no mapped board, or more than one distinct team among several boards across
+     *    the domain's projects, resolves to no owner.
+     * 3. Otherwise absent from the map entirely — the caller's `UNOWNED` bucket.
+     */
+    private suspend fun ownerTeamByDomain(
+        connectionId: UInt,
+        config: DataSourceMetricsConfig,
+        boardTeamByBoardId: Map<Long, UInt>,
+        activeTeamIds: Set<UInt>,
+    ): Map<String, UInt> {
+        // Unfiltered: a configured owner that is now soft-deleted still BLOCKS the board fallback and
+        // resolves to none (A22) — the admin's explicit choice is never silently replaced.
+        val configuredOwners = metricsConfig.domainOwnerTeamIds(connectionId)
+        val activeBoardTeamByBoardId = boardTeamByBoardId.filterValues { it in activeTeamIds }
+        val boardsByProject = workItemStore.allBoardRefs(connectionId).filter { it.projectKey != null }.groupBy { it.projectKey }
+        return config.domains.groupBy { it.domainKey }.mapNotNull { (domainKey, projects) ->
+            val distinctConfigured = projects.mapNotNull { configuredOwners[it.projectKey] }.distinct()
+            val owner = when {
+                distinctConfigured.size > 1 -> null // disagreement — never falls through to the board fallback
+                distinctConfigured.size == 1 -> distinctConfigured.single().takeIf { it in activeTeamIds }
+                else -> projects.flatMap { boardsByProject[it.projectKey].orEmpty() }
+                    .mapNotNull { activeBoardTeamByBoardId[it.boardId] }.distinct().singleOrNull()
+            }
+            owner?.let { domainKey to it }
+        }.toMap()
     }
 
     /**
@@ -460,12 +545,16 @@ class MetricsDeriver(
                 val currentStage = derived.stages.lastOrNull()?.stage ?: ItemStage.NOT_STARTED
                 val (blockedMs, blockedWorkingDays) = blockedByIssue.getValue(item.issueId)
 
-                taskEpicBatch += taskEpicHistory(item, context)
-                taskDomainBatch += taskDomainHistory(item, context)
+                val itemTaskEpicRows = taskEpicHistory(item, context)
+                val itemTaskDomainRows = taskDomainHistory(item, context)
+                taskEpicBatch += itemTaskEpicRows
+                taskDomainBatch += itemTaskDomainRows
                 taskAssigneeBatch += taskAssigneeHistory(item, context)
 
-                val composition =
-                    buildTaskRow(item, derived, context, workItems, derivedById, domainKey, currentStage, blockedMs, blockedWorkingDays)
+                val composition = buildTaskRow(
+                    item, derived, context, workItems, derivedById, domainKey, currentStage, blockedMs, blockedWorkingDays,
+                    itemTaskDomainRows, itemTaskEpicRows,
+                )
                 tasksBatch += composition.dim
                 factsBatch += composition.fact
                 factTasksByIssueId[item.issueId] = composition.fact
@@ -577,7 +666,9 @@ class MetricsDeriver(
     private fun domainDims(context: DeriveContext): List<DimDomainRow> =
         context.domainByProject.entries
             .groupBy({ it.value }) { it.key }
-            .map { (domainKey, projectKeys) -> DimDomainRow(domainKey, domainKey, projectKeys.distinct()) }
+            .map { (domainKey, projectKeys) ->
+                DimDomainRow(domainKey, domainKey, projectKeys.distinct(), context.ownerTeamByDomain[domainKey])
+            }
 
     /**
      * D2's roll-up, applied at the epic level (review round 2a fix): `child_sum_estimate_md` sums
@@ -633,6 +724,7 @@ class MetricsDeriver(
             domainKey = domainKey,
             workCategory = ownCategory,
             driftFlags = driftFlags.map { it.name },
+            ownerTeamId = context.ownerTeamByDomain[domainKey],
         )
         return dim to fact
     }
@@ -682,11 +774,11 @@ class MetricsDeriver(
         currentStage: ItemStage,
         blockedMs: Long,
         blockedWorkingDays: Double,
+        taskDomainRows: List<TaskDomainRow>,
+        taskEpicRows: List<TaskEpicRow>,
     ): TaskComposition {
         val epicId = epicIdOf(item, context)
-        val epic = epicId?.let { context.itemsById[it] }
         val epicDerived = epicId?.let { derivedById[it] }
-        val epicDomainKey = epic?.let { context.domainByProject[it.projectKey] ?: it.projectKey }
         val epicCategory = epicDerived?.ownCategory
         val ownCategory = derived.ownCategory
         val workCategory = ownCategory ?: epicCategory
@@ -703,10 +795,23 @@ class MetricsDeriver(
         val actualMd = actualMdFor(item, childSubtasks, context.worklogSecondsByIssue, context.hoursPerDay)
         val sprintIdAtDone = derived.done?.let { valueAt(context.sprintIntervalsByIssue[item.issueId].orEmpty(), it)?.toLongOrNull() }
         val sprintTeamIdAtDone = sprintIdAtDone?.let { context.sprintBoardById[it] }?.let { context.boardTeamByBoardId[it] }
-        val assigneeAtDone = derived.done?.let { valueAt(context.assigneeIntervalsByIssue[item.issueId].orEmpty(), it) }
-        val assigneeTeamAtDone = derived.done?.let { teamAt(assigneeAtDone, it, context.membershipsByAccount) }
+        val (assigneeAtDone, assigneeTeamAtDone) = derived.done?.let { assigneeAndTeamAt(item, context, it) } ?: (null to null)
         val creditTeamId = sprintTeamIdAtDone ?: assigneeTeamAtDone
         val flags = if (currentStage == ItemStage.UNMAPPED) listOf(UNMAPPED_STATUS_FLAG) else emptyList()
+
+        // A21: attribution (domain, epic) is AS-WAS at `done_at ?: now` — the same effective-dated
+        // task_domain/task_epic histories fact_worklog already reads at its own `started_at`, here
+        // evaluated at the task's own delivery instant instead. A sub-task carries no task_epic
+        // history of its own (D2 — see [taskEpicHistory]'s own doc), so it falls back to the
+        // CURRENT (one-indirection) epic, the same [worklogRowsForItem] fallback.
+        val asWas = asWasAttribution(item, context, taskDomainRows, taskEpicRows, domainKey, epicId, derived.done ?: context.now)
+
+        // A21: `current_team_id`/`current_assignee_account_id` — D5 evaluated NOW, for every task,
+        // done or not (the aging-WIP report's own team attribution for still-open items).
+        val current = currentAttribution(item, context)
+
+        // A18: flow efficiency — active/wait time, 0/0 while not done (`DeriveKernels.activeWaitMs`).
+        val activeWait = DeriveKernels.activeWaitMs(derived.stages, derived.blocked, derived.started, derived.done)
 
         val fact = FactTaskDeliveryRow(
             issueId = item.issueId,
@@ -729,17 +834,19 @@ class MetricsDeriver(
             cycleWorkingDays = cycleWorkingDays(derived, context.calendar),
             leadMs = derived.done?.let { it - item.createdAt },
             leadWorkingDays = derived.done?.let { context.calendar.workingDaysBetween(item.createdAt, it) },
-            activeMs = 0,
-            waitMs = 0,
+            activeMs = activeWait.activeMs,
+            waitMs = activeWait.waitMs,
             assigneeAccountIdAtDone = assigneeAtDone,
             assigneeTeamIdAtDone = assigneeTeamAtDone,
             sprintIdAtDone = sprintIdAtDone,
             sprintTeamIdAtDone = sprintTeamIdAtDone,
             creditTeamId = creditTeamId,
-            domainKey = domainKey,
-            epicId = epicId,
-            epicDomainKey = epicDomainKey,
-            crossDomain = epicDomainKey != null && epicDomainKey != domainKey,
+            currentTeamId = current.teamId,
+            currentAssigneeAccountId = current.assigneeAccountId,
+            domainKey = asWas.domainKey,
+            epicId = asWas.epicId,
+            epicDomainKey = asWas.epicDomainKey,
+            crossDomain = asWas.epicDomainKey != null && asWas.epicDomainKey != asWas.domainKey,
             activityType = activityType,
             workCategory = workCategory,
             isSubtask = item.isSubtask,
@@ -904,11 +1011,88 @@ private fun teamAt(accountId: String?, atMs: Long, memberships: Map<String, List
     return memberships[accountId]?.firstOrNull { it.validFrom <= atMs && (it.validTo == null || atMs < it.validTo) }?.teamId
 }
 
-private fun domainAt(history: List<TaskDomainRow>, atMs: Long): String? =
-    history.firstOrNull { it.fromAtMs <= atMs && (it.toAtMs == null || atMs < it.toAtMs) }?.domainKey
+/** The task's assignee (and their team) at [atMs] — the assignee field interval's own value, then team_membership at that instant. */
+private fun assigneeAndTeamAt(item: WorkItemStore.DerivationWorkItemRow, context: DeriveContext, atMs: Long): Pair<String?, UInt?> {
+    val accountId = valueAt(context.assigneeIntervalsByIssue[item.issueId].orEmpty(), atMs)
+    return accountId to teamAt(accountId, atMs, context.membershipsByAccount)
+}
 
-private fun epicAt(history: List<TaskEpicRow>, atMs: Long): Long? =
-    history.firstOrNull { it.fromAtMs <= atMs && (it.toAtMs == null || atMs < it.toAtMs) }?.epicId
+/**
+ * A21's "sprint team known, else assignee team" rule (D5's delivery-credit fallback, and the
+ * `fact_worklog` foreign-work fallback): `true` only when the author's team is known AND it
+ * differs from whichever of sprint/assignee team resolves first — never true off an unknown team
+ * on either side.
+ */
+private fun isForeignWork(authorTeamId: UInt?, sprintTeamId: UInt?, assigneeTeamId: UInt?): Boolean = when {
+    authorTeamId == null -> false
+    sprintTeamId != null -> authorTeamId != sprintTeamId
+    else -> assigneeTeamId != null && authorTeamId != assigneeTeamId
+}
+
+/** A21: current-instant D5 team + the open `task_assignee` row — [MetricsDeriver.buildTaskRow]'s own doc. */
+private data class CurrentAttribution(val teamId: UInt?, val assigneeAccountId: String?)
+
+/**
+ * A21/A22: D5 evaluated at [DeriveContext.now]. Two A22 corrections over the plain "sprint team,
+ * else assignee team" rule: a sprint whose [DeriveContext.sprintClosedById] marks it CLOSED is never
+ * an open item's current sprint at all (a not-done task left in a closed sprint is effectively
+ * backlog, so this falls straight to the assignee fallback — the closed sprint's team is not simply
+ * skipped in favour of a DIFFERENT sprint, since an item is a member of at most one sprint at any
+ * instant); and both the sprint's team AND the assignee's team are filtered through
+ * [DeriveContext.activeTeamIds] — a board mapping or a stale membership row pointing at a
+ * soft-deleted team resolves to NONE here, never a team a report would then have to explain. AS-WAS
+ * reads (`credit_team_id`, `sprintTeamIdAtDone`, `fact_worklog`'s author/sprint/assignee teams) are
+ * untouched by either correction — only this NOW-evaluated read applies them.
+ */
+private fun currentAttribution(item: WorkItemStore.DerivationWorkItemRow, context: DeriveContext): CurrentAttribution {
+    val sprintId = valueAt(context.sprintIntervalsByIssue[item.issueId].orEmpty(), context.now)?.toLongOrNull()
+    val openSprintId = sprintId?.takeIf { context.sprintClosedById[it] != true }
+    val sprintTeamId = openSprintId?.let { context.sprintBoardById[it] }?.let { context.boardTeamByBoardId[it] }
+        ?.takeIf { it in context.activeTeamIds }
+    val (assigneeAccountId, assigneeTeamIdRaw) = assigneeAndTeamAt(item, context, context.now)
+    val assigneeTeamId = assigneeTeamIdRaw?.takeIf { it in context.activeTeamIds }
+    return CurrentAttribution(sprintTeamId ?: assigneeTeamId, assigneeAccountId)
+}
+
+/** A21: domain/epic attribution AS-WAS at [atMs] — [MetricsDeriver.buildTaskRow]'s own doc. */
+private data class AsWasAttribution(val domainKey: String?, val epicId: Long?, val epicDomainKey: String?)
+
+/**
+ * (review round 2c bug fix, `.claude/docs/measures.md`) A covering [TaskEpicRow] whose OWN `epicId`
+ * is `null` — "this task genuinely had no epic at [atMs]" — must never be conflated with "no history
+ * covers [atMs] at all" (a task that has never moved, falling back to its CURRENT epic).
+ * [domainRowAt]/[epicRowAt] return the covering row itself (or `null` when none covers [atMs]) so the
+ * caller can tell the two cases apart. The DOMAIN is different: a task always has exactly one, so a
+ * covering row whose key failed to parse falls back to the current domain (re-review round 2d).
+ */
+private fun domainRowAt(history: List<TaskDomainRow>, atMs: Long): TaskDomainRow? =
+    history.firstOrNull { it.fromAtMs <= atMs && (it.toAtMs == null || atMs < it.toAtMs) }
+
+private fun epicRowAt(history: List<TaskEpicRow>, atMs: Long): TaskEpicRow? =
+    history.firstOrNull { it.fromAtMs <= atMs && (it.toAtMs == null || atMs < it.toAtMs) }
+
+private fun asWasAttribution(
+    item: WorkItemStore.DerivationWorkItemRow,
+    context: DeriveContext,
+    taskDomainRows: List<TaskDomainRow>,
+    taskEpicRows: List<TaskEpicRow>,
+    currentDomainKey: String,
+    currentEpicId: Long?,
+    atMs: Long,
+): AsWasAttribution {
+    val coveringDomain = domainRowAt(taskDomainRows, atMs)
+    // A task has exactly one domain at any instant: a covering row whose key failed to parse
+    // (a project key longer than the default limit) falls back to the current domain.
+    val domainKey = coveringDomain?.domainKey ?: currentDomainKey
+    val epicId = if (item.isSubtask) {
+        currentEpicId
+    } else {
+        val coveringEpic = epicRowAt(taskEpicRows, atMs)
+        if (coveringEpic != null) coveringEpic.epicId else currentEpicId
+    }
+    val epicDomainKey = epicId?.let { context.itemsById[it] }?.let { context.domainByProject[it.projectKey] ?: it.projectKey }
+    return AsWasAttribution(domainKey, epicId, epicDomainKey)
+}
 
 /**
  * The worklog step's own body (v0.3.0 M3 commit 9, moved outside [MetricsDeriver] purely to keep
@@ -940,6 +1124,9 @@ private suspend fun runWorklogStep(
         context.issueKeyChangesByIssue =
             workItemStore.fieldChangesByFieldIds(connectionId, listOf(ISSUE_KEY_FIELD_ID), ids).groupBy { it.issueId }
         context.sprintIntervalsByIssue = workItemStore.fieldIntervalsByIssue(connectionId, TrackedField.SPRINT, ids)
+        // A21 (commit 9d): the assignments half of foreign-work detection needs each batch's OWN
+        // assignee intervals too — the same batch-scoped read pass2 already does.
+        context.assigneeIntervalsByIssue = workItemStore.fieldIntervalsByIssue(connectionId, TrackedField.ASSIGNEE, ids)
 
         val rowsBatch = mutableListOf<FactWorklogRow>()
         for (item in batch) {
@@ -964,45 +1151,94 @@ private fun worklogRowsForItem(
     val domainHistory = if (!isEpic) taskDomainHistory(item, context) else emptyList()
     val epicHistory = if (!isEpic && !item.isSubtask) taskEpicHistory(item, context) else emptyList()
     val activityType = context.activityTypeByIssueType[item.issueType] ?: item.issueType
+    val setup = WorklogRowSetup(isEpic, currentDomainKey, currentEpicId, domainHistory, epicHistory, activityType)
 
-    return worklogs.map { wl ->
-        val startedAt = wl.startedAt
-        val taskDomainKey = if (isEpic) null else domainAt(domainHistory, startedAt) ?: currentDomainKey
-        val epicId = when {
-            isEpic -> item.issueId
-            item.isSubtask -> currentEpicId
-            else -> epicAt(epicHistory, startedAt) ?: currentEpicId
-        }
-        val epicItem = epicId?.let { context.itemsById[it] }
-        val epicDomainKey = if (isEpic) currentDomainKey else epicItem?.let { context.domainByProject[it.projectKey] ?: it.projectKey }
-        val ownCategory = derivedById[item.issueId]?.ownCategory
-        val epicCategory = epicId?.let { derivedById[it]?.ownCategory }
-        val workCategory = ownCategory ?: epicCategory
-        val authorTeamId = teamAt(wl.authorAccountId, startedAt, context.membershipsByAccount)
-        val sprintId = valueAt(context.sprintIntervalsByIssue[item.issueId].orEmpty(), startedAt)?.toLongOrNull()
-        val sprintTeamId = sprintId?.let { context.sprintBoardById[it] }?.let { context.boardTeamByBoardId[it] }
-        val md = (wl.timeSpentSeconds / SECONDS_PER_HOUR) / context.hoursPerDay
-        val lateMs = wl.createdAt?.let { createdAt -> maxOf(0L, createdAt - startedAt) }
-        val foreignWork = authorTeamId != null && sprintTeamId != null && authorTeamId != sprintTeamId
-        FactWorklogRow(
-            worklogId = wl.worklogId,
-            issueId = item.issueId,
-            authorAccountId = wl.authorAccountId,
-            authorTeamId = authorTeamId,
-            startedAt = startedAt,
-            createdAt = wl.createdAt,
-            lateMs = lateMs,
-            md = md,
-            taskDomainKey = taskDomainKey,
-            epicId = epicId,
-            epicDomainKey = epicDomainKey,
-            activityType = activityType,
-            workCategory = workCategory,
-            sprintIdAtStarted = sprintId,
-            sprintTeamIdAtStarted = sprintTeamId,
-            foreignWork = foreignWork,
-        )
+    return worklogs.map { wl -> worklogRow(item, wl, context, derivedById, setup) }
+}
+
+/** [worklogRowsForItem]'s own per-item, per-worklog-batch inputs — split out purely to keep [worklogRow]'s own parameter count sane. */
+private data class WorklogRowSetup(
+    val isEpic: Boolean,
+    val currentDomainKey: String,
+    val currentEpicId: Long?,
+    val domainHistory: List<TaskDomainRow>,
+    val epicHistory: List<TaskEpicRow>,
+    val activityType: String,
+)
+
+/**
+ * One `fact_worklog` row (extracted out of [worklogRowsForItem] purely to stay under detekt's
+ * `CyclomaticComplexMethod` threshold — the per-worklog branching lives here instead, unchanged).
+ */
+private fun worklogRow(
+    item: WorkItemStore.DerivationWorkItemRow,
+    wl: WorkItemStore.DerivationWorklogRow,
+    context: DeriveContext,
+    derivedById: Map<Long, ItemDerived>,
+    setup: WorklogRowSetup,
+): FactWorklogRow {
+    val isEpic = setup.isEpic
+    val currentDomainKey = setup.currentDomainKey
+    val currentEpicId = setup.currentEpicId
+    val domainHistory = setup.domainHistory
+    val epicHistory = setup.epicHistory
+    val activityType = setup.activityType
+    val startedAt = wl.startedAt
+    // Commit 9d: a worklog logged directly on an EPIC gets its own (current) domain, never
+    // null — a task's worklog keeps reading task_domain history as-of the worklog's own started.
+    // A covering row with an unparseable (null) domain falls back to the current domain — a task has
+    // exactly one domain at any instant (unlike the epic, where a covering null means "no epic").
+    val coveringDomain = if (isEpic) null else domainRowAt(domainHistory, startedAt)
+    val taskDomainKey = if (isEpic) currentDomainKey else coveringDomain?.domainKey ?: currentDomainKey
+    val coveringEpic = if (isEpic || item.isSubtask) null else epicRowAt(epicHistory, startedAt)
+    val epicId = when {
+        isEpic -> item.issueId
+        item.isSubtask -> currentEpicId
+        coveringEpic != null -> coveringEpic.epicId
+        else -> currentEpicId
     }
+    val epicItem = epicId?.let { context.itemsById[it] }
+    val epicDomainKey = if (isEpic) currentDomainKey else epicItem?.let { context.domainByProject[it.projectKey] ?: it.projectKey }
+    val ownCategory = derivedById[item.issueId]?.ownCategory
+    val epicCategory = epicId?.let { derivedById[it]?.ownCategory }
+    val workCategory = ownCategory ?: epicCategory
+    val authorTeamId = teamAt(wl.authorAccountId, startedAt, context.membershipsByAccount)
+    val sprintId = valueAt(context.sprintIntervalsByIssue[item.issueId].orEmpty(), startedAt)?.toLongOrNull()
+    val sprintTeamId = sprintId?.let { context.sprintBoardById[it] }?.let { context.boardTeamByBoardId[it] }
+    // Commit 9d, A21: the assignments half — the task's assignee (and their team) at the
+    // WORKLOG's own started_at, foreign work's fallback when no sprint team is known there.
+    val (assigneeAtStarted, assigneeTeamAtStarted) = assigneeAndTeamAt(item, context, startedAt)
+    val md = (wl.timeSpentSeconds / SECONDS_PER_HOUR) / context.hoursPerDay
+    val lateMs = wl.createdAt?.let { createdAt -> maxOf(0L, createdAt - startedAt) }
+    // A22 (commit 9e): a worklog logged DIRECTLY on an epic compares the author's team against
+    // the epic's own OWNER team, never its assignee's team (epics have no sprint, so the
+    // sprint-team argument is always null here) — a task-logged worklog keeps the existing
+    // sprint-else-assignee rule unchanged.
+    val foreignWork = if (isEpic) {
+        isForeignWork(authorTeamId, null, context.ownerTeamByDomain[currentDomainKey])
+    } else {
+        isForeignWork(authorTeamId, sprintTeamId, assigneeTeamAtStarted)
+    }
+    return FactWorklogRow(
+        worklogId = wl.worklogId,
+        issueId = item.issueId,
+        authorAccountId = wl.authorAccountId,
+        authorTeamId = authorTeamId,
+        startedAt = startedAt,
+        createdAt = wl.createdAt,
+        lateMs = lateMs,
+        md = md,
+        taskDomainKey = taskDomainKey,
+        epicId = epicId,
+        epicDomainKey = epicDomainKey,
+        activityType = activityType,
+        workCategory = workCategory,
+        sprintIdAtStarted = sprintId,
+        sprintTeamIdAtStarted = sprintTeamId,
+        foreignWork = foreignWork,
+        assigneeAccountIdAtStarted = assigneeAtStarted,
+        assigneeTeamIdAtStarted = assigneeTeamAtStarted,
+    )
 }
 
 /**
