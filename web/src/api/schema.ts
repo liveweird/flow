@@ -1964,6 +1964,8 @@ export interface components {
             /** Format: int64 */
             configRevision: number;
             minSampleSize: number;
+            /** @description The configured IANA time zone (`metrics.settings.time_zone`) that `from`/`to` are read in — a client renders report dates and computes period presets in it. */
+            timeZone: string;
         };
         /** @description The four figures a velocity row carries, live or frozen. */
         VelocitySnapshot: {

@@ -10,10 +10,12 @@
     "changelog": "Historia zmian",
     "teams": "Zespoły",
     "dataSources": "Źródła danych",
-    "metricsSettings": "Ustawienia metryk"
+    "metricsSettings": "Ustawienia metryk",
+    "reportsDelivery": "Dostarczanie"
   },
   "section": {
     "overview": "Przegląd",
+    "reports": "Raporty",
     "administration": "Administracja"
   },
   "userMenu": {

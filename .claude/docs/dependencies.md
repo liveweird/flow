@@ -207,3 +207,31 @@ Weekly Dependabot round, applied on `chore/deps-2026-09-26` from `origin/master`
 `eclipse-temurin`/`node` semver-major; npm `@types/node` semver-major in `/web` and `/e2e`; npm
 `typescript` semver-major in `/e2e`), each with a one-line rationale comment, so these stop
 recurring until deliberately revisited.
+
+## New dependencies (v0.3.0 M4 commit 11 — the reports SPA)
+
+All four are `/web` runtime dependencies, installed with `npm install --legacy-peer-deps` (the
+existing web exception: recharts' React peers are tolerated the same way `openapi-typescript`'s
+TypeScript peer is).
+
+- `@mantine/charts` (**`9.6.2`, exact**) — the reports' `BarChart` (later `LineChart`/`AreaChart`).
+  Pinned to `@mantine/core`'s release, exactly like `@mantine/spotlight`: **every `@mantine/*` package
+  must sit on one version** — a chart/date package a minor behind core renders unstyled or throws on a
+  changed prop contract. The `web-minor-patch` Dependabot group already batches every `@mantine/*`
+  bump into one PR, so they move together; check the resulting lockfile diff shows one Mantine version.
+- `recharts` (`^3.10.1`) — `@mantine/charts`' rendering engine (a peer it does not bundle). ~400 kB:
+  it must only ever enter **lazy chunks** (`components/VelocityChart.tsx` is dynamically imported by
+  its page; `npm run build` shows it as its own `VelocityChart-*.js` chunk, and the main `index-*.js`
+  stays free of it). Each chart component imports `@mantine/charts/styles.css` itself — without it
+  the tooltip renders unstyled.
+- `@mantine/dates` (**`9.6.2`, exact**) — the reports' custom-range `DatePickerInput` (phase-3 plan
+  §2.4). Its `styles.css` is imported by `components/ReportFilterBar.tsx` (a lazy-page chunk), and it
+  follows the same one-version rule as above.
+- `dayjs` (`^1.11.23`) — `@mantine/dates`' peer, and the source of the Polish calendar locale
+  (`dayjs/locale/pl`, loaded by the filter bar; a third UI language would need its dayjs locale added
+  there too).
+- **`react-is` override** (`web/package.json` `"overrides": { "react-is": "^19" }`, resolves to
+  19.3.0): under React 19 the tree otherwise kept `react-is@17.0.2` (pulled by
+  `@testing-library/dom`'s `pretty-format` and `prop-types`), and recharts imports `isFragment` from
+  `react-is` — which must match React's major. `npm ls react-is` must show one version; keep the
+  override matched to React's major when React moves.

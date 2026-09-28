@@ -26,9 +26,22 @@ export function epochMillisToIsoDate(epochMillis: number): string {
   return new Date(epochMillis).toISOString().slice(0, 10);
 }
 
-/** Today's date (UTC) as `YYYY-MM-DD`. */
-export function todayIsoDate(): string {
-  return epochMillisToIsoDate(Date.now());
+/**
+ * Epoch millis to the `YYYY-MM-DD` calendar date it falls on in an IANA `timeZone` (the reports
+ * read and cut their days in `metrics.settings.time_zone`, not UTC). `en-CA` because its date
+ * format IS the ISO one; the parts are read individually rather than trusting that formatting.
+ */
+export function epochMillisToIsoDateInZone(epochMillis: number, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(
+    new Date(epochMillis),
+  );
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)?.value ?? "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}
+
+/** Today's date as `YYYY-MM-DD` — in UTC by default, in `timeZone` where the caller has one (reports). */
+export function todayIsoDate(timeZone = "UTC"): string {
+  return epochMillisToIsoDateInZone(Date.now(), timeZone);
 }
 
 /** Today's UTC midnight, as epoch millis — "end membership" sets `validTo` to this. */

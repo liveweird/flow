@@ -130,6 +130,7 @@ class ReportService(
             derivedAt = derivedAt,
             configRevision = settings.configRevision,
             minSampleSize = settings.minSampleSize,
+            timeZone = settings.timeZone,
         )
     }
 

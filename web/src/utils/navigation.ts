@@ -1,6 +1,7 @@
 import type { ParseKeys } from "i18next";
 import {
   IconAdjustments,
+  IconChartBar,
   IconHistory,
   IconHome2,
   IconKey,
@@ -11,6 +12,7 @@ import {
   type Icon,
 } from "@tabler/icons-react";
 import { dataSourcesPath } from "./dataSourceLinks";
+import { velocityPath } from "./reportLinks";
 import { teamsPath } from "./teamLinks";
 
 export type NavLeaf = {
@@ -35,7 +37,7 @@ export const homePath = "/";
  * The navigation model, shared by the sidebar and the command palette. Sections are labelled,
  * always-open blocks (never collapsible groups): every leaf is always in the DOM, so tests and
  * deep links address the links directly, and a static label costs less vertical space than a
- * toggle. Home is visible to everyone; the Administration section holds Teams (everyone reads
+ * toggle. Home and Reports are visible to everyone (every signed-in user sees every report, D12); the Administration section holds Teams (everyone reads
  * the flat teams list; only its create/edit/delete are ADMIN) alongside the ADMIN-only Users,
  * Feature flags, Data sources and Metrics settings leaves — a non-admin session sees just Teams
  * there.
@@ -44,6 +46,10 @@ const NAV_SECTIONS: ReadonlyArray<NavSection> = [
   {
     label: "appShell.section.overview",
     items: [{ to: homePath, label: "appShell.nav.home", icon: IconHome2 }],
+  },
+  {
+    label: "appShell.section.reports",
+    items: [{ to: velocityPath, label: "appShell.nav.reportsDelivery", icon: IconChartBar }],
   },
   {
     label: "appShell.section.administration",

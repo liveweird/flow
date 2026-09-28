@@ -105,6 +105,7 @@ ReportFilters {
   derivedAt: epoch millis | null
   configRevision: integer
   minSampleSize: integer
+  timeZone: string   // IANA, metrics.settings.time_zone
 }
 ```
 
@@ -122,6 +123,10 @@ ReportFilters {
   connection an admin has paused from syncing still owns whatever it already derived, and its
   history stays a legitimate filter choice), id and name ONLY -- never `settings`/the encrypted
   API token (`.claude/docs/security.md`).
+- **`timeZone`** -- the configured IANA zone (`metrics.settings.time_zone`, default `Europe/Warsaw`) that
+  `from`/`to` are read in. The SPA renders every report date and computes its period presets, "today" and
+  the date-picker maximum in this zone (never UTC, never the browser's), so a preset chosen at 00:30
+  local on the 1st means the same day the server resolves.
 - **`derivedAt`/`configRevision`/`minSampleSize`** -- the SAME figures every report's own `meta`
   block carries, so a client can label a still-warming-up connection ("no data derived yet")
   without a second round trip.

@@ -2834,7 +2834,7 @@ components:
         name: { type: string }
     ReportFilters:
       type: object
-      required: [teams, domains, activityTypes, workCategories, connections, derivedAt, configRevision, minSampleSize]
+      required: [teams, domains, activityTypes, workCategories, connections, derivedAt, configRevision, minSampleSize, timeZone]
       properties:
         teams:
           type: array
@@ -2854,6 +2854,7 @@ components:
         derivedAt: { type: integer, format: int64, nullable: true }
         configRevision: { type: integer, format: int64, minimum: 1 }
         minSampleSize: { type: integer, minimum: 1 }
+        timeZone: { type: string, description: "The configured IANA time zone (`metrics.settings.time_zone`) that `from`/`to` are read in — a client renders report dates and computes period presets in it." }
 
     VelocitySnapshot:
       type: object

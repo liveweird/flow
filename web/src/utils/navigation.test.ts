@@ -2,11 +2,16 @@ import { describe, expect, test } from "vitest";
 import { ACCOUNT_NAV, activeNavPath, homePath, visibleSections } from "./navigation";
 
 describe("visibleSections", () => {
-  test("a regular session sees Overview and Administration — Teams stays, the admin-only leaves drop", () => {
+  test("a regular session sees Overview, Reports and Administration — Teams stays, the admin-only leaves drop", () => {
     const sections = visibleSections(false);
-    expect(sections.map((s) => s.label)).toEqual(["appShell.section.overview", "appShell.section.administration"]);
+    expect(sections.map((s) => s.label)).toEqual([
+      "appShell.section.overview",
+      "appShell.section.reports",
+      "appShell.section.administration",
+    ]);
     const paths = sections.flatMap((s) => s.items.map((l) => l.to));
     expect(paths).toContain("/teams");
+    expect(paths).toContain("/reports/velocity");
     expect(paths).not.toContain("/users");
     expect(paths).not.toContain("/feature-flags");
     expect(paths).not.toContain("/data-sources");
@@ -16,6 +21,14 @@ describe("visibleSections", () => {
   test("an admin session gets Teams, Users, Feature flags, Data sources and Metrics settings in the Administration section", () => {
     const admin = visibleSections(true).find((s) => s.label === "appShell.section.administration");
     expect(admin?.items.map((l) => l.to)).toEqual(["/teams", "/users", "/feature-flags", "/data-sources", "/metrics-settings"]);
+  });
+
+  test("Reports is visible to everyone — an admin sees the same leaves there", () => {
+    for (const admin of [false, true]) {
+      const reports = visibleSections(admin).find((s) => s.label === "appShell.section.reports");
+      expect(reports?.items.map((l) => l.to)).toEqual(["/reports/velocity"]);
+      expect(reports?.items.some((l) => l.adminOnly)).toBe(false);
+    }
   });
 
   test("the account leaves never sit in a section", () => {
@@ -33,6 +46,7 @@ describe("activeNavPath", () => {
     expect(activeNavPath("/users/3/edit", leaves)).toBe("/users");
     expect(activeNavPath("/feature-flags", leaves)).toBe("/feature-flags");
     expect(activeNavPath("/teams/3", leaves)).toBe("/teams");
+    expect(activeNavPath("/reports/velocity", leaves)).toBe("/reports/velocity");
   });
 
   test("the root matches only exactly", () => {

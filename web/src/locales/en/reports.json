@@ -1,0 +1,83 @@
+{
+  "empty": "No data in this period",
+  "unitMd": "MD",
+  "tabs": {
+    "label": "Reports in this group",
+    "velocity": "Velocity"
+  },
+  "meta": {
+    "derived": "Derived {{date}} · configuration revision {{revision}}",
+    "notDerived": "No data has been derived yet."
+  },
+  "filters": {
+    "title": "Report filters",
+    "clearAria": "Clear {{name}}",
+    "period": "Period",
+    "periodDates": "Dates",
+    "periodSprints": "Sprints",
+    "preset": {
+      "last30": "Last 30 days",
+      "last90": "Last 90 days",
+      "last365": "Last 365 days",
+      "thisMonth": "This month",
+      "lastMonth": "Last month",
+      "thisQuarter": "This quarter",
+      "custom": "Custom range"
+    },
+    "lastSprints_one": "Last sprint",
+    "lastSprints_other": "Last {{count}} sprints",
+    "oneSprint": "One sprint",
+    "range": "Date range",
+    "sprint": "Sprint",
+    "team": "Team",
+    "allTeams": "All teams",
+    "member": "Member",
+    "wholeTeam": "Whole team",
+    "domain": "Domain",
+    "activityType": "Activity type",
+    "workCategory": "Work category",
+    "uncategorized": "(uncategorized)",
+    "anyValue": "Any",
+    "domainView": "Domain view",
+    "deliveredIn": "Delivered in",
+    "earnedIn": "Earned in",
+    "breakdown": "Break down by",
+    "breakdownOption": {
+      "NONE": "None",
+      "DOMAIN": "Domain",
+      "ACTIVITY_TYPE": "Activity type",
+      "WORK_CATEGORY": "Work category"
+    }
+  },
+  "groups": {
+    "byTeam": "By team",
+    "byMember": "By member",
+    "team": "Team",
+    "member": "Member",
+    "unassigned": "Unassigned",
+    "drillAria": "Show {{name}}"
+  },
+  "velocity": {
+    "title": "Velocity",
+    "description": "How much each team planned into a sprint: the scope committed at the start (initial) against the scope it ended with (final).",
+    "chartTitle": "Initial and final scope per sprint",
+    "series": {
+      "initial": "Initial (committed)",
+      "final": "Final"
+    },
+    "column": {
+      "sprint": "Sprint",
+      "team": "Team",
+      "completed": "Completed",
+      "initialMd": "Initial (MD)",
+      "initialItems": "Initial (items)",
+      "finalMd": "Final (MD)",
+      "finalItems": "Final (items)",
+      "drift": "Since completion"
+    },
+    "open": "Open",
+    "chartLabel": "Chart: initial and final scope by sprint",
+    "drift": "Drift",
+    "snapshot": "Frozen at completion: initial {{initialMd}} MD, final {{finalMd}} MD"
+  }
+}

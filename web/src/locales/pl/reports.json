@@ -1,0 +1,85 @@
+{
+  "empty": "Brak danych w tym okresie",
+  "unitMd": "MD",
+  "tabs": {
+    "label": "Raporty w tej grupie",
+    "velocity": "Velocity"
+  },
+  "meta": {
+    "derived": "Wyliczono {{date}} · wersja konfiguracji {{revision}}",
+    "notDerived": "Nie wyliczono jeszcze żadnych danych."
+  },
+  "filters": {
+    "title": "Filtry raportu",
+    "clearAria": "Wyczyść: {{name}}",
+    "period": "Okres",
+    "periodDates": "Daty",
+    "periodSprints": "Sprinty",
+    "preset": {
+      "last30": "Ostatnie 30 dni",
+      "last90": "Ostatnie 90 dni",
+      "last365": "Ostatnie 365 dni",
+      "thisMonth": "Ten miesiąc",
+      "lastMonth": "Poprzedni miesiąc",
+      "thisQuarter": "Ten kwartał",
+      "custom": "Własny zakres"
+    },
+    "lastSprints_one": "Ostatni sprint",
+    "lastSprints_few": "Ostatnie {{count}} sprinty",
+    "lastSprints_many": "Ostatnie {{count}} sprintów",
+    "lastSprints_other": "Ostatnie {{count}} sprintu",
+    "oneSprint": "Jeden sprint",
+    "range": "Zakres dat",
+    "sprint": "Sprint",
+    "team": "Zespół",
+    "allTeams": "Wszystkie zespoły",
+    "member": "Osoba",
+    "wholeTeam": "Cały zespół",
+    "domain": "Domena",
+    "activityType": "Typ aktywności",
+    "workCategory": "Kategoria pracy",
+    "uncategorized": "(bez kategorii)",
+    "anyValue": "Wszystkie",
+    "domainView": "Widok domeny",
+    "deliveredIn": "Dostarczone w",
+    "earnedIn": "Wypracowane w",
+    "breakdown": "Podziel według",
+    "breakdownOption": {
+      "NONE": "Bez podziału",
+      "DOMAIN": "Domeny",
+      "ACTIVITY_TYPE": "Typu aktywności",
+      "WORK_CATEGORY": "Kategorii pracy"
+    }
+  },
+  "groups": {
+    "byTeam": "Według zespołów",
+    "byMember": "Według osób",
+    "team": "Zespół",
+    "member": "Osoba",
+    "unassigned": "Nieprzypisane",
+    "drillAria": "Pokaż: {{name}}"
+  },
+  "velocity": {
+    "title": "Velocity",
+    "description": "Ile zespół zaplanował w sprincie: zakres zobowiązany na starcie (początkowy) w porównaniu z zakresem na koniec (końcowy).",
+    "chartTitle": "Zakres początkowy i końcowy w sprintach",
+    "series": {
+      "initial": "Początkowy (zobowiązany)",
+      "final": "Końcowy"
+    },
+    "column": {
+      "sprint": "Sprint",
+      "team": "Zespół",
+      "completed": "Zakończony",
+      "initialMd": "Początkowy (MD)",
+      "initialItems": "Początkowy (zadania)",
+      "finalMd": "Końcowy (MD)",
+      "finalItems": "Końcowy (zadania)",
+      "drift": "Od zakończenia"
+    },
+    "open": "Otwarty",
+    "chartLabel": "Wykres: zakres początkowy i końcowy według sprintów",
+    "drift": "Rozbieżność",
+    "snapshot": "Zamrożone przy zakończeniu: początkowy {{initialMd}} MD, końcowy {{finalMd}} MD"
+  }
+}
