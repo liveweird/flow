@@ -1,0 +1,216 @@
+package ch.nokillswit.reports
+
+import ch.nokillswit.infra.db.active
+import ch.nokillswit.ingest.DataSourceService
+import ch.nokillswit.metrics.MetricsStore
+import ch.nokillswit.norm.WorkItemStore
+import ch.nokillswit.teams.TeamService
+import io.ktor.server.plugins.BadRequestException
+import java.time.ZoneId
+import kotlinx.coroutines.flow.toList
+import org.jetbrains.exposed.v1.core.JoinType
+import org.jetbrains.exposed.v1.core.Op
+import org.jetbrains.exposed.v1.core.ResultRow
+import org.jetbrains.exposed.v1.core.SortOrder
+import org.jetbrains.exposed.v1.core.and
+import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.greaterEq
+import org.jetbrains.exposed.v1.core.inList
+import org.jetbrains.exposed.v1.core.isNotNull
+import org.jetbrains.exposed.v1.core.less
+import org.jetbrains.exposed.v1.r2dbc.select
+import org.jetbrains.exposed.v1.r2dbc.selectAll
+
+/*
+ * The sprint-scoped plumbing the SPRINT-based reports share (velocity — commit 10b, throughput —
+ * commit 10c): connection scope + existence checks, the `fact_sprint` ⨝ `dim_sprint` reader, the
+ * `lastSprints`/`sprintId`/`from`-`to` period resolution and the frozen-snapshot reader. Every
+ * function is `internal` and runs inside the CALLER's `suspendTransaction`.
+ */
+
+/**
+ * `teamId=0` — the UNASSIGNED sentinel (`.claude/docs/reports.md`'s shared filter). A sprint
+ * always carries a real team or is excluded, so this level is always empty for sprint figures.
+ */
+internal const val UNASSIGNED_TEAM_ID: UInt = 0u
+
+/** The tolerance a live `fact_sprint` figure may drift from its frozen `fact_sprint_snapshot` before it is flagged (plan §7, D13). */
+internal const val SPRINT_DRIFT_TOLERANCE_MD = 0.005
+
+/** The configured zone (`metrics.settings.time_zone`), UTC when the stored id is unparseable — the one place reports resolve it. */
+internal fun zoneOf(timeZone: String): ZoneId = runCatching { ZoneId.of(timeZone) }.getOrDefault(ZoneId.of("UTC"))
+
+/** One `fact_sprint` row (joined with `dim_sprint` for its name/start), scoped to a real team; every report's figures ride along. */
+internal data class SprintRow(
+    val connectionId: UInt,
+    val sprintId: Long,
+    val name: String,
+    val teamId: UInt,
+    val startAt: Long?,
+    /** `null` only for an ACTIVE/future sprint, reachable through an explicit `sprintId` (measures.md conventions). */
+    val completedAt: Long?,
+    val live: VelocitySnapshot,
+    val delivered: ThroughputSnapshot,
+)
+
+internal data class SnapshotRow(
+    val connectionId: UInt,
+    val sprintId: Long,
+    val figures: VelocitySnapshot,
+    val delivered: ThroughputSnapshot,
+)
+
+/** `meta.resolvedSprints`: empty for a `from`/`to` period (it names no sprints), else each team's own resolved set. */
+internal fun resolvedSprintGroups(period: ReportPeriod, sprintRows: List<SprintRow>): List<ResolvedSprintGroup> = when (period) {
+    is ReportPeriod.DateRange -> emptyList()
+    else -> sprintRows.groupBy { it.teamId }.map { (teamId, rows) -> ResolvedSprintGroup(teamId, rows.map { it.sprintId }) }
+}
+
+internal suspend fun resolveConnectionScope(connectionId: UInt?): List<UInt> {
+    if (connectionId == null) {
+        return DataSourceService.Connections.select(DataSourceService.Connections.id)
+            // Every non-deleted connection, like /reports/filters: a disabled one only has syncing paused.
+            .where { DataSourceService.Connections.active() }
+            .toList().map { it[DataSourceService.Connections.id].value }
+    }
+    val exists = DataSourceService.Connections.select(DataSourceService.Connections.id)
+        .where { (DataSourceService.Connections.id eq connectionId) and DataSourceService.Connections.active() }
+        .toList().isNotEmpty()
+    if (!exists) throw BadRequestException("Unknown or inactive connectionId: $connectionId")
+    return listOf(connectionId)
+}
+
+internal suspend fun requireActiveTeam(teamId: UInt) {
+    val exists = TeamService.Teams.select(TeamService.Teams.id)
+        .where { (TeamService.Teams.id eq teamId) and TeamService.Teams.active() }
+        .toList().isNotEmpty()
+    if (!exists) throw BadRequestException("Unknown or inactive teamId: $teamId")
+}
+
+internal suspend fun latestDerivedAt(connectionIds: List<UInt>): Long? {
+    if (connectionIds.isEmpty()) return null
+    return MetricsStore.DeriveRuns.select(MetricsStore.DeriveRuns.finishedAt)
+        .where {
+            (MetricsStore.DeriveRuns.status eq DERIVE_RUN_SUCCEEDED) and
+                (MetricsStore.DeriveRuns.connectionId inList connectionIds.map { it.toInt() })
+        }
+        .toList().mapNotNull { it[MetricsStore.DeriveRuns.finishedAt] }.maxOrNull()
+}
+
+/** Team names by id — an empty [ids] costs no query. */
+internal suspend fun teamNames(ids: Collection<UInt>): Map<UInt, String> {
+    if (ids.isEmpty()) return emptyMap()
+    return TeamService.Teams.select(TeamService.Teams.id, TeamService.Teams.name)
+        .where { TeamService.Teams.id inList ids }
+        .toList().associate { it[TeamService.Teams.id].value to it[TeamService.Teams.name] }
+}
+
+/** Jira display names by account id (the lowest connection id's name wins for an account seen on several). */
+internal suspend fun accountDisplayNames(accountIds: Collection<String>): Map<String, String> {
+    if (accountIds.isEmpty()) return emptyMap()
+    return WorkItemStore.People.select(WorkItemStore.People.accountId, WorkItemStore.People.displayName)
+        .where { WorkItemStore.People.accountId inList accountIds }
+        .orderBy(WorkItemStore.People.connectionId to SortOrder.DESC)
+        .toList().associate { it[WorkItemStore.People.accountId] to it[WorkItemStore.People.displayName] }
+}
+
+private fun sprintJoinQuery() = MetricsStore.FactSprint.join(
+    MetricsStore.DimSprint,
+    JoinType.INNER,
+    onColumn = MetricsStore.FactSprint.sprintId,
+    otherColumn = MetricsStore.DimSprint.sprintId,
+    additionalConstraint = { MetricsStore.FactSprint.connectionId eq MetricsStore.DimSprint.connectionId },
+).select(
+    MetricsStore.FactSprint.connectionId, MetricsStore.FactSprint.sprintId, MetricsStore.DimSprint.name,
+    MetricsStore.DimSprint.startAt,
+    MetricsStore.FactSprint.teamId, MetricsStore.FactSprint.completeAt,
+    MetricsStore.FactSprint.committedMd, MetricsStore.FactSprint.committedItems,
+    MetricsStore.FactSprint.finalMd, MetricsStore.FactSprint.finalItems,
+    MetricsStore.FactSprint.deliveredMd, MetricsStore.FactSprint.deliveredItems,
+)
+
+private fun ResultRow.toSprintRow() = SprintRow(
+    connectionId = this[MetricsStore.FactSprint.connectionId].value,
+    sprintId = this[MetricsStore.FactSprint.sprintId],
+    name = this[MetricsStore.DimSprint.name],
+    teamId = this[MetricsStore.FactSprint.teamId]!!.value,
+    startAt = this[MetricsStore.DimSprint.startAt],
+    completedAt = this[MetricsStore.FactSprint.completeAt],
+    live = VelocitySnapshot(
+        initialMd = this[MetricsStore.FactSprint.committedMd].toDouble(),
+        initialItems = this[MetricsStore.FactSprint.committedItems],
+        finalMd = this[MetricsStore.FactSprint.finalMd].toDouble(),
+        finalItems = this[MetricsStore.FactSprint.finalItems],
+    ),
+    delivered = ThroughputSnapshot(
+        deliveredMd = this[MetricsStore.FactSprint.deliveredMd].toDouble(),
+        deliveredItems = this[MetricsStore.FactSprint.deliveredItems],
+    ),
+)
+
+internal suspend fun resolveSprintRows(period: ReportPeriod, connectionIds: List<UInt>, narrowTeamId: UInt?): List<SprintRow> {
+    if (connectionIds.isEmpty()) return emptyList()
+    return when (period) {
+        is ReportPeriod.DateRange -> sprintRowsInRange(connectionIds, narrowTeamId, period.fromMs, period.toMs)
+        is ReportPeriod.LastSprints -> sprintRowsLastN(connectionIds, narrowTeamId, period.count)
+        is ReportPeriod.BySprintId -> sprintRowsForId(connectionIds, narrowTeamId, period.sprintId)
+    }
+}
+
+private suspend fun sprintRowsInRange(connectionIds: List<UInt>, narrowTeamId: UInt?, fromMs: Long, toMs: Long): List<SprintRow> {
+    var predicate: Op<Boolean> = (MetricsStore.FactSprint.connectionId inList connectionIds) and
+        MetricsStore.FactSprint.teamId.isNotNull() and
+        (MetricsStore.FactSprint.completeAt greaterEq fromMs) and
+        (MetricsStore.FactSprint.completeAt less toMs) // toMs is exclusive: the day after `to` starts
+    narrowTeamId?.let { predicate = predicate and (MetricsStore.FactSprint.teamId eq it) }
+    return sprintJoinQuery().where { predicate }.toList().map { it.toSprintRow() }
+}
+
+private suspend fun sprintRowsLastN(connectionIds: List<UInt>, narrowTeamId: UInt?, count: Int): List<SprintRow> {
+    var predicate: Op<Boolean> = (MetricsStore.FactSprint.connectionId inList connectionIds) and
+        MetricsStore.FactSprint.teamId.isNotNull() and MetricsStore.FactSprint.completeAt.isNotNull()
+    narrowTeamId?.let { predicate = predicate and (MetricsStore.FactSprint.teamId eq it) }
+    val rows = sprintJoinQuery().where { predicate }
+        .orderBy(MetricsStore.FactSprint.teamId to SortOrder.ASC, MetricsStore.FactSprint.completeAt to SortOrder.DESC)
+        .toList().map { it.toSprintRow() }
+    return rows.groupBy { it.teamId }.values.flatMap { it.take(count) }
+}
+
+private suspend fun sprintRowsForId(connectionIds: List<UInt>, narrowTeamId: UInt?, sprintId: Long): List<SprintRow> {
+    val exists = MetricsStore.DimSprint.select(MetricsStore.DimSprint.sprintId)
+        .where { (MetricsStore.DimSprint.connectionId inList connectionIds) and (MetricsStore.DimSprint.sprintId eq sprintId) }
+        .toList().isNotEmpty()
+    if (!exists) throw BadRequestException("Unknown sprintId: $sprintId")
+    var predicate: Op<Boolean> = (MetricsStore.FactSprint.connectionId inList connectionIds) and
+        MetricsStore.FactSprint.teamId.isNotNull() and (MetricsStore.FactSprint.sprintId eq sprintId)
+    narrowTeamId?.let { predicate = predicate and (MetricsStore.FactSprint.teamId eq it) }
+    return sprintJoinQuery().where { predicate }.toList().map { it.toSprintRow() }
+}
+
+internal suspend fun fetchSnapshots(sprintRows: List<SprintRow>): List<SnapshotRow> {
+    if (sprintRows.isEmpty()) return emptyList()
+    val connectionIds = sprintRows.map { it.connectionId }.distinct()
+    val sprintIds = sprintRows.map { it.sprintId }.distinct()
+    return MetricsStore.FactSprintSnapshot.selectAll()
+        .where {
+            (MetricsStore.FactSprintSnapshot.connectionId inList connectionIds) and
+                (MetricsStore.FactSprintSnapshot.sprintId inList sprintIds)
+        }
+        .toList()
+        .map {
+            SnapshotRow(
+                connectionId = it[MetricsStore.FactSprintSnapshot.connectionId].value,
+                sprintId = it[MetricsStore.FactSprintSnapshot.sprintId],
+                figures = VelocitySnapshot(
+                    initialMd = it[MetricsStore.FactSprintSnapshot.committedMd].toDouble(),
+                    initialItems = it[MetricsStore.FactSprintSnapshot.committedItems],
+                    finalMd = it[MetricsStore.FactSprintSnapshot.finalMd].toDouble(),
+                    finalItems = it[MetricsStore.FactSprintSnapshot.finalItems],
+                ),
+                delivered = ThroughputSnapshot(
+                    deliveredMd = it[MetricsStore.FactSprintSnapshot.deliveredMd].toDouble(),
+                    deliveredItems = it[MetricsStore.FactSprintSnapshot.deliveredItems],
+                ),
+            )
+        }
+}

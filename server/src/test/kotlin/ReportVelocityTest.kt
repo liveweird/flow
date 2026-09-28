@@ -12,6 +12,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import kotlin.test.Test
@@ -128,6 +129,34 @@ class ReportVelocityTest {
         assertEquals(sprint.initialMd, body.groups.sumOf { it.initialMd }, ABS_TOLERANCE, "Sigma users initial must equal the team")
         assertEquals(sprint.initialItems, body.groups.sumOf { it.initialItems })
         assertTrue(body.groups.isNotEmpty(), "expected at least one assignee-at-commitment group")
+    }
+
+    @Test
+    fun `an open or future sprint is reachable by sprintId with live figures and no snapshot`() = testApplication {
+        usePostgresTestcontainer()
+        val connId = DerivedStubFixture.connectionId()
+        val floTeamId = floTeamId(connId, reportVelocityGolden.sprintId)
+        val client = seededClient("reports-velocity-open-sprint")
+
+        val open = suspendTransaction(sharedDatabaseForTests()) {
+            MetricsStore.FactSprint.selectAll()
+                .where {
+                    (MetricsStore.FactSprint.connectionId eq connId) and (MetricsStore.FactSprint.teamId eq floTeamId) and
+                        MetricsStore.FactSprint.completeAt.isNull()
+                }
+                .toList()
+        }
+        assertTrue(open.isNotEmpty(), "the stub fixture must carry an active/future FLO sprint")
+        for (row in open) {
+            val response = client.get("/api/v1/reports/velocity?connectionId=$connId&sprintId=${row[MetricsStore.FactSprint.sprintId]}")
+            assertEquals(HttpStatusCode.OK, response.status)
+            val sprint = response.body<VelocityReport>().sprints.single()
+            assertEquals(null, sprint.completedAt)
+            assertEquals(null, sprint.snapshot)
+            assertTrue(!sprint.drift)
+            assertEquals(row[MetricsStore.FactSprint.committedMd].toDouble(), sprint.initialMd, ABS_TOLERANCE)
+            assertEquals(row[MetricsStore.FactSprint.finalItems], sprint.finalItems)
+        }
     }
 
     @Test

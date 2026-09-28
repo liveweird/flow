@@ -189,13 +189,16 @@ VelocityReport {
   - **`teamId = 0`** (UNASSIGNED) -- always empty (`sprints: []`, `groups: []`): a sprint always
     carries a real team or is excluded from this report entirely (an unmapped-board sprint shows
     only in report 14, per `measures.md`'s Report 1 rows).
-- **Period.** `from`/`to` -> `fact_sprint.complete_at` in `[fromMs, toMs]`, team-scoped when
+- **Period.** `from`/`to` -> `fact_sprint.complete_at` in `[fromMs, toMs)`, team-scoped when
   narrowed. `lastSprints=N` -> each team's own last N sprints with a non-null `complete_at`, ordered
   descending, resolved in Kotlin (teams are few and admin-curated, the `ReportService.filters()`
   precedent) -- reported per team in `meta.resolvedSprints`. `sprintId` -> that ONE sprint; unknown
   (checked against `metrics.dim_sprint` across the connection scope, regardless of team mapping) is
   `400`; a real sprint with no team mapped still 400s only if it does not exist at all -- an
   existing-but-unmapped sprint simply returns `sprints: []`.
+- **Open sprints.** An ACTIVE/future sprint has no `complete_at`, so only an explicit `sprintId`
+  reaches it (`measures.md` conventions): `completedAt` is `null`, the figures are the live
+  `fact_sprint` ones, `snapshot` is `null` and `drift` `false`. Pinned by `ReportVelocityTest`.
 - **Connection scope.** `connectionId` narrows to one ACTIVE connection (`400` if unknown/inactive);
   absent, defaults to every ACTIVE (not soft-deleted) connection, the same set `/reports/filters`
   lists — a DISABLED connection only has syncing paused, and its derived data still counts.
@@ -212,9 +215,81 @@ golden FLO sprint's `sprintId` period against `expected.json`'s `committedMd`/`f
 `Σ groups == team total`, `400` for `from > to` and an unknown `sprintId`; every request runs
 through a non-admin `seededClient`, proving D12's `200` at the same time).
 
+## Report 2 -- Throughput
+
+`GET /api/v1/reports/throughput` (v0.3.0 M4 commit 10c, `.claude/docs/measures.md` "Report 2 --
+Throughput", with the item counts of report 13): what was DELIVERED, in MD and items. Takes the
+shared parameters plus `bucket=WEEK|MONTH` (default `WEEK`). Two views that **differ by design** --
+a task finished after its sprint closed is in the period view but in no sprint's delivered scope,
+and the sprint view prices at the sprint's close while the period view prices at `done_at`:
+
+```
+ThroughputReport {
+  meta: ReportMeta
+  bySprint: [{ sprintId, name, teamId, completedAt, deliveredMd, deliveredItems,
+               snapshot: { deliveredMd, deliveredItems } | null, drift: boolean }]
+  byBucket: [{ bucketStart, deliveredMd, deliveredItems }]
+  groups:   [{ teamId?, accountId?, label?, deliveredMd, deliveredItems }]
+}
+```
+
+- **`bySprint` (the SPRINT view)** -- straight off `fact_sprint.delivered_md/_items` (= Σ
+  `fact_sprint_scope.done_in_sprint`), one row per (team, closed sprint) by `complete_at`, whole
+  sprint or nothing. The period/`lastSprints`/`sprintId` resolution, connection scope and the `400`
+  existence checks are velocity's own -- both reports share `reports/ReportSupport.kt`. `snapshot` is
+  the frozen `fact_sprint_snapshot` delivered figures, `drift` the same 0.005 MD / exact-items
+  comparison velocity uses. Sorted by `completedAt`, then `sprintId`. Carries no domain/activity/
+  category slice (`measures.md`: domain "--").
+- **`byBucket` + `groups` (the PERIOD view)** -- level-0 tasks (`fact_task_delivery.is_subtask =
+  false`, D2) with `done_at` in the window, `deliveredMd` = Σ `COALESCE(estimate_at_done_md, 0)`,
+  `deliveredItems` = count (an unestimated task is an item worth 0 MD). Team = `credit_team_id` (D5;
+  `null` = UNASSIGNED, selected by `teamId=0`), user = `assignee_account_id_at_done`. Honours
+  `domain` (TASK view, the default and what `meta.domainView` echoes: the task's own `domain_key`;
+  EPIC view: `COALESCE(epic_domain_key, domain_key)`, A21 -- the fallback keys on
+  `epic_domain_key IS NULL`, so it also covers an epic outside the ingested scope), `activityType` and `workCategory`
+  (`UNCATEGORIZED` = no category -- so a real category literally named that cannot be selected).
+- **Bucket rule.** `bucket=WEEK` weeks start Monday, `MONTH` starts on the 1st, both cut in the
+  configured zone (`metrics.settings.time_zone`, never UTC -- a task done Monday 00:30 local belongs
+  to that Monday's week even though it is still Sunday in UTC). `bucketStart` is the bucket's first
+  day as an ISO date, so the first/last bucket may start outside the requested range (only tasks
+  inside the range are counted). Empty buckets are zero-filled across the whole window, so a chart
+  needs no gap handling. The math is the pure `bucketStart`/`bucketStarts` (`ThroughputBucketTest`).
+- **Window rule.** A `from`/`to` period is exactly `[fromMs, toMs)` (exclusive end, as velocity). A
+  `lastSprints`/`sprintId` period resolves the sprints (`meta.resolvedSprints`) and the period view
+  reads their overall envelope `[min(start_at, else complete_at, else now), max(complete_at, else
+  now)]` (inclusive end) -- an OPEN sprint (no `complete_at`, reachable only by an explicit `sprintId`;
+  `bySprint` then carries its live figures, `completedAt` `null`, `snapshot` `null`) ends at the
+  request's now, a sprint without `start_at` starts where it ends, and a not-yet-started future
+  sprint gives an empty window. It is one window shared by every team, so at UNIT level a team whose sprints ended long before the
+  latest one still sees the envelope, not its own narrower window. No resolved sprint means no window
+  and an empty period view; `teamId=0` (UNASSIGNED) resolves no sprints at all, so with a
+  sprint-relative period it yields nothing.
+- **Levels.** UNIT: `groups` are one per credit team (a `teamId: null` group is UNASSIGNED, `label`
+  the team name); TEAM (`teamId`): `bySprint` narrows to that team's sprints, the period view to tasks
+  credited to it, and `groups` become one per assignee at done (`null` `accountId`/`label` =
+  unassigned); USER (`teamId` + `accountId`): the period view narrows to that account, `groups` is
+  empty and `bySprint` narrows to that account's deliveries by `assignee_at_commitment`
+  (`done_in_sprint` rows at `estimate_at_done_md`; `snapshot`/`drift` are `null`/`false`, velocity's
+  same narrowing). **Σ `groups` == Σ `byBucket`** (MD and items) at UNIT and TEAM level.
+- **`breakdown`** is parsed by the shared filter but, as in velocity, does not change this report.
+- **Two separate measures.** Never expect Σ `bySprint` == Σ `byBucket` (see the two-views note above).
+
+Code: `reports/ThroughputReport.kt` (DTOs, pure bucket math, the queries) over `reports/
+ReportSupport.kt` (the connection scope / team-existence / sprint-row / snapshot readers extracted
+from velocity). Tests: `ReportThroughputTest` -- `DerivedStubFixture`-based: `bySprint` against `fact_sprint` and
+`golden.sprint.deliveredMd/Items`; `byBucket` against an independent read of `fact_task_delivery` over
+two windows; the sprint-envelope window for a `sprintId` and for `lastSprints=2`; an open/future
+sprint by `sprintId`; Σ groups at UNIT/TEAM (and empty groups at USER); USER-level `bySprint` summed
+over the golden sprint's assignees (plus the unassigned remainder) equalling the TEAM figure;
+`teamId=0`; the `activityType` and TASK-view `domain` slices; WEEK vs MONTH totals; `400` for a bad
+`bucket` and `from > to`. The EPIC domain view and the `workCategory` filters are pinned on
+hand-built `fact_task_delivery` rows in a fresh disabled connection (the stub fixture has no work
+categories and no cross-domain epics), with exactly hand-computed counts and MD. `ThroughputBucketTest`
+pins the pure bucket math across Europe/Warsaw's DST change.
+
 ## Not yet built
 
-Every remaining named report (plan section 7's table: throughput, sprint consistency, estimation
+Every remaining named report (plan section 7's table: sprint consistency, estimation
 accuracy x2, estimate adjustments, cycle time, reported-time ratio, WIP, backlog, aging WIP,
 blocked time, data quality, epic progress/EVM, cost matrix) lands in its own later commit and
 grows this doc with its own `## Report N -- ...` section, following `.claude/docs/measures.md`'s

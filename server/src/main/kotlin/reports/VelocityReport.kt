@@ -1,35 +1,14 @@
 package ch.nokillswit.reports
 
-import ch.nokillswit.infra.db.active
-import ch.nokillswit.ingest.DataSourceService
 import ch.nokillswit.metrics.MetricsStore
-import ch.nokillswit.norm.WorkItemStore
-import ch.nokillswit.teams.TeamService
-import io.ktor.server.plugins.BadRequestException
 import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.Serializable
-import org.jetbrains.exposed.v1.core.JoinType
 import org.jetbrains.exposed.v1.core.Op
-import org.jetbrains.exposed.v1.core.ResultRow
-import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
-import org.jetbrains.exposed.v1.core.greaterEq
 import org.jetbrains.exposed.v1.core.inList
-import org.jetbrains.exposed.v1.core.less
-import org.jetbrains.exposed.v1.core.isNotNull
-import org.jetbrains.exposed.v1.r2dbc.select
 import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
-
-/**
- * `teamId=0` — the UNASSIGNED sentinel (`.claude/docs/reports.md`'s shared filter). A sprint
- * always carries a real team or is excluded, so this level is always empty.
- */
-private const val UNASSIGNED_TEAM_ID: UInt = 0u
-
-/** The tolerance a live `fact_sprint` figure may drift from its frozen `fact_sprint_snapshot` before it is flagged (plan §7, D13). */
-private const val VELOCITY_DRIFT_TOLERANCE_MD = 0.005
 
 /** The four figures every velocity row carries, live or frozen (`fact_sprint(_snapshot)`/`fact_sprint_scope` alike). */
 @Serializable
@@ -46,7 +25,7 @@ data class VelocitySprint(
     val sprintId: Long,
     val name: String,
     val teamId: UInt,
-    val completedAt: Long,
+    val completedAt: Long?,
     val initialMd: Double,
     val initialItems: Int,
     val finalMd: Double,
@@ -77,18 +56,6 @@ data class VelocityGroup(
 @Serializable
 data class VelocityReport(val meta: ReportMeta, val sprints: List<VelocitySprint>, val groups: List<VelocityGroup>)
 
-/** One `fact_sprint` row (joined with `dim_sprint` for its name), scoped to a real team. */
-private data class SprintRow(
-    val connectionId: UInt,
-    val sprintId: Long,
-    val name: String,
-    val teamId: UInt,
-    val completedAt: Long,
-    val live: VelocitySnapshot,
-)
-
-private data class SnapshotRow(val connectionId: UInt, val sprintId: Long, val figures: VelocitySnapshot)
-
 /** One `fact_sprint_scope` row's contribution to the committed/final buckets (the removed-row rule applied by the caller). */
 private data class ScopeContribution(
     val connectionId: UInt,
@@ -102,8 +69,8 @@ private data class ScopeContribution(
 
 private fun velocityDrift(live: VelocitySnapshot, snapshot: VelocitySnapshot?): Boolean {
     if (snapshot == null) return false
-    return kotlin.math.abs(live.initialMd - snapshot.initialMd) > VELOCITY_DRIFT_TOLERANCE_MD ||
-        kotlin.math.abs(live.finalMd - snapshot.finalMd) > VELOCITY_DRIFT_TOLERANCE_MD ||
+    return kotlin.math.abs(live.initialMd - snapshot.initialMd) > SPRINT_DRIFT_TOLERANCE_MD ||
+        kotlin.math.abs(live.finalMd - snapshot.finalMd) > SPRINT_DRIFT_TOLERANCE_MD ||
         live.initialItems != snapshot.initialItems ||
         live.finalItems != snapshot.finalItems
 }
@@ -131,10 +98,7 @@ suspend fun ReportService.velocity(filter: ReportFilter): VelocityReport = suspe
     val narrowTeamId = filter.teamId.takeIf { filter.level != ReportLevel.UNIT }
 
     val sprintRows = resolveSprintRows(filter.period, connectionIds, narrowTeamId)
-    val resolvedSprints = when (filter.period) {
-        is ReportPeriod.DateRange -> emptyList()
-        else -> sprintRows.groupBy { it.teamId }.map { (teamId, rows) -> ResolvedSprintGroup(teamId, rows.map { it.sprintId }) }
-    }
+    val resolvedSprints = resolvedSprintGroups(filter.period, sprintRows)
     val meta = filter.toMeta(derivedAt, settings.configRevision, settings.minSampleSize, resolvedSprints)
 
     if (filter.level == ReportLevel.USER) {
@@ -159,127 +123,6 @@ suspend fun ReportService.velocity(filter: ReportFilter): VelocityReport = suspe
         ReportLevel.USER -> emptyList() // handled above
     }
     VelocityReport(meta, sprints, groups)
-}
-
-private suspend fun ReportService.resolveConnectionScope(connectionId: UInt?): List<UInt> {
-    if (connectionId == null) {
-        return DataSourceService.Connections.select(DataSourceService.Connections.id)
-            // Every non-deleted connection, like /reports/filters: a disabled one only has syncing paused.
-            .where { DataSourceService.Connections.active() }
-            .toList().map { it[DataSourceService.Connections.id].value }
-    }
-    val exists = DataSourceService.Connections.select(DataSourceService.Connections.id)
-        .where { (DataSourceService.Connections.id eq connectionId) and DataSourceService.Connections.active() }
-        .toList().isNotEmpty()
-    if (!exists) throw BadRequestException("Unknown or inactive connectionId: $connectionId")
-    return listOf(connectionId)
-}
-
-private suspend fun requireActiveTeam(teamId: UInt) {
-    val exists = TeamService.Teams.select(TeamService.Teams.id)
-        .where { (TeamService.Teams.id eq teamId) and TeamService.Teams.active() }
-        .toList().isNotEmpty()
-    if (!exists) throw BadRequestException("Unknown or inactive teamId: $teamId")
-}
-
-private suspend fun latestDerivedAt(connectionIds: List<UInt>): Long? {
-    if (connectionIds.isEmpty()) return null
-    return MetricsStore.DeriveRuns.select(MetricsStore.DeriveRuns.finishedAt)
-        .where {
-            (MetricsStore.DeriveRuns.status eq DERIVE_RUN_SUCCEEDED) and
-                (MetricsStore.DeriveRuns.connectionId inList connectionIds.map { it.toInt() })
-        }
-        .toList().mapNotNull { it[MetricsStore.DeriveRuns.finishedAt] }.maxOrNull()
-}
-
-private fun sprintJoinQuery() = MetricsStore.FactSprint.join(
-    MetricsStore.DimSprint,
-    JoinType.INNER,
-    onColumn = MetricsStore.FactSprint.sprintId,
-    otherColumn = MetricsStore.DimSprint.sprintId,
-    additionalConstraint = { MetricsStore.FactSprint.connectionId eq MetricsStore.DimSprint.connectionId },
-).select(
-    MetricsStore.FactSprint.connectionId, MetricsStore.FactSprint.sprintId, MetricsStore.DimSprint.name,
-    MetricsStore.FactSprint.teamId, MetricsStore.FactSprint.completeAt,
-    MetricsStore.FactSprint.committedMd, MetricsStore.FactSprint.committedItems,
-    MetricsStore.FactSprint.finalMd, MetricsStore.FactSprint.finalItems,
-)
-
-private fun ResultRow.toSprintRow() = SprintRow(
-    connectionId = this[MetricsStore.FactSprint.connectionId].value,
-    sprintId = this[MetricsStore.FactSprint.sprintId],
-    name = this[MetricsStore.DimSprint.name],
-    teamId = this[MetricsStore.FactSprint.teamId]!!.value,
-    completedAt = this[MetricsStore.FactSprint.completeAt]!!,
-    live = VelocitySnapshot(
-        initialMd = this[MetricsStore.FactSprint.committedMd].toDouble(),
-        initialItems = this[MetricsStore.FactSprint.committedItems],
-        finalMd = this[MetricsStore.FactSprint.finalMd].toDouble(),
-        finalItems = this[MetricsStore.FactSprint.finalItems],
-    ),
-)
-
-private suspend fun resolveSprintRows(period: ReportPeriod, connectionIds: List<UInt>, narrowTeamId: UInt?): List<SprintRow> {
-    if (connectionIds.isEmpty()) return emptyList()
-    return when (period) {
-        is ReportPeriod.DateRange -> sprintRowsInRange(connectionIds, narrowTeamId, period.fromMs, period.toMs)
-        is ReportPeriod.LastSprints -> sprintRowsLastN(connectionIds, narrowTeamId, period.count)
-        is ReportPeriod.BySprintId -> sprintRowsForId(connectionIds, narrowTeamId, period.sprintId)
-    }
-}
-
-private suspend fun sprintRowsInRange(connectionIds: List<UInt>, narrowTeamId: UInt?, fromMs: Long, toMs: Long): List<SprintRow> {
-    var predicate: Op<Boolean> = (MetricsStore.FactSprint.connectionId inList connectionIds) and
-        MetricsStore.FactSprint.teamId.isNotNull() and
-        (MetricsStore.FactSprint.completeAt greaterEq fromMs) and
-        (MetricsStore.FactSprint.completeAt less toMs) // toMs is exclusive: the day after `to` starts
-    narrowTeamId?.let { predicate = predicate and (MetricsStore.FactSprint.teamId eq it) }
-    return sprintJoinQuery().where { predicate }.toList().map { it.toSprintRow() }
-}
-
-private suspend fun sprintRowsLastN(connectionIds: List<UInt>, narrowTeamId: UInt?, count: Int): List<SprintRow> {
-    var predicate: Op<Boolean> = (MetricsStore.FactSprint.connectionId inList connectionIds) and
-        MetricsStore.FactSprint.teamId.isNotNull() and MetricsStore.FactSprint.completeAt.isNotNull()
-    narrowTeamId?.let { predicate = predicate and (MetricsStore.FactSprint.teamId eq it) }
-    val rows = sprintJoinQuery().where { predicate }
-        .orderBy(MetricsStore.FactSprint.teamId to SortOrder.ASC, MetricsStore.FactSprint.completeAt to SortOrder.DESC)
-        .toList().map { it.toSprintRow() }
-    return rows.groupBy { it.teamId }.values.flatMap { it.take(count) }
-}
-
-private suspend fun sprintRowsForId(connectionIds: List<UInt>, narrowTeamId: UInt?, sprintId: Long): List<SprintRow> {
-    val exists = MetricsStore.DimSprint.select(MetricsStore.DimSprint.sprintId)
-        .where { (MetricsStore.DimSprint.connectionId inList connectionIds) and (MetricsStore.DimSprint.sprintId eq sprintId) }
-        .toList().isNotEmpty()
-    if (!exists) throw BadRequestException("Unknown sprintId: $sprintId")
-    var predicate: Op<Boolean> = (MetricsStore.FactSprint.connectionId inList connectionIds) and
-        MetricsStore.FactSprint.teamId.isNotNull() and (MetricsStore.FactSprint.sprintId eq sprintId)
-    narrowTeamId?.let { predicate = predicate and (MetricsStore.FactSprint.teamId eq it) }
-    return sprintJoinQuery().where { predicate }.toList().map { it.toSprintRow() }
-}
-
-private suspend fun fetchSnapshots(sprintRows: List<SprintRow>): List<SnapshotRow> {
-    if (sprintRows.isEmpty()) return emptyList()
-    val connectionIds = sprintRows.map { it.connectionId }.distinct()
-    val sprintIds = sprintRows.map { it.sprintId }.distinct()
-    return MetricsStore.FactSprintSnapshot.selectAll()
-        .where {
-            (MetricsStore.FactSprintSnapshot.connectionId inList connectionIds) and
-                (MetricsStore.FactSprintSnapshot.sprintId inList sprintIds)
-        }
-        .toList()
-        .map {
-            SnapshotRow(
-                connectionId = it[MetricsStore.FactSprintSnapshot.connectionId].value,
-                sprintId = it[MetricsStore.FactSprintSnapshot.sprintId],
-                figures = VelocitySnapshot(
-                    initialMd = it[MetricsStore.FactSprintSnapshot.committedMd].toDouble(),
-                    initialItems = it[MetricsStore.FactSprintSnapshot.committedItems],
-                    finalMd = it[MetricsStore.FactSprintSnapshot.finalMd].toDouble(),
-                    finalItems = it[MetricsStore.FactSprintSnapshot.finalItems],
-                ),
-            )
-        }
 }
 
 /** [accountId] `null` fetches every user's own contribution (TEAM-level groups); non-null narrows to one (USER level). */
@@ -307,9 +150,7 @@ private suspend fun fetchScopeContributions(sprintRows: List<SprintRow>, account
 private suspend fun teamGroups(sprintRows: List<SprintRow>): List<VelocityGroup> {
     val byTeam = sprintRows.groupBy { it.teamId }
     if (byTeam.isEmpty()) return emptyList()
-    val names = TeamService.Teams.select(TeamService.Teams.id, TeamService.Teams.name)
-        .where { TeamService.Teams.id inList byTeam.keys }
-        .toList().associate { it[TeamService.Teams.id].value to it[TeamService.Teams.name] }
+    val names = teamNames(byTeam.keys)
     return byTeam.map { (teamId, rows) ->
         VelocityGroup(
             teamId = teamId,
@@ -330,14 +171,7 @@ private suspend fun userGroups(contributions: List<ScopeContribution>): List<Vel
     if (contributions.isEmpty()) return emptyList()
     val byAccount = contributions.groupBy { it.accountId }
     val accountIds = byAccount.keys.filterNotNull()
-    val displayNames = if (accountIds.isEmpty()) {
-        emptyMap()
-    } else {
-        WorkItemStore.People.select(WorkItemStore.People.accountId, WorkItemStore.People.displayName)
-            .where { WorkItemStore.People.accountId inList accountIds }
-            .orderBy(WorkItemStore.People.connectionId to SortOrder.DESC)
-            .toList().associate { it[WorkItemStore.People.accountId] to it[WorkItemStore.People.displayName] }
-    }
+    val displayNames = accountDisplayNames(accountIds)
     return byAccount.map { (accountId, rows) ->
         VelocityGroup(
             accountId = accountId,

@@ -1306,7 +1306,9 @@ paths:
         `accountId` together narrow to USER level — `sprints` itself narrows to that one account's
         own contribution and `groups` is always empty. `teamId=0` (UNASSIGNED) is always empty — a
         sprint always carries a real team or is excluded from this report. Velocity carries no
-        domain slice, so `domainView` is echoed in `meta` but never changes the result.
+        domain slice, so `domainView` is echoed in `meta` but never changes the result. An active or
+        future sprint (`completedAt` null) is reachable only by an explicit `sprintId`: its live figures,
+        `snapshot` null, `drift` false.
       parameters:
         - { $ref: '#/components/parameters/ReportFrom' }
         - { $ref: '#/components/parameters/ReportTo' }
@@ -1323,6 +1325,59 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/VelocityReport'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/reports/throughput:
+    get:
+      tags: [reports]
+      operationId: getReportThroughput
+      summary: Report 2 — throughput (delivered scope per closed sprint and per time bucket)
+      description: |
+        Any authenticated user (D12), read-only — `.claude/docs/measures.md` "Report 2 — Throughput"
+        (with the item counts of report 13). Two views that differ BY DESIGN: `bySprint` is the SPRINT
+        view (each team's sprints completed in the period, `fact_sprint.delivered_md/_items` — what was
+        done inside the sprint while in it, priced at the sprint's close; `snapshot`/`drift` as in
+        velocity); `byBucket` and `groups` are the PERIOD view (level-0 tasks — no sub-tasks — with
+        `done_at` in the period, priced at their estimate at done, an unestimated task counting as an
+        item worth 0 MD; team = the D5 credit team, `null` = UNASSIGNED; user = assignee at done). A
+        task done after its sprint closed is in the period view only. `bucket` (default `WEEK`; weeks
+        start Monday, both in the configured zone) sets the resolution of `byBucket`; `bucketStart` is
+        the bucket's first day (ISO date) and empty buckets are zero-filled across the whole window.
+        For a `from`/`to` period the window is exactly that range; for `lastSprints`/`sprintId` it is
+        the resolved sprints' overall envelope `[min(start_at, else complete_at, else now), max(complete_at,
+        else now)]` — an open sprint (no `complete_at`, reachable only by an explicit `sprintId`) ends at the
+        request's now, and a future sprint yields an empty period view. `domain` (with
+        `domainView`: TASK = the task's own domain, EPIC = the epic's domain with an epic-less task
+        falling back to its own when `epic_domain_key` is null, which also covers an epic outside the ingested
+        scope — A21), `activityType` and `workCategory` (`UNCATEGORIZED` = none)
+        slice the period view only; the sprint view carries no slice. Levels: UNIT (default) — `groups`
+        are one per credit team (a `teamId: null` group is UNASSIGNED); `teamId` narrows to TEAM level
+        (`bySprint` to that team's sprints, the period view to tasks credited to that team — `teamId=0`
+        selects UNASSIGNED credit for the period view and yields no sprints) and `groups` becomes one per
+        assignee at done; `teamId` AND `accountId` narrow to USER level (`groups` empty; `bySprint` is
+        that account's deliveries by assignee at commitment). Σ `groups` equals Σ `byBucket`.
+        `breakdown` is accepted by the shared parser but does not change this report.
+      parameters:
+        - { $ref: '#/components/parameters/ReportFrom' }
+        - { $ref: '#/components/parameters/ReportTo' }
+        - { $ref: '#/components/parameters/ReportLastSprints' }
+        - { $ref: '#/components/parameters/ReportSprintId' }
+        - { $ref: '#/components/parameters/ReportTeamId' }
+        - { $ref: '#/components/parameters/ReportAccountId' }
+        - { $ref: '#/components/parameters/ReportDomainView' }
+        - { $ref: '#/components/parameters/ReportDomain' }
+        - { $ref: '#/components/parameters/ReportActivityType' }
+        - { $ref: '#/components/parameters/ReportWorkCategory' }
+        - { $ref: '#/components/parameters/ReportConnectionId' }
+        - { $ref: '#/components/parameters/ReportBucket' }
+      responses:
+        '200':
+          description: The throughput report
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThroughputReport'
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '500': { $ref: '#/components/responses/InternalServerError' }
@@ -1489,6 +1544,12 @@ components:
       required: false
       schema: { type: string, enum: [NONE, DOMAIN, ACTIVITY_TYPE, WORK_CATEGORY], default: NONE }
       description: Replaces the org drill inside a report's own `groups` with a slice by this dimension instead.
+    ReportBucket:
+      name: bucket
+      in: query
+      required: false
+      schema: { type: string, enum: [WEEK, MONTH], default: WEEK }
+      description: The time resolution of a report's bucketed series; weeks start Monday, buckets in the configured zone.
   responses:
     UnsupportedMediaType:
       description: Request body must use application/json. A missing body or Content-Type remains a 400.
@@ -2771,7 +2832,7 @@ components:
         sprintId: { type: integer, format: int64 }
         name: { type: string }
         teamId: { type: integer, format: int32, minimum: 0 }
-        completedAt: { type: integer, format: int64 }
+        completedAt: { type: integer, format: int64, nullable: true, description: "Null only for an active/future sprint, reachable through an explicit sprintId." }
         initialMd: { type: number, format: double }
         initialItems: { type: integer }
         finalMd: { type: number, format: double }
@@ -2807,6 +2868,64 @@ components:
         groups:
           type: array
           items: { $ref: '#/components/schemas/VelocityGroup' }
+
+    ThroughputSnapshot:
+      type: object
+      description: A sprint's delivered figures, live or frozen.
+      required: [deliveredMd, deliveredItems]
+      properties:
+        deliveredMd: { type: number, format: double }
+        deliveredItems: { type: integer }
+    ThroughputSprint:
+      type: object
+      description: One sprint's delivered scope (the SPRINT view — priced at the sprint's close).
+      required: [sprintId, name, teamId, completedAt, deliveredMd, deliveredItems, snapshot, drift]
+      properties:
+        sprintId: { type: integer, format: int64 }
+        name: { type: string }
+        teamId: { type: integer, format: int32, minimum: 0 }
+        completedAt: { type: integer, format: int64, nullable: true, description: "Null only for an active/future sprint, reachable through an explicit sprintId." }
+        deliveredMd: { type: number, format: double }
+        deliveredItems: { type: integer }
+        snapshot:
+          allOf: [{ $ref: '#/components/schemas/ThroughputSnapshot' }]
+          nullable: true
+        drift: { type: boolean }
+    ThroughputBucketRow:
+      type: object
+      description: One time bucket of the PERIOD view (tasks by `done_at`, priced at done).
+      required: [bucketStart, deliveredMd, deliveredItems]
+      properties:
+        bucketStart: { type: string, description: "The bucket's first day, ISO date (a Monday for weeks, the 1st for months)." }
+        deliveredMd: { type: number, format: double }
+        deliveredItems: { type: integer }
+    ThroughputGroup:
+      type: object
+      description: >-
+        A credit team's sums (UNIT level; `teamId: null` is the UNASSIGNED bucket, `accountId` null) or
+        one assignee-at-done's sums (TEAM level; `accountId` null with a null `label` is the
+        unassigned bucket) over the PERIOD view — always empty at USER level.
+      required: [teamId, accountId, label, deliveredMd, deliveredItems]
+      properties:
+        teamId: { type: integer, format: int32, minimum: 0, nullable: true }
+        accountId: { type: string, nullable: true }
+        label: { type: string, nullable: true }
+        deliveredMd: { type: number, format: double }
+        deliveredItems: { type: integer }
+    ThroughputReport:
+      type: object
+      required: [meta, bySprint, byBucket, groups]
+      properties:
+        meta: { $ref: '#/components/schemas/ReportMeta' }
+        bySprint:
+          type: array
+          items: { $ref: '#/components/schemas/ThroughputSprint' }
+        byBucket:
+          type: array
+          items: { $ref: '#/components/schemas/ThroughputBucketRow' }
+        groups:
+          type: array
+          items: { $ref: '#/components/schemas/ThroughputGroup' }
 
     ProblemDetail:
       type: object

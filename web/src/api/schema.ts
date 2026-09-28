@@ -900,9 +900,54 @@ export interface paths {
          *     `accountId` together narrow to USER level — `sprints` itself narrows to that one account's
          *     own contribution and `groups` is always empty. `teamId=0` (UNASSIGNED) is always empty — a
          *     sprint always carries a real team or is excluded from this report. Velocity carries no
-         *     domain slice, so `domainView` is echoed in `meta` but never changes the result.
+         *     domain slice, so `domainView` is echoed in `meta` but never changes the result. An active or
+         *     future sprint (`completedAt` null) is reachable only by an explicit `sprintId`: its live figures,
+         *     `snapshot` null, `drift` false.
          */
         get: operations["getReportVelocity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/throughput": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Report 2 — throughput (delivered scope per closed sprint and per time bucket)
+         * @description Any authenticated user (D12), read-only — `.claude/docs/measures.md` "Report 2 — Throughput"
+         *     (with the item counts of report 13). Two views that differ BY DESIGN: `bySprint` is the SPRINT
+         *     view (each team's sprints completed in the period, `fact_sprint.delivered_md/_items` — what was
+         *     done inside the sprint while in it, priced at the sprint's close; `snapshot`/`drift` as in
+         *     velocity); `byBucket` and `groups` are the PERIOD view (level-0 tasks — no sub-tasks — with
+         *     `done_at` in the period, priced at their estimate at done, an unestimated task counting as an
+         *     item worth 0 MD; team = the D5 credit team, `null` = UNASSIGNED; user = assignee at done). A
+         *     task done after its sprint closed is in the period view only. `bucket` (default `WEEK`; weeks
+         *     start Monday, both in the configured zone) sets the resolution of `byBucket`; `bucketStart` is
+         *     the bucket's first day (ISO date) and empty buckets are zero-filled across the whole window.
+         *     For a `from`/`to` period the window is exactly that range; for `lastSprints`/`sprintId` it is
+         *     the resolved sprints' overall envelope `[min(start_at, else complete_at, else now), max(complete_at,
+         *     else now)]` — an open sprint (no `complete_at`, reachable only by an explicit `sprintId`) ends at the
+         *     request's now, and a future sprint yields an empty period view. `domain` (with
+         *     `domainView`: TASK = the task's own domain, EPIC = the epic's domain with an epic-less task
+         *     falling back to its own when `epic_domain_key` is null, which also covers an epic outside the ingested
+         *     scope — A21), `activityType` and `workCategory` (`UNCATEGORIZED` = none)
+         *     slice the period view only; the sprint view carries no slice. Levels: UNIT (default) — `groups`
+         *     are one per credit team (a `teamId: null` group is UNASSIGNED); `teamId` narrows to TEAM level
+         *     (`bySprint` to that team's sprints, the period view to tasks credited to that team — `teamId=0`
+         *     selects UNASSIGNED credit for the period view and yields no sprints) and `groups` becomes one per
+         *     assignee at done; `teamId` AND `accountId` narrow to USER level (`groups` empty; `bySprint` is
+         *     that account's deliveries by assignee at commitment). Σ `groups` equals Σ `byBucket`.
+         *     `breakdown` is accepted by the shared parser but does not change this report.
+         */
+        get: operations["getReportThroughput"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1902,8 +1947,11 @@ export interface components {
             name: string;
             /** Format: int32 */
             teamId: number;
-            /** Format: int64 */
-            completedAt: number;
+            /**
+             * Format: int64
+             * @description Null only for an active/future sprint, reachable through an explicit sprintId.
+             */
+            completedAt: number | null;
             /** Format: double */
             initialMd: number;
             initialItems: number;
@@ -1930,6 +1978,54 @@ export interface components {
             meta: components["schemas"]["ReportMeta"];
             sprints: components["schemas"]["VelocitySprint"][];
             groups: components["schemas"]["VelocityGroup"][];
+        };
+        /** @description A sprint's delivered figures, live or frozen. */
+        ThroughputSnapshot: {
+            /** Format: double */
+            deliveredMd: number;
+            deliveredItems: number;
+        };
+        /** @description One sprint's delivered scope (the SPRINT view — priced at the sprint's close). */
+        ThroughputSprint: {
+            /** Format: int64 */
+            sprintId: number;
+            name: string;
+            /** Format: int32 */
+            teamId: number;
+            /**
+             * Format: int64
+             * @description Null only for an active/future sprint, reachable through an explicit sprintId.
+             */
+            completedAt: number | null;
+            /** Format: double */
+            deliveredMd: number;
+            deliveredItems: number;
+            snapshot: components["schemas"]["ThroughputSnapshot"] | null;
+            drift: boolean;
+        };
+        /** @description One time bucket of the PERIOD view (tasks by `done_at`, priced at done). */
+        ThroughputBucketRow: {
+            /** @description The bucket's first day, ISO date (a Monday for weeks, the 1st for months). */
+            bucketStart: string;
+            /** Format: double */
+            deliveredMd: number;
+            deliveredItems: number;
+        };
+        /** @description A credit team's sums (UNIT level; `teamId: null` is the UNASSIGNED bucket, `accountId` null) or one assignee-at-done's sums (TEAM level; `accountId` null with a null `label` is the unassigned bucket) over the PERIOD view — always empty at USER level. */
+        ThroughputGroup: {
+            /** Format: int32 */
+            teamId: number | null;
+            accountId: string | null;
+            label: string | null;
+            /** Format: double */
+            deliveredMd: number;
+            deliveredItems: number;
+        };
+        ThroughputReport: {
+            meta: components["schemas"]["ReportMeta"];
+            bySprint: components["schemas"]["ThroughputSprint"][];
+            byBucket: components["schemas"]["ThroughputBucketRow"][];
+            groups: components["schemas"]["ThroughputGroup"][];
         };
         /** @description RFC 7807 problem detail. Served as `application/problem+json`; instance is the request path without query parameters. */
         ProblemDetail: {
@@ -2070,6 +2166,8 @@ export interface components {
         ReportConnectionId: number;
         /** @description Replaces the org drill inside a report's own `groups` with a slice by this dimension instead. */
         ReportBreakdown: "NONE" | "DOMAIN" | "ACTIVITY_TYPE" | "WORK_CATEGORY";
+        /** @description The time resolution of a report's bucketed series; weeks start Monday, buckets in the configured zone. */
+        ReportBucket: "WEEK" | "MONTH";
     };
     requestBodies: never;
     headers: never;
@@ -3511,6 +3609,54 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["VelocityReport"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getReportThroughput: {
+        parameters: {
+            query?: {
+                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. */
+                from?: components["parameters"]["ReportFrom"];
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
+                to?: components["parameters"]["ReportTo"];
+                /** @description Each team's own last N closed sprints (union at unit level). Mutually exclusive with `from`/`to`/`sprintId`. */
+                lastSprints?: components["parameters"]["ReportLastSprints"];
+                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
+                sprintId?: components["parameters"]["ReportSprintId"];
+                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
+                teamId?: components["parameters"]["ReportTeamId"];
+                /** @description One Jira account id — sets the level to USER. Requires `teamId`. */
+                accountId?: components["parameters"]["ReportAccountId"];
+                /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
+                domainView?: components["parameters"]["ReportDomainView"];
+                /** @description Restricts to one domain key. */
+                domain?: components["parameters"]["ReportDomain"];
+                /** @description Restricts to one activity type (a standard Jira issue type name). */
+                activityType?: components["parameters"]["ReportActivityType"];
+                /** @description Restricts to one work category, or the literal `UNCATEGORIZED`. */
+                workCategory?: components["parameters"]["ReportWorkCategory"];
+                /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
+                connectionId?: components["parameters"]["ReportConnectionId"];
+                /** @description The time resolution of a report's bucketed series; weeks start Monday, buckets in the configured zone. */
+                bucket?: components["parameters"]["ReportBucket"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The throughput report */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ThroughputReport"];
                 };
             };
             400: components["responses"]["BadRequest"];
