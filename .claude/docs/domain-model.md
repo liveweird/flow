@@ -128,7 +128,8 @@ Flow uses the user's vocabulary, which differs slightly from common Scrum usage:
   scope taken out is reported as **removed**, beside it and in no other bucket (A17).
 - **Carry-over** — scope in the sprint at completion (committed or added) that is not done and
   appears in the team's next sprint; **dropped** scope is not done and in no later sprint. So a
-  sprint's final scope = committed + added = delivered + carried over + dropped, always (A17). A
+  sprint's final scope = delivered + carried over + dropped, always, and = committed + added in items
+  (in SP too, unless an item was re-estimated between its commitment and the sprint's close) (A17). A
   task removed after being done counts as removed, not delivered. A carried-over task counts in the velocity
   of every sprint it was committed to, but in throughput only once — in the sprint where it was
   done (Jira's own convention).

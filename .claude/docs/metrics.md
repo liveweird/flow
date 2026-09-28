@@ -287,12 +287,19 @@ one call per task × sprint membership):
   — a task done mid-sprint is not re-estimated on the way out; the two columns carry the same
   number whenever both are set, kept separate only because the schema names them for two different
   readers (D13's snapshot figures vs. a future per-item report).
-- **Carried-over** / **dropped** — evaluated ONLY for a committed task not done by `sprintCloseAt`:
+- **Carried-over** / **dropped** (A17) — evaluated for EVERY task still in scope at
+  `sprintCloseAt` and not done by then, **committed OR added** (not just committed ones — every
+  task reaching this branch is already in scope at close, so the predicate is simply "not done"):
   carried-over if a LATER sprint of the same board/team holds it (D10: one board per team, so
   "later sprint of this task's own board" = "later sprint of the same team",
   `laterSprintIdsPerSprint`), dropped otherwise. A carried-over task counts in the velocity (final
   scope) of EVERY sprint it was committed to, but in throughput (delivered) only once — the sprint
   where it was actually done (Jira's own convention, `.claude/docs/domain-model.md`'s Glossary).
+  This makes the sprint's buckets a true partition: **`final = committed + added = delivered +
+  carried-over + dropped`, always** (in item counts always; in MD as long as no item's estimate
+  changed between its own entry/commit instant and `sprintCloseAt`) — before A17, an added task
+  that was never done and never removed (still in scope at close) contributed to `final` but to
+  NEITHER `delivered` NOR `carried-over` NOR `dropped`, silently breaking the identity.
 
 **Point-in-time estimates.** Every `fact_sprint_scope` estimate column is a snapshot read off the
 task's own estimate timeline (`DeriveKernels.estimateAt`) at a FIXED instant per bucket — never the

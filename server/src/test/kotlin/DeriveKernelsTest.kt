@@ -548,6 +548,33 @@ class DeriveKernelsTest {
     }
 
     @Test
+    fun `sprintScope carries over an ADDED task present in a later sprint of the team, and drops it otherwise (A17)`() {
+        val enteredAt = sprintStart + 5000
+        val carried = DeriveKernels.sprintScope(
+            issueId = 6L, sprintStartAtMs = sprintStart, sprintCloseAtMs = sprintClose, graceMs = 0,
+            membershipIntervals = listOf(membership(enteredAt, null)),
+            estimateTimeline = listOf(estimate(0, 4.0)), assigneeIntervals = emptyList(),
+            doneAtMs = null, inLaterSprintOfTeam = true,
+        )
+        requireNotNull(carried)
+        assertTrue(!carried.committed, "added, not committed")
+        assertTrue(carried.inScopeAtClose)
+        assertTrue(carried.carriedOver, "added scope is not exempt from carry-over/dropped — A17")
+        assertTrue(!carried.dropped)
+
+        val dropped = DeriveKernels.sprintScope(
+            issueId = 7L, sprintStartAtMs = sprintStart, sprintCloseAtMs = sprintClose, graceMs = 0,
+            membershipIntervals = listOf(membership(enteredAt, null)),
+            estimateTimeline = listOf(estimate(0, 4.0)), assigneeIntervals = emptyList(),
+            doneAtMs = null, inLaterSprintOfTeam = false,
+        )
+        requireNotNull(dropped)
+        assertTrue(!dropped.committed)
+        assertTrue(dropped.dropped, "added, not done, no later sprint — dropped, not silently uncounted")
+        assertTrue(!dropped.carriedOver)
+    }
+
+    @Test
     fun `sprintTotals sums exactly the rows it is given — invariant 8 by construction`() {
         val committedOnly = DeriveKernels.sprintScope(
             issueId = 1L, sprintStartAtMs = sprintStart, sprintCloseAtMs = sprintClose, graceMs = 0,
@@ -580,8 +607,50 @@ class DeriveKernelsTest {
         assertEquals(5.0 + 3.0, totals.finalMd)
         assertEquals(2, totals.finalItems)
         assertEquals(1, totals.carriedOverItems)
-        assertEquals(0, totals.droppedItems)
+        // A17: `added` is not done and has no later sprint (`inLaterSprintOfTeam = false`), so it now
+        // lands in the dropped bucket too — carried-over/dropped are no longer committed-only.
+        assertEquals(1, totals.droppedItems)
         assertEquals(0, totals.deliveredItems)
+    }
+
+    @Test
+    fun `sprintTotals - A17 partition - final equals delivered + carried + dropped, and committed + added equals final`() {
+        fun scope(id: Long, entered: Long, exited: Long?, doneAt: Long?, laterSprint: Boolean) = DeriveKernels.sprintScope(
+            issueId = id, sprintStartAtMs = sprintStart, sprintCloseAtMs = sprintClose, graceMs = 0,
+            membershipIntervals = listOf(membership(entered, exited)),
+            estimateTimeline = listOf(estimate(0, 1.0)), assigneeIntervals = emptyList(),
+            doneAtMs = doneAt, inLaterSprintOfTeam = laterSprint,
+        )
+        val rows = listOfNotNull(
+            // committed, delivered
+            scope(1L, sprintStart - 1000, null, sprintStart + 100, false),
+            // committed, carried over
+            scope(2L, sprintStart - 1000, null, null, true),
+            // committed, dropped
+            scope(3L, sprintStart - 1000, null, null, false),
+            // committed, then removed before close — excluded from every other bucket
+            scope(4L, sprintStart - 1000, sprintStart + 200, null, false),
+            // added, delivered
+            scope(5L, sprintStart + 500, null, sprintStart + 600, false),
+            // added, carried over (A17)
+            scope(6L, sprintStart + 500, null, null, true),
+            // added, dropped (A17)
+            scope(7L, sprintStart + 500, null, null, false),
+        )
+        val totals = DeriveKernels.sprintTotals(rows)
+        assertEquals(totals.committedItems + totals.addedItems, totals.finalItems, "committed + added = final")
+        assertEquals(
+            totals.deliveredItems + totals.carriedOverItems + totals.droppedItems,
+            totals.finalItems,
+            "final = delivered + carried + dropped",
+        )
+        assertEquals(2, totals.deliveredItems)
+        assertEquals(2, totals.carriedOverItems)
+        assertEquals(2, totals.droppedItems)
+        assertEquals(3, totals.committedItems)
+        assertEquals(3, totals.addedItems)
+        assertEquals(1, totals.removedItems)
+        assertEquals(6, totals.finalItems)
     }
 
     // ---- epicPlanBaselines / pvCurve (v0.3.0 M3 commit 9b, D4's PV baselines) ---------------------

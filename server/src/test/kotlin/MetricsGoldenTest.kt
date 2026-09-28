@@ -14,13 +14,15 @@ import kotlin.test.assertEquals
  * `DeriveKernels`' own code path, exercising `DeriveKernels.sprintScope`/`sprintTotals` (the
  * `fact_sprint_scope`/`fact_sprint` kernels) directly — pure, no DB.
  *
- * **Five tasks, not the plan's illustrative three** — a deliberate, documented deviation. Every
+ * **Six tasks, not the plan's illustrative three** — a deliberate, documented deviation. Every
  * bucket the plan names (committed/added/removed/delivered/carried/dropped) is mutually exclusive
  * PER TASK against several of the others by construction (`DeriveKernels.sprintScope`'s own
  * doc — a REMOVED row can never also be committed/final/delivered/carried/dropped in the
  * aggregate sense, and dropped/carried require the FINAL branch a removed row never reaches), so
- * three tasks cannot populate all six buckets at once; five is the minimum that can, one task per
- * bucket-combination below.
+ * three tasks cannot populate all six buckets at once. Five tasks populate one task per
+ * bucket-combination; a sixth (task 6) exists ONLY to exercise A17 — an ADDED task that is not
+ * done and has no later sprint, which BEFORE A17 contributed to no bucket at all (invisible in
+ * `final = delivered + carried + dropped`) and now lands in `dropped`, same as a committed one.
  *
  * Sprint: `start = 1_000`, `close = 2_000`, `grace = 0` (so `commitAt = start = 1_000`).
  */
@@ -72,30 +74,38 @@ class MetricsGoldenTest {
         // Task 5 — committed at 7 MD, EXITS the sprint before completion (never reaches the final
         // branch at all): removed += 7 — contributes to NO other bucket.
         val task5 = scope(5L, enteredAt = 900, exitedAt = 1_400, estimateAtCommit = 7.0, estimateAtClose = 7.0)
+        // Task 6 (A17) — added mid-sprint at 2 MD, never done, NO later sprint: added += 2,
+        // final += 2, dropped += 2 — BEFORE A17 this task contributed to no bucket beyond
+        // added/final (carried-over/dropped were committed-only); now it drops like task 4 does.
+        val task6 = scope(6L, enteredAt = 1_300, estimateAtCommit = 2.0, estimateAtClose = 2.0)
 
-        val totals = DeriveKernels.sprintTotals(listOf(task1, task2, task3, task4, task5))
+        val totals = DeriveKernels.sprintTotals(listOf(task1, task2, task3, task4, task5, task6))
 
         // committed = task1(3) + task2(5) + task4(6) = 14 — task5 is committed but REMOVED (see
         // sprintTotals' own doc: the committed bucket excludes removed rows).
         assertEquals(14.0, totals.committedMd)
         assertEquals(3, totals.committedItems)
-        // added = task3(4).
-        assertEquals(4.0, totals.addedMd)
-        assertEquals(1, totals.addedItems)
+        // added = task3(4) + task6(2) = 6.
+        assertEquals(6.0, totals.addedMd)
+        assertEquals(2, totals.addedItems)
         // removed = task5(7).
         assertEquals(7.0, totals.removedMd)
         assertEquals(1, totals.removedItems)
-        // final (in scope at close) = task1(5) + task2(2) + task3(4) + task4(6) = 17.
-        assertEquals(17.0, totals.finalMd)
-        assertEquals(4, totals.finalItems)
+        // final (in scope at close) = task1(5) + task2(2) + task3(4) + task4(6) + task6(2) = 19.
+        assertEquals(19.0, totals.finalMd)
+        assertEquals(5, totals.finalItems)
         // delivered = task1(5) + task3(4) = 9.
         assertEquals(9.0, totals.deliveredMd)
         assertEquals(2, totals.deliveredItems)
         // carried-over = task2(2).
         assertEquals(2.0, totals.carriedOverMd)
         assertEquals(1, totals.carriedOverItems)
-        // dropped = task4(6).
-        assertEquals(6.0, totals.droppedMd)
-        assertEquals(1, totals.droppedItems)
+        // dropped (A17) = task4(6) + task6(2) = 8.
+        assertEquals(8.0, totals.droppedMd)
+        assertEquals(2, totals.droppedItems)
+
+        // A17 partition: final = committed + added (items), and final = delivered + carried + dropped.
+        assertEquals(totals.finalItems, totals.committedItems + totals.addedItems)
+        assertEquals(totals.finalItems, totals.deliveredItems + totals.carriedOverItems + totals.droppedItems)
     }
 }

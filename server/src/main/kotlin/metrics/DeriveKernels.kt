@@ -388,10 +388,13 @@ object DeriveKernels {
      *   "final" and "delivered" — a task done mid-sprint is not re-estimated on the way out), never
      *   re-evaluated at the task's own `doneAt` — so the two columns carry the same number whenever
      *   both are set, kept separate only because the schema names them for two different readers
-     *   (D13's snapshot figures vs. a future per-item report). Carried-over/dropped are evaluated
-     *   ONLY for a `committed` task that is not done: [inLaterSprintOfTeam] (precomputed by the
-     *   caller — `.claude/docs/domain-model.md`'s D10 "one board per team" makes "later sprint of
-     *   this task's own board" equivalent to "later sprint of the same team") decides which.
+     *   (D13's snapshot figures vs. a future per-item report). **Carried-over/dropped (A17) apply to
+     *   EVERY in-scope-at-close task not done in the sprint, committed OR added** — every row
+     *   reaching this branch is already in scope at close, so the predicate is simply "not done":
+     *   [inLaterSprintOfTeam] (precomputed by the caller — `.claude/docs/domain-model.md`'s D10 "one
+     *   board per team" makes "later sprint of this task's own board" equivalent to "later sprint of
+     *   the same team") decides carried-over vs dropped. This makes `final = delivered + carried-over +
+     *   dropped` always, and `final = committed + added` in items ([sprintTotals]).
      */
     fun sprintScope(
         issueId: Long,
@@ -437,8 +440,12 @@ object DeriveKernels {
         val estimateAtClose = estimateAt(estimateTimeline, sprintCloseAtMs)
         val doneInSprint = doneAtMs != null && doneAtMs in sprintStartAtMs..sprintCloseAtMs && inScopeAt(doneAtMs)
         val notDoneAsOfClose = !doneInSprint
-        val carriedOver = committed && notDoneAsOfClose && inLaterSprintOfTeam
-        val dropped = committed && notDoneAsOfClose && !inLaterSprintOfTeam
+        // A17: carried-over/dropped apply to EVERY in-scope-at-close item not done in the sprint,
+        // committed OR added — not just committed ones. Every row reaching this point is already
+        // in scope at close (the `if (!inScopeAtClose) return null` guard above), so the predicate
+        // is simply "not done" — final = delivered + carried + dropped, always.
+        val carriedOver = notDoneAsOfClose && inLaterSprintOfTeam
+        val dropped = notDoneAsOfClose && !inLaterSprintOfTeam
         return SprintScopeItem(
             issueId = issueId,
             addedAtMs = addedAtMs,

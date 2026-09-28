@@ -79,15 +79,17 @@ at `done_at`.
 
 ## Report 6 — Sprint consistency, capacity, load
 
-A17: final = committed + added = delivered + carried + dropped, always; removed is beside them.
+A17: final = delivered + carried + dropped, always; final = committed + added in items (in MD only when no
+item was re-estimated between its commitment/entry and the close — committed/added are priced at entry,
+the rest at close); removed is beside them.
 
 | Measure | Grain | Anchor | Team | User | Domain | Estimate | Unit | Missing data | Frozen/live | Source | Pinned by |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | Committed | sprint | `complete_at` | sprint | assignee@commit | — | @commit | MD + items | in scope at start + grace AND at close | frozen + live | `committed_md/_items` | golden FLO; `MetricsGoldenTest` |
 | Added | sprint | `complete_at` | sprint | assignee@entry | — | @entry | MD + items | entered after start + grace, in scope at close | frozen + live | `added_md/_items` | golden FLO; "marks added scope" |
 | Removed | sprint | `complete_at` | sprint | assignee@commit | — | @commit | MD + items | in no other bucket; wins over delivered | frozen + live | `removed_md/_items` | golden FLO; "marks removed scope … excluded from every other bucket" |
-| Carried over | sprint | `complete_at` | sprint | — | — | @close | MD + items | in scope at close ∧ not done ∧ in a LATER sprint of the same board — committed OR added (A17, `9c`) | frozen + live | `carried_over_md/_items` | golden FLO (`9c` updates the golden) |
-| Dropped | sprint | `complete_at` | sprint | — | — | @close | MD + items | in scope at close ∧ not done ∧ no later sprint — committed OR added (A17, `9c`) | frozen + live | `dropped_md/_items` | golden FLO; "marks dropped scope" |
+| Carried over | sprint | `complete_at` | sprint | — | — | @close | MD + items | in scope at close ∧ not done ∧ in a LATER sprint of the same board — committed OR added (A17) | frozen + live | `carried_over_md/_items` | golden FLO; "carries over an ADDED task present in a later sprint of the team"; "every fact_sprint row partitions as final = delivered + carried + dropped" |
+| Dropped | sprint | `complete_at` | sprint | — | — | @close | MD + items | in scope at close ∧ not done ∧ no later sprint — committed OR added (A17) | frozen + live | `dropped_md/_items` | golden FLO; "marks dropped scope"; "and drops it otherwise (A17)"; "every fact_sprint row partitions as final = delivered + carried + dropped" |
 | Capacity | sprint | `complete_at` | sprint | — | — | — | MD | `CONFIGURED` wins; `DEFAULT` = every member whose membership overlaps the window, in full, × wd of the window (A3); no team or no `start_at` → null | live (snapshot copies it) | `dim_sprint.capacity_md/_source`, `fact_sprint.capacity_md` | "sprint capacity defaults to Sigma members x working days (A3)…" |
 | Load | sprint | `complete_at` | sprint | — | — | @commit | ratio | null when capacity is null or 0 | frozen + live | `committed_md / capacity_md` | same test |
 

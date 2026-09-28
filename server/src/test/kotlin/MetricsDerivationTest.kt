@@ -671,6 +671,58 @@ class MetricsDerivationTest {
     }
 
     @Test
+    fun `invariant 8 (A17) — every fact_sprint row partitions as final = delivered + carried + dropped, committed + added = final`() =
+        runBlocking {
+            val connId = DerivedStubFixture.connectionId()
+
+            val factRows = suspendTransaction(sharedDatabaseForTests()) {
+                MetricsStore.FactSprint.selectAll().where { MetricsStore.FactSprint.connectionId eq connId }.toList()
+            }
+            assertTrue(factRows.isNotEmpty(), "fact_sprint must be non-empty after DERIVE")
+
+            // Item counts: `committed + added = final = delivered + carried + dropped` holds EXACTLY,
+            // in both items and MD — every row reaching `sprintTotals` sits in the SAME
+            // in-scope-at-close set, and `committed`/`added`/`final` are literal partitions of it by
+            // construction (`DeriveKernels.sprintScope`). The MD identity is checked ONLY for
+            // `final = delivered + carried + dropped`, not `committed + added = final`: committed/
+            // added MD is read at the task's OWN commit/entry instant, while final/delivered/carried/
+            // dropped MD are all read at the SAME `sprintCloseAt` instant — a re-estimate between
+            // entry and close makes the committed+added MD sum genuinely diverge from final MD (not a
+            // rounding artifact — confirmed against the real fixture, `.claude/docs/metrics.md`
+            // "Sprint scope, facts and snapshots (D13)"); delivered/carried/dropped, by contrast, all
+            // read the identical `estimateAtCloseMd` value over an exact partition, so their MD sum
+            // equals final MD up to BigDecimal storage rounding only.
+            val mdTolerance = 0.01
+            factRows.forEach { row ->
+                val sprintId = row[MetricsStore.FactSprint.sprintId]
+                val committedItems = row[MetricsStore.FactSprint.committedItems]
+                val addedItems = row[MetricsStore.FactSprint.addedItems]
+                val finalItems = row[MetricsStore.FactSprint.finalItems]
+                val deliveredItems = row[MetricsStore.FactSprint.deliveredItems]
+                val carriedOverItems = row[MetricsStore.FactSprint.carriedOverItems]
+                val droppedItems = row[MetricsStore.FactSprint.droppedItems]
+                assertEquals(
+                    finalItems, committedItems + addedItems,
+                    "sprint $sprintId: committed + added items must equal final items (A17)",
+                )
+                assertEquals(
+                    finalItems, deliveredItems + carriedOverItems + droppedItems,
+                    "sprint $sprintId: delivered + carried + dropped items must equal final items (A17)",
+                )
+
+                val finalMd = row[MetricsStore.FactSprint.finalMd].toDouble()
+                val deliveredMd = row[MetricsStore.FactSprint.deliveredMd].toDouble()
+                val carriedOverMd = row[MetricsStore.FactSprint.carriedOverMd].toDouble()
+                val droppedMd = row[MetricsStore.FactSprint.droppedMd].toDouble()
+                assertTrue(
+                    kotlin.math.abs(finalMd - (deliveredMd + carriedOverMd + droppedMd)) <= mdTolerance,
+                    "sprint $sprintId: delivered + carried + dropped MD ($deliveredMd + $carriedOverMd + $droppedMd) " +
+                        "must equal final MD ($finalMd) within tolerance (A17)",
+                )
+            }
+        }
+
+    @Test
     fun `fact_sprint_snapshot is written for a closed team-mapped sprint, reconstructed first, never updated afterwards`() =
         runBlocking {
             val connId = clonedProcessedConnection()

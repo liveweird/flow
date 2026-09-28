@@ -1490,17 +1490,19 @@ function computeSprintScope(project, sprint) {
       if (spAtCompletion > 0) hasNonZeroDelivered = true;
       continue; // delivered items are never also carried/dropped
     }
-    if (isCommitted) {
-      const hasLaterSprint = projectSprints.some((s, idx) => idx > sprintIndex && firstSprintEntryAt(issue, s.id) !== null);
-      if (hasLaterSprint) {
-        scope.carriedOverItems++;
-        scope.carriedOverMd += spAtCompletion;
-        scope.carriedOverIssueKeys.push(issue.key);
-      } else {
-        scope.droppedItems++;
-        scope.droppedMd += spAtCompletion;
-        scope.droppedIssueKeys.push(issue.key);
-      }
+    // A17: carried-over/dropped apply to EVERY final (in-scope-at-close) item not delivered in the
+    // sprint, committed OR added — not just committed ones. Every issue reaching this point is
+    // already final (the `if (!isFinal) continue;` guard above), so this is unconditional:
+    // final = committed + added = delivered + carried-over + dropped, always.
+    const hasLaterSprint = projectSprints.some((s, idx) => idx > sprintIndex && firstSprintEntryAt(issue, s.id) !== null);
+    if (hasLaterSprint) {
+      scope.carriedOverItems++;
+      scope.carriedOverMd += spAtCompletion;
+      scope.carriedOverIssueKeys.push(issue.key);
+    } else {
+      scope.droppedItems++;
+      scope.droppedMd += spAtCompletion;
+      scope.droppedIssueKeys.push(issue.key);
     }
   }
   scope.hasNonZeroDelivered = hasNonZeroDelivered;
