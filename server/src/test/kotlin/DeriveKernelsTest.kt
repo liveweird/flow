@@ -409,4 +409,176 @@ class DeriveKernelsTest {
         val flags = DeriveKernels.epicDriftFlags(ItemStage.DONE, children, epicDriftDays = 14, nowMs = 1_000_000)
         assertEquals(listOf(ch.nokillswit.metrics.EpicDriftFlag.EPIC_DONE_WITH_OPEN_CHILDREN), flags)
     }
+
+    // ---- sprintScope (v0.3.0 M3 commit 8, the fact_sprint_scope buckets) -------------------------
+
+    private val sprintStart = 10_000L
+    private val sprintClose = 20_000L
+
+    private fun membership(from: Long, to: Long?) = ch.nokillswit.metrics.SprintMembershipInterval(1L, from, to)
+    private fun assigneeInterval(accountId: String?, from: Long, to: Long?) =
+        NormalizedFieldInterval(TrackedField.ASSIGNEE, seq = 1, valueId = accountId, valueText = null, fromAtMs = from, toAtMs = to)
+    private fun estimate(atMs: Long, md: Double?) = ch.nokillswit.metrics.EstimatePoint(atMs, md)
+
+    @Test
+    fun `sprintScope never returns a row for a task with no membership in this sprint at all`() {
+        val row = DeriveKernels.sprintScope(
+            issueId = 1L, sprintStartAtMs = sprintStart, sprintCloseAtMs = sprintClose, graceMs = 0,
+            membershipIntervals = emptyList(), estimateTimeline = listOf(estimate(0, 5.0)),
+            assigneeIntervals = emptyList(), doneAtMs = null, inLaterSprintOfTeam = false,
+        )
+        assertNull(row)
+    }
+
+    @Test
+    fun `sprintScope marks a task committed when it entered at or before the commitment threshold`() {
+        val row = DeriveKernels.sprintScope(
+            issueId = 1L, sprintStartAtMs = sprintStart, sprintCloseAtMs = sprintClose, graceMs = 0,
+            membershipIntervals = listOf(membership(sprintStart - 1000, null)),
+            estimateTimeline = listOf(estimate(0, 5.0)), assigneeIntervals = emptyList(),
+            doneAtMs = null, inLaterSprintOfTeam = true,
+        )
+        requireNotNull(row)
+        assertTrue(row.committed)
+        assertNull(row.addedAtMs)
+        assertEquals(5.0, row.estimateAtCommitmentMd)
+        assertTrue(row.inScopeAtClose)
+        assertTrue(row.carriedOver, "committed, not done, present in a later sprint of the team")
+        assertTrue(!row.dropped)
+    }
+
+    @Test
+    fun `sprintScope respects the grace period when deciding committed`() {
+        val enteredJustAfterStart = sprintStart + 500
+        val withoutGrace = DeriveKernels.sprintScope(
+            issueId = 1L, sprintStartAtMs = sprintStart, sprintCloseAtMs = sprintClose, graceMs = 0,
+            membershipIntervals = listOf(membership(enteredJustAfterStart, null)),
+            estimateTimeline = listOf(estimate(0, 3.0)), assigneeIntervals = emptyList(),
+            doneAtMs = null, inLaterSprintOfTeam = false,
+        )
+        requireNotNull(withoutGrace)
+        assertTrue(!withoutGrace.committed, "entered after the bare sprint start, no grace granted")
+        assertEquals(enteredJustAfterStart, withoutGrace.addedAtMs)
+
+        val withGrace = DeriveKernels.sprintScope(
+            issueId = 1L, sprintStartAtMs = sprintStart, sprintCloseAtMs = sprintClose, graceMs = 1000,
+            membershipIntervals = listOf(membership(enteredJustAfterStart, null)),
+            estimateTimeline = listOf(estimate(0, 3.0)), assigneeIntervals = emptyList(),
+            doneAtMs = null, inLaterSprintOfTeam = false,
+        )
+        requireNotNull(withGrace)
+        assertTrue(withGrace.committed, "the same entry now falls within the grace window")
+        assertNull(withGrace.addedAtMs)
+    }
+
+    @Test
+    fun `sprintScope marks added scope for a task that entered after the commitment threshold and stayed to close`() {
+        val enteredAt = sprintStart + 5000
+        val row = DeriveKernels.sprintScope(
+            issueId = 2L, sprintStartAtMs = sprintStart, sprintCloseAtMs = sprintClose, graceMs = 0,
+            membershipIntervals = listOf(membership(enteredAt, null)),
+            // `estimateTimeline()` itself collapses a literal 0 to `null` before it ever becomes an
+            // `EstimatePoint` (`.claude/docs/domain-model.md`: "0 SP counts as unestimated") — this
+            // hand-built timeline models that ALREADY-collapsed state, the shape `sprintScope`
+            // actually receives in production.
+            estimateTimeline = listOf(estimate(0, null)), assigneeIntervals = emptyList(),
+            doneAtMs = null, inLaterSprintOfTeam = false,
+        )
+        requireNotNull(row)
+        assertTrue(!row.committed)
+        assertEquals(enteredAt, row.addedAtMs)
+        // The row is still WRITTEN and still COUNTED (sprintTotals below), just with a null MD
+        // contribution — an unestimated item is never silently dropped from the scope.
+        assertNull(row.estimateAtCommitmentMd)
+        assertTrue(row.inScopeAtClose)
+    }
+
+    @Test
+    fun `sprintScope marks removed scope for a task committed then exited before completion, excluded from every other bucket`() {
+        val row = DeriveKernels.sprintScope(
+            issueId = 3L, sprintStartAtMs = sprintStart, sprintCloseAtMs = sprintClose, graceMs = 0,
+            membershipIntervals = listOf(membership(sprintStart - 1000, sprintStart + 2000)),
+            estimateTimeline = listOf(estimate(0, 8.0)), assigneeIntervals = emptyList(),
+            doneAtMs = null, inLaterSprintOfTeam = true,
+        )
+        requireNotNull(row)
+        assertTrue(row.committed)
+        assertEquals(sprintStart + 2000, row.removedAtMs)
+        assertTrue(!row.inScopeAtClose)
+        assertEquals(8.0, row.estimateAtCommitmentMd)
+        assertNull(row.estimateAtCloseMd, "a removed task carries no at-close estimate — it never reaches the final bucket")
+        assertTrue(!row.doneInSprint)
+        assertTrue(!row.carriedOver && !row.dropped, "removed is its own terminal bucket, never also carried or dropped")
+    }
+
+    @Test
+    fun `sprintScope marks delivered scope for a task done inside the sprint window while still a member`() {
+        val doneAt = sprintStart + 3000
+        val row = DeriveKernels.sprintScope(
+            issueId = 4L, sprintStartAtMs = sprintStart, sprintCloseAtMs = sprintClose, graceMs = 0,
+            membershipIntervals = listOf(membership(sprintStart - 1000, null)),
+            estimateTimeline = listOf(estimate(0, 3.0), estimate(doneAt, 5.0)),
+            assigneeIntervals = listOf(assigneeInterval("acc-1", sprintStart - 1000, null)),
+            doneAtMs = doneAt, inLaterSprintOfTeam = false,
+        )
+        requireNotNull(row)
+        assertTrue(row.committed)
+        assertEquals(3.0, row.estimateAtCommitmentMd, "at-commitment estimate is read at the commitment instant, before the later change")
+        assertTrue(row.doneInSprint)
+        assertEquals(5.0, row.estimateAtDoneMd, "delivered reads the sprint's own close-instant value, same as estimateAtCloseMd")
+        assertEquals(row.estimateAtCloseMd, row.estimateAtDoneMd)
+        assertEquals("acc-1", row.assigneeAtCommitment)
+        assertTrue(!row.carriedOver && !row.dropped, "a delivered task is never also carried over or dropped")
+    }
+
+    @Test
+    fun `sprintScope marks dropped scope for a committed task not done with no later sprint`() {
+        val row = DeriveKernels.sprintScope(
+            issueId = 5L, sprintStartAtMs = sprintStart, sprintCloseAtMs = sprintClose, graceMs = 0,
+            membershipIntervals = listOf(membership(sprintStart - 1000, null)),
+            estimateTimeline = listOf(estimate(0, 2.0)), assigneeIntervals = emptyList(),
+            doneAtMs = null, inLaterSprintOfTeam = false,
+        )
+        requireNotNull(row)
+        assertTrue(row.committed)
+        assertTrue(row.dropped)
+        assertTrue(!row.carriedOver)
+    }
+
+    @Test
+    fun `sprintTotals sums exactly the rows it is given — invariant 8 by construction`() {
+        val committedOnly = DeriveKernels.sprintScope(
+            issueId = 1L, sprintStartAtMs = sprintStart, sprintCloseAtMs = sprintClose, graceMs = 0,
+            membershipIntervals = listOf(membership(sprintStart - 1000, null)),
+            estimateTimeline = listOf(estimate(0, 5.0)), assigneeIntervals = emptyList(),
+            doneAtMs = null, inLaterSprintOfTeam = true,
+        )!!
+        val added = DeriveKernels.sprintScope(
+            issueId = 2L, sprintStartAtMs = sprintStart, sprintCloseAtMs = sprintClose, graceMs = 0,
+            membershipIntervals = listOf(membership(sprintStart + 5000, null)),
+            estimateTimeline = listOf(estimate(0, 3.0)), assigneeIntervals = emptyList(),
+            doneAtMs = null, inLaterSprintOfTeam = false,
+        )!!
+        val removed = DeriveKernels.sprintScope(
+            issueId = 3L, sprintStartAtMs = sprintStart, sprintCloseAtMs = sprintClose, graceMs = 0,
+            membershipIntervals = listOf(membership(sprintStart - 1000, sprintStart + 2000)),
+            estimateTimeline = listOf(estimate(0, 8.0)), assigneeIntervals = emptyList(),
+            doneAtMs = null, inLaterSprintOfTeam = false,
+        )!!
+        val totals = DeriveKernels.sprintTotals(listOf(committedOnly, added, removed))
+        // `removed`'s own row also carries `committed = true` (it WAS committed before leaving),
+        // but the committed BUCKET excludes it — a removed item is counted ONLY in removedMd,
+        // matching `sample-data/jira/generate.mjs`'s own reference `computeSprintScope`.
+        assertEquals(5.0, totals.committedMd)
+        assertEquals(1, totals.committedItems)
+        assertEquals(3.0, totals.addedMd)
+        assertEquals(1, totals.addedItems)
+        assertEquals(8.0, totals.removedMd)
+        assertEquals(1, totals.removedItems)
+        assertEquals(5.0 + 3.0, totals.finalMd)
+        assertEquals(2, totals.finalItems)
+        assertEquals(1, totals.carriedOverItems)
+        assertEquals(0, totals.droppedItems)
+        assertEquals(0, totals.deliveredItems)
+    }
 }

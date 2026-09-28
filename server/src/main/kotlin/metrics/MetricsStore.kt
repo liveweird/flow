@@ -4,18 +4,45 @@ import ch.nokillswit.infra.db.jsonb
 import ch.nokillswit.ingest.DataSourceService
 import ch.nokillswit.teams.TeamService
 import io.ktor.util.AttributeKey
+import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import org.jetbrains.exposed.v1.core.*
 import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
 import org.jetbrains.exposed.v1.r2dbc.batchInsert
 import org.jetbrains.exposed.v1.r2dbc.batchUpsert
 import org.jetbrains.exposed.v1.r2dbc.deleteWhere
+import org.jetbrains.exposed.v1.r2dbc.insert
+import org.jetbrains.exposed.v1.r2dbc.select
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 
 val MetricsStoreKey = AttributeKey<MetricsStore>("MetricsStore")
 
 private fun stringArrayJson(values: List<String>): String = buildJsonArray { values.forEach { add(JsonPrimitive(it)) } }.toString()
+
+/** `metrics.fact_sprint_snapshot.scope` — the sprint's own [SprintScopeItem] rows, frozen as JSON (D13). */
+private fun sprintScopeItemsJson(items: List<SprintScopeItem>): String = buildJsonArray {
+    items.forEach { item ->
+        add(
+            buildJsonObject {
+                put("issueId", item.issueId)
+                put("addedAtMs", item.addedAtMs)
+                put("removedAtMs", item.removedAtMs)
+                put("committed", item.committed)
+                put("inScopeAtClose", item.inScopeAtClose)
+                put("estimateAtCommitmentMd", item.estimateAtCommitmentMd)
+                put("estimateAtCloseMd", item.estimateAtCloseMd)
+                put("estimateAtDoneMd", item.estimateAtDoneMd)
+                put("assigneeAtCommitment", item.assigneeAtCommitment)
+                put("doneInSprint", item.doneInSprint)
+                put("carriedOver", item.carriedOver)
+                put("dropped", item.dropped)
+            },
+        )
+    }
+}.toString()
 
 // ---- Row shapes MetricsDeriver assembles per connection --------------------------------------
 
@@ -115,7 +142,38 @@ data class FactEpicDeliveryRow(
 )
 
 /** Row counts one DERIVE run wrote — `metrics.derive_runs.row_counts` (`MetricsDeriver`). */
-data class DeriveRowCounts(val tasks: Int, val epics: Int)
+data class DeriveRowCounts(val tasks: Int, val epics: Int, val sprints: Int)
+
+// ---- Sprint step row shapes (v0.3.0 M3 commit 8) ---------------------------------------------
+
+/** One `metrics.dim_sprint` row — `capacitySource`/`teamId`/`capacityMd` are all `null` together
+ * when the sprint's board maps to no team. */
+data class DimSprintRow(
+    val sprintId: Long,
+    val boardId: Long?,
+    val teamId: UInt?,
+    val name: String,
+    val state: String,
+    val startAt: Long?,
+    val endAt: Long?,
+    val completeAt: Long?,
+    val capacityMd: Double?,
+    val capacitySource: String?,
+)
+
+/** One `metrics.fact_sprint_scope` row — [DeriveKernels.SprintScopeItem] plus the `sprintId` its own kernel call didn't carry. */
+data class FactSprintScopeRow(val sprintId: Long, val item: SprintScopeItem)
+
+/** One `metrics.fact_sprint`/`metrics.fact_sprint_snapshot` row's shared figures —
+ * [SprintTotals] plus capacity/load and identity. */
+data class FactSprintRow(
+    val sprintId: Long,
+    val teamId: UInt?,
+    val completeAt: Long?,
+    val totals: SprintTotals,
+    val capacityMd: Double?,
+    val load: Double?,
+)
 
 /**
  * The `metrics` schema's derived star (v0.3.0 M3 commit 7, `.claude/docs/domain-model.md`
@@ -360,18 +418,73 @@ class MetricsStore(private val database: R2dbcDatabase) {
         val connectionId = reference("connection_id", DataSourceService.Connections)
         val sprintId = long("sprint_id")
         val issueId = long("issue_id")
+        val addedAt = long("added_at").nullable()
+        val removedAt = long("removed_at").nullable()
+        val committed = bool("committed").default(false)
+        val inScopeAtClose = bool("in_scope_at_close").default(false)
+        val estimateAtCommitmentMd = decimal("estimate_at_commitment_md", precision = 8, scale = 2).nullable()
+        val estimateAtCloseMd = decimal("estimate_at_close_md", precision = 8, scale = 2).nullable()
+        val estimateAtDoneMd = decimal("estimate_at_done_md", precision = 8, scale = 2).nullable()
+        val assigneeAtCommitment = varchar("assignee_at_commitment", 100).nullable()
+        val doneInSprint = bool("done_in_sprint").default(false)
+        val carriedOver = bool("carried_over").default(false)
+        val dropped = bool("dropped").default(false)
+        val configRevision = long("config_revision")
         override val primaryKey = PrimaryKey(connectionId, sprintId, issueId)
     }
 
     object FactSprint : Table("metrics.fact_sprint") {
         val connectionId = reference("connection_id", DataSourceService.Connections)
         val sprintId = long("sprint_id")
+        val teamId = reference("team_id", TeamService.Teams).nullable()
+        val completeAt = long("complete_at").nullable()
+        val committedMd = decimal("committed_md", precision = 10, scale = 2).default(java.math.BigDecimal.ZERO)
+        val committedItems = integer("committed_items").default(0)
+        val addedMd = decimal("added_md", precision = 10, scale = 2).default(java.math.BigDecimal.ZERO)
+        val addedItems = integer("added_items").default(0)
+        val removedMd = decimal("removed_md", precision = 10, scale = 2).default(java.math.BigDecimal.ZERO)
+        val removedItems = integer("removed_items").default(0)
+        val finalMd = decimal("final_md", precision = 10, scale = 2).default(java.math.BigDecimal.ZERO)
+        val finalItems = integer("final_items").default(0)
+        val deliveredMd = decimal("delivered_md", precision = 10, scale = 2).default(java.math.BigDecimal.ZERO)
+        val deliveredItems = integer("delivered_items").default(0)
+        val carriedOverMd = decimal("carried_over_md", precision = 10, scale = 2).default(java.math.BigDecimal.ZERO)
+        val carriedOverItems = integer("carried_over_items").default(0)
+        val droppedMd = decimal("dropped_md", precision = 10, scale = 2).default(java.math.BigDecimal.ZERO)
+        val droppedItems = integer("dropped_items").default(0)
+        val capacityMd = decimal("capacity_md", precision = 8, scale = 2).nullable()
+        val load = decimal("load", precision = 8, scale = 4).nullable()
+        val configRevision = long("config_revision")
         override val primaryKey = PrimaryKey(connectionId, sprintId)
     }
 
+    /** Append-only (D13, invariant 11) — no update/delete writer exists here; the DB trigger is the actual enforcement, see class doc. */
     object FactSprintSnapshot : Table("metrics.fact_sprint_snapshot") {
         val connectionId = reference("connection_id", DataSourceService.Connections)
         val sprintId = long("sprint_id")
+        val teamId = reference("team_id", TeamService.Teams).nullable()
+        val completeAt = long("complete_at").nullable()
+        val committedMd = decimal("committed_md", precision = 10, scale = 2).default(java.math.BigDecimal.ZERO)
+        val committedItems = integer("committed_items").default(0)
+        val addedMd = decimal("added_md", precision = 10, scale = 2).default(java.math.BigDecimal.ZERO)
+        val addedItems = integer("added_items").default(0)
+        val removedMd = decimal("removed_md", precision = 10, scale = 2).default(java.math.BigDecimal.ZERO)
+        val removedItems = integer("removed_items").default(0)
+        val finalMd = decimal("final_md", precision = 10, scale = 2).default(java.math.BigDecimal.ZERO)
+        val finalItems = integer("final_items").default(0)
+        val deliveredMd = decimal("delivered_md", precision = 10, scale = 2).default(java.math.BigDecimal.ZERO)
+        val deliveredItems = integer("delivered_items").default(0)
+        val carriedOverMd = decimal("carried_over_md", precision = 10, scale = 2).default(java.math.BigDecimal.ZERO)
+        val carriedOverItems = integer("carried_over_items").default(0)
+        val droppedMd = decimal("dropped_md", precision = 10, scale = 2).default(java.math.BigDecimal.ZERO)
+        val droppedItems = integer("dropped_items").default(0)
+        val capacityMd = decimal("capacity_md", precision = 8, scale = 2).nullable()
+        val load = decimal("load", precision = 8, scale = 4).nullable()
+        val scope = jsonb("scope")
+        val configRevision = long("config_revision")
+        val processingVersion = integer("processing_version")
+        val reconstructed = bool("reconstructed").default(false)
+        val snapshotAt = long("snapshot_at")
         override val primaryKey = PrimaryKey(connectionId, sprintId)
     }
 
@@ -690,6 +803,147 @@ class MetricsStore(private val database: R2dbcDatabase) {
     suspend fun replaceFactEpicDelivery(connectionId: UInt, rows: List<FactEpicDeliveryRow>, configRevision: Long) {
         deleteFactEpicDelivery(connectionId)
         insertFactEpicDelivery(connectionId, rows, configRevision)
+    }
+
+    // ---- Sprint step (v0.3.0 M3 commit 8: dim_sprint, fact_sprint_scope, fact_sprint, snapshots) ----
+
+    /** Deletes `dim_sprint`/`fact_sprint_scope`/`fact_sprint` for one connection — `fact_sprint_snapshot`
+     * is append-only and never deleted here. */
+    suspend fun deleteSprintFacts(connectionId: UInt) {
+        FactSprintScope.deleteWhere { FactSprintScope.connectionId eq connectionId }
+        FactSprint.deleteWhere { FactSprint.connectionId eq connectionId }
+        DimSprint.deleteWhere { DimSprint.connectionId eq connectionId }
+    }
+
+    suspend fun insertDimSprints(connectionId: UInt, rows: List<DimSprintRow>, configRevision: Long) {
+        if (rows.isEmpty()) return
+        DimSprint.batchInsert(rows) {
+            this[DimSprint.connectionId] = connectionId
+            this[DimSprint.sprintId] = it.sprintId
+            this[DimSprint.boardId] = it.boardId
+            this[DimSprint.teamId] = it.teamId
+            this[DimSprint.name] = it.name
+            this[DimSprint.state] = it.state
+            this[DimSprint.startAt] = it.startAt
+            this[DimSprint.endAt] = it.endAt
+            this[DimSprint.completeAt] = it.completeAt
+            this[DimSprint.capacityMd] = it.capacityMd?.toBigDecimal()
+            this[DimSprint.capacitySource] = it.capacitySource
+            this[DimSprint.configRevision] = configRevision
+        }
+    }
+
+    /** One batch's worth of `fact_sprint_scope` rows — call per batch, AFTER [deleteSprintFacts] ran once for the connection. */
+    suspend fun insertFactSprintScope(connectionId: UInt, rows: List<FactSprintScopeRow>, configRevision: Long) {
+        if (rows.isEmpty()) return
+        FactSprintScope.batchInsert(rows) { (sprintId, item) ->
+            this[FactSprintScope.connectionId] = connectionId
+            this[FactSprintScope.sprintId] = sprintId
+            this[FactSprintScope.issueId] = item.issueId
+            this[FactSprintScope.addedAt] = item.addedAtMs
+            this[FactSprintScope.removedAt] = item.removedAtMs
+            this[FactSprintScope.committed] = item.committed
+            this[FactSprintScope.inScopeAtClose] = item.inScopeAtClose
+            this[FactSprintScope.estimateAtCommitmentMd] = item.estimateAtCommitmentMd?.toBigDecimal()
+            this[FactSprintScope.estimateAtCloseMd] = item.estimateAtCloseMd?.toBigDecimal()
+            this[FactSprintScope.estimateAtDoneMd] = item.estimateAtDoneMd?.toBigDecimal()
+            this[FactSprintScope.assigneeAtCommitment] = item.assigneeAtCommitment
+            this[FactSprintScope.doneInSprint] = item.doneInSprint
+            this[FactSprintScope.carriedOver] = item.carriedOver
+            this[FactSprintScope.dropped] = item.dropped
+            this[FactSprintScope.configRevision] = configRevision
+        }
+    }
+
+    suspend fun insertFactSprint(connectionId: UInt, rows: List<FactSprintRow>, configRevision: Long) {
+        if (rows.isEmpty()) return
+        FactSprint.batchInsert(rows) {
+            this[FactSprint.connectionId] = connectionId
+            this[FactSprint.sprintId] = it.sprintId
+            this[FactSprint.teamId] = it.teamId
+            this[FactSprint.completeAt] = it.completeAt
+            this[FactSprint.committedMd] = it.totals.committedMd.toBigDecimal()
+            this[FactSprint.committedItems] = it.totals.committedItems
+            this[FactSprint.addedMd] = it.totals.addedMd.toBigDecimal()
+            this[FactSprint.addedItems] = it.totals.addedItems
+            this[FactSprint.removedMd] = it.totals.removedMd.toBigDecimal()
+            this[FactSprint.removedItems] = it.totals.removedItems
+            this[FactSprint.finalMd] = it.totals.finalMd.toBigDecimal()
+            this[FactSprint.finalItems] = it.totals.finalItems
+            this[FactSprint.deliveredMd] = it.totals.deliveredMd.toBigDecimal()
+            this[FactSprint.deliveredItems] = it.totals.deliveredItems
+            this[FactSprint.carriedOverMd] = it.totals.carriedOverMd.toBigDecimal()
+            this[FactSprint.carriedOverItems] = it.totals.carriedOverItems
+            this[FactSprint.droppedMd] = it.totals.droppedMd.toBigDecimal()
+            this[FactSprint.droppedItems] = it.totals.droppedItems
+            this[FactSprint.capacityMd] = it.capacityMd?.toBigDecimal()
+            this[FactSprint.load] = it.load?.toBigDecimal()
+            this[FactSprint.configRevision] = configRevision
+        }
+    }
+
+    /** Every `metrics.fact_sprint_snapshot` sprint id already frozen for this connection — a DERIVE
+     * run never re-inserts one (D13, invariant 11). */
+    suspend fun existingSnapshotSprintIds(connectionId: UInt): Set<Long> = suspendTransaction(database) {
+        FactSprintSnapshot.select(FactSprintSnapshot.sprintId).where { FactSprintSnapshot.connectionId eq connectionId }
+            .toList().map { it[FactSprintSnapshot.sprintId] }.toSet()
+    }
+
+    /** The earliest `started_at` of any SUCCEEDED `derive_runs` row for this connection — `null`
+     * before this run is the connection's first. */
+    suspend fun firstSuccessfulDeriveRunStartedAt(connectionId: UInt): Long? = suspendTransaction(database) {
+        DeriveRuns.select(DeriveRuns.startedAt)
+            .where { (DeriveRuns.connectionId eq connectionId.toInt()) and (DeriveRuns.status eq "SUCCEEDED") }
+            .orderBy(DeriveRuns.startedAt to SortOrder.ASC)
+            .limit(1)
+            .toList().map { it[DeriveRuns.startedAt] }.firstOrNull()
+    }
+
+    /**
+     * ONE `metrics.fact_sprint_snapshot` row (D13, invariant 11: append-only, immutable once
+     * written) — INSERT only, never called for a sprint id [existingSnapshotSprintIds] already
+     * names; the DB trigger (`.claude/docs/persistence.md`) is the actual enforcement against a
+     * hand-rolled `UPDATE`/`DELETE`, this method simply never attempts one. [scopeRows] freezes the
+     * sprint's own `fact_sprint_scope` rows as JSON so a per-user velocity read from the snapshot
+     * needs no child table.
+     */
+    suspend fun insertFactSprintSnapshot(
+        connectionId: UInt,
+        row: FactSprintRow,
+        scopeRows: List<SprintScopeItem>,
+        configRevision: Long,
+        processingVersion: Int,
+        reconstructed: Boolean,
+        snapshotAt: Long,
+    ) = suspendTransaction(database) {
+        FactSprintSnapshot.insert {
+            it[FactSprintSnapshot.connectionId] = connectionId
+            it[sprintId] = row.sprintId
+            it[teamId] = row.teamId
+            it[completeAt] = row.completeAt
+            it[committedMd] = row.totals.committedMd.toBigDecimal()
+            it[committedItems] = row.totals.committedItems
+            it[addedMd] = row.totals.addedMd.toBigDecimal()
+            it[addedItems] = row.totals.addedItems
+            it[removedMd] = row.totals.removedMd.toBigDecimal()
+            it[removedItems] = row.totals.removedItems
+            it[finalMd] = row.totals.finalMd.toBigDecimal()
+            it[finalItems] = row.totals.finalItems
+            it[deliveredMd] = row.totals.deliveredMd.toBigDecimal()
+            it[deliveredItems] = row.totals.deliveredItems
+            it[carriedOverMd] = row.totals.carriedOverMd.toBigDecimal()
+            it[carriedOverItems] = row.totals.carriedOverItems
+            it[droppedMd] = row.totals.droppedMd.toBigDecimal()
+            it[droppedItems] = row.totals.droppedItems
+            it[capacityMd] = row.capacityMd?.toBigDecimal()
+            it[load] = row.load?.toBigDecimal()
+            it[scope] = sprintScopeItemsJson(scopeRows)
+            it[FactSprintSnapshot.configRevision] = configRevision
+            it[FactSprintSnapshot.processingVersion] = processingVersion
+            it[FactSprintSnapshot.reconstructed] = reconstructed
+            it[FactSprintSnapshot.snapshotAt] = snapshotAt
+        }
+        Unit
     }
 
     /**

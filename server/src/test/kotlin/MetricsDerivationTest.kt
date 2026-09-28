@@ -7,6 +7,8 @@ import ch.nokillswit.ingest.SyncJobRunContext
 import ch.nokillswit.ingest.SyncJobsService
 import ch.nokillswit.jira.JiraProcessStream
 import ch.nokillswit.jira.JiraProfileStream
+import ch.nokillswit.metrics.DataSourceMetricsConfigRequest
+import ch.nokillswit.metrics.MetricsBoardTeamMapping
 import ch.nokillswit.metrics.MetricsConfigService
 import ch.nokillswit.metrics.MetricsDeriver
 import ch.nokillswit.metrics.MetricsStore
@@ -28,11 +30,16 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonPrimitive
+import org.jetbrains.exposed.v1.core.JoinType
+import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.isNotNull
+import org.jetbrains.exposed.v1.r2dbc.select
 import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
+import org.jetbrains.exposed.v1.r2dbc.update
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -50,19 +57,52 @@ private data class GoldenEpicFixture(
 )
 
 @Serializable
-private data class GoldenFixture(val epic: GoldenEpicFixture)
+private data class GoldenSprintFixture(
+    val sprintId: Long,
+    val name: String,
+    val projectKey: String,
+    val startDate: String,
+    val endDate: String,
+    val completeDate: String,
+    val committedMd: Double,
+    val committedItems: Int,
+    val committedIssueKeys: List<String>,
+    val addedMd: Double,
+    val addedItems: Int,
+    val addedIssueKeys: List<String>,
+    val removedMd: Double,
+    val removedItems: Int,
+    val removedIssueKeys: List<String>,
+    val finalMd: Double,
+    val finalItems: Int,
+    val deliveredMd: Double,
+    val deliveredItems: Int,
+    val deliveredIssueKeys: List<String>,
+    val carriedOverMd: Double,
+    val carriedOverItems: Int,
+    val carriedOverIssueKeys: List<String>,
+    val droppedMd: Double,
+    val droppedItems: Int,
+    val droppedIssueKeys: List<String>,
+)
+
+@Serializable
+private data class GoldenFixture(val epic: GoldenEpicFixture, val sprint: GoldenSprintFixture)
 
 @Serializable
 private data class MetricsExpectedFixture(val golden: GoldenFixture)
 
 private val METRICS_DERIVATION_FIXTURE_JSON = Json { ignoreUnknownKeys = true }
 
-private val metricsDerivationGoldenEpic: GoldenEpicFixture by lazy {
+private val metricsDerivationGolden: GoldenFixture by lazy {
     val file = listOf(File("sample-data/jira/expected.json"), File("../sample-data/jira/expected.json"))
         .firstOrNull { it.isFile }
         ?: error("sample-data/jira/expected.json not found from ${File(".").absolutePath}")
-    METRICS_DERIVATION_FIXTURE_JSON.decodeFromString<MetricsExpectedFixture>(file.readText()).golden.epic
+    METRICS_DERIVATION_FIXTURE_JSON.decodeFromString<MetricsExpectedFixture>(file.readText()).golden
 }
+
+private val metricsDerivationGoldenEpic: GoldenEpicFixture by lazy { metricsDerivationGolden.epic }
+private val metricsDerivationGoldenSprint: GoldenSprintFixture by lazy { metricsDerivationGolden.sprint }
 
 private fun isoDateEpochMillis(isoDate: String): Long = LocalDate.parse(isoDate).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
 
@@ -536,6 +576,218 @@ class MetricsDerivationTest {
         assertEquals(1, stageRows.size)
         assertEquals("UNMAPPED", stageRows.single()[MetricsStore.ItemStage.stage])
     }
+
+    /** Maps the FLO project's own board (id 1, `sample-data/README.md`) to a fresh team, via ONE
+     * PUT — the sprint step's own team-mapping input. */
+    /** Preserves the COMPUTED defaults (estimate field detection etc. — `effectiveConfig`, `.claude/docs/metrics.md`
+     * "Configuration model") — a bare `replaceConfig` with only `boards` set would otherwise wipe every other
+     * field back to its bare unconfigured null, since a stored config is a FULL replace, not a patch. */
+    private suspend fun mapFloBoardToTeam(connId: UInt, config: MetricsConfigService): UInt {
+        val teamId = TestTeams.seed(uniqueEmail("flo-sprint-team"))
+        val current = config.effectiveConfig(connId)
+        config.replaceConfig(
+            connId,
+            DataSourceMetricsConfigRequest(
+                statusStages = current.statusStages,
+                fields = current.fields,
+                domains = current.domains,
+                boards = listOf(MetricsBoardTeamMapping(1L, teamId)),
+                activityTypes = current.activityTypes,
+                workCategories = current.workCategories,
+                blockedStatuses = current.blockedStatuses,
+                sprintCapacities = current.sprintCapacities,
+            ),
+        )
+        return teamId
+    }
+
+    private fun deriver(config: MetricsConfigService) =
+        MetricsDeriver(workItems(), config, teamMembership(config), metricsStore(), sharedDatabaseForTests())
+
+    private fun deriveClaim(id: UInt, connId: UInt) = SyncJobClaim(
+        id = id, connectionId = connId, connectorKind = DataSourceKind.JIRA_CLOUD, kind = SyncJobKind.DERIVE,
+        attempt = 1, maxAttempts = 3, syncIntervalMinutes = 60,
+    )
+
+    @Test
+    fun `DERIVE's fact_sprint and fact_sprint_scope reproduce the golden FLO sprint's buckets and issue keys`() = runBlocking {
+        val connId = clonedProcessedConnection()
+        val config = metricsConfig()
+        mapFloBoardToTeam(connId, config)
+        deriver(config).derive(SyncJobRunContext(deriveClaim(10u, connId), clock = { PINNED_NOW }) { _, _ -> true })
+
+        val golden = metricsDerivationGoldenSprint
+        val sprintId = golden.sprintId
+
+        val factRow = suspendTransaction(sharedDatabaseForTests()) {
+            MetricsStore.FactSprint.selectAll()
+                .where { (MetricsStore.FactSprint.connectionId eq connId) and (MetricsStore.FactSprint.sprintId eq sprintId) }
+                .toList().single()
+        }
+        assertEquals(golden.committedMd, factRow[MetricsStore.FactSprint.committedMd].toDouble(), "expected.json golden.sprint.committedMd")
+        assertEquals(golden.committedItems, factRow[MetricsStore.FactSprint.committedItems])
+        assertEquals(golden.addedMd, factRow[MetricsStore.FactSprint.addedMd].toDouble(), "expected.json golden.sprint.addedMd")
+        assertEquals(golden.addedItems, factRow[MetricsStore.FactSprint.addedItems])
+        assertEquals(golden.removedMd, factRow[MetricsStore.FactSprint.removedMd].toDouble(), "expected.json golden.sprint.removedMd")
+        assertEquals(golden.removedItems, factRow[MetricsStore.FactSprint.removedItems])
+        assertEquals(golden.finalMd, factRow[MetricsStore.FactSprint.finalMd].toDouble(), "expected.json golden.sprint.finalMd")
+        assertEquals(golden.finalItems, factRow[MetricsStore.FactSprint.finalItems])
+        assertEquals(golden.deliveredMd, factRow[MetricsStore.FactSprint.deliveredMd].toDouble(), "expected.json golden.sprint.deliveredMd")
+        assertEquals(golden.deliveredItems, factRow[MetricsStore.FactSprint.deliveredItems])
+        assertEquals(
+            golden.carriedOverMd,
+            factRow[MetricsStore.FactSprint.carriedOverMd].toDouble(),
+            "expected.json golden.sprint.carriedOverMd",
+        )
+        assertEquals(golden.carriedOverItems, factRow[MetricsStore.FactSprint.carriedOverItems])
+        assertEquals(golden.droppedMd, factRow[MetricsStore.FactSprint.droppedMd].toDouble(), "expected.json golden.sprint.droppedMd")
+        assertEquals(golden.droppedItems, factRow[MetricsStore.FactSprint.droppedItems])
+
+        suspend fun issueKeysFor(predicate: Op<Boolean>): Set<String> = suspendTransaction(sharedDatabaseForTests()) {
+            MetricsStore.FactSprintScope.join(
+                MetricsStore.FactTaskDelivery,
+                JoinType.INNER,
+                onColumn = MetricsStore.FactSprintScope.issueId,
+                otherColumn = MetricsStore.FactTaskDelivery.issueId,
+                additionalConstraint = { MetricsStore.FactSprintScope.connectionId eq MetricsStore.FactTaskDelivery.connectionId },
+            )
+                .select(MetricsStore.FactTaskDelivery.issueKey)
+                .where {
+                    (MetricsStore.FactSprintScope.connectionId eq connId) and
+                        (MetricsStore.FactSprintScope.sprintId eq sprintId) and predicate
+                }
+                .toList().map { it[MetricsStore.FactTaskDelivery.issueKey] }.toSet()
+        }
+
+        fun failureMessage(bucket: String, expected: List<String>, actual: Set<String>): String {
+            val expectedSet = expected.toSet()
+            return "sprint $sprintId $bucket bucket diverges from expected.json — " +
+                "missing=${expectedSet - actual}, unexpected=${actual - expectedSet}"
+        }
+
+        val committedKeys = issueKeysFor(
+            (MetricsStore.FactSprintScope.committed eq true) and (MetricsStore.FactSprintScope.inScopeAtClose eq true),
+        )
+        assertEquals(
+            golden.committedIssueKeys.toSet(), committedKeys,
+            failureMessage("committed", golden.committedIssueKeys, committedKeys),
+        )
+        val addedKeys = issueKeysFor(MetricsStore.FactSprintScope.addedAt.isNotNull())
+        assertEquals(golden.addedIssueKeys.toSet(), addedKeys, failureMessage("added", golden.addedIssueKeys, addedKeys))
+        val removedKeys = issueKeysFor(MetricsStore.FactSprintScope.removedAt.isNotNull())
+        assertEquals(golden.removedIssueKeys.toSet(), removedKeys, failureMessage("removed", golden.removedIssueKeys, removedKeys))
+        val deliveredKeys = issueKeysFor(MetricsStore.FactSprintScope.doneInSprint eq true)
+        assertEquals(
+            golden.deliveredIssueKeys.toSet(), deliveredKeys,
+            failureMessage("delivered", golden.deliveredIssueKeys, deliveredKeys),
+        )
+        val carriedKeys = issueKeysFor(MetricsStore.FactSprintScope.carriedOver eq true)
+        assertEquals(
+            golden.carriedOverIssueKeys.toSet(), carriedKeys,
+            failureMessage("carriedOver", golden.carriedOverIssueKeys, carriedKeys),
+        )
+        val droppedKeys = issueKeysFor(MetricsStore.FactSprintScope.dropped eq true)
+        assertEquals(golden.droppedIssueKeys.toSet(), droppedKeys, failureMessage("dropped", golden.droppedIssueKeys, droppedKeys))
+    }
+
+    @Test
+    fun `invariant 8 — fact_sprint's totals equal the Σ of its own fact_sprint_scope rows`() = runBlocking {
+        val connId = clonedProcessedConnection()
+        val config = metricsConfig()
+        mapFloBoardToTeam(connId, config)
+        deriver(config).derive(SyncJobRunContext(deriveClaim(11u, connId), clock = { PINNED_NOW }) { _, _ -> true })
+
+        val (factRows, scopeSums) = suspendTransaction(sharedDatabaseForTests()) {
+            val facts = MetricsStore.FactSprint.selectAll().where { MetricsStore.FactSprint.connectionId eq connId }
+                .toList().associateBy { it[MetricsStore.FactSprint.sprintId] }
+            val scopeRows = MetricsStore.FactSprintScope.selectAll().where { MetricsStore.FactSprintScope.connectionId eq connId }.toList()
+            facts to scopeRows
+        }
+        assertTrue(factRows.isNotEmpty(), "fact_sprint must be non-empty after DERIVE")
+
+        val bySprint = scopeSums.groupBy { it[MetricsStore.FactSprintScope.sprintId] }
+        factRows.forEach { (sprintId, row) ->
+            val scopeForSprint = bySprint[sprintId].orEmpty()
+            val committedMdSum = scopeForSprint
+                .filter { it[MetricsStore.FactSprintScope.committed] && it[MetricsStore.FactSprintScope.inScopeAtClose] }
+                .sumOf { it[MetricsStore.FactSprintScope.estimateAtCommitmentMd]?.toDouble() ?: 0.0 }
+            assertEquals(
+                row[MetricsStore.FactSprint.committedMd].toDouble(), committedMdSum,
+                "sprint $sprintId: fact_sprint.committed_md must equal Σ fact_sprint_scope",
+            )
+            val finalMdSum = scopeForSprint.filter { it[MetricsStore.FactSprintScope.inScopeAtClose] }
+                .sumOf { it[MetricsStore.FactSprintScope.estimateAtCloseMd]?.toDouble() ?: 0.0 }
+            assertEquals(
+                row[MetricsStore.FactSprint.finalMd].toDouble(), finalMdSum,
+                "sprint $sprintId: fact_sprint.final_md must equal Σ fact_sprint_scope",
+            )
+            val deliveredMdSum = scopeForSprint.filter { it[MetricsStore.FactSprintScope.doneInSprint] }
+                .sumOf { it[MetricsStore.FactSprintScope.estimateAtDoneMd]?.toDouble() ?: 0.0 }
+            assertEquals(
+                row[MetricsStore.FactSprint.deliveredMd].toDouble(), deliveredMdSum,
+                "sprint $sprintId: fact_sprint.delivered_md must equal Σ fact_sprint_scope",
+            )
+        }
+    }
+
+    @Test
+    fun `fact_sprint_snapshot is written for a closed team-mapped sprint, reconstructed first, never updated afterwards`() =
+        runBlocking {
+            val connId = clonedProcessedConnection()
+            val config = metricsConfig()
+            mapFloBoardToTeam(connId, config)
+            val sprintId = metricsDerivationGoldenSprint.sprintId
+
+            deriver(config).derive(SyncJobRunContext(deriveClaim(12u, connId), clock = { PINNED_NOW }) { _, _ -> true })
+
+            val snapshotRow = suspendTransaction(sharedDatabaseForTests()) {
+                MetricsStore.FactSprintSnapshot.selectAll()
+                    .where {
+                        (MetricsStore.FactSprintSnapshot.connectionId eq connId) and
+                            (MetricsStore.FactSprintSnapshot.sprintId eq sprintId)
+                    }
+                    .toList().singleOrNull()
+            }
+            requireNotNull(snapshotRow) { "no snapshot row for the closed, team-mapped golden sprint" }
+            assertTrue(
+                snapshotRow[MetricsStore.FactSprintSnapshot.reconstructed],
+                "the connection's very first DERIVE run has no earlier successful run to have processed this sprint live",
+            )
+            assertTrue(
+                Json.parseToJsonElement(snapshotRow[MetricsStore.FactSprintSnapshot.scope]).jsonArray.isNotEmpty(),
+                "the frozen scope JSON must carry the sprint's own scope rows",
+            )
+
+            // A raw UPDATE against an existing snapshot row must raise (the immutability trigger) —
+            // never silently succeed.
+            val updateAttempt = runCatching {
+                suspendTransaction(sharedDatabaseForTests()) {
+                    MetricsStore.FactSprintSnapshot.update({
+                        (MetricsStore.FactSprintSnapshot.connectionId eq connId) and (MetricsStore.FactSprintSnapshot.sprintId eq sprintId)
+                    }) {
+                        it[committedMd] = java.math.BigDecimal.valueOf(999)
+                    }
+                }
+            }
+            assertTrue(updateAttempt.isFailure, "an UPDATE against fact_sprint_snapshot must raise, per the immutability trigger")
+
+            // A second DERIVE must not touch the existing snapshot row at all — same count, same digest.
+            deriver(config).derive(SyncJobRunContext(deriveClaim(13u, connId), clock = { PINNED_NOW }) { _, _ -> true })
+            val snapshotRowsAfterSecondDerive = suspendTransaction(sharedDatabaseForTests()) {
+                MetricsStore.FactSprintSnapshot.selectAll()
+                    .where {
+                        (MetricsStore.FactSprintSnapshot.connectionId eq connId) and
+                            (MetricsStore.FactSprintSnapshot.sprintId eq sprintId)
+                    }
+                    .toList()
+            }
+            assertEquals(1, snapshotRowsAfterSecondDerive.size, "a second DERIVE must never insert a second snapshot for the same sprint")
+            assertEquals(
+                snapshotRow[MetricsStore.FactSprintSnapshot.committedMd],
+                snapshotRowsAfterSecondDerive.single()[MetricsStore.FactSprintSnapshot.committedMd],
+                "the surviving snapshot row's own figures must be byte-for-byte unchanged by the second DERIVE",
+            )
+        }
 
     private companion object {
         const val PINNED_NOW = 1_772_668_800_000L // 2026-09-02T00:00:00Z, per the v0.3.0 plan's pinned-clock convention

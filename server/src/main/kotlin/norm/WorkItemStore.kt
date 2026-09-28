@@ -723,6 +723,41 @@ class WorkItemStore(private val database: R2dbcDatabase) {
         }
 
     /**
+     * Every `norm.work_item_field_changes` row whose DISPLAY NAME (`field`, never `field_id`) is
+     * [fieldText], connection-wide (v0.3.0 M3 commit 8) — the Sprint field's own read: its `field_id`
+     * is a tenant-specific discovered custom field id (`gh-sprint`, unknown to the connector-agnostic
+     * `metrics` package), but Jira's changelog always names it by the STABLE display text `"Sprint"`
+     * (`jira/JiraNormalizer.kt`'s own `item.getValue("field")` read, confirmed in
+     * `sample-data/jira/generate.mjs`) — the one tracked field the metrics layer reads by name rather
+     * than by configured/discovered id. Same `issueIds`-scoping contract as [fieldChangesByFieldIds].
+     */
+    suspend fun fieldChangesByFieldText(
+        connectionId: UInt,
+        fieldText: String,
+        issueIds: Collection<Long>? = null,
+    ): List<FieldChangeRow> =
+        suspendTransaction(database) {
+            if (issueIds?.isEmpty() == true) return@suspendTransaction emptyList()
+            var predicate = (FieldChanges.connectionId eq connectionId) and (FieldChanges.field eq fieldText)
+            if (issueIds != null) predicate = predicate and (FieldChanges.issueId inList issueIds)
+            FieldChanges.selectAll().where { predicate }
+                .orderBy(FieldChanges.issueId to SortOrder.ASC, FieldChanges.changedAt to SortOrder.ASC, FieldChanges.seq to SortOrder.ASC)
+                .toList()
+                .map { row ->
+                    FieldChangeRow(
+                        issueId = row[FieldChanges.issueId],
+                        fieldId = row[FieldChanges.fieldId],
+                        field = row[FieldChanges.field],
+                        changedAt = row[FieldChanges.changedAt],
+                        fromValue = row[FieldChanges.fromValue],
+                        fromText = row[FieldChanges.fromText],
+                        toValue = row[FieldChanges.toValue],
+                        toText = row[FieldChanges.toText],
+                    )
+                }
+        }
+
+    /**
      * Every `norm.sprints` reference row for a connection (v0.2.0 plan §8/§12 item 9) — rebuilt
      * wholesale per PROCESS run, read back as-is.
      */

@@ -5,6 +5,7 @@ import ch.nokillswit.norm.FieldChangeRow
 import ch.nokillswit.norm.NormalizedFieldInterval
 import ch.nokillswit.norm.NormalizedStatusInterval
 import ch.nokillswit.norm.PROCESSING_VERSION
+import ch.nokillswit.norm.SprintRef
 import ch.nokillswit.norm.TrackedField
 import ch.nokillswit.norm.WorkItemStore
 import ch.nokillswit.norm.fieldValueOptions
@@ -52,6 +53,17 @@ private const val DUE_DATE_FIELD_ID = "duedate"
 
 /** `jira/JiraNormalizer.kt`'s own tracked field id for the issue-key changelog item — `task_domain`'s history source. */
 private const val ISSUE_KEY_FIELD_ID = "issuekey"
+
+/**
+ * Jira's own changelog DISPLAY NAME for the Sprint field (v0.3.0 M3 commit 8) — stable across every
+ * tenant, unlike its `field_id` (a discovered `customfield_NNNNN` the connector-agnostic `metrics`
+ * package has no other reason to know), confirmed against `sample-data/jira/generate.mjs`
+ * (`field: "Sprint"` on every Sprint changelog item) and `jira/JiraNormalizer.kt` (which stores the
+ * changelog item's own `field` text verbatim, unfiltered by which spelling matched).
+ */
+private const val SPRINT_FIELD_DISPLAY_NAME = "Sprint"
+
+private const val MILLIS_PER_MINUTE = 60_000L
 
 /** Per-item derived quantities shared by both the epic and task write paths — computed once per issue. */
 private data class ItemDerived(
@@ -216,8 +228,11 @@ class MetricsDeriver(
         }
 
         try {
+            val graceMs = settings.commitmentGraceMinutes * MILLIS_PER_MINUTE
             val counts = suspendTransaction(database) {
-                runDerivation(connectionId, config, calendar, now, settings.hoursPerDay, settings.epicDriftDays, settings.configRevision)
+                runDerivation(
+                    connectionId, config, calendar, now, settings.hoursPerDay, settings.epicDriftDays, graceMs, settings.configRevision,
+                )
             }
             markRunSucceeded(runId, counts, context.clock())
             context.heartbeat(null, "derive")
@@ -249,6 +264,7 @@ class MetricsDeriver(
         now: Long,
         hoursPerDay: Double,
         epicDriftDays: Int,
+        graceMs: Long,
         configRevision: Long,
     ): DeriveRowCounts {
         val relevantFieldIds = relevantCustomFieldIds(config)
@@ -260,6 +276,7 @@ class MetricsDeriver(
         metricsStore.deleteBridges(connectionId)
         metricsStore.deleteFactTaskDelivery(connectionId)
         metricsStore.deleteFactEpicDelivery(connectionId)
+        metricsStore.deleteSprintFacts(connectionId)
 
         val context = buildContext(connectionId, workItems, config, calendar, now, hoursPerDay, epicDriftDays)
         metricsStore.insertDomains(connectionId, domainDims(context), configRevision)
@@ -271,14 +288,16 @@ class MetricsDeriver(
         val factTasksByIssueId = mutableMapOf<Long, FactTaskDeliveryRow>()
         val taskCount = runPass2(connectionId, workItems, context, derivedById, blockedByIssue, factTasksByIssueId, configRevision)
         val epicCount = runPass3(connectionId, workItems, context, derivedById, blockedByIssue, factTasksByIssueId, configRevision)
+        val sprintCount = runSprintStep(connectionId, workItems, context, config, derivedById, graceMs, configRevision)
 
-        return DeriveRowCounts(tasks = taskCount, epics = epicCount)
+        return DeriveRowCounts(tasks = taskCount, epics = epicCount, sprints = sprintCount)
     }
 
     private suspend fun markRunSucceeded(runId: Int, counts: DeriveRowCounts, finishedAt: Long) {
         val countsJson = buildJsonObject {
             put("tasks", JsonPrimitive(counts.tasks))
             put("epics", JsonPrimitive(counts.epics))
+            put("sprints", JsonPrimitive(counts.sprints))
         }.toString()
         suspendTransaction(database) {
             MetricsStore.DeriveRuns.update({ MetricsStore.DeriveRuns.id eq runId }) {
@@ -807,4 +826,179 @@ class MetricsDeriver(
         val childSeconds = children.sumOf { child -> worklogSecondsByIssue[child.issueId] ?: 0L }
         return (ownSeconds + childSeconds) / SECONDS_PER_HOUR / hoursPerDay
     }
+
+    /**
+     * The sprint step (v0.3.0 M3 commit 8, `.claude/docs/domain-model.md` "Plan — PV"/"Glossary",
+     * `.claude/docs/metrics.md` "Sprint scope") — delegates to the top-level [runSprintStep] (kept
+     * OUTSIDE this class body, the `LargeClass` idiom: it needs only [workItemStore]/[metricsStore]
+     * from this instance, passed explicitly, so it carries none of this class's own line-count
+     * weight). Returns the sprint count for `derive_runs.row_counts`.
+     */
+    private suspend fun runSprintStep(
+        connectionId: UInt,
+        workItems: List<WorkItemStore.DerivationWorkItemRow>,
+        context: DeriveContext,
+        config: DataSourceMetricsConfig,
+        derivedById: Map<Long, ItemDerived>,
+        graceMs: Long,
+        configRevision: Long,
+    ): Int = ch.nokillswit.metrics.runSprintStep(
+        workItemStore, metricsStore, connectionId, workItems, context, config, derivedById, graceMs, configRevision,
+    )
+}
+
+/**
+ * The sprint step's own body (v0.3.0 M3 commit 8, moved outside [MetricsDeriver] purely to keep that
+ * class under detekt's `LargeClass` threshold — see the thin delegating method there): `dim_sprint`,
+ * `fact_sprint_scope`, `fact_sprint`, and D13's append-only `fact_sprint_snapshot` for every
+ * newly-closed, team-mapped sprint. Level-0, non-sub-task, non-epic tasks ONLY (`levelZeroTasks`
+ * below) — matching `sample-data/jira/generate.mjs`'s own `sprintItemsOf` (sub-tasks follow their
+ * parent task's sprint, never carrying independent scope of their own).
+ */
+private suspend fun runSprintStep(
+    workItemStore: WorkItemStore,
+    metricsStore: MetricsStore,
+    connectionId: UInt,
+    workItems: List<WorkItemStore.DerivationWorkItemRow>,
+    context: DeriveContext,
+    config: DataSourceMetricsConfig,
+    derivedById: Map<Long, ItemDerived>,
+    graceMs: Long,
+    configRevision: Long,
+): Int {
+    val sprints = workItemStore.allSprintRefs(connectionId)
+    if (sprints.isEmpty()) return 0
+
+    val sprintCapacityById = config.sprintCapacities.associate { it.sprintId to it.capacityMd }
+    val laterSprintIdsBySprint = laterSprintIdsPerSprint(sprints)
+    val existingSnapshotSprintIds = metricsStore.existingSnapshotSprintIds(connectionId)
+    val firstSuccessfulStartedAt = metricsStore.firstSuccessfulDeriveRunStartedAt(connectionId)
+
+    val scopeItemsBySprint = mutableMapOf<Long, MutableList<SprintScopeItem>>()
+    val levelZeroTasks = workItems.filter { it.hierarchyLevel != EPIC_HIERARCHY_LEVEL && !it.isSubtask }
+    for (batch in levelZeroTasks.chunked(DERIVE_BATCH_SIZE)) {
+        val ids = batch.map { it.issueId }
+        val sprintChangesByIssue =
+            workItemStore.fieldChangesByFieldText(connectionId, SPRINT_FIELD_DISPLAY_NAME, ids).groupBy { it.issueId }
+        val assigneeIntervalsByIssue = workItemStore.fieldIntervalsByIssue(connectionId, TrackedField.ASSIGNEE, ids)
+
+        val scopeRowsBatch = mutableListOf<FactSprintScopeRow>()
+        val taskSprintRowsBatch = mutableListOf<TaskSprintRow>()
+        for (item in batch) {
+            val derived = derivedById.getValue(item.issueId)
+            val memberships =
+                DeriveKernels.sprintMembership(item.createdAt, sprintChangesByIssue[item.issueId].orEmpty(), item.currentSprintIds)
+            if (memberships.isEmpty()) continue
+            memberships.forEach { taskSprintRowsBatch += TaskSprintRow(item.issueId, it.sprintId, it.fromAtMs, it.toAtMs) }
+            val itemScopeRows = itemSprintScopeRows(
+                item, derived, memberships, sprints, laterSprintIdsBySprint, assigneeIntervalsByIssue[item.issueId].orEmpty(),
+                graceMs, context.now,
+            )
+            itemScopeRows.forEach { (sprintId, row) ->
+                scopeItemsBySprint.getOrPut(sprintId) { mutableListOf() } += row
+                scopeRowsBatch += FactSprintScopeRow(sprintId, row)
+            }
+        }
+        metricsStore.insertFactSprintScope(connectionId, scopeRowsBatch, configRevision)
+        metricsStore.insertTaskSprint(connectionId, taskSprintRowsBatch)
+    }
+
+    val dimRows = mutableListOf<DimSprintRow>()
+    val factRows = mutableListOf<FactSprintRow>()
+    for (sprint in sprints) {
+        val teamId = sprint.boardId?.let { context.boardTeamByBoardId[it] }
+        val (capacityMd, capacitySource) = sprintCapacity(sprint, teamId, sprintCapacityById[sprint.sprintId], context)
+        dimRows += DimSprintRow(
+            sprint.sprintId, sprint.boardId, teamId, sprint.name, sprint.state,
+            sprint.startAtMs, sprint.endAtMs, sprint.completeAtMs, capacityMd, capacitySource,
+        )
+        val totals = DeriveKernels.sprintTotals(scopeItemsBySprint[sprint.sprintId].orEmpty())
+        val load = if (capacityMd != null && capacityMd > 0.0) totals.committedMd / capacityMd else null
+        val factRow = FactSprintRow(sprint.sprintId, teamId, sprint.completeAtMs, totals, capacityMd, load)
+        factRows += factRow
+
+        val closedAndMapped = sprint.state.equals("closed", ignoreCase = true) && sprint.completeAtMs != null && teamId != null
+        if (closedAndMapped && sprint.sprintId !in existingSnapshotSprintIds) {
+            val reconstructed = firstSuccessfulStartedAt == null || sprint.completeAtMs!! < firstSuccessfulStartedAt
+            metricsStore.insertFactSprintSnapshot(
+                connectionId, factRow, scopeItemsBySprint[sprint.sprintId].orEmpty(), configRevision, PROCESSING_VERSION,
+                reconstructed, context.now,
+            )
+        }
+    }
+    metricsStore.insertDimSprints(connectionId, dimRows, configRevision)
+    metricsStore.insertFactSprint(connectionId, factRows, configRevision)
+    return sprints.size
+}
+
+/**
+ * One task's `fact_sprint_scope` row for every sprint it was ever a member of (extracted out of
+ * [runSprintStep] purely to stay under detekt's `CyclomaticComplexMethod` threshold — the sprint
+ * loop's own branching lives here instead).
+ */
+private fun itemSprintScopeRows(
+    item: WorkItemStore.DerivationWorkItemRow,
+    derived: ItemDerived,
+    memberships: List<SprintMembershipInterval>,
+    sprints: List<SprintRef>,
+    laterSprintIdsBySprint: Map<Long, Set<Long>>,
+    assigneeIntervals: List<NormalizedFieldInterval>,
+    graceMs: Long,
+    now: Long,
+): List<Pair<Long, SprintScopeItem>> {
+    val membershipsBySprintId = memberships.groupBy { it.sprintId }
+    return sprints.mapNotNull { sprint ->
+        val startAt = sprint.startAtMs ?: return@mapNotNull null
+        val intervals = membershipsBySprintId[sprint.sprintId] ?: return@mapNotNull null
+        val row = DeriveKernels.sprintScope(
+            issueId = item.issueId,
+            sprintStartAtMs = startAt,
+            sprintCloseAtMs = sprint.completeAtMs ?: now,
+            graceMs = graceMs,
+            membershipIntervals = intervals,
+            estimateTimeline = derived.estimateTimeline,
+            assigneeIntervals = assigneeIntervals,
+            doneAtMs = derived.done,
+            inLaterSprintOfTeam = memberships.any { it.sprintId in laterSprintIdsBySprint[sprint.sprintId].orEmpty() },
+        ) ?: return@mapNotNull null
+        sprint.sprintId to row
+    }
+}
+
+/**
+ * (capacityMd, capacitySource) for one sprint (A3): a `metrics.team_sprint_capacity` override always
+ * wins (`CONFIGURED`); absent one AND a mapped team computes members x working days over
+ * `[startAt, endAt ?: completeAt ?: startAt)` (`DEFAULT`) — the doc's own default, no per-member
+ * absence data. No team maps to no capacity at all (`null`, `null`).
+ */
+private fun sprintCapacity(
+    sprint: SprintRef,
+    teamId: UInt?,
+    configuredCapacityMd: Double?,
+    context: DeriveContext,
+): Pair<Double?, String?> {
+    if (configuredCapacityMd != null) return configuredCapacityMd to "CONFIGURED"
+    val startAt = sprint.startAtMs
+    if (teamId == null || startAt == null) return null to null
+    val endAt = sprint.endAtMs ?: sprint.completeAtMs ?: startAt
+    val workingDays = context.calendar.workingDaysBetween(startAt, endAt)
+    val memberCount = context.membershipsByAccount.values.count { intervals ->
+        intervals.any { it.teamId == teamId && it.validFrom < endAt && (it.validTo == null || it.validTo > startAt) }
+    }
+    return (memberCount * workingDays) to "DEFAULT"
+}
+
+/**
+ * Every sprint id LATER than each sprint of its own board (D10: one board per team, so "later sprint
+ * of the same board" already means "later sprint of the same team") — ordered by `startAtMs` (a
+ * sprint with no start, e.g. still FUTURE, sorts last), tie-broken by sprint id. A sprint whose board
+ * is unknown (`boardId == null`) has no later sprints of anything.
+ */
+private fun laterSprintIdsPerSprint(sprints: List<SprintRef>): Map<Long, Set<Long>> {
+    val result = mutableMapOf<Long, Set<Long>>()
+    sprints.filter { it.boardId != null }.groupBy { it.boardId!! }.values.forEach { boardSprints ->
+        val ordered = boardSprints.sortedWith(compareBy({ it.startAtMs ?: Long.MAX_VALUE }, { it.sprintId }))
+        ordered.forEachIndexed { index, sprint -> result[sprint.sprintId] = ordered.drop(index + 1).map { it.sprintId }.toSet() }
+    }
+    return result
 }
