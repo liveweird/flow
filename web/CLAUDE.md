@@ -353,6 +353,72 @@ endpoint (`requireAdmin` server-side).
 - `pages/Home.tsx`'s admin empty state links to `/data-sources` (a plain `Anchor` under the
   `EmptyState`, not a rewrite of that shared component) — "keep it simple" per the commit plan.
 
+## Metrics configuration (`pages/MetricsSettings.tsx`, `components/TeamJiraMembers.tsx`, `pages/DataSourceMetricsConfig.tsx`)
+
+The v0.3.0 metrics-configuration surfaces: the global settings singleton and D1's dated Jira-user
+team membership landed in M2 commit 5, and the per-connection `metrics-config` page in commit 6.
+`api/metrics.ts` mirrors `api/teams.ts`'s thin-wrapper shape: `getMetricsSettings`/
+`updateMetricsSettings`, the `/jira-memberships` CRUD, `listJiraUsers`, and
+`getDataSourceMetricsConfig`/`updateDataSourceMetricsConfig`/`getDataSourceMetricsConfigOptions`
+— every type derived from `schema.ts`.
+
+- **`pages/MetricsSettings.tsx`** (`/metrics-settings`, `adminOnly` nav leaf `IconAdjustments`,
+  under the same `RequireAdmin` route group as Users/Data sources) is the ONE global
+  `metrics.settings` singleton form — the CreateUser/EditUser template (`Paper withBorder p="xl"
+  maw={FORM_MAX_WIDTH}`, `form.initialize` guarded by `!form.initialized`, a full-replace PUT,
+  `showSuccessToast` on save, an inline Alert on failure). `utils/metricsForm.ts` mirrors
+  `metrics/MetricsSettings.kt`'s `validateMetricsSettings` field for field (including the
+  aging-percentiles-must-include-85 rule and the all-weekend rejection) and holds the form's own
+  string-array reshaping: `weekendDays`/`agingPercentiles` travel as `Chip.Group`/`TagsInput`
+  string values client-side, mapped to `number[]` only in `toMetricsSettingsRequest`. The zone
+  picker is a searchable `Select` over `Intl.supportedValuesOf("timeZone")`
+  (`utils/metricsForm.ts`'s `supportedTimeZones`, cached). The success toast reads "Saved — reports
+  re-derive shortly" — accurate once M3's DERIVE job lands, so the wording needs no follow-up
+  change.
+- **`components/TeamJiraMembers.tsx`**, mounted on `pages/TeamDetails.tsx` below the Flow-login
+  roster — D1's dated Jira-user team membership (`GET/POST /api/v1/teams/{id}/jira-memberships`,
+  `PUT/DELETE …/{membershipId}`): any authenticated user reads the table (person name resolved
+  against `GET /api/v1/jira-users?scope=UNIT` — every account that ever held a membership row is
+  UNIT-relevant, so one page of that directory names this team's whole history; an unresolved
+  account falls back to its raw `accountId`), a "current" badge when `now ∈ [validFrom, validTo)`.
+  ADMIN-only mutations: "Add Jira member" opens `components/JiraMemberModal.tsx` (a searchable
+  person `Select` over `GET /api/v1/jira-users?scope=SITE` — the whole site directory, since a
+  brand-new member may not yet be UNIT-relevant — plus a required valid-from and optional valid-to
+  date; the exclusion-constraint `409` renders inline in the modal, never a toast), a per-row "End
+  membership" (only on the open-ended row — direct PUT setting `validTo` to today's UTC midnight,
+  the `startOfTodayEpochMillis` helper) and Delete (`ConfirmDeleteModal`, the `useDeleteConfirm`
+  precedent). **Dates are plain `YYYY-MM-DD` `TextInput`s** (`utils/isoDate.ts`'s
+  `isValidIsoDate`/`isoDateToEpochMillis`/`epochMillisToIsoDate`, UTC throughout — the
+  `dataSourceState.ts` `formatEpochMillis` convention — no `@mantine/dates` dependency in this
+  commit; it arrives with the Reports period picker, §2.4 of the phase-3 plan).
+- **`pages/DataSourceMetricsConfig.tsx`** (`/data-sources/:id/metrics-config`, under the same
+  `RequireAdmin` group, reached from a "Metrics configuration" toolbar link on
+  `DataSourceDetails.tsx` beside Profile/Inspect) edits the ONE composite
+  `DataSourceMetricsConfig` resource (`.claude/docs/metrics.md` "Per-connection metrics
+  configuration") over `Tabs`: Statuses (stage `Select` + a Blocked `Checkbox` per status, the
+  Jira category as a `Badge`), Fields (five `Select`s over the profile-detected custom fields plus
+  Jira's own `duedate` system field, labelled with the detected role), Domains (project key →
+  domain key/name), Boards → team (an active-teams `Select`; a `409` marks the changed board
+  row(s) inline, the "which row" rule computed by diffing the just-submitted board→team snapshot
+  against the last-loaded/last-saved one — `utils/metricsConfigForm.ts`'s `changedBoardIds`),
+  Activity types (issue type → activity type) and Work categories (value → category, fetched with
+  `?workCategoryField=` the moment a work-category field is chosen on the Fields tab — shown only
+  once one is). Capacities (one `NumberInput` per sprint, blank = the computed default) rounds out
+  the seven. GET returns computed defaults when `configured: false` — a banner says so ("Showing
+  computed defaults — save to confirm them") until the first save. ONE Save does a full-replace
+  PUT of every tab's current state (even an untouched tab still submits its own default), a
+  success toast reads the same "reports re-derive shortly" wording as `MetricsSettings.tsx`, and a
+  `400`/`409` renders the SERVER'S OWN `detail` message inline (not a fixed-vocabulary mapping —
+  these messages are admin-facing by design, `.claude/docs/metrics.md`'s validation/conflict
+  rules). **`components/MappingTable.tsx`** is the one generic id → editable-cell table every
+  mapping-shaped tab reuses (a `Select`/`TextInput`/`Checkbox` per field column, the row's own
+  identity in a fixed left column) — callers own all state, MappingTable is a pure renderer.
+  **`utils/metricsConfigForm.ts`** holds the pure state-shaping: `buildInitialState` merges the GET
+  response with the options endpoint's reference lists into one row per reference item (mapped or
+  not), `buildRequest` is its inverse, `mergeWorkCategoryValues` combines the field-scoped values
+  query with whatever category is already chosen, and `changedBoardIds` is the 409 row-marking
+  rule.
+
 ## Internationalization (i18n)
 
 The SPA is **N-language by architecture** via react-i18next (`src/i18n.ts`); the shipped bundles
@@ -360,7 +426,7 @@ are English (THE default and fallback everywhere) and Polish. All user-facing st
 `const { t } = useTranslation()` / `<Trans>` — **no hardcoded UI text**. Conventions:
 
 - **Resources** live in `src/locales/{en,pl}/<area>.json`, one file per area (`appShell`, `auth`,
-  `changelog`, `common`, `dataSources`, `home`, `teams`, `users`); `i18n.ts` merges them into a single
+  `changelog`, `common`, `dataSources`, `home`, `metrics`, `teams`, `users`); `i18n.ts` merges them into a single
   `translation` namespace, so keys read `area.key` (e.g. `t("auth.signIn")`). Only EN is
   statically imported — its typed `en` tree is the key canon AND the runtime fallback; every other
   language is auto-discovered from `locales/<lang>/` via `import.meta.glob`. Bundles are eager on

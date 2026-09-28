@@ -13,6 +13,7 @@ import enAuth from "./locales/en/auth.json";
 import enChangelog from "./locales/en/changelog.json";
 import enDataSources from "./locales/en/dataSources.json";
 import enHome from "./locales/en/home.json";
+import enMetrics from "./locales/en/metrics.json";
 import enTeams from "./locales/en/teams.json";
 import enUsers from "./locales/en/users.json";
 
@@ -57,6 +58,7 @@ export const en = {
   changelog: enChangelog,
   dataSources: enDataSources,
   home: enHome,
+  metrics: enMetrics,
   teams: enTeams,
   users: enUsers,
 };

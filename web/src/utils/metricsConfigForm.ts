@@ -1,0 +1,196 @@
+// Pure state-shaping helpers behind `pages/DataSourceMetricsConfig.tsx`
+// (`.claude/docs/metrics.md` "Per-connection metrics configuration"): the GET response's
+// computed-or-stored config, combined with the options endpoint's reference data, into one
+// per-tab row shape the page edits; and the reverse — the edited rows back into the PUT body.
+
+import type {
+  DataSourceMetricsConfigOptions,
+  DataSourceMetricsConfigRequest,
+  DataSourceMetricsConfigResponse,
+  MetricsFieldValueOption,
+} from "../api/metrics";
+
+export type MetricsStage = "NOT_STARTED" | "IN_PROGRESS" | "DONE";
+export const METRICS_STAGES: MetricsStage[] = ["NOT_STARTED", "IN_PROGRESS", "DONE"];
+
+export interface StatusRowState {
+  statusId: string;
+  name: string;
+  category: string;
+  /** "" means unmapped — omitted from the submitted `statusStages` list. */
+  stage: MetricsStage | "";
+  blocked: boolean;
+}
+
+export interface DomainRowState {
+  projectKey: string;
+  domainKey: string;
+  domainName: string;
+}
+
+export interface BoardRowState {
+  boardId: number;
+  name: string;
+  projectKey: string | null;
+  /** "" means unmapped; otherwise a team id carried as a string (Mantine Select values are strings). */
+  teamId: string;
+}
+
+export interface ActivityRowState {
+  issueType: string;
+  activityType: string;
+}
+
+export interface WorkCategoryRowState {
+  valueId: string;
+  valueName: string | null;
+  /** "" means uncategorized — omitted from the submitted `workCategories` list. */
+  category: string;
+}
+
+export interface CapacityRowState {
+  sprintId: number;
+  boardId: number | null;
+  name: string;
+  state: string;
+  /** "" means unset — DERIVE falls back to the computed default. Carried as text for the NumberInput. */
+  capacityMd: string;
+}
+
+export interface FieldsState {
+  estimateTask: string;
+  estimateEpic: string;
+  epicStart: string;
+  epicDue: string;
+  workCategory: string;
+}
+
+export interface MetricsConfigFormState {
+  statuses: StatusRowState[];
+  fields: FieldsState;
+  domains: DomainRowState[];
+  boards: BoardRowState[];
+  activityTypes: ActivityRowState[];
+  workCategories: WorkCategoryRowState[];
+  sprintCapacities: CapacityRowState[];
+}
+
+/**
+ * The GET config (stored or computed-defaults) plus the options endpoint's reference lists,
+ * merged into one editable row per reference item — a reference item with no stored mapping
+ * still gets a row (unmapped/blank), so an admin sees every status/project/board/issue type/
+ * sprint Jira reports, not only the ones already configured.
+ */
+export function buildInitialState(
+  config: DataSourceMetricsConfigResponse,
+  options: DataSourceMetricsConfigOptions,
+): MetricsConfigFormState {
+  const stageByStatusId = new Map(config.statusStages.map((s) => [s.statusId, s.stage]));
+  const blockedStatusIds = new Set(config.blockedStatuses);
+  const statuses: StatusRowState[] = options.statuses.map((s) => ({
+    statusId: s.statusId,
+    name: s.name,
+    category: s.category,
+    stage: stageByStatusId.get(s.statusId) ?? "",
+    blocked: blockedStatusIds.has(s.statusId),
+  }));
+
+  const fields: FieldsState = {
+    estimateTask: config.fields.estimateTask ?? "",
+    estimateEpic: config.fields.estimateEpic ?? "",
+    epicStart: config.fields.epicStart ?? "",
+    epicDue: config.fields.epicDue ?? "",
+    workCategory: config.fields.workCategory ?? "",
+  };
+
+  const domainByProjectKey = new Map(config.domains.map((d) => [d.projectKey, d]));
+  const domains: DomainRowState[] = options.projects.map((projectKey) => {
+    const existing = domainByProjectKey.get(projectKey);
+    return { projectKey, domainKey: existing?.domainKey ?? projectKey, domainName: existing?.domainName ?? projectKey };
+  });
+
+  const teamIdByBoardId = new Map(config.boards.map((b) => [b.boardId, b.teamId]));
+  const boards: BoardRowState[] = options.boards.map((b) => ({
+    boardId: b.boardId,
+    name: b.name,
+    projectKey: b.projectKey ?? null,
+    teamId: teamIdByBoardId.has(b.boardId) ? String(teamIdByBoardId.get(b.boardId)) : "",
+  }));
+
+  const activityTypeByIssueType = new Map(config.activityTypes.map((a) => [a.issueType, a.activityType]));
+  const activityTypes: ActivityRowState[] = options.issueTypes.map((issueType) => ({
+    issueType,
+    activityType: activityTypeByIssueType.get(issueType) ?? issueType,
+  }));
+
+  const capacityBySprintId = new Map(config.sprintCapacities.map((c) => [c.sprintId, c.capacityMd]));
+  const sprintCapacities: CapacityRowState[] = options.sprints.map((s) => ({
+    sprintId: s.sprintId,
+    boardId: s.boardId ?? null,
+    name: s.name,
+    state: s.state,
+    capacityMd: capacityBySprintId.has(s.sprintId) ? String(capacityBySprintId.get(s.sprintId)) : "",
+  }));
+
+  // workCategories starts empty — it only has rows once a work-category field is chosen and its
+  // own values query resolves (mergeWorkCategoryValues below), same as the stored config's own
+  // "empty until a field is chosen" default (`.claude/docs/metrics.md`).
+  return { statuses, fields, domains, boards, activityTypes, workCategories: [], sprintCapacities };
+}
+
+/**
+ * Combines the work-category-field-scoped options query's distinct values with whatever category
+ * is already chosen for each — from the currently edited rows first (so switching tabs never
+ * loses an in-progress edit), falling back to the originally stored mapping.
+ */
+export function mergeWorkCategoryValues(
+  existingRows: WorkCategoryRowState[],
+  values: MetricsFieldValueOption[],
+  stored: { valueId: string; category: string }[],
+): WorkCategoryRowState[] {
+  const categoryByValueId = new Map<string, string>();
+  for (const row of stored) categoryByValueId.set(row.valueId, row.category);
+  for (const row of existingRows) categoryByValueId.set(row.valueId, row.category);
+  return values.map((v) => ({
+    valueId: v.valueId,
+    valueName: v.valueName ?? null,
+    category: categoryByValueId.get(v.valueId) ?? "",
+  }));
+}
+
+export function buildRequest(state: MetricsConfigFormState): DataSourceMetricsConfigRequest {
+  return {
+    statusStages: state.statuses
+      .filter((s) => s.stage !== "")
+      .map((s) => ({ statusId: s.statusId, stage: s.stage as MetricsStage })),
+    fields: {
+      estimateTask: state.fields.estimateTask || null,
+      estimateEpic: state.fields.estimateEpic || null,
+      epicStart: state.fields.epicStart || null,
+      epicDue: state.fields.epicDue || null,
+      workCategory: state.fields.workCategory || null,
+    },
+    domains: state.domains.map((d) => ({ projectKey: d.projectKey, domainKey: d.domainKey, domainName: d.domainName })),
+    boards: state.boards.filter((b) => b.teamId !== "").map((b) => ({ boardId: b.boardId, teamId: Number(b.teamId) })),
+    activityTypes: state.activityTypes.map((a) => ({ issueType: a.issueType, activityType: a.activityType })),
+    workCategories: state.fields.workCategory
+      ? state.workCategories
+          .filter((w) => w.category !== "")
+          .map((w) => ({ valueId: w.valueId, valueName: w.valueName, category: w.category }))
+      : [],
+    blockedStatuses: state.statuses.filter((s) => s.blocked).map((s) => s.statusId),
+    sprintCapacities: state.sprintCapacities
+      .filter((c) => c.capacityMd !== "")
+      .map((c) => ({ sprintId: c.sprintId, capacityMd: Number(c.capacityMd) })),
+  };
+}
+
+/** The board ids whose `teamId` differs between two board-row snapshots — the 409 row-marking rule. */
+export function changedBoardIds(before: BoardRowState[], after: BoardRowState[]): Set<number> {
+  const beforeById = new Map(before.map((b) => [b.boardId, b.teamId]));
+  const changed = new Set<number>();
+  for (const row of after) {
+    if (beforeById.get(row.boardId) !== row.teamId && row.teamId !== "") changed.add(row.boardId);
+  }
+  return changed;
+}
