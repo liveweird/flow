@@ -127,6 +127,11 @@ Flow uses the user's vocabulary, which differs slightly from common Scrum usage:
 - **Backlog in sprints** — estimated backlog SP ÷ the team's mean delivered SP over its last N
   sprints: how far ahead the backlog reaches.
 - **Estimated backlog** — tasks ready to be picked up for sprint planning (D9, see Reports).
+
+See `.claude/docs/metrics.md` "Sprint scope, facts and snapshots (D13)" for how committed/added/
+removed/final/delivered/carried-over/dropped are actually computed and stored (`fact_sprint_scope`/
+`fact_sprint`), the default sprint capacity (A3), and the `fact_sprint_snapshot`/`reconstructed`
+rule this section's D13 describes.
 - **Activity type / work category** — see Entities.
 
 ## Configuration

@@ -54,15 +54,6 @@ private const val DUE_DATE_FIELD_ID = "duedate"
 /** `jira/JiraNormalizer.kt`'s own tracked field id for the issue-key changelog item — `task_domain`'s history source. */
 private const val ISSUE_KEY_FIELD_ID = "issuekey"
 
-/**
- * Jira's own changelog DISPLAY NAME for the Sprint field (v0.3.0 M3 commit 8) — stable across every
- * tenant, unlike its `field_id` (a discovered `customfield_NNNNN` the connector-agnostic `metrics`
- * package has no other reason to know), confirmed against `sample-data/jira/generate.mjs`
- * (`field: "Sprint"` on every Sprint changelog item) and `jira/JiraNormalizer.kt` (which stores the
- * changelog item's own `field` text verbatim, unfiltered by which spelling matched).
- */
-private const val SPRINT_FIELD_DISPLAY_NAME = "Sprint"
-
 private const val MILLIS_PER_MINUTE = 60_000L
 
 /** Per-item derived quantities shared by both the epic and task write paths — computed once per issue. */
@@ -288,9 +279,15 @@ class MetricsDeriver(
         val factTasksByIssueId = mutableMapOf<Long, FactTaskDeliveryRow>()
         val taskCount = runPass2(connectionId, workItems, context, derivedById, blockedByIssue, factTasksByIssueId, configRevision)
         val epicCount = runPass3(connectionId, workItems, context, derivedById, blockedByIssue, factTasksByIssueId, configRevision)
-        val sprintCount = runSprintStep(connectionId, workItems, context, config, derivedById, graceMs, configRevision)
+        val sprintFieldId = metricsConfig.detectedSprintFieldId(connectionId)
+        val sprintOutcome = runSprintStep(connectionId, workItems, context, config, derivedById, graceMs, configRevision, sprintFieldId)
 
-        return DeriveRowCounts(tasks = taskCount, epics = epicCount, sprints = sprintCount)
+        return DeriveRowCounts(
+            tasks = taskCount,
+            epics = epicCount,
+            sprints = sprintOutcome.sprintCount,
+            sprintFieldUnresolved = sprintOutcome.fieldUnresolved,
+        )
     }
 
     private suspend fun markRunSucceeded(runId: Int, counts: DeriveRowCounts, finishedAt: Long) {
@@ -298,6 +295,7 @@ class MetricsDeriver(
             put("tasks", JsonPrimitive(counts.tasks))
             put("epics", JsonPrimitive(counts.epics))
             put("sprints", JsonPrimitive(counts.sprints))
+            if (counts.sprintFieldUnresolved) put("sprintFieldUnresolved", JsonPrimitive(true))
         }.toString()
         suspendTransaction(database) {
             MetricsStore.DeriveRuns.update({ MetricsStore.DeriveRuns.id eq runId }) {
@@ -832,7 +830,7 @@ class MetricsDeriver(
      * `.claude/docs/metrics.md` "Sprint scope") — delegates to the top-level [runSprintStep] (kept
      * OUTSIDE this class body, the `LargeClass` idiom: it needs only [workItemStore]/[metricsStore]
      * from this instance, passed explicitly, so it carries none of this class's own line-count
-     * weight). Returns the sprint count for `derive_runs.row_counts`.
+     * weight). Returns the [SprintStepOutcome] for `derive_runs.row_counts`.
      */
     private suspend fun runSprintStep(
         connectionId: UInt,
@@ -842,10 +840,20 @@ class MetricsDeriver(
         derivedById: Map<Long, ItemDerived>,
         graceMs: Long,
         configRevision: Long,
-    ): Int = ch.nokillswit.metrics.runSprintStep(
-        workItemStore, metricsStore, connectionId, workItems, context, config, derivedById, graceMs, configRevision,
+        sprintFieldId: String?,
+    ): SprintStepOutcome = ch.nokillswit.metrics.runSprintStep(
+        workItemStore, metricsStore, connectionId, workItems, context, config, derivedById, graceMs, configRevision, sprintFieldId,
     )
 }
+
+/**
+ * [runSprintStep]'s own result — the sprint count for `derive_runs.row_counts`, plus whether the
+ * connection's own Sprint field could not be resolved this run (`MetricsConfigService
+ * .detectedSprintFieldId` returned `null` despite the connection HAVING sprints) — the sprint step
+ * then skips writing ANY sprint facts entirely rather than fabricating membership from a
+ * display-name match against a field that may have been renamed or localized on the real tenant.
+ */
+data class SprintStepOutcome(val sprintCount: Int, val fieldUnresolved: Boolean)
 
 /**
  * The sprint step's own body (v0.3.0 M3 commit 8, moved outside [MetricsDeriver] purely to keep that
@@ -853,7 +861,10 @@ class MetricsDeriver(
  * `fact_sprint_scope`, `fact_sprint`, and D13's append-only `fact_sprint_snapshot` for every
  * newly-closed, team-mapped sprint. Level-0, non-sub-task, non-epic tasks ONLY (`levelZeroTasks`
  * below) — matching `sample-data/jira/generate.mjs`'s own `sprintItemsOf` (sub-tasks follow their
- * parent task's sprint, never carrying independent scope of their own).
+ * parent task's sprint, never carrying independent scope of their own). [sprintFieldId] is the
+ * connection's own detected Sprint custom field id (`MetricsConfigService.detectedSprintFieldId`) —
+ * `null` means the profile detected none, in which case this whole step is skipped (see
+ * [SprintStepOutcome]).
  */
 private suspend fun runSprintStep(
     workItemStore: WorkItemStore,
@@ -865,9 +876,11 @@ private suspend fun runSprintStep(
     derivedById: Map<Long, ItemDerived>,
     graceMs: Long,
     configRevision: Long,
-): Int {
+    sprintFieldId: String?,
+): SprintStepOutcome {
     val sprints = workItemStore.allSprintRefs(connectionId)
-    if (sprints.isEmpty()) return 0
+    if (sprints.isEmpty()) return SprintStepOutcome(0, fieldUnresolved = false)
+    if (sprintFieldId == null) return SprintStepOutcome(0, fieldUnresolved = true)
 
     val sprintCapacityById = config.sprintCapacities.associate { it.sprintId to it.capacityMd }
     val laterSprintIdsBySprint = laterSprintIdsPerSprint(sprints)
@@ -879,7 +892,7 @@ private suspend fun runSprintStep(
     for (batch in levelZeroTasks.chunked(DERIVE_BATCH_SIZE)) {
         val ids = batch.map { it.issueId }
         val sprintChangesByIssue =
-            workItemStore.fieldChangesByFieldText(connectionId, SPRINT_FIELD_DISPLAY_NAME, ids).groupBy { it.issueId }
+            workItemStore.fieldChangesByFieldIds(connectionId, listOf(sprintFieldId), ids).groupBy { it.issueId }
         val assigneeIntervalsByIssue = workItemStore.fieldIntervalsByIssue(connectionId, TrackedField.ASSIGNEE, ids)
 
         val scopeRowsBatch = mutableListOf<FactSprintScopeRow>()
@@ -928,7 +941,7 @@ private suspend fun runSprintStep(
     }
     metricsStore.insertDimSprints(connectionId, dimRows, configRevision)
     metricsStore.insertFactSprint(connectionId, factRows, configRevision)
-    return sprints.size
+    return SprintStepOutcome(sprints.size, fieldUnresolved = false)
 }
 
 /**

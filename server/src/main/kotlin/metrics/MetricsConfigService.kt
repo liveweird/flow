@@ -36,6 +36,9 @@ private const val DUE_DATE_FIELD_ID = "duedate"
 /** The profile-detected role `jira/JiraProfile.kt` stamps on a Story-points-shaped custom field. */
 private const val STORY_POINTS_ROLE = "STORY_POINTS"
 
+/** The profile-detected role `jira/JiraProfile.kt` stamps on the Sprint custom field (`gh-sprint`). */
+private const val SPRINT_ROLE = "SPRINT"
+
 /** The name fragment a "Start date"-shaped custom field carries (case-insensitive) — the epic-start default's first choice. */
 private const val START_DATE_NAME_FRAGMENT = "start date"
 
@@ -517,4 +520,21 @@ class MetricsConfigService(
     /** `source_connections.profile`, decoded — null when the connection has never completed a PROCESS pass. */
     private suspend fun readProfileSections(connectionId: UInt): DataProfileSections? =
         dataSources.readProfile(connectionId)?.profileJson?.let { METRICS_PROFILE_JSON.decodeFromString(it) }
+
+    /**
+     * The connection's own Sprint custom field id, auto-detected from the stored data profile's
+     * `customFields[].role == "SPRINT"` (`jira/JiraProfile.kt`'s schema-based discovery,
+     * `JiraNormalizer.discoverFieldIds`'s `gh-sprint` match) — never admin-configurable, unlike the
+     * five [MetricsFieldConfig] roles: a real tenant has at most one Sprint-shaped field, so there is
+     * nothing for an admin to choose. `null` when the connection has never completed a PROCESS pass,
+     * or its profile detected no Sprint-shaped field at all. `MetricsDeriver`'s sprint step reads
+     * changelog rows by this ID (`WorkItemStore.fieldChangesByFieldIds`) rather than by the display
+     * text `"Sprint"` — a tenant that renamed or localized the field would otherwise silently return
+     * no rows, and the sprint step would then fabricate "only ever in its current sprint since
+     * creation" for every task, corrupting every historical sprint total with no signal. Reusing the
+     * SAME profile-role lookup [defaultConfig] already runs for `STORY_POINTS`.
+     */
+    suspend fun detectedSprintFieldId(connectionId: UInt): String? = suspendTransaction(database) {
+        readProfileSections(connectionId)?.customFields.orEmpty().firstOrNull { it.role == SPRINT_ROLE }?.id
+    }
 }

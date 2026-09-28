@@ -11,27 +11,37 @@ import ch.nokillswit.metrics.DataSourceMetricsConfigRequest
 import ch.nokillswit.metrics.MetricsBoardTeamMapping
 import ch.nokillswit.metrics.MetricsConfigService
 import ch.nokillswit.metrics.MetricsDeriver
+import ch.nokillswit.metrics.MetricsSprintCapacity
 import ch.nokillswit.metrics.MetricsStore
+import ch.nokillswit.metrics.TeamMembershipCreateRequest
 import ch.nokillswit.metrics.TeamMembershipService
+import ch.nokillswit.metrics.WorkingCalendar
 import ch.nokillswit.norm.IntervalSource
 import ch.nokillswit.norm.NormalizedIssue
 import ch.nokillswit.norm.NormalizedStatusInterval
+import ch.nokillswit.norm.PersonRef
+import ch.nokillswit.norm.SprintRef
 import ch.nokillswit.norm.StatusCategory
 import ch.nokillswit.norm.StatusRef
 import ch.nokillswit.norm.TombstoneKind
 import ch.nokillswit.norm.WorkItemFacts
+import ch.nokillswit.norm.WorkItemStore
 import java.io.File
 import java.security.MessageDigest
 import java.time.LocalDate
+import java.time.ZoneId
 import java.time.ZoneOffset
+import java.util.UUID
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.jetbrains.exposed.v1.core.JoinType
 import org.jetbrains.exposed.v1.core.Op
+import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
@@ -40,8 +50,10 @@ import org.jetbrains.exposed.v1.r2dbc.select
 import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.r2dbc.update
+import kotlin.math.abs
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -789,7 +801,320 @@ class MetricsDerivationTest {
             )
         }
 
+    @Test
+    fun `DERIVE resolves the Sprint field by its detected id, not display name — golden sprint still matches`() = runBlocking {
+        // The shared golden-sprint tests above (`clonedProcessedConnection` + `mapFloBoardToTeam`)
+        // already run PROCESS -> PROFILE, so the connection's profile carries a detected SPRINT-role
+        // field id; this test only re-asserts the specific fix: DERIVE resolves that id
+        // (`MetricsConfigService.detectedSprintFieldId`) and reads `norm.work_item_field_changes` by
+        // it (`WorkItemStore.fieldChangesByFieldIds`), never by the display text `"Sprint"` — a
+        // renamed/localized Sprint field on a real tenant must not go silently unread.
+        val connId = clonedProcessedConnection()
+        val config = metricsConfig()
+        mapFloBoardToTeam(connId, config)
+        deriver(config).derive(SyncJobRunContext(deriveClaim(50u, connId), clock = { PINNED_NOW }) { _, _ -> true })
+
+        val sprintId = metricsDerivationGoldenSprint.sprintId
+        val committedKeys = suspendTransaction(sharedDatabaseForTests()) {
+            MetricsStore.FactSprintScope.join(
+                MetricsStore.FactTaskDelivery,
+                JoinType.INNER,
+                onColumn = MetricsStore.FactSprintScope.issueId,
+                otherColumn = MetricsStore.FactTaskDelivery.issueId,
+                additionalConstraint = { MetricsStore.FactSprintScope.connectionId eq MetricsStore.FactTaskDelivery.connectionId },
+            )
+                .select(MetricsStore.FactTaskDelivery.issueKey)
+                .where {
+                    (MetricsStore.FactSprintScope.connectionId eq connId) and (MetricsStore.FactSprintScope.sprintId eq sprintId) and
+                        (MetricsStore.FactSprintScope.committed eq true) and (MetricsStore.FactSprintScope.inScopeAtClose eq true)
+                }
+                .toList().map { it[MetricsStore.FactTaskDelivery.issueKey] }.toSet()
+        }
+        assertEquals(
+            metricsDerivationGoldenSprint.committedIssueKeys.toSet(), committedKeys,
+            "id-based Sprint field resolution must still reproduce the golden sprint's committed scope",
+        )
+    }
+
+    @Test
+    fun `a connection whose profile detects no Sprint field gets no fabricated sprint scope, flagged sprintFieldUnresolved`() =
+        runBlocking {
+            val connId = SyncedStubFixture.createConnection(namePrefix = "jira-nosprintfield")
+            // A sprint exists (so the step doesn't short-circuit on `sprints.isEmpty()`), but this
+            // connection never ran PROCESS/PROFILE — `source_connections.profile` is null, so
+            // `MetricsConfigService.detectedSprintFieldId` returns null: no SPRINT-role field is known.
+            workItems().replaceSprints(
+                connId,
+                listOf(
+                    SprintRef(
+                        sprintId = 900_500L, boardId = null, name = "No-field sprint", state = "closed",
+                        startAtMs = 0L, endAtMs = 1L, goal = null,
+                    ),
+                ),
+            )
+            val config = metricsConfig()
+            deriver(config).derive(SyncJobRunContext(deriveClaim(51u, connId), clock = { PINNED_NOW }) { _, _ -> true })
+
+            val sprintRows = suspendTransaction(sharedDatabaseForTests()) {
+                MetricsStore.DimSprint.selectAll().where { MetricsStore.DimSprint.connectionId eq connId }.toList()
+            }
+            assertTrue(sprintRows.isEmpty(), "the whole sprint step must be skipped, never fabricating dim_sprint/fact_sprint rows")
+            val scopeRows = suspendTransaction(sharedDatabaseForTests()) {
+                MetricsStore.FactSprintScope.selectAll().where { MetricsStore.FactSprintScope.connectionId eq connId }.toList()
+            }
+            assertTrue(scopeRows.isEmpty(), "no fact_sprint_scope row may be fabricated without a resolved Sprint field")
+
+            val runCounts = suspendTransaction(sharedDatabaseForTests()) {
+                MetricsStore.DeriveRuns.selectAll().where { MetricsStore.DeriveRuns.connectionId eq connId.toInt() }
+                    .orderBy(MetricsStore.DeriveRuns.id to SortOrder.DESC)
+                    .toList().first()[MetricsStore.DeriveRuns.rowCounts]
+            }
+            assertNotNull(runCounts, "derive_runs.row_counts must be recorded")
+            assertTrue(
+                Json.parseToJsonElement(runCounts).jsonObject["sprintFieldUnresolved"]?.jsonPrimitive?.content == "true",
+                "the run must record that the Sprint field could not be resolved, rather than silently guessing",
+            )
+        }
+
+    @Test
+    fun `sprint capacity defaults to Sigma members x working days (A3), then honors a configured override`() = runBlocking {
+        val connId = clonedProcessedConnection()
+        val config = metricsConfig()
+        val teamId = mapFloBoardToTeam(connId, config)
+        val sprintId = metricsDerivationGoldenSprint.sprintId
+
+        // Two fresh team members, effective for the whole sprint window, on a connection-agnostic
+        // `norm.people` row — `TeamMembershipService.create`'s account-existence check has no
+        // connection filter, so any connection's own `replacePeople` satisfies it.
+        val peopleConnId = SyncedStubFixture.createConnection(namePrefix = "capacity-people")
+        val accountA = "capacity-acct-${UUID.randomUUID()}"
+        val accountB = "capacity-acct-${UUID.randomUUID()}"
+        workItems().replacePeople(
+            peopleConnId,
+            listOf(PersonRef(accountA, "Capacity A", null, active = true), PersonRef(accountB, "Capacity B", null, active = true)),
+        )
+        val sprintBefore = workItems().allSprintRefs(connId).single { it.sprintId == sprintId }
+        val membershipStart = sprintBefore.startAtMs!! - THIRTY_DAYS_MS
+        val membershipService = teamMembership(config)
+        membershipService.create(teamId, TeamMembershipCreateRequest(accountA, membershipStart, null))
+        membershipService.create(teamId, TeamMembershipCreateRequest(accountB, membershipStart, null))
+
+        deriver(config).derive(SyncJobRunContext(deriveClaim(20u, connId), clock = { PINNED_NOW }) { _, _ -> true })
+
+        // Computed independently of `MetricsDeriver`'s own private `sprintCapacity` — the SAME
+        // `WorkingCalendar` class DERIVE itself uses (`WorkingCalendarTest` already proves its own
+        // math), fed the connection's CURRENT stored settings and OUR OWN two membership rows.
+        val settings = config.read()
+        val calendar = WorkingCalendar(
+            ZoneId.of(settings.timeZone),
+            settings.weekendDays.toSet(),
+            settings.holidays.mapNotNull { runCatching { LocalDate.parse(it) }.getOrNull() }.toSet(),
+        )
+        val sprintStartAt = sprintBefore.startAtMs!!
+        val endAt = sprintBefore.endAtMs ?: sprintBefore.completeAtMs ?: sprintStartAt
+        val expectedWorkingDays = calendar.workingDaysBetween(sprintStartAt, endAt)
+        val expectedDefaultCapacity = 2 * expectedWorkingDays
+
+        val dimRowDefault = suspendTransaction(sharedDatabaseForTests()) {
+            MetricsStore.DimSprint.selectAll()
+                .where { (MetricsStore.DimSprint.connectionId eq connId) and (MetricsStore.DimSprint.sprintId eq sprintId) }
+                .toList().single()
+        }
+        assertEquals("DEFAULT", dimRowDefault[MetricsStore.DimSprint.capacitySource])
+        assertTrue(
+            abs(expectedDefaultCapacity - dimRowDefault[MetricsStore.DimSprint.capacityMd]!!.toDouble()) < CAPACITY_TOLERANCE,
+            "default capacity must be Sigma members x working days over the sprint window " +
+                "(expected $expectedDefaultCapacity, got ${dimRowDefault[MetricsStore.DimSprint.capacityMd]})",
+        )
+
+        // An admin now configures an explicit override for this one sprint.
+        val current = config.effectiveConfig(connId)
+        config.replaceConfig(
+            connId,
+            DataSourceMetricsConfigRequest(
+                statusStages = current.statusStages,
+                fields = current.fields,
+                domains = current.domains,
+                boards = listOf(MetricsBoardTeamMapping(1L, teamId)),
+                activityTypes = current.activityTypes,
+                workCategories = current.workCategories,
+                blockedStatuses = current.blockedStatuses,
+                sprintCapacities = listOf(MetricsSprintCapacity(sprintId, CONFIGURED_CAPACITY_MD)),
+            ),
+        )
+        deriver(config).derive(SyncJobRunContext(deriveClaim(21u, connId), clock = { PINNED_NOW }) { _, _ -> true })
+
+        val dimRowConfigured = suspendTransaction(sharedDatabaseForTests()) {
+            MetricsStore.DimSprint.selectAll()
+                .where { (MetricsStore.DimSprint.connectionId eq connId) and (MetricsStore.DimSprint.sprintId eq sprintId) }
+                .toList().single()
+        }
+        val factRowConfigured = suspendTransaction(sharedDatabaseForTests()) {
+            MetricsStore.FactSprint.selectAll()
+                .where { (MetricsStore.FactSprint.connectionId eq connId) and (MetricsStore.FactSprint.sprintId eq sprintId) }
+                .toList().single()
+        }
+        assertEquals("CONFIGURED", dimRowConfigured[MetricsStore.DimSprint.capacitySource])
+        assertEquals(CONFIGURED_CAPACITY_MD, dimRowConfigured[MetricsStore.DimSprint.capacityMd]!!.toDouble())
+        assertEquals(CONFIGURED_CAPACITY_MD, factRowConfigured[MetricsStore.FactSprint.capacityMd]!!.toDouble())
+        val expectedLoad = factRowConfigured[MetricsStore.FactSprint.committedMd].toDouble() / CONFIGURED_CAPACITY_MD
+        assertTrue(
+            abs(expectedLoad - factRowConfigured[MetricsStore.FactSprint.load]!!.toDouble()) < CAPACITY_TOLERANCE,
+            "load must equal committed / capacity",
+        )
+    }
+
+    @Test
+    fun `D5 - the OPS Kanban project's DONE tasks carry no sprint credit, falling back to the assignee's team at done`() =
+        runBlocking {
+            val connId = clonedProcessedConnection()
+            val config = metricsConfig()
+            deriver(config).derive(SyncJobRunContext(deriveClaim(30u, connId), clock = { PINNED_NOW }) { _, _ -> true })
+
+            val doneOpsRows = suspendTransaction(sharedDatabaseForTests()) {
+                MetricsStore.FactTaskDelivery.selectAll()
+                    .where {
+                        (MetricsStore.FactTaskDelivery.connectionId eq connId) and
+                            (MetricsStore.FactTaskDelivery.domainKey eq "OPS") and
+                            (MetricsStore.FactTaskDelivery.doneAt.isNotNull())
+                    }
+                    .toList()
+            }
+            assertTrue(doneOpsRows.isNotEmpty(), "the OPS (Kanban) project must have at least one DONE task")
+            doneOpsRows.forEach { row ->
+                assertNull(
+                    row[MetricsStore.FactTaskDelivery.sprintIdAtDone],
+                    "OPS is a Kanban project (no sprints) — sprint_id_at_done must always be NULL",
+                )
+                // Before any team membership is configured, every assignee is in no team, so the
+                // fallback credit is null too (the "0/UNASSIGNED" case).
+                assertNull(
+                    row[MetricsStore.FactTaskDelivery.creditTeamId],
+                    "with no configured team membership, credit_team_id must be null (assignee in no team)",
+                )
+            }
+
+            val withAssignee = doneOpsRows.filter { it[MetricsStore.FactTaskDelivery.assigneeAccountIdAtDone] != null }
+            assertTrue(withAssignee.size >= 2, "need at least two distinctly-assigned DONE OPS tasks to prove the fallback")
+            val target = withAssignee.first()
+            val targetAccountId = target[MetricsStore.FactTaskDelivery.assigneeAccountIdAtDone]!!
+            val untouched = withAssignee.first { it[MetricsStore.FactTaskDelivery.assigneeAccountIdAtDone] != targetAccountId }
+
+            val teamId = TestTeams.seed(uniqueEmail("ops-credit-team"))
+            val doneAt = target[MetricsStore.FactTaskDelivery.doneAt]!!
+            teamMembership(config).create(teamId, TeamMembershipCreateRequest(targetAccountId, doneAt - THIRTY_DAYS_MS, null))
+
+            deriver(config).derive(SyncJobRunContext(deriveClaim(31u, connId), clock = { PINNED_NOW }) { _, _ -> true })
+
+            suspend fun reread(issueId: Long): ResultRow = suspendTransaction(sharedDatabaseForTests()) {
+                MetricsStore.FactTaskDelivery.selectAll()
+                    .where { (MetricsStore.FactTaskDelivery.connectionId eq connId) and (MetricsStore.FactTaskDelivery.issueId eq issueId) }
+                    .toList().single()
+            }
+
+            val targetAfter = reread(target[MetricsStore.FactTaskDelivery.issueId])
+            assertNull(
+                targetAfter[MetricsStore.FactTaskDelivery.sprintIdAtDone],
+                "OPS still has no sprints — sprint_id_at_done stays NULL even once the assignee has a team",
+            )
+            assertEquals(
+                teamId,
+                targetAfter[MetricsStore.FactTaskDelivery.creditTeamId]?.value,
+                "credit_team_id must fall back to the assignee's own team at done, once one exists",
+            )
+
+            val untouchedAfter = reread(untouched[MetricsStore.FactTaskDelivery.issueId])
+            assertNull(
+                untouchedAfter[MetricsStore.FactTaskDelivery.creditTeamId],
+                "an assignee still in no team keeps a null (0/UNASSIGNED) credit_team_id",
+            )
+        }
+
+    @Test
+    fun `reconstructed - a sprint closed before the first derive is reconstructed, one closed later is not, earlier snapshots untouched`() =
+        runBlocking {
+            val connId = clonedProcessedConnection()
+            val config = metricsConfig()
+            val teamId = mapFloBoardToTeam(connId, config)
+            val goldenSprintId = metricsDerivationGoldenSprint.sprintId
+
+            deriver(config).derive(SyncJobRunContext(deriveClaim(40u, connId), clock = { PINNED_NOW }) { _, _ -> true })
+
+            val goldenSnapshotBefore = suspendTransaction(sharedDatabaseForTests()) {
+                MetricsStore.FactSprintSnapshot.selectAll()
+                    .where {
+                        (MetricsStore.FactSprintSnapshot.connectionId eq connId) and
+                            (MetricsStore.FactSprintSnapshot.sprintId eq goldenSprintId)
+                    }
+                    .toList().single()
+            }
+            assertTrue(
+                goldenSnapshotBefore[MetricsStore.FactSprintSnapshot.reconstructed],
+                "every stub sprint closed before this connection's first successful derive must be reconstructed",
+            )
+
+            // An active/future FLO sprint this same board is mapped to a team, never yet snapshotted.
+            val notYetClosed = workItems().allSprintRefs(connId)
+                .single { it.boardId == FLO_BOARD_ID && it.state.equals("future", ignoreCase = true) }
+            suspendTransaction(sharedDatabaseForTests()) {
+                WorkItemStore.Sprints.update({
+                    (WorkItemStore.Sprints.connectionId eq connId) and (WorkItemStore.Sprints.sprintId eq notYetClosed.sprintId)
+                }) {
+                    it[state] = "closed"
+                    it[completeAt] = PINNED_NOW + THIRTY_DAYS_MS
+                }
+            }
+
+            deriver(config).derive(SyncJobRunContext(deriveClaim(41u, connId), clock = { PINNED_NOW }) { _, _ -> true })
+
+            val newlyClosedSnapshot = suspendTransaction(sharedDatabaseForTests()) {
+                MetricsStore.FactSprintSnapshot.selectAll()
+                    .where {
+                        (MetricsStore.FactSprintSnapshot.connectionId eq connId) and
+                            (MetricsStore.FactSprintSnapshot.sprintId eq notYetClosed.sprintId)
+                    }
+                    .toList().single()
+            }
+            // `teamId` (the FLO board mapping `mapFloBoardToTeam` set up) is what makes this sprint
+            // eligible for a snapshot at all — `closedAndMapped` in `MetricsDeriver.kt`'s sprint step.
+            assertEquals(teamId, newlyClosedSnapshot[MetricsStore.FactSprintSnapshot.teamId]?.value)
+            assertTrue(
+                !newlyClosedSnapshot[MetricsStore.FactSprintSnapshot.reconstructed],
+                "a sprint closed AFTER the connection's first successful derive must not be reconstructed",
+            )
+
+            val goldenSnapshotAfter = suspendTransaction(sharedDatabaseForTests()) {
+                MetricsStore.FactSprintSnapshot.selectAll()
+                    .where {
+                        (MetricsStore.FactSprintSnapshot.connectionId eq connId) and
+                            (MetricsStore.FactSprintSnapshot.sprintId eq goldenSprintId)
+                    }
+                    .toList().single()
+            }
+            assertEquals(
+                goldenSnapshotBefore[MetricsStore.FactSprintSnapshot.committedMd],
+                goldenSnapshotAfter[MetricsStore.FactSprintSnapshot.committedMd],
+                "an already-existing snapshot must never be touched by a later DERIVE",
+            )
+            assertEquals(
+                goldenSnapshotBefore[MetricsStore.FactSprintSnapshot.scope],
+                goldenSnapshotAfter[MetricsStore.FactSprintSnapshot.scope],
+            )
+            assertEquals(
+                goldenSnapshotBefore[MetricsStore.FactSprintSnapshot.reconstructed],
+                goldenSnapshotAfter[MetricsStore.FactSprintSnapshot.reconstructed],
+            )
+            assertEquals(
+                goldenSnapshotBefore[MetricsStore.FactSprintSnapshot.snapshotAt],
+                goldenSnapshotAfter[MetricsStore.FactSprintSnapshot.snapshotAt],
+            )
+        }
+
     private companion object {
         const val PINNED_NOW = 1_772_668_800_000L // 2026-09-02T00:00:00Z, per the v0.3.0 plan's pinned-clock convention
+        const val THIRTY_DAYS_MS = 30L * 24 * 60 * 60 * 1000
+        const val CONFIGURED_CAPACITY_MD = 42.0
+        const val CAPACITY_TOLERANCE = 0.01
+        const val FLO_BOARD_ID = 1L
     }
 }

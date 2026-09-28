@@ -141,8 +141,14 @@ data class FactEpicDeliveryRow(
     val driftFlags: List<String>,
 )
 
-/** Row counts one DERIVE run wrote — `metrics.derive_runs.row_counts` (`MetricsDeriver`). */
-data class DeriveRowCounts(val tasks: Int, val epics: Int, val sprints: Int)
+/**
+ * Row counts one DERIVE run wrote — `metrics.derive_runs.row_counts` (`MetricsDeriver`).
+ * [sprintFieldUnresolved] is `true` when the connection HAS sprints but its profile detected no
+ * Sprint-shaped custom field (`MetricsConfigService.detectedSprintFieldId` returned `null`) — the
+ * sprint step then skips writing any sprint facts for this run rather than fabricating membership
+ * from a display-name match; recorded here so the skip is visible on the run, not silent.
+ */
+data class DeriveRowCounts(val tasks: Int, val epics: Int, val sprints: Int, val sprintFieldUnresolved: Boolean = false)
 
 // ---- Sprint step row shapes (v0.3.0 M3 commit 8) ---------------------------------------------
 

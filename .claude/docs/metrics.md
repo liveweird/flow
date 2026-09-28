@@ -252,8 +252,114 @@ Pure, per-item functions — no DB, the `norm/Tiling.kt` pattern — called once
 - **`valueAsOf`** is the one generic as-of helper (a value active at an instant from an ordered
   `(changedAt, value)` list) — work category at `done_at`, a sprint's team at an instant, etc.
 
+## Sprint scope, facts and snapshots (D13, v0.3.0 M3 commit 8)
+
+`MetricsDeriver.kt`'s sprint step (`runSprintStep`, `.claude/docs/domain-model.md` "Plan — PV"/
+"Glossary") turns each level-0, non-sub-task task's Sprint-field history
+(`DeriveKernels.sprintMembership`) into `metrics.fact_sprint_scope` rows (one per task × sprint it
+was ever a member of), rolls those up into `metrics.fact_sprint` (one row per sprint), and freezes a
+`metrics.fact_sprint_snapshot` row the first time a closed, team-mapped sprint is seen. Sub-tasks
+and epics never carry independent sprint scope of their own (`sample-data/jira/generate.mjs`'s own
+`sprintItemsOf`).
+
+**Commitment, added, removed, final, delivered, carried-over, dropped** (`DeriveKernels.sprintScope`,
+one call per task × sprint membership):
+
+- **Committed** = the task entered the sprint at or before `sprintStart + commitmentGrace`
+  (`commitAt`). Its `estimate_at_commitment_md` is read AT `commitAt` (or, for a task added later,
+  at its own entry instant — see "added" below).
+- **Added** = entered the sprint AFTER `commitAt` (mutually exclusive with committed) — its own
+  `estimate_at_commitment_md` is read at ITS entry instant, not `commitAt`.
+- **Removed** — a task that WAS committed but is no longer a sprint member at `sprintCloseAt` (the
+  sprint's `completeAt`, or `now` for a still-open sprint — `fact_sprint` is always the LIVE
+  recomputation, D13's frozen figure is the separate snapshot below). `removed_at` is the LAST exit
+  at-or-before `sprintCloseAt`; `estimate_at_close_md`/`estimate_at_done_md` stay `null` and
+  `in_scope_at_close = false` — a removed row is a terminal bucket of its own, contributing to
+  NEITHER committed NOR final NOR delivered/carried-over/dropped (**the removed-row rule**,
+  `DeriveKernels.sprintTotals`'s own doc: "committed alone is not the committed-bucket predicate" —
+  the committed TOTAL additionally requires `in_scope_at_close`, since a removed row still carries
+  `committed = true` — it WAS committed, before it left).
+- **Final** = in scope at `sprintCloseAt` (committed or added, never removed) —
+  `estimate_at_close_md` is always read AT `sprintCloseAt`, regardless of bucket.
+- **Delivered** (`done_in_sprint`) = the task's `done_at` falls inside `[sprintStart, sprintCloseAt]`
+  AND it was still a sprint member at that instant. `estimate_at_done_md` is read at the SAME
+  `sprintCloseAt` instant as `estimate_at_close_md` (never re-evaluated at the task's own `done_at`)
+  — a task done mid-sprint is not re-estimated on the way out; the two columns carry the same
+  number whenever both are set, kept separate only because the schema names them for two different
+  readers (D13's snapshot figures vs. a future per-item report).
+- **Carried-over** / **dropped** — evaluated ONLY for a committed task not done by `sprintCloseAt`:
+  carried-over if a LATER sprint of the same board/team holds it (D10: one board per team, so
+  "later sprint of this task's own board" = "later sprint of the same team",
+  `laterSprintIdsPerSprint`), dropped otherwise. A carried-over task counts in the velocity (final
+  scope) of EVERY sprint it was committed to, but in throughput (delivered) only once — the sprint
+  where it was actually done (Jira's own convention, `.claude/docs/domain-model.md`'s Glossary).
+
+**Point-in-time estimates.** Every `fact_sprint_scope` estimate column is a snapshot read off the
+task's own estimate timeline (`DeriveKernels.estimateAt`) at a FIXED instant per bucket — never the
+task's current/latest value — so a later re-estimate never rewrites what a sprint's own commitment
+or close figure already recorded.
+
+`fact_sprint` (one row per sprint) is the Σ of its own `fact_sprint_scope` rows
+(`DeriveKernels.sprintTotals`, invariant 8 — true BY CONSTRUCTION, since `MetricsDeriver` writes
+exactly this function's output as the `fact_sprint` row) plus `capacity_md`/`capacity_source`/`load`
+(below); it is always the LIVE recomputation, rebuilt wholesale on every DERIVE.
+
+### Default sprint capacity (A3)
+
+`MetricsDeriver.kt`'s `sprintCapacity` resolves `(capacity_md, capacity_source)` per sprint:
+
+1. **`CONFIGURED`** — a `metrics.team_sprint_capacity` row for this sprint always wins, verbatim.
+2. **`DEFAULT`** — absent a configured row, AND the sprint's board maps to a team (`board_team_map`)
+   AND it has a known `start_at`: `capacity_md = (member count) × (working days in the sprint
+   window)`. Member count is every `metrics.team_membership` account whose interval overlaps
+   `[sprintStart, sprintEnd)` for THIS team (`endAt = end_at ?? complete_at ?? start_at`); working
+   days come from the SAME `WorkingCalendar` (global settings — time zone, weekend days, holidays)
+   every other calendar computation uses. This is the doc's own "members × working days − absence"
+   default, minus absence data Flow does not have (`.claude/docs/domain-model.md`'s Configuration
+   table) — an admin edits the sprint's capacity via the per-connection config PUT instead.
+3. **Neither** — no team mapped, or no `start_at` known: `(null, null)`. No capacity means no
+   `load` either (`load = committed_md / capacity_md` only when `capacity_md > 0`).
+
+### The snapshot rule (D13)
+
+A `metrics.fact_sprint_snapshot` row is written the FIRST time a sprint is seen `state = 'closed'`
+AND team-mapped AND has no existing snapshot row (`existingSnapshotSprintIds`) — never again: the
+table is append-only (no update/delete writer exists; the `trg_metrics_fact_sprint_snapshot_immutable`
+DB trigger, `.claude/docs/persistence.md` "The `metrics` schema — the derived star (V16)", is the
+actual enforcement, since the invariant must hold even against a hand-run `UPDATE`). A later DERIVE
+never touches an already-snapshotted sprint's row, byte-for-byte — only a NEWLY-closed sprint (one
+that was still open on every earlier DERIVE) gets a snapshot written.
+
+**`reconstructed`** = `true` when the sprint's own `complete_at` predates this connection's FIRST
+EVER successful `derive_runs` row (`firstSuccessfulDeriveRunStartedAt`) — i.e. Flow never watched
+this sprint live; it only ever saw it already closed, backfilled from history. `false` means Flow's
+own DERIVE pipeline was already running (and had succeeded at least once) by the time the sprint
+closed, so its snapshot reflects what Flow itself observed as the sprint completed, not a
+reconstruction from stored history after the fact. The connection's OWN first successful run never
+counts itself (it is still `RUNNING`, not `SUCCEEDED`, while it is the one computing this).
+
+**PURGE bypass.** The immutability trigger's one sanctioned bypass is `MetricsStore.purgeAll`'s
+`SET LOCAL metrics.allow_snapshot_delete = 'on'`, run only for a soft-deleted connection's PURGE job
+— see `.claude/docs/persistence.md`.
+
+### Sprint field resolution (bug fix, v0.3.0 M3 commit 8 follow-up)
+
+The sprint step reads a task's Sprint-field changelog history through
+`WorkItemStore.fieldChangesByFieldIds`, keyed by the connection's OWN detected Sprint custom field
+id — `MetricsConfigService.detectedSprintFieldId` (`source_connections.profile.customFields[].role
+== "SPRINT"`, the SAME profile-role lookup `defaultConfig` already uses for `STORY_POINTS`) — never
+by the Jira changelog's display TEXT `"Sprint"`. A tenant that renamed or localized the field would
+otherwise make the old display-name lookup silently return zero rows, and the sprint step would then
+read every task as "only ever in its current sprint since creation" — corrupting every historical
+sprint total with no signal. If a connection HAS sprints but its profile has never detected a
+Sprint-shaped field (no PROCESS/PROFILE pass yet, or a real tenant with no Sprint field at all), the
+WHOLE sprint step is skipped for that DERIVE run — no `dim_sprint`/`fact_sprint`/`fact_sprint_scope`/
+snapshot rows are written — and `derive_runs.row_counts` records `sprintFieldUnresolved: true`, so
+the gap is visible on the run rather than silently guessed. `MetricsDerivationTest` covers both the
+resolved path (the golden sprint's scope buckets still match after resolving by id) and the
+unresolved path (no fabricated rows, the flag is recorded).
+
 ## Not yet ported / not yet written
 
-The sprint scope/facts + D13 snapshots (commit 8), worklog facts/epic plans/daily aggregates
-(commit 9), the report API and the SPA pages all arrive with their own commits and their own
-sections here.
+Worklog facts/epic plans/daily aggregates (commit 9), the report API and the SPA pages all arrive
+with their own commits and their own sections here.
