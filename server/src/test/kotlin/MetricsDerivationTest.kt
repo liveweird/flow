@@ -1115,7 +1115,10 @@ class MetricsDerivationTest {
         runBlocking {
             val connId = clonedProcessedConnection()
             val config = metricsConfig()
-            deriver(config).derive(SyncJobRunContext(deriveClaim(60u, connId), clock = { PINNED_NOW }) { _, _ -> true })
+            // The settings singleton is suite-global: pin the hoursPerDay this test asserts against.
+            withMetricsSettings(config, { it.copy(hoursPerDay = HOURS_PER_DAY) }) {
+                deriver(config).derive(SyncJobRunContext(deriveClaim(60u, connId), clock = { PINNED_NOW }) { _, _ -> true })
+            }
 
             val factWorklogRows = suspendTransaction(sharedDatabaseForTests()) {
                 MetricsStore.FactWorklog.selectAll().where { MetricsStore.FactWorklog.connectionId eq connId }.toList()
@@ -1134,8 +1137,8 @@ class MetricsDerivationTest {
                 "invariant 6: every live-issue worklog gets exactly one fact_worklog row, none dropped",
             )
 
-            // hoursPerDay: the default metrics.settings value (8.0) — md = seconds / 3600 / 8.0.
-            val hoursPerDay = 8.0
+            // md = seconds / 3600 / hoursPerDay, under the hoursPerDay pinned for the derive above.
+            val hoursPerDay = HOURS_PER_DAY
             factWorklogRows.forEach { row ->
                 val worklog = worklogsByIssue.getValue(row[MetricsStore.FactWorklog.issueId])
                     .single { it.worklogId == row[MetricsStore.FactWorklog.worklogId] }
@@ -1161,7 +1164,9 @@ class MetricsDerivationTest {
     fun `fact_worklog - invariant 7`() = runBlocking {
         val connId = clonedProcessedConnection()
         val config = metricsConfig()
-        deriver(config).derive(SyncJobRunContext(deriveClaim(61u, connId), clock = { PINNED_NOW }) { _, _ -> true })
+        withMetricsSettings(config, { it.copy(hoursPerDay = HOURS_PER_DAY) }) {
+            deriver(config).derive(SyncJobRunContext(deriveClaim(61u, connId), clock = { PINNED_NOW }) { _, _ -> true })
+        }
 
         // An INDEPENDENT re-derivation straight off norm.work_item_worklogs + the live item set
         // (never off fact_task_delivery/fact_worklog themselves — the invariant sweep pattern,
@@ -1173,10 +1178,10 @@ class MetricsDerivationTest {
         val levelZeroTasks = liveItems.filter { !it.isSubtask && it.hierarchyLevel != 1 }
         val levelZeroActualMdSum = levelZeroTasks.sumOf { task ->
             val childSeconds = liveItems.filter { it.isSubtask && it.parentIssueId == task.issueId }.sumOf { secondsFor(it.issueId) }
-            (secondsFor(task.issueId) + childSeconds) / 3600.0 / 8.0
+            (secondsFor(task.issueId) + childSeconds) / 3600.0 / HOURS_PER_DAY
         }
         val epicIssueIds = liveItems.filter { it.hierarchyLevel == 1 }.map { it.issueId }.toSet()
-        val epicsOwnMd = epicIssueIds.sumOf { epicId -> secondsFor(epicId) / 3600.0 / 8.0 }
+        val epicsOwnMd = epicIssueIds.sumOf { epicId -> secondsFor(epicId) / 3600.0 / HOURS_PER_DAY }
 
         val factWorklogMdSum = suspendTransaction(sharedDatabaseForTests()) {
             MetricsStore.FactWorklog.selectAll().where { MetricsStore.FactWorklog.connectionId eq connId }
@@ -1196,6 +1201,7 @@ class MetricsDerivationTest {
         const val THIRTY_DAYS_MS = 30L * 24 * 60 * 60 * 1000
         const val CONFIGURED_CAPACITY_MD = 42.0
         const val CAPACITY_TOLERANCE = 0.01
+        const val HOURS_PER_DAY = 8.0
         const val FLO_BOARD_ID = 1L
     }
 }

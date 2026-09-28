@@ -26,7 +26,6 @@ import ch.nokillswit.metrics.MetricsConfigService
 import ch.nokillswit.metrics.MetricsDeriver
 import ch.nokillswit.metrics.MetricsStore
 import ch.nokillswit.metrics.TeamMembershipService
-import ch.nokillswit.metrics.asRequest
 import ch.nokillswit.norm.WorkItemStore
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.awaitCancellation
@@ -543,11 +542,12 @@ class IngestWorkerTest {
         val revisionAtStart = metrics.currentRevision()
         // Simulate a config PUT landing WHILE this DERIVE run was in flight — the exact race
         // `uq_sync_jobs_open_per_kind` coalescing would otherwise swallow (review round 1 fix).
-        val current = metrics.read()
-        metrics.replace(current.asRequest().copy(hoursPerDay = current.hoursPerDay + 1), byUserId = 1u)
-        assertTrue(metrics.currentRevision() > revisionAtStart, "the bump must actually move the shared revision")
-
-        worker.onSucceeded(claimFor(staleJobId, connId, SyncJobKind.DERIVE), deriveRevisionUsed = revisionAtStart)
+        // The settings singleton is suite-global: restore it afterwards (withMetricsSettings) so
+        // no later test derives under a leaked hoursPerDay.
+        withMetricsSettings(metrics, { it.copy(hoursPerDay = it.hoursPerDay + 1) }) {
+            assertTrue(metrics.currentRevision() > revisionAtStart, "the bump must actually move the shared revision")
+            worker.onSucceeded(claimFor(staleJobId, connId, SyncJobKind.DERIVE), deriveRevisionUsed = revisionAtStart)
+        }
 
         val deriveJobs = jobs.list(connId, SyncJobListFilter(kind = SyncJobKind.DERIVE), pagingAll()).items
         assertEquals(2, deriveJobs.size, "a fresh DERIVE must be enqueued once this run's own revision is found stale")

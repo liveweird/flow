@@ -5,6 +5,7 @@ import ch.nokillswit.auth.LoginResponse
 import ch.nokillswit.auth.hashPassword
 import ch.nokillswit.infra.db.SEED_ADMIN_EMAIL
 import ch.nokillswit.infra.db.SEED_PASSWORD_HASH
+import ch.nokillswit.metrics.asRequest
 import ch.nokillswit.users.User
 import ch.nokillswit.users.UserRole
 import ch.nokillswit.users.UserService
@@ -185,6 +186,26 @@ suspend fun withSeedRestored(block: suspend () -> Unit) {
         block()
     } finally {
         TestSeedState.restoreSeedAccounts()
+    }
+}
+
+/**
+ * Global `metrics.settings` scaffold: the singleton is shared by the whole suite, so a test that
+ * changes it (or depends on a specific value, e.g. `hoursPerDay` in an MD assertion) runs its
+ * [block] under `transform(current)` and restores the exact prior values afterwards. The restore
+ * bumps `config_revision` — harmless, every revision-sensitive test reads the revision it needs.
+ */
+suspend fun <T> withMetricsSettings(
+    config: ch.nokillswit.metrics.MetricsConfigService,
+    transform: (ch.nokillswit.metrics.MetricsSettingsRequest) -> ch.nokillswit.metrics.MetricsSettingsRequest,
+    block: suspend () -> T,
+): T {
+    val original = config.read().asRequest()
+    config.replace(transform(original), byUserId = 1u)
+    return try {
+        block()
+    } finally {
+        config.replace(original, byUserId = 1u)
     }
 }
 
