@@ -157,10 +157,11 @@ private class DeriveContext(
  * `.claude/docs/ingestion.md` "Job orders") — reads `norm.*` and the connection's effective metrics
  * configuration, writes `metrics.*`, NEVER touches Jira. Dispatched by `ingest/IngestWorker.kt`
  * BEFORE the connector registry (`claim.kind == DERIVE`), so it runs whether or not the connection's
- * OWN connector kind matters. This commit populates dims (`dim_domain`/`dim_task`/`dim_epic`),
- * every bridge except `task_sprint`'s DB write, and `fact_task_delivery`/`fact_epic_delivery`;
- * `dim_sprint`/`fact_sprint*`/`fact_worklog`/`fact_epic_plan`/`agg_daily_*` writers arrive with
- * commits 8/9 (their table objects already exist — [MetricsStore.purgeAll] already drains them).
+ * OWN connector kind matters. It populates dims (`dim_domain`/`dim_task`/`dim_epic`/`dim_sprint`),
+ * every bridge, `fact_task_delivery`/`fact_epic_delivery`, the sprint facts (D13), `fact_worklog`
+ * (commit 9) and `fact_epic_plan` (D4's PV baselines, commit 9b, `runEpicPlanStep`); `agg_daily_*`'s
+ * writer still awaits its own commit (its table objects already exist — [MetricsStore.purgeAll]
+ * already drains them).
  *
  * **Memory (review round 2b, plan §5, `.claude/docs/metrics.md` "The DERIVE run algorithm"):** the
  * per-issue work runs in batches of [DERIVE_BATCH_SIZE] — `runPass1`/`runPass2` each read intervals/
@@ -269,6 +270,7 @@ class MetricsDeriver(
         metricsStore.deleteFactEpicDelivery(connectionId)
         metricsStore.deleteSprintFacts(connectionId)
         metricsStore.deleteFactWorklog(connectionId)
+        metricsStore.deleteFactEpicPlan(connectionId)
 
         val context = buildContext(connectionId, workItems, config, calendar, now, hoursPerDay, epicDriftDays)
         metricsStore.insertDomains(connectionId, domainDims(context), configRevision)
@@ -278,11 +280,14 @@ class MetricsDeriver(
         runPass1(connectionId, workItems, context, config, derivedById, blockedByIssue)
 
         val factTasksByIssueId = mutableMapOf<Long, FactTaskDeliveryRow>()
+        val factEpicsByIssueId = mutableMapOf<Long, FactEpicDeliveryRow>()
         val taskCount = runPass2(connectionId, workItems, context, derivedById, blockedByIssue, factTasksByIssueId, configRevision)
-        val epicCount = runPass3(connectionId, workItems, context, derivedById, blockedByIssue, factTasksByIssueId, configRevision)
+        val epicCount =
+            runPass3(connectionId, workItems, context, derivedById, blockedByIssue, factTasksByIssueId, factEpicsByIssueId, configRevision)
         val sprintFieldId = metricsConfig.detectedSprintFieldId(connectionId)
         val sprintOutcome = runSprintStep(connectionId, workItems, context, config, derivedById, graceMs, configRevision, sprintFieldId)
         val worklogCount = runWorklogStep(connectionId, workItems, context, derivedById, configRevision)
+        val epicPlanCount = runEpicPlanStep(connectionId, workItems, context, derivedById, factEpicsByIssueId, configRevision)
 
         return DeriveRowCounts(
             tasks = taskCount,
@@ -290,6 +295,7 @@ class MetricsDeriver(
             sprints = sprintOutcome.sprintCount,
             sprintFieldUnresolved = sprintOutcome.fieldUnresolved,
             worklogs = worklogCount,
+            epicPlans = epicPlanCount,
         )
     }
 
@@ -299,6 +305,7 @@ class MetricsDeriver(
             put("epics", JsonPrimitive(counts.epics))
             put("sprints", JsonPrimitive(counts.sprints))
             put("worklogs", JsonPrimitive(counts.worklogs))
+            put("epicPlans", JsonPrimitive(counts.epicPlans))
             if (counts.sprintFieldUnresolved) put("sprintFieldUnresolved", JsonPrimitive(true))
         }.toString()
         suspendTransaction(database) {
@@ -477,7 +484,10 @@ class MetricsDeriver(
      * Pass 3 (review round 2b): epics, in batches of [DERIVE_BATCH_SIZE] — reads pass 2's cached
      * `factTasksByIssueId` for the D2 roll-up; needs no per-batch interval reads of its own (an
      * epic's own facts come entirely from [derivedById]/[factTasksByIssueId]/config, already in
-     * memory). Returns the total epic row count.
+     * memory). [factEpicsByIssueId] accumulates every computed `fact_epic_delivery` row across every
+     * batch (v0.3.0 M3 commit 9b) — the epic plan step (`runEpicPlanStep`) reads its
+     * `childSumEstimateMd` back for the D4 CHILDREN fallback, so it is never re-derived a second way.
+     * Returns the total epic row count.
      */
     private suspend fun runPass3(
         connectionId: UInt,
@@ -486,6 +496,7 @@ class MetricsDeriver(
         derivedById: Map<Long, ItemDerived>,
         blockedByIssue: Map<Long, Pair<Long, Double>>,
         factTasksByIssueId: Map<Long, FactTaskDeliveryRow>,
+        factEpicsByIssueId: MutableMap<Long, FactEpicDeliveryRow>,
         configRevision: Long,
     ): Int {
         var count = 0
@@ -504,6 +515,7 @@ class MetricsDeriver(
                 )
                 epicsBatch += dim
                 factEpicsBatch += fact
+                factEpicsByIssueId[item.issueId] = fact
             }
             metricsStore.insertEpics(connectionId, epicsBatch, configRevision)
             metricsStore.insertFactEpicDelivery(connectionId, factEpicsBatch, configRevision)
@@ -826,6 +838,23 @@ class MetricsDeriver(
     ): SprintStepOutcome = ch.nokillswit.metrics.runSprintStep(
         workItemStore, metricsStore, connectionId, workItems, context, config, derivedById, graceMs, configRevision, sprintFieldId,
     )
+
+    /**
+     * The epic plan step (v0.3.0 M3 commit 9b, `.claude/docs/domain-model.md` "Plan — PV", D4, D11,
+     * `.claude/docs/metrics.md` "Epic plans and PV") — delegates to the top-level [runEpicPlanStep]
+     * (kept OUTSIDE this class body, the sprint/worklog steps' own `LargeClass` idiom). Returns the
+     * epic-plan row count for `derive_runs.row_counts`.
+     */
+    private suspend fun runEpicPlanStep(
+        connectionId: UInt,
+        workItems: List<WorkItemStore.DerivationWorkItemRow>,
+        context: DeriveContext,
+        derivedById: Map<Long, ItemDerived>,
+        factEpicsByIssueId: Map<Long, FactEpicDeliveryRow>,
+        configRevision: Long,
+    ): Int = ch.nokillswit.metrics.runEpicPlanStep(
+        workItemStore, metricsStore, connectionId, workItems, context, derivedById, factEpicsByIssueId, configRevision,
+    )
 }
 
 /** D2: a sub-task's own epic is its parent TASK's epic (one indirection); a level-0 task's epic is its own `parentIssueId`. */
@@ -1144,4 +1173,59 @@ private fun laterSprintIdsPerSprint(sprints: List<SprintRef>): Map<Long, Set<Lon
         ordered.forEachIndexed { index, sprint -> result[sprint.sprintId] = ordered.drop(index + 1).map { it.sprintId }.toSet() }
     }
     return result
+}
+
+/**
+ * The epic plan step's own body (v0.3.0 M3 commit 9b, moved outside [MetricsDeriver] purely to keep
+ * that class under detekt's `LargeClass` threshold — the sprint/worklog steps' own precedent above):
+ * D4's PV baselines (`.claude/docs/domain-model.md` "Plan — PV", D4, D11; `.claude/docs/metrics.md`
+ * "Epic plans and PV") — one `metrics.fact_epic_plan` row per baseline, `baseline_seq` assigned
+ * 1-based in the order [DeriveKernels.epicPlanBaselines] returns them. Batches over EPIC items only,
+ * re-reading each batch's own configured EPIC_START/EPIC_DUE field changes the same way pass 1 reads
+ * the estimate field's own changes (the review round 2b memory bound applies here too) — the epic's
+ * own estimate timeline is already available from pass 1's [ItemDerived.estimateTimeline], never
+ * re-read, and the D4 CHILDREN fallback value comes from pass 3's own [factEpicsByIssueId]
+ * (`childSumEstimateMd`), never re-derived. An epic whose connection has no EPIC_START or no
+ * EPIC_DUE field configured at all writes no rows — the same "no dates, no baseline" rule an
+ * individual epic with unset date VALUES hits inside the kernel itself.
+ */
+private suspend fun runEpicPlanStep(
+    workItemStore: WorkItemStore,
+    metricsStore: MetricsStore,
+    connectionId: UInt,
+    workItems: List<WorkItemStore.DerivationWorkItemRow>,
+    context: DeriveContext,
+    derivedById: Map<Long, ItemDerived>,
+    factEpicsByIssueId: Map<Long, FactEpicDeliveryRow>,
+    configRevision: Long,
+): Int {
+    val startFieldId = context.epicStartFieldId
+    val dueFieldId = context.epicDueFieldId
+    val epicItems = workItems.filter { it.hierarchyLevel == EPIC_HIERARCHY_LEVEL }
+    if (epicItems.isEmpty() || startFieldId == null || dueFieldId == null) return 0
+    val dateFieldIds = listOf(startFieldId, dueFieldId).distinct()
+
+    var count = 0
+    for (batch in epicItems.chunked(DERIVE_BATCH_SIZE)) {
+        val ids = batch.map { it.issueId }
+        val changesByIssue = workItemStore.fieldChangesByFieldIds(connectionId, dateFieldIds, ids).groupBy { it.issueId }
+
+        val rowsBatch = mutableListOf<FactEpicPlanRow>()
+        for (item in batch) {
+            val changes = changesByIssue[item.issueId].orEmpty()
+            val startTimeline = DeriveKernels.dateFieldTimeline(
+                item.createdAt, changes.filter { it.fieldId == startFieldId }, context.epicDateValue(item, startFieldId),
+            )
+            val dueTimeline = DeriveKernels.dateFieldTimeline(
+                item.createdAt, changes.filter { it.fieldId == dueFieldId }, context.epicDateValue(item, dueFieldId),
+            )
+            val ownEstimateTimeline = derivedById.getValue(item.issueId).estimateTimeline
+            val childSumMd = factEpicsByIssueId[item.issueId]?.childSumEstimateMd ?: 0.0
+            val baselines = DeriveKernels.epicPlanBaselines(startTimeline, dueTimeline, ownEstimateTimeline, childSumMd)
+            baselines.forEachIndexed { index, baseline -> rowsBatch += FactEpicPlanRow(item.issueId, index + 1, baseline) }
+        }
+        metricsStore.insertFactEpicPlan(connectionId, rowsBatch, configRevision)
+        count += rowsBatch.size
+    }
+    return count
 }

@@ -6,6 +6,7 @@ import ch.nokillswit.ingest.SyncJobKind
 import ch.nokillswit.ingest.SyncJobRunContext
 import ch.nokillswit.ingest.SyncJobsService
 import ch.nokillswit.metrics.DataSourceMetricsConfigRequest
+import ch.nokillswit.metrics.DeriveKernels
 import ch.nokillswit.metrics.MetricsBoardTeamMapping
 import ch.nokillswit.metrics.MetricsConfigService
 import ch.nokillswit.metrics.MetricsDeriver
@@ -269,6 +270,60 @@ class MetricsDerivationTest {
                 .count()
         }
         assertEquals(golden.childCount.toLong(), childCount, "sample-data/jira/expected.json golden.epic.childCount")
+    }
+
+    @Test
+    fun `DERIVE writes the golden epic's PV baseline matching expected_json, and its PV curve ends at the budget`() = runBlocking {
+        val connId = DerivedStubFixture.connectionId()
+
+        val golden = metricsDerivationGoldenEpic
+        val epicIssueId = golden.issueId.toLong()
+
+        val planRows = suspendTransaction(sharedDatabaseForTests()) {
+            MetricsStore.FactEpicPlan.selectAll()
+                .where { (MetricsStore.FactEpicPlan.connectionId eq connId) and (MetricsStore.FactEpicPlan.issueId eq epicIssueId) }
+                .orderBy(MetricsStore.FactEpicPlan.baselineSeq to SortOrder.ASC)
+                .toList()
+        }
+        assertTrue(planRows.isNotEmpty(), "the golden epic must carry at least one fact_epic_plan baseline")
+
+        // Whether the epic's dates changed mid-history (~25% of epics do, `generate.mjs`) or not,
+        // its own story-point estimate never changes — only the CURRENT (unsuperseded) baseline is
+        // guaranteed to carry `expected.json`'s own current start/due/budget values.
+        val current = planRows.single { it[MetricsStore.FactEpicPlan.supersededAt] == null }
+        assertEquals(
+            isoDateEpochMillis(golden.startDate),
+            current[MetricsStore.FactEpicPlan.startAt],
+            "sample-data/jira/expected.json golden.epic.startDate (the CURRENT baseline)",
+        )
+        assertEquals(
+            isoDateEpochMillis(golden.dueDate),
+            current[MetricsStore.FactEpicPlan.dueAt],
+            "sample-data/jira/expected.json golden.epic.dueDate (the CURRENT baseline)",
+        )
+        assertEquals(
+            golden.budgetMd,
+            current[MetricsStore.FactEpicPlan.budgetMd]?.toDouble(),
+            "sample-data/jira/expected.json golden.epic.budgetMd",
+        )
+        assertEquals("OWN", current[MetricsStore.FactEpicPlan.budgetSource], "the golden epic always carries its own estimate")
+
+        // Reconstructs the SAME calendar `DerivedStubFixture` derived under (Europe/Warsaw, the V15
+        // seed default, only hoursPerDay is overridden there) and re-runs the ALREADY-unit-tested
+        // pvCurve kernel over the PERSISTED baseline — an end-to-end check that the stored row wires
+        // correctly into a real PV curve, not a re-proof of the kernel's own math (DeriveKernelsTest).
+        val calendar = WorkingCalendar(ZoneId.of("Europe/Warsaw"), setOf(6, 7), emptySet())
+        val baseline = ch.nokillswit.metrics.EpicPlanBaseline(
+            baselinedAtMs = current[MetricsStore.FactEpicPlan.baselinedAt],
+            startAtMs = current[MetricsStore.FactEpicPlan.startAt]!!,
+            dueAtMs = current[MetricsStore.FactEpicPlan.dueAt]!!,
+            budgetMd = current[MetricsStore.FactEpicPlan.budgetMd]!!.toDouble(),
+            budgetSource = current[MetricsStore.FactEpicPlan.budgetSource],
+            supersededAtMs = null,
+        )
+        val curve = DeriveKernels.pvCurve(baseline, calendar)
+        assertTrue(curve.isNotEmpty(), "the golden epic's start-due window must contain at least one working day")
+        assertEquals(baseline.budgetMd, curve.last().cumulativeMd, "PV at the epic's due date must equal its budget exactly")
     }
 
     @Test

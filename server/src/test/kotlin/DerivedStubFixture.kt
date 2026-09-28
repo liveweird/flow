@@ -216,6 +216,24 @@ object DerivedStubFixture {
                     .toList(),
                 MetricsStore.FactWorklog.columns,
             )
+            // `fact_epic_plan` (v0.3.0 M3 commit 9b) carries a surrogate `id` like `fact_task_delivery`'s
+            // own bridges above — excluded from the hashed columns for the same reason; ordered by its
+            // own natural key `(issue_id, baseline_seq)`.
+            sprintDigest.hashRows(
+                MetricsStore.FactEpicPlan.selectAll().where { MetricsStore.FactEpicPlan.connectionId eq connId }
+                    .orderBy(MetricsStore.FactEpicPlan.issueId to SortOrder.ASC, MetricsStore.FactEpicPlan.baselineSeq to SortOrder.ASC)
+                    .toList(),
+                listOf(
+                    MetricsStore.FactEpicPlan.issueId,
+                    MetricsStore.FactEpicPlan.baselineSeq,
+                    MetricsStore.FactEpicPlan.baselinedAt,
+                    MetricsStore.FactEpicPlan.startAt,
+                    MetricsStore.FactEpicPlan.dueAt,
+                    MetricsStore.FactEpicPlan.budgetMd,
+                    MetricsStore.FactEpicPlan.budgetSource,
+                    MetricsStore.FactEpicPlan.supersededAt,
+                ),
+            )
         }
         return "${factTaskDeliveryDigest(connId)}:${sprintDigest.hex()}"
     }

@@ -154,6 +154,7 @@ data class DeriveRowCounts(
     val sprints: Int,
     val sprintFieldUnresolved: Boolean = false,
     val worklogs: Int = 0,
+    val epicPlans: Int = 0,
 )
 
 // ---- Sprint step row shapes (v0.3.0 M3 commit 8) ---------------------------------------------
@@ -201,6 +202,13 @@ data class FactWorklogRow(
     val foreignWork: Boolean,
 )
 
+/**
+ * One `metrics.fact_epic_plan` row (v0.3.0 M3 commit 9b, `.claude/docs/domain-model.md`
+ * "Plan — PV", D4) — [DeriveKernels.EpicPlanBaseline] plus the `issueId`/`baselineSeq` its own
+ * kernel call didn't carry (the [FactSprintScopeRow] precedent).
+ */
+data class FactEpicPlanRow(val issueId: Long, val baselineSeq: Int, val baseline: EpicPlanBaseline)
+
 /** One `metrics.fact_sprint`/`metrics.fact_sprint_snapshot` row's shared figures —
  * [SprintTotals] plus capacity/load and identity. */
 data class FactSprintRow(
@@ -220,9 +228,9 @@ data class FactSprintRow(
  * insert the freshly derived ones) EXCEPT [DimDate] (global, upserted `ON CONFLICT (day) DO
  * UPDATE`) and [FactSprintSnapshot] (append-only — no update/delete writer exists here at all; the
  * DB's own trigger, `.claude/docs/persistence.md`, is the actual enforcement). `dim_sprint`/
- * `task_sprint`/`fact_sprint*`/`fact_worklog`/`fact_epic_plan`/`agg_daily_*` writers arrive with
- * commits 8/9 — this commit creates their table objects (so [purgeAll] already drains them) but
- * only writes dims/most-bridges/`fact_task_delivery`/`fact_epic_delivery`.
+ * `task_sprint`/`fact_sprint*`/`fact_worklog`/`fact_epic_plan` writers landed across commits 7-9b
+ * (this commit created every `metrics.*` table object, so [purgeAll] already drains them all);
+ * `agg_daily_*` still awaits its own writer.
  */
 class MetricsStore(private val database: R2dbcDatabase) {
 
@@ -550,6 +558,15 @@ class MetricsStore(private val database: R2dbcDatabase) {
     object FactEpicPlan : Table("metrics.fact_epic_plan") {
         val id = integer("id").autoIncrement()
         val connectionId = reference("connection_id", DataSourceService.Connections)
+        val issueId = long("issue_id")
+        val baselineSeq = integer("baseline_seq")
+        val baselinedAt = long("baselined_at")
+        val startAt = long("start_at").nullable()
+        val dueAt = long("due_at").nullable()
+        val budgetMd = decimal("budget_md", precision = 10, scale = 2).nullable()
+        val budgetSource = varchar("budget_source", 10)
+        val supersededAt = long("superseded_at").nullable()
+        val configRevision = long("config_revision")
         override val primaryKey = PrimaryKey(id)
     }
 
@@ -1025,6 +1042,27 @@ class MetricsStore(private val database: R2dbcDatabase) {
             this[FactWorklog.sprintTeamIdAtStarted] = it.sprintTeamIdAtStarted
             this[FactWorklog.foreignWork] = it.foreignWork
             this[FactWorklog.configRevision] = configRevision
+        }
+    }
+
+    suspend fun deleteFactEpicPlan(connectionId: UInt) {
+        FactEpicPlan.deleteWhere { FactEpicPlan.connectionId eq connectionId }
+    }
+
+    /** One batch's worth of `fact_epic_plan` rows (v0.3.0 M3 commit 9b) — call per batch, AFTER [deleteFactEpicPlan] ran once. */
+    suspend fun insertFactEpicPlan(connectionId: UInt, rows: List<FactEpicPlanRow>, configRevision: Long) {
+        if (rows.isEmpty()) return
+        FactEpicPlan.batchInsert(rows) {
+            this[FactEpicPlan.connectionId] = connectionId
+            this[FactEpicPlan.issueId] = it.issueId
+            this[FactEpicPlan.baselineSeq] = it.baselineSeq
+            this[FactEpicPlan.baselinedAt] = it.baseline.baselinedAtMs
+            this[FactEpicPlan.startAt] = it.baseline.startAtMs
+            this[FactEpicPlan.dueAt] = it.baseline.dueAtMs
+            this[FactEpicPlan.budgetMd] = it.baseline.budgetMd.toBigDecimal()
+            this[FactEpicPlan.budgetSource] = it.baseline.budgetSource
+            this[FactEpicPlan.supersededAt] = it.baseline.supersededAtMs
+            this[FactEpicPlan.configRevision] = configRevision
         }
     }
 

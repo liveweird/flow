@@ -684,5 +684,7 @@ stream. The streams themselves (and the cursor shapes they define) land in plan 
 ### Not yet ported from Lettuce / Toadie / Covenant
 
 Nothing remains on the persistence list today — the `metrics` schema's derived star landed at V16
-(above); its sprint/worklog/epic-plan/daily-aggregate WRITERS (the table objects already exist)
-arrive with commits 8/9.
+(above); its sprint (commit 8), worklog and epic-plan (commit 9/9b) WRITERS have landed
+(`.claude/docs/metrics.md` "Sprint scope, facts and snapshots (D13)"/"Worklog cost facts
+(fact_worklog)"/"Epic plans and PV"); only the daily-aggregate `agg_daily_*` writer (the table
+objects already exist) is still outstanding.

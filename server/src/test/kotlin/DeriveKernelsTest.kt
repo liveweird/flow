@@ -8,6 +8,8 @@ import ch.nokillswit.norm.NormalizedFieldInterval
 import ch.nokillswit.norm.NormalizedStatusInterval
 import ch.nokillswit.norm.StatusCategory
 import ch.nokillswit.norm.TrackedField
+import java.time.LocalDate
+import java.time.ZoneId
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -580,5 +582,245 @@ class DeriveKernelsTest {
         assertEquals(1, totals.carriedOverItems)
         assertEquals(0, totals.droppedItems)
         assertEquals(0, totals.deliveredItems)
+    }
+
+    // ---- epicPlanBaselines / pvCurve (v0.3.0 M3 commit 9b, D4's PV baselines) ---------------------
+
+    private fun isoMs(isoDate: String): Long = LocalDate.parse(isoDate).atStartOfDay(java.time.ZoneOffset.UTC).toInstant().toEpochMilli()
+    private fun datePoint(atMs: Long, isoDate: String?) = ch.nokillswit.metrics.DatePoint(atMs, isoDate?.let { isoMs(it) })
+
+    private val createdAtMs = isoMs("2026-01-01")
+    private val utc = ZoneId.of("UTC")
+    private val mondayToFriday = setOf(6, 7) // ISO weekday numbers: Saturday, Sunday
+    private val noHolidays = emptySet<LocalDate>()
+    private val calendar = ch.nokillswit.metrics.WorkingCalendar(utc, mondayToFriday, noHolidays)
+
+    @Test
+    fun `epicPlanBaselines returns no rows when the epic never has both dates set`() {
+        val startOnly = DeriveKernels.epicPlanBaselines(
+            startTimeline = listOf(datePoint(createdAtMs, "2026-01-05")),
+            dueTimeline = listOf(datePoint(createdAtMs, null)),
+            ownEstimateTimeline = listOf(estimate(createdAtMs, 10.0)),
+            childSumMd = 0.0,
+        )
+        assertTrue(startOnly.isEmpty(), "a start date alone, with no due date ever set, must never baseline")
+
+        val neither = DeriveKernels.epicPlanBaselines(
+            startTimeline = listOf(datePoint(createdAtMs, null)),
+            dueTimeline = listOf(datePoint(createdAtMs, null)),
+            ownEstimateTimeline = listOf(estimate(createdAtMs, 10.0)),
+            childSumMd = 0.0,
+        )
+        assertTrue(neither.isEmpty())
+    }
+
+    @Test
+    fun `epicPlanBaselines opens a baseline at the LATER of the two dates, whichever field resolves last`() {
+        // due already known since creation; start only arrives on day 10 — the baseline must wait for it.
+        val dueFirst = DeriveKernels.epicPlanBaselines(
+            startTimeline = listOf(datePoint(createdAtMs, null), datePoint(isoMs("2026-01-10"), "2026-01-10")),
+            dueTimeline = listOf(datePoint(createdAtMs, "2026-02-01")),
+            ownEstimateTimeline = listOf(estimate(createdAtMs, 20.0)),
+            childSumMd = 0.0,
+        )
+        assertEquals(1, dueFirst.size)
+        assertEquals(isoMs("2026-01-10"), dueFirst.single().baselinedAtMs, "baselined_at is the instant the LATER date became set")
+
+        // the reverse: start known since creation, due arrives later.
+        val startFirst = DeriveKernels.epicPlanBaselines(
+            startTimeline = listOf(datePoint(createdAtMs, "2026-01-05")),
+            dueTimeline = listOf(datePoint(createdAtMs, null), datePoint(isoMs("2026-01-20"), "2026-02-01")),
+            ownEstimateTimeline = listOf(estimate(createdAtMs, 20.0)),
+            childSumMd = 0.0,
+        )
+        assertEquals(1, startFirst.size)
+        assertEquals(isoMs("2026-01-20"), startFirst.single().baselinedAtMs)
+    }
+
+    @Test
+    fun `epicPlanBaselines opens a new baseline and supersedes the previous one on a later date change`() {
+        val baselines = DeriveKernels.epicPlanBaselines(
+            startTimeline = listOf(datePoint(createdAtMs, "2026-01-05")),
+            dueTimeline = listOf(
+                datePoint(createdAtMs, "2026-02-01"),
+                datePoint(isoMs("2026-01-15"), "2026-02-15"),
+            ),
+            ownEstimateTimeline = listOf(estimate(createdAtMs, 20.0)),
+            childSumMd = 0.0,
+        )
+        assertEquals(2, baselines.size)
+        val (first, second) = baselines
+        assertEquals(createdAtMs, first.baselinedAtMs)
+        assertEquals(isoMs("2026-02-01"), first.dueAtMs)
+        assertEquals(isoMs("2026-01-15"), first.supersededAtMs, "a later due-date change supersedes the previous baseline")
+        assertEquals(isoMs("2026-01-15"), second.baselinedAtMs)
+        assertEquals(isoMs("2026-02-15"), second.dueAtMs)
+        assertNull(second.supersededAtMs, "the current baseline carries no superseded_at")
+        // dates unchanged, so a re-submission of the SAME due date must never open a third baseline.
+        val idempotent = DeriveKernels.epicPlanBaselines(
+            startTimeline = listOf(datePoint(createdAtMs, "2026-01-05")),
+            dueTimeline = listOf(
+                datePoint(createdAtMs, "2026-02-01"),
+                datePoint(isoMs("2026-01-15"), "2026-02-01"),
+            ),
+            ownEstimateTimeline = listOf(estimate(createdAtMs, 20.0)),
+            childSumMd = 0.0,
+        )
+        assertEquals(1, idempotent.size, "a changelog event resolving to the SAME value opens no new baseline")
+    }
+
+    @Test
+    fun `epicPlanBaselines supersedes the open baseline when a date is later cleared, leaving none current`() {
+        val baselines = DeriveKernels.epicPlanBaselines(
+            startTimeline = listOf(datePoint(createdAtMs, "2026-01-05")),
+            dueTimeline = listOf(
+                datePoint(createdAtMs, "2026-02-01"),
+                datePoint(isoMs("2026-01-15"), null),
+            ),
+            ownEstimateTimeline = listOf(estimate(createdAtMs, 20.0)),
+            childSumMd = 0.0,
+        )
+        assertEquals(1, baselines.size, "the cleared due date must supersede the open baseline, not silently keep it current")
+        val only = baselines.single()
+        assertEquals(createdAtMs, only.baselinedAtMs)
+        assertEquals(isoMs("2026-01-15"), only.supersededAtMs, "superseded_at is the instant the date was cleared")
+    }
+
+    @Test
+    fun `epicPlanBaselines opens a genuinely NEW baseline when a cleared date is re-set, even to the same value`() {
+        val baselines = DeriveKernels.epicPlanBaselines(
+            startTimeline = listOf(datePoint(createdAtMs, "2026-01-05")),
+            dueTimeline = listOf(
+                datePoint(createdAtMs, "2026-02-01"),
+                datePoint(isoMs("2026-01-15"), null),
+                datePoint(isoMs("2026-01-20"), "2026-02-01"),
+            ),
+            ownEstimateTimeline = listOf(estimate(createdAtMs, 20.0)),
+            childSumMd = 0.0,
+        )
+        assertEquals(
+            2, baselines.size,
+            "the gap itself is a real discontinuity — re-setting to the SAME value still opens a new baseline",
+        )
+        val (first, second) = baselines
+        assertEquals(createdAtMs, first.baselinedAtMs)
+        assertEquals(isoMs("2026-01-15"), first.supersededAtMs)
+        assertEquals(isoMs("2026-01-20"), second.baselinedAtMs, "the second baseline dates to the RE-SET instant, not the original")
+        assertEquals(isoMs("2026-02-01"), second.dueAtMs)
+        assertNull(second.supersededAtMs)
+    }
+
+    @Test
+    fun `epicPlanBaselines opens a new baseline on a later budget change, keeping the dates`() {
+        val baselines = DeriveKernels.epicPlanBaselines(
+            startTimeline = listOf(datePoint(createdAtMs, "2026-01-05")),
+            dueTimeline = listOf(datePoint(createdAtMs, "2026-02-01")),
+            ownEstimateTimeline = listOf(estimate(createdAtMs, 20.0), estimate(isoMs("2026-01-10"), 30.0)),
+            childSumMd = 0.0,
+        )
+        assertEquals(2, baselines.size)
+        assertEquals(20.0, baselines[0].budgetMd)
+        assertEquals("OWN", baselines[0].budgetSource)
+        assertEquals(isoMs("2026-01-10"), baselines[0].supersededAtMs)
+        assertEquals(30.0, baselines[1].budgetMd)
+        assertEquals(baselines[0].startAtMs, baselines[1].startAtMs, "a budget-only change keeps the same dates")
+        assertEquals(baselines[0].dueAtMs, baselines[1].dueAtMs)
+    }
+
+    @Test
+    fun `epicPlanBaselines falls back to the CHILDREN sum when the epic never carries its own estimate`() {
+        val baselines = DeriveKernels.epicPlanBaselines(
+            startTimeline = listOf(datePoint(createdAtMs, "2026-01-05")),
+            dueTimeline = listOf(datePoint(createdAtMs, "2026-02-01")),
+            ownEstimateTimeline = listOf(estimate(createdAtMs, null)),
+            childSumMd = 42.0,
+        )
+        assertEquals(1, baselines.size)
+        assertEquals("CHILDREN", baselines.single().budgetSource)
+        assertEquals(42.0, baselines.single().budgetMd)
+    }
+
+    @Test
+    fun `epicPlanBaselines treats a 0 own estimate as unestimated, falling back to CHILDREN`() {
+        val baselines = DeriveKernels.epicPlanBaselines(
+            startTimeline = listOf(datePoint(createdAtMs, "2026-01-05")),
+            dueTimeline = listOf(datePoint(createdAtMs, "2026-02-01")),
+            ownEstimateTimeline = listOf(estimate(createdAtMs, 0.0)),
+            childSumMd = 15.0,
+        )
+        assertEquals(1, baselines.size)
+        assertEquals("CHILDREN", baselines.single().budgetSource)
+        assertEquals(15.0, baselines.single().budgetMd)
+    }
+
+    @Test
+    fun `pvCurve's cumulative value at the due date equals the budget exactly, absorbing any rounding remainder`() {
+        // Mon 2026-01-05 to Wed 2026-01-07: three working days, 10 MD budget does not divide evenly.
+        val baseline = ch.nokillswit.metrics.EpicPlanBaseline(
+            baselinedAtMs = createdAtMs, startAtMs = isoMs("2026-01-05"), dueAtMs = isoMs("2026-01-07"),
+            budgetMd = 10.0, budgetSource = "OWN", supersededAtMs = null,
+        )
+        val curve = DeriveKernels.pvCurve(baseline, calendar)
+        assertEquals(3, curve.size)
+        assertEquals(10.0, curve.last().cumulativeMd, "PV at the due date must equal the budget exactly")
+    }
+
+    @Test
+    fun `pvCurve is monotonically non-decreasing across its working days`() {
+        val baseline = ch.nokillswit.metrics.EpicPlanBaseline(
+            baselinedAtMs = createdAtMs, startAtMs = isoMs("2026-01-05"), dueAtMs = isoMs("2026-01-16"),
+            budgetMd = 37.0, budgetSource = "OWN", supersededAtMs = null,
+        )
+        val curve = DeriveKernels.pvCurve(baseline, calendar)
+        assertTrue(curve.isNotEmpty())
+        curve.zipWithNext().forEach { (a, b) -> assertTrue(b.cumulativeMd >= a.cumulativeMd, "PV must never decrease day over day") }
+    }
+
+    @Test
+    fun `pvCurve skips weekends and holidays entirely — they add nothing and never appear as a point`() {
+        val holiday = LocalDate.of(2026, 1, 8) // a Thursday inside the window, deliberately not a weekend day
+        val calendarWithHoliday = ch.nokillswit.metrics.WorkingCalendar(utc, mondayToFriday, setOf(holiday))
+        // Mon 2026-01-05 to Mon 2026-01-12 (inclusive both ends): Jan 5/6/7/9/12 are working days,
+        // Jan 10/11 are the weekend and Jan 8 is the holiday — five working days remain.
+        val baseline = ch.nokillswit.metrics.EpicPlanBaseline(
+            baselinedAtMs = createdAtMs, startAtMs = isoMs("2026-01-05"), dueAtMs = isoMs("2026-01-12"),
+            budgetMd = 20.0, budgetSource = "OWN", supersededAtMs = null,
+        )
+        val curve = DeriveKernels.pvCurve(baseline, calendarWithHoliday)
+        assertEquals(5, curve.size, "Saturday, Sunday and the Thursday holiday must never become their own point")
+        assertTrue(curve.none { it.day == holiday || it.day.dayOfWeek.value in mondayToFriday })
+        assertEquals(20.0, curve.last().cumulativeMd)
+    }
+
+    @Test
+    fun `pvCurve handles a single-day window — the one working day carries the whole budget`() {
+        val baseline = ch.nokillswit.metrics.EpicPlanBaseline(
+            baselinedAtMs = createdAtMs, startAtMs = isoMs("2026-01-05"), dueAtMs = isoMs("2026-01-05"),
+            budgetMd = 8.0, budgetSource = "OWN", supersededAtMs = null,
+        )
+        val curve = DeriveKernels.pvCurve(baseline, calendar)
+        assertEquals(1, curve.size)
+        assertEquals(8.0, curve.single().cumulativeMd)
+        assertEquals(LocalDate.of(2026, 1, 5), curve.single().day)
+    }
+
+    @Test
+    fun `pvCurve reads start-due as zone-free calendar dates — a zone behind UTC must not shift the window`() {
+        val newYork = ch.nokillswit.metrics.WorkingCalendar(ZoneId.of("America/New_York"), mondayToFriday, noHolidays)
+        // Mon 2026-01-05 to Fri 2026-01-09: five working days. UTC midnight for 2026-01-05 is
+        // 2026-01-04T19:00 in America/New_York (UTC-5) — reading the window through THAT zone
+        // (`WorkingCalendar.dayOf`) would misread the start date as Jan 4, one calendar day early.
+        val baseline = ch.nokillswit.metrics.EpicPlanBaseline(
+            baselinedAtMs = createdAtMs, startAtMs = isoMs("2026-01-05"), dueAtMs = isoMs("2026-01-09"),
+            budgetMd = 15.0, budgetSource = "OWN", supersededAtMs = null,
+        )
+        val curve = DeriveKernels.pvCurve(baseline, newYork)
+        assertEquals(
+            5, curve.size,
+            "the window must cover exactly the configured Jan 5..9 dates, regardless of the calendar's own zone",
+        )
+        assertEquals(LocalDate.of(2026, 1, 5), curve.first().day)
+        assertEquals(LocalDate.of(2026, 1, 9), curve.last().day)
+        assertEquals(15.0, curve.last().cumulativeMd)
     }
 }

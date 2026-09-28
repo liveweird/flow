@@ -414,7 +414,86 @@ byte-for-byte comparison against `fact_worklog.md`'s finer `decimal(8, 4)` — t
 the underlying seconds never being double-counted or dropped, not about two differently-rounded
 storage columns agreeing to the last decimal.
 
+## Epic plans and PV (`fact_epic_plan`, v0.3.0 M3 commit 9b)
+
+`MetricsDeriver.kt`'s epic plan step (top-level `runEpicPlanStep`, the sprint/worklog steps' own
+`LargeClass` shape — moved outside the class, delegated to) is the LAST step of `runDerivation`,
+after the worklog step: one `metrics.fact_epic_plan` row per BASELINE
+(`DeriveKernels.EpicPlanBaseline`/`epicPlanBaselines`, `.claude/docs/domain-model.md` "Plan — PV",
+D4, D11) — an epic's own PV plan, re-baselined whenever its start date, due date or budget
+genuinely changes. `baseline_seq` (1-based) is assigned by the writer in the ORDER the kernel
+returns baselines, never by the kernel itself (the `fact_sprint_scope`/`SprintScopeItem`
+precedent — a pure kernel never invents a persistence-only surrogate key).
+
+- **A baseline exists only once BOTH dates are set.** `baselined_at` is the instant the LATER of
+  the two first resolves — an epic missing either date (or both) writes zero rows; this is decided
+  per BASELINE INSTANT, not once per epic, so an epic whose start date is set at creation but whose
+  due date only arrives later still gets its one baseline dated to when the due date landed, not to
+  the epic's own creation.
+- **Every LATER change to either date OR the budget opens a new baseline**, superseding the
+  previous one (`superseded_at` = that instant) — a "change" that resolves to the SAME start/due/
+  budget/source as the current baseline is a no-op (the `sprintScope`/`estimateTimeline` idempotence
+  convention: re-submitting unchanged history must never fabricate a second baseline). **A date
+  becoming unset closes the current baseline too**: the instant either date resolves back to
+  `null`, the open baseline is superseded right there and NO replacement opens — the epic has no
+  current plan until both dates are set again. A later instant where both resolve once more always
+  opens a genuinely NEW baseline dated to THAT instant, even when its values equal the closed
+  baseline's — the gap itself is a real discontinuity in the epic's plan, never silently bridged.
+- **The budget resolves OWN, else CHILDREN (D4).** `0` or a missing value from the epic's own
+  configured ESTIMATE field (`fields.estimateEpic`, falling back to `fields.estimateTask` when no
+  epic-specific override is configured — `DeriveContext.estimateFieldIdFor`, the SAME resolution
+  `fact_epic_delivery`'s own snapshots use; never the epic's START-date field, a different
+  configured field entirely) count as unestimated — the SAME `estimateTimeline`/`asEstimateOrNull`
+  rule applied a second time inside the kernel itself (never trusted from how the caller happened
+  to build the timeline), so `budgetSource = "CHILDREN"` whenever OWN is `0`/unset, using
+  `childSumMd` — a single CURRENT snapshot
+  (`fact_epic_delivery.childSumEstimateMd`, already computed by pass 3, read back rather than
+  re-derived) rather than a full historical child-sum timeline of its own (D4's own note: a
+  child-sum roll-up over TIME would need every child's own estimate history at every past instant,
+  which this commit does not build — `budget_source = CHILDREN` is always evaluated against the
+  children's CURRENT sum, whichever instant the baseline itself dates to).
+- **The start/due date timelines** (`DeriveKernels.dateFieldTimeline`) mirror `estimateTimeline`'s
+  own shape for a plain Jira date field (`YYYY-MM-DD`, parsed the `jira/JiraNormalizer.kt` `duedate`
+  way — epoch millis at start of day UTC) — built from the connection's configured
+  `fields.epicStart`/`fields.epicDue` field ids' own changelog history (`WorkItemStore
+  .fieldChangesByFieldIds`, batch-scoped to epic issue ids only, the review round 2b memory bound
+  applied here too) plus the CURRENT value (`DeriveContext.epicDateValue`, already used by
+  `dim_epic`'s own `start_at`/`due_at` columns) as the timeline's own ground truth. The epic's own
+  ESTIMATE timeline is never re-read here — pass 1's `ItemDerived.estimateTimeline` is reused
+  verbatim, the same way `fact_epic_delivery`'s own snapshots read it.
+- **PV curve (`DeriveKernels.pvCurve`, `WorkingCalendar`-driven, not persisted this commit — read by
+  reports/aggregates later).** Spreads `budget_md` evenly over the WORKING days in
+  `[start_at, due_at]` (inclusive both ends), one cumulative point per working day. `start_at`/
+  `due_at` are ZONE-FREE calendar dates (epoch millis at start of day UTC, the `duedate`/
+  `dateFieldTimeline` convention) — read back as `LocalDate`s via UTC, NEVER the connection's
+  configured zone, which would shift a UTC-midnight date a calendar day earlier for any zone behind
+  UTC (e.g. `America/New_York`); only the configured weekend/holiday RULES apply to those dates
+  (`WorkingCalendar.isWorkingDay(LocalDate)`, itself zone-free). The LAST working day absorbs the
+  rounding remainder, so `PV(due) == budget_md` exactly regardless of how evenly the division
+  splits — never a source of silent drift the way naive per-day rounding would be. A window with no
+  working day at all (every day in range is a weekend/holiday) returns an empty curve.
+- **An epic whose connection has no `fields.epicStart`/`fields.epicDue` configured at all** writes
+  no `fact_epic_plan` rows for ANY of its epics — the same "no dates, no baseline" rule a single
+  epic with unset date VALUES hits inside the kernel, applied at the connection level before the
+  step even reads any field-change history.
+
+Tests: `DeriveKernelsTest` (no baseline without both dates; the baseline dates to whichever field
+resolves LAST, in either order; a later date or budget change supersedes and re-baselines; an
+unchanged re-submission opens no new baseline; a date later CLEARED supersedes the open baseline
+with none current, and a later re-set — even to the same value — opens a genuinely new one; the
+CHILDREN fallback; a `0` own estimate treated as unestimated; `pvCurve`'s `PV(due) == budget`
+exactly with a remainder-absorbing last day, its monotonicity, that weekends/holidays contribute no
+point of their own, a single-day window, and that a zone behind UTC (`America/New_York`) never
+shifts the window).
+`MetricsDerivationTest` re-asserts the golden epic's CURRENT baseline (start/due/budget/source)
+against `expected.json`'s own `golden.epic` figures and that its persisted baseline's PV curve
+still ends at the budget exactly — an end-to-end wiring check, not a re-proof of the kernel's own
+math. `DerivedStubFixture`'s own tripwire digest folds in `fact_epic_plan`
+(`issue_id, baseline_seq` order, the surrogate `id` excluded — the same rule every other bridge's
+digest line already follows).
+
 ## Not yet ported / not yet written
 
-Epic plans/daily aggregates (commit 9's remaining pieces), the report API and the SPA pages all
-arrive with their own commits and their own sections here.
+The daily aggregates (`agg_daily_wip`/`agg_daily_flow`, the DERIVE reprocess/perf checks) round out
+commit 9; the report API and the SPA pages all arrive with their own commits and their own
+sections here.
