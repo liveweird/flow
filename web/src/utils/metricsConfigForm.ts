@@ -26,6 +26,8 @@ export interface DomainRowState {
   projectKey: string;
   domainKey: string;
   domainName: string;
+  /** "" means unowned; otherwise a team id carried as a string (Mantine Select values are strings). */
+  ownerTeamId: string;
 }
 
 export interface BoardRowState {
@@ -106,7 +108,12 @@ export function buildInitialState(
   const domainByProjectKey = new Map(config.domains.map((d) => [d.projectKey, d]));
   const domains: DomainRowState[] = options.projects.map((projectKey) => {
     const existing = domainByProjectKey.get(projectKey);
-    return { projectKey, domainKey: existing?.domainKey ?? projectKey, domainName: existing?.domainName ?? projectKey };
+    return {
+      projectKey,
+      domainKey: existing?.domainKey ?? projectKey,
+      domainName: existing?.domainName ?? projectKey,
+      ownerTeamId: existing?.ownerTeamId != null ? String(existing.ownerTeamId) : "",
+    };
   });
 
   const teamIdByBoardId = new Map(config.boards.map((b) => [b.boardId, b.teamId]));
@@ -170,7 +177,12 @@ export function buildRequest(state: MetricsConfigFormState): DataSourceMetricsCo
       epicDue: state.fields.epicDue || null,
       workCategory: state.fields.workCategory || null,
     },
-    domains: state.domains.map((d) => ({ projectKey: d.projectKey, domainKey: d.domainKey, domainName: d.domainName })),
+    domains: state.domains.map((d) => ({
+      projectKey: d.projectKey,
+      domainKey: d.domainKey,
+      domainName: d.domainName,
+      ownerTeamId: d.ownerTeamId === "" ? null : Number(d.ownerTeamId),
+    })),
     boards: state.boards.filter((b) => b.teamId !== "").map((b) => ({ boardId: b.boardId, teamId: Number(b.teamId) })),
     activityTypes: state.activityTypes.map((a) => ({ issueType: a.issueType, activityType: a.activityType })),
     workCategories: state.fields.workCategory
@@ -183,6 +195,35 @@ export function buildRequest(state: MetricsConfigFormState): DataSourceMetricsCo
       .filter((c) => c.capacityMd !== "")
       .map((c) => ({ sprintId: c.sprintId, capacityMd: Number(c.capacityMd) })),
   };
+}
+
+/**
+ * Sets `ownerTeamId` on every domain row sharing the SAME `domainKey` as the row identified by
+ * `projectKey` — the server's own rule ("every row of a domainKey must agree, null or equal";
+ * `metrics/DataSourceMetricsConfig.kt`'s `validateDomains`) means one project's owner choice IS
+ * every project's choice once they share a domain.
+ */
+export function setOwnerTeamForDomainGroup(domains: DomainRowState[], projectKey: string, ownerTeamId: string): DomainRowState[] {
+  const changedRow = domains.find((d) => d.projectKey === projectKey);
+  if (!changedRow) return domains;
+  const domainKey = changedRow.domainKey;
+  return domains.map((d) => (d.domainKey === domainKey ? { ...d, ownerTeamId } : d));
+}
+
+/**
+ * Sets one row's domain key. When the new key joins rows that already share it, the merged group gets
+ * ONE owner — the edited row's own owner if it has one, else the group's existing owner — so a merge
+ * never leaves two disagreeing owners for the server to reject (every row of a domainKey must agree).
+ */
+export function setDomainKeyForProject(domains: DomainRowState[], projectKey: string, domainKey: string): DomainRowState[] {
+  const edited = domains.find((d) => d.projectKey === projectKey);
+  if (!edited) return domains;
+  const renamed = domains.map((d) => (d.projectKey === projectKey ? { ...d, domainKey } : d));
+  const groupOwner =
+    edited.ownerTeamId !== ""
+      ? edited.ownerTeamId
+      : (renamed.find((d) => d.projectKey !== projectKey && d.domainKey === domainKey && d.ownerTeamId !== "")?.ownerTeamId ?? "");
+  return renamed.map((d) => (d.domainKey === domainKey ? { ...d, ownerTeamId: groupOwner } : d));
 }
 
 /** The board ids whose `teamId` differs between two board-row snapshots — the 409 row-marking rule. */

@@ -24,6 +24,8 @@ import {
   changedBoardIds,
   mergeWorkCategoryValues,
   METRICS_STAGES,
+  setDomainKeyForProject,
+  setOwnerTeamForDomainGroup,
   type ActivityRowState,
   type BoardRowState,
   type CapacityRowState,
@@ -129,10 +131,12 @@ function FieldsTab({
 function DomainsTab({
   t,
   domains,
+  teamOptions,
   onChange,
 }: {
   t: TFunction;
   domains: DomainRowState[];
+  teamOptions: { value: string; label: string }[];
   onChange: (next: DomainRowState[]) => void;
 }) {
   const rows: MappingRow[] = domains.map((row) => ({
@@ -143,7 +147,7 @@ function DomainsTab({
         type: "text",
         ariaLabel: t("metrics.config.domains.domainKeyAria", { project: row.projectKey }),
         value: row.domainKey,
-        onChange: (value) => onChange(domains.map((d) => (d.projectKey === row.projectKey ? { ...d, domainKey: value } : d))),
+        onChange: (value) => onChange(setDomainKeyForProject(domains, row.projectKey, value)),
       },
       {
         type: "text",
@@ -151,12 +155,24 @@ function DomainsTab({
         value: row.domainName,
         onChange: (value) => onChange(domains.map((d) => (d.projectKey === row.projectKey ? { ...d, domainName: value } : d))),
       },
+      {
+        type: "select",
+        ariaLabel: t("metrics.config.domains.ownerTeamAria", { project: row.projectKey }),
+        value: row.ownerTeamId,
+        options: teamOptions,
+        placeholder: t("metrics.config.domains.ownerTeamPlaceholder"),
+        onChange: (value) => onChange(setOwnerTeamForDomainGroup(domains, row.projectKey, value)),
+      },
     ] satisfies MappingField[],
   }));
   return (
     <MappingTable
       idColumnLabel={t("metrics.config.domains.columnProject")}
-      fieldColumnLabels={[t("metrics.config.domains.columnDomainKey"), t("metrics.config.domains.columnDomainName")]}
+      fieldColumnLabels={[
+        t("metrics.config.domains.columnDomainKey"),
+        t("metrics.config.domains.columnDomainName"),
+        t("metrics.config.domains.columnOwnerTeam"),
+      ]}
       rows={rows}
       emptyMessage={t("metrics.config.domains.empty")}
     />
@@ -496,7 +512,12 @@ export default function DataSourceMetricsConfig() {
             />
           </Tabs.Panel>
           <Tabs.Panel value="domains" pt="md">
-            <DomainsTab t={t} domains={state.domains} onChange={(domains) => setState({ ...state, domains })} />
+            <DomainsTab
+              t={t}
+              domains={state.domains}
+              teamOptions={teamOptions}
+              onChange={(domains) => setState({ ...state, domains })}
+            />
           </Tabs.Panel>
           <Tabs.Panel value="boards" pt="md">
             <BoardsTab

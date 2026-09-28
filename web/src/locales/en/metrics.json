@@ -131,8 +131,11 @@
       "columnProject": "Project key",
       "columnDomainKey": "Domain key",
       "columnDomainName": "Domain name",
+      "columnOwnerTeam": "Owner team",
       "domainKeyAria": "Domain key for {{project}}",
       "domainNameAria": "Domain name for {{project}}",
+      "ownerTeamAria": "Owner team for {{project}}",
+      "ownerTeamPlaceholder": "Unowned",
       "empty": "No projects observed yet — sync this connection first."
     },
     "boards": {
