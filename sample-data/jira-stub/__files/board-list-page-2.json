@@ -1,0 +1,26 @@
+{
+  "maxResults": 2,
+  "startAt": 2,
+  "total": 5,
+  "isLast": false,
+  "values": [
+    {
+      "id": 3,
+      "name": "Go To Market board",
+      "type": "scrum",
+      "location": {
+        "projectId": 10002,
+        "projectKey": "GTM"
+      }
+    },
+    {
+      "id": 4,
+      "name": "Operations board",
+      "type": "kanban",
+      "location": {
+        "projectId": 10003,
+        "projectKey": "OPS"
+      }
+    }
+  ]
+}

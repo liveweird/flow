@@ -1,9 +1,11 @@
-import { Box, Stack } from "@mantine/core";
+import { Anchor, Box, Stack } from "@mantine/core";
 import { IconDatabaseOff } from "@tabler/icons-react";
+import { Link as RouterLink } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useAdmin } from "../auth";
 import EmptyState from "../components/EmptyState";
 import PageHeader from "../components/PageHeader";
+import { dataSourcesPath } from "../utils/dataSourceLinks";
 import { CONTENT_MAX_WIDTH } from "../utils/layout";
 
 /**
@@ -19,10 +21,17 @@ export default function Home() {
     <Stack gap="md">
       <PageHeader title={t("home.title")} description={t("home.intro")} />
       <Box maw={CONTENT_MAX_WIDTH}>
-        <EmptyState
-          icon={IconDatabaseOff}
-          label={admin ? t("home.emptyAdmin") : t("home.empty")}
-        />
+        <Stack align="center" gap="sm">
+          <EmptyState
+            icon={IconDatabaseOff}
+            label={admin ? t("home.emptyAdmin") : t("home.empty")}
+          />
+          {admin && (
+            <Anchor component={RouterLink} to={dataSourcesPath} size="sm">
+              {t("home.emptyAdminLink")}
+            </Anchor>
+          )}
+        </Stack>
       </Box>
     </Stack>
   );

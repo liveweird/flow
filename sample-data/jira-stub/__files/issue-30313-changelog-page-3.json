@@ -1,0 +1,41 @@
+{
+  "startAt": 6,
+  "maxResults": 3,
+  "total": 8,
+  "histories": [
+    {
+      "id": "501336",
+      "created": "2025-12-10T21:38:00.138+0000",
+      "author": {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d02"
+      },
+      "items": [
+        {
+          "field": "assignee",
+          "fieldId": "assignee",
+          "from": "5f8a1b2c3d4e5f6a7b8c9d09",
+          "fromString": "Sample User 9",
+          "to": "5f8a1b2c3d4e5f6a7b8c9d07",
+          "toString": "Sample User 7"
+        }
+      ]
+    },
+    {
+      "id": "501337",
+      "created": "2025-12-18T13:38:00.138+0000",
+      "author": {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d14"
+      },
+      "items": [
+        {
+          "field": "status",
+          "fieldId": "status",
+          "from": "10001",
+          "fromString": "In Review",
+          "to": "10002",
+          "toString": "Done"
+        }
+      ]
+    }
+  ]
+}

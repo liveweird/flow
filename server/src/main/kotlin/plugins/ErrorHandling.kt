@@ -77,6 +77,12 @@ suspend fun ApplicationCall.respondProblem(
 
 private const val PG_UNIQUE_VIOLATION = "23505"
 
+// exclusion_violation: raised by an EXCLUDE USING gist constraint (v0.3.0 M1 commit 3,
+// metrics.team_membership's overlap guard, `.claude/docs/persistence.md` "The metrics schema —
+// configuration (V15)") — the SAME "this would collide with an existing row" shape as a unique
+// violation, just a different SQLSTATE, so it joins 23505 on the 409 path below.
+private const val PG_EXCLUSION_VIOLATION = "23P01"
+
 // character_not_in_repertoire: PostgreSQL rejects NUL (0x00) inside text values — a client
 // error (nothing legitimate contains NUL), not a server fault.
 private const val PG_CHARACTER_NOT_IN_REPERTOIRE = "22021"
@@ -97,6 +103,8 @@ private fun Throwable.hasSqlState(state: String): Boolean =
 // Internal (not private): the user-import loop classifies per-row duplicates with it.
 internal fun Throwable.isUniqueViolation(): Boolean = hasSqlState(PG_UNIQUE_VIOLATION)
 
+internal fun Throwable.isExclusionViolation(): Boolean = hasSqlState(PG_EXCLUSION_VIOLATION)
+
 internal fun Throwable.isCharacterNotInRepertoire(): Boolean = hasSqlState(PG_CHARACTER_NOT_IN_REPERTOIRE)
 
 // Per-constraint 409 wording: Postgres names the violated unique index in its error message
@@ -106,6 +114,8 @@ internal fun Throwable.isCharacterNotInRepertoire(): Boolean = hasSqlState(PG_CH
 private val UNIQUE_CONSTRAINT_DETAILS = mapOf(
     "uq_users_email_active" to "A user with this email already exists",
     "uq_teams_name_active" to "A team with this name already exists",
+    "uq_source_connections_name_active" to "A data source with this name already exists",
+    "uq_metrics_board_team_map_team_id" to "This team is already mapped to another board",
 )
 
 private fun Throwable.uniqueViolationDetail(): String {
@@ -123,6 +133,8 @@ private suspend fun ApplicationCall.respondConflict(cause: Throwable) =
 
 private suspend fun ApplicationCall.respondDbFailure(cause: Throwable) = when {
     cause.isUniqueViolation() -> respondConflict(cause)
+    cause.isExclusionViolation() ->
+        respondProblem(HttpStatusCode.Conflict, "Overlapping team membership for this account")
     cause.isCharacterNotInRepertoire() ->
         respondProblem(HttpStatusCode.BadRequest, "Text must not contain the NUL character")
     else -> respondInternalError(cause)

@@ -135,6 +135,27 @@ workspace here running the same tools:
   have its downstream image rebuild run in parallel with its own CI, since nothing about the image
   input changed.
 
+## New dependencies (v0.2.0 plan commit 4 — the Jira HTTP client)
+
+- `io.ktor:ktor-client-core` / `io.ktor:ktor-client-okhttp` (`ktorLibs.client.core`/`.okhttp`,
+  main): the Jira Cloud client (`jira/JiraHttp.kt`, `jira/JiraClient.kt`) runs Ktor's `HttpClient`
+  over the OkHttp engine specifically so `infra/outbound/OutboundGuard.kt`'s guarded
+  `okhttp3.OkHttpClient` (the `Dns` pin, no redirects/proxy/connection-failure-retry) can
+  preconfigure the transport (`engine { preconfigured = ... }`) — OkHttp's `Dns` hook is the clean
+  way to port Toadie's resolve-check-connect pinning into a long-lived client (plan §3).
+- `io.ktor:ktor-client-mock` (`ktorLibs.client.mock`, test-only): `JiraClientTest` scripts
+  `JiraHttp`/`HttpJiraClient` against a `MockEngine` — no network, no WireMock needed for
+  unit-level status/retry/paging/auth-header coverage.
+- `org.wiremock:wiremock-standalone` (`libs.wiremock.standalone`, test-only, pinned to the SAME
+  version as the compose `jira-stub` image tag): `JiraStubServer.kt` runs the real
+  `sample-data/jira-stub` mappings in-JVM for `DataSourceTestConnectionTest`. The `-standalone`
+  shaded artifact was chosen specifically because it bundles its own relocated Jackson/Jetty
+  rather than exposing them as ordinary `com.fasterxml.jackson`/`org.eclipse.jetty` coordinates —
+  confirmed empirically after adding it: `:server:checkDependencyAlignment` still reports the
+  Jackson family aligned at 2.22 with no new members, and the lockfile gained only one small
+  `org.eclipse.jetty.alpn:alpn-api` artifact (OkHttp's optional ALPN support, harmless). No Jackson
+  constraint was needed.
+
 ## Dependency batch 2026-09-26
 
 Weekly Dependabot round, applied on `chore/deps-2026-09-26` from `origin/master` (1eb7de7).

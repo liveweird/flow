@@ -1,0 +1,601 @@
+{
+  "referenceDate": "2026-09-01T00:00:00.000Z",
+  "day2Date": "2026-09-02T00:00:00.000Z",
+  "cloudId": "b3f1a2c4-5d6e-4f7a-8b9c-0d1e2f3a4b5c",
+  "siteHost": "flow-sample.atlassian.net",
+  "connection": {
+    "projectKeys": [
+      "FLO",
+      "PLT",
+      "GTM",
+      "OPS"
+    ],
+    "outOfScopeProjectKey": "SEC",
+    "backfillFrom": "2025-09-01"
+  },
+  "issues": {
+    "totalInScope": 1200,
+    "perProject": {
+      "FLO": 400,
+      "PLT": 350,
+      "GTM": 300,
+      "OPS": 150,
+      "SEC": 80
+    },
+    "outOfScopeTotal": 80
+  },
+  "changelog": {
+    "allProjectsHistories": 5436,
+    "inScopeHistories": 5183,
+    "bulkfetchChunkSize": 50,
+    "bulkfetchChunkCount": 24,
+    "omittedBulkfetchChunkIndex": 5,
+    "omittedBulkfetchChunkIssueIds": [
+      "30265",
+      "30266",
+      "30267",
+      "30268",
+      "30269",
+      "30270",
+      "30271",
+      "30272",
+      "30273",
+      "30274",
+      "30276",
+      "30278",
+      "30279",
+      "30280",
+      "30281",
+      "30282",
+      "30283",
+      "30284",
+      "30285",
+      "30286",
+      "30287",
+      "30288",
+      "30289",
+      "30290",
+      "30291",
+      "30292",
+      "30293",
+      "30294",
+      "30296",
+      "30297",
+      "30298",
+      "30299",
+      "30300",
+      "30301",
+      "30302",
+      "30303",
+      "30304",
+      "30305",
+      "30306",
+      "30307",
+      "30308",
+      "30309",
+      "30310",
+      "30311",
+      "30312",
+      "30313",
+      "30314",
+      "30315",
+      "30316",
+      "30317"
+    ],
+    "fallbackIssueCount": 50
+  },
+  "worklogs": {
+    "allProjectsIssueCount": 495,
+    "allProjectsTotalCount": 1266,
+    "inScopeCount": 1187,
+    "inScopeIssueCount": 468,
+    "outOfScopeDay2FeedCount": 2,
+    "day2NewInScopeCount": 2,
+    "day2DeletedWorklogId": "700000",
+    "day2DeletedWorklogIssueId": "30003"
+  },
+  "reopens": {
+    "count": 57,
+    "inScopeCount": 53
+  },
+  "flagged": {
+    "count": 61
+  },
+  "sprints": {
+    "carryOverCount": 233,
+    "perProjectSprintCounts": {
+      "FLO": 28,
+      "PLT": 28,
+      "GTM": 28
+    },
+    "completeDateShiftedCount": 25,
+    "futureBacklogCount": 10,
+    "entryMovedToPlanningCount": 6,
+    "entryMovedHistorySplitCount": 0,
+    "backlogRefinedCount": 650,
+    "backlogRefinedHistorySplitCount": 0,
+    "backlogRefinedSubtaskPulledCount": 0
+  },
+  "estimates": {
+    "storyPointsCount": 397,
+    "originalEstimateCount": 548,
+    "epicStoryPointsCount": 15,
+    "taskEstimateChangedAfterStartCount": 55,
+    "taskEstimatedLateCount": 18
+  },
+  "epicDates": {
+    "datedEpicCount": 15,
+    "changedCount": 5
+  },
+  "parentMoves": {
+    "count": 6,
+    "issueIds": [
+      "30097",
+      "30160",
+      "30176",
+      "30672",
+      "30862",
+      "31263"
+    ]
+  },
+  "workCategory": {
+    "epicCount": 15,
+    "otherCount": 767
+  },
+  "worklogTimestamps": {
+    "createdLaterCount": 240,
+    "updatedLaterCount": 147
+  },
+  "workflows": {
+    "FLO": [
+      "To Do",
+      "In Progress",
+      "In Review",
+      "Done"
+    ],
+    "PLT": [
+      "To Do",
+      "In Progress",
+      "Blocked",
+      "In Review",
+      "Done"
+    ],
+    "GTM": [
+      "To Do",
+      "In Progress",
+      "In Review",
+      "Waiting",
+      "Done"
+    ],
+    "OPS": [
+      "To Do",
+      "In Progress",
+      "Blocked",
+      "Done"
+    ],
+    "SEC": [
+      "To Do",
+      "In Progress",
+      "Done"
+    ]
+  },
+  "boards": [
+    {
+      "id": 1,
+      "projectKey": "FLO",
+      "type": "scrum",
+      "columns": [
+        {
+          "name": "To Do",
+          "statuses": [
+            "To Do"
+          ]
+        },
+        {
+          "name": "In Progress",
+          "statuses": [
+            "In Progress"
+          ]
+        },
+        {
+          "name": "In Review",
+          "statuses": [
+            "In Review"
+          ]
+        },
+        {
+          "name": "Done",
+          "statuses": [
+            "Done"
+          ]
+        }
+      ],
+      "unmappedStatuses": []
+    },
+    {
+      "id": 2,
+      "projectKey": "PLT",
+      "type": "scrum",
+      "columns": [
+        {
+          "name": "To Do",
+          "statuses": [
+            "To Do"
+          ]
+        },
+        {
+          "name": "In Progress",
+          "statuses": [
+            "In Progress",
+            "Blocked"
+          ]
+        },
+        {
+          "name": "In Review",
+          "statuses": [
+            "In Review"
+          ]
+        },
+        {
+          "name": "Done",
+          "statuses": [
+            "Done"
+          ]
+        }
+      ],
+      "unmappedStatuses": []
+    },
+    {
+      "id": 3,
+      "projectKey": "GTM",
+      "type": "scrum",
+      "columns": [
+        {
+          "name": "To Do",
+          "statuses": [
+            "To Do"
+          ]
+        },
+        {
+          "name": "In Progress",
+          "statuses": [
+            "In Progress"
+          ]
+        },
+        {
+          "name": "In Review",
+          "statuses": [
+            "In Review"
+          ]
+        },
+        {
+          "name": "Done",
+          "statuses": [
+            "Done"
+          ]
+        }
+      ],
+      "unmappedStatuses": [
+        "Waiting"
+      ]
+    },
+    {
+      "id": 4,
+      "projectKey": "OPS",
+      "type": "kanban",
+      "columns": [
+        {
+          "name": "To Do",
+          "statuses": [
+            "To Do"
+          ]
+        },
+        {
+          "name": "In Progress",
+          "statuses": [
+            "In Progress",
+            "Blocked"
+          ]
+        },
+        {
+          "name": "Done",
+          "statuses": [
+            "Done"
+          ]
+        }
+      ],
+      "unmappedStatuses": []
+    },
+    {
+      "id": 5,
+      "projectKey": "SEC",
+      "type": "kanban",
+      "columns": [
+        {
+          "name": "To Do",
+          "statuses": [
+            "To Do"
+          ]
+        },
+        {
+          "name": "In Progress",
+          "statuses": [
+            "In Progress"
+          ]
+        },
+        {
+          "name": "Done",
+          "statuses": [
+            "Done"
+          ]
+        }
+      ],
+      "unmappedStatuses": []
+    }
+  ],
+  "day2": {
+    "deletedIssueId": "30546",
+    "deletedIssueKey": "OPS-66",
+    "movedIssueId": "31167",
+    "movedIssueKeyBefore": "FLO-366",
+    "movedFromProjectKey": "FLO",
+    "movedToProjectKey": "SEC",
+    "updatedIssueIds": [
+      "31070",
+      "30791",
+      "31200",
+      "30829"
+    ]
+  },
+  "users": {
+    "count": 30
+  },
+  "teams": {
+    "names": [
+      "Payments",
+      "Platform Core",
+      "Growth",
+      "Reliability"
+    ],
+    "roster": [
+      {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d01",
+        "displayName": "Sample User 1",
+        "team": "Platform Core"
+      },
+      {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d02",
+        "displayName": "Sample User 2",
+        "team": "Growth"
+      },
+      {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d03",
+        "displayName": "Sample User 3",
+        "team": "Platform Core"
+      },
+      {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d04",
+        "displayName": "Sample User 4",
+        "team": "Payments"
+      },
+      {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d05",
+        "displayName": "Sample User 5",
+        "team": "Reliability"
+      },
+      {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d06",
+        "displayName": "Sample User 6",
+        "team": "Payments"
+      },
+      {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d07",
+        "displayName": "Sample User 7",
+        "team": null
+      },
+      {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d08",
+        "displayName": "Sample User 8",
+        "team": "Payments"
+      },
+      {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d09",
+        "displayName": "Sample User 9",
+        "team": "Growth"
+      },
+      {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d10",
+        "displayName": "Sample User 10",
+        "team": "Growth"
+      },
+      {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d11",
+        "displayName": "Sample User 11",
+        "team": "Platform Core"
+      },
+      {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d12",
+        "displayName": "Sample User 12",
+        "team": "Growth"
+      },
+      {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d13",
+        "displayName": "Sample User 13",
+        "team": "Reliability"
+      },
+      {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d14",
+        "displayName": "Sample User 14",
+        "team": "Growth"
+      },
+      {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d15",
+        "displayName": "Sample User 15",
+        "team": "Reliability"
+      },
+      {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d16",
+        "displayName": "Sample User 16",
+        "team": "Growth"
+      },
+      {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d17",
+        "displayName": "Sample User 17",
+        "team": "Reliability"
+      },
+      {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d18",
+        "displayName": "Sample User 18",
+        "team": "Platform Core"
+      },
+      {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d19",
+        "displayName": "Sample User 19",
+        "team": "Platform Core"
+      },
+      {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d20",
+        "displayName": "Sample User 20",
+        "team": "Payments"
+      },
+      {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d21",
+        "displayName": "Sample User 21",
+        "team": "Reliability"
+      },
+      {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d22",
+        "displayName": "Sample User 22",
+        "team": "Payments"
+      },
+      {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d23",
+        "displayName": "Sample User 23",
+        "team": "Platform Core"
+      },
+      {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d24",
+        "displayName": "Sample User 24",
+        "team": "Payments"
+      },
+      {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d25",
+        "displayName": "Sample User 25",
+        "team": "Payments"
+      },
+      {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d26",
+        "displayName": "Sample User 26",
+        "team": "Reliability"
+      },
+      {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d27",
+        "displayName": "Sample User 27",
+        "team": null
+      },
+      {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d28",
+        "displayName": "Sample User 28",
+        "team": "Platform Core"
+      },
+      {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d29",
+        "displayName": "Sample User 29",
+        "team": "Growth"
+      },
+      {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d30",
+        "displayName": "Sample User 30",
+        "team": "Reliability"
+      }
+    ]
+  },
+  "golden": {
+    "sprint": {
+      "sprintId": 3003,
+      "name": "FLO Sprint 4",
+      "projectKey": "FLO",
+      "startDate": "2025-10-13",
+      "endDate": "2025-10-27",
+      "completeDate": "2025-10-27",
+      "committedMd": 61,
+      "committedItems": 20,
+      "committedIssueKeys": [
+        "FLO-28",
+        "FLO-38",
+        "FLO-42",
+        "FLO-45",
+        "FLO-46",
+        "FLO-47",
+        "FLO-48",
+        "FLO-49",
+        "FLO-50",
+        "FLO-52",
+        "FLO-53",
+        "FLO-54",
+        "FLO-55",
+        "FLO-57",
+        "FLO-58",
+        "FLO-59",
+        "FLO-60",
+        "FLO-61",
+        "FLO-63",
+        "FLO-64"
+      ],
+      "addedMd": 0,
+      "addedItems": 3,
+      "addedIssueKeys": [
+        "FLO-51",
+        "FLO-62",
+        "FLO-65"
+      ],
+      "removedMd": 0,
+      "removedItems": 0,
+      "removedIssueKeys": [],
+      "finalMd": 61,
+      "finalItems": 23,
+      "deliveredMd": 32,
+      "deliveredItems": 7,
+      "deliveredIssueKeys": [
+        "FLO-28",
+        "FLO-45",
+        "FLO-46",
+        "FLO-47",
+        "FLO-48",
+        "FLO-52",
+        "FLO-53"
+      ],
+      "carriedOverMd": 7,
+      "carriedOverItems": 4,
+      "carriedOverIssueKeys": [
+        "FLO-54",
+        "FLO-55",
+        "FLO-58",
+        "FLO-61"
+      ],
+      "droppedMd": 22,
+      "droppedItems": 9,
+      "droppedIssueKeys": [
+        "FLO-38",
+        "FLO-42",
+        "FLO-49",
+        "FLO-50",
+        "FLO-57",
+        "FLO-59",
+        "FLO-60",
+        "FLO-63",
+        "FLO-64"
+      ]
+    },
+    "epic": {
+      "issueId": "30109",
+      "issueKey": "FLO-33",
+      "budgetMd": 46,
+      "startDate": "2025-10-30",
+      "dueDate": "2025-12-02",
+      "childSumMd": 115,
+      "childCount": 30
+    }
+  },
+  "mappingCount": 785
+}

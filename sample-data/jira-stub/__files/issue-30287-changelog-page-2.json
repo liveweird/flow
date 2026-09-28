@@ -1,0 +1,58 @@
+{
+  "startAt": 3,
+  "maxResults": 3,
+  "total": 7,
+  "histories": [
+    {
+      "id": "501213",
+      "created": "2025-11-28T01:51:05.732+0000",
+      "author": {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d14"
+      },
+      "items": [
+        {
+          "field": "assignee",
+          "fieldId": "assignee",
+          "from": null,
+          "fromString": null,
+          "to": "5f8a1b2c3d4e5f6a7b8c9d08",
+          "toString": "Sample User 8"
+        }
+      ]
+    },
+    {
+      "id": "501214",
+      "created": "2025-12-09T01:51:05.732+0000",
+      "author": {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d11"
+      },
+      "items": [
+        {
+          "field": "assignee",
+          "fieldId": "assignee",
+          "from": "5f8a1b2c3d4e5f6a7b8c9d08",
+          "fromString": "Sample User 8",
+          "to": "5f8a1b2c3d4e5f6a7b8c9d27",
+          "toString": "Sample User 27"
+        }
+      ]
+    },
+    {
+      "id": "501215",
+      "created": "2025-12-17T01:51:05.732+0000",
+      "author": {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d30"
+      },
+      "items": [
+        {
+          "field": "Flagged",
+          "fieldId": "customfield_10021",
+          "from": null,
+          "fromString": null,
+          "to": "10019",
+          "toString": "Impediment"
+        }
+      ]
+    }
+  ]
+}

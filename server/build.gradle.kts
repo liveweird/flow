@@ -71,10 +71,12 @@ kover {
                 // Line-coverage floor (actual 94.49% on 2026-09-26, measured with the @Serializable
                 // exclusion above, after trimming the suite down to the generic foundation —
                 // re-measure with `:server:koverXmlReport` and RAISE, never lower).
-                minBound(91)
-                // Branch-coverage floor (actual 77.20%, 2026-09-26). NOTE: `check` runs only
-                // koverVerify — run `:server:koverXmlReport` for fresh actuals.
-                minBound(74, coverageUnits = kotlinx.kover.gradle.plugin.dsl.CoverageUnit.BRANCH)
+                // 2026-09-28, v0.3.0 M1 (norm gaps + metrics config): actual 97.20% → floor 96.
+                minBound(96)
+                // Branch-coverage floor (actual 77.20%, 2026-09-26; 76.19% at v0.3.0 M1, 2026-09-28 —
+                // the phase-2 normalizer's defensive branches dominate what's left). NOTE: `check`
+                // runs only koverVerify — run `:server:koverXmlReport` for fresh actuals.
+                minBound(75, coverageUnits = kotlinx.kover.gradle.plugin.dsl.CoverageUnit.BRANCH)
             }
         }
     }
@@ -107,6 +109,11 @@ dependencies {
     implementation(ktorLibs.server.cachingHeaders)
     implementation(ktorLibs.server.callId)
     implementation(ktorLibs.server.callLogging)
+    // The Jira Cloud HTTP client (v0.2.0 plan §6): Ktor's client core plus the OkHttp engine, so
+    // `infra/outbound/OutboundGuard.kt`'s guarded `okhttp3.OkHttpClient` (Dns pinning, no
+    // redirects/proxy/connection-failure-retry) preconfigures the transport `jira/JiraHttp.kt` runs on.
+    implementation(ktorLibs.client.core)
+    implementation(ktorLibs.client.okhttp)
     implementation(ktorLibs.server.compression)
     implementation(ktorLibs.server.config.yaml)
     implementation(ktorLibs.server.contentNegotiation)
@@ -160,6 +167,13 @@ dependencies {
     // Test-only: the test HTTP clients (TestEnvironment.kt's jsonClient()/authedClient()) negotiate
     // application/json and application/problem+json bodies.
     testImplementation(ktorLibs.client.contentNegotiation)
+    // Test-only: JiraClientTest exercises HttpJiraClient/JiraHttp against a scripted Ktor
+    // MockEngine instead of a real socket — no network, no WireMock needed for that suite.
+    testImplementation(ktorLibs.client.mock)
+    // Test-only: JiraStubServer runs the real sample-data/jira-stub WireMock mappings in-JVM
+    // (JiraSyncPipelineTest, DataSourceTestConnectionTest) — the standalone shaded artifact avoids
+    // dragging WireMock's own Jackson/Jetty transitives into the family alignment gate below.
+    testImplementation(libs.wiremock.standalone)
     // Test-only: the OpenAPI conformance/spec-validation harness (OpenApiConformance.kt,
     // OpenApiSpecTest.kt) parses and validates documentation.yaml against real traffic — see the
     // `swagger-parser`/`swagger-request-validator` catalog notes.

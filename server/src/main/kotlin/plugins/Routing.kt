@@ -5,6 +5,10 @@ import io.ktor.server.http.content.*
 import io.ktor.server.routing.*
 
 fun Application.configureRouting() {
+    // The worker role serves only the health/ready probes (plugins/Health.kt) — no SPA/static
+    // assets, no catch-all.
+    if (!servesApi()) return
+
     val staticDir = environment.config.propertyOrNull("web.staticDir")?.getString()?.takeIf { it.isNotBlank() }
 
     routing {

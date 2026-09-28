@@ -1,0 +1,14 @@
+{
+  "priority": 100,
+  "request": {
+    "method": "GET",
+    "urlPathPattern": "/ex/jira/b3f1a2c4-5d6e-4f7a-8b9c-0d1e2f3a4b5c/.*"
+  },
+  "response": {
+    "status": 401,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "bodyFileName": "auth-catchall-401.json"
+  }
+}

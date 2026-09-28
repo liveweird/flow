@@ -23,6 +23,12 @@ const ResetPassword = lazy(() => import("./pages/ResetPassword"));
 const Users = lazy(() => import("./pages/Users"));
 const UserFeatures = lazy(() => import("./pages/UserFeatures"));
 const FeatureFlags = lazy(() => import("./pages/FeatureFlags"));
+const DataSources = lazy(() => import("./pages/DataSources"));
+const DataSourceDetails = lazy(() => import("./pages/DataSourceDetails"));
+const DataSourceProfile = lazy(() => import("./pages/DataSourceProfile"));
+const RawIssueInspector = lazy(() => import("./pages/RawIssueInspector"));
+const DataSourceMetricsConfig = lazy(() => import("./pages/DataSourceMetricsConfig"));
+const MetricsSettings = lazy(() => import("./pages/MetricsSettings"));
 const CreateUser = lazy(() => import("./pages/CreateUser"));
 const EditUser = lazy(() => import("./pages/EditUser"));
 const ChangePassword = lazy(() => import("./pages/ChangePassword"));
@@ -200,6 +206,12 @@ export default function App() {
               <Route path="users/:id/edit" element={<EditUser />} />
               <Route path="users/:id/features" element={<UserFeatures />} />
               <Route path="feature-flags" element={<FeatureFlags />} />
+              <Route path="data-sources" element={<DataSources />} />
+              <Route path="data-sources/:id" element={<DataSourceDetails />} />
+              <Route path="data-sources/:id/profile" element={<DataSourceProfile />} />
+              <Route path="data-sources/:id/inspect" element={<RawIssueInspector />} />
+              <Route path="data-sources/:id/metrics-config" element={<DataSourceMetricsConfig />} />
+              <Route path="metrics-settings" element={<MetricsSettings />} />
             </Route>
             <Route path="change-password" element={<ChangePassword />} />
             <Route path="changelog" element={<Changelog />} />

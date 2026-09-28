@@ -22,8 +22,9 @@ generated from a list, so a single scenario section stands in for each list.
    - *Expected*: an axe scan (same tags) reports zero violations.
 
 The list covers the Home page, the Teams list, the Users list and its create form, the
-ADMIN feature-flags screen, Change password and the Changelog — see
-`tests/accessibility.spec.ts`'s `AUTHED_PAGES` list for the current set.
+ADMIN feature-flags screen, the Data sources list, the Metrics settings form (v0.3.0), Change
+password and the Changelog — see `tests/accessibility.spec.ts`'s `AUTHED_PAGES` list for the
+current set.
 
 ## Scenario: `<detail page>` has no WCAG A/AA violations
 

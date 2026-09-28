@@ -1,0 +1,58 @@
+{
+  "startAt": 3,
+  "maxResults": 3,
+  "total": 6,
+  "histories": [
+    {
+      "id": "501274",
+      "created": "2025-11-25T16:30:38.681+0000",
+      "author": {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d16"
+      },
+      "items": [
+        {
+          "field": "assignee",
+          "fieldId": "assignee",
+          "from": "5f8a1b2c3d4e5f6a7b8c9d01",
+          "fromString": "Sample User 1",
+          "to": "5f8a1b2c3d4e5f6a7b8c9d03",
+          "toString": "Sample User 3"
+        }
+      ]
+    },
+    {
+      "id": "501275",
+      "created": "2025-12-01T08:30:38.681+0000",
+      "author": {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d15"
+      },
+      "items": [
+        {
+          "field": "assignee",
+          "fieldId": "assignee",
+          "from": "5f8a1b2c3d4e5f6a7b8c9d03",
+          "fromString": "Sample User 3",
+          "to": "5f8a1b2c3d4e5f6a7b8c9d30",
+          "toString": "Sample User 30"
+        }
+      ]
+    },
+    {
+      "id": "501276",
+      "created": "2025-12-07T00:30:38.681+0000",
+      "author": {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d22"
+      },
+      "items": [
+        {
+          "field": "status",
+          "fieldId": "status",
+          "from": "3",
+          "fromString": "In Progress",
+          "to": "10002",
+          "toString": "Done"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,3400 @@
+{
+  "issueChangeLogs": [
+    {
+      "issueId": "31227",
+      "changeHistories": [
+        {
+          "id": "505178",
+          "created": "2026-08-18T01:04:32.095+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d09"
+          },
+          "items": [
+            {
+              "field": "Sprint",
+              "fieldId": "customfield_10020",
+              "from": null,
+              "fromString": null,
+              "to": "3081",
+              "toString": "Sprint 3081"
+            }
+          ]
+        },
+        {
+          "id": "505179",
+          "created": "2026-08-20T01:04:32.095+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d29"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "1",
+              "fromString": "To Do",
+              "to": "3",
+              "toString": "In Progress"
+            }
+          ]
+        },
+        {
+          "id": "505180",
+          "created": "2026-08-23T01:04:32.095+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d04"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "3",
+              "fromString": "In Progress",
+              "to": "10001",
+              "toString": "In Review"
+            }
+          ]
+        },
+        {
+          "id": "505181",
+          "created": "2026-08-31T01:04:32.095+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d28"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "10001",
+              "fromString": "In Review",
+              "to": "10002",
+              "toString": "Done"
+            }
+          ]
+        },
+        {
+          "id": "505454",
+          "created": "2026-08-23T01:04:32.095+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d12"
+          },
+          "items": [
+            {
+              "field": "Story Points",
+              "fieldId": "customfield_10016",
+              "from": "",
+              "fromString": "",
+              "to": "8",
+              "toString": "8"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "issueId": "31228",
+      "changeHistories": [
+        {
+          "id": "505182",
+          "created": "2026-08-16T17:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d28"
+          },
+          "items": [
+            {
+              "field": "Sprint",
+              "fieldId": "customfield_10020",
+              "from": null,
+              "fromString": null,
+              "to": "3081",
+              "toString": "Sprint 3081"
+            }
+          ]
+        },
+        {
+          "id": "505183",
+          "created": "2026-08-20T02:45:46.088+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d09"
+          },
+          "items": [
+            {
+              "field": "assignee",
+              "fieldId": "assignee",
+              "from": "5f8a1b2c3d4e5f6a7b8c9d02",
+              "fromString": "Sample User 2",
+              "to": "5f8a1b2c3d4e5f6a7b8c9d30",
+              "toString": "Sample User 30"
+            }
+          ]
+        },
+        {
+          "id": "505184",
+          "created": "2026-08-22T02:45:46.088+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d19"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "1",
+              "fromString": "To Do",
+              "to": "3",
+              "toString": "In Progress"
+            }
+          ]
+        },
+        {
+          "id": "505185",
+          "created": "2026-08-31T00:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d02"
+          },
+          "items": [
+            {
+              "field": "Sprint",
+              "fieldId": "customfield_10020",
+              "from": "3081",
+              "fromString": "Sprint 3081",
+              "to": "3081,3082",
+              "toString": "Sprint 3081, Sprint 3082"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "issueId": "31229",
+      "changeHistories": [
+        {
+          "id": "505186",
+          "created": "2026-08-19T04:23:40.735+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d06"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "1",
+              "fromString": "To Do",
+              "to": "3",
+              "toString": "In Progress"
+            }
+          ]
+        },
+        {
+          "id": "505187",
+          "created": "2026-08-21T04:23:40.735+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d13"
+          },
+          "items": [
+            {
+              "field": "assignee",
+              "fieldId": "assignee",
+              "from": "5f8a1b2c3d4e5f6a7b8c9d21",
+              "fromString": "Sample User 21",
+              "to": "5f8a1b2c3d4e5f6a7b8c9d12",
+              "toString": "Sample User 12"
+            }
+          ]
+        },
+        {
+          "id": "505188",
+          "created": "2026-08-24T04:23:40.735+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d16"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "3",
+              "fromString": "In Progress",
+              "to": "10002",
+              "toString": "Done"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "issueId": "31230",
+      "changeHistories": [
+        {
+          "id": "505189",
+          "created": "2026-08-16T22:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d02"
+          },
+          "items": [
+            {
+              "field": "Sprint",
+              "fieldId": "customfield_10020",
+              "from": null,
+              "fromString": null,
+              "to": "3053",
+              "toString": "Sprint 3053"
+            }
+          ]
+        },
+        {
+          "id": "505190",
+          "created": "2026-08-20T10:37:25.405+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d23"
+          },
+          "items": [
+            {
+              "field": "assignee",
+              "fieldId": "assignee",
+              "from": null,
+              "fromString": null,
+              "to": "5f8a1b2c3d4e5f6a7b8c9d20",
+              "toString": "Sample User 20"
+            }
+          ]
+        },
+        {
+          "id": "505191",
+          "created": "2026-08-21T22:37:25.405+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d13"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "1",
+              "fromString": "To Do",
+              "to": "3",
+              "toString": "In Progress"
+            }
+          ]
+        },
+        {
+          "id": "505192",
+          "created": "2026-08-21T22:37:25.405+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d20"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "3",
+              "fromString": "In Progress",
+              "to": "10002",
+              "toString": "Done"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "issueId": "31231",
+      "changeHistories": [
+        {
+          "id": "505193",
+          "created": "2026-08-18T22:52:07.854+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d09"
+          },
+          "items": [
+            {
+              "field": "Sprint",
+              "fieldId": "customfield_10020",
+              "from": null,
+              "fromString": null,
+              "to": "3081",
+              "toString": "Sprint 3081"
+            }
+          ]
+        },
+        {
+          "id": "505194",
+          "created": "2026-08-22T22:52:07.854+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d20"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "1",
+              "fromString": "To Do",
+              "to": "3",
+              "toString": "In Progress"
+            }
+          ]
+        },
+        {
+          "id": "505195",
+          "created": "2026-08-25T10:52:07.854+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d26"
+          },
+          "items": [
+            {
+              "field": "assignee",
+              "fieldId": "assignee",
+              "from": "5f8a1b2c3d4e5f6a7b8c9d26",
+              "fromString": "Sample User 26",
+              "to": "5f8a1b2c3d4e5f6a7b8c9d05",
+              "toString": "Sample User 5"
+            }
+          ]
+        },
+        {
+          "id": "505196",
+          "created": "2026-08-28T22:52:07.854+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d28"
+          },
+          "items": [
+            {
+              "field": "Flagged",
+              "fieldId": "customfield_10021",
+              "from": null,
+              "fromString": null,
+              "to": "10019",
+              "toString": "Impediment"
+            }
+          ]
+        },
+        {
+          "id": "505197",
+          "created": "2026-08-31T22:52:07.854+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d08"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "3",
+              "fromString": "In Progress",
+              "to": "10002",
+              "toString": "Done"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "issueId": "31232",
+      "changeHistories": [
+        {
+          "id": "505198",
+          "created": "2026-08-16T14:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d23"
+          },
+          "items": [
+            {
+              "field": "Sprint",
+              "fieldId": "customfield_10020",
+              "from": null,
+              "fromString": null,
+              "to": "3081",
+              "toString": "Sprint 3081"
+            }
+          ]
+        },
+        {
+          "id": "505199",
+          "created": "2026-08-19T10:21:31.131+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d11"
+          },
+          "items": [
+            {
+              "field": "assignee",
+              "fieldId": "assignee",
+              "from": "5f8a1b2c3d4e5f6a7b8c9d21",
+              "fromString": "Sample User 21",
+              "to": "5f8a1b2c3d4e5f6a7b8c9d15",
+              "toString": "Sample User 15"
+            }
+          ]
+        },
+        {
+          "id": "505200",
+          "created": "2026-08-19T18:21:31.131+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d19"
+          },
+          "items": [
+            {
+              "field": "assignee",
+              "fieldId": "assignee",
+              "from": "5f8a1b2c3d4e5f6a7b8c9d15",
+              "fromString": "Sample User 15",
+              "to": "5f8a1b2c3d4e5f6a7b8c9d08",
+              "toString": "Sample User 8"
+            }
+          ]
+        },
+        {
+          "id": "505201",
+          "created": "2026-08-20T02:21:31.131+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d29"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "1",
+              "fromString": "To Do",
+              "to": "3",
+              "toString": "In Progress"
+            }
+          ]
+        },
+        {
+          "id": "505202",
+          "created": "2026-08-31T00:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d07"
+          },
+          "items": [
+            {
+              "field": "Sprint",
+              "fieldId": "customfield_10020",
+              "from": "3081",
+              "fromString": "Sprint 3081",
+              "to": "3081,3082",
+              "toString": "Sprint 3081, Sprint 3082"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "issueId": "31233",
+      "changeHistories": [
+        {
+          "id": "505203",
+          "created": "2026-08-16T19:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d17"
+          },
+          "items": [
+            {
+              "field": "Sprint",
+              "fieldId": "customfield_10020",
+              "from": null,
+              "fromString": null,
+              "to": "3081",
+              "toString": "Sprint 3081"
+            }
+          ]
+        },
+        {
+          "id": "505204",
+          "created": "2026-08-20T03:15:04.931+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d12"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "1",
+              "fromString": "To Do",
+              "to": "3",
+              "toString": "In Progress"
+            }
+          ]
+        },
+        {
+          "id": "505205",
+          "created": "2026-08-24T03:15:04.931+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d20"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "3",
+              "fromString": "In Progress",
+              "to": "10001",
+              "toString": "In Review"
+            }
+          ]
+        },
+        {
+          "id": "505206",
+          "created": "2026-08-29T03:15:04.931+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d28"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "10001",
+              "fromString": "In Review",
+              "to": "10002",
+              "toString": "Done"
+            }
+          ]
+        },
+        {
+          "id": "505455",
+          "created": "2026-08-23T03:15:04.931+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d12"
+          },
+          "items": [
+            {
+              "field": "Story Points",
+              "fieldId": "customfield_10016",
+              "from": "8",
+              "fromString": "8",
+              "to": "13",
+              "toString": "13"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "issueId": "31234",
+      "changeHistories": [
+        {
+          "id": "505207",
+          "created": "2026-08-16T08:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d29"
+          },
+          "items": [
+            {
+              "field": "Sprint",
+              "fieldId": "customfield_10020",
+              "from": null,
+              "fromString": null,
+              "to": "3053",
+              "toString": "Sprint 3053"
+            }
+          ]
+        },
+        {
+          "id": "505208",
+          "created": "2026-08-23T04:54:15.988+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d30"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "1",
+              "fromString": "To Do",
+              "to": "3",
+              "toString": "In Progress"
+            }
+          ]
+        },
+        {
+          "id": "505209",
+          "created": "2026-08-23T16:54:15.988+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d19"
+          },
+          "items": [
+            {
+              "field": "assignee",
+              "fieldId": "assignee",
+              "from": "5f8a1b2c3d4e5f6a7b8c9d06",
+              "fromString": "Sample User 6",
+              "to": "5f8a1b2c3d4e5f6a7b8c9d07",
+              "toString": "Sample User 7"
+            }
+          ]
+        },
+        {
+          "id": "505210",
+          "created": "2026-08-26T04:54:15.988+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d19"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "3",
+              "fromString": "In Progress",
+              "to": "10003",
+              "toString": "Blocked"
+            }
+          ]
+        },
+        {
+          "id": "505211",
+          "created": "2026-08-28T04:54:15.988+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d13"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "10003",
+              "fromString": "Blocked",
+              "to": "10001",
+              "toString": "In Review"
+            }
+          ]
+        },
+        {
+          "id": "505212",
+          "created": "2026-08-28T04:54:15.988+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d25"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "10001",
+              "fromString": "In Review",
+              "to": "10002",
+              "toString": "Done"
+            }
+          ]
+        },
+        {
+          "id": "505213",
+          "created": "2026-08-30T04:54:15.988+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d12"
+          },
+          "items": [
+            {
+              "field": "Rank",
+              "fieldId": "customfield_10019",
+              "from": "0|i78718:",
+              "fromString": "0|i78718:",
+              "to": "0|i55193:",
+              "toString": "0|i55193:"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "issueId": "31235",
+      "changeHistories": [
+        {
+          "id": "505214",
+          "created": "2026-08-16T20:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d05"
+          },
+          "items": [
+            {
+              "field": "Sprint",
+              "fieldId": "customfield_10020",
+              "from": null,
+              "fromString": null,
+              "to": "3025",
+              "toString": "Sprint 3025"
+            }
+          ]
+        },
+        {
+          "id": "505215",
+          "created": "2026-08-23T09:02:09.682+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d17"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "1",
+              "fromString": "To Do",
+              "to": "3",
+              "toString": "In Progress"
+            }
+          ]
+        },
+        {
+          "id": "505216",
+          "created": "2026-08-23T09:02:09.682+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d22"
+          },
+          "items": [
+            {
+              "field": "assignee",
+              "fieldId": "assignee",
+              "from": "5f8a1b2c3d4e5f6a7b8c9d03",
+              "fromString": "Sample User 3",
+              "to": "5f8a1b2c3d4e5f6a7b8c9d19",
+              "toString": "Sample User 19"
+            }
+          ]
+        },
+        {
+          "id": "505217",
+          "created": "2026-08-27T09:02:09.682+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d10"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "3",
+              "fromString": "In Progress",
+              "to": "10001",
+              "toString": "In Review"
+            }
+          ]
+        },
+        {
+          "id": "505218",
+          "created": "2026-08-31T00:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d15"
+          },
+          "items": [
+            {
+              "field": "Sprint",
+              "fieldId": "customfield_10020",
+              "from": "3025",
+              "fromString": "Sprint 3025",
+              "to": "3025,3026",
+              "toString": "Sprint 3025, Sprint 3026"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "issueId": "31236",
+      "changeHistories": [
+        {
+          "id": "505219",
+          "created": "2026-08-24T16:31:49.924+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d17"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "1",
+              "fromString": "To Do",
+              "to": "3",
+              "toString": "In Progress"
+            }
+          ]
+        },
+        {
+          "id": "505220",
+          "created": "2026-08-24T16:31:49.924+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d14"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "3",
+              "fromString": "In Progress",
+              "to": "10002",
+              "toString": "Done"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "issueId": "31237",
+      "changeHistories": [
+        {
+          "id": "505221",
+          "created": "2026-08-16T06:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d22"
+          },
+          "items": [
+            {
+              "field": "Sprint",
+              "fieldId": "customfield_10020",
+              "from": null,
+              "fromString": null,
+              "to": "3053",
+              "toString": "Sprint 3053"
+            }
+          ]
+        },
+        {
+          "id": "505222",
+          "created": "2026-08-20T08:41:19.990+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d29"
+          },
+          "items": [
+            {
+              "field": "assignee",
+              "fieldId": "assignee",
+              "from": null,
+              "fromString": null,
+              "to": "5f8a1b2c3d4e5f6a7b8c9d17",
+              "toString": "Sample User 17"
+            }
+          ]
+        },
+        {
+          "id": "505223",
+          "created": "2026-08-21T00:41:19.990+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d18"
+          },
+          "items": [
+            {
+              "field": "assignee",
+              "fieldId": "assignee",
+              "from": "5f8a1b2c3d4e5f6a7b8c9d17",
+              "fromString": "Sample User 17",
+              "to": "5f8a1b2c3d4e5f6a7b8c9d27",
+              "toString": "Sample User 27"
+            }
+          ]
+        },
+        {
+          "id": "505224",
+          "created": "2026-08-21T16:41:19.990+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d23"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "1",
+              "fromString": "To Do",
+              "to": "3",
+              "toString": "In Progress"
+            }
+          ]
+        },
+        {
+          "id": "505225",
+          "created": "2026-08-31T00:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d13"
+          },
+          "items": [
+            {
+              "field": "Sprint",
+              "fieldId": "customfield_10020",
+              "from": "3053",
+              "fromString": "Sprint 3053",
+              "to": "3053,3054",
+              "toString": "Sprint 3053, Sprint 3054"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "issueId": "31238",
+      "changeHistories": [
+        {
+          "id": "505226",
+          "created": "2026-08-16T17:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d22"
+          },
+          "items": [
+            {
+              "field": "Sprint",
+              "fieldId": "customfield_10020",
+              "from": null,
+              "fromString": null,
+              "to": "3081",
+              "toString": "Sprint 3081"
+            }
+          ]
+        },
+        {
+          "id": "505227",
+          "created": "2026-08-21T03:03:50.788+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d07"
+          },
+          "items": [
+            {
+              "field": "assignee",
+              "fieldId": "assignee",
+              "from": "5f8a1b2c3d4e5f6a7b8c9d14",
+              "fromString": "Sample User 14",
+              "to": "5f8a1b2c3d4e5f6a7b8c9d01",
+              "toString": "Sample User 1"
+            }
+          ]
+        },
+        {
+          "id": "505228",
+          "created": "2026-08-22T11:03:50.788+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d28"
+          },
+          "items": [
+            {
+              "field": "assignee",
+              "fieldId": "assignee",
+              "from": "5f8a1b2c3d4e5f6a7b8c9d01",
+              "fromString": "Sample User 1",
+              "to": null,
+              "toString": null
+            }
+          ]
+        },
+        {
+          "id": "505229",
+          "created": "2026-08-23T19:03:50.788+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d11"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "1",
+              "fromString": "To Do",
+              "to": "3",
+              "toString": "In Progress"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "issueId": "31240",
+      "changeHistories": [
+        {
+          "id": "505232",
+          "created": "2026-08-16T23:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d11"
+          },
+          "items": [
+            {
+              "field": "Sprint",
+              "fieldId": "customfield_10020",
+              "from": null,
+              "fromString": null,
+              "to": "3025",
+              "toString": "Sprint 3025"
+            }
+          ]
+        },
+        {
+          "id": "505233",
+          "created": "2026-08-23T15:25:03.267+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d27"
+          },
+          "items": [
+            {
+              "field": "assignee",
+              "fieldId": "assignee",
+              "from": "5f8a1b2c3d4e5f6a7b8c9d28",
+              "fromString": "Sample User 28",
+              "to": "5f8a1b2c3d4e5f6a7b8c9d23",
+              "toString": "Sample User 23"
+            }
+          ]
+        },
+        {
+          "id": "505234",
+          "created": "2026-08-25T23:25:03.267+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d26"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "1",
+              "fromString": "To Do",
+              "to": "3",
+              "toString": "In Progress"
+            }
+          ]
+        },
+        {
+          "id": "505235",
+          "created": "2026-08-26T07:25:03.267+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d06"
+          },
+          "items": [
+            {
+              "field": "assignee",
+              "fieldId": "assignee",
+              "from": "5f8a1b2c3d4e5f6a7b8c9d23",
+              "fromString": "Sample User 23",
+              "to": "5f8a1b2c3d4e5f6a7b8c9d30",
+              "toString": "Sample User 30"
+            }
+          ]
+        },
+        {
+          "id": "505236",
+          "created": "2026-08-28T23:25:03.267+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d19"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "3",
+              "fromString": "In Progress",
+              "to": "10002",
+              "toString": "Done"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "issueId": "31241",
+      "changeHistories": [
+        {
+          "id": "505237",
+          "created": "2026-08-23T16:47:18.591+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d06"
+          },
+          "items": [
+            {
+              "field": "assignee",
+              "fieldId": "assignee",
+              "from": null,
+              "fromString": null,
+              "to": "5f8a1b2c3d4e5f6a7b8c9d18",
+              "toString": "Sample User 18"
+            }
+          ]
+        },
+        {
+          "id": "505238",
+          "created": "2026-08-26T04:47:18.591+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d10"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "1",
+              "fromString": "To Do",
+              "to": "3",
+              "toString": "In Progress"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "issueId": "31242",
+      "changeHistories": [
+        {
+          "id": "505239",
+          "created": "2026-08-21T04:55:21.384+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d01"
+          },
+          "items": [
+            {
+              "field": "Sprint",
+              "fieldId": "customfield_10020",
+              "from": null,
+              "fromString": null,
+              "to": "3081",
+              "toString": "Sprint 3081"
+            }
+          ]
+        },
+        {
+          "id": "505240",
+          "created": "2026-08-22T04:55:21.384+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d29"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "1",
+              "fromString": "To Do",
+              "to": "3",
+              "toString": "In Progress"
+            }
+          ]
+        },
+        {
+          "id": "505241",
+          "created": "2026-08-23T04:55:21.384+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d26"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "3",
+              "fromString": "In Progress",
+              "to": "10001",
+              "toString": "In Review"
+            }
+          ]
+        },
+        {
+          "id": "505242",
+          "created": "2026-08-23T12:55:21.384+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d18"
+          },
+          "items": [
+            {
+              "field": "assignee",
+              "fieldId": "assignee",
+              "from": "5f8a1b2c3d4e5f6a7b8c9d04",
+              "fromString": "Sample User 4",
+              "to": "5f8a1b2c3d4e5f6a7b8c9d11",
+              "toString": "Sample User 11"
+            }
+          ]
+        },
+        {
+          "id": "505243",
+          "created": "2026-08-25T20:55:21.384+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d30"
+          },
+          "items": [
+            {
+              "field": "assignee",
+              "fieldId": "assignee",
+              "from": "5f8a1b2c3d4e5f6a7b8c9d11",
+              "fromString": "Sample User 11",
+              "to": "5f8a1b2c3d4e5f6a7b8c9d08",
+              "toString": "Sample User 8"
+            }
+          ]
+        },
+        {
+          "id": "505244",
+          "created": "2026-08-28T04:55:21.384+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d30"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "10001",
+              "fromString": "In Review",
+              "to": "10002",
+              "toString": "Done"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "issueId": "31243",
+      "changeHistories": [
+        {
+          "id": "505245",
+          "created": "2026-08-21T06:22:52.735+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d20"
+          },
+          "items": [
+            {
+              "field": "Sprint",
+              "fieldId": "customfield_10020",
+              "from": null,
+              "fromString": null,
+              "to": "3081",
+              "toString": "Sprint 3081"
+            }
+          ]
+        },
+        {
+          "id": "505246",
+          "created": "2026-08-24T06:22:52.735+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d02"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "1",
+              "fromString": "To Do",
+              "to": "3",
+              "toString": "In Progress"
+            }
+          ]
+        },
+        {
+          "id": "505247",
+          "created": "2026-08-25T06:22:52.735+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d03"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "3",
+              "fromString": "In Progress",
+              "to": "10001",
+              "toString": "In Review"
+            }
+          ]
+        },
+        {
+          "id": "505248",
+          "created": "2026-08-26T06:22:52.735+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d22"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "10001",
+              "fromString": "In Review",
+              "to": "10004",
+              "toString": "Waiting"
+            }
+          ]
+        },
+        {
+          "id": "505249",
+          "created": "2026-08-26T15:11:26.368+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d02"
+          },
+          "items": [
+            {
+              "field": "assignee",
+              "fieldId": "assignee",
+              "from": "5f8a1b2c3d4e5f6a7b8c9d06",
+              "fromString": "Sample User 6",
+              "to": "5f8a1b2c3d4e5f6a7b8c9d04",
+              "toString": "Sample User 4"
+            }
+          ]
+        },
+        {
+          "id": "505250",
+          "created": "2026-08-27T06:22:52.735+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d29"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "10004",
+              "fromString": "Waiting",
+              "to": "10002",
+              "toString": "Done"
+            }
+          ]
+        },
+        {
+          "id": "505251",
+          "created": "2026-09-01T00:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d24"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "10002",
+              "fromString": "Done",
+              "to": "3",
+              "toString": "In Progress"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "issueId": "31244",
+      "changeHistories": [
+        {
+          "id": "505252",
+          "created": "2026-08-21T17:59:27.173+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d19"
+          },
+          "items": [
+            {
+              "field": "Sprint",
+              "fieldId": "customfield_10020",
+              "from": null,
+              "fromString": null,
+              "to": "3025",
+              "toString": "Sprint 3025"
+            }
+          ]
+        },
+        {
+          "id": "505253",
+          "created": "2026-08-23T09:59:27.173+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d25"
+          },
+          "items": [
+            {
+              "field": "assignee",
+              "fieldId": "assignee",
+              "from": null,
+              "fromString": null,
+              "to": "5f8a1b2c3d4e5f6a7b8c9d03",
+              "toString": "Sample User 3"
+            }
+          ]
+        },
+        {
+          "id": "505254",
+          "created": "2026-08-25T01:59:27.173+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d05"
+          },
+          "items": [
+            {
+              "field": "assignee",
+              "fieldId": "assignee",
+              "from": "5f8a1b2c3d4e5f6a7b8c9d03",
+              "fromString": "Sample User 3",
+              "to": null,
+              "toString": null
+            }
+          ]
+        },
+        {
+          "id": "505255",
+          "created": "2026-08-26T17:59:27.173+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d14"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "1",
+              "fromString": "To Do",
+              "to": "3",
+              "toString": "In Progress"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "issueId": "31245",
+      "changeHistories": [
+        {
+          "id": "505256",
+          "created": "2026-08-26T01:55:58.345+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d23"
+          },
+          "items": [
+            {
+              "field": "Rank",
+              "fieldId": "customfield_10019",
+              "from": "0|i84237:",
+              "fromString": "0|i84237:",
+              "to": "0|i74232:",
+              "toString": "0|i74232:"
+            }
+          ]
+        },
+        {
+          "id": "505257",
+          "created": "2026-08-27T01:55:58.345+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d06"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "1",
+              "fromString": "To Do",
+              "to": "3",
+              "toString": "In Progress"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "issueId": "31246",
+      "changeHistories": [
+        {
+          "id": "505258",
+          "created": "2026-08-16T22:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d10"
+          },
+          "items": [
+            {
+              "field": "Sprint",
+              "fieldId": "customfield_10020",
+              "from": null,
+              "fromString": null,
+              "to": "3025",
+              "toString": "Sprint 3025"
+            }
+          ]
+        },
+        {
+          "id": "505259",
+          "created": "2026-08-27T08:40:40.999+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d10"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "1",
+              "fromString": "To Do",
+              "to": "3",
+              "toString": "In Progress"
+            }
+          ]
+        },
+        {
+          "id": "505260",
+          "created": "2026-08-31T00:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d13"
+          },
+          "items": [
+            {
+              "field": "Sprint",
+              "fieldId": "customfield_10020",
+              "from": "3025",
+              "fromString": "Sprint 3025",
+              "to": "3025,3026",
+              "toString": "Sprint 3025, Sprint 3026"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "issueId": "31247",
+      "changeHistories": [
+        {
+          "id": "505261",
+          "created": "2026-08-16T19:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d17"
+          },
+          "items": [
+            {
+              "field": "Sprint",
+              "fieldId": "customfield_10020",
+              "from": null,
+              "fromString": null,
+              "to": "3081",
+              "toString": "Sprint 3081"
+            }
+          ]
+        },
+        {
+          "id": "505262",
+          "created": "2026-08-24T14:42:07.622+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d21"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "1",
+              "fromString": "To Do",
+              "to": "3",
+              "toString": "In Progress"
+            }
+          ]
+        },
+        {
+          "id": "505263",
+          "created": "2026-08-28T14:42:07.622+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d09"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "3",
+              "fromString": "In Progress",
+              "to": "10001",
+              "toString": "In Review"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "issueId": "31248",
+      "changeHistories": [
+        {
+          "id": "505264",
+          "created": "2026-08-16T19:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d14"
+          },
+          "items": [
+            {
+              "field": "Sprint",
+              "fieldId": "customfield_10020",
+              "from": null,
+              "fromString": null,
+              "to": "3025",
+              "toString": "Sprint 3025"
+            }
+          ]
+        },
+        {
+          "id": "505265",
+          "created": "2026-08-23T14:47:21.352+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d13"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "1",
+              "fromString": "To Do",
+              "to": "3",
+              "toString": "In Progress"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "issueId": "31249",
+      "changeHistories": [
+        {
+          "id": "505266",
+          "created": "2026-08-23T20:08:01.990+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d07"
+          },
+          "items": [
+            {
+              "field": "assignee",
+              "fieldId": "assignee",
+              "from": null,
+              "fromString": null,
+              "to": "5f8a1b2c3d4e5f6a7b8c9d25",
+              "toString": "Sample User 25"
+            }
+          ]
+        },
+        {
+          "id": "505267",
+          "created": "2026-08-24T20:08:01.990+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d23"
+          },
+          "items": [
+            {
+              "field": "assignee",
+              "fieldId": "assignee",
+              "from": "5f8a1b2c3d4e5f6a7b8c9d25",
+              "fromString": "Sample User 25",
+              "to": "5f8a1b2c3d4e5f6a7b8c9d09",
+              "toString": "Sample User 9"
+            }
+          ]
+        },
+        {
+          "id": "505268",
+          "created": "2026-08-25T20:08:01.990+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d10"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "1",
+              "fromString": "To Do",
+              "to": "3",
+              "toString": "In Progress"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "issueId": "31250",
+      "changeHistories": [
+        {
+          "id": "505269",
+          "created": "2026-08-23T22:01:39.327+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d08"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "1",
+              "fromString": "To Do",
+              "to": "3",
+              "toString": "In Progress"
+            }
+          ]
+        },
+        {
+          "id": "505270",
+          "created": "2026-08-26T22:01:39.327+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d03"
+          },
+          "items": [
+            {
+              "field": "assignee",
+              "fieldId": "assignee",
+              "from": "5f8a1b2c3d4e5f6a7b8c9d19",
+              "fromString": "Sample User 19",
+              "to": "5f8a1b2c3d4e5f6a7b8c9d11",
+              "toString": "Sample User 11"
+            }
+          ]
+        },
+        {
+          "id": "505271",
+          "created": "2026-08-30T22:01:39.327+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d07"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "3",
+              "fromString": "In Progress",
+              "to": "10002",
+              "toString": "Done"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "issueId": "31251",
+      "changeHistories": [
+        {
+          "id": "505272",
+          "created": "2026-08-23T15:03:03.377+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d08"
+          },
+          "items": [
+            {
+              "field": "Sprint",
+              "fieldId": "customfield_10020",
+              "from": null,
+              "fromString": null,
+              "to": "3053",
+              "toString": "Sprint 3053"
+            }
+          ]
+        },
+        {
+          "id": "505273",
+          "created": "2026-08-24T15:03:03.377+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d05"
+          },
+          "items": [
+            {
+              "field": "assignee",
+              "fieldId": "assignee",
+              "from": "5f8a1b2c3d4e5f6a7b8c9d16",
+              "fromString": "Sample User 16",
+              "to": null,
+              "toString": null
+            }
+          ]
+        },
+        {
+          "id": "505274",
+          "created": "2026-08-25T15:03:03.377+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d10"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "1",
+              "fromString": "To Do",
+              "to": "3",
+              "toString": "In Progress"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "issueId": "31252",
+      "changeHistories": [
+        {
+          "id": "505275",
+          "created": "2026-08-26T21:57:15.302+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d07"
+          },
+          "items": [
+            {
+              "field": "assignee",
+              "fieldId": "assignee",
+              "from": null,
+              "fromString": null,
+              "to": null,
+              "toString": null
+            }
+          ]
+        },
+        {
+          "id": "505276",
+          "created": "2026-08-28T09:57:15.302+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d28"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "1",
+              "fromString": "To Do",
+              "to": "3",
+              "toString": "In Progress"
+            }
+          ]
+        },
+        {
+          "id": "505277",
+          "created": "2026-08-29T09:57:15.302+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d24"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "3",
+              "fromString": "In Progress",
+              "to": "10002",
+              "toString": "Done"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "issueId": "31253",
+      "changeHistories": [
+        {
+          "id": "505278",
+          "created": "2026-08-24T14:35:55.487+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d08"
+          },
+          "items": [
+            {
+              "field": "Sprint",
+              "fieldId": "customfield_10020",
+              "from": null,
+              "fromString": null,
+              "to": "3025",
+              "toString": "Sprint 3025"
+            }
+          ]
+        },
+        {
+          "id": "505279",
+          "created": "2026-08-27T02:35:55.487+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d29"
+          },
+          "items": [
+            {
+              "field": "assignee",
+              "fieldId": "assignee",
+              "from": "5f8a1b2c3d4e5f6a7b8c9d15",
+              "fromString": "Sample User 15",
+              "to": "5f8a1b2c3d4e5f6a7b8c9d06",
+              "toString": "Sample User 6"
+            }
+          ]
+        },
+        {
+          "id": "505280",
+          "created": "2026-08-28T14:35:55.487+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d10"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "1",
+              "fromString": "To Do",
+              "to": "3",
+              "toString": "In Progress"
+            }
+          ]
+        },
+        {
+          "id": "505281",
+          "created": "2026-08-29T14:35:55.487+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d26"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "3",
+              "fromString": "In Progress",
+              "to": "10001",
+              "toString": "In Review"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "issueId": "31254",
+      "changeHistories": [
+        {
+          "id": "505282",
+          "created": "2026-08-16T18:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d04"
+          },
+          "items": [
+            {
+              "field": "Sprint",
+              "fieldId": "customfield_10020",
+              "from": null,
+              "fromString": null,
+              "to": "3025",
+              "toString": "Sprint 3025"
+            }
+          ]
+        },
+        {
+          "id": "505283",
+          "created": "2026-08-28T02:04:19.692+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d17"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "1",
+              "fromString": "To Do",
+              "to": "3",
+              "toString": "In Progress"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "issueId": "31255",
+      "changeHistories": [
+        {
+          "id": "505284",
+          "created": "2026-08-26T15:22:42.030+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d05"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "1",
+              "fromString": "To Do",
+              "to": "3",
+              "toString": "In Progress"
+            }
+          ]
+        },
+        {
+          "id": "505285",
+          "created": "2026-08-26T15:22:42.030+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d11"
+          },
+          "items": [
+            {
+              "field": "Flagged",
+              "fieldId": "customfield_10021",
+              "from": null,
+              "fromString": null,
+              "to": "10019",
+              "toString": "Impediment"
+            }
+          ]
+        },
+        {
+          "id": "505286",
+          "created": "2026-08-27T15:22:42.030+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d10"
+          },
+          "items": [
+            {
+              "field": "Flagged",
+              "fieldId": "customfield_10021",
+              "from": "10019",
+              "fromString": "Impediment",
+              "to": null,
+              "toString": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "issueId": "31256",
+      "changeHistories": [
+        {
+          "id": "505287",
+          "created": "2026-08-16T18:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d02"
+          },
+          "items": [
+            {
+              "field": "Sprint",
+              "fieldId": "customfield_10020",
+              "from": null,
+              "fromString": null,
+              "to": "3081",
+              "toString": "Sprint 3081"
+            }
+          ]
+        },
+        {
+          "id": "505288",
+          "created": "2026-08-28T00:18:44.631+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d12"
+          },
+          "items": [
+            {
+              "field": "assignee",
+              "fieldId": "assignee",
+              "from": "5f8a1b2c3d4e5f6a7b8c9d11",
+              "fromString": "Sample User 11",
+              "to": "5f8a1b2c3d4e5f6a7b8c9d10",
+              "toString": "Sample User 10"
+            }
+          ]
+        },
+        {
+          "id": "505289",
+          "created": "2026-08-30T00:09:22.316+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d13"
+          },
+          "items": [
+            {
+              "field": "assignee",
+              "fieldId": "assignee",
+              "from": "5f8a1b2c3d4e5f6a7b8c9d10",
+              "fromString": "Sample User 10",
+              "to": "5f8a1b2c3d4e5f6a7b8c9d05",
+              "toString": "Sample User 5"
+            }
+          ]
+        },
+        {
+          "id": "505290",
+          "created": "2026-08-31T00:28:06.946+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d01"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "1",
+              "fromString": "To Do",
+              "to": "3",
+              "toString": "In Progress"
+            }
+          ]
+        },
+        {
+          "id": "505291",
+          "created": "2026-09-01T00:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d16"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "3",
+              "fromString": "In Progress",
+              "to": "10001",
+              "toString": "In Review"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "issueId": "31257",
+      "changeHistories": [
+        {
+          "id": "505292",
+          "created": "2026-08-26T15:02:45.103+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d10"
+          },
+          "items": [
+            {
+              "field": "Sprint",
+              "fieldId": "customfield_10020",
+              "from": null,
+              "fromString": null,
+              "to": "3053",
+              "toString": "Sprint 3053"
+            }
+          ]
+        },
+        {
+          "id": "505293",
+          "created": "2026-08-27T07:02:45.103+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d27"
+          },
+          "items": [
+            {
+              "field": "assignee",
+              "fieldId": "assignee",
+              "from": "5f8a1b2c3d4e5f6a7b8c9d12",
+              "fromString": "Sample User 12",
+              "to": "5f8a1b2c3d4e5f6a7b8c9d20",
+              "toString": "Sample User 20"
+            }
+          ]
+        },
+        {
+          "id": "505294",
+          "created": "2026-08-27T15:02:45.103+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d02"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "1",
+              "fromString": "To Do",
+              "to": "3",
+              "toString": "In Progress"
+            }
+          ]
+        },
+        {
+          "id": "505295",
+          "created": "2026-08-27T23:02:45.103+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d05"
+          },
+          "items": [
+            {
+              "field": "assignee",
+              "fieldId": "assignee",
+              "from": "5f8a1b2c3d4e5f6a7b8c9d20",
+              "fromString": "Sample User 20",
+              "to": "5f8a1b2c3d4e5f6a7b8c9d10",
+              "toString": "Sample User 10"
+            }
+          ]
+        },
+        {
+          "id": "505296",
+          "created": "2026-08-28T15:02:45.103+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d25"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "3",
+              "fromString": "In Progress",
+              "to": "10002",
+              "toString": "Done"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "issueId": "31258",
+      "changeHistories": [
+        {
+          "id": "505297",
+          "created": "2026-08-16T23:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d06"
+          },
+          "items": [
+            {
+              "field": "Sprint",
+              "fieldId": "customfield_10020",
+              "from": null,
+              "fromString": null,
+              "to": "3053",
+              "toString": "Sprint 3053"
+            }
+          ]
+        },
+        {
+          "id": "505298",
+          "created": "2026-08-27T21:24:15.421+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d03"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "1",
+              "fromString": "To Do",
+              "to": "3",
+              "toString": "In Progress"
+            }
+          ]
+        },
+        {
+          "id": "505299",
+          "created": "2026-08-31T21:24:15.421+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d27"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "3",
+              "fromString": "In Progress",
+              "to": "10002",
+              "toString": "Done"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "issueId": "31259",
+      "changeHistories": [
+        {
+          "id": "505300",
+          "created": "2026-08-16T09:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d26"
+          },
+          "items": [
+            {
+              "field": "Sprint",
+              "fieldId": "customfield_10020",
+              "from": null,
+              "fromString": null,
+              "to": "3025",
+              "toString": "Sprint 3025"
+            }
+          ]
+        },
+        {
+          "id": "505301",
+          "created": "2026-08-27T13:57:34.486+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d15"
+          },
+          "items": [
+            {
+              "field": "assignee",
+              "fieldId": "assignee",
+              "from": "5f8a1b2c3d4e5f6a7b8c9d03",
+              "fromString": "Sample User 3",
+              "to": "5f8a1b2c3d4e5f6a7b8c9d01",
+              "toString": "Sample User 1"
+            }
+          ]
+        },
+        {
+          "id": "505302",
+          "created": "2026-08-27T21:57:34.486+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d14"
+          },
+          "items": [
+            {
+              "field": "assignee",
+              "fieldId": "assignee",
+              "from": "5f8a1b2c3d4e5f6a7b8c9d01",
+              "fromString": "Sample User 1",
+              "to": "5f8a1b2c3d4e5f6a7b8c9d08",
+              "toString": "Sample User 8"
+            }
+          ]
+        },
+        {
+          "id": "505303",
+          "created": "2026-08-28T05:57:34.486+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d05"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "1",
+              "fromString": "To Do",
+              "to": "3",
+              "toString": "In Progress"
+            }
+          ]
+        },
+        {
+          "id": "505304",
+          "created": "2026-08-31T00:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d11"
+          },
+          "items": [
+            {
+              "field": "Sprint",
+              "fieldId": "customfield_10020",
+              "from": "3025",
+              "fromString": "Sprint 3025",
+              "to": "3025,3026",
+              "toString": "Sprint 3025, Sprint 3026"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "issueId": "31261",
+      "changeHistories": [
+        {
+          "id": "505307",
+          "created": "2026-08-16T06:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d13"
+          },
+          "items": [
+            {
+              "field": "Sprint",
+              "fieldId": "customfield_10020",
+              "from": null,
+              "fromString": null,
+              "to": "3025",
+              "toString": "Sprint 3025"
+            }
+          ]
+        },
+        {
+          "id": "505308",
+          "created": "2026-08-28T18:55:39.653+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d14"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "1",
+              "fromString": "To Do",
+              "to": "3",
+              "toString": "In Progress"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "issueId": "31262",
+      "changeHistories": [
+        {
+          "id": "505309",
+          "created": "2026-08-28T02:27:34.328+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d03"
+          },
+          "items": [
+            {
+              "field": "assignee",
+              "fieldId": "assignee",
+              "from": "5f8a1b2c3d4e5f6a7b8c9d27",
+              "fromString": "Sample User 27",
+              "to": "5f8a1b2c3d4e5f6a7b8c9d11",
+              "toString": "Sample User 11"
+            }
+          ]
+        },
+        {
+          "id": "505310",
+          "created": "2026-08-16T09:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d29"
+          },
+          "items": [
+            {
+              "field": "Sprint",
+              "fieldId": "customfield_10020",
+              "from": null,
+              "fromString": null,
+              "to": "3081",
+              "toString": "Sprint 3081"
+            }
+          ]
+        },
+        {
+          "id": "505311",
+          "created": "2026-08-29T02:27:34.328+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d18"
+          },
+          "items": [
+            {
+              "field": "Flagged",
+              "fieldId": "customfield_10021",
+              "from": null,
+              "fromString": null,
+              "to": "10019",
+              "toString": "Impediment"
+            }
+          ]
+        },
+        {
+          "id": "505312",
+          "created": "2026-08-31T00:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d10"
+          },
+          "items": [
+            {
+              "field": "Sprint",
+              "fieldId": "customfield_10020",
+              "from": "3081",
+              "fromString": "Sprint 3081",
+              "to": "3081,3082",
+              "toString": "Sprint 3081, Sprint 3082"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "issueId": "31263",
+      "changeHistories": [
+        {
+          "id": "505382",
+          "created": "2026-08-31T00:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d07"
+          },
+          "items": [
+            {
+              "field": "Parent",
+              "fieldId": "parent",
+              "from": "30158",
+              "fromString": "OPS-21",
+              "to": "30115",
+              "toString": "OPS-14"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "issueId": "31264",
+      "changeHistories": [
+        {
+          "id": "505313",
+          "created": "2026-08-16T15:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d30"
+          },
+          "items": [
+            {
+              "field": "Sprint",
+              "fieldId": "customfield_10020",
+              "from": null,
+              "fromString": null,
+              "to": "3053",
+              "toString": "Sprint 3053"
+            }
+          ]
+        },
+        {
+          "id": "505314",
+          "created": "2026-08-29T17:01:30.451+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d01"
+          },
+          "items": [
+            {
+              "field": "assignee",
+              "fieldId": "assignee",
+              "from": "5f8a1b2c3d4e5f6a7b8c9d02",
+              "fromString": "Sample User 2",
+              "to": "5f8a1b2c3d4e5f6a7b8c9d25",
+              "toString": "Sample User 25"
+            }
+          ]
+        },
+        {
+          "id": "505315",
+          "created": "2026-08-30T20:30:45.226+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d05"
+          },
+          "items": [
+            {
+              "field": "assignee",
+              "fieldId": "assignee",
+              "from": "5f8a1b2c3d4e5f6a7b8c9d25",
+              "fromString": "Sample User 25",
+              "to": null,
+              "toString": null
+            }
+          ]
+        },
+        {
+          "id": "505316",
+          "created": "2026-09-01T00:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d06"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "1",
+              "fromString": "To Do",
+              "to": "3",
+              "toString": "In Progress"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "issueId": "31265",
+      "changeHistories": [
+        {
+          "id": "505317",
+          "created": "2026-08-28T16:50:10.227+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d20"
+          },
+          "items": [
+            {
+              "field": "assignee",
+              "fieldId": "assignee",
+              "from": "5f8a1b2c3d4e5f6a7b8c9d01",
+              "fromString": "Sample User 1",
+              "to": "5f8a1b2c3d4e5f6a7b8c9d25",
+              "toString": "Sample User 25"
+            }
+          ]
+        },
+        {
+          "id": "505318",
+          "created": "2026-08-28T16:50:10.227+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d07"
+          },
+          "items": [
+            {
+              "field": "assignee",
+              "fieldId": "assignee",
+              "from": "5f8a1b2c3d4e5f6a7b8c9d25",
+              "fromString": "Sample User 25",
+              "to": "5f8a1b2c3d4e5f6a7b8c9d02",
+              "toString": "Sample User 2"
+            }
+          ]
+        },
+        {
+          "id": "505319",
+          "created": "2026-08-16T19:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d08"
+          },
+          "items": [
+            {
+              "field": "Sprint",
+              "fieldId": "customfield_10020",
+              "from": null,
+              "fromString": null,
+              "to": "3025",
+              "toString": "Sprint 3025"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "issueId": "31266",
+      "changeHistories": [
+        {
+          "id": "505320",
+          "created": "2026-08-16T15:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d15"
+          },
+          "items": [
+            {
+              "field": "Sprint",
+              "fieldId": "customfield_10020",
+              "from": null,
+              "fromString": null,
+              "to": "3081",
+              "toString": "Sprint 3081"
+            }
+          ]
+        },
+        {
+          "id": "505321",
+          "created": "2026-08-29T10:44:44.282+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d08"
+          },
+          "items": [
+            {
+              "field": "assignee",
+              "fieldId": "assignee",
+              "from": "5f8a1b2c3d4e5f6a7b8c9d25",
+              "fromString": "Sample User 25",
+              "to": "5f8a1b2c3d4e5f6a7b8c9d09",
+              "toString": "Sample User 9"
+            }
+          ]
+        },
+        {
+          "id": "505322",
+          "created": "2026-08-29T22:44:44.282+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d22"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "1",
+              "fromString": "To Do",
+              "to": "3",
+              "toString": "In Progress"
+            }
+          ]
+        },
+        {
+          "id": "505323",
+          "created": "2026-08-31T00:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d10"
+          },
+          "items": [
+            {
+              "field": "Sprint",
+              "fieldId": "customfield_10020",
+              "from": "3081",
+              "fromString": "Sprint 3081",
+              "to": "3081,3082",
+              "toString": "Sprint 3081, Sprint 3082"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "issueId": "31267",
+      "changeHistories": [
+        {
+          "id": "505324",
+          "created": "2026-08-16T09:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d11"
+          },
+          "items": [
+            {
+              "field": "Sprint",
+              "fieldId": "customfield_10020",
+              "from": null,
+              "fromString": null,
+              "to": "3025",
+              "toString": "Sprint 3025"
+            }
+          ]
+        },
+        {
+          "id": "505325",
+          "created": "2026-08-30T11:45:00.433+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d03"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "1",
+              "fromString": "To Do",
+              "to": "3",
+              "toString": "In Progress"
+            }
+          ]
+        },
+        {
+          "id": "505326",
+          "created": "2026-08-30T11:45:00.433+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d16"
+          },
+          "items": [
+            {
+              "field": "Flagged",
+              "fieldId": "customfield_10021",
+              "from": null,
+              "fromString": null,
+              "to": "10019",
+              "toString": "Impediment"
+            }
+          ]
+        },
+        {
+          "id": "505327",
+          "created": "2026-08-31T11:45:00.433+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d12"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "3",
+              "fromString": "In Progress",
+              "to": "10002",
+              "toString": "Done"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "issueId": "31268",
+      "changeHistories": [
+        {
+          "id": "505328",
+          "created": "2026-08-16T19:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d08"
+          },
+          "items": [
+            {
+              "field": "Sprint",
+              "fieldId": "customfield_10020",
+              "from": null,
+              "fromString": null,
+              "to": "3081",
+              "toString": "Sprint 3081"
+            }
+          ]
+        },
+        {
+          "id": "505329",
+          "created": "2026-08-30T19:45:09.362+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d25"
+          },
+          "items": [
+            {
+              "field": "assignee",
+              "fieldId": "assignee",
+              "from": null,
+              "fromString": null,
+              "to": "5f8a1b2c3d4e5f6a7b8c9d26",
+              "toString": "Sample User 26"
+            }
+          ]
+        },
+        {
+          "id": "505330",
+          "created": "2026-09-01T00:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d26"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "1",
+              "fromString": "To Do",
+              "to": "3",
+              "toString": "In Progress"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "issueId": "31269",
+      "changeHistories": [
+        {
+          "id": "505331",
+          "created": "2026-08-29T17:15:17.471+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d28"
+          },
+          "items": [
+            {
+              "field": "assignee",
+              "fieldId": "assignee",
+              "from": "5f8a1b2c3d4e5f6a7b8c9d06",
+              "fromString": "Sample User 6",
+              "to": "5f8a1b2c3d4e5f6a7b8c9d09",
+              "toString": "Sample User 9"
+            }
+          ]
+        },
+        {
+          "id": "505332",
+          "created": "2026-08-16T11:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d14"
+          },
+          "items": [
+            {
+              "field": "Sprint",
+              "fieldId": "customfield_10020",
+              "from": null,
+              "fromString": null,
+              "to": "3025",
+              "toString": "Sprint 3025"
+            }
+          ]
+        },
+        {
+          "id": "505333",
+          "created": "2026-08-30T17:15:17.471+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d14"
+          },
+          "items": [
+            {
+              "field": "Flagged",
+              "fieldId": "customfield_10021",
+              "from": null,
+              "fromString": null,
+              "to": "10019",
+              "toString": "Impediment"
+            }
+          ]
+        },
+        {
+          "id": "505334",
+          "created": "2026-09-01T00:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d25"
+          },
+          "items": [
+            {
+              "field": "Flagged",
+              "fieldId": "customfield_10021",
+              "from": "10019",
+              "fromString": "Impediment",
+              "to": null,
+              "toString": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "issueId": "31270",
+      "changeHistories": [
+        {
+          "id": "505335",
+          "created": "2026-08-16T11:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d30"
+          },
+          "items": [
+            {
+              "field": "Sprint",
+              "fieldId": "customfield_10020",
+              "from": null,
+              "fromString": null,
+              "to": "3025",
+              "toString": "Sprint 3025"
+            }
+          ]
+        },
+        {
+          "id": "505336",
+          "created": "2026-08-31T00:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d30"
+          },
+          "items": [
+            {
+              "field": "Sprint",
+              "fieldId": "customfield_10020",
+              "from": "3025",
+              "fromString": "Sprint 3025",
+              "to": "3025,3026",
+              "toString": "Sprint 3025, Sprint 3026"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "issueId": "31271",
+      "changeHistories": [
+        {
+          "id": "505337",
+          "created": "2026-08-31T00:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d28"
+          },
+          "items": [
+            {
+              "field": "assignee",
+              "fieldId": "assignee",
+              "from": "5f8a1b2c3d4e5f6a7b8c9d13",
+              "fromString": "Sample User 13",
+              "to": "5f8a1b2c3d4e5f6a7b8c9d10",
+              "toString": "Sample User 10"
+            }
+          ]
+        },
+        {
+          "id": "505338",
+          "created": "2026-08-31T00:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d08"
+          },
+          "items": [
+            {
+              "field": "assignee",
+              "fieldId": "assignee",
+              "from": "5f8a1b2c3d4e5f6a7b8c9d10",
+              "fromString": "Sample User 10",
+              "to": "5f8a1b2c3d4e5f6a7b8c9d23",
+              "toString": "Sample User 23"
+            }
+          ]
+        },
+        {
+          "id": "505339",
+          "created": "2026-08-31T00:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d27"
+          },
+          "items": [
+            {
+              "field": "Sprint",
+              "fieldId": "customfield_10020",
+              "from": null,
+              "fromString": null,
+              "to": "3026",
+              "toString": "Sprint 3026"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "issueId": "31272",
+      "changeHistories": [
+        {
+          "id": "505340",
+          "created": "2026-08-31T00:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d15"
+          },
+          "items": [
+            {
+              "field": "Sprint",
+              "fieldId": "customfield_10020",
+              "from": null,
+              "fromString": null,
+              "to": "3026",
+              "toString": "Sprint 3026"
+            }
+          ]
+        },
+        {
+          "id": "505341",
+          "created": "2026-08-31T08:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d29"
+          },
+          "items": [
+            {
+              "field": "assignee",
+              "fieldId": "assignee",
+              "from": "5f8a1b2c3d4e5f6a7b8c9d13",
+              "fromString": "Sample User 13",
+              "to": "5f8a1b2c3d4e5f6a7b8c9d04",
+              "toString": "Sample User 4"
+            }
+          ]
+        },
+        {
+          "id": "505342",
+          "created": "2026-08-31T16:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d16"
+          },
+          "items": [
+            {
+              "field": "assignee",
+              "fieldId": "assignee",
+              "from": "5f8a1b2c3d4e5f6a7b8c9d04",
+              "fromString": "Sample User 4",
+              "to": "5f8a1b2c3d4e5f6a7b8c9d17",
+              "toString": "Sample User 17"
+            }
+          ]
+        },
+        {
+          "id": "505343",
+          "created": "2026-09-01T00:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d08"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "1",
+              "fromString": "To Do",
+              "to": "3",
+              "toString": "In Progress"
+            }
+          ]
+        },
+        {
+          "id": "505344",
+          "created": "2026-09-01T00:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d20"
+          },
+          "items": [
+            {
+              "field": "Flagged",
+              "fieldId": "customfield_10021",
+              "from": null,
+              "fromString": null,
+              "to": "10019",
+              "toString": "Impediment"
+            }
+          ]
+        },
+        {
+          "id": "505345",
+          "created": "2026-09-01T00:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d19"
+          },
+          "items": [
+            {
+              "field": "Rank",
+              "fieldId": "customfield_10019",
+              "from": "0|i48160:",
+              "fromString": "0|i48160:",
+              "to": "0|i34769:",
+              "toString": "0|i34769:"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "issueId": "31273",
+      "changeHistories": [
+        {
+          "id": "505346",
+          "created": "2026-08-31T00:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d22"
+          },
+          "items": [
+            {
+              "field": "assignee",
+              "fieldId": "assignee",
+              "from": "5f8a1b2c3d4e5f6a7b8c9d26",
+              "fromString": "Sample User 26",
+              "to": "5f8a1b2c3d4e5f6a7b8c9d03",
+              "toString": "Sample User 3"
+            }
+          ]
+        },
+        {
+          "id": "505347",
+          "created": "2026-08-31T00:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d12"
+          },
+          "items": [
+            {
+              "field": "Sprint",
+              "fieldId": "customfield_10020",
+              "from": null,
+              "fromString": null,
+              "to": "3026",
+              "toString": "Sprint 3026"
+            }
+          ]
+        },
+        {
+          "id": "505348",
+          "created": "2026-09-01T00:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d11"
+          },
+          "items": [
+            {
+              "field": "Rank",
+              "fieldId": "customfield_10019",
+              "from": "0|i94219:",
+              "fromString": "0|i94219:",
+              "to": "0|i61406:",
+              "toString": "0|i61406:"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "issueId": "31274",
+      "changeHistories": [
+        {
+          "id": "505349",
+          "created": "2026-08-31T00:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d24"
+          },
+          "items": [
+            {
+              "field": "Sprint",
+              "fieldId": "customfield_10020",
+              "from": null,
+              "fromString": null,
+              "to": "3026",
+              "toString": "Sprint 3026"
+            }
+          ]
+        },
+        {
+          "id": "505350",
+          "created": "2026-08-31T08:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d05"
+          },
+          "items": [
+            {
+              "field": "assignee",
+              "fieldId": "assignee",
+              "from": null,
+              "fromString": null,
+              "to": "5f8a1b2c3d4e5f6a7b8c9d16",
+              "toString": "Sample User 16"
+            }
+          ]
+        },
+        {
+          "id": "505351",
+          "created": "2026-08-31T16:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d25"
+          },
+          "items": [
+            {
+              "field": "assignee",
+              "fieldId": "assignee",
+              "from": "5f8a1b2c3d4e5f6a7b8c9d16",
+              "fromString": "Sample User 16",
+              "to": "5f8a1b2c3d4e5f6a7b8c9d25",
+              "toString": "Sample User 25"
+            }
+          ]
+        },
+        {
+          "id": "505352",
+          "created": "2026-09-01T00:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d08"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "1",
+              "fromString": "To Do",
+              "to": "3",
+              "toString": "In Progress"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "issueId": "31275",
+      "changeHistories": [
+        {
+          "id": "505353",
+          "created": "2026-08-31T00:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d04"
+          },
+          "items": [
+            {
+              "field": "Sprint",
+              "fieldId": "customfield_10020",
+              "from": null,
+              "fromString": null,
+              "to": "3026",
+              "toString": "Sprint 3026"
+            }
+          ]
+        },
+        {
+          "id": "505354",
+          "created": "2026-08-31T12:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d24"
+          },
+          "items": [
+            {
+              "field": "assignee",
+              "fieldId": "assignee",
+              "from": "5f8a1b2c3d4e5f6a7b8c9d18",
+              "fromString": "Sample User 18",
+              "to": "5f8a1b2c3d4e5f6a7b8c9d02",
+              "toString": "Sample User 2"
+            }
+          ]
+        },
+        {
+          "id": "505355",
+          "created": "2026-09-01T00:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d13"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "1",
+              "fromString": "To Do",
+              "to": "3",
+              "toString": "In Progress"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "issueId": "31276",
+      "changeHistories": [
+        {
+          "id": "505356",
+          "created": "2026-08-31T00:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d24"
+          },
+          "items": [
+            {
+              "field": "assignee",
+              "fieldId": "assignee",
+              "from": null,
+              "fromString": null,
+              "to": "5f8a1b2c3d4e5f6a7b8c9d11",
+              "toString": "Sample User 11"
+            }
+          ]
+        },
+        {
+          "id": "505357",
+          "created": "2026-08-31T00:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d07"
+          },
+          "items": [
+            {
+              "field": "assignee",
+              "fieldId": "assignee",
+              "from": "5f8a1b2c3d4e5f6a7b8c9d11",
+              "fromString": "Sample User 11",
+              "to": null,
+              "toString": null
+            }
+          ]
+        },
+        {
+          "id": "505358",
+          "created": "2026-09-01T00:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d27"
+          },
+          "items": [
+            {
+              "field": "Rank",
+              "fieldId": "customfield_10019",
+              "from": "0|i31732:",
+              "fromString": "0|i31732:",
+              "to": "0|i77950:",
+              "toString": "0|i77950:"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "issueId": "31277",
+      "changeHistories": [
+        {
+          "id": "505359",
+          "created": "2026-08-31T00:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d18"
+          },
+          "items": [
+            {
+              "field": "Sprint",
+              "fieldId": "customfield_10020",
+              "from": null,
+              "fromString": null,
+              "to": "3054",
+              "toString": "Sprint 3054"
+            }
+          ]
+        },
+        {
+          "id": "505360",
+          "created": "2026-09-01T00:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d16"
+          },
+          "items": [
+            {
+              "field": "Flagged",
+              "fieldId": "customfield_10021",
+              "from": null,
+              "fromString": null,
+              "to": "10019",
+              "toString": "Impediment"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "issueId": "31278",
+      "changeHistories": [
+        {
+          "id": "505361",
+          "created": "2026-08-31T00:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d23"
+          },
+          "items": [
+            {
+              "field": "Sprint",
+              "fieldId": "customfield_10020",
+              "from": null,
+              "fromString": null,
+              "to": "3054",
+              "toString": "Sprint 3054"
+            }
+          ]
+        },
+        {
+          "id": "505362",
+          "created": "2026-08-31T12:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d05"
+          },
+          "items": [
+            {
+              "field": "assignee",
+              "fieldId": "assignee",
+              "from": "5f8a1b2c3d4e5f6a7b8c9d18",
+              "fromString": "Sample User 18",
+              "to": "5f8a1b2c3d4e5f6a7b8c9d04",
+              "toString": "Sample User 4"
+            }
+          ]
+        },
+        {
+          "id": "505363",
+          "created": "2026-09-01T00:00:00.000+0000",
+          "author": {
+            "accountId": "5f8a1b2c3d4e5f6a7b8c9d24"
+          },
+          "items": [
+            {
+              "field": "status",
+              "fieldId": "status",
+              "from": "1",
+              "fromString": "To Do",
+              "to": "3",
+              "toString": "In Progress"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "nextPageToken": null
+}

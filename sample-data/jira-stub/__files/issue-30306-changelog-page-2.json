@@ -1,0 +1,41 @@
+{
+  "startAt": 3,
+  "maxResults": 3,
+  "total": 5,
+  "histories": [
+    {
+      "id": "501300",
+      "created": "2025-11-27T23:25:47.959+0000",
+      "author": {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d26"
+      },
+      "items": [
+        {
+          "field": "status",
+          "fieldId": "status",
+          "from": "1",
+          "fromString": "To Do",
+          "to": "3",
+          "toString": "In Progress"
+        }
+      ]
+    },
+    {
+      "id": "501301",
+      "created": "2025-11-27T23:25:47.959+0000",
+      "author": {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d12"
+      },
+      "items": [
+        {
+          "field": "status",
+          "fieldId": "status",
+          "from": "3",
+          "fromString": "In Progress",
+          "to": "10002",
+          "toString": "Done"
+        }
+      ]
+    }
+  ]
+}

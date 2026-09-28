@@ -122,6 +122,95 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
   `ForbiddenException` handler in `plugins/ErrorHandling.kt` — denials are part of the security
   trail, and route code gets it for free by **throwing**, never hand-rolling a 403 response. See
   "Audit trail" in `.claude/docs/observability.md`.
+  - `/api/v1/data-sources` (v0.2.0, V8) → **ADMIN only, the whole surface** — unlike teams, the
+    list/get reads are gated too (there is no any-authenticated read here; the connection holds a
+    credential). `requireAdmin` runs BEFORE `call.receive()` on every mutation (guard-before-read,
+    like teams). `jira.siteUrl` is the connection's identity (mirrors Toadie's `baseUrl` rule): a
+    PUT changing it is `409`; a case-insensitive name clash with an active data source is `409`
+    (the V8 partial index). `jira.apiToken` is write-only — required on create, optional on
+    update (omitted keeps the current token, present rotates it, audited separately as
+    `data_source.token_rotated`); no response or audit event ever carries it, only
+    `jira.hasApiToken`. Delete is soft (disables the connection; the raw/normalized rows purge
+    later per the v0.2.0 plan's grace-period amendment). Mutations audit
+    `data_source.created`/`.updated`/`.token_rotated`/`.deleted`. Tests: `DataSourceRoutesTest`.
+  - `/api/v1/data-sources/{id}/sync-jobs` (`POST`/`GET`, `GET .../sync-jobs/{jobId}`,
+    `POST .../sync-jobs/{jobId}/cancel`, `ingest/SyncJobRoutes.kt`) → **ADMIN only**, `requireAdmin`
+    before `call.receive()` on the enqueue mutation (guard-before-read/-body, the data-sources
+    idiom). A caller-requested `PURGE` kind is `400` — only the scheduler enqueues it. Mutations
+    audit `sync_job.requested`/`.cancel_requested`. Tests: `SyncJobRoutesTest`.
+  - `GET /api/v1/data-sources/{id}/status` (v0.2.0 plan §9/§12 item 7, `ingest/SyncStatusRoutes.kt`)
+    → **ADMIN only, read-only** — a diagnostic view over state the data-sources/sync-jobs/cursors
+    surfaces above already own (connection summary, stream cursors, raw-store counts, last job per
+    kind, the running job), assembled here rather than duplicated. No mutation, so no audit event of
+    its own — see `.claude/docs/ingestion.md` "Sync status endpoint" for the response shape. Tests:
+    `SyncStatusRoutesTest`.
+  - `GET /api/v1/data-sources/{id}/raw-issues/{issueKey}` (v0.2.0 plan §9/§12 item 8b,
+    `ingest/RawIssueInspectorRoutes.kt`) → **ADMIN only, read-only** — one raw Jira issue's stored
+    payload, changelog/worklog history and (once processed at least once) its `norm.*` shape.
+    `requireAdmin` runs before the data-source existence check (guard-before-read, the data-sources
+    idiom); `issueKey` is validated (`ISSUE_ID_PATTERN`/`ISSUE_KEY_PATTERN`, `400` otherwise) before
+    the lookup itself. A tombstoned issue is still returned, never `404`. No mutation, so no audit
+    event of its own — see `.claude/docs/ingestion.md` "Raw issue inspector". Tests:
+    `RawIssueInspectorTest`.
+  - `GET /api/v1/data-sources/{id}/profile` (v0.2.0 plan §8/§9/§12 item 9, `ingest/DataProfileRoutes.kt`)
+    → **ADMIN only, read-only** — the connection's stored data profile
+    (`source_connections.profile`/`profile_at`), computed by the PROFILE step after every successful
+    SYNC/REPROCESS. `computedAt` is `null` before the connection's first PROCESS pass rather than a
+    `404`. No mutation, so no audit event of its own — see `.claude/docs/ingestion.md` "Data profile".
+    Tests: `DataProfileTest`.
+  - `GET/PUT /api/v1/metrics-settings` (v0.3.0 M1 commit 3, `metrics/Metrics.kt`) →
+    **ADMIN only, the whole surface** — the ONE global `metrics.settings` singleton every DERIVE run
+    reads (`.claude/docs/domain-model.md` "Configuration"); `requireAdmin` runs before `call.receive()`
+    on the PUT (guard-before-body). A full-replace PUT bumps `config_revision` in the same
+    transaction, audited `metrics_settings.updated`. Tests: `MetricsSettingsRoutesTest`.
+  - `/api/v1/teams/{id}/jira-memberships` (D1, `metrics/TeamMembershipRoutes.kt`) → **reads any
+    authenticated** (the team-reads posture above), **writes ADMIN only**, guard before the id
+    lookup/body decode. **`GET` is read-before-guard, not guard-before-read**: the team need only
+    EXIST — a soft-deleted team's history stays visible (`200`), the `team_members` roster
+    precedent ("a soft-deleted team keeps its roster for the record"); only a team id that was
+    NEVER created is `404`. `POST` requires the team to be ACTIVE, and locks the team row
+    (`TeamService.Teams.lockActiveForUpdate`) for the whole transaction so a concurrent
+    `TeamService.delete` can never race an insert into a team mid-soft-delete — a missing,
+    soft-deleted, or concurrently-deleted team is `404`. `PUT`/`DELETE` of an EXISTING membership
+    row need no team-active check at all (the row's own `team_id` FK already proves the path's
+    `teamId` was real) — an admin can still correct or remove a historical row after its team is
+    gone. `accountId` (create only) must be known to `norm.people` for SOME connection — an unknown
+    Jira account id is `400` (the client-supplied-FK idiom, `TeamService`'s own
+    `requireActiveUsers` precedent). An overlapping `[validFrom, validTo)` interval for the same
+    account is `409` (the exclusion constraint, invariant 1 — `.claude/docs/persistence.md` "The
+    `metrics` schema — configuration (V15)"). **Soft-deleting a team closes/removes its own open
+    memberships in the SAME transaction** (`TeamService.delete`, a cross-feature write — see
+    persistence.md) — otherwise a deleted team could strand an account behind an open membership
+    it can never end, permanently blocking that account's `EXCLUDE` constraint from ever admitting
+    a new team. Every ACTUAL change (not a no-op PUT re-submitting the same dates) bumps the shared
+    `config_revision` (the same singleton `/metrics-settings` reads) and audits
+    `team.jira_membership_added`/`.updated`/`.removed`. Tests: `TeamMembershipRoutesTest`,
+    `TeamTest` (the team-delete membership-closing case).
+  - `GET /api/v1/jira-users` (v0.3.0 M1 commit 3, `metrics/JiraUsersRoutes.kt`) — **`scope=UNIT`
+    (default), any authenticated**: restricted to accounts already relevant to this unit's own data
+    (an assignee or worklog author on an ACTIVE connection's live work items, or one that ever held
+    a `metrics.team_membership` row) — D12 exposes only names another any-authenticated surface can
+    already produce; `/jira-memberships` itself only ever carries an `accountId`, never a display
+    name, so this is the FIRST place that pairs one with the other. **`scope=SITE`, ADMIN only**
+    (`requireAdmin` runs before any query-param-derived read — a non-admin gets a uniform `403`) —
+    the whole site directory, for picking a brand-new team member. `q` substrings the display name;
+    `teamId` narrows to that team's CURRENT membership, combined with `scope` by set intersection
+    (an unknown `teamId` is simply an empty page, not an error — no path id is involved). No
+    mutation, so no audit event of its own. Tests: `JiraUsersRoutesTest`.
+  - `GET/PUT /api/v1/data-sources/{id}/metrics-config` + `GET .../metrics-config/options` (v0.3.0
+    M1 commit 4, `metrics/MetricsConfigRoutes.kt`) → **ADMIN only, the whole surface** —
+    `requireAdmin` runs before the data-source existence check, which itself runs before the body
+    decodes on the PUT (the data-sources idiom: `403` wins over `404` wins over `400`). `GET`
+    returns the connection's stored per-connection config, or the computed DEFAULTS when nothing is
+    stored (`configured: false`, `.claude/docs/metrics.md` "Configuration model"). `PUT` is a full
+    replace over all eight per-connection tables in one transaction; every id is validated against
+    this connection's own `norm` reference rows (and its stored data profile, for field ids) —
+    `400`, the client-supplied-FK idiom, never `404` (there is no path id inside the body). A board
+    mapped to a team already mapped elsewhere is `409` (D10, the `uq_metrics_board_team_map_team_id`
+    unique violation). Bumps the shared `config_revision` unless the PUT is byte-for-byte identical
+    to what is already stored (the features-PUT no-op precedent), audited
+    `metrics_config.updated`. `options` is read-only, no audit event. Tests:
+    `MetricsConfigRoutesTest`.
 - **Exceptions**: `UnauthorizedException` (→ 401), `ForbiddenException` (→ 403),
   `NotFoundException` (→ 404), `ConflictException` (→ 409), `TooManyRequestsException` (→ 429),
   and `BadGatewayException` (→ 502 — reserved for a future outbound-fetch upstream failure) live

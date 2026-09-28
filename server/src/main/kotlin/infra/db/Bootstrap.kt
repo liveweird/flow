@@ -2,6 +2,7 @@ package ch.nokillswit.infra.db
 
 import ch.nokillswit.auth.hashPassword
 import ch.nokillswit.auth.verifyPassword
+import ch.nokillswit.ingest.DataSourceServiceKey
 import ch.nokillswit.users.UserServiceKey
 import ch.nokillswit.users.validatePassword
 import io.ktor.server.application.*
@@ -89,5 +90,8 @@ suspend fun Application.configureBootstrap() {
     }
 }
 
-/** Every service owning encrypted-at-rest columns (see EncryptedAtRest) — none yet. */
-private fun Application.encryptedAtRestServices(): List<EncryptedAtRest> = emptyList()
+/**
+ * Every service owning encrypted-at-rest columns (see EncryptedAtRest). The Jira API token
+ * (`source_connections.secret`, V8) is the first entry — never remove one once it lands.
+ */
+private fun Application.encryptedAtRestServices(): List<EncryptedAtRest> = listOf(attributes[DataSourceServiceKey])

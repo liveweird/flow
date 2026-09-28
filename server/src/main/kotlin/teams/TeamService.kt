@@ -5,6 +5,8 @@ import ch.nokillswit.authz.NotFoundException
 import ch.nokillswit.infra.db.containsNormalized
 import ch.nokillswit.infra.paging.PageRequest
 import ch.nokillswit.infra.paging.applyPaging
+import ch.nokillswit.metrics.MetricsConfigService.Settings as MetricsSettingsTable
+import ch.nokillswit.metrics.TeamMembershipService.TeamMembership as MetricsTeamMembershipTable
 import ch.nokillswit.users.UserService
 import io.ktor.server.plugins.BadRequestException
 import io.ktor.util.AttributeKey
@@ -121,12 +123,43 @@ class TeamService(private val database: R2dbcDatabase) {
         }
     }
 
-    /** Soft delete; the roster rows stay for the record (the table is never read for a deleted team). */
+    /**
+     * Soft delete; the roster rows stay for the record (the table is never read for a deleted
+     * team). In the SAME transaction, closes/removes this team's D1 Jira-user memberships
+     * (cross-feature write, `.claude/docs/persistence.md`'s permission list) — otherwise an
+     * account left in an OPEN membership on a deleted team could never be re-teamed (its own
+     * `EXCLUDE` constraint would 409 forever against a membership row nobody can end).
+     */
     suspend fun delete(id: UInt): Int = suspendTransaction(database) {
         if (!Teams.lockActiveForUpdate(id)) return@suspendTransaction 0
-        Teams.update({ (Teams.id eq id) and Teams.active() }) {
+        val affected = Teams.update({ (Teams.id eq id) and Teams.active() }) {
             it[markedAsDeleted] = true
             it[updatedAt] = nowMillis()
+        }
+        if (affected > 0) closeOpenJiraMemberships(id)
+        affected
+    }
+
+    /**
+     * Rows still open at [nowMillis] (`valid_to` null or in the future) are closed at `now`; rows
+     * that never started yet (`valid_from` in the future) are removed outright — closing them at
+     * `now` would produce a backwards `[valid_from > valid_to]` interval the V15 CHECK forbids.
+     * Bumps the shared `metrics.settings.config_revision` (nested into this same transaction) only
+     * when a membership row actually changed.
+     */
+    private suspend fun closeOpenJiraMemberships(teamId: UInt) {
+        val now = nowMillis()
+        val removedFuture = MetricsTeamMembershipTable.deleteWhere {
+            (MetricsTeamMembershipTable.teamId eq teamId) and (MetricsTeamMembershipTable.validFrom greater now)
+        }
+        val closedCurrent = MetricsTeamMembershipTable.update({
+            (MetricsTeamMembershipTable.teamId eq teamId) and (MetricsTeamMembershipTable.validFrom lessEq now) and
+                (MetricsTeamMembershipTable.validTo.isNull() or (MetricsTeamMembershipTable.validTo greater now))
+        }) { it[validTo] = now }
+        if (removedFuture > 0 || closedCurrent > 0) {
+            MetricsSettingsTable.update({ MetricsSettingsTable.id eq 1 }) {
+                it[configRevision] = MetricsSettingsTable.configRevision + 1
+            }
         }
     }
 

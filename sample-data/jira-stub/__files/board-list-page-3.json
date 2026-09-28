@@ -1,0 +1,17 @@
+{
+  "maxResults": 2,
+  "startAt": 4,
+  "total": 5,
+  "isLast": true,
+  "values": [
+    {
+      "id": 5,
+      "name": "Security board",
+      "type": "kanban",
+      "location": {
+        "projectId": 10004,
+        "projectKey": "SEC"
+      }
+    }
+  ]
+}

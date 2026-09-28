@@ -199,19 +199,43 @@ throw, and the 500-vs-401 split would be an account-enumeration oracle, so login
 validators feature-local and enforce them **after** the authz guard (403 wins over 400). Covered
 by `PayloadValidationTest`.
 
-**Outbound HTTP calls (SSRF posture — applies from v0.2.0).** No server code makes outbound HTTP
-calls yet. When the Jira Cloud connector lands, **port Toadie's `UrlFetch.kt` guard rather than
-inventing a new one**: absolute `https` only, no userinfo; every resolved address checked and
-refused if loopback, site-local, link-local, any-local, multicast, IPv6 unique-local `fc00::/7`,
-CGNAT `100.64.0.0/10`, `192.0.0.0/24`, benchmarking `198.18.0.0/15`, or a NAT64 `64:ff9b::/96`
-address embedding a non-public IPv4 (unresolvable hosts refused too); `followRedirects(NEVER)`
-(checking-then-following would defeat the address check — load-bearing); bounded connect/read
-timeouts and a bounded response read (never an unbounded `ofString`). Audit every guard rejection
-uniformly (scheme/host only — never the full URL, which may embed tokens) and every successful
-fetch the same shape, so the security log records who had the server pull from where. A Jira
-Cloud API host is always public, so this guard is a defense-in-depth backstop; the primary trust
-boundary is the scoped, read-only API token (see "Encryption at rest" below, whose first consumer
-that token will be).
+**The Jira Cloud site allow-list (v0.2.0, `ingest/DataSource.kt`).** `jira.siteUrl` must match
+`^https://[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.atlassian\.net$` exactly — origin only, no path, no
+query, no port, no trailing slash — enforced on every create/update (400 otherwise) and fixed as
+the connection's identity (a changed value is `409`, not silently accepted; see
+`.claude/docs/authorization.md`). This is the allow-list half of the outbound boundary; the
+resolved-address guard below is defense in depth once the Jira client actually calls out (plan
+commit 4).
+
+**Outbound HTTP calls (SSRF posture — implemented, v0.2.0 plan commit 4).**
+`infra/outbound/OutboundGuard.kt` ports Toadie's `UrlFetch.kt` `isBlockedAddress` VERBATIM (loopback,
+site-local, link-local, any-local, multicast, IPv6 unique-local `fc00::/7`, CGNAT `100.64.0.0/10`,
+`192.0.0.0/24`, benchmarking `198.18.0.0/15`, a NAT64 `64:ff9b::/96` address embedding a
+non-public IPv4 — JDK auto-folds an IPv4-mapped IPv6 literal into an `Inet4Address`, so the plain
+IPv4 checks cover that case too, pinned by `OutboundGuardTest`) as defense in depth. The PRIMARY
+boundary is the host allow-list (`isAllowedJiraHost`): exactly `api.atlassian.com`, a genuine
+`*.atlassian.net` tenant per the SAME shape/reserved-label check `ingest/DataSource.kt` enforces at
+create/update time (one source of truth), or — development mode ONLY — the configured
+`jira.stubBaseUrl` host. `GuardedDns` (an `okhttp3.Dns`) re-checks the allow-list and re-resolves +
+re-checks addresses on every NEW connection (not just once per request, since the Jira `HttpClient`
+is long-lived and shared across every connection — pooled connections REUSE an already-checked
+address rather than re-resolving on every call); a `skipAddressCheck` predicate exempts ONLY the
+already-allow-listed stub host from the address-range check, since the dev/compose/in-JVM stub is,
+by construction, a loopback or docker-network-private address — the allow-list still gates it
+unconditionally, this only skips the address-SHAPE check for that one host. The guarded
+`OkHttpClient` (`guardedOkHttpClient`) sets `Proxy.NO_PROXY`, `followRedirects(false)` (both at the
+OkHttp engine level AND Ktor's own client-side `HttpRedirect` plugin — `HttpClient { followRedirects
+= false }` in `jira/Jira.kt` — checking-then-following would defeat the address check either way),
+`retryOnConnectionFailure(false)`, no cookies, no proxy authenticator. `jira/JiraHttp.kt` layers a
+bounded response read (Covenant's `ToadieGraphqlClient` shape, capped at `jira.maxResponseBytes`)
+and exponential backoff with jitter (`JiraBackoff`) on top. Every guard rejection is audited as
+`outbound.blocked` (scheme + host ONLY — never the full URL, which may embed a token).
+`jira.stubBaseUrl` is fail-closed: production startup refuses a non-blank value (`jira/Jira.kt`,
+pinned by `OutboundGuardTest`'s boot test) — the same shape as the crypto-key/mail-transport
+checks. A Jira Cloud API host is always public, so this guard is a defense-in-depth backstop; the
+primary trust boundary is the scoped, read-only API token (see "Encryption at rest" below, whose
+first consumer that token is). See `.claude/docs/jira-integration.md` for the client/auth/rate-limit
+shape built on top of this guard.
 
 **CORS is off by default** (`plugins/Http.kt`): the plugin is installed only when
 `http.corsHosts` (`$CORS_ALLOWED_HOSTS`, comma-separated hosts) is non-empty. Production is
@@ -265,7 +289,8 @@ NOTHING`. The migration is kept **unchanged** (dev + e2e depend on it; checksums
 `kubectl create secret generic` command in its header; the app deployment consumes it via
 `secretKeyRef`).
 
-**Probes and the plain-HTTP crash-loop** (`k8s/app-deployment.yaml`, ported from Toadie): every
+**Probes and the plain-HTTP crash-loop** (`k8s/web-deployment.yaml` and `k8s/worker-deployment.yaml`,
+ported from Toadie): every
 probe (`startupProbe`/`readinessProbe`/`livenessProbe`) sends `X-Forwarded-Proto: https` — the
 header the TLS-terminating ingress sets, which `HTTP_BEHIND_PROXY`/`HTTP_PROXY_HOPS` above makes
 the app trust. Without it, production mode answers the kubelet's plain-HTTP probe request with a
@@ -298,8 +323,8 @@ content layer (`LocalizedText`/`passwordEmail`) lives beside the transports. Tes
 `ch.nokillswit.mail` LogCapture); production-mode boot tests must override `mail.transport` with
 `"disabled"`, since the dev-default `log` transport is refused in production.
 
-**Encryption at rest** (`infra/crypto/`, Lettuce's, ported verbatim, **wired but not yet
-consumed**). Sensitive columns are encrypted application-side with AES-256-GCM (`FieldCipher`: a
+**Encryption at rest** (`infra/crypto/`, Lettuce's, ported verbatim; its first consumer is the
+Jira API token, see the end of this section). Sensitive columns are encrypted application-side with AES-256-GCM (`FieldCipher`: a
 fresh 12-byte nonce per value, 128-bit tag, envelope `enc:v1:<base64(nonce||ciphertext)>`), so a
 database-level attacker — SQL access, `pg_dump`, a stolen volume or backup — sees ciphertext; the
 key lives with the app (`DATA_ENCRYPTION_KEY`, 64 hex chars from `openssl rand -hex 32`; compose
@@ -312,11 +337,23 @@ Rows written before a column was encrypted (legacy plaintext, returned unchanged
 are encrypted once at the next boot by the same backfill (`reencryptRows`, selecting through the
 ONE sanctioned SQL predicate over an encrypted column: `notLike "enc:v1:%"`). A service owning
 encrypted columns implements `EncryptedAtRest` and is registered in `infra/db/Bootstrap.kt`'s
-`encryptedAtRestServices()` list (empty today) — never remove a registration once one lands (a
-rotation would strand that feature's rows). **Never filter or sort on an encrypted column in
-SQL** — ciphertext carries no order or equality (every value has its own nonce). The v0.2.0 Jira
-API token is the planned first consumer. Tests: `FieldCipherTest` (roundtrip, fresh nonces, legacy
-passthrough, tamper, wrong key, rotation, malformed keys), `CryptoBootTest`.
+`encryptedAtRestServices()` list (`DataSourceService` is the first and, today, only entry — see
+below) — never remove a registration once one lands (a rotation would strand that feature's rows). **Never filter or sort on an encrypted column in
+SQL** — ciphertext carries no order or equality (every value has its own nonce). **The v0.2.0 Jira
+API token is the first consumer, landed**: `source_connections.secret` (V8,
+`ingest/DataSourceService.kt` implements `EncryptedAtRest`, registered in
+`infra/db/Bootstrap.kt`'s `encryptedAtRestServices()`) — write-only end to end: `POST`/`PUT
+/api/v1/data-sources` accept `jira.apiToken` but no response, and no audit event, ever returns it;
+every response instead carries `jira.hasApiToken`. Tests: `FieldCipherTest` (roundtrip, fresh
+nonces, legacy passthrough, tamper, wrong key, rotation, malformed keys), `CryptoBootTest`,
+`EncryptedAtRestBootTest` (seeds a connection, boots again with a rotated key, the token still
+decrypts under the new key alone).
+
+**Trusted PostgreSQL extensions.** `btree_gist` (v0.3.0 M1 commit 3, `V15__create_metrics_config.sql`
+— backs `metrics.team_membership`'s overlap-exclusion constraint) joins `unaccent` (V4) as a
+contrib extension trusted since PG13: `CREATE EXTENSION IF NOT EXISTS` needs only `CREATE` on the
+database, no superuser — see `.claude/docs/persistence.md`'s "The `metrics` schema — configuration
+(V15)".
 
 ### Not yet ported
 

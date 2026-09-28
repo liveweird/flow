@@ -1,0 +1,45 @@
+{
+  "id": 2,
+  "name": "Platform board",
+  "type": "scrum",
+  "columnConfig": {
+    "columns": [
+      {
+        "name": "To Do",
+        "statuses": [
+          {
+            "id": "1"
+          }
+        ]
+      },
+      {
+        "name": "In Progress",
+        "statuses": [
+          {
+            "id": "3"
+          },
+          {
+            "id": "10003"
+          }
+        ]
+      },
+      {
+        "name": "In Review",
+        "statuses": [
+          {
+            "id": "10001"
+          }
+        ]
+      },
+      {
+        "name": "Done",
+        "statuses": [
+          {
+            "id": "10002"
+          }
+        ]
+      }
+    ],
+    "constraintType": "issueCount"
+  }
+}

@@ -1,8 +1,10 @@
 # Frontend (`web/`)
 
 Vite + React 19 + TypeScript SPA: the shell + auth, user/feature management, MFA, password reset,
-the changelog, and the flat-teams registry — v0.1.0's foundation, with no Jira/GitLab data yet
-(`pages/Home.tsx` states that plainly). Routes are lazy. New capability that Covenant, Toadie or
+the changelog, and the flat-teams registry — v0.1.0's foundation — plus, since v0.2.0, the Data
+sources pages (ADMIN-managed Jira Cloud connections, their sync jobs, data profile and raw-issue
+inspector — see "Data sources" below). Flow-metric dashboards arrive after the domain model;
+`pages/Home.tsx` still states plainly that there are none to show yet. Routes are lazy. New capability that Covenant, Toadie or
 Lettuce already has? Port their building blocks (see "Not yet ported" at the bottom) rather than
 inventing new ones.
 
@@ -220,7 +222,8 @@ Every list page composes the same ported Lettuce blocks — copy `pages/Users.ts
 
 ## Registries (the Teams.tsx template)
 
-The small ADMIN-curated registries (today: Teams; more arrive with the Jira domain model) compose
+The small ADMIN-curated registries (Teams, and since v0.2.0 Data sources; more arrive with the
+Jira domain model) compose
 `useRegistryListControls` for their persisted name filter, debounce and paged sort, and
 `RegistryListTable` for the common load/error/empty/pagination states. Each page owns its query
 key and parameters, extra filters, columns, row actions and mutation refresh prefixes. Their
@@ -269,6 +272,153 @@ confirm — `hooks/useBulkFeatureUpdate.ts` loops the same per-user wholesale PU
 `ConfirmActionModal`). Both queries key under `["users", …]`. Mind the wholesale-replace
 semantics: a PUT whose disabled set omits `MFA` ENABLES it.
 
+## Data sources (`pages/DataSources|DataSourceDetails|DataSourceProfile|RawIssueInspector.tsx`)
+
+The first Jira-domain surface (v0.2.0 plan §9/§10), ADMIN-only end to end: the nav leaf
+(`IconPlugConnected`, `adminOnly`), the four routes (`/data-sources`, `/data-sources/:id`,
+`…/:id/profile`, `…/:id/inspect`, all under the same `RequireAdmin` group as Users/Feature flags
+in `App.tsx`; every page's queries additionally stay `enabled` only for `useAdmin()`), and every
+endpoint (`requireAdmin` server-side).
+
+- **`api/dataSources.ts`** mirrors `api/teams.ts`'s shape — list/create/update/delete plus the two
+  Test-connection wrappers (`testDataSourceAdHoc`/`testDataSourceStored`) and `requestSyncJob`
+  and the per-connection reads/actions: `listSyncJobs`/`cancelSyncJob` (`…/sync-jobs`),
+  `getDataSourceStatus` (`…/status`), `getRawIssue` (`…/raw-issues/{issueKey}`) and
+  `getDataSourceProfile` (`…/profile`) — every type derived from `schema.ts`. Unlike Teams, `DataSourcePage.items` already carries the FULL `DataSourceResponse`
+  (minus the write-only token) — Edit opens straight from the row, no extra detail fetch.
+- **`pages/DataSources.tsx`** is the Teams registry template (`useRegistryListControls` +
+  `RegistryListTable`), sorted by name only (the server's other sortable fields — `id`,
+  `createdAt`, `updatedAt` — have no visible column). Columns: name, site host (parsed from
+  `jira.siteUrl` — always a bare origin, so `new URL(...).host` is safe), projects (joined
+  keys), enabled (plain Yes/No text — the state badge below is the one place this page spends
+  colour), last success (`YYYY-MM-DD HH:mm` sliced from the ISO string like `VersionStamp`, never
+  `toLocaleString()` — deterministic across test/CI locales; "Never" when null), and the
+  `DataSourceState` badge — teal `CURRENT`, red `FAILED`, gray everything else
+  (`NEVER_SYNCED`/`STALE`/`DISABLED`), the app's existing success/blocking/neutral vocabulary, no
+  new hue. Row actions (`RowActionsMenu`): **Sync now** (`POST …/sync-jobs {kind: SYNC}`, a direct
+  action with no confirm step — the success toast itself distinguishes a freshly queued job from
+  `coalesced: true`; a failure renders inline above the table, same rule as everywhere else:
+  never a toast), Edit, Delete (`ConfirmDeleteModal`, the same conflict-naming pattern as Teams).
+- **`components/DataSourceEditorModal.tsx`** ports Covenant's `ToadieConnectionEditorModal` (the
+  site URL disables once a connection exists — Toadie's `baseUrl` pattern — since a changed
+  `siteUrl` is a `409` server-side; that also means a saved `409` here is always the name clash,
+  so it marks the `name` field like Teams does). Fields: name, site URL (`https://<tenant>
+  .atlassian.net` hint), service-account email, a `PasswordInput` token ("leave blank to keep the
+  current token" on edit — blank travels as an omitted `apiToken`, which the server keeps), a
+  `TagsInput` for project keys (force-uppercased in `onChange`, after `form.getInputProps`, so the
+  wire value always matches `PROJECT_KEY_PATTERN`), a plain backfill-date `TextInput`
+  (`YYYY-MM-DD`, blank omits the field so the server computes its 24-months-back default — no
+  `@mantine/dates`), sync interval / reconcile hour `NumberInput`s, an auth-scheme `Select`
+  (Basic/Bearer), and an enabled `Switch`. **`utils/dataSourceForm.ts`** mirrors
+  `ingest/DataSource.kt`'s validation exactly (name/site-URL/email/token length caps, the Jira
+  site-URL and project-key regexes plus the Atlassian-reserved-label rejection, the
+  backfill-date range) — keep the two in sync.
+- **Test connection**: the same button drives both the ad-hoc probe (`POST /data-sources/test`,
+  the form's current values — required whenever creating or rotating the token) and the stored
+  probe (`POST /data-sources/{id}/test`, no body) when editing with a blank token field; it
+  validates only the four Jira fields the probe needs (not the whole form) before calling.
+  **`components/ConnectionTestResults.tsx`** renders the row table (endpoint + path / required /
+  a teal-or-red result badge / a detail cell combining the upstream status, the
+  `JiraFetchException` code and a failed row's `scopeHint`) and the resolved `cloudId` once
+  `tenant_info` succeeds.
+- **`pages/DataSourceDetails.tsx`** (`/data-sources/:id`, reached from the list's name link or its
+  Open row action) is the connection's operational view over ONE `GET …/status` query: summary
+  (state badge via `utils/dataSourceState.ts`), the current job (`JobStateBadge` + stream +
+  progress counters), `components/CursorTable.tsx` (each cursor's `position` rendered verbatim —
+  the server owns its shape) and the raw-store counts, plus the paged sync-jobs history
+  (`components/SyncJobsTable.tsx` on the `RegistryListTable` shell, kind/status filters, a Cancel
+  per still-open row). **Auto-refresh is conditional**: the status query's `refetchInterval` is 5s
+  only while `currentJob` is PENDING/RUNNING, `false` otherwise — never a fixed poll. Header actions
+  Sync now / Reconcile (direct, the toast distinguishes `coalesced`), Reprocess (behind
+  `ConfirmActionModal` — it rebuilds every normalized row), Cancel on the open job (direct; a `409`
+  means it finished meanwhile and renders inline, never a toast), Edit (the same
+  `DataSourceEditorModal`), and links to the profile and the inspector. A `404` or load failure goes
+  through `EditPageLoadState` with a back link, like the user editors.
+- **`pages/DataSourceProfile.tsx`** (`…/:id/profile`) renders `GET …/profile` as plain Mantine
+  tables, one per section (projects, workflows with observed-vs-reference statuses, boards with
+  unmapped statuses, custom fields with fill rate/role, estimates, worklogs, reopens, sprints,
+  people, anomaly counts) — deliberately no charts until phase 3's dashboards. `computedAt: null`
+  (no PROCESS pass yet) is an `EmptyState`, not an error; percentages print with one decimal,
+  matching the server's rounding.
+- **`pages/RawIssueInspector.tsx`** (`…/:id/inspect?key=`) — the looked-up key lives in the URL
+  (`useSearchParams`), so a lookup is a shareable deep link (`dataSourceInspectPath(id, key)`); the
+  query only runs once a key is present. Shows the canonical raw payload, tombstones, changelog/
+  worklog payloads, and — once processed — the `norm.*` work item, its status/field intervals and
+  anomaly badges (orange, the fixed `TilingAnomaly` vocabulary). A `400`/`404` renders INLINE under
+  the form, never replacing the page, so the admin can simply try another key.
+- **`utils/dataSourceLinks.ts`** is the ONE place the route family is spelled out
+  (`dataSourcesPath`, `dataSourcePath`, `dataSourceProfilePath`, `dataSourceInspectPath`) — never
+  hand-assemble these URLs. `utils/dataSourceState.ts` holds the state→colour map and
+  `formatEpochMillis` (the deterministic `YYYY-MM-DD HH:mm` rendering, "Never" for null).
+- `pages/Home.tsx`'s admin empty state links to `/data-sources` (a plain `Anchor` under the
+  `EmptyState`, not a rewrite of that shared component) — "keep it simple" per the commit plan.
+
+## Metrics configuration (`pages/MetricsSettings.tsx`, `components/TeamJiraMembers.tsx`, `pages/DataSourceMetricsConfig.tsx`)
+
+The v0.3.0 metrics-configuration surfaces: the global settings singleton and D1's dated Jira-user
+team membership landed in M2 commit 5, and the per-connection `metrics-config` page in commit 6.
+`api/metrics.ts` mirrors `api/teams.ts`'s thin-wrapper shape: `getMetricsSettings`/
+`updateMetricsSettings`, the `/jira-memberships` CRUD, `listJiraUsers`, and
+`getDataSourceMetricsConfig`/`updateDataSourceMetricsConfig`/`getDataSourceMetricsConfigOptions`
+— every type derived from `schema.ts`.
+
+- **`pages/MetricsSettings.tsx`** (`/metrics-settings`, `adminOnly` nav leaf `IconAdjustments`,
+  under the same `RequireAdmin` route group as Users/Data sources) is the ONE global
+  `metrics.settings` singleton form — the CreateUser/EditUser template (`Paper withBorder p="xl"
+  maw={FORM_MAX_WIDTH}`, `form.initialize` guarded by `!form.initialized`, a full-replace PUT,
+  `showSuccessToast` on save, an inline Alert on failure). `utils/metricsForm.ts` mirrors
+  `metrics/MetricsSettings.kt`'s `validateMetricsSettings` field for field (including the
+  aging-percentiles-must-include-85 rule and the all-weekend rejection) and holds the form's own
+  string-array reshaping: `weekendDays`/`agingPercentiles` travel as `Chip.Group`/`TagsInput`
+  string values client-side, mapped to `number[]` only in `toMetricsSettingsRequest`. The zone
+  picker is a searchable `Select` over `Intl.supportedValuesOf("timeZone")`
+  (`utils/metricsForm.ts`'s `supportedTimeZones`, cached). The success toast reads "Saved — reports
+  re-derive shortly" — accurate once M3's DERIVE job lands, so the wording needs no follow-up
+  change.
+- **`components/TeamJiraMembers.tsx`**, mounted on `pages/TeamDetails.tsx` below the Flow-login
+  roster — D1's dated Jira-user team membership (`GET/POST /api/v1/teams/{id}/jira-memberships`,
+  `PUT/DELETE …/{membershipId}`): any authenticated user reads the table (person name resolved
+  against `GET /api/v1/jira-users?scope=UNIT` — every account that ever held a membership row is
+  UNIT-relevant, so one page of that directory names this team's whole history; an unresolved
+  account falls back to its raw `accountId`), a "current" badge when `now ∈ [validFrom, validTo)`.
+  ADMIN-only mutations: "Add Jira member" opens `components/JiraMemberModal.tsx` (a searchable
+  person `Select` over `GET /api/v1/jira-users?scope=SITE` — the whole site directory, since a
+  brand-new member may not yet be UNIT-relevant — plus a required valid-from and optional valid-to
+  date; the exclusion-constraint `409` renders inline in the modal, never a toast), a per-row "End
+  membership" (only on the open-ended row — direct PUT setting `validTo` to today's UTC midnight,
+  the `startOfTodayEpochMillis` helper) and Delete (`ConfirmDeleteModal`, the `useDeleteConfirm`
+  precedent). **Dates are plain `YYYY-MM-DD` `TextInput`s** (`utils/isoDate.ts`'s
+  `isValidIsoDate`/`isoDateToEpochMillis`/`epochMillisToIsoDate`, UTC throughout — the
+  `dataSourceState.ts` `formatEpochMillis` convention — no `@mantine/dates` dependency in this
+  commit; it arrives with the Reports period picker, §2.4 of the phase-3 plan).
+- **`pages/DataSourceMetricsConfig.tsx`** (`/data-sources/:id/metrics-config`, under the same
+  `RequireAdmin` group, reached from a "Metrics configuration" toolbar link on
+  `DataSourceDetails.tsx` beside Profile/Inspect) edits the ONE composite
+  `DataSourceMetricsConfig` resource (`.claude/docs/metrics.md` "Per-connection metrics
+  configuration") over `Tabs`: Statuses (stage `Select` + a Blocked `Checkbox` per status, the
+  Jira category as a `Badge`), Fields (five `Select`s over the profile-detected custom fields plus
+  Jira's own `duedate` system field, labelled with the detected role), Domains (project key →
+  domain key/name), Boards → team (an active-teams `Select`; a `409` marks the changed board
+  row(s) inline, the "which row" rule computed by diffing the just-submitted board→team snapshot
+  against the last-loaded/last-saved one — `utils/metricsConfigForm.ts`'s `changedBoardIds`),
+  Activity types (issue type → activity type) and Work categories (value → category, fetched with
+  `?workCategoryField=` the moment a work-category field is chosen on the Fields tab — shown only
+  once one is). Capacities (one `NumberInput` per sprint, blank = the computed default) rounds out
+  the seven. GET returns computed defaults when `configured: false` — a banner says so ("Showing
+  computed defaults — save to confirm them") until the first save. ONE Save does a full-replace
+  PUT of every tab's current state (even an untouched tab still submits its own default), a
+  success toast reads the same "reports re-derive shortly" wording as `MetricsSettings.tsx`, and a
+  `400`/`409` renders the SERVER'S OWN `detail` message inline (not a fixed-vocabulary mapping —
+  these messages are admin-facing by design, `.claude/docs/metrics.md`'s validation/conflict
+  rules). **`components/MappingTable.tsx`** is the one generic id → editable-cell table every
+  mapping-shaped tab reuses (a `Select`/`TextInput`/`Checkbox` per field column, the row's own
+  identity in a fixed left column) — callers own all state, MappingTable is a pure renderer.
+  **`utils/metricsConfigForm.ts`** holds the pure state-shaping: `buildInitialState` merges the GET
+  response with the options endpoint's reference lists into one row per reference item (mapped or
+  not), `buildRequest` is its inverse, `mergeWorkCategoryValues` combines the field-scoped values
+  query with whatever category is already chosen, and `changedBoardIds` is the 409 row-marking
+  rule.
+
 ## Internationalization (i18n)
 
 The SPA is **N-language by architecture** via react-i18next (`src/i18n.ts`); the shipped bundles
@@ -276,7 +426,7 @@ are English (THE default and fallback everywhere) and Polish. All user-facing st
 `const { t } = useTranslation()` / `<Trans>` — **no hardcoded UI text**. Conventions:
 
 - **Resources** live in `src/locales/{en,pl}/<area>.json`, one file per area (`appShell`, `auth`,
-  `changelog`, `common`, `home`, `teams`, `users`); `i18n.ts` merges them into a single
+  `changelog`, `common`, `dataSources`, `home`, `metrics`, `teams`, `users`); `i18n.ts` merges them into a single
   `translation` namespace, so keys read `area.key` (e.g. `t("auth.signIn")`). Only EN is
   statically imported — its typed `en` tree is the key canon AND the runtime fallback; every other
   language is auto-discovered from `locales/<lang>/` via `import.meta.glob`. Bundles are eager on
@@ -357,8 +507,11 @@ are English (THE default and fallback everywhere) and Polish. All user-facing st
   `Drawer` passes `closeButtonProps={{ "aria-label": t("common.action.close") }}` — Mantine's
   close X has no default name — or hides the X with `withCloseButton={false}` when a footer
   button is the one deliberate exit (`OneTimePasswordModal`).
-- The logo SVGs (`public/logo-*.svg` — three curling streamlines meeting on a blue tile, rendered
-  by `components/BrandLogo.tsx`) are the brand mark. Restyle rule: keep aria-labels, roles, and
+- The logo SVGs (`public/logo-*.svg` + `favicon.svg` — "Rolling": one tapering stream running round a
+  blue disc and rolling inward into a curl, dark variant inverted to navy on `flow.4`; rendered by
+  `components/BrandLogo.tsx`) are the brand mark. The path is computed geometry (a tapered ribbon along
+  a circle-then-spiral spine, ~120 points) — change it in a vector editor, not by hand-editing the
+  path data. Restyle rule: keep aria-labels, roles, and
   real semantic elements stable — e2e and unit tests locate by role/name.
 
 ## Changelog & app versioning

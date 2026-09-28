@@ -1,0 +1,58 @@
+{
+  "startAt": 0,
+  "maxResults": 3,
+  "total": 3,
+  "histories": [
+    {
+      "id": "501178",
+      "created": "2025-11-09T13:00:00.000+0000",
+      "author": {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d05"
+      },
+      "items": [
+        {
+          "field": "Sprint",
+          "fieldId": "customfield_10020",
+          "from": null,
+          "fromString": null,
+          "to": "3005",
+          "toString": "Sprint 3005"
+        }
+      ]
+    },
+    {
+      "id": "501179",
+      "created": "2025-11-20T03:34:43.415+0000",
+      "author": {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d03"
+      },
+      "items": [
+        {
+          "field": "status",
+          "fieldId": "status",
+          "from": "1",
+          "fromString": "To Do",
+          "to": "3",
+          "toString": "In Progress"
+        }
+      ]
+    },
+    {
+      "id": "501180",
+      "created": "2025-11-22T03:34:43.415+0000",
+      "author": {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d15"
+      },
+      "items": [
+        {
+          "field": "status",
+          "fieldId": "status",
+          "from": "3",
+          "fromString": "In Progress",
+          "to": "10002",
+          "toString": "Done"
+        }
+      ]
+    }
+  ]
+}

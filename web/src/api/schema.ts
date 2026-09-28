@@ -437,6 +437,448 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/teams/{id}/jira-memberships": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * List a team's dated Jira-user memberships (D1)
+         * @description Any authenticated user (the team-reads posture). Most recent `validFrom` first.
+         */
+        get: operations["listTeamJiraMemberships"];
+        put?: never;
+        /**
+         * Add a dated Jira-user membership to a team
+         * @description ADMIN only, guard before the id lookup and the body decode. The team must be active
+         *     (`404` otherwise); `accountId` must be known to `norm.people` for some connection (`400`
+         *     otherwise). An overlapping `[validFrom, validTo)` interval for the same account is `409`
+         *     (the exclusion constraint — invariant 1: a Jira user belongs to at most one team at any
+         *     instant).
+         */
+        post: operations["createTeamJiraMembership"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/teams/{id}/jira-memberships/{membershipId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                membershipId: number;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Replace a dated Jira-user membership's validity window
+         * @description ADMIN only. A full replace of `validFrom`/`validTo` only — the team and account id are the row's fixed identity. An overlap with another row for the same account is `409`.
+         */
+        put: operations["updateTeamJiraMembership"];
+        post?: never;
+        /**
+         * Remove a dated Jira-user membership
+         * @description ADMIN only. Hard delete (a pure dated join, the `team_members` idiom).
+         */
+        delete: operations["deleteTeamJiraMembership"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/data-sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List data sources
+         * @description ADMIN only. An ADMIN-managed connection to an external issue tracker — Jira Cloud today
+         *     (`kind: JIRA_CLOUD`).
+         *
+         *     - Sortable fields: `id`, `name`, `createdAt`, `updatedAt`. Default `id` ascending.
+         *     - Filters: `name` (case- and accent-insensitive substring).
+         */
+        get: operations["listDataSources"];
+        put?: never;
+        /**
+         * Create a data source
+         * @description ADMIN only (guarded before the body decodes — a non-admin's malformed body is still
+         *     403). `jira.siteUrl` must be exactly `https://<site>.atlassian.net` (origin only — the
+         *     outbound allow-list boundary); it becomes the connection's identity. `jira.apiToken` is
+         *     required here and never echoed back — the response carries `jira.hasApiToken` only. A
+         *     case-insensitive name clash with an active data source is `409`.
+         */
+        post: operations["createDataSource"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/data-sources/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test a Jira connection before saving it
+         * @description ADMIN only (guarded before the body decodes), rate-limited (10/min per IP, bucket
+         *     `data-source-test`). Probes each Jira endpoint the ingestion pipeline needs in sequence
+         *     (at most 10s each, 30s total) and NEVER answers `502` — every probe outcome is a row in
+         *     the response, `ok: false` included. `jira.apiToken` is required here (an ad-hoc test
+         *     before the connection is saved).
+         */
+        post: operations["testDataSourceAdHoc"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/data-sources/{id}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test a saved data source's connection
+         * @description ADMIN only, rate-limited (10/min per IP, bucket `data-source-test`). Uses the STORED,
+         *     decrypted token — no request body. A successful `tenant_info` probe persists the
+         *     resolved `cloudId` on the connection.
+         */
+        post: operations["testDataSourceStored"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/data-sources/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Get a data source
+         * @description ADMIN only.
+         */
+        get: operations["getDataSource"];
+        /**
+         * Update a data source (full replace)
+         * @description ADMIN only, guard before the id lookup (uniform 403). A changed `jira.siteUrl` is `409`
+         *     — it is the connection's identity; create a new data source instead. Omitting OR
+         *     blanking `jira.apiToken` keeps the current token; any other value rotates it (audited
+         *     separately as `data_source.token_rotated`). Any successful update bumps
+         *     `configRevision`. A case-insensitive name clash with another active data source is `409`.
+         */
+        put: operations["updateDataSource"];
+        post?: never;
+        /**
+         * Delete a data source (soft)
+         * @description ADMIN only, guard before the id lookup. Soft delete — disables the connection and frees its name; the raw/normalized rows are purged after a grace period once the sync-job queue lands (plan §0 A2).
+         */
+        delete: operations["deleteDataSource"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/data-sources/{id}/sync-jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * List a data source's sync jobs
+         * @description ADMIN only. History and command queue for one connection (v0.2.0 plan §9).
+         *
+         *     - Sortable fields: `id`, `requestedAt`. Default `-requestedAt` (newest first).
+         *     - Filters: `kind` (`SYNC`/`RECONCILE`/`REPROCESS`/`PURGE`), `status`
+         *       (`PENDING`/`RUNNING`/`SUCCEEDED`/`FAILED`/`CANCELLED`).
+         */
+        get: operations["listSyncJobs"];
+        put?: never;
+        /**
+         * Enqueue a sync job ("Sync now" / "Reconcile now" / "Reprocess")
+         * @description ADMIN only (guarded before the body decodes). `400` when the connection is disabled, or
+         *     when `kind` is `PURGE` — PURGE is scheduled internally (a soft-deleted connection past
+         *     its grace period) and is never requester-initiated. A second request while one is already
+         *     `PENDING`/`RUNNING` for the same `(connection, kind)` is coalesced (`202`,
+         *     `coalesced: true`, the EXISTING job).
+         */
+        post: operations["requestSyncJob"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/data-sources/{id}/sync-jobs/{jobId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                jobId: number;
+            };
+            cookie?: never;
+        };
+        /**
+         * Get one sync job
+         * @description ADMIN only.
+         */
+        get: operations["getSyncJob"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/data-sources/{id}/sync-jobs/{jobId}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                jobId: number;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel a sync job
+         * @description ADMIN only. `PENDING` → `CANCELLED` immediately; `RUNNING` → `cancel_requested_at` is set
+         *     and the worker honours it cooperatively on its next heartbeat tick; an already-terminal
+         *     job (`SUCCEEDED`/`FAILED`/`CANCELLED`) is `409`.
+         */
+        post: operations["cancelSyncJob"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/data-sources/{id}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Get a data source's sync status
+         * @description ADMIN only, read-only (v0.2.0 plan §9). Connection summary, every persisted stream cursor
+         *     (`reference`/`issues`/`changelogs`/`worklogs`/`reconcile` — a completed pass with nothing
+         *     left to resume has no row, so it is simply absent), raw-store row counts, the most recent
+         *     job of each kind, and the connection's currently RUNNING job, if any.
+         */
+        get: operations["getDataSourceStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/data-sources/{id}/raw-issues/{issueKey}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description An all-digits string is looked up by the stable Jira issue id; anything else must match `^[A-Z][A-Z0-9_]{1,9}-[0-9]{1,10}$` (e.g. `ENG-123`) or is `400`. */
+                issueKey: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * Inspect one raw Jira issue
+         * @description ADMIN only, read-only (v0.2.0 plan §9/§12 item 8b). The stored raw payload, its changelog
+         *     histories and worklogs (oldest first), and — once it has been through PROCESS at least
+         *     once — its `norm.*` shape (`workItem`, `statusIntervals`, `fieldIntervals`, `anomalies`). A
+         *     tombstoned issue (`deletedAt`/`movedOutAt` set) is still returned, never `404`.
+         */
+        get: operations["getRawIssue"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/data-sources/{id}/profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Get a data source's data profile
+         * @description ADMIN only, read-only (v0.2.0 plan §8/§9/§12 item 9). SQL aggregates over this
+         *     connection's `raw.*`/`norm.*` rows, computed by the PROFILE step after every successful
+         *     SYNC/REPROCESS. `computedAt` is `null` before the connection's first PROCESS pass — every
+         *     section then carries its own empty default rather than the endpoint `404`ing.
+         */
+        get: operations["getDataSourceProfile"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/data-sources/{id}/metrics-config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Get a data source's metrics configuration
+         * @description ADMIN only (`.claude/docs/domain-model.md` "Configuration"). `configured: false` means
+         *     nothing is stored yet — every field is a COMPUTED default (status → stage from Jira's
+         *     status category; the profile-detected story-points field for both estimate roles;
+         *     `duedate` for the epic due date; 1:1 project → domain and issue type → activity type; no
+         *     board → team mappings, blocked statuses, work categories or sprint capacities).
+         */
+        get: operations["getDataSourceMetricsConfig"];
+        /**
+         * Replace a data source's metrics configuration
+         * @description ADMIN only, guard before the body decode. A full replace over all eight per-connection config tables in one transaction — every id is validated against this connection's own `norm` reference rows (statuses, boards, sprints, project keys, issue types) and its stored data profile (field ids), else `400`; a board mapped to a team already mapped elsewhere is `409` (D10: one board per team). Bumps the shared `configRevision` unless the request is byte-for-byte identical to what is already stored.
+         */
+        put: operations["updateDataSourceMetricsConfig"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/data-sources/{id}/metrics-config/options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Get the reference data for a data source's metrics configuration
+         * @description ADMIN only, read-only. Statuses (with category), custom fields (with the profile's
+         *     detected role), project keys, boards, issue types and sprints per board — the picklists
+         *     the metrics-config editor uses. `workCategoryValues` is populated only when
+         *     `?workCategoryField=` names a field id, from that field's own distinct observed values
+         *     across this connection's live work items, capped at 200 (`workCategoryValuesTruncated:
+         *     true` when more exist).
+         */
+        get: operations["getDataSourceMetricsConfigOptions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/jira-users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Jira accounts, distinct across connections
+         * @description `scope=UNIT` (default) — any authenticated user, D12: only accounts already relevant to
+         *     this unit's own data (an assignee or worklog author on an ACTIVE connection's live work
+         *     items, or one that ever held a `metrics.team_membership` row) — the same population every
+         *     other any-authenticated surface can already name. `scope=SITE` — ADMIN only (guard before
+         *     any read; `403` for anyone else), the whole site directory, for picking a brand-new team
+         *     member.
+         *
+         *     - Sortable fields: `displayName`. Default ascending, `accountId` ascending tiebreaker.
+         *     - Filters: `q` (case- and accent-insensitive substring on display name), `teamId`
+         *       (that team's CURRENT membership only — combined with `scope` by set intersection).
+         */
+        get: operations["listJiraUsers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/metrics-settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the global metrics settings singleton
+         * @description ADMIN only. The ONE `metrics.settings` row every DERIVE run reads under its
+         *     `configRevision` — the calendar/thresholds the whole metrics layer is built against
+         *     (`.claude/docs/domain-model.md` "Configuration"). `timeZone` defaults to `Europe/Warsaw`.
+         */
+        get: operations["getMetricsSettings"];
+        /**
+         * Replace the global metrics settings
+         * @description ADMIN only, guard before the body decode. A full replace — every field is required. Bumps `configRevision`, which (from a later commit on) enqueues a `DERIVE` job for every enabled connection.
+         */
+        put: operations["updateMetricsSettings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -620,6 +1062,674 @@ export interface components {
             /** Format: int64 */
             total: number;
         };
+        JiraConnectionRequest: {
+            /** @description Exactly `https://<site>.atlassian.net` — origin only, no path/query/trailing slash (the outbound allow-list boundary). Fixed at create; a PUT changing it is `409`. */
+            siteUrl: string;
+            /** @description The Jira service-account email. */
+            email: string;
+            /** @description Write-only. Required (non-blank) on create. On update, omitted OR blank keeps the current token (the SPA's masked-password field sends an empty string for "unchanged"); any other value rotates it. Never echoed back in any response. */
+            apiToken?: string | null;
+            projectKeys: string[];
+            authScheme?: components["schemas"]["JiraAuthScheme"];
+        };
+        /**
+         * @default BASIC
+         * @enum {string}
+         */
+        JiraAuthScheme: "BASIC" | "BEARER";
+        DataSourceRequest: {
+            name: string;
+            /** @default true */
+            enabled: boolean;
+            syncIntervalMinutes: number;
+            /**
+             * Format: date
+             * @description ISO date (YYYY-MM-DD), not in the future and not more than 10 years back (nor before 2000-01-01). Omitted computes today minus 24 months.
+             */
+            backfillFrom?: string | null;
+            /** @default 3 */
+            reconcileHourUtc: number;
+            jira: components["schemas"]["JiraConnectionRequest"];
+        };
+        JiraConnectionResponse: {
+            siteUrl: string;
+            email: string;
+            /** @description The token itself is never returned. */
+            hasApiToken: boolean;
+            projectKeys: string[];
+            authScheme: components["schemas"]["JiraAuthScheme"];
+            /** @description Resolved on the first successful probe/sync (not populated by this commit's CRUD). */
+            cloudId?: string | null;
+        };
+        /** @enum {string} */
+        DataSourceState: "NEVER_SYNCED" | "CURRENT" | "STALE" | "FAILED" | "DISABLED";
+        DataSourceStatus: {
+            state: components["schemas"]["DataSourceState"];
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            lastSyncStartedAt?: number | null;
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            lastSyncSucceededAt?: number | null;
+            lastSyncErrorCode?: string | null;
+            consecutiveFailures: number;
+            /**
+             * Format: int32
+             * @description The connection's currently RUNNING sync job, if any.
+             */
+            runningJobId?: number | null;
+        };
+        DataSourceResponse: {
+            /** Format: int32 */
+            id: number;
+            /** @enum {string} */
+            kind: "JIRA_CLOUD";
+            name: string;
+            enabled: boolean;
+            syncIntervalMinutes: number;
+            /** Format: date */
+            backfillFrom: string;
+            reconcileHourUtc: number;
+            /** Format: int64 */
+            configRevision: number;
+            jira: components["schemas"]["JiraConnectionResponse"];
+            status: components["schemas"]["DataSourceStatus"];
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            createdAt: number;
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            updatedAt: number;
+        };
+        DataSourcePage: {
+            items: components["schemas"]["DataSourceResponse"][];
+            page: number;
+            pageSize: number;
+            /** Format: int64 */
+            total: number;
+        };
+        DataSourceTestRequest: {
+            jira: components["schemas"]["JiraConnectionRequest"];
+        };
+        ConnectionTestRow: {
+            /** @description The probe's short identifier (e.g. myself, project_statuses:ENG). */
+            name: string;
+            /** @description The Jira endpoint path probed. */
+            path: string;
+            /** @description Whether a real sync depends on this endpoint. */
+            required: boolean;
+            ok: boolean;
+            /** @description The upstream HTTP status, when the probe ran. */
+            status?: number | null;
+            /** @description A `JiraFetchException` code on failure (e.g. `AUTHENTICATION_FAILED`, `FORBIDDEN_SCOPE`). */
+            code?: string | null;
+            /** @description The Jira OAuth/API-token scope this endpoint likely needs, for a failed optional/required row. */
+            scopeHint?: string | null;
+        };
+        ConnectionTestResult: {
+            rows: components["schemas"]["ConnectionTestRow"][];
+            /** @description Resolved once the `tenant_info` probe succeeds. */
+            cloudId?: string | null;
+        };
+        /** @enum {string} */
+        SyncJobKind: "SYNC" | "RECONCILE" | "REPROCESS" | "PURGE";
+        /** @enum {string} */
+        SyncJobStatus: "PENDING" | "RUNNING" | "SUCCEEDED" | "FAILED" | "CANCELLED";
+        SyncJobRequest: {
+            /** @description `PURGE` is internal-only and rejected here with `400`. */
+            kind: components["schemas"]["SyncJobKind"];
+        };
+        SyncJobResponse: {
+            /** Format: int32 */
+            id: number;
+            /** Format: int32 */
+            connectionId: number;
+            kind: components["schemas"]["SyncJobKind"];
+            status: components["schemas"]["SyncJobStatus"];
+            /** @description 0 manual, 10 scheduler-enqueued. */
+            priority: number;
+            /**
+             * Format: int32
+             * @description Null for scheduler-enqueued jobs.
+             */
+            requestedByUserId?: number | null;
+            /** Format: int64 */
+            configRevision: number;
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            requestedAt: number;
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            startedAt?: number | null;
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            finishedAt?: number | null;
+            attempt: number;
+            maxAttempts: number;
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            leaseUntil?: number | null;
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            heartbeatAt?: number | null;
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            cancelRequestedAt?: number | null;
+            currentStream?: string | null;
+            progress?: {
+                [key: string]: unknown;
+            } | null;
+            errorCode?: string | null;
+            errorDetail?: string | null;
+        };
+        SyncJobPage: {
+            items: components["schemas"]["SyncJobResponse"][];
+            page: number;
+            pageSize: number;
+            /** Format: int64 */
+            total: number;
+        };
+        SyncJobActionResult: {
+            job: components["schemas"]["SyncJobResponse"];
+            /** @description True when an already-open job for the same (connection, kind) was returned instead of a new one. */
+            coalesced: boolean;
+        };
+        SyncCursorSummary: {
+            /** @description The stream's `sync_cursors.stream` key (e.g. issues, reference, reconcile). */
+            stream: string;
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            watermarkAt?: number | null;
+            /** @description The stream's own raw persisted cursor JSON — an opaque, per-stream-owned diagnostic string, not reparsed here. */
+            position: string;
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            lastCompletedAt?: number | null;
+        };
+        SyncCounts: {
+            /** Format: int64 */
+            rawIssues: number;
+            /** Format: int64 */
+            tombstonedDeleted: number;
+            /** Format: int64 */
+            tombstonedMovedOut: number;
+            /** Format: int64 */
+            changelogs: number;
+            /**
+             * Format: int64
+             * @description Live (non-tombstoned) worklogs.
+             */
+            worklogs: number;
+            entitiesByKind: {
+                [key: string]: number;
+            };
+            /** Format: int64 */
+            needsProcessing: number;
+        };
+        SyncStatusResponse: {
+            connection: components["schemas"]["DataSourceResponse"];
+            cursors: components["schemas"]["SyncCursorSummary"][];
+            counts: components["schemas"]["SyncCounts"];
+            /** @description Keyed by SyncJobKind name — the most recent job of each kind ever requested for this connection. */
+            lastJobs: {
+                [key: string]: components["schemas"]["SyncJobResponse"];
+            };
+            currentJob?: components["schemas"]["SyncJobResponse"] | null;
+        };
+        NormalizedStatusInterval: {
+            /** Format: int32 */
+            seq: number;
+            statusId: string;
+            statusName: string;
+            category: components["schemas"]["StatusCategory"];
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            fromAtMs: number;
+            /**
+             * Format: int64
+             * @description Epoch millis; null means the open (current) interval.
+             */
+            toAtMs?: number | null;
+            /** @enum {string} */
+            source: "CREATED" | "CHANGE";
+        };
+        NormalizedFieldInterval: {
+            /** @enum {string} */
+            field: "ASSIGNEE" | "SPRINT" | "FLAGGED" | "PARENT";
+            /** Format: int32 */
+            seq: number;
+            valueId?: string | null;
+            valueText?: string | null;
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            fromAtMs: number;
+            /** Format: int64 */
+            toAtMs?: number | null;
+        };
+        /** @enum {string} */
+        StatusCategory: "TODO" | "IN_PROGRESS" | "DONE" | "UNKNOWN";
+        RawIssueWorkItem: {
+            issueKey: string;
+            projectKey: string;
+            issueType: string;
+            statusId: string;
+            statusName: string;
+            statusCategory: components["schemas"]["StatusCategory"];
+            assigneeAccountId?: string | null;
+            /**
+             * Format: int32
+             * @description An epic is level 1, from the REFERENCE stream's ISSUE_TYPE entities — never "type name = Epic".
+             */
+            hierarchyLevel?: number | null;
+            /**
+             * Format: int64
+             * @description Epoch millis at start of day UTC (the system duedate field).
+             */
+            dueAt?: number | null;
+            /** @description Every non-null `customfield_*` current value, keyed by field id — never filtered. */
+            customFields?: {
+                [key: string]: unknown;
+            };
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            processedAt: number;
+            /** Format: int32 */
+            processingVersion: number;
+            /** Format: int64 */
+            deletedAt?: number | null;
+            /** Format: int64 */
+            movedOutAt?: number | null;
+        };
+        RawIssueInspection: {
+            /** Format: int64 */
+            issueId: number;
+            issueKey: string;
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            fetchedAt: number;
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            changedAt: number;
+            sha256: string;
+            /** Format: int64 */
+            deletedAt?: number | null;
+            /** Format: int64 */
+            movedOutAt?: number | null;
+            needsProcessing: boolean;
+            /** @description The `search/jql` issue document exactly as Jira returned it (canonicalized). */
+            payload: {
+                [key: string]: unknown;
+            };
+            /** @description Every stored changelog history for this issue, oldest first. */
+            changelogs?: {
+                [key: string]: unknown;
+            }[];
+            /** @description This issue's non-tombstoned worklogs, exactly as Jira returned them. */
+            worklogs?: {
+                [key: string]: unknown;
+            }[];
+            /** @description Null until this issue has been through PROCESS at least once. */
+            workItem?: components["schemas"]["RawIssueWorkItem"] | null;
+            statusIntervals?: components["schemas"]["NormalizedStatusInterval"][];
+            fieldIntervals?: components["schemas"]["NormalizedFieldInterval"][];
+            anomalies?: ("STATUS_CHANGE_BEFORE_CREATED" | "STATUS_CHAIN_BROKEN" | "STATUS_MISMATCH_WITH_CURRENT")[];
+        };
+        DataProfileRange: {
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            earliestCreatedAt: number;
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            latestUpdatedAt: number;
+        };
+        ProjectProfile: {
+            projectKey: string;
+            /** @description Keyed by issue type name. */
+            issueCounts: {
+                [key: string]: number;
+            };
+        };
+        WorkflowStatusProfile: {
+            statusId: string;
+            name: string;
+            category: components["schemas"]["StatusCategory"];
+            /**
+             * Format: int64
+             * @description How many status-interval transitions INTO this status this project×type's own issues recorded.
+             */
+            transitionCount: number;
+        };
+        WorkflowProfile: {
+            projectKey: string;
+            issueType: string;
+            observedStatuses: components["schemas"]["WorkflowStatusProfile"][];
+            /** @description This project's own workflow for this issue type, from Jira's `project/{key}/statuses`. */
+            referenceStatusNames: string[];
+        };
+        BoardColumnProfile: {
+            name: string;
+            statusNames: string[];
+        };
+        BoardProfile: {
+            /** Format: int64 */
+            boardId: number;
+            name: string;
+            boardType: string;
+            projectKey?: string | null;
+            columns: components["schemas"]["BoardColumnProfile"][];
+            /** @description Statuses observed on this board's project that map to no column. */
+            unmappedStatusNames: string[];
+        };
+        CustomFieldProfile: {
+            id: string;
+            name: string;
+            /** @description Jira's own `schema.type` for this field. */
+            type: string;
+            /** Format: int64 */
+            nonNullCount: number;
+            /** Format: double */
+            fillPercent: number;
+            /** @enum {string} */
+            role: "SPRINT" | "RANK" | "TEAM" | "STORY_POINTS" | "FLAGGED" | "OTHER";
+        };
+        EstimatesProfile: {
+            /** Format: int64 */
+            totalIssues: number;
+            /** Format: int64 */
+            storyPointsCount: number;
+            /** Format: double */
+            storyPointsPercent: number;
+            /** Format: int64 */
+            originalEstimateCount: number;
+            /** Format: double */
+            originalEstimatePercent: number;
+        };
+        WorklogsProfile: {
+            /** Format: int64 */
+            count: number;
+            /** Format: double */
+            totalHours: number;
+            /** Format: int64 */
+            itemsWithWorklog: number;
+            /** Format: double */
+            itemsWithWorklogPercent: number;
+            /** Format: int64 */
+            authorCount: number;
+        };
+        ReopensProfile: {
+            /** Format: int64 */
+            count: number;
+            /** Format: int64 */
+            totalIssues: number;
+            /** Format: double */
+            percent: number;
+        };
+        SprintsProfile: {
+            /** Format: int64 */
+            count: number;
+            stateCounts: {
+                [key: string]: number;
+            };
+            /** Format: int64 */
+            itemsWithSprint: number;
+            /** Format: double */
+            itemsWithSprintPercent: number;
+            /** Format: int64 */
+            carryOverCount: number;
+            /** Format: double */
+            carryOverPercent: number;
+        };
+        PeopleProfile: {
+            /** Format: int64 */
+            activeAssignees: number;
+            /** Format: double */
+            unassignedPercent: number;
+        };
+        DataProfile: {
+            /**
+             * Format: int64
+             * @description Epoch millis; null before the first PROCESS pass.
+             */
+            computedAt?: number | null;
+            range?: components["schemas"]["DataProfileRange"] | null;
+            projects?: components["schemas"]["ProjectProfile"][];
+            workflows?: components["schemas"]["WorkflowProfile"][];
+            boards?: components["schemas"]["BoardProfile"][];
+            customFields?: components["schemas"]["CustomFieldProfile"][];
+            estimates: components["schemas"]["EstimatesProfile"];
+            worklogs: components["schemas"]["WorklogsProfile"];
+            reopens: components["schemas"]["ReopensProfile"];
+            sprints: components["schemas"]["SprintsProfile"];
+            people: components["schemas"]["PeopleProfile"];
+            /** @description Keyed by anomaly code (`STATUS_CHANGE_BEFORE_CREATED`/`STATUS_CHAIN_BROKEN`/`STATUS_MISMATCH_WITH_CURRENT`). */
+            anomalyCounts?: {
+                [key: string]: number;
+            };
+        };
+        MetricsStatusStage: {
+            statusId: string;
+            /** @enum {string} */
+            stage: "NOT_STARTED" | "IN_PROGRESS" | "DONE";
+        };
+        MetricsFieldConfig: {
+            estimateTask?: string | null;
+            estimateEpic?: string | null;
+            epicStart?: string | null;
+            epicDue?: string | null;
+            workCategory?: string | null;
+        };
+        MetricsDomainMapping: {
+            projectKey: string;
+            domainKey: string;
+            domainName: string;
+        };
+        MetricsBoardTeamMapping: {
+            /** Format: int64 */
+            boardId: number;
+            /** Format: int32 */
+            teamId: number;
+        };
+        MetricsActivityTypeMapping: {
+            issueType: string;
+            activityType: string;
+        };
+        MetricsWorkCategoryMapping: {
+            valueId: string;
+            valueName?: string | null;
+            category: string;
+        };
+        MetricsSprintCapacity: {
+            /** Format: int64 */
+            sprintId: number;
+            /** Format: double */
+            capacityMd: number;
+        };
+        DataSourceMetricsConfig: {
+            /** @description False means every field below is a COMPUTED default, nothing is stored yet. */
+            configured: boolean;
+            statusStages: components["schemas"]["MetricsStatusStage"][];
+            fields: components["schemas"]["MetricsFieldConfig"];
+            domains: components["schemas"]["MetricsDomainMapping"][];
+            boards: components["schemas"]["MetricsBoardTeamMapping"][];
+            activityTypes: components["schemas"]["MetricsActivityTypeMapping"][];
+            workCategories: components["schemas"]["MetricsWorkCategoryMapping"][];
+            blockedStatuses: string[];
+            sprintCapacities: components["schemas"]["MetricsSprintCapacity"][];
+        };
+        DataSourceMetricsConfigRequest: {
+            statusStages?: components["schemas"]["MetricsStatusStage"][];
+            fields?: components["schemas"]["MetricsFieldConfig"];
+            domains?: components["schemas"]["MetricsDomainMapping"][];
+            boards?: components["schemas"]["MetricsBoardTeamMapping"][];
+            activityTypes?: components["schemas"]["MetricsActivityTypeMapping"][];
+            workCategories?: components["schemas"]["MetricsWorkCategoryMapping"][];
+            blockedStatuses?: string[];
+            sprintCapacities?: components["schemas"]["MetricsSprintCapacity"][];
+        };
+        MetricsStatusOption: {
+            statusId: string;
+            name: string;
+            /** @enum {string} */
+            category: "TODO" | "IN_PROGRESS" | "DONE" | "UNKNOWN";
+        };
+        MetricsFieldOption: {
+            fieldId: string;
+            name: string;
+            type: string;
+            /** @description SPRINT/RANK/TEAM/STORY_POINTS/FLAGGED/OTHER — `jira/JiraProfile.kt`'s detection. */
+            detectedRole: string;
+        };
+        MetricsBoardOption: {
+            /** Format: int64 */
+            boardId: number;
+            name: string;
+            projectKey?: string | null;
+        };
+        MetricsSprintOption: {
+            /** Format: int64 */
+            sprintId: number;
+            /** Format: int64 */
+            boardId?: number | null;
+            name: string;
+            state: string;
+        };
+        MetricsFieldValueOption: {
+            valueId: string;
+            valueName?: string | null;
+        };
+        DataSourceMetricsConfigOptions: {
+            statuses: components["schemas"]["MetricsStatusOption"][];
+            fields: components["schemas"]["MetricsFieldOption"][];
+            projects: string[];
+            boards: components["schemas"]["MetricsBoardOption"][];
+            issueTypes: string[];
+            workCategoryValues: components["schemas"]["MetricsFieldValueOption"][];
+            /** @description True when the field carries more than 200 distinct values — the response shows only the first 200 (by id). */
+            workCategoryValuesTruncated: boolean;
+            sprints: components["schemas"]["MetricsSprintOption"][];
+        };
+        MetricsSettingsResponse: {
+            /** Format: int64 */
+            configRevision: number;
+            /** Format: double */
+            hoursPerDay: number;
+            /** @description An IANA zone id, e.g. Europe/Warsaw. */
+            timeZone: string;
+            /** @description ISO weekday numbers, 1 (Monday) .. 7 (Sunday). */
+            weekendDays: number[];
+            holidays: string[];
+            commitmentGraceMinutes: number;
+            minSampleSize: number;
+            agingWindowItems: number;
+            agingPercentiles: number[];
+            backlogWindowSprints: number;
+            epicDriftDays: number;
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            updatedAt: number;
+            /** Format: int64 */
+            updatedByUserId: number | null;
+        };
+        MetricsSettingsRequest: {
+            /** Format: double */
+            hoursPerDay: number;
+            timeZone: string;
+            weekendDays: number[];
+            holidays: string[];
+            commitmentGraceMinutes: number;
+            minSampleSize: number;
+            agingWindowItems: number;
+            agingPercentiles: number[];
+            backlogWindowSprints: number;
+            epicDriftDays: number;
+        };
+        JiraUserResponse: {
+            accountId: string;
+            displayName: string;
+        };
+        JiraUserPage: {
+            items: components["schemas"]["JiraUserResponse"][];
+            page: number;
+            pageSize: number;
+            /** Format: int64 */
+            total: number;
+        };
+        TeamMembershipListResponse: {
+            items: components["schemas"]["TeamMembershipResponse"][];
+        };
+        TeamMembershipResponse: {
+            /** Format: int32 */
+            id: number;
+            /** @description The Jira accountId — global across connections. */
+            accountId: string;
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            validFrom: number;
+            /**
+             * Format: int64
+             * @description Epoch millis; null = open-ended (the current membership).
+             */
+            validTo: number | null;
+            /** Format: int64 */
+            createdAt: number;
+            /** Format: int64 */
+            updatedAt: number;
+        };
+        TeamMembershipCreateRequest: {
+            accountId: string;
+            /** Format: int64 */
+            validFrom: number;
+            /** Format: int64 */
+            validTo?: number | null;
+        };
+        TeamMembershipUpdateRequest: {
+            /** Format: int64 */
+            validFrom: number;
+            /** Format: int64 */
+            validTo?: number | null;
+        };
         /** @description RFC 7807 problem detail. Served as `application/problem+json`; instance is the request path without query parameters. */
         ProblemDetail: {
             /**
@@ -733,6 +1843,8 @@ export interface components {
          *     always appended as a deterministic tiebreaker.
          */
         Sort: string;
+        /** @description Free-text substring filter (case- and accent-insensitive) — API-LIST-005. */
+        Q: string;
     };
     requestBodies: never;
     headers: never;
@@ -1446,6 +2558,727 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    listTeamJiraMemberships: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The team's membership rows */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamMembershipListResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    createTeamJiraMembership: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TeamMembershipCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    /** @description URL of the new membership resource */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamMembershipResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            415: components["responses"]["UnsupportedMediaType"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    updateTeamJiraMembership: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                membershipId: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TeamMembershipUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            415: components["responses"]["UnsupportedMediaType"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    deleteTeamJiraMembership: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                membershipId: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    listDataSources: {
+        parameters: {
+            query?: {
+                /** @description 1-based page index. Defaults to 1. */
+                page?: components["parameters"]["Page"];
+                /** @description Rows per page. Defaults to 20, maximum 100. */
+                pageSize?: components["parameters"]["PageSize"];
+                /**
+                 * @description Sort spec. Format: `field` (ascending) or `-field` (descending). Multiple fields are
+                 *     comma-separated, leftmost wins: `sort=-updatedAt,name`. The endpoint declares its
+                 *     sortable-field whitelist; unknown fields are rejected with `400`. `id` ascending is
+                 *     always appended as a deterministic tiebreaker.
+                 */
+                sort?: components["parameters"]["Sort"];
+                name?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of data sources */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DataSourcePage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    createDataSource: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DataSourceRequest"];
+            };
+        };
+        responses: {
+            /** @description Created; `Location` points at the new data source */
+            201: {
+                headers: {
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DataSourceResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            413: components["responses"]["PayloadTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    testDataSourceAdHoc: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DataSourceTestRequest"];
+            };
+        };
+        responses: {
+            /** @description The probe results (never a failure status — see the row shapes) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectionTestResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            413: components["responses"]["PayloadTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    testDataSourceStored: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The probe results */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectionTestResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getDataSource: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The data source */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DataSourceResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    updateDataSource: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DataSourceRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            415: components["responses"]["UnsupportedMediaType"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    deleteDataSource: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    listSyncJobs: {
+        parameters: {
+            query?: {
+                /** @description 1-based page index. Defaults to 1. */
+                page?: components["parameters"]["Page"];
+                /** @description Rows per page. Defaults to 20, maximum 100. */
+                pageSize?: components["parameters"]["PageSize"];
+                /**
+                 * @description Sort spec. Format: `field` (ascending) or `-field` (descending). Multiple fields are
+                 *     comma-separated, leftmost wins: `sort=-updatedAt,name`. The endpoint declares its
+                 *     sortable-field whitelist; unknown fields are rejected with `400`. `id` ascending is
+                 *     always appended as a deterministic tiebreaker.
+                 */
+                sort?: components["parameters"]["Sort"];
+                kind?: components["schemas"]["SyncJobKind"];
+                status?: components["schemas"]["SyncJobStatus"];
+            };
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of sync jobs */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SyncJobPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    requestSyncJob: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SyncJobRequest"];
+            };
+        };
+        responses: {
+            /** @description Accepted (queued or coalesced with an already-open job) */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SyncJobActionResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            415: components["responses"]["UnsupportedMediaType"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getSyncJob: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                jobId: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The sync job */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SyncJobResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    cancelSyncJob: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                jobId: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Cancellation accepted (or already in effect) */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SyncJobResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getDataSourceStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The sync status */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SyncStatusResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getRawIssue: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description An all-digits string is looked up by the stable Jira issue id; anything else must match `^[A-Z][A-Z0-9_]{1,9}-[0-9]{1,10}$` (e.g. `ENG-123`) or is `400`. */
+                issueKey: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The raw issue inspection */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RawIssueInspection"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getDataSourceProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The data profile */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DataProfile"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getDataSourceMetricsConfig: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The connection's effective metrics configuration */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DataSourceMetricsConfig"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    updateDataSourceMetricsConfig: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DataSourceMetricsConfigRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            415: components["responses"]["UnsupportedMediaType"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getDataSourceMetricsConfigOptions: {
+        parameters: {
+            query?: {
+                workCategoryField?: string;
+            };
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The metrics-config reference data */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DataSourceMetricsConfigOptions"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    listJiraUsers: {
+        parameters: {
+            query?: {
+                /** @description 1-based page index. Defaults to 1. */
+                page?: components["parameters"]["Page"];
+                /** @description Rows per page. Defaults to 20, maximum 100. */
+                pageSize?: components["parameters"]["PageSize"];
+                /**
+                 * @description Sort spec. Format: `field` (ascending) or `-field` (descending). Multiple fields are
+                 *     comma-separated, leftmost wins: `sort=-updatedAt,name`. The endpoint declares its
+                 *     sortable-field whitelist; unknown fields are rejected with `400`. `id` ascending is
+                 *     always appended as a deterministic tiebreaker.
+                 */
+                sort?: components["parameters"]["Sort"];
+                /** @description Free-text substring filter (case- and accent-insensitive) — API-LIST-005. */
+                q?: components["parameters"]["Q"];
+                teamId?: number;
+                scope?: "UNIT" | "SITE";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of Jira accounts */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JiraUserPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getMetricsSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The current settings */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MetricsSettingsResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    updateMetricsSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MetricsSettingsRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            415: components["responses"]["UnsupportedMediaType"];
             500: components["responses"]["InternalServerError"];
         };
     };

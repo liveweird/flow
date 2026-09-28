@@ -1,0 +1,167 @@
+{
+  "settings": {
+    "title": "Metrics settings",
+    "intro": "The calendar and thresholds every flow-metrics report is derived against. A save applies to the whole unit.",
+    "field": {
+      "hoursPerDay": "Hours per day",
+      "hoursPerDayHint": "Converts logged worklog seconds to man-days.",
+      "timeZone": "Time zone",
+      "weekendDays": "Weekend days",
+      "holidays": "Holidays",
+      "holidaysHint": "ISO dates (YYYY-MM-DD) excluded from every working-day calculation.",
+      "commitmentGraceMinutes": "Commitment grace (minutes)",
+      "minSampleSize": "Minimum sample size",
+      "agingWindowItems": "Aging-WIP window (items)",
+      "agingPercentiles": "Aging percentiles",
+      "agingPercentilesHint": "Must include 85 (the data-quality overview reads it by name).",
+      "backlogWindowSprints": "Backlog window (sprints)",
+      "epicDriftDays": "Epic drift threshold (days)"
+    },
+    "weekday": {
+      "1": "Mon",
+      "2": "Tue",
+      "3": "Wed",
+      "4": "Thu",
+      "5": "Fri",
+      "6": "Sat",
+      "7": "Sun"
+    },
+    "toast": {
+      "saved": "Saved — reports re-derive shortly"
+    },
+    "saveForbidden": "Only administrators can edit metrics settings",
+    "saveInvalid": "One or more fields are invalid",
+    "validation": {
+      "hoursPerDay": "Hours per day must be greater than 0 and at most 24",
+      "timeZone": "Must be a valid time zone, e.g. Europe/Warsaw",
+      "weekendDaysInvalid": "Weekend days must each be Monday .. Sunday",
+      "weekendDaysAllWeek": "Weekend days must not mark every day of the week as non-working",
+      "holidaysCount": "At most {{max}} holidays are allowed",
+      "holidaysInvalid": "Holidays must be ISO dates (YYYY-MM-DD): {{date}}",
+      "commitmentGraceMinutes": "Commitment grace must be 0 or more",
+      "minSampleSize": "Minimum sample size must be at least 1",
+      "agingWindowItems": "Aging-WIP window must be at least 1",
+      "agingPercentilesEmpty": "At least one aging percentile is required",
+      "agingPercentilesRange": "Aging percentiles must each be a whole number between 1 and 99",
+      "agingPercentilesDuplicate": "Aging percentiles must not contain duplicates",
+      "agingPercentilesMustInclude85": "Aging percentiles must include {{required}}",
+      "backlogWindowSprints": "Backlog window must be at least 1 sprint",
+      "epicDriftDays": "Epic drift threshold must be 0 or more"
+    }
+  },
+  "teamMembers": {
+    "title": "Jira members",
+    "addMember": "Add Jira member",
+    "addTitle": "Add a Jira member",
+    "pickPerson": "Search people by name…",
+    "noMatchingPeople": "No matching people",
+    "field": {
+      "person": "Person",
+      "validFrom": "Valid from",
+      "validTo": "Valid to",
+      "validToHint": "Leave blank for an open-ended (current) membership."
+    },
+    "empty": "No Jira members yet",
+    "tableAria": "Jira team members",
+    "openEnded": "—",
+    "current": "current",
+    "endMembership": "End membership",
+    "removeTitle": "Remove membership row?",
+    "removeFailed": "Could not remove the membership row",
+    "removeBody": "This membership row for {{name}} will be permanently removed.",
+    "toast": {
+      "added": "Jira member added",
+      "ended": "Membership ended",
+      "removed": "Membership row removed"
+    },
+    "addOverlap": "This person already has a membership covering that period — end or edit the existing one first.",
+    "addAccountUnknown": "This Jira account is not known to any connection yet.",
+    "endConflict": "This period now overlaps another membership row.",
+    "endInvalid": "Could not end this membership — it may already have ended.",
+    "validation": {
+      "accountIdRequired": "Pick a person",
+      "validFromInvalid": "Valid from must be an ISO date (YYYY-MM-DD)",
+      "validToInvalid": "Valid to must be an ISO date (YYYY-MM-DD)",
+      "validToBeforeFrom": "Valid to must be after valid from"
+    }
+  },
+  "config": {
+    "title": "Metrics configuration",
+    "notConfiguredBanner": "Showing computed defaults — save to confirm them",
+    "loadFailedGeneric": "Could not load the metrics configuration",
+    "saveForbidden": "Only administrators can edit the metrics configuration",
+    "saveConflict": "This team is already mapped to another board",
+    "saveFailedGeneric": "Could not save the metrics configuration",
+    "toast": {
+      "saved": "Saved — reports re-derive shortly"
+    },
+    "tab": {
+      "statuses": "Statuses",
+      "fields": "Fields",
+      "domains": "Domains",
+      "boards": "Boards",
+      "activityTypes": "Activity types",
+      "workCategories": "Work categories",
+      "capacities": "Capacities"
+    },
+    "statuses": {
+      "columnStatus": "Status",
+      "columnStage": "Stage",
+      "columnBlocked": "Blocked",
+      "stageAria": "Stage for {{name}}",
+      "blockedAria": "Blocked for {{name}}",
+      "stagePlaceholder": "Unmapped",
+      "stage": {
+        "NOT_STARTED": "Not started",
+        "IN_PROGRESS": "In progress",
+        "DONE": "Done"
+      },
+      "empty": "No statuses observed yet — sync this connection first."
+    },
+    "fields": {
+      "estimateTask": "Task estimate field",
+      "estimateEpic": "Epic estimate field",
+      "epicStart": "Epic start-date field",
+      "epicDue": "Epic due-date field",
+      "workCategory": "Work-category field",
+      "none": "None",
+      "dueDateOption": "Due date (system field)"
+    },
+    "domains": {
+      "columnProject": "Project key",
+      "columnDomainKey": "Domain key",
+      "columnDomainName": "Domain name",
+      "domainKeyAria": "Domain key for {{project}}",
+      "domainNameAria": "Domain name for {{project}}",
+      "empty": "No projects observed yet — sync this connection first."
+    },
+    "boards": {
+      "columnBoard": "Board",
+      "columnTeam": "Team",
+      "teamAria": "Team for {{board}}",
+      "teamPlaceholder": "Unmapped",
+      "empty": "No boards observed yet — sync this connection first."
+    },
+    "activityTypes": {
+      "columnIssueType": "Issue type",
+      "columnActivityType": "Activity type",
+      "activityTypeAria": "Activity type for {{issueType}}",
+      "empty": "No issue types observed yet — sync this connection first."
+    },
+    "workCategories": {
+      "columnValue": "Value",
+      "columnCategory": "Category",
+      "categoryAria": "Category for {{value}}",
+      "empty": "No values observed yet for this field.",
+      "chooseField": "Choose a work-category field on the Fields tab first.",
+      "truncated": "Only the first 200 distinct values are shown."
+    },
+    "capacities": {
+      "columnSprint": "Sprint",
+      "columnCapacity": "Capacity (MD)",
+      "capacityAria": "Capacity for {{sprint}}",
+      "capacityHint": "Blank uses the computed default (members × working days).",
+      "empty": "No sprints observed yet — sync this connection first."
+    }
+  }
+}

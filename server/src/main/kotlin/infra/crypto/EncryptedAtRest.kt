@@ -7,8 +7,8 @@ package ch.nokillswit.infra.crypto
  * under the current key. Adding a newly encrypted feature = implement this and register the
  * service in the bootstrap list — do NOT remove any registration (a key rotation would strand
  * that feature's rows under the previous key; see "Encryption at rest" in
- * `.claude/docs/security.md`). No feature stores an encrypted column yet — the machinery is
- * kept ready for the first one (e.g. a stored Jira API token).
+ * `.claude/docs/security.md`). The Jira API token (`source_connections.secret`, V8,
+ * `ingest/DataSourceService.kt`) is the first consumer, registered in `encryptedAtRestServices()`.
  */
 interface EncryptedAtRest {
     /** A short noun for the bootstrap log line, e.g. "environment credential". */

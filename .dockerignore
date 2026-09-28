@@ -4,6 +4,11 @@
 web/node_modules/
 web/dist/
 
+# The synthetic Jira dataset + WireMock stub: a dev/test fixture (mounted straight into the
+# jira-stub compose service, read by server tests via Testcontainers), never copied into the app
+# image — excluding it keeps the `app` build context small.
+sample-data/
+
 # IDE / local cruft (.git stays IN the context — the SPA build stage reads the
 # commit sha/timestamp from it for the version stamp)
 **/.idea/

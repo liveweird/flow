@@ -8,7 +8,9 @@
     "changePassword": "Change password",
     "featureFlags": "Feature flags",
     "changelog": "Changelog",
-    "teams": "Teams"
+    "teams": "Teams",
+    "dataSources": "Data sources",
+    "metricsSettings": "Metrics settings"
   },
   "section": {
     "overview": "Overview",

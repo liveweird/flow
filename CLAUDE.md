@@ -14,19 +14,22 @@ where work waits, not who is busy.
 
 **Roadmap:**
 
-- **v0.1.0 (this codebase) — foundation.** Sign-in with email MFA, users, teams, feature flags,
-  EN/PL, light/dark theme. No Jira/GitLab data exists yet — `web/src/pages/Home.tsx` states that
-  plainly instead of rendering an empty dashboard.
-- **v0.2.0 — Jira ingestion.** An ADMIN-managed Jira Cloud connection (an Atlassian service
-  account + a scoped read-only API token, encrypted at rest with `infra/crypto/FieldCipher` —
-  wired and waiting, `infra/db/Bootstrap.kt`'s `encryptedAtRestServices()` is empty today), a raw
-  store with incremental cursors, and a neutral normalized layer above it. Port Covenant's
-  connector conventions (see "Donors" below) rather than inventing an ingestion shape.
-- **Next — the domain model.** Assumptions, a conceptual model and its invariants for flow
-  metrics, built on the normalized layer above.
+- **v0.1.0 — foundation.** Sign-in with email MFA, users, teams, feature flags, EN/PL,
+  light/dark theme.
+- **v0.2.0 (this codebase) — Jira ingestion.** An ADMIN-managed Jira Cloud connection (an
+  Atlassian service account + a scoped read-only API token, encrypted at rest with
+  `infra/crypto/FieldCipher`), a raw store with incremental cursors (`raw.*`), a neutral
+  normalized layer above it (`norm.*` — facts only, no interpretation), the data profile and the
+  admin pages over all of it (`.claude/docs/ingestion.md`). There are still no flow metrics —
+  `web/src/pages/Home.tsx` says so plainly instead of rendering an empty dashboard.
+- **Next — the domain model.** Agreed in `.claude/docs/domain-model.md` (DOMAIN/TASK/USER, TEAM,
+  EPIC, SPRINT; plan/delivery/cost as PV/EV/AC in man-days; the configuration, the `metrics`
+  star, fourteen target reports and its invariants); its implementation — PROCESS additions, the `metrics` schema, the
+  configuration UI, the first dashboards — is next (`BACKLOG.md`).
 
 Brand: blue (the `flow` colour tuple in `web/src/theme.ts`, `primaryShade: { light: 8, dark: 9 }`);
-the logo is three streamlines on a blue tile (`web/src/components/BrandLogo.tsx`).
+the logo is "Rolling" — a stream running round a blue disc and rolling inward into a curl
+(`web/public/logo-{light,dark}.svg` + `favicon.svg`, rendered by `web/src/components/BrandLogo.tsx`).
 
 ## Donors
 
@@ -147,6 +150,18 @@ concern, create a `configureXxx()` extension under `plugins/` and register it in
 `application.yaml`; do not call it from `main.kt`. There is no DI framework — services travel via
 `attributes`.
 
+### Bootstrap model — the role switch
+
+`FLOW_ROLE` (`app.role` in `application.yaml`, default `all`) is read once at boot by
+`plugins/Role.kt` and published as `AppRole { WEB, WORKER, ALL }` on `Application.attributes`; an
+unrecognized value fails startup in every mode. `web` serves the HTTP API (feature routes plus the
+SPA/static catch-all); `worker` serves only the health/ready probes — its one HTTP surface — and
+runs the ingestion worker arriving in v0.2.0 commit 5; `all` (dev, `docker compose`, the test
+suite) does both in one process. Every feature `configureXRoutes()` and `RoutingKt.configureRouting`
+early-return via `Application.servesApi()`; `Application.runsWorker()` is the WORKER|ALL
+counterpart. `configureHealth` always registers, and Flyway/Bootstrap always run, regardless of
+role. See `.claude/docs/ingestion.md` "Roles" for the operator-facing writeup.
+
 ### Package layout
 
 Source files sit flat under `server/src/main/kotlin/<area>/` but declare `package ch.nokillswit.<area>`
@@ -159,22 +174,25 @@ ch.nokillswit
 ├── plugins/            cross-cutting Ktor wiring (configureXxx that only `install` plugins):
 │                       Http, SecurityHeaders, Monitoring, Serialization, Security (JWT),
 │                       ErrorHandling (RFC 7807), OpenTelemetry, AutoHeadResponse, Resources,
-│                       Routing (SPA catch-all)
-│                       + Health (the public /api/v1/health and /api/v1/ready probes, after Database)
+│                       Routing (SPA catch-all — early-returns unless `servesApi()`)
+│                       + Health (the public /api/v1/health and /api/v1/ready probes, after Database
+│                       — ALWAYS registered, regardless of role)
 │                       + RateLimits (every per-IP bucket and its name — login, refresh,
 │                       password-reset, MFA)
+│                       + Role (the FLOW_ROLE switch — AppRole/servesApi()/runsWorker(),
+│                       registered early, before the infra/feature modules)
 ├── infra/mail/         outbound email (Lettuce's, ported): Mailer/SmtpMailer/LogMailer +
 │                       LocalizedText/PasswordEmail (the recipient-language content layer) +
 │                       configureMail — MAIL_TRANSPORT log/smtp/disabled, the log-transport
 │                       production refusal (fail-closed), null mailer = email features 503.
 │                       Consumers: self-service password reset and email MFA
-├── infra/crypto/       Lettuce's encryption at rest, ported and READY but not yet consumed:
+├── infra/crypto/       Lettuce's encryption at rest, ported:
 │                       FieldCipher (AES-256-GCM `enc:v1:` envelopes, a fresh nonce per value,
 │                       current + rotation key), Reencrypt.kt (the boot backfill body),
 │                       configureCrypto (DATA_ENCRYPTION_KEY, the burned-key fail-closed check),
 │                       EncryptedAtRest (the boot backfill registry in `infra/db/Bootstrap.kt`'s
-│                       `encryptedAtRestServices()` — empty today; the Jira API token in v0.2.0
-│                       is its first consumer)
+│                       `encryptedAtRestServices()` — the Jira API token,
+│                       `ingest/DataSourceService`, is its first and only consumer)
 ├── infra/db/           Flyway bootstrap + the R2DBC connection/composition root + the seed
 │                       bootstrap (admin rotation, prod fail-closed, `Bootstrap.kt`) +
 │                       SoftDelete.kt (the SoftDeletable table trait — ONE active() predicate,
@@ -182,6 +200,13 @@ ch.nokillswit
 ├── infra/paging/       the shared list-endpoint machinery (PageRequest/parsePaging/applyPaging/
 │                       PageResponse + the strict query-param readers) — Lettuce's, ported verbatim
 ├── infra/validation/   cross-feature input helpers (sanitizeSingleLine — trim + control-char 400)
+├── infra/outbound/     OutboundGuard.kt — the SSRF guard for every server-initiated call (Toadie's
+│                       address-range check + the Jira host allow-list, GuardedDns, the no-proxy/
+│                       no-redirect OkHttp client; `.claude/docs/security.md` "Outbound HTTP calls")
+├── infra/json/         CanonicalJson.kt — key-sorted canonical JSON + sha256 for stored payloads
+├── infra/config/       requireConfigInt/requireConfigLong — boot-validated numeric config (Lettuce's)
+├── infra/Failures.kt   catchingFailures — run a block, keep the failure without swallowing
+│                       cancellation (the blocklist-outage 500 path in plugins/Security.kt)
 ├── audit/              security audit trail: `audit(event, fields…)` → AUDIT-marked structured logs
 ├── authz/              CallerPrincipal + guards (requireAdmin, requireSelfOrAdmin) + typed
 │                       HTTP exceptions (401/403/404/409/429)
@@ -205,6 +230,32 @@ ch.nokillswit
 │                       users; create with an initial roster; addMember/removeMember;
 │                       activeTeamIdsOf), TeamRoutes.kt — GET /api/v1/teams (+ {id}) any
 │                       authenticated, POST/PUT/DELETE + the members pair ADMIN only
+├── ingest/             v0.2.0 Jira ingestion (`.claude/docs/ingestion.md`): DataSource.kt/
+│                       DataSourceService.kt/DataSourceRoutes.kt — the generic connector registry
+│                       (V8, ADMIN-only CRUD, the first `EncryptedAtRest` consumer) + Connector.kt
+│                       (the per-kind interface every connector, e.g. `jira/`, implements —
+│                       `testConnection`/`run`/`purgeSteps`) + SyncJob.kt/SyncJobs.kt/
+│                       SyncJobRoutes.kt (V9 `sync_jobs` — the job queue and its ADMIN-only
+│                       enqueue/list/cancel API) + SyncCursors.kt (V9 `sync_cursors` — the
+│                       per-stream resumable cursor store) + IngestWorker.kt (the `FLOW_ROLE=worker`
+│                       scheduler: enqueues due jobs, claims with a lease/heartbeat under
+│                       `FOR UPDATE SKIP LOCKED`, runs each claim's connector, releases on shutdown)
+│                       + Stream.kt (the `Stream`/`StreamContext` contract every stream implements)
+│                       + SyncStatus.kt/SyncStatusRoutes.kt (GET …/{id}/status), RawIssueInspection
+│                       .kt/RawIssueInspectorRoutes.kt (GET …/{id}/raw-issues/{issueKey}),
+│                       DataProfile.kt/DataProfileRoutes.kt (GET …/{id}/profile) — read-only views
+├── jira/               the Jira Cloud connector (`.claude/docs/jira-integration.md`): Jira.kt
+│                       (configureJira, the guarded HttpClient, the stub-URL production refusal),
+│                       JiraHttp.kt/JiraClient.kt/JiraModels.kt (backoff, bounded reads, typed
+│                       endpoints), JiraJql.kt, JiraConnector.kt (testConnection + the per-kind
+│                       stream order), JiraRawStore.kt (V10–V12 `raw.jira_*`), the streams
+│                       (JiraReferenceStream/IssuesStream/ChangelogStream/WorklogStream/
+│                       ReconcileStream/ProcessStream/ProfileStream), JiraNormalizer.kt (raw →
+│                       the neutral shape) and JiraProfile.kt (the data-profile aggregates)
+└── norm/               the connector-agnostic normalized layer (V13 `norm.*`): Tiling.kt (pure
+                        status/field interval tiling + anomaly flags), Normalization.kt
+                        (PROCESSING_VERSION, the glue), WorkItemStore.kt (per-issue REPLACE,
+                        reference-row rebuilds, purge)
 ```
 
 **Feature template — copy `teams/` (a small ADMIN-curated registry with a roster)**: it is the
@@ -248,6 +299,10 @@ covered the moment its spec entry lands.
 @.claude/docs/dependencies.md
 @.claude/docs/dependency-reproducibility.md
 @.claude/docs/app-releases.md
+@.claude/docs/ingestion.md
+@.claude/docs/jira-integration.md
+@.claude/docs/domain-model.md
+@.claude/docs/metrics.md
 
 ### Frontend (`web/`)
 

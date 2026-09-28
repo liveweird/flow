@@ -1,0 +1,24 @@
+{
+  "startAt": 3,
+  "maxResults": 3,
+  "total": 4,
+  "histories": [
+    {
+      "id": "501346",
+      "created": "2025-11-27T14:02:04.262+0000",
+      "author": {
+        "accountId": "5f8a1b2c3d4e5f6a7b8c9d09"
+      },
+      "items": [
+        {
+          "field": "status",
+          "fieldId": "status",
+          "from": "1",
+          "fromString": "To Do",
+          "to": "3",
+          "toString": "In Progress"
+        }
+      ]
+    }
+  ]
+}
