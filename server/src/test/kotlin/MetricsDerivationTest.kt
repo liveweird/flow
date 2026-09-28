@@ -45,6 +45,7 @@ import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.greater
 import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.isNotNull
 import org.jetbrains.exposed.v1.core.lessEq
@@ -2107,6 +2108,170 @@ class MetricsDerivationTest {
             }
             Unit
         }
+
+    @Test
+    fun `agg_daily_flow - throughput sums per scope equal the level-0 done tasks of fact_task_delivery`() = runBlocking {
+        val connId = DerivedStubFixture.connectionId()
+        suspendTransaction(sharedDatabaseForTests()) {
+            val f = MetricsStore.FactTaskDelivery
+            val done = f.selectAll()
+                .where { (f.connectionId eq connId) and (f.isSubtask eq false) and f.doneAt.isNotNull() }
+                .toList()
+            assertTrue(done.isNotEmpty(), "the fixture must carry level-0 done tasks, else this proves nothing")
+            fun md(rows: List<ResultRow>) = rows.fold(java.math.BigDecimal.ZERO) { acc, row ->
+                acc + (row[f.estimateAtDoneMd] ?: java.math.BigDecimal.ZERO)
+            }
+
+            val flow = MetricsStore.AggDailyFlow
+            val flowRows = flow.selectAll().where { flow.connectionId eq connId }.toList()
+            fun sums(kind: String): Pair<Int, java.math.BigDecimal> {
+                val rows = flowRows.filter { it[flow.scopeKind] == kind }
+                return rows.sumOf { it[flow.throughputItems] } to rows.fold(java.math.BigDecimal.ZERO) { acc, row ->
+                    acc + row[flow.throughputMd]
+                }
+            }
+            fun assertSums(kind: String, expectedRows: List<ResultRow>) {
+                val (items, mdSum) = sums(kind)
+                assertEquals(expectedRows.size, items, "$kind throughput_items must sum to the level-0 done tasks it covers")
+                assertEquals(0, md(expectedRows).setScale(2).compareTo(mdSum), "$kind throughput_md must sum to their estimate_at_done_md")
+            }
+            assertSums("TEAM", done)
+            assertSums("DOMAIN", done.filter { it[f.domainKey] != null })
+            assertSums("EPIC", done.filter { it[f.epicId] != null })
+            assertTrue(
+                flowRows.any { it[flow.scopeKind] == "TEAM" && it[flow.scopeId] == "UNASSIGNED" && it[flow.throughputItems] > 0 } ||
+                    done.none { it[f.creditTeamId] == null },
+                "delivery without a credit team must land on TEAM/UNASSIGNED",
+            )
+            // Part A writes no plan/delivery/cost — PV/EV/AC stay 0 until part B.
+            assertTrue(flowRows.all { it[flow.pvMd].signum() == 0 && it[flow.evMd].signum() == 0 && it[flow.acMd].signum() == 0 })
+        }
+        Unit
+    }
+
+    @Test
+    fun `agg_daily_flow - backlog on sampled days matches an independent re-derivation from the bridges`() = runBlocking {
+        val connId = DerivedStubFixture.connectionId()
+        val days = sampleWipDays(connId)
+        assertTrue(days.isNotEmpty(), "the fixture must carry WIP days to sample")
+        val dayEndMsByDay = dimDateDayEndMs(days)
+
+        suspendTransaction(sharedDatabaseForTests()) {
+            val tasks = MetricsStore.DimTask.selectAll()
+                .where { (MetricsStore.DimTask.connectionId eq connId) and (MetricsStore.DimTask.isSubtask eq false) }
+                .toList()
+            val stage = MetricsStore.ItemStage.selectAll().where { MetricsStore.ItemStage.connectionId eq connId }
+                .toList().groupBy({ it[MetricsStore.ItemStage.issueId] }) {
+                    BridgeInterval(
+                        it[MetricsStore.ItemStage.stage], it[MetricsStore.ItemStage.validFrom], it[MetricsStore.ItemStage.validTo],
+                    )
+                }
+            val estimate = MetricsStore.ItemEstimate.selectAll().where { MetricsStore.ItemEstimate.connectionId eq connId }
+                .toList().groupBy({ it[MetricsStore.ItemEstimate.issueId] }) {
+                    BridgeInterval(
+                        it[MetricsStore.ItemEstimate.estimateMd], it[MetricsStore.ItemEstimate.validFrom],
+                        it[MetricsStore.ItemEstimate.validTo],
+                    )
+                }
+            val taskDomain = MetricsStore.TaskDomain.selectAll().where { MetricsStore.TaskDomain.connectionId eq connId }
+                .toList().groupBy({ it[MetricsStore.TaskDomain.issueId] }) {
+                    BridgeInterval(
+                        it[MetricsStore.TaskDomain.domainKey], it[MetricsStore.TaskDomain.validFrom],
+                        it[MetricsStore.TaskDomain.validTo],
+                    )
+                }
+            val taskEpic = MetricsStore.TaskEpic.selectAll().where { MetricsStore.TaskEpic.connectionId eq connId }
+                .toList().groupBy({ it[MetricsStore.TaskEpic.issueId] }) {
+                    BridgeInterval(it[MetricsStore.TaskEpic.epicId], it[MetricsStore.TaskEpic.validFrom], it[MetricsStore.TaskEpic.validTo])
+                }
+            val taskSprint = MetricsStore.TaskSprint.selectAll().where { MetricsStore.TaskSprint.connectionId eq connId }
+                .toList().groupBy({ it[MetricsStore.TaskSprint.issueId] }) {
+                    BridgeInterval(
+                        it[MetricsStore.TaskSprint.sprintId], it[MetricsStore.TaskSprint.validFrom],
+                        it[MetricsStore.TaskSprint.validTo],
+                    )
+                }
+            val sprintStart = MetricsStore.DimSprint.selectAll().where { MetricsStore.DimSprint.connectionId eq connId }
+                .toList().associate { it[MetricsStore.DimSprint.sprintId] to it[MetricsStore.DimSprint.startAt] }
+            val ownerByDomain = MetricsStore.DimDomain.selectAll().where { MetricsStore.DimDomain.connectionId eq connId }
+                .toList().associate { it[MetricsStore.DimDomain.domainKey] to it[MetricsStore.DimDomain.ownerTeamId]?.value }
+
+            val flow = MetricsStore.AggDailyFlow
+            var nonVacuous = false
+            days.forEach { day ->
+                val dayEndMs = dayEndMsByDay.getValue(day)
+                // (domain, epic, md) of every task in the estimated backlog at this day's end (D9).
+                val backlog = tasks.mapNotNull { task ->
+                    val issueId = task[MetricsStore.DimTask.issueId]
+                    if (valueAtDayEnd(stage[issueId].orEmpty(), dayEndMs) != "NOT_STARTED") return@mapNotNull null
+                    val md = valueAtDayEnd(estimate[issueId].orEmpty(), dayEndMs)
+                    if (md == null || md.signum() <= 0) return@mapNotNull null
+                    val inStartedSprint = taskSprint[issueId].orEmpty().any { row ->
+                        row.fromAtMs < dayEndMs && (row.toAtMs == null || row.toAtMs >= dayEndMs) &&
+                            sprintStart[row.value]?.let { it < dayEndMs } == true
+                    }
+                    if (inStartedSprint) return@mapNotNull null
+                    val domain = valueAtDayEnd(taskDomain[issueId].orEmpty(), dayEndMs) ?: task[MetricsStore.DimTask.domainKey]
+                    Triple(domain, valueAtDayEnd(taskEpic[issueId].orEmpty(), dayEndMs), md)
+                }
+                if (backlog.isNotEmpty()) nonVacuous = true
+
+                fun expectedBy(
+                    key: (Triple<String?, Long?, java.math.BigDecimal>) -> String?,
+                ): Map<String, Pair<Int, java.math.BigDecimal>> =
+                    backlog.mapNotNull { row -> key(row)?.let { it to row.third } }
+                        .groupBy({ it.first }) { it.second }
+                        .mapValues { (_, mds) -> mds.size to mds.fold(java.math.BigDecimal.ZERO) { a, b -> a + b } }
+
+                suspend fun actual(kind: String): Map<String, Pair<Int, java.math.BigDecimal>> =
+                    flow.selectAll().where { (flow.connectionId eq connId) and (flow.scopeKind eq kind) and (flow.day eq day) }
+                        .toList().filter { it[flow.backlogItems] > 0 }
+                        .associate { it[flow.scopeId] to (it[flow.backlogItems] to it[flow.backlogMd]) }
+
+                suspend fun assertScope(kind: String, expected: Map<String, Pair<Int, java.math.BigDecimal>>) {
+                    val actual = actual(kind)
+                    assertEquals(expected.keys, actual.keys, "$kind backlog scopes on $day")
+                    expected.forEach { (scope, want) ->
+                        val got = actual.getValue(scope)
+                        assertEquals(want.first, got.first, "$kind/$scope backlog_items on $day")
+                        assertEquals(0, want.second.setScale(2).compareTo(got.second), "$kind/$scope backlog_md on $day")
+                    }
+                }
+                assertScope("DOMAIN", expectedBy { it.first })
+                assertScope("TEAM", expectedBy { row -> row.first?.let { ownerByDomain[it] }?.toString() ?: "UNOWNED" })
+                assertScope("EPIC", expectedBy { it.second?.toString() })
+            }
+            assertTrue(nonVacuous, "at least one sampled day must carry an estimated backlog, else this proves nothing")
+        }
+        Unit
+    }
+
+    @Test
+    fun `agg_daily_flow - invariant 9 estimated backlog never exceeds NOT_STARTED WIP for the same domain and day`() = runBlocking {
+        val connId = DerivedStubFixture.connectionId()
+        suspendTransaction(sharedDatabaseForTests()) {
+            val flow = MetricsStore.AggDailyFlow
+            val wip = MetricsStore.AggDailyWip
+            val backlogRows = flow.selectAll().where {
+                (flow.connectionId eq connId) and (flow.scopeKind eq "DOMAIN") and (flow.backlogItems greater 0)
+            }.toList()
+            assertTrue(backlogRows.isNotEmpty(), "the fixture must carry DOMAIN backlog rows, else this proves nothing")
+            val notStartedWip = wip.selectAll().where {
+                (wip.connectionId eq connId) and (wip.scopeKind eq "DOMAIN") and (wip.itemKind eq "TASK") and
+                    (wip.stage eq "NOT_STARTED")
+            }.toList().groupBy({ it[wip.scopeId] to it[wip.day] }) { it[wip.itemCount] }
+                .mapValues { (_, counts) -> counts.sum() }
+            backlogRows.forEach { row ->
+                val key = row[flow.scopeId] to row[flow.day]
+                val notStarted = notStartedWip[key] ?: 0
+                assertTrue(
+                    row[flow.backlogItems] <= notStarted,
+                    "backlog ${row[flow.backlogItems]} exceeds NOT_STARTED WIP $notStarted for domain/day $key",
+                )
+            }
+        }
+        Unit
+    }
 
     private companion object {
         const val PINNED_NOW = 1_772_668_800_000L // 2026-03-05T00:00:00Z, per the v0.3.0 plan's pinned-clock convention

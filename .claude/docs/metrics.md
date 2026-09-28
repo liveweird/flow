@@ -707,10 +707,57 @@ day of `DerivedStubFixture.PINNED_NOW` in `Europe/Warsaw` (the derive run's own 
 (`scope_kind, scope_id, day, item_kind, status_id, stage` order, its own natural key — no surrogate
 id — the same rule every other bridge/fact's digest line already follows).
 
+## Daily flow aggregate (`agg_daily_flow`, v0.3.0 M3 commit 9f)
+
+`DeriveFlowStep.kt`'s `runFlowStep` (plan amendment A23) runs right after the WIP step, reading only
+rows this same run already persisted: one SPARSE `metrics.agg_daily_flow` row per
+`(scope_kind, scope_id, day)` (no row = zeros, nothing for idle days). **Storage:**
+`throughput_items`/`throughput_md` hold the day's own INCREMENT (the report sums them into a curve
+at query time — keeps the aggregate additive across scopes and days); `backlog_items`/`backlog_md`
+hold the END-of-day snapshot. **Part A (this commit) fills backlog and throughput only —
+`pv_md`/`ev_md`/`ac_md` stay 0; part B adds them.**
+
+**Merge mechanism.** Every contribution is its own `INSERT ... SELECT ... ON CONFLICT (connection_id,
+scope_kind, scope_id, day) DO UPDATE SET <col> = agg_daily_flow.<col> + EXCLUDED.<col>` statement
+(`flowInsertHead`/`flowMergeTail` build the shared head and tail from the contributed column list), so
+a backlog row and a throughput row for the same scope/day merge by addition in either order, and part
+B's PV/EV/AC statements plug in the same way. Raw SQL through `MetricsStore.execAggDailyFlow`, only
+numbers interpolated; `deleteAggDailyFlow` joins the per-run deletes, `countAggDailyFlow` feeds
+`derive_runs.row_counts.aggFlowRows`.
+
+**Day of an event** is the configured-zone day containing its timestamp (`dim_date.day_start_ms <= ts
+< day_end_ms`).
+
+- **Estimated backlog (D9)**, for every day of the WIP step's own range (`dayRangeCte`): a level-0
+  task whose covering `item_stage` is NOT_STARTED, whose covering `item_estimate` is > 0
+  (null/0 = unestimated) and that sits in no sprint with `start_at < day_end_ms`, i.e. started by the end of day d (covering
+  `task_sprint` row; future or unstarted sprints still count as backlog, an active or closed one takes
+  the task out). "Covering" is WIP's end-of-day rule. Scopes: DOMAIN = the as-was domain (covering
+  `task_domain`, else `dim_task.domain_key`; the WIP `domainWipSql` rule), TEAM = that domain's
+  `dim_domain.owner_team_id` (as-is) else `UNOWNED` (a task with no domain too), EPIC = the covering
+  `task_epic` epic (none → no row). Set-based joins plus one `NOT EXISTS`. **The estimate is the
+  task's OWN estimate only** (`item_estimate` holds no sub-task-summed timeline): a parent with no
+  estimate of its own whose sub-tasks carry one (`estimate_source = SUBTASKS`) is NOT in the backlog,
+  although throughput counts its summed `estimate_at_done_md` once done — a known asymmetry (A23,
+  `BACKLOG.md` follow-up).
+- **The merge is additive and non-idempotent by design**: every contribution statement adds into the
+  PK row via `ON CONFLICT … DO UPDATE SET col = agg_daily_flow.col + EXCLUDED.col`, which is only
+  correct because `runDerivation` deletes the connection's rows first and runs every step in ONE
+  transaction.
+- **Throughput, period view**, per day of `fact_task_delivery.done_at` (level-0 filter `is_subtask = false`;
+  epics live in `fact_epic_delivery`): items = count, MD = `estimate_at_done_md` (an unestimated task is an item worth 0
+  MD). Scopes: TEAM = `credit_team_id` else `UNASSIGNED`, DOMAIN = the task's own `domain_key` (D3
+  flow view), EPIC = `epic_id` (null domain/epic → no row for that scope).
+
+Tests: `MetricsDerivationTest`'s three `agg_daily_flow -` cases (throughput sums per scope, an
+independent bridge re-derivation of DOMAIN/TEAM/EPIC backlog on sampled days, and the invariant-9
+sweep against `agg_daily_wip`); `DerivedStubFixture`'s digest folds the table in (`scope_kind,
+scope_id, day` order).
+
 ## Not yet ported / not yet written
 
-`agg_daily_flow` (report 15's PV/EV/AC daily aggregate) and the DERIVE reprocess/perf checks round
-out commit 9; the report API and the report pages arrive with their own commits and their own
+`agg_daily_flow`'s PV/EV/AC columns (report 15, commit 9f part B) and the DERIVE reprocess/perf checks
+round out commit 9; the report API and the report pages arrive with their own commits and their own
 sections here.
 
 **Membership history is permanent (by design).** Deleting a team closes its members' open

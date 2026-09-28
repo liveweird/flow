@@ -37,7 +37,7 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A22 over
 - **M4 (reports)** on `feat/v0.3.0-m4-reports`, stacked on M3, runs in parallel: 10a, the reports API core and `/reports/filters`; 10b, `/reports/velocity`.
 - **Next:**
   1. **9f-flow:** `agg_daily_flow` — estimated backlog (D9, domain owner), PV/EV/AC at epic, domain and team level (A20), throughput, and the invariant-9 sweep.
-  2. **9g:** the re-derive digest, and the `--scale 20` performance run (DERIVE under 3 min). The 9f-wip review flagged that the WIP `INSERT … SELECT` is O(days × tasks) with correlated subqueries and doesn't use the GiST interval indexes. Measure it here and rewrite it if it misses the target.
+  2. **9g:** the re-derive digest, and the `--scale 20` performance run (DERIVE under 3 min). The 9f-wip review flagged that the WIP `INSERT … SELECT` is O(days × tasks) with correlated subqueries and doesn't use the GiST interval indexes. Measure it here and rewrite it if it misses the target. The flow step's throughput join on `dim_date` (a range join with no `day_start_ms` index) needs measuring too.
   3. **The M3 PR:** merge on green, then merge master into M4.
   4. **M4:** 10c throughput, 10d sprint consistency, then commits 11–14 (the chart dependencies, report pages 1–8, the estimation batch, e2e).
   5. **M5:** reports 9–16, the A9 overview Home, and the v0.3.0 release (only when asked).
@@ -52,6 +52,7 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A22 over
   - A per-domain status→stage override UI.
   - Seed memberships from the Team field (D1).
   - Cache validators for the report endpoints.
+  - Estimated backlog uses the OWN estimate only. A parent estimated through its sub-tasks (`estimate_source = SUBTASKS`) is missing from the backlog (A23). The fix is a composite-estimate bridge.
 
 ## Engineering follow-ups
 

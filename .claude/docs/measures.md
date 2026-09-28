@@ -95,7 +95,7 @@ at `done_at`.
 | Measure | Grain | Anchor | Team | User | Domain | Estimate | Unit | Missing data | Frozen/live | Source | Pinned by |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | Throughput, sprint view (delivered) | sprint | `complete_at` | sprint | assignee@commit | — | @close | MD + items | unestimated → 0 MD, counted; done then removed before close → *removed*, not delivered (A17, Jira's convention) | frozen + live | `fact_sprint.delivered_md/_items` = Σ `fact_sprint_scope.done_in_sprint` | golden FLO; `DeriveKernelsTest` "marks delivered scope"; `MetricsDerivationTest` "invariant 8" |
-| Throughput, period view | task | `done_at` | credit | assignee@done | TASK | @done | MD + items | unestimated → 0 MD, counted; no team → UNASSIGNED; created straight into DONE still counts | live | `fact_task_delivery.done_at`, `estimate_at_done_md`, `credit_team_id` | "invariants 3 and 4"; "D5 - the OPS Kanban…" (credit fallback); no value pin — |
+| Throughput, period view | task | `done_at` | credit | assignee@done | TASK | @done | MD + items | unestimated → 0 MD, counted; no team → UNASSIGNED; created straight into DONE still counts | live | `fact_task_delivery.done_at`, `estimate_at_done_md`, `credit_team_id` | "invariants 3 and 4"; "D5 - the OPS Kanban…" (credit fallback); `MetricsDerivationTest` "throughput sums per scope equal the level-0 done tasks of fact_task_delivery"; no value pin — |
 
 ## Report 6 — Sprint consistency, capacity, load
 
@@ -143,7 +143,7 @@ the rest at close); removed is beside them.
 
 | Measure | Grain | Anchor | Team | User | Domain | Estimate | Unit | Missing data | Frozen/live | Source | Pinned by |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| Estimated backlog (D9) | scope × day | end of day d | owner of the task's domain (`dim_domain.owner_team_id`, A19); none → `UNOWNED` | — | TASK | estimate at d | items + MD | level-0, NOT_STARTED, estimate > 0, in no sprint with `start_at ≤ end of d` (future sprints count as backlog) | live | `agg_daily_flow.backlog_items/_md` | — |
+| Estimated backlog (D9) | scope × day | end of day d | owner of the task's domain (`dim_domain.owner_team_id`, A19); none → `UNOWNED` | — | TASK | OWN estimate at d (a SUBTASKS-sourced parent is not backlog — A23 known gap) | items + MD | level-0, NOT_STARTED, estimate > 0, in no sprint with `start_at <` end of d (future sprints count as backlog) | live | `agg_daily_flow.backlog_items/_md` | `MetricsDerivationTest` "backlog on sampled days matches an independent re-derivation from the bridges", "invariant 9 estimated backlog never exceeds NOT_STARTED WIP for the same domain and day" |
 | Backlog in sprints | team | as of the period end | owner = sprint team | — | — | — | sprints | ÷ mean `delivered_md` of the team's last N closed sprints (`backlog_window_sprints`); fewer than N → what exists; mean 0 → null | live | backlog MD ÷ avg(`fact_sprint.delivered_md`) | — |
 
 ## Report 11 — Aging WIP (`planned`)

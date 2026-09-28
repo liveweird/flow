@@ -169,6 +169,7 @@ class MetricsDeriver(
         metricsStore.deleteFactWorklog(connectionId)
         metricsStore.deleteFactEpicPlan(connectionId)
         metricsStore.deleteAggDailyWip(connectionId)
+        metricsStore.deleteAggDailyFlow(connectionId)
 
         val context = buildContext(connectionId, workItems, config, calendar, now, hoursPerDay, epicDriftDays)
         metricsStore.insertDomains(connectionId, domainDims(context), configRevision)
@@ -187,6 +188,7 @@ class MetricsDeriver(
         val worklogCount = runWorklogStep(connectionId, workItems, context, derivedById, configRevision)
         val epicPlanCount = runEpicPlanStep(connectionId, workItems, context, derivedById, factEpicsByIssueId, configRevision)
         val wipCount = runWipStep(connectionId, now, configRevision)
+        val flowCount = runFlowStep(metricsStore, connectionId, now, configRevision)
 
         return DeriveRowCounts(
             tasks = taskCount,
@@ -196,6 +198,7 @@ class MetricsDeriver(
             worklogs = worklogCount,
             epicPlans = epicPlanCount,
             aggWipRows = wipCount,
+            aggFlowRows = flowCount,
         )
     }
 
@@ -207,6 +210,7 @@ class MetricsDeriver(
             put("worklogs", JsonPrimitive(counts.worklogs))
             put("epicPlans", JsonPrimitive(counts.epicPlans))
             put("aggWipRows", JsonPrimitive(counts.aggWipRows))
+            put("aggFlowRows", JsonPrimitive(counts.aggFlowRows))
             if (counts.sprintFieldUnresolved) put("sprintFieldUnresolved", JsonPrimitive(true))
         }.toString()
         suspendTransaction(database) {

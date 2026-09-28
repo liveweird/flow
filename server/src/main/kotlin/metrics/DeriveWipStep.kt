@@ -43,7 +43,7 @@ internal suspend fun runWipStep(metricsStore: MetricsStore, connectionId: UInt, 
 }
 
 /** Every calendar day from the connection's earliest `created_at` day through the day of [now] (inclusive). */
-private fun dayRangeCte(connectionId: UInt, now: Long): String = """
+internal fun dayRangeCte(connectionId: UInt, now: Long): String = """
     day_range AS (
         SELECT day, day_end_ms
         FROM metrics.dim_date

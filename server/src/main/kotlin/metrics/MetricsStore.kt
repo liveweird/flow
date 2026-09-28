@@ -164,6 +164,7 @@ data class DeriveRowCounts(
     val worklogs: Int = 0,
     val epicPlans: Int = 0,
     val aggWipRows: Int = 0,
+    val aggFlowRows: Int = 0,
 )
 
 // ---- Sprint step row shapes (v0.3.0 M3 commit 8) ---------------------------------------------
@@ -609,8 +610,27 @@ class MetricsStore(private val database: R2dbcDatabase) {
         override val primaryKey = PrimaryKey(connectionId, scopeKind, scopeId, day, itemKind, statusId, stage)
     }
 
+    /**
+     * Report 16's daily flow aggregate (`.claude/docs/metrics.md` "Daily flow aggregate") — one row
+     * per `(scope_kind, scope_id, day)`, sparse. Written entirely via raw SQL
+     * (`DeriveFlowStep.kt`, [execAggDailyFlow]) — every statement is its own additive
+     * `INSERT ... ON CONFLICT DO UPDATE` contribution; this table object exists for
+     * [deleteAggDailyFlow]/[countAggDailyFlow], [purgeAll]'s drain and test reads.
+     */
     object AggDailyFlow : Table("metrics.agg_daily_flow") {
         val connectionId = reference("connection_id", DataSourceService.Connections)
+        val scopeKind = varchar("scope_kind", 10)
+        val scopeId = varchar("scope_id", 60)
+        val day = varchar("day", 10)
+        val backlogItems = integer("backlog_items").default(0)
+        val backlogMd = decimal("backlog_md", 10, 2).default(java.math.BigDecimal.ZERO)
+        val pvMd = decimal("pv_md", 10, 2).default(java.math.BigDecimal.ZERO)
+        val evMd = decimal("ev_md", 10, 2).default(java.math.BigDecimal.ZERO)
+        val acMd = decimal("ac_md", 10, 2).default(java.math.BigDecimal.ZERO)
+        val throughputItems = integer("throughput_items").default(0)
+        val throughputMd = decimal("throughput_md", 10, 2).default(java.math.BigDecimal.ZERO)
+        val configRevision = long("config_revision")
+        override val primaryKey = PrimaryKey(connectionId, scopeKind, scopeId, day)
     }
 
     /** `dim_date` is global — upserted `ON CONFLICT (day) DO UPDATE`, never deleted per connection. */
@@ -1124,6 +1144,21 @@ class MetricsStore(private val database: R2dbcDatabase) {
      * nested `suspendTransaction` call in this file does.
      */
     suspend fun execAggDailyWip(sql: String) = suspendTransaction(database) { exec(sql) }
+
+    suspend fun deleteAggDailyFlow(connectionId: UInt) {
+        AggDailyFlow.deleteWhere { AggDailyFlow.connectionId eq connectionId }
+    }
+
+    /** The flow aggregate's row count for `derive_runs.row_counts` — read back after every [execAggDailyFlow] commits. */
+    suspend fun countAggDailyFlow(connectionId: UInt): Int =
+        AggDailyFlow.selectAll().where { AggDailyFlow.connectionId eq connectionId }.count().toInt()
+
+    /**
+     * Runs one additive `INSERT ... SELECT ... ON CONFLICT DO UPDATE` contribution against
+     * `metrics.agg_daily_flow` (`DeriveFlowStep.kt` builds the text; same transaction-reuse rules as
+     * [execAggDailyWip]).
+     */
+    suspend fun execAggDailyFlow(sql: String) = suspendTransaction(database) { exec(sql) }
 
     /**
      * Hard-deletes terminal `derive_runs` rows older than [retentionMillis] (v0.3.0 M3 review round

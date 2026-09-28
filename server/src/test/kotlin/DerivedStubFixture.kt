@@ -266,6 +266,18 @@ object DerivedStubFixture {
                     .toList(),
                 MetricsStore.AggDailyWip.columns,
             )
+            // `agg_daily_flow` (v0.3.0 M3 commit 9f, reports 10/2) — PK
+            // `(connection_id, scope_kind, scope_id, day)`, ordered by that same natural key.
+            sprintDigest.hashRows(
+                MetricsStore.AggDailyFlow.selectAll().where { MetricsStore.AggDailyFlow.connectionId eq connId }
+                    .orderBy(
+                        MetricsStore.AggDailyFlow.scopeKind to SortOrder.ASC,
+                        MetricsStore.AggDailyFlow.scopeId to SortOrder.ASC,
+                        MetricsStore.AggDailyFlow.day to SortOrder.ASC,
+                    )
+                    .toList(),
+                MetricsStore.AggDailyFlow.columns,
+            )
         }
         return "${factTaskDeliveryDigest(connId)}:${sprintDigest.hex()}"
     }
