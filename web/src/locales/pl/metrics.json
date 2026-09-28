@@ -84,5 +84,84 @@
       "validToInvalid": "Ważne do musi być datą ISO (RRRR-MM-DD)",
       "validToBeforeFrom": "Ważne do musi być późniejsze niż ważne od"
     }
+  },
+  "config": {
+    "title": "Konfiguracja metryk",
+    "notConfiguredBanner": "Wyświetlane są wyliczone wartości domyślne — zapisz, aby je potwierdzić",
+    "loadFailedGeneric": "Nie udało się wczytać konfiguracji metryk",
+    "saveForbidden": "Tylko administratorzy/rki mogą edytować konfigurację metryk",
+    "saveConflict": "Ten zespół jest już przypisany do innej tablicy",
+    "saveFailedGeneric": "Nie udało się zapisać konfiguracji metryk",
+    "toast": {
+      "saved": "Zapisano — raporty przeliczą się wkrótce"
+    },
+    "tab": {
+      "statuses": "Statusy",
+      "fields": "Pola",
+      "domains": "Domeny",
+      "boards": "Tablice",
+      "activityTypes": "Typy aktywności",
+      "workCategories": "Kategorie pracy",
+      "capacities": "Pojemności"
+    },
+    "statuses": {
+      "columnStatus": "Status",
+      "columnStage": "Etap",
+      "columnBlocked": "Zablokowany",
+      "stageAria": "Etap dla {{name}}",
+      "blockedAria": "Zablokowany dla {{name}}",
+      "stagePlaceholder": "Niezmapowany",
+      "stage": {
+        "NOT_STARTED": "Nierozpoczęty",
+        "IN_PROGRESS": "W trakcie",
+        "DONE": "Zakończony"
+      },
+      "empty": "Nie zaobserwowano jeszcze żadnych statusów — najpierw zsynchronizuj to połączenie."
+    },
+    "fields": {
+      "estimateTask": "Pole szacowania zadania",
+      "estimateEpic": "Pole szacowania epika",
+      "epicStart": "Pole daty rozpoczęcia epika",
+      "epicDue": "Pole terminu epika",
+      "workCategory": "Pole kategorii pracy",
+      "none": "Brak",
+      "dueDateOption": "Termin (pole systemowe)"
+    },
+    "domains": {
+      "columnProject": "Klucz projektu",
+      "columnDomainKey": "Klucz domeny",
+      "columnDomainName": "Nazwa domeny",
+      "domainKeyAria": "Klucz domeny dla {{project}}",
+      "domainNameAria": "Nazwa domeny dla {{project}}",
+      "empty": "Nie zaobserwowano jeszcze żadnych projektów — najpierw zsynchronizuj to połączenie."
+    },
+    "boards": {
+      "columnBoard": "Tablica",
+      "columnTeam": "Zespół",
+      "teamAria": "Zespół dla {{board}}",
+      "teamPlaceholder": "Niezmapowana",
+      "empty": "Nie zaobserwowano jeszcze żadnych tablic — najpierw zsynchronizuj to połączenie."
+    },
+    "activityTypes": {
+      "columnIssueType": "Typ zgłoszenia",
+      "columnActivityType": "Typ aktywności",
+      "activityTypeAria": "Typ aktywności dla {{issueType}}",
+      "empty": "Nie zaobserwowano jeszcze żadnych typów zgłoszeń — najpierw zsynchronizuj to połączenie."
+    },
+    "workCategories": {
+      "columnValue": "Wartość",
+      "columnCategory": "Kategoria",
+      "categoryAria": "Kategoria dla {{value}}",
+      "empty": "Nie zaobserwowano jeszcze żadnych wartości dla tego pola.",
+      "chooseField": "Najpierw wybierz pole kategorii pracy na karcie Pola.",
+      "truncated": "Pokazano tylko pierwsze 200 różnych wartości."
+    },
+    "capacities": {
+      "columnSprint": "Sprint",
+      "columnCapacity": "Pojemność (osobodni)",
+      "capacityAria": "Pojemność dla {{sprint}}",
+      "capacityHint": "Puste pole używa wyliczonej wartości domyślnej (członkowie/kinie × dni robocze).",
+      "empty": "Nie zaobserwowano jeszcze żadnych sprintów — najpierw zsynchronizuj to połączenie."
+    }
   }
 }

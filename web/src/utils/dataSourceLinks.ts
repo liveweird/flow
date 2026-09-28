@@ -2,6 +2,7 @@
 export const dataSourcesPath = "/data-sources";
 export const dataSourcePath = (id: number) => `${dataSourcesPath}/${id}`;
 export const dataSourceProfilePath = (id: number) => `${dataSourcePath(id)}/profile`;
+export const dataSourceMetricsConfigPath = (id: number) => `${dataSourcePath(id)}/metrics-config`;
 
 /** `key` prefills the inspector's lookup input (`?key=`); omit it to land on a blank form. */
 export function dataSourceInspectPath(id: number, key?: string): string {

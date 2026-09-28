@@ -57,6 +57,36 @@ export async function deleteTeamJiraMembership(teamId: number, membershipId: num
   await voidRequest(`/api/v1/teams/${teamId}/jira-memberships/${membershipId}`, { method: "DELETE" });
 }
 
+// Per-connection metrics configuration (`.claude/docs/metrics.md` "Per-connection metrics
+// configuration") — the eight-table wholesale-replace resource `DataSourceMetricsConfig.tsx` edits.
+export type DataSourceMetricsConfigResponse =
+  paths["/api/v1/data-sources/{id}/metrics-config"]["get"]["responses"]["200"]["content"]["application/json"];
+export type DataSourceMetricsConfigRequest =
+  paths["/api/v1/data-sources/{id}/metrics-config"]["put"]["requestBody"]["content"]["application/json"];
+export type DataSourceMetricsConfigOptions =
+  paths["/api/v1/data-sources/{id}/metrics-config/options"]["get"]["responses"]["200"]["content"]["application/json"];
+export type MetricsFieldOption = DataSourceMetricsConfigOptions["fields"][number];
+export type MetricsFieldValueOption = DataSourceMetricsConfigOptions["workCategoryValues"][number];
+
+export async function getDataSourceMetricsConfig(id: number): Promise<DataSourceMetricsConfigResponse> {
+  return jsonRequest<DataSourceMetricsConfigResponse>(`/api/v1/data-sources/${id}/metrics-config`);
+}
+
+/** A full-replace PUT (204 — the caller re-fetches to see `configured` flip to true). */
+export async function updateDataSourceMetricsConfig(id: number, body: DataSourceMetricsConfigRequest): Promise<void> {
+  await voidRequest(`/api/v1/data-sources/${id}/metrics-config`, { method: "PUT", body: JSON.stringify(body) });
+}
+
+/** `workCategoryField` populates `workCategoryValues` from that field's own distinct observed values. */
+export async function getDataSourceMetricsConfigOptions(
+  id: number,
+  workCategoryField?: string,
+): Promise<DataSourceMetricsConfigOptions> {
+  const query = buildQuery({ workCategoryField });
+  const suffix = query ? `?${query}` : "";
+  return jsonRequest<DataSourceMetricsConfigOptions>(`/api/v1/data-sources/${id}/metrics-config/options${suffix}`);
+}
+
 export type JiraUserPage = paths["/api/v1/jira-users"]["get"]["responses"]["200"]["content"]["application/json"];
 type JiraUserScope = "UNIT" | "SITE";
 

@@ -84,5 +84,84 @@
       "validToInvalid": "Valid to must be an ISO date (YYYY-MM-DD)",
       "validToBeforeFrom": "Valid to must be after valid from"
     }
+  },
+  "config": {
+    "title": "Metrics configuration",
+    "notConfiguredBanner": "Showing computed defaults — save to confirm them",
+    "loadFailedGeneric": "Could not load the metrics configuration",
+    "saveForbidden": "Only administrators can edit the metrics configuration",
+    "saveConflict": "This team is already mapped to another board",
+    "saveFailedGeneric": "Could not save the metrics configuration",
+    "toast": {
+      "saved": "Saved — reports re-derive shortly"
+    },
+    "tab": {
+      "statuses": "Statuses",
+      "fields": "Fields",
+      "domains": "Domains",
+      "boards": "Boards",
+      "activityTypes": "Activity types",
+      "workCategories": "Work categories",
+      "capacities": "Capacities"
+    },
+    "statuses": {
+      "columnStatus": "Status",
+      "columnStage": "Stage",
+      "columnBlocked": "Blocked",
+      "stageAria": "Stage for {{name}}",
+      "blockedAria": "Blocked for {{name}}",
+      "stagePlaceholder": "Unmapped",
+      "stage": {
+        "NOT_STARTED": "Not started",
+        "IN_PROGRESS": "In progress",
+        "DONE": "Done"
+      },
+      "empty": "No statuses observed yet — sync this connection first."
+    },
+    "fields": {
+      "estimateTask": "Task estimate field",
+      "estimateEpic": "Epic estimate field",
+      "epicStart": "Epic start-date field",
+      "epicDue": "Epic due-date field",
+      "workCategory": "Work-category field",
+      "none": "None",
+      "dueDateOption": "Due date (system field)"
+    },
+    "domains": {
+      "columnProject": "Project key",
+      "columnDomainKey": "Domain key",
+      "columnDomainName": "Domain name",
+      "domainKeyAria": "Domain key for {{project}}",
+      "domainNameAria": "Domain name for {{project}}",
+      "empty": "No projects observed yet — sync this connection first."
+    },
+    "boards": {
+      "columnBoard": "Board",
+      "columnTeam": "Team",
+      "teamAria": "Team for {{board}}",
+      "teamPlaceholder": "Unmapped",
+      "empty": "No boards observed yet — sync this connection first."
+    },
+    "activityTypes": {
+      "columnIssueType": "Issue type",
+      "columnActivityType": "Activity type",
+      "activityTypeAria": "Activity type for {{issueType}}",
+      "empty": "No issue types observed yet — sync this connection first."
+    },
+    "workCategories": {
+      "columnValue": "Value",
+      "columnCategory": "Category",
+      "categoryAria": "Category for {{value}}",
+      "empty": "No values observed yet for this field.",
+      "chooseField": "Choose a work-category field on the Fields tab first.",
+      "truncated": "Only the first 200 distinct values are shown."
+    },
+    "capacities": {
+      "columnSprint": "Sprint",
+      "columnCapacity": "Capacity (MD)",
+      "capacityAria": "Capacity for {{sprint}}",
+      "capacityHint": "Blank uses the computed default (members × working days).",
+      "empty": "No sprints observed yet — sync this connection first."
+    }
   }
 }

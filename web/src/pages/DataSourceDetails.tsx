@@ -4,7 +4,16 @@ import { useTranslation } from "react-i18next";
 import { Link as RouterLink, useParams } from "react-router-dom";
 import { Alert, Badge, Box, Button, Group, Stack, Table, Text, Title } from "@mantine/core";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
-import { IconBan, IconFileSearch, IconPencil, IconRecycle, IconRefresh, IconReportAnalytics, IconRotateClockwise } from "@tabler/icons-react";
+import {
+  IconAdjustments,
+  IconBan,
+  IconFileSearch,
+  IconPencil,
+  IconRecycle,
+  IconRefresh,
+  IconReportAnalytics,
+  IconRotateClockwise,
+} from "@tabler/icons-react";
 import { ApiError } from "../api/http";
 import { useAdmin } from "../auth";
 import {
@@ -24,7 +33,7 @@ import EditPageLoadState from "../components/EditPageLoadState";
 import JobStateBadge from "../components/JobStateBadge";
 import PageHeader from "../components/PageHeader";
 import SyncJobsTable from "../components/SyncJobsTable";
-import { dataSourceInspectPath, dataSourceProfilePath, dataSourcesPath } from "../utils/dataSourceLinks";
+import { dataSourceInspectPath, dataSourceMetricsConfigPath, dataSourceProfilePath, dataSourcesPath } from "../utils/dataSourceLinks";
 import { dataSourceStateColor, formatEpochMillis } from "../utils/dataSourceState";
 import { CONTENT_MAX_WIDTH } from "../utils/layout";
 import { loadErrorMessage, saveErrorMessage } from "../utils/saveError";
@@ -312,6 +321,15 @@ export default function DataSourceDetails() {
               leftSection={<IconFileSearch size={14} />}
             >
               {t("dataSources.inspect.title")}
+            </Button>
+            <Button
+              component={RouterLink}
+              to={dataSourceMetricsConfigPath(id)}
+              variant="subtle"
+              size="xs"
+              leftSection={<IconAdjustments size={14} />}
+            >
+              {t("metrics.config.title")}
             </Button>
           </Group>
         }
