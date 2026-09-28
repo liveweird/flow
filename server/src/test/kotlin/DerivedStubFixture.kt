@@ -250,6 +250,22 @@ object DerivedStubFixture {
                     .toList(),
                 MetricsStore.DimDomain.columns,
             )
+            // `agg_daily_wip` (v0.3.0 M3 commit 9f, report 9) — no surrogate id, PK
+            // `(connection_id, scope_kind, scope_id, day, item_kind, status_id, stage)`, ordered by
+            // that same natural key.
+            sprintDigest.hashRows(
+                MetricsStore.AggDailyWip.selectAll().where { MetricsStore.AggDailyWip.connectionId eq connId }
+                    .orderBy(
+                        MetricsStore.AggDailyWip.scopeKind to SortOrder.ASC,
+                        MetricsStore.AggDailyWip.scopeId to SortOrder.ASC,
+                        MetricsStore.AggDailyWip.day to SortOrder.ASC,
+                        MetricsStore.AggDailyWip.itemKind to SortOrder.ASC,
+                        MetricsStore.AggDailyWip.statusId to SortOrder.ASC,
+                        MetricsStore.AggDailyWip.stage to SortOrder.ASC,
+                    )
+                    .toList(),
+                MetricsStore.AggDailyWip.columns,
+            )
         }
         return "${factTaskDeliveryDigest(connId)}:${sprintDigest.hex()}"
     }

@@ -168,6 +168,7 @@ class MetricsDeriver(
         metricsStore.deleteSprintFacts(connectionId)
         metricsStore.deleteFactWorklog(connectionId)
         metricsStore.deleteFactEpicPlan(connectionId)
+        metricsStore.deleteAggDailyWip(connectionId)
 
         val context = buildContext(connectionId, workItems, config, calendar, now, hoursPerDay, epicDriftDays)
         metricsStore.insertDomains(connectionId, domainDims(context), configRevision)
@@ -185,6 +186,7 @@ class MetricsDeriver(
         val sprintOutcome = runSprintStep(connectionId, workItems, context, config, derivedById, graceMs, configRevision, sprintFieldId)
         val worklogCount = runWorklogStep(connectionId, workItems, context, derivedById, configRevision)
         val epicPlanCount = runEpicPlanStep(connectionId, workItems, context, derivedById, factEpicsByIssueId, configRevision)
+        val wipCount = runWipStep(connectionId, now, configRevision)
 
         return DeriveRowCounts(
             tasks = taskCount,
@@ -193,6 +195,7 @@ class MetricsDeriver(
             sprintFieldUnresolved = sprintOutcome.fieldUnresolved,
             worklogs = worklogCount,
             epicPlans = epicPlanCount,
+            aggWipRows = wipCount,
         )
     }
 
@@ -203,6 +206,7 @@ class MetricsDeriver(
             put("sprints", JsonPrimitive(counts.sprints))
             put("worklogs", JsonPrimitive(counts.worklogs))
             put("epicPlans", JsonPrimitive(counts.epicPlans))
+            put("aggWipRows", JsonPrimitive(counts.aggWipRows))
             if (counts.sprintFieldUnresolved) put("sprintFieldUnresolved", JsonPrimitive(true))
         }.toString()
         suspendTransaction(database) {
@@ -530,4 +534,15 @@ class MetricsDeriver(
     ): Int = ch.nokillswit.metrics.runEpicPlanStep(
         workItemStore, metricsStore, connectionId, workItems, context, derivedById, factEpicsByIssueId, configRevision,
     )
+
+    /**
+     * The WIP step (v0.3.0 M3 commit 9f, `.claude/docs/domain-model.md` "Reports" report 9,
+     * `.claude/docs/metrics.md` "Daily WIP aggregate") — delegates to the top-level [runWipStep]
+     * (`DeriveWipStep.kt`, the sprint/worklog/epic-plan steps' own `LargeClass` idiom). Unlike every
+     * other step, it reads no batch-scoped [DeriveContext] state of its own — it runs entirely as raw
+     * SQL over rows every earlier step in THIS SAME run already persisted. Returns the `agg_daily_wip`
+     * row count for `derive_runs.row_counts`.
+     */
+    private suspend fun runWipStep(connectionId: UInt, now: Long, configRevision: Long): Int =
+        ch.nokillswit.metrics.runWipStep(metricsStore, connectionId, now, configRevision)
 }

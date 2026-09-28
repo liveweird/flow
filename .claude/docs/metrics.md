@@ -647,11 +647,71 @@ default, two boards on one domain disagreeing (no owner), a soft-deleted configu
 owner, no board fallback available either), and `dim_domain`/`fact_epic_delivery` agreeing on the
 same resolved owner).
 
+## Daily WIP aggregate (`agg_daily_wip`, v0.3.0 M3 commit 9f)
+
+`DeriveWipStep.kt`'s `runWipStep` (`.claude/docs/domain-model.md` report 9, `.claude/docs/measures.md`
+"Report 9 — WIP") is the LAST step of `runDerivation`, after the epic plan step: one
+`metrics.agg_daily_wip` row per `(scope_kind, scope_id, day, item_kind, status_id, stage)`,
+`item_count` the number of items whose `item_stage` interval covers the END of that day
+(`valid_from < day_end_ms AND (valid_to IS NULL OR valid_to >= day_end_ms)`), for every calendar day
+from the connection's earliest `created_at` day through the day of the run's own `now`.
+
+**Raw SQL, not the batched Kotlin loop every other step uses.** A per-item-per-day WIP join over
+`item_stage`/`dim_task`/`dim_epic`/`task_domain`/`task_epic`/`task_assignee`/`dim_sprint`/
+`dim_domain`/`team_membership` — all freshly rebuilt earlier in the SAME run — is exactly the shape
+the database, not the JVM, should compute for ~24k issues × years of days (plan §5). Four plain
+`INSERT ... SELECT` statements (`MetricsStore.execAggDailyWip`, the `exec("SET LOCAL ...")` idiom
+`MetricsStore.purgeAll` already uses, reused here for a plain statement instead) build the rows; only
+NUMBERS (`connectionId`/`now`/`configRevision`) are interpolated into the SQL text, never a string.
+`MetricsStore.deleteAggDailyWip` joins the OTHER per-run deletes at the top of `runDerivation` (the
+`deleteFactEpicPlan` precedent); `MetricsStore.countAggDailyWip` reads the row count back for
+`derive_runs.row_counts.aggWipRows` once every statement has run.
+
+**Scope resolution, all AS-WAS at that day's own end instant** (`.claude/docs/domain-model.md`'s
+"Stance" — everything effective-dated reads as-was, the WIP report's own anchor being a PAST day,
+never "now"):
+
+- **TEAM/TASK** — the sprint in the task's `norm` SPRINT field interval covering the instant
+  (`norm.work_item_field_intervals`, field `SPRINT`, `value_id` the last sprint id — NOT
+  `metrics.task_sprint`, whose carried-over rows overlap), mapped through `dim_sprint.team_id` and
+  only while that sprint was not yet closed AT THE INSTANT (`complete_at IS NULL OR complete_at >
+  instant` — no Jira `state` check here, unlike A22's NOW-evaluated `current_team_id`, since a past
+  day's own instant already fixes what "closed as of then" means). Else the assignee's team
+  (`metrics.task_assignee` covering the instant → `metrics.team_membership` covering it). Else
+  `UNASSIGNED`. Historical teams are kept even if soft-deleted now — this is an as-was read, so A22's
+  active-team filter (which applies only to NOW-evaluated columns) does not apply.
+- **TEAM/EPIC** — `dim_domain.owner_team_id` of the epic's domain (as-is, A19), else `UNOWNED`.
+- **DOMAIN/TASK** — the covering `metrics.task_domain` row's `domain_key`; a `LEFT JOIN` reads NULL
+  alike for "no covering row" and "a covering row whose own value is null", so `COALESCE` folds
+  either case onto the task's current `dim_task.domain_key` (in practice never null, since a
+  domain-map miss already falls back to the project key itself at DERIVE time).
+- **DOMAIN/EPIC** — the epic's own (current) domain, `dim_epic.domain_key`.
+- **EPIC** — TASKS ONLY, via the covering `metrics.task_epic` row's `epic_id`; a task resolving to
+  no epic (no covering row, or one whose own value is null) writes no EPIC-scope row at all — unlike
+  DOMAIN, there is no "fall back to current" here (`.claude/docs/measures.md`'s own row text).
+
+**Only non-zero counts get a row** — a plain `GROUP BY` already guarantees this (a group exists only
+when at least one item landed in it), so no explicit zero-filter is needed anywhere in the SQL.
+Sub-tasks are excluded throughout (D2): every scope's SQL joins `metrics.dim_task` filtered to
+`is_subtask = false` BEFORE joining `item_stage`, so a sub-task's own `item_stage` row (pass 1
+writes one for every item, sub-tasks included) never reaches any `agg_daily_wip` row.
+
+Tests: `MetricsDerivationTest`'s three `agg_daily_wip -` cases — an independent per-stage TASK-count
+oracle (`item_stage` + `dim_task`, end-of-day predicate) that TEAM (including `UNASSIGNED`) and
+DOMAIN both sum to exactly, over evenly-spread sampled days; an independent per-team re-derivation
+of the TEAM split on one sampled day, straight off the `norm` SPRINT/ASSIGNEE intervals and
+`team_membership`; and a bundled check that no sub-task is ever counted, that a day predating the
+connection's own history carries no rows at all, and that the LAST `agg_daily_wip` day equals the
+day of `DerivedStubFixture.PINNED_NOW` in `Europe/Warsaw` (the derive run's own zone).
+`DerivedStubFixture`'s own tripwire digest folds in `agg_daily_wip`
+(`scope_kind, scope_id, day, item_kind, status_id, stage` order, its own natural key — no surrogate
+id — the same rule every other bridge/fact's digest line already follows).
+
 ## Not yet ported / not yet written
 
-The daily aggregates (`agg_daily_wip`/`agg_daily_flow`, the DERIVE reprocess/perf checks) round out
-commit 9; the report API and the report pages arrive with their own commits and their own sections
-here.
+`agg_daily_flow` (report 15's PV/EV/AC daily aggregate) and the DERIVE reprocess/perf checks round
+out commit 9; the report API and the report pages arrive with their own commits and their own
+sections here.
 
 **Membership history is permanent (by design).** Deleting a team closes its members' open
 memberships at that moment (so they can join another team from then on), but the history before

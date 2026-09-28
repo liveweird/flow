@@ -45,7 +45,9 @@ import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.isNotNull
+import org.jetbrains.exposed.v1.core.lessEq
 import org.jetbrains.exposed.v1.core.neq
 import org.jetbrains.exposed.v1.r2dbc.deleteWhere
 import org.jetbrains.exposed.v1.r2dbc.insert
@@ -130,6 +132,12 @@ private data class BridgeInterval<T>(val value: T, val fromAtMs: Long, val toAtM
  * rows read back from a `metrics.*` bridge table rather than an in-memory interval list. */
 private fun <T> valueAtBridge(rows: List<BridgeInterval<T>>, atMs: Long): T? =
     rows.firstOrNull { it.fromAtMs <= atMs && (it.toAtMs == null || atMs < it.toAtMs) }?.value
+
+/** The interval in effect at the LAST instant of a day — `agg_daily_wip`'s own end-of-day rule
+ * (`valid_from < day_end AND (valid_to IS NULL OR valid_to >= day_end)`, where `day_end` is the
+ * exclusive start of the next day). A change landing exactly at midnight belongs to the next day. */
+private fun <T> valueAtDayEnd(rows: List<BridgeInterval<T>>, dayEndMs: Long): T? =
+    rows.firstOrNull { it.fromAtMs < dayEndMs && (it.toAtMs == null || it.toAtMs >= dayEndMs) }?.value
 
 /**
  * `metrics/MetricsDeriver.kt` (v0.3.0 M3 commit 7): DERIVE over a CLONE of `SyncedStubFixture`'s
@@ -1904,6 +1912,202 @@ class MetricsDerivationTest {
             }
         }
 
+    /** Every DISTINCT day carrying a TEAM/TASK `agg_daily_wip` row for [connId], ascending — the
+     * population [sampleWipDays] samples from. */
+    private suspend fun allWipDays(connId: UInt): List<String> = suspendTransaction(sharedDatabaseForTests()) {
+        MetricsStore.AggDailyWip.select(MetricsStore.AggDailyWip.day)
+            .where {
+                (MetricsStore.AggDailyWip.connectionId eq connId) and (MetricsStore.AggDailyWip.scopeKind eq "TEAM") and
+                    (MetricsStore.AggDailyWip.itemKind eq "TASK")
+            }
+            .toList().map { it[MetricsStore.AggDailyWip.day] }.distinct().sorted()
+    }
+
+    /** [SAMPLED_WIP_DAY_COUNT] evenly-spaced days across [connId]'s own WIP range (first, last, and
+     * evenly-spaced in between) — "spread across the fixture's range" per the plan. */
+    private suspend fun sampleWipDays(connId: UInt): List<String> {
+        val allDays = allWipDays(connId)
+        if (allDays.isEmpty()) return emptyList()
+        return (0 until SAMPLED_WIP_DAY_COUNT).map { allDays[(it * (allDays.size - 1)) / (SAMPLED_WIP_DAY_COUNT - 1)] }.distinct()
+    }
+
+    private suspend fun dimDateDayEndMs(days: List<String>): Map<String, Long> = suspendTransaction(sharedDatabaseForTests()) {
+        MetricsStore.DimDate.selectAll().where { MetricsStore.DimDate.day inList days }
+            .toList().associate { it[MetricsStore.DimDate.day] to it[MetricsStore.DimDate.dayEndMs] }
+    }
+
+    /** Σ `item_count` grouped by `stage`, for one `(scopeKind, day)` slice of TASK rows — the shared
+     * "does this scope partition the per-stage count" read both [sampleWipDays]-driven tests use. */
+    private suspend fun wipStageCounts(connId: UInt, scopeKind: String, day: String): Map<String, Int> =
+        suspendTransaction(sharedDatabaseForTests()) {
+            MetricsStore.AggDailyWip.selectAll().where {
+                (MetricsStore.AggDailyWip.connectionId eq connId) and (MetricsStore.AggDailyWip.scopeKind eq scopeKind) and
+                    (MetricsStore.AggDailyWip.itemKind eq "TASK") and (MetricsStore.AggDailyWip.day eq day)
+            }.toList().groupBy({ it[MetricsStore.AggDailyWip.stage] }) { it[MetricsStore.AggDailyWip.itemCount] }
+                .mapValues { (_, counts) -> counts.sum() }
+        }
+
+    @Test
+    fun `agg_daily_wip - TEAM (incl UNASSIGNED) and DOMAIN both sum to an independently re-derived per-stage TASK count`() =
+        runBlocking {
+            val connId = DerivedStubFixture.connectionId()
+            val days = sampleWipDays(connId)
+            assertEquals(SAMPLED_WIP_DAY_COUNT, days.size, "the fixture must carry $SAMPLED_WIP_DAY_COUNT distinct WIP days to sample")
+            val dayEndMsByDay = dimDateDayEndMs(days)
+
+            suspendTransaction(sharedDatabaseForTests()) {
+                val taskIds = MetricsStore.DimTask.selectAll()
+                    .where { (MetricsStore.DimTask.connectionId eq connId) and (MetricsStore.DimTask.isSubtask eq false) }
+                    .toList().map { it[MetricsStore.DimTask.issueId] }
+                val stageRowsByIssue = MetricsStore.ItemStage.selectAll().where { MetricsStore.ItemStage.connectionId eq connId }
+                    .toList().groupBy({ it[MetricsStore.ItemStage.issueId] }) {
+                        BridgeInterval(
+                            it[MetricsStore.ItemStage.stage], it[MetricsStore.ItemStage.validFrom], it[MetricsStore.ItemStage.validTo],
+                        )
+                    }
+
+                days.forEach { day ->
+                    val dayEndMs = dayEndMsByDay.getValue(day)
+                    val expected = taskIds.mapNotNull { valueAtDayEnd(stageRowsByIssue[it].orEmpty(), dayEndMs) }
+                        .groupingBy { it }.eachCount()
+                    assertEquals(expected, wipStageCounts(connId, "TEAM", day), "TEAM must partition the per-stage TASK count on $day")
+                    assertEquals(expected, wipStageCounts(connId, "DOMAIN", day), "DOMAIN must partition the per-stage TASK count on $day")
+                }
+            }
+            Unit
+        }
+
+    @Test
+    fun `agg_daily_wip - the TEAM split on one sampled day matches an independent re-derivation from the SPRINT-ASSIGNEE bridges`() =
+        runBlocking {
+            val connId = DerivedStubFixture.connectionId()
+            val days = sampleWipDays(connId)
+            assertTrue(days.isNotEmpty(), "the fixture must carry at least one WIP day to sample")
+            val day = days[days.size / 2]
+            val dayEndMs = dimDateDayEndMs(listOf(day)).getValue(day)
+
+            suspendTransaction(sharedDatabaseForTests()) {
+                val taskIds = MetricsStore.DimTask.selectAll()
+                    .where { (MetricsStore.DimTask.connectionId eq connId) and (MetricsStore.DimTask.isSubtask eq false) }
+                    .toList().map { it[MetricsStore.DimTask.issueId] }
+                val stageRowsByIssue = MetricsStore.ItemStage.selectAll().where { MetricsStore.ItemStage.connectionId eq connId }
+                    .toList().groupBy({ it[MetricsStore.ItemStage.issueId] }) {
+                        BridgeInterval(
+                            it[MetricsStore.ItemStage.stage], it[MetricsStore.ItemStage.validFrom], it[MetricsStore.ItemStage.validTo],
+                        )
+                    }
+                val coveredTaskIds = taskIds.filter { valueAtDayEnd(stageRowsByIssue[it].orEmpty(), dayEndMs) != null }
+
+                // The norm SPRINT field interval covering the instant — NOT metrics.task_sprint, whose
+                // carried-over rows overlap (WIP-report §12's own rule, `DeriveWipStep.kt`).
+                val sprintRowsByIssue = workItems().fieldIntervalsByIssue(connId, TrackedField.SPRINT)
+                    .mapValues { (_, intervals) ->
+                        intervals.sortedBy { it.seq }.map { BridgeInterval(it.valueId?.toLongOrNull(), it.fromAtMs, it.toAtMs) }
+                    }
+                val sprintTeamAndCloseById = MetricsStore.DimSprint.selectAll().where { MetricsStore.DimSprint.connectionId eq connId }
+                    .toList().associate { row ->
+                        val team = row[MetricsStore.DimSprint.teamId]?.value
+                        row[MetricsStore.DimSprint.sprintId] to (team to row[MetricsStore.DimSprint.completeAt])
+                    }
+                val assigneeRowsByIssue = MetricsStore.TaskAssignee.selectAll()
+                    .where { MetricsStore.TaskAssignee.connectionId eq connId }
+                    .orderBy(MetricsStore.TaskAssignee.validFrom to SortOrder.ASC)
+                    .toList()
+                    .groupBy({ it[MetricsStore.TaskAssignee.issueId] }) {
+                        BridgeInterval(
+                            it[MetricsStore.TaskAssignee.accountId], it[MetricsStore.TaskAssignee.validFrom],
+                            it[MetricsStore.TaskAssignee.validTo],
+                        )
+                    }
+                val membership = TeamMembershipService.TeamMembership
+                val membershipRowsByAccount = membership.selectAll()
+                    .orderBy(membership.validFrom to SortOrder.ASC)
+                    .toList()
+                    .groupBy({ it[membership.accountId] }) {
+                        BridgeInterval(it[membership.teamId].value, it[membership.validFrom], it[membership.validTo])
+                    }
+
+                val expected = coveredTaskIds.map { issueId ->
+                    val sprintId = valueAtDayEnd(sprintRowsByIssue[issueId].orEmpty(), dayEndMs)
+                    // Only while the sprint was not yet closed at the instant (complete_at IS NULL OR
+                    // complete_at > instant) — the WIP contract's own rule, distinct from A22's
+                    // NOW-evaluated `current_team_id`'s extra Jira-`state` check above.
+                    val sprintTeam = sprintId?.let { id ->
+                        sprintTeamAndCloseById[id]?.let { (team, completeAt) ->
+                            team.takeIf { completeAt == null || completeAt > dayEndMs }
+                        }
+                    }
+                    val assignee = valueAtDayEnd(assigneeRowsByIssue[issueId].orEmpty(), dayEndMs)
+                    val fallbackTeam = assignee?.let { valueAtDayEnd(membershipRowsByAccount[it].orEmpty(), dayEndMs) }
+                    (sprintTeam ?: fallbackTeam)?.toString() ?: "UNASSIGNED"
+                }.groupingBy { it }.eachCount()
+
+                val actual = MetricsStore.AggDailyWip.selectAll().where {
+                    (MetricsStore.AggDailyWip.connectionId eq connId) and (MetricsStore.AggDailyWip.scopeKind eq "TEAM") and
+                        (MetricsStore.AggDailyWip.itemKind eq "TASK") and (MetricsStore.AggDailyWip.day eq day)
+                }.toList().groupBy({ it[MetricsStore.AggDailyWip.scopeId] }) { it[MetricsStore.AggDailyWip.itemCount] }
+                    .mapValues { (_, counts) -> counts.sum() }
+
+                assertEquals(expected, actual, "the TEAM split on $day must match D5-as-was evaluated at that day's own end instant")
+            }
+            Unit
+        }
+
+    @Test
+    fun `agg_daily_wip - excludes sub-tasks, has no rows before the connection's history begins, and its last day is PINNED_NOW's day`() =
+        runBlocking {
+            val connId = DerivedStubFixture.connectionId()
+            suspendTransaction(sharedDatabaseForTests()) {
+                val lastDay = MetricsStore.AggDailyWip.select(MetricsStore.AggDailyWip.day)
+                    .where {
+                        (MetricsStore.AggDailyWip.connectionId eq connId) and (MetricsStore.AggDailyWip.scopeKind eq "TEAM") and
+                            (MetricsStore.AggDailyWip.itemKind eq "TASK")
+                    }
+                    .toList().map { it[MetricsStore.AggDailyWip.day] }.max()
+                val dayEndMs = MetricsStore.DimDate.selectAll().where { MetricsStore.DimDate.day eq lastDay }
+                    .toList().single()[MetricsStore.DimDate.dayEndMs]
+
+                val stageRowsByIssue = MetricsStore.ItemStage.selectAll().where { MetricsStore.ItemStage.connectionId eq connId }
+                    .toList().groupBy({ it[MetricsStore.ItemStage.issueId] }) {
+                        BridgeInterval(
+                            it[MetricsStore.ItemStage.stage], it[MetricsStore.ItemStage.validFrom], it[MetricsStore.ItemStage.validTo],
+                        )
+                    }
+                val allTaskRows = MetricsStore.DimTask.selectAll().where { MetricsStore.DimTask.connectionId eq connId }.toList()
+                val nonSubtaskIds = allTaskRows.filterNot { it[MetricsStore.DimTask.isSubtask] }.map { it[MetricsStore.DimTask.issueId] }
+                val subtaskIds = allTaskRows.filter { it[MetricsStore.DimTask.isSubtask] }.map { it[MetricsStore.DimTask.issueId] }
+                fun coveredCount(ids: List<Long>) = ids.count { valueAtDayEnd(stageRowsByIssue[it].orEmpty(), dayEndMs) != null }
+                val nonSubtaskCovered = coveredCount(nonSubtaskIds)
+                assertTrue(coveredCount(subtaskIds) > 0, "the fixture must have covered sub-tasks on $lastDay, else this proves nothing")
+
+                val actualTotal = MetricsStore.AggDailyWip.selectAll().where {
+                    (MetricsStore.AggDailyWip.connectionId eq connId) and (MetricsStore.AggDailyWip.scopeKind eq "TEAM") and
+                        (MetricsStore.AggDailyWip.itemKind eq "TASK") and (MetricsStore.AggDailyWip.day eq lastDay)
+                }.toList().sumOf { it[MetricsStore.AggDailyWip.itemCount] }
+                assertEquals(nonSubtaskCovered, actualTotal, "TEAM's TASK total on $lastDay must equal the non-subtask covering count")
+
+                // A day with no WIP has no rows: a day whose own end predates the connection's earliest
+                // created_at (item_stage's own first interval always starts at created_at).
+                val minCreatedAt = MetricsStore.ItemStage.selectAll().where { MetricsStore.ItemStage.connectionId eq connId }
+                    .toList().minOf { it[MetricsStore.ItemStage.validFrom] }
+                val emptyDay = MetricsStore.DimDate.selectAll().where { MetricsStore.DimDate.dayEndMs lessEq minCreatedAt }
+                    .orderBy(MetricsStore.DimDate.day to SortOrder.DESC).limit(1).toList().singleOrNull()
+                    ?.get(MetricsStore.DimDate.day)
+                assertNotNull(emptyDay, "dim_date must carry at least one day before the connection's earliest creation")
+                val emptyDayRowCount = MetricsStore.AggDailyWip.selectAll()
+                    .where { (MetricsStore.AggDailyWip.connectionId eq connId) and (MetricsStore.AggDailyWip.day eq emptyDay) }
+                    .count()
+                assertEquals(0L, emptyDayRowCount, "a day before the connection's history began must carry no agg_daily_wip rows")
+
+                // The last day equals the day of PINNED_NOW in the derive run's own zone (Europe/Warsaw,
+                // the metrics.settings default — DerivedStubFixture never overrides the time zone).
+                val expectedLastDay =
+                    WorkingCalendar(ZoneId.of("Europe/Warsaw"), emptySet(), emptySet()).dayOf(DerivedStubFixture.PINNED_NOW).toString()
+                assertEquals(expectedLastDay, lastDay, "the last WIP day must be the day of PINNED_NOW in Europe/Warsaw")
+            }
+            Unit
+        }
+
     private companion object {
         const val PINNED_NOW = 1_772_668_800_000L // 2026-03-05T00:00:00Z, per the v0.3.0 plan's pinned-clock convention
         const val THIRTY_DAYS_MS = 30L * 24 * 60 * 60 * 1000
@@ -1911,5 +2115,6 @@ class MetricsDerivationTest {
         const val CAPACITY_TOLERANCE = 0.01
         const val HOURS_PER_DAY = 8.0
         const val FLO_BOARD_ID = 1L
+        const val SAMPLED_WIP_DAY_COUNT = 5
     }
 }
