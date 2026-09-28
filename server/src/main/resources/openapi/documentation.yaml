@@ -1847,7 +1847,7 @@ components:
 
     SyncJobKind:
       type: string
-      enum: [SYNC, RECONCILE, REPROCESS, PURGE]
+      enum: [SYNC, RECONCILE, REPROCESS, PURGE, DERIVE]
     SyncJobStatus:
       type: string
       enum: [PENDING, RUNNING, SUCCEEDED, FAILED, CANCELLED]

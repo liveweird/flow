@@ -8,6 +8,7 @@ import ch.nokillswit.ingest.DataSourceRequest
 import ch.nokillswit.ingest.DataSourceService
 import ch.nokillswit.ingest.JiraAuthScheme
 import ch.nokillswit.ingest.JiraConnectionRequest
+import ch.nokillswit.ingest.SyncJobsService
 import ch.nokillswit.ingest.defaultBackfillFrom
 import ch.nokillswit.metrics.DataSourceMetricsConfigRequest
 import ch.nokillswit.metrics.MetricsConfigService
@@ -44,7 +45,7 @@ class MetricsConfigServiceTest {
     private fun dataSources() = DataSourceService(sharedDatabaseForTests(), FieldCipher(DEV_DATA_ENCRYPTION_KEY))
     private fun workItems() = WorkItemStore(sharedDatabaseForTests())
     private fun metricsConfig(dataSources: DataSourceService) =
-        MetricsConfigService(sharedDatabaseForTests(), workItems(), dataSources)
+        MetricsConfigService(sharedDatabaseForTests(), workItems(), dataSources, SyncJobsService(sharedDatabaseForTests(), 3))
 
     private val migrated = AtomicBoolean(false)
     private fun ensureMigrated() {

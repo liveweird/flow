@@ -23,6 +23,9 @@ import ch.nokillswit.ingest.backoffMillis
 import ch.nokillswit.ingest.MAX_BACKOFF_MILLIS
 import ch.nokillswit.ingest.defaultBackfillFrom
 import ch.nokillswit.metrics.MetricsConfigService
+import ch.nokillswit.metrics.MetricsDeriver
+import ch.nokillswit.metrics.MetricsStore
+import ch.nokillswit.metrics.TeamMembershipService
 import ch.nokillswit.norm.WorkItemStore
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.awaitCancellation
@@ -78,8 +81,21 @@ class IngestWorkerTest {
     private fun dataSources() = DataSourceService(sharedDatabaseForTests(), FieldCipher(DEV_DATA_ENCRYPTION_KEY))
 
     /** The PURGE step's generic config-drain dependency (v0.3.0 M1 commit 4) — a fresh instance is fine, it is stateless. */
-    private fun metricsConfig(dataSources: DataSourceService) =
-        MetricsConfigService(sharedDatabaseForTests(), WorkItemStore(sharedDatabaseForTests()), dataSources)
+    private fun metricsConfig(dataSources: DataSourceService) = MetricsConfigService(
+        sharedDatabaseForTests(),
+        WorkItemStore(sharedDatabaseForTests()),
+        dataSources,
+        SyncJobsService(sharedDatabaseForTests(), 3),
+    )
+
+    /** The DERIVE job's dependency (v0.3.0 M3 commit 7) — a fresh instance per test, it is stateless. */
+    private fun deriver(metrics: MetricsConfigService) = MetricsDeriver(
+        WorkItemStore(sharedDatabaseForTests()),
+        metrics,
+        TeamMembershipService(sharedDatabaseForTests(), metrics),
+        MetricsStore(sharedDatabaseForTests()),
+        sharedDatabaseForTests(),
+    )
 
     /**
      * One row in EACH of the eight per-connection `metrics.*` config tables (v0.3.0 M1 commit 4
@@ -225,6 +241,7 @@ class IngestWorkerTest {
             jobs,
             ds,
             metricsConfig(ds),
+            deriver(metricsConfig(ds)),
             mapOf(DataSourceKind.JIRA_CLOUD to connector),
             testConfig(workerSlots = 500),
             fixedEarlyMorningClock(),
@@ -233,11 +250,20 @@ class IngestWorkerTest {
         coroutineScope { worker.tick(this) }
 
         assertTrue(ran, "the claimed job's connector.run() must have executed")
-        val job = jobs.list(connId, SyncJobListFilter(), pagingAll()).items.single()
+        // A successful SYNC now also chains a DERIVE job for this connection (v0.3.0 M3 commit 7)
+        // — filter to the SYNC kind so this assertion stays about the job under test.
+        val job = jobs.list(connId, SyncJobListFilter(kind = SyncJobKind.SYNC), pagingAll()).items.single()
         assertEquals(SyncJobStatus.SUCCEEDED, job.status)
         val connection = assertNotNull(ds.read(connId))
         assertNotNull(connection.status.lastSyncSucceededAt)
         assertEquals(0, connection.status.consecutiveFailures)
+
+        // v0.3.0 M3 commit 7: a successful SYNC chains a scheduled DERIVE job for the SAME
+        // connection — the generous workerSlots this test already uses (see the note above) means
+        // it may be claimed and even finish (real MetricsDeriver, real DB, no norm rows to derive)
+        // within this SAME tick, so only its existence and non-failure are asserted here.
+        val deriveJob = jobs.list(connId, SyncJobListFilter(kind = SyncJobKind.DERIVE), pagingAll()).items.single()
+        assertTrue(deriveJob.status != SyncJobStatus.FAILED, "the chained DERIVE job must not fail on an ordinary connection")
     }
 
     @Test
@@ -252,6 +278,7 @@ class IngestWorkerTest {
             jobs,
             ds,
             metricsConfig(ds),
+            deriver(metricsConfig(ds)),
             mapOf(DataSourceKind.JIRA_CLOUD to connector),
             testConfig(workerSlots = 500),
             fixedEarlyMorningClock(),
@@ -278,6 +305,7 @@ class IngestWorkerTest {
             jobs,
             ds,
             metricsConfig(ds),
+            deriver(metricsConfig(ds)),
             mapOf(DataSourceKind.JIRA_CLOUD to connector),
             testConfig(workerSlots = 500),
             fixedEarlyMorningClock(),
@@ -285,7 +313,8 @@ class IngestWorkerTest {
 
         coroutineScope { worker.tick(this) }
 
-        val job = jobs.list(connId, SyncJobListFilter(), pagingAll()).items.single()
+        // Same DERIVE-chaining note as the "success" test above.
+        val job = jobs.list(connId, SyncJobListFilter(kind = SyncJobKind.SYNC), pagingAll()).items.single()
         assertEquals("issues", job.currentStream)
         assertEquals(1L, job.progress?.get("pages")?.jsonPrimitive?.long)
     }
@@ -322,7 +351,9 @@ class IngestWorkerTest {
 
         val config = testConfig(workerSlots = 500)
         val connector = FakeConnector { } // succeeds trivially — the connector's own purgeSteps are empty here
-        val worker = IngestWorker(jobs, ds, metrics, mapOf(DataSourceKind.JIRA_CLOUD to connector), config, System::currentTimeMillis)
+        val worker = IngestWorker(
+            jobs, ds, metrics, deriver(metrics), mapOf(DataSourceKind.JIRA_CLOUD to connector), config, System::currentTimeMillis,
+        )
 
         val firstJobId = jobs.requestJob(connId, SyncJobKind.PURGE, requestedByUserId = 1u, configRevision = 1L).jobId
         worker.runJob(claimFor(firstJobId, connId, SyncJobKind.PURGE))
@@ -348,7 +379,9 @@ class IngestWorkerTest {
 
         val config = testConfig(workerSlots = 500)
         val connector = FakeConnector { error("simulated connector purge failure") }
-        val worker = IngestWorker(jobs, ds, metrics, mapOf(DataSourceKind.JIRA_CLOUD to connector), config, System::currentTimeMillis)
+        val worker = IngestWorker(
+            jobs, ds, metrics, deriver(metrics), mapOf(DataSourceKind.JIRA_CLOUD to connector), config, System::currentTimeMillis,
+        )
 
         val jobId = jobs.requestJob(connId, SyncJobKind.PURGE, requestedByUserId = 1u, configRevision = 1L).jobId
         worker.runJob(claimFor(jobId, connId, SyncJobKind.PURGE))
@@ -394,6 +427,7 @@ class IngestWorkerTest {
             jobs,
             ds,
             metricsConfig(ds),
+            deriver(metricsConfig(ds)),
             mapOf(DataSourceKind.JIRA_CLOUD to connector),
             config,
             System::currentTimeMillis,

@@ -32,7 +32,8 @@
       "SYNC": "Sync",
       "RECONCILE": "Reconcile",
       "REPROCESS": "Reprocess",
-      "PURGE": "Purge"
+      "PURGE": "Purge",
+      "DERIVE": "Re-derive metrics"
     },
     "status": {
       "PENDING": "Pending",

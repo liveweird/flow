@@ -5,6 +5,8 @@ import ch.nokillswit.infra.config.requireConfigInt
 import ch.nokillswit.infra.config.requireConfigLong
 import ch.nokillswit.metrics.MetricsConfigService
 import ch.nokillswit.metrics.MetricsConfigServiceKey
+import ch.nokillswit.metrics.MetricsDeriver
+import ch.nokillswit.metrics.MetricsDeriverKey
 import ch.nokillswit.plugins.runsWorker
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationStarted
@@ -99,6 +101,7 @@ fun Application.configureIngestWorker() {
             syncJobs = app.attributes[SyncJobsServiceKey],
             dataSources = app.attributes[DataSourceServiceKey],
             metricsConfig = app.attributes[MetricsConfigServiceKey],
+            deriver = app.attributes[MetricsDeriverKey],
             connectors = connectors,
             config = config,
             clock = clock,
@@ -140,6 +143,7 @@ class IngestWorker(
     private val syncJobs: SyncJobsService,
     private val dataSources: DataSourceService,
     private val metricsConfig: MetricsConfigService,
+    private val deriver: MetricsDeriver,
     private val connectors: Map<DataSourceKind, Connector>,
     private val config: IngestConfig,
     private val clock: () -> Long,
@@ -216,12 +220,17 @@ class IngestWorker(
                         if (syncJobs.isCancelRequested(claim.id)) throw JobCancelRequestedException(claim.id)
                     }
                 }
-                val connector = connectors[claim.connectorKind]
-                connector?.run(
-                    SyncJobRunContext(claim) { progress, currentStream ->
-                        syncJobs.heartbeat(claim.id, config.workerId, config.leaseSeconds, clock(), progress, currentStream)
-                    },
-                )
+                val context = SyncJobRunContext(claim) { progress, currentStream ->
+                    syncJobs.heartbeat(claim.id, config.workerId, config.leaseSeconds, clock(), progress, currentStream)
+                }
+                // DERIVE (v0.3.0 M3 commit 7, `.claude/docs/ingestion.md` "The DERIVE job kind") is
+                // connector-agnostic — dispatched here BEFORE the connector registry, so it runs
+                // regardless of which connector kind the connection is.
+                if (claim.kind == SyncJobKind.DERIVE) {
+                    deriver.derive(context)
+                } else {
+                    connectors[claim.connectorKind]?.run(context)
+                }
                 // The generic, connector-agnostic PURGE step (v0.3.0 M1 commit 4,
                 // `.claude/docs/ingestion.md` "PURGE"): runs AFTER the connector's own
                 // `purgeSteps` (which drain its `raw.*`/`norm.*` rows) — every per-connection
@@ -258,7 +267,15 @@ class IngestWorker(
             SyncJobKind.SYNC -> dataSources.recordSyncOutcome(claim.connectionId, succeeded = true, errorCode = null, now = clock())
             SyncJobKind.RECONCILE -> dataSources.recordReconcileSucceeded(claim.connectionId, clock())
             SyncJobKind.PURGE -> dataSources.recordPurgeSucceeded(claim.connectionId, clock())
-            SyncJobKind.REPROCESS -> Unit
+            SyncJobKind.REPROCESS, SyncJobKind.DERIVE -> Unit
+        }
+        // Chains a DERIVE after every successful SYNC/RECONCILE/REPROCESS (v0.3.0 M3 commit 7,
+        // plan §2 decision 1) — coalesced by `uq_sync_jobs_open_per_kind`, so an already-pending
+        // DERIVE for this connection is a no-op here.
+        if (claim.kind == SyncJobKind.SYNC || claim.kind == SyncJobKind.RECONCILE || claim.kind == SyncJobKind.REPROCESS) {
+            dataSources.read(claim.connectionId)?.let { connection ->
+                syncJobs.enqueueScheduled(claim.connectionId, SyncJobKind.DERIVE, connection.configRevision, clock())
+            }
         }
         audit("sync_job.succeeded", "jobId" to claim.id.toLong(), "dataSourceId" to claim.connectionId.toLong(), "kind" to claim.kind.name)
     }

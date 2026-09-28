@@ -5,6 +5,8 @@ import ch.nokillswit.infra.db.jsonb
 import ch.nokillswit.infra.db.nowMillis
 import ch.nokillswit.ingest.DataProfileSections
 import ch.nokillswit.ingest.DataSourceService
+import ch.nokillswit.ingest.SyncJobKind
+import ch.nokillswit.ingest.SyncJobsService
 import ch.nokillswit.norm.MAX_DISTINCT_FIELD_VALUES
 import ch.nokillswit.norm.WorkItemStore
 import ch.nokillswit.teams.TeamService
@@ -73,6 +75,7 @@ class MetricsConfigService(
     private val database: R2dbcDatabase,
     private val workItemStore: WorkItemStore,
     private val dataSources: DataSourceService,
+    private val syncJobs: SyncJobsService,
 ) {
 
     object Settings : Table("metrics.settings") {
@@ -199,11 +202,23 @@ class MetricsConfigService(
      * Bumps the shared revision alone (a team-membership mutation, or — from commit 4 on — a
      * per-connection config PUT): no other column changes, so `updatedAt`/`updatedByUserId` stay
      * whatever the last SETTINGS edit left them — those two describe the settings form itself, not
-     * "the last thing that touched the revision".
+     * "the last thing that touched the revision". Since v0.3.0 M3 commit 7, ALSO enqueues `DERIVE`
+     * (scheduler priority — `SyncJobsService.enqueueScheduled`) for EVERY enabled, active
+     * connection, stamped with that connection's OWN `source_connections.config_revision` (the
+     * value `SyncJobsService.claim`'s `CONFIG_CHANGED` check compares against — a DIFFERENT counter
+     * from the metrics settings revision this method itself bumps): any configuration change —
+     * global settings, a team membership edit, a per-connection metrics-config PUT — must reach
+     * every connection's derived numbers, not just the one that happened to be edited (plan §2
+     * decision 1). Must run INSIDE the caller's transaction (nested `suspendTransaction` against the
+     * SAME database).
      */
     suspend fun bumpRevision(): Long = suspendTransaction(database) {
         Settings.update({ Settings.id eq SETTINGS_ID }) { it[configRevision] = Settings.configRevision + 1 }
-        Settings.selectAll().where { Settings.id eq SETTINGS_ID }.toList().single()[Settings.configRevision]
+        val newRevision = Settings.selectAll().where { Settings.id eq SETTINGS_ID }.toList().single()[Settings.configRevision]
+        dataSources.enabledActiveConnections().forEach { connection ->
+            syncJobs.enqueueScheduled(connection.id, SyncJobKind.DERIVE, connection.configRevision)
+        }
+        newRevision
     }
 
     private fun ResultRow.toResponse(): MetricsSettingsResponse = MetricsSettingsResponse(

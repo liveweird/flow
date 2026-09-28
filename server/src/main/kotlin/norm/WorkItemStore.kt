@@ -20,6 +20,7 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.long
 import org.jetbrains.exposed.v1.core.*
 import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
 import org.jetbrains.exposed.v1.r2dbc.batchInsert
@@ -50,6 +51,9 @@ private fun parseAnomalies(json: String): List<TilingAnomaly> =
 
 /** The inverse of [stringArrayJson]. */
 private fun parseStringArray(json: String): List<String> = Json.parseToJsonElement(json).jsonArray.map { it.jsonPrimitive.content }
+
+/** The inverse of `longArrayJson` (`norm.work_items.current_sprint_ids`) — `WorkItemStore.workItemsForDerivation`'s own reader. */
+private fun parseLongArray(json: String): List<Long> = Json.parseToJsonElement(json).jsonArray.map { it.jsonPrimitive.long }
 
 /**
  * One custom-field value, as `(valueId, valueName)` pairs — `WorkItemStore.distinctCustomFieldValues`'
@@ -566,6 +570,81 @@ class WorkItemStore(private val database: R2dbcDatabase) {
     suspend fun worklogRows(connectionId: UInt): List<WorklogRow> = suspendTransaction(database) {
         Worklogs.selectAll().where { Worklogs.connectionId eq connectionId }
             .map { WorklogRow(it[Worklogs.issueId], it[Worklogs.authorAccountId], it[Worklogs.timeSpentSeconds]) }.toList()
+    }
+
+    /** One `norm.work_item_worklogs` row, keeping the timestamps `metrics/MetricsDeriver.kt`'s `fact_worklog` step (commit 9) needs. */
+    data class DerivationWorklogRow(
+        val worklogId: Long,
+        val issueId: Long,
+        val authorAccountId: String?,
+        val startedAt: Long,
+        val timeSpentSeconds: Long,
+        val createdAt: Long?,
+        val updatedAt: Long?,
+    )
+
+    /**
+     * Every `norm.work_item_worklogs` row for a connection, grouped by issue (v0.3.0 M3 commit 7)
+     * — `metrics/MetricsDeriver.kt`'s own per-issue read.
+     */
+    suspend fun worklogsByIssue(connectionId: UInt): Map<Long, List<DerivationWorklogRow>> = suspendTransaction(database) {
+        Worklogs.selectAll().where { Worklogs.connectionId eq connectionId }
+            .toList()
+            .map {
+                DerivationWorklogRow(
+                    worklogId = it[Worklogs.worklogId],
+                    issueId = it[Worklogs.issueId],
+                    authorAccountId = it[Worklogs.authorAccountId],
+                    startedAt = it[Worklogs.startedAt],
+                    timeSpentSeconds = it[Worklogs.timeSpentSeconds],
+                    createdAt = it[Worklogs.createdAt],
+                    updatedAt = it[Worklogs.updatedAt],
+                )
+            }
+            .groupBy { it.issueId }
+    }
+
+    /**
+     * One `norm.work_items` row's derivation-relevant columns (v0.3.0 M3 commit 7) —
+     * `metrics/MetricsDeriver.kt`'s per-issue input, LIVE (non-tombstoned) rows only.
+     */
+    data class DerivationWorkItemRow(
+        val issueId: Long,
+        val issueKey: String,
+        val projectKey: String,
+        val issueType: String,
+        val isSubtask: Boolean,
+        val parentIssueId: Long?,
+        val hierarchyLevel: Int?,
+        val summary: String?,
+        val createdAt: Long,
+        val assigneeAccountId: String?,
+        val dueAt: Long?,
+        val customFields: JsonObject,
+        val currentSprintIds: List<Long>,
+    )
+
+    /** Every LIVE work item for a connection, as [DerivationWorkItemRow] — `metrics/MetricsDeriver.kt`'s per-issue base row set. */
+    suspend fun workItemsForDerivation(connectionId: UInt): List<DerivationWorkItemRow> = suspendTransaction(database) {
+        WorkItems.selectAll().where {
+            (WorkItems.connectionId eq connectionId) and WorkItems.deletedAt.isNull() and WorkItems.movedOutAt.isNull()
+        }.toList().map { row ->
+            DerivationWorkItemRow(
+                issueId = row[WorkItems.issueId],
+                issueKey = row[WorkItems.issueKey],
+                projectKey = row[WorkItems.projectKey],
+                issueType = row[WorkItems.issueType],
+                isSubtask = row[WorkItems.isSubtask],
+                parentIssueId = row[WorkItems.parentIssueId],
+                hierarchyLevel = row[WorkItems.hierarchyLevel],
+                summary = row[WorkItems.summary],
+                createdAt = row[WorkItems.createdAt],
+                assigneeAccountId = row[WorkItems.assigneeAccountId],
+                dueAt = row[WorkItems.dueAt],
+                customFields = Json.parseToJsonElement(row[WorkItems.customFields]).jsonObject,
+                currentSprintIds = parseLongArray(row[WorkItems.currentSprintIds]),
+            )
+        }
     }
 
     /**

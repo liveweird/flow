@@ -5,6 +5,7 @@ import ch.nokillswit.authz.caller
 import ch.nokillswit.authz.requireAdmin
 import ch.nokillswit.infra.db.R2dbcDatabaseKey
 import ch.nokillswit.ingest.DataSourceServiceKey
+import ch.nokillswit.ingest.SyncJobsServiceKey
 import ch.nokillswit.norm.WorkItemStoreKey
 import ch.nokillswit.plugins.servesApi
 import io.ktor.http.HttpStatusCode
@@ -37,9 +38,18 @@ class MetricsSettingsRoute
  */
 fun Application.configureMetrics() {
     val database = attributes[R2dbcDatabaseKey]
-    val metricsConfig = MetricsConfigService(database, attributes[WorkItemStoreKey], attributes[DataSourceServiceKey])
+    val workItemStore = attributes[WorkItemStoreKey]
+    val dataSources = attributes[DataSourceServiceKey]
+    val metricsConfig = MetricsConfigService(database, workItemStore, dataSources, attributes[SyncJobsServiceKey])
     attributes.put(MetricsConfigServiceKey, metricsConfig)
-    attributes.put(TeamMembershipServiceKey, TeamMembershipService(database, metricsConfig))
+    val teamMembership = TeamMembershipService(database, metricsConfig)
+    attributes.put(TeamMembershipServiceKey, teamMembership)
+    val metricsStore = MetricsStore(database)
+    attributes.put(MetricsStoreKey, metricsStore)
+    // Published regardless of role — `ingest/IngestWorker.kt`'s DERIVE dispatch reads it under
+    // `runsWorker()`, which is independent of `servesApi()` below (a WORKER-only instance never
+    // reaches the route-registration early return, but still needs this attribute present).
+    attributes.put(MetricsDeriverKey, MetricsDeriver(workItemStore, metricsConfig, teamMembership, metricsStore, database))
 
     // The worker role serves only the health/ready probes (plugins/Health.kt) — see Role.kt.
     if (!servesApi()) return

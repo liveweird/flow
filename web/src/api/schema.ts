@@ -1180,7 +1180,7 @@ export interface components {
             cloudId?: string | null;
         };
         /** @enum {string} */
-        SyncJobKind: "SYNC" | "RECONCILE" | "REPROCESS" | "PURGE";
+        SyncJobKind: "SYNC" | "RECONCILE" | "REPROCESS" | "PURGE" | "DERIVE";
         /** @enum {string} */
         SyncJobStatus: "PENDING" | "RUNNING" | "SUCCEEDED" | "FAILED" | "CANCELLED";
         SyncJobRequest: {
