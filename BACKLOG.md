@@ -1,6 +1,6 @@
 # Product backlog
 
-Updated 2026-09-27. This file tracks **outstanding work only**. Implemented behaviour and release history belong elsewhere:
+Updated 2026-09-28. This file tracks **outstanding work only**. Implemented behaviour and release history belong elsewhere:
 - [README.md](README.md);
 - the [application changelog](web/src/changelog/entries.ts);
 - the topic guides under `.claude/docs/`.
@@ -18,30 +18,31 @@ Entries are proposals, not delivery commitments.
   - the search page-size ceiling;
   - how Sprint changes appear in the changelog.
 
-## Phase 3: the domain model
+## Phase 3: the domain model — implementation in progress (v0.3.0)
 
-- **Agreed (2026-09-27):** `.claude/docs/domain-model.md`, covering:
-  - the entities: DOMAIN, TASK, USER, TEAM, EPIC, SPRINT, WORKLOG;
-  - plan, delivery and cost as PV, EV and AC, measured in man-days (1 SP = 1 MD);
-  - the configuration;
-  - the `metrics` star model and its invariants;
-  - fourteen reports mapped to facts: velocity, throughput, task and epic estimation accuracy, estimate adjustments, sprint consistency, cycle time, reported time ÷ cycle time, WIP, estimated backlog, aging WIP, blocked time, items and backlog in sprints, data quality;
-  - decisions D1–D16 (D4 revised: an epic's budget is its own estimate).
-- **Next: an implementation plan**, in this order:
-  1. PROCESS additions (the doc's "Gaps in `norm` today"), with a `PROCESSING_VERSION` bump:
-     - epic-membership history;
-     - estimate intervals for tasks and epics;
-     - epic dates;
-     - configurable custom-field capture (work category);
-     - worklog `created`/`updated` timestamps (late logging).
-  2. The `metrics` schema with its configuration tables.
-  3. The configuration UI: status stages, estimate field(s), epic date fields, domain map, board → team, capacity, calendar, activity-type and work-category maps, and dated team membership (D1).
-  4. The derivation, plus invariant SQL sweeps. Freeze each sprint when it completes into `fact_sprint_snapshot` (D13).
-  5. The report pages (1–14), one per report in the doc's "Reports" section, open to every signed-in user (D12; configuration stays ADMIN-only). Each has the unit → team → user drill-down, a period picker (calendar and per-team sprints), domain, activity-type and work-category filters, and p50/p90/p95 plus full distributions. Port Lettuce's `@mantine/charts` + `recharts` and load the `dataviz` skill.
-- Confirm the doc's Jira-dependent assumptions against the real tenant's data profile once it exists:
-  - the parent changelog spelling;
-  - the estimate and epic-date fields;
-  - board-to-team fit.
+Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A16 override the body; A11–A16 are judgement calls made on 2026-09-28 and need a review.
+
+- **Done and merged:**
+  - M1 (PR #22): sample data, V14 norm gaps, the Jira `+0000` timestamp fix, V15 metrics config, dated Jira-user membership, per-connection config API.
+  - M2 (PR #23): the settings page, Jira members card and per-connection config page.
+  - The configuration e2e journeys (PR #24).
+- **M3 (derivation), in progress** on `feat/v0.3.0-m3-derivation`:
+  - Commit 7 is done: V16 star, DERIVE job, kernels, task and epic facts. Two review rounds followed: purge of derived rows, lost config revisions, real Jira estimate fields, effective-dated bridges, batching.
+  - Commit 8 is done: sprint scope and facts, D13 snapshots, A3 default capacity, the golden sprint exact match, and the Sprint field resolved by id.
+- **Next:**
+  1. **Commit 9, worklog facts.** Parked on `wip/m3-9a-worklog-facts`, green alone but red in the full suite. `MetricsDerivationTest` assumes `hours_per_day` = 8, but another test changes the global settings singleton and doesn't restore it. Make the test read the value used at derive time, or restore settings in that other test. Then finish commit 9: epic plan baselines and PV curves, `agg_daily_*`, the re-derive digest and the scale-20 performance run.
+  2. **Push M3 as a PR** and merge when CI is green.
+  3. **M4:** the reports API and pages for reports 1–8, plus the reports e2e.
+  4. **M5:** reports 9–16 (A7 EVM, A8 cost matrix), the A9 overview Home and the v0.3.0 release.
+- **Small follow-ups from M2 and M3:**
+  - The Jira member picker resolves names from the first 100 unit people. Page through, or look up by account id.
+  - "End membership" uses UTC; consider the configured zone.
+  - Surface `derive_runs.row_counts.sprintFieldUnresolved` in report 14 (data quality).
+  - `fact_worklog`'s epic domain uses the epic's current domain, not as-of.
+  - Read `hoursPerDay` from Jira's time-tracking configuration (A5).
+  - A per-domain status→stage override UI.
+  - Seed memberships from the Team field (D1).
+  - Cache validators for the report endpoints.
 
 ## Engineering follow-ups
 
