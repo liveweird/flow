@@ -36,6 +36,9 @@ private const val MAX_ERROR_DETAIL_LENGTH = 1000
 /** The system `duedate` field id — `metrics/MetricsConfigService.kt`'s own default for `fields.epicDue`. */
 private const val DUE_DATE_FIELD_ID = "duedate"
 
+/** `jira/JiraNormalizer.kt`'s own tracked field id for the issue-key changelog item — `task_domain`'s history source. */
+private const val ISSUE_KEY_FIELD_ID = "issuekey"
+
 /** Per-item derived quantities shared by both the epic and task write paths — computed once per issue. */
 private data class ItemDerived(
     val stages: List<StageInterval>,
@@ -44,6 +47,12 @@ private data class ItemDerived(
     val reopenCount: Int,
     val blocked: List<BlockedInterval>,
     val ownSnapshots: EstimateSnapshots,
+    /** The item's OWN configured-estimate-field timeline (review round 2a) — empty when no estimate
+     * field is configured for this item's role; kept alongside [ownSnapshots] (rather than discarded
+     * once the snapshots are taken) so a SUBTASKS-fallback parent can merge its children's OWN
+     * timelines ([DeriveKernels.mergeEstimateTimelines]) instead of reusing their CURRENT sum at
+     * every past instant. */
+    val estimateTimeline: List<EstimatePoint>,
     val ownCategory: String?,
 )
 
@@ -70,8 +79,12 @@ private data class PerIssueData(
     val assigneeIntervalsByIssue: Map<Long, List<NormalizedFieldInterval>>,
     val flaggedIntervalsByIssue: Map<Long, List<NormalizedFieldInterval>>,
     val sprintIntervalsByIssue: Map<Long, List<NormalizedFieldInterval>>,
+    /** PARENT field intervals (review round 2a) — `task_epic`'s own effective-dated source. */
+    val parentIntervalsByIssue: Map<Long, List<NormalizedFieldInterval>>,
     val worklogsByIssue: Map<Long, List<WorkItemStore.DerivationWorklogRow>>,
     val estimateChangesByIssueAndField: Map<Long, List<FieldChangeRow>>,
+    /** `issuekey` field changes (review round 2a) — `task_domain`'s own effective-dated source, see [DeriveKernels.projectKeyTimeline]. */
+    val issueKeyChangesByIssue: Map<Long, List<FieldChangeRow>>,
 )
 
 /**
@@ -100,8 +113,10 @@ private class DeriveContext(
     val assigneeIntervalsByIssue get() = perIssue.assigneeIntervalsByIssue
     val flaggedIntervalsByIssue get() = perIssue.flaggedIntervalsByIssue
     val sprintIntervalsByIssue get() = perIssue.sprintIntervalsByIssue
+    val parentIntervalsByIssue get() = perIssue.parentIntervalsByIssue
     val worklogsByIssue get() = perIssue.worklogsByIssue
     val estimateChangesByIssueAndField get() = perIssue.estimateChangesByIssueAndField
+    val issueKeyChangesByIssue get() = perIssue.issueKeyChangesByIssue
     val workCategoryFieldId get() = configMaps.workCategoryFieldId
     val epicDriftDays get() = configMaps.epicDriftDays
     val epicStartFieldId get() = configMaps.epicStartFieldId
@@ -143,7 +158,6 @@ class MetricsDeriver(
     private val teamMembership: TeamMembershipService,
     private val metricsStore: MetricsStore,
     private val database: R2dbcDatabase,
-    private val clock: () -> Long = System::currentTimeMillis,
 ) {
     object DeriveRuns : Table("metrics.derive_runs") {
         val id = integer("id").autoIncrement()
@@ -168,11 +182,14 @@ class MetricsDeriver(
      * silently lost (review round 1 fix). Settings and the connection's effective config are read
      * together in ONE transaction — a settings write racing between the two independent reads this
      * used to be would let this run stamp a revision NEWER than the config it actually derived under.
+     * [SyncJobRunContext.clock] is the SAME injectable clock every stream/the worker itself reads
+     * (`ingest/Stream.kt`, `ingest/IngestWorker.kt`) — review round 2a fix, replacing a SEPARATE
+     * constructor-level clock this class used to carry on its own.
      */
     suspend fun derive(context: SyncJobRunContext): Long {
         val connectionId = context.claim.connectionId
         val jobId = context.claim.id
-        val now = clock()
+        val now = context.clock()
         val (settings, config) = suspendTransaction(database) {
             metricsConfig.read() to metricsConfig.effectiveConfig(connectionId)
         }
@@ -198,10 +215,10 @@ class MetricsDeriver(
 
             val result = compose(connectionId, workItems, config, calendar, now, settings.hoursPerDay, settings.epicDriftDays)
             writeResult(connectionId, result, settings.configRevision)
-            markRunSucceeded(runId, result)
+            markRunSucceeded(runId, result, context.clock())
             context.heartbeat(null, "derive")
         } catch (failure: Exception) {
-            markRunFailed(runId, failure)
+            markRunFailed(runId, failure, context.clock())
             throw failure
         }
         return settings.configRevision
@@ -223,7 +240,7 @@ class MetricsDeriver(
         metricsStore.replaceFactEpicDelivery(connectionId, result.factEpics, configRevision)
     }
 
-    private suspend fun markRunSucceeded(runId: Int, result: ComposedResult) {
+    private suspend fun markRunSucceeded(runId: Int, result: ComposedResult, finishedAt: Long) {
         val counts = buildJsonObject {
             put("tasks", JsonPrimitive(result.factTasks.size))
             put("epics", JsonPrimitive(result.factEpics.size))
@@ -231,17 +248,17 @@ class MetricsDeriver(
         suspendTransaction(database) {
             DeriveRuns.update({ DeriveRuns.id eq runId }) {
                 it[status] = "SUCCEEDED"
-                it[finishedAt] = clock()
+                it[DeriveRuns.finishedAt] = finishedAt
                 it[rowCounts] = counts
             }
         }
     }
 
-    private suspend fun markRunFailed(runId: Int, failure: Exception) {
+    private suspend fun markRunFailed(runId: Int, failure: Exception, finishedAt: Long) {
         suspendTransaction(database) {
             DeriveRuns.update({ DeriveRuns.id eq runId }) {
                 it[status] = "FAILED"
-                it[finishedAt] = clock()
+                it[DeriveRuns.finishedAt] = finishedAt
                 it[errorDetail] = failure.message?.take(MAX_ERROR_DETAIL_LENGTH)
             }
         }
@@ -293,25 +310,32 @@ class MetricsDeriver(
             assigneeIntervalsByIssue = workItemStore.fieldIntervalsByIssue(connectionId, TrackedField.ASSIGNEE),
             flaggedIntervalsByIssue = workItemStore.fieldIntervalsByIssue(connectionId, TrackedField.FLAGGED),
             sprintIntervalsByIssue = workItemStore.fieldIntervalsByIssue(connectionId, TrackedField.SPRINT),
+            parentIntervalsByIssue = workItemStore.fieldIntervalsByIssue(connectionId, TrackedField.PARENT),
             worklogsByIssue = workItemStore.worklogsByIssue(connectionId),
             estimateChangesByIssueAndField = workItemStore.fieldChangesByFieldIds(connectionId, estimateFieldIds).groupBy { it.issueId },
+            issueKeyChangesByIssue = workItemStore.fieldChangesByFieldIds(connectionId, listOf(ISSUE_KEY_FIELD_ID)).groupBy { it.issueId },
         )
         return DeriveContext(configMaps, perIssue, calendar, now, hoursPerDay)
     }
 
-    private fun ownEstimateSnapshots(
+    /** The item's OWN configured-estimate-field timeline — empty when no field is configured for its role (epic vs. task). */
+    private fun ownEstimateTimeline(
         item: WorkItemStore.DerivationWorkItemRow,
         context: DeriveContext,
         config: DataSourceMetricsConfig,
-        startedAt: Long?,
-        doneAt: Long?,
-    ): EstimateSnapshots {
-        val fieldId = context.estimateFieldIdFor(item, config) ?: return EstimateSnapshots(null, null, null, false, 0)
+    ): List<EstimatePoint> {
+        val fieldId = context.estimateFieldIdFor(item, config) ?: return emptyList()
         val changes = context.estimateChangesByIssueAndField[item.issueId].orEmpty().filter { it.fieldId == fieldId }
         val current = item.customFields[fieldId]?.jsonPrimitive?.doubleOrNull
-        val timeline = DeriveKernels.estimateTimeline(item.createdAt, changes, current)
-        return DeriveKernels.estimateSnapshots(timeline, startedAt, doneAt)
+        return DeriveKernels.estimateTimeline(item.createdAt, changes, current)
     }
+
+    private fun ownEstimateSnapshots(timeline: List<EstimatePoint>, startedAt: Long?, doneAt: Long?): EstimateSnapshots =
+        if (timeline.isEmpty()) {
+            EstimateSnapshots(null, null, null, false, 0)
+        } else {
+            DeriveKernels.estimateSnapshots(timeline, startedAt, doneAt)
+        }
 
     private fun ownWorkCategory(item: WorkItemStore.DerivationWorkItemRow, context: DeriveContext): String? {
         val fieldId = context.workCategoryFieldId ?: return null
@@ -341,9 +365,12 @@ class MetricsDeriver(
             startedDone.startedAtMs,
             startedDone.doneAtMs ?: context.now,
         )
-        val snapshots = ownEstimateSnapshots(item, context, config, startedDone.startedAtMs, startedDone.doneAtMs)
+        val timeline = ownEstimateTimeline(item, context, config)
+        val snapshots = ownEstimateSnapshots(timeline, startedDone.startedAtMs, startedDone.doneAtMs)
         val category = ownWorkCategory(item, context)
-        return ItemDerived(stages, startedDone.startedAtMs, startedDone.doneAtMs, startedDone.reopenCount, blocked, snapshots, category)
+        return ItemDerived(
+            stages, startedDone.startedAtMs, startedDone.doneAtMs, startedDone.reopenCount, blocked, snapshots, timeline, category,
+        )
     }
 
     private fun domainDims(context: DeriveContext): List<DimDomainRow> =
@@ -351,12 +378,23 @@ class MetricsDeriver(
             .groupBy({ it.value }) { it.key }
             .map { (domainKey, projectKeys) -> DimDomainRow(domainKey, domainKey, projectKeys.distinct()) }
 
+    /**
+     * D2's roll-up, applied at the epic level (review round 2a fix): `child_sum_estimate_md` sums
+     * each LEVEL-0 child's own COMPOSITE estimate (`estimateCurrentMd` — OWN, else its own SUBTASKS
+     * roll-up, never the child's OWN field alone), and `actual_md` is the epic's OWN worklogs PLUS
+     * every child's ALREADY-ROLLED-UP `actualMd` (which itself already folds in that child's own
+     * sub-tasks) — never a fresh worklog-seconds sum over the direct children alone, which silently
+     * dropped every sub-task's worklog time from the epic's own cost entirely. [childFacts] are the
+     * SAME `fact_task_delivery` rows already written for this epic's level-0 children — computed in
+     * an earlier pass over [workItems] specifically so this rollup never re-derives them.
+     */
     private fun buildEpicRow(
         item: WorkItemStore.DerivationWorkItemRow,
         derived: ItemDerived,
         context: DeriveContext,
         workItems: List<WorkItemStore.DerivationWorkItemRow>,
         derivedById: Map<Long, ItemDerived>,
+        factTasksByIssueId: Map<Long, FactTaskDeliveryRow>,
         domainKey: String,
         currentStage: ItemStage,
         blockedMs: Long,
@@ -369,10 +407,13 @@ class MetricsDeriver(
             item.issueId, item.issueKey, item.summary, domainKey, ownCategory, currentStage.name, epicStartAt, epicDueAt,
         )
         val childTasks = workItems.filter { !it.isSubtask && it.parentIssueId == item.issueId }
-        val childSum = childTasks.sumOf { derivedById.getValue(it.issueId).ownSnapshots.currentMd ?: 0.0 }
+        val childFacts = childTasks.mapNotNull { factTasksByIssueId[it.issueId] }
+        val childSum = childFacts.sumOf { it.estimateCurrentMd ?: 0.0 }
         val ownCurrent = derived.ownSnapshots.currentMd
         val childStatuses = childTasks.map { derivedById.getValue(it.issueId).let { d -> ChildDeliveryStatus(d.started, d.done) } }
         val driftFlags = DeriveKernels.epicDriftFlags(currentStage, childStatuses, context.epicDriftDays, context.now)
+        val ownWorklogSeconds = context.worklogsByIssue[item.issueId].orEmpty().sumOf { it.timeSpentSeconds }
+        val actualMd = ownWorklogSeconds / SECONDS_PER_HOUR / context.hoursPerDay + childFacts.sumOf { it.actualMd }
         val fact = FactEpicDeliveryRow(
             issueId = item.issueId,
             startedAt = derived.started,
@@ -383,7 +424,7 @@ class MetricsDeriver(
             estimateChangesAfterStart = derived.ownSnapshots.changesAfterStart,
             childSumEstimateMd = childSum,
             budgetSource = if (ownCurrent != null) "OWN" else "CHILDREN",
-            actualMd = actualMdFor(item, childTasks, context.worklogsByIssue, context.hoursPerDay),
+            actualMd = actualMd,
             cycleMs = cycleMs(derived),
             cycleWorkingDays = cycleWorkingDays(derived, context.calendar),
             blockedMs = blockedMs,
@@ -395,21 +436,39 @@ class MetricsDeriver(
         return dim to fact
     }
 
+    /**
+     * The task's composite estimate (review round 2a fix): OWN wins outright; otherwise SUBTASKS
+     * sums its sub-tasks' OWN timelines AS-OF the PARENT's own `startedAt`/`doneAt`
+     * ([DeriveKernels.mergeEstimateTimelines]) — never their CURRENT sum reused at both snapshots,
+     * which silently ignored every subtask estimate change and reported `estimatedLate`/
+     * `changesAfterStart` off the (usually estimate-less, hence always-false) parent's OWN timeline
+     * instead of the subtasks' actual history.
+     */
     private fun taskEstimate(
         derived: ItemDerived,
         childSubtasks: List<WorkItemStore.DerivationWorkItemRow>,
         derivedById: Map<Long, ItemDerived>,
+        startedAt: Long?,
+        doneAt: Long?,
     ): EstimateComposite {
         val ownCurrent = derived.ownSnapshots.currentMd
         if (ownCurrent != null) {
-            return EstimateComposite(derived.ownSnapshots.atStartMd, derived.ownSnapshots.atDoneMd, ownCurrent, "OWN")
+            return EstimateComposite(
+                derived.ownSnapshots.atStartMd,
+                derived.ownSnapshots.atDoneMd,
+                ownCurrent,
+                "OWN",
+                derived.ownSnapshots.estimatedLate,
+                derived.ownSnapshots.changesAfterStart,
+            )
         }
-        val subtaskSum = childSubtasks.sumOf { derivedById.getValue(it.issueId).ownSnapshots.currentMd ?: 0.0 }
-        return if (childSubtasks.isNotEmpty() && subtaskSum > 0.0) {
-            EstimateComposite(subtaskSum, subtaskSum, subtaskSum, "SUBTASKS")
-        } else {
-            EstimateComposite(null, null, null, "NONE")
-        }
+        val merged = DeriveKernels.mergeEstimateTimelines(childSubtasks.map { derivedById.getValue(it.issueId).estimateTimeline })
+        val current = merged.lastOrNull()?.estimateMd
+        if (current == null) return EstimateComposite(null, null, null, "NONE", false, 0)
+        val snapshots = DeriveKernels.estimateSnapshots(merged, startedAt, doneAt)
+        return EstimateComposite(
+            snapshots.atStartMd, snapshots.atDoneMd, current, "SUBTASKS", snapshots.estimatedLate, snapshots.changesAfterStart,
+        )
     }
 
     private fun buildTaskRow(
@@ -437,10 +496,9 @@ class MetricsDeriver(
             item.issueId, item.issueKey, item.issueType, activityType, workCategory, workCategorySource,
             item.isSubtask, item.parentIssueId?.takeIf { item.isSubtask }, domainKey, epicId,
         )
-        val taskEpic = TaskEpicRow(item.issueId, epicId, item.createdAt, null)
 
         val childSubtasks = if (!item.isSubtask) workItems.filter { it.isSubtask && it.parentIssueId == item.issueId } else emptyList()
-        val estimate = taskEstimate(derived, childSubtasks, derivedById)
+        val estimate = taskEstimate(derived, childSubtasks, derivedById, derived.started, derived.done)
         val actualMd = actualMdFor(item, childSubtasks, context.worklogsByIssue, context.hoursPerDay)
         val sprintIdAtDone = derived.done?.let { valueAt(context.sprintIntervalsByIssue[item.issueId].orEmpty(), it)?.toLongOrNull() }
         val sprintTeamIdAtDone = sprintIdAtDone?.let { context.sprintBoardById[it] }?.let { context.boardTeamByBoardId[it] }
@@ -460,8 +518,8 @@ class MetricsDeriver(
             estimateAtDoneMd = estimate.atDone,
             estimateCurrentMd = estimate.current,
             estimateSource = estimate.source,
-            estimateChangesAfterStart = derived.ownSnapshots.changesAfterStart,
-            estimatedLate = derived.ownSnapshots.estimatedLate,
+            estimateChangesAfterStart = estimate.changesAfterStart,
+            estimatedLate = estimate.estimatedLate,
             actualMd = actualMd,
             hasWorklogs = actualMd > 0.0,
             blockedMs = blockedMs,
@@ -488,7 +546,7 @@ class MetricsDeriver(
             currentStage = currentStage.name,
             flags = flags,
         )
-        return TaskComposition(dimTask, taskEpic, fact)
+        return TaskComposition(dimTask, fact)
     }
 
     private fun cycleMs(derived: ItemDerived): Long? =
@@ -496,6 +554,44 @@ class MetricsDeriver(
 
     private fun cycleWorkingDays(derived: ItemDerived, calendar: WorkingCalendar): Double? =
         if (derived.started != null && derived.done != null) calendar.workingDaysBetween(derived.started, derived.done) else null
+
+    /**
+     * `task_epic`'s effective-dated history (review round 2a fix — was one open row carrying only
+     * the CURRENT epic). Built from the item's OWN `PARENT` field intervals, kept ONLY when the
+     * interval's parent id resolves to an item at [EPIC_HIERARCHY_LEVEL] (a defensive filter — a
+     * level-0 task's PARENT is expected to always be an epic or nothing, never another task).
+     * **Sub-tasks get NO `task_epic` row at all** (D2's roll-up, `.claude/docs/domain-model.md`): a
+     * sub-task's own PARENT interval names its parent TASK, not an epic, and reconstructing "which
+     * epic was my parent TASK under, at each historical instant" needs a second effective-dated join
+     * (parent-of-parent, over time) this commit does not build — a sub-task's CURRENT epic stays
+     * available via `dim_task.epic_id` (`epicIdOf`, D2's one-indirection rule) for ordinary reads;
+     * only the BRIDGE's own history is the part left undone, documented in `.claude/docs/metrics.md`.
+     */
+    private fun taskEpicHistory(item: WorkItemStore.DerivationWorkItemRow, context: DeriveContext): List<TaskEpicRow> {
+        if (item.isSubtask) return emptyList()
+        return context.parentIntervalsByIssue[item.issueId].orEmpty().map { interval ->
+            val parentId = interval.valueId?.toLongOrNull()
+            val epicId = parentId?.takeIf { context.itemsById[it]?.hierarchyLevel == EPIC_HIERARCHY_LEVEL }
+            TaskEpicRow(item.issueId, epicId, interval.fromAtMs, interval.toAtMs)
+        }
+    }
+
+    /** `task_assignee`'s effective-dated history (review round 2a fix) — a direct mirror of `norm`'s own ASSIGNEE field intervals. */
+    private fun taskAssigneeHistory(item: WorkItemStore.DerivationWorkItemRow, context: DeriveContext): List<TaskAssigneeRow> =
+        context.assigneeIntervalsByIssue[item.issueId].orEmpty().map {
+            TaskAssigneeRow(item.issueId, it.valueId, it.fromAtMs, it.toAtMs)
+        }
+
+    /** `task_domain`'s effective-dated history (review round 2a fix) — see [DeriveKernels.projectKeyTimeline]. */
+    private fun taskDomainHistory(item: WorkItemStore.DerivationWorkItemRow, context: DeriveContext): List<TaskDomainRow> {
+        val issueKeyChanges = context.issueKeyChangesByIssue[item.issueId].orEmpty()
+        val timeline = DeriveKernels.projectKeyTimeline(item.createdAt, issueKeyChanges, item.issueKey)
+        return timeline.mapIndexed { index, point ->
+            val to = timeline.getOrNull(index + 1)?.atMs
+            val domainKey = point.projectKey?.let { context.domainByProject[it] ?: it }
+            TaskDomainRow(item.issueId, domainKey, point.atMs, to)
+        }
+    }
 
     private suspend fun compose(
         connectionId: UInt,
@@ -519,36 +615,56 @@ class MetricsDeriver(
         val itemBlocked = mutableListOf<ItemBlockedRow>()
         val factTasks = mutableListOf<FactTaskDeliveryRow>()
         val factEpics = mutableListOf<FactEpicDeliveryRow>()
+        val blockedByIssue = mutableMapOf<Long, Pair<Long, Double>>()
+        val factTasksByIssueId = mutableMapOf<Long, FactTaskDeliveryRow>()
 
+        // Pass 1: item-level bridges shared by tasks AND epics alike (item_stage/item_blocked/
+        // item_estimate — `.claude/docs/domain-model.md`'s bridges table has no task/epic split for
+        // these three) — computed for every item up front, regardless of role.
         for (item in workItems) {
+            val derived = derivedById.getValue(item.issueId)
+            val blockedMs = derived.blocked.sumOf { it.toAtMs - it.fromAtMs }
+            val blockedWorkingDays = derived.blocked.sumOf { calendar.workingDaysBetween(it.fromAtMs, it.toAtMs) }
+            blockedByIssue[item.issueId] = blockedMs to blockedWorkingDays
+            itemStage += derived.stages.map { ItemStageRow(item.issueId, it.stage.name, it.statusId, it.fromAtMs, it.toAtMs) }
+            itemBlocked += derived.blocked.map { ItemBlockedRow(item.issueId, "FLAGGED", it.fromAtMs, it.toAtMs) }
+            itemEstimate += buildEstimateBridge(item, derived.estimateTimeline, context.estimateFieldIdFor(item, config))
+        }
+
+        // Pass 2: tasks (review round 2a: "skip epics for task_* bridges" — task_epic/task_domain/
+        // task_assignee are TASK-only bridges) — builds fact_task_delivery too, caching it so pass 3
+        // can roll an epic's cost/estimate up from its ALREADY-derived children (D2, finding 6).
+        for (item in workItems) {
+            if (item.hierarchyLevel == EPIC_HIERARCHY_LEVEL) continue
             val derived = derivedById.getValue(item.issueId)
             val domainKey = context.domainByProject[item.projectKey] ?: item.projectKey
             val currentStage = derived.stages.lastOrNull()?.stage ?: ItemStage.NOT_STARTED
-            val blockedMs = derived.blocked.sumOf { it.toAtMs - it.fromAtMs }
-            val blockedWorkingDays = derived.blocked.sumOf { calendar.workingDaysBetween(it.fromAtMs, it.toAtMs) }
+            val (blockedMs, blockedWorkingDays) = blockedByIssue.getValue(item.issueId)
 
-            itemStage += derived.stages.map { ItemStageRow(item.issueId, it.stage.name, it.statusId, it.fromAtMs, it.toAtMs) }
-            itemBlocked += derived.blocked.map { ItemBlockedRow(item.issueId, "FLAGGED", it.fromAtMs, it.toAtMs) }
-            itemEstimate += buildEstimateBridge(item, context.estimateChangesByIssueAndField, context.estimateFieldIdFor(item, config))
-            taskDomain += TaskDomainRow(item.issueId, domainKey, item.createdAt, null)
-            taskAssignee += TaskAssigneeRow(item.issueId, item.assigneeAccountId, item.createdAt, null)
-            // `task_sprint`'s full carry-over-aware history (`DeriveKernels.sprintMembership`) is
-            // written by commit 8's own sprint step, alongside `dim_sprint` — this commit's bridge
-            // table exists (`MetricsStore.replaceBridges` accepts it) but stays empty until then.
-
-            if (item.hierarchyLevel == EPIC_HIERARCHY_LEVEL) {
-                val (dim, fact) =
-                    buildEpicRow(item, derived, context, workItems, derivedById, domainKey, currentStage, blockedMs, blockedWorkingDays)
-                epics += dim
-                factEpics += fact
-                continue
-            }
+            taskEpic += taskEpicHistory(item, context)
+            taskDomain += taskDomainHistory(item, context)
+            taskAssignee += taskAssigneeHistory(item, context)
 
             val composition =
                 buildTaskRow(item, derived, context, workItems, derivedById, domainKey, currentStage, blockedMs, blockedWorkingDays)
             tasks += composition.dim
-            taskEpic += composition.taskEpic
             factTasks += composition.fact
+            factTasksByIssueId[item.issueId] = composition.fact
+        }
+
+        // Pass 3: epics — reads pass 2's cached `factTasksByIssueId` for the D2 roll-up.
+        for (item in workItems) {
+            if (item.hierarchyLevel != EPIC_HIERARCHY_LEVEL) continue
+            val derived = derivedById.getValue(item.issueId)
+            val domainKey = context.domainByProject[item.projectKey] ?: item.projectKey
+            val currentStage = derived.stages.lastOrNull()?.stage ?: ItemStage.NOT_STARTED
+            val (blockedMs, blockedWorkingDays) = blockedByIssue.getValue(item.issueId)
+
+            val (dim, fact) = buildEpicRow(
+                item, derived, context, workItems, derivedById, factTasksByIssueId, domainKey, currentStage, blockedMs, blockedWorkingDays,
+            )
+            epics += dim
+            factEpics += fact
         }
 
         return ComposedResult(
@@ -557,18 +673,22 @@ class MetricsDeriver(
         )
     }
 
-    private data class EstimateComposite(val atStart: Double?, val atDone: Double?, val current: Double?, val source: String)
-    private data class TaskComposition(val dim: DimTaskRow, val taskEpic: TaskEpicRow, val fact: FactTaskDeliveryRow)
+    private data class EstimateComposite(
+        val atStart: Double?,
+        val atDone: Double?,
+        val current: Double?,
+        val source: String,
+        val estimatedLate: Boolean,
+        val changesAfterStart: Int,
+    )
+    private data class TaskComposition(val dim: DimTaskRow, val fact: FactTaskDeliveryRow)
 
     private fun buildEstimateBridge(
         item: WorkItemStore.DerivationWorkItemRow,
-        estimateChangesByIssueAndField: Map<Long, List<FieldChangeRow>>,
+        timeline: List<EstimatePoint>,
         fieldId: String?,
     ): List<ItemEstimateRow> {
         if (fieldId == null) return emptyList()
-        val changes = estimateChangesByIssueAndField[item.issueId].orEmpty().filter { it.fieldId == fieldId }
-        val current = item.customFields[fieldId]?.jsonPrimitive?.doubleOrNull
-        val timeline = DeriveKernels.estimateTimeline(item.createdAt, changes, current)
         return timeline.mapIndexed { index, point ->
             val to = timeline.getOrNull(index + 1)?.atMs
             ItemEstimateRow(item.issueId, point.estimateMd, point.atMs, to)

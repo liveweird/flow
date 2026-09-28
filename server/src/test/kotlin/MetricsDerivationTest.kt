@@ -75,10 +75,17 @@ class MetricsDerivationTest {
     private fun teamMembership(config: MetricsConfigService) = TeamMembershipService(sharedDatabaseForTests(), config)
     private fun metricsStore() = MetricsStore(sharedDatabaseForTests())
 
-    /** MD5 over every persisted `fact_task_delivery` row, ordered by issue id — the reprocess-digest
-     * pattern (`.claude/docs/testing.md` "The reprocess digest"), applied to invariant 12 ("every
-     * live number is reproducible from `norm` + one configuration revision"): a second DERIVE over
-     * UNCHANGED input, under the SAME pinned clock, must write byte-for-byte identical rows. */
+    /** MD5 over every persisted `fact_task_delivery` row PLUS every TASK bridge row (`task_epic`/
+     * `task_domain`/`task_assignee`), ordered by issue id (bridges additionally by their own
+     * `valid_from`, preserving each issue's own history order — NEVER by the surrogate `id` column
+     * itself, which is a fresh `autoIncrement()` value on every DERIVE's delete+insert and would
+     * make the digest spuriously differ across two otherwise-identical runs; the `id` column
+     * itself is excluded from the hashed line for the same reason) — the reprocess-digest pattern
+     * (`.claude/docs/testing.md` "The reprocess digest"), applied to invariant 12 ("every live
+     * number is reproducible from `norm` + one configuration revision", review round 2a widens it
+     * from `fact_task_delivery` alone to the bridges too, since those are now real history rather
+     * than a single current-value row): a second DERIVE over UNCHANGED input, under the SAME pinned
+     * clock, must write byte-for-byte identical rows. */
     private suspend fun factTaskDeliveryDigest(connId: UInt): String {
         val digest = MessageDigest.getInstance("MD5")
         suspendTransaction(sharedDatabaseForTests()) {
@@ -87,6 +94,30 @@ class MetricsDerivationTest {
                 .toList()
                 .forEach { row ->
                     val line = MetricsStore.FactTaskDelivery.columns.joinToString("|") { column -> row[column].toString() }
+                    digest.update((line + "\n").toByteArray())
+                }
+            MetricsStore.TaskEpic.selectAll().where { MetricsStore.TaskEpic.connectionId eq connId }
+                .orderBy(MetricsStore.TaskEpic.issueId to SortOrder.ASC, MetricsStore.TaskEpic.validFrom to SortOrder.ASC)
+                .toList()
+                .forEach { row ->
+                    val line = listOf(row[MetricsStore.TaskEpic.issueId], row[MetricsStore.TaskEpic.epicId],
+                        row[MetricsStore.TaskEpic.validFrom], row[MetricsStore.TaskEpic.validTo]).joinToString("|")
+                    digest.update((line + "\n").toByteArray())
+                }
+            MetricsStore.TaskDomain.selectAll().where { MetricsStore.TaskDomain.connectionId eq connId }
+                .orderBy(MetricsStore.TaskDomain.issueId to SortOrder.ASC, MetricsStore.TaskDomain.validFrom to SortOrder.ASC)
+                .toList()
+                .forEach { row ->
+                    val line = listOf(row[MetricsStore.TaskDomain.issueId], row[MetricsStore.TaskDomain.domainKey],
+                        row[MetricsStore.TaskDomain.validFrom], row[MetricsStore.TaskDomain.validTo]).joinToString("|")
+                    digest.update((line + "\n").toByteArray())
+                }
+            MetricsStore.TaskAssignee.selectAll().where { MetricsStore.TaskAssignee.connectionId eq connId }
+                .orderBy(MetricsStore.TaskAssignee.issueId to SortOrder.ASC, MetricsStore.TaskAssignee.validFrom to SortOrder.ASC)
+                .toList()
+                .forEach { row ->
+                    val line = listOf(row[MetricsStore.TaskAssignee.issueId], row[MetricsStore.TaskAssignee.accountId],
+                        row[MetricsStore.TaskAssignee.validFrom], row[MetricsStore.TaskAssignee.validTo]).joinToString("|")
                     digest.update((line + "\n").toByteArray())
                 }
         }
@@ -119,7 +150,6 @@ class MetricsDerivationTest {
             teamMembership(config),
             metricsStore(),
             sharedDatabaseForTests(),
-            clock = { PINNED_NOW },
         )
         val claim = SyncJobClaim(
             id = 1u,
@@ -131,7 +161,7 @@ class MetricsDerivationTest {
             syncIntervalMinutes = 60,
         )
 
-        deriver.derive(SyncJobRunContext(claim) { _, _ -> true })
+        deriver.derive(SyncJobRunContext(claim, clock = { PINNED_NOW }) { _, _ -> true })
 
         val factRows = suspendTransaction(sharedDatabaseForTests()) {
             MetricsStore.FactTaskDelivery.selectAll().where { MetricsStore.FactTaskDelivery.connectionId eq connId }.toList()
@@ -191,7 +221,6 @@ class MetricsDerivationTest {
             teamMembership(config),
             metricsStore(),
             sharedDatabaseForTests(),
-            clock = { PINNED_NOW },
         )
         val claim = SyncJobClaim(
             id = 2u,
@@ -202,7 +231,7 @@ class MetricsDerivationTest {
             maxAttempts = 3,
             syncIntervalMinutes = 60,
         )
-        deriver.derive(SyncJobRunContext(claim) { _, _ -> true })
+        deriver.derive(SyncJobRunContext(claim, clock = { PINNED_NOW }) { _, _ -> true })
 
         val golden = metricsDerivationGoldenEpic
         val epicIssueId = golden.issueId.toLong()
@@ -275,7 +304,6 @@ class MetricsDerivationTest {
             teamMembership(config),
             metricsStore(),
             sharedDatabaseForTests(),
-            clock = { PINNED_NOW },
         )
         val claim = SyncJobClaim(
             id = 3u,
@@ -286,7 +314,7 @@ class MetricsDerivationTest {
             maxAttempts = 3,
             syncIntervalMinutes = 60,
         )
-        deriver.derive(SyncJobRunContext(claim) { _, _ -> true })
+        deriver.derive(SyncJobRunContext(claim, clock = { PINNED_NOW }) { _, _ -> true })
 
         val rows = suspendTransaction(sharedDatabaseForTests()) {
             MetricsStore.TaskEpic.selectAll().where { MetricsStore.TaskEpic.connectionId eq connId }
@@ -294,12 +322,17 @@ class MetricsDerivationTest {
                 .toList()
         }
         assertTrue(rows.isNotEmpty(), "metrics.task_epic must be non-empty after DERIVE")
-        rows.groupBy { it[MetricsStore.TaskEpic.issueId] }.forEach { (issueId, taskRows) ->
-            // This commit writes exactly one open-ended [createdAt, null) row per task (the full
-            // effective-dated history arrives with a later commit — see MetricsDeriver.kt's own
-            // comment on `task_sprint`'s empty bridge) — the invariant still holds vacuously today,
-            // and this sweep pins the shape so a later history-aware rewrite cannot silently regress it.
-            assertEquals(1, taskRows.size, "issue $issueId must carry exactly one task_epic row today")
+        val byIssue = rows.groupBy { it[MetricsStore.TaskEpic.issueId] }
+        // Review round 2a fix: `task_epic` is now built from the PARENT field's REAL history, not a
+        // single open row carrying only the current epic — the sample dataset carries at least one
+        // genuine epic reassignment (`sample-data/jira/generate.mjs`'s own `{ field: "Parent", ... }`
+        // changelog item), so at least one task must show more than one row; a regression back to
+        // "always exactly one row" would pass every OTHER assertion below yet silently lose history.
+        assertTrue(
+            byIssue.values.any { it.size > 1 },
+            "at least one task must carry real epic-reassignment history (more than one task_epic row)",
+        )
+        byIssue.forEach { (issueId, taskRows) ->
             val openCount = taskRows.count { it[MetricsStore.TaskEpic.validTo] == null }
             assertEquals(1, openCount, "issue $issueId must have exactly one OPEN task_epic interval")
             taskRows.zipWithNext().forEach { (a, b) ->
@@ -312,6 +345,57 @@ class MetricsDerivationTest {
     }
 
     @Test
+    fun `invariant 2 — task_assignee never lets a task carry more than one assignee at any instant`() = runBlocking {
+        val connId = clonedProcessedConnection()
+        val config = metricsConfig()
+        val deriver = MetricsDeriver(
+            workItems(),
+            config,
+            teamMembership(config),
+            metricsStore(),
+            sharedDatabaseForTests(),
+        )
+        val claim = SyncJobClaim(
+            id = 6u,
+            connectionId = connId,
+            connectorKind = DataSourceKind.JIRA_CLOUD,
+            kind = SyncJobKind.DERIVE,
+            attempt = 1,
+            maxAttempts = 3,
+            syncIntervalMinutes = 60,
+        )
+        deriver.derive(SyncJobRunContext(claim, clock = { PINNED_NOW }) { _, _ -> true })
+
+        val rows = suspendTransaction(sharedDatabaseForTests()) {
+            MetricsStore.TaskAssignee.selectAll().where { MetricsStore.TaskAssignee.connectionId eq connId }
+                .orderBy(MetricsStore.TaskAssignee.issueId to SortOrder.ASC, MetricsStore.TaskAssignee.id to SortOrder.ASC)
+                .toList()
+        }
+        assertTrue(rows.isNotEmpty(), "metrics.task_assignee must be non-empty after DERIVE")
+        val byIssue = rows.groupBy { it[MetricsStore.TaskAssignee.issueId] }
+        // Review round 2a fix: built from `norm`'s own ASSIGNEE field intervals rather than a single
+        // current-value row — real reassignment history over ~1,200 issues is expected.
+        assertTrue(byIssue.values.any { it.size > 1 }, "at least one task must show real assignee-reassignment history")
+        byIssue.forEach { (issueId, taskRows) ->
+            val openCount = taskRows.count { it[MetricsStore.TaskAssignee.validTo] == null }
+            assertEquals(1, openCount, "issue $issueId must have exactly one OPEN task_assignee interval")
+            taskRows.zipWithNext().forEach { (a, b) ->
+                val aTo = a[MetricsStore.TaskAssignee.validTo] ?: Long.MAX_VALUE
+                val bFrom = b[MetricsStore.TaskAssignee.validFrom]
+                assertTrue(aTo <= bFrom, "issue $issueId's task_assignee intervals must never overlap")
+            }
+        }
+
+        // task_epic/task_domain/task_assignee are TASK-only bridges (review round 2a: "skip epics
+        // for task_* bridges") — an epic issue id must never appear as the issueId of a task_assignee row.
+        val epicIds = suspendTransaction(sharedDatabaseForTests()) {
+            MetricsStore.DimEpic.selectAll().where { MetricsStore.DimEpic.connectionId eq connId }
+                .toList().map { it[MetricsStore.DimEpic.issueId] }.toSet()
+        }
+        assertTrue(byIssue.keys.none { it in epicIds }, "no epic issue id may appear in task_assignee")
+    }
+
+    @Test
     fun `invariant 12-lite — a second DERIVE over unchanged input yields a byte-identical fact_task_delivery digest`() = runBlocking {
         val connId = clonedProcessedConnection()
         val config = metricsConfig()
@@ -321,7 +405,6 @@ class MetricsDerivationTest {
             teamMembership(config),
             metricsStore(),
             sharedDatabaseForTests(),
-            clock = { PINNED_NOW },
         )
         fun claim(id: UInt) = SyncJobClaim(
             id = id,
@@ -333,10 +416,10 @@ class MetricsDerivationTest {
             syncIntervalMinutes = 60,
         )
 
-        deriver.derive(SyncJobRunContext(claim(4u)) { _, _ -> true })
+        deriver.derive(SyncJobRunContext(claim(4u), clock = { PINNED_NOW }) { _, _ -> true })
         val firstDigest = factTaskDeliveryDigest(connId)
 
-        deriver.derive(SyncJobRunContext(claim(5u)) { _, _ -> true })
+        deriver.derive(SyncJobRunContext(claim(5u), clock = { PINNED_NOW }) { _, _ -> true })
         val secondDigest = factTaskDeliveryDigest(connId)
 
         assertEquals(

@@ -225,7 +225,7 @@ class IngestWorker(
                         if (syncJobs.isCancelRequested(claim.id)) throw JobCancelRequestedException(claim.id)
                     }
                 }
-                val context = SyncJobRunContext(claim) { progress, currentStream ->
+                val context = SyncJobRunContext(claim, clock = clock) { progress, currentStream ->
                     syncJobs.heartbeat(claim.id, config.workerId, config.leaseSeconds, clock(), progress, currentStream)
                 }
                 // DERIVE (v0.3.0 M3 commit 7, `.claude/docs/ingestion.md` "The DERIVE job kind") is

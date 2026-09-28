@@ -33,6 +33,9 @@ data class EstimateSnapshots(
 /** One `metrics.task_sprint` row (pure) — a task's membership in ONE sprint, diffed from the Sprint field's set-valued changes. */
 data class SprintMembershipInterval(val sprintId: Long, val fromAtMs: Long, val toAtMs: Long?)
 
+/** One point of `task_domain`'s history (v0.3.0 M3 review round 2a) — the project key active from [atMs] onward. */
+data class ProjectKeyPoint(val atMs: Long, val projectKey: String?)
+
 /**
  * D11's three epic/children drift codes (`.claude/docs/domain-model.md` "D11", `fact_epic_delivery
  * .driftFlags`) — flagged, never corrected (the `norm` anomaly convention).
@@ -171,6 +174,26 @@ object DeriveKernels {
     }
 
     /**
+     * A sub-task-rollup composite timeline (`SUBTASKS` estimate source, review round 2a): sums, at
+     * every distinct change instant across every subtask's OWN [estimateTimeline], each subtask's
+     * value AT THAT INSTANT (`estimateAt`, `0.0` for a subtask that hasn't started existing yet or
+     * carries no estimate there) — never the CURRENT sum re-used at every point, which would wrongly
+     * report the parent's at-start/at-done snapshots as if every subtask had always carried its
+     * present-day estimate. A merged point whose sum is exactly `0.0` collapses to `null` (the same
+     * "0 = unestimated" rule [estimateTimeline] applies per subtask, generalized to the aggregate) so
+     * [estimateSnapshots]' `estimatedLate` check still fires correctly for a parent whose subtasks
+     * were ALL unestimated at start and gained estimates only later.
+     */
+    fun mergeEstimateTimelines(timelines: List<List<EstimatePoint>>): List<EstimatePoint> {
+        if (timelines.isEmpty()) return emptyList()
+        val allTimes = timelines.flatMap { timeline -> timeline.map { it.atMs } }.distinct().sorted()
+        return allTimes.map { at ->
+            val sum = timelines.sumOf { timeline -> estimateAt(timeline, at) ?: 0.0 }
+            EstimatePoint(at, sum.asEstimateOrNull())
+        }
+    }
+
+    /**
      * The value active at [atMs] from an ordered (ascending by change instant) list of `(changedAt,
      * newValue)` points — the ONE as-of helper (work category at `done_at`, assignee at commitment,
      * a sprint's team at an instant).
@@ -216,6 +239,36 @@ object DeriveKernels {
         }
         val stillOpen = open.map { (sprintId, openedAt) -> SprintMembershipInterval(sprintId, openedAt, null) }
         return (closed + stillOpen).sortedBy { it.fromAtMs }
+    }
+
+    /** `ingest/DataSource.kt`'s own `PROJECT_KEY_PATTERN`, duplicated here (pure-kernel package boundary) — a real Jira project key. */
+    private val ISSUE_KEY_PROJECT_PATTERN = Regex("^([A-Z][A-Z0-9_]{1,9})-\\d+$")
+
+    /** The project-key prefix of a full issue key (e.g. `"OPS-9001"` -> `"OPS"`); `null` for a malformed/missing key. */
+    fun projectKeyFromIssueKey(issueKey: String?): String? = issueKey?.let { ISSUE_KEY_PROJECT_PATTERN.find(it)?.groupValues?.get(1) }
+
+    /**
+     * `task_domain`'s history (review round 2a): the project key active over time, tiled from the
+     * `issuekey` changelog field rather than the `project` field itself — a real Jira project-move
+     * changelog item carries the OLD/NEW project's numeric id and display NAME (`fromValue`/
+     * `toValue`/`fromText`/`toText`), never its key, so it cannot be resolved back to a domain-map
+     * key without a project id/name -> key lookup `norm` does not keep. A project move ALWAYS moves
+     * the issue's own key to the new project's prefix in the SAME changelog history
+     * (`jira/JiraNormalizer.kt` tracks `"issuekey"` verbatim beside `"project"`), so replaying THAT
+     * field's history instead sidesteps the lookup entirely. [issueKeyChanges] must already be
+     * ordered by `changedAt` ascending (`WorkItemStore.fieldChangesByFieldIds`); events before
+     * [createdAtMs] are clamped to it, the [sprintMembership]/[estimateTimeline] convention.
+     */
+    fun projectKeyTimeline(createdAtMs: Long, issueKeyChanges: List<FieldChangeRow>, currentIssueKey: String): List<ProjectKeyPoint> {
+        if (issueKeyChanges.isEmpty()) return listOf(ProjectKeyPoint(createdAtMs, projectKeyFromIssueKey(currentIssueKey)))
+        val firstRaw = issueKeyChanges.first().let { it.fromValue ?: it.fromText }
+        val points = mutableListOf(ProjectKeyPoint(createdAtMs, projectKeyFromIssueKey(firstRaw)))
+        issueKeyChanges.forEach { change ->
+            val raw = change.toValue ?: change.toText
+            points += ProjectKeyPoint(maxOf(change.changedAt, createdAtMs), projectKeyFromIssueKey(raw))
+        }
+        points[points.lastIndex] = points.last().copy(projectKey = projectKeyFromIssueKey(currentIssueKey))
+        return points
     }
 
     private const val MILLIS_PER_DAY = 24L * 60 * 60 * 1000
