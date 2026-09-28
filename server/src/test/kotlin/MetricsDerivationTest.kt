@@ -1110,6 +1110,87 @@ class MetricsDerivationTest {
             )
         }
 
+    @Test
+    fun `fact_worklog - invariant 6 (none dropped, well-defined pair, late_ms, hoursPerDay)`() =
+        runBlocking {
+            val connId = clonedProcessedConnection()
+            val config = metricsConfig()
+            deriver(config).derive(SyncJobRunContext(deriveClaim(60u, connId), clock = { PINNED_NOW }) { _, _ -> true })
+
+            val factWorklogRows = suspendTransaction(sharedDatabaseForTests()) {
+                MetricsStore.FactWorklog.selectAll().where { MetricsStore.FactWorklog.connectionId eq connId }.toList()
+            }
+            assertTrue(factWorklogRows.isNotEmpty(), "fact_worklog must be non-empty for a connection with worklogs")
+
+            // Invariant 6: none dropped — every LIVE norm.work_item_worklogs row for this
+            // connection has exactly one fact_worklog row (the (author team, task domain) pair is
+            // always well-defined, UNASSIGNED represented by a null author_team_id).
+            val liveIssueIds = workItems().workItemsForDerivation(connId).map { it.issueId }.toSet()
+            val worklogsByIssue = workItems().worklogsByIssue(connId)
+            val liveWorklogCount = worklogsByIssue.filterKeys { it in liveIssueIds }.values.sumOf { it.size }
+            assertEquals(
+                liveWorklogCount.toLong(),
+                factWorklogRows.size.toLong(),
+                "invariant 6: every live-issue worklog gets exactly one fact_worklog row, none dropped",
+            )
+
+            // hoursPerDay: the default metrics.settings value (8.0) — md = seconds / 3600 / 8.0.
+            val hoursPerDay = 8.0
+            factWorklogRows.forEach { row ->
+                val worklog = worklogsByIssue.getValue(row[MetricsStore.FactWorklog.issueId])
+                    .single { it.worklogId == row[MetricsStore.FactWorklog.worklogId] }
+                val expectedMd = worklog.timeSpentSeconds / 3600.0 / hoursPerDay
+                assertTrue(
+                    abs(expectedMd - row[MetricsStore.FactWorklog.md].toDouble()) < CAPACITY_TOLERANCE,
+                    "md must be seconds / 3600 / hoursPerDay",
+                )
+                // late_ms: created - started, clamped to >= 0, null only when created is unknown
+                // (the generator always sets created here, so every row is checked).
+                val expectedLateMs = worklog.createdAt?.let { maxOf(0L, it - worklog.startedAt) }
+                assertEquals(expectedLateMs, row[MetricsStore.FactWorklog.lateMs], "late_ms must equal max(0, created - started)")
+                assertTrue((row[MetricsStore.FactWorklog.lateMs] ?: 0) >= 0, "late_ms must never be negative")
+            }
+            assertTrue(
+                factWorklogRows.any { (it[MetricsStore.FactWorklog.lateMs] ?: 0) > 0 },
+                "the generator's worklog created/updated skew must produce at least one late-logged worklog",
+            )
+            Unit
+        }
+
+    @Test
+    fun `fact_worklog - invariant 7`() = runBlocking {
+        val connId = clonedProcessedConnection()
+        val config = metricsConfig()
+        deriver(config).derive(SyncJobRunContext(deriveClaim(61u, connId), clock = { PINNED_NOW }) { _, _ -> true })
+
+        // An INDEPENDENT re-derivation straight off norm.work_item_worklogs + the live item set
+        // (never off fact_task_delivery/fact_worklog themselves — the invariant sweep pattern,
+        // `.claude/docs/testing.md`) — bypasses fact_task_delivery.actual_md's own decimal(10,2)
+        // rounding, which would otherwise accumulate a spurious drift across ~1,200 issues.
+        val liveItems = workItems().workItemsForDerivation(connId)
+        val worklogsByIssue = workItems().worklogsByIssue(connId)
+        fun secondsFor(issueId: Long) = worklogsByIssue[issueId].orEmpty().sumOf { it.timeSpentSeconds }
+        val levelZeroTasks = liveItems.filter { !it.isSubtask && it.hierarchyLevel != 1 }
+        val levelZeroActualMdSum = levelZeroTasks.sumOf { task ->
+            val childSeconds = liveItems.filter { it.isSubtask && it.parentIssueId == task.issueId }.sumOf { secondsFor(it.issueId) }
+            (secondsFor(task.issueId) + childSeconds) / 3600.0 / 8.0
+        }
+        val epicIssueIds = liveItems.filter { it.hierarchyLevel == 1 }.map { it.issueId }.toSet()
+        val epicsOwnMd = epicIssueIds.sumOf { epicId -> secondsFor(epicId) / 3600.0 / 8.0 }
+
+        val factWorklogMdSum = suspendTransaction(sharedDatabaseForTests()) {
+            MetricsStore.FactWorklog.selectAll().where { MetricsStore.FactWorklog.connectionId eq connId }
+                .toList()
+                .sumOf { it[MetricsStore.FactWorklog.md].toDouble() }
+        }
+
+        assertTrue(
+            abs((levelZeroActualMdSum + epicsOwnMd) - factWorklogMdSum) < CAPACITY_TOLERANCE,
+            "invariant 7: Σ level-0 fact_task_delivery.actual_md + epics' own worklogs must equal Σ fact_worklog.md " +
+                "(level0=$levelZeroActualMdSum epicsOwn=$epicsOwnMd total=$factWorklogMdSum)",
+        )
+    }
+
     private companion object {
         const val PINNED_NOW = 1_772_668_800_000L // 2026-09-02T00:00:00Z, per the v0.3.0 plan's pinned-clock convention
         const val THIRTY_DAYS_MS = 30L * 24 * 60 * 60 * 1000

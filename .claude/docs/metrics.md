@@ -359,7 +359,62 @@ the gap is visible on the run rather than silently guessed. `MetricsDerivationTe
 resolved path (the golden sprint's scope buckets still match after resolving by id) and the
 unresolved path (no fabricated rows, the flag is recorded).
 
+## Worklog cost facts (`fact_worklog`, v0.3.0 M3 commit 9)
+
+`MetricsDeriver.kt`'s worklog step (top-level `runWorklogStep`/`worklogRowsForItem`, moved outside
+the class body the same `LargeClass` way the sprint step already is) is the LAST step of
+`runDerivation`, after the sprint step: one `metrics.fact_worklog` row per LIVE
+`norm.work_item_worklogs` row (`.claude/docs/domain-model.md` "Cross-team time"/D3, invariant 6/7).
+It batches over only the items that actually carry a worklog (`WorkItemStore.worklogsByIssue`, a
+connection-wide read — no per-issue filter exists there yet, unlike the interval readers), reading
+each batch's own PARENT/`issuekey`/SPRINT intervals the same way pass 2 does — the review round 2b
+memory bound applies here too.
+
+- **`author_team_id`** — the author's `metrics.team_membership` AT the worklog's own `started_at`
+  (`teamAt`, the SAME as-of helper `buildTaskRow`'s `assigneeTeamIdAtDone` uses); `null` when the
+  author is in no team at that instant — the UNASSIGNED bucket is a query-time label over this
+  `null`, never a stored sentinel team id (the `credit_team_id` precedent).
+- **`task_domain_key`/`epic_id`/`epic_domain_key`** — read from the SAME effective-dated bridges
+  pass 2 builds (`task_domain`'s history via `taskDomainHistory`, `task_epic`'s via
+  `taskEpicHistory`), evaluated AT `started_at` rather than at `done_at`/now: a worklog logged
+  early in a task's life is attributed to whichever domain/epic the task belonged to AT THAT TIME,
+  not its current one. A sub-task has no `task_epic` bridge history of its own (the same documented
+  gap `taskEpicHistory` already carries), so its worklogs use its CURRENT epic (`epicIdOf`) instead
+  of an as-of value — the one place this step falls back to "current" rather than "as-of". A
+  worklog logged directly on an EPIC (rare, but not filtered out) reports `task_domain_key = null`,
+  `epic_id` = the epic's own id, and `epic_domain_key` = the epic's own (current) domain.
+- **`activity_type`/`work_category`** — the SAME issue-type map and OWN-else-epic's-category
+  fallback `buildTaskRow` uses (D6/D8) — never a separate lookup.
+- **`sprint_id_at_started`/`sprint_team_id_at_started`** — the task's SPRINT field interval AT
+  `started_at` (never at `done_at`, unlike `fact_task_delivery.sprint_id_at_done`), mapped through
+  `board_team_map` the same way sprint-at-done is.
+- **`foreign_work`** — `true` only when BOTH `author_team_id` and `sprint_team_id_at_started` are
+  known AND they differ (imperfection: "Cross-team time", `.claude/docs/domain-model.md`) — never
+  true off an unknown team on either side, since that would conflate "different team" with "no
+  team is known here at all".
+- **`late_ms`** — `max(0, created_at - started_at)`, `null` only when `created_at` is unknown (never
+  in practice — the generator always sets it); a worklog entered on the same day it describes has
+  `late_ms = 0`, never a spuriously negative value even if a clock skew ever put `created` before
+  `started`.
+- **`md`** — `time_spent_seconds / 3600 / hoursPerDay` (the global setting, default 8.0) — the SAME
+  conversion `actualMdFor` already applies when rolling worklog seconds into `fact_task_delivery`.
+
+**Invariant 6 (none dropped) and invariant 7 (no double counting).**
+`MetricsDerivationTest`'s "fact_worklog - invariant 6" sweep asserts the fact_worklog ROW COUNT for
+a connection equals its live-issue worklog count computed straight off
+`WorkItemStore.worklogsByIssue` — every live worklog gets exactly one row, whichever
+(author-team-or-UNASSIGNED, task-domain) pair it lands in. "fact_worklog - invariant 7" asserts
+Σ `fact_worklog.md` equals Σ level-0 tasks' own-plus-sub-tasks' worklog seconds (converted to MD)
+PLUS epics' own worklogs (worklogs logged directly on an epic, which never roll into any task's
+`actual_md`) — computed as an INDEPENDENT re-derivation straight off `norm.work_item_worklogs` +
+the live item set (`.claude/docs/testing.md`'s invariant-sweep pattern), rather than reading back
+`fact_task_delivery.actual_md`'s own `decimal(10, 2)` column: that column's 2-decimal-place
+rounding accumulates a real (if small) drift across ~1,200 issues, large enough to fail a naive
+byte-for-byte comparison against `fact_worklog.md`'s finer `decimal(8, 4)` — the invariant is about
+the underlying seconds never being double-counted or dropped, not about two differently-rounded
+storage columns agreeing to the last decimal.
+
 ## Not yet ported / not yet written
 
-Worklog facts/epic plans/daily aggregates (commit 9), the report API and the SPA pages all arrive
-with their own commits and their own sections here.
+Epic plans/daily aggregates (commit 9's remaining pieces), the report API and the SPA pages all
+arrive with their own commits and their own sections here.

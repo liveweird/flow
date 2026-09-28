@@ -268,6 +268,7 @@ class MetricsDeriver(
         metricsStore.deleteFactTaskDelivery(connectionId)
         metricsStore.deleteFactEpicDelivery(connectionId)
         metricsStore.deleteSprintFacts(connectionId)
+        metricsStore.deleteFactWorklog(connectionId)
 
         val context = buildContext(connectionId, workItems, config, calendar, now, hoursPerDay, epicDriftDays)
         metricsStore.insertDomains(connectionId, domainDims(context), configRevision)
@@ -281,12 +282,14 @@ class MetricsDeriver(
         val epicCount = runPass3(connectionId, workItems, context, derivedById, blockedByIssue, factTasksByIssueId, configRevision)
         val sprintFieldId = metricsConfig.detectedSprintFieldId(connectionId)
         val sprintOutcome = runSprintStep(connectionId, workItems, context, config, derivedById, graceMs, configRevision, sprintFieldId)
+        val worklogCount = runWorklogStep(connectionId, workItems, context, derivedById, configRevision)
 
         return DeriveRowCounts(
             tasks = taskCount,
             epics = epicCount,
             sprints = sprintOutcome.sprintCount,
             sprintFieldUnresolved = sprintOutcome.fieldUnresolved,
+            worklogs = worklogCount,
         )
     }
 
@@ -295,6 +298,7 @@ class MetricsDeriver(
             put("tasks", JsonPrimitive(counts.tasks))
             put("epics", JsonPrimitive(counts.epics))
             put("sprints", JsonPrimitive(counts.sprints))
+            put("worklogs", JsonPrimitive(counts.worklogs))
             if (counts.sprintFieldUnresolved) put("sprintFieldUnresolved", JsonPrimitive(true))
         }.toString()
         suspendTransaction(database) {
@@ -533,12 +537,7 @@ class MetricsDeriver(
         return context.workCategoryMap[valueId]
     }
 
-    /** D2: a sub-task's own epic is its parent TASK's epic (one indirection); a level-0 task's epic is its own `parentIssueId`. */
-    private fun epicIdOf(item: WorkItemStore.DerivationWorkItemRow, context: DeriveContext): Long? {
-        val parent = item.parentIssueId?.let { context.itemsById[it] } ?: return null
-        val candidate = if (item.isSubtask) parent.parentIssueId else item.parentIssueId
-        return candidate?.takeIf { context.itemsById[it]?.hierarchyLevel == EPIC_HIERARCHY_LEVEL }
-    }
+    // epicIdOf moved top-level (below the class, the `LargeClass` idiom — it takes no instance state).
 
     private fun deriveItem(
         item: WorkItemStore.DerivationWorkItemRow,
@@ -745,43 +744,13 @@ class MetricsDeriver(
     private fun cycleWorkingDays(derived: ItemDerived, calendar: WorkingCalendar): Double? =
         if (derived.started != null && derived.done != null) calendar.workingDaysBetween(derived.started, derived.done) else null
 
-    /**
-     * `task_epic`'s effective-dated history (review round 2a fix — was one open row carrying only
-     * the CURRENT epic). Built from the item's OWN `PARENT` field intervals, kept ONLY when the
-     * interval's parent id resolves to an item at [EPIC_HIERARCHY_LEVEL] (a defensive filter — a
-     * level-0 task's PARENT is expected to always be an epic or nothing, never another task).
-     * **Sub-tasks get NO `task_epic` row at all** (D2's roll-up, `.claude/docs/domain-model.md`): a
-     * sub-task's own PARENT interval names its parent TASK, not an epic, and reconstructing "which
-     * epic was my parent TASK under, at each historical instant" needs a second effective-dated join
-     * (parent-of-parent, over time) this commit does not build — a sub-task's CURRENT epic stays
-     * available via `dim_task.epic_id` (`epicIdOf`, D2's one-indirection rule) for ordinary reads;
-     * only the BRIDGE's own history is the part left undone, documented in `.claude/docs/metrics.md`.
-     */
-    private fun taskEpicHistory(item: WorkItemStore.DerivationWorkItemRow, context: DeriveContext): List<TaskEpicRow> {
-        if (item.isSubtask) return emptyList()
-        return context.parentIntervalsByIssue[item.issueId].orEmpty().map { interval ->
-            val parentId = interval.valueId?.toLongOrNull()
-            val epicId = parentId?.takeIf { context.itemsById[it]?.hierarchyLevel == EPIC_HIERARCHY_LEVEL }
-            TaskEpicRow(item.issueId, epicId, interval.fromAtMs, interval.toAtMs)
-        }
-    }
+    // taskEpicHistory/taskDomainHistory moved top-level below the class (the `LargeClass` idiom).
 
     /** `task_assignee`'s effective-dated history (review round 2a fix) — a direct mirror of `norm`'s own ASSIGNEE field intervals. */
     private fun taskAssigneeHistory(item: WorkItemStore.DerivationWorkItemRow, context: DeriveContext): List<TaskAssigneeRow> =
         context.assigneeIntervalsByIssue[item.issueId].orEmpty().map {
             TaskAssigneeRow(item.issueId, it.valueId, it.fromAtMs, it.toAtMs)
         }
-
-    /** `task_domain`'s effective-dated history (review round 2a fix) — see [DeriveKernels.projectKeyTimeline]. */
-    private fun taskDomainHistory(item: WorkItemStore.DerivationWorkItemRow, context: DeriveContext): List<TaskDomainRow> {
-        val issueKeyChanges = context.issueKeyChangesByIssue[item.issueId].orEmpty()
-        val timeline = DeriveKernels.projectKeyTimeline(item.createdAt, issueKeyChanges, item.issueKey)
-        return timeline.mapIndexed { index, point ->
-            val to = timeline.getOrNull(index + 1)?.atMs
-            val domainKey = point.projectKey?.let { context.domainByProject[it] ?: it }
-            TaskDomainRow(item.issueId, domainKey, point.atMs, to)
-        }
-    }
 
     private data class EstimateComposite(
         val atStart: Double?,
@@ -805,13 +774,7 @@ class MetricsDeriver(
         }
     }
 
-    private fun valueAt(intervals: List<NormalizedFieldInterval>, atMs: Long): String? =
-        intervals.firstOrNull { it.fromAtMs <= atMs && (it.toAtMs == null || atMs < it.toAtMs) }?.valueId
-
-    private fun teamAt(accountId: String?, atMs: Long, memberships: Map<String, List<TeamMembershipService.MembershipInterval>>): UInt? {
-        if (accountId == null) return null
-        return memberships[accountId]?.firstOrNull { it.validFrom <= atMs && (it.validTo == null || atMs < it.validTo) }?.teamId
-    }
+    // valueAt/teamAt moved top-level below the class (the `LargeClass` idiom).
 
     /** A task's `actual_md` is its own worklogs plus its sub-tasks' (D2); an epic's is every child's plus its own. */
     private fun actualMdFor(
@@ -824,6 +787,25 @@ class MetricsDeriver(
         val childSeconds = children.sumOf { child -> worklogSecondsByIssue[child.issueId] ?: 0L }
         return (ownSeconds + childSeconds) / SECONDS_PER_HOUR / hoursPerDay
     }
+
+    /**
+     * The worklog step (v0.3.0 M3 commit 9, `.claude/docs/domain-model.md` "Cross-team time"/D3,
+     * `.claude/docs/metrics.md` "Worklog cost facts (fact_worklog)"): one `fact_worklog` row per
+     * `norm.work_item_worklogs` row, carrying the author's team AND the task's domain/epic, BOTH
+     * as-of the worklog's own `started_at` — never the item's current/done-time values. Batches over
+     * only the items that actually carry a worklog, re-reading each batch's PARENT/`issuekey`/SPRINT
+     * intervals the same way pass 2 does (the raw intervals are batch-scoped, never held for the
+     * whole connection at once — the review round 2b memory bound applies here too).
+     */
+    private suspend fun runWorklogStep(
+        connectionId: UInt,
+        workItems: List<WorkItemStore.DerivationWorkItemRow>,
+        context: DeriveContext,
+        derivedById: Map<Long, ItemDerived>,
+        configRevision: Long,
+    ): Int = ch.nokillswit.metrics.runWorklogStep(
+        workItemStore, metricsStore, connectionId, workItems, context, derivedById, configRevision,
+    )
 
     /**
      * The sprint step (v0.3.0 M3 commit 8, `.claude/docs/domain-model.md` "Plan — PV"/"Glossary",
@@ -844,6 +826,154 @@ class MetricsDeriver(
     ): SprintStepOutcome = ch.nokillswit.metrics.runSprintStep(
         workItemStore, metricsStore, connectionId, workItems, context, config, derivedById, graceMs, configRevision, sprintFieldId,
     )
+}
+
+/** D2: a sub-task's own epic is its parent TASK's epic (one indirection); a level-0 task's epic is its own `parentIssueId`. */
+private fun epicIdOf(item: WorkItemStore.DerivationWorkItemRow, context: DeriveContext): Long? {
+    val parent = item.parentIssueId?.let { context.itemsById[it] } ?: return null
+    val candidate = if (item.isSubtask) parent.parentIssueId else item.parentIssueId
+    return candidate?.takeIf { context.itemsById[it]?.hierarchyLevel == EPIC_HIERARCHY_LEVEL }
+}
+
+/**
+ * `task_epic`'s effective-dated history (review round 2a fix — was one open row carrying only
+ * the CURRENT epic). Built from the item's OWN `PARENT` field intervals, kept ONLY when the
+ * interval's parent id resolves to an item at [EPIC_HIERARCHY_LEVEL] (a defensive filter — a
+ * level-0 task's PARENT is expected to always be an epic or nothing, never another task).
+ * **Sub-tasks get NO `task_epic` row at all** (D2's roll-up, `.claude/docs/domain-model.md`): a
+ * sub-task's own PARENT interval names its parent TASK, not an epic, and reconstructing "which
+ * epic was my parent TASK under, at each historical instant" needs a second effective-dated join
+ * (parent-of-parent, over time) this commit does not build — a sub-task's CURRENT epic stays
+ * available via `dim_task.epic_id` (`epicIdOf`, D2's one-indirection rule) for ordinary reads;
+ * only the BRIDGE's own history is the part left undone, documented in `.claude/docs/metrics.md`.
+ */
+private fun taskEpicHistory(item: WorkItemStore.DerivationWorkItemRow, context: DeriveContext): List<TaskEpicRow> {
+    if (item.isSubtask) return emptyList()
+    return context.parentIntervalsByIssue[item.issueId].orEmpty().map { interval ->
+        val parentId = interval.valueId?.toLongOrNull()
+        val epicId = parentId?.takeIf { context.itemsById[it]?.hierarchyLevel == EPIC_HIERARCHY_LEVEL }
+        TaskEpicRow(item.issueId, epicId, interval.fromAtMs, interval.toAtMs)
+    }
+}
+
+/** `task_domain`'s effective-dated history (review round 2a fix) — see [DeriveKernels.projectKeyTimeline]. */
+private fun taskDomainHistory(item: WorkItemStore.DerivationWorkItemRow, context: DeriveContext): List<TaskDomainRow> {
+    val issueKeyChanges = context.issueKeyChangesByIssue[item.issueId].orEmpty()
+    val timeline = DeriveKernels.projectKeyTimeline(item.createdAt, issueKeyChanges, item.issueKey)
+    return timeline.mapIndexed { index, point ->
+        val to = timeline.getOrNull(index + 1)?.atMs
+        val domainKey = point.projectKey?.let { context.domainByProject[it] ?: it }
+        TaskDomainRow(item.issueId, domainKey, point.atMs, to)
+    }
+}
+
+private fun valueAt(intervals: List<NormalizedFieldInterval>, atMs: Long): String? =
+    intervals.firstOrNull { it.fromAtMs <= atMs && (it.toAtMs == null || atMs < it.toAtMs) }?.valueId
+
+private fun teamAt(accountId: String?, atMs: Long, memberships: Map<String, List<TeamMembershipService.MembershipInterval>>): UInt? {
+    if (accountId == null) return null
+    return memberships[accountId]?.firstOrNull { it.validFrom <= atMs && (it.validTo == null || atMs < it.validTo) }?.teamId
+}
+
+private fun domainAt(history: List<TaskDomainRow>, atMs: Long): String? =
+    history.firstOrNull { it.fromAtMs <= atMs && (it.toAtMs == null || atMs < it.toAtMs) }?.domainKey
+
+private fun epicAt(history: List<TaskEpicRow>, atMs: Long): Long? =
+    history.firstOrNull { it.fromAtMs <= atMs && (it.toAtMs == null || atMs < it.toAtMs) }?.epicId
+
+/**
+ * The worklog step's own body (v0.3.0 M3 commit 9, moved outside [MetricsDeriver] purely to keep
+ * that class under detekt's `LargeClass` threshold — the sprint step's own precedent above): one
+ * `fact_worklog` row per `norm.work_item_worklogs` row, carrying the author's team AND the task's
+ * domain/epic, BOTH as-of the worklog's own `started_at` — never the item's current/done-time
+ * values (`.claude/docs/domain-model.md` "Cross-team time"/D3, `.claude/docs/metrics.md` "Worklog
+ * cost facts (fact_worklog)"). Batches over only the items that actually carry a worklog,
+ * re-reading each batch's PARENT/`issuekey`/SPRINT intervals the same way pass 2 does (the raw
+ * intervals are batch-scoped, never held for the whole connection at once — the review round 2b
+ * memory bound applies here too).
+ */
+private suspend fun runWorklogStep(
+    workItemStore: WorkItemStore,
+    metricsStore: MetricsStore,
+    connectionId: UInt,
+    workItems: List<WorkItemStore.DerivationWorkItemRow>,
+    context: DeriveContext,
+    derivedById: Map<Long, ItemDerived>,
+    configRevision: Long,
+): Int {
+    val worklogsByIssue = workItemStore.worklogsByIssue(connectionId)
+    if (worklogsByIssue.isEmpty()) return 0
+    val itemsWithWorklogs = workItems.filter { worklogsByIssue.containsKey(it.issueId) }
+    var count = 0
+    for (batch in itemsWithWorklogs.chunked(DERIVE_BATCH_SIZE)) {
+        val ids = batch.map { it.issueId }
+        context.parentIntervalsByIssue = workItemStore.fieldIntervalsByIssue(connectionId, TrackedField.PARENT, ids)
+        context.issueKeyChangesByIssue =
+            workItemStore.fieldChangesByFieldIds(connectionId, listOf(ISSUE_KEY_FIELD_ID), ids).groupBy { it.issueId }
+        context.sprintIntervalsByIssue = workItemStore.fieldIntervalsByIssue(connectionId, TrackedField.SPRINT, ids)
+
+        val rowsBatch = mutableListOf<FactWorklogRow>()
+        for (item in batch) {
+            rowsBatch += worklogRowsForItem(item, worklogsByIssue.getValue(item.issueId), context, derivedById)
+        }
+        metricsStore.insertFactWorklog(connectionId, rowsBatch, configRevision)
+        count += rowsBatch.size
+    }
+    return count
+}
+
+/** Every `fact_worklog` row for [item]'s own raw worklogs — see [runWorklogStep]. */
+private fun worklogRowsForItem(
+    item: WorkItemStore.DerivationWorkItemRow,
+    worklogs: List<WorkItemStore.DerivationWorklogRow>,
+    context: DeriveContext,
+    derivedById: Map<Long, ItemDerived>,
+): List<FactWorklogRow> {
+    val isEpic = item.hierarchyLevel == EPIC_HIERARCHY_LEVEL
+    val currentDomainKey = context.domainByProject[item.projectKey] ?: item.projectKey
+    val currentEpicId = if (isEpic) item.issueId else epicIdOf(item, context)
+    val domainHistory = if (!isEpic) taskDomainHistory(item, context) else emptyList()
+    val epicHistory = if (!isEpic && !item.isSubtask) taskEpicHistory(item, context) else emptyList()
+    val activityType = context.activityTypeByIssueType[item.issueType] ?: item.issueType
+
+    return worklogs.map { wl ->
+        val startedAt = wl.startedAt
+        val taskDomainKey = if (isEpic) null else domainAt(domainHistory, startedAt) ?: currentDomainKey
+        val epicId = when {
+            isEpic -> item.issueId
+            item.isSubtask -> currentEpicId
+            else -> epicAt(epicHistory, startedAt) ?: currentEpicId
+        }
+        val epicItem = epicId?.let { context.itemsById[it] }
+        val epicDomainKey = if (isEpic) currentDomainKey else epicItem?.let { context.domainByProject[it.projectKey] ?: it.projectKey }
+        val ownCategory = derivedById[item.issueId]?.ownCategory
+        val epicCategory = epicId?.let { derivedById[it]?.ownCategory }
+        val workCategory = ownCategory ?: epicCategory
+        val authorTeamId = teamAt(wl.authorAccountId, startedAt, context.membershipsByAccount)
+        val sprintId = valueAt(context.sprintIntervalsByIssue[item.issueId].orEmpty(), startedAt)?.toLongOrNull()
+        val sprintTeamId = sprintId?.let { context.sprintBoardById[it] }?.let { context.boardTeamByBoardId[it] }
+        val md = (wl.timeSpentSeconds / SECONDS_PER_HOUR) / context.hoursPerDay
+        val lateMs = wl.createdAt?.let { createdAt -> maxOf(0L, createdAt - startedAt) }
+        val foreignWork = authorTeamId != null && sprintTeamId != null && authorTeamId != sprintTeamId
+        FactWorklogRow(
+            worklogId = wl.worklogId,
+            issueId = item.issueId,
+            authorAccountId = wl.authorAccountId,
+            authorTeamId = authorTeamId,
+            startedAt = startedAt,
+            createdAt = wl.createdAt,
+            lateMs = lateMs,
+            md = md,
+            taskDomainKey = taskDomainKey,
+            epicId = epicId,
+            epicDomainKey = epicDomainKey,
+            activityType = activityType,
+            workCategory = workCategory,
+            sprintIdAtStarted = sprintId,
+            sprintTeamIdAtStarted = sprintTeamId,
+            foreignWork = foreignWork,
+        )
+    }
 }
 
 /**

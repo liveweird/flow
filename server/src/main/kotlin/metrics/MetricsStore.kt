@@ -148,7 +148,13 @@ data class FactEpicDeliveryRow(
  * sprint step then skips writing any sprint facts for this run rather than fabricating membership
  * from a display-name match; recorded here so the skip is visible on the run, not silent.
  */
-data class DeriveRowCounts(val tasks: Int, val epics: Int, val sprints: Int, val sprintFieldUnresolved: Boolean = false)
+data class DeriveRowCounts(
+    val tasks: Int,
+    val epics: Int,
+    val sprints: Int,
+    val sprintFieldUnresolved: Boolean = false,
+    val worklogs: Int = 0,
+)
 
 // ---- Sprint step row shapes (v0.3.0 M3 commit 8) ---------------------------------------------
 
@@ -169,6 +175,31 @@ data class DimSprintRow(
 
 /** One `metrics.fact_sprint_scope` row — [DeriveKernels.SprintScopeItem] plus the `sprintId` its own kernel call didn't carry. */
 data class FactSprintScopeRow(val sprintId: Long, val item: SprintScopeItem)
+
+/**
+ * One `metrics.fact_worklog` row (v0.3.0 M3 commit 9, `.claude/docs/domain-model.md` "Cross-team
+ * time"/D3, `.claude/docs/metrics.md` "Worklog cost facts (fact_worklog)") — the author's team AND
+ * the task's domain/epic, both as-of `startedAt`, so cost can be sliced by who spent it and what it
+ * was spent on at once.
+ */
+data class FactWorklogRow(
+    val worklogId: Long,
+    val issueId: Long,
+    val authorAccountId: String?,
+    val authorTeamId: UInt?,
+    val startedAt: Long,
+    val createdAt: Long?,
+    val lateMs: Long?,
+    val md: Double,
+    val taskDomainKey: String?,
+    val epicId: Long?,
+    val epicDomainKey: String?,
+    val activityType: String,
+    val workCategory: String?,
+    val sprintIdAtStarted: Long?,
+    val sprintTeamIdAtStarted: UInt?,
+    val foreignWork: Boolean,
+)
 
 /** One `metrics.fact_sprint`/`metrics.fact_sprint_snapshot` row's shared figures —
  * [SprintTotals] plus capacity/load and identity. */
@@ -497,6 +528,22 @@ class MetricsStore(private val database: R2dbcDatabase) {
     object FactWorklog : Table("metrics.fact_worklog") {
         val connectionId = reference("connection_id", DataSourceService.Connections)
         val worklogId = long("worklog_id")
+        val issueId = long("issue_id")
+        val authorAccountId = varchar("author_account_id", 100).nullable()
+        val authorTeamId = reference("author_team_id", TeamService.Teams).nullable()
+        val startedAt = long("started_at")
+        val createdAt = long("created_at").nullable()
+        val lateMs = long("late_ms").nullable()
+        val md = decimal("md", precision = 8, scale = 4)
+        val taskDomainKey = varchar("task_domain_key", 50).nullable()
+        val epicId = long("epic_id").nullable()
+        val epicDomainKey = varchar("epic_domain_key", 50).nullable()
+        val activityType = varchar("activity_type", 50).nullable()
+        val workCategory = varchar("work_category", 100).nullable()
+        val sprintIdAtStarted = long("sprint_id_at_started").nullable()
+        val sprintTeamIdAtStarted = reference("sprint_team_id_at_started", TeamService.Teams).nullable()
+        val foreignWork = bool("foreign_work").default(false)
+        val configRevision = long("config_revision")
         override val primaryKey = PrimaryKey(connectionId, worklogId)
     }
 
@@ -950,6 +997,35 @@ class MetricsStore(private val database: R2dbcDatabase) {
             it[FactSprintSnapshot.snapshotAt] = snapshotAt
         }
         Unit
+    }
+
+    suspend fun deleteFactWorklog(connectionId: UInt) {
+        FactWorklog.deleteWhere { FactWorklog.connectionId eq connectionId }
+    }
+
+    /** One batch's worth of `fact_worklog` rows (v0.3.0 M3 commit 9) — call per batch, AFTER [deleteFactWorklog] ran once. */
+    suspend fun insertFactWorklog(connectionId: UInt, rows: List<FactWorklogRow>, configRevision: Long) {
+        if (rows.isEmpty()) return
+        FactWorklog.batchInsert(rows) {
+            this[FactWorklog.connectionId] = connectionId
+            this[FactWorklog.worklogId] = it.worklogId
+            this[FactWorklog.issueId] = it.issueId
+            this[FactWorklog.authorAccountId] = it.authorAccountId
+            this[FactWorklog.authorTeamId] = it.authorTeamId
+            this[FactWorklog.startedAt] = it.startedAt
+            this[FactWorklog.createdAt] = it.createdAt
+            this[FactWorklog.lateMs] = it.lateMs
+            this[FactWorklog.md] = it.md.toBigDecimal()
+            this[FactWorklog.taskDomainKey] = it.taskDomainKey
+            this[FactWorklog.epicId] = it.epicId
+            this[FactWorklog.epicDomainKey] = it.epicDomainKey
+            this[FactWorklog.activityType] = it.activityType
+            this[FactWorklog.workCategory] = it.workCategory
+            this[FactWorklog.sprintIdAtStarted] = it.sprintIdAtStarted
+            this[FactWorklog.sprintTeamIdAtStarted] = it.sprintTeamIdAtStarted
+            this[FactWorklog.foreignWork] = it.foreignWork
+            this[FactWorklog.configRevision] = configRevision
+        }
     }
 
     /**
