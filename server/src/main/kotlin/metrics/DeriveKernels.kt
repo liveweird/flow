@@ -17,8 +17,14 @@ data class StageInterval(val stage: ItemStage, val statusId: String, val fromAtM
 
 data class StartedDoneResult(val startedAtMs: Long?, val doneAtMs: Long?, val reopenCount: Int)
 
-/** One merged, clipped `metrics.item_blocked` interval — always closed (`toAtMs` is the window end, never open-ended). */
-data class BlockedInterval(val fromAtMs: Long, val toAtMs: Long)
+/**
+ * One merged, clipped `metrics.item_blocked` interval — always closed (`toAtMs` is the window end,
+ * never open-ended). [reason] is `"FLAGGED"` when every raw interval merged into this one came from
+ * the Flagged field alone, `"STATUS"` when at least one came from a configured blocked status
+ * (review round 2b fix — the merge used to always report `"FLAGGED"`, silently losing the
+ * blocked-status source whenever the two overlapped or a status-only interval merged in).
+ */
+data class BlockedInterval(val fromAtMs: Long, val toAtMs: Long, val reason: String)
 
 data class EstimatePoint(val atMs: Long, val estimateMd: Double?)
 
@@ -92,6 +98,9 @@ object DeriveKernels {
      * own cycle window `[windowFromMs, windowToMs)` — empty when [windowFromMs] is null (the item
      * never started, so it has no cycle window to intersect against).
      */
+    private const val REASON_FLAGGED = "FLAGGED"
+    private const val REASON_STATUS = "STATUS"
+
     fun blockedIntervals(
         flaggedIntervals: List<NormalizedFieldInterval>,
         statusIntervals: List<NormalizedStatusInterval>,
@@ -100,24 +109,29 @@ object DeriveKernels {
         windowToMs: Long,
     ): List<BlockedInterval> {
         if (windowFromMs == null) return emptyList()
-        val raw = mutableListOf<Pair<Long, Long>>()
-        flaggedIntervals.filter { it.valueId == "true" }.forEach { raw += it.fromAtMs to (it.toAtMs ?: windowToMs) }
-        statusIntervals.filter { it.statusId in blockedStatusIds }.forEach { raw += it.fromAtMs to (it.toAtMs ?: windowToMs) }
-        val clipped = raw.mapNotNull { (from, to) ->
+        // Each raw interval carries its OWN source (review round 2b fix) — the merge below folds
+        // overlapping/adjacent pieces together but must never lose track of WHICH source(s)
+        // contributed, since a merged interval's reason must reflect all of them, not just the first.
+        val raw = mutableListOf<Triple<Long, Long, Boolean>>() // (from, to, isStatusSourced)
+        flaggedIntervals.filter { it.valueId == "true" }.forEach { raw += Triple(it.fromAtMs, it.toAtMs ?: windowToMs, false) }
+        statusIntervals.filter { it.statusId in blockedStatusIds }.forEach { raw += Triple(it.fromAtMs, it.toAtMs ?: windowToMs, true) }
+        val clipped = raw.mapNotNull { (from, to, isStatusSourced) ->
             val clampedFrom = maxOf(from, windowFromMs)
             val clampedTo = minOf(to, windowToMs)
-            if (clampedTo > clampedFrom) clampedFrom to clampedTo else null
+            if (clampedTo > clampedFrom) Triple(clampedFrom, clampedTo, isStatusSourced) else null
         }.sortedBy { it.first }
-        val merged = mutableListOf<Pair<Long, Long>>()
-        for ((from, to) in clipped) {
+        val merged = mutableListOf<Triple<Long, Long, Boolean>>()
+        for ((from, to, isStatusSourced) in clipped) {
             val last = merged.lastOrNull()
             if (last != null && from <= last.second) {
-                merged[merged.lastIndex] = last.first to maxOf(last.second, to)
+                merged[merged.lastIndex] = Triple(last.first, maxOf(last.second, to), last.third || isStatusSourced)
             } else {
-                merged += from to to
+                merged += Triple(from, to, isStatusSourced)
             }
         }
-        return merged.map { BlockedInterval(it.first, it.second) }
+        return merged.map { (from, to, isStatusSourced) ->
+            BlockedInterval(from, to, if (isStatusSourced) REASON_STATUS else REASON_FLAGGED)
+        }
     }
 
     private const val UNESTIMATED: Double = 0.0

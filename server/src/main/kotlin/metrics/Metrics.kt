@@ -3,6 +3,7 @@ package ch.nokillswit.metrics
 import ch.nokillswit.audit.audit
 import ch.nokillswit.authz.caller
 import ch.nokillswit.authz.requireAdmin
+import ch.nokillswit.infra.config.requireConfigLong
 import ch.nokillswit.infra.db.R2dbcDatabaseKey
 import ch.nokillswit.ingest.DataSourceServiceKey
 import ch.nokillswit.ingest.SyncJobsServiceKey
@@ -46,10 +47,17 @@ fun Application.configureMetrics() {
     attributes.put(TeamMembershipServiceKey, teamMembership)
     val metricsStore = MetricsStore(database)
     attributes.put(MetricsStoreKey, metricsStore)
+    // `ingest.jobRetentionDays` is validated on EVERY boot regardless of role (the `configureIngestWorker`
+    // idiom — a bad ingest.* setting is a deploy-time config error) — `derive_runs` prunes on the SAME
+    // retention window `sync_jobs` itself uses (`.claude/docs/persistence.md`, review round 2b).
+    val jobRetentionDays = requireConfigLong(environment.config, "ingest.jobRetentionDays", min = 1, max = 3650)
     // Published regardless of role — `ingest/IngestWorker.kt`'s DERIVE dispatch reads it under
     // `runsWorker()`, which is independent of `servesApi()` below (a WORKER-only instance never
     // reaches the route-registration early return, but still needs this attribute present).
-    attributes.put(MetricsDeriverKey, MetricsDeriver(workItemStore, metricsConfig, teamMembership, metricsStore, database))
+    attributes.put(
+        MetricsDeriverKey,
+        MetricsDeriver(workItemStore, metricsConfig, teamMembership, metricsStore, database, jobRetentionDays),
+    )
 
     // The worker role serves only the health/ready probes (plugins/Health.kt) — see Role.kt.
     if (!servesApi()) return

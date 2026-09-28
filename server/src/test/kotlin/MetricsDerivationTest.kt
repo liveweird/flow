@@ -11,6 +11,13 @@ import ch.nokillswit.metrics.MetricsConfigService
 import ch.nokillswit.metrics.MetricsDeriver
 import ch.nokillswit.metrics.MetricsStore
 import ch.nokillswit.metrics.TeamMembershipService
+import ch.nokillswit.norm.IntervalSource
+import ch.nokillswit.norm.NormalizedIssue
+import ch.nokillswit.norm.NormalizedStatusInterval
+import ch.nokillswit.norm.StatusCategory
+import ch.nokillswit.norm.StatusRef
+import ch.nokillswit.norm.TombstoneKind
+import ch.nokillswit.norm.WorkItemFacts
 import java.io.File
 import java.security.MessageDigest
 import java.time.LocalDate
@@ -19,6 +26,8 @@ import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonPrimitive
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
@@ -26,6 +35,7 @@ import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 @Serializable
@@ -427,6 +437,104 @@ class MetricsDerivationTest {
             secondDigest,
             "a re-DERIVE over the SAME norm rows and config revision must write identical fact_task_delivery rows",
         )
+    }
+
+    /** A single simple task on a FRESH (never-stub-synced) connection, its current status carrying the UNKNOWN Jira category. */
+    private suspend fun seedUnmappedStatusIssue(connId: UInt) {
+        workItems().replaceStatuses(connId, listOf(StatusRef("77", "Weird", StatusCategory.UNKNOWN)))
+        val createdAt = PINNED_NOW - 1000L
+        val facts = WorkItemFacts(
+            issueKey = "UNM-1",
+            projectKey = "UNM",
+            issueType = "Task",
+            isSubtask = false,
+            parentIssueId = null,
+            summary = "An unmapped-status task",
+            currentStatusId = "77",
+            resolution = null,
+            priority = null,
+            assigneeAccountId = null,
+            reporterAccountId = null,
+            createdAtMs = createdAt,
+            updatedAtMs = createdAt,
+            resolvedAtMs = null,
+            storyPoints = null,
+            originalEstimateSeconds = null,
+            timeSpentSeconds = 0,
+            labels = emptyList(),
+            components = emptyList(),
+            fixVersions = emptyList(),
+            teamValueJson = null,
+            rank = null,
+            customFieldsJson = "{}",
+            tombstone = TombstoneKind.NONE,
+        )
+        val normalized = NormalizedIssue(
+            issueId = 900_001L,
+            facts = facts,
+            currentStatusName = "Weird",
+            currentStatusCategory = StatusCategory.UNKNOWN,
+            statusIntervals = listOf(
+                NormalizedStatusInterval(1, "77", "Weird", StatusCategory.UNKNOWN, createdAt, null, IntervalSource.CREATED),
+            ),
+            fieldIntervals = emptyList(),
+            fieldChanges = emptyList(),
+            worklogs = emptyList(),
+            currentSprintIds = emptyList(),
+            flagged = false,
+            anomalies = emptyList(),
+        )
+        workItems().replaceWorkItem(connId, normalized, createdAt)
+    }
+
+    @Test
+    fun `DERIVE flags a deliberately UNMAPPED status - never counted as started or done, per the domain-model rule`() = runBlocking {
+        val ds = dataSources()
+        val connId = SyncedStubFixture.createConnection(dataSources = ds, namePrefix = "jira-unmapped")
+        seedUnmappedStatusIssue(connId)
+
+        val config = metricsConfig()
+        val deriver = MetricsDeriver(workItems(), config, teamMembership(config), metricsStore(), sharedDatabaseForTests())
+        val claim = SyncJobClaim(
+            id = 7u,
+            connectionId = connId,
+            connectorKind = DataSourceKind.JIRA_CLOUD,
+            kind = SyncJobKind.DERIVE,
+            attempt = 1,
+            maxAttempts = 3,
+            syncIntervalMinutes = 60,
+        )
+        deriver.derive(SyncJobRunContext(claim, clock = { PINNED_NOW }) { _, _ -> true })
+
+        val factRow = suspendTransaction(sharedDatabaseForTests()) {
+            MetricsStore.FactTaskDelivery.selectAll()
+                .where { (MetricsStore.FactTaskDelivery.connectionId eq connId) and (MetricsStore.FactTaskDelivery.issueId eq 900_001L) }
+                .toList()
+                .single()
+        }
+        assertEquals(
+            "UNMAPPED",
+            factRow[MetricsStore.FactTaskDelivery.currentStage],
+            "a status carrying no configured stage must flag the task's own stage UNMAPPED, never guessed",
+        )
+        val flags = Json.parseToJsonElement(factRow[MetricsStore.FactTaskDelivery.flags]).jsonArray
+        assertTrue(
+            flags.any { it.jsonPrimitive.content == "UNMAPPED_STATUS" },
+            "an UNMAPPED current stage must carry the UNMAPPED_STATUS flag",
+        )
+        // The domain-model rule (`.claude/docs/domain-model.md` "an unmapped status is flagged,
+        // never guessed"): UNMAPPED counts as neither IN_PROGRESS nor DONE, so an item that has
+        // ONLY ever sat in an unmapped status is never started and never done.
+        assertNull(factRow[MetricsStore.FactTaskDelivery.startedAt], "an UNMAPPED-only status history must never be treated as started")
+        assertNull(factRow[MetricsStore.FactTaskDelivery.doneAt], "an UNMAPPED-only status history must never be treated as done")
+
+        val stageRows = suspendTransaction(sharedDatabaseForTests()) {
+            MetricsStore.ItemStage.selectAll()
+                .where { (MetricsStore.ItemStage.connectionId eq connId) and (MetricsStore.ItemStage.issueId eq 900_001L) }
+                .toList()
+        }
+        assertEquals(1, stageRows.size)
+        assertEquals("UNMAPPED", stageRows.single()[MetricsStore.ItemStage.stage])
     }
 
     private companion object {

@@ -141,8 +141,119 @@ GitLab connector's connection would purge through the exact same call), so the c
 the OTHER connector-agnostic PURGE work the worker itself already owns, not duplicated per
 connector kind.
 
+## The DERIVE run algorithm (v0.3.0 M3 commit 7)
+
+`metrics/MetricsDeriver.kt`'s `derive(context)` is the `DERIVE` job body
+(`.claude/docs/ingestion.md` "The DERIVE job kind"): read the effective per-connection config +
+global settings (one transaction, so a racing settings write can never let this run stamp a
+revision newer than the config it actually derived under — review round 1), prune old
+`derive_runs` rows (`MetricsStore.pruneDeriveRuns`, the `SyncJobsService.prune` shape, run on
+`ingest.jobRetentionDays`), insert a `RUNNING` `derive_runs` row, then run the WHOLE rebuild inside
+ONE `suspendTransaction`: delete every rebuildable `metrics.*` row for the connection, upsert
+`dim_date` over `[min(created_at) − 1y, now + 2y]`, insert `dim_domain` (small, config-derived,
+inserted once), then three ordered passes over the connection's LIVE `norm.work_items` rows.
+
+**Memory (review round 2b).** Earlier drafts loaded every work item's FULL `custom_fields` object
+plus every issue's status/field intervals, field changes and worklogs for the WHOLE connection at
+once. The fix has two parts:
+
+- **`custom_fields` is trimmed to only the configured field ids** (`estimateTask`/`estimateEpic`/
+  `workCategory`/`epicStart`/`epicDue`) right after `workItemsForDerivation` reads it back — a real
+  tenant's Rank/ADF-shaped fields (`.claude/docs/persistence.md`'s "Known storage cost" note)
+  otherwise duplicate raw bytes for every issue the connection-wide `itemsById` reference map holds.
+- **Per-item work runs in batches of `DERIVE_BATCH_SIZE` (200) issues**, in two ordered passes, each
+  reading its OWN interval/field-change data scoped to that batch's issue ids
+  (`WorkItemStore.statusIntervalsByIssue`/`fieldIntervalsByIssue`/`fieldChangesByFieldIds` all
+  accept an optional `issueIds` filter for exactly this), computing that batch's rows, and inserting
+  them before the next batch's own read begins — never holding the whole connection's raw
+  intervals/field changes in memory at once:
+  - **Pass 1** (every item, tasks and epics alike): reads STATUS + FLAGGED intervals and the
+    configured estimate field's changes for the batch, computes each item's `ItemDerived` (stages,
+    started/done, reopens, blocked intervals, estimate timeline, work category) and inserts that
+    batch's `item_stage`/`item_blocked`/`item_estimate` rows. `derivedById` (the computed RESULTS,
+    not raw intervals — far smaller) accumulates across every batch, since later passes need it for
+    epic/sub-task cross-references.
+  - **Pass 2** (TASK items only, i.e. `hierarchyLevel != 1`): reads ASSIGNEE + SPRINT + PARENT
+    intervals and `issuekey` field changes for the batch, builds `task_epic`/`task_domain`/
+    `task_assignee` history and `dim_task`/`fact_task_delivery` rows from the ALREADY-computed
+    `derivedById` (no fresh raw reads needed there), and inserts them. `factTasksByIssueId` (small
+    fact rows, not raw data) accumulates across every batch for pass 3's epic roll-up.
+  - **Pass 3** (EPIC items only): no per-batch raw reads at all — an epic's own facts come entirely
+    from `derivedById`/`factTasksByIssueId`/config, already in memory; builds and inserts
+    `dim_epic`/`fact_epic_delivery` per batch.
+  - **Worklogs are a connection-wide AGGREGATE, not per-issue rows**: `WorkItemStore
+    .worklogSecondsByIssue` returns a plain `Map<Long, Long>` (summed `time_spent_seconds` per
+    issue) via one query — this commit's algorithm only ever SUMS worklog seconds (a task's own
+    plus its sub-tasks', an epic's own plus its children's `actual_md`), so the full per-worklog row
+    shape (author, timestamps — reserved for commit 9's `fact_worklog`) is never loaded here.
+
+The whole rebuild — dims, both passes, `dim_domain` — runs inside `derive()`'s ONE outer
+`suspendTransaction`; batching only bounds what is held in memory at once, not the number of
+transactions (Postgres has no trouble with many statements in one transaction). A second DERIVE
+over unchanged input writes byte-for-byte identical rows regardless of batch boundaries, since
+final content depends only on each item's own data, never on which batch it landed in
+(`MetricsDerivationTest`'s reprocess-digest test, `.claude/docs/testing.md`'s pattern).
+
+**Failure and cancellation.** A thrown exception (including a genuine coroutine
+`CancellationException`, itself an `Exception` subtype) is caught once: `markRunFailed` stamps the
+row `FAILED` with a truncated error detail, then the exception is rethrown so cancellation still
+propagates correctly. `markRunFailed`'s own DB write runs under `withContext(NonCancellable)`
+(review round 2b fix) — without it, a coroutine already cancelled by the time this catch runs would
+never actually execute the `suspendTransaction` write, leaving the row stuck `RUNNING` forever. The
+previously-written facts are untouched either way (the failed transaction rolled back before any
+delete committed, or never started). There is deliberately no `CANCELLED` status — see
+`.claude/docs/persistence.md` "The `metrics` schema — the derived star (V16)".
+
+## Calendar math (`metrics/WorkingCalendar.kt`)
+
+Pure, timezone-aware: `dayOf(instant)` folds an epoch millis into an ISO date string in the
+configured zone; `isWorkingDay(day)` checks the configured weekend-day set and holiday set;
+`workingDaysBetween(a, b)` counts working days in `[a, b)`, additive
+(`wd(a,b) + wd(b,c) = wd(a,c)`); `dimDateRows(from, to)` emits one `DimDateRow` per calendar day in
+range, each carrying its own UTC-millis day boundaries and working-day flag — `metrics.dim_date`'s
+own row shape (`.claude/docs/persistence.md`).
+
+## Kernel definitions (`metrics/DeriveKernels.kt`)
+
+Pure, per-item functions — no DB, the `norm/Tiling.kt` pattern — called once per issue by
+`MetricsDeriver.kt`:
+
+- **`stageIntervals`** tiles `norm` status intervals into `item_stage` rows via the configured
+  `statusId -> ItemStage` map; an unmapped status becomes `ItemStage.UNMAPPED` (flagged, never
+  guessed). **`startedDoneAt`**: `startedAtMs` = the FIRST-ever entry into `IN_PROGRESS` (even
+  across a later reopen); `doneAtMs` is set ONLY while the CURRENT (last, open) stage is `DONE` —
+  the start of that trailing unbroken DONE run, not merely the last transition into DONE — so an
+  item whose entire history sits in `UNMAPPED` is never started and never done (neither
+  `IN_PROGRESS` nor `DONE`, per the domain-model rule "an unmapped status is flagged, never
+  guessed" — `MetricsDerivationTest`'s dedicated UNMAPPED-status test pins this end to end).
+  `reopenCount` = every DONE → non-DONE transition.
+- **`blockedIntervals`** unions FLAGGED=true spans and configured-blocked-status spans, merges
+  overlapping/adjacent pieces, and clips to `[startedAtMs, doneAtMs ?: now)`. Each merged
+  `BlockedInterval` carries a `reason` — `"FLAGGED"` when every raw span folded into it came from
+  the Flagged field alone, `"STATUS"` when AT LEAST ONE came from a configured blocked status
+  (review round 2b fix: the merge used to hardcode `"FLAGGED"` on every `item_blocked` row
+  regardless of source, silently losing the blocked-status reason whenever it overlapped or merged
+  with a Flagged span). `DeriveKernelsTest` pins all three shapes: FLAGGED-only, STATUS-only, and a
+  merged overlap (STATUS wins).
+- **`estimateTimeline`/`estimateAt`/`estimateSnapshots`** build a configured estimate field's value
+  history from its raw changelog changes (falling back to the text pair, since a real Jira number
+  field carries its changelog value only in `fromString`/`toString`) plus the CURRENT value as the
+  timeline's last, ground-truth point; `0` or missing both mean unestimated. Snapshots read the
+  timeline at start/done; "estimated late" = no estimate at start but one exists now.
+  **`mergeEstimateTimelines`** sums several sub-tasks' OWN timelines at every distinct change
+  instant (SUBTASKS roll-up) rather than reusing each one's CURRENT sum at every past point.
+- **`sprintMembership`** diffs the Sprint field's comma-joined id-list changelog text into
+  per-sprint set-valued membership intervals (a carry-over move never loses the FROM sprint's own
+  interval, unlike `norm`'s own last-id-only field-interval tiling).
+- **`projectKeyTimeline`** replays the `issuekey` changelog field (never `project` itself, which
+  carries no key) into `task_domain`'s effective-dated history.
+- **`epicDriftFlags`** compares an epic's OWN stage against its children's delivery state — D11's
+  three codes, flagged, never re-dating the epic.
+- **`valueAsOf`** is the one generic as-of helper (a value active at an instant from an ordered
+  `(changedAt, value)` list) — work category at `done_at`, a sprint's team at an instant, etc.
+
 ## Not yet ported / not yet written
 
-The derivation algorithm (`DeriveKernels`/`MetricsDeriver`, the `DERIVE` job kind, V16's star
-schema), the working-calendar math, the report API and the SPA pages all arrive with their own
-commits (7 onward) and their own sections here.
+The sprint scope/facts + D13 snapshots (commit 8), worklog facts/epic plans/daily aggregates
+(commit 9), the report API and the SPA pages all arrive with their own commits and their own
+sections here.

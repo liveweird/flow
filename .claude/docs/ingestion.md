@@ -60,12 +60,40 @@ web-role surface (`POST/GET /api/v1/data-sources/{id}/sync-jobs`, `GET .../sync-
 `POST .../sync-jobs/{jobId}/cancel`); `ingest/IngestWorker.kt` is the sole claimer, running only
 under `runsWorker()`.
 
-**Kinds and statuses.** `SyncJobKind`: `SYNC`, `RECONCILE`, `REPROCESS`, `PURGE` (the last is
-internal-only — `SyncJobRoutes.kt` 400s a caller-requested `PURGE`; only the scheduler enqueues
-it). `SyncJobStatus`: `PENDING` → `RUNNING` → one of `SUCCEEDED`/`FAILED`/`CANCELLED`. `priority` is
-`0` for a manual request ("Sync now"/"Reconcile now"/"Reprocess", `SYNC_JOB_PRIORITY_MANUAL`) and
-`10` for a scheduler-enqueued job (`SYNC_JOB_PRIORITY_SCHEDULED`) — claiming orders by `priority`
-then `requestedAt`, so a manual request preempts the schedule.
+**Kinds and statuses.** `SyncJobKind`: `SYNC`, `RECONCILE`, `REPROCESS`, `PURGE`, `DERIVE` (v0.3.0
+M3 commit 7, V16's `sync_jobs_kind_check` swap — see "The DERIVE job kind" below; `PURGE` stays
+internal-only — `SyncJobRoutes.kt` 400s a caller-requested `PURGE`, but a manual `DERIVE` IS
+accepted, `202`). `SyncJobStatus`: `PENDING` → `RUNNING` → one of `SUCCEEDED`/`FAILED`/`CANCELLED`.
+`priority` is `0` for a manual request ("Sync now"/"Reconcile now"/"Reprocess"/"Derive now",
+`SYNC_JOB_PRIORITY_MANUAL`) and `10` for a scheduler-enqueued job (`SYNC_JOB_PRIORITY_SCHEDULED`) —
+claiming orders by `priority` then `requestedAt`, so a manual request preempts the schedule.
+
+## The DERIVE job kind (v0.3.0 M3 commit 7)
+
+`DERIVE` (`metrics/MetricsDeriver.kt`'s `derive()`, dispatched by `IngestWorker.runJob` BEFORE the
+connector registry — `.claude/docs/metrics.md` "The DERIVE run algorithm" has the write-side detail)
+is connector-agnostic: it reads `norm.*` plus the connection's effective metrics configuration and
+writes `metrics.*`, never touching Jira, so it runs the same way whichever connector kind the
+connection is. **Chaining** (`IngestWorker.onSucceeded`, `.claude/docs/domain-model.md`'s plan §2
+decision 1): every successful `SYNC`/`RECONCILE`/`REPROCESS` enqueues a scheduled-priority `DERIVE`
+for its OWN connection (`SyncJobsService.enqueueScheduled`, coalesced by `uq_sync_jobs_open_per_kind`
+if one is already open); a `DERIVE` run itself enqueues nothing UNLESS the shared
+`metrics.settings.config_revision` moved WHILE it was running (a config PUT that coalesced into the
+already-open job rather than getting its own — review round 1 fix, `derive()`'s return value is the
+revision the run actually used, compared against `metricsConfig.currentRevision()` in `onSucceeded`).
+`MetricsConfigService.bumpRevision` — every global-settings PUT, team-membership mutation, and
+per-connection metrics-config PUT — separately enqueues a `DERIVE` for EVERY enabled, active
+connection (not just the one edited), since a configuration change must reach every connection's
+derived numbers.
+
+**Job orders, updated.** A SYNC job's list (REFERENCE → ISSUES → CHANGELOGS → WORKLOGS → PROCESS →
+PROFILE) and a RECONCILE job's (`reconcile` → PROCESS) are unchanged — `DERIVE` is never one of
+their OWN steps, it is a SEPARATE job kind chained AFTER the whole job succeeds (above). A `DERIVE`
+job runs the ONE `derive` stream. **PURGE**, updated: after the connector's own `purgeSteps` and the
+generic per-connection `metrics.*` config drain (`MetricsConfigService.purgeConnectionConfig`,
+already documented above), a THIRD generic step drains the derived star and `derive_runs`
+(`MetricsStore.purgeAll`, `.claude/docs/persistence.md` "The `metrics` schema — the derived star
+(V16)") — snapshot rows through the `SET LOCAL metrics.allow_snapshot_delete = 'on'` bypass.
 
 **Coalescing.** `uq_sync_jobs_open_per_kind` (a partial unique index over `(connection_id, kind)
 WHERE status IN ('PENDING','RUNNING')`) makes "at most one open job per (connection, kind)"

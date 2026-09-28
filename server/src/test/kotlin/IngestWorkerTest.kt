@@ -576,6 +576,44 @@ class IngestWorkerTest {
     }
 
     @Test
+    fun `onSucceeded chains a DERIVE after a successful RECONCILE`() = runBlocking {
+        ensureMigrated()
+        val ds = dataSources()
+        val jobs = syncJobs()
+        val metrics = metricsConfig(ds)
+        val connId = createConnection(ds)
+        val worker = IngestWorker(
+            jobs, ds, metrics, metricsStore(), deriver(metrics),
+            mapOf(DataSourceKind.JIRA_CLOUD to FakeConnector { }), testConfig(), System::currentTimeMillis,
+        )
+        val reconcileJobId = jobs.requestJob(connId, SyncJobKind.RECONCILE, requestedByUserId = 1u, configRevision = 1L).jobId
+
+        worker.onSucceeded(claimFor(reconcileJobId, connId, SyncJobKind.RECONCILE))
+
+        val deriveJobs = jobs.list(connId, SyncJobListFilter(kind = SyncJobKind.DERIVE), pagingAll()).items
+        assertEquals(1, deriveJobs.size, "a successful RECONCILE must chain exactly one DERIVE job")
+    }
+
+    @Test
+    fun `onSucceeded chains a DERIVE after a successful REPROCESS`() = runBlocking {
+        ensureMigrated()
+        val ds = dataSources()
+        val jobs = syncJobs()
+        val metrics = metricsConfig(ds)
+        val connId = createConnection(ds)
+        val worker = IngestWorker(
+            jobs, ds, metrics, metricsStore(), deriver(metrics),
+            mapOf(DataSourceKind.JIRA_CLOUD to FakeConnector { }), testConfig(), System::currentTimeMillis,
+        )
+        val reprocessJobId = jobs.requestJob(connId, SyncJobKind.REPROCESS, requestedByUserId = 1u, configRevision = 1L).jobId
+
+        worker.onSucceeded(claimFor(reprocessJobId, connId, SyncJobKind.REPROCESS))
+
+        val deriveJobs = jobs.list(connId, SyncJobListFilter(kind = SyncJobKind.DERIVE), pagingAll()).items
+        assertEquals(1, deriveJobs.size, "a successful REPROCESS must chain exactly one DERIVE job")
+    }
+
+    @Test
     fun `a connector purge failure prevents the generic metrics-config drain and FAILS the job`() = runBlocking {
         ensureMigrated()
         val ds = dataSources()

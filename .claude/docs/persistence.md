@@ -134,7 +134,8 @@ amendment over the architect's original all-`public`-with-prefixes recommendatio
   `sprints`, `boards`, …) — landed at V13 (plan commit 8a, "The normalized layer (V13)" below).
 - **`metrics`** — the metrics layer's own schema: configuration lands first (V15, v0.3.0 M1 commit
   3, "The `metrics` schema — configuration (V15)" below); the derived star (dimensions/bridges/
-  facts/daily aggregates) arrives in a later commit.
+  facts/daily aggregates) lands at V16, v0.3.0 M3 commit 7 ("The `metrics` schema — the derived
+  star (V16)" below).
 
 **How Exposed addresses a schema-qualified table.** No Exposed `Schema` object and no
 `search_path` override are involved: `JiraRawStore.kt`'s `Issues`/`Entities` table objects simply
@@ -418,14 +419,57 @@ ONE GiST index — `btree_gist` is what makes `=` available inside a GiST index 
   schema) — the team registry stays in `public`. `metrics/TeamMembershipService.kt` is the reference
   service: `GET/POST /api/v1/teams/{id}/jira-memberships`, `PUT/DELETE …/{membershipId}` (any
   authenticated read, ADMIN write — `.claude/docs/authorization.md`).
-- **`metrics.derive_runs`** — one row per future DERIVE run (v0.3.0 M3+); created here so no later
-  migration needs to add it. `job_id` is a plain column, deliberately NOT a foreign key to
+- **`metrics.derive_runs`** — one row per DERIVE run (populated as of V16 below); created here so no
+  later migration needs to add it. `job_id` is a plain column, deliberately NOT a foreign key to
   `sync_jobs.id` — the `raw.jira_reconcile_seen` rationale (above): a `derive_runs` row must never be
-  able to hold a `sync_jobs` row hostage from its own hard-delete prune.
+  able to hold a `sync_jobs` row hostage from its own hard-delete prune. `status` is `CHECK`-
+  constrained to `RUNNING`/`SUCCEEDED`/`FAILED` — a run a cancelled coroutine interrupts is marked
+  FAILED, not a fourth `CANCELLED` value (`.claude/docs/metrics.md` "The DERIVE run algorithm"
+  documents this choice; adding one would need altering the CHECK in a new migration). Hard-deleted
+  on the SAME retention window `sync_jobs` itself uses (`ingest.jobRetentionDays`,
+  `MetricsStore.pruneDeriveRuns`, called once per DERIVE run) — the `sync_jobs` prune precedent
+  applied to a table that otherwise grows forever for a connector deriving every few minutes.
+
+### The `metrics` schema — the derived star (V16)
+
+`V16__create_metrics_star.sql` (v0.3.0 M3 commit 7, `.claude/docs/domain-model.md` "Analytical
+model") adds `sync_jobs.kind`'s `DERIVE` value (a dropped-and-recreated CHECK constraint — the ONE
+exception to "never edit an applied migration": this is a NEW file, not a retroactive edit of V9)
+and every `metrics.*` star table: `dim_date`/`dim_domain`/`dim_task`/`dim_epic`/`dim_sprint`,
+`task_epic`/`task_domain`/`task_assignee`/`task_sprint`/`item_estimate`/`item_stage`/`item_blocked`
+(the effective-dated bridges), `fact_task_delivery`/`fact_epic_delivery` (accumulating snapshots),
+`fact_sprint_scope`/`fact_sprint`/`fact_sprint_snapshot`/`fact_worklog`/`fact_epic_plan` and
+`agg_daily_wip`/`agg_daily_flow` (their table objects land in this commit; commits 8/9 add the
+writers). Interval storage mirrors `metrics.team_membership`'s own precedent (V15): half-open
+`valid_from BIGINT NOT NULL, valid_to BIGINT NULL` pairs, no `tstzrange` (no r2dbc-postgresql codec
+for it). Every table is `connection_id`-scoped and rebuilt WHOLESALE per DERIVE run — delete then
+insert, this commit's `MetricsStore.kt` splits each pair into a `deleteX`/`insertX` method so
+`MetricsDeriver.kt` can delete ONCE up front and insert BATCH BY BATCH (`.claude/docs/metrics.md`
+"The DERIVE run algorithm") — EXCEPT `dim_date` (global, upserted `ON CONFLICT (day) DO UPDATE`)
+and `fact_sprint_snapshot` (append-only, see below).
+
+**The first trigger in this repo.** `fact_sprint_snapshot` is immutable once written (invariant 11,
+"a `fact_sprint_snapshot` row never changes once written") — enforced not in application code but by
+a `BEFORE UPDATE OR DELETE` trigger (`metrics.forbid_snapshot_change()`/
+`trg_metrics_fact_sprint_snapshot_immutable`) that raises unless the session has
+`SET LOCAL metrics.allow_snapshot_delete = 'on'`. This is the ONE sanctioned bypass: `MetricsStore
+.purgeAll`'s PURGE step sets it before draining a deleted connection's snapshot rows; no other code
+path may. A trigger rather than an application-level guard because the invariant must hold even
+against a hand-run `UPDATE`/`DELETE` — the same reasoning the `metrics.team_membership` EXCLUDE
+constraint (V15) applies to invariant 1.
+
+**PURGE and the hard-delete exception.** `MetricsStore.purgeAll` (the PURGE job's generic,
+connector-agnostic step, `.claude/docs/ingestion.md` "Job orders") drains every rebuildable
+`metrics.*` row for a connection, dims first through facts, snapshot rows LAST (after the
+`SET LOCAL` bypass) — and, as of review round 2b, `metrics.derive_runs` too: a purged connection's
+run history has no reader left once its raw/norm/star rows are all gone, so it joins the drain
+rather than lingering as orphaned bookkeeping (the `sync_jobs` hard-delete-on-terminal precedent,
+"Soft delete (convention)" above, applied here since `derive_runs` has no OTHER retention window of
+its own until a connection is actually deleted).
 
 `MigrationChecksumTest` gains V15's pin.
 
-Current migrations are `V1`–`V15`:
+Current migrations are `V1`–`V16`:
 
 - `V1__init` — the `users` table: `name` (≤50), `email` (≤254), `password_hash`, `role` with
   `CHECK ("role" IN ('ADMIN', 'USER'))` (single-column role storage; the wire shape stays a
@@ -477,6 +521,9 @@ Current migrations are `V1`–`V15`:
   `CREATE SCHEMA IF NOT EXISTS metrics` plus the `metrics.settings` singleton, every per-connection
   configuration table, `metrics.team_membership` (D1, the EXCLUDE overlap guard) and
   `metrics.derive_runs` — the first tables outside `public`/`raw`/`norm`.
+- `V16__create_metrics_star` — see "The `metrics` schema — the derived star (V16)" above: adds
+  `DERIVE` to `sync_jobs.kind`'s CHECK, every `metrics.*` dim/bridge/fact/agg table, and the first
+  trigger in this repo (`fact_sprint_snapshot`'s immutability guard).
 
 The `users`/`teams` tables follow Toadie's dialect (`SERIAL`/`INTEGER` ids, epoch-millis `BIGINT`
 timestamps, `marked_as_deleted` + partial unique indexes over active rows) and its idioms: a
@@ -636,5 +683,6 @@ stream. The streams themselves (and the cursor shapes they define) land in plan 
 
 ### Not yet ported from Lettuce / Toadie / Covenant
 
-Nothing remains on the persistence list today; the `metrics` schema's derived star (dimensions,
-bridges, facts, daily aggregates — v0.3.0 plan §4 "V16") arrives with its own paragraph here.
+Nothing remains on the persistence list today — the `metrics` schema's derived star landed at V16
+(above); its sprint/worklog/epic-plan/daily-aggregate WRITERS (the table objects already exist)
+arrive with commits 8/9.

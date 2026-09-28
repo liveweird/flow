@@ -156,10 +156,13 @@ class DeriveKernelsTest {
         )
         val result = DeriveKernels.blockedIntervals(flagged, statusIntervals, setOf("BLOCKED"), windowFromMs = 0, windowToMs = 100)
 
-        // [5,15) (flagged) and [10,20) (blocked status) overlap and must merge into one [5,20) interval.
+        // [5,15) (flagged) and [10,20) (blocked status) overlap and must merge into one [5,20) interval,
+        // whose reason must carry the STATUS source through the merge (review round 2b fix — it used
+        // to always report "FLAGGED", silently losing the status source once the two overlapped).
         assertEquals(1, result.size)
         assertEquals(5, result.single().fromAtMs)
         assertEquals(20, result.single().toAtMs)
+        assertEquals("STATUS", result.single().reason)
     }
 
     @Test
@@ -174,6 +177,25 @@ class DeriveKernelsTest {
         val flagged = listOf(NormalizedFieldInterval(TrackedField.FLAGGED, 1, "true", null, 50, null))
         val result = DeriveKernels.blockedIntervals(flagged, emptyList(), emptySet(), windowFromMs = 0, windowToMs = 100)
         assertEquals(50L to 100L, result.single().fromAtMs to result.single().toAtMs)
+        assertEquals("FLAGGED", result.single().reason)
+    }
+
+    @Test
+    fun `blockedIntervals reports STATUS for a blocked-status-only span, never defaulting to FLAGGED`() {
+        val statusIntervals = listOf(statusInterval("BLOCKED", 10, 30, 1))
+        val result = DeriveKernels.blockedIntervals(emptyList(), statusIntervals, setOf("BLOCKED"), windowFromMs = 0, windowToMs = 100)
+        assertEquals(10L to 30L, result.single().fromAtMs to result.single().toAtMs)
+        assertEquals("STATUS", result.single().reason)
+    }
+
+    @Test
+    fun `blockedIntervals reports FLAGGED for a disjoint flagged-only span (no merge, no status source)`() {
+        val flagged = listOf(NormalizedFieldInterval(TrackedField.FLAGGED, 1, "true", null, 5, 15))
+        val statusIntervals = listOf(statusInterval("BLOCKED", 40, 50, 1))
+        val result = DeriveKernels.blockedIntervals(flagged, statusIntervals, setOf("BLOCKED"), windowFromMs = 0, windowToMs = 100)
+        assertEquals(2, result.size, "two disjoint spans must stay separate, never merged")
+        assertEquals("FLAGGED", result.first { it.fromAtMs == 5L }.reason)
+        assertEquals("STATUS", result.first { it.fromAtMs == 40L }.reason)
     }
 
     // ---- estimateTimeline / estimateSnapshots -------------------------------------------------

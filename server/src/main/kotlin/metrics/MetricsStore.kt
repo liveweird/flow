@@ -131,6 +131,30 @@ data class DeriveRowCounts(val tasks: Int, val epics: Int)
  */
 class MetricsStore(private val database: R2dbcDatabase) {
 
+    /**
+     * One DERIVE run's own bookkeeping row (v0.3.0 M3 commit 7, V15) — moved here from
+     * `MetricsDeriver.kt` (review round 2b) so [pruneDeriveRuns]/[purgeAll] can reach it without a
+     * cross-class table reference; `MetricsDeriver.kt` still owns every WRITE to it (`derive()`),
+     * this class owns the table object and its read/prune/purge paths, the `sync_jobs`/`sync_cursors`
+     * split precedent. `status` is `CHECK`-constrained to `RUNNING`/`SUCCEEDED`/`FAILED` (V15's
+     * immutable bytes) — a run a cancelled coroutine interrupts is marked FAILED, not a fourth
+     * `CANCELLED` value, since adding one would need altering that CHECK in a new migration
+     * (`.claude/docs/metrics.md` documents this choice).
+     */
+    object DeriveRuns : Table("metrics.derive_runs") {
+        val id = integer("id").autoIncrement()
+        val connectionId = integer("connection_id")
+        val jobId = integer("job_id").nullable()
+        val configRevision = long("config_revision")
+        val processingVersion = integer("processing_version")
+        val startedAt = long("started_at")
+        val finishedAt = long("finished_at").nullable()
+        val status = varchar("status", 20)
+        val rowCounts = jsonb("row_counts").nullable()
+        val errorDetail = text("error_detail").nullable()
+        override val primaryKey = PrimaryKey(id)
+    }
+
     object DimDate : Table("metrics.dim_date") {
         val day = varchar("day", 10)
         val dayStartMs = long("day_start_ms")
@@ -383,7 +407,71 @@ class MetricsStore(private val database: R2dbcDatabase) {
         }
     }
 
-    /** Wholesale-rebuilds `dim_domain`/`dim_task`/`dim_epic` for one connection — call inside the caller's own transaction. */
+    /**
+     * Deletes `dim_domain`/`dim_task`/`dim_epic` for one connection — call ONCE, before the batched
+     * [insertTasks]/[insertEpics] inserts below (v0.3.0 M3 review round 2b: `MetricsDeriver.kt` now
+     * writes tasks/epics in batches of 200 rather than one final list, so delete and insert are
+     * split into their own methods instead of one `replaceDims` doing both).
+     */
+    suspend fun deleteDims(connectionId: UInt) {
+        DimDomain.deleteWhere { DimDomain.connectionId eq connectionId }
+        DimTask.deleteWhere { DimTask.connectionId eq connectionId }
+        DimEpic.deleteWhere { DimEpic.connectionId eq connectionId }
+    }
+
+    suspend fun insertDomains(connectionId: UInt, domains: List<DimDomainRow>, configRevision: Long) {
+        if (domains.isEmpty()) return
+        DimDomain.batchInsert(domains) {
+            this[DimDomain.connectionId] = connectionId
+            this[DimDomain.domainKey] = it.domainKey
+            this[DimDomain.name] = it.name
+            this[DimDomain.projectKeys] = stringArrayJson(it.projectKeys)
+            this[DimDomain.configRevision] = configRevision
+        }
+    }
+
+    /** One batch's worth of `dim_task` rows — call per batch, AFTER [deleteDims] ran once for the connection. */
+    suspend fun insertTasks(connectionId: UInt, tasks: List<DimTaskRow>, configRevision: Long) {
+        if (tasks.isEmpty()) return
+        DimTask.batchInsert(tasks) {
+            this[DimTask.connectionId] = connectionId
+            this[DimTask.issueId] = it.issueId
+            this[DimTask.issueKey] = it.issueKey
+            this[DimTask.issueType] = it.issueType
+            this[DimTask.activityType] = it.activityType
+            this[DimTask.workCategory] = it.workCategory
+            this[DimTask.workCategorySource] = it.workCategorySource
+            this[DimTask.isSubtask] = it.isSubtask
+            this[DimTask.parentTaskId] = it.parentTaskId
+            this[DimTask.domainKey] = it.domainKey
+            this[DimTask.epicId] = it.epicId
+            this[DimTask.configRevision] = configRevision
+        }
+    }
+
+    /** One batch's worth of `dim_epic` rows — call per batch, AFTER [deleteDims] ran once for the connection. */
+    suspend fun insertEpics(connectionId: UInt, epics: List<DimEpicRow>, configRevision: Long) {
+        if (epics.isEmpty()) return
+        DimEpic.batchInsert(epics) {
+            this[DimEpic.connectionId] = connectionId
+            this[DimEpic.issueId] = it.issueId
+            this[DimEpic.issueKey] = it.issueKey
+            this[DimEpic.summary] = it.summary
+            this[DimEpic.domainKey] = it.domainKey
+            this[DimEpic.workCategory] = it.workCategory
+            this[DimEpic.currentStage] = it.currentStage
+            this[DimEpic.startAt] = it.startAt
+            this[DimEpic.dueAt] = it.dueAt
+            this[DimEpic.configRevision] = configRevision
+        }
+    }
+
+    /**
+     * Wholesale-rebuilds `dim_domain`/`dim_task`/`dim_epic` for one connection in ONE call — the
+     * pre-batching shape, kept for a caller (a test, or a future small connection) that has every
+     * row in memory already; `MetricsDeriver.kt`'s own batched write calls [deleteDims]/
+     * [insertDomains]/[insertTasks]/[insertEpics] directly instead.
+     */
     suspend fun replaceDims(
         connectionId: UInt,
         domains: List<DimDomainRow>,
@@ -391,53 +479,106 @@ class MetricsStore(private val database: R2dbcDatabase) {
         epics: List<DimEpicRow>,
         configRevision: Long,
     ) {
-        DimDomain.deleteWhere { DimDomain.connectionId eq connectionId }
-        if (domains.isNotEmpty()) {
-            DimDomain.batchInsert(domains) {
-                this[DimDomain.connectionId] = connectionId
-                this[DimDomain.domainKey] = it.domainKey
-                this[DimDomain.name] = it.name
-                this[DimDomain.projectKeys] = stringArrayJson(it.projectKeys)
-                this[DimDomain.configRevision] = configRevision
-            }
+        deleteDims(connectionId)
+        insertDomains(connectionId, domains, configRevision)
+        insertTasks(connectionId, tasks, configRevision)
+        insertEpics(connectionId, epics, configRevision)
+    }
+
+    /** Deletes every bridge this commit populates — call ONCE, before the batched insert methods below. */
+    suspend fun deleteBridges(connectionId: UInt) {
+        TaskEpic.deleteWhere { TaskEpic.connectionId eq connectionId }
+        TaskDomain.deleteWhere { TaskDomain.connectionId eq connectionId }
+        TaskAssignee.deleteWhere { TaskAssignee.connectionId eq connectionId }
+        TaskSprint.deleteWhere { TaskSprint.connectionId eq connectionId }
+        ItemEstimate.deleteWhere { ItemEstimate.connectionId eq connectionId }
+        ItemStage.deleteWhere { ItemStage.connectionId eq connectionId }
+        ItemBlocked.deleteWhere { ItemBlocked.connectionId eq connectionId }
+    }
+
+    suspend fun insertTaskEpic(connectionId: UInt, rows: List<TaskEpicRow>) {
+        if (rows.isEmpty()) return
+        TaskEpic.batchInsert(rows) {
+            this[TaskEpic.connectionId] = connectionId
+            this[TaskEpic.issueId] = it.issueId
+            this[TaskEpic.epicId] = it.epicId
+            this[TaskEpic.validFrom] = it.fromAtMs
+            this[TaskEpic.validTo] = it.toAtMs
         }
-        DimTask.deleteWhere { DimTask.connectionId eq connectionId }
-        if (tasks.isNotEmpty()) {
-            DimTask.batchInsert(tasks) {
-                this[DimTask.connectionId] = connectionId
-                this[DimTask.issueId] = it.issueId
-                this[DimTask.issueKey] = it.issueKey
-                this[DimTask.issueType] = it.issueType
-                this[DimTask.activityType] = it.activityType
-                this[DimTask.workCategory] = it.workCategory
-                this[DimTask.workCategorySource] = it.workCategorySource
-                this[DimTask.isSubtask] = it.isSubtask
-                this[DimTask.parentTaskId] = it.parentTaskId
-                this[DimTask.domainKey] = it.domainKey
-                this[DimTask.epicId] = it.epicId
-                this[DimTask.configRevision] = configRevision
-            }
+    }
+
+    suspend fun insertTaskDomain(connectionId: UInt, rows: List<TaskDomainRow>) {
+        if (rows.isEmpty()) return
+        TaskDomain.batchInsert(rows) {
+            this[TaskDomain.connectionId] = connectionId
+            this[TaskDomain.issueId] = it.issueId
+            this[TaskDomain.domainKey] = it.domainKey
+            this[TaskDomain.validFrom] = it.fromAtMs
+            this[TaskDomain.validTo] = it.toAtMs
         }
-        DimEpic.deleteWhere { DimEpic.connectionId eq connectionId }
-        if (epics.isNotEmpty()) {
-            DimEpic.batchInsert(epics) {
-                this[DimEpic.connectionId] = connectionId
-                this[DimEpic.issueId] = it.issueId
-                this[DimEpic.issueKey] = it.issueKey
-                this[DimEpic.summary] = it.summary
-                this[DimEpic.domainKey] = it.domainKey
-                this[DimEpic.workCategory] = it.workCategory
-                this[DimEpic.currentStage] = it.currentStage
-                this[DimEpic.startAt] = it.startAt
-                this[DimEpic.dueAt] = it.dueAt
-                this[DimEpic.configRevision] = configRevision
-            }
+    }
+
+    suspend fun insertTaskAssignee(connectionId: UInt, rows: List<TaskAssigneeRow>) {
+        if (rows.isEmpty()) return
+        TaskAssignee.batchInsert(rows) {
+            this[TaskAssignee.connectionId] = connectionId
+            this[TaskAssignee.issueId] = it.issueId
+            this[TaskAssignee.accountId] = it.accountId
+            this[TaskAssignee.validFrom] = it.fromAtMs
+            this[TaskAssignee.validTo] = it.toAtMs
+        }
+    }
+
+    suspend fun insertTaskSprint(connectionId: UInt, rows: List<TaskSprintRow>) {
+        if (rows.isEmpty()) return
+        TaskSprint.batchInsert(rows) {
+            this[TaskSprint.connectionId] = connectionId
+            this[TaskSprint.issueId] = it.issueId
+            this[TaskSprint.sprintId] = it.sprintId
+            this[TaskSprint.validFrom] = it.fromAtMs
+            this[TaskSprint.validTo] = it.toAtMs
+        }
+    }
+
+    suspend fun insertItemEstimate(connectionId: UInt, rows: List<ItemEstimateRow>) {
+        if (rows.isEmpty()) return
+        ItemEstimate.batchInsert(rows) {
+            this[ItemEstimate.connectionId] = connectionId
+            this[ItemEstimate.issueId] = it.issueId
+            this[ItemEstimate.estimateMd] = it.estimateMd?.toBigDecimal()
+            this[ItemEstimate.validFrom] = it.fromAtMs
+            this[ItemEstimate.validTo] = it.toAtMs
+        }
+    }
+
+    suspend fun insertItemStage(connectionId: UInt, rows: List<ItemStageRow>) {
+        if (rows.isEmpty()) return
+        ItemStage.batchInsert(rows) {
+            this[ItemStage.connectionId] = connectionId
+            this[ItemStage.issueId] = it.issueId
+            this[ItemStage.stage] = it.stage
+            this[ItemStage.statusId] = it.statusId
+            this[ItemStage.validFrom] = it.fromAtMs
+            this[ItemStage.validTo] = it.toAtMs
+        }
+    }
+
+    suspend fun insertItemBlocked(connectionId: UInt, rows: List<ItemBlockedRow>) {
+        if (rows.isEmpty()) return
+        ItemBlocked.batchInsert(rows) {
+            this[ItemBlocked.connectionId] = connectionId
+            this[ItemBlocked.issueId] = it.issueId
+            this[ItemBlocked.reason] = it.reason
+            this[ItemBlocked.validFrom] = it.fromAtMs
+            this[ItemBlocked.validTo] = it.toAtMs
         }
     }
 
     /**
      * Wholesale-rebuilds every bridge this commit populates (`task_epic`/`task_domain`/
-     * `task_assignee`/`task_sprint`/`item_estimate`/`item_stage`/`item_blocked`).
+     * `task_assignee`/`task_sprint`/`item_estimate`/`item_stage`/`item_blocked`) in ONE call — kept
+     * for a caller with every row in memory already; `MetricsDeriver.kt`'s own batched write calls
+     * [deleteBridges] plus the per-table insert methods above directly instead.
      */
     suspend fun replaceBridges(
         connectionId: UInt,
@@ -449,81 +590,22 @@ class MetricsStore(private val database: R2dbcDatabase) {
         itemStage: List<ItemStageRow>,
         itemBlocked: List<ItemBlockedRow>,
     ) {
-        TaskEpic.deleteWhere { TaskEpic.connectionId eq connectionId }
-        if (taskEpic.isNotEmpty()) {
-            TaskEpic.batchInsert(taskEpic) {
-                this[TaskEpic.connectionId] = connectionId
-                this[TaskEpic.issueId] = it.issueId
-                this[TaskEpic.epicId] = it.epicId
-                this[TaskEpic.validFrom] = it.fromAtMs
-                this[TaskEpic.validTo] = it.toAtMs
-            }
-        }
-        TaskDomain.deleteWhere { TaskDomain.connectionId eq connectionId }
-        if (taskDomain.isNotEmpty()) {
-            TaskDomain.batchInsert(taskDomain) {
-                this[TaskDomain.connectionId] = connectionId
-                this[TaskDomain.issueId] = it.issueId
-                this[TaskDomain.domainKey] = it.domainKey
-                this[TaskDomain.validFrom] = it.fromAtMs
-                this[TaskDomain.validTo] = it.toAtMs
-            }
-        }
-        TaskAssignee.deleteWhere { TaskAssignee.connectionId eq connectionId }
-        if (taskAssignee.isNotEmpty()) {
-            TaskAssignee.batchInsert(taskAssignee) {
-                this[TaskAssignee.connectionId] = connectionId
-                this[TaskAssignee.issueId] = it.issueId
-                this[TaskAssignee.accountId] = it.accountId
-                this[TaskAssignee.validFrom] = it.fromAtMs
-                this[TaskAssignee.validTo] = it.toAtMs
-            }
-        }
-        TaskSprint.deleteWhere { TaskSprint.connectionId eq connectionId }
-        if (taskSprint.isNotEmpty()) {
-            TaskSprint.batchInsert(taskSprint) {
-                this[TaskSprint.connectionId] = connectionId
-                this[TaskSprint.issueId] = it.issueId
-                this[TaskSprint.sprintId] = it.sprintId
-                this[TaskSprint.validFrom] = it.fromAtMs
-                this[TaskSprint.validTo] = it.toAtMs
-            }
-        }
-        ItemEstimate.deleteWhere { ItemEstimate.connectionId eq connectionId }
-        if (itemEstimate.isNotEmpty()) {
-            ItemEstimate.batchInsert(itemEstimate) {
-                this[ItemEstimate.connectionId] = connectionId
-                this[ItemEstimate.issueId] = it.issueId
-                this[ItemEstimate.estimateMd] = it.estimateMd?.toBigDecimal()
-                this[ItemEstimate.validFrom] = it.fromAtMs
-                this[ItemEstimate.validTo] = it.toAtMs
-            }
-        }
-        ItemStage.deleteWhere { ItemStage.connectionId eq connectionId }
-        if (itemStage.isNotEmpty()) {
-            ItemStage.batchInsert(itemStage) {
-                this[ItemStage.connectionId] = connectionId
-                this[ItemStage.issueId] = it.issueId
-                this[ItemStage.stage] = it.stage
-                this[ItemStage.statusId] = it.statusId
-                this[ItemStage.validFrom] = it.fromAtMs
-                this[ItemStage.validTo] = it.toAtMs
-            }
-        }
-        ItemBlocked.deleteWhere { ItemBlocked.connectionId eq connectionId }
-        if (itemBlocked.isNotEmpty()) {
-            ItemBlocked.batchInsert(itemBlocked) {
-                this[ItemBlocked.connectionId] = connectionId
-                this[ItemBlocked.issueId] = it.issueId
-                this[ItemBlocked.reason] = it.reason
-                this[ItemBlocked.validFrom] = it.fromAtMs
-                this[ItemBlocked.validTo] = it.toAtMs
-            }
-        }
+        deleteBridges(connectionId)
+        insertTaskEpic(connectionId, taskEpic)
+        insertTaskDomain(connectionId, taskDomain)
+        insertTaskAssignee(connectionId, taskAssignee)
+        insertTaskSprint(connectionId, taskSprint)
+        insertItemEstimate(connectionId, itemEstimate)
+        insertItemStage(connectionId, itemStage)
+        insertItemBlocked(connectionId, itemBlocked)
     }
 
-    suspend fun replaceFactTaskDelivery(connectionId: UInt, rows: List<FactTaskDeliveryRow>, configRevision: Long) {
+    suspend fun deleteFactTaskDelivery(connectionId: UInt) {
         FactTaskDelivery.deleteWhere { FactTaskDelivery.connectionId eq connectionId }
+    }
+
+    /** One batch's worth of `fact_task_delivery` rows — call per batch, AFTER [deleteFactTaskDelivery] ran once. */
+    suspend fun insertFactTaskDelivery(connectionId: UInt, rows: List<FactTaskDeliveryRow>, configRevision: Long) {
         if (rows.isEmpty()) return
         FactTaskDelivery.batchInsert(rows) {
             this[FactTaskDelivery.connectionId] = connectionId
@@ -568,8 +650,18 @@ class MetricsStore(private val database: R2dbcDatabase) {
         }
     }
 
-    suspend fun replaceFactEpicDelivery(connectionId: UInt, rows: List<FactEpicDeliveryRow>, configRevision: Long) {
+    /** Wholesale-replace shape (one call), kept for a caller with every row in memory — `IngestWorkerTest`'s own fixture seeding. */
+    suspend fun replaceFactTaskDelivery(connectionId: UInt, rows: List<FactTaskDeliveryRow>, configRevision: Long) {
+        deleteFactTaskDelivery(connectionId)
+        insertFactTaskDelivery(connectionId, rows, configRevision)
+    }
+
+    suspend fun deleteFactEpicDelivery(connectionId: UInt) {
         FactEpicDelivery.deleteWhere { FactEpicDelivery.connectionId eq connectionId }
+    }
+
+    /** One batch's worth of `fact_epic_delivery` rows — call per batch, AFTER [deleteFactEpicDelivery] ran once. */
+    suspend fun insertFactEpicDelivery(connectionId: UInt, rows: List<FactEpicDeliveryRow>, configRevision: Long) {
         if (rows.isEmpty()) return
         FactEpicDelivery.batchInsert(rows) {
             this[FactEpicDelivery.connectionId] = connectionId
@@ -594,12 +686,36 @@ class MetricsStore(private val database: R2dbcDatabase) {
         }
     }
 
+    /** Wholesale-replace shape (one call), kept for a caller with every row in memory already. */
+    suspend fun replaceFactEpicDelivery(connectionId: UInt, rows: List<FactEpicDeliveryRow>, configRevision: Long) {
+        deleteFactEpicDelivery(connectionId)
+        insertFactEpicDelivery(connectionId, rows, configRevision)
+    }
+
+    /**
+     * Hard-deletes terminal `derive_runs` rows older than [retentionMillis] (v0.3.0 M3 review round
+     * 2b) — the `SyncJobsService.prune` shape, called once per DERIVE run
+     * (`MetricsDeriver.kt`, right before it inserts its OWN new RUNNING row). `derive_runs` is
+     * unbounded operational history exactly like `sync_jobs` (`.claude/docs/persistence.md` "Soft
+     * delete (convention)" — the `sync_jobs` prune hard-delete exception applies here too): a
+     * connection with a short `DERIVE` cadence would otherwise grow this table forever.
+     */
+    suspend fun pruneDeriveRuns(retentionMillis: Long, now: Long): Int = suspendTransaction(database) {
+        DeriveRuns.deleteWhere {
+            (DeriveRuns.status inList listOf("SUCCEEDED", "FAILED")) and (DeriveRuns.finishedAt less (now - retentionMillis))
+        }
+    }
+
     /**
      * Every rebuildable `metrics.*` row for one connection, in dependency-safe order — the PURGE
      * job's generic step (`ingest/IngestWorker.kt`, `.claude/docs/ingestion.md` "PURGE"). Snapshot
      * rows need `SET LOCAL metrics.allow_snapshot_delete = 'on'` first (the ONE sanctioned bypass of
      * the immutability trigger, `.claude/docs/persistence.md`) — scoped to the CALLER's transaction,
-     * so this whole method must run inside `suspendTransaction`.
+     * so this whole method must run inside `suspendTransaction`. `derive_runs` (review round 2b)
+     * joins the drain too — a purged connection's own run HISTORY has no reader left once its raw/
+     * norm/star rows are all gone, the `sync_jobs` hard-delete-on-terminal precedent applied to a
+     * table that, unlike `sync_jobs`, has no opportunistic retention window of its own until a
+     * connection is actually deleted.
      */
     suspend fun purgeAll(connectionId: UInt) = suspendTransaction(database) {
         exec("SET LOCAL metrics.allow_snapshot_delete = 'on'")
@@ -623,6 +739,7 @@ class MetricsStore(private val database: R2dbcDatabase) {
         DimEpic.deleteWhere { DimEpic.connectionId eq connectionId }
         DimTask.deleteWhere { DimTask.connectionId eq connectionId }
         DimDomain.deleteWhere { DimDomain.connectionId eq connectionId }
+        DeriveRuns.deleteWhere { DeriveRuns.connectionId eq connectionId.toInt() }
         Unit
     }
 
