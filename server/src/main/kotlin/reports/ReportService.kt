@@ -16,9 +16,10 @@ import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 
 /**
  * `metrics.derive_runs.status`'s SUCCEEDED value — the plain-string idiom `MetricsStore`'s own readers
- * already use (no Kotlin enum wraps this CHECK-constrained column).
+ * already use (no Kotlin enum wraps this CHECK-constrained column). Internal, not private — reused by
+ * `VelocityReport.kt`'s own [ReportService.database]-scoped `derivedAt` read.
  */
-private const val DERIVE_RUN_SUCCEEDED = "SUCCEEDED"
+internal const val DERIVE_RUN_SUCCEEDED = "SUCCEEDED"
 
 /**
  * `reports/` package's read-only assembly of `GET /api/v1/reports/filters` (v0.3.0 M4 commit 10a,
@@ -34,8 +35,10 @@ private const val DERIVE_RUN_SUCCEEDED = "SUCCEEDED"
  * encrypted API token).
  */
 class ReportService(
-    private val database: R2dbcDatabase,
-    private val metricsConfig: MetricsConfigService,
+    // internal, not private: `VelocityReport.kt`'s `ReportService.velocity()` extension (same
+    // package, the `.claude/docs/reports.md` "past ~120 lines -> a new file" idiom) needs both.
+    internal val database: R2dbcDatabase,
+    internal val metricsConfig: MetricsConfigService,
     private val teamMembership: TeamMembershipService,
 ) {
     suspend fun filters(nowMs: Long): ReportFilters = suspendTransaction(database) {

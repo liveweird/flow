@@ -879,6 +879,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/reports/velocity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Report 1 — velocity (committed vs. final scope, per sprint)
+         * @description Any authenticated user (D12), read-only — `.claude/docs/measures.md` "Report 1 — Velocity".
+         *     `initialMd`/`initialItems` are the committed scope, `finalMd`/`finalItems` the final scope
+         *     (A17). `snapshot` is the frozen `fact_sprint_snapshot` figures (null until the sprint was
+         *     first seen closed and team-mapped by a DERIVE run — D13); `drift` compares the two live vs.
+         *     frozen (0.005 MD tolerance). Levels, from the shared filter: UNIT (default) groups every
+         *     team's own closed sprints in the period by team (`groups`, Σ final MD/items); `teamId`
+         *     narrows to TEAM level, `sprints` becomes that one team's own sprints and `groups` becomes a
+         *     per-user split (`fact_sprint_scope.assignee_at_commitment`, Σ committed/final MD — the same
+         *     removed-row rule the team total itself follows, so Σ users == the team total); `teamId` AND
+         *     `accountId` together narrow to USER level — `sprints` itself narrows to that one account's
+         *     own contribution and `groups` is always empty. `teamId=0` (UNASSIGNED) is always empty — a
+         *     sprint always carries a real team or is excluded from this report. Velocity carries no
+         *     domain slice, so `domainView` is echoed in `meta` but never changes the result.
+         */
+        get: operations["getReportVelocity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/metrics-settings": {
         parameters: {
             query?: never;
@@ -1854,6 +1886,50 @@ export interface components {
             /** Format: int64 */
             configRevision: number;
             minSampleSize: number;
+        };
+        /** @description The four figures a velocity row carries, live or frozen. */
+        VelocitySnapshot: {
+            /** Format: double */
+            initialMd: number;
+            initialItems: number;
+            /** Format: double */
+            finalMd: number;
+            finalItems: number;
+        };
+        VelocitySprint: {
+            /** Format: int64 */
+            sprintId: number;
+            name: string;
+            /** Format: int32 */
+            teamId: number;
+            /** Format: int64 */
+            completedAt: number;
+            /** Format: double */
+            initialMd: number;
+            initialItems: number;
+            /** Format: double */
+            finalMd: number;
+            finalItems: number;
+            snapshot: components["schemas"]["VelocitySnapshot"] | null;
+            drift: boolean;
+        };
+        /** @description A team's own sums (UNIT level) or one user's `assignee_at_commitment` sums (TEAM level) — always empty at USER level. `teamId`/`accountId`/`label` are mutually exclusive with each other's absence: exactly one of `teamId` or `accountId` is set per row (a null `accountId` with a null `label` is the unassigned-at-commitment bucket, never a stored sentinel). */
+        VelocityGroup: {
+            /** Format: int32 */
+            teamId?: number | null;
+            accountId?: string | null;
+            label?: string | null;
+            /** Format: double */
+            initialMd: number;
+            initialItems: number;
+            /** Format: double */
+            finalMd: number;
+            finalItems: number;
+        };
+        VelocityReport: {
+            meta: components["schemas"]["ReportMeta"];
+            sprints: components["schemas"]["VelocitySprint"][];
+            groups: components["schemas"]["VelocityGroup"][];
         };
         /** @description RFC 7807 problem detail. Served as `application/problem+json`; instance is the request path without query parameters. */
         ProblemDetail: {
@@ -3398,6 +3474,46 @@ export interface operations {
                     "application/json": components["schemas"]["ReportFilters"];
                 };
             };
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getReportVelocity: {
+        parameters: {
+            query?: {
+                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. */
+                from?: components["parameters"]["ReportFrom"];
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
+                to?: components["parameters"]["ReportTo"];
+                /** @description Each team's own last N closed sprints (union at unit level). Mutually exclusive with `from`/`to`/`sprintId`. */
+                lastSprints?: components["parameters"]["ReportLastSprints"];
+                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
+                sprintId?: components["parameters"]["ReportSprintId"];
+                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
+                teamId?: components["parameters"]["ReportTeamId"];
+                /** @description One Jira account id — sets the level to USER. Requires `teamId`. */
+                accountId?: components["parameters"]["ReportAccountId"];
+                /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
+                domainView?: components["parameters"]["ReportDomainView"];
+                /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
+                connectionId?: components["parameters"]["ReportConnectionId"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The velocity report */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VelocityReport"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             500: components["responses"]["InternalServerError"];
         };

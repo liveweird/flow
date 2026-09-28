@@ -140,9 +140,81 @@ composes services `configureDatabase`/`configureJira`/`configureMetrics` have AL
 -- which runs BEFORE `configureMetrics` and so cannot see those keys yet. Registered in
 `application.yaml` in the "-- features" group, after the metrics feature routes it reads from.
 
+## Report 1 -- Velocity
+
+`GET /api/v1/reports/velocity` (v0.3.0 M4 commit 10b, `.claude/docs/measures.md` "Report 1 --
+Velocity"): `initial` = committed scope, `final` = final scope (A17) -- both read straight off
+`metrics.fact_sprint` for the sprint-level rows, `metrics.fact_sprint_scope` for the per-user
+breakdown. Takes the shared `from`/`to`/`lastSprints`/`sprintId`, `teamId`/`accountId` and
+`connectionId` parameters (`domainView` is accepted and echoed in `meta` but never changes the
+result -- velocity carries no domain slice, `measures.md`'s Report 1 rows: domain "--").
+
+```
+VelocityReport {
+  meta: ReportMeta
+  sprints: [{
+    sprintId, name, teamId, completedAt,
+    initialMd, initialItems, finalMd, finalItems,
+    snapshot: { initialMd, initialItems, finalMd, finalItems } | null,
+    drift: boolean
+  }]
+  groups: [{ teamId?, accountId?, label?, initialMd, initialItems, finalMd, finalItems }]
+}
+```
+
+- **`sprints`** -- one row per (team, sprint) in scope. `snapshot` is the frozen
+  `fact_sprint_snapshot` figures (`null` until the sprint was first seen closed and team-mapped by
+  a DERIVE run -- D13); `drift` compares the two LIVE-vs-FROZEN figures with a 0.005 MD tolerance
+  (item counts compared exactly) -- `true` whenever any of the four differs, always `false` when no
+  snapshot exists yet.
+- **Levels, from the parsed filter** (`reports/ReportFilter.kt`'s own `ReportLevel`):
+  - **UNIT** (no `teamId`) -- every team's own CLOSED sprints in the period; `sprints` carries the
+    whole-team figures (straight off `fact_sprint`); `groups` sums FINAL MD/items per team (`Σ
+    final`, from the SAME `sprints` rows this response already carries -- no separate query).
+  - **TEAM** (`teamId`) -- narrows `sprints` to that one team's own sprints; `groups` becomes a
+    per-user split keyed by `fact_sprint_scope.assignee_at_commitment` -- committed
+    (`committed AND in_scope_at_close`) sums `estimate_at_commitment_md`, final
+    (`in_scope_at_close`) sums `estimate_at_close_md`, the SAME removed-row rule
+    `DeriveKernels.sprintTotals` applies to the team total itself (`.claude/docs/metrics.md`
+    "Sprint scope, facts and snapshots (D13)"), so `Σ groups == the team total` (both buckets, both
+    MD and items). A `null` `accountId`/`label` group is the unassigned-at-commitment bucket --
+    never a stored sentinel, the `credit_team_id` convention.
+  - **USER** (`teamId` AND `accountId`) -- `sprints` itself narrows to that ONE account's own
+    contribution per sprint (the SAME committed/final predicates as the TEAM-level groups, applied
+    per sprint instead of summed); `groups` is always empty -- there is nothing further to drill.
+    `snapshot`/`drift` are always `null`/`false` at this level: a per-user FROZEN figure would need
+    parsing `fact_sprint_snapshot.scope`'s JSONB (`.claude/docs/metrics.md`'s own documented "per-user
+    velocity from the snapshot needs no child table" -- a reader this commit does not add), a
+    deliberate, documented scope narrowing rather than a silent guess.
+  - **`teamId = 0`** (UNASSIGNED) -- always empty (`sprints: []`, `groups: []`): a sprint always
+    carries a real team or is excluded from this report entirely (an unmapped-board sprint shows
+    only in report 14, per `measures.md`'s Report 1 rows).
+- **Period.** `from`/`to` -> `fact_sprint.complete_at` in `[fromMs, toMs]`, team-scoped when
+  narrowed. `lastSprints=N` -> each team's own last N sprints with a non-null `complete_at`, ordered
+  descending, resolved in Kotlin (teams are few and admin-curated, the `ReportService.filters()`
+  precedent) -- reported per team in `meta.resolvedSprints`. `sprintId` -> that ONE sprint; unknown
+  (checked against `metrics.dim_sprint` across the connection scope, regardless of team mapping) is
+  `400`; a real sprint with no team mapped still 400s only if it does not exist at all -- an
+  existing-but-unmapped sprint simply returns `sprints: []`.
+- **Connection scope.** `connectionId` narrows to one ACTIVE connection (`400` if unknown/inactive);
+  absent, defaults to every ACTIVE (not soft-deleted) connection, the same set `/reports/filters`
+  lists — a DISABLED connection only has syncing paused, and its derived data still counts.
+- **`teamId`/`sprintId` existence.** A positive, non-zero `teamId` must name an ACTIVE team (`400`
+  otherwise) -- the client-supplied-FK idiom, `reports/ReportFilter.kt`'s own doc comment: structural
+  parsing stays in the parser, existence checks live in the service.
+
+`reports/VelocityReport.kt` holds the wire DTOs, the drift comparison and every query/aggregation
+function as an extension on `ReportService` (`reports/ReportService.kt`'s `database`/`metricsConfig`
+are `internal`, not `private`, precisely so this sibling file can extend it without a second
+constructor) -- the file the brief's own "past ~120 lines -> a new file" idiom names. Tests:
+`ReportVelocityTest` (`DerivedStubFixture`-based: UNIT-level `finalMd` against `fact_sprint`, the
+golden FLO sprint's `sprintId` period against `expected.json`'s `committedMd`/`finalMd`, TEAM-level
+`Σ groups == team total`, `400` for `from > to` and an unknown `sprintId`; every request runs
+through a non-admin `seededClient`, proving D12's `200` at the same time).
+
 ## Not yet built
 
-Every named report (plan section 7's table: velocity, throughput, sprint consistency, estimation
+Every remaining named report (plan section 7's table: throughput, sprint consistency, estimation
 accuracy x2, estimate adjustments, cycle time, reported-time ratio, WIP, backlog, aging WIP,
 blocked time, data quality, epic progress/EVM, cost matrix) lands in its own later commit and
 grows this doc with its own `## Report N -- ...` section, following `.claude/docs/measures.md`'s

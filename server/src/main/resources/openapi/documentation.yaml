@@ -1288,6 +1288,44 @@ paths:
                 $ref: '#/components/schemas/ReportFilters'
         '401': { $ref: '#/components/responses/Unauthorized' }
         '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/reports/velocity:
+    get:
+      tags: [reports]
+      operationId: getReportVelocity
+      summary: Report 1 — velocity (committed vs. final scope, per sprint)
+      description: |
+        Any authenticated user (D12), read-only — `.claude/docs/measures.md` "Report 1 — Velocity".
+        `initialMd`/`initialItems` are the committed scope, `finalMd`/`finalItems` the final scope
+        (A17). `snapshot` is the frozen `fact_sprint_snapshot` figures (null until the sprint was
+        first seen closed and team-mapped by a DERIVE run — D13); `drift` compares the two live vs.
+        frozen (0.005 MD tolerance). Levels, from the shared filter: UNIT (default) groups every
+        team's own closed sprints in the period by team (`groups`, Σ final MD/items); `teamId`
+        narrows to TEAM level, `sprints` becomes that one team's own sprints and `groups` becomes a
+        per-user split (`fact_sprint_scope.assignee_at_commitment`, Σ committed/final MD — the same
+        removed-row rule the team total itself follows, so Σ users == the team total); `teamId` AND
+        `accountId` together narrow to USER level — `sprints` itself narrows to that one account's
+        own contribution and `groups` is always empty. `teamId=0` (UNASSIGNED) is always empty — a
+        sprint always carries a real team or is excluded from this report. Velocity carries no
+        domain slice, so `domainView` is echoed in `meta` but never changes the result.
+      parameters:
+        - { $ref: '#/components/parameters/ReportFrom' }
+        - { $ref: '#/components/parameters/ReportTo' }
+        - { $ref: '#/components/parameters/ReportLastSprints' }
+        - { $ref: '#/components/parameters/ReportSprintId' }
+        - { $ref: '#/components/parameters/ReportTeamId' }
+        - { $ref: '#/components/parameters/ReportAccountId' }
+        - { $ref: '#/components/parameters/ReportDomainView' }
+        - { $ref: '#/components/parameters/ReportConnectionId' }
+      responses:
+        '200':
+          description: The velocity report
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VelocityReport'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/metrics-settings:
     get:
       tags: [metrics]
@@ -2716,6 +2754,59 @@ components:
         derivedAt: { type: integer, format: int64, nullable: true }
         configRevision: { type: integer, format: int64, minimum: 1 }
         minSampleSize: { type: integer, minimum: 1 }
+
+    VelocitySnapshot:
+      type: object
+      description: The four figures a velocity row carries, live or frozen.
+      required: [initialMd, initialItems, finalMd, finalItems]
+      properties:
+        initialMd: { type: number, format: double }
+        initialItems: { type: integer }
+        finalMd: { type: number, format: double }
+        finalItems: { type: integer }
+    VelocitySprint:
+      type: object
+      required: [sprintId, name, teamId, completedAt, initialMd, initialItems, finalMd, finalItems, snapshot, drift]
+      properties:
+        sprintId: { type: integer, format: int64 }
+        name: { type: string }
+        teamId: { type: integer, format: int32, minimum: 0 }
+        completedAt: { type: integer, format: int64 }
+        initialMd: { type: number, format: double }
+        initialItems: { type: integer }
+        finalMd: { type: number, format: double }
+        finalItems: { type: integer }
+        snapshot:
+          allOf: [{ $ref: '#/components/schemas/VelocitySnapshot' }]
+          nullable: true
+        drift: { type: boolean }
+    VelocityGroup:
+      type: object
+      description: >-
+        A team's own sums (UNIT level) or one user's `assignee_at_commitment` sums (TEAM level) —
+        always empty at USER level. `teamId`/`accountId`/`label` are mutually exclusive with each
+        other's absence: exactly one of `teamId` or `accountId` is set per row (a null `accountId`
+        with a null `label` is the unassigned-at-commitment bucket, never a stored sentinel).
+      required: [initialMd, initialItems, finalMd, finalItems]
+      properties:
+        teamId: { type: integer, format: int32, minimum: 0, nullable: true }
+        accountId: { type: string, nullable: true }
+        label: { type: string, nullable: true }
+        initialMd: { type: number, format: double }
+        initialItems: { type: integer }
+        finalMd: { type: number, format: double }
+        finalItems: { type: integer }
+    VelocityReport:
+      type: object
+      required: [meta, sprints, groups]
+      properties:
+        meta: { $ref: '#/components/schemas/ReportMeta' }
+        sprints:
+          type: array
+          items: { $ref: '#/components/schemas/VelocitySprint' }
+        groups:
+          type: array
+          items: { $ref: '#/components/schemas/VelocityGroup' }
 
     ProblemDetail:
       type: object
