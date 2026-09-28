@@ -23,6 +23,12 @@ data class RawIssueWorkItem(
     val statusName: String,
     val statusCategory: StatusCategory,
     val assigneeAccountId: String? = null,
+    /** An epic is level 1, from the REFERENCE stream's `ISSUE_TYPE` entities (v0.3.0 M1 commit 2). */
+    val hierarchyLevel: Int? = null,
+    /** The system `duedate` field's current value, epoch millis at start of day UTC (v0.3.0 M1 commit 2). */
+    val dueAt: Long? = null,
+    /** Every non-null `customfield_*` current value, keyed by field id (v0.3.0 M1 commit 2) — never filtered. */
+    val customFields: JsonObject = JsonObject(emptyMap()),
     val processedAt: Long,
     val processingVersion: Int,
     val deletedAt: Long? = null,

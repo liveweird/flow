@@ -150,6 +150,49 @@ the stub's `changelog/bulkfetch` WireMock mappings only match requests shaped as
 every bulk chunk after the first mismatch, not just the one deliberately-omitted chunk the stub
 already exercises.
 
+## Parent field spellings (open real-tenant question)
+
+`jira/JiraNormalizer.kt`'s PARENT tiling (v0.3.0 M1 commit 2, V14 — see "Normalized layer" in
+`.claude/docs/ingestion.md`) detects a parent-move changelog item three ways: `fieldId == "parent"`
+(the sample stub's own spelling, and Jira Cloud's current field, which replaced the older Epic
+Link), the REFERENCE stream's discovered legacy Epic Link custom field id (`gh-epic-link`,
+`JiraFieldIds.epicLinkFieldId`, matched by `schema.custom` the same way Sprint/Rank/Team are), or
+the changelog item's `field` display name being `Parent`/`IssueParentAssociation`/`Epic Link`. Only
+the first path is exercised by `sample-data/jira-stub` (`generate.mjs` emits parent-move history
+items as `{field: "Parent", fieldId: "parent", ...}`) — **the other two are defensive, unconfirmed
+against a real Jira Cloud tenant.** Before pointing this connector at a real site, verify with a
+`GET /issue/{id}/changelog` capture on a tenant that has migrated an issue between epics (or one
+still using the older Epic Link field) which spelling it actually emits, and drop whichever of the
+three paths turns out unused.
+
+## Timestamps
+
+A real-tenant blocker found after phase 2: `java.time.Instant.parse` only accepts strict ISO-8601
+(a `Z` or a colon-delimited `+HH:MM` offset) — it REJECTS the form Jira Cloud's REST API v3 actually
+returns for an issue's own `created`/`updated`/`resolutiondate`, a changelog history's `created`,
+and a worklog's `started`/`created`/`updated`: `yyyy-MM-dd'T'HH:mm:ss.SSSZ`, i.e. a colonless offset
+(`+0000`), verified against a real tenant —
+`Instant.parse("2024-01-15T10:20:30.123+0000")` throws `DateTimeParseException: ... could not be
+parsed at index 23`. `sample-data/jira-stub` used to emit the more convenient `Z` form everywhere
+(so every test passed while the first real SYNC against a real tenant would have failed in the
+ISSUES stream), and now emits both real shapes — see `sample-data/README.md`'s "Timestamp formats".
+
+`server/src/main/kotlin/jira/JiraTime.kt`'s `parseJiraInstant`/`parseJiraInstantEpochMillis` is the
+ONE parser every Jira-sourced timestamp string goes through, accepting the REST API v3 form
+(`+0000`/`-0500`, no colon), the Agile API/ordinary ISO-8601 form (`Z`, `+02:00`), and both with or
+without fractional seconds — a `DateTimeFormatterBuilder` appending `DateTimeFormatter
+.ISO_LOCAL_DATE_TIME` (the date/time/optional-fraction part) then the bracketed offset patterns
+`[XXX][XX][X]` (colon, colonless, then bare-hour/`Z`, tried in that order), parsed to an
+`OffsetDateTime` and converted with `toInstant()`. A malformed value throws
+`java.time.format.DateTimeParseException` — the SAME unchecked exception type `Instant.parse`
+itself always threw, so every call site's existing failure handling is unchanged: left uncaught in
+a stream (ISSUES/CHANGELOGS/WORKLOGS/RECONCILE), it fails that job exactly as a bad timestamp
+always would have; `jira/JiraProcessStream.kt`'s per-issue `catch (failure: Exception)` still
+isolates it to that one issue during PROCESS, never aborting the rest of the batch.
+**Never call `Instant.parse` directly on Jira-sourced text** — always go through `JiraTime.kt`.
+Covered by `JiraTimeTest` (every accepted shape, with and without millis, plus the malformed-value
+failure case).
+
 ## Data profile: reuse of raw entities
 
 The data profile (v0.2.0 plan §8/§9/§12 item 9, `jira/JiraProfile.kt`, see
@@ -232,6 +275,9 @@ never hold the `jira.maxConcurrentRequests` `Semaphore` permit indefinitely.
 ## Testing
 
 - `JiraBackoffTest` — pure backoff math, injected clock/random.
+- `JiraTimeTest` — `parseJiraInstant`/`parseJiraInstantEpochMillis` against every accepted shape
+  (`+0000`, `+02:00`, `-0500`, `Z`, with and without fractional seconds) and the malformed-value
+  `DateTimeParseException`.
 - `JiraJqlTest` — `JiraJql`'s scope/incremental/reconcile builders.
 - `OutboundGuardTest` — the allow-list, every blocked address range (injected resolver), the
   stub-host-only-in-dev rule, a boot test pinning production's `jira.stubBaseUrl` refusal, and a

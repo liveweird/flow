@@ -28,6 +28,7 @@ tags:
   - name: users
   - name: teams
   - name: data-sources
+  - name: metrics
 
 paths:
   /api/v1/health:
@@ -664,6 +665,102 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/teams/{id}/jira-memberships:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    get:
+      tags: [metrics]
+      operationId: listTeamJiraMemberships
+      summary: List a team's dated Jira-user memberships (D1)
+      description: Any authenticated user (the team-reads posture). Most recent `validFrom` first.
+      responses:
+        '200':
+          description: The team's membership rows
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeamMembershipListResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    post:
+      tags: [metrics]
+      operationId: createTeamJiraMembership
+      summary: Add a dated Jira-user membership to a team
+      description: |
+        ADMIN only, guard before the id lookup and the body decode. The team must be active
+        (`404` otherwise); `accountId` must be known to `norm.people` for some connection (`400`
+        otherwise). An overlapping `[validFrom, validTo)` interval for the same account is `409`
+        (the exclusion constraint — invariant 1: a Jira user belongs to at most one team at any
+        instant).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TeamMembershipCreateRequest'
+      responses:
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '201':
+          description: Created
+          headers:
+            Location:
+              schema: { type: string }
+              description: URL of the new membership resource
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeamMembershipResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/teams/{id}/jira-memberships/{membershipId}:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+      - name: membershipId
+        in: path
+        required: true
+        schema: { type: integer, format: int32, minimum: 0 }
+    put:
+      tags: [metrics]
+      operationId: updateTeamJiraMembership
+      summary: Replace a dated Jira-user membership's validity window
+      description: >-
+        ADMIN only. A full replace of `validFrom`/`validTo` only — the team and account id are the
+        row's fixed identity. An overlap with another row for the same account is `409`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TeamMembershipUpdateRequest'
+      responses:
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '204':
+          description: Updated
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    delete:
+      tags: [metrics]
+      operationId: deleteTeamJiraMembership
+      summary: Remove a dated Jira-user membership
+      description: ADMIN only. Hard delete (a pure dated join, the `team_members` idiom).
+      responses:
+        '204':
+          description: Removed
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/data-sources:
     get:
       tags: [data-sources]
@@ -1045,6 +1142,171 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/data-sources/{id}/metrics-config:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    get:
+      tags: [metrics]
+      operationId: getDataSourceMetricsConfig
+      summary: Get a data source's metrics configuration
+      description: |
+        ADMIN only (`.claude/docs/domain-model.md` "Configuration"). `configured: false` means
+        nothing is stored yet — every field is a COMPUTED default (status → stage from Jira's
+        status category; the profile-detected story-points field for both estimate roles;
+        `duedate` for the epic due date; 1:1 project → domain and issue type → activity type; no
+        board → team mappings, blocked statuses, work categories or sprint capacities).
+      responses:
+        '200':
+          description: The connection's effective metrics configuration
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataSourceMetricsConfig'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    put:
+      tags: [metrics]
+      operationId: updateDataSourceMetricsConfig
+      summary: Replace a data source's metrics configuration
+      description: >-
+        ADMIN only, guard before the body decode. A full replace over all eight per-connection
+        config tables in one transaction — every id is validated against this connection's own
+        `norm` reference rows (statuses, boards, sprints, project keys, issue types) and its
+        stored data profile (field ids), else `400`; a board mapped to a team already mapped
+        elsewhere is `409` (D10: one board per team). Bumps the shared `configRevision` unless
+        the request is byte-for-byte identical to what is already stored.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DataSourceMetricsConfigRequest'
+      responses:
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '204':
+          description: Updated
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/data-sources/{id}/metrics-config/options:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    get:
+      tags: [metrics]
+      operationId: getDataSourceMetricsConfigOptions
+      summary: Get the reference data for a data source's metrics configuration
+      description: |
+        ADMIN only, read-only. Statuses (with category), custom fields (with the profile's
+        detected role), project keys, boards, issue types and sprints per board — the picklists
+        the metrics-config editor uses. `workCategoryValues` is populated only when
+        `?workCategoryField=` names a field id, from that field's own distinct observed values
+        across this connection's live work items, capped at 200 (`workCategoryValuesTruncated:
+        true` when more exist).
+      parameters:
+        - name: workCategoryField
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        '200':
+          description: The metrics-config reference data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataSourceMetricsConfigOptions'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/jira-users:
+    get:
+      tags: [metrics]
+      operationId: listJiraUsers
+      summary: List Jira accounts, distinct across connections
+      description: |
+        `scope=UNIT` (default) — any authenticated user, D12: only accounts already relevant to
+        this unit's own data (an assignee or worklog author on an ACTIVE connection's live work
+        items, or one that ever held a `metrics.team_membership` row) — the same population every
+        other any-authenticated surface can already name. `scope=SITE` — ADMIN only (guard before
+        any read; `403` for anyone else), the whole site directory, for picking a brand-new team
+        member.
+
+        - Sortable fields: `displayName`. Default ascending, `accountId` ascending tiebreaker.
+        - Filters: `q` (case- and accent-insensitive substring on display name), `teamId`
+          (that team's CURRENT membership only — combined with `scope` by set intersection).
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/Sort'
+        - $ref: '#/components/parameters/Q'
+        - name: teamId
+          in: query
+          required: false
+          schema: { type: integer, format: int32, minimum: 0 }
+        - name: scope
+          in: query
+          required: false
+          schema: { type: string, enum: [UNIT, SITE], default: UNIT }
+      responses:
+        '200':
+          description: A page of Jira accounts
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JiraUserPage'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/metrics-settings:
+    get:
+      tags: [metrics]
+      operationId: getMetricsSettings
+      summary: Get the global metrics settings singleton
+      description: |
+        ADMIN only. The ONE `metrics.settings` row every DERIVE run reads under its
+        `configRevision` — the calendar/thresholds the whole metrics layer is built against
+        (`.claude/docs/domain-model.md` "Configuration"). `timeZone` defaults to `Europe/Warsaw`.
+      responses:
+        '200':
+          description: The current settings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MetricsSettingsResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    put:
+      tags: [metrics]
+      operationId: updateMetricsSettings
+      summary: Replace the global metrics settings
+      description: >-
+        ADMIN only, guard before the body decode. A full replace — every field is required.
+        Bumps `configRevision`, which (from a later commit on) enqueues a `DERIVE` job for every
+        enabled connection.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MetricsSettingsRequest'
+      responses:
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '204':
+          description: Updated
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
 
 components:
   securitySchemes:
@@ -1082,6 +1344,12 @@ components:
         comma-separated, leftmost wins: `sort=-updatedAt,name`. The endpoint declares its
         sortable-field whitelist; unknown fields are rejected with `400`. `id` ascending is
         always appended as a deterministic tiebreaker.
+    Q:
+      name: q
+      in: query
+      required: false
+      schema: { type: string }
+      description: Free-text substring filter (case- and accent-insensitive) — API-LIST-005.
   responses:
     UnsupportedMediaType:
       description: Request body must use application/json. A missing body or Content-Type remains a 400.
@@ -1720,7 +1988,7 @@ components:
       properties:
         field:
           type: string
-          enum: [ASSIGNEE, SPRINT, FLAGGED]
+          enum: [ASSIGNEE, SPRINT, FLAGGED, PARENT]
         seq: { type: integer, format: int32, minimum: 1 }
         valueId: { type: string, nullable: true }
         valueText: { type: string, nullable: true }
@@ -1740,6 +2008,16 @@ components:
         statusName: { type: string }
         statusCategory: { $ref: '#/components/schemas/StatusCategory' }
         assigneeAccountId: { type: string, nullable: true }
+        hierarchyLevel:
+          type: integer
+          format: int32
+          nullable: true
+          description: An epic is level 1, from the REFERENCE stream's ISSUE_TYPE entities — never "type name = Epic".
+        dueAt: { type: integer, format: int64, nullable: true, description: Epoch millis at start of day UTC (the system duedate field). }
+        customFields:
+          type: object
+          additionalProperties: true
+          description: Every non-null `customfield_*` current value, keyed by field id — never filtered.
         processedAt: { type: integer, format: int64, description: Epoch millis }
         processingVersion: { type: integer, format: int32 }
         deletedAt: { type: integer, format: int64, nullable: true }
@@ -1934,6 +2212,291 @@ components:
           type: object
           additionalProperties: { type: integer, format: int64, minimum: 0 }
           description: Keyed by anomaly code (`STATUS_CHANGE_BEFORE_CREATED`/`STATUS_CHAIN_BROKEN`/`STATUS_MISMATCH_WITH_CURRENT`).
+
+    MetricsStatusStage:
+      type: object
+      required: [statusId, stage]
+      properties:
+        statusId: { type: string }
+        stage: { type: string, enum: [NOT_STARTED, IN_PROGRESS, DONE] }
+    MetricsFieldConfig:
+      type: object
+      properties:
+        estimateTask: { type: string, nullable: true }
+        estimateEpic: { type: string, nullable: true }
+        epicStart: { type: string, nullable: true }
+        epicDue: { type: string, nullable: true }
+        workCategory: { type: string, nullable: true }
+    MetricsDomainMapping:
+      type: object
+      required: [projectKey, domainKey, domainName]
+      properties:
+        projectKey: { type: string }
+        domainKey: { type: string }
+        domainName: { type: string }
+    MetricsBoardTeamMapping:
+      type: object
+      required: [boardId, teamId]
+      properties:
+        boardId: { type: integer, format: int64 }
+        teamId: { type: integer, format: int32, minimum: 0 }
+    MetricsActivityTypeMapping:
+      type: object
+      required: [issueType, activityType]
+      properties:
+        issueType: { type: string }
+        activityType: { type: string }
+    MetricsWorkCategoryMapping:
+      type: object
+      required: [valueId, category]
+      properties:
+        valueId: { type: string }
+        valueName: { type: string, nullable: true }
+        category: { type: string }
+    MetricsSprintCapacity:
+      type: object
+      required: [sprintId, capacityMd]
+      properties:
+        sprintId: { type: integer, format: int64 }
+        capacityMd: { type: number, format: double, minimum: 0 }
+    DataSourceMetricsConfig:
+      type: object
+      required: [configured, statusStages, fields, domains, boards, activityTypes, workCategories, blockedStatuses, sprintCapacities]
+      properties:
+        configured: { type: boolean, description: "False means every field below is a COMPUTED default, nothing is stored yet." }
+        statusStages:
+          type: array
+          items: { $ref: '#/components/schemas/MetricsStatusStage' }
+        fields:
+          $ref: '#/components/schemas/MetricsFieldConfig'
+        domains:
+          type: array
+          items: { $ref: '#/components/schemas/MetricsDomainMapping' }
+        boards:
+          type: array
+          items: { $ref: '#/components/schemas/MetricsBoardTeamMapping' }
+        activityTypes:
+          type: array
+          items: { $ref: '#/components/schemas/MetricsActivityTypeMapping' }
+        workCategories:
+          type: array
+          items: { $ref: '#/components/schemas/MetricsWorkCategoryMapping' }
+        blockedStatuses:
+          type: array
+          items: { type: string }
+        sprintCapacities:
+          type: array
+          items: { $ref: '#/components/schemas/MetricsSprintCapacity' }
+    DataSourceMetricsConfigRequest:
+      type: object
+      properties:
+        statusStages:
+          type: array
+          items: { $ref: '#/components/schemas/MetricsStatusStage' }
+        fields:
+          $ref: '#/components/schemas/MetricsFieldConfig'
+        domains:
+          type: array
+          items: { $ref: '#/components/schemas/MetricsDomainMapping' }
+        boards:
+          type: array
+          items: { $ref: '#/components/schemas/MetricsBoardTeamMapping' }
+        activityTypes:
+          type: array
+          items: { $ref: '#/components/schemas/MetricsActivityTypeMapping' }
+        workCategories:
+          type: array
+          items: { $ref: '#/components/schemas/MetricsWorkCategoryMapping' }
+        blockedStatuses:
+          type: array
+          items: { type: string }
+        sprintCapacities:
+          type: array
+          items: { $ref: '#/components/schemas/MetricsSprintCapacity' }
+    MetricsStatusOption:
+      type: object
+      required: [statusId, name, category]
+      properties:
+        statusId: { type: string }
+        name: { type: string }
+        category: { type: string, enum: [TODO, IN_PROGRESS, DONE, UNKNOWN] }
+    MetricsFieldOption:
+      type: object
+      required: [fieldId, name, type, detectedRole]
+      properties:
+        fieldId: { type: string }
+        name: { type: string }
+        type: { type: string }
+        detectedRole: { type: string, description: "SPRINT/RANK/TEAM/STORY_POINTS/FLAGGED/OTHER — `jira/JiraProfile.kt`'s detection." }
+    MetricsBoardOption:
+      type: object
+      required: [boardId, name]
+      properties:
+        boardId: { type: integer, format: int64 }
+        name: { type: string }
+        projectKey: { type: string, nullable: true }
+    MetricsSprintOption:
+      type: object
+      required: [sprintId, name, state]
+      properties:
+        sprintId: { type: integer, format: int64 }
+        boardId: { type: integer, format: int64, nullable: true }
+        name: { type: string }
+        state: { type: string }
+    MetricsFieldValueOption:
+      type: object
+      required: [valueId]
+      properties:
+        valueId: { type: string }
+        valueName: { type: string, nullable: true }
+    DataSourceMetricsConfigOptions:
+      type: object
+      required: [statuses, fields, projects, boards, issueTypes, workCategoryValues, workCategoryValuesTruncated, sprints]
+      properties:
+        statuses:
+          type: array
+          items: { $ref: '#/components/schemas/MetricsStatusOption' }
+        fields:
+          type: array
+          items: { $ref: '#/components/schemas/MetricsFieldOption' }
+        projects:
+          type: array
+          items: { type: string }
+        boards:
+          type: array
+          items: { $ref: '#/components/schemas/MetricsBoardOption' }
+        issueTypes:
+          type: array
+          items: { type: string }
+        workCategoryValues:
+          type: array
+          items: { $ref: '#/components/schemas/MetricsFieldValueOption' }
+        workCategoryValuesTruncated:
+          type: boolean
+          description: "True when the field carries more than 200 distinct values — the response shows only the first 200 (by id)."
+        sprints:
+          type: array
+          items: { $ref: '#/components/schemas/MetricsSprintOption' }
+
+    MetricsSettingsResponse:
+      type: object
+      required:
+        - configRevision
+        - hoursPerDay
+        - timeZone
+        - weekendDays
+        - holidays
+        - commitmentGraceMinutes
+        - minSampleSize
+        - agingWindowItems
+        - agingPercentiles
+        - backlogWindowSprints
+        - epicDriftDays
+        - updatedAt
+        - updatedByUserId
+      properties:
+        configRevision: { type: integer, format: int64, minimum: 1 }
+        hoursPerDay: { type: number, format: double, minimum: 0, maximum: 24, exclusiveMinimum: true }
+        timeZone: { type: string, description: "An IANA zone id, e.g. Europe/Warsaw." }
+        weekendDays:
+          type: array
+          items: { type: integer, minimum: 1, maximum: 7 }
+          description: "ISO weekday numbers, 1 (Monday) .. 7 (Sunday)."
+        holidays:
+          type: array
+          items: { type: string, description: "ISO date (YYYY-MM-DD)." }
+        commitmentGraceMinutes: { type: integer, minimum: 0 }
+        minSampleSize: { type: integer, minimum: 1 }
+        agingWindowItems: { type: integer, minimum: 1 }
+        agingPercentiles:
+          type: array
+          items: { type: integer, minimum: 1, maximum: 99 }
+        backlogWindowSprints: { type: integer, minimum: 1 }
+        epicDriftDays: { type: integer, minimum: 0 }
+        updatedAt: { type: integer, format: int64, description: Epoch millis }
+        updatedByUserId: { type: integer, format: int64, minimum: 0, nullable: true }
+    MetricsSettingsRequest:
+      type: object
+      required:
+        - hoursPerDay
+        - timeZone
+        - weekendDays
+        - holidays
+        - commitmentGraceMinutes
+        - minSampleSize
+        - agingWindowItems
+        - agingPercentiles
+        - backlogWindowSprints
+        - epicDriftDays
+      properties:
+        hoursPerDay: { type: number, format: double, minimum: 0, maximum: 24, exclusiveMinimum: true }
+        timeZone: { type: string }
+        weekendDays:
+          type: array
+          items: { type: integer, minimum: 1, maximum: 7 }
+        holidays:
+          type: array
+          items: { type: string }
+        commitmentGraceMinutes: { type: integer, minimum: 0 }
+        minSampleSize: { type: integer, minimum: 1 }
+        agingWindowItems: { type: integer, minimum: 1 }
+        agingPercentiles:
+          type: array
+          items: { type: integer, minimum: 1, maximum: 99 }
+        backlogWindowSprints: { type: integer, minimum: 1 }
+        epicDriftDays: { type: integer, minimum: 0 }
+
+    JiraUserResponse:
+      type: object
+      required: [accountId, displayName]
+      properties:
+        accountId: { type: string }
+        displayName: { type: string }
+    JiraUserPage:
+      type: object
+      required: [items, page, pageSize, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/JiraUserResponse'
+        page: { type: integer, minimum: 1 }
+        pageSize: { type: integer, minimum: 1, maximum: 100 }
+        total:
+          type: integer
+          format: int64
+          minimum: 0
+    TeamMembershipListResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/TeamMembershipResponse'
+    TeamMembershipResponse:
+      type: object
+      required: [id, accountId, validFrom, validTo, createdAt, updatedAt]
+      properties:
+        id: { type: integer, format: int32, minimum: 0 }
+        accountId: { type: string, description: "The Jira accountId — global across connections." }
+        validFrom: { type: integer, format: int64, description: Epoch millis }
+        validTo: { type: integer, format: int64, nullable: true, description: "Epoch millis; null = open-ended (the current membership)." }
+        createdAt: { type: integer, format: int64 }
+        updatedAt: { type: integer, format: int64 }
+    TeamMembershipCreateRequest:
+      type: object
+      required: [accountId, validFrom]
+      properties:
+        accountId: { type: string, maxLength: 100 }
+        validFrom: { type: integer, format: int64 }
+        validTo: { type: integer, format: int64, nullable: true }
+    TeamMembershipUpdateRequest:
+      type: object
+      required: [validFrom]
+      properties:
+        validFrom: { type: integer, format: int64 }
+        validTo: { type: integer, format: int64, nullable: true }
 
     ProblemDetail:
       type: object

@@ -22,7 +22,7 @@
       "name": "PLT Sprint 2",
       "startDate": "2025-09-15T00:00:00.000Z",
       "endDate": "2025-09-29T00:00:00.000Z",
-      "completeDate": "2025-09-29T00:00:00.000Z",
+      "completeDate": "2025-10-01T00:00:00.000Z",
       "originBoardId": 2,
       "goal": "Sprint 2 goal for Platform"
     },
@@ -55,7 +55,7 @@
       "name": "PLT Sprint 5",
       "startDate": "2025-10-27T00:00:00.000Z",
       "endDate": "2025-11-10T00:00:00.000Z",
-      "completeDate": "2025-11-10T00:00:00.000Z",
+      "completeDate": "2025-11-11T00:00:00.000Z",
       "originBoardId": 2,
       "goal": "Sprint 5 goal for Platform"
     },
@@ -143,7 +143,7 @@
       "name": "PLT Sprint 13",
       "startDate": "2026-02-16T00:00:00.000Z",
       "endDate": "2026-03-02T00:00:00.000Z",
-      "completeDate": "2026-03-02T00:00:00.000Z",
+      "completeDate": "2026-03-03T00:00:00.000Z",
       "originBoardId": 2,
       "goal": "Sprint 13 goal for Platform"
     },

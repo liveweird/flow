@@ -2,7 +2,6 @@ package ch.nokillswit.jira
 
 import ch.nokillswit.ingest.Stream
 import ch.nokillswit.ingest.StreamContext
-import java.time.Instant
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -146,7 +145,7 @@ class JiraWorklogStream(
 
     private suspend fun storeWorklog(context: StreamContext, issueId: Long, worklog: JsonObject) {
         val worklogId = worklog.getValue("id").jsonPrimitive.content.toLong()
-        val updatedAt = Instant.parse(worklog.getValue("updated").jsonPrimitive.content).toEpochMilli()
+        val updatedAt = parseJiraInstantEpochMillis(worklog.getValue("updated").jsonPrimitive.content)
         rawStore.upsertWorklog(context.connectionId, issueId, worklogId, updatedAt, worklog.toString(), context.clock())
     }
 

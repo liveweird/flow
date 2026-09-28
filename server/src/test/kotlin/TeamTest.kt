@@ -1,5 +1,15 @@
 package ch.nokillswit
 
+import ch.nokillswit.infra.crypto.DEV_DATA_ENCRYPTION_KEY
+import ch.nokillswit.infra.crypto.FieldCipher
+import ch.nokillswit.ingest.DataSourceRequest
+import ch.nokillswit.ingest.DataSourceService
+import ch.nokillswit.ingest.JiraAuthScheme
+import ch.nokillswit.ingest.JiraConnectionRequest
+import ch.nokillswit.metrics.TeamMembershipCreateRequest
+import ch.nokillswit.metrics.TeamMembershipService
+import ch.nokillswit.norm.PersonRef
+import ch.nokillswit.norm.WorkItemStore
 import ch.nokillswit.plugins.ProblemDetail
 import ch.nokillswit.teams.TeamCreateRequest
 import ch.nokillswit.teams.TeamPageResponse
@@ -17,6 +27,10 @@ import io.ktor.http.contentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.testApplication
 import java.util.UUID
+import kotlinx.coroutines.flow.toList
+import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.r2dbc.selectAll
+import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -222,5 +236,54 @@ class TeamTest {
             assertEquals(HttpStatusCode.BadRequest, admin.postJson("/api/v1/teams", TeamCreateRequest("")).status)
             assertEquals(before, capture.events.count { it.message == "team.created" }, "failed create must not audit")
         }
+    }
+
+    /** Direct raw-table read of `metrics.team_membership` — this is a `teams` test asserting a cross-feature effect. */
+    private suspend fun rawMetricsMembershipRows(teamId: UInt): List<Pair<Long, Long?>> = suspendTransaction(sharedDatabaseForTests()) {
+        val m = TeamMembershipService.TeamMembership
+        m.selectAll().where { m.teamId eq teamId }.toList().map { it[m.validFrom] to it[m.validTo] }
+    }
+
+    @Test
+    fun `deleting a team closes its OPEN metrics team_membership rows and removes future-only ones`() = testApplication {
+        usePostgresTestcontainer()
+        val admin = seededClient("teamdeletemembership", UserRole.ADMIN)
+        val dataSources = DataSourceService(sharedDatabaseForTests(), FieldCipher(DEV_DATA_ENCRYPTION_KEY))
+        val connectionId = dataSources.create(
+            DataSourceRequest(
+                name = name("team-delete-membership"),
+                enabled = true,
+                syncIntervalMinutes = 60,
+                backfillFrom = "2025-01-01",
+                reconcileHourUtc = 3,
+                jira = JiraConnectionRequest(
+                    siteUrl = "https://${name("site").lowercase()}.atlassian.net",
+                    email = "svc-${name("acct")}@example.com",
+                    apiToken = "token-${UUID.randomUUID()}",
+                    projectKeys = listOf("FLO"),
+                    authScheme = JiraAuthScheme.BASIC,
+                ),
+            ),
+        )
+        val accountId = "account-${UUID.randomUUID()}"
+        val person = PersonRef(accountId, "Cross Feature Person", null, active = true)
+        WorkItemStore(sharedDatabaseForTests()).replacePeople(connectionId, listOf(person))
+        val teamId = TestTeams.seed(name("cross-feature"))
+
+        // Non-overlapping by construction: the CURRENT row runs [0, farFuture) — active right now,
+        // to be CLOSED at `now` on delete — and the FUTURE-only row starts exactly where it ends
+        // and hasn't begun yet (`farFuture` > now), to be REMOVED outright on delete.
+        val farFuture = System.currentTimeMillis() + 365L * 24 * 60 * 60 * 1000
+        admin.postJson("/api/v1/teams/$teamId/jira-memberships", TeamMembershipCreateRequest(accountId, 0L, farFuture))
+        admin.postJson("/api/v1/teams/$teamId/jira-memberships", TeamMembershipCreateRequest(accountId, farFuture, null))
+        assertEquals(2, rawMetricsMembershipRows(teamId).size, "fixture: two rows before delete")
+
+        assertEquals(HttpStatusCode.NoContent, admin.delete("/api/v1/teams/$teamId").status)
+
+        val remaining = rawMetricsMembershipRows(teamId)
+        assertEquals(1, remaining.size, "the future-only row is removed outright")
+        assertEquals(0L, remaining.single().first, "the surviving row's own validFrom is untouched")
+        assertNotNull(remaining.single().second, "the surviving row is CLOSED at now (valid_to set), never left open")
+        assertTrue(TestTeams.rawRows().single { it.id == teamId }.markedAsDeleted, "the team itself is soft-deleted, as ever")
     }
 }

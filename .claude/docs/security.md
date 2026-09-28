@@ -349,6 +349,12 @@ nonces, legacy passthrough, tamper, wrong key, rotation, malformed keys), `Crypt
 `EncryptedAtRestBootTest` (seeds a connection, boots again with a rotated key, the token still
 decrypts under the new key alone).
 
+**Trusted PostgreSQL extensions.** `btree_gist` (v0.3.0 M1 commit 3, `V15__create_metrics_config.sql`
+— backs `metrics.team_membership`'s overlap-exclusion constraint) joins `unaccent` (V4) as a
+contrib extension trusted since PG13: `CREATE EXTENSION IF NOT EXISTS` needs only `CREATE` on the
+database, no superuser — see `.claude/docs/persistence.md`'s "The `metrics` schema — configuration
+(V15)".
+
 ### Not yet ported
 
 Nothing remains on the security list beyond the forward SSRF guidance above; new subsystems

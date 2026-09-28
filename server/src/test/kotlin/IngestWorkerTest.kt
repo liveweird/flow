@@ -13,6 +13,7 @@ import ch.nokillswit.ingest.IngestConnectorOverrideKey
 import ch.nokillswit.ingest.IngestWorker
 import ch.nokillswit.ingest.JiraAuthScheme
 import ch.nokillswit.ingest.JiraConnectionRequest
+import ch.nokillswit.ingest.SyncJobClaim
 import ch.nokillswit.ingest.SyncJobKind
 import ch.nokillswit.ingest.SyncJobListFilter
 import ch.nokillswit.ingest.SyncJobRunContext
@@ -21,6 +22,8 @@ import ch.nokillswit.ingest.SyncJobsService
 import ch.nokillswit.ingest.backoffMillis
 import ch.nokillswit.ingest.MAX_BACKOFF_MILLIS
 import ch.nokillswit.ingest.defaultBackfillFrom
+import ch.nokillswit.metrics.MetricsConfigService
+import ch.nokillswit.norm.WorkItemStore
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.async
@@ -32,6 +35,10 @@ import kotlinx.serialization.json.long
 import io.ktor.server.testing.testApplication
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
+import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.r2dbc.insert
+import org.jetbrains.exposed.v1.r2dbc.selectAll
+import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -69,6 +76,77 @@ class IngestWorkerTest {
     private fun unique(prefix: String) = "$prefix-${UUID.randomUUID().toString().substring(0, 8)}"
 
     private fun dataSources() = DataSourceService(sharedDatabaseForTests(), FieldCipher(DEV_DATA_ENCRYPTION_KEY))
+
+    /** The PURGE step's generic config-drain dependency (v0.3.0 M1 commit 4) — a fresh instance is fine, it is stateless. */
+    private fun metricsConfig(dataSources: DataSourceService) =
+        MetricsConfigService(sharedDatabaseForTests(), WorkItemStore(sharedDatabaseForTests()), dataSources)
+
+    /**
+     * One row in EACH of the eight per-connection `metrics.*` config tables (v0.3.0 M1 commit 4
+     * review fix) — a direct Exposed insert against `MetricsConfigService`'s own nested table
+     * objects (the `TeamService.Teams`/`DataSourceService.Connections` precedent: accessed via the
+     * class name, no instance needed), bypassing `replaceConfig`'s reference-data validation
+     * entirely since this test only cares that the PURGE drain removes whatever is there.
+     */
+    private suspend fun seedAllMetricsConfigTables(connId: UInt, teamId: UInt) {
+        suspendTransaction(sharedDatabaseForTests()) {
+            MetricsConfigService.StatusStageMap.insert {
+                it[connectionId] = connId
+                it[statusId] = "10001"
+                it[domainKey] = ""
+                it[stage] = "NOT_STARTED"
+            }
+            MetricsConfigService.FieldConfig.insert {
+                it[connectionId] = connId
+                it[role] = "EPIC_DUE"
+                it[fieldId] = "duedate"
+            }
+            MetricsConfigService.DomainMap.insert {
+                it[connectionId] = connId
+                it[projectKey] = "ENG"
+                it[domainKey] = "eng"
+                it[domainName] = "Engineering"
+            }
+            MetricsConfigService.BoardTeamMap.insert {
+                it[connectionId] = connId
+                it[boardId] = 555L
+                it[MetricsConfigService.BoardTeamMap.teamId] = teamId
+            }
+            MetricsConfigService.TeamSprintCapacity.insert {
+                it[connectionId] = connId
+                it[sprintId] = 999L
+                it[capacityMd] = "10.00".toBigDecimal()
+            }
+            MetricsConfigService.ActivityTypeMap.insert {
+                it[connectionId] = connId
+                it[issueType] = "Story"
+                it[activityType] = "Story"
+            }
+            MetricsConfigService.WorkCategoryMap.insert {
+                it[connectionId] = connId
+                it[valueId] = "opt-1"
+                it[valueName] = "Product"
+                it[category] = "Product Development"
+            }
+            MetricsConfigService.BlockedStatuses.insert {
+                it[connectionId] = connId
+                it[statusId] = "10002"
+            }
+        }
+    }
+
+    /** The total row count across all eight per-connection `metrics.*` config tables for [connId]. */
+    private suspend fun countAllMetricsConfigRows(connId: UInt): Long = suspendTransaction(sharedDatabaseForTests()) {
+        MetricsConfigService.StatusStageMap.selectAll().where { MetricsConfigService.StatusStageMap.connectionId eq connId }.count() +
+            MetricsConfigService.FieldConfig.selectAll().where { MetricsConfigService.FieldConfig.connectionId eq connId }.count() +
+            MetricsConfigService.DomainMap.selectAll().where { MetricsConfigService.DomainMap.connectionId eq connId }.count() +
+            MetricsConfigService.BoardTeamMap.selectAll().where { MetricsConfigService.BoardTeamMap.connectionId eq connId }.count() +
+            MetricsConfigService.TeamSprintCapacity.selectAll()
+                .where { MetricsConfigService.TeamSprintCapacity.connectionId eq connId }.count() +
+            MetricsConfigService.ActivityTypeMap.selectAll().where { MetricsConfigService.ActivityTypeMap.connectionId eq connId }.count() +
+            MetricsConfigService.WorkCategoryMap.selectAll().where { MetricsConfigService.WorkCategoryMap.connectionId eq connId }.count() +
+            MetricsConfigService.BlockedStatuses.selectAll().where { MetricsConfigService.BlockedStatuses.connectionId eq connId }.count()
+    }
 
     private fun syncJobs(maxAttempts: Int = 3, clock: () -> Long = System::currentTimeMillis) =
         SyncJobsService(sharedDatabaseForTests(), maxAttempts, clock)
@@ -146,6 +224,7 @@ class IngestWorkerTest {
         val worker = IngestWorker(
             jobs,
             ds,
+            metricsConfig(ds),
             mapOf(DataSourceKind.JIRA_CLOUD to connector),
             testConfig(workerSlots = 500),
             fixedEarlyMorningClock(),
@@ -172,6 +251,7 @@ class IngestWorkerTest {
         val worker = IngestWorker(
             jobs,
             ds,
+            metricsConfig(ds),
             mapOf(DataSourceKind.JIRA_CLOUD to connector),
             testConfig(workerSlots = 500),
             fixedEarlyMorningClock(),
@@ -197,6 +277,7 @@ class IngestWorkerTest {
         val worker = IngestWorker(
             jobs,
             ds,
+            metricsConfig(ds),
             mapOf(DataSourceKind.JIRA_CLOUD to connector),
             testConfig(workerSlots = 500),
             fixedEarlyMorningClock(),
@@ -207,6 +288,77 @@ class IngestWorkerTest {
         val job = jobs.list(connId, SyncJobListFilter(), pagingAll()).items.single()
         assertEquals("issues", job.currentStream)
         assertEquals(1L, job.progress?.get("pages")?.jsonPrimitive?.long)
+    }
+
+    /**
+     * A [SyncJobClaim] built directly from a REAL, just-`requestJob`'d row's id (the
+     * `SyncedStubFixture.claimFor`/`JiraSyncPipelineTest.claimFor` shape) — deliberately NOT
+     * `jobs.claim(...)`: this shared test database accumulates other tests'/classes' own
+     * still-PENDING manual jobs across the whole suite run, and a bare `claim()` call can pick up
+     * one of THOSE instead of ours. `finish`/`fail` update by id alone (no status precondition), so
+     * driving `IngestWorker.runJob` against a claim built this way is exactly as real for what these
+     * tests check (the job's terminal status, the generic drain) as going through the queue.
+     */
+    private fun claimFor(jobId: UInt, connId: UInt, kind: SyncJobKind) = SyncJobClaim(
+        id = jobId,
+        connectionId = connId,
+        connectorKind = DataSourceKind.JIRA_CLOUD,
+        kind = kind,
+        attempt = 1,
+        maxAttempts = 3,
+        syncIntervalMinutes = 60,
+    )
+
+    @Test
+    fun `a PURGE job drains all eight metrics config tables, and a second PURGE is a no-op`() = runBlocking {
+        ensureMigrated()
+        val ds = dataSources()
+        val jobs = syncJobs()
+        val metrics = metricsConfig(ds)
+        val connId = createConnection(ds)
+        val teamId = TestTeams.seed(unique("purge-team"))
+        seedAllMetricsConfigTables(connId, teamId)
+        assertEquals(8L, countAllMetricsConfigRows(connId), "fixture must seed exactly one row per table")
+
+        val config = testConfig(workerSlots = 500)
+        val connector = FakeConnector { } // succeeds trivially — the connector's own purgeSteps are empty here
+        val worker = IngestWorker(jobs, ds, metrics, mapOf(DataSourceKind.JIRA_CLOUD to connector), config, System::currentTimeMillis)
+
+        val firstJobId = jobs.requestJob(connId, SyncJobKind.PURGE, requestedByUserId = 1u, configRevision = 1L).jobId
+        worker.runJob(claimFor(firstJobId, connId, SyncJobKind.PURGE))
+        assertEquals(0L, countAllMetricsConfigRows(connId), "PURGE must drain every per-connection metrics config row")
+        assertEquals(SyncJobStatus.SUCCEEDED, jobs.read(connId, firstJobId)?.status)
+
+        // A second PURGE (nothing left to drain) must still succeed — the deletes are no-ops, not errors.
+        val secondJobId = jobs.requestJob(connId, SyncJobKind.PURGE, requestedByUserId = 1u, configRevision = 1L).jobId
+        worker.runJob(claimFor(secondJobId, connId, SyncJobKind.PURGE))
+        assertEquals(0L, countAllMetricsConfigRows(connId))
+        assertEquals(SyncJobStatus.SUCCEEDED, jobs.read(connId, secondJobId)?.status)
+    }
+
+    @Test
+    fun `a connector purge failure prevents the generic metrics-config drain and FAILS the job`() = runBlocking {
+        ensureMigrated()
+        val ds = dataSources()
+        val jobs = syncJobs()
+        val metrics = metricsConfig(ds)
+        val connId = createConnection(ds)
+        val teamId = TestTeams.seed(unique("purge-fail-team"))
+        seedAllMetricsConfigTables(connId, teamId)
+
+        val config = testConfig(workerSlots = 500)
+        val connector = FakeConnector { error("simulated connector purge failure") }
+        val worker = IngestWorker(jobs, ds, metrics, mapOf(DataSourceKind.JIRA_CLOUD to connector), config, System::currentTimeMillis)
+
+        val jobId = jobs.requestJob(connId, SyncJobKind.PURGE, requestedByUserId = 1u, configRevision = 1L).jobId
+        worker.runJob(claimFor(jobId, connId, SyncJobKind.PURGE))
+
+        assertEquals(SyncJobStatus.FAILED, jobs.read(connId, jobId)?.status, "retry-safe: the job must be retryable, not silently lost")
+        assertEquals(
+            8L,
+            countAllMetricsConfigRows(connId),
+            "the generic drain must never run when the connector's OWN purge step throws first",
+        )
     }
 
     @Test
@@ -241,6 +393,7 @@ class IngestWorkerTest {
         val worker = IngestWorker(
             jobs,
             ds,
+            metricsConfig(ds),
             mapOf(DataSourceKind.JIRA_CLOUD to connector),
             config,
             System::currentTimeMillis,

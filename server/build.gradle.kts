@@ -71,10 +71,12 @@ kover {
                 // Line-coverage floor (actual 94.49% on 2026-09-26, measured with the @Serializable
                 // exclusion above, after trimming the suite down to the generic foundation —
                 // re-measure with `:server:koverXmlReport` and RAISE, never lower).
-                minBound(91)
-                // Branch-coverage floor (actual 77.20%, 2026-09-26). NOTE: `check` runs only
-                // koverVerify — run `:server:koverXmlReport` for fresh actuals.
-                minBound(74, coverageUnits = kotlinx.kover.gradle.plugin.dsl.CoverageUnit.BRANCH)
+                // 2026-09-28, v0.3.0 M1 (norm gaps + metrics config): actual 97.20% → floor 96.
+                minBound(96)
+                // Branch-coverage floor (actual 77.20%, 2026-09-26; 76.19% at v0.3.0 M1, 2026-09-28 —
+                // the phase-2 normalizer's defensive branches dominate what's left). NOTE: `check`
+                // runs only koverVerify — run `:server:koverXmlReport` for fresh actuals.
+                minBound(75, coverageUnits = kotlinx.kover.gradle.plugin.dsl.CoverageUnit.BRANCH)
             }
         }
     }

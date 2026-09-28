@@ -33,6 +33,8 @@ class MigrationChecksumTest {
         "V11__create_jira_changelogs_worklogs.sql" to -1236733849,
         "V12__create_jira_reconcile_seen.sql" to -21356434,
         "V13__create_norm_layer.sql" to -228001900,
+        "V14__norm_phase3_gaps.sql" to -881475963,
+        "V15__create_metrics_config.sql" to -414170277,
     )
 
     @Test

@@ -2,7 +2,6 @@ package ch.nokillswit.jira
 
 import ch.nokillswit.ingest.Stream
 import ch.nokillswit.ingest.StreamContext
-import java.time.Instant
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
@@ -124,7 +123,7 @@ class JiraReconcileStream(
                     issueKey = issue.getValue("key").jsonPrimitive.content,
                     projectId = project.getValue("id").jsonPrimitive.content.toLong(),
                     projectKey = project.getValue("key").jsonPrimitive.content,
-                    issueUpdatedAt = Instant.parse(fields.getValue("updated").jsonPrimitive.content).toEpochMilli(),
+                    issueUpdatedAt = parseJiraInstantEpochMillis(fields.getValue("updated").jsonPrimitive.content),
                     payloadJson = issue.toString(),
                 ),
                 context.clock(),

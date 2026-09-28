@@ -105,11 +105,15 @@ private val expectedFixture: ExpectedFixture by lazy {
  * that file has them, and hand-derived-from-the-stub counts for reference entities (the fixture's
  * reference data is scenario-independent and fixed, so these counts are exact, not approximate).
  *
- * The backfill/second-sync assertions drive the full [JiraConnector] (REFERENCE + ISSUES, per
- * plan). The fault-injection/CURSOR_EXPIRED/lease-loss assertions are about the ISSUES cursor's
- * OWN resume mechanics specifically, so they drive `JiraIssuesStream` directly — same production
- * code, same real HTTP against the stub, but without re-running the (unrelated) REFERENCE pass on
- * every call, which would make the fault-injection timing noisier without adding coverage.
+ * The backfill assertion reads the suite-wide `SyncedStubFixture` (`.claude/docs/testing.md`
+ * "Shared synced fixture") rather than driving its own full [JiraConnector] SYNC; the
+ * second-sync/day2/RECONCILE assertions clone that fixture's raw rows
+ * (`SyncedStubFixture.cloneRawData`) into a connection of their own and drive a full or partial
+ * [JiraConnector] run for real against it. The fault-injection/CURSOR_EXPIRED/lease-loss assertions
+ * are about the ISSUES cursor's OWN resume mechanics specifically, so they drive `JiraIssuesStream`
+ * directly — same production code, same real HTTP against the stub, but without re-running the
+ * (unrelated) REFERENCE pass on every call, which would make the fault-injection timing noisier
+ * without adding coverage.
  */
 class JiraSyncPipelineTest {
     private fun unique(prefix: String) = "$prefix-${UUID.randomUUID().toString().substring(0, 8)}"
@@ -213,12 +217,10 @@ class JiraSyncPipelineTest {
 
     @Test
     fun `backfill stores exactly the in-scope issues and reference entities, never the out-of-scope project`() = runBlocking {
-        ensureMigrated()
-        val ds = dataSources()
-        val connId = createConnection(ds)
-        val connector = buildConnector()
-
-        runConnectorOnce(connector, connId)
+        // Read-only over the shared synced fixture (`.claude/docs/testing.md` "Shared synced
+        // fixture") — this test's own subject (the backfill's raw counts) is exactly what the
+        // fixture's own one-time SYNC already produced.
+        val connId = SyncedStubFixture.connectionId()
 
         val rows = issueRows(connId)
         assertEquals(1200, rows.size, "sample-data/jira/expected.json issues.totalInScope")
@@ -229,7 +231,7 @@ class JiraSyncPipelineTest {
         val entities = entityCounts(connId)
         assertEquals(
             mapOf(
-                "FIELD" to 16,
+                "FIELD" to 19,
                 "STATUS" to 6,
                 "STATUS_CATEGORY" to 4,
                 "PROJECT" to 5,
@@ -283,13 +285,17 @@ class JiraSyncPipelineTest {
 
     @Test
     fun `a second SYNC changes no payload or hash - only fetched_at moves`() = runBlocking {
-        ensureMigrated()
-        val ds = dataSources()
-        val connId = createConnection(ds)
+        // The "before" state comes from cloning the shared fixture's already-synced raw rows
+        // (`.claude/docs/testing.md` "Shared synced fixture") rather than running a first real
+        // sync here too — the SYNC this test drives still runs for real over HTTP, and the
+        // idempotence proof (unchanged hash, only `fetched_at` moves) is identical either way,
+        // since `upsertIssue`'s diff is keyed on payload content, never on how a row got there.
+        val sharedConnId = SyncedStubFixture.connectionId()
+        val connId = SyncedStubFixture.createConnection(namePrefix = "jira-second-sync")
+        SyncedStubFixture.cloneRawData(sharedConnId, connId)
         val connector = buildConnector()
 
         val store = rawStore()
-        runConnectorOnce(connector, connId)
         val before = issueRows(connId).associate { it[JiraRawStore.Issues.issueId] to it.shaChangedFetched() }
         val changelogCountBefore = store.countChangelogs(connId)
         val worklogCountBefore = store.countWorklogs(connId)
@@ -339,13 +345,14 @@ class JiraSyncPipelineTest {
 
     @Test
     fun `day2 - new-in-scope worklogs stored, out-of-scope worklogs dropped and counted, deleted worklog tombstoned`() = runBlocking {
-        ensureMigrated()
-        val ds = dataSources()
-        val connId = createConnection(ds)
-        val connector = buildConnector()
+        // A clone of the shared fixture's raw rows stands in for the full backfill
+        // (`.claude/docs/testing.md` "Shared synced fixture") — this test's SUBJECT is the WORKLOGS
+        // stream alone, driven directly below, so `raw.jira_issues` merely needs to already know
+        // every in-scope issue before the day2 scenario flips.
+        val sharedConnId = SyncedStubFixture.connectionId()
+        val connId = SyncedStubFixture.createConnection(namePrefix = "jira-day2-worklogs")
+        SyncedStubFixture.cloneRawData(sharedConnId, connId)
         val store = rawStore()
-
-        runConnectorOnce(connector, connId) // full backfill: raw.jira_issues must know every in-scope issue first
         val worklogCountBefore = store.countWorklogs(connId)
 
         JiraStubServer.setScenarioState("jira-day2", "day2")
@@ -487,13 +494,14 @@ class JiraSyncPipelineTest {
 
     @Test
     fun `RECONCILE tombstones the day2 deleted and moved issues, processes them in the same job, and is idempotent`() = runBlocking {
-        ensureMigrated()
-        val ds = dataSources()
-        val connId = createConnection(ds)
+        // A clone of the shared fixture's raw rows stands in for the full backfill
+        // (`.claude/docs/testing.md` "Shared synced fixture") — this test's SUBJECT is RECONCILE
+        // (plus the PROCESS step it ends with), driven for real below.
+        val sharedConnId = SyncedStubFixture.connectionId()
+        val connId = SyncedStubFixture.createConnection(namePrefix = "jira-reconcile")
+        SyncedStubFixture.cloneRawData(sharedConnId, connId)
         val connector = buildConnector()
         val store = rawStore()
-
-        runConnectorOnce(connector, connId) // full backfill: raw.jira_issues must know every in-scope issue first
 
         JiraStubServer.setScenarioState("jira-day2", "day2")
         try {
@@ -547,13 +555,15 @@ class JiraSyncPipelineTest {
 
     @Test
     fun `RECONCILE fetches and re-stores an issue the id-sweep saw but raw storage never had (index gap)`() = runBlocking {
-        ensureMigrated()
-        val ds = dataSources()
-        val connId = createConnection(ds)
+        // A clone of the shared fixture's raw rows stands in for the full backfill
+        // (`.claude/docs/testing.md` "Shared synced fixture") — this test's SUBJECT is RECONCILE's
+        // index-gap fetch, driven for real below.
+        val sharedConnId = SyncedStubFixture.connectionId()
+        val connId = SyncedStubFixture.createConnection(namePrefix = "jira-reconcile-gap")
+        SyncedStubFixture.cloneRawData(sharedConnId, connId)
         val connector = buildConnector()
         val store = rawStore()
 
-        runConnectorOnce(connector, connId)
         // `sample-data/README.md`'s "issue-get-probe" mapping is the ONE arbitrary in-scope issue
         // id the stub maps `GET /issue/{id}` for unconditionally (no requiredState) — it is always
         // the lowest issue id among the in-scope set (ids are assigned in one global chronological

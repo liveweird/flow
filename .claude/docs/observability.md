@@ -86,6 +86,17 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
 - `outbound.blocked` (scheme/host ONLY — never the full URL) — every rejection from
   `infra/outbound/OutboundGuard.kt`'s host allow-list or address-range check, emitted by
   `GuardedDns` on the Jira HTTP client's every outbound call (`.claude/docs/jira-integration.md`).
+- `metrics_settings.updated` (byUserId/configRevision) — the global `metrics.settings` singleton's
+  full-replace PUT (v0.3.0 M1 commit 3, `metrics/Metrics.kt`) / `team.jira_membership_added`
+  (byUserId/teamId/accountId/validFrom/validTo) / `.updated` (same fields, the row's NEW values) /
+  `.removed` (same fields, the row's values just before deletion) — D1's dated Jira-user team
+  membership CRUD (`metrics/TeamMembershipRoutes.kt`). `GET /api/v1/jira-users` is read-only, so it
+  emits nothing.
+- `metrics_config.updated` (byUserId/dataSourceId/configRevision) — a per-connection metrics-config
+  full-replace PUT that actually changed something (v0.3.0 M1 commit 4,
+  `metrics/MetricsConfigRoutes.kt`); a no-op re-PUT (byte-for-byte identical to what is already
+  stored) emits nothing, the features-PUT precedent. `GET .../metrics-config` and `GET
+  .../metrics-config/options` are read-only, so they emit nothing.
 
 Field-naming convention: the acting caller is `byUserId` everywhere except the auth lifecycle
 events (`login.*`, `logout`, `refresh.rejected`), where `userId` identifies the account being

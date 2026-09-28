@@ -23,9 +23,9 @@
       "key": "SEC",
       "name": "Security"
     },
-    "created": "2026-08-01T06:41:45.860Z",
-    "updated": "2026-09-02T00:00:00.000Z",
-    "resolutiondate": "2026-08-06T06:41:45.860Z",
+    "created": "2026-08-01T06:41:45.860+0000",
+    "updated": "2026-09-02T00:00:00.000+0000",
+    "resolutiondate": "2026-08-06T06:41:45.860+0000",
     "assignee": null,
     "reporter": {
       "accountId": "5f8a1b2c3d4e5f6a7b8c9d26",

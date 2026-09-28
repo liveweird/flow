@@ -12,8 +12,14 @@ import kotlinx.serialization.Serializable
 /**
  * Bump on ANY change to the tiling/write-shape rules below — `raw.jira_issues.processing_version
  * IS DISTINCT FROM` this reprocesses every issue automatically (plan §8).
+ *
+ * `2` (v0.3.0 M1 commit 2, V14, `.claude/docs/domain-model.md` "Gaps in `norm` today"): PARENT
+ * tiling, every `customfield_*` current value captured into `custom_fields`, `hierarchyLevel`/
+ * `dueAt` current values, `field_id` on every `work_item_field_changes` row, worklog
+ * `created`/`updated` timestamps, sprint `completeDate` — every existing issue reprocesses
+ * automatically on the next PROCESS pass.
  */
-const val PROCESSING_VERSION = 1
+const val PROCESSING_VERSION = 2
 
 /** Mirrors `raw.jira_issues`' own tombstone columns onto `norm.work_items` (plan §8: "keep the row, flagged", never deleted). */
 enum class TombstoneKind { NONE, DELETED, MOVED_OUT }
@@ -43,7 +49,20 @@ data class WorkItemFacts(
     /** The Atlassian Team field, stored as-is (plan §4) — raw JSON text, or null if unset. */
     val teamValueJson: String?,
     val rank: String?,
+    /** An epic is level 1 (from the REFERENCE stream's `ISSUE_TYPE` entities — never "type name = Epic", v0.3.0 M1 commit 2). */
+    val hierarchyLevel: Int? = null,
+    /** The system `duedate` field's current value, epoch millis at start of day UTC (v0.3.0 M1 commit 2). */
+    val dueAtMs: Long? = null,
+    /** Every FILLED `customfield_*` current value, canonicalized, keyed by field id (v0.3.0 M1 commit 2) — never filtered by which. */
+    val customFieldsJson: String = "{}",
     val tombstone: TombstoneKind,
+    /**
+     * `raw.jira_issues.deleted_at`/`moved_out_at` VERBATIM — the moment RECONCILE first detected
+     * this tombstone (v0.3.0 M1 commit 2 review fix), never the CURRENT PROCESS run's own clock: a
+     * `PROCESSING_VERSION` bump reprocesses every already-tombstoned issue, and `now` would reset
+     * every one of them to the reprocess/deploy time. Meaningless when [tombstone] is `NONE`.
+     */
+    val tombstoneAtMs: Long? = null,
 )
 
 /** One `norm.work_item_field_changes` row — every tracked changelog item, kept verbatim (plan §4). */
@@ -54,9 +73,22 @@ data class FieldChangeFact(
     val fromText: String?,
     val toValue: String?,
     val toText: String?,
+    // The changelog item's own `fieldId` (v0.3.0 M1 commit 2) — the metrics layer's per-field
+    // replay key; `field` is a display name only.
+    val fieldId: String? = null,
 )
 
-data class WorklogFact(val worklogId: Long, val authorAccountId: String?, val startedAtMs: Long, val timeSpentSeconds: Long)
+data class WorklogFact(
+    val worklogId: Long,
+    val authorAccountId: String?,
+    val startedAtMs: Long,
+    val timeSpentSeconds: Long,
+    // When the worklog was actually entered/last edited (v0.3.0 M1 commit 2, report 14's
+    // late-logging measure) — `null` when Jira omits them, NEVER falling back to
+    // [startedAtMs]/[createdAtMs]: a missing timestamp is missing data, not "no skew".
+    val createdAtMs: Long? = null,
+    val updatedAtMs: Long? = null,
+)
 
 /** The (id, displayText) pair a field's CURRENT value resolves to — null/null means "no value" (unassigned, unflagged). */
 data class CurrentFieldValue(val id: String?, val text: String?)
@@ -78,6 +110,9 @@ data class IssueNormalizationInput(
     val currentFlagged: Boolean,
     val fieldChanges: List<FieldChangeFact>,
     val worklogs: List<WorklogFact>,
+    /** PARENT tiling input (v0.3.0 M1 commit 2) — parent-changing changelog items, oldest first. */
+    val parentEvents: List<FieldChangeEvent> = emptyList(),
+    val currentParent: CurrentFieldValue = CurrentFieldValue(null, null),
 )
 
 /** Serializable: the raw issue inspector's response shape (v0.2.0 plan §9/§12 item 8b) returns these verbatim. */
@@ -140,6 +175,12 @@ object Normalization {
         ).map { NormalizedFieldInterval(TrackedField.SPRINT, it.seq, it.valueId, it.valueText, it.fromAtMs, it.toAtMs) }
         val flaggedIntervals = Tiling.fieldIntervals(createdAtMs, input.currentFlagged.toString(), null, input.flaggedEvents)
             .map { NormalizedFieldInterval(TrackedField.FLAGGED, it.seq, it.valueId, it.valueText, it.fromAtMs, it.toAtMs) }
+        // PARENT tiles the same way ASSIGNEE does (v0.3.0 M1 commit 2): the first interval seeds from
+        // the first parent-change event's `from` value, else the current parent — Tiling's own
+        // construction rule needs no special-casing here.
+        val parentIntervals = Tiling.fieldIntervals(
+            createdAtMs, input.currentParent.id, input.currentParent.text, input.parentEvents,
+        ).map { NormalizedFieldInterval(TrackedField.PARENT, it.seq, it.valueId, it.valueText, it.fromAtMs, it.toAtMs) }
 
         return NormalizedIssue(
             issueId = input.issueId,
@@ -147,7 +188,7 @@ object Normalization {
             currentStatusName = currentStatusName,
             currentStatusCategory = currentStatusCategory,
             statusIntervals = statusIntervals,
-            fieldIntervals = assigneeIntervals + sprintIntervals + flaggedIntervals,
+            fieldIntervals = assigneeIntervals + sprintIntervals + flaggedIntervals + parentIntervals,
             fieldChanges = input.fieldChanges,
             worklogs = input.worklogs,
             currentSprintIds = input.currentSprintIds,

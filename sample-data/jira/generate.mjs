@@ -4,9 +4,19 @@
 // Zero dependencies (Node >=24 stdlib only). Every random draw comes from a seeded PRNG so two
 // runs produce byte-identical output — see sample-data/README.md for the full contract.
 //
-// Usage: node sample-data/jira/generate.mjs
+// Usage: node sample-data/jira/generate.mjs [--scale N] [--out DIR]
 //
-// Writes:
+//   --scale N   multiplies every project's issue/epic counts by N (default 1 — the committed
+//               dataset's own shape; N=20 is the phase-3 perf run's ~24k-issue dataset). Only
+//               affects issue volume, never ids/timelines/chunking/day2 at the default N=1.
+//   --out DIR   writes to DIR/jira-stub and DIR/jira/expected.json instead of the committed
+//               sample-data/ location (used by the perf run so it never touches the repo).
+//
+// With NEITHER flag, output goes to the default location below and is BYTE-IDENTICAL across two
+// runs (see sample-data/README.md's determinism check) — every --scale/--out run still draws from
+// the same deterministic PRNGs, but is not itself asserted byte-identical against anything.
+//
+// Writes (default location; see --out above):
 //   sample-data/jira/expected.json              - counts and facts the server tests assert against
 //   sample-data/jira-stub/mappings/*.json        - WireMock request matchers
 //   sample-data/jira-stub/__files/*.json         - WireMock response bodies (bodyFileName targets)
@@ -17,10 +27,28 @@ import path from "node:path";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..", "..");
-const STUB_DIR = path.join(ROOT, "sample-data", "jira-stub");
+
+function parseArgs(argv) {
+  let scale = 1;
+  let out = null;
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === "--scale") scale = Number(argv[++i]);
+    else if (a.startsWith("--scale=")) scale = Number(a.slice("--scale=".length));
+    else if (a === "--out") out = argv[++i];
+    else if (a.startsWith("--out=")) out = a.slice("--out=".length);
+    else throw new Error(`Unknown argument: ${a}`);
+  }
+  if (!Number.isFinite(scale) || scale <= 0) throw new Error(`--scale must be a positive number, got: ${scale}`);
+  return { scale, out };
+}
+const { scale: SCALE, out: OUT_DIR } = parseArgs(process.argv.slice(2));
+
+const OUTPUT_ROOT = OUT_DIR ? path.resolve(OUT_DIR) : path.join(ROOT, "sample-data");
+const STUB_DIR = path.join(OUTPUT_ROOT, "jira-stub");
 const MAPPINGS_DIR = path.join(STUB_DIR, "mappings");
 const FILES_DIR = path.join(STUB_DIR, "__files");
-const EXPECTED_PATH = path.join(ROOT, "sample-data", "jira", "expected.json");
+const EXPECTED_PATH = path.join(OUTPUT_ROOT, "jira", "expected.json");
 
 // ---------------------------------------------------------------------------------------------
 // Seeded PRNG (mulberry32) — deterministic across runs/platforms/Node versions.
@@ -36,40 +64,53 @@ function mulberry32(seed) {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
-const rawRandom = mulberry32(SEED);
-const rng = {
-  float() {
-    return rawRandom();
-  },
-  int(min, max) {
-    // inclusive both ends
-    return min + Math.floor(rawRandom() * (max - min + 1));
-  },
-  bool(p) {
-    return rawRandom() < p;
-  },
-  pick(arr) {
-    return arr[this.int(0, arr.length - 1)];
-  },
-  pickWeighted(pairs) {
-    // pairs: [[value, weight], ...]
-    const total = pairs.reduce((s, [, w]) => s + w, 0);
-    let r = rawRandom() * total;
-    for (const [value, weight] of pairs) {
-      if (r < weight) return value;
-      r -= weight;
-    }
-    return pairs[pairs.length - 1][0];
-  },
-  shuffle(arr) {
-    const a = arr.slice();
-    for (let i = a.length - 1; i > 0; i--) {
-      const j = this.int(0, i);
-      [a[i], a[j]] = [a[j], a[i]];
-    }
-    return a;
-  },
-};
+function makeRng(seed) {
+  const rawRandom = mulberry32(seed);
+  return {
+    float() {
+      return rawRandom();
+    },
+    int(min, max) {
+      // inclusive both ends
+      return min + Math.floor(rawRandom() * (max - min + 1));
+    },
+    bool(p) {
+      return rawRandom() < p;
+    },
+    pick(arr) {
+      return arr[this.int(0, arr.length - 1)];
+    },
+    pickWeighted(pairs) {
+      // pairs: [[value, weight], ...]
+      const total = pairs.reduce((s, [, w]) => s + w, 0);
+      let r = rawRandom() * total;
+      for (const [value, weight] of pairs) {
+        if (r < weight) return value;
+        r -= weight;
+      }
+      return pairs[pairs.length - 1][0];
+    },
+    shuffle(arr) {
+      const a = arr.slice();
+      for (let i = a.length - 1; i > 0; i--) {
+        const j = this.int(0, i);
+        [a[i], a[j]] = [a[j], a[i]];
+      }
+      return a;
+    },
+  };
+}
+const rng = makeRng(SEED);
+// A SEPARATE, independently-seeded PRNG stream for every phase-3 (v0.3.0) addition (epic SP/dates,
+// parent moves, story-point changes, work category, worklog created/updated skew, sprint
+// completeDate skew, the future-sprint backlog placement, the deterministic team roster). Every
+// phase-3 draw MUST come from `rng2`, never `rng` — `rng` is the phase-2 dataset's sequence, and any
+// new draw threaded into it would shift every later phase-2 value (ids, timelines, the omitted
+// bulkfetch chunk, the day2 scenario — see .claude/docs/persistence.md's "hard constraint" note and
+// the phase-3 plan's §0 A2). `rng2`'s own draws run in a fixed, code-order sequence (never
+// interleaved with input from elsewhere), so they stay just as deterministic as `rng`'s.
+const SEED2 = 0x4d657472; // "Metr" as hex-ish, a second arbitrary fixed constant, distinct from SEED
+const rng2 = makeRng(SEED2);
 
 // ---------------------------------------------------------------------------------------------
 // Fixed reference point. NEVER Date.now() — determinism requires a frozen "now".
@@ -90,6 +131,33 @@ const AGILE = `${GATEWAY_PREFIX}/rest/agile/1.0`;
 
 function iso(ms) {
   return new Date(ms).toISOString();
+}
+
+function isoDate(ms) {
+  return iso(ms).slice(0, 10);
+}
+
+// Jira Cloud's REST API v3 (`yyyy-MM-dd'T'HH:mm:ss.SSSZ`, i.e. a colonless `+0000`/`-0500` offset,
+// NEVER a colon and NEVER a bare `Z`) — verified against a real tenant, see
+// `sample-data/README.md`'s "Timestamp formats" section and
+// `server/src/main/kotlin/jira/JiraTime.kt`'s kdoc: `java.time.Instant.parse` rejects this shape
+// outright, which is exactly why the stub must emit it rather than the more convenient `iso()`/`Z`
+// form the Agile API actually returns. `pad2` mirrors the two-digit zero-padding `toISOString()`
+// already does for every other field; only the offset needs building by hand.
+function pad2(n) {
+  return String(n).padStart(2, "0");
+}
+
+function restIso(ms) {
+  const d = new Date(ms);
+  const y = d.getUTCFullYear();
+  const mo = pad2(d.getUTCMonth() + 1);
+  const day = pad2(d.getUTCDate());
+  const h = pad2(d.getUTCHours());
+  const mi = pad2(d.getUTCMinutes());
+  const s = pad2(d.getUTCSeconds());
+  const ms3 = String(d.getUTCMilliseconds()).padStart(3, "0");
+  return `${y}-${mo}-${day}T${h}:${mi}:${s}.${ms3}+0000`;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -176,7 +244,19 @@ const CF = {
   RANK: "customfield_10019",
   SPRINT: "customfield_10020",
   FLAGGED: "customfield_10021",
+  // Phase 3 (v0.3.0 M1 commit 1) additions — epic start date + a work-category select, per the
+  // phase-3 plan's §10 commit-1 brief.
+  EPIC_START: "customfield_10015",
+  WORK_CATEGORY: "customfield_10030",
 };
+
+// Work category select-field options (customfield_10030) — D8's fallback (task's own value, else
+// its epic's) needs real option data to exercise.
+const WORK_CATEGORY_OPTIONS = [
+  { id: "10100", value: "Product Development" },
+  { id: "10101", value: "Maintenance" },
+  { id: "10102", value: "Cost of Poor Quality" },
+];
 
 const FIELDS = [
   { id: "summary", key: "summary", name: "Summary", custom: false, schema: { type: "string", system: "summary" } },
@@ -190,6 +270,7 @@ const FIELDS = [
   { id: "issuetype", key: "issuetype", name: "Issue Type", custom: false, schema: { type: "issuetype", system: "issuetype" } },
   { id: "project", key: "project", name: "Project", custom: false, schema: { type: "project", system: "project" } },
   { id: "parent", key: "parent", name: "Parent", custom: false, schema: { type: "issuelink", system: "parent" } },
+  { id: "duedate", key: "duedate", name: "Due date", custom: false, schema: { type: "date", system: "duedate" } },
   {
     id: CF.TEAM,
     key: CF.TEAM,
@@ -224,6 +305,20 @@ const FIELDS = [
     name: "Flagged",
     custom: true,
     schema: { type: "array", items: "option", custom: "com.atlassian.jira.plugin.system.customfieldtypes:multicheckboxes", customId: 10021 },
+  },
+  {
+    id: CF.EPIC_START,
+    key: CF.EPIC_START,
+    name: "Start date",
+    custom: true,
+    schema: { type: "date", custom: "com.atlassian.jira.plugin.system.customfieldtypes:datepicker", customId: 10015 },
+  },
+  {
+    id: CF.WORK_CATEGORY,
+    key: CF.WORK_CATEGORY,
+    name: "Work category",
+    custom: true,
+    schema: { type: "option", custom: "com.atlassian.jira.plugin.system.customfieldtypes:select", customId: 10030 },
   },
 ];
 
@@ -294,6 +389,15 @@ const PROJECTS = [
     boardOmitsStatus: null,
   },
 ];
+// --scale N (default 1 — a no-op, Math.round(x*1) === x, so the committed dataset's shape is
+// untouched): multiplies issue volume only, never sprint/user/team counts — the perf run's own
+// "≈24k issues" target (phase-3 plan §9/§19) comes from this alone.
+if (SCALE !== 1) {
+  for (const project of PROJECTS) {
+    project.nonEpicCount = Math.round(project.nonEpicCount * SCALE);
+    project.epicCount = Math.max(1, Math.round(project.epicCount * SCALE));
+  }
+}
 const IN_SCOPE_PROJECTS = PROJECTS.filter((p) => p.inScope);
 const CONNECTION_PROJECT_KEYS = IN_SCOPE_PROJECTS.map((p) => p.key);
 const SCRUM_PROJECTS = PROJECTS.filter((p) => p.boardType === "scrum");
@@ -393,7 +497,7 @@ function makeStatusItem(from, to) {
 
 function pushHistory(issueId, atMs, items) {
   const list = changeHistories.get(issueId) ?? [];
-  list.push({ id: String(nextHistoryId++), created: iso(atMs), author: pickAuthor(), items });
+  list.push({ id: String(nextHistoryId++), created: restIso(atMs), author: pickAuthor(), items });
   changeHistories.set(issueId, list);
 }
 
@@ -652,9 +756,9 @@ for (const issue of issues) {
         id: String(nextWorklogId++),
         issueId: issue.id,
         author: pickAuthor(),
-        started: iso(cappedStarted),
-        created: iso(cappedStarted),
-        updated: iso(cappedStarted),
+        started: restIso(cappedStarted),
+        created: restIso(cappedStarted),
+        updated: restIso(cappedStarted),
         timeSpentSeconds: rng.int(1, 8) * 1800,
       };
       list.push(worklog);
@@ -801,9 +905,9 @@ const day2NewInScopeWorklogs = updatedIssues.slice(0, 2).map((issue) => {
     id: String(nextWorklogId++),
     issueId: issue.id,
     author: pickAuthor(),
-    started: DAY2_NOW_ISO,
-    created: DAY2_NOW_ISO,
-    updated: DAY2_NOW_ISO,
+    started: restIso(DAY2_NOW_MS),
+    created: restIso(DAY2_NOW_MS),
+    updated: restIso(DAY2_NOW_MS),
     timeSpentSeconds: rng.int(1, 8) * 1800,
   };
   worklogsByIssue.get(issue.id).push(w);
@@ -814,9 +918,9 @@ const day2OutOfScopeWorklogs = rng.shuffle(secIssues).slice(0, 2).map((issue) =>
   id: String(nextWorklogId++),
   issueId: issue.id,
   author: pickAuthor(),
-  started: DAY2_NOW_ISO,
-  created: DAY2_NOW_ISO,
-  updated: DAY2_NOW_ISO,
+  started: restIso(DAY2_NOW_MS),
+  created: restIso(DAY2_NOW_MS),
+  updated: restIso(DAY2_NOW_MS),
   timeSpentSeconds: rng.int(1, 8) * 1800,
 }));
 const day2DeletedWorklogSourceIssue = inScopeIssues.find((i) => i !== deletedIssue && i !== movedIssue && worklogsByIssue.get(i.id).length > 0);
@@ -837,9 +941,9 @@ function issueFieldsJson(issue, scenario) {
     status: statusJson(status),
     issuetype: { id: issue.type.id, name: issue.type.name, subtask: issue.type.subtask },
     project: { id: project.id, key: project.key, name: project.name },
-    created: iso(issue.createdMs),
-    updated: iso(updatedMs),
-    resolutiondate: issue.resolvedAtMs !== null ? iso(issue.resolvedAtMs) : null,
+    created: restIso(issue.createdMs),
+    updated: restIso(updatedMs),
+    resolutiondate: issue.resolvedAtMs !== null ? restIso(issue.resolvedAtMs) : null,
     assignee: issue.assignee ? { accountId: issue.assignee.accountId, displayName: issue.assignee.displayName } : null,
     reporter: { accountId: issue.reporter.accountId, displayName: issue.reporter.displayName },
     priority: issue.priority,
@@ -869,8 +973,560 @@ function issueFieldsJson(issue, scenario) {
   if (issue.originalEstimateSeconds !== null) {
     fields.timetracking = { originalEstimateSeconds: issue.originalEstimateSeconds, remainingEstimateSeconds: issue.originalEstimateSeconds, timeSpentSeconds: 0 };
   }
+  // Phase 3 (v0.3.0 M1 commit 1): epic own dates + work category (every epic and ~60% of tasks).
+  if (issue.epicStartMs !== undefined) fields[CF.EPIC_START] = isoDate(issue.epicStartMs);
+  if (issue.epicDueMs !== undefined) fields.duedate = isoDate(issue.epicDueMs);
+  if (issue.workCategory) fields[CF.WORK_CATEGORY] = { id: issue.workCategory.id, value: issue.workCategory.value };
   return { id: issue.id, key: issue.key, fields };
 }
+
+// ===============================================================================================
+// Phase 3 (v0.3.0 M1 commit 1) inputs — epic story points/dates, parent moves, story-point
+// changes after start, work category, worklog created/updated skew, sprint completeDate skew, the
+// future-sprint backlog, the deterministic team roster, and the two golden fixtures.
+//
+// Every draw below comes from `rng2` (never `rng`), and this whole section runs strictly AFTER the
+// phase-2 dataset (issues, ids, changelog, day-2 scenario) is fully built — so none of it can shift
+// an existing id, count, timeline, the omitted bulkfetch chunk or the day2 deltas (phase-3 plan §0
+// A2's hard constraint). Where a new changelog history necessarily grows an existing total
+// (`changelog.inScopeHistories` below), that total is COMPUTED, not hand-copied, so it can never
+// drift from what the generator actually wrote.
+// ===============================================================================================
+
+function removeFieldHistoryEntries(issueId, fieldPredicate) {
+  const list = changeHistories.get(issueId) ?? [];
+  changeHistories.set(issueId, list.filter((h) => !h.items.some(fieldPredicate)));
+}
+
+const day2SpecialIds = new Set([deletedIssue.id, movedIssue.id, ...updatedIssues.map((i) => i.id)]);
+
+// --- Epic story points (D7) + epic dates (Start date / duedate), with a date change on ~25% ------
+const EPIC_SP_MIN = 20;
+const EPIC_SP_MAX = 80;
+const epics = issues.filter((i) => i.type === ISSUE_TYPE.EPIC);
+let epicDatesChangedCount = 0;
+for (const epic of epics) {
+  epic.storyPoints = rng2.int(EPIC_SP_MIN, EPIC_SP_MAX);
+
+  const startOffsetDays = rng2.int(0, 30);
+  epic.epicStartMs = Math.min(epic.createdMs + startOffsetDays * DAY_MS, REFERENCE_MS - DAY_MS);
+  const durationDays = rng2.int(30, 180);
+  epic.epicDueMs = epic.epicStartMs + durationDays * DAY_MS;
+
+  if (rng2.bool(0.25)) {
+    epicDatesChangedCount++;
+    const changeAtMs = Math.min(epic.epicStartMs + rng2.int(5, 60) * DAY_MS, REFERENCE_MS - DAY_MS);
+    if (rng2.bool(0.5)) {
+      const oldDue = epic.epicDueMs;
+      const newDue = oldDue + rng2.int(-20, 30) * DAY_MS;
+      epic.epicDueMs = newDue;
+      pushHistory(epic.id, changeAtMs, [
+        {
+          field: "Due date",
+          fieldId: "duedate",
+          from: isoDate(oldDue),
+          fromString: isoDate(oldDue),
+          to: isoDate(newDue),
+          toString: isoDate(newDue),
+        },
+      ]);
+    } else {
+      const oldStart = epic.epicStartMs;
+      const newStart = Math.max(oldStart + rng2.int(-10, 20) * DAY_MS, epic.createdMs);
+      epic.epicStartMs = newStart;
+      pushHistory(epic.id, changeAtMs, [
+        {
+          field: "Start date",
+          fieldId: CF.EPIC_START,
+          from: isoDate(oldStart),
+          fromString: isoDate(oldStart),
+          to: isoDate(newStart),
+          toString: isoDate(newStart),
+        },
+      ]);
+    }
+  }
+}
+
+// Point-in-time story-point timeline, one entry per (atMs, value), ascending — the source the
+// golden sprint/epic fixtures resolve "estimate at commitment/entry/completion" from below. Every
+// issue starts with a single entry at its own creation (epics included, now that their own SP is
+// assigned above); the story-point-change/estimated-late loop appends to it.
+for (const issue of issues) {
+  issue.storyPointHistory = [{ atMs: issue.createdMs, value: issue.storyPoints }];
+}
+
+// --- Parent moves: ~3% of parented tasks move to another epic once (a changelog `Parent` item) --
+const epicsByProject = new Map(PROJECTS.map((p) => [p.key, epics.filter((e) => e.project === p)]));
+const parentedTasks = issues.filter((i) => i.parent && i.parent.type === ISSUE_TYPE.EPIC && !day2SpecialIds.has(i.id));
+const parentMoveIssueIds = [];
+for (const issue of parentedTasks) {
+  if (!rng2.bool(0.03)) continue;
+  const sameProjectEpics = epicsByProject.get(issue.project.key).filter((e) => e !== issue.parent);
+  if (sameProjectEpics.length === 0) continue;
+  const oldEpic = issue.parent;
+  const newEpic = rng2.pick(sameProjectEpics);
+  const changeAtMs = Math.min(issue.createdMs + rng2.int(1, 60) * DAY_MS, REFERENCE_MS - DAY_MS);
+  pushHistory(issue.id, changeAtMs, [
+    { field: "Parent", fieldId: "parent", from: oldEpic.id, fromString: oldEpic.key, to: newEpic.id, toString: newEpic.key },
+  ]);
+  issue.parent = newEpic;
+  parentMoveIssueIds.push(issue.id);
+}
+
+// --- Story-point changes after the first IN_PROGRESS transition (~15%), estimated late (~5%) -----
+const STORY_POINT_VALUES = [1, 2, 3, 5, 8, 13, 21];
+const startedEstimableStories = issues.filter(
+  (i) => i.project.boardType === "scrum" && i.type === ISSUE_TYPE.STORY && i.statusEvents.length > 0 && !day2SpecialIds.has(i.id),
+);
+let estimateChangedAfterStartCount = 0;
+let estimatedLateCount = 0;
+for (const issue of startedEstimableStories) {
+  const outcome = rng2.pickWeighted([
+    ["change", 15],
+    ["late", 5],
+    ["none", 80],
+  ]);
+  if (outcome === "none") continue;
+  const firstInProgressMs = issue.statusEvents[0].atMs;
+  if (outcome === "change") {
+    const oldSp = issue.storyPoints;
+    const changeAtMs = Math.min(firstInProgressMs + rng2.int(1, 20) * DAY_MS, REFERENCE_MS - DAY_MS);
+    if (changeAtMs <= firstInProgressMs) continue;
+    const candidates = STORY_POINT_VALUES.filter((v) => v !== oldSp);
+    const newSp = rng2.pick(candidates);
+    issue.storyPoints = newSp;
+    issue.estimateChangedAfterStart = true;
+    issue.storyPointHistory.push({ atMs: changeAtMs, value: newSp });
+    estimateChangedAfterStartCount++;
+    pushHistory(issue.id, changeAtMs, [
+      {
+        field: "Story Points",
+        fieldId: CF.STORY_POINTS,
+        from: String(oldSp),
+        fromString: String(oldSp),
+        to: String(newSp),
+        toString: String(newSp),
+      },
+    ]);
+  } else {
+    // "estimated late": no estimate at start, current/final value appears only via this history.
+    const finalSp = issue.storyPoints;
+    const changeAtMs = Math.min(firstInProgressMs + rng2.int(1, 15) * DAY_MS, REFERENCE_MS - DAY_MS);
+    if (changeAtMs <= firstInProgressMs) continue;
+    issue.estimatedLate = true;
+    issue.storyPointHistory = [{ atMs: issue.createdMs, value: null }, { atMs: changeAtMs, value: finalSp }];
+    estimatedLateCount++;
+    pushHistory(issue.id, changeAtMs, [
+      { field: "Story Points", fieldId: CF.STORY_POINTS, from: "", fromString: "", to: String(finalSp), toString: String(finalSp) },
+    ]);
+  }
+}
+
+// --- Work category (customfield_10030): every epic, ~60% of every other (non-subtask-exempt) issue
+for (const issue of issues) {
+  if (issue.type === ISSUE_TYPE.EPIC) {
+    issue.workCategory = rng2.pick(WORK_CATEGORY_OPTIONS);
+  } else if (rng2.bool(0.6)) {
+    issue.workCategory = rng2.pick(WORK_CATEGORY_OPTIONS);
+  }
+}
+
+// --- Worklog created/updated skew: created = started + 1..5 days on ~20%, updated > created on ~10%
+const allWorklogs = [...worklogsByIssue.values()].flat();
+let worklogCreatedLaterCount = 0;
+let worklogUpdatedLaterCount = 0;
+for (const w of allWorklogs) {
+  const startedMs = Date.parse(w.started);
+  let createdMs = startedMs;
+  if (rng2.bool(0.2)) {
+    createdMs = startedMs + rng2.int(1, 5) * DAY_MS;
+    worklogCreatedLaterCount++;
+  }
+  w.created = restIso(createdMs);
+  let updatedMs = createdMs;
+  if (rng2.bool(0.1)) {
+    updatedMs = createdMs + rng2.int(1, 3) * DAY_MS;
+    worklogUpdatedLaterCount++;
+  }
+  w.updated = restIso(updatedMs);
+}
+
+// --- Sprint completeDate skew: completeDate = endDate + 0..2 days on ~30% of closed sprints -------
+let sprintCompleteDateShiftedCount = 0;
+for (const project of SCRUM_PROJECTS) {
+  for (const sprint of SPRINTS_BY_PROJECT.get(project.key)) {
+    if (sprint.state !== "closed") continue;
+    sprint.completeAtMs = sprint.endMs;
+    if (rng2.bool(0.3)) {
+      sprint.completeAtMs = sprint.endMs + rng2.int(0, 2) * DAY_MS;
+      sprintCompleteDateShiftedCount++;
+    }
+  }
+}
+
+// --- ~10 issues placed in the future sprint (estimated, not started — D9's backlog-in-a-future-
+// sprint case, as opposed to a genuinely unscheduled backlog item) ---------------------------------
+// A genuinely-never-started issue is already rare in this dataset (simulateLifecycle only ever
+// leaves an issue at wf[0]/TODO on its own ~1% x 35% "neverStarted" roll), so this feature
+// deliberately CONSTRUCTS its ~10 backlog items rather than relying on that roll to surface enough
+// of them: it picks estimated Scrum stories that never reopened or carried over (so resetting them
+// can't disturb the already-finalized `reopens`/`sprints.carryOverCount` figures above) and resets
+// their status timeline to TODO before assigning them to the future sprint.
+const FUTURE_SPRINT_TARGET = 10;
+let futureBacklogPlaced = 0;
+for (const project of SCRUM_PROJECTS) {
+  if (futureBacklogPlaced >= FUTURE_SPRINT_TARGET) break;
+  const futureSprint = SPRINTS_BY_PROJECT.get(project.key).find((s) => s.state === "future");
+  if (!futureSprint) continue;
+  const candidates = issues.filter(
+    (i) =>
+      i.project === project &&
+      i.type === ISSUE_TYPE.STORY &&
+      i.storyPoints !== null &&
+      !i.carriedOver &&
+      !i.reopened &&
+      !i.estimateChangedAfterStart &&
+      !i.estimatedLate &&
+      !i.sprintIds.includes(futureSprint.id) &&
+      !day2SpecialIds.has(i.id),
+  );
+  const shuffled = rng2.shuffle(candidates);
+  const take = Math.min(shuffled.length, FUTURE_SPRINT_TARGET - futureBacklogPlaced, 4);
+  for (const issue of shuffled.slice(0, take)) {
+    // Reset to a never-started TODO issue: drop any status history, reopen the current-state fields.
+    removeFieldHistoryEntries(issue.id, (item) => item.field === "status");
+    issue.statusEvents = [];
+    issue.status = issue.project.workflow[0];
+    issue.resolvedAtMs = null;
+
+    removeFieldHistoryEntries(issue.id, (item) => item.field === "Sprint");
+    issue.sprintIds = [futureSprint.id];
+    issue.sprintEvents = [{ atMs: issue.createdMs, from: [], to: [futureSprint.id] }];
+    pushHistory(issue.id, issue.createdMs, [
+      {
+        field: "Sprint",
+        fieldId: CF.SPRINT,
+        from: null,
+        fromString: null,
+        to: String(futureSprint.id),
+        toString: `Sprint ${futureSprint.id}`,
+      },
+    ]);
+    issue.placedInFutureSprint = true;
+    futureBacklogPlaced++;
+
+    // `updated` must stay >= every remaining changelog entry's own timestamp (assignee/flagged/
+    // rank changes are untouched by this reset) — recompute rather than collapsing to createdMs.
+    const remainingEventTimes = [
+      issue.createdMs,
+      ...issue.assigneeEvents.map((e) => e.atMs),
+      ...issue.flaggedEvents.map((e) => e.atMs),
+      ...issue.rankEvents.map((e) => e.atMs),
+    ];
+    issue.updatedMs = Math.max(...remainingEventTimes);
+  }
+}
+
+// --- Deterministic 30-user roster over the 4 in-scope teams (2 users in none) ----------------------
+const ROSTER_UNASSIGNED_COUNT = 2;
+const rosterShuffled = rng2.shuffle(USERS);
+const rosterUnassigned = rosterShuffled.slice(0, ROSTER_UNASSIGNED_COUNT);
+const rosterAssignable = rosterShuffled.slice(ROSTER_UNASSIGNED_COUNT);
+const teamRoster = [
+  ...rosterAssignable.map((u, idx) => ({ accountId: u.accountId, displayName: u.displayName, team: TEAMS[idx % TEAMS.length].name })),
+  ...rosterUnassigned.map((u) => ({ accountId: u.accountId, displayName: u.displayName, team: null })),
+].sort((a, b) => a.accountId.localeCompare(b.accountId));
+
+// --- Shared history-relocation helper: moves (or splits out) the "Sprint" changelog item that ----
+// recorded a given first-entry event, from its old timestamp to a new one. Splitting only matters
+// if some OTHER field's change happened to land at the exact same instant (never observed in this
+// dataset — the Sprint entry is always its own standalone history — but handled generically rather
+// than assumed away).
+const HOUR_MS = 3_600_000;
+function relocateSprintEntryHistory(issue, targetSprintId, oldAtMs, newAtMs) {
+  const list = changeHistories.get(issue.id) ?? [];
+  const matches = (it) => it.field === "Sprint" && it.to === String(targetSprintId) && (it.from === null || it.from === "");
+  const historyIdx = list.findIndex((h) => Date.parse(h.created) === oldAtMs && h.items.some(matches));
+  if (historyIdx === -1) return null; // defensive — the entry event always has a matching history
+  const history = list[historyIdx];
+  const itemIdx = history.items.findIndex(matches);
+  let split = false;
+  if (history.items.length === 1) {
+    history.created = restIso(newAtMs);
+  } else {
+    const [item] = history.items.splice(itemIdx, 1);
+    list.push({ id: String(nextHistoryId++), created: restIso(newAtMs), author: history.author, items: [item] });
+    split = true;
+  }
+  changeHistories.set(issue.id, list);
+  return { split };
+}
+
+// --- Sprint-entry planning moment: move ~80% of the future-sprint backlog's first entry to just ---
+// before its sprint's own start ------------------------------------------------------------------
+// In Scrum, most scope enters a sprint at planning (before it starts) — but `sprintForTime` (phase
+// 2, unaltered) always finds the sprint whose window CONTAINS the issue's own `createdMs`, so a
+// REGULAR issue's first entry can never safely move before its own sprint's start (it would place
+// an "added to sprint" event before the issue existed relative to that sprint — impossible, since
+// `createdMs >= sprint.startMs` always holds for the sprint `sprintForTime` itself picked). This
+// step is therefore scoped explicitly to the one population that genuinely predates its target
+// sprint: the ~10 future-sprint backlog placements above (constructed well before the future sprint
+// even opens) — never the broader population "Backlog refinement" below handles differently.
+let sprintEntryMovedCount = 0;
+let sprintEntrySplitCount = 0;
+for (const issue of issues) {
+  if (!issue.placedInFutureSprint) continue;
+  const entry = issue.sprintEvents[0];
+  const targetSprintId = entry.to[0];
+  const sprint = SPRINTS_BY_PROJECT.get(issue.project.key).find((s) => s.id === targetSprintId);
+  if (!sprint) continue;
+  if (!(issue.createdMs < sprint.startMs)) continue; // the issue must already have existed
+  if (!rng2.bool(0.8)) continue;
+
+  const oldAtMs = entry.atMs;
+  const moveTo = Math.max(issue.createdMs, sprint.startMs - rng2.int(1, 20) * HOUR_MS);
+  entry.atMs = moveTo;
+  const result = relocateSprintEntryHistory(issue, targetSprintId, oldAtMs, moveTo);
+  if (!result) continue;
+  if (result.split) sprintEntrySplitCount++;
+  sprintEntryMovedCount++;
+}
+
+// --- Backlog refinement: ~75% of level-0 Scrum tasks (FLO/PLT/GTM) move BOTH their own creation ---
+// and their first sprint entry further back, modelling refined backlog: the item already existed
+// and was groomed before sprint planning pulled it in, rather than being created mid-sprint. Only
+// level-0 tasks move directly (D2 — sub-tasks follow their parent's sprint, and epics have their
+// own budget/dates fixture); a moved task's own sub-tasks are pulled forward only if they would
+// otherwise now precede it (a defensive floor — moving a parent EARLIER only widens the existing
+// gap to its children's own untouched creation times in this dataset, so this is not expected to
+// ever trigger). Status events, worklogs and every OTHER changelog item keep their own absolute
+// timestamps unchanged — the issue's first status interval (`.claude/docs/ingestion.md` "Normalized
+// layer") simply starts earlier, i.e. it sat in TODO/backlog longer, exactly the intended effect.
+let backlogRefinedCount = 0;
+let backlogRefinedSplitCount = 0;
+let backlogRefinedSubtaskPulledCount = 0;
+for (const issue of issues) {
+  if (issue.project.boardType !== "scrum" || issue.type === ISSUE_TYPE.EPIC || issue.type === ISSUE_TYPE.SUBTASK) continue;
+  if (issue.placedInFutureSprint || day2SpecialIds.has(issue.id)) continue;
+  if (!issue.sprintEvents.length) continue;
+  const entry = issue.sprintEvents[0];
+  if (entry.from.length !== 0) continue; // only the genuine first entry, never the carry-over hop
+  const targetSprintId = entry.to[0];
+  const projectSprints = SPRINTS_BY_PROJECT.get(issue.project.key);
+  const sprint = projectSprints.find((s) => s.id === targetSprintId);
+  if (!sprint) continue;
+  if (!(entry.atMs >= sprint.startMs)) continue; // "at/after its sprint's start" — the norm here
+  if (!rng2.bool(0.75)) continue;
+
+  const sprintIdx = projectSprints.findIndex((s) => s.id === sprint.id);
+  const prevSprint = sprintIdx > 0 ? projectSprints[sprintIdx - 1] : null;
+  const lowerBound = Math.max(BACKFILL_START_MS, prevSprint ? prevSprint.startMs : BACKFILL_START_MS);
+
+  const oldEntryAtMs = entry.atMs;
+  const newCreatedMs = Math.max(sprint.startMs - rng2.int(2, 21) * DAY_MS, lowerBound);
+  const newEntryAtMs = Math.max(sprint.startMs - rng2.int(1, 20) * HOUR_MS, newCreatedMs);
+
+  issue.createdMs = newCreatedMs;
+  entry.atMs = newEntryAtMs;
+  // storyPointHistory[0] is this generator's own internal "value held since creation" bookkeeping
+  // (never serialized to the stub) — keep its anchor in step with the moved creation time.
+  if (issue.storyPointHistory.length) issue.storyPointHistory[0].atMs = newCreatedMs;
+
+  const result = relocateSprintEntryHistory(issue, targetSprintId, oldEntryAtMs, newEntryAtMs);
+  if (result) {
+    backlogRefinedCount++;
+    if (result.split) backlogRefinedSplitCount++;
+  }
+
+  for (const child of issues) {
+    if (child.parent === issue && child.type === ISSUE_TYPE.SUBTASK && child.createdMs < issue.createdMs) {
+      child.createdMs = issue.createdMs;
+      backlogRefinedSubtaskPulledCount++;
+    }
+  }
+}
+
+// --- Golden fixtures: one FLO sprint (closed) + one FLO epic, computed from the generator's own ---
+// timeline — a SECOND, independent implementation later Kotlin tests (commit 8's MetricsGoldenTest/
+// MetricsDerivationTest) compare derived figures against (the `EXPECTED_STATUS_CATEGORY`/
+// reopens.inScopeCount precedent, `.claude/docs/testing.md` "The invariant SQL sweep"). Every rule
+// below is `.claude/docs/domain-model.md`'s own, not this file's simplification: grace is 0 ("the
+// sprint's scope at start + grace"); 1 SP = 1 MD; `done_at` is recomputed FRESH from the issue's own
+// status events (never reusing `resolvedAtMs`, which was computed as part of building those events
+// in the first place — reusing it would grade the same code path's homework twice); estimates are
+// resolved POINT-IN-TIME from each issue's own story-point timeline, never its current/final value.
+function doneAtOf(issue) {
+  // The start of the trailing DONE-category run: set on every entry into a done-category status,
+  // cleared on every exit — so a reopened-then-redone issue's final entry wins, never its first.
+  let doneAt = null;
+  for (const e of issue.statusEvents) {
+    if (e.to.categoryKey === "done") doneAt = e.atMs;
+    else if (e.from.categoryKey === "done") doneAt = null;
+  }
+  return doneAt;
+}
+function spAsOf(issue, atMs) {
+  // storyPointHistory is ascending by atMs (built in temporal order above) — the last entry at or
+  // before `atMs` is the value that held at that instant; 0/null both mean "unestimated".
+  let value = null;
+  for (const h of issue.storyPointHistory) {
+    if (h.atMs <= atMs) value = h.value;
+    else break;
+  }
+  return value;
+}
+function sprintEntryTimes(issue, sprintId) {
+  return issue.sprintEvents
+    .filter((e) => e.to.includes(sprintId) && !e.from.includes(sprintId))
+    .map((e) => e.atMs)
+    .sort((a, b) => a - b);
+}
+function sprintExitTimes(issue, sprintId) {
+  // No sprint-scope removal is modelled in this dataset today (carry-over only ADDS a sprint,
+  // never drops the one it came from) — always empty here, but resolved generically (not hardcoded
+  // to "never happens") so a future exit mechanism is handled correctly without touching this file.
+  return issue.sprintEvents
+    .filter((e) => e.from.includes(sprintId) && !e.to.includes(sprintId))
+    .map((e) => e.atMs)
+    .sort((a, b) => a - b);
+}
+function firstSprintEntryAt(issue, sprintId) {
+  const entries = sprintEntryTimes(issue, sprintId);
+  return entries.length ? entries[0] : null;
+}
+function isSprintMemberAt(issue, sprintId, atMs) {
+  const entries = sprintEntryTimes(issue, sprintId);
+  const exits = sprintExitTimes(issue, sprintId);
+  let enteredAt = null;
+  for (const e of entries) {
+    if (e <= atMs) enteredAt = e;
+    else break;
+  }
+  if (enteredAt === null) return false;
+  return !exits.some((x) => x > enteredAt && x <= atMs);
+}
+
+function sprintItemsOf(project, sprint) {
+  // Level-0 tasks only (D2): epics have their own budget/dates fixture below, and Jira sub-tasks
+  // follow their parent task's sprint rather than carrying independent sprint scope of their own.
+  return issues.filter(
+    (i) =>
+      i.project === project &&
+      i.type !== ISSUE_TYPE.EPIC &&
+      i.type !== ISSUE_TYPE.SUBTASK &&
+      firstSprintEntryAt(i, sprint.id) !== null,
+  );
+}
+
+function computeSprintScope(project, sprint) {
+  const commitAt = sprint.startMs; // grace 0
+  const completeAt = sprint.completeAtMs ?? sprint.endMs;
+  const projectSprints = SPRINTS_BY_PROJECT.get(project.key);
+  const sprintIndex = projectSprints.findIndex((s) => s.id === sprint.id);
+  const items = sprintItemsOf(project, sprint);
+  const scope = {
+    committedMd: 0,
+    committedItems: 0,
+    committedIssueKeys: [],
+    addedMd: 0,
+    addedItems: 0,
+    addedIssueKeys: [],
+    removedMd: 0,
+    removedItems: 0,
+    removedIssueKeys: [],
+    finalMd: 0,
+    finalItems: 0,
+    deliveredMd: 0,
+    deliveredItems: 0,
+    deliveredIssueKeys: [],
+    carriedOverMd: 0,
+    carriedOverItems: 0,
+    carriedOverIssueKeys: [],
+    droppedMd: 0,
+    droppedItems: 0,
+    droppedIssueKeys: [],
+  };
+  let hasNonZeroDelivered = false;
+  for (const issue of items) {
+    const enteredAt = firstSprintEntryAt(issue, sprint.id);
+    const isCommitted = enteredAt <= commitAt;
+    const isFinal = isSprintMemberAt(issue, sprint.id, completeAt);
+    if (isCommitted && !isFinal) {
+      // Committed, then exited before completion — removed scope.
+      scope.removedItems++;
+      scope.removedMd += spAsOf(issue, commitAt) ?? 0;
+      scope.removedIssueKeys.push(issue.key);
+      continue;
+    }
+    if (!isFinal) continue; // entered after start, exited before completion — never final scope
+
+    const spAtCompletion = spAsOf(issue, completeAt) ?? 0;
+    scope.finalItems++;
+    scope.finalMd += spAtCompletion;
+    if (isCommitted) {
+      scope.committedItems++;
+      scope.committedMd += spAsOf(issue, commitAt) ?? 0;
+      scope.committedIssueKeys.push(issue.key);
+    } else {
+      scope.addedItems++;
+      scope.addedMd += spAsOf(issue, enteredAt) ?? 0;
+      scope.addedIssueKeys.push(issue.key);
+    }
+
+    const doneAt = doneAtOf(issue);
+    const deliveredWithinSprint =
+      doneAt !== null && doneAt >= sprint.startMs && doneAt <= completeAt && isSprintMemberAt(issue, sprint.id, doneAt);
+    if (deliveredWithinSprint) {
+      scope.deliveredItems++;
+      scope.deliveredMd += spAtCompletion;
+      scope.deliveredIssueKeys.push(issue.key);
+      if (spAtCompletion > 0) hasNonZeroDelivered = true;
+      continue; // delivered items are never also carried/dropped
+    }
+    if (isCommitted) {
+      const hasLaterSprint = projectSprints.some((s, idx) => idx > sprintIndex && firstSprintEntryAt(issue, s.id) !== null);
+      if (hasLaterSprint) {
+        scope.carriedOverItems++;
+        scope.carriedOverMd += spAtCompletion;
+        scope.carriedOverIssueKeys.push(issue.key);
+      } else {
+        scope.droppedItems++;
+        scope.droppedMd += spAtCompletion;
+        scope.droppedIssueKeys.push(issue.key);
+      }
+    }
+  }
+  scope.hasNonZeroDelivered = hasNonZeroDelivered;
+  return scope;
+}
+
+const floProject = PROJECTS.find((p) => p.key === "FLO");
+const floClosedSprints = SPRINTS_BY_PROJECT.get("FLO").filter((s) => s.state === "closed");
+const floScopes = floClosedSprints.map((s) => ({ sprint: s, scope: computeSprintScope(floProject, s) }));
+// Every figure exercised: at least one delivered item with SP > 0, and at least one carried-over
+// item — falls back to the whole pool (still maximising committedMd) if none of FLO's closed
+// sprints happen to satisfy both at once.
+// "committed" (entered at-or-before sprint start) is, by construction, populated ONLY by items
+// carried in from the immediately preceding sprint — a fresh item enters at its own (effectively
+// random) creation time, essentially never exactly at a sprint boundary. Carry-over itself only
+// ever fires ONE hop per issue (`carryoverEligible` above, the phase-2/`rng` dataset this commit
+// must not alter — A2). A committed item has therefore already spent its one hop to arrive here,
+// so it can never carry over AGAIN into the next sprint: `carriedOverItems` is mathematically 0 for
+// EVERY closed sprint in this dataset (confirmed by inspection across all 26 closed FLO sprints),
+// not a computation bug. The selection below asks for it anyway (documenting the intent for a
+// future multi-hop carry-over dataset feature) but always falls back to `hasNonZeroDelivered` alone.
+const qualifyingFloScopes = floScopes.filter((c) => c.scope.hasNonZeroDelivered && c.scope.carriedOverItems >= 1);
+const nonZeroDeliveredFloScopes = floScopes.filter((c) => c.scope.hasNonZeroDelivered);
+const goldenSprintPool =
+  qualifyingFloScopes.length > 0 ? qualifyingFloScopes : nonZeroDeliveredFloScopes.length > 0 ? nonZeroDeliveredFloScopes : floScopes;
+const goldenSprint = goldenSprintPool.reduce((best, cur) => (cur.scope.committedMd > best.scope.committedMd ? cur : best));
+
+const floEpics = epics.filter((e) => e.project === floProject);
+const childrenOf = (epic) => issues.filter((i) => i.parent === epic);
+const goldenEpic = floEpics.reduce((best, e) => (childrenOf(e).length > childrenOf(best).length ? e : best), floEpics[0]);
+const goldenEpicChildren = childrenOf(goldenEpic);
+const goldenEpicChildSumMd = goldenEpicChildren.reduce((s, c) => s + (c.storyPoints ?? 0), 0);
 
 // ===============================================================================================
 // WireMock mapping helpers
@@ -1301,7 +1957,7 @@ for (const project of SCRUM_PROJECTS) {
           name: s.name,
           startDate: iso(s.startMs),
           endDate: iso(s.endMs),
-          ...(s.state === "closed" ? { completeDate: iso(s.endMs) } : {}),
+          ...(s.state === "closed" ? { completeDate: iso(s.completeAtMs ?? s.endMs) } : {}),
           originBoardId: s.boardId,
           goal: s.goal,
         })),
@@ -1393,8 +2049,41 @@ const expected = {
   sprints: {
     carryOverCount: carryoverCount,
     perProjectSprintCounts: Object.fromEntries(SCRUM_PROJECTS.map((p) => [p.key, SPRINTS_BY_PROJECT.get(p.key).length])),
+    // Phase 3 additions (v0.3.0 M1 commit 1):
+    completeDateShiftedCount: sprintCompleteDateShiftedCount,
+    futureBacklogCount: futureBacklogPlaced,
+    entryMovedToPlanningCount: sprintEntryMovedCount,
+    entryMovedHistorySplitCount: sprintEntrySplitCount,
+    backlogRefinedCount,
+    backlogRefinedHistorySplitCount: backlogRefinedSplitCount,
+    backlogRefinedSubtaskPulledCount,
   },
-  estimates: { storyPointsCount, originalEstimateCount },
+  estimates: {
+    storyPointsCount,
+    originalEstimateCount,
+    // Phase 3 additions (v0.3.0 M1 commit 1) — D7's epic own estimate, and the task-side
+    // estimate-change/estimated-late population the epic/task accuracy reports (3-5) will read.
+    epicStoryPointsCount: epics.filter((e) => e.storyPoints !== null).length,
+    taskEstimateChangedAfterStartCount: estimateChangedAfterStartCount,
+    taskEstimatedLateCount: estimatedLateCount,
+  },
+  // Phase 3 additions (v0.3.0 M1 commit 1).
+  epicDates: {
+    datedEpicCount: epics.length,
+    changedCount: epicDatesChangedCount,
+  },
+  parentMoves: {
+    count: parentMoveIssueIds.length,
+    issueIds: parentMoveIssueIds.slice().sort((a, b) => Number(a) - Number(b)),
+  },
+  workCategory: {
+    epicCount: epics.filter((e) => e.workCategory).length,
+    otherCount: issues.filter((i) => i.type !== ISSUE_TYPE.EPIC && i.workCategory).length,
+  },
+  worklogTimestamps: {
+    createdLaterCount: worklogCreatedLaterCount,
+    updatedLaterCount: worklogUpdatedLaterCount,
+  },
   workflows: Object.fromEntries(PROJECTS.map((p) => [p.key, p.workflow.map((s) => s.name)])),
   boards: BOARDS.map((b) => ({
     id: b.id,
@@ -1413,9 +2102,39 @@ const expected = {
     updatedIssueIds: updatedIssues.map((i) => i.id),
   },
   users: { count: USERS.length },
+  // Phase 3 additions (v0.3.0 M1 commit 1) — the deterministic team roster (D1's dated membership
+  // is entered through the API in a later commit; this is the source data for that) and the two
+  // golden fixtures computed by the generator from its own timeline (grace 0, 1 SP = 1 MD; see the
+  // "Golden fixtures" comment above for the exact rules and their deliberate scope boundary).
+  teams: {
+    names: TEAMS.map((t) => t.name),
+    roster: teamRoster,
+  },
+  golden: {
+    sprint: {
+      sprintId: goldenSprint.sprint.id,
+      name: goldenSprint.sprint.name,
+      projectKey: "FLO",
+      startDate: isoDate(goldenSprint.sprint.startMs),
+      endDate: isoDate(goldenSprint.sprint.endMs),
+      completeDate: isoDate(goldenSprint.sprint.completeAtMs ?? goldenSprint.sprint.endMs),
+      // hasNonZeroDelivered is a selection-time helper, not a fixture figure — excluded below.
+      ...(({ hasNonZeroDelivered, ...rest }) => rest)(goldenSprint.scope),
+    },
+    epic: {
+      issueId: goldenEpic.id,
+      issueKey: goldenEpic.key,
+      budgetMd: goldenEpic.storyPoints,
+      startDate: isoDate(goldenEpic.epicStartMs),
+      dueDate: isoDate(goldenEpic.epicDueMs),
+      childSumMd: goldenEpicChildSumMd,
+      childCount: goldenEpicChildren.length,
+    },
+  },
   mappingCount,
 };
 
+mkdirSync(path.dirname(EXPECTED_PATH), { recursive: true });
 writeFileSync(EXPECTED_PATH, JSON.stringify(expected, null, 2) + "\n");
 
 // ---------------------------------------------------------------------------------------------

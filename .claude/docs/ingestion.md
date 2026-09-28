@@ -148,7 +148,16 @@ PURGE's connector-owned cleanup step (`purgeSteps`) drains `raw.jira_issues`/`ra
 (V10, plan §0 A2), `raw.jira_changelogs`/`raw.jira_worklogs` (V11) AND `norm.*`'s work items/
 intervals/changes/worklogs/reference rows (V13, plan §0 A3, see "Normalized layer" below), in that
 order — `source_connections.profile`/`profile_at` are left untouched by PURGE (the connection's last
-computed profile stays visible until it either resyncs or is deleted outright).
+computed profile stays visible until it either resyncs or is deleted outright). **A generic,
+connector-agnostic PURGE step runs AFTER the connector's own `purgeSteps`** (v0.3.0 M1 commit 4,
+`ingest/IngestWorker.kt`'s `runJob`, gated on `claim.kind == PURGE`):
+`MetricsConfigService.purgeConnectionConfig` drains this connection's eight per-connection
+`metrics.*` configuration tables (V15, `.claude/docs/persistence.md` "The `metrics` schema —
+configuration (V15)", `.claude/docs/metrics.md` "PURGE and the metrics config") — small tables,
+rebuilt wholesale on every config PUT already, cleared outright rather than batched. Deliberately
+NOT part of `JiraConnector.purgeSteps`: the config it drains holds no Jira-specific shape, so it
+lives beside the worker's OTHER connector-agnostic PURGE work instead of being duplicated per
+connector kind (a future GitLab connection's PURGE job runs the exact same step).
 
 ## Sync cursors (V9)
 
@@ -444,18 +453,37 @@ dataset, not just `Tiling`'s in-memory guarantees.
   status; the stored interval keeps what the changelog chain computed, never the current value.
 
 **Field intervals** (`Tiling.fieldIntervals`, the same four-invariant construction rule minus the
-status-specific anomaly checks) tile exactly three fields into `norm.work_item_field_intervals`
+status-specific anomaly checks) tile four fields into `norm.work_item_field_intervals`
 (`TrackedField`): **ASSIGNEE**, **SPRINT** (`value_id` is the LAST id of a possibly multi-valued
-carry-over set; `value_text` is Jira's own comma-joined `toString`, never recomputed from ids) and
+carry-over set; `value_text` is Jira's own comma-joined `toString`, never recomputed from ids),
 **FLAGGED** (a boolean carried as the string `"true"`/`"false"` in `value_id`, `value_text` always
-null). A null `value_id` (unassigned, unflagged) is preserved, never coerced to a sentinel.
+null) and **PARENT** (v0.3.0 M1 commit 2, V14 — tiles exactly like ASSIGNEE: `value_id` is the
+parent issue id, `value_text` its key, `null` = unparented). A null `value_id` (unassigned,
+unflagged, unparented) is preserved, never coerced to a sentinel.
+
+**Parent-change detection (PARENT tiling, v0.3.0 M1 commit 2).** A changelog item counts as a
+parent move (`JiraNormalizer.isParentChangeItem`) when its `fieldId` is `parent` (the sample
+stub's own spelling and Jira Cloud's current field, replacing Epic Link), OR its `fieldId` matches
+the REFERENCE stream's discovered legacy Epic Link custom field (`gh-epic-link`, `JiraFieldIds
+.epicLinkFieldId` — defensive, no consumer in the sample dataset), OR its `field` display name is
+one of `Parent`/`IssueParentAssociation`/`Epic Link` (a fallback for a real tenant whose changelog
+uses a different `fieldId` than expected). **All three spellings need confirming against a real
+tenant** (`.claude/docs/jira-integration.md` "Parent field spellings") — the sample stub only
+exercises the `fieldId == "parent"` path. The first PARENT interval seeds from the first parent
+move's `from` value (else the issue's current parent) — `Tiling.fieldIntervals`' own construction
+rule needs no special-casing for this.
 
 **Field changes.** `norm.work_item_field_changes` (`jira/JiraNormalizer.kt`'s
 `fieldChangesFromHistory`) keeps EVERY tracked changelog item verbatim, never tiled: status,
-assignee, Sprint, Flagged, Rank, priority, resolution, issuetype, project, Key and story points.
-This is the only normalized record for the fields with no interval table of their own (priority,
-resolution, issuetype, project, Key, story points, Rank never get tiled — only status/assignee/
-Sprint/Flagged do).
+assignee, Sprint, Flagged, Rank, priority, resolution, issuetype, project, Key, story points,
+`duedate`, EVERY `customfield_*` item (v0.3.0 M1 commit 2, V14 — never filtered, so a field the
+metrics layer is later configured to read needs no REPROCESS to have its history already captured)
+and every parent move. Each row also carries the changelog item's own `field_id` (V14's
+`work_item_field_changes.field_id`, `WorkItemStore.fieldChangesByFieldIds` — the metrics layer's
+per-field replay key; `field` alone is a display name only, unreliable across a field rename). This
+is the only normalized record for the fields with no interval table of their own (priority,
+resolution, issuetype, project, Key, story points, Rank, `duedate` and every other `customfield_*`
+never get tiled — only status/assignee/Sprint/Flagged/PARENT do).
 
 **Custom-field discovery by schema.** `JiraNormalizer.discoverFieldIds` resolves a real tenant's
 own `customfield_NNNNN` ids ONCE per PROCESS run, from the REFERENCE stream's `FIELD` entities —
@@ -463,7 +491,24 @@ never hardcoded. Sprint/Rank/Team are matched by their UNIQUE `schema.custom` pl
 (`gh-sprint`, `gh-lexo-rank`, `atlassian-team`); Story points and Flagged have no unique
 `schema.custom` of their own on a real tenant (Story points is plain `...:float`, shared with any
 other numeric custom field), so those two are matched by NAME instead (case-insensitive, "story
-point"/"flagged" substring match).
+point"/"flagged" substring match). The legacy Epic Link field (`gh-epic-link`,
+`JiraFieldIds.epicLinkFieldId`, v0.3.0 M1 commit 2) is discovered the same schema-custom way, for
+PARENT tiling's fallback above.
+
+**Custom-field current-value capture and `hierarchyLevel` (v0.3.0 M1 commit 2, V14,
+`.claude/docs/domain-model.md` "Gaps in `norm` today").** `JiraNormalizer.normalizeIssue` collects
+EVERY non-null `customfield_*` key on the issue's current `fields` — never filtered by which ones
+are "known" — canonicalizes the resulting object (`infra/json/CanonicalJson.kt`) and stores it
+verbatim as `norm.work_items.custom_fields`; the metrics layer picks the configured fields at
+DERIVE time, so a re-pointed estimate/work-category field re-derives without a REPROCESS. The
+system `duedate` field's current value becomes `due_at` (epoch millis at start of day UTC — Jira's
+plain `YYYY-MM-DD`, not a full timestamp). `hierarchyLevel` (an epic is level 1, never "type name =
+Epic") is resolved from the REFERENCE stream's `ISSUE_TYPE` entities
+(`JiraNormalizer.issueTypeHierarchy`, keyed by issue-type id) — **never from the issue document
+itself**: a real tenant's issue-search response does not carry `hierarchyLevel` on
+`fields.issuetype` (confirmed against the stub — `sample-data/jira-stub/__files/issuetype.json` is
+the only fixture carrying it), the same reason `norm.statuses`' category lookup is resolved once
+per run rather than trusted from the issue payload.
 
 **Status category mapping.** `JiraNormalizer.statusRefs` maps each Jira `statusCategory.key` to
 `StatusCategory` (`norm/Tiling.kt`): `new → TODO`, `indeterminate → IN_PROGRESS`, `done → DONE`,
@@ -492,10 +537,18 @@ logged (`log.warn`), not threaded through `sync_jobs.progress`. `context.heartbe
 batch's own `issuesProcessed`/`issuesFailed` counters are flushed once PER BATCH (not per issue) —
 the plan's literal heartbeat/progress cadence, even though the transaction granularity is per-issue.
 
-**REPROCESS and version bumps.** `PROCESSING_VERSION` (`norm/Normalization.kt`, currently `1`) is
-bumped on ANY change to the tiling/write-shape rules; `issuesToProcess` claims any issue whose
-stored `processing_version IS DISTINCT FROM` the current constant automatically, so a version bump
-reprocesses the whole connection on its next PROCESS pass with no separate migration step. A
+**Worklog timestamps and sprint completion (v0.3.0 M1 commit 2, V14).**
+`norm.work_item_worklogs` gains `created_at`/`updated_at` (`raw.jira_worklogs.payload` already
+carried them; only `started_at` was kept here until now) — report 14's late-logging measure needs
+when a worklog was actually entered/last edited, not just the time it claims to describe.
+`norm.sprints` gains `complete_at` (`completeDate`) alongside the reference rebuild — the metrics
+layer keys sprint periods on completion, not `end_at`.
+
+**REPROCESS and version bumps.** `PROCESSING_VERSION` (`norm/Normalization.kt`, currently `2` —
+bumped from `1` by V14 above) is bumped on ANY change to the tiling/write-shape rules;
+`issuesToProcess` claims any issue whose stored `processing_version IS DISTINCT FROM` the current
+constant automatically, so a version bump reprocesses the whole connection on its next PROCESS pass
+with no separate migration step. A
 REPROCESS job (`JiraConnector.runReprocess`) does the same thing on demand: it flags EVERY raw
 issue `needs_processing` (`JiraRawStore.markAllNeedsProcessing`) then runs PROCESS alone, never
 touching Jira. `NormalizationPipelineTest`'s "REPROCESS leaves the normalized digest unchanged"

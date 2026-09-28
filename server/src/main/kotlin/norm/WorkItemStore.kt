@@ -1,14 +1,24 @@
 package ch.nokillswit.norm
 
+import ch.nokillswit.infra.db.active
+import ch.nokillswit.infra.db.containsNormalized
 import ch.nokillswit.infra.db.jsonb
+import ch.nokillswit.infra.paging.PageRequest
 import ch.nokillswit.ingest.DataSourceService
 import io.ktor.util.AttributeKey
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.single
 import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.jetbrains.exposed.v1.core.*
 import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
@@ -22,6 +32,9 @@ import org.jetbrains.exposed.v1.r2dbc.update
 
 /** Batch size for the PURGE step's cleanup over the bigger `norm.*` tables — mirrors `jira/JiraRawStore.kt`'s `JIRA_PURGE_BATCH_SIZE`. */
 internal const val NORM_PURGE_BATCH_SIZE = 500
+
+/** `WorkItemStore.distinctCustomFieldValues`' response-size cap (v0.3.0 M1 commit 4 review fix). */
+internal const val MAX_DISTINCT_FIELD_VALUES = 200
 
 /** Published by `jira/Jira.kt`'s `configureJira` — the raw issue inspector and the data profile step both read it back. */
 val WorkItemStoreKey = AttributeKey<WorkItemStore>("WorkItemStore")
@@ -38,6 +51,22 @@ private fun parseAnomalies(json: String): List<TilingAnomaly> =
 /** The inverse of [stringArrayJson]. */
 private fun parseStringArray(json: String): List<String> = Json.parseToJsonElement(json).jsonArray.map { it.jsonPrimitive.content }
 
+/**
+ * One custom-field value, as `(valueId, valueName)` pairs — `WorkItemStore.distinctCustomFieldValues`'
+ * own reader, handling every shape a Jira field value can take (an object, a bare primitive, or an
+ * array of either) without ever casting blindly.
+ */
+internal fun fieldValueOptions(element: JsonElement?): List<Pair<String, String?>> = when {
+    element == null || element == JsonNull -> emptyList()
+    element is JsonArray -> element.flatMap { fieldValueOptions(it) }
+    element is JsonObject -> {
+        val id = element["id"]?.jsonPrimitive?.contentOrNull ?: element["value"]?.jsonPrimitive?.contentOrNull
+        val name = element["value"]?.jsonPrimitive?.contentOrNull ?: element["name"]?.jsonPrimitive?.contentOrNull
+        id?.let { listOf(it to name) } ?: emptyList()
+    }
+    else -> element.jsonPrimitive.contentOrNull?.takeIf { it.isNotBlank() }?.let { listOf(it to it) } ?: emptyList()
+}
+
 /** A rebuilt reference row (plan §8: "reference rows ... rebuilt per connection each PROCESS") — one per `norm.statuses` row. */
 data class StatusRef(val statusId: String, val name: String, val category: StatusCategory)
 data class PersonRef(val accountId: String, val displayName: String, val email: String?, val active: Boolean)
@@ -51,6 +80,20 @@ data class SprintRef(
     val startAtMs: Long?,
     val endAtMs: Long?,
     val goal: String?,
+    /** `completeDate` (v0.3.0 M1 commit 2) — the metrics layer keys sprint periods on completion, not `endAt`. */
+    val completeAtMs: Long? = null,
+)
+
+/** One `norm.work_item_field_changes` row, connection-wide (v0.3.0 M1 commit 2) — [fieldChangesByFieldIds]'s own read shape. */
+data class FieldChangeRow(
+    val issueId: Long,
+    val fieldId: String?,
+    val field: String,
+    val changedAt: Long,
+    val fromValue: String?,
+    val fromText: String?,
+    val toValue: String?,
+    val toText: String?,
 )
 
 /**
@@ -91,6 +134,9 @@ class WorkItemStore(private val database: R2dbcDatabase) {
         val teamValue = jsonb("team_value").nullable()
         val flagged = bool("flagged").default(false)
         val rank = varchar("rank", 100).nullable()
+        val hierarchyLevel = integer("hierarchy_level").nullable()
+        val dueAt = long("due_at").nullable()
+        val customFields = jsonb("custom_fields")
         val anomalies = jsonb("anomalies")
         val deletedAt = long("deleted_at").nullable()
         val movedOutAt = long("moved_out_at").nullable()
@@ -137,6 +183,7 @@ class WorkItemStore(private val database: R2dbcDatabase) {
         val fromText = text("from_text").nullable()
         val toValue = text("to_value").nullable()
         val toText = text("to_text").nullable()
+        val fieldId = varchar("field_id", 100).nullable()
         override val primaryKey = PrimaryKey(id)
     }
 
@@ -147,6 +194,8 @@ class WorkItemStore(private val database: R2dbcDatabase) {
         val authorAccountId = varchar("author_account_id", 100).nullable()
         val startedAt = long("started_at")
         val timeSpentSeconds = long("time_spent_seconds")
+        val createdAt = long("created_at").nullable()
+        val updatedAt = long("updated_at").nullable()
         override val primaryKey = PrimaryKey(connectionId, worklogId)
     }
 
@@ -194,6 +243,7 @@ class WorkItemStore(private val database: R2dbcDatabase) {
         val startAt = long("start_at").nullable()
         val endAt = long("end_at").nullable()
         val goal = text("goal").nullable()
+        val completeAt = long("complete_at").nullable()
         override val primaryKey = PrimaryKey(connectionId, sprintId)
     }
 
@@ -248,6 +298,7 @@ class WorkItemStore(private val database: R2dbcDatabase) {
                     this[FieldChanges.fromText] = change.fromText
                     this[FieldChanges.toValue] = change.toValue
                     this[FieldChanges.toText] = change.toText
+                    this[FieldChanges.fieldId] = change.fieldId
                 }
             }
             if (normalized.worklogs.isNotEmpty()) {
@@ -258,6 +309,8 @@ class WorkItemStore(private val database: R2dbcDatabase) {
                     this[Worklogs.authorAccountId] = worklog.authorAccountId
                     this[Worklogs.startedAt] = worklog.startedAtMs
                     this[Worklogs.timeSpentSeconds] = worklog.timeSpentSeconds
+                    this[Worklogs.createdAt] = worklog.createdAtMs
+                    this[Worklogs.updatedAt] = worklog.updatedAtMs
                 }
             }
 
@@ -294,9 +347,16 @@ class WorkItemStore(private val database: R2dbcDatabase) {
                 builder[WorkItems.teamValue] = facts.teamValueJson
                 builder[WorkItems.flagged] = normalized.flagged
                 builder[WorkItems.rank] = facts.rank
+                builder[WorkItems.hierarchyLevel] = facts.hierarchyLevel
+                builder[WorkItems.dueAt] = facts.dueAtMs
+                builder[WorkItems.customFields] = facts.customFieldsJson
                 builder[WorkItems.anomalies] = anomaliesJson(normalized.anomalies)
-                builder[WorkItems.deletedAt] = if (facts.tombstone == TombstoneKind.DELETED) now else null
-                builder[WorkItems.movedOutAt] = if (facts.tombstone == TombstoneKind.MOVED_OUT) now else null
+                // The RAW tombstone time, never `now` — a PROCESSING_VERSION bump reprocesses every
+                // already-tombstoned issue, and `now` would reset every one of them to the
+                // reprocess/deploy time (v0.3.0 M1 commit 2 review fix). `?: now` is a defensive
+                // fallback for a caller that (like a hand-built test fixture) omits `tombstoneAtMs`.
+                builder[WorkItems.deletedAt] = if (facts.tombstone == TombstoneKind.DELETED) (facts.tombstoneAtMs ?: now) else null
+                builder[WorkItems.movedOutAt] = if (facts.tombstone == TombstoneKind.MOVED_OUT) (facts.tombstoneAtMs ?: now) else null
                 builder[WorkItems.processedAt] = now
                 builder[WorkItems.processingVersion] = processingVersion
             }
@@ -319,6 +379,70 @@ class WorkItemStore(private val database: R2dbcDatabase) {
                 this[Statuses.category] = it.category.name
             }
         }
+    }
+
+    /** One `norm.people` row collapsed to its account id (v0.3.0 M1 commit 3's `/api/v1/jira-users`). */
+    data class PersonRow(val accountId: String, val displayName: String)
+
+    data class PersonListResult(val items: List<PersonRow>, val total: Long)
+
+    /**
+     * Every Jira account known to an ACTIVE connection, DISTINCT by account id (v0.3.0 M1 commit
+     * 3): two connections to the same site share account ids (plan §12 risk note), so this
+     * collapses via `GROUP BY account_id` (picking the alphabetically-first display name via
+     * `MIN`) rather than a connection-scoped read. Excludes soft-deleted connections and inactive
+     * `norm.people` rows (a departed user is marked `active = false` on the NEXT REFERENCE pass'
+     * wholesale rebuild, never removed outright). [q] filters by [containsNormalized] on the
+     * display name; [accountIds] (when non-null) restricts to that exact set (e.g. a team's
+     * current membership, or the unit-relevant set `JiraUsersRoutes.kt` computes) — an empty set
+     * short-circuits to no rows. `count(DISTINCT)` and the grouped page read run in the SAME
+     * transaction (list-endpoints.md), ordered by the aggregated display name then account id (a
+     * deterministic tiebreaker — never left to whatever order `GROUP BY` happens to return).
+     */
+    suspend fun listPeople(paging: PageRequest, q: String? = null, accountIds: Set<String>? = null): PersonListResult =
+        suspendTransaction(database) {
+            if (accountIds != null && accountIds.isEmpty()) return@suspendTransaction PersonListResult(emptyList(), 0)
+            var predicate: Op<Boolean> = DataSourceService.Connections.active() and (People.active eq true)
+            q?.let { predicate = predicate and People.displayName.containsNormalized(it) }
+            accountIds?.let { ids -> predicate = predicate and (People.accountId inList ids) }
+
+            val joined = People.innerJoin(DataSourceService.Connections)
+            val countExpr = People.accountId.countDistinct()
+            val total = joined.select(countExpr).where { predicate }.single()[countExpr]
+
+            val nameAgg = People.displayName.min()
+            val descending = paging.sort.firstOrNull { it.name == "displayName" }?.descending == true
+            val rows = joined.select(People.accountId, nameAgg).where { predicate }
+                .groupBy(People.accountId)
+                .orderBy(nameAgg to (if (descending) SortOrder.DESC else SortOrder.ASC), People.accountId to SortOrder.ASC)
+                .limit(paging.pageSize)
+                .offset((paging.page - 1).toLong() * paging.pageSize)
+                .toList()
+                // MIN() over a non-null column is itself typed nullable by Exposed (an empty group
+                // yields SQL NULL in general) — never actually null here, since GROUP BY only ever
+                // emits a row for an account id that has at least one matching people row.
+                .map { PersonRow(it[People.accountId], it[nameAgg] ?: "") }
+            PersonListResult(rows, total)
+        }
+
+    /** Distinct assignee account ids across ACTIVE connections' LIVE work items — one input to `/jira-users`' UNIT scope. */
+    suspend fun distinctAssigneeAccountIds(): Set<String> = suspendTransaction(database) {
+        WorkItems.innerJoin(DataSourceService.Connections)
+            .select(WorkItems.assigneeAccountId).withDistinct()
+            .where { DataSourceService.Connections.active() and WorkItems.assigneeAccountId.isNotNull() and WorkItems.deletedAt.isNull() }
+            .toList()
+            .mapNotNull { it[WorkItems.assigneeAccountId] }
+            .toSet()
+    }
+
+    /** Distinct worklog author account ids across ACTIVE connections — the other input to `/jira-users`' UNIT scope. */
+    suspend fun distinctWorklogAuthorAccountIds(): Set<String> = suspendTransaction(database) {
+        Worklogs.innerJoin(DataSourceService.Connections)
+            .select(Worklogs.authorAccountId).withDistinct()
+            .where { DataSourceService.Connections.active() and Worklogs.authorAccountId.isNotNull() }
+            .toList()
+            .mapNotNull { it[Worklogs.authorAccountId] }
+            .toSet()
     }
 
     suspend fun replacePeople(connectionId: UInt, people: List<PersonRef>) = suspendTransaction(database) {
@@ -371,6 +495,7 @@ class WorkItemStore(private val database: R2dbcDatabase) {
                 this[Sprints.startAt] = it.startAtMs
                 this[Sprints.endAt] = it.endAtMs
                 this[Sprints.goal] = it.goal
+                this[Sprints.completeAt] = it.completeAtMs
             }
         }
     }
@@ -454,6 +579,54 @@ class WorkItemStore(private val database: R2dbcDatabase) {
     }
 
     /**
+     * Every `norm.work_item_field_intervals` row of [field], connection-wide, grouped by issue and
+     * ordered by `seq` (v0.3.0 M1 commit 2) — the metrics layer's per-issue replay read (e.g. PARENT
+     * for `task_epic`, SPRINT for `task_sprint`), the connection-wide sibling of
+     * [fieldIntervalsForIssue].
+     */
+    suspend fun fieldIntervalsByIssue(connectionId: UInt, field: TrackedField): Map<Long, List<NormalizedFieldInterval>> =
+        suspendTransaction(database) {
+            FieldIntervals.selectAll().where { (FieldIntervals.connectionId eq connectionId) and (FieldIntervals.field eq field.name) }
+                .toList()
+                .groupBy({ it[FieldIntervals.issueId] }) {
+                    NormalizedFieldInterval(
+                        field = field,
+                        seq = it[FieldIntervals.seq],
+                        valueId = it[FieldIntervals.valueId],
+                        valueText = it[FieldIntervals.valueText],
+                        fromAtMs = it[FieldIntervals.fromAt],
+                        toAtMs = it[FieldIntervals.toAt],
+                    )
+                }
+                .mapValues { (_, intervals) -> intervals.sortedBy { it.seq } }
+        }
+
+    /**
+     * Every `norm.work_item_field_changes` row whose `field_id` is one of [fieldIds], connection-wide
+     * (v0.3.0 M1 commit 2) — the metrics layer's per-field estimate/epic-date replay read (e.g. the
+     * configured estimate field's changes, to build `item_estimate` timelines).
+     */
+    suspend fun fieldChangesByFieldIds(connectionId: UInt, fieldIds: Collection<String>): List<FieldChangeRow> =
+        suspendTransaction(database) {
+            if (fieldIds.isEmpty()) return@suspendTransaction emptyList()
+            FieldChanges.selectAll().where { (FieldChanges.connectionId eq connectionId) and (FieldChanges.fieldId inList fieldIds) }
+                .orderBy(FieldChanges.issueId to SortOrder.ASC, FieldChanges.changedAt to SortOrder.ASC, FieldChanges.seq to SortOrder.ASC)
+                .toList()
+                .map { row ->
+                    FieldChangeRow(
+                        issueId = row[FieldChanges.issueId],
+                        fieldId = row[FieldChanges.fieldId],
+                        field = row[FieldChanges.field],
+                        changedAt = row[FieldChanges.changedAt],
+                        fromValue = row[FieldChanges.fromValue],
+                        fromText = row[FieldChanges.fromText],
+                        toValue = row[FieldChanges.toValue],
+                        toText = row[FieldChanges.toText],
+                    )
+                }
+        }
+
+    /**
      * Every `norm.sprints` reference row for a connection (v0.2.0 plan §8/§12 item 9) — rebuilt
      * wholesale per PROCESS run, read back as-is.
      */
@@ -467,6 +640,7 @@ class WorkItemStore(private val database: R2dbcDatabase) {
                 startAtMs = row[Sprints.startAt],
                 endAtMs = row[Sprints.endAt],
                 goal = row[Sprints.goal],
+                completeAtMs = row[Sprints.completeAt],
             )
         }
     }
@@ -494,6 +668,45 @@ class WorkItemStore(private val database: R2dbcDatabase) {
             StatusRef(row[Statuses.statusId], row[Statuses.name], StatusCategory.valueOf(row[Statuses.category]))
         }
     }
+
+    /** Distinct project keys among a connection's LIVE work items (v0.3.0 M1 commit 4) — the metrics-config defaults' 1:1 domain map. */
+    suspend fun distinctProjectKeys(connectionId: UInt): Set<String> = suspendTransaction(database) {
+        WorkItems.select(WorkItems.projectKey).withDistinct()
+            .where { (WorkItems.connectionId eq connectionId) and WorkItems.deletedAt.isNull() and WorkItems.movedOutAt.isNull() }
+            .map { it[WorkItems.projectKey] }.toList().toSet()
+    }
+
+    /** Distinct issue types among a connection's LIVE work items (v0.3.0 M1 commit 4) — the metrics-config defaults' activity-type map. */
+    suspend fun distinctIssueTypes(connectionId: UInt): Set<String> = suspendTransaction(database) {
+        WorkItems.select(WorkItems.issueType).withDistinct()
+            .where { (WorkItems.connectionId eq connectionId) and WorkItems.deletedAt.isNull() and WorkItems.movedOutAt.isNull() }
+            .map { it[WorkItems.issueType] }.toList().toSet()
+    }
+
+    /**
+     * Every distinct `(valueId, valueName)` pair a `custom_fields[fieldId]` value carries across a
+     * connection's LIVE work items (v0.3.0 M1 commit 4) — the metrics-config options endpoint's
+     * `?workCategoryField=` read and `work_category_map`'s own id validation. Handles every shape
+     * Jira uses for a select-field value: an object (`{id, value}`), a bare string/number, or an
+     * array of either (a multi-select) — never a cast failure on an unexpected shape, since the
+     * field could be ANY custom field the admin picks, not necessarily a `select`. Returns the FULL
+     * set, uncapped: `work_category_map` id validation must never reject a legitimate value just
+     * because it fell outside the OPTIONS endpoint's own display cap
+     * (`MetricsConfigService.options`, [MAX_DISTINCT_FIELD_VALUES]) — the config table itself has
+     * no such limit.
+     */
+    suspend fun distinctCustomFieldValues(connectionId: UInt, fieldId: String): List<Pair<String, String?>> =
+        suspendTransaction(database) {
+            WorkItems.select(WorkItems.customFields)
+                .where { (WorkItems.connectionId eq connectionId) and WorkItems.deletedAt.isNull() and WorkItems.movedOutAt.isNull() }
+                .toList()
+                .flatMap { row ->
+                    val element = Json.parseToJsonElement(row[WorkItems.customFields]).jsonObject[fieldId]
+                    fieldValueOptions(element)
+                }
+                .distinctBy { it.first }
+                .sortedBy { it.first }
+        }
 
     /** Every work item's tiled status intervals, ordered — the pipeline test's SQL-invariant-sweep/reopen-count source. */
     suspend fun statusIntervalsByIssue(connectionId: UInt): Map<Long, List<NormalizedStatusInterval>> = suspendTransaction(database) {
@@ -529,6 +742,9 @@ class WorkItemStore(private val database: R2dbcDatabase) {
         val statusName: String,
         val statusCategory: StatusCategory,
         val assigneeAccountId: String?,
+        val hierarchyLevel: Int?,
+        val dueAt: Long?,
+        val customFields: JsonObject,
         val anomalies: List<TilingAnomaly>,
         val processedAt: Long,
         val processingVersion: Int,
@@ -547,6 +763,9 @@ class WorkItemStore(private val database: R2dbcDatabase) {
                     statusName = row[WorkItems.statusName],
                     statusCategory = StatusCategory.valueOf(row[WorkItems.statusCategory]),
                     assigneeAccountId = row[WorkItems.assigneeAccountId],
+                    hierarchyLevel = row[WorkItems.hierarchyLevel],
+                    dueAt = row[WorkItems.dueAt],
+                    customFields = Json.parseToJsonElement(row[WorkItems.customFields]).jsonObject,
                     anomalies = parseAnomalies(row[WorkItems.anomalies]),
                     processedAt = row[WorkItems.processedAt],
                     processingVersion = row[WorkItems.processingVersion],

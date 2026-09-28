@@ -23,8 +23,8 @@
       "key": "OPS",
       "name": "Operations"
     },
-    "created": "2026-02-03T23:57:21.464Z",
-    "updated": "2026-02-07T23:57:21.464Z",
+    "created": "2026-02-03T23:57:21.464+0000",
+    "updated": "2026-02-07T23:57:21.464+0000",
     "resolutiondate": null,
     "assignee": {
       "accountId": "5f8a1b2c3d4e5f6a7b8c9d20",
@@ -56,6 +56,10 @@
       "originalEstimateSeconds": 10800,
       "remainingEstimateSeconds": 10800,
       "timeSpentSeconds": 0
+    },
+    "customfield_10030": {
+      "id": "10101",
+      "value": "Maintenance"
     }
   }
 }
