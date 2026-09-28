@@ -5,8 +5,6 @@ import ch.nokillswit.ingest.SyncJobClaim
 import ch.nokillswit.ingest.SyncJobKind
 import ch.nokillswit.ingest.SyncJobRunContext
 import ch.nokillswit.ingest.SyncJobsService
-import ch.nokillswit.jira.JiraProcessStream
-import ch.nokillswit.jira.JiraProfileStream
 import ch.nokillswit.metrics.DataSourceMetricsConfigRequest
 import ch.nokillswit.metrics.MetricsBoardTeamMapping
 import ch.nokillswit.metrics.MetricsConfigService
@@ -27,7 +25,6 @@ import ch.nokillswit.norm.TombstoneKind
 import ch.nokillswit.norm.WorkItemFacts
 import ch.nokillswit.norm.WorkItemStore
 import java.io.File
-import java.security.MessageDigest
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZoneOffset
@@ -119,15 +116,20 @@ private val metricsDerivationGoldenSprint: GoldenSprintFixture by lazy { metrics
 private fun isoDateEpochMillis(isoDate: String): Long = LocalDate.parse(isoDate).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
 
 /**
- * `metrics/MetricsDeriver.kt` (v0.3.0 M3 commit 7): a full SYNC → PROCESS → DERIVE over a CLONE of
- * `SyncedStubFixture`'s shared connection (never the shared connection itself —
- * `.claude/docs/testing.md` "Shared synced fixture") with a pinned clock, asserting invariant 3
- * (status/stage intervals tile each item's lifetime) and invariant 4 (`started_at <= done_at`;
- * `done_at` set only while the current stage is DONE) as SQL sweeps over the PERSISTED
- * `metrics.item_stage`/`metrics.fact_task_delivery` rows. Runs with the computed DEFAULT
- * configuration (no admin metrics-config/team-membership setup) — `MetricsConfigService
- * .effectiveConfig` already falls back to safe defaults derived from `norm`/the data profile, so a
- * DERIVE run needs no prior admin configuration to succeed.
+ * `metrics/MetricsDeriver.kt` (v0.3.0 M3 commit 7): DERIVE over a CLONE of `SyncedStubFixture`'s
+ * shared connection (never the shared connection itself — `.claude/docs/testing.md` "Shared synced
+ * fixture") with a pinned clock, asserting invariants 2/3/4/8/12 as SQL sweeps over the PERSISTED
+ * `metrics.*` rows. Runs with the computed DEFAULT configuration (no admin metrics-config/
+ * team-membership setup, unless a test's own SUBJECT is exactly that mutation) —
+ * `MetricsConfigService.effectiveConfig` already falls back to safe defaults derived from
+ * `norm`/the data profile, so a DERIVE run needs no prior admin configuration to succeed.
+ *
+ * **`.claude/docs/testing.md` "The derived fixture".** A test that only READS the result of a
+ * single DERIVE under the default per-connection config (config/membership/settings unchanged,
+ * one derive only) reads [DerivedStubFixture]'s own connection instead of deriving its own — the
+ * `SyncedStubFixture` read-only rule, one layer up the pipeline. A test whose SUBJECT is a second
+ * derive, a config/membership/settings mutation, or a raw-row simulation clones its OWN connection
+ * via [clonedProcessedConnection] instead — never touches the shared derived connection.
  */
 class MetricsDerivationTest {
     private fun workItems() = SyncedStubFixture.workItems()
@@ -137,93 +139,24 @@ class MetricsDerivationTest {
     private fun teamMembership(config: MetricsConfigService) = TeamMembershipService(sharedDatabaseForTests(), config)
     private fun metricsStore() = MetricsStore(sharedDatabaseForTests())
 
-    /** MD5 over every persisted `fact_task_delivery` row PLUS every TASK bridge row (`task_epic`/
-     * `task_domain`/`task_assignee`), ordered by issue id (bridges additionally by their own
-     * `valid_from`, preserving each issue's own history order — NEVER by the surrogate `id` column
-     * itself, which is a fresh `autoIncrement()` value on every DERIVE's delete+insert and would
-     * make the digest spuriously differ across two otherwise-identical runs; the `id` column
-     * itself is excluded from the hashed line for the same reason) — the reprocess-digest pattern
-     * (`.claude/docs/testing.md` "The reprocess digest"), applied to invariant 12 ("every live
-     * number is reproducible from `norm` + one configuration revision", review round 2a widens it
-     * from `fact_task_delivery` alone to the bridges too, since those are now real history rather
-     * than a single current-value row): a second DERIVE over UNCHANGED input, under the SAME pinned
-     * clock, must write byte-for-byte identical rows. */
-    private suspend fun factTaskDeliveryDigest(connId: UInt): String {
-        val digest = MessageDigest.getInstance("MD5")
-        suspendTransaction(sharedDatabaseForTests()) {
-            MetricsStore.FactTaskDelivery.selectAll().where { MetricsStore.FactTaskDelivery.connectionId eq connId }
-                .orderBy(MetricsStore.FactTaskDelivery.issueId to SortOrder.ASC)
-                .toList()
-                .forEach { row ->
-                    val line = MetricsStore.FactTaskDelivery.columns.joinToString("|") { column -> row[column].toString() }
-                    digest.update((line + "\n").toByteArray())
-                }
-            MetricsStore.TaskEpic.selectAll().where { MetricsStore.TaskEpic.connectionId eq connId }
-                .orderBy(MetricsStore.TaskEpic.issueId to SortOrder.ASC, MetricsStore.TaskEpic.validFrom to SortOrder.ASC)
-                .toList()
-                .forEach { row ->
-                    val line = listOf(row[MetricsStore.TaskEpic.issueId], row[MetricsStore.TaskEpic.epicId],
-                        row[MetricsStore.TaskEpic.validFrom], row[MetricsStore.TaskEpic.validTo]).joinToString("|")
-                    digest.update((line + "\n").toByteArray())
-                }
-            MetricsStore.TaskDomain.selectAll().where { MetricsStore.TaskDomain.connectionId eq connId }
-                .orderBy(MetricsStore.TaskDomain.issueId to SortOrder.ASC, MetricsStore.TaskDomain.validFrom to SortOrder.ASC)
-                .toList()
-                .forEach { row ->
-                    val line = listOf(row[MetricsStore.TaskDomain.issueId], row[MetricsStore.TaskDomain.domainKey],
-                        row[MetricsStore.TaskDomain.validFrom], row[MetricsStore.TaskDomain.validTo]).joinToString("|")
-                    digest.update((line + "\n").toByteArray())
-                }
-            MetricsStore.TaskAssignee.selectAll().where { MetricsStore.TaskAssignee.connectionId eq connId }
-                .orderBy(MetricsStore.TaskAssignee.issueId to SortOrder.ASC, MetricsStore.TaskAssignee.validFrom to SortOrder.ASC)
-                .toList()
-                .forEach { row ->
-                    val line = listOf(row[MetricsStore.TaskAssignee.issueId], row[MetricsStore.TaskAssignee.accountId],
-                        row[MetricsStore.TaskAssignee.validFrom], row[MetricsStore.TaskAssignee.validTo]).joinToString("|")
-                    digest.update((line + "\n").toByteArray())
-                }
-        }
-        return digest.digest().joinToString("") { "%02x".format(it) }
-    }
-
+    /**
+     * A CHEAP [SyncedStubFixture.cloneProcessedData] clone of the shared synced connection — the
+     * raw AND already-processed `norm.*`/profile rows, copied verbatim, never re-running PROCESS/
+     * PROFILE (`.claude/docs/testing.md` "Shared synced fixture" — "The derived fixture"). Only a
+     * test whose SUBJECT is a second derive, a config/membership/settings mutation, or a raw-row
+     * simulation needs its own clone at all — a single-derive read belongs on [DerivedStubFixture]
+     * instead.
+     */
     private suspend fun clonedProcessedConnection(): UInt {
         val sharedConnId = SyncedStubFixture.connectionId()
         val connId = SyncedStubFixture.createConnection(namePrefix = "jira-derive-clone")
-        SyncedStubFixture.cloneRawData(sharedConnId, connId)
-        val store = SyncedStubFixture.rawStore()
-        val items = workItems()
-        store.markAllNeedsProcessing(connId)
-        JiraProcessStream(store, items).run(SyncedStubFixture.freshContext(connId))
-        // PROFILE, same as a real SYNC job's own PROCESS -> PROFILE order (.claude/docs/ingestion.md
-        // "Job orders") — MetricsConfigService's computed DEFAULTS (estimateTask/estimateEpic/
-        // epicStart) are detected off the STORED profile, so a DERIVE run against this clone's
-        // computed defaults needs one, exactly like a real connection would have after its first sync.
-        JiraProfileStream(store, items, dataSources()).run(SyncedStubFixture.freshContext(connId))
+        SyncedStubFixture.cloneProcessedData(sharedConnId, connId)
         return connId
     }
 
     @Test
     fun `DERIVE over a freshly processed connection writes non-empty fact_task_delivery satisfying invariants 3 and 4`() = runBlocking {
-        val connId = clonedProcessedConnection()
-        val config = metricsConfig()
-        val deriver = MetricsDeriver(
-            workItems(),
-            config,
-            teamMembership(config),
-            metricsStore(),
-            sharedDatabaseForTests(),
-        )
-        val claim = SyncJobClaim(
-            id = 1u,
-            connectionId = connId,
-            connectorKind = DataSourceKind.JIRA_CLOUD,
-            kind = SyncJobKind.DERIVE,
-            attempt = 1,
-            maxAttempts = 3,
-            syncIntervalMinutes = 60,
-        )
-
-        deriver.derive(SyncJobRunContext(claim, clock = { PINNED_NOW }) { _, _ -> true })
+        val connId = DerivedStubFixture.connectionId()
 
         val factRows = suspendTransaction(sharedDatabaseForTests()) {
             MetricsStore.FactTaskDelivery.selectAll().where { MetricsStore.FactTaskDelivery.connectionId eq connId }.toList()
@@ -275,25 +208,7 @@ class MetricsDerivationTest {
 
     @Test
     fun `DERIVE writes the golden epic's own budget, start-due dates and child sum matching expected_json`() = runBlocking {
-        val connId = clonedProcessedConnection()
-        val config = metricsConfig()
-        val deriver = MetricsDeriver(
-            workItems(),
-            config,
-            teamMembership(config),
-            metricsStore(),
-            sharedDatabaseForTests(),
-        )
-        val claim = SyncJobClaim(
-            id = 2u,
-            connectionId = connId,
-            connectorKind = DataSourceKind.JIRA_CLOUD,
-            kind = SyncJobKind.DERIVE,
-            attempt = 1,
-            maxAttempts = 3,
-            syncIntervalMinutes = 60,
-        )
-        deriver.derive(SyncJobRunContext(claim, clock = { PINNED_NOW }) { _, _ -> true })
+        val connId = DerivedStubFixture.connectionId()
 
         val golden = metricsDerivationGoldenEpic
         val epicIssueId = golden.issueId.toLong()
@@ -358,25 +273,7 @@ class MetricsDerivationTest {
 
     @Test
     fun `invariant 2 — task_epic never lets a task belong to more than one epic at any instant`() = runBlocking {
-        val connId = clonedProcessedConnection()
-        val config = metricsConfig()
-        val deriver = MetricsDeriver(
-            workItems(),
-            config,
-            teamMembership(config),
-            metricsStore(),
-            sharedDatabaseForTests(),
-        )
-        val claim = SyncJobClaim(
-            id = 3u,
-            connectionId = connId,
-            connectorKind = DataSourceKind.JIRA_CLOUD,
-            kind = SyncJobKind.DERIVE,
-            attempt = 1,
-            maxAttempts = 3,
-            syncIntervalMinutes = 60,
-        )
-        deriver.derive(SyncJobRunContext(claim, clock = { PINNED_NOW }) { _, _ -> true })
+        val connId = DerivedStubFixture.connectionId()
 
         val rows = suspendTransaction(sharedDatabaseForTests()) {
             MetricsStore.TaskEpic.selectAll().where { MetricsStore.TaskEpic.connectionId eq connId }
@@ -408,25 +305,7 @@ class MetricsDerivationTest {
 
     @Test
     fun `invariant 2 — task_assignee never lets a task carry more than one assignee at any instant`() = runBlocking {
-        val connId = clonedProcessedConnection()
-        val config = metricsConfig()
-        val deriver = MetricsDeriver(
-            workItems(),
-            config,
-            teamMembership(config),
-            metricsStore(),
-            sharedDatabaseForTests(),
-        )
-        val claim = SyncJobClaim(
-            id = 6u,
-            connectionId = connId,
-            connectorKind = DataSourceKind.JIRA_CLOUD,
-            kind = SyncJobKind.DERIVE,
-            attempt = 1,
-            maxAttempts = 3,
-            syncIntervalMinutes = 60,
-        )
-        deriver.derive(SyncJobRunContext(claim, clock = { PINNED_NOW }) { _, _ -> true })
+        val connId = DerivedStubFixture.connectionId()
 
         val rows = suspendTransaction(sharedDatabaseForTests()) {
             MetricsStore.TaskAssignee.selectAll().where { MetricsStore.TaskAssignee.connectionId eq connId }
@@ -479,10 +358,10 @@ class MetricsDerivationTest {
         )
 
         deriver.derive(SyncJobRunContext(claim(4u), clock = { PINNED_NOW }) { _, _ -> true })
-        val firstDigest = factTaskDeliveryDigest(connId)
+        val firstDigest = DerivedStubFixture.factTaskDeliveryDigest(connId)
 
         deriver.derive(SyncJobRunContext(claim(5u), clock = { PINNED_NOW }) { _, _ -> true })
-        val secondDigest = factTaskDeliveryDigest(connId)
+        val secondDigest = DerivedStubFixture.factTaskDeliveryDigest(connId)
 
         assertEquals(
             firstDigest,
@@ -623,10 +502,7 @@ class MetricsDerivationTest {
 
     @Test
     fun `DERIVE's fact_sprint and fact_sprint_scope reproduce the golden FLO sprint's buckets and issue keys`() = runBlocking {
-        val connId = clonedProcessedConnection()
-        val config = metricsConfig()
-        mapFloBoardToTeam(connId, config)
-        deriver(config).derive(SyncJobRunContext(deriveClaim(10u, connId), clock = { PINNED_NOW }) { _, _ -> true })
+        val connId = DerivedStubFixture.connectionId()
 
         val golden = metricsDerivationGoldenSprint
         val sprintId = golden.sprintId
@@ -704,10 +580,7 @@ class MetricsDerivationTest {
 
     @Test
     fun `invariant 8 — fact_sprint's totals equal the Σ of its own fact_sprint_scope rows`() = runBlocking {
-        val connId = clonedProcessedConnection()
-        val config = metricsConfig()
-        mapFloBoardToTeam(connId, config)
-        deriver(config).derive(SyncJobRunContext(deriveClaim(11u, connId), clock = { PINNED_NOW }) { _, _ -> true })
+        val connId = DerivedStubFixture.connectionId()
 
         val (factRows, scopeSums) = suspendTransaction(sharedDatabaseForTests()) {
             val facts = MetricsStore.FactSprint.selectAll().where { MetricsStore.FactSprint.connectionId eq connId }
@@ -803,16 +676,13 @@ class MetricsDerivationTest {
 
     @Test
     fun `DERIVE resolves the Sprint field by its detected id, not display name — golden sprint still matches`() = runBlocking {
-        // The shared golden-sprint tests above (`clonedProcessedConnection` + `mapFloBoardToTeam`)
-        // already run PROCESS -> PROFILE, so the connection's profile carries a detected SPRINT-role
-        // field id; this test only re-asserts the specific fix: DERIVE resolves that id
-        // (`MetricsConfigService.detectedSprintFieldId`) and reads `norm.work_item_field_changes` by
-        // it (`WorkItemStore.fieldChangesByFieldIds`), never by the display text `"Sprint"` — a
-        // renamed/localized Sprint field on a real tenant must not go silently unread.
-        val connId = clonedProcessedConnection()
-        val config = metricsConfig()
-        mapFloBoardToTeam(connId, config)
-        deriver(config).derive(SyncJobRunContext(deriveClaim(50u, connId), clock = { PINNED_NOW }) { _, _ -> true })
+        // DerivedStubFixture's own clone already ran PROCESS -> PROFILE, so its connection's profile
+        // carries a detected SPRINT-role field id; this test only re-asserts the specific fix: DERIVE
+        // resolves that id (`MetricsConfigService.detectedSprintFieldId`) and reads
+        // `norm.work_item_field_changes` by it (`WorkItemStore.fieldChangesByFieldIds`), never by the
+        // display text `"Sprint"` — a renamed/localized Sprint field on a real tenant must not go
+        // silently unread.
+        val connId = DerivedStubFixture.connectionId()
 
         val sprintId = metricsDerivationGoldenSprint.sprintId
         val committedKeys = suspendTransaction(sharedDatabaseForTests()) {
@@ -1113,12 +983,7 @@ class MetricsDerivationTest {
     @Test
     fun `fact_worklog - invariant 6 (none dropped, well-defined pair, late_ms, hoursPerDay)`() =
         runBlocking {
-            val connId = clonedProcessedConnection()
-            val config = metricsConfig()
-            // The settings singleton is suite-global: pin the hoursPerDay this test asserts against.
-            withMetricsSettings(config, { it.copy(hoursPerDay = HOURS_PER_DAY) }) {
-                deriver(config).derive(SyncJobRunContext(deriveClaim(60u, connId), clock = { PINNED_NOW }) { _, _ -> true })
-            }
+            val connId = DerivedStubFixture.connectionId()
 
             val factWorklogRows = suspendTransaction(sharedDatabaseForTests()) {
                 MetricsStore.FactWorklog.selectAll().where { MetricsStore.FactWorklog.connectionId eq connId }.toList()
@@ -1162,11 +1027,7 @@ class MetricsDerivationTest {
 
     @Test
     fun `fact_worklog - invariant 7`() = runBlocking {
-        val connId = clonedProcessedConnection()
-        val config = metricsConfig()
-        withMetricsSettings(config, { it.copy(hoursPerDay = HOURS_PER_DAY) }) {
-            deriver(config).derive(SyncJobRunContext(deriveClaim(61u, connId), clock = { PINNED_NOW }) { _, _ -> true })
-        }
+        val connId = DerivedStubFixture.connectionId()
 
         // An INDEPENDENT re-derivation straight off norm.work_item_worklogs + the live item set
         // (never off fact_task_delivery/fact_worklog themselves — the invariant sweep pattern,

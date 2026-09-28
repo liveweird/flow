@@ -32,6 +32,7 @@ import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.r2dbc.batchInsert
 import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
+import org.jetbrains.exposed.v1.r2dbc.update
 import kotlin.test.assertEquals
 
 /**
@@ -296,6 +297,200 @@ object SyncedStubFixture {
                     this[JiraRawStore.Worklogs.changedAt] = row[JiraRawStore.Worklogs.changedAt]
                     this[JiraRawStore.Worklogs.deletedAt] = row[JiraRawStore.Worklogs.deletedAt]
                 }
+            }
+        }
+    }
+
+    /**
+     * Extends [cloneRawData] with a CHEAP PROCESS/PROFILE-free clone: every `norm.*` row (work
+     * items, status/field intervals, field changes, worklogs, and the rebuilt-wholesale reference
+     * tables — statuses/people/boards/board_columns/sprints) plus `source_connections.profile`/
+     * `profile_at`, all copied verbatim and rewritten to [toConnectionId] — never re-running
+     * `jira/JiraProcessStream.kt`/`jira/JiraProfileStream.kt` against the clone, since the SHARED
+     * connection [fromConnectionId] already ran them once (`.claude/docs/testing.md` "Shared synced
+     * fixture"). Surrogate `SERIAL id` columns (`StatusIntervals`/`FieldIntervals`/`FieldChanges`)
+     * are never copied — every other column is copied as-is. [DerivedStubFixture] is this
+     * function's first consumer; `SyncedStubFixtureTest` pins that the clone's own status-interval
+     * digest matches the source connection's.
+     */
+    suspend fun cloneProcessedData(fromConnectionId: UInt, toConnectionId: UInt) {
+        cloneRawData(fromConnectionId, toConnectionId)
+        val db = sharedDatabaseForTests()
+        suspendTransaction(db) {
+            val workItemRows = WorkItemStore.WorkItems.selectAll()
+                .where { WorkItemStore.WorkItems.connectionId eq fromConnectionId }.toList()
+            if (workItemRows.isNotEmpty()) {
+                WorkItemStore.WorkItems.batchInsert(workItemRows) { row ->
+                    this[WorkItemStore.WorkItems.connectionId] = toConnectionId
+                    this[WorkItemStore.WorkItems.issueId] = row[WorkItemStore.WorkItems.issueId]
+                    this[WorkItemStore.WorkItems.issueKey] = row[WorkItemStore.WorkItems.issueKey]
+                    this[WorkItemStore.WorkItems.projectKey] = row[WorkItemStore.WorkItems.projectKey]
+                    this[WorkItemStore.WorkItems.issueType] = row[WorkItemStore.WorkItems.issueType]
+                    this[WorkItemStore.WorkItems.isSubtask] = row[WorkItemStore.WorkItems.isSubtask]
+                    this[WorkItemStore.WorkItems.parentIssueId] = row[WorkItemStore.WorkItems.parentIssueId]
+                    this[WorkItemStore.WorkItems.summary] = row[WorkItemStore.WorkItems.summary]
+                    this[WorkItemStore.WorkItems.statusId] = row[WorkItemStore.WorkItems.statusId]
+                    this[WorkItemStore.WorkItems.statusName] = row[WorkItemStore.WorkItems.statusName]
+                    this[WorkItemStore.WorkItems.statusCategory] = row[WorkItemStore.WorkItems.statusCategory]
+                    this[WorkItemStore.WorkItems.resolution] = row[WorkItemStore.WorkItems.resolution]
+                    this[WorkItemStore.WorkItems.priority] = row[WorkItemStore.WorkItems.priority]
+                    this[WorkItemStore.WorkItems.assigneeAccountId] = row[WorkItemStore.WorkItems.assigneeAccountId]
+                    this[WorkItemStore.WorkItems.reporterAccountId] = row[WorkItemStore.WorkItems.reporterAccountId]
+                    this[WorkItemStore.WorkItems.createdAt] = row[WorkItemStore.WorkItems.createdAt]
+                    this[WorkItemStore.WorkItems.updatedAt] = row[WorkItemStore.WorkItems.updatedAt]
+                    this[WorkItemStore.WorkItems.resolvedAt] = row[WorkItemStore.WorkItems.resolvedAt]
+                    this[WorkItemStore.WorkItems.storyPoints] = row[WorkItemStore.WorkItems.storyPoints]
+                    this[WorkItemStore.WorkItems.originalEstimateSeconds] = row[WorkItemStore.WorkItems.originalEstimateSeconds]
+                    this[WorkItemStore.WorkItems.timeSpentSeconds] = row[WorkItemStore.WorkItems.timeSpentSeconds]
+                    this[WorkItemStore.WorkItems.labels] = row[WorkItemStore.WorkItems.labels]
+                    this[WorkItemStore.WorkItems.components] = row[WorkItemStore.WorkItems.components]
+                    this[WorkItemStore.WorkItems.fixVersions] = row[WorkItemStore.WorkItems.fixVersions]
+                    this[WorkItemStore.WorkItems.currentSprintIds] = row[WorkItemStore.WorkItems.currentSprintIds]
+                    this[WorkItemStore.WorkItems.teamValue] = row[WorkItemStore.WorkItems.teamValue]
+                    this[WorkItemStore.WorkItems.flagged] = row[WorkItemStore.WorkItems.flagged]
+                    this[WorkItemStore.WorkItems.rank] = row[WorkItemStore.WorkItems.rank]
+                    this[WorkItemStore.WorkItems.hierarchyLevel] = row[WorkItemStore.WorkItems.hierarchyLevel]
+                    this[WorkItemStore.WorkItems.dueAt] = row[WorkItemStore.WorkItems.dueAt]
+                    this[WorkItemStore.WorkItems.customFields] = row[WorkItemStore.WorkItems.customFields]
+                    this[WorkItemStore.WorkItems.anomalies] = row[WorkItemStore.WorkItems.anomalies]
+                    this[WorkItemStore.WorkItems.deletedAt] = row[WorkItemStore.WorkItems.deletedAt]
+                    this[WorkItemStore.WorkItems.movedOutAt] = row[WorkItemStore.WorkItems.movedOutAt]
+                    this[WorkItemStore.WorkItems.processedAt] = row[WorkItemStore.WorkItems.processedAt]
+                    this[WorkItemStore.WorkItems.processingVersion] = row[WorkItemStore.WorkItems.processingVersion]
+                }
+            }
+
+            val statusIntervalRows = WorkItemStore.StatusIntervals.selectAll()
+                .where { WorkItemStore.StatusIntervals.connectionId eq fromConnectionId }.toList()
+            if (statusIntervalRows.isNotEmpty()) {
+                WorkItemStore.StatusIntervals.batchInsert(statusIntervalRows) { row ->
+                    this[WorkItemStore.StatusIntervals.connectionId] = toConnectionId
+                    this[WorkItemStore.StatusIntervals.issueId] = row[WorkItemStore.StatusIntervals.issueId]
+                    this[WorkItemStore.StatusIntervals.seq] = row[WorkItemStore.StatusIntervals.seq]
+                    this[WorkItemStore.StatusIntervals.statusId] = row[WorkItemStore.StatusIntervals.statusId]
+                    this[WorkItemStore.StatusIntervals.statusName] = row[WorkItemStore.StatusIntervals.statusName]
+                    this[WorkItemStore.StatusIntervals.statusCategory] = row[WorkItemStore.StatusIntervals.statusCategory]
+                    this[WorkItemStore.StatusIntervals.fromAt] = row[WorkItemStore.StatusIntervals.fromAt]
+                    this[WorkItemStore.StatusIntervals.toAt] = row[WorkItemStore.StatusIntervals.toAt]
+                    this[WorkItemStore.StatusIntervals.intervalSource] = row[WorkItemStore.StatusIntervals.intervalSource]
+                }
+            }
+
+            val fieldIntervalRows = WorkItemStore.FieldIntervals.selectAll()
+                .where { WorkItemStore.FieldIntervals.connectionId eq fromConnectionId }.toList()
+            if (fieldIntervalRows.isNotEmpty()) {
+                WorkItemStore.FieldIntervals.batchInsert(fieldIntervalRows) { row ->
+                    this[WorkItemStore.FieldIntervals.connectionId] = toConnectionId
+                    this[WorkItemStore.FieldIntervals.issueId] = row[WorkItemStore.FieldIntervals.issueId]
+                    this[WorkItemStore.FieldIntervals.field] = row[WorkItemStore.FieldIntervals.field]
+                    this[WorkItemStore.FieldIntervals.seq] = row[WorkItemStore.FieldIntervals.seq]
+                    this[WorkItemStore.FieldIntervals.valueId] = row[WorkItemStore.FieldIntervals.valueId]
+                    this[WorkItemStore.FieldIntervals.valueText] = row[WorkItemStore.FieldIntervals.valueText]
+                    this[WorkItemStore.FieldIntervals.fromAt] = row[WorkItemStore.FieldIntervals.fromAt]
+                    this[WorkItemStore.FieldIntervals.toAt] = row[WorkItemStore.FieldIntervals.toAt]
+                }
+            }
+
+            val fieldChangeRows = WorkItemStore.FieldChanges.selectAll()
+                .where { WorkItemStore.FieldChanges.connectionId eq fromConnectionId }.toList()
+            if (fieldChangeRows.isNotEmpty()) {
+                WorkItemStore.FieldChanges.batchInsert(fieldChangeRows) { row ->
+                    this[WorkItemStore.FieldChanges.connectionId] = toConnectionId
+                    this[WorkItemStore.FieldChanges.issueId] = row[WorkItemStore.FieldChanges.issueId]
+                    this[WorkItemStore.FieldChanges.seq] = row[WorkItemStore.FieldChanges.seq]
+                    this[WorkItemStore.FieldChanges.field] = row[WorkItemStore.FieldChanges.field]
+                    this[WorkItemStore.FieldChanges.changedAt] = row[WorkItemStore.FieldChanges.changedAt]
+                    this[WorkItemStore.FieldChanges.fromValue] = row[WorkItemStore.FieldChanges.fromValue]
+                    this[WorkItemStore.FieldChanges.fromText] = row[WorkItemStore.FieldChanges.fromText]
+                    this[WorkItemStore.FieldChanges.toValue] = row[WorkItemStore.FieldChanges.toValue]
+                    this[WorkItemStore.FieldChanges.toText] = row[WorkItemStore.FieldChanges.toText]
+                    this[WorkItemStore.FieldChanges.fieldId] = row[WorkItemStore.FieldChanges.fieldId]
+                }
+            }
+
+            val worklogRows = WorkItemStore.Worklogs.selectAll()
+                .where { WorkItemStore.Worklogs.connectionId eq fromConnectionId }.toList()
+            if (worklogRows.isNotEmpty()) {
+                WorkItemStore.Worklogs.batchInsert(worklogRows) { row ->
+                    this[WorkItemStore.Worklogs.connectionId] = toConnectionId
+                    this[WorkItemStore.Worklogs.worklogId] = row[WorkItemStore.Worklogs.worklogId]
+                    this[WorkItemStore.Worklogs.issueId] = row[WorkItemStore.Worklogs.issueId]
+                    this[WorkItemStore.Worklogs.authorAccountId] = row[WorkItemStore.Worklogs.authorAccountId]
+                    this[WorkItemStore.Worklogs.startedAt] = row[WorkItemStore.Worklogs.startedAt]
+                    this[WorkItemStore.Worklogs.timeSpentSeconds] = row[WorkItemStore.Worklogs.timeSpentSeconds]
+                    this[WorkItemStore.Worklogs.createdAt] = row[WorkItemStore.Worklogs.createdAt]
+                    this[WorkItemStore.Worklogs.updatedAt] = row[WorkItemStore.Worklogs.updatedAt]
+                }
+            }
+
+            val statusRows = WorkItemStore.Statuses.selectAll()
+                .where { WorkItemStore.Statuses.connectionId eq fromConnectionId }.toList()
+            if (statusRows.isNotEmpty()) {
+                WorkItemStore.Statuses.batchInsert(statusRows) { row ->
+                    this[WorkItemStore.Statuses.connectionId] = toConnectionId
+                    this[WorkItemStore.Statuses.statusId] = row[WorkItemStore.Statuses.statusId]
+                    this[WorkItemStore.Statuses.name] = row[WorkItemStore.Statuses.name]
+                    this[WorkItemStore.Statuses.category] = row[WorkItemStore.Statuses.category]
+                }
+            }
+
+            val peopleRows = WorkItemStore.People.selectAll()
+                .where { WorkItemStore.People.connectionId eq fromConnectionId }.toList()
+            if (peopleRows.isNotEmpty()) {
+                WorkItemStore.People.batchInsert(peopleRows) { row ->
+                    this[WorkItemStore.People.connectionId] = toConnectionId
+                    this[WorkItemStore.People.accountId] = row[WorkItemStore.People.accountId]
+                    this[WorkItemStore.People.displayName] = row[WorkItemStore.People.displayName]
+                    this[WorkItemStore.People.email] = row[WorkItemStore.People.email]
+                    this[WorkItemStore.People.active] = row[WorkItemStore.People.active]
+                }
+            }
+
+            val boardRows = WorkItemStore.Boards.selectAll()
+                .where { WorkItemStore.Boards.connectionId eq fromConnectionId }.toList()
+            if (boardRows.isNotEmpty()) {
+                WorkItemStore.Boards.batchInsert(boardRows) { row ->
+                    this[WorkItemStore.Boards.connectionId] = toConnectionId
+                    this[WorkItemStore.Boards.boardId] = row[WorkItemStore.Boards.boardId]
+                    this[WorkItemStore.Boards.name] = row[WorkItemStore.Boards.name]
+                    this[WorkItemStore.Boards.boardType] = row[WorkItemStore.Boards.boardType]
+                    this[WorkItemStore.Boards.projectKey] = row[WorkItemStore.Boards.projectKey]
+                }
+            }
+
+            val boardColumnRows = WorkItemStore.BoardColumns.selectAll()
+                .where { WorkItemStore.BoardColumns.connectionId eq fromConnectionId }.toList()
+            if (boardColumnRows.isNotEmpty()) {
+                WorkItemStore.BoardColumns.batchInsert(boardColumnRows) { row ->
+                    this[WorkItemStore.BoardColumns.connectionId] = toConnectionId
+                    this[WorkItemStore.BoardColumns.boardId] = row[WorkItemStore.BoardColumns.boardId]
+                    this[WorkItemStore.BoardColumns.seq] = row[WorkItemStore.BoardColumns.seq]
+                    this[WorkItemStore.BoardColumns.name] = row[WorkItemStore.BoardColumns.name]
+                    this[WorkItemStore.BoardColumns.statusIds] = row[WorkItemStore.BoardColumns.statusIds]
+                }
+            }
+
+            val sprintRows = WorkItemStore.Sprints.selectAll()
+                .where { WorkItemStore.Sprints.connectionId eq fromConnectionId }.toList()
+            if (sprintRows.isNotEmpty()) {
+                WorkItemStore.Sprints.batchInsert(sprintRows) { row ->
+                    this[WorkItemStore.Sprints.connectionId] = toConnectionId
+                    this[WorkItemStore.Sprints.sprintId] = row[WorkItemStore.Sprints.sprintId]
+                    this[WorkItemStore.Sprints.boardId] = row[WorkItemStore.Sprints.boardId]
+                    this[WorkItemStore.Sprints.name] = row[WorkItemStore.Sprints.name]
+                    this[WorkItemStore.Sprints.state] = row[WorkItemStore.Sprints.state]
+                    this[WorkItemStore.Sprints.startAt] = row[WorkItemStore.Sprints.startAt]
+                    this[WorkItemStore.Sprints.endAt] = row[WorkItemStore.Sprints.endAt]
+                    this[WorkItemStore.Sprints.goal] = row[WorkItemStore.Sprints.goal]
+                    this[WorkItemStore.Sprints.completeAt] = row[WorkItemStore.Sprints.completeAt]
+                }
+            }
+
+            val sourceProfileRow = DataSourceService.Connections.selectAll()
+                .where { DataSourceService.Connections.id eq fromConnectionId }.toList().single()
+            DataSourceService.Connections.update({ DataSourceService.Connections.id eq toConnectionId }) {
+                it[profile] = sourceProfileRow[DataSourceService.Connections.profile]
+                it[profileAt] = sourceProfileRow[DataSourceService.Connections.profileAt]
             }
         }
     }
