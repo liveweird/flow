@@ -277,7 +277,7 @@ Pure, per-item functions — no DB, the `norm/Tiling.kt` pattern — called once
 
 ## Sprint scope, facts and snapshots (D13, v0.3.0 M3 commit 8)
 
-`MetricsDeriver.kt`'s sprint step (`runSprintStep`, `.claude/docs/domain-model.md` "Plan — PV"/
+`DeriveSprintStep.kt`'s sprint step (`runSprintStep`, `.claude/docs/domain-model.md` "Plan — PV"/
 "Glossary") turns each level-0, non-sub-task task's Sprint-field history
 (`DeriveKernels.sprintMembership`) into `metrics.fact_sprint_scope` rows (one per task × sprint it
 was ever a member of), rolls those up into `metrics.fact_sprint` (one row per sprint), and freezes a
@@ -336,7 +336,7 @@ exactly this function's output as the `fact_sprint` row) plus `capacity_md`/`cap
 
 ### Default sprint capacity (A3)
 
-`MetricsDeriver.kt`'s `sprintCapacity` resolves `(capacity_md, capacity_source)` per sprint:
+`DeriveSprintStep.kt`'s `sprintCapacity` resolves `(capacity_md, capacity_source)` per sprint:
 
 1. **`CONFIGURED`** — a `metrics.team_sprint_capacity` row for this sprint always wins, verbatim.
 2. **`DEFAULT`** — absent a configured row, AND the sprint's board maps to a team (`board_team_map`)
@@ -391,7 +391,7 @@ unresolved path (no fabricated rows, the flag is recorded).
 
 ## Worklog cost facts (`fact_worklog`, v0.3.0 M3 commit 9)
 
-`MetricsDeriver.kt`'s worklog step (top-level `runWorklogStep`/`worklogRowsForItem`, moved outside
+`DeriveWorklogStep.kt`'s worklog step (top-level `runWorklogStep`/`worklogRowsForItem`, moved outside
 the class body the same `LargeClass` way the sprint step already is) is the LAST step of
 `runDerivation`, after the sprint step: one `metrics.fact_worklog` row per LIVE
 `norm.work_item_worklogs` row (`.claude/docs/domain-model.md` "Cross-team time"/D3, invariant 6/7).
@@ -446,7 +446,7 @@ storage columns agreeing to the last decimal.
 
 ## Epic plans and PV (`fact_epic_plan`, v0.3.0 M3 commit 9b)
 
-`MetricsDeriver.kt`'s epic plan step (top-level `runEpicPlanStep`, the sprint/worklog steps' own
+`DeriveEpicPlanStep.kt`'s epic plan step (top-level `runEpicPlanStep`, the sprint/worklog steps' own
 `LargeClass` shape — moved outside the class, delegated to) is the LAST step of `runDerivation`,
 after the worklog step: one `metrics.fact_epic_plan` row per BASELINE
 (`DeriveKernels.EpicPlanBaseline`/`epicPlanBaselines`, `.claude/docs/domain-model.md` "Plan — PV",
@@ -544,7 +544,7 @@ A18/A19/A21 describe. This commit closes all five, backed by the additive V17 co
   portions that actually overlap an IN_PROGRESS stretch, never the DONE gap in between; an item that
   never started or isn't yet done answers `(0, 0)`. `buildTaskRow` calls it once per task and writes
   `fact_task_delivery.active_ms`/`wait_ms`.
-- **Current team and assignee (A21, A22).** `currentAttribution` (`metrics/MetricsDeriver.kt`)
+- **Current team and assignee (A21, A22).** `currentAttribution` (`metrics/DeriveTaskRows.kt`)
   evaluates D5 at `context.now` rather than at `done_at`: the team of the task's current sprint —
   the norm SPRINT field interval containing `now` (its last sprint id), mapped through
   `board_team_map` — else the assignee's team (the norm ASSIGNEE interval containing `now`, then
@@ -581,7 +581,7 @@ A18/A19/A21 describe. This commit closes all five, backed by the additive V17 co
   `fact_worklog` row now carries a non-null `task_domain_key`. The SAME covering-row-vs-no-row
   distinction above applies to a TASK-logged worklog's own as-was domain/epic read here.
 - **Foreign work (A21, A22).** `isForeignWork(authorTeamId, sprintTeamId, fallbackTeamId)`
-  (`metrics/MetricsDeriver.kt`) is `author team != sprintTeamId` when the sprint team is known, else
+  (`metrics/DeriveTaskRows.kt`) is `author team != sprintTeamId` when the sprint team is known, else
   `author team != fallbackTeamId` — never `true` off an unknown team on either side. **A
   TASK-logged** worklog passes the task's own sprint team at `started_at` and the task's assignee's
   team at `started_at` (`assigneeAndTeamAt`, batch-scoped `ASSIGNEE` field intervals, V17's

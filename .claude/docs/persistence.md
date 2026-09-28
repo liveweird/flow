@@ -512,7 +512,7 @@ already rebuilt WHOLESALE by every DERIVE run, unlike `norm.*`'s per-issue REPLA
   (and their team) at the worklog's own `started_at`, populated for EVERY worklog (task- or
   epic-logged alike) as an informational bridge pair. For a TASK-logged worklog it also doubles as
   the "assignments half" of foreign-work detection: `author team != assignee team at started_at`,
-  the fallback `isForeignWork` (`metrics/MetricsDeriver.kt`) applies when the task carries no sprint
+  the fallback `isForeignWork` (`metrics/DeriveTaskRows.kt`) applies when the task carries no sprint
   team at that same instant. An EPIC-logged worklog's `foreign_work` instead compares the author
   against the epic's own domain's OWNER team (A22, below) — these two columns are still filled for
   it, but no longer feed that comparison.
