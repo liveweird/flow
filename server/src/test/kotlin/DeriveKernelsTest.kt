@@ -40,6 +40,18 @@ class DeriveKernelsTest {
         toText = to,
     )
 
+    /** A real Jira Cloud number custom field's own shape (review round 1): `fromValue`/`toValue` null, only `fromString`/`toString` set. */
+    private fun textOnlyFieldChange(atMs: Long, from: String?, to: String?, fieldId: String? = "customfield_10016") = FieldChangeRow(
+        issueId = 1L,
+        fieldId = fieldId,
+        field = "Story point estimate",
+        changedAt = atMs,
+        fromValue = null,
+        fromText = from,
+        toValue = null,
+        toText = to,
+    )
+
     // ---- stageIntervals -------------------------------------------------------------------
 
     @Test
@@ -216,6 +228,38 @@ class DeriveKernelsTest {
         assertEquals(5.0, DeriveKernels.estimateAt(timeline, atMs = 25))
     }
 
+    @Test
+    fun `estimateTimeline falls back to fromString-toString when a real Jira number field carries no fromValue-toValue`() {
+        // A real Jira Cloud Story Points changelog item: fromValue/toValue are null, only the text pair is set.
+        val timeline = DeriveKernels.estimateTimeline(
+            createdAtMs = 0,
+            changes = listOf(textOnlyFieldChange(atMs = 100, from = "3", to = "5")),
+            currentValueMd = 5.0,
+        )
+        assertEquals(3.0, timeline.first().estimateMd, "the first point must parse fromString when fromValue is null")
+        assertEquals(5.0, timeline.last().estimateMd)
+    }
+
+    @Test
+    fun `estimateTimeline anchors its last point to the current value even when the last changelog toValue disagrees`() {
+        val timeline = DeriveKernels.estimateTimeline(
+            createdAtMs = 0,
+            changes = listOf(fieldChange(atMs = 100, from = "3", to = "5")),
+            currentValueMd = 8.0, // e.g. edited again without leaving a tracked changelog item
+        )
+        assertEquals(8.0, timeline.last().estimateMd, "the current value is ground truth, not the last changelog toValue")
+    }
+
+    @Test
+    fun `estimateTimeline clamps a changelog event before creation to createdAtMs`() {
+        val timeline = DeriveKernels.estimateTimeline(
+            createdAtMs = 1_000,
+            changes = listOf(fieldChange(atMs = 500, from = null, to = "5")),
+            currentValueMd = 5.0,
+        )
+        assertTrue(timeline.all { it.atMs >= 1_000 }, "no point may predate the item's own creation")
+    }
+
     // ---- valueAsOf -----------------------------------------------------------------------------
 
     @Test
@@ -261,5 +305,86 @@ class DeriveKernelsTest {
         assertEquals(100, bySprint.getValue(10L).toAtMs)
         assertEquals(100, bySprint.getValue(20L).fromAtMs)
         assertNull(bySprint.getValue(20L).toAtMs)
+    }
+
+    @Test
+    fun `sprintMembership clamps a changelog event before creation to createdAtMs`() {
+        val changes = listOf(fieldChange(atMs = 50, from = "1", to = "2", fieldId = null))
+        val result = DeriveKernels.sprintMembership(createdAtMs = 1_000, changes = changes, currentSprintIds = listOf(2L))
+        assertTrue(
+            result.all { it.fromAtMs >= 1_000 && (it.toAtMs == null || it.toAtMs >= 1_000) },
+            "no interval boundary may predate the item's own creation",
+        )
+    }
+
+    // ---- epicDriftFlags (D11) --------------------------------------------------------------------
+
+    @Test
+    fun `epicDriftFlags flags nothing for an epic with no children at all`() {
+        val flags = DeriveKernels.epicDriftFlags(ItemStage.NOT_STARTED, emptyList(), epicDriftDays = 14, nowMs = 1_000_000)
+        assertTrue(flags.isEmpty())
+    }
+
+    @Test
+    fun `epicDriftFlags flags nothing when the epic and its children agree`() {
+        val children = listOf(ch.nokillswit.metrics.ChildDeliveryStatus(startedAtMs = 100, doneAtMs = null))
+        val flags = DeriveKernels.epicDriftFlags(ItemStage.IN_PROGRESS, children, epicDriftDays = 14, nowMs = 1_000_000)
+        assertTrue(flags.isEmpty())
+    }
+
+    @Test
+    fun `epicDriftFlags flags EPIC_NOT_STARTED_WITH_ACTIVE_CHILDREN when a child has started but the epic never did`() {
+        val children = listOf(ch.nokillswit.metrics.ChildDeliveryStatus(startedAtMs = 100, doneAtMs = null))
+        val flags = DeriveKernels.epicDriftFlags(ItemStage.NOT_STARTED, children, epicDriftDays = 14, nowMs = 1_000_000)
+        assertEquals(listOf(ch.nokillswit.metrics.EpicDriftFlag.EPIC_NOT_STARTED_WITH_ACTIVE_CHILDREN), flags)
+    }
+
+    @Test
+    fun `epicDriftFlags flags EPIC_OPEN_AFTER_CHILDREN_DONE once the threshold has elapsed since the last child's done_at`() {
+        val dayMs = 24L * 60 * 60 * 1000
+        val children = listOf(
+            ch.nokillswit.metrics.ChildDeliveryStatus(startedAtMs = 0, doneAtMs = 1_000),
+            ch.nokillswit.metrics.ChildDeliveryStatus(startedAtMs = 0, doneAtMs = 2_000),
+        )
+        val justUnder = DeriveKernels.epicDriftFlags(ItemStage.IN_PROGRESS, children, epicDriftDays = 14, nowMs = 2_000 + 14 * dayMs - 1)
+        assertTrue(justUnder.isEmpty(), "not yet past the threshold")
+
+        val atThreshold = DeriveKernels.epicDriftFlags(ItemStage.IN_PROGRESS, children, epicDriftDays = 14, nowMs = 2_000 + 14 * dayMs)
+        assertEquals(listOf(ch.nokillswit.metrics.EpicDriftFlag.EPIC_OPEN_AFTER_CHILDREN_DONE), atThreshold)
+    }
+
+    @Test
+    fun `epicDriftFlags never flags EPIC_OPEN_AFTER_CHILDREN_DONE while any child is still open`() {
+        val dayMs = 24L * 60 * 60 * 1000
+        val children = listOf(
+            ch.nokillswit.metrics.ChildDeliveryStatus(startedAtMs = 0, doneAtMs = 1_000),
+            ch.nokillswit.metrics.ChildDeliveryStatus(startedAtMs = 0, doneAtMs = null),
+        )
+        val flags = DeriveKernels.epicDriftFlags(ItemStage.IN_PROGRESS, children, epicDriftDays = 14, nowMs = 1_000 + 100 * dayMs)
+        assertTrue(flags.isEmpty())
+    }
+
+    @Test
+    fun `epicDriftFlags flags EPIC_DONE_WITH_OPEN_CHILDREN when the epic is DONE but a child is not`() {
+        val children = listOf(
+            ch.nokillswit.metrics.ChildDeliveryStatus(startedAtMs = 0, doneAtMs = 1_000),
+            ch.nokillswit.metrics.ChildDeliveryStatus(startedAtMs = 0, doneAtMs = null),
+        )
+        val flags = DeriveKernels.epicDriftFlags(ItemStage.DONE, children, epicDriftDays = 14, nowMs = 1_000_000)
+        assertEquals(listOf(ch.nokillswit.metrics.EpicDriftFlag.EPIC_DONE_WITH_OPEN_CHILDREN), flags)
+    }
+
+    @Test
+    fun `epicDriftFlags can report multiple flags at once`() {
+        // The epic is DONE, but one child never started while another finished long ago — both
+        // EPIC_DONE_WITH_OPEN_CHILDREN and (since not all children are done) no OPEN_AFTER check applies,
+        // so only the done-with-open-children flag fires; separately assert the not-started case combines
+        // with nothing else since a NOT_STARTED epic can never also be DONE.
+        val children = listOf(
+            ch.nokillswit.metrics.ChildDeliveryStatus(startedAtMs = null, doneAtMs = null),
+            ch.nokillswit.metrics.ChildDeliveryStatus(startedAtMs = 0, doneAtMs = 1_000),
+        )
+        val flags = DeriveKernels.epicDriftFlags(ItemStage.DONE, children, epicDriftDays = 14, nowMs = 1_000_000)
+        assertEquals(listOf(ch.nokillswit.metrics.EpicDriftFlag.EPIC_DONE_WITH_OPEN_CHILDREN), flags)
     }
 }

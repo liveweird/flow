@@ -7,6 +7,8 @@ import ch.nokillswit.metrics.MetricsConfigService
 import ch.nokillswit.metrics.MetricsConfigServiceKey
 import ch.nokillswit.metrics.MetricsDeriver
 import ch.nokillswit.metrics.MetricsDeriverKey
+import ch.nokillswit.metrics.MetricsStore
+import ch.nokillswit.metrics.MetricsStoreKey
 import ch.nokillswit.plugins.runsWorker
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationStarted
@@ -101,6 +103,7 @@ fun Application.configureIngestWorker() {
             syncJobs = app.attributes[SyncJobsServiceKey],
             dataSources = app.attributes[DataSourceServiceKey],
             metricsConfig = app.attributes[MetricsConfigServiceKey],
+            metricsStore = app.attributes[MetricsStoreKey],
             deriver = app.attributes[MetricsDeriverKey],
             connectors = connectors,
             config = config,
@@ -143,6 +146,7 @@ class IngestWorker(
     private val syncJobs: SyncJobsService,
     private val dataSources: DataSourceService,
     private val metricsConfig: MetricsConfigService,
+    private val metricsStore: MetricsStore,
     private val deriver: MetricsDeriver,
     private val connectors: Map<DataSourceKind, Connector>,
     private val config: IngestConfig,
@@ -209,6 +213,7 @@ class IngestWorker(
             "attempt" to claim.attempt,
             "workerId" to config.workerId,
         )
+        var deriveRevisionUsed: Long? = null
         try {
             coroutineScope {
                 val ticker = launch {
@@ -225,21 +230,29 @@ class IngestWorker(
                 }
                 // DERIVE (v0.3.0 M3 commit 7, `.claude/docs/ingestion.md` "The DERIVE job kind") is
                 // connector-agnostic — dispatched here BEFORE the connector registry, so it runs
-                // regardless of which connector kind the connection is.
+                // regardless of which connector kind the connection is. `derive()` returns the
+                // `metrics.settings.config_revision` it read at its own start — `onSucceeded` below
+                // compares it against the CURRENT revision, so a config change that landed WHILE this
+                // run was in flight (and so coalesced into it rather than getting its own job, see
+                // `uq_sync_jobs_open_per_kind`) is never silently lost (review round 1 fix).
                 if (claim.kind == SyncJobKind.DERIVE) {
-                    deriver.derive(context)
+                    deriveRevisionUsed = deriver.derive(context)
                 } else {
                     connectors[claim.connectorKind]?.run(context)
                 }
                 // The generic, connector-agnostic PURGE step (v0.3.0 M1 commit 4,
                 // `.claude/docs/ingestion.md` "PURGE"): runs AFTER the connector's own
                 // `purgeSteps` (which drain its `raw.*`/`norm.*` rows) — every per-connection
-                // `metrics.*` config row is connector-agnostic, so it is drained here rather than
-                // inside `JiraConnector.purgeSteps`.
-                if (claim.kind == SyncJobKind.PURGE) metricsConfig.purgeConnectionConfig(claim.connectionId)
+                // `metrics.*` config row AND every derived `metrics.*` star row is connector-agnostic,
+                // so both are drained here rather than inside `JiraConnector.purgeSteps` (review
+                // round 1 fix: `MetricsStore.purgeAll` had no caller until now).
+                if (claim.kind == SyncJobKind.PURGE) {
+                    metricsConfig.purgeConnectionConfig(claim.connectionId)
+                    metricsStore.purgeAll(claim.connectionId)
+                }
                 ticker.cancel()
             }
-            onSucceeded(claim)
+            onSucceeded(claim, deriveRevisionUsed)
         } catch (cancelled: CancellationException) {
             withContext(NonCancellable) {
                 syncJobs.release(claim.id)
@@ -261,7 +274,9 @@ class IngestWorker(
         }
     }
 
-    private suspend fun onSucceeded(claim: SyncJobClaim) {
+    /** `internal` (the `runJob`/`tick` precedent above) so `IngestWorkerTest` can drive the config-revision
+     * re-derive check deterministically, without needing to race a real config PUT against a real DERIVE run. */
+    internal suspend fun onSucceeded(claim: SyncJobClaim, deriveRevisionUsed: Long? = null) {
         syncJobs.finish(claim.id, clock())
         when (claim.kind) {
             SyncJobKind.SYNC -> dataSources.recordSyncOutcome(claim.connectionId, succeeded = true, errorCode = null, now = clock())
@@ -273,6 +288,17 @@ class IngestWorker(
         // plan §2 decision 1) — coalesced by `uq_sync_jobs_open_per_kind`, so an already-pending
         // DERIVE for this connection is a no-op here.
         if (claim.kind == SyncJobKind.SYNC || claim.kind == SyncJobKind.RECONCILE || claim.kind == SyncJobKind.REPROCESS) {
+            dataSources.read(claim.connectionId)?.let { connection ->
+                syncJobs.enqueueScheduled(claim.connectionId, SyncJobKind.DERIVE, connection.configRevision, clock())
+            }
+        }
+        // A config change (global settings, a team membership edit, a per-connection metrics-config
+        // PUT) that landed WHILE this DERIVE was RUNNING coalesces into it instead of getting its
+        // own job (`uq_sync_jobs_open_per_kind`) — so the run that just finished may have read the
+        // OLD configuration. Compare the revision it recorded against the CURRENT one and enqueue a
+        // fresh DERIVE if it is now stale (review round 1 fix) — coalescing again is harmless once
+        // this run's own row is terminal.
+        if (claim.kind == SyncJobKind.DERIVE && deriveRevisionUsed != null && metricsConfig.currentRevision() > deriveRevisionUsed) {
             dataSources.read(claim.connectionId)?.let { connection ->
                 syncJobs.enqueueScheduled(claim.connectionId, SyncJobKind.DERIVE, connection.configRevision, clock())
             }

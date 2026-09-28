@@ -896,9 +896,9 @@
             {
               "field": "Story Points",
               "fieldId": "customfield_10016",
-              "from": "5",
+              "from": null,
               "fromString": "5",
-              "to": "1",
+              "to": null,
               "toString": "1"
             }
           ]
@@ -1346,9 +1346,9 @@
             {
               "field": "Story Points",
               "fieldId": "customfield_10016",
-              "from": "3",
+              "from": null,
               "fromString": "3",
-              "to": "8",
+              "to": null,
               "toString": "8"
             }
           ]

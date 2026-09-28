@@ -34,6 +34,15 @@ data class EstimateSnapshots(
 data class SprintMembershipInterval(val sprintId: Long, val fromAtMs: Long, val toAtMs: Long?)
 
 /**
+ * D11's three epic/children drift codes (`.claude/docs/domain-model.md` "D11", `fact_epic_delivery
+ * .driftFlags`) — flagged, never corrected (the `norm` anomaly convention).
+ */
+enum class EpicDriftFlag { EPIC_NOT_STARTED_WITH_ACTIVE_CHILDREN, EPIC_OPEN_AFTER_CHILDREN_DONE, EPIC_DONE_WITH_OPEN_CHILDREN }
+
+/** One child task's delivery state, as [DeriveKernels.epicDriftFlags] needs it — never the full [ItemDerived]. */
+data class ChildDeliveryStatus(val startedAtMs: Long?, val doneAtMs: Long?)
+
+/**
  * The per-item derivation math (v0.3.0 M3 commit 7, `.claude/docs/domain-model.md` "Analytical
  * model"/"The three dimensions") — pure Kotlin, no DB, the `norm/Tiling.kt` pattern:
  * property-testable, called once per issue by `metrics/MetricsDeriver.kt` over ALREADY-persisted
@@ -119,11 +128,24 @@ object DeriveKernels {
      * ascending — `WorkItemStore.fieldChangesByFieldIds`) plus its CURRENT value. The first point
      * sits at [createdAtMs]: the value BEFORE the first tracked change, or the current value when
      * there is no change history at all (an estimate set once at creation and never touched since).
+     * A real Jira Cloud number custom field (Story Points) carries its changelog value ONLY in
+     * `fromString`/`toString` — `fromValue`/`toValue` (the `from`/`to` id fields, meaningful for a
+     * select/option field) are null — so every read falls back to the text pair (review round 1
+     * fix); event times before [createdAtMs] (clock skew/bad data) are clamped to it, never
+     * producing a point that predates the item's own creation. The LAST point is always anchored to
+     * [currentValueMd] (the ground truth the caller already read off `norm.work_items.custom_fields`)
+     * rather than trusted from the last changelog event — a re-fetched/derived field value should
+     * never disagree with the timeline's own idea of "current".
      */
     fun estimateTimeline(createdAtMs: Long, changes: List<FieldChangeRow>, currentValueMd: Double?): List<EstimatePoint> {
         if (changes.isEmpty()) return listOf(EstimatePoint(createdAtMs, currentValueMd.asEstimateOrNull()))
-        val points = mutableListOf(EstimatePoint(createdAtMs, changes.first().fromValue?.toDoubleOrNull().asEstimateOrNull()))
-        changes.forEach { change -> points += EstimatePoint(change.changedAt, change.toValue?.toDoubleOrNull().asEstimateOrNull()) }
+        val firstRaw = changes.first().let { it.fromValue ?: it.fromText }
+        val points = mutableListOf(EstimatePoint(createdAtMs, firstRaw?.toDoubleOrNull().asEstimateOrNull()))
+        changes.forEach { change ->
+            val raw = change.toValue ?: change.toText
+            points += EstimatePoint(maxOf(change.changedAt, createdAtMs), raw?.toDoubleOrNull().asEstimateOrNull())
+        }
+        points[points.lastIndex] = points.last().copy(estimateMd = currentValueMd.asEstimateOrNull())
         return points
     }
 
@@ -169,7 +191,11 @@ object DeriveKernels {
      * between) still produces ONE closed interval for A and one opened interval for B, rather than
      * losing A's membership entirely the way the `norm` field interval's LAST-id-only tiling would.
      * [changes] must already be ordered by `changedAt` ascending
-     * (`WorkItemStore.fieldChangesByFieldIds`).
+     * (`WorkItemStore.fieldChangesByFieldIds`). Every event's own instant is clamped to
+     * [createdAtMs] (review round 1 fix) — a changelog event landing BEFORE the item's own creation
+     * (clock skew/bad data) must never open or close a membership interval earlier than the item
+     * itself existed, which would otherwise produce a backwards `[from, to)` range the `int8range`
+     * GiST index (`metrics.task_sprint`, V16) cannot store.
      */
     fun sprintMembership(createdAtMs: Long, changes: List<FieldChangeRow>, currentSprintIds: List<Long>): List<SprintMembershipInterval> {
         fun parseIds(text: String?): Set<Long> = text.orEmpty().split(',').mapNotNull { it.trim().toLongOrNull() }.toSet()
@@ -179,15 +205,48 @@ object DeriveKernels {
         var previous = if (changes.isEmpty()) currentSprintIds.toSet() else parseIds(changes.first().fromValue)
         previous.forEach { open[it] = createdAtMs }
         changes.forEach { change ->
+            val at = maxOf(change.changedAt, createdAtMs)
             val next = parseIds(change.toValue)
-            (next - previous).forEach { sprintId -> open[sprintId] = change.changedAt }
+            (next - previous).forEach { sprintId -> open[sprintId] = at }
             (previous - next).forEach { sprintId ->
                 val openedAt = open.remove(sprintId)
-                if (openedAt != null) closed += SprintMembershipInterval(sprintId, openedAt, change.changedAt)
+                if (openedAt != null) closed += SprintMembershipInterval(sprintId, openedAt, at)
             }
             previous = next
         }
         val stillOpen = open.map { (sprintId, openedAt) -> SprintMembershipInterval(sprintId, openedAt, null) }
         return (closed + stillOpen).sortedBy { it.fromAtMs }
+    }
+
+    private const val MILLIS_PER_DAY = 24L * 60 * 60 * 1000
+
+    /**
+     * D11: an epic follows its OWN status (`epicStage`); these three flags only ever compare it
+     * with its children, never re-date it. [epicDriftDays] is `metrics.settings
+     * .epic_drift_days` (plain elapsed calendar days — the domain model's own "days an epic may stay
+     * open" wording, not working days) and [nowMs] is the DERIVE run's own pinned clock — both
+     * supplied by the caller, since this kernel has no clock or calendar of its own. An epic with no
+     * children at all drifts from nothing, so it never flags.
+     */
+    fun epicDriftFlags(
+        epicStage: ItemStage,
+        children: List<ChildDeliveryStatus>,
+        epicDriftDays: Int,
+        nowMs: Long,
+    ): List<EpicDriftFlag> {
+        if (children.isEmpty()) return emptyList()
+        val epicStarted = epicStage != ItemStage.NOT_STARTED
+        val epicDone = epicStage == ItemStage.DONE
+        val anyChildActive = children.any { it.startedAtMs != null || it.doneAtMs != null }
+        val allChildrenDone = children.all { it.doneAtMs != null }
+        val anyChildOpen = children.any { it.doneAtMs == null }
+        val flags = mutableListOf<EpicDriftFlag>()
+        if (!epicStarted && anyChildActive) flags += EpicDriftFlag.EPIC_NOT_STARTED_WITH_ACTIVE_CHILDREN
+        if (!epicDone && allChildrenDone) {
+            val lastChildDoneAtMs = children.mapNotNull { it.doneAtMs }.max()
+            if ((nowMs - lastChildDoneAtMs) / MILLIS_PER_DAY >= epicDriftDays) flags += EpicDriftFlag.EPIC_OPEN_AFTER_CHILDREN_DONE
+        }
+        if (epicDone && anyChildOpen) flags += EpicDriftFlag.EPIC_DONE_WITH_OPEN_CHILDREN
+        return flags
     }
 }

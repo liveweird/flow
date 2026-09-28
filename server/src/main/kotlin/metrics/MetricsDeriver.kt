@@ -12,8 +12,10 @@ import ch.nokillswit.norm.fieldValueOptions
 import io.ktor.util.AttributeKey
 import java.time.LocalDate
 import java.time.ZoneId
+import java.time.ZoneOffset
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import org.jetbrains.exposed.v1.core.*
@@ -30,6 +32,9 @@ private const val TWO_YEARS_MS = 2 * ONE_YEAR_MS
 private const val SECONDS_PER_HOUR = 3600.0
 private const val UNMAPPED_STATUS_FLAG = "UNMAPPED_STATUS"
 private const val MAX_ERROR_DETAIL_LENGTH = 1000
+
+/** The system `duedate` field id — `metrics/MetricsConfigService.kt`'s own default for `fields.epicDue`. */
+private const val DUE_DATE_FIELD_ID = "duedate"
 
 /** Per-item derived quantities shared by both the epic and task write paths — computed once per issue. */
 private data class ItemDerived(
@@ -51,6 +56,9 @@ private data class ConfigMaps(
     val blockedStatusIds: Set<String>,
     val boardTeamByBoardId: Map<Long, UInt>,
     val workCategoryFieldId: String?,
+    val epicDriftDays: Int,
+    val epicStartFieldId: String?,
+    val epicDueFieldId: String?,
 )
 
 /** Every per-issue read [DeriveContext] needs, loaded ONCE per DERIVE run — see [ConfigMaps]' own note. */
@@ -95,6 +103,20 @@ private class DeriveContext(
     val worklogsByIssue get() = perIssue.worklogsByIssue
     val estimateChangesByIssueAndField get() = perIssue.estimateChangesByIssueAndField
     val workCategoryFieldId get() = configMaps.workCategoryFieldId
+    val epicDriftDays get() = configMaps.epicDriftDays
+    val epicStartFieldId get() = configMaps.epicStartFieldId
+    val epicDueFieldId get() = configMaps.epicDueFieldId
+
+    /** The epic start/due DATE fields' current value for [item] — `duedate` reads the already-parsed
+     * system column (`WorkItemStore.DerivationWorkItemRow.dueAt`); any other configured field id is a
+     * plain ISO `YYYY-MM-DD` string in `custom_fields`, parsed to epoch millis at start of day UTC —
+     * the SAME convention `jira/JiraNormalizer.kt` already applies to the system `duedate` field. */
+    fun epicDateValue(item: WorkItemStore.DerivationWorkItemRow, fieldId: String?): Long? {
+        if (fieldId == null) return null
+        if (fieldId == DUE_DATE_FIELD_ID) return item.dueAt
+        val raw = item.customFields[fieldId]?.jsonPrimitive?.contentOrNull ?: return null
+        return runCatching { LocalDate.parse(raw).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli() }.getOrNull()
+    }
 
     /** The configured estimate field id for [item] — epics may override tasks' own field. */
     fun estimateFieldIdFor(item: WorkItemStore.DerivationWorkItemRow, config: DataSourceMetricsConfig): String? =
@@ -137,13 +159,23 @@ class MetricsDeriver(
         override val primaryKey = PrimaryKey(id)
     }
 
-    /** The DERIVE job's own run — `context.claim.connectionId`/`context.claim.id`; heartbeats once after the write commits. */
-    suspend fun derive(context: SyncJobRunContext) {
+    /**
+     * The DERIVE job's own run — `context.claim.connectionId`/`context.claim.id`; heartbeats once
+     * after the write commits. Returns the `metrics.settings.config_revision` this run used
+     * (`derive_runs.config_revision`'s own value) — `ingest/IngestWorker.kt`'s `onSucceeded` compares
+     * it against the CURRENT revision once this run finishes, so a config change that landed WHILE
+     * this run was in flight (and so coalesced into it rather than getting its own job) is never
+     * silently lost (review round 1 fix). Settings and the connection's effective config are read
+     * together in ONE transaction — a settings write racing between the two independent reads this
+     * used to be would let this run stamp a revision NEWER than the config it actually derived under.
+     */
+    suspend fun derive(context: SyncJobRunContext): Long {
         val connectionId = context.claim.connectionId
         val jobId = context.claim.id
         val now = clock()
-        val settings = metricsConfig.read()
-        val config = metricsConfig.effectiveConfig(connectionId)
+        val (settings, config) = suspendTransaction(database) {
+            metricsConfig.read() to metricsConfig.effectiveConfig(connectionId)
+        }
         val zone = runCatching { ZoneId.of(settings.timeZone) }.getOrDefault(ZoneId.of("UTC"))
         val holidays = settings.holidays.mapNotNull { runCatching { LocalDate.parse(it) }.getOrNull() }.toSet()
         val calendar = WorkingCalendar(zone, settings.weekendDays.toSet(), holidays)
@@ -164,7 +196,7 @@ class MetricsDeriver(
             val dimDateFrom = (workItems.minOfOrNull { it.createdAt } ?: now) - ONE_YEAR_MS
             metricsStore.upsertDimDate(calendar.dimDateRows(dimDateFrom, now + TWO_YEARS_MS), settings.configRevision)
 
-            val result = compose(connectionId, workItems, config, calendar, now, settings.hoursPerDay)
+            val result = compose(connectionId, workItems, config, calendar, now, settings.hoursPerDay, settings.epicDriftDays)
             writeResult(connectionId, result, settings.configRevision)
             markRunSucceeded(runId, result)
             context.heartbeat(null, "derive")
@@ -172,6 +204,7 @@ class MetricsDeriver(
             markRunFailed(runId, failure)
             throw failure
         }
+        return settings.configRevision
     }
 
     private suspend fun writeResult(connectionId: UInt, result: ComposedResult, configRevision: Long) = suspendTransaction(database) {
@@ -236,6 +269,7 @@ class MetricsDeriver(
         calendar: WorkingCalendar,
         now: Long,
         hoursPerDay: Double,
+        epicDriftDays: Int,
         workItems: List<WorkItemStore.DerivationWorkItemRow>,
     ): DeriveContext {
         val estimateFieldIds = listOfNotNull(config.fields.estimateTask, config.fields.estimateEpic).distinct()
@@ -247,6 +281,9 @@ class MetricsDeriver(
             blockedStatusIds = config.blockedStatuses.toSet(),
             boardTeamByBoardId = config.boards.associate { it.boardId to it.teamId },
             workCategoryFieldId = config.fields.workCategory,
+            epicDriftDays = epicDriftDays,
+            epicStartFieldId = config.fields.epicStart,
+            epicDueFieldId = config.fields.epicDue,
         )
         val perIssue = PerIssueData(
             itemsById = workItems.associateBy { it.issueId },
@@ -326,12 +363,16 @@ class MetricsDeriver(
         blockedWorkingDays: Double,
     ): Pair<DimEpicRow, FactEpicDeliveryRow> {
         val ownCategory = derived.ownCategory
+        val epicStartAt = context.epicDateValue(item, context.epicStartFieldId)
+        val epicDueAt = context.epicDateValue(item, context.epicDueFieldId)
         val dim = DimEpicRow(
-            item.issueId, item.issueKey, item.summary, domainKey, ownCategory, currentStage.name, derived.started, item.dueAt,
+            item.issueId, item.issueKey, item.summary, domainKey, ownCategory, currentStage.name, epicStartAt, epicDueAt,
         )
         val childTasks = workItems.filter { !it.isSubtask && it.parentIssueId == item.issueId }
         val childSum = childTasks.sumOf { derivedById.getValue(it.issueId).ownSnapshots.currentMd ?: 0.0 }
         val ownCurrent = derived.ownSnapshots.currentMd
+        val childStatuses = childTasks.map { derivedById.getValue(it.issueId).let { d -> ChildDeliveryStatus(d.started, d.done) } }
+        val driftFlags = DeriveKernels.epicDriftFlags(currentStage, childStatuses, context.epicDriftDays, context.now)
         val fact = FactEpicDeliveryRow(
             issueId = item.issueId,
             startedAt = derived.started,
@@ -349,7 +390,7 @@ class MetricsDeriver(
             blockedWorkingDays = blockedWorkingDays,
             domainKey = domainKey,
             workCategory = ownCategory,
-            driftFlags = emptyList(),
+            driftFlags = driftFlags.map { it.name },
         )
         return dim to fact
     }
@@ -463,8 +504,9 @@ class MetricsDeriver(
         calendar: WorkingCalendar,
         now: Long,
         hoursPerDay: Double,
+        epicDriftDays: Int,
     ): ComposedResult {
-        val context = buildContext(connectionId, config, calendar, now, hoursPerDay, workItems)
+        val context = buildContext(connectionId, config, calendar, now, hoursPerDay, epicDriftDays, workItems)
         val derivedById = workItems.associate { it.issueId to deriveItem(it, context, config) }
 
         val tasks = mutableListOf<DimTaskRow>()

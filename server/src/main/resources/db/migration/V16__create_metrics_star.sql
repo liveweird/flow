@@ -356,12 +356,18 @@ CREATE TABLE metrics.fact_sprint_snapshot (
 -- it. `current_setting(..., true)` returns NULL rather than raising when the setting was never
 -- `SET LOCAL` at all (the `true` "missing_ok" flag), so an ordinary session's UPDATE/DELETE always
 -- raises; only the PURGE step's own `SET LOCAL metrics.allow_snapshot_delete = 'on'` bypasses it.
+-- A BEFORE ROW trigger's return value is what Postgres actually applies: NULL unconditionally
+-- would silently skip even the ALLOWED DELETE (PURGE's own bypass) instead of letting it proceed —
+-- RETURN OLD on a permitted DELETE, RETURN NEW on a permitted UPDATE (review round 1 fix).
 CREATE FUNCTION metrics.forbid_snapshot_change() RETURNS trigger AS $$
 BEGIN
     IF current_setting('metrics.allow_snapshot_delete', true) IS DISTINCT FROM 'on' THEN
         RAISE EXCEPTION 'metrics.fact_sprint_snapshot rows are immutable once written';
     END IF;
-    RETURN NULL;
+    IF TG_OP = 'DELETE' THEN
+        RETURN OLD;
+    END IF;
+    RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
