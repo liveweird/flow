@@ -26,9 +26,16 @@ data class MetricsFieldConfig(
     val workCategory: String? = null,
 )
 
-/** One `metrics.domain_map` row — project → domain. */
+/**
+ * One `metrics.domain_map` row — project → domain. [ownerTeamId] (A19/A22, v0.3.0 M3 commit 9e) is
+ * an OPTIONAL explicitly-configured owner team for this project row; every row sharing the same
+ * [domainKey] must carry the same [ownerTeamId] (null or equal — [validateDataSourceMetricsConfig]
+ * 400s a disagreement). Left unconfigured (`null`) on a stored row, `MetricsConfigService`'s GET
+ * fills it with the SAME computed default `MetricsDeriver`'s own DERIVE run would resolve — see
+ * `MetricsConfigService.resolveOwnerTeamByDomain`.
+ */
 @Serializable
-data class MetricsDomainMapping(val projectKey: String, val domainKey: String, val domainName: String)
+data class MetricsDomainMapping(val projectKey: String, val domainKey: String, val domainName: String, val ownerTeamId: UInt? = null)
 
 /** One `metrics.board_team_map` row (D10: one board per team — the OTHER direction, `teamId` unique, is a `23505` -> `409`). */
 @Serializable
@@ -164,9 +171,7 @@ fun validateDataSourceMetricsConfig(request: DataSourceMetricsConfigRequest, ref
         request.fields.epicDue,
         request.fields.workCategory,
     ).forEach { fieldId -> if (fieldId !in ref.fieldIds) throw BadRequestException("Unknown field id: $fieldId") }
-    request.domains.forEach { domain ->
-        if (domain.projectKey !in ref.projectKeys) throw BadRequestException("Unknown project key: ${domain.projectKey}")
-    }
+    validateDomains(request.domains, ref)
     request.boards.forEach { board ->
         if (board.boardId !in ref.boardIds) throw BadRequestException("Unknown board id: ${board.boardId}")
         if (board.teamId !in ref.activeTeamIds) throw BadRequestException("Unknown or inactive team id: ${board.teamId}")
@@ -188,6 +193,28 @@ fun validateDataSourceMetricsConfig(request: DataSourceMetricsConfigRequest, ref
     request.sprintCapacities.forEach { capacity ->
         if (capacity.sprintId !in ref.sprintIds) throw BadRequestException("Unknown sprint id: ${capacity.sprintId}")
         if (capacity.capacityMd < 0) throw BadRequestException("capacityMd must be >= 0")
+    }
+}
+
+/**
+ * `domains[]`'s own three checks (split out of [validateDataSourceMetricsConfig] to keep its
+ * cyclomatic complexity under the repo's detekt threshold): an unknown project key, an unknown or
+ * inactive `ownerTeamId` (A19/A22, v0.3.0 M3 commit 9e — the `boards[].teamId` idiom), and every
+ * project row of the SAME `domainKey` agreeing on one owner (null or equal) — a genuine
+ * disagreement is a malformed request, never silently resolved to "no owner" here (the DERIVE-time
+ * resolution does that instead, see `MetricsConfigService.resolveOwnerTeamByDomain`).
+ */
+private fun validateDomains(domains: List<MetricsDomainMapping>, ref: MetricsConfigReferenceData) {
+    domains.forEach { domain ->
+        if (domain.projectKey !in ref.projectKeys) throw BadRequestException("Unknown project key: ${domain.projectKey}")
+        if (domain.ownerTeamId != null && domain.ownerTeamId !in ref.activeTeamIds) {
+            throw BadRequestException("Unknown or inactive owner team id: ${domain.ownerTeamId}")
+        }
+    }
+    domains.groupBy { it.domainKey }.forEach { (domainKey, rows) ->
+        if (rows.map { it.ownerTeamId }.distinct().size > 1) {
+            throw BadRequestException("Disagreeing ownerTeamId for domain: $domainKey")
+        }
     }
 }
 

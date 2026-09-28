@@ -426,20 +426,12 @@ class MetricsDeriver(
     /**
      * A19/A22 (`.claude/docs/domain-model.md` "Amendments", `.claude/docs/metrics.md`): each
      * configured DOMAIN's (not project's — several project rows may share one `domainKey`) owner
-     * team:
-     * 1. Every project row belonging to the domain that carries a CONFIGURED owner
-     *    (`metrics.domain_map.owner_team_id`, filtered to currently ACTIVE teams first — A22, a
-     *    soft-deleted team's mapping resolves as if unconfigured) must AGREE on the same team — rows
-     *    with no configured owner are ignored when checking agreement, so a single configured row
-     *    among several unconfigured ones still "agrees" trivially. A genuine DISAGREEMENT between two
-     *    or more distinct configured owners resolves to NO owner outright (a future config-PUT
-     *    validation will 400 this; here it is simply treated as unset) — it does NOT fall through to
-     *    the board fallback below.
-     * 2. Absent any configured owner at all, the team of the SINGLE `board_team_map` board (also
-     *    active-team-filtered) mapped across ALL of the domain's project keys (`norm.boards
-     *    .project_key`) — no mapped board, or more than one distinct team among several boards across
-     *    the domain's projects, resolves to no owner.
-     * 3. Otherwise absent from the map entirely — the caller's `UNOWNED` bucket.
+     * team, resolved via the ONE shared implementation, `MetricsConfigService
+     * .resolveOwnerTeamByDomain` (moved there in v0.3.0 M3 commit 9e so the metrics-config GET's
+     * own owner-default filling never duplicates this algorithm) — see that function's own doc for
+     * the agreement/fallback rules. [configuredOwners] is read UNFILTERED by team activity: a
+     * configured owner that is now soft-deleted still BLOCKS the board fallback and resolves to
+     * none (A22) — `resolveOwnerTeamByDomain` itself applies the activity filter.
      */
     private suspend fun ownerTeamByDomain(
         connectionId: UInt,
@@ -447,21 +439,13 @@ class MetricsDeriver(
         boardTeamByBoardId: Map<Long, UInt>,
         activeTeamIds: Set<UInt>,
     ): Map<String, UInt> {
-        // Unfiltered: a configured owner that is now soft-deleted still BLOCKS the board fallback and
-        // resolves to none (A22) — the admin's explicit choice is never silently replaced.
         val configuredOwners = metricsConfig.domainOwnerTeamIds(connectionId)
-        val activeBoardTeamByBoardId = boardTeamByBoardId.filterValues { it in activeTeamIds }
-        val boardsByProject = workItemStore.allBoardRefs(connectionId).filter { it.projectKey != null }.groupBy { it.projectKey }
-        return config.domains.groupBy { it.domainKey }.mapNotNull { (domainKey, projects) ->
-            val distinctConfigured = projects.mapNotNull { configuredOwners[it.projectKey] }.distinct()
-            val owner = when {
-                distinctConfigured.size > 1 -> null // disagreement — never falls through to the board fallback
-                distinctConfigured.size == 1 -> distinctConfigured.single().takeIf { it in activeTeamIds }
-                else -> projects.flatMap { boardsByProject[it.projectKey].orEmpty() }
-                    .mapNotNull { activeBoardTeamByBoardId[it.boardId] }.distinct().singleOrNull()
-            }
-            owner?.let { domainKey to it }
-        }.toMap()
+        val boardsByProject = workItemStore.allBoardRefs(connectionId).filter { it.projectKey != null }
+            .groupBy({ it.projectKey!! }, { it.boardId })
+        val projectKeysByDomain = config.domains.groupBy({ it.domainKey }, { it.projectKey })
+        return metricsConfig.resolveOwnerTeamByDomain(
+            projectKeysByDomain, configuredOwners, boardsByProject, boardTeamByBoardId, activeTeamIds,
+        )
     }
 
     /**

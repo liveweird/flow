@@ -487,11 +487,13 @@ already rebuilt WHOLESALE by every DERIVE run, unlike `norm.*`'s per-issue REPLA
   `ownerTeamByDomain` (renamed from `ownerTeamByProject` — it resolves per DOMAIN key, since several
   project rows may share one, not per project; see "Owner team" in `.claude/docs/metrics.md`'s
   "Derivation corrections" for the full agreement/fallback algorithm and the A22 soft-deleted-team
-  exclusion). Not yet writable through the per-connection metrics-config request/response DTO or the
-  OpenAPI spec — that arrives with the config API/UI in a later commit; `MetricsConfigService
-  .replaceConfig` carries any already-stored value forward, unchanged, across its own
-  delete-and-reinsert full-replace PUT, so an unrelated field edit (statuses, boards, …) can never
-  silently wipe an owner an admin (or a future migration) already set.
+  exclusion) via `MetricsConfigService.resolveOwnerTeamByDomain` (the one shared implementation,
+  v0.3.0 M3 commit 9e). This column landed nullable and unwritable through the API in V17/commit
+  9d; commit 9e added `domains[].ownerTeamId` to the per-connection metrics-config request/response
+  DTO and the OpenAPI spec (`.claude/docs/metrics.md` "Domain owner team") — `MetricsConfigService
+  .replaceConfig` now writes it verbatim from the request on every full-replace PUT, validated
+  (an unknown/soft-deleted team, or two project rows of the same domain disagreeing, are both
+  `400`) rather than carried forward from the prior stored value.
 - **`metrics.fact_task_delivery.current_team_id INTEGER NULL REFERENCES teams(id)`,
   `current_assignee_account_id VARCHAR(100) NULL`** (A21, A22) — D5 evaluated NOW rather than at
   `done_at`, for every task, done or not: the team of the sprint in the task's SPRINT field

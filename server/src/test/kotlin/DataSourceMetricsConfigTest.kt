@@ -75,6 +75,57 @@ class DataSourceMetricsConfigTest {
     }
 
     @Test
+    fun `an unknown or inactive owner team id in domains is 400`() {
+        val unknown = DataSourceMetricsConfigRequest(domains = listOf(MetricsDomainMapping("ENG", "eng", "Engineering", 999u)))
+        assertFailsWith<BadRequestException> { validateDataSourceMetricsConfig(unknown, ref()) }
+    }
+
+    @Test
+    fun `an active owner team id in domains does not throw`() {
+        val request = DataSourceMetricsConfigRequest(domains = listOf(MetricsDomainMapping("ENG", "eng", "Engineering", 1u)))
+        validateDataSourceMetricsConfig(request, ref())
+    }
+
+    @Test
+    fun `a same-domain owner disagreement is 400`() {
+        val request = DataSourceMetricsConfigRequest(
+            domains = listOf(
+                MetricsDomainMapping("ENG", "shared", "Shared", 1u),
+                MetricsDomainMapping("OPS", "shared", "Shared", 2u),
+            ),
+        )
+        assertFailsWith<BadRequestException> {
+            validateDataSourceMetricsConfig(request, ref(projectKeys = setOf("ENG", "OPS"), activeTeamIds = setOf(1u, 2u)))
+        }
+    }
+
+    @Test
+    fun `a same-domain owner disagreement between a set and an unset row is 400`() {
+        val request = DataSourceMetricsConfigRequest(
+            domains = listOf(MetricsDomainMapping("ENG", "shared", "Shared", 1u), MetricsDomainMapping("OPS", "shared", "Shared")),
+        )
+        assertFailsWith<BadRequestException> {
+            validateDataSourceMetricsConfig(request, ref(projectKeys = setOf("ENG", "OPS")))
+        }
+    }
+
+    @Test
+    fun `same-domain rows agreeing on one owner (or all unset) do not throw`() {
+        val agreeing = DataSourceMetricsConfigRequest(
+            domains = listOf(
+                MetricsDomainMapping("ENG", "shared", "Shared", 1u),
+                MetricsDomainMapping("OPS", "shared", "Shared", 1u),
+            ),
+        )
+        validateDataSourceMetricsConfig(agreeing, ref(projectKeys = setOf("ENG", "OPS")))
+
+        val allUnset = DataSourceMetricsConfigRequest(
+            domains = listOf(MetricsDomainMapping("ENG", "shared", "Shared"), MetricsDomainMapping("OPS", "shared", "Shared")),
+        )
+        validateDataSourceMetricsConfig(allUnset, ref(projectKeys = setOf("ENG", "OPS")))
+    }
+
+    @Test
     fun `an unknown board id in boards is 400`() {
         val request = DataSourceMetricsConfigRequest(boards = listOf(MetricsBoardTeamMapping(999_999L, 1u)))
         assertFailsWith<BadRequestException> { validateDataSourceMetricsConfig(request, ref()) }

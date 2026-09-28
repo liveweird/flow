@@ -1457,8 +1457,8 @@ class MetricsDerivationTest {
      * A19/A22's owner-resolution algorithm (`MetricsDeriver.ownerTeamByDomain`), on its own clone —
      * four cases in one DERIVE, over four of the fixture's own (real) boarded projects, remapped
      * into three synthetic domains:
-     * - **`OWNERA`** (project A alone): a `metrics.domain_map.owner_team_id` set DIRECTLY (no PUT
-     *   support yet) must OVERRIDE project A's own mapped board's team.
+     * - **`OWNERA`** (project A alone): a `metrics.domain_map.owner_team_id` set DIRECTLY (a raw
+     *   write, not the PUT — see below) must OVERRIDE project A's own mapped board's team.
      * - **`OWNERB`** (projects B + C together): two boards mapped to two DIFFERENT teams, no
      *   configured owner for either project — must resolve to NO owner (disagreement/ambiguity).
      * - **`OWNERC`** (project D alone, deliberately left OUT of `boards[]`): a configured owner
@@ -1522,9 +1522,11 @@ class MetricsDerivationTest {
                 ),
             )
 
-            // owner_team_id has no PUT support yet (`.claude/docs/metrics.md` "Derivation corrections
-            // from the measure contract") — set it directly, the same way the brief's own review
-            // round documented for a future config API.
+            // Written directly rather than through the now-existing PUT (v0.3.0 M3 commit 9e,
+            // `.claude/docs/metrics.md` "Configuration model"): a soft-deleted team id would be
+            // rejected by the PUT's own `activeTeamIds` validation, so simulating "a team that WAS
+            // active when configured, then soft-deleted" needs a raw write, same as `teamOverride`
+            // here for symmetry.
             suspendTransaction(sharedDatabaseForTests()) {
                 val dm = MetricsConfigService.DomainMap
                 dm.update({ (dm.connectionId eq connId) and (dm.projectKey eq projectA) }) { it[ownerTeamId] = teamOverride }

@@ -42,7 +42,7 @@ DataSourceMetricsConfig {
   configured: Boolean
   statusStages: [{ statusId, stage }]              // metrics.status_stage_map, domain_key = ''
   fields: { estimateTask, estimateEpic, epicStart, epicDue, workCategory }  // metrics.field_config
-  domains: [{ projectKey, domainKey, domainName }]  // metrics.domain_map
+  domains: [{ projectKey, domainKey, domainName, ownerTeamId? }]  // metrics.domain_map
   boards: [{ boardId, teamId }]                     // metrics.board_team_map
   activityTypes: [{ issueType, activityType }]      // metrics.activity_type_map
   workCategories: [{ valueId, valueName, category }]// metrics.work_category_map
@@ -62,7 +62,7 @@ a `404` and never an empty shell an admin has to fill in from scratch before rep
 | `fields.epicStart` | the profile's custom field whose name contains "start date" (case-insensitive); if none, the field whose name contains "target start" (Jira Plans' own start-date field, for a company-managed-project tenant using Plans dates instead of a team-managed "Start date" custom field); `null` if neither was detected |
 | `fields.epicDue` | `"duedate"` — Jira's plain system field, always a valid choice, never subject to profile detection |
 | `fields.workCategory` | `null` — must be chosen; there is no sensible guess for which field carries it |
-| `domains` | 1:1 — one row per project key observed in `norm.work_items` (LIVE rows only), `domainKey`/`domainName` both set to the project key itself |
+| `domains` | 1:1 — one row per project key observed in `norm.work_items` (LIVE rows only), `domainKey`/`domainName` both set to the project key itself; `ownerTeamId` is filled with the SAME resolved default `MetricsDeriver`'s own DERIVE run would compute — see "Domain owner team" below |
 | `boards` | empty — no board → team mapping exists until an admin makes one |
 | `activityTypes` | 1:1 — one row per issue type observed in `norm.work_items` (D6: activity types are standard issue types) |
 | `workCategories` | empty |
@@ -80,6 +80,11 @@ computed by `MetricsConfigService.replaceConfig`/`.referenceData`):
 - `domains[].projectKey` → distinct project keys observed in `norm.work_items`
   (`WorkItemStore.distinctProjectKeys`) — NOT the connection's own configured `projectKeys`
   setting, since the reference is "what Jira actually reports", not "what scope was requested".
+- `domains[].ownerTeamId` (A19/A22, v0.3.0 M3 commit 9e — optional) → the ACTIVE teams registry,
+  the `boards[].teamId` idiom (an unknown or soft-deleted team id is `400`); every `domains[]` row
+  sharing the SAME `domainKey` must carry the SAME `ownerTeamId` (`null` or equal) — a disagreement
+  is `400` too, checked in `validateDomains` (`metrics/DataSourceMetricsConfig.kt`, split out of
+  `validateDataSourceMetricsConfig` to keep it under the repo's detekt complexity threshold).
 - `boards[].boardId` → `norm.boards` (`WorkItemStore.allBoardRefs`); `boards[].teamId` → the ACTIVE
   teams registry (`teams/TeamService.Teams`, cross-feature read, listed in `.claude/docs/persistence.md`).
   D10 ("one board per team") is enforced the OTHER direction at the database:
@@ -112,6 +117,24 @@ by its own natural key before comparing): a plain `SELECT` with no `ORDER BY` gi
 guarantee, and a re-PUT of the SAME set in a different array order must stay a no-op — `readStoredConfig`
 itself still applies a deterministic `ORDER BY` per table so a `GET` response is stable across
 repeated reads, but that ordering is a presentation nicety, not what the no-op check relies on.
+
+**Domain owner team (A19/A22, v0.3.0 M3 commit 9e).** `domains[].ownerTeamId` is now writable
+through this API (it landed schema-only in V17, commit 9d — see `.claude/docs/persistence.md`'s
+"measure-contract corrections"): a PUT stores it verbatim per project row, `replaceConfig` no
+longer carries a prior value forward across its own full-replace (the request now owns it
+outright). The agreement/board-fallback algorithm itself — "every project row of a domain that
+carries a configured owner must agree; absent one, fall back to the domain's single mapped board's
+team; otherwise no owner" — lives in exactly ONE place, `MetricsConfigService
+.resolveOwnerTeamByDomain`, a pure function both `MetricsDeriver.ownerTeamByDomain` (the DERIVE
+run, reading the EXPLICIT, DB-fresh `domain_map.owner_team_id` values via
+`MetricsConfigService.domainOwnerTeamIds`) and this service's own `GET` (`effectiveConfig` →
+`withResolvedOwners`) call — never duplicated. **`GET` always shows the resolved owner, not just
+the raw stored value**: a `domains[]` row whose `ownerTeamId` is unset (`null`, whether the
+connection is otherwise `configured` or the row is one of `defaultConfig`'s own computed rows)
+is filled in with `resolveOwnerTeamByDomain`'s own board-fallback default — the SAME figure a
+DERIVE run would resolve for that domain — so an admin always sees what will actually apply,
+including on a connection where only `boards[]` has been configured and the owner itself never
+explicitly set. An EXPLICITLY stored (non-null) value is never overwritten by this defaulting.
 
 **`GET /api/v1/data-sources/{id}/metrics-config/options`** — the reference data the metrics-config
 editor picks from (`DataSourceMetricsConfigOptions`): every status (with its Jira category, mapped
@@ -569,28 +592,33 @@ A18/A19/A21 describe. This commit closes all five, backed by the additive V17 co
   `assignee_account_id_at_started`/`assignee_team_id_at_started` are still populated for EVERY
   worklog (epic-logged included) as informational bridge columns; only the `foreign_work`
   COMPARISON itself branches on `isEpic`.
-- **Owner team (A19, A22) — storage and derivation, per DOMAIN not per project; the config API/UI
-  is a later commit.** `MetricsDeriver.ownerTeamByDomain` (renamed from `ownerTeamByProject`)
-  resolves each DOMAIN's (not project's — several project rows may share one `domainKey`) owner:
+- **Owner team (A19, A22) — storage and derivation, per DOMAIN not per project; the config API
+  landed in commit 9e (see "Domain owner team" above).** `MetricsDeriver.ownerTeamByDomain`
+  (renamed from `ownerTeamByProject`) resolves each DOMAIN's (not project's — several project rows
+  may share one `domainKey`) owner via `MetricsConfigService.resolveOwnerTeamByDomain` (moved
+  there in commit 9e so there is ONE implementation, shared with the config `GET`'s own owner
+  defaulting):
   1) every project row of the domain that carries a CONFIGURED owner
   (`metrics.domain_map.owner_team_id`, `MetricsConfigService.domainOwnerTeamIds`, filtered to
   currently ACTIVE teams first — A22, a soft-deleted team's mapping resolves as if unconfigured)
   must AGREE — rows with no configured owner are ignored when checking agreement (a single
   configured row among unconfigured ones still "agrees" trivially); a genuine DISAGREEMENT between
-  two or more distinct configured owners resolves to NO owner outright (a future config-PUT
-  validation will `400` this — here it is simply unset, never falling through to the board
-  fallback); 2) absent any configured owner at all, the team of the SINGLE `board_team_map` board
+  two or more distinct configured owners resolves to NO owner outright (the config PUT itself
+  already `400`s a same-domain disagreement — see "Domain owner team" above — so this branch is
+  reached only via a raw DB write bypassing the API, e.g. a future migration); 2) absent any
+  configured owner at all, the team of the SINGLE `board_team_map` board
   (also active-team-filtered) mapped across ALL of the domain's project keys (`norm.boards
   .project_key`) — no mapped board, or more than one distinct team among several boards across the
   domain's projects, resolves to no owner; 3) otherwise absent — the report-time `UNOWNED` bucket.
   `fact_epic_delivery.owner_team_id` (V17) and the NEW `metrics.dim_domain.owner_team_id` (V17,
   `.claude/docs/persistence.md` "The `metrics` schema — measure-contract corrections (V17)") are
   BOTH written from this SAME resolution, so a report can read either table and see the identical
-  owner for a domain's epics. `owner_team_id` (on `domain_map`, the CONFIGURED input) has no writer
-  of its own yet — `MetricsConfigService.replaceConfig`'s per-connection PUT carries whatever value
-  is already stored forward across its own full-replace (the request/response DTO and the OpenAPI
-  spec are untouched this commit), so an unrelated config PUT can never silently wipe an owner a
-  later migration or admin tool sets. `activeTeamIds` (`MetricsDeriver.activeTeamIds`, the SAME
+  owner for a domain's epics. `MetricsDeriver` deliberately reads `owner_team_id` fresh from the
+  database (`domainOwnerTeamIds`) rather than trusting `DataSourceMetricsConfig.domains[]`'s own
+  `ownerTeamId`, which the config `GET` may already have filled with a board-fallback DISPLAY
+  default (see "Domain owner team" above) — keeping the DERIVE-time "what is explicitly
+  configured" signal independent of the GET-time "what would apply" one.
+  `activeTeamIds` (`MetricsDeriver.activeTeamIds`, the SAME
   `TeamService.Teams`/`active()` read `MetricsConfigService.referenceData` already runs for the
   metrics-config PUT's own validation) is read ONCE per DERIVE, inside the rebuild transaction —
   a separate transaction from the settings/config read that stamps the run's `config_revision`. A
