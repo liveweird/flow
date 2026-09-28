@@ -646,6 +646,34 @@ class MetricsStore(private val database: R2dbcDatabase) {
     }
 
     /**
+     * `(start_at, due_at)` of every CURRENT epic baseline (`superseded_at IS NULL`, start/due/budget
+     * all set) — the windows [runFlowStep]'s PV spreading reads `dim_date` over. Not horizon-filtered
+     * here: [DeriveKernels.dimDateRange] applies [DeriveKernels.inPvHorizon] itself.
+     */
+    suspend fun currentEpicPlanWindows(connectionId: UInt): List<Pair<Long, Long>> = suspendTransaction(database) {
+        FactEpicPlan.select(FactEpicPlan.startAt, FactEpicPlan.dueAt).where {
+            (FactEpicPlan.connectionId eq connectionId) and FactEpicPlan.supersededAt.isNull() and
+                FactEpicPlan.startAt.isNotNull() and FactEpicPlan.dueAt.isNotNull() and FactEpicPlan.budgetMd.isNotNull()
+        }.toList().map { it[FactEpicPlan.startAt]!! to it[FactEpicPlan.dueAt]!! }
+    }
+
+    /**
+     * The earliest timestamp any flow-aggregate join places on a `dim_date` day for this connection:
+     * `fact_worklog.started_at`, `dim_sprint.start_at`, `fact_task_delivery.done_at`. Null when there
+     * are none.
+     */
+    suspend fun earliestFactEventMs(connectionId: UInt): Long? = suspendTransaction(database) {
+        val worklog = FactWorklog.startedAt.min()
+        val sprint = DimSprint.startAt.min()
+        val done = FactTaskDelivery.doneAt.min()
+        listOfNotNull(
+            FactWorklog.select(worklog).where { FactWorklog.connectionId eq connectionId }.toList().single()[worklog],
+            DimSprint.select(sprint).where { DimSprint.connectionId eq connectionId }.toList().single()[sprint],
+            FactTaskDelivery.select(done).where { FactTaskDelivery.connectionId eq connectionId }.toList().single()[done],
+        ).minOrNull()
+    }
+
+    /**
      * Deletes `dim_domain`/`dim_task`/`dim_epic` for one connection — call ONCE, before the batched
      * [insertTasks]/[insertEpics] inserts below (v0.3.0 M3 review round 2b: `MetricsDeriver.kt` now
      * writes tasks/epics in batches of 200 rather than one final list, so delete and insert are

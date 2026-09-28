@@ -136,7 +136,57 @@ data class SprintTotals(
  * property-testable, called once per issue by `metrics/MetricsDeriver.kt` over ALREADY-persisted
  * `norm.*` rows and the connection's effective metrics configuration.
  */
+internal const val ONE_DAY_MS = 24L * 60 * 60 * 1000
+internal const val ONE_YEAR_MS = 365L * ONE_DAY_MS
+internal const val TWO_YEARS_MS = 2 * ONE_YEAR_MS
+
+/** How far back `dim_date` reaches at most, whatever a stale timestamp says (`dimDateRange`). */
+internal const val DIM_DATE_FLOOR_YEARS = 50L
+
+/**
+ * The PV horizon (A23): an epic's current baseline gets a PV curve only if BOTH its start and due
+ * lie within `[today - PV_HORIZON_YEARS, today + PV_HORIZON_YEARS]` (UTC dates, [DeriveKernels.inPvHorizon]).
+ * A placeholder date (9999-12-31, 1900-01-01) would otherwise build millions of `dim_date` and
+ * `agg_daily_flow` rows every DERIVE run.
+ */
+const val PV_HORIZON_YEARS = 10L
+
+/** The inclusive `[fromMs, toMs]` span [DeriveKernels.dimDateRange] says `metrics.dim_date` must cover. */
+data class DimDateRange(val fromMs: Long, val toMs: Long)
+
 object DeriveKernels {
+
+    /** The PV horizon as `[fromMs, toExclusiveMs)`: whole UTC days, ten years either side of [nowMs]'s UTC date. */
+    fun pvHorizonMs(nowMs: Long): Pair<Long, Long> {
+        val today = Instant.ofEpochMilli(nowMs).atZone(ZoneOffset.UTC).toLocalDate()
+        val from = today.minusYears(PV_HORIZON_YEARS).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+        val toExclusive = today.plusYears(PV_HORIZON_YEARS).plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+        return from to toExclusive
+    }
+
+    /** True when BOTH [startAtMs] and [dueAtMs] lie within [pvHorizonMs] — the only epics that get a PV curve. */
+    fun inPvHorizon(startAtMs: Long, dueAtMs: Long, nowMs: Long): Boolean {
+        val (from, toExclusive) = pvHorizonMs(nowMs)
+        return startAtMs in from until toExclusive && dueAtMs in from until toExclusive
+    }
+
+    /**
+     * The `metrics.dim_date` span a DERIVE run must cover (pure): from one year before the earliest
+     * known fact timestamp ([earliestFactMs] — creation, worklog start, sprint start, done time; null
+     * = none, so [nowMs]) floored at [DIM_DATE_FLOOR_YEARS] before [nowMs], to `now + 2 years`; widened
+     * by one day of slack at each end for every epic window in [epicWindows] (start, due) that lies in
+     * the PV horizon — an out-of-horizon window is ignored, exactly as the PV SQL ignores it.
+     */
+    fun dimDateRange(nowMs: Long, earliestFactMs: Long?, epicWindows: List<Pair<Long, Long>>): DimDateRange {
+        val floor = nowMs - DIM_DATE_FLOOR_YEARS * ONE_YEAR_MS
+        var from = maxOf(earliestFactMs ?: nowMs, floor) - ONE_YEAR_MS
+        var to = nowMs + TWO_YEARS_MS
+        epicWindows.filter { (start, due) -> inPvHorizon(start, due, nowMs) }.forEach { (start, due) ->
+            from = minOf(from, start - ONE_DAY_MS)
+            to = maxOf(to, due + ONE_DAY_MS)
+        }
+        return DimDateRange(from, to)
+    }
 
     /**
      * Tiles `norm` status intervals into `metrics.item_stage` rows via [stageMap] (`statusId ->

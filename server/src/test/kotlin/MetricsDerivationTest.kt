@@ -48,6 +48,8 @@ import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.greater
 import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.isNotNull
+import org.jetbrains.exposed.v1.core.isNull
+import org.jetbrains.exposed.v1.core.less
 import org.jetbrains.exposed.v1.core.lessEq
 import org.jetbrains.exposed.v1.core.neq
 import org.jetbrains.exposed.v1.r2dbc.deleteWhere
@@ -2143,8 +2145,25 @@ class MetricsDerivationTest {
                     done.none { it[f.creditTeamId] == null },
                 "delivery without a credit team must land on TEAM/UNASSIGNED",
             )
-            // Part A writes no plan/delivery/cost — PV/EV/AC stay 0 until part B.
-            assertTrue(flowRows.all { it[flow.pvMd].signum() == 0 && it[flow.evMd].signum() == 0 && it[flow.acMd].signum() == 0 })
+
+            // Per-day placement: on three sampled done-days, each domain's throughput_items equals the level-0
+            // done tasks whose done_at falls in THAT dim_date day's [day_start_ms, day_end_ms).
+            val domainFlowDays = flowRows.filter { it[flow.scopeKind] == "DOMAIN" && it[flow.throughputItems] > 0 }
+                .map { it[flow.day] }.distinct().sorted()
+            assertTrue(domainFlowDays.size >= 3, "the fixture needs at least three days with DOMAIN throughput to sample")
+            val sampledDays = listOf(domainFlowDays.first(), domainFlowDays[domainFlowDays.size / 2], domainFlowDays.last())
+            val bounds = MetricsStore.DimDate.selectAll().where { MetricsStore.DimDate.day inList sampledDays }
+                .toList().associate {
+                    it[MetricsStore.DimDate.day] to (it[MetricsStore.DimDate.dayStartMs] to it[MetricsStore.DimDate.dayEndMs])
+                }
+            sampledDays.forEach { day ->
+                val (startMs, endMs) = bounds.getValue(day)
+                val expected = done.filter { row -> row[f.domainKey] != null && row[f.doneAt]!! in startMs until endMs }
+                    .groupingBy { it[f.domainKey]!! }.eachCount()
+                val actual = flowRows.filter { it[flow.scopeKind] == "DOMAIN" && it[flow.day] == day && it[flow.throughputItems] > 0 }
+                    .associate { it[flow.scopeId] to it[flow.throughputItems] }
+                assertEquals(expected, actual, "DOMAIN throughput_items placement on $day")
+            }
         }
         Unit
     }
@@ -2242,6 +2261,10 @@ class MetricsDerivationTest {
                 assertScope("EPIC", expectedBy { it.second?.toString() })
             }
             assertTrue(nonVacuous, "at least one sampled day must carry an estimated backlog, else this proves nothing")
+            val ownedBacklogTeams = flow.selectAll().where {
+                (flow.connectionId eq connId) and (flow.scopeKind eq "TEAM") and (flow.backlogItems greater 0)
+            }.toList().map { it[flow.scopeId] }.filter { it != "UNOWNED" }.distinct()
+            assertTrue(ownedBacklogTeams.isNotEmpty(), "at least one TEAM backlog scope must be a real owner team, not UNOWNED")
         }
         Unit
     }
@@ -2273,6 +2296,258 @@ class MetricsDerivationTest {
         Unit
     }
 
+    private data class FlowKey(val kind: String, val scopeId: String, val day: String)
+
+    private suspend fun flowRowsByKey(connId: UInt): Map<FlowKey, ResultRow> = suspendTransaction(sharedDatabaseForTests()) {
+        val flow = MetricsStore.AggDailyFlow
+        flow.selectAll().where { flow.connectionId eq connId }.toList()
+            .associateBy { FlowKey(it[flow.scopeKind], it[flow.scopeId], it[flow.day]) }
+    }
+
+    private fun bd(value: java.math.BigDecimal?): java.math.BigDecimal = value ?: java.math.BigDecimal.ZERO
+
+    @Test
+    fun `agg_daily_flow - team PV and EV total the team's fact_sprint committed and delivered`() = runBlocking {
+        val connId = DerivedStubFixture.connectionId()
+        val rows = flowRowsByKey(connId).filterKeys { it.kind == "TEAM" }
+        suspendTransaction(sharedDatabaseForTests()) {
+            val ds = MetricsStore.DimSprint
+            val fs = MetricsStore.FactSprint
+            val dimBySprint = ds.selectAll().where { ds.connectionId eq connId }.toList().associateBy { it[ds.sprintId] }
+            val sprints = fs.selectAll().where { fs.connectionId eq connId }.toList()
+            fun teamOf(row: ResultRow) = dimBySprint.getValue(row[fs.sprintId])[ds.teamId]?.value?.toString()
+            val flow = MetricsStore.AggDailyFlow
+            fun total(team: String, column: org.jetbrains.exposed.v1.core.Column<java.math.BigDecimal>) =
+                rows.filterKeys { it.scopeId == team }.values.fold(java.math.BigDecimal.ZERO) { acc, row -> acc + row[column] }
+
+            val teams = sprints.mapNotNull(::teamOf).distinct()
+            assertTrue(teams.isNotEmpty(), "the fixture must carry team-mapped sprints")
+            var bothPositive = 0
+            teams.forEach { team ->
+                val mine = sprints.filter { teamOf(it) == team }
+                val committed = mine.filter { dimBySprint.getValue(it[fs.sprintId])[ds.startAt] != null }
+                    .fold(java.math.BigDecimal.ZERO) { acc, row -> acc + row[fs.committedMd] }
+                val delivered = mine.fold(java.math.BigDecimal.ZERO) { acc, row -> acc + row[fs.deliveredMd] }
+                val pv = total(team, flow.pvMd)
+                val ev = total(team, flow.evMd)
+                assertEquals(0, committed.compareTo(pv), "team $team: Σ pv_md $pv must equal Σ fact_sprint.committed_md $committed")
+                assertEquals(0, delivered.compareTo(ev), "team $team: Σ ev_md $ev must equal Σ fact_sprint.delivered_md $delivered")
+                if (pv.signum() > 0 && ev.signum() > 0) bothPositive++
+            }
+            assertTrue(bothPositive > 0, "at least one team must carry both PV and EV, else this proves nothing")
+            // Per-day placement: on sampled days, each team's PV is the committed MD of its sprints STARTING that day and
+            // its EV the done_in_sprint MD of tasks whose done_at falls on that day (dim_date [start, end) bounds).
+            val scopeRows = MetricsStore.FactSprintScope.selectAll().where { MetricsStore.FactSprintScope.connectionId eq connId }
+                .toList().filter { it[MetricsStore.FactSprintScope.doneInSprint] }
+            val doneAtByIssue = MetricsStore.FactTaskDelivery.selectAll()
+                .where { (MetricsStore.FactTaskDelivery.connectionId eq connId) and MetricsStore.FactTaskDelivery.doneAt.isNotNull() }
+                .toList().associate { it[MetricsStore.FactTaskDelivery.issueId] to it[MetricsStore.FactTaskDelivery.doneAt]!! }
+            fun sampledDays(column: org.jetbrains.exposed.v1.core.Column<java.math.BigDecimal>): List<String> {
+                val days = rows.filter { it.value[column].signum() != 0 }.keys.map { it.day }.distinct().sorted()
+                assertTrue(days.size >= 3, "the fixture needs at least three days with team ${column.name} to sample")
+                return listOf(days.first(), days[days.size / 2], days.last())
+            }
+            val pvDays = sampledDays(flow.pvMd)
+            val evDays = sampledDays(flow.evMd)
+            val dayBounds = MetricsStore.DimDate.selectAll().where { MetricsStore.DimDate.day inList (pvDays + evDays) }.toList()
+                .associate {
+                    it[MetricsStore.DimDate.day] to (it[MetricsStore.DimDate.dayStartMs] to it[MetricsStore.DimDate.dayEndMs])
+                }
+            pvDays.forEach { day ->
+                val (startMs, endMs) = dayBounds.getValue(day)
+                val expected = sprints.filter { row ->
+                    val dim = dimBySprint.getValue(row[fs.sprintId])
+                    dim[ds.teamId] != null && dim[ds.startAt]?.let { it in startMs until endMs } == true
+                }.groupBy { teamOf(it)!! }.mapValues { (_, v) -> v.fold(java.math.BigDecimal.ZERO) { a, b -> a + b[fs.committedMd] } }
+                    .filterValues { it.signum() != 0 }
+                val actual = rows.filter { it.key.day == day && it.value[flow.pvMd].signum() != 0 }
+                    .mapKeys { it.key.scopeId }.mapValues { it.value[flow.pvMd] }
+                assertEquals(expected.keys, actual.keys, "team PV scopes on $day")
+                expected.forEach { (team, want) -> assertEquals(0, want.compareTo(actual.getValue(team)), "team $team PV on $day") }
+            }
+            evDays.forEach { day ->
+                val (startMs, endMs) = dayBounds.getValue(day)
+                val expected = scopeRows.filter { row ->
+                    dimBySprint.getValue(row[MetricsStore.FactSprintScope.sprintId])[ds.teamId] != null &&
+                        doneAtByIssue[row[MetricsStore.FactSprintScope.issueId]]?.let { it in startMs until endMs } == true
+                }.groupBy { dimBySprint.getValue(it[MetricsStore.FactSprintScope.sprintId])[ds.teamId]!!.value.toString() }
+                    .mapValues { (_, v) ->
+                        v.fold(java.math.BigDecimal.ZERO) { a, b -> a + bd(b[MetricsStore.FactSprintScope.estimateAtDoneMd]) }
+                    }
+                    .filterValues { it.signum() != 0 }
+                val actual = rows.filter { it.key.day == day && it.value[flow.evMd].signum() != 0 }
+                    .mapKeys { it.key.scopeId }.mapValues { it.value[flow.evMd] }
+                assertEquals(expected.keys, actual.keys, "team EV scopes on $day")
+                expected.forEach { (team, want) -> assertEquals(0, want.compareTo(actual.getValue(team)), "team $team EV on $day") }
+            }
+            // A sprint with no team contributes to no team scope: every PV/EV TEAM scope is a mapped sprint team.
+            assertTrue(
+                rows.filterValues { it[flow.pvMd].signum() != 0 }.keys.all { it.scopeId in teams },
+                "PV TEAM rows must belong to teams that own a sprint",
+            )
+        }
+        Unit
+    }
+
+    @Test
+    fun `agg_daily_flow - epic PV matches pvCurve of the current baseline day by day`() = runBlocking {
+        val connId = DerivedStubFixture.connectionId()
+        val flowRows = flowRowsByKey(connId)
+        val calendar = WorkingCalendar(ZoneId.of("Europe/Warsaw"), setOf(6, 7), emptySet())
+        suspendTransaction(sharedDatabaseForTests()) {
+            val plan = MetricsStore.FactEpicPlan
+            val flow = MetricsStore.AggDailyFlow
+            // The oracle iterates the SAME set the PV SQL reads (A23): current baselines with start, due and budget all
+            // set AND both dates inside the PV horizon (an out-of-horizon epic gets no PV at all, never a clamped curve).
+            val current = plan.selectAll().where { (plan.connectionId eq connId) and plan.supersededAt.isNull() }.toList()
+                .filter { it[plan.startAt] != null && it[plan.dueAt] != null && it[plan.budgetMd] != null }
+                .filter { DeriveKernels.inPvHorizon(it[plan.startAt]!!, it[plan.dueAt]!!, DerivedStubFixture.PINNED_NOW) }
+            val dimDates = MetricsStore.DimDate.selectAll().toList().map { it[MetricsStore.DimDate.day] }.toSet()
+            var withCurve = 0
+            current.forEach { row ->
+                val epicId = row[plan.issueId].toString()
+                val baseline = ch.nokillswit.metrics.EpicPlanBaseline(
+                    baselinedAtMs = row[plan.baselinedAt], startAtMs = row[plan.startAt]!!, dueAtMs = row[plan.dueAt]!!,
+                    budgetMd = row[plan.budgetMd]!!.toDouble(), budgetSource = row[plan.budgetSource], supersededAtMs = null,
+                )
+                val curve = DeriveKernels.pvCurve(baseline, calendar)
+                assertTrue(curve.all { it.day.toString() in dimDates }, "dim_date must cover every working day of epic $epicId's window")
+                val actual = flowRows.filterKeys { it.kind == "EPIC" && it.scopeId == epicId }
+                    .mapKeys { it.key.day }.mapValues { it.value[flow.pvMd] }.filterValues { it.signum() != 0 }
+                if (curve.isEmpty() || baseline.budgetMd == 0.0) {
+                    assertTrue(actual.isEmpty(), "epic $epicId has no PV curve, so it must have no PV rows")
+                    return@forEach
+                }
+                withCurve++
+                val expectedCumulative = curve.associate { it.day.toString() to it.cumulativeMd }
+                assertTrue(actual.keys.all { it in expectedCumulative }, "epic $epicId: PV only on working days of its window")
+                var running = java.math.BigDecimal.ZERO
+                curve.forEach { point ->
+                    running += actual[point.day.toString()] ?: java.math.BigDecimal.ZERO
+                    assertTrue(
+                        abs(running.toDouble() - point.cumulativeMd) <= PV_CUMULATIVE_TOLERANCE,
+                        "epic $epicId on ${point.day}: cumulative pv_md $running vs pvCurve ${point.cumulativeMd}",
+                    )
+                }
+                assertEquals(0, row[plan.budgetMd]!!.compareTo(running), "epic $epicId: Σ pv_md must equal its budget exactly")
+            }
+            assertTrue(withCurve >= 1, "at least one epic must carry a PV curve, else this proves nothing")
+            val epicsWithPv = flowRows.filter { it.key.kind == "EPIC" && it.value[flow.pvMd].signum() != 0 }.keys.map { it.scopeId }.toSet()
+            val expectedEpicsWithPv = current.filter {
+                it[plan.budgetMd]!!.signum() != 0 && DeriveKernels.pvCurve(
+                    ch.nokillswit.metrics.EpicPlanBaseline(
+                        it[plan.baselinedAt], it[plan.startAt]!!, it[plan.dueAt]!!, it[plan.budgetMd]!!.toDouble(),
+                        it[plan.budgetSource], null,
+                    ),
+                    calendar,
+                ).isNotEmpty()
+            }.map { it[plan.issueId].toString() }.toSet()
+            assertEquals(expectedEpicsWithPv, epicsWithPv, "EPIC PV scopes must be exactly the epics with a current in-horizon baseline")
+        }
+        Unit
+    }
+
+    @Test
+    fun `agg_daily_flow - DOMAIN PV, EV and AC equal the sum of the domain's EPIC rows, and team AC totals fact_worklog`() =
+        runBlocking {
+            val connId = DerivedStubFixture.connectionId()
+            val flowRows = flowRowsByKey(connId)
+            suspendTransaction(sharedDatabaseForTests()) {
+                val flow = MetricsStore.AggDailyFlow
+                val epicDomainByDimEpic = MetricsStore.DimEpic.selectAll().where { MetricsStore.DimEpic.connectionId eq connId }
+                    .toList().associate { it[MetricsStore.DimEpic.issueId].toString() to it[MetricsStore.DimEpic.domainKey] }
+                val ft = MetricsStore.FactTaskDelivery
+                val wl = MetricsStore.FactWorklog
+                val doneTasks = ft.selectAll()
+                    .where { (ft.connectionId eq connId) and (ft.isSubtask eq false) and ft.doneAt.isNotNull() and ft.epicId.isNotNull() }
+                    .toList()
+                val worklogs = wl.selectAll().where { wl.connectionId eq connId }.toList()
+                val dayBounds = MetricsStore.DimDate.selectAll().toList()
+                    .map { Triple(it[MetricsStore.DimDate.day], it[MetricsStore.DimDate.dayStartMs], it[MetricsStore.DimDate.dayEndMs]) }
+                fun dayOf(ts: Long) = dayBounds.firstOrNull { ts >= it.second && ts < it.third }?.first
+                    ?: error("timestamp $ts falls on no dim_date day — an event would be dropped from agg_daily_flow")
+
+                // EPIC -> DOMAIN as the facts themselves carry it (epic_domain_key): EV and AC group by that key.
+                val epicDomainByFacts = (
+                    doneTasks.map { it[ft.epicId]!!.toString() to it[ft.epicDomainKey] } +
+                        worklogs.filter { it[wl.epicId] != null }.map { it[wl.epicId]!!.toString() to it[wl.epicDomainKey] }
+                    ).toMap()
+
+                fun assertDomainEqualsEpics(
+                    label: String,
+                    column: org.jetbrains.exposed.v1.core.Column<java.math.BigDecimal>,
+                    domainOf: (String) -> String?,
+                    tolerancePerEpic: Double,
+                ): Int {
+                    val epicSums = flowRows.filterKeys { it.kind == "EPIC" }.entries
+                        .filter { it.value[column].signum() != 0 }
+                        .groupBy({ domainOf(it.key.scopeId) to it.key.day }) { it.value[column] }
+                    val domainRows = flowRows.filterKeys { it.kind == "DOMAIN" }.entries.filter { it.value[column].signum() != 0 }
+                        .associate { (it.key.scopeId to it.key.day) to it.value[column] }
+                    val expectedKeys = epicSums.keys.filter { it.first != null }.map { it.first!! to it.second }.toSet()
+                    assertEquals(expectedKeys, domainRows.keys, "$label: DOMAIN rows must exist exactly where the domain has EPIC rows")
+                    domainRows.forEach { (key, value) ->
+                        val parts = epicSums.getValue(key)
+                        val sum = parts.fold(java.math.BigDecimal.ZERO) { a, b -> a + b }
+                        assertTrue(
+                            abs(sum.toDouble() - value.toDouble()) <= tolerancePerEpic * (parts.size + 1),
+                            "$label DOMAIN ${key.first} on ${key.second}: $value vs Σ EPIC rows $sum",
+                        )
+                    }
+                    return domainRows.size
+                }
+                val pvRows = assertDomainEqualsEpics("PV", flow.pvMd, { epicDomainByDimEpic[it] }, EXACT_TOLERANCE)
+                val evRows = assertDomainEqualsEpics("EV", flow.evMd, { epicDomainByFacts[it] }, EXACT_TOLERANCE)
+                val acRows = assertDomainEqualsEpics("AC", flow.acMd, { epicDomainByFacts[it] }, ROUNDING_TOLERANCE)
+                assertTrue(pvRows > 0 && evRows > 0 && acRows > 0, "PV/EV/AC DOMAIN rows must all exist (pv=$pvRows ev=$evRows ac=$acRows)")
+
+                // The fact-derived oracle for DOMAIN EV and AC — independent of the EPIC rows.
+                val evByDomainDay = doneTasks.filter { it[ft.epicDomainKey] != null }
+                    .groupBy({ it[ft.epicDomainKey]!! to dayOf(it[ft.doneAt]!!) }) { bd(it[ft.estimateAtDoneMd]) }
+                    .mapValues { (_, v) -> v.fold(java.math.BigDecimal.ZERO) { a, b -> a + b } }.filterValues { it.signum() != 0 }
+                val flowEv = flowRows.filterKeys { it.kind == "DOMAIN" }.entries.filter { it.value[flow.evMd].signum() != 0 }
+                    .associate { (it.key.scopeId to it.key.day) to it.value[flow.evMd] }
+                assertEquals(evByDomainDay.keys, flowEv.keys, "DOMAIN EV rows vs the done epic-attributed tasks")
+                evByDomainDay.forEach { (key, want) -> assertEquals(0, want.compareTo(flowEv.getValue(key)), "DOMAIN EV $key") }
+
+                val acByDomainDay = worklogs.filter { it[wl.epicId] != null && it[wl.epicDomainKey] != null }
+                    .groupBy({ it[wl.epicDomainKey]!! to dayOf(it[wl.startedAt]) }) { it[wl.md] }
+                    .mapValues { (_, v) -> v.fold(java.math.BigDecimal.ZERO) { a, b -> a + b }.setScale(2, java.math.RoundingMode.HALF_UP) }
+                    .filterValues { it.signum() != 0 }
+                val flowAc = flowRows.filterKeys { it.kind == "DOMAIN" }.entries.filter { it.value[flow.acMd].signum() != 0 }
+                    .associate { (it.key.scopeId to it.key.day) to it.value[flow.acMd] }
+                assertEquals(acByDomainDay.keys, flowAc.keys, "DOMAIN AC rows vs the epic-attributed worklogs")
+                acByDomainDay.forEach { (key, want) -> assertEquals(0, want.compareTo(flowAc.getValue(key)), "DOMAIN AC $key") }
+
+                // Team AC (incl. UNASSIGNED) totals fact_worklog: per (team, day) exactly, and in total.
+                val acByTeamDay = worklogs.groupBy { (it[wl.authorTeamId]?.value?.toString() ?: "UNASSIGNED") to dayOf(it[wl.startedAt]) }
+                    .mapValues { (_, v) ->
+                        v.fold(java.math.BigDecimal.ZERO) { a, b -> a + b[wl.md] }.setScale(2, java.math.RoundingMode.HALF_UP)
+                    }
+                    .filterValues { it.signum() != 0 }
+                val flowTeamAc = flowRows.filterKeys { it.kind == "TEAM" }.entries.filter { it.value[flow.acMd].signum() != 0 }
+                    .associate { (it.key.scopeId to it.key.day) to it.value[flow.acMd] }
+                assertEquals(acByTeamDay.keys, flowTeamAc.keys, "TEAM AC rows vs fact_worklog by author team and day")
+                acByTeamDay.forEach { (key, want) -> assertEquals(0, want.compareTo(flowTeamAc.getValue(key)), "TEAM AC $key") }
+                // No worklog is dropped: every fact_worklog row matches a dim_date day (the join the AC SQL performs).
+                val matchedWorklogs = wl.join(
+                    MetricsStore.DimDate, JoinType.INNER,
+                    additionalConstraint = {
+                        (MetricsStore.DimDate.dayStartMs lessEq wl.startedAt) and (wl.startedAt less MetricsStore.DimDate.dayEndMs)
+                    },
+                ).selectAll().where { wl.connectionId eq connId }.count()
+                assertEquals(worklogs.size.toLong(), matchedWorklogs, "every worklog must land on a dim_date day (none dropped from AC)")
+                val totalWorklog = worklogs.fold(java.math.BigDecimal.ZERO) { a, b -> a + b[wl.md] }
+                val totalTeamAc = flowTeamAc.values.fold(java.math.BigDecimal.ZERO) { a, b -> a + b }
+                assertTrue(totalWorklog.signum() > 0, "the fixture must carry worklogs")
+                assertTrue(
+                    abs(totalWorklog.toDouble() - totalTeamAc.toDouble()) <= ROUNDING_TOLERANCE * flowTeamAc.size,
+                    "Σ TEAM ac_md $totalTeamAc vs Σ fact_worklog.md $totalWorklog",
+                )
+            }
+            Unit
+        }
+
     private companion object {
         const val PINNED_NOW = 1_772_668_800_000L // 2026-03-05T00:00:00Z, per the v0.3.0 plan's pinned-clock convention
         const val THIRTY_DAYS_MS = 30L * 24 * 60 * 60 * 1000
@@ -2281,5 +2556,10 @@ class MetricsDerivationTest {
         const val HOURS_PER_DAY = 8.0
         const val FLO_BOARD_ID = 1L
         const val SAMPLED_WIP_DAY_COUNT = 5
+        // Cumulative rounding keeps the running pv_md at round(budget*i/n, 2), i.e. within 0.005 of the exact
+        // cumulative; the epsilon only absorbs pvCurve's floating-point accumulation.
+        const val PV_CUMULATIVE_TOLERANCE = 0.005 + 1e-9
+        const val EXACT_TOLERANCE = 0.0001
+        const val ROUNDING_TOLERANCE = 0.005
     }
 }

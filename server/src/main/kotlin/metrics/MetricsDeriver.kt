@@ -28,8 +28,6 @@ val MetricsDeriverKey = AttributeKey<MetricsDeriver>("MetricsDeriver")
 /** Shared across every `Derive*.kt` file (`DeriveModel.kt`/`DeriveTaskRows.kt`/`DeriveWorklogStep.kt`/
  * `DeriveSprintStep.kt`/`DeriveEpicPlanStep.kt`) — an epic is level 1, never "type name = Epic". */
 internal const val EPIC_HIERARCHY_LEVEL = 1
-private const val ONE_YEAR_MS = 365L * 24 * 60 * 60 * 1000
-private const val TWO_YEARS_MS = 2 * ONE_YEAR_MS
 private const val MAX_ERROR_DETAIL_LENGTH = 1000
 private const val MILLIS_PER_DAY = 24L * 60 * 60 * 1000
 
@@ -158,8 +156,9 @@ class MetricsDeriver(
     ): DeriveRowCounts {
         val relevantFieldIds = relevantCustomFieldIds(config)
         val workItems = workItemStore.workItemsForDerivation(connectionId).map { trimCustomFields(it, relevantFieldIds) }
-        val dimDateFrom = (workItems.minOfOrNull { it.createdAt } ?: now) - ONE_YEAR_MS
-        metricsStore.upsertDimDate(calendar.dimDateRows(dimDateFrom, now + TWO_YEARS_MS), configRevision)
+        val createdMin = workItems.minOfOrNull { it.createdAt }
+        val initialRange = DeriveKernels.dimDateRange(now, createdMin, emptyList())
+        metricsStore.upsertDimDate(calendar.dimDateRows(initialRange.fromMs, initialRange.toMs), configRevision)
 
         metricsStore.deleteDims(connectionId)
         metricsStore.deleteBridges(connectionId)
@@ -187,6 +186,7 @@ class MetricsDeriver(
         val sprintOutcome = runSprintStep(connectionId, workItems, context, config, derivedById, graceMs, configRevision, sprintFieldId)
         val worklogCount = runWorklogStep(connectionId, workItems, context, derivedById, configRevision)
         val epicPlanCount = runEpicPlanStep(connectionId, workItems, context, derivedById, factEpicsByIssueId, configRevision)
+        widenDimDate(connectionId, calendar, initialRange, createdMin, now, configRevision)
         val wipCount = runWipStep(connectionId, now, configRevision)
         val flowCount = runFlowStep(metricsStore, connectionId, now, configRevision)
 
@@ -200,6 +200,33 @@ class MetricsDeriver(
             aggWipRows = wipCount,
             aggFlowRows = flowCount,
         )
+    }
+
+    /**
+     * Widens `metrics.dim_date` beyond the initial (creation-based) range once the facts exist: every
+     * flow-aggregate join on `dim_date` silently drops an event whose day has no row, so the range
+     * must also reach the earliest worklog start, sprint start and done time
+     * ([MetricsStore.earliestFactEventMs], floored at 50 years back) and every epic window inside the
+     * PV horizon ([MetricsStore.currentEpicPlanWindows]) — the pure rule is [DeriveKernels.dimDateRange].
+     * Only the days OUTSIDE [initial] are upserted; `dim_date` is global and idempotent.
+     */
+    private suspend fun widenDimDate(
+        connectionId: UInt,
+        calendar: WorkingCalendar,
+        initial: DimDateRange,
+        createdMin: Long?,
+        now: Long,
+        configRevision: Long,
+    ) {
+        val factMin = metricsStore.earliestFactEventMs(connectionId)
+        val earliest = listOfNotNull(createdMin, factMin).minOrNull()
+        val range = DeriveKernels.dimDateRange(now, earliest, metricsStore.currentEpicPlanWindows(connectionId))
+        if (range.fromMs < initial.fromMs) {
+            metricsStore.upsertDimDate(calendar.dimDateRows(range.fromMs, initial.fromMs), configRevision)
+        }
+        if (range.toMs > initial.toMs) {
+            metricsStore.upsertDimDate(calendar.dimDateRows(initial.toMs, range.toMs), configRevision)
+        }
     }
 
     private suspend fun markRunSucceeded(runId: Int, counts: DeriveRowCounts, finishedAt: Long) {

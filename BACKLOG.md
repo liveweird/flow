@@ -52,6 +52,8 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A22 over
   - A per-domain status→stage override UI.
   - Seed memberships from the Team field (D1).
   - Cache validators for the report endpoints.
+  - Report 14: flag epics whose dates fall outside the PV horizon (no PV curve).
+  - `dim_date` rows outside a run's range keep a previous time zone's day bounds after a zone change (range joins could double-match at a stale boundary) — rewrite the whole table on a zone change.
   - Estimated backlog uses the OWN estimate only. A parent estimated through its sub-tasks (`estimate_source = SUBTASKS`) is missing from the backlog (A23). The fix is a composite-estimate bridge.
 
 ## Engineering follow-ups

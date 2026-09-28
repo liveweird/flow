@@ -714,8 +714,8 @@ rows this same run already persisted: one SPARSE `metrics.agg_daily_flow` row pe
 `(scope_kind, scope_id, day)` (no row = zeros, nothing for idle days). **Storage:**
 `throughput_items`/`throughput_md` hold the day's own INCREMENT (the report sums them into a curve
 at query time — keeps the aggregate additive across scopes and days); `backlog_items`/`backlog_md`
-hold the END-of-day snapshot. **Part A (this commit) fills backlog and throughput only —
-`pv_md`/`ev_md`/`ac_md` stay 0; part B adds them.**
+hold the END-of-day snapshot. `pv_md`/`ev_md`/`ac_md` (part B, below) are increments too: the
+planned/earned/spent MD landing on that day.
 
 **Merge mechanism.** Every contribution is its own `INSERT ... SELECT ... ON CONFLICT (connection_id,
 scope_kind, scope_id, day) DO UPDATE SET <col> = agg_daily_flow.<col> + EXCLUDED.<col>` statement
@@ -749,16 +749,64 @@ numbers interpolated; `deleteAggDailyFlow` joins the per-run deletes, `countAggD
   MD). Scopes: TEAM = `credit_team_id` else `UNASSIGNED`, DOMAIN = the task's own `domain_key` (D3
   flow view), EPIC = `epic_id` (null domain/epic → no row for that scope).
 
-Tests: `MetricsDerivationTest`'s three `agg_daily_flow -` cases (throughput sums per scope, an
-independent bridge re-derivation of DOMAIN/TEAM/EPIC backlog on sampled days, and the invariant-9
-sweep against `agg_daily_wip`); `DerivedStubFixture`'s digest folds the table in (`scope_kind,
-scope_id, day` order).
+**PV / EV / AC (part B, report 15's storage; plan amendment A23).** Each is its own additive
+statement (`pvTeamFlowSql`, `pvEpicDomainFlowSql`, `evTeamFlowSql`, `evEpicDomainFlowSql`,
+`acFlowSql`); a zero total writes no row.
+
+- **PV, TEAM (A20):** `fact_sprint.committed_md` on the day containing `dim_sprint.start_at`, for a
+  sprint with a non-null `team_id` and `start_at`; scope_id = team id. Per team the rows total the
+  committed MD of its started sprints.
+- **PV, EPIC / DOMAIN:** every epic's CURRENT baseline (`fact_epic_plan.superseded_at IS NULL`, with
+  start, due and budget set) spread over the WORKING days of `[start, due]` — `DeriveKernels.pvCurve`'s
+  rule exactly: start/due read as UTC dates, the day key is that ISO date, a working day is the
+  `dim_date` row with that key and `is_working_day`; no working day → no rows. The increments are
+  cumulative-rounded (`round(budget*i/n, 2) - round(budget*(i-1)/n, 2)`), so they sum to the budget
+  EXACTLY at scale 2 while the running sum stays within 0.005 of `pvCurve`'s cumulative. EPIC =
+  the epic's issue id; DOMAIN = `dim_epic.domain_key` (the epic's own current domain, none → no row),
+  summed from the same rounded increments, so it equals the sum of its EPIC rows exactly. Superseded
+  baselines are not written — the report redraws them from `fact_epic_plan`.
+- **PV horizon (A23).** An epic's current baseline gets a PV curve only if BOTH its start and due lie
+  within `[now - 10 years, now + 10 years]` (UTC dates, `PV_HORIZON_YEARS`, `DeriveKernels.inPvHorizon`);
+  outside it the epic is treated like "no dates" — never a clamped or partial curve, so Σ PV = budget
+  stays true for every epic that has one. A placeholder date (9999-12-31, 1900-01-01) therefore cannot
+  build millions of `dim_date`/`agg_daily_flow` rows on every run. The same filter drives both the PV
+  SQL and the `dim_date` widening (`BACKLOG.md`: report 14 should flag such epics).
+- **`dim_date` coverage.** Every flow-aggregate join on `dim_date` silently drops an event whose day
+  has no row, so `MetricsDeriver.widenDimDate` (after the epic-plan step, before the WIP and flow
+  steps) widens the table beyond the creation-based range to cover: the earliest of
+  `fact_worklog.started_at`, `dim_sprint.start_at`, `fact_task_delivery.done_at` and item creation
+  (one year of slack below, floored at 50 years before `now`), and every in-horizon epic window (one
+  day of slack each side, up to its due date beyond the default `now + 2y`). The rule is the pure
+  `DeriveKernels.dimDateRange` (unit-tested in `DeriveKernelsTest`); only days outside the initial
+  range are upserted. Events older than the 50-year floor are still dropped.
+- **EV, TEAM (A20):** each `fact_sprint_scope` row with `done_in_sprint` in a team-mapped sprint counts
+  `estimate_at_done_md` (null → 0) on the day of its task's `fact_task_delivery.done_at`; scope_id =
+  the sprint's team. Per team the rows total `fact_sprint.delivered_md`. A task done inside two teams'
+  overlapping sprints counts in EACH team's EV (consistent with each team's `delivered_md`, A20), so
+  summing TEAM EV across teams can exceed throughput.
+- **EV, EPIC / DOMAIN:** level-0 `fact_task_delivery` rows with `done_at` and an `epic_id`, at
+  `COALESCE(estimate_at_done_md, 0)` on the done day; EPIC = `epic_id`, DOMAIN = `epic_domain_key`
+  (null → no row). Epic-less tasks are left out (A23).
+- **AC:** `fact_worklog.md` on the day of `started_at`. TEAM = `COALESCE(author_team_id, 'UNASSIGNED')`
+  — never dropped, so Σ TEAM `ac_md` equals Σ `fact_worklog.md` (to numeric(10,2) rounding per row);
+  EPIC = `epic_id` (an epic-logged worklog carries the epic's own id), DOMAIN = `epic_domain_key`
+  where `epic_id` is set. Epic-less worklogs stay out of EPIC/DOMAIN (they remain in TEAM and in
+  report 16's cost matrix). DOMAIN AC is summed from raw `md` then rounded once, so it can differ from
+  the sum of its already-rounded EPIC rows by up to 0.005 per epic row.
+
+Tests: `MetricsDerivationTest`'s `agg_daily_flow -` cases — throughput sums per scope plus a per-day
+placement check; an independent bridge re-derivation of DOMAIN/TEAM/EPIC backlog on sampled days; the
+invariant-9 sweep against `agg_daily_wip`; team PV/EV against `fact_sprint` (totals and per-day
+placement); epic PV against `pvCurve` day by day (scopes = exactly the in-horizon epics); DOMAIN = Σ
+EPIC plus the fact-derived oracle for EV/AC; team AC against `fact_worklog` (no worklog dropped).
+`DeriveKernelsTest` pins `dimDateRange` and `inPvHorizon`. `DerivedStubFixture`'s digest folds the
+table in (`scope_kind, scope_id, day` order).
 
 ## Not yet ported / not yet written
 
-`agg_daily_flow`'s PV/EV/AC columns (report 15, commit 9f part B) and the DERIVE reprocess/perf checks
-round out commit 9; the report API and the report pages arrive with their own commits and their own
-sections here.
+The DERIVE reprocess/perf checks round out commit 9.
+
+The report API and the report pages arrive with their own commits and their own sections here.
 
 **Membership history is permanent (by design).** Deleting a team closes its members' open
 memberships at that moment (so they can join another team from then on), but the history before
