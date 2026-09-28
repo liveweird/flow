@@ -15,6 +15,7 @@ import EmptyState from "../components/EmptyState";
 import PageHeader from "../components/PageHeader";
 import RowActionsMenu from "../components/RowActionsMenu";
 import TeamEditorModal from "../components/TeamEditorModal";
+import TeamJiraMembers from "../components/TeamJiraMembers";
 import { useDeleteConfirm } from "../hooks/useDeleteConfirm";
 import { CONTENT_MAX_WIDTH } from "../utils/layout";
 import { loadErrorMessage, saveErrorMessage } from "../utils/saveError";
@@ -126,6 +127,7 @@ export default function TeamDetails() {
               </Table.Tbody>
             </Table>
           )}
+          <TeamJiraMembers teamId={id} />
         </Stack>
       </Box>
 

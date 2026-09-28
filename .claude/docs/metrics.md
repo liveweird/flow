@@ -650,5 +650,11 @@ same resolved owner).
 ## Not yet ported / not yet written
 
 The daily aggregates (`agg_daily_wip`/`agg_daily_flow`, the DERIVE reprocess/perf checks) round out
-commit 9; the report API and the SPA pages all arrive with their own commits and their own
-sections here.
+commit 9; the report API and the report pages arrive with their own commits and their own sections
+here.
+
+**Membership history is permanent (by design).** Deleting a team closes its members' open
+memberships at that moment (so they can join another team from then on), but the history before
+that stays — `metrics.team_membership`'s EXCLUDE is per Jira account across all teams, so a new
+membership can never be backdated over a period the person already spent in another team, deleted
+or not. To correct a mistaken membership, edit or delete that row; don't delete the team first.
