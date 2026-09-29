@@ -524,7 +524,7 @@ already rebuilt WHOLESALE by every DERIVE run, unlike `norm.*`'s per-issue REPLA
   (and their team) at the worklog's own `started_at`, populated for EVERY worklog (task- or
   epic-logged alike) as an informational bridge pair. For a TASK-logged worklog it also doubles as
   the "assignments half" of foreign-work detection: `author team != assignee team at started_at`,
-  the fallback `isForeignWork` (`metrics/MetricsDeriver.kt`) applies when the task carries no sprint
+  the fallback `isForeignWork` (`metrics/DeriveTaskRows.kt`) applies when the task carries no sprint
   team at that same instant. An EPIC-logged worklog's `foreign_work` instead compares the author
   against the epic's own domain's OWNER team (A22, below) — these two columns are still filled for
   it, but no longer feed that comparison.
@@ -772,5 +772,5 @@ stream. The streams themselves (and the cursor shapes they define) land in plan 
 Nothing remains on the persistence list today — the `metrics` schema's derived star landed at V16
 (above); its sprint (commit 8), worklog and epic-plan (commit 9/9b) WRITERS have landed
 (`.claude/docs/metrics.md` "Sprint scope, facts and snapshots (D13)"/"Worklog cost facts
-(fact_worklog)"/"Epic plans and PV"); only the daily-aggregate `agg_daily_*` writer (the table
-objects already exist) is still outstanding.
+(fact_worklog)"/"Epic plans and PV"); `agg_daily_wip`'s writer landed with commit 9f
+(`metrics/DeriveWipStep.kt`); only `agg_daily_flow`'s writer is still outstanding.

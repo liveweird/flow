@@ -20,31 +20,45 @@ Entries are proposals, not delivery commitments.
 
 ## Phase 3: the domain model — implementation in progress (v0.3.0)
 
-Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A16 override the body; A11–A16 are judgement calls made on 2026-09-28 and need a review.
+Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A25 override the body. A11–A16 were overnight judgement calls (approved 2026-09-28); A17–A21 came from the measure contract (`.claude/docs/measures.md`); A22 from the 9d review.
 
-- **Done and merged:**
-  - M1 (PR #22): sample data, V14 norm gaps, the Jira `+0000` timestamp fix, V15 metrics config, dated Jira-user membership, per-connection config API.
-  - M2 (PR #23): the settings page, Jira members card and per-connection config page.
-  - The configuration e2e journeys (PR #24).
-- **M3 (derivation), in progress** on `feat/v0.3.0-m3-derivation`:
-  - Commit 7 is done: V16 star, DERIVE job, kernels, task and epic facts. Two review rounds followed: purge of derived rows, lost config revisions, real Jira estimate fields, effective-dated bridges, batching.
-  - Commit 8 is done: sprint scope and facts, D13 snapshots, A3 default capacity, the golden sprint exact match, and the Sprint field resolved by id.
+- **Done and merged:** M1 (PR #22), M2 (PR #23), the configuration e2e (PR #24), Dependabot #17.
+- **M3 (derivation)** on `feat/v0.3.0-m3-derivation`, done so far:
+  - commits 7 and 8;
+  - 9a, worklog facts;
+  - the derived test fixture (the full build is ~4–6 min again);
+  - the measure contract;
+  - 9b, epic plans and PV;
+  - 9c, sprint buckets as a partition;
+  - 9d, V17: flow efficiency, current team, as-was attribution, owner per domain;
+  - 9e, the domain owner team in the config API and editor;
+  - the `MetricsDeriver.kt` split;
+  - 9f-wip, `agg_daily_wip`;
+  - 9f-flow, `agg_daily_flow` (A23: backlog, throughput, PV/EV/AC as daily increments);
+  - 9g, the re-derive/REPROCESS digest (`MetricsDigestTest`) and the scale-20 performance check. DERIVE takes 136 s cold and 99 s warm on 24k issues, under the 3-minute target; figures are in `metrics.md`.
+- **M4 (reports)** ships as two PRs (A24):
+  - the reports API (10a–10d: filters, velocity, throughput, sprint consistency) on `feat/v0.3.0-m4-reports`;
+  - the SPA and the estimation batch (11 onward) on `feat/v0.3.0-m4-web`.
 - **Next:**
-  1. **Commit 9, worklog facts.** Parked on `wip/m3-9a-worklog-facts`, green alone but red in the full suite. `MetricsDerivationTest` assumes `hours_per_day` = 8, but another test changes the global settings singleton and doesn't restore it. Make the test read the value used at derive time, or restore settings in that other test. Then finish commit 9: epic plan baselines and PV curves, `agg_daily_*`, the re-derive digest and the scale-20 performance run.
-  2. **Push M3 as a PR** and merge when CI is green.
-  3. **M4:** the reports API and pages for reports 1–8, plus the reports e2e.
-  4. **M5:** reports 9–16 (A7 EVM, A8 cost matrix), the A9 overview Home and the v0.3.0 release.
+  1. **The M3 PR:** merge on green, then merge master into both M4 branches.
+  2. **M4:** the reports-API PR; then 12 (estimation batch: 3, 4, 5 done, 7, 8 next), 13 (estimation pages) and 14 (e2e) on the web branch, as the second PR.
+  3. **M5:** reports 9–16, the A9 overview Home, and the v0.3.0 release (only when asked).
 - **Small follow-ups from M2 and M3:**
   - The Jira member picker resolves names from the first 100 unit people. Page through, or look up by account id.
   - "End membership" uses UTC; consider the configured zone.
   - Surface `derive_runs.row_counts.sprintFieldUnresolved` in report 14 (data quality).
-  - `fact_worklog`'s epic domain uses the epic's current domain, not as-of.
+  - `epic_domain_key` uses the epic's current domain, not as-of (no epic-domain history exists).
+  - Pin the case of a soft-deleted configured owner on a domain that also has a mapped board (the code resolves it to none, per A22; there is no test yet).
+  - Velocity: the per-user snapshot figures are always null (reading the snapshot's scope JSON is not built).
   - Read `hoursPerDay` from Jira's time-tracking configuration (A5).
   - A per-domain status→stage override UI.
   - Seed memberships from the Team field (D1).
   - Cache validators for the report endpoints.
   - Round each item's estimate before summing in `DeriveKernels.sprintTotals`, so `fact_sprint` and the per-user report groups agree exactly (today Σ groups can differ from the team by 0.01 MD per sprint when estimates have more than two decimals).
   - Report 7: an `epics` block (cycle time from `fact_epic_delivery`, owner team) — deferred from 12b.
+  - Report 14: flag epics whose dates fall outside the PV horizon (no PV curve).
+  - `dim_date` rows outside a run's range keep a previous time zone's day bounds after a zone change (range joins could double-match at a stale boundary) — rewrite the whole table on a zone change.
+  - Estimated backlog uses the OWN estimate only. A parent estimated through its sub-tasks (`estimate_source = SUBTASKS`) is missing from the backlog (A23). The fix is a composite-estimate bridge.
 
 ## Engineering follow-ups
 

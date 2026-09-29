@@ -378,7 +378,7 @@ describe("DataSourceMetricsConfig page", () => {
     expect(body.fields.workCategory).toBe("customfield_10002");
     expect(body.workCategories).toEqual([{ valueId: "v1", valueName: "Bug", category: "Defect" }]);
     expect(body.sprintCapacities).toEqual([{ sprintId: 11, capacityMd: 10 }]);
-  });
+  }, 20_000); // a long multi-tab editing journey: well under a second locally, but past vitest's 5 s default on a loaded CI runner
 
   test("shows the not-found message when the connection no longer exists", async () => {
     serve(mockFetch, { configErrorStatus: 404, optionsErrorStatus: 404 });

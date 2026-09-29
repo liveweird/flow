@@ -183,12 +183,21 @@ maps the FLO board (id 1) to one freshly seeded team, and derives ONCE under a p
   and exercises the exact same stored shape a real connection would have after its first sync.
 
 `DerivedStubFixtureTest` is the tripwire, the same role `SyncedStubFixtureTest` plays for
-`SyncedStubFixture`: it re-derives a digest over `fact_task_delivery` + the `task_epic`/
-`task_domain`/`task_assignee` bridges (ordered by issue id, bridges additionally by their own
-`valid_from`; the reprocess-digest pattern above, applied to invariant 12) plus `fact_sprint`/
-`fact_sprint_scope`/`fact_worklog` (ordered by their own natural key — none of the three carries a
-surrogate id) and compares it against the baseline captured the moment the fixture's own DERIVE
-first completed. `SyncedStubFixtureTest` also pins `cloneProcessedData` itself: a processed clone's
+`SyncedStubFixture`: it re-derives `DerivedStubFixture.metricsDigest` — an MD5 over EVERY derived
+`metrics.*` table (dimensions, bridges, facts, both daily aggregates — NOT the global `dim_date`,
+which any deriving test re-stamps, so the tripwire stays class-order independent; ordered by primary key, else
+by every hashed column; the surrogate `id`, `derive_runs` and the snapshot's `snapshot_at`/
+`reconstructed` bookkeeping excluded; the reprocess-digest pattern above, applied to invariant 12)
+— and compares it against the baseline captured the moment the fixture's own DERIVE first
+completed. **The metrics digest joins the reprocess-digest pattern:** `MetricsDigestTest` derives a
+private disabled clone twice (same clock, same `config_revision`, both inside ONE
+`withMetricsSettings` block — each wrapper call would bump the revision every derived row carries)
+and asserts identical digests plus an unchanged `fact_sprint_snapshot` row count, then does the same
+across a REPROCESS (`markAllNeedsProcessing` + the PROCESS stream over the clone's raw rows), and
+proves the digest is sensitive (one nudged value / one deleted bridge row changes it). Only that
+test opts into `includeDimDate`. A red
+digest is a real nondeterminism bug in the deriver, never grounds to loosen the test.
+`SyncedStubFixtureTest` also pins `cloneProcessedData` itself: a processed clone's
 status-interval digest must equal the source connection's. Effect: `MetricsDerivationTest`'s own
 runtime fell from ~324s (one full clone-and-reprocess per test, 16 of them) to well under a
 minute.
