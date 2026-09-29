@@ -1007,4 +1007,49 @@ class DeriveKernelsTest {
         assertEquals(LocalDate.of(2026, 1, 9), curve.last().day)
         assertEquals(15.0, curve.last().cumulativeMd)
     }
+
+    private val dimNow = isoMs("2026-03-05")
+    private val day = 24L * 60 * 60 * 1000
+    private val year = 365L * day
+
+    @Test
+    fun `dimDateRange defaults to one year before the earliest fact through two years after now`() {
+        val range = DeriveKernels.dimDateRange(dimNow, isoMs("2025-06-01"), emptyList())
+        assertEquals(isoMs("2025-06-01") - year, range.fromMs)
+        assertEquals(dimNow + 2 * year, range.toMs)
+        assertEquals(dimNow - year, DeriveKernels.dimDateRange(dimNow, null, emptyList()).fromMs, "no fact at all reads as now")
+    }
+
+    @Test
+    fun `dimDateRange widens below for an old worklog but never past the 50 year floor`() {
+        val old = isoMs("2015-02-03")
+        assertEquals(old - year, DeriveKernels.dimDateRange(dimNow, old, emptyList()).fromMs)
+        val ancient = isoMs("1900-01-01")
+        assertEquals(dimNow - 50 * year - year, DeriveKernels.dimDateRange(dimNow, ancient, emptyList()).fromMs)
+    }
+
+    @Test
+    fun `dimDateRange widens above and below for an in-horizon epic with one day of slack, and ignores an out-of-horizon one`() {
+        val due = isoMs("2031-01-15")
+        val start = isoMs("2018-05-01")
+        val range = DeriveKernels.dimDateRange(dimNow, isoMs("2025-06-01"), listOf(start to due))
+        assertEquals(due + day, range.toMs)
+        assertEquals(minOf(isoMs("2025-06-01") - year, start - day), range.fromMs)
+
+        val placeholder = isoMs("9999-12-31")
+        val ancientStart = isoMs("1900-01-01")
+        val ignored = DeriveKernels.dimDateRange(
+            dimNow, isoMs("2025-06-01"), listOf(isoMs("2026-01-05") to placeholder, ancientStart to isoMs("2026-01-05")),
+        )
+        assertEquals(DeriveKernels.dimDateRange(dimNow, isoMs("2025-06-01"), emptyList()), ignored)
+    }
+
+    @Test
+    fun `inPvHorizon needs both dates within ten years of now`() {
+        assertTrue(DeriveKernels.inPvHorizon(isoMs("2026-01-05"), isoMs("2026-06-30"), dimNow))
+        assertTrue(DeriveKernels.inPvHorizon(isoMs("2016-03-05"), isoMs("2036-03-05"), dimNow), "the horizon edges are inclusive dates")
+        assertTrue(!DeriveKernels.inPvHorizon(isoMs("2016-03-04"), isoMs("2026-06-30"), dimNow))
+        assertTrue(!DeriveKernels.inPvHorizon(isoMs("2026-01-05"), isoMs("2036-03-06"), dimNow))
+        assertTrue(!DeriveKernels.inPvHorizon(isoMs("2026-01-05"), isoMs("9999-12-31"), dimNow))
+    }
 }

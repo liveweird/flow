@@ -290,20 +290,33 @@ covered the moment its spec entry lands.
 
 ### Cross-cutting conventions
 
-@.claude/docs/persistence.md
-@.claude/docs/list-endpoints.md
-@.claude/docs/security.md
-@.claude/docs/authorization.md
-@.claude/docs/observability.md
+Two docs apply to nearly every change and are always loaded:
+
 @.claude/docs/testing.md
-@.claude/docs/dependencies.md
-@.claude/docs/dependency-reproducibility.md
-@.claude/docs/app-releases.md
-@.claude/docs/ingestion.md
-@.claude/docs/jira-integration.md
-@.claude/docs/domain-model.md
-@.claude/docs/metrics.md
-@.claude/docs/reports.md
+@.claude/docs/list-endpoints.md
+
+Every other convention doc is **read on demand, not imported** — together they exceed the
+instruction-size budget. They are binding all the same: **before touching an area, read its doc
+in full** (and name it in any implementer/reviewer brief for that area). When a doc below and
+this file disagree, the doc wins.
+
+| Doc | Read before you touch |
+|---|---|
+| `.claude/docs/persistence.md` | any migration (`db/migration/V*.sql` — applied bytes are immutable, `MigrationChecksumTest`), an Exposed table/`*Service.kt`, soft delete, a cross-feature table read/write (the list there IS the permission), the connection pool, the `raw`/`norm`/`metrics` schemas |
+| `.claude/docs/security.md` | auth/JWT/MFA/password reset, rate limits, headers/CSP, outbound HTTP (the SSRF guard), secrets/encryption at rest, production fail-closed startup checks, payload validation |
+| `.claude/docs/authorization.md` | any route: its guard (ADMIN vs any authenticated), 403-before-400/404 ordering, existence disclosure, the error/`ProblemDetail` mapping |
+| `.claude/docs/observability.md` | any mutation or denial path (it needs an `audit(...)` event, listed there), logging, OpenTelemetry, health probes |
+| `.claude/docs/ingestion.md` | `ingest/`, the sync-job queue/worker, streams and cursors, PROCESS/`norm` tiling, the data profile, the Jira stub fixture |
+| `.claude/docs/jira-integration.md` | `jira/`: the Jira client, auth/gateway, backoff, endpoints, timestamps (never `Instant.parse` on Jira text) |
+| `.claude/docs/domain-model.md` | anything in `metrics/` or a report: entities, the PV/EV/AC dimensions, decisions D1–D16, amendments, invariants |
+| `.claude/docs/metrics.md` | `metrics/`: the configuration model, DERIVE, the `metrics` star mechanics, the daily aggregates, performance figures |
+| `.claude/docs/measures.md` | any derived number or report: the per-measure contract (grain, anchor, attribution, estimate snapshot, missing data; `MeasureContractTest` checks its "Pinned by" column) |
+| `.claude/docs/reports.md` | `reports/` or any report page: the reports API (filter parser, `Distribution`, `meta`, D12 posture) and each report's shape, levels and period rules |
+| `.claude/docs/dependencies.md` | any dependency, image or runtime-pin change (grouping, compatibility pins, acceptance checks) |
+| `.claude/docs/dependency-reproducibility.md` | lockfiles or `gradle/verification-metadata.xml` (the empty-`GRADLE_USER_HOME` rule) |
+| `.claude/docs/app-releases.md` | a version bump, changelog entry, tag or GitHub release |
+
+A new doc under `.claude/docs/` gets a row here, not an `@` import.
 
 ### Frontend (`web/`)
 

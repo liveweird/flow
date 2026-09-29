@@ -15,7 +15,9 @@ Two layers of configuration exist, both change-tracked through the SAME shared
   `metrics.settings` singleton: the calendar (time zone, weekend days, holidays), `hoursPerDay`,
   commitment grace, minimum sample size, the aging-WIP window/percentiles, the backlog-in-sprints
   window and the epic-drift threshold. See `MetricsSettingsResponse`/`Request` in
-  `metrics/MetricsSettings.kt`.
+  `metrics/MetricsSettings.kt`. A PUT that changes anything bumps the revision through
+  `MetricsConfigService.bumpRevision`, which enqueues `DERIVE` for every enabled, active
+  connection; an identical re-PUT bumps and enqueues nothing.
 - **Per-connection configuration** (`GET/PUT /api/v1/data-sources/{id}/metrics-config`, v0.3.0 M1
   commit 4) — everything that is specific to one Jira connection's own data shape: status → stage,
   the estimate/epic-date/work-category field choices, project → domain, board → team, activity
@@ -227,6 +229,28 @@ previously-written facts are untouched either way (the failed transaction rolled
 delete committed, or never started). There is deliberately no `CANCELLED` status — see
 `.claude/docs/persistence.md` "The `metrics` schema — the derived star (V16)".
 
+### Reproducibility (invariant 12)
+
+Every derived number is a pure function of `norm.*` plus ONE configuration revision, and
+`MetricsDigestTest` proves it over the persisted rows (the reprocess-digest pattern,
+`.claude/docs/testing.md`). `DerivedStubFixture.metricsDigest(connId)` MD5-hashes every derived
+table — the dimensions, every bridge, both accumulating facts, the sprint/worklog/epic-plan facts,
+`agg_daily_wip`/`agg_daily_flow` (plus, opt-in via `includeDimDate`, the `dim_date` days the
+connection's WIP aggregate spans — `dim_date` is global and upserted by every DERIVE with the
+then-current revision, so only `MetricsDigestTest` hashes it) — in a deterministic order (the primary key, else every hashed column). Left out on purpose: `derive_runs`
+(run bookkeeping), the surrogate `id` of the bridge/`fact_epic_plan` tables (a fresh
+`autoIncrement()` per DERIVE) and `fact_sprint_snapshot.snapshot_at`/`reconstructed` (write-time
+bookkeeping of an append-only row; the frozen figures themselves ARE hashed, though that slice is
+trivially equal across re-derives — the live `fact_sprint` is what proves them reproducible). Three cases, each on a
+private disabled clone under the pinned clock: (1) a second DERIVE over the same `norm` rows and
+the same `config_revision` yields an identical digest and writes no second snapshot row; (2) a
+REPROCESS (PROCESS rebuilding `norm.*` from the clone's raw rows) followed by a re-DERIVE
+reproduces the digest of the first; (3) a negative sensitivity check — nudging one
+`fact_task_delivery.blocked_working_days` by 0.0001, or deleting one `task_sprint` row (a
+surrogate-id table), changes the digest, so the digest cannot be vacuous. Both derives share one `withMetricsSettings` wrapper — every
+derived row carries the revision, and each wrapper call would bump it. A red digest is a real
+nondeterminism bug (ordering, rounding, a clock read), never something to loosen.
+
 ## Calendar math (`metrics/WorkingCalendar.kt`)
 
 Pure, timezone-aware: `dayOf(instant)` folds an epoch millis into an ISO date string in the
@@ -277,7 +301,7 @@ Pure, per-item functions — no DB, the `norm/Tiling.kt` pattern — called once
 
 ## Sprint scope, facts and snapshots (D13, v0.3.0 M3 commit 8)
 
-`MetricsDeriver.kt`'s sprint step (`runSprintStep`, `.claude/docs/domain-model.md` "Plan — PV"/
+`DeriveSprintStep.kt`'s sprint step (`runSprintStep`, `.claude/docs/domain-model.md` "Plan — PV"/
 "Glossary") turns each level-0, non-sub-task task's Sprint-field history
 (`DeriveKernels.sprintMembership`) into `metrics.fact_sprint_scope` rows (one per task × sprint it
 was ever a member of), rolls those up into `metrics.fact_sprint` (one row per sprint), and freezes a
@@ -336,7 +360,7 @@ exactly this function's output as the `fact_sprint` row) plus `capacity_md`/`cap
 
 ### Default sprint capacity (A3)
 
-`MetricsDeriver.kt`'s `sprintCapacity` resolves `(capacity_md, capacity_source)` per sprint:
+`DeriveSprintStep.kt`'s `sprintCapacity` resolves `(capacity_md, capacity_source)` per sprint:
 
 1. **`CONFIGURED`** — a `metrics.team_sprint_capacity` row for this sprint always wins, verbatim.
 2. **`DEFAULT`** — absent a configured row, AND the sprint's board maps to a team (`board_team_map`)
@@ -391,7 +415,7 @@ unresolved path (no fabricated rows, the flag is recorded).
 
 ## Worklog cost facts (`fact_worklog`, v0.3.0 M3 commit 9)
 
-`MetricsDeriver.kt`'s worklog step (top-level `runWorklogStep`/`worklogRowsForItem`, moved outside
+`DeriveWorklogStep.kt`'s worklog step (top-level `runWorklogStep`/`worklogRowsForItem`, moved outside
 the class body the same `LargeClass` way the sprint step already is) is the LAST step of
 `runDerivation`, after the sprint step: one `metrics.fact_worklog` row per LIVE
 `norm.work_item_worklogs` row (`.claude/docs/domain-model.md` "Cross-team time"/D3, invariant 6/7).
@@ -446,7 +470,7 @@ storage columns agreeing to the last decimal.
 
 ## Epic plans and PV (`fact_epic_plan`, v0.3.0 M3 commit 9b)
 
-`MetricsDeriver.kt`'s epic plan step (top-level `runEpicPlanStep`, the sprint/worklog steps' own
+`DeriveEpicPlanStep.kt`'s epic plan step (top-level `runEpicPlanStep`, the sprint/worklog steps' own
 `LargeClass` shape — moved outside the class, delegated to) is the LAST step of `runDerivation`,
 after the worklog step: one `metrics.fact_epic_plan` row per BASELINE
 (`DeriveKernels.EpicPlanBaseline`/`epicPlanBaselines`, `.claude/docs/domain-model.md` "Plan — PV",
@@ -544,7 +568,7 @@ A18/A19/A21 describe. This commit closes all five, backed by the additive V17 co
   portions that actually overlap an IN_PROGRESS stretch, never the DONE gap in between; an item that
   never started or isn't yet done answers `(0, 0)`. `buildTaskRow` calls it once per task and writes
   `fact_task_delivery.active_ms`/`wait_ms`.
-- **Current team and assignee (A21, A22).** `currentAttribution` (`metrics/MetricsDeriver.kt`)
+- **Current team and assignee (A21, A22).** `currentAttribution` (`metrics/DeriveTaskRows.kt`)
   evaluates D5 at `context.now` rather than at `done_at`: the team of the task's current sprint —
   the norm SPRINT field interval containing `now` (its last sprint id), mapped through
   `board_team_map` — else the assignee's team (the norm ASSIGNEE interval containing `now`, then
@@ -581,7 +605,7 @@ A18/A19/A21 describe. This commit closes all five, backed by the additive V17 co
   `fact_worklog` row now carries a non-null `task_domain_key`. The SAME covering-row-vs-no-row
   distinction above applies to a TASK-logged worklog's own as-was domain/epic read here.
 - **Foreign work (A21, A22).** `isForeignWork(authorTeamId, sprintTeamId, fallbackTeamId)`
-  (`metrics/MetricsDeriver.kt`) is `author team != sprintTeamId` when the sprint team is known, else
+  (`metrics/DeriveTaskRows.kt`) is `author team != sprintTeamId` when the sprint team is known, else
   `author team != fallbackTeamId` — never `true` off an unknown team on either side. **A
   TASK-logged** worklog passes the task's own sprint team at `started_at` and the task's assignee's
   team at `started_at` (`assigneeAndTeamAt`, batch-scoped `ASSIGNEE` field intervals, V17's
@@ -647,11 +671,197 @@ default, two boards on one domain disagreeing (no owner), a soft-deleted configu
 owner, no board fallback available either), and `dim_domain`/`fact_epic_delivery` agreeing on the
 same resolved owner).
 
+## Daily WIP aggregate (`agg_daily_wip`, v0.3.0 M3 commit 9f)
+
+`DeriveWipStep.kt`'s `runWipStep` (`.claude/docs/domain-model.md` report 9, `.claude/docs/measures.md`
+"Report 9 — WIP") is the LAST step of `runDerivation`, after the epic plan step: one
+`metrics.agg_daily_wip` row per `(scope_kind, scope_id, day, item_kind, status_id, stage)`,
+`item_count` the number of items whose `item_stage` interval covers the END of that day
+(`valid_from < day_end_ms AND (valid_to IS NULL OR valid_to >= day_end_ms)`), for every calendar day
+from the connection's earliest `created_at` day through the day of the run's own `now`.
+
+**Raw SQL, not the batched Kotlin loop every other step uses.** A per-item-per-day WIP join over
+`item_stage`/`dim_task`/`dim_epic`/`task_domain`/`task_epic`/`task_assignee`/`dim_sprint`/
+`dim_domain`/`team_membership` — all freshly rebuilt earlier in the SAME run — is exactly the shape
+the database, not the JVM, should compute for ~24k issues × years of days (plan §5). Four plain
+`INSERT ... SELECT` statements (`MetricsStore.execAggDailyWip`, the `exec("SET LOCAL ...")` idiom
+`MetricsStore.purgeAll` already uses, reused here for a plain statement instead) build the rows; only
+NUMBERS (`connectionId`/`now`/`configRevision`) are interpolated into the SQL text, never a string.
+`MetricsStore.deleteAggDailyWip` joins the OTHER per-run deletes at the top of `runDerivation` (the
+`deleteFactEpicPlan` precedent); `MetricsStore.countAggDailyWip` reads the row count back for
+`derive_runs.row_counts.aggWipRows` once every statement has run.
+
+**Scope resolution, all AS-WAS at that day's own end instant** (`.claude/docs/domain-model.md`'s
+"Stance" — everything effective-dated reads as-was, the WIP report's own anchor being a PAST day,
+never "now"):
+
+- **TEAM/TASK** — the sprint in the task's `norm` SPRINT field interval covering the instant
+  (`norm.work_item_field_intervals`, field `SPRINT`, `value_id` the last sprint id — NOT
+  `metrics.task_sprint`, whose carried-over rows overlap), mapped through `dim_sprint.team_id` and
+  only while that sprint was not yet closed AT THE INSTANT (`complete_at IS NULL OR complete_at >
+  instant` — no Jira `state` check here, unlike A22's NOW-evaluated `current_team_id`, since a past
+  day's own instant already fixes what "closed as of then" means). Else the assignee's team
+  (`metrics.task_assignee` covering the instant → `metrics.team_membership` covering it). Else
+  `UNASSIGNED`. Historical teams are kept even if soft-deleted now — this is an as-was read, so A22's
+  active-team filter (which applies only to NOW-evaluated columns) does not apply.
+- **TEAM/EPIC** — `dim_domain.owner_team_id` of the epic's domain (as-is, A19), else `UNOWNED`.
+- **DOMAIN/TASK** — the covering `metrics.task_domain` row's `domain_key`; a `LEFT JOIN` reads NULL
+  alike for "no covering row" and "a covering row whose own value is null", so `COALESCE` folds
+  either case onto the task's current `dim_task.domain_key` (in practice never null, since a
+  domain-map miss already falls back to the project key itself at DERIVE time).
+- **DOMAIN/EPIC** — the epic's own (current) domain, `dim_epic.domain_key`.
+- **EPIC** — TASKS ONLY, via the covering `metrics.task_epic` row's `epic_id`; a task resolving to
+  no epic (no covering row, or one whose own value is null) writes no EPIC-scope row at all — unlike
+  DOMAIN, there is no "fall back to current" here (`.claude/docs/measures.md`'s own row text).
+
+**Only non-zero counts get a row** — a plain `GROUP BY` already guarantees this (a group exists only
+when at least one item landed in it), so no explicit zero-filter is needed anywhere in the SQL.
+Sub-tasks are excluded throughout (D2): every scope's SQL joins `metrics.dim_task` filtered to
+`is_subtask = false` BEFORE joining `item_stage`, so a sub-task's own `item_stage` row (pass 1
+writes one for every item, sub-tasks included) never reaches any `agg_daily_wip` row.
+
+Tests: `MetricsDerivationTest`'s three `agg_daily_wip -` cases — an independent per-stage TASK-count
+oracle (`item_stage` + `dim_task`, end-of-day predicate) that TEAM (including `UNASSIGNED`) and
+DOMAIN both sum to exactly, over evenly-spread sampled days; an independent per-team re-derivation
+of the TEAM split on one sampled day, straight off the `norm` SPRINT/ASSIGNEE intervals and
+`team_membership`; and a bundled check that no sub-task is ever counted, that a day predating the
+connection's own history carries no rows at all, and that the LAST `agg_daily_wip` day equals the
+day of `DerivedStubFixture.PINNED_NOW` in `Europe/Warsaw` (the derive run's own zone).
+`DerivedStubFixture`'s own tripwire digest folds in `agg_daily_wip`
+(`scope_kind, scope_id, day, item_kind, status_id, stage` order, its own natural key — no surrogate
+id — the same rule every other bridge/fact's digest line already follows).
+
+## Daily flow aggregate (`agg_daily_flow`, v0.3.0 M3 commit 9f)
+
+`DeriveFlowStep.kt`'s `runFlowStep` (plan amendment A23) runs right after the WIP step, reading only
+rows this same run already persisted: one SPARSE `metrics.agg_daily_flow` row per
+`(scope_kind, scope_id, day)` (no row = zeros, nothing for idle days). **Storage:**
+`throughput_items`/`throughput_md` hold the day's own INCREMENT (the report sums them into a curve
+at query time — keeps the aggregate additive across scopes and days); `backlog_items`/`backlog_md`
+hold the END-of-day snapshot. `pv_md`/`ev_md`/`ac_md` (part B, below) are increments too: the
+planned/earned/spent MD landing on that day.
+
+**Merge mechanism.** Every contribution is its own `INSERT ... SELECT ... ON CONFLICT (connection_id,
+scope_kind, scope_id, day) DO UPDATE SET <col> = agg_daily_flow.<col> + EXCLUDED.<col>` statement
+(`flowInsertHead`/`flowMergeTail` build the shared head and tail from the contributed column list), so
+a backlog row and a throughput row for the same scope/day merge by addition in either order, and part
+B's PV/EV/AC statements plug in the same way. Raw SQL through `MetricsStore.execAggDailyFlow`, only
+numbers interpolated; `deleteAggDailyFlow` joins the per-run deletes, `countAggDailyFlow` feeds
+`derive_runs.row_counts.aggFlowRows`.
+
+**Day of an event** is the configured-zone day containing its timestamp (`dim_date.day_start_ms <= ts
+< day_end_ms`).
+
+- **Estimated backlog (D9)**, for every day of the WIP step's own range (`dayRangeCte`): a level-0
+  task whose covering `item_stage` is NOT_STARTED, whose covering `item_estimate` is > 0
+  (null/0 = unestimated) and that sits in no sprint with `start_at < day_end_ms`, i.e. started by the end of day d (covering
+  `task_sprint` row; future or unstarted sprints still count as backlog, an active or closed one takes
+  the task out). "Covering" is WIP's end-of-day rule. Scopes: DOMAIN = the as-was domain (covering
+  `task_domain`, else `dim_task.domain_key`; the WIP `domainWipSql` rule), TEAM = that domain's
+  `dim_domain.owner_team_id` (as-is) else `UNOWNED` (a task with no domain too), EPIC = the covering
+  `task_epic` epic (none → no row). Set-based joins plus one `NOT EXISTS`. **The estimate is the
+  task's OWN estimate only** (`item_estimate` holds no sub-task-summed timeline): a parent with no
+  estimate of its own whose sub-tasks carry one (`estimate_source = SUBTASKS`) is NOT in the backlog,
+  although throughput counts its summed `estimate_at_done_md` once done — a known asymmetry (A23,
+  `BACKLOG.md` follow-up).
+- **The merge is additive and non-idempotent by design**: every contribution statement adds into the
+  PK row via `ON CONFLICT … DO UPDATE SET col = agg_daily_flow.col + EXCLUDED.col`, which is only
+  correct because `runDerivation` deletes the connection's rows first and runs every step in ONE
+  transaction.
+- **Throughput, period view**, per day of `fact_task_delivery.done_at` (level-0 filter `is_subtask = false`;
+  epics live in `fact_epic_delivery`): items = count, MD = `estimate_at_done_md` (an unestimated task is an item worth 0
+  MD). Scopes: TEAM = `credit_team_id` else `UNASSIGNED`, DOMAIN = the task's own `domain_key` (D3
+  flow view), EPIC = `epic_id` (null domain/epic → no row for that scope).
+
+**PV / EV / AC (part B, report 15's storage; plan amendment A23).** Each is its own additive
+statement (`pvTeamFlowSql`, `pvEpicDomainFlowSql`, `evTeamFlowSql`, `evEpicDomainFlowSql`,
+`acFlowSql`); a zero total writes no row.
+
+- **PV, TEAM (A20):** `fact_sprint.committed_md` on the day containing `dim_sprint.start_at`, for a
+  sprint with a non-null `team_id` and `start_at`; scope_id = team id. Per team the rows total the
+  committed MD of its started sprints.
+- **PV, EPIC / DOMAIN:** every epic's CURRENT baseline (`fact_epic_plan.superseded_at IS NULL`, with
+  start, due and budget set) spread over the WORKING days of `[start, due]` — `DeriveKernels.pvCurve`'s
+  rule exactly: start/due read as UTC dates, the day key is that ISO date, a working day is the
+  `dim_date` row with that key and `is_working_day`; no working day → no rows. The increments are
+  cumulative-rounded (`round(budget*i/n, 2) - round(budget*(i-1)/n, 2)`), so they sum to the budget
+  EXACTLY at scale 2 while the running sum stays within 0.005 of `pvCurve`'s cumulative. EPIC =
+  the epic's issue id; DOMAIN = `dim_epic.domain_key` (the epic's own current domain, none → no row),
+  summed from the same rounded increments, so it equals the sum of its EPIC rows exactly. Superseded
+  baselines are not written — the report redraws them from `fact_epic_plan`.
+- **PV horizon (A23).** An epic's current baseline gets a PV curve only if BOTH its start and due lie
+  within `[now - 10 years, now + 10 years]` (UTC dates, `PV_HORIZON_YEARS`, `DeriveKernels.inPvHorizon`);
+  outside it the epic is treated like "no dates" — never a clamped or partial curve, so Σ PV = budget
+  stays true for every epic that has one. A placeholder date (9999-12-31, 1900-01-01) therefore cannot
+  build millions of `dim_date`/`agg_daily_flow` rows on every run. The same filter drives both the PV
+  SQL and the `dim_date` widening (`BACKLOG.md`: report 14 should flag such epics).
+- **`dim_date` coverage.** Every flow-aggregate join on `dim_date` silently drops an event whose day
+  has no row, so `MetricsDeriver.widenDimDate` (after the epic-plan step, before the WIP and flow
+  steps) widens the table beyond the creation-based range to cover: the earliest of
+  `fact_worklog.started_at`, `dim_sprint.start_at`, `fact_task_delivery.done_at` and item creation
+  (one year of slack below, floored at 50 years before `now`), and every in-horizon epic window (one
+  day of slack each side, up to its due date beyond the default `now + 2y`). The rule is the pure
+  `DeriveKernels.dimDateRange` (unit-tested in `DeriveKernelsTest`); only days outside the initial
+  range are upserted. Events older than the 50-year floor are still dropped.
+- **EV, TEAM (A20):** each `fact_sprint_scope` row with `done_in_sprint` in a team-mapped sprint counts
+  `estimate_at_done_md` (null → 0) on the day of its task's `fact_task_delivery.done_at`; scope_id =
+  the sprint's team. Per team the rows total `fact_sprint.delivered_md`. A task done inside two teams'
+  overlapping sprints counts in EACH team's EV (consistent with each team's `delivered_md`, A20), so
+  summing TEAM EV across teams can exceed throughput.
+- **EV, EPIC / DOMAIN:** level-0 `fact_task_delivery` rows with `done_at` and an `epic_id`, at
+  `COALESCE(estimate_at_done_md, 0)` on the done day; EPIC = `epic_id`, DOMAIN = `epic_domain_key`
+  (null → no row). Epic-less tasks are left out (A23).
+- **AC:** `fact_worklog.md` on the day of `started_at`. TEAM = `COALESCE(author_team_id, 'UNASSIGNED')`
+  — never dropped, so Σ TEAM `ac_md` equals Σ `fact_worklog.md` (to numeric(10,2) rounding per row);
+  EPIC = `epic_id` (an epic-logged worklog carries the epic's own id), DOMAIN = `epic_domain_key`
+  where `epic_id` is set. Epic-less worklogs stay out of EPIC/DOMAIN (they remain in TEAM and in
+  report 16's cost matrix). DOMAIN AC is summed from raw `md` then rounded once, so it can differ from
+  the sum of its already-rounded EPIC rows by up to 0.005 per epic row.
+
+Tests: `MetricsDerivationTest`'s `agg_daily_flow -` cases — throughput sums per scope plus a per-day
+placement check; an independent bridge re-derivation of DOMAIN/TEAM/EPIC backlog on sampled days; the
+invariant-9 sweep against `agg_daily_wip`; team PV/EV against `fact_sprint` (totals and per-day
+placement); epic PV against `pvCurve` day by day (scopes = exactly the in-horizon epics); DOMAIN = Σ
+EPIC plus the fact-derived oracle for EV/AC; team AC against `fact_worklog` (no worklog dropped).
+`DeriveKernelsTest` pins `dimDateRange` and `inPvHorizon`. `DerivedStubFixture`'s digest folds the
+table in (`scope_kind, scope_id, day` order).
+
+## Performance (scale 20)
+
+The v0.3.0 plan's DERIVE budget is **< 3 min on ≈ 24k issues**. Measured 2026-09-29 (v0.3.0 M3 commit 9g, branch `chore/m3-perf-check` on top of `e491ab3`), on an Apple M5 Max (18 cores, 128 GB) running the stack in OrbStack (16 GB VM), through `docker-compose.perf.yaml` — its own compose project (`flow-perf`), its own volumes, ports 8184/5535/8194/8128, sized like production (app: `JAVA_OPTS=-Xmx512m` in a 768 MiB container as in `k8s/worker-deployment.yaml`; postgres 1 GiB as in `k8s/postgres-deployment.yaml`; the WireMock stub with 1 GiB heap and no request journal). A fresh database, one enabled connection (FLO/PLT/GTM/OPS), the FLO board (id 1) mapped to one team, everything else the computed defaults.
+
+**Reproduce:**
+
+```
+node sample-data/jira/generate.mjs --scale 20 --out /tmp/flow-jira-x20      # ~8 s, 240 MB, never committed
+docker compose -p flow-perf -f docker-compose.yaml -f docker-compose.perf.yaml up --build -d
+# admin@flow.local / changeme on http://localhost:8184 — POST /api/v1/teams, POST /api/v1/data-sources
+# (siteUrl https://<any>.atlassian.net — every call is rerouted to the stub), POST .../sync-jobs {"kind":"SYNC"};
+# once SYNC succeeds: GET .../metrics-config, PUT it back with boards:[{boardId:1,teamId:<team>}]
+# (that PUT enqueues DERIVE); read the timings:
+docker compose -p flow-perf exec postgres psql -U flow -d flow \
+  -c "select id, status, finished_at - started_at as ms, row_counts from metrics.derive_runs"
+docker compose -p flow-perf -f docker-compose.yaml -f docker-compose.perf.yaml down -v   # ONLY the perf project
+```
+
+(`FLOW_PERF_STUB_DIR` points the stub at another `--out` directory. Access tokens live 15 min — log in again for a long poll. For per-statement times `ALTER SYSTEM SET log_min_duration_statement = 300` on the perf database and read `docker logs flow-perf-postgres`.)
+
+| Measure | Value |
+|---|---|
+| Dataset | 24,000 issues (23,720 tasks + 280 epics), 105,703 raw changelog histories, 73,283 status intervals, 23,977 worklogs, 84 sprints, 4 projects; issues created 2025-09-01 … 2026-09-29 (394 calendar days — the generator's history is ~13 months, a real 24-month backfill has ~2x the days) |
+| SYNC (REFERENCE → PROFILE, cold database) | **438 s** (7 min 18 s); the follow-up RECONCILE took 6 s |
+| **DERIVE, first run (cold JVM)** | **136.4 s** — target met (76 % of the 180 s budget) |
+| DERIVE, second run (warm JVM, same data) | 99.3 s |
+| `row_counts` | tasks 23,720; epics 280; sprints 84; worklogs 23,977; epicPlans 351; aggWipRows 302,325; aggFlowRows 43,254 |
+| Database size after DERIVE | 428 MB; app container 694 MiB of 768 MiB RSS at the end (no OOM), postgres 237 MiB |
+
+**Where the DERIVE time goes** (second run, from postgres' statement log — the whole run is ONE transaction, so there is no per-step timing in `derive_runs`): the WIP step's four `INSERT … SELECT`s take 46.7 s in total — **team/task 38.1 s**, team/epic 4.6 s, domain 3.2 s, epic 0.8 s — the flow step's three statements ~1 s (each 0.3-0.4 s), and the remaining ~51 s is the JVM side (passes 1-3, sprint, worklog and epic-plan steps, all statements under 300 ms, i.e. the batched read/compute/insert loops). `EXPLAIN (ANALYZE, BUFFERS)` of the team/task WIP body shows the shape the step's own header warns about: the day × `item_stage` join yields 5.3 M candidate (day, interval) pairs of which 4.48 M survive the task join, and both correlated `COALESCE` sub-selects (sprint → team, assignee → team) run once per surviving row (4.4-4.5 M executions each, ~73 M buffer hits). Cost is O(days × open items), so it scales linearly with the date range and the number of tasks: a 24-month history would cost roughly double the WIP step, still inside the budget; the first thing to do if it ever is not is to resolve the team per (task, interval) once instead of per (task, interval, day) — no migration needed.
+
 ## Not yet ported / not yet written
 
-The daily aggregates (`agg_daily_wip`/`agg_daily_flow`, the DERIVE reprocess/perf checks) round out
-commit 9; the report API and the report pages arrive with their own commits and their own sections
-here.
+Commit 9 is complete: the re-derive/REPROCESS check is `MetricsDigestTest` ("Reproducibility (invariant 12)" above), and the scale-20 performance check is recorded above.
+
+The report API and the report pages arrive with their own commits and their own sections here.
 
 **Membership history is permanent (by design).** Deleting a team closes its members' open
 memberships at that moment (so they can join another team from then on), but the history before

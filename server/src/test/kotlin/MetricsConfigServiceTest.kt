@@ -17,6 +17,7 @@ import ch.nokillswit.metrics.DataSourceMetricsConfigRequest
 import ch.nokillswit.metrics.MetricsConfigService
 import ch.nokillswit.metrics.MetricsFieldConfig
 import ch.nokillswit.metrics.MetricsStage
+import ch.nokillswit.metrics.asRequest
 import ch.nokillswit.metrics.MetricsWorkCategoryMapping
 import ch.nokillswit.norm.IntervalSource
 import ch.nokillswit.norm.NormalizedIssue
@@ -296,5 +297,30 @@ class MetricsConfigServiceTest {
 
         val deriveJobs = jobs.list(connId, SyncJobListFilter(kind = SyncJobKind.DERIVE), pagingAll()).items
         assertEquals(1, deriveJobs.size, "a second bump while the first DERIVE is still PENDING must coalesce, not duplicate")
+    }
+    @Test
+    fun `a real settings change enqueues DERIVE for an enabled connection and an identical re-PUT does not`() = runBlocking {
+        ensureMigrated()
+        val ds = dataSources()
+        val jobs = syncJobs()
+        val config = metricsConfig(ds, jobs)
+        val connId = createConnection(ds)
+        fun deriveJobs() = runBlocking { jobs.list(connId, SyncJobListFilter(kind = SyncJobKind.DERIVE), pagingAll()).items }
+        assertEquals(0, deriveJobs().size)
+
+        // withMetricsSettings restores the suite-global singleton afterwards.
+        withMetricsSettings(config, { it.copy(hoursPerDay = it.hoursPerDay + 1) }) {
+            val afterChange = deriveJobs()
+            assertEquals(1, afterChange.size, "a settings change must enqueue a DERIVE for every enabled connection")
+
+            // Cancel that job so an identical re-PUT enqueuing (wrongly) would be visible as a NEW row
+            // instead of coalescing into the still-PENDING one.
+            jobs.requestCancel(connId, afterChange.single().id)
+            val revisionBefore = config.currentRevision()
+            val identical = config.replace(config.read().asRequest(), byUserId = 1u)
+            assertEquals(false, identical.changed)
+            assertEquals(revisionBefore, config.currentRevision(), "an identical re-PUT must not bump the revision")
+            assertEquals(1, deriveJobs().size, "an identical re-PUT must not enqueue another DERIVE")
+        }
     }
 }

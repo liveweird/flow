@@ -175,10 +175,11 @@ class MetricsConfigService(
     }
 
     /**
-     * A full-replace PUT: every column moves to the request's values, and the revision bumps in
-     * the SAME update — UNLESS the request is byte-for-byte what is already stored, in which case
-     * nothing is written and [MetricsSettingsUpdateOutcome.changed] is false (the features-PUT
-     * precedent: an idempotent re-PUT is a no-op, not a fresh revision/audit line).
+     * A full-replace PUT: every column moves to the request's values, and the revision bumps (and
+     * DERIVE is enqueued, [bumpRevision]) in the SAME transaction — UNLESS the request is
+     * byte-for-byte what is already stored, in which case nothing is written, nothing is enqueued
+     * and [MetricsSettingsUpdateOutcome.changed] is false (the features-PUT precedent: an
+     * idempotent re-PUT is a no-op, not a fresh revision/audit line).
      */
     suspend fun replace(request: MetricsSettingsRequest, byUserId: UInt): MetricsSettingsUpdateOutcome = suspendTransaction(database) {
         validateMetricsSettings(request) // re-checked service-side so direct callers stay guarded
@@ -197,10 +198,13 @@ class MetricsConfigService(
             it[agingPercentiles] = intArrayJson(request.agingPercentiles)
             it[backlogWindowSprints] = request.backlogWindowSprints
             it[epicDriftDays] = request.epicDriftDays
-            it[configRevision] = Settings.configRevision + 1
             it[updatedAt] = nowMillis()
             it[updatedByUserId] = byUserId.toLong()
         }
+        // The shared revision moves through bumpRevision (nested into this transaction), which also
+        // enqueues DERIVE for every enabled connection — a settings change reaches derived numbers
+        // exactly like a membership or per-connection config change does.
+        bumpRevision()
         val updated = Settings.selectAll().where { Settings.id eq SETTINGS_ID }.toList().single().toResponse()
         MetricsSettingsUpdateOutcome(updated, changed = true)
     }
