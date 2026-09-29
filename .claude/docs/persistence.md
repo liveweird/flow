@@ -142,6 +142,14 @@ place:
   `metrics` tables `FactTaskDelivery`, `FactEpicDelivery`, `DimEpic` and `ItemBlocked` -- all read-only, inside the report's
   own transaction.
 
+- `reports/DataQualityReport.kt` and its helpers (`DataQualityTasks.kt`, `DataQualityEpics.kt`, `DataQualityConfig.kt`,
+  `DataQualityAssembly.kt`; v0.3.0 M5 commit 17, `GET /api/v1/reports/data-quality`) read, all read-only inside the report's own
+  transaction: `metrics/TeamMembershipService.TeamMembership` (the dated roster behind the member-day denominator),
+  `norm/WorkItemStore.Statuses`/`Boards`/`Sprints` (the mapping-gap findings), the per-connection config tables
+  `metrics/MetricsConfigService.StatusStageMap`/`BoardTeamMap`/`FieldConfig` (plus a distinct-connection existence probe of
+  `DomainMap`/`ActivityTypeMap`/`WorkCategoryMap`/`BlockedStatuses`/`TeamSprintCapacity`, `readConnectionMappings` -- the light
+  counterpart of `effectiveConfig`'s stored-else-defaults rule) and the `metrics` tables `FactTaskDelivery`, `FactEpicDelivery`, `FactWorklog`,
+  `FactSprint`, `FactSprintSnapshot`, `DimEpic`, `DimDomain`, `ItemStage` and `DeriveRuns` (incl. its `row_counts` JSON).
 List each new cross-feature read/write here as it lands — the list IS the permission.
 
 ### Schemas
