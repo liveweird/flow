@@ -11,7 +11,8 @@
     "teams": "Teams",
     "dataSources": "Data sources",
     "metricsSettings": "Metrics settings",
-    "reportsDelivery": "Delivery"
+    "reportsDelivery": "Delivery",
+    "reportsEstimation": "Estimation"
   },
   "section": {
     "overview": "Overview",

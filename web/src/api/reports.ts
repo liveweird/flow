@@ -22,6 +22,19 @@ export type SprintConsistencyReport =
 export type SprintConsistencySprint = SprintConsistencyReport["sprints"][number];
 export type SprintConsistencyGroup = SprintConsistencyReport["groups"][number];
 
+export type Distribution = TaskEstimationAccuracyReport["atStart"];
+export type TaskEstimationAccuracyReport =
+  paths["/api/v1/reports/task-estimation-accuracy"]["get"]["responses"]["200"]["content"]["application/json"];
+export type TaskAccuracyGroup = TaskEstimationAccuracyReport["groups"][number];
+export type EpicEstimationAccuracyReport =
+  paths["/api/v1/reports/epic-estimation-accuracy"]["get"]["responses"]["200"]["content"]["application/json"];
+export type EpicAccuracyRow = EpicEstimationAccuracyReport["epics"][number];
+export type EpicAccuracyGroup = EpicEstimationAccuracyReport["groups"][number];
+export type EstimateAdjustmentsReport =
+  paths["/api/v1/reports/estimate-adjustments"]["get"]["responses"]["200"]["content"]["application/json"];
+export type AdjustmentFigures = EstimateAdjustmentsReport["tasks"];
+export type EstimateAdjustmentsGroup = EstimateAdjustmentsReport["groups"][number];
+
 export async function getReportFilters(): Promise<ReportFilters> {
   return jsonRequest<ReportFilters>("/api/v1/reports/filters");
 }
@@ -36,4 +49,16 @@ export async function getThroughputReport(filter: ReportFilterState): Promise<Th
 
 export async function getSprintConsistencyReport(filter: ReportFilterState): Promise<SprintConsistencyReport> {
   return jsonRequest<SprintConsistencyReport>(`/api/v1/reports/sprint-consistency?${reportQuery(filter)}`);
+}
+
+export async function getTaskEstimationAccuracyReport(filter: ReportFilterState): Promise<TaskEstimationAccuracyReport> {
+  return jsonRequest<TaskEstimationAccuracyReport>(`/api/v1/reports/task-estimation-accuracy?${reportQuery(filter)}`);
+}
+
+export async function getEpicEstimationAccuracyReport(filter: ReportFilterState): Promise<EpicEstimationAccuracyReport> {
+  return jsonRequest<EpicEstimationAccuracyReport>(`/api/v1/reports/epic-estimation-accuracy?${reportQuery(filter)}`);
+}
+
+export async function getEstimateAdjustmentsReport(filter: ReportFilterState): Promise<EstimateAdjustmentsReport> {
+  return jsonRequest<EstimateAdjustmentsReport>(`/api/v1/reports/estimate-adjustments?${reportQuery(filter)}`);
 }

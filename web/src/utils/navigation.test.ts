@@ -26,17 +26,31 @@ describe("visibleSections", () => {
   test("Reports is visible to everyone — an admin sees the same leaves there", () => {
     for (const admin of [false, true]) {
       const reports = visibleSections(admin).find((s) => s.label === "appShell.section.reports");
-      expect(reports?.items.map((l) => l.to)).toEqual(["/reports/velocity"]);
+      expect(reports?.items.map((l) => l.to)).toEqual(["/reports/velocity", "/reports/task-estimation-accuracy"]);
       expect(reports?.items[0].activeFor).toEqual(["/reports/velocity", "/reports/throughput", "/reports/sprint-consistency"]);
+      expect(reports?.items[1].activeFor).toEqual([
+        "/reports/task-estimation-accuracy",
+        "/reports/epic-estimation-accuracy",
+        "/reports/estimate-adjustments",
+      ]);
       expect(reports?.items.some((l) => l.adminOnly)).toBe(false);
     }
   });
 
   test("every report tab is a palette-only leaf, never a sidebar leaf", () => {
-    expect(REPORT_PALETTE_LEAVES.map((l) => l.to)).toEqual(["/reports/velocity", "/reports/throughput", "/reports/sprint-consistency"]);
+    expect(REPORT_PALETTE_LEAVES.map((l) => l.to)).toEqual([
+      "/reports/velocity",
+      "/reports/throughput",
+      "/reports/sprint-consistency",
+      "/reports/task-estimation-accuracy",
+      "/reports/epic-estimation-accuracy",
+      "/reports/estimate-adjustments",
+    ]);
     const sidebar = visibleSections(true).flatMap((s) => s.items.map((l) => l.to));
     expect(sidebar).not.toContain("/reports/throughput");
     expect(sidebar).not.toContain("/reports/sprint-consistency");
+    expect(sidebar).not.toContain("/reports/epic-estimation-accuracy");
+    expect(sidebar).not.toContain("/reports/estimate-adjustments");
   });
 
   test("the account leaves never sit in a section", () => {
@@ -61,6 +75,10 @@ describe("activeNavPath", () => {
     expect(activeNavPath("/reports/throughput", leaves)).toBe("/reports/velocity");
     expect(activeNavPath("/reports/sprint-consistency", leaves)).toBe("/reports/velocity");
     expect(activeNavPath("/reports/sprint-consistency/extra", leaves)).toBe("/reports/velocity");
+    // The Estimation leaf likewise covers its whole group.
+    expect(activeNavPath("/reports/task-estimation-accuracy", leaves)).toBe("/reports/task-estimation-accuracy");
+    expect(activeNavPath("/reports/epic-estimation-accuracy", leaves)).toBe("/reports/task-estimation-accuracy");
+    expect(activeNavPath("/reports/estimate-adjustments", leaves)).toBe("/reports/task-estimation-accuracy");
     expect(activeNavPath("/reports/wip", leaves)).toBeNull();
     // The longest match still wins across leaves.
     const custom = [

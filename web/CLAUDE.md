@@ -424,7 +424,8 @@ team membership landed in M2 commit 5, and the per-connection `metrics-config` p
 The v0.3.0 report pages (`.claude/docs/reports.md` is the API; every report is any-authenticated,
 D12 — routes sit under `RequireAuth`, never `RequireAdmin`). Landed so far: the shell (Reports nav
 section → Delivery, `ReportTabs`), the filter bar, the shared blocks and the three Delivery pages
-(Velocity, Throughput, Sprint consistency); later reports append a page, a tab (`DELIVERY_TABS` in
+(Velocity, Throughput, Sprint consistency) and the Estimation group's first three (Task accuracy,
+Epic accuracy, Adjustments — `ESTIMATION_TABS`, its own nav leaf); later reports append a page, a tab (`DELIVERY_TABS` in
 `utils/reportLinks.ts` — the Delivery nav leaf lists every tab route in `NavLeaf.activeFor`, so it
 stays highlighted on all of them) and a `reports.<name>` key block. Every page composes the same
 skeleton — `hooks/useReportPage` (filters query → keyed page query), `ReportFiltersStatus`,
@@ -452,6 +453,26 @@ completed · the report's figures · the orange drift badge with the frozen figu
   in `controls` — velocity and sprint consistency pass none, throughput passes domain view, domain,
   activity type, work category and bucket (not breakdown, which it ignores). Every report is also a
   command-palette entry (`REPORT_PALETTE_LEAVES`, palette-only: the sidebar carries one Delivery leaf).
+- **Distributions** (`components/DistributionPanel.tsx`): a `Distribution` renders as a percentile
+  strip (median p50, p90, p95, mean, item count), a lazy `DistributionHistogram` (single blue series,
+  no legend) and the histogram as a table; `hidden` (fewer items than `meta.minSampleSize`)
+  replaces all of it with `MinSampleNotice` (gray, names n and the minimum — never a warning: a small
+  sample is a fact about the selection). Units come in through `format`: accuracy ratios via
+  `formatRatio` ("actual ÷ estimate", 1.00 = on estimate), fractional changes via
+  `formatSignedPercent` (`+25%`, a true minus sign), shares via `formatPercent`. A group below the
+  minimum shows its counts and a dash (`formatMedian`), never a median. `ExcludedList` is the counted, plain-language accounting of ONE distribution — rendered under the
+  distribution it describes, never merged across views, because the two views' partitions differ
+  (`n + Σ reasons == population`, spelled out as a closing equation line; the server's per-view
+  partition, pinned on the fixtures by `reportFixtures.test.ts`, like A17). Histogram range labels
+  come from `histogramLabels` (widened a decimal at a time until no two ranges print alike — no
+  "1 – 1") and the x axis is titled with what the ranges measure (`axisLabel`). Numbers are never
+  locale-formatted (repo convention): the ratio hint says "1", like the UI prints. Epic figures at USER
+  level are one `EpicsPerPersonNote` line (epics carry no user), not an empty state or zeros. Heading
+  levels: card title h3, block titles h4, distribution and accounting titles h5.
+  Task and epic accuracy show the at-start view first (D15: the primary view) and the at-done view
+  beside it; an epic's own estimate is never replaced by its child sum (both are columns). The epic
+  accuracy page offers only domain and work category (an epic's domain is its own space under either
+  domain view, and it has no activity type); the other two estimation pages offer the domain view too.
 - **Load order**: `["reports","filters"]` (staleTime 60 s) → the page query keyed
   `["reports", <report>, <serialized filter>]`, `enabled` once the filters loaded,
   `placeholderData: keepPreviousData` (`ReportChartCard` dims the previous body and sets `aria-busy`).

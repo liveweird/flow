@@ -32,6 +32,9 @@ const MetricsSettings = lazy(() => import("./pages/MetricsSettings"));
 const ReportVelocity = lazy(() => import("./pages/ReportVelocity"));
 const ReportThroughput = lazy(() => import("./pages/ReportThroughput"));
 const ReportSprintConsistency = lazy(() => import("./pages/ReportSprintConsistency"));
+const ReportTaskAccuracy = lazy(() => import("./pages/ReportTaskAccuracy"));
+const ReportEpicAccuracy = lazy(() => import("./pages/ReportEpicAccuracy"));
+const ReportEstimateAdjustments = lazy(() => import("./pages/ReportEstimateAdjustments"));
 const CreateUser = lazy(() => import("./pages/CreateUser"));
 const EditUser = lazy(() => import("./pages/EditUser"));
 const ChangePassword = lazy(() => import("./pages/ChangePassword"));
@@ -206,6 +209,9 @@ export default function App() {
             <Route path="reports/velocity" element={<ReportVelocity />} />
             <Route path="reports/throughput" element={<ReportThroughput />} />
             <Route path="reports/sprint-consistency" element={<ReportSprintConsistency />} />
+            <Route path="reports/task-estimation-accuracy" element={<ReportTaskAccuracy />} />
+            <Route path="reports/epic-estimation-accuracy" element={<ReportEpicAccuracy />} />
+            <Route path="reports/estimate-adjustments" element={<ReportEstimateAdjustments />} />
             {/* The management surface — ADMIN only, guarded once here (the pages no longer redirect themselves). */}
             <Route element={<RequireAdmin />}>
               <Route path="users" element={<Users />} />

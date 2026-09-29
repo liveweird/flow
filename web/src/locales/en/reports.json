@@ -5,7 +5,10 @@
     "label": "Reports in this group",
     "velocity": "Velocity",
     "throughput": "Throughput",
-    "sprintConsistency": "Sprint consistency"
+    "sprintConsistency": "Sprint consistency",
+    "taskAccuracy": "Task accuracy",
+    "epicAccuracy": "Epic accuracy",
+    "adjustments": "Adjustments"
   },
   "meta": {
     "derived": "Derived {{date}} · configuration revision {{revision}}",
@@ -145,5 +148,115 @@
       "dropped": "Dropped"
     },
     "snapshot": "Frozen at completion: committed {{committed}} · final {{final}} · delivered {{delivered}} MD"
-  }
+  },
+  "minSample": {
+    "distribution_one": "Only {{count}} item in this selection — at least {{min}} are needed to show percentiles and a histogram.",
+    "distribution_other": "Only {{count}} items in this selection — at least {{min}} are needed to show percentiles and a histogram.",
+    "share_one": "Only {{count}} item started in this selection — at least {{min}} are needed to show a share.",
+    "share_other": "Only {{count}} items started in this selection — at least {{min}} are needed to show a share.",
+    "none": "Nothing to measure in this selection."
+  },
+  "distribution": {
+    "p50": "Median (p50)",
+    "p90": "p90",
+    "p95": "p95",
+    "mean": "Mean",
+    "n": "Items",
+    "range": "Range",
+    "count": "Items",
+    "histogramTable": "Histogram, as a table",
+    "histogramLabel": "Histogram: number of items per range",
+    "yAxis": "Items",
+    "stripLabel": "Percentiles"
+  },
+  "excluded": {
+    "title": "Left out of this distribution",
+    "population": "Of {{count}} finished in this period:",
+    "measured": "in the distribution"
+  },
+  "ratio": {
+    "axis": "actual ÷ estimate",
+    "hint": "A ratio of 1 means the actual cost equals the estimate; above 1 it cost more."
+  },
+  "groupsCaption": {
+    "distribution": "Groups below the minimum sample show counts only."
+  },
+  "taskAccuracy": {
+    "title": "Task estimation accuracy",
+    "description": "How the actual cost of finished tasks compares with their estimate: actual man-days ÷ estimate. The estimate at start is the primary view; the estimate at done is the second.",
+    "startTitle": "Against the estimate at start",
+    "startCaption": "Primary view — the estimate the team committed to when work began.",
+    "doneTitle": "Against the estimate at done",
+    "doneCaption": "Second view — the estimate as it stood when the task finished.",
+    "excluded": {
+      "noWorklogs": "No time logged",
+      "neverStarted": "Never started, so no estimate at start",
+      "unestimatedAtStart": "No estimate at start (including estimated late)",
+      "unestimatedAtDone": "No estimate at done"
+    },
+    "column": {
+      "startN": "At start (items)",
+      "startMedian": "At start (median)",
+      "doneN": "At done (items)",
+      "doneMedian": "At done (median)",
+      "population": "Finished"
+    }
+  },
+  "epicAccuracy": {
+    "title": "Epic estimation accuracy",
+    "description": "How the actual cost of finished epics compares with their OWN estimate: actual man-days ÷ own estimate. The sum of the child estimates is shown beside it, never used as the estimate.",
+    "startTitle": "Against the own estimate at start",
+    "startCaption": "Primary view.",
+    "doneTitle": "Against the own estimate at done",
+    "doneCaption": "Second view.",
+    "excluded": {
+      "noActual": "No time logged on the epic or its children",
+      "neverStarted": "Never started, so no estimate at start",
+      "unestimatedAtStart": "No own estimate at start (the child sum is never used)",
+      "unestimatedAtDone": "No own estimate at done"
+    },
+    "epicsTitle": "Finished epics",
+    "epicsTruncated": "Showing the newest {{count}} epics; the distributions above count all of them.",
+    "column": {
+      "epic": "Epic",
+      "doneAt": "Done",
+      "estimateStart": "Own estimate at start (MD)",
+      "estimateDone": "Own estimate at done (MD)",
+      "childSum": "Child sum (MD)",
+      "actual": "Actual (MD)",
+      "ratioStart": "Ratio at start",
+      "ratioDone": "Ratio at done",
+      "startN": "At start (items)",
+      "startMedian": "At start (median)",
+      "doneN": "At done (items)",
+      "doneMedian": "At done (median)",
+      "population": "Finished"
+    }
+  },
+  "adjustments": {
+    "title": "Estimate adjustments",
+    "description": "How often an estimate changes after work has started, and by how much between start and done. An estimate that only appeared after start is counted separately, never as an infinite change.",
+    "tasksTitle": "Tasks",
+    "epicsTitle": "Epics",
+    "started": "Started",
+    "changed": "Changed after start",
+    "share": "Share changed",
+    "late": "Estimated late",
+    "changeTitle": "Change from start to done",
+    "changeHint": "(estimate at done − estimate at start) ÷ estimate at start; +25% means the estimate grew by a quarter.",
+    "excluded": {
+      "estimatedLate": "Estimated late — no estimate at start",
+      "unestimated": "No estimate at start or at done (or never started)"
+    },
+    "column": {
+      "tasksStarted": "Tasks started",
+      "tasksShare": "Tasks changed",
+      "epicsStarted": "Epics started",
+      "epicsShare": "Epics changed"
+    },
+    "axis": "change from start to done",
+    "lateNote": "Estimated late is included in Changed after start.",
+    "domainViewNote": "The domain view applies to tasks; epics always read their own space."
+  },
+  "epicsNotPerPerson": "Epics aren't attributed to individual people, so there are no epic figures for a single person."
 }

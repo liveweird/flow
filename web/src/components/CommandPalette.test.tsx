@@ -40,7 +40,16 @@ describe("CommandPalette", () => {
     expect(await screen.findByRole("button", { name: /Home/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Change password/ })).toBeInTheDocument();
     // Every report is its own palette entry, not only the sidebar's one Delivery leaf.
-    for (const report of ["Delivery", "Velocity", "Throughput", "Sprint consistency"]) {
+    for (const report of [
+      "Delivery",
+      "Velocity",
+      "Throughput",
+      "Sprint consistency",
+      "Estimation",
+      "Task accuracy",
+      "Epic accuracy",
+      "Adjustments",
+    ]) {
       expect(screen.getByRole("button", { name: new RegExp(`^${report}$`) })).toBeInTheDocument();
     }
     // A regular session never sees the admin pages.

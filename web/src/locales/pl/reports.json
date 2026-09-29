@@ -5,7 +5,10 @@
     "label": "Raporty w tej grupie",
     "velocity": "Velocity",
     "throughput": "Przepustowość",
-    "sprintConsistency": "Spójność sprintów"
+    "sprintConsistency": "Spójność sprintów",
+    "taskAccuracy": "Trafność zadań",
+    "epicAccuracy": "Trafność epików",
+    "adjustments": "Korekty"
   },
   "meta": {
     "derived": "Wyliczono {{date}} · wersja konfiguracji {{revision}}",
@@ -149,5 +152,119 @@
       "dropped": "Porzucone"
     },
     "snapshot": "Zamrożone przy zakończeniu: zobowiązane {{committed}} · końcowe {{final}} · dostarczone {{delivered}} MD"
-  }
+  },
+  "minSample": {
+    "distribution_one": "Tylko {{count}} pozycja w tym wycinku — do pokazania percentyli i histogramu potrzeba co najmniej {{min}}.",
+    "distribution_few": "Tylko {{count}} pozycje w tym wycinku — do pokazania percentyli i histogramu potrzeba co najmniej {{min}}.",
+    "distribution_many": "Tylko {{count}} pozycji w tym wycinku — do pokazania percentyli i histogramu potrzeba co najmniej {{min}}.",
+    "distribution_other": "Tylko {{count}} pozycji w tym wycinku — do pokazania percentyli i histogramu potrzeba co najmniej {{min}}.",
+    "share_one": "Rozpoczęto tylko {{count}} pozycję w tym wycinku — do pokazania udziału potrzeba co najmniej {{min}}.",
+    "share_few": "Rozpoczęto tylko {{count}} pozycje w tym wycinku — do pokazania udziału potrzeba co najmniej {{min}}.",
+    "share_many": "Rozpoczęto tylko {{count}} pozycji w tym wycinku — do pokazania udziału potrzeba co najmniej {{min}}.",
+    "share_other": "Rozpoczęto tylko {{count}} pozycji w tym wycinku — do pokazania udziału potrzeba co najmniej {{min}}.",
+    "none": "W tym wycinku nie ma nic do zmierzenia."
+  },
+  "distribution": {
+    "p50": "Mediana (p50)",
+    "p90": "p90",
+    "p95": "p95",
+    "mean": "Średnia",
+    "n": "Pozycje",
+    "range": "Zakres",
+    "count": "Pozycje",
+    "histogramTable": "Histogram, w tabeli",
+    "histogramLabel": "Histogram: liczba pozycji w przedziale",
+    "yAxis": "Pozycje",
+    "stripLabel": "Percentyle"
+  },
+  "excluded": {
+    "title": "Pominięte w tym rozkładzie",
+    "population": "Z {{count}} zakończonych w tym okresie:",
+    "measured": "w rozkładzie"
+  },
+  "ratio": {
+    "axis": "koszt rzeczywisty ÷ szacunek",
+    "hint": "Stosunek 1 oznacza, że koszt rzeczywisty równa się szacunkowi; powyżej 1 kosztowało więcej."
+  },
+  "groupsCaption": {
+    "distribution": "Grupy poniżej minimalnej próby pokazują tylko liczby."
+  },
+  "taskAccuracy": {
+    "title": "Trafność szacowania zadań",
+    "description": "Jak koszt rzeczywisty zakończonych zadań ma się do ich szacunku: rzeczywiste osobodni ÷ szacunek. Podstawowy jest szacunek na starcie; drugi — szacunek w chwili zakończenia.",
+    "startTitle": "Względem szacunku na starcie",
+    "startCaption": "Widok podstawowy — szacunek, do którego zespół się zobowiązał na początku pracy.",
+    "doneTitle": "Względem szacunku przy zakończeniu",
+    "doneCaption": "Widok drugi — szacunek w chwili zakończenia zadania.",
+    "excluded": {
+      "noWorklogs": "Nie zalogowano czasu",
+      "neverStarted": "Nigdy nierozpoczęte, więc bez szacunku na starcie",
+      "unestimatedAtStart": "Bez szacunku na starcie (także wyszacowane po fakcie)",
+      "unestimatedAtDone": "Bez szacunku przy zakończeniu"
+    },
+    "column": {
+      "startN": "Na starcie (pozycje)",
+      "startMedian": "Na starcie (mediana)",
+      "doneN": "Przy zakończeniu (pozycje)",
+      "doneMedian": "Przy zakończeniu (mediana)",
+      "population": "Zakończone"
+    }
+  },
+  "epicAccuracy": {
+    "title": "Trafność szacowania epików",
+    "description": "Jak koszt rzeczywisty zakończonych epików ma się do ICH WŁASNEGO szacunku: rzeczywiste osobodni ÷ własny szacunek. Suma szacunków zadań podrzędnych jest pokazana obok i nigdy nie zastępuje szacunku.",
+    "startTitle": "Względem własnego szacunku na starcie",
+    "startCaption": "Widok podstawowy.",
+    "doneTitle": "Względem własnego szacunku przy zakończeniu",
+    "doneCaption": "Widok drugi.",
+    "excluded": {
+      "noActual": "Nie zalogowano czasu na epiku ani jego zadaniach",
+      "neverStarted": "Nigdy nierozpoczęte, więc bez szacunku na starcie",
+      "unestimatedAtStart": "Bez własnego szacunku na starcie (suma zadań nigdy go nie zastępuje)",
+      "unestimatedAtDone": "Bez własnego szacunku przy zakończeniu"
+    },
+    "epicsTitle": "Zakończone epiki",
+    "epicsTruncated": "Pokazano {{count}} najnowszych epików; rozkłady powyżej liczą wszystkie.",
+    "column": {
+      "epic": "Epik",
+      "doneAt": "Zakończony",
+      "estimateStart": "Własny szacunek na starcie (MD)",
+      "estimateDone": "Własny szacunek przy zakończeniu (MD)",
+      "childSum": "Suma zadań (MD)",
+      "actual": "Rzeczywiste (MD)",
+      "ratioStart": "Stosunek na starcie",
+      "ratioDone": "Stosunek przy zakończeniu",
+      "startN": "Na starcie (pozycje)",
+      "startMedian": "Na starcie (mediana)",
+      "doneN": "Przy zakończeniu (pozycje)",
+      "doneMedian": "Przy zakończeniu (mediana)",
+      "population": "Zakończone"
+    }
+  },
+  "adjustments": {
+    "title": "Korekty szacunków",
+    "description": "Jak często szacunek zmienia się po rozpoczęciu pracy i o ile między startem a zakończeniem. Szacunek, który pojawił się dopiero po starcie, jest liczony osobno — nigdy jako nieskończona zmiana.",
+    "tasksTitle": "Zadania",
+    "epicsTitle": "Epiki",
+    "started": "Rozpoczęte",
+    "changed": "Zmienione po starcie",
+    "share": "Udział zmienionych",
+    "late": "Wyszacowane po fakcie",
+    "changeTitle": "Zmiana od startu do zakończenia",
+    "changeHint": "(szacunek przy zakończeniu − szacunek na starcie) ÷ szacunek na starcie; +25% oznacza, że szacunek wzrósł o ćwierć.",
+    "excluded": {
+      "estimatedLate": "Wyszacowane po fakcie — bez szacunku na starcie",
+      "unestimated": "Bez szacunku na starcie lub przy zakończeniu (albo nigdy nierozpoczęte)"
+    },
+    "column": {
+      "tasksStarted": "Zadania rozpoczęte",
+      "tasksShare": "Zadania zmienione",
+      "epicsStarted": "Epiki rozpoczęte",
+      "epicsShare": "Epiki zmienione"
+    },
+    "axis": "zmiana od startu do zakończenia",
+    "lateNote": "Wyszacowane po fakcie wliczają się do zmienionych po starcie.",
+    "domainViewNote": "Widok domeny dotyczy zadań; epiki zawsze czytają własną przestrzeń."
+  },
+  "epicsNotPerPerson": "Epiki nie są przypisywane do pojedynczych osób, więc nie ma danych o epikach dla jednej osoby."
 }

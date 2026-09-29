@@ -22,6 +22,8 @@
  */
 export const CHART_COLORS = {
   committed: "flow.6",
+  /** Estimation distributions: blue is the plan side — the estimate the actual cost is measured against. */
+  estimate: "flow.6",
   delivered: "teal.8",
   carriedOver: "orange.8",
   dropped: "red.7",

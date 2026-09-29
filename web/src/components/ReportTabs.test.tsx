@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { useLocation } from "react-router-dom";
 import ReportTabs from "./ReportTabs";
-import { DELIVERY_TABS } from "../utils/reportLinks";
+import { DELIVERY_TABS, ESTIMATION_TABS } from "../utils/reportLinks";
 import { renderWithProviders, screen } from "../test/render";
 
 function Where() {
@@ -29,6 +29,22 @@ describe("ReportTabs", () => {
     expect(screen.getByRole("tab", { name: "Throughput" })).toHaveAttribute("aria-selected", "true");
     await user.click(screen.getByRole("tab", { name: "Sprint consistency" }));
     expect(screen.getByTestId("where").textContent).toBe("/reports/sprint-consistency?teamId=2");
+  });
+
+  test("the Estimation group offers task accuracy, epic accuracy and adjustments, and keeps the shared filter", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <>
+        <ReportTabs tabs={ESTIMATION_TABS} />
+        <Where />
+      </>,
+      { route: "/reports/task-estimation-accuracy?teamId=2&domain=FLO&activityType=Bug&domainView=EPIC" },
+    );
+    expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["Task accuracy", "Epic accuracy", "Adjustments"]);
+    expect(screen.getByRole("tab", { name: "Task accuracy" })).toHaveAttribute("aria-selected", "true");
+    // Epics have no activity type / domain-view control, so those params do not follow.
+    await user.click(screen.getByRole("tab", { name: "Epic accuracy" }));
+    expect(screen.getByTestId("where").textContent).toBe("/reports/epic-estimation-accuracy?teamId=2&domain=FLO");
   });
 
   test("switching to a report without the controls drops the params it cannot show", async () => {

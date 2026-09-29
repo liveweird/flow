@@ -11,7 +11,8 @@
     "teams": "Zespoły",
     "dataSources": "Źródła danych",
     "metricsSettings": "Ustawienia metryk",
-    "reportsDelivery": "Dostarczanie"
+    "reportsDelivery": "Dostarczanie",
+    "reportsEstimation": "Szacowanie"
   },
   "section": {
     "overview": "Przegląd",

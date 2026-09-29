@@ -1,7 +1,18 @@
 // Shared report test fixtures: the reference data every report's filter bar reads, and two
 // velocity responses (UNIT and TEAM level). Typed against the generated schema so a spec drift
 // breaks the fixtures, not just the page.
-import type { ReportFilters, SprintConsistencyReport, ThroughputReport, VelocityReport } from "../api/reports";
+import type {
+  AdjustmentFigures,
+  Distribution,
+  EpicAccuracyRow,
+  EpicEstimationAccuracyReport,
+  EstimateAdjustmentsReport,
+  ReportFilters,
+  SprintConsistencyReport,
+  TaskEstimationAccuracyReport,
+  ThroughputReport,
+  VelocityReport,
+} from "../api/reports";
 
 export const FILTERS: ReportFilters = {
   teams: [
@@ -219,3 +230,205 @@ export const CONSISTENCY_UNIT: SprintConsistencyReport = {
 };
 
 export const CONSISTENCY_EMPTY: SprintConsistencyReport = { meta: META, sprints: [], groups: [] };
+
+// ---- Estimation (reports 3, 4, 5) -------------------------------------------------------------
+// Every fixture here obeys the documented partitions (checked by reportFixtures.test.ts):
+//   n + Σ exclusion buckets == population, per view; Σ group n == n; hidden ⇔ n < minSampleSize.
+
+/** A distribution below the minimum sample: counts only. */
+const hiddenDistribution = (n: number): Distribution => ({ n, hidden: true, histogram: [] });
+
+/** A visible distribution over equal-width buckets starting at `lo`; `n` is the bucket total. */
+const shownDistribution = (
+  counts: number[],
+  lo: number,
+  step: number,
+  stats: { p50: number; p90: number; p95: number; mean: number },
+): Distribution => ({
+  n: counts.reduce((sum, count) => sum + count, 0),
+  hidden: false,
+  ...stats,
+  min: lo,
+  max: lo + step * counts.length,
+  histogram: counts.map((count, i) => ({ from: lo + i * step, to: lo + (i + 1) * step, count })),
+});
+
+export const TASK_ACCURACY: TaskEstimationAccuracyReport = {
+  meta: META,
+  atStart: shownDistribution([1, 3, 5, 2, 1], 0.5, 0.5, { p50: 1.1, p90: 1.9, p95: 2.2, mean: 1.25 }),
+  atDone: shownDistribution([0, 4, 6, 3, 1], 0.5, 0.5, { p50: 1.05, p90: 1.7, p95: 2, mean: 1.15 }),
+  excluded: { population: 20, noWorklogs: 3, neverStarted: 2, unestimatedAtStart: 3, unestimatedAtDone: 3 },
+  groups: [
+    {
+      teamId: 1,
+      accountId: null,
+      label: "Alpha",
+      atStart: shownDistribution([1, 2, 3, 1, 1], 0.5, 0.5, { p50: 1.1, p90: 1.8, p95: 2, mean: 1.2 }),
+      atDone: shownDistribution([0, 3, 4, 1, 1], 0.5, 0.5, { p50: 1.0, p90: 1.6, p95: 1.9, mean: 1.1 }),
+      excluded: { population: 12, noWorklogs: 2, neverStarted: 1, unestimatedAtStart: 1, unestimatedAtDone: 1 },
+    },
+    {
+      teamId: 2,
+      accountId: null,
+      label: "Beta",
+      atStart: hiddenDistribution(4),
+      atDone: shownDistribution([0, 1, 2, 1, 1], 0.5, 0.5, { p50: 1.3, p90: 2, p95: 2.2, mean: 1.4 }),
+      excluded: { population: 8, noWorklogs: 1, neverStarted: 1, unestimatedAtStart: 2, unestimatedAtDone: 2 },
+    },
+  ],
+};
+
+export const TASK_ACCURACY_HIDDEN: TaskEstimationAccuracyReport = {
+  meta: META,
+  atStart: hiddenDistribution(3),
+  atDone: hiddenDistribution(4),
+  excluded: { population: 9, noWorklogs: 1, neverStarted: 1, unestimatedAtStart: 4, unestimatedAtDone: 4 },
+  groups: [],
+};
+
+export const TASK_ACCURACY_EMPTY: TaskEstimationAccuracyReport = {
+  meta: META,
+  atStart: hiddenDistribution(0),
+  atDone: hiddenDistribution(0),
+  excluded: { population: 0, noWorklogs: 0, neverStarted: 0, unestimatedAtStart: 0, unestimatedAtDone: 0 },
+  groups: [],
+};
+
+/** Ten DONE epics whose per-row ratios agree with the distributions' n (6 at start, 8 at done). */
+function epicRows(): EpicAccuracyRow[] {
+  const base = { summary: null, ownerTeamId: 1, childSumMd: 12 };
+  const row = (i: number, own: Partial<EpicAccuracyRow>): EpicAccuracyRow => ({
+    ...base,
+    issueKey: `FLO-${100 + i}`,
+    summary: i === 5 ? "Checkout revamp" : null,
+    doneAt: Date.UTC(2026, 8, 20 - i),
+    ownEstimateAtStartMd: 20,
+    ownEstimateAtDoneMd: 22,
+    actualMd: 24,
+    ratio: 1.2,
+    ratioAtDone: 1.09,
+    ...own,
+  });
+  return [
+    row(0, { actualMd: 0, ratio: null, ratioAtDone: null }), // noActual
+    row(1, { ownEstimateAtStartMd: null, ratio: null }), // neverStarted
+    row(2, { ownEstimateAtStartMd: null, ratio: null }), // unestimatedAtStart
+    row(3, { ownEstimateAtStartMd: null, ratio: null }), // unestimatedAtStart
+    row(4, { ownEstimateAtDoneMd: null, ratioAtDone: null }), // unestimatedAtDone
+    row(5, {}),
+    row(6, {}),
+    row(7, {}),
+    row(8, {}),
+    row(9, {}),
+  ];
+}
+
+export const EPIC_ACCURACY: EpicEstimationAccuracyReport = {
+  meta: { ...META, domainView: "EPIC" },
+  atStart: shownDistribution([0, 2, 3, 1], 0.5, 0.5, { p50: 1.2, p90: 1.8, p95: 1.9, mean: 1.25 }),
+  atDone: shownDistribution([1, 3, 3, 1], 0.5, 0.5, { p50: 1.1, p90: 1.7, p95: 1.8, mean: 1.15 }),
+  excluded: { population: 10, noActual: 1, neverStarted: 1, unestimatedAtStart: 2, unestimatedAtDone: 1 },
+  epics: epicRows(),
+  epicsTruncated: false,
+  groups: [
+    {
+      teamId: 1,
+      label: "Alpha",
+      atStart: shownDistribution([0, 1, 3, 1], 0.5, 0.5, { p50: 1.2, p90: 1.7, p95: 1.8, mean: 1.2 }),
+      atDone: shownDistribution([1, 1, 2, 1], 0.5, 0.5, { p50: 1.1, p90: 1.7, p95: 1.8, mean: 1.1 }),
+      excluded: { population: 7, noActual: 1, neverStarted: 0, unestimatedAtStart: 1, unestimatedAtDone: 1 },
+    },
+    {
+      teamId: null,
+      label: null,
+      atStart: hiddenDistribution(1),
+      atDone: hiddenDistribution(3),
+      excluded: { population: 3, noActual: 0, neverStarted: 1, unestimatedAtStart: 1, unestimatedAtDone: 0 },
+    },
+  ],
+};
+
+export const EPIC_ACCURACY_TRUNCATED: EpicEstimationAccuracyReport = { ...EPIC_ACCURACY, epicsTruncated: true };
+
+export const EPIC_ACCURACY_EMPTY: EpicEstimationAccuracyReport = {
+  meta: META,
+  atStart: hiddenDistribution(0),
+  atDone: hiddenDistribution(0),
+  excluded: { population: 0, noActual: 0, neverStarted: 0, unestimatedAtStart: 0, unestimatedAtDone: 0 },
+  epics: [],
+  epicsTruncated: false,
+  groups: [],
+};
+
+const noAdjustments = (): AdjustmentFigures => ({
+  started: 0,
+  changedAfterStart: 0,
+  share: null,
+  estimatedLate: 0,
+  changeDistribution: hiddenDistribution(0),
+  changeExcluded: { population: 0, estimatedLate: 0, unestimated: 0 },
+});
+
+export const ADJUSTMENTS: EstimateAdjustmentsReport = {
+  meta: META,
+  tasks: {
+    started: 30,
+    changedAfterStart: 6,
+    share: 0.2,
+    estimatedLate: 2,
+    changeDistribution: shownDistribution([1, 4, 3, 2], -0.25, 0.25, { p50: 0.1, p90: 0.6, p95: 0.7, mean: 0.15 }),
+    changeExcluded: { population: 15, estimatedLate: 2, unestimated: 3 },
+  },
+  epics: {
+    started: 3,
+    changedAfterStart: 1,
+    share: null,
+    estimatedLate: 0,
+    changeDistribution: hiddenDistribution(2),
+    changeExcluded: { population: 4, estimatedLate: 0, unestimated: 2 },
+  },
+  groups: [
+    {
+      teamId: 1,
+      accountId: null,
+      label: "Alpha",
+      tasks: {
+        started: 20,
+        changedAfterStart: 5,
+        share: 0.25,
+        estimatedLate: 1,
+        changeDistribution: shownDistribution([1, 3, 2, 1], -0.25, 0.25, { p50: 0.1, p90: 0.5, p95: 0.7, mean: 0.15 }),
+        changeExcluded: { population: 10, estimatedLate: 1, unestimated: 2 },
+      },
+      epics: {
+        started: 3,
+        changedAfterStart: 1,
+        share: null,
+        estimatedLate: 0,
+        changeDistribution: hiddenDistribution(2),
+        changeExcluded: { population: 4, estimatedLate: 0, unestimated: 2 },
+      },
+    },
+    {
+      teamId: 2,
+      accountId: null,
+      label: "Beta",
+      tasks: {
+        started: 10,
+        changedAfterStart: 1,
+        share: 0.1,
+        estimatedLate: 1,
+        changeDistribution: hiddenDistribution(3),
+        changeExcluded: { population: 5, estimatedLate: 1, unestimated: 1 },
+      },
+      epics: noAdjustments(),
+    },
+  ],
+};
+
+export const ADJUSTMENTS_EMPTY: EstimateAdjustmentsReport = {
+  meta: META,
+  tasks: noAdjustments(),
+  epics: noAdjustments(),
+  groups: [],
+};
