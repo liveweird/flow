@@ -67,7 +67,7 @@ class ReportAgingWipTest {
     @Test
     fun `the fixture's populations and thresholds equal an independent computation`() = testApplication {
         usePostgresTestcontainer()
-        val connId = derivedFixtureConnectionId()
+        val connId = DerivedStubFixture.connectionId()
         val client = seededClient("reports-aging-fixture")
         val facts = suspendTransaction(sharedDatabaseForTests()) {
             val t = MetricsStore.FactTaskDelivery

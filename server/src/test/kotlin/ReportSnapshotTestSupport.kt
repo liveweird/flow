@@ -6,7 +6,6 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import kotlinx.coroutines.flow.toList
-import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.r2dbc.batchInsert
 import org.jetbrains.exposed.v1.r2dbc.deleteWhere
@@ -141,21 +140,4 @@ internal suspend fun insertSucceededDerive(connId: UInt, startedAt: Long) = susp
 
 internal suspend fun deleteDeriveRuns(connId: UInt) = suspendTransaction(sharedDatabaseForTests()) {
     MetricsStore.DeriveRuns.deleteWhere { MetricsStore.DeriveRuns.connectionId eq connId.toInt() }
-}
-
-/**
- * `DerivedStubFixture.connectionId()` plus a guarantee that the fixture connection still has its SUCCEEDED `derive_runs` row.
- * The fixture derives under a PINNED clock in the past, so any later DERIVE elsewhere in the suite (real clock) prunes that run
- * as "older than the retention window" — and the snapshot reports, which cut their series off at the last derived day, would
- * then read the connection as "not derived yet". Re-inserting the run the fixture itself made keeps these tests independent of
- * class order.
- */
-internal suspend fun derivedFixtureConnectionId(): UInt {
-    val connId = DerivedStubFixture.connectionId()
-    val hasRun = suspendTransaction(sharedDatabaseForTests()) {
-        val runs = MetricsStore.DeriveRuns
-        runs.selectAll().where { (runs.connectionId eq connId.toInt()) and (runs.status eq "SUCCEEDED") }.toList().isNotEmpty()
-    }
-    if (!hasRun) insertSucceededDerive(connId, DerivedStubFixture.PINNED_NOW)
-    return connId
 }

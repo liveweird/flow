@@ -78,7 +78,7 @@ class ReportWipTest {
     @Test
     fun `STAGE series for every item kind equal an independent sum of agg_daily_wip and BOTH is TASK plus EPIC`() = testApplication {
         usePostgresTestcontainer()
-        val connId = derivedFixtureConnectionId()
+        val connId = DerivedStubFixture.connectionId()
         val client = seededClient("reports-wip-stage")
         val rows = readWipRows(connId).filter { it.scopeKind == "TEAM" }
         val zone = reportZone()
@@ -117,7 +117,7 @@ class ReportWipTest {
     @Test
     fun `STATUS series equal an independent per-status sum and the legend names every status seen`() = testApplication {
         usePostgresTestcontainer()
-        val connId = derivedFixtureConnectionId()
+        val connId = DerivedStubFixture.connectionId()
         val client = seededClient("reports-wip-status")
         val rows = readWipRows(connId).filter { it.scopeKind == "TEAM" && it.day in isoDays(from, to) }
         val body = client.wip("connectionId=$connId&from=$from&to=$to&by=STATUS&itemKind=BOTH")
@@ -142,7 +142,7 @@ class ReportWipTest {
     @Test
     fun `a domain reads its DOMAIN scope and the domain scopes together equal the TEAM scopes`() = testApplication {
         usePostgresTestcontainer()
-        val connId = derivedFixtureConnectionId()
+        val connId = DerivedStubFixture.connectionId()
         val client = seededClient("reports-wip-domain")
         val all = readWipRows(connId)
         val inRange = all.filter { it.day in isoDays(from, to) }
@@ -163,7 +163,7 @@ class ReportWipTest {
     @Test
     fun `TEAM level reads that team's scope and COLUMN keys counts by the mapped board's columns`() = testApplication {
         usePostgresTestcontainer()
-        val connId = derivedFixtureConnectionId()
+        val connId = DerivedStubFixture.connectionId()
         val client = seededClient("reports-wip-team")
         val inRange = readWipRows(connId).filter { it.day in isoDays(from, to) }
         val teamId = fixtureTeamId(inRange)
@@ -211,7 +211,7 @@ class ReportWipTest {
     @Test
     fun `teamId 0 is UNASSIGNED tasks plus UNOWNED epics`() = testApplication {
         usePostgresTestcontainer()
-        val connId = derivedFixtureConnectionId()
+        val connId = DerivedStubFixture.connectionId()
         val client = seededClient("reports-wip-unassigned")
         val rows = readWipRows(connId).filter { it.scopeKind == "TEAM" && it.day in isoDays(from, to) }
         val tasks = rows.filter { it.itemKind == "TASK" && it.scopeId == "UNASSIGNED" }
@@ -227,7 +227,7 @@ class ReportWipTest {
     @Test
     fun `the series stops at the last derived day, sprint periods read the envelope and weekends are flagged`() = testApplication {
         usePostgresTestcontainer()
-        val connId = derivedFixtureConnectionId()
+        val connId = DerivedStubFixture.connectionId()
         val client = seededClient("reports-wip-window")
 
         val clamped = client.wip("connectionId=$connId&from=2026-02-20&to=2026-12-31")
@@ -262,7 +262,7 @@ class ReportWipTest {
     @Test
     fun `USER level answers an empty series with a note`() = testApplication {
         usePostgresTestcontainer()
-        val connId = derivedFixtureConnectionId()
+        val connId = DerivedStubFixture.connectionId()
         val client = seededClient("reports-wip-user")
         val teamId = fixtureTeamId(readWipRows(connId))
 
@@ -352,7 +352,7 @@ class ReportWipTest {
     @Test
     fun `teamId 0 with a sprint-relative period is empty with a note`() = testApplication {
         usePostgresTestcontainer()
-        val connId = derivedFixtureConnectionId()
+        val connId = DerivedStubFixture.connectionId()
         val body = seededClient("reports-wip-unassigned-sprints").wip("connectionId=$connId&teamId=0&lastSprints=2")
         assertTrue(body.series.isEmpty())
         assertTrue(assertNotNull(body.note).contains("UNASSIGNED"))
