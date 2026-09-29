@@ -424,7 +424,7 @@ team membership landed in M2 commit 5, and the per-connection `metrics-config` p
 The v0.3.0 report pages (`.claude/docs/reports.md` is the API; every report is any-authenticated,
 D12 — routes sit under `RequireAuth`, never `RequireAdmin`). Landed so far: the shell (Reports nav
 section → Delivery, `ReportTabs`), the filter bar, the shared blocks and the three Delivery pages
-(Velocity, Throughput, Sprint consistency, Cycle time) and the Estimation group (Task accuracy, Epic
+(Velocity, Throughput, Sprint consistency, Cycle time), the Data quality page and the Estimation group (Task accuracy, Epic
 accuracy, Adjustments, Reported time — `ESTIMATION_TABS`, its own nav leaf); later reports append a page, a tab (`DELIVERY_TABS` in
 `utils/reportLinks.ts` — the Delivery nav leaf lists every tab route in `NavLeaf.activeFor`, so it
 stays highlighted on all of them) and a `reports.<name>` key block. Every page composes the same
@@ -548,6 +548,21 @@ completed · the report's figures · the orange drift badge with the frozen figu
   shows the budget and its source, the planned dates (calendar dates, read in UTC), the orange drift badges, every
   baseline (`effectiveFrom`/`supersededAt` are instants, read in the configured zone) and the two gray "no plan curve"
   notes (`!inPvHorizon` / in the horizon but `!hasPvCurve`) — EV and AC still count either way.
+- **Data quality** (`pages/ReportDataQuality.tsx`, `/reports/data-quality`, its own single-page nav leaf `appShell.nav.reportsDataQuality` —
+  a group of one, so no `ReportTabs` and no palette-only twin; `.claude/docs/reports.md` "Report 14"). One card per finding
+  (`components/DataQualityCard.tsx` the shell: h3 title, one plain-language line, a state badge — orange `Found: N`, teal `None found`, gray
+  `Not measured`, none for the logged-hours figure — and `CappedTable`, which says "and N more" when `total > items.length`), in the order
+  logging (`DataQualityLogging`) → missing data and epics (`DataQualityMissing`) → sprint/drift (`DataQualitySprint`) → configuration
+  (`DataQualityConfig`), the overview tiles (`DataQualitySummary`, each a link that scrolls to and focuses its card — no hash in the URL)
+  first and the groups table last. A clean finding keeps its card (users see it was checked). The bar offers period, team/member, domain,
+  domain view and — only with more than one connection — `connection` (`ReportControls.connection`); `normalizeDataQualityFilter` drops
+  every param the page has no control for (activity type, work category, breakdown, bucket, by, item kind, epic) off the request AND the
+  URL. What the API returns is rendered as is: a real team sees no domains/authors without a team (the card says a team's view lists none),
+  the connection-level findings say the team filter does not narrow them, USER level says epic and sprint findings are not read for one
+  person, and a work-category field nobody configured is "Not measured", not clean. Configuration findings are admin-actionable: the
+  connection cell links to `dataSourceMetricsConfigPath` for `useAdmin()` only, plain text for everyone else. Snapshot drift prints the
+  sprint, translated figure, live, frozen and the signed difference (`utils/dataQualityReport.ts`), marking `reconstructed` baselines with
+  an orange outline badge and one explanatory line.
 - **Load order**: `["reports","filters"]` (staleTime 60 s) → the page query keyed
   `["reports", <report>, <serialized filter>]`, `enabled` once the filters loaded,
   `placeholderData: keepPreviousData` (`ReportChartCard` dims the previous body and sets `aria-busy`).

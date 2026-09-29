@@ -3,6 +3,7 @@ import {
   IconAdjustments,
   IconChartAreaLine,
   IconChartBar,
+  IconChecklist,
   IconTarget,
   IconHistory,
   IconHome2,
@@ -14,7 +15,7 @@ import {
   type Icon,
 } from "@tabler/icons-react";
 import { dataSourcesPath } from "./dataSourceLinks";
-import { DELIVERY_TABS, ESTIMATION_TABS, FLOW_TABS, taskAccuracyPath, velocityPath, wipPath } from "./reportLinks";
+import { dataQualityPath, DELIVERY_TABS, ESTIMATION_TABS, FLOW_TABS, taskAccuracyPath, velocityPath, wipPath } from "./reportLinks";
 import { teamsPath } from "./teamLinks";
 
 export type NavLeaf = {
@@ -75,6 +76,8 @@ const NAV_SECTIONS: ReadonlyArray<NavSection> = [
         icon: IconChartAreaLine,
         activeFor: FLOW_TABS.map((tab) => tab.to),
       },
+      // A group of one report: the leaf is the page, so it needs no tabs and no palette-only twin.
+      { to: dataQualityPath, label: "appShell.nav.reportsDataQuality", icon: IconChecklist },
     ],
   },
   {

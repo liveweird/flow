@@ -18,6 +18,11 @@ import {
   BACKLOG_ZERO_VELOCITY,
   ADJUSTMENTS_EMPTY,
   CYCLE_TIME,
+  DATA_QUALITY,
+  DATA_QUALITY_CAPPED,
+  DATA_QUALITY_CLEAN,
+  DATA_QUALITY_TEAM,
+  DATA_QUALITY_USER,
   CYCLE_TIME_ALL_HIDDEN,
   CYCLE_TIME_EMPTY,
   CYCLE_TIME_MONTHS,
@@ -311,5 +316,66 @@ describe("cycle time and reported time fixtures hold the documented partitions",
       expect(report.blockedItems).toBeLessThanOrEqual(x.population);
       expect(report.topItems.length).toBeLessThanOrEqual(20);
     }
+  });
+  test("data quality: findings add up, lists respect the cap, and at UNIT level the groups add up to the headline counts", () => {
+    const all = [DATA_QUALITY, DATA_QUALITY_CLEAN, DATA_QUALITY_CAPPED, DATA_QUALITY_TEAM, DATA_QUALITY_USER];
+    for (const report of all) {
+      const findings = [
+        report.worklogCoverage.without,
+        report.missing.noEstimate,
+        report.missing.noEpic,
+        report.missing.noWorkCategory,
+        report.missing.unassigned,
+        report.outsideSprint,
+        report.crossDomain,
+      ];
+      for (const finding of findings) {
+        expect(finding.total).toBe(finding.done + finding.open);
+        expect(finding.items.length).toBeLessThanOrEqual(Math.min(50, finding.total));
+      }
+      const lists = [
+        report.missing.epicsWithoutEstimate,
+        report.missing.epicsWithoutDates,
+        report.missing.epicsOutsidePvHorizon,
+        report.epicDrift,
+        report.domainsWithoutOwner,
+        report.unmappedStatuses,
+        report.unmappedBoards,
+        report.authorsWithoutTeam,
+        report.snapshotDrift,
+      ];
+      for (const list of lists) expect(list.items.length).toBeLessThanOrEqual(Math.min(50, list.total));
+      expect(report.worklogCoverage.without.done).toBe(report.worklogCoverage.doneTasks - report.worklogCoverage.withWorklogs);
+      expectWellFormed(report.lateLogging.distribution);
+    }
+    // A hidden lateness distribution is the one below the minimum sample.
+    expect(DATA_QUALITY_TEAM.lateLogging.distribution.hidden).toBe(true);
+    // (the capped fixture changes a list without its groups, so it is not a UNIT read of its own)
+    for (const report of [DATA_QUALITY]) {
+      const sum = (pick: (g: (typeof report.groups)[number]) => number) => report.groups.reduce((total, g) => total + pick(g), 0);
+      expect(sum((g) => g.tasks.done)).toBe(report.populations.doneTasks);
+      expect(sum((g) => g.tasks.openStarted)).toBe(report.populations.openStartedTasks);
+      expect(sum((g) => g.tasks.withoutWorklogs)).toBe(report.worklogCoverage.without.total);
+      expect(sum((g) => g.tasks.noEstimate.done)).toBe(report.missing.noEstimate.done);
+      expect(sum((g) => g.tasks.noEpic.done)).toBe(report.missing.noEpic.done);
+      expect(sum((g) => g.tasks.noEpic.open)).toBe(report.missing.noEpic.open);
+      expect(sum((g) => g.tasks.noWorkCategory.done + g.tasks.noWorkCategory.open)).toBe(report.missing.noWorkCategory.total);
+      expect(sum((g) => g.tasks.unassigned)).toBe(report.missing.unassigned.total);
+      expect(sum((g) => g.tasks.outsideSprint)).toBe(report.outsideSprint.total);
+      expect(sum((g) => g.worklogs.worklogs)).toBe(report.populations.worklogs);
+      expect(sum((g) => g.worklogs.over1Day)).toBe(report.lateLogging.over1Day);
+      expect(sum((g) => g.worklogs.over7Days)).toBe(report.lateLogging.over7Days);
+      expect(sum((g) => g.epics?.epics ?? 0)).toBe(report.populations.epics);
+      expect(sum((g) => g.epics?.withoutEstimate ?? 0)).toBe(report.missing.epicsWithoutEstimate.total);
+      expect(sum((g) => g.epics?.withoutDates ?? 0)).toBe(report.missing.epicsWithoutDates.total);
+      expect(sum((g) => g.epics?.outsidePvHorizon ?? 0)).toBe(report.missing.epicsOutsidePvHorizon.total);
+      expect(sum((g) => g.epics?.drifting ?? 0)).toBe(report.epicDrift.total);
+    }
+    // A member's groups carry no epic counts; a member's own read has no groups at all.
+    expect(DATA_QUALITY_TEAM.groups.every((g) => g.epics === null)).toBe(true);
+    expect(DATA_QUALITY_USER.groups).toEqual([]);
+    // The capped fixture really is capped: 50 rows of 75.
+    expect(DATA_QUALITY_CAPPED.missing.noEpic.items).toHaveLength(50);
+    expect(DATA_QUALITY_CAPPED.missing.noEpic.total).toBe(75);
   });
 });

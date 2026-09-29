@@ -15,6 +15,7 @@ const backlogPath = "/reports/backlog";
 const agingWipPath = "/reports/aging-wip";
 const blockedTimePath = "/reports/blocked-time";
 export const epicProgressPath = "/reports/epic-progress";
+export const dataQualityPath = "/reports/data-quality";
 
 export type ReportTabDef = { to: string; label: ParseKeys };
 
@@ -67,6 +68,8 @@ const REPORT_SPECIFIC_PARAMS: Readonly<Record<string, readonly ReportSpecificKey
   [blockedTimePath]: ["domain", "activityType", "workCategory", "itemKind"],
   // EVM is always the epic view and has no per-day activity type/work category; its scope is ONE of epic, domain or team.
   [epicProgressPath]: ["domain", "epicId"],
+  // Data quality takes the domain and its view, but has no control for an activity type or work category.
+  [dataQualityPath]: ["domain", "domainView"],
 };
 
 /**

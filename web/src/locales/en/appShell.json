@@ -13,7 +13,8 @@
     "metricsSettings": "Metrics settings",
     "reportsDelivery": "Delivery",
     "reportsEstimation": "Estimation",
-    "reportsFlow": "Flow metrics"
+    "reportsFlow": "Flow metrics",
+    "reportsDataQuality": "Data quality"
   },
   "section": {
     "overview": "Overview",

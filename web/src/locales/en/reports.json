@@ -77,7 +77,9 @@
       "TASK": "Tasks",
       "EPIC": "Epics",
       "BOTH": "Tasks and epics"
-    }
+    },
+    "connection": "Connection",
+    "allConnections": "All connections"
   },
   "groups": {
     "byTeam": "By team",
@@ -581,5 +583,255 @@
       "supersededAt": "Replaced on",
       "current": "current"
     }
+  },
+  "dataQuality": {
+    "title": "Data quality",
+    "description": "Where the data behind the other reports is missing or inconsistent. Each card names one finding, says what it means and lists the first cases. A finding is not a verdict on people: it marks a place where a number elsewhere deserves less trust.",
+    "cardsLabel": "Findings",
+    "summary": {
+      "title": "Overview",
+      "populationsLabel": "What was checked",
+      "populations": {
+        "doneTasks": "Done tasks",
+        "openStartedTasks": "Open started tasks",
+        "epics": "Epics",
+        "worklogs": "Worklogs"
+      },
+      "tilesLabel": "Headline counts, each linking to its card",
+      "groupLogging": "Logging",
+      "groupMissing": "Missing data",
+      "groupDrift": "Drift",
+      "groupConfig": "Configuration",
+      "coverageHint": "{{withWorklogs}} of {{done}} done tasks have worklogs",
+      "coverageNone": "No done task in this period",
+      "lateHint": "of {{count}} worklogs with a known logging time",
+      "doneOpen": "{{done}} done · {{open}} open",
+      "doneOnly": "{{count}} done",
+      "notConfigured": "no work-category field configured",
+      "sprintFigures": "sprint figures moved since the freeze",
+      "epicsHint": "epics",
+      "statusesHint": "statuses without a stage",
+      "boardsHint": "boards without a team",
+      "domainsHint": "domains without an owner team",
+      "warningsHint": "connections with a warning",
+      "groupSprint": "Flow and sprint",
+      "boardsHintResidual": "boards without a team · unattributed done tasks: {{count}}"
+    },
+    "state": {
+      "found": "Found: {{count}}",
+      "none": "None found",
+      "na": "Not measured"
+    },
+    "more": "and {{count}} more (the list shows the first {{shown}})",
+    "tableLabel": "{{name}}, as a table",
+    "open": "Open",
+    "unknownAuthor": "Unknown author",
+    "scope": {
+      "notTeam": "This is a property of the connection, so the team filter does not narrow it.",
+      "noTeam": "This belongs to no team, so a single team's view lists none. Choose All teams or Unassigned to see it.",
+      "boardList": "Only the list of boards is not narrowed by the team; the done-task counts and the residual below follow the filter."
+    },
+    "noSprintPerPerson": "Sprint findings belong to a team's sprints, so they are not read for a single person.",
+    "notConfigured": "No connection in scope has a work-category field configured, so this finding is not measured.",
+    "admin": {
+      "configAria": "Open the metrics configuration of {{name}}"
+    },
+    "stat": {
+      "done": "Done",
+      "open": "Open",
+      "estimate": "Estimate (MD)",
+      "doneTasks": "Done tasks",
+      "withWorklogs": "With worklogs",
+      "coverage": "Coverage",
+      "memberDays": "Member-days",
+      "hours": "Hours logged",
+      "perMemberDay": "Hours per member-day",
+      "configuredDay": "Configured man-day",
+      "hoursUnit": "{{hours}} h",
+      "worklogs": "Worklogs",
+      "measurable": "With known logging time",
+      "over1": "Over 1 day late",
+      "over7": "Over 7 days late",
+      "unattributed": "Done in a team-less sprint of no listed board"
+    },
+    "cards": {
+      "coverage": {
+        "title": "Done tasks without worklogs",
+        "explain": "Done tasks that have no time logged at all. Without a worklog their actual effort is unknown, so the estimation reports cannot compare it with the estimate."
+      },
+      "hours": {
+        "title": "Logged hours per member and working day",
+        "explain": "Hours that team members logged, divided by the working days they were on a roster. Read it against the configured length of a man-day: a figure far below it suggests that time is not being logged in full."
+      },
+      "late": {
+        "title": "Late logging",
+        "explain": "How long after the work started it was logged. Time logged days later is written from memory, which makes actual effort less reliable."
+      },
+      "authors": {
+        "title": "Authors without a team",
+        "explain": "People who logged time while they were in no team. Their time is credited to no team's actual cost."
+      },
+      "noEstimate": {
+        "title": "Tasks without an estimate",
+        "explain": "Tasks with no estimate at all. They add no planned value and cannot be judged for accuracy."
+      },
+      "noEpic": {
+        "title": "Tasks without an epic",
+        "explain": "Tasks that belong to no epic, so epic progress and epic-level planning never see them."
+      },
+      "noWorkCategory": {
+        "title": "Tasks without a work category",
+        "explain": "Tasks with no work category of their own or from their epic. They fall into “uncategorized” in every category breakdown."
+      },
+      "unassigned": {
+        "title": "Done tasks without an assignee",
+        "explain": "Tasks that had no assignee when they were finished, so no person is credited with the work."
+      },
+      "epicsNoEstimate": {
+        "title": "Epics without an estimate of their own",
+        "explain": "Their budget is the sum of their children's estimates, so it changes whenever a child is added or re-estimated."
+      },
+      "epicsNoDates": {
+        "title": "Epics without dates",
+        "explain": "Epics missing a start or a due date. Without both, no plan curve (planned value over time) can be drawn."
+      },
+      "epicsHorizon": {
+        "title": "Epics with dates far from today",
+        "explain": "Both dates are set, but at least one lies more than ten years from the last derive, most likely a typo. These epics get no plan curve."
+      },
+      "epicDrift": {
+        "title": "Epics that disagree with their children",
+        "explain": "An epic that has not started while its children are active, is still open after every child is done, or is done while children are open."
+      },
+      "outsideSprint": {
+        "title": "Work done outside any sprint",
+        "explain": "Tasks finished with no sprint (a Kanban flow, say). They count as delivered work but never in any sprint's velocity."
+      },
+      "crossDomain": {
+        "title": "Tasks in another domain than their epic",
+        "explain": "Done tasks whose epic belongs to a different domain. Which domain they count in depends on the domain view: delivered in (the task's own) or earned in (the epic's)."
+      },
+      "snapshotDrift": {
+        "title": "Sprint figures that moved since the freeze",
+        "explain": "A closed sprint's figures are frozen when it closes. These live figures differ from the frozen ones, typically after a configuration change and a re-derive. Reports show the frozen figures and flag the sprint."
+      },
+      "domainsNoOwner": {
+        "title": "Domains without an owner team",
+        "explain": "Their epics and backlog land in “No owner team”. An administrator can fix this in the metrics configuration."
+      },
+      "unmappedStatuses": {
+        "title": "Statuses without a stage",
+        "explain": "Time spent in these Jira statuses counts as neither started nor done. An administrator maps them to a stage in the metrics configuration (Statuses)."
+      },
+      "unmappedBoards": {
+        "title": "Boards without a team",
+        "explain": "Their sprints have no team and no frozen figures, and their tasks fall back to the assignee's team. An administrator maps a team to each board in the metrics configuration (Boards)."
+      },
+      "deriveWarnings": {
+        "title": "Derive warnings",
+        "explain": "The latest successful derive of these connections skipped a step, so the reports that depend on it are missing or stale. An administrator can fix the cause in the metrics configuration."
+      }
+    },
+    "column": {
+      "task": "Task",
+      "epic": "Epic",
+      "team": "Team",
+      "assignee": "Assignee",
+      "done": "Done",
+      "started": "Started",
+      "estimate": "Estimate (MD)",
+      "ownerTeam": "Owner team",
+      "domain": "Domain",
+      "start": "Start",
+      "due": "Due",
+      "flags": "Disagreement",
+      "author": "Author",
+      "worklogs": "Worklogs",
+      "md": "MD",
+      "loggedAt": "Started",
+      "lateDays": "Days late",
+      "connection": "Connection",
+      "domainName": "Domain",
+      "projects": "Projects",
+      "epics": "Epics",
+      "status": "Status",
+      "category": "Jira category",
+      "items": "Items that sat in it",
+      "openItems": "Sitting in it now",
+      "board": "Board",
+      "project": "Project",
+      "sprints": "Sprints",
+      "doneTasks": "Done tasks",
+      "sprint": "Sprint",
+      "closed": "Closed",
+      "figure": "Figure",
+      "live": "Live",
+      "frozen": "Frozen",
+      "delta": "Difference",
+      "baseline": "Baseline",
+      "lastRun": "Latest successful run",
+      "warning": "Warning"
+    },
+    "flag": {
+      "EPIC_NOT_STARTED_WITH_ACTIVE_CHILDREN": "Not started, children active",
+      "EPIC_OPEN_AFTER_CHILDREN_DONE": "Open, all children done",
+      "EPIC_DONE_WITH_OPEN_CHILDREN": "Done, children open"
+    },
+    "figure": {
+      "committedMd": "Committed (MD)",
+      "committedItems": "Committed (items)",
+      "addedMd": "Added (MD)",
+      "addedItems": "Added (items)",
+      "removedMd": "Removed (MD)",
+      "removedItems": "Removed (items)",
+      "finalMd": "Final (MD)",
+      "finalItems": "Final (items)",
+      "deliveredMd": "Delivered (MD)",
+      "deliveredItems": "Delivered (items)",
+      "carriedOverMd": "Carried over (MD)",
+      "carriedOverItems": "Carried over (items)",
+      "droppedMd": "Dropped (MD)",
+      "droppedItems": "Dropped (items)",
+      "capacityMd": "Capacity (MD)",
+      "load": "Load"
+    },
+    "baseline": {
+      "frozen": "Frozen at close",
+      "reconstructed": "Reconstructed",
+      "reconstructedNote": "Reconstructed: the snapshot was written by a derive that ran after the sprint closed, so it is a baseline rebuilt from history, not a true freeze."
+    },
+    "warning": {
+      "sprintFieldUnresolved": "The sprint field could not be resolved, so the sprint step was skipped"
+    },
+    "late": {
+      "distributionTitle": "Days between start and logging",
+      "distributionCaption": "Every worklog of the period with a known logging time.",
+      "axis": "days late",
+      "worstTitle": "Latest-logged worklogs",
+      "worstCaption": "Up to 50 worklogs, the ones logged latest first.",
+      "noWorklogs": "No worklogs in this period.",
+      "noneMeasurable": "No worklog in this period has a known logging time, so lateness cannot be measured."
+    },
+    "hoursNone": "No team member was on a roster in this period, so there is no figure per member-day.",
+    "groups": {
+      "column": {
+        "done": "Done tasks",
+        "open": "Open started",
+        "withoutWorklogs": "Without worklogs",
+        "noEstimate": "No estimate",
+        "noEpic": "No epic",
+        "unassigned": "Unassigned",
+        "outsideSprint": "Outside sprint",
+        "over1": "Late over 1 day",
+        "over7": "Late over 7 days",
+        "perMemberDay": "Hours per member-day",
+        "epics": "Epics",
+        "epicFindings": "Epic findings"
+      },
+      "caption": "Estimate and epic counts add the done and the open tasks. An epic can appear in several epic findings, so that column counts findings, not epics. A read narrowed to one connection lists only the teams that have a finding in it, so a silent team of another connection is left out."
+    },
+    "unattributedNote_one": "{{count}} done task was finished in a team-less sprint that belongs to none of the boards above (the sprint has no board, or its board is mapped but the sprint carries no team).",
+    "unattributedNote_other": "{{count}} done tasks were finished in a team-less sprint that belongs to none of the boards above (the sprint has no board, or its board is mapped but the sprint carries no team).",
+    "coverageNone": "No done task in this period, so there is no coverage to measure."
   }
 }

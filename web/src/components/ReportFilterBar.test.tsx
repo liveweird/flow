@@ -1,13 +1,14 @@
 import { afterEach, describe, expect, test } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { useLocation, useNavigate } from "react-router-dom";
+import type { ReportFilters } from "../api/reports";
 import ReportFilterBar, { type ReportControls } from "./ReportFilterBar";
 import { useReportFilter } from "../hooks/useReportFilter";
 import { FILTERS } from "../test/reportFixtures";
 import { renderWithProviders, screen, waitFor } from "../test/render";
 
-function Harness({ controls }: { controls?: ReportControls }) {
-  const { filter, setFilter } = useReportFilter(FILTERS);
+function Harness({ controls, filters = FILTERS }: { controls?: ReportControls; filters?: ReportFilters }) {
+  const { filter, setFilter } = useReportFilter(filters);
   const { search } = useLocation();
   const navigate = useNavigate();
   return (
@@ -15,7 +16,7 @@ function Harness({ controls }: { controls?: ReportControls }) {
       <button type="button" onClick={() => navigate("/reports/velocity?from=2026-03-01&to=2026-03-31")}>
         go
       </button>
-      <ReportFilterBar filters={FILTERS} filter={filter} onChange={setFilter} controls={controls} />
+      <ReportFilterBar filters={filters} filter={filter} onChange={setFilter} controls={controls} />
       <output data-testid="search">{search}</output>
     </>
   );
@@ -199,6 +200,22 @@ describe("ReportFilterBar", () => {
     expect(screen.queryByText("Date range")).not.toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "Team" })).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "Domain" })).toBeInTheDocument();
+  });
+
+  test("the connection control appears only where the report asks for it AND there is more than one connection to choose", async () => {
+    const user = userEvent.setup();
+    const two = { ...FILTERS, connections: [...FILTERS.connections, { id: 2, name: "Second" }] };
+    const { unmount } = renderWithProviders(<Harness controls={{ connection: true }} filters={two} />, { route: "/reports/data-quality" });
+    await pick(user, "Connection", "Second");
+    expect(search().get("connectionId")).toBe("2");
+    await user.click(screen.getByLabelText("Clear Connection"));
+    expect(search().has("connectionId")).toBe(false);
+    unmount();
+    renderWithProviders(<Harness controls={{ connection: true }} />, { route: "/reports/data-quality" });
+    expect(screen.queryByRole("combobox", { name: "Connection" })).not.toBeInTheDocument();
+    unmount();
+    renderWithProviders(<Harness filters={two} />, { route: "/reports/data-quality" });
+    expect(screen.queryByRole("combobox", { name: "Connection" })).not.toBeInTheDocument();
   });
 
   test("a report with no user level offers the team but no member, even with a team chosen", async () => {

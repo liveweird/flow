@@ -13,7 +13,8 @@
     "metricsSettings": "Ustawienia metryk",
     "reportsDelivery": "Dostarczanie",
     "reportsEstimation": "Szacowanie",
-    "reportsFlow": "Metryki przepływu"
+    "reportsFlow": "Metryki przepływu",
+    "reportsDataQuality": "Jakość danych"
   },
   "section": {
     "overview": "Przegląd",
