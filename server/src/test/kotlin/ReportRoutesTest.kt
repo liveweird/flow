@@ -38,5 +38,8 @@ class ReportRoutesTest {
         assertTrue(body.derivedAt != null, "a SUCCEEDED derive_runs row exists — derivedAt must not be null")
         assertTrue(body.configRevision >= 1L)
         assertTrue(body.minSampleSize >= 1)
+        // The configured zone the SPA renders dates in — must be a real IANA id (ZoneId.of throws otherwise).
+        assertTrue(body.timeZone.isNotBlank())
+        assertEquals(body.timeZone, java.time.ZoneId.of(body.timeZone).id)
     }
 }

@@ -105,6 +105,7 @@ ReportFilters {
   derivedAt: epoch millis | null
   configRevision: integer
   minSampleSize: integer
+  timeZone: string   // IANA, metrics.settings.time_zone
 }
 ```
 
@@ -122,6 +123,10 @@ ReportFilters {
   connection an admin has paused from syncing still owns whatever it already derived, and its
   history stays a legitimate filter choice), id and name ONLY -- never `settings`/the encrypted
   API token (`.claude/docs/security.md`).
+- **`timeZone`** -- the configured IANA zone (`metrics.settings.time_zone`, default `Europe/Warsaw`) that
+  `from`/`to` are read in. The SPA renders every report date and computes its period presets, "today" and
+  the date-picker maximum in this zone (never UTC, never the browser's), so a preset chosen at 00:30
+  local on the 1st means the same day the server resolves.
 - **`derivedAt`/`configRevision`/`minSampleSize`** -- the SAME figures every report's own `meta`
   block carries, so a client can label a still-warming-up connection ("no data derived yet")
   without a second round trip.
@@ -359,10 +364,198 @@ removed/added figures exactly and that a second connection's stale scope rows ne
 open sprint by `sprintId` (`completedAt` null, no snapshot); `teamId=0`; `400` for `from > to` and an
 unknown `sprintId`. Every request runs through a non-admin `seededClient` (D12).
 
+## Reports 3, 4, 5 -- Estimation (accuracy and adjustments)
+
+Three endpoints (v0.3.0 M4 commit 12, `.claude/docs/measures.md` "Reports 3, 4, 5") over
+`fact_task_delivery`/`fact_epic_delivery`, sharing one preamble (`reports/ReportSupport.kt`'s
+`resolveReportScope`: settings, connection scope, the `400` existence checks, meta, and the period window) and
+the same slice predicates as throughput's period view (`taskFactSlice`/`epicFactSlice`). All take the shared
+`from`/`to`/`lastSprints`/`sprintId`, `teamId`/`accountId`, `domainView`, `domain`, `workCategory` and
+`connectionId` parameters (tasks also `activityType`); `breakdown` is parsed and, as in the earlier reports,
+changes nothing. A `lastSprints`/`sprintId` period resolves the sprints and reads their overall **envelope** as
+the window, exactly as throughput's period view does (`periodWindow`, `meta.resolvedSprints`); `teamId=0` resolves
+no sprint, so with a sprint-relative period it reads nothing.
+
+**Tasks vs epics.** Task reads are level-0 tasks only (`is_subtask = false`, D2 -- a sub-task's worklogs and
+estimates are already rolled into its parent); team = the D5 **credit** team (`teamId=0` = no credit team,
+UNASSIGNED), user = assignee at done, domain per `domainView` (default `TASK`; `EPIC` = the epic's domain with
+the A21 fallback, as in throughput). Epic reads use the epic's OWN estimate columns; team = the domain's
+**owner** team (A19, `teamId=0` = UNOWNED), domain = the epic's own space (identical under either
+`domainView`, which is only echoed in `meta` -- the epic accuracy default is `EPIC`, the PV/EV/AC-shaped
+default of plan section 7), `workCategory` slices; `activityType` is not an epic attribute and is ignored.
+Epics carry **no user** (measures.md: user "--"), so TEAM level has no epic groups and **USER level is always
+empty for epics** (an all-zero answer, never a silently team-wide one).
+
+### Report 3 -- `GET /api/v1/reports/task-estimation-accuracy`
+
+```
+TaskEstimationAccuracyReport {
+  meta: ReportMeta
+  atStart: Distribution          // actual_md / estimate_at_start_md   (D15, the primary view)
+  atDone:  Distribution          // actual_md / estimate_at_done_md    (the second view)
+  excluded: { population, noWorklogs, neverStarted, unestimatedAtStart, unestimatedAtDone }
+  groups: [{ teamId?, accountId?, label?, atStart, atDone, excluded }]
+}
+```
+
+- **Population** = DONE level-0 tasks with `done_at` in the window. Each is in a distribution or in exactly ONE
+  exclusion bucket, checked in this order: `noWorklogs` (D14 -- `has_worklogs = false`, **or `actual_md` of 0.00**
+  -- a minute or two logged is not a ratio of exactly 0; both views, mirroring the epics' `noActual`), then
+  `neverStarted` (no `started_at`, so no estimate at start -- `atStart` only), then `unestimatedAtStart` (no
+  estimate at start, estimated-late included) / `unestimatedAtDone` (no estimate at done). So `atStart.n +
+  noWorklogs + neverStarted + unestimatedAtStart == population` and `atDone.n + noWorklogs + unestimatedAtDone
+  == population`. (measures.md says `atDone` has "the same buckets"; `neverStarted` exists because a task with
+  no start has no @start estimate, which is not a reason to drop it from the @done view -- it is not applied
+  there, and the measures.md cell says so.) An estimate of 0 is stored as `null` = unestimated (domain-model.md).
+- **Levels.** UNIT: `groups` one per credit team (`teamId` null = UNASSIGNED); TEAM: one per assignee at done
+  (`accountId` null = unassigned); USER: none. Each group carries its own two distributions -- **hidden below
+  `minSampleSize`, `n` always set**, so `Σ group n == n` -- and its own `excluded`.
+- Reading: ratio `1.0` = actual cost equals the estimate, above = it cost more.
+
+### Report 4 -- `GET /api/v1/reports/epic-estimation-accuracy`
+
+```
+EpicEstimationAccuracyReport {
+  meta, atStart: Distribution, atDone: Distribution,        // actual_md / OWN estimate at start / at done
+  excluded: { population, noActual, neverStarted, unestimatedAtStart, unestimatedAtDone },
+  epics: [{ issueKey, summary?, ownerTeamId?, doneAt, ownEstimateAtStartMd?, ownEstimateAtDoneMd?,
+            childSumMd, actualMd, ratio?, ratioAtDone? }],   // <= 200 rows
+  epicsTruncated: boolean,
+  groups: [{ teamId?, label?, atStart, atDone, excluded }]   // UNIT only: one per owner team
+}
+```
+
+- **Population** = epics DONE by their own status (D11) with `done_at` in the window. Exactly ONE bucket each:
+  `noActual` (`actual_md = 0`, first), then `neverStarted` (no `started_at`, so no estimate at start --
+  `atStart` only, as for tasks), else `unestimatedAtStart` / `unestimatedAtDone` (no OWN estimate at that
+  snapshot -- an epic whose budget is only the child sum has none; the child sum is **never** used as the
+  estimate, it is listed beside it in `childSumMd`). The measures.md wording "`budget_source = CHILDREN`" is
+  applied per snapshot: an epic that had an own estimate at start but lost it later is still measured at start.
+- **`epics`** lists every DONE epic in scope -- including excluded ones, whose `ratio`/`ratioAtDone` are `null`
+  -- **newest `doneAt` first, then connection and issue id**, at most 200 (`EPIC_ACCURACY_MAX_ROWS`);
+  `epicsTruncated` is true when more matched. The distributions and groups always count every epic, not just the
+  listed 200. `issueKey`/`summary` come from `dim_epic`.
+
+### Report 5 -- `GET /api/v1/reports/estimate-adjustments`
+
+```
+EstimateAdjustmentsReport { meta, tasks: AdjustmentFigures, epics: AdjustmentFigures,
+                            groups: [{ teamId?, accountId?, label?, tasks, epics? }] }
+AdjustmentFigures { started, changedAfterStart, share?, estimatedLate,
+                    changeDistribution: Distribution,
+                    changeExcluded: { population, estimatedLate, unestimated } }
+```
+
+- **Two populations, two anchors.** `started` = items with `started_at` in the window; `changedAfterStart` =
+  those with `estimate_changes_after_start > 0`; `share` = their **fraction 0..1** (null, counts only, **when fewer
+  than `minSampleSize` items started** -- hidden like a distribution); `estimatedLate` = those started items that
+  gained an estimate only after start. `changeDistribution` covers items with `done_at` in the window: the
+  **fractional change start -> done**, `(estimate at done - estimate at start) / estimate at start` (`0.25` =
+  +25 %, negative = shrank; a fraction, like the accuracy ratios, not percent points). `changeExcluded` (over
+  that same done population) puts each remaining item in ONE bucket: `estimatedLate` (counted separately,
+  never a `+infinity` change) else `unestimated` (either snapshot missing, a never-started item included), so
+  `changeDistribution.n + estimatedLate + unestimated == population`.
+- **An estimated-late item is also "changed after start"**: its late estimate is itself a change point after
+  `started_at` (`DeriveKernels.estimateSnapshots`), and the row's predicate is literally `changes > 0`.
+  `ReportEstimateAdjustmentsTest` pins it against the stub generator: `estimatedLate` equals
+  `expected.json`'s `taskEstimatedLateCount` and `changedAfterStart` equals `taskEstimateChangedAfterStartCount +
+  taskEstimatedLateCount`.
+- **Epics** use the own-estimate columns; `estimatedLate` is derived from them (`started_at` set, no own
+  estimate at start, one now -- the task kernel's rule, since the epic fact stores no such column).
+- **Attribution (A25): `credit` once done, `current` while open.** A DONE task is attributed to
+  `credit_team_id` / `assignee_account_id_at_done`, a still-OPEN task to `current_team_id` /
+  `current_assignee_account_id` -- branching on `done_at`, never `COALESCE(credit, current)` (a DONE task with no
+  credit team is legitimately UNASSIGNED). So a started-but-open task never falls into UNASSIGNED merely for not
+  being done, and a `teamId=X` read (`taskFactSlice(..., openAttribution = true)`) sees that team's open tasks too.
+  Throughput and the accuracy reports read only DONE tasks, so they keep the plain credit/assignee-at-done
+  predicates.
+- **Levels.** UNIT: `groups` one per team, tasks and epics side by side (a null-team group is UNASSIGNED tasks /
+  UNOWNED epics together); TEAM: one per assignee (at done / now, A25), tasks only (`epics` null); USER: `tasks` narrowed to the
+  account, `epics` all zero, no groups.
+
+Code: `reports/TaskAccuracyReport.kt`, `reports/EpicAccuracyReport.kt`, `reports/EstimateAdjustmentsReport.kt`
+(DTOs, the pure partition/ratio functions, the queries as extensions on `ReportService`). The distributions are
+built in Kotlin by `buildDistribution` over the fetched ratios. Tests -- one class per endpoint on
+`DerivedStubFixture`: `ReportTaskEstimationAccuracyTest`, `ReportEpicEstimationAccuracyTest`,
+`ReportEstimateAdjustmentsTest` (with `ReportEstimationTestSupport.kt`: an independent percentile/mean check that
+never calls `buildDistribution`, raw fact readers, hand-built row builders). Each grades every distribution
+(n, mean, min, max, p50/p90/p95, histogram total) and every exclusion count against an independent computation over
+the raw fact rows -- whole population, per group (`Σ group n == n`), per user, `teamId=0`, and the slices -- and
+pins the buckets, the ratios, the hidden state (`minSampleSize` pinned with `withMinSampleSize`), the 200-row cap and
+the estimated-late separation on hand-built rows in a fresh DISABLED connection with hand-computed answers.
+
+## Reports 7, 8 -- Cycle time and reported time ratio
+
+Two endpoints (v0.3.0 M4 commit 12b, `.claude/docs/measures.md` "Reports 7, 8") over `fact_task_delivery`, on the
+same preamble and slice as the estimation reports (`resolveReportScope`, `taskFactSlice`, and the shared
+`orgGroups` drill in `ReportSupport.kt`; the fetch `fetchDoneCycleTasks` is shared by both). Population = level-0
+tasks (D2) with `done_at` in the window; team = the D5 **credit** team (`teamId=0` = UNASSIGNED), user = assignee
+at done, domain per `domainView` (default `TASK`, D3), plus `activityType`/`workCategory`; a `lastSprints`/`sprintId`
+period reads the resolved sprints' envelope, as throughput's period view. **Epics are not in these reports**
+(measures.md's Report 7 row mentions "epics by own status", but the model's Report 7 source is `fact_task_delivery`
+alone -- an epic cycle time is not shown). `breakdown` is parsed and changes nothing.
+
+### Report 7 -- `GET /api/v1/reports/cycle-time`
+
+```
+CycleTimeReport {
+  meta, elapsedDays: Distribution, workingDays: Distribution,     // cycle_ms in days / cycle_working_days
+  excluded: { population, neverStarted },
+  trend: [{ bucketStart, p50?, p90?, n }],                        // bucket=WEEK|MONTH, default WEEK
+  groups: [{ teamId?, accountId?, label?, elapsedDays, workingDays, excluded }]
+}
+```
+
+- **Cycle** = `done_at - started_at` (first entry into IN_PROGRESS to the start of the trailing DONE run, so a
+  reopened task counts its whole span). `elapsedDays` is wall-clock (`cycle_ms / 86_400_000`), `workingDays` the
+  configured calendar's fractional working days.
+- **One exclusion**: `neverStarted` (`cycle_ms` null, i.e. no `started_at` -- created straight into DONE), so
+  `workingDays.n == elapsedDays.n == population - neverStarted`. **A cycle of zero working days is a real value and
+  stays in** (`zeroCycle` is a reported-time-ratio bucket only, where it would divide by zero).
+- **`trend`**: one entry per week (Monday start) or month (the 1st) across the WHOLE window, zero-filled -- the
+  throughput report's own `bucketStart`/`bucketStarts` math, in the configured zone -- placing each measurable task
+  by `done_at`, on **working days**. `p50`/`p90` come from the same `buildDistribution` and are `null` when the
+  bucket's `n` is below `minSampleSize` (`n` always set; an empty bucket has `n` 0), so hiding is per bucket.
+- **Levels**: UNIT `groups` per credit team, TEAM per assignee at done, USER none; each group has its own two
+  distributions (hidden below the minimum, `n` always set, so `Σ group n == n`) and `excluded`; groups are ordered by
+  label (null last), then team id, then account id.
+
+### Report 8 -- `GET /api/v1/reports/reported-time-ratio`
+
+```
+ReportedTimeRatioReport { meta, ratio: Distribution,             // actual_md / cycle_working_days
+                          excluded: { population, noWorklogs, neverStarted, zeroCycle },
+                          flowEfficiency: Distribution,          // A18: active_ms / cycle_ms
+                          flowEfficiencyExcluded: { population, neverStarted, zeroCycle },
+                          groups: [{ teamId?, accountId?, label?, ratio, excluded,
+                                     flowEfficiency, flowEfficiencyExcluded }] }
+```
+
+- Man-days logged per working day of cycle time. Each task is in the distribution or in exactly ONE bucket, checked
+  in this order: `noWorklogs` (D14 -- `has_worklogs = false` or `actual_md` of 0.00, as in report 3), `neverStarted`
+  (no cycle), `zeroCycle` (`cycle_working_days = 0`). So `ratio.n + noWorklogs + neverStarted + zeroCycle ==
+  population`. Levels and groups as report 7.
+- **The ratio's mean, p95 and histogram can be dominated by very short cycles** -- dividing by a cycle of a fraction
+  of a working day produces a very large ratio. That is a real outlier and is never dropped (only a cycle of exactly
+  zero working days is excluded, as `zeroCycle`); read the p50 first.
+- **Flow efficiency (A18) is shown beside it**, over the same DONE level-0 population: `flowEfficiency` is `active_ms /
+  cycle_ms` (active = IN_PROGRESS-stage time minus blocked time while in progress, `.claude/docs/measures.md`'s "Flow
+  efficiency (A18)" row) and `flowEfficiencyExcluded` puts each unmeasurable task in exactly ONE bucket, in this order:
+  `neverStarted` (no cycle), then `zeroCycle` (`cycle_ms = 0`). Worklogs play no part, so a task with none is still
+  measured -- unlike the ratio there is no `noWorklogs` bucket -- and `flowEfficiency.n + neverStarted + zeroCycle ==
+  population`. Note the two `zeroCycle`s differ: the ratio's is zero WORKING days, this one zero ELAPSED time. Groups
+  carry both measures; `Σ group n == n` for each.
+
+Code: `reports/CycleTimeReport.kt`, `reports/ReportedTimeRatioReport.kt`. Tests -- one class per endpoint on
+`DerivedStubFixture`, with the independent oracle of `ReportEstimationTestSupport.kt`: `ReportCycleTimeTest`
+(distributions, per-group at every level, `teamId=0`, slices, the sprint envelope, and **every trend bucket's p50/p90/n
+against an independent bucketing** -- WEEK and MONTH, zero-filled, hidden per bucket -- plus hand-built rows with
+exact hand-computed numbers incl. a zero-working-day cycle) and `ReportReportedTimeRatioTest` (the partition, groups,
+slices, hand-built bucket precedence and hidden state).
+
 ## Not yet built
 
-Every remaining named report (plan section 7's table: estimation
-accuracy x2, estimate adjustments, cycle time, reported-time ratio, WIP, backlog, aging WIP,
+Every remaining named report (plan section 7's table: WIP, backlog, aging WIP,
 blocked time, data quality, epic progress/EVM, cost matrix) lands in its own later commit and
 grows this doc with its own `## Report N -- ...` section, following `.claude/docs/measures.md`'s
 own per-measure contract for what each number means.

@@ -1,0 +1,323 @@
+{
+  "empty": "No data in this period",
+  "unitMd": "MD",
+  "tabs": {
+    "label": "Reports in this group",
+    "velocity": "Velocity",
+    "throughput": "Throughput",
+    "sprintConsistency": "Sprint consistency",
+    "taskAccuracy": "Task accuracy",
+    "epicAccuracy": "Epic accuracy",
+    "adjustments": "Adjustments",
+    "cycleTime": "Cycle time",
+    "reportedTime": "Reported time"
+  },
+  "meta": {
+    "derived": "Derived {{date}} · configuration revision {{revision}}",
+    "notDerived": "No data has been derived yet."
+  },
+  "filters": {
+    "title": "Report filters",
+    "clearAria": "Clear {{name}}",
+    "period": "Period",
+    "periodDates": "Dates",
+    "periodSprints": "Sprints",
+    "preset": {
+      "last30": "Last 30 days",
+      "last90": "Last 90 days",
+      "last365": "Last 365 days",
+      "thisMonth": "This month",
+      "lastMonth": "Last month",
+      "thisQuarter": "This quarter",
+      "custom": "Custom range"
+    },
+    "lastSprints_one": "Last sprint",
+    "lastSprints_other": "Last {{count}} sprints",
+    "oneSprint": "One sprint",
+    "range": "Date range",
+    "sprint": "Sprint",
+    "team": "Team",
+    "allTeams": "All teams",
+    "member": "Member",
+    "wholeTeam": "Whole team",
+    "domain": "Domain",
+    "activityType": "Activity type",
+    "workCategory": "Work category",
+    "uncategorized": "(uncategorized)",
+    "anyValue": "Any",
+    "domainView": "Domain view",
+    "deliveredIn": "Delivered in",
+    "earnedIn": "Earned in",
+    "breakdown": "Break down by",
+    "breakdownOption": {
+      "NONE": "None",
+      "DOMAIN": "Domain",
+      "ACTIVITY_TYPE": "Activity type",
+      "WORK_CATEGORY": "Work category"
+    },
+    "bucket": "Group by",
+    "bucketOption": {
+      "WEEK": "Week",
+      "MONTH": "Month"
+    }
+  },
+  "groups": {
+    "byTeam": "By team",
+    "byMember": "By member",
+    "team": "Team",
+    "member": "Member",
+    "unassigned": "Unassigned",
+    "drillAria": "Show {{name}}"
+  },
+  "velocity": {
+    "title": "Velocity",
+    "description": "How much each team planned into a sprint: the scope committed at the start (initial) against the scope it ended with (final).",
+    "chartTitle": "Initial and final scope per sprint",
+    "series": {
+      "initial": "Initial (committed)",
+      "final": "Final"
+    },
+    "column": {
+      "initialMd": "Initial (MD)",
+      "initialItems": "Initial (items)",
+      "finalMd": "Final (MD)",
+      "finalItems": "Final (items)"
+    },
+    "chartLabel": "Chart: initial and final scope by sprint",
+    "snapshot": "Frozen at completion: initial {{initialMd}} MD, final {{finalMd}} MD"
+  },
+  "items_one": "{{count}} item",
+  "items_other": "{{count}} items",
+  "sprints": {
+    "sprint": "Sprint",
+    "team": "Team",
+    "completed": "Completed",
+    "open": "Open",
+    "drift": "Since completion",
+    "driftBadge": "Drift"
+  },
+  "throughput": {
+    "title": "Throughput",
+    "description": "What each team delivered: the work finished per week or month, and the scope done inside each sprint. The two views differ by design — a task finished after its sprint closed counts in the period only.",
+    "periodTitle": "Delivered per period",
+    "caption": {
+      "TASK": "Domain view: delivered in — a task counts in its own domain.",
+      "EPIC": "Domain view: earned in — a task counts in its epic's domain."
+    },
+    "summary": "Delivered in the period: {{md}} MD ({{items}})",
+    "chartLabel": "Chart: delivered scope by period",
+    "series": {
+      "delivered": "Delivered"
+    },
+    "sprintTitle": "Delivered per sprint",
+    "sprintCaption": "The sprint view: what was done inside each sprint while it was in it, priced at the sprint's close. It ignores the domain, activity type and work category filters.",
+    "column": {
+      "deliveredMd": "Delivered (MD)",
+      "deliveredItems": "Delivered (items)",
+      "bucketWEEK": "Week starting",
+      "bucketMONTH": "Month"
+    },
+    "snapshot": "Frozen at completion: delivered {{md}} MD, {{items}}",
+    "bucketTableLabel": "Delivered per period, as a table"
+  },
+  "sprintConsistency": {
+    "title": "Sprint consistency",
+    "description": "How a sprint's scope moved: what was committed, what was added and removed on the way, and where the final scope ended up.",
+    "scopeTitle": "Committed and delivered per sprint",
+    "scopeLabel": "Chart: committed and delivered scope by sprint",
+    "partitionTitle": "Where the final scope ended up",
+    "partitionCaption": "Final scope = delivered + carried over + dropped, so each bar's height is the sprint's final scope.",
+    "partitionLabel": "Chart: final scope split into carried over, delivered and dropped, by sprint",
+    "changesTitle": "Scope changes during the sprint",
+    "changesLabel": "Chart: scope added and removed during each sprint",
+    "tableTitle": "All figures",
+    "tableCaption": "Man-days, with the item count in brackets.",
+    "series": {
+      "committed": "Committed",
+      "delivered": "Delivered",
+      "carriedOver": "Carried over",
+      "dropped": "Dropped",
+      "added": "Added",
+      "removed": "Removed"
+    },
+    "column": {
+      "committed": "Committed",
+      "added": "Added",
+      "removed": "Removed",
+      "final": "Final",
+      "delivered": "Delivered",
+      "carriedOver": "Carried over",
+      "dropped": "Dropped"
+    },
+    "snapshot": "Frozen at completion: committed {{committed}} · final {{final}} · delivered {{delivered}} MD"
+  },
+  "minSample": {
+    "distribution_one": "Only {{count}} item in this selection — at least {{min}} are needed to show percentiles and a histogram.",
+    "distribution_other": "Only {{count}} items in this selection — at least {{min}} are needed to show percentiles and a histogram.",
+    "share_one": "Only {{count}} item started in this selection — at least {{min}} are needed to show a share.",
+    "share_other": "Only {{count}} items started in this selection — at least {{min}} are needed to show a share.",
+    "none": "Nothing to measure in this selection."
+  },
+  "distribution": {
+    "p50": "Median (p50)",
+    "p90": "p90",
+    "p95": "p95",
+    "mean": "Mean",
+    "n": "Items",
+    "range": "Range",
+    "count": "Items",
+    "histogramTable": "Histogram, as a table",
+    "histogramLabel": "Histogram: number of items per range",
+    "yAxis": "Items",
+    "stripLabel": "Percentiles"
+  },
+  "excluded": {
+    "title": "Left out of this distribution",
+    "population": "Of {{count}} finished in this period:",
+    "measured": "in the distribution"
+  },
+  "ratio": {
+    "axis": "actual ÷ estimate",
+    "hint": "A ratio of 1 means the actual cost equals the estimate; above 1 it cost more."
+  },
+  "groupsCaption": {
+    "distribution": "Groups below the minimum sample show counts only."
+  },
+  "taskAccuracy": {
+    "title": "Task estimation accuracy",
+    "description": "How the actual cost of finished tasks compares with their estimate: actual man-days ÷ estimate. The estimate at start is the primary view; the estimate at done is the second.",
+    "startTitle": "Against the estimate at start",
+    "startCaption": "Primary view — the estimate the team committed to when work began.",
+    "doneTitle": "Against the estimate at done",
+    "doneCaption": "Second view — the estimate as it stood when the task finished.",
+    "excluded": {
+      "noWorklogs": "No time logged",
+      "neverStarted": "Never started, so no estimate at start",
+      "unestimatedAtStart": "No estimate at start (including estimated late)",
+      "unestimatedAtDone": "No estimate at done"
+    },
+    "column": {
+      "startN": "At start (items)",
+      "startMedian": "At start (median)",
+      "doneN": "At done (items)",
+      "doneMedian": "At done (median)",
+      "population": "Finished"
+    }
+  },
+  "epicAccuracy": {
+    "title": "Epic estimation accuracy",
+    "description": "How the actual cost of finished epics compares with their OWN estimate: actual man-days ÷ own estimate. The sum of the child estimates is shown beside it, never used as the estimate.",
+    "startTitle": "Against the own estimate at start",
+    "startCaption": "Primary view.",
+    "doneTitle": "Against the own estimate at done",
+    "doneCaption": "Second view.",
+    "excluded": {
+      "noActual": "No time logged on the epic or its children",
+      "neverStarted": "Never started, so no estimate at start",
+      "unestimatedAtStart": "No own estimate at start (the child sum is never used)",
+      "unestimatedAtDone": "No own estimate at done"
+    },
+    "epicsTitle": "Finished epics",
+    "epicsTruncated": "Showing the newest {{count}} epics; the distributions above count all of them.",
+    "column": {
+      "epic": "Epic",
+      "doneAt": "Done",
+      "estimateStart": "Own estimate at start (MD)",
+      "estimateDone": "Own estimate at done (MD)",
+      "childSum": "Child sum (MD)",
+      "actual": "Actual (MD)",
+      "ratioStart": "Ratio at start",
+      "ratioDone": "Ratio at done",
+      "startN": "At start (items)",
+      "startMedian": "At start (median)",
+      "doneN": "At done (items)",
+      "doneMedian": "At done (median)",
+      "population": "Finished"
+    }
+  },
+  "adjustments": {
+    "title": "Estimate adjustments",
+    "description": "How often an estimate changes after work has started, and by how much between start and done. An estimate that only appeared after start is counted separately, never as an infinite change.",
+    "tasksTitle": "Tasks",
+    "epicsTitle": "Epics",
+    "started": "Started",
+    "changed": "Changed after start",
+    "share": "Share changed",
+    "late": "Estimated late",
+    "changeTitle": "Change from start to done",
+    "changeHint": "(estimate at done − estimate at start) ÷ estimate at start; +25% means the estimate grew by a quarter.",
+    "excluded": {
+      "estimatedLate": "Estimated late — no estimate at start",
+      "unestimated": "No estimate at start or at done (or never started)"
+    },
+    "column": {
+      "tasksStarted": "Tasks started",
+      "tasksShare": "Tasks changed",
+      "epicsStarted": "Epics started",
+      "epicsShare": "Epics changed"
+    },
+    "axis": "change from start to done",
+    "lateNote": "Estimated late is included in Changed after start.",
+    "domainViewNote": "The domain view applies to tasks; epics always read their own space."
+  },
+  "epicsNotPerPerson": "Epics aren't attributed to individual people, so there are no epic figures for a single person.",
+  "cycleTime": {
+    "title": "Cycle time",
+    "description": "How long finished tasks took from first start to done — in working days (the primary view, on the configured calendar) and in elapsed calendar days. A reopened task counts its whole span.",
+    "workingTitle": "Working days",
+    "workingCaption": "Primary view — days on the configured working calendar.",
+    "elapsedTitle": "Elapsed days",
+    "elapsedCaption": "Second view — wall-clock days, weekends and holidays included.",
+    "workingAxis": "working days",
+    "elapsedAxis": "elapsed days",
+    "excluded": {
+      "neverStarted": "Never started (created straight into done), so no cycle"
+    },
+    "trendTitle": "Trend: median and p90 per period",
+    "trendCaption": "Working days, by the period each task finished in. A period with too few items has no line point — a gap, never a zero.",
+    "trendAllHidden": "No period has enough finished items to show a median and p90.",
+    "trendLabel": "Chart: median and p90 cycle time in working days by period",
+    "trendTableLabel": "Trend, as a table",
+    "series": {
+      "p50": "Median (p50)",
+      "p90": "p90"
+    },
+    "column": {
+      "bucketWEEK": "Week starting",
+      "bucketMONTH": "Month",
+      "n": "Items",
+      "p50": "Median",
+      "p90": "p90",
+      "population": "Finished",
+      "workingN": "Working days (items)",
+      "workingMedian": "Working days (median)",
+      "elapsedN": "Elapsed days (items)",
+      "elapsedMedian": "Elapsed days (median)"
+    },
+    "belowMinimum": "below the minimum sample"
+  },
+  "reportedTime": {
+    "title": "Reported time",
+    "description": "How much of the elapsed working time was logged: man-days logged ÷ working days of cycle time. It is not flow efficiency, which is the share of the cycle spent actively in progress (shown beside it).",
+    "ratioTitle": "Reported time ÷ cycle time",
+    "ratioCaption": "Man-days logged per working day of cycle time — 1 means a full day logged for every working day.",
+    "ratioAxis": "actual MD ÷ cycle working days",
+    "outlierNote": "Very short cycles give very large ratios. They are real and never dropped, so read the median (p50) first — the mean, p95 and the top of the histogram can be dominated by them.",
+    "flowTitle": "Flow efficiency",
+    "flowCaption": "Active time ÷ cycle time: time in progress and not blocked, as a share of the whole cycle. Logged time plays no part.",
+    "flowAxis": "active ÷ cycle time",
+    "excluded": {
+      "noWorklogs": "No time logged",
+      "neverStarted": "Never started, so no cycle",
+      "zeroCycle": "Cycle of zero working days",
+      "flowZeroCycle": "Cycle of zero elapsed time"
+    },
+    "column": {
+      "population": "Finished",
+      "ratioN": "Reported ratio (items)",
+      "ratioMedian": "Reported ratio (median)",
+      "flowN": "Flow efficiency (items)",
+      "flowMedian": "Flow efficiency (median)"
+    }
+  }
+}

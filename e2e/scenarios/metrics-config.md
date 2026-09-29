@@ -67,8 +67,8 @@
 
 ## Not covered here (and why)
 
-- **The reports half of this commit** — no report pages exist yet (they land in a later v0.3.0
-  commit); this file covers configuration only.
+- **The reports half of v0.3.0** — this file covers configuration only; the report pages are read by
+  `reports.spec.ts` ([reports.md](reports.md)).
 - **Sharing one synced connection between the second and third tests.** Each test syncs its own
   throwaway connection instead, trading a second ~1-2 minute stub sync for full per-test
   independence (no test relies on another test's connection surviving or running first) — the

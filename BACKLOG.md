@@ -55,6 +55,7 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A25 over
   - Seed memberships from the Team field (D1).
   - Cache validators for the report endpoints.
   - Round each item's estimate before summing in `DeriveKernels.sprintTotals`, so `fact_sprint` and the per-user report groups agree exactly (today Σ groups can differ from the team by 0.01 MD per sprint when estimates have more than two decimals).
+  - Report 7: an `epics` block (cycle time from `fact_epic_delivery`, owner team) — deferred from 12b.
   - Report 14: flag epics whose dates fall outside the PV horizon (no PV curve).
   - `dim_date` rows outside a run's range keep a previous time zone's day bounds after a zone change (range joins could double-match at a stale boundary) — rewrite the whole table on a zone change.
   - Estimated backlog uses the OWN estimate only. A parent estimated through its sub-tasks (`estimate_source = SUBTASKS`) is missing from the backlog (A23). The fix is a composite-estimate bridge.

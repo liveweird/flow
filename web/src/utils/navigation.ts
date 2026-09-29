@@ -1,6 +1,8 @@
 import type { ParseKeys } from "i18next";
 import {
   IconAdjustments,
+  IconChartBar,
+  IconTarget,
   IconHistory,
   IconHome2,
   IconKey,
@@ -11,6 +13,7 @@ import {
   type Icon,
 } from "@tabler/icons-react";
 import { dataSourcesPath } from "./dataSourceLinks";
+import { DELIVERY_TABS, ESTIMATION_TABS, taskAccuracyPath, velocityPath } from "./reportLinks";
 import { teamsPath } from "./teamLinks";
 
 export type NavLeaf = {
@@ -20,6 +23,11 @@ export type NavLeaf = {
   icon: Icon;
   /** When set, the leaf renders only for ADMIN sessions. */
   adminOnly?: boolean;
+  /**
+   * Further routes this leaf stays highlighted on (a report group's other tabs, each of which
+   * is its own route). Prefix-matched like `to`; the leaf itself always links to `to`.
+   */
+  activeFor?: ReadonlyArray<string>;
 };
 
 /** A labelled, always-open block of leaves — a section, never a collapsible group. */
@@ -35,7 +43,7 @@ export const homePath = "/";
  * The navigation model, shared by the sidebar and the command palette. Sections are labelled,
  * always-open blocks (never collapsible groups): every leaf is always in the DOM, so tests and
  * deep links address the links directly, and a static label costs less vertical space than a
- * toggle. Home is visible to everyone; the Administration section holds Teams (everyone reads
+ * toggle. Home and Reports are visible to everyone (every signed-in user sees every report, D12); the Administration section holds Teams (everyone reads
  * the flat teams list; only its create/edit/delete are ADMIN) alongside the ADMIN-only Users,
  * Feature flags, Data sources and Metrics settings leaves — a non-admin session sees just Teams
  * there.
@@ -44,6 +52,23 @@ const NAV_SECTIONS: ReadonlyArray<NavSection> = [
   {
     label: "appShell.section.overview",
     items: [{ to: homePath, label: "appShell.nav.home", icon: IconHome2 }],
+  },
+  {
+    label: "appShell.section.reports",
+    items: [
+      {
+        to: velocityPath,
+        label: "appShell.nav.reportsDelivery",
+        icon: IconChartBar,
+        activeFor: DELIVERY_TABS.map((tab) => tab.to),
+      },
+      {
+        to: taskAccuracyPath,
+        label: "appShell.nav.reportsEstimation",
+        icon: IconTarget,
+        activeFor: ESTIMATION_TABS.map((tab) => tab.to),
+      },
+    ],
   },
   {
     label: "appShell.section.administration",
@@ -63,6 +88,16 @@ export const ACCOUNT_NAV: ReadonlyArray<NavLeaf> = [
   { to: "/changelog", label: "appShell.nav.changelog", icon: IconHistory },
 ];
 
+/**
+ * Palette-only leaves: every report of a nav group is its own route and must be findable by name,
+ * but the sidebar carries ONE leaf per group (Delivery, Estimation). Tabs never appear in a section.
+ */
+export const REPORT_PALETTE_LEAVES: ReadonlyArray<NavLeaf> = [...DELIVERY_TABS, ...ESTIMATION_TABS].map((tab) => ({
+  to: tab.to,
+  label: tab.label,
+  icon: IconChartBar,
+}));
+
 /** The sections a session may see: admin-only leaves filtered, empty sections dropped. */
 export function visibleSections(admin: boolean): NavSection[] {
   return NAV_SECTIONS.flatMap((section) => {
@@ -71,14 +106,16 @@ export function visibleSections(admin: boolean): NavSection[] {
   });
 }
 
-/** Longest-matching-prefix active-link resolution — "/" only matches exactly. */
+/**
+ * Longest-matching-prefix active-link resolution — "/" only matches exactly. A leaf matches on its
+ * own `to` and on every `activeFor` route; the answer is always the leaf's `to`.
+ */
 export function activeNavPath(pathname: string, leaves: ReadonlyArray<NavLeaf>): string | null {
-  const matches = (to: string) =>
-    to === "/" ? pathname === "/" : pathname === to || pathname.startsWith(`${to}/`);
+  const matches = (path: string) =>
+    path === "/" ? pathname === "/" : pathname === path || pathname.startsWith(`${path}/`);
   return (
     leaves
-      .map((leaf) => leaf.to)
-      .filter(matches)
-      .sort((a, b) => b.length - a.length)[0] ?? null
+      .flatMap((leaf) => [leaf.to, ...(leaf.activeFor ?? [])].filter(matches).map((path) => ({ to: leaf.to, length: path.length })))
+      .sort((a, b) => b.length - a.length)[0]?.to ?? null
   );
 }

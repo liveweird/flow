@@ -29,6 +29,14 @@ const DataSourceProfile = lazy(() => import("./pages/DataSourceProfile"));
 const RawIssueInspector = lazy(() => import("./pages/RawIssueInspector"));
 const DataSourceMetricsConfig = lazy(() => import("./pages/DataSourceMetricsConfig"));
 const MetricsSettings = lazy(() => import("./pages/MetricsSettings"));
+const ReportVelocity = lazy(() => import("./pages/ReportVelocity"));
+const ReportThroughput = lazy(() => import("./pages/ReportThroughput"));
+const ReportSprintConsistency = lazy(() => import("./pages/ReportSprintConsistency"));
+const ReportTaskAccuracy = lazy(() => import("./pages/ReportTaskAccuracy"));
+const ReportEpicAccuracy = lazy(() => import("./pages/ReportEpicAccuracy"));
+const ReportEstimateAdjustments = lazy(() => import("./pages/ReportEstimateAdjustments"));
+const ReportCycleTime = lazy(() => import("./pages/ReportCycleTime"));
+const ReportReportedTime = lazy(() => import("./pages/ReportReportedTime"));
 const CreateUser = lazy(() => import("./pages/CreateUser"));
 const EditUser = lazy(() => import("./pages/EditUser"));
 const ChangePassword = lazy(() => import("./pages/ChangePassword"));
@@ -199,6 +207,15 @@ export default function App() {
             <Route index element={<Home />} />
             <Route path="teams" element={<Teams />} />
             <Route path="teams/:id" element={<TeamDetails />} />
+            {/* Reports: any signed-in user (D12) — never inside the RequireAdmin group. */}
+            <Route path="reports/velocity" element={<ReportVelocity />} />
+            <Route path="reports/throughput" element={<ReportThroughput />} />
+            <Route path="reports/sprint-consistency" element={<ReportSprintConsistency />} />
+            <Route path="reports/task-estimation-accuracy" element={<ReportTaskAccuracy />} />
+            <Route path="reports/epic-estimation-accuracy" element={<ReportEpicAccuracy />} />
+            <Route path="reports/estimate-adjustments" element={<ReportEstimateAdjustments />} />
+            <Route path="reports/cycle-time" element={<ReportCycleTime />} />
+            <Route path="reports/reported-time-ratio" element={<ReportReportedTime />} />
             {/* The management surface — ADMIN only, guarded once here (the pages no longer redirect themselves). */}
             <Route element={<RequireAdmin />}>
               <Route path="users" element={<Users />} />

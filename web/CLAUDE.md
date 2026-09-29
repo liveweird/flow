@@ -59,7 +59,7 @@ inventing new ones.
 - Pages are **lazy** (`React.lazy` in `App.tsx`); new routes register above the `path="*"`
   NotFound catch-all (LAST child, never feature-gated). **The nav model lives in
   `utils/navigation.ts`**, shared by the sidebar and the command palette: `NAV_SECTIONS` —
-  labelled, always-open sections (currently Overview and Administration) of `NavLeaf`s (the
+  labelled, always-open sections (currently Overview, Reports and Administration) of `NavLeaf`s (the
   `label` is a typed i18n key; `adminOnly?` gates admin leaves, and `visibleSections(isAdmin())`
   drops an emptied section) — plus `ACCOUNT_NAV` (Change password, Changelog), which the header
   `UserMenu` and the palette render and the sidebar never does. Sections are static captions
@@ -419,6 +419,107 @@ team membership landed in M2 commit 5, and the per-connection `metrics-config` p
   query with whatever category is already chosen, and `changedBoardIds` is the 409 row-marking
   rule.
 
+## Reports (`pages/ReportVelocity.tsx`, `components/Report*.tsx`, `utils/reportFilter.ts`)
+
+The v0.3.0 report pages (`.claude/docs/reports.md` is the API; every report is any-authenticated,
+D12 — routes sit under `RequireAuth`, never `RequireAdmin`). Landed so far: the shell (Reports nav
+section → Delivery, `ReportTabs`), the filter bar, the shared blocks and the three Delivery pages
+(Velocity, Throughput, Sprint consistency, Cycle time) and the Estimation group (Task accuracy, Epic
+accuracy, Adjustments, Reported time — `ESTIMATION_TABS`, its own nav leaf); later reports append a page, a tab (`DELIVERY_TABS` in
+`utils/reportLinks.ts` — the Delivery nav leaf lists every tab route in `NavLeaf.activeFor`, so it
+stays highlighted on all of them) and a `reports.<name>` key block. Every page composes the same
+skeleton — `hooks/useReportPage` (filters query → keyed page query), `ReportFiltersStatus`,
+`ReportFilterBar`, `ReportMetaNote`, `ReportChartCard`, `ReportSprintsTable` (sprint · team ·
+completed · the report's figures · the orange drift badge with the frozen figures as text),
+`ReportGroupsTable` — copy `pages/ReportVelocity.tsx`.
+
+- **The URL is the filter** (`utils/reportFilter.ts`, `hooks/useReportFilter.ts`): `from`/`to`,
+  `lastSprints`, `sprintId`, `teamId`, `accountId`, `domainView`, `domain`, `activityType`,
+  `workCategory`, `breakdown`, `bucket`, `connectionId` — deep-linkable, parsed forgivingly (an invalid or
+  conflicting param is DROPPED, never sent; the period is exclusive with precedence `sprintId` >
+  `lastSprints` > dates), serialized in one canonical key order (that string is also the page query
+  key). Params this module does not own survive `applyReportFilter`; switching report tabs
+  (`reportHref`) drops the report-specific params (`domainView`, `domain`, `activityType`,
+  `workCategory`, `breakdown`, `bucket`) the target report has no control for, so a filter the user
+  cannot see or clear never follows them (`REPORT_SPECIFIC_PARAMS` in `utils/reportLinks.ts`). Presets are stored as
+  absolute `from`/`to` dates (calendar days in the configured zone) and recognised again by
+  `activePeriodChoice`. **The last team is remembered** (`useStoredState`, `reports.teamId`): a report
+  opened with NO filter params at all (a bare nav click) starts on it and the URL is rewritten
+  (replace) to say so; a link that carries any filter param is taken as written (a copied unit-level
+  link stays unit-level). Only the Team control touches the memory (picking stores, clearing clears).
+- **`components/ReportFilterBar.tsx`** is a controlled component (`filters`, `filter`, `onChange`);
+  optional controls (domain view "delivered in / earned in", domain, activity type, work category,
+  breakdown, and the week/month `bucket` `SegmentedControl`) render ONLY where the report passes them
+  in `controls` — velocity and sprint consistency pass none, throughput passes domain view, domain,
+  activity type, work category and bucket (not breakdown, which it ignores). Every report is also a
+  command-palette entry (`REPORT_PALETTE_LEAVES`, palette-only: the sidebar carries one Delivery leaf).
+- **Distributions** (`components/DistributionPanel.tsx`): a `Distribution` renders as a percentile
+  strip (median p50, p90, p95, mean, item count), a lazy `DistributionHistogram` (single blue series,
+  no legend) and the histogram as a table; `hidden` (fewer items than `meta.minSampleSize`)
+  replaces all of it with `MinSampleNotice` (gray, names n and the minimum — never a warning: a small
+  sample is a fact about the selection). Units come in through `format`: accuracy ratios via
+  `formatRatio` ("actual ÷ estimate", 1.00 = on estimate), fractional changes via
+  `formatSignedPercent` (`+25%`, a true minus sign), shares via `formatPercent`. A group below the
+  minimum shows its counts and a dash (`formatMedian`), never a median. `ExcludedList` is the counted, plain-language accounting of ONE distribution — rendered under the
+  distribution it describes, never merged across views, because the two views' partitions differ
+  (`n + Σ reasons == population`, spelled out as a closing equation line; the server's per-view
+  partition, pinned on the fixtures by `reportFixtures.test.ts`, like A17). Histogram range labels
+  come from `histogramLabels` (widened a decimal at a time until no two ranges print alike — no
+  "1 – 1") and the x axis is titled with what the ranges measure (`axisLabel`). Numbers are never
+  locale-formatted (repo convention): the ratio hint says "1", like the UI prints. Epic figures at USER
+  level are one `EpicsPerPersonNote` line (epics carry no user), not an empty state or zeros. Heading
+  levels: card title h3, block titles h4, distribution and accounting titles h5.
+  Task and epic accuracy show the at-start view first (D15: the primary view) and the at-done view
+  beside it; an epic's own estimate is never replaced by its child sum (both are columns). The epic
+  accuracy page offers only domain and work category (an epic's domain is its own space under either
+  domain view, and it has no activity type); the other two estimation pages offer the domain view too.
+- **Cycle time and reported time**: `DistributionWithAccounting` (panel + its own `n + Σ = population`
+  list) is the unit every distribution page composes. Cycle time shows working days (primary) and
+  elapsed days, then the trend — a `LineChart` of p50 (solid `flow.6`) and p90 (`gray.6`, DASHED, so
+  the two lines differ by dash as well as hue: the legend swatches are hue-only, so the dash, the trend
+  table's column headers and the tooltip carry identity) per week/month, reusing throughput's bucket control and its
+  "the report travels with the bucket that produced it" rule. A bucket below the minimum sample has
+  `null` p50/p90: the line BREAKS there (`connectNulls` off — a gap, never a zero) and the trend
+  table beside it prints a dash but keeps that bucket's real `n`; if no bucket is plottable a note
+  replaces the empty frame. Reported time explains in its description that the ratio is "how much of
+  the elapsed working time was logged" (actual MD ÷ cycle working days), distinct from flow
+  efficiency (active ÷ cycle time, shown as %, no "no time logged" bucket — so the two panels keep
+  separate accountings), and reads the median first (the outlier note: very short cycles dominate
+  the mean, p95 and the histogram's top; they are never dropped).
+- **Load order**: `["reports","filters"]` (staleTime 60 s) → the page query keyed
+  `["reports", <report>, <serialized filter>]`, `enabled` once the filters loaded,
+  `placeholderData: keepPreviousData` (`ReportChartCard` dims the previous body and sets `aria-busy`).
+  `ReportChartCard` owns the load/empty/error triage; the row NAME in `ReportGroupsTable` is a
+  `RouterLink` narrowing `teamId` (UNIT) or `accountId` (TEAM) — "name is the way in".
+- **Chart rules** (ported from Lettuce): charts live only in lazy chunks (the page lazy-imports its
+  chart component), each chart component imports `@mantine/charts/styles.css` itself, a legend for
+  two or more series (none for one), one axis (never dual), and every chart has its numbers in a
+  table beside it (velocity and the sprint charts: the per-sprint table; throughput's period chart:
+  `ThroughputBucketTable`). Colour is never the only carrier of identity — legend, tooltip and table are. Tests mock `@mantine/charts` (recharts draws nothing under happy-dom) and assert
+  the props. **Colour vocabulary, no new hue** — concrete shades in `utils/chartColors.ts`: blue `flow.6` =
+  plan/committed, teal `teal.8` = delivered, orange `orange.8` = carried over/added scope, red
+  `red.7` = dropped/blocked, gray `gray.6` = removed/neutral; the final-scope blue is per scheme
+  (`useComputedColorScheme`: `flow.8` light, `flow.4` dark). Every mark must clear WCAG 1.4.11
+  (≥ 3:1) on white and the `#f5f7fb` canvas (light) and the `#2e2e2e` paper and `#1f1f1f` canvas
+  (dark); `chartColors.test.ts` recomputes the ratios from the theme (the file's comment holds the
+  table: e.g. flow.6 3.56 on white, teal.8 3.44 on dark paper, red.7 3.53, orange.8 3.79, gray.6 3.32
+  on white; flow.8 is 2.70:1 on dark paper, hence `flow.4` there). Adjacent series in ONE chart must
+  also differ enough to tell apart (the dataviz validator's ΔE ≥ 15 floor): never two shades of one
+  hue side by side (velocity's initial/final pair is a known exception — legend, tooltip and table
+  carry it), and stacked segments are ordered so orange and red never touch (sprint consistency:
+  carried over · delivered · dropped, teal between). One question per chart: sprint consistency is
+  three small charts (committed vs delivered; the stacked final = carried + delivered + dropped;
+  added vs removed), not one fourteen-series chart. A report's own resolution param (`bucket`) is a
+  managed filter param, serialized into the query key; a page that must label data by the request
+  that produced it returns that request's param WITH the report (throughput's `bucket`), so a
+  refetch over kept data never mislabels the old rows.
+- **Dates are days in the configured zone**: `GET /reports/filters` returns `timeZone`
+  (`metrics.settings.time_zone`), the zone the server reads `from`/`to` in; the bar's "today", presets
+  and date-picker maximum come from `todayIsoDate(filters.timeZone)`, and dates render through
+  `utils/formatDate.ts` (`YYYY-MM-DD`, never `toLocaleString`; `formatDate(ms, fallback, timeZone)`
+  reads the calendar day in that zone — UTC only where no zone is passed);
+  MD through `utils/reportFormat.ts`'s `formatMd` (≤ 2 decimals).
+
 ## Internationalization (i18n)
 
 The SPA is **N-language by architecture** via react-i18next (`src/i18n.ts`); the shipped bundles
@@ -426,7 +527,7 @@ are English (THE default and fallback everywhere) and Polish. All user-facing st
 `const { t } = useTranslation()` / `<Trans>` — **no hardcoded UI text**. Conventions:
 
 - **Resources** live in `src/locales/{en,pl}/<area>.json`, one file per area (`appShell`, `auth`,
-  `changelog`, `common`, `dataSources`, `home`, `metrics`, `teams`, `users`); `i18n.ts` merges them into a single
+  `changelog`, `common`, `dataSources`, `home`, `metrics`, `reports`, `teams`, `users`); `i18n.ts` merges them into a single
   `translation` namespace, so keys read `area.key` (e.g. `t("auth.signIn")`). Only EN is
   statically imported — its typed `en` tree is the key canon AND the runtime fallback; every other
   language is auto-discovered from `locales/<lang>/` via `import.meta.glob`. Bundles are eager on
@@ -575,4 +676,3 @@ When a feature needs one of these, port the sibling's `web/` implementation and 
   document editor, Save-anyway, and the reader/render-model views — port these only once the Jira
   domain model needs a document- or finding-shaped list; today's Teams/Users lists are the
   `useRegistryListControls`/`Users.tsx` templates above, which is as far as the foundation goes.
-- **Lettuce's** charts (`@mantine/charts` + `recharts`) for the flow-metrics dashboards to come.

@@ -253,7 +253,7 @@ user, and slices by domain, activity type and work category.
 | 2 | **Throughput** | `fact_sprint` (sprint view), `fact_task_delivery` (period view) | delivered SP; for a calendar period: SP of tasks with `done_at` in it |
 | 3 | **Task estimation accuracy** | `fact_task_delivery`, DONE tasks with an estimate and worklogs | `actual_md ÷ estimate at start` (D15; vs estimate at done as a second view); full distribution; unestimated or worklog-less DONE tasks counted beside it, never in it |
 | 4 | **Epic estimation accuracy** | `fact_epic_delivery`, DONE epics | `actual_md ÷ own estimate at start` (D15; at done as a second view); the child-sum estimate shown alongside |
-| 5 | **Estimate adjustments** | `fact_task_delivery`, `fact_epic_delivery` | share of started items whose estimate changed after start, and the % change start → done (distribution); estimated-late items counted separately |
+| 5 | **Estimate adjustments** | `fact_task_delivery`, `fact_epic_delivery` | share of started items whose estimate changed after start, and the change start → done as a fraction (`0.25` = +25 %, a distribution); estimated-late items counted separately |
 | 6.1 | **Velocity vs throughput** | `fact_sprint` | committed and final vs delivered SP, sprint over sprint |
 | 6.2 | **Carry-over** | `fact_sprint` | carried-over SP (and dropped SP) per sprint |
 | 6.3 | **Added scope** | `fact_sprint` | SP added after sprint start (and removed) |

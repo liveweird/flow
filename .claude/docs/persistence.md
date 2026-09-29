@@ -121,8 +121,9 @@ place:
   team's current D1 Jira members) and `ingest/DataSourceService.Connections` (id+name for active
   connections — never `settings`/the encrypted API token) directly, all inside its own
   transaction — a read-only reference-data assembly, never a write.
-- `reports/ReportSupport.kt` (v0.3.0 M4 commits 10b/10c/10d, shared by `reports/VelocityReport.kt`,
-  `reports/ThroughputReport.kt` and `reports/SprintConsistencyReport.kt`) reads
+- `reports/ReportSupport.kt` (v0.3.0 M4 commits 10b/10c/10d/12, shared by `reports/VelocityReport.kt`,
+  `reports/ThroughputReport.kt`, `reports/SprintConsistencyReport.kt` and the estimation reports
+  `reports/TaskAccuracyReport.kt`/`EpicAccuracyReport.kt`/`EstimateAdjustmentsReport.kt`) reads
   `ingest/DataSourceService.Connections` (the active-connection
   scope and the `connectionId` existence check), `teams/TeamService.Teams` (the `teamId` existence
   check and team names) and `norm/WorkItemStore.People` (assignee display names) directly, inside

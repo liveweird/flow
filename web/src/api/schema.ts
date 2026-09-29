@@ -989,6 +989,180 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/reports/task-estimation-accuracy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Report 3 — task estimation accuracy (actual cost ÷ estimate, a distribution)
+         * @description Any authenticated user (D12), read-only — `.claude/docs/measures.md` "Reports 3, 4, 5". Population:
+         *     level-0 tasks (no sub-tasks — their worklogs and estimates roll into the parent) DONE in the period
+         *     (`done_at`); team = the D5 credit team, user = assignee at done, domain per `domainView` (default TASK).
+         *     `atStart` is `actual_md ÷ estimate at start` (D15, the primary view), `atDone` the same over the
+         *     estimate at done — both `Distribution`s, hidden below `minSampleSize`. A task lands in exactly ONE
+         *     exclusion bucket (`excluded`, checked in this order): `noWorklogs` (D14 — no time logged, or so little that
+         *     `actual_md` is 0.00; both views),
+         *     `neverStarted` (no `started_at`, so no estimate at start — `atStart` only), `unestimatedAtStart`
+         *     (no estimate at start, including estimated-late) / `unestimatedAtDone` (no estimate at done). So
+         *     `atStart.n + noWorklogs + neverStarted + unestimatedAtStart = population` and
+         *     `atDone.n + noWorklogs + unestimatedAtDone = population`. Levels: UNIT (default) — `groups` one per
+         *     credit team (`teamId` null = UNASSIGNED); `teamId` narrows to TEAM (`teamId=0` = the UNASSIGNED
+         *     credit) and `groups` becomes one per assignee at done (null `accountId` = unassigned); `teamId` AND
+         *     `accountId` narrow to USER (`groups` empty). Each group carries its own distributions and exclusion
+         *     counts. For `lastSprints`/`sprintId` the period is the resolved sprints' overall envelope, as in
+         *     throughput. `breakdown` is accepted by the shared parser but does not change this report.
+         */
+        get: operations["getReportTaskEstimationAccuracy"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/epic-estimation-accuracy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Report 4 — epic estimation accuracy (actual cost ÷ the epic's OWN estimate, a distribution)
+         * @description Any authenticated user (D12), read-only — `.claude/docs/measures.md` "Reports 3, 4, 5". Population:
+         *     epics DONE by their own status (D11) in the period (`done_at`); team = the epic's domain OWNER team
+         *     (A19, `teamId=0` = no owner, UNOWNED), domain = the epic's own space (an epic's domain is the same
+         *     under either `domainView`, which defaults to EPIC and is only echoed in `meta`), `workCategory`
+         *     slices; `activityType` is not an epic attribute and is ignored (not declared here). `atStart` is `actual_md ÷ OWN
+         *     estimate at start` (D15), `atDone` the same at done; the sum of the child estimates is listed
+         *     alongside in `epics` (never used as the estimate). An epic lands in exactly ONE exclusion bucket
+         *     (`excluded`): `noActual` (`actual_md = 0`), `neverStarted` (no `started_at`, so no estimate at start —
+         *     `atStart` only), else `unestimatedAtStart` / `unestimatedAtDone` (no OWN estimate at that snapshot —
+         *     e.g. a budget that is only the child sum). `epics` lists every DONE epic
+         *     in scope, newest `doneAt` first (then connection id, then issue id), at most 200 (`epicsTruncated` says when more
+         *     matched); `ratio`/`ratioAtDone` are null for an excluded epic. Levels: UNIT (default) — `groups` one
+         *     per owner team; TEAM narrows to that owner team and has no groups (epics carry no user); USER
+         *     (`teamId` AND `accountId`) is always empty. Sprint-relative periods use the resolved sprints'
+         *     envelope, as in throughput. `breakdown` is accepted but does not change this report.
+         */
+        get: operations["getReportEpicEstimationAccuracy"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/estimate-adjustments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Report 5 — estimate adjustments (how often and by how much an estimate moved after start)
+         * @description Any authenticated user (D12), read-only — `.claude/docs/measures.md` "Reports 3, 4, 5". `tasks`
+         *     (level-0 tasks: team = D5 credit team, user = assignee at done, domain per `domainView`, default
+         *     TASK) and `epics` (the epic's OWN estimate: team = owner team, domain = its own space) each carry
+         *     `AdjustmentFigures`: of the items STARTED in the period (`started_at`), how many had an estimate
+         *     change after start (`changedAfterStart`, `share` their 0..1 fraction — null, counts only, when fewer
+         *     than `minSampleSize` items started) and how many were estimated late
+         *     (no estimate at start, one later); and, over the items DONE in the period (`done_at`) with both
+         *     estimates, the distribution of the fractional change start → done (`(done − start) ÷ start`, `0.25`
+         *     is +25 percent). Estimated-late items are counted separately and never enter the distribution
+         *     (`changeExcluded`: `changeDistribution.n + estimatedLate + unestimated = population`). Attribution
+         *     (A25): a DONE task is attributed to its credit team and assignee at done, a still-OPEN task to its
+         *     current team and current assignee (branching on `done_at`; a DONE task with no credit team is
+         *     legitimately UNASSIGNED). Levels: UNIT (default) — `groups` one per team (both kinds; `teamId` null =
+         *     UNASSIGNED tasks / UNOWNED epics); TEAM narrows to that team, `groups` one per assignee at done
+         *     (tasks only, `epics` null); USER narrows tasks to that account, `epics` is empty and `groups` empty
+         *     (epics carry no user). Sprint-relative periods use the resolved sprints' envelope, as in throughput.
+         *     `breakdown` is accepted but does not change this report.
+         */
+        get: operations["getReportEstimateAdjustments"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/cycle-time": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Report 7 — cycle time (elapsed and working days, a distribution and a trend)
+         * @description Any authenticated user (D12), read-only — `.claude/docs/measures.md` "Reports 7, 8". Population:
+         *     level-0 tasks (no sub-tasks) DONE in the period (`done_at`); team = the D5 credit team, user = assignee
+         *     at done, domain per `domainView` (default TASK). Cycle time = `done_at − started_at` (first entry into
+         *     an IN_PROGRESS stage to the start of the trailing DONE run, so a reopened task counts its whole
+         *     first-start-to-final-done span): `elapsedDays` is wall-clock days (`cycle_ms`), `workingDays` the
+         *     configured calendar's working days (`cycle_working_days`); both `Distribution`s, hidden below
+         *     `minSampleSize`. The only exclusion is `excluded.neverStarted` (no `started_at`, hence no cycle — e.g.
+         *     created straight into DONE); a cycle of zero working days is a real value and stays in. So
+         *     `workingDays.n = population − neverStarted`. `trend` has one bucket per week (Monday start) or month
+         *     (`bucket`, default WEEK, in the configured zone) across the whole window, zero-filled, by `done_at`, on
+         *     working days: `p50`/`p90` null when the bucket's `n` is below `minSampleSize`. Levels: UNIT (default) —
+         *     `groups` one per credit team (`teamId` null = UNASSIGNED); `teamId` narrows to TEAM (`teamId=0` = the
+         *     UNASSIGNED credit) and `groups` becomes one per assignee at done; `teamId` AND `accountId` narrow to
+         *     USER (`groups` empty). Sprint-relative periods use the resolved sprints' envelope, as in throughput.
+         *     Epics are not part of this report. `breakdown` is accepted but does not change it.
+         */
+        get: operations["getReportCycleTime"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/reported-time-ratio": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Report 8 — reported time ÷ cycle time (man-days logged per working day of cycle)
+         * @description Any authenticated user (D12), read-only — `.claude/docs/measures.md` "Reports 7, 8". Population and
+         *     attribution as cycle time (level-0 DONE tasks by `done_at`, credit team / assignee at done, domain per
+         *     `domainView`, default TASK). `ratio` is `actual_md ÷ cycle_working_days` — how much of the elapsed working
+         *     time was logged — a `Distribution`, hidden below `minSampleSize`. Each task lands in exactly ONE
+         *     exclusion bucket (`excluded`, checked in this order): `noWorklogs` (D14 — none logged, or `actual_md` of
+         *     0.00), `neverStarted` (no `started_at`, so no cycle), `zeroCycle` (`cycle_working_days = 0`, nothing to
+         *     divide by). So `ratio.n + noWorklogs + neverStarted + zeroCycle = population`. Levels as cycle time:
+         *     UNIT `groups` per credit team, TEAM per assignee at done, USER none; each group carries its own
+         *     distribution and exclusion counts. Sprint-relative periods use the resolved sprints' envelope.
+         *     Beside the ratio, `flowEfficiency` is the status-based flow efficiency (A18) `active_ms ÷ cycle_ms` over
+         *     the same population — active time is the time in IN_PROGRESS stages minus blocked time while in progress;
+         *     `flowEfficiencyExcluded` puts each task that is not measurable in exactly ONE bucket (`neverStarted`, then
+         *     `zeroCycle` = `cycle_ms` of 0, so `flowEfficiency.n + neverStarted + zeroCycle = population`); worklogs play
+         *     no part, so a task with none is still measured. Reported time ratios can be dominated by very short
+         *     cycles, a real outlier that is never dropped: the mean, p95 and histogram reflect it.
+         *     `breakdown` is accepted but does not change this report.
+         */
+        get: operations["getReportReportedTimeRatio"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/metrics-settings": {
         parameters: {
             query?: never;
@@ -1964,6 +2138,8 @@ export interface components {
             /** Format: int64 */
             configRevision: number;
             minSampleSize: number;
+            /** @description The configured IANA time zone (`metrics.settings.time_zone`) that `from`/`to` are read in — a client renders report dates and computes period presets in it. */
+            timeZone: string;
         };
         /** @description The four figures a velocity row carries, live or frozen. */
         VelocitySnapshot: {
@@ -2151,6 +2327,189 @@ export interface components {
             meta: components["schemas"]["ReportMeta"];
             sprints: components["schemas"]["SprintConsistencySprint"][];
             groups: components["schemas"]["SprintConsistencyGroup"][];
+        };
+        /** @description DONE level-0 tasks a task-accuracy read could not turn into a ratio, each in ONE bucket (`noWorklogs` first — D14, incl. `actual_md` of 0.00, both views; then `neverStarted` — `atStart` only; then `unestimatedAtStart` / `unestimatedAtDone`). `atStart.n + noWorklogs + neverStarted + unestimatedAtStart = population`; `atDone.n + noWorklogs + unestimatedAtDone = population`. */
+        TaskAccuracyExcluded: {
+            population: number;
+            noWorklogs: number;
+            neverStarted: number;
+            unestimatedAtStart: number;
+            unestimatedAtDone: number;
+        };
+        /** @description A credit team (UNIT level; `teamId` null = UNASSIGNED, `accountId` null) or an assignee at done (TEAM level; a null `accountId` with a null `label` is the unassigned bucket) — always empty at USER level. */
+        TaskAccuracyGroup: {
+            /** Format: int32 */
+            teamId: number | null;
+            accountId: string | null;
+            label: string | null;
+            atStart: components["schemas"]["Distribution"];
+            atDone: components["schemas"]["Distribution"];
+            excluded: components["schemas"]["TaskAccuracyExcluded"];
+        };
+        TaskEstimationAccuracyReport: {
+            meta: components["schemas"]["ReportMeta"];
+            /** @description `actual_md ÷ estimate at start` (D15) per DONE level-0 task. */
+            atStart: components["schemas"]["Distribution"];
+            /** @description `actual_md ÷ estimate at done` per DONE level-0 task. */
+            atDone: components["schemas"]["Distribution"];
+            excluded: components["schemas"]["TaskAccuracyExcluded"];
+            groups: components["schemas"]["TaskAccuracyGroup"][];
+        };
+        /** @description DONE epics an accuracy read could not turn into a ratio, each in ONE bucket (`noActual` first, then `neverStarted` — `atStart` only — then `unestimatedAtStart` / `unestimatedAtDone`). `atStart.n + noActual + neverStarted + unestimatedAtStart = population`; `atDone.n + noActual + unestimatedAtDone = population`. */
+        EpicAccuracyExcluded: {
+            population: number;
+            noActual: number;
+            neverStarted: number;
+            unestimatedAtStart: number;
+            unestimatedAtDone: number;
+        };
+        /** @description One DONE epic in scope. `ratio` is `actualMd ÷ ownEstimateAtStartMd` (D15), `ratioAtDone` the same at done — each null when the epic is excluded from that distribution. `childSumMd` is the sum of the child estimates, shown beside the own estimate. */
+        EpicAccuracyRow: {
+            issueKey: string;
+            summary: string | null;
+            /**
+             * Format: int32
+             * @description The domain's owner team (A19); null = UNOWNED.
+             */
+            ownerTeamId: number | null;
+            /** Format: int64 */
+            doneAt: number;
+            /** Format: double */
+            ownEstimateAtStartMd: number | null;
+            /** Format: double */
+            ownEstimateAtDoneMd: number | null;
+            /** Format: double */
+            childSumMd: number;
+            /** Format: double */
+            actualMd: number;
+            /** Format: double */
+            ratio: number | null;
+            /** Format: double */
+            ratioAtDone: number | null;
+        };
+        /** @description One owner team (UNIT level only; `teamId` null = UNOWNED). */
+        EpicAccuracyGroup: {
+            /** Format: int32 */
+            teamId: number | null;
+            label: string | null;
+            atStart: components["schemas"]["Distribution"];
+            atDone: components["schemas"]["Distribution"];
+            excluded: components["schemas"]["EpicAccuracyExcluded"];
+        };
+        EpicEstimationAccuracyReport: {
+            meta: components["schemas"]["ReportMeta"];
+            /** @description `actual_md ÷ OWN estimate at start` (D15) per DONE epic. */
+            atStart: components["schemas"]["Distribution"];
+            /** @description `actual_md ÷ OWN estimate at done` per DONE epic. */
+            atDone: components["schemas"]["Distribution"];
+            excluded: components["schemas"]["EpicAccuracyExcluded"];
+            /** @description Every DONE epic in scope, newest `doneAt` first (then connection id, then issue id), at most 200. */
+            epics: components["schemas"]["EpicAccuracyRow"][];
+            /** @description True when more than 200 epics matched. */
+            epicsTruncated: boolean;
+            groups: components["schemas"]["EpicAccuracyGroup"][];
+        };
+        /** @description DONE items (by `done_at`) the change distribution could not take, each in ONE bucket: `estimatedLate` (never a `+∞` change), else `unestimated` (either estimate missing, incl. never started). `changeDistribution.n + estimatedLate + unestimated = population`. */
+        AdjustmentChangeExcluded: {
+            population: number;
+            estimatedLate: number;
+            unestimated: number;
+        };
+        /** @description The adjustment figures of one item kind. Of the items STARTED in the period: `changedAfterStart` had an estimate change after start, `share` is their 0..1 fraction (null when fewer than `minSampleSize` items started), `estimatedLate` gained an estimate only after start. `changeDistribution` is the fractional change start → done (`(done − start) ÷ start`) over items DONE in the period with both estimates. */
+        AdjustmentFigures: {
+            started: number;
+            changedAfterStart: number;
+            /** Format: double */
+            share: number | null;
+            estimatedLate: number;
+            changeDistribution: components["schemas"]["Distribution"];
+            changeExcluded: components["schemas"]["AdjustmentChangeExcluded"];
+        };
+        /** @description A team (UNIT level; `teamId` null = UNASSIGNED tasks / UNOWNED epics, `accountId` null) or an assignee at done (TEAM level, tasks only — `epics` null; a null `accountId` with a null `label` is the unassigned bucket) — always empty at USER level. */
+        EstimateAdjustmentsGroup: {
+            /** Format: int32 */
+            teamId: number | null;
+            accountId: string | null;
+            label: string | null;
+            tasks: components["schemas"]["AdjustmentFigures"];
+            epics: components["schemas"]["AdjustmentFigures"] | null;
+        };
+        EstimateAdjustmentsReport: {
+            meta: components["schemas"]["ReportMeta"];
+            tasks: components["schemas"]["AdjustmentFigures"];
+            epics: components["schemas"]["AdjustmentFigures"];
+            groups: components["schemas"]["EstimateAdjustmentsGroup"][];
+        };
+        /** @description DONE level-0 tasks a cycle-time read could not measure: `neverStarted` (no `started_at`) is the only exclusion. `workingDays.n = population - neverStarted`. */
+        CycleTimeExcluded: {
+            population: number;
+            neverStarted: number;
+        };
+        /** @description One bucket of the trend: the working-day cycle time of tasks done in the bucket. `p50`/`p90` are null when `n` is below `minSampleSize` (an empty bucket has `n` 0). */
+        CycleTimeTrendBucket: {
+            /** @description The bucket's first day, ISO date (a Monday for weeks, the 1st for months). */
+            bucketStart: string;
+            /** Format: double */
+            p50: number | null;
+            /** Format: double */
+            p90: number | null;
+            /** Format: int64 */
+            n: number;
+        };
+        /** @description A credit team (UNIT level; `teamId` null = UNASSIGNED, `accountId` null) or an assignee at done (TEAM level; a null `accountId` with a null `label` is the unassigned bucket) — always empty at USER level. */
+        CycleTimeGroup: {
+            /** Format: int32 */
+            teamId: number | null;
+            accountId: string | null;
+            label: string | null;
+            elapsedDays: components["schemas"]["Distribution"];
+            workingDays: components["schemas"]["Distribution"];
+            excluded: components["schemas"]["CycleTimeExcluded"];
+        };
+        CycleTimeReport: {
+            meta: components["schemas"]["ReportMeta"];
+            /** @description `cycle_ms` in wall-clock days per DONE level-0 task. */
+            elapsedDays: components["schemas"]["Distribution"];
+            /** @description `cycle_working_days` per DONE level-0 task. */
+            workingDays: components["schemas"]["Distribution"];
+            excluded: components["schemas"]["CycleTimeExcluded"];
+            /** @description One bucket per week/month across the whole window, zero-filled, by `done_at`, on working days. */
+            trend: components["schemas"]["CycleTimeTrendBucket"][];
+            groups: components["schemas"]["CycleTimeGroup"][];
+        };
+        /** @description DONE level-0 tasks a reported-time-ratio read could not turn into a ratio, each in ONE bucket (`noWorklogs` first, incl. `actual_md` of 0.00; then `neverStarted`; then `zeroCycle`). `ratio.n + noWorklogs + neverStarted + zeroCycle = population`. */
+        ReportedTimeExcluded: {
+            population: number;
+            noWorklogs: number;
+            neverStarted: number;
+            zeroCycle: number;
+        };
+        /** @description DONE level-0 tasks a flow-efficiency read could not measure, each in ONE bucket (`neverStarted` first, then `zeroCycle` — `cycle_ms` of 0). `flowEfficiency.n + neverStarted + zeroCycle = population`. */
+        FlowEfficiencyExcluded: {
+            population: number;
+            neverStarted: number;
+            zeroCycle: number;
+        };
+        /** @description A credit team (UNIT level; `teamId` null = UNASSIGNED, `accountId` null) or an assignee at done (TEAM level; a null `accountId` with a null `label` is the unassigned bucket) — always empty at USER level. */
+        ReportedTimeGroup: {
+            /** Format: int32 */
+            teamId: number | null;
+            accountId: string | null;
+            label: string | null;
+            ratio: components["schemas"]["Distribution"];
+            excluded: components["schemas"]["ReportedTimeExcluded"];
+            flowEfficiency: components["schemas"]["Distribution"];
+            flowEfficiencyExcluded: components["schemas"]["FlowEfficiencyExcluded"];
+        };
+        ReportedTimeRatioReport: {
+            meta: components["schemas"]["ReportMeta"];
+            /** @description `actual_md ÷ cycle_working_days` per DONE level-0 task. */
+            ratio: components["schemas"]["Distribution"];
+            excluded: components["schemas"]["ReportedTimeExcluded"];
+            /** @description A18: `active_ms ÷ cycle_ms` per DONE level-0 task with a non-zero cycle. */
+            flowEfficiency: components["schemas"]["Distribution"];
+            flowEfficiencyExcluded: components["schemas"]["FlowEfficiencyExcluded"];
+            groups: components["schemas"]["ReportedTimeGroup"][];
         };
         /** @description RFC 7807 problem detail. Served as `application/problem+json`; instance is the request path without query parameters. */
         ProblemDetail: {
@@ -3822,6 +4181,236 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SprintConsistencyReport"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getReportTaskEstimationAccuracy: {
+        parameters: {
+            query?: {
+                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. */
+                from?: components["parameters"]["ReportFrom"];
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
+                to?: components["parameters"]["ReportTo"];
+                /** @description Each team's own last N closed sprints (union at unit level). Mutually exclusive with `from`/`to`/`sprintId`. */
+                lastSprints?: components["parameters"]["ReportLastSprints"];
+                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
+                sprintId?: components["parameters"]["ReportSprintId"];
+                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
+                teamId?: components["parameters"]["ReportTeamId"];
+                /** @description One Jira account id — sets the level to USER. Requires `teamId`. */
+                accountId?: components["parameters"]["ReportAccountId"];
+                /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
+                domainView?: components["parameters"]["ReportDomainView"];
+                /** @description Restricts to one domain key. */
+                domain?: components["parameters"]["ReportDomain"];
+                /** @description Restricts to one activity type (a standard Jira issue type name). */
+                activityType?: components["parameters"]["ReportActivityType"];
+                /** @description Restricts to one work category, or the literal `UNCATEGORIZED`. */
+                workCategory?: components["parameters"]["ReportWorkCategory"];
+                /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
+                connectionId?: components["parameters"]["ReportConnectionId"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The task estimation accuracy report */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskEstimationAccuracyReport"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getReportEpicEstimationAccuracy: {
+        parameters: {
+            query?: {
+                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. */
+                from?: components["parameters"]["ReportFrom"];
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
+                to?: components["parameters"]["ReportTo"];
+                /** @description Each team's own last N closed sprints (union at unit level). Mutually exclusive with `from`/`to`/`sprintId`. */
+                lastSprints?: components["parameters"]["ReportLastSprints"];
+                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
+                sprintId?: components["parameters"]["ReportSprintId"];
+                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
+                teamId?: components["parameters"]["ReportTeamId"];
+                /** @description One Jira account id — sets the level to USER. Requires `teamId`. */
+                accountId?: components["parameters"]["ReportAccountId"];
+                /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
+                domainView?: components["parameters"]["ReportDomainView"];
+                /** @description Restricts to one domain key. */
+                domain?: components["parameters"]["ReportDomain"];
+                /** @description Restricts to one work category, or the literal `UNCATEGORIZED`. */
+                workCategory?: components["parameters"]["ReportWorkCategory"];
+                /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
+                connectionId?: components["parameters"]["ReportConnectionId"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The epic estimation accuracy report */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EpicEstimationAccuracyReport"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getReportEstimateAdjustments: {
+        parameters: {
+            query?: {
+                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. */
+                from?: components["parameters"]["ReportFrom"];
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
+                to?: components["parameters"]["ReportTo"];
+                /** @description Each team's own last N closed sprints (union at unit level). Mutually exclusive with `from`/`to`/`sprintId`. */
+                lastSprints?: components["parameters"]["ReportLastSprints"];
+                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
+                sprintId?: components["parameters"]["ReportSprintId"];
+                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
+                teamId?: components["parameters"]["ReportTeamId"];
+                /** @description One Jira account id — sets the level to USER. Requires `teamId`. */
+                accountId?: components["parameters"]["ReportAccountId"];
+                /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
+                domainView?: components["parameters"]["ReportDomainView"];
+                /** @description Restricts to one domain key. */
+                domain?: components["parameters"]["ReportDomain"];
+                /** @description Restricts to one activity type (a standard Jira issue type name). */
+                activityType?: components["parameters"]["ReportActivityType"];
+                /** @description Restricts to one work category, or the literal `UNCATEGORIZED`. */
+                workCategory?: components["parameters"]["ReportWorkCategory"];
+                /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
+                connectionId?: components["parameters"]["ReportConnectionId"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The estimate adjustments report */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EstimateAdjustmentsReport"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getReportCycleTime: {
+        parameters: {
+            query?: {
+                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. */
+                from?: components["parameters"]["ReportFrom"];
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
+                to?: components["parameters"]["ReportTo"];
+                /** @description Each team's own last N closed sprints (union at unit level). Mutually exclusive with `from`/`to`/`sprintId`. */
+                lastSprints?: components["parameters"]["ReportLastSprints"];
+                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
+                sprintId?: components["parameters"]["ReportSprintId"];
+                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
+                teamId?: components["parameters"]["ReportTeamId"];
+                /** @description One Jira account id — sets the level to USER. Requires `teamId`. */
+                accountId?: components["parameters"]["ReportAccountId"];
+                /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
+                domainView?: components["parameters"]["ReportDomainView"];
+                /** @description Restricts to one domain key. */
+                domain?: components["parameters"]["ReportDomain"];
+                /** @description Restricts to one activity type (a standard Jira issue type name). */
+                activityType?: components["parameters"]["ReportActivityType"];
+                /** @description Restricts to one work category, or the literal `UNCATEGORIZED`. */
+                workCategory?: components["parameters"]["ReportWorkCategory"];
+                /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
+                connectionId?: components["parameters"]["ReportConnectionId"];
+                /** @description The time resolution of a report's bucketed series; weeks start Monday, buckets in the configured zone. */
+                bucket?: components["parameters"]["ReportBucket"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The cycle time report */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CycleTimeReport"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getReportReportedTimeRatio: {
+        parameters: {
+            query?: {
+                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. */
+                from?: components["parameters"]["ReportFrom"];
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
+                to?: components["parameters"]["ReportTo"];
+                /** @description Each team's own last N closed sprints (union at unit level). Mutually exclusive with `from`/`to`/`sprintId`. */
+                lastSprints?: components["parameters"]["ReportLastSprints"];
+                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
+                sprintId?: components["parameters"]["ReportSprintId"];
+                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
+                teamId?: components["parameters"]["ReportTeamId"];
+                /** @description One Jira account id — sets the level to USER. Requires `teamId`. */
+                accountId?: components["parameters"]["ReportAccountId"];
+                /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
+                domainView?: components["parameters"]["ReportDomainView"];
+                /** @description Restricts to one domain key. */
+                domain?: components["parameters"]["ReportDomain"];
+                /** @description Restricts to one activity type (a standard Jira issue type name). */
+                activityType?: components["parameters"]["ReportActivityType"];
+                /** @description Restricts to one work category, or the literal `UNCATEGORIZED`. */
+                workCategory?: components["parameters"]["ReportWorkCategory"];
+                /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
+                connectionId?: components["parameters"]["ReportConnectionId"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The reported time ratio report */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportedTimeRatioReport"];
                 };
             };
             400: components["responses"]["BadRequest"];

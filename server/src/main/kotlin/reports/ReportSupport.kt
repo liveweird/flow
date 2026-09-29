@@ -2,10 +2,12 @@ package ch.nokillswit.reports
 
 import ch.nokillswit.infra.db.active
 import ch.nokillswit.ingest.DataSourceService
+import ch.nokillswit.metrics.MetricsSettingsResponse
 import ch.nokillswit.metrics.MetricsStore
 import ch.nokillswit.norm.WorkItemStore
 import ch.nokillswit.teams.TeamService
 import io.ktor.server.plugins.BadRequestException
+import java.math.BigDecimal
 import java.time.ZoneId
 import kotlinx.coroutines.flow.toList
 import org.jetbrains.exposed.v1.core.JoinType
@@ -17,15 +19,19 @@ import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.greaterEq
 import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.isNotNull
+import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.core.less
+import org.jetbrains.exposed.v1.core.or
 import org.jetbrains.exposed.v1.r2dbc.select
 import org.jetbrains.exposed.v1.r2dbc.selectAll
 
 /*
- * The sprint-scoped plumbing the SPRINT-based reports share (velocity — commit 10b, throughput —
- * commit 10c): connection scope + existence checks, the `fact_sprint` ⨝ `dim_sprint` reader, the
- * `lastSprints`/`sprintId`/`from`-`to` period resolution and the frozen-snapshot reader. Every
- * function is `internal` and runs inside the CALLER's `suspendTransaction`.
+ * The plumbing the reports share (velocity — commit 10b, throughput — commit 10c, the estimation
+ * batch — commit 12): connection scope + existence checks, the `fact_sprint` ⨝ `dim_sprint` reader,
+ * the `lastSprints`/`sprintId`/`from`-`to` period resolution, the frozen-snapshot reader, and — for
+ * the ITEM-based reports (throughput's period view, estimation accuracy/adjustments) — the period
+ * window and the `fact_task_delivery`/`fact_epic_delivery` slice predicates. Every function is
+ * `internal` and runs inside the CALLER's `suspendTransaction`.
  */
 
 /**
@@ -253,3 +259,153 @@ internal suspend fun fetchSnapshots(sprintRows: List<SprintRow>): List<SnapshotR
             )
         }
 }
+
+/** The literal `workCategory` value that selects items with no category (`.claude/docs/reports.md`). */
+internal const val UNCATEGORIZED = "UNCATEGORIZED"
+
+/**
+ * The item-anchored period's `[fromMs, toMsExclusive)` window: a `from`/`to` period as parsed; a
+ * `lastSprints`/`sprintId` period the resolved sprints' overall envelope — `[min(start_at, else
+ * complete_at, else now), max(complete_at, else now)]` (inclusive end). An OPEN sprint (no
+ * `complete_at`, reachable only by an explicit `sprintId`) therefore ends at [nowMs]; a sprint with no
+ * `start_at` starts where it ends, and a not-yet-started future sprint starts after `now`, giving an
+ * empty window and so an empty read. `null` when no sprint resolved (nothing to read).
+ */
+internal fun periodWindow(period: ReportPeriod, sprintRows: List<SprintRow>, nowMs: Long): Pair<Long, Long>? = when (period) {
+    is ReportPeriod.DateRange -> period.fromMs to period.toMs
+    else -> if (sprintRows.isEmpty()) {
+        null
+    } else {
+        sprintRows.minOf { it.startAt ?: it.completedAt ?: nowMs } to sprintRows.maxOf { it.completedAt ?: nowMs } + 1
+    }
+}
+
+/** What an ITEM-anchored report (one that reads task/epic facts by a timestamp) needs before its own query. */
+internal data class ReportScope(
+    val settings: MetricsSettingsResponse,
+    val connectionIds: List<UInt>,
+    val meta: ReportMeta,
+    /** The resolved sprint rows (empty for a `from`/`to` period narrower than sprints, and for `teamId=0`). */
+    val sprintRows: List<SprintRow>,
+    /** [periodWindow]; `null` = nothing to read. */
+    val window: Pair<Long, Long>?,
+)
+
+/**
+ * The shared preamble of the item-anchored reports: settings, connection scope, the `400` existence
+ * checks, sprint resolution (only to describe/resolve a sprint-relative period; `teamId=0` resolves no
+ * sprint at all), `meta` and the window. Runs inside the caller's transaction.
+ */
+internal suspend fun ReportService.resolveReportScope(filter: ReportFilter, nowMs: Long): ReportScope {
+    val settings = metricsConfig.read()
+    val connectionIds = resolveConnectionScope(filter.connectionId)
+    val derivedAt = latestDerivedAt(connectionIds)
+    val unassigned = filter.teamId == UNASSIGNED_TEAM_ID
+    if (!unassigned) filter.teamId?.let { requireActiveTeam(it) }
+    val narrowTeamId = filter.teamId.takeIf { filter.level != ReportLevel.UNIT && !unassigned }
+    val sprintRows = if (unassigned) emptyList() else resolveSprintRows(filter.period, connectionIds, narrowTeamId)
+    val meta = filter.toMeta(derivedAt, settings.configRevision, settings.minSampleSize, resolvedSprintGroups(filter.period, sprintRows))
+    return ReportScope(settings, connectionIds, meta, sprintRows, periodWindow(filter.period, sprintRows, nowMs))
+}
+
+/**
+ * The `fact_task_delivery` rows a task report reads, before any time anchor: the scoped connections,
+ * level-0 only (`is_subtask = false`, D2), the org filter (team = the D5 credit team, `teamId=0` =
+ * no credit team; user = assignee at done — and, with [openAttribution] (A25), an OPEN task is
+ * attributed to `current_team_id`/`current_assignee_account_id` instead, branching on `done_at`, never
+ * `COALESCE`, since a DONE task with no credit team is legitimately UNASSIGNED) and the `domain` (TASK view: the task's own domain; EPIC
+ * view: the epic's domain, an epic-less task — or one whose epic is outside the ingested scope —
+ * falling back to its own, A21), `activityType` and `workCategory` (`UNCATEGORIZED` = none) slices.
+ */
+internal fun taskFactSlice(filter: ReportFilter, connectionIds: List<UInt>, openAttribution: Boolean = false): Op<Boolean> {
+    val t = MetricsStore.FactTaskDelivery
+    var predicate: Op<Boolean> = (t.connectionId inList connectionIds) and (t.isSubtask eq false)
+    filter.teamId?.let { team ->
+        val unassigned = team == UNASSIGNED_TEAM_ID
+        val credit = if (unassigned) t.creditTeamId.isNull() else (t.creditTeamId eq team)
+        predicate = predicate and if (openAttribution) {
+            val current = if (unassigned) t.currentTeamId.isNull() else (t.currentTeamId eq team)
+            (t.doneAt.isNotNull() and credit) or (t.doneAt.isNull() and current)
+        } else {
+            credit
+        }
+    }
+    filter.accountId?.let { account ->
+        predicate = predicate and if (openAttribution) {
+            (t.doneAt.isNotNull() and (t.assigneeAccountIdAtDone eq account)) or
+                (t.doneAt.isNull() and (t.currentAssigneeAccountId eq account))
+        } else {
+            t.assigneeAccountIdAtDone eq account
+        }
+    }
+    filter.domain?.let { domain ->
+        predicate = predicate and when (filter.domainView) {
+            DomainView.TASK -> t.domainKey eq domain
+            DomainView.EPIC -> (t.epicDomainKey eq domain) or (t.epicDomainKey.isNull() and (t.domainKey eq domain))
+        }
+    }
+    filter.activityType?.let { predicate = predicate and (t.activityType eq it) }
+    filter.workCategory?.let { category ->
+        predicate = predicate and if (category == UNCATEGORIZED) t.workCategory.isNull() else (t.workCategory eq category)
+    }
+    return predicate
+}
+
+/**
+ * The `fact_epic_delivery` rows an epic report reads, before any time anchor: the scoped connections,
+ * the owner team (A19 — `teamId=0` = no owner, UNOWNED), the epic's own `domain` (an epic's domain is
+ * always its own space, so `domainView` never changes it) and `workCategory` (`UNCATEGORIZED` = none).
+ * Epics carry no activity type and no user (measures.md), so `activityType` is ignored here and a
+ * USER-level read is answered empty by the report itself.
+ */
+internal fun epicFactSlice(filter: ReportFilter, connectionIds: List<UInt>): Op<Boolean> {
+    val e = MetricsStore.FactEpicDelivery
+    var predicate: Op<Boolean> = e.connectionId inList connectionIds
+    filter.teamId?.let { team ->
+        predicate = predicate and if (team == UNASSIGNED_TEAM_ID) e.ownerTeamId.isNull() else (e.ownerTeamId eq team)
+    }
+    filter.domain?.let { predicate = predicate and (e.domainKey eq it) }
+    filter.workCategory?.let { category ->
+        predicate = predicate and if (category == UNCATEGORIZED) e.workCategory.isNull() else (e.workCategory eq category)
+    }
+    return predicate
+}
+
+/** Deterministic group order: label (null last), then team id, then account id (the tiebreakers for equal labels). */
+internal fun <T> byLabelThenId(label: (T) -> String?, teamId: (T) -> UInt?, accountId: (T) -> String?): Comparator<T> =
+    compareBy<T, String?>(nullsLast()) { label(it) }
+        .thenBy(nullsLast<UInt>()) { teamId(it) }
+        .thenBy(nullsLast<String>()) { accountId(it) }
+
+/** One org-drill entry's identity: a credit team (UNIT level, `teamId` null = UNASSIGNED) or an assignee (TEAM level). */
+internal data class OrgGroupKey(val teamId: UInt?, val accountId: String?, val label: String?)
+
+/**
+ * The org drill of a DONE-item report: UNIT groups [items] by team (label = the team name), TEAM by user (label = the
+ * Jira display name, a null account = the unassigned bucket), USER none. Ordered deterministically (label, null last,
+ * then team id, then account id). The caller turns each `(key, rows)` into its own group DTO.
+ */
+internal suspend fun <T> orgGroups(
+    level: ReportLevel,
+    items: List<T>,
+    team: (T) -> UInt?,
+    account: (T) -> String?,
+): List<Pair<OrgGroupKey, List<T>>> {
+    val keyed: List<Pair<OrgGroupKey, List<T>>> = when (level) {
+        ReportLevel.UNIT -> {
+            val byTeam = items.groupBy(team)
+            val names = teamNames(byTeam.keys.filterNotNull())
+            byTeam.map { (id, rows) -> OrgGroupKey(id, null, id?.let { names[it] ?: it.toString() }) to rows }
+        }
+        ReportLevel.TEAM -> {
+            val byAccount = items.groupBy(account)
+            val displayNames = accountDisplayNames(byAccount.keys.filterNotNull())
+            byAccount.map { (id, rows) -> OrgGroupKey(null, id, id?.let { displayNames[it] ?: it }) to rows }
+        }
+        ReportLevel.USER -> emptyList()
+    }
+    return keyed.sortedWith(byLabelThenId({ it.first.label }, { it.first.teamId }, { it.first.accountId }))
+}
+
+/** A positive estimate — `0` means unestimated (domain-model.md), and a stored `null` never reaches a division. */
+internal fun BigDecimal?.isEstimate(): Boolean = this != null && this.signum() > 0

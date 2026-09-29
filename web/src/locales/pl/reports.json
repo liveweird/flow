@@ -1,0 +1,331 @@
+{
+  "empty": "Brak danych w tym okresie",
+  "unitMd": "MD",
+  "tabs": {
+    "label": "Raporty w tej grupie",
+    "velocity": "Velocity",
+    "throughput": "Przepustowość",
+    "sprintConsistency": "Spójność sprintów",
+    "taskAccuracy": "Trafność zadań",
+    "epicAccuracy": "Trafność epików",
+    "adjustments": "Korekty",
+    "cycleTime": "Czas cyklu",
+    "reportedTime": "Zalogowany czas"
+  },
+  "meta": {
+    "derived": "Wyliczono {{date}} · wersja konfiguracji {{revision}}",
+    "notDerived": "Nie wyliczono jeszcze żadnych danych."
+  },
+  "filters": {
+    "title": "Filtry raportu",
+    "clearAria": "Wyczyść: {{name}}",
+    "period": "Okres",
+    "periodDates": "Daty",
+    "periodSprints": "Sprinty",
+    "preset": {
+      "last30": "Ostatnie 30 dni",
+      "last90": "Ostatnie 90 dni",
+      "last365": "Ostatnie 365 dni",
+      "thisMonth": "Ten miesiąc",
+      "lastMonth": "Poprzedni miesiąc",
+      "thisQuarter": "Ten kwartał",
+      "custom": "Własny zakres"
+    },
+    "lastSprints_one": "Ostatni sprint",
+    "lastSprints_few": "Ostatnie {{count}} sprinty",
+    "lastSprints_many": "Ostatnie {{count}} sprintów",
+    "lastSprints_other": "Ostatnie {{count}} sprintu",
+    "oneSprint": "Jeden sprint",
+    "range": "Zakres dat",
+    "sprint": "Sprint",
+    "team": "Zespół",
+    "allTeams": "Wszystkie zespoły",
+    "member": "Osoba",
+    "wholeTeam": "Cały zespół",
+    "domain": "Domena",
+    "activityType": "Typ aktywności",
+    "workCategory": "Kategoria pracy",
+    "uncategorized": "(bez kategorii)",
+    "anyValue": "Wszystkie",
+    "domainView": "Widok domeny",
+    "deliveredIn": "Dostarczone w",
+    "earnedIn": "Wypracowane w",
+    "breakdown": "Podziel według",
+    "breakdownOption": {
+      "NONE": "Bez podziału",
+      "DOMAIN": "Domeny",
+      "ACTIVITY_TYPE": "Typu aktywności",
+      "WORK_CATEGORY": "Kategorii pracy"
+    },
+    "bucket": "Grupuj według",
+    "bucketOption": {
+      "WEEK": "Tydzień",
+      "MONTH": "Miesiąc"
+    }
+  },
+  "groups": {
+    "byTeam": "Według zespołów",
+    "byMember": "Według osób",
+    "team": "Zespół",
+    "member": "Osoba",
+    "unassigned": "Nieprzypisane",
+    "drillAria": "Pokaż: {{name}}"
+  },
+  "velocity": {
+    "title": "Velocity",
+    "description": "Ile zespół zaplanował w sprincie: zakres zobowiązany na starcie (początkowy) w porównaniu z zakresem na koniec (końcowy).",
+    "chartTitle": "Zakres początkowy i końcowy w sprintach",
+    "series": {
+      "initial": "Początkowy (zobowiązany)",
+      "final": "Końcowy"
+    },
+    "column": {
+      "initialMd": "Początkowy (MD)",
+      "initialItems": "Początkowy (zadania)",
+      "finalMd": "Końcowy (MD)",
+      "finalItems": "Końcowy (zadania)"
+    },
+    "chartLabel": "Wykres: zakres początkowy i końcowy według sprintów",
+    "snapshot": "Zamrożone przy zakończeniu: początkowy {{initialMd}} MD, końcowy {{finalMd}} MD"
+  },
+  "items_one": "{{count}} zadanie",
+  "items_few": "{{count}} zadania",
+  "items_many": "{{count}} zadań",
+  "items_other": "{{count}} zadania",
+  "sprints": {
+    "sprint": "Sprint",
+    "team": "Zespół",
+    "completed": "Zakończony",
+    "open": "Otwarty",
+    "drift": "Od zakończenia",
+    "driftBadge": "Rozbieżność"
+  },
+  "throughput": {
+    "title": "Przepustowość",
+    "description": "Co dostarczył każdy zespół: praca zakończona w tygodniu lub miesiącu oraz zakres zrobiony w każdym sprincie. Oba widoki różnią się celowo — zadanie zakończone po zamknięciu sprintu liczy się tylko w okresie.",
+    "periodTitle": "Dostarczone w okresach",
+    "caption": {
+      "TASK": "Widok domeny: dostarczone w — zadanie liczy się w swojej domenie.",
+      "EPIC": "Widok domeny: wypracowane w — zadanie liczy się w domenie swojego epika."
+    },
+    "summary": "Dostarczone w okresie: {{md}} MD ({{items}})",
+    "chartLabel": "Wykres: dostarczony zakres według okresów",
+    "series": {
+      "delivered": "Dostarczone"
+    },
+    "sprintTitle": "Dostarczone w sprintach",
+    "sprintCaption": "Widok sprintowy: co zrobiono w sprincie, gdy zadanie w nim było, wycenione na moment zamknięcia sprintu. Ignoruje filtry domeny, typu aktywności i kategorii pracy.",
+    "column": {
+      "deliveredMd": "Dostarczone (MD)",
+      "deliveredItems": "Dostarczone (zadania)",
+      "bucketWEEK": "Tydzień od",
+      "bucketMONTH": "Miesiąc"
+    },
+    "snapshot": "Zamrożone przy zakończeniu: dostarczone {{md}} MD, {{items}}",
+    "bucketTableLabel": "Dostarczone w okresach, w tabeli"
+  },
+  "sprintConsistency": {
+    "title": "Spójność sprintów",
+    "description": "Jak zmieniał się zakres sprintu: co zobowiązano na starcie, co dodano i usunięto w trakcie oraz gdzie skończył się zakres końcowy.",
+    "scopeTitle": "Zobowiązane i dostarczone w sprintach",
+    "scopeLabel": "Wykres: zobowiązany i dostarczony zakres według sprintów",
+    "partitionTitle": "Gdzie skończył się zakres końcowy",
+    "partitionCaption": "Zakres końcowy = dostarczone + przeniesione + porzucone, więc wysokość słupka to zakres końcowy sprintu.",
+    "partitionLabel": "Wykres: zakres końcowy podzielony na przeniesiony, dostarczony i porzucony, według sprintów",
+    "changesTitle": "Zmiany zakresu w trakcie sprintu",
+    "changesLabel": "Wykres: zakres dodany i usunięty w każdym sprincie",
+    "tableTitle": "Wszystkie wartości",
+    "tableCaption": "Osobodni, a w nawiasie liczba zadań.",
+    "series": {
+      "committed": "Zobowiązane",
+      "delivered": "Dostarczone",
+      "carriedOver": "Przeniesione",
+      "dropped": "Porzucone",
+      "added": "Dodane",
+      "removed": "Usunięte"
+    },
+    "column": {
+      "committed": "Zobowiązane",
+      "added": "Dodane",
+      "removed": "Usunięte",
+      "final": "Końcowe",
+      "delivered": "Dostarczone",
+      "carriedOver": "Przeniesione",
+      "dropped": "Porzucone"
+    },
+    "snapshot": "Zamrożone przy zakończeniu: zobowiązane {{committed}} · końcowe {{final}} · dostarczone {{delivered}} MD"
+  },
+  "minSample": {
+    "distribution_one": "Tylko {{count}} pozycja w tym wycinku — do pokazania percentyli i histogramu potrzeba co najmniej {{min}}.",
+    "distribution_few": "Tylko {{count}} pozycje w tym wycinku — do pokazania percentyli i histogramu potrzeba co najmniej {{min}}.",
+    "distribution_many": "Tylko {{count}} pozycji w tym wycinku — do pokazania percentyli i histogramu potrzeba co najmniej {{min}}.",
+    "distribution_other": "Tylko {{count}} pozycji w tym wycinku — do pokazania percentyli i histogramu potrzeba co najmniej {{min}}.",
+    "share_one": "Rozpoczęto tylko {{count}} pozycję w tym wycinku — do pokazania udziału potrzeba co najmniej {{min}}.",
+    "share_few": "Rozpoczęto tylko {{count}} pozycje w tym wycinku — do pokazania udziału potrzeba co najmniej {{min}}.",
+    "share_many": "Rozpoczęto tylko {{count}} pozycji w tym wycinku — do pokazania udziału potrzeba co najmniej {{min}}.",
+    "share_other": "Rozpoczęto tylko {{count}} pozycji w tym wycinku — do pokazania udziału potrzeba co najmniej {{min}}.",
+    "none": "W tym wycinku nie ma nic do zmierzenia."
+  },
+  "distribution": {
+    "p50": "Mediana (p50)",
+    "p90": "p90",
+    "p95": "p95",
+    "mean": "Średnia",
+    "n": "Pozycje",
+    "range": "Zakres",
+    "count": "Pozycje",
+    "histogramTable": "Histogram, w tabeli",
+    "histogramLabel": "Histogram: liczba pozycji w przedziale",
+    "yAxis": "Pozycje",
+    "stripLabel": "Percentyle"
+  },
+  "excluded": {
+    "title": "Pominięte w tym rozkładzie",
+    "population": "Z {{count}} zakończonych w tym okresie:",
+    "measured": "w rozkładzie"
+  },
+  "ratio": {
+    "axis": "koszt rzeczywisty ÷ szacunek",
+    "hint": "Stosunek 1 oznacza, że koszt rzeczywisty równa się szacunkowi; powyżej 1 kosztowało więcej."
+  },
+  "groupsCaption": {
+    "distribution": "Grupy poniżej minimalnej próby pokazują tylko liczby."
+  },
+  "taskAccuracy": {
+    "title": "Trafność szacowania zadań",
+    "description": "Jak koszt rzeczywisty zakończonych zadań ma się do ich szacunku: rzeczywiste osobodni ÷ szacunek. Podstawowy jest szacunek na starcie; drugi — szacunek w chwili zakończenia.",
+    "startTitle": "Względem szacunku na starcie",
+    "startCaption": "Widok podstawowy — szacunek, do którego zespół się zobowiązał na początku pracy.",
+    "doneTitle": "Względem szacunku przy zakończeniu",
+    "doneCaption": "Widok drugi — szacunek w chwili zakończenia zadania.",
+    "excluded": {
+      "noWorklogs": "Nie zalogowano czasu",
+      "neverStarted": "Nigdy nierozpoczęte, więc bez szacunku na starcie",
+      "unestimatedAtStart": "Bez szacunku na starcie (także wyszacowane po fakcie)",
+      "unestimatedAtDone": "Bez szacunku przy zakończeniu"
+    },
+    "column": {
+      "startN": "Na starcie (pozycje)",
+      "startMedian": "Na starcie (mediana)",
+      "doneN": "Przy zakończeniu (pozycje)",
+      "doneMedian": "Przy zakończeniu (mediana)",
+      "population": "Zakończone"
+    }
+  },
+  "epicAccuracy": {
+    "title": "Trafność szacowania epików",
+    "description": "Jak koszt rzeczywisty zakończonych epików ma się do ICH WŁASNEGO szacunku: rzeczywiste osobodni ÷ własny szacunek. Suma szacunków zadań podrzędnych jest pokazana obok i nigdy nie zastępuje szacunku.",
+    "startTitle": "Względem własnego szacunku na starcie",
+    "startCaption": "Widok podstawowy.",
+    "doneTitle": "Względem własnego szacunku przy zakończeniu",
+    "doneCaption": "Widok drugi.",
+    "excluded": {
+      "noActual": "Nie zalogowano czasu na epiku ani jego zadaniach",
+      "neverStarted": "Nigdy nierozpoczęte, więc bez szacunku na starcie",
+      "unestimatedAtStart": "Bez własnego szacunku na starcie (suma zadań nigdy go nie zastępuje)",
+      "unestimatedAtDone": "Bez własnego szacunku przy zakończeniu"
+    },
+    "epicsTitle": "Zakończone epiki",
+    "epicsTruncated": "Pokazano {{count}} najnowszych epików; rozkłady powyżej liczą wszystkie.",
+    "column": {
+      "epic": "Epik",
+      "doneAt": "Zakończony",
+      "estimateStart": "Własny szacunek na starcie (MD)",
+      "estimateDone": "Własny szacunek przy zakończeniu (MD)",
+      "childSum": "Suma zadań (MD)",
+      "actual": "Rzeczywiste (MD)",
+      "ratioStart": "Stosunek na starcie",
+      "ratioDone": "Stosunek przy zakończeniu",
+      "startN": "Na starcie (pozycje)",
+      "startMedian": "Na starcie (mediana)",
+      "doneN": "Przy zakończeniu (pozycje)",
+      "doneMedian": "Przy zakończeniu (mediana)",
+      "population": "Zakończone"
+    }
+  },
+  "adjustments": {
+    "title": "Korekty szacunków",
+    "description": "Jak często szacunek zmienia się po rozpoczęciu pracy i o ile między startem a zakończeniem. Szacunek, który pojawił się dopiero po starcie, jest liczony osobno — nigdy jako nieskończona zmiana.",
+    "tasksTitle": "Zadania",
+    "epicsTitle": "Epiki",
+    "started": "Rozpoczęte",
+    "changed": "Zmienione po starcie",
+    "share": "Udział zmienionych",
+    "late": "Wyszacowane po fakcie",
+    "changeTitle": "Zmiana od startu do zakończenia",
+    "changeHint": "(szacunek przy zakończeniu − szacunek na starcie) ÷ szacunek na starcie; +25% oznacza, że szacunek wzrósł o ćwierć.",
+    "excluded": {
+      "estimatedLate": "Wyszacowane po fakcie — bez szacunku na starcie",
+      "unestimated": "Bez szacunku na starcie lub przy zakończeniu (albo nigdy nierozpoczęte)"
+    },
+    "column": {
+      "tasksStarted": "Zadania rozpoczęte",
+      "tasksShare": "Zadania zmienione",
+      "epicsStarted": "Epiki rozpoczęte",
+      "epicsShare": "Epiki zmienione"
+    },
+    "axis": "zmiana od startu do zakończenia",
+    "lateNote": "Wyszacowane po fakcie wliczają się do zmienionych po starcie.",
+    "domainViewNote": "Widok domeny dotyczy zadań; epiki zawsze czytają własną przestrzeń."
+  },
+  "epicsNotPerPerson": "Epiki nie są przypisywane do pojedynczych osób, więc nie ma danych o epikach dla jednej osoby.",
+  "cycleTime": {
+    "title": "Czas cyklu",
+    "description": "Ile trwały zakończone zadania od pierwszego startu do zakończenia — w dniach roboczych (widok podstawowy, wg skonfigurowanego kalendarza) i w dniach kalendarzowych. Zadanie otwarte ponownie liczy się w całości.",
+    "workingTitle": "Dni robocze",
+    "workingCaption": "Widok podstawowy — dni wg skonfigurowanego kalendarza pracy.",
+    "elapsedTitle": "Dni kalendarzowe",
+    "elapsedCaption": "Widok drugi — dni zegarowe, z weekendami i świętami.",
+    "workingAxis": "dni robocze",
+    "elapsedAxis": "dni kalendarzowe",
+    "excluded": {
+      "neverStarted": "Nigdy nierozpoczęte (utworzone od razu jako zakończone), więc bez cyklu"
+    },
+    "trendTitle": "Trend: mediana i p90 w okresach",
+    "trendCaption": "Dni robocze, według okresu zakończenia zadania. Okres ze zbyt małą liczbą pozycji nie ma punktu na linii — jest przerwa, nigdy zero.",
+    "trendAllHidden": "Żaden okres nie ma dość zakończonych pozycji, by pokazać medianę i p90.",
+    "trendLabel": "Wykres: mediana i p90 czasu cyklu w dniach roboczych według okresów",
+    "trendTableLabel": "Trend, w tabeli",
+    "series": {
+      "p50": "Mediana (p50)",
+      "p90": "p90"
+    },
+    "column": {
+      "bucketWEEK": "Tydzień od",
+      "bucketMONTH": "Miesiąc",
+      "n": "Pozycje",
+      "p50": "Mediana",
+      "p90": "p90",
+      "population": "Zakończone",
+      "workingN": "Dni robocze (pozycje)",
+      "workingMedian": "Dni robocze (mediana)",
+      "elapsedN": "Dni kalendarzowe (pozycje)",
+      "elapsedMedian": "Dni kalendarzowe (mediana)"
+    },
+    "belowMinimum": "poniżej minimalnej próby"
+  },
+  "reportedTime": {
+    "title": "Zalogowany czas",
+    "description": "Jaka część upłyniętego czasu roboczego została zalogowana: zalogowane osobodni ÷ dni robocze cyklu. To nie jest efektywność przepływu, czyli udział cyklu spędzony aktywnie w toku (pokazana obok).",
+    "ratioTitle": "Zalogowany czas ÷ czas cyklu",
+    "ratioCaption": "Zalogowane osobodni na dzień roboczy cyklu — 1 oznacza pełny dzień zalogowany na każdy dzień roboczy.",
+    "ratioAxis": "zalogowane MD ÷ dni robocze cyklu",
+    "outlierNote": "Bardzo krótkie cykle dają bardzo duże stosunki. Są prawdziwe i nigdy nie są pomijane, więc najpierw czytaj medianę (p50) — średnia, p95 i prawy koniec histogramu mogą być przez nie zdominowane.",
+    "flowTitle": "Efektywność przepływu",
+    "flowCaption": "Czas aktywny ÷ czas cyklu: czas w toku i niezablokowany jako udział całego cyklu. Zalogowany czas nie ma znaczenia.",
+    "flowAxis": "czas aktywny ÷ czas cyklu",
+    "excluded": {
+      "noWorklogs": "Nie zalogowano czasu",
+      "neverStarted": "Nigdy nierozpoczęte, więc bez cyklu",
+      "zeroCycle": "Cykl równy zero dni roboczych",
+      "flowZeroCycle": "Cykl równy zero upłyniętego czasu"
+    },
+    "column": {
+      "population": "Zakończone",
+      "ratioN": "Zalogowany stosunek (pozycje)",
+      "ratioMedian": "Zalogowany stosunek (mediana)",
+      "flowN": "Efektywność przepływu (pozycje)",
+      "flowMedian": "Efektywność przepływu (mediana)"
+    }
+  }
+}

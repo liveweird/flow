@@ -48,4 +48,6 @@ data class ReportFilters(
     val derivedAt: Long?,
     val configRevision: Long,
     val minSampleSize: Int,
+    /** `metrics.settings.time_zone` (IANA) — the zone `from`/`to` are read in, so a client renders and defaults dates in it. */
+    val timeZone: String,
 )

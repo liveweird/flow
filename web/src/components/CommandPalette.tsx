@@ -6,7 +6,7 @@ import { useOs } from "@mantine/hooks";
 import { Spotlight, type SpotlightActionData, type SpotlightActionGroupData, type SpotlightFilterFunction } from "@mantine/spotlight";
 import { IconSearch } from "@tabler/icons-react";
 import { useAdmin } from "../auth";
-import { ACCOUNT_NAV, visibleSections } from "../utils/navigation";
+import { ACCOUNT_NAV, REPORT_PALETTE_LEAVES, visibleSections } from "../utils/navigation";
 import { palette, paletteStore } from "../utils/commandPalette";
 import { foldDiacritics } from "../utils/text";
 import classes from "../theme.module.css";
@@ -32,11 +32,16 @@ export default function CommandPalette() {
 
   const pages: SpotlightActionGroupData = {
     group: t("appShell.palette.groupPages"),
-    actions: [...visibleSections(admin).flatMap((section) => section.items), ...ACCOUNT_NAV].map(
+    actions: [
+      ...visibleSections(admin).flatMap((section) => section.items),
+      ...REPORT_PALETTE_LEAVES,
+      ...ACCOUNT_NAV,
+    ].map(
       (leaf) => {
         const Icon = leaf.icon;
         return {
-          id: `page:${leaf.to}`,
+          // The label is part of the id: the Delivery leaf and the Velocity report share a route.
+          id: `page:${leaf.to}:${leaf.label}`,
           label: t(leaf.label),
           leftSection: <Icon size={18} stroke={1.5} />,
           onClick: () => go(leaf.to),
