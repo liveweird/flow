@@ -1180,7 +1180,7 @@ export interface components {
             cloudId?: string | null;
         };
         /** @enum {string} */
-        SyncJobKind: "SYNC" | "RECONCILE" | "REPROCESS" | "PURGE";
+        SyncJobKind: "SYNC" | "RECONCILE" | "REPROCESS" | "PURGE" | "DERIVE";
         /** @enum {string} */
         SyncJobStatus: "PENDING" | "RUNNING" | "SUCCEEDED" | "FAILED" | "CANCELLED";
         SyncJobRequest: {
@@ -1560,6 +1560,11 @@ export interface components {
             projectKey: string;
             domainKey: string;
             domainName: string;
+            /**
+             * Format: int32
+             * @description A19/A22 — an explicitly configured owner team for this project row; every row sharing the same domainKey must agree (null or equal). Left unset on GET, it is filled with the computed board-fallback default.
+             */
+            ownerTeamId?: number | null;
         };
         MetricsBoardTeamMapping: {
             /** Format: int64 */

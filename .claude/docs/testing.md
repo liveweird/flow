@@ -151,6 +151,57 @@ shared connection by mistake fails this test, not silently corrupts every other 
 Effect: these three classes' combined runtime fell from ~590s (one full sync per test, ~30 of them)
 to under 2 minutes (one full sync, plus a handful of cheap clones and small real-HTTP stream runs).
 
+**The derived fixture (`DerivedStubFixture`, `server/src/test/kotlin/DerivedStubFixture.kt`).**
+`MetricsDerivationTest` used to clone `SyncedStubFixture`'s raw rows and re-run PROCESS → PROFILE
+(`jira/JiraProcessStream.kt`/`jira/JiraProfileStream.kt`, ~20s) for EVERY test, most of them only to
+READ a single DERIVE's result. `SyncedStubFixture.cloneProcessedData(fromConnectionId,
+toConnectionId)` extends `cloneRawData` with the ALREADY-PROCESSED `norm.*` rows (work items,
+status/field intervals, field changes, worklogs, the rebuilt-wholesale reference tables) plus
+`source_connections.profile`/`profile_at`, copied verbatim (surrogate `SERIAL id` columns excluded,
+every other column as-is) — so a test needing a processed connection never re-runs PROCESS/PROFILE
+at all, whether or not it goes on to derive. `DerivedStubFixture` builds on that: it clones once,
+maps the FLO board (id 1) to one freshly seeded team, and derives ONCE under a pinned clock and
+`hoursPerDay = 8.0`, exactly once per JVM fork (the same `Mutex`-guarded lazy-init shape as
+`SyncedStubFixture.connectionId()`). The rule going forward, one layer up the pipeline from
+`SyncedStubFixture`'s own rule above:
+
+- **A test that only READS the result of a single DERIVE under the DEFAULT per-connection config**
+  (no config/membership/settings mutation, one derive only) calls `DerivedStubFixture.connectionId()`
+  and reads straight from it — never mutates it, never derives again.
+- **A test whose SUBJECT is a second derive, a config/membership/settings mutation, a sprint/team
+  membership setup, or a raw-row simulation** must never touch the shared derived connection — it
+  clones its OWN connection via `SyncedStubFixture.cloneProcessedData` (PROCESS/PROFILE-free, same
+  as any other processed-clone test) and derives it itself as many times as the test needs.
+- **A connection a metrics test derives itself is created DISABLED**
+  (`SyncedStubFixture.createConnection(enabled = false)`): every config change anywhere in the suite
+  (`MetricsConfigService.bumpRevision`) enqueues a DERIVE for every ENABLED connection, and a worker
+  running inside another test's `testApplication` would re-derive it with the REAL clock between
+  this test's own pinned-clock DERIVE and its assertions — a flake that only shows up in full-suite
+  order.
+- **Never re-run PROCESS/PROFILE in a metrics test unless PROCESS itself is the subject** —
+  `cloneProcessedData` (or, for a read-only test, `DerivedStubFixture` outright) is always cheaper
+  and exercises the exact same stored shape a real connection would have after its first sync.
+
+`DerivedStubFixtureTest` is the tripwire, the same role `SyncedStubFixtureTest` plays for
+`SyncedStubFixture`: it re-derives `DerivedStubFixture.metricsDigest` — an MD5 over EVERY derived
+`metrics.*` table (dimensions, bridges, facts, both daily aggregates — NOT the global `dim_date`,
+which any deriving test re-stamps, so the tripwire stays class-order independent; ordered by primary key, else
+by every hashed column; the surrogate `id`, `derive_runs` and the snapshot's `snapshot_at`/
+`reconstructed` bookkeeping excluded; the reprocess-digest pattern above, applied to invariant 12)
+— and compares it against the baseline captured the moment the fixture's own DERIVE first
+completed. **The metrics digest joins the reprocess-digest pattern:** `MetricsDigestTest` derives a
+private disabled clone twice (same clock, same `config_revision`, both inside ONE
+`withMetricsSettings` block — each wrapper call would bump the revision every derived row carries)
+and asserts identical digests plus an unchanged `fact_sprint_snapshot` row count, then does the same
+across a REPROCESS (`markAllNeedsProcessing` + the PROCESS stream over the clone's raw rows), and
+proves the digest is sensitive (one nudged value / one deleted bridge row changes it). Only that
+test opts into `includeDimDate`. A red
+digest is a real nondeterminism bug in the deriver, never grounds to loosen the test.
+`SyncedStubFixtureTest` also pins `cloneProcessedData` itself: a processed clone's
+status-interval digest must equal the source connection's. Effect: `MetricsDerivationTest`'s own
+runtime fell from ~324s (one full clone-and-reprocess per test, 16 of them) to well under a
+minute.
+
 **Runtime OpenAPI conformance.** Every `/api/` interaction the server test suite produces is
 validated against `documentation.yaml` by the `OpenApiConformance` Ktor client plugin
 (`server/src/test/kotlin/OpenApiConformance.kt`), installed via the shared test-client defaults —

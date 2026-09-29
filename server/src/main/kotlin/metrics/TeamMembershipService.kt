@@ -143,6 +143,24 @@ class TeamMembershipService(
             .map { it[TeamMembership.accountId] }.toList().toSet()
     }
 
+    /** One account's dated membership interval — `MetricsDeriver`'s own point-in-time "team at instant" read (v0.3.0 M3 commit 7). */
+    data class MembershipInterval(val teamId: UInt, val validFrom: Long, val validTo: Long?)
+
+    /**
+     * EVERY membership row, grouped by account id (v0.3.0 M3 commit 7) — loaded ONCE per DERIVE run
+     * rather than queried per issue; `metrics/MetricsDeriver.kt` resolves "team at instant" itself
+     * over this map (a plain interval-containment scan, no DB round trip per lookup).
+     */
+    suspend fun allMembershipsByAccount(): Map<String, List<MembershipInterval>> = suspendTransaction(database) {
+        TeamMembership.selectAll().toList()
+            .map { row ->
+                val interval =
+                    MembershipInterval(row[TeamMembership.teamId].value, row[TeamMembership.validFrom], row[TeamMembership.validTo])
+                interval to row[TeamMembership.accountId]
+            }
+            .groupBy({ (_, accountId) -> accountId }) { (interval, _) -> interval }
+    }
+
     private suspend fun readRow(teamId: UInt, membershipId: UInt): TeamMembershipResponse? =
         TeamMembership.selectAll().where { (TeamMembership.id eq membershipId) and (TeamMembership.teamId eq teamId) }
             .toList().singleOrNull()?.toResponse()

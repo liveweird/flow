@@ -1847,7 +1847,7 @@ components:
 
     SyncJobKind:
       type: string
-      enum: [SYNC, RECONCILE, REPROCESS, PURGE]
+      enum: [SYNC, RECONCILE, REPROCESS, PURGE, DERIVE]
     SyncJobStatus:
       type: string
       enum: [PENDING, RUNNING, SUCCEEDED, FAILED, CANCELLED]
@@ -2234,6 +2234,12 @@ components:
         projectKey: { type: string }
         domainKey: { type: string }
         domainName: { type: string }
+        ownerTeamId:
+          type: integer
+          format: int32
+          minimum: 0
+          nullable: true
+          description: "A19/A22 — an explicitly configured owner team for this project row; every row sharing the same domainKey must agree (null or equal). Left unset on GET, it is filled with the computed board-fallback default."
     MetricsBoardTeamMapping:
       type: object
       required: [boardId, teamId]

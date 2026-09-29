@@ -2,17 +2,22 @@ package ch.nokillswit
 
 import ch.nokillswit.infra.crypto.DEV_DATA_ENCRYPTION_KEY
 import ch.nokillswit.infra.crypto.FieldCipher
+import ch.nokillswit.infra.paging.PageRequest
 import ch.nokillswit.ingest.CustomFieldProfile
 import ch.nokillswit.ingest.DataProfileSections
 import ch.nokillswit.ingest.DataSourceRequest
 import ch.nokillswit.ingest.DataSourceService
 import ch.nokillswit.ingest.JiraAuthScheme
 import ch.nokillswit.ingest.JiraConnectionRequest
+import ch.nokillswit.ingest.SyncJobKind
+import ch.nokillswit.ingest.SyncJobListFilter
+import ch.nokillswit.ingest.SyncJobsService
 import ch.nokillswit.ingest.defaultBackfillFrom
 import ch.nokillswit.metrics.DataSourceMetricsConfigRequest
 import ch.nokillswit.metrics.MetricsConfigService
 import ch.nokillswit.metrics.MetricsFieldConfig
 import ch.nokillswit.metrics.MetricsStage
+import ch.nokillswit.metrics.asRequest
 import ch.nokillswit.metrics.MetricsWorkCategoryMapping
 import ch.nokillswit.norm.IntervalSource
 import ch.nokillswit.norm.NormalizedIssue
@@ -43,8 +48,10 @@ class MetricsConfigServiceTest {
 
     private fun dataSources() = DataSourceService(sharedDatabaseForTests(), FieldCipher(DEV_DATA_ENCRYPTION_KEY))
     private fun workItems() = WorkItemStore(sharedDatabaseForTests())
-    private fun metricsConfig(dataSources: DataSourceService) =
-        MetricsConfigService(sharedDatabaseForTests(), workItems(), dataSources)
+    private fun syncJobs() = SyncJobsService(sharedDatabaseForTests(), 3)
+    private fun metricsConfig(dataSources: DataSourceService, jobs: SyncJobsService = syncJobs()) =
+        MetricsConfigService(sharedDatabaseForTests(), workItems(), dataSources, jobs)
+    private fun pagingAll() = PageRequest(page = 1, pageSize = 100, sort = emptyList())
 
     private val migrated = AtomicBoolean(false)
     private fun ensureMigrated() {
@@ -258,5 +265,62 @@ class MetricsConfigServiceTest {
         assertEquals(1, result.size)
         val optionsResponse = metricsConfig(ds).options(connId, "customfield_9002")
         assertEquals(false, optionsResponse.workCategoryValuesTruncated)
+    }
+
+    @Test
+    fun `bumpRevision enqueues a DERIVE job for every enabled active connection`() = runBlocking {
+        ensureMigrated()
+        val ds = dataSources()
+        val jobs = syncJobs()
+        val config = metricsConfig(ds, jobs)
+        val connA = createConnection(ds)
+        val connB = createConnection(ds)
+
+        config.bumpRevision()
+
+        val deriveA = jobs.list(connA, SyncJobListFilter(kind = SyncJobKind.DERIVE), pagingAll()).items
+        val deriveB = jobs.list(connB, SyncJobListFilter(kind = SyncJobKind.DERIVE), pagingAll()).items
+        assertEquals(1, deriveA.size, "every enabled, active connection must get its own DERIVE job")
+        assertEquals(1, deriveB.size, "every enabled, active connection must get its own DERIVE job")
+    }
+
+    @Test
+    fun `a second bumpRevision while one DERIVE job is still PENDING coalesces rather than duplicating`() = runBlocking {
+        ensureMigrated()
+        val ds = dataSources()
+        val jobs = syncJobs()
+        val config = metricsConfig(ds, jobs)
+        val connId = createConnection(ds)
+
+        config.bumpRevision()
+        config.bumpRevision()
+
+        val deriveJobs = jobs.list(connId, SyncJobListFilter(kind = SyncJobKind.DERIVE), pagingAll()).items
+        assertEquals(1, deriveJobs.size, "a second bump while the first DERIVE is still PENDING must coalesce, not duplicate")
+    }
+    @Test
+    fun `a real settings change enqueues DERIVE for an enabled connection and an identical re-PUT does not`() = runBlocking {
+        ensureMigrated()
+        val ds = dataSources()
+        val jobs = syncJobs()
+        val config = metricsConfig(ds, jobs)
+        val connId = createConnection(ds)
+        fun deriveJobs() = runBlocking { jobs.list(connId, SyncJobListFilter(kind = SyncJobKind.DERIVE), pagingAll()).items }
+        assertEquals(0, deriveJobs().size)
+
+        // withMetricsSettings restores the suite-global singleton afterwards.
+        withMetricsSettings(config, { it.copy(hoursPerDay = it.hoursPerDay + 1) }) {
+            val afterChange = deriveJobs()
+            assertEquals(1, afterChange.size, "a settings change must enqueue a DERIVE for every enabled connection")
+
+            // Cancel that job so an identical re-PUT enqueuing (wrongly) would be visible as a NEW row
+            // instead of coalescing into the still-PENDING one.
+            jobs.requestCancel(connId, afterChange.single().id)
+            val revisionBefore = config.currentRevision()
+            val identical = config.replace(config.read().asRequest(), byUserId = 1u)
+            assertEquals(false, identical.changed)
+            assertEquals(revisionBefore, config.currentRevision(), "an identical re-PUT must not bump the revision")
+            assertEquals(1, deriveJobs().size, "an identical re-PUT must not enqueue another DERIVE")
+        }
     }
 }

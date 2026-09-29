@@ -101,6 +101,10 @@ class JiraConnector(
             SyncJobKind.RECONCILE -> runReconcile(context)
             SyncJobKind.PURGE -> purgeSteps.forEach { it.purge(context.claim.connectionId) }
             SyncJobKind.REPROCESS -> runReprocess(context)
+            // DERIVE is connector-agnostic (v0.3.0 M3 commit 7) — `ingest/IngestWorker.kt`
+            // dispatches it to `metrics/MetricsDeriver.kt` BEFORE ever reaching a connector's own
+            // `run()`, so this branch is unreachable in practice; it exists only for exhaustiveness.
+            SyncJobKind.DERIVE -> Unit
         }
     }
 

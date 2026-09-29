@@ -52,10 +52,14 @@ fun interface PurgeStep {
  * (v0.2.0 plan §12 item 7, `ingest/Stream.kt`'s `StreamContext`) so they flush onto the job row
  * alongside the lease renewal. `false` means the lease is already lost — the connector must stop
  * without touching cursors (`ingest/IngestWorker.kt`'s ticker independently enforces the same
- * contract).
+ * contract). [clock] is the SAME injectable clock `IngestWorker`/`StreamContext` themselves read —
+ * `metrics/MetricsDeriver.kt`'s `derive()` is the one connector-agnostic consumer today (review
+ * round 2a: it used to carry a SEPARATE constructor-level clock of its own, unreachable from a
+ * test that only pins THIS context).
  */
 class SyncJobRunContext(
     val claim: SyncJobClaim,
+    val clock: () -> Long = System::currentTimeMillis,
     val heartbeat: suspend (progress: String?, currentStream: String?) -> Boolean,
 )
 

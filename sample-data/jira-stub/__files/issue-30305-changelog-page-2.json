@@ -47,9 +47,9 @@
         {
           "field": "Story Points",
           "fieldId": "customfield_10016",
-          "from": "",
+          "from": null,
           "fromString": "",
-          "to": "2",
+          "to": null,
           "toString": "2"
         }
       ]

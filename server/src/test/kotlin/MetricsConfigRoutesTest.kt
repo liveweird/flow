@@ -364,6 +364,140 @@ class MetricsConfigRoutesTest {
     }
 
     @Test
+    fun `a domain's owner team round-trips through GET`() = testApplication {
+        usePostgresTestcontainer()
+        val admin = seededClient("metricsownerroundtrip", UserRole.ADMIN)
+        val ownerTeamId = TestTeams.seed(unique("owner-team"))
+        val connId = runBlocking { createConnection(dataSources()) }
+        val seeded = runBlocking { seedNormFixture(connId) }
+
+        assertEquals(
+            HttpStatusCode.NoContent,
+            admin.putJson(
+                "/api/v1/data-sources/$connId/metrics-config",
+                DataSourceMetricsConfigRequest(
+                    domains = listOf(MetricsDomainMapping(seeded.projectKey, "domain-key", "Domain Name", ownerTeamId)),
+                ),
+            ).status,
+        )
+
+        val fetched = admin.getConfig(connId)
+        assertEquals(true, fetched.configured)
+        assertEquals(ownerTeamId, fetched.domains.single().ownerTeamId)
+    }
+
+    @Test
+    fun `an unknown or soft-deleted owner team is 400`() = testApplication {
+        usePostgresTestcontainer()
+        val admin = seededClient("metricsownerbadteam", UserRole.ADMIN)
+        val connId = runBlocking { createConnection(dataSources()) }
+        val seeded = runBlocking { seedNormFixture(connId) }
+
+        assertEquals(
+            HttpStatusCode.BadRequest,
+            admin.putJson(
+                "/api/v1/data-sources/$connId/metrics-config",
+                DataSourceMetricsConfigRequest(
+                    domains = listOf(MetricsDomainMapping(seeded.projectKey, "domain-key", "Domain Name", 999_999_999u)),
+                ),
+            ).status,
+            "an unknown team id",
+        )
+
+        val softDeletedTeamId = TestTeams.seed(unique("soft-deleted-owner"))
+        runBlocking { TestTeams.service.delete(softDeletedTeamId) }
+        assertEquals(
+            HttpStatusCode.BadRequest,
+            admin.putJson(
+                "/api/v1/data-sources/$connId/metrics-config",
+                DataSourceMetricsConfigRequest(
+                    domains = listOf(MetricsDomainMapping(seeded.projectKey, "domain-key", "Domain Name", softDeletedTeamId)),
+                ),
+            ).status,
+            "a soft-deleted team id",
+        )
+    }
+
+    @Test
+    fun `a same-domain owner disagreement is 400`() = testApplication {
+        usePostgresTestcontainer()
+        val admin = seededClient("metricsownerdisagree", UserRole.ADMIN)
+        val teamA = TestTeams.seed(unique("owner-team-a"))
+        val teamB = TestTeams.seed(unique("owner-team-b"))
+        val connId = runBlocking { createConnection(dataSources()) }
+        val seeded = runBlocking { seedNormFixture(connId, "PLT", "Task") }
+        val secondProjectKey = "GTM"
+        runBlocking { writeWorkItem(connId, issueId = seeded.boardId + 777, projectKey = secondProjectKey, issueType = "Bug") }
+
+        assertEquals(
+            HttpStatusCode.BadRequest,
+            admin.putJson(
+                "/api/v1/data-sources/$connId/metrics-config",
+                DataSourceMetricsConfigRequest(
+                    domains = listOf(
+                        MetricsDomainMapping(seeded.projectKey, "shared-domain", "Shared Domain", teamA),
+                        MetricsDomainMapping(secondProjectKey, "shared-domain", "Shared Domain", teamB),
+                    ),
+                ),
+            ).status,
+            "two projects in the same domain disagreeing on an owner",
+        )
+    }
+
+    @Test
+    fun `an unconfigured owner falls back to the board default the deriver would resolve`() = testApplication {
+        usePostgresTestcontainer()
+        val admin = seededClient("metricsownerdefault", UserRole.ADMIN)
+        val boardTeamId = TestTeams.seed(unique("board-owner-team"))
+        val connId = runBlocking { createConnection(dataSources()) }
+        val seeded = runBlocking { seedNormFixture(connId) }
+
+        // Truly unconfigured: no config stored anywhere yet, so no board is mapped either — the
+        // computed default's own board fallback has nothing to resolve, hence null.
+        val defaults = admin.getConfig(connId)
+        assertEquals(false, defaults.configured)
+        assertEquals(listOf(null), defaults.domains.map { it.ownerTeamId })
+
+        // Map ONLY the board to a team (never the owner itself) — the connection is now
+        // `configured`, but this domain's OWN ownerTeamId stays unset in storage; GET must still
+        // fill it with the SAME board-fallback default `MetricsDeriver.ownerTeamByDomain` would
+        // compute for a DERIVE run (`MetricsConfigService.resolveOwnerTeamByDomain` — one
+        // implementation).
+        assertEquals(
+            HttpStatusCode.NoContent,
+            admin.putJson(
+                "/api/v1/data-sources/$connId/metrics-config",
+                DataSourceMetricsConfigRequest(
+                    domains = listOf(MetricsDomainMapping(seeded.projectKey, "domain-key", "Domain Name")),
+                    boards = listOf(MetricsBoardTeamMapping(seeded.boardId, boardTeamId)),
+                ),
+            ).status,
+        )
+
+        val fetched = admin.getConfig(connId)
+        assertEquals(true, fetched.configured)
+        assertEquals(boardTeamId, fetched.domains.single().ownerTeamId)
+    }
+
+    @Test
+    fun `an identical re-PUT carrying an explicit owner team is still a no-op`() = testApplication {
+        usePostgresTestcontainer()
+        val admin = seededClient("metricsownernoop", UserRole.ADMIN)
+        val ownerTeamId = TestTeams.seed(unique("owner-team-noop"))
+        val connId = runBlocking { createConnection(dataSources()) }
+        val seeded = runBlocking { seedNormFixture(connId) }
+
+        val request = DataSourceMetricsConfigRequest(
+            domains = listOf(MetricsDomainMapping(seeded.projectKey, "domain-key", "Domain Name", ownerTeamId)),
+        )
+        assertEquals(HttpStatusCode.NoContent, admin.putJson("/api/v1/data-sources/$connId/metrics-config", request).status)
+
+        val beforeRevision = admin.configRevision()
+        assertEquals(HttpStatusCode.NoContent, admin.putJson("/api/v1/data-sources/$connId/metrics-config", request).status)
+        assertEquals(beforeRevision, admin.configRevision(), "an identical re-PUT (owner team included) must not bump the revision")
+    }
+
+    @Test
     fun `non-admin gets 403 before an unknown connection's 404 or a malformed body`() = testApplication {
         usePostgresTestcontainer()
         val user = seededClient("metricsuser403")

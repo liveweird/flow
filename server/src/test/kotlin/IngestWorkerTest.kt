@@ -23,6 +23,9 @@ import ch.nokillswit.ingest.backoffMillis
 import ch.nokillswit.ingest.MAX_BACKOFF_MILLIS
 import ch.nokillswit.ingest.defaultBackfillFrom
 import ch.nokillswit.metrics.MetricsConfigService
+import ch.nokillswit.metrics.MetricsDeriver
+import ch.nokillswit.metrics.MetricsStore
+import ch.nokillswit.metrics.TeamMembershipService
 import ch.nokillswit.norm.WorkItemStore
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.awaitCancellation
@@ -41,6 +44,7 @@ import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -52,6 +56,9 @@ import kotlin.test.assertTrue
  * of booting a whole app — which would also start a live, competing ingest worker in `all` role.
  */
 private val migrated = AtomicBoolean(false)
+
+/** A bound on the retry loops that keep ticking a scoped [IngestWorker] until ITS OWN job finishes — never an expected real-world count. */
+private const val MAX_TICK_ATTEMPTS = 50
 
 private fun ensureMigrated() {
     if (migrated.compareAndSet(false, true)) {
@@ -78,8 +85,24 @@ class IngestWorkerTest {
     private fun dataSources() = DataSourceService(sharedDatabaseForTests(), FieldCipher(DEV_DATA_ENCRYPTION_KEY))
 
     /** The PURGE step's generic config-drain dependency (v0.3.0 M1 commit 4) — a fresh instance is fine, it is stateless. */
-    private fun metricsConfig(dataSources: DataSourceService) =
-        MetricsConfigService(sharedDatabaseForTests(), WorkItemStore(sharedDatabaseForTests()), dataSources)
+    private fun metricsConfig(dataSources: DataSourceService) = MetricsConfigService(
+        sharedDatabaseForTests(),
+        WorkItemStore(sharedDatabaseForTests()),
+        dataSources,
+        SyncJobsService(sharedDatabaseForTests(), 3),
+    )
+
+    /** The PURGE step's OTHER generic dependency (round 1 review: `MetricsStore.purgeAll` had no caller) — a fresh, stateless instance. */
+    private fun metricsStore() = MetricsStore(sharedDatabaseForTests())
+
+    /** The DERIVE job's dependency (v0.3.0 M3 commit 7) — a fresh instance per test, it is stateless. */
+    private fun deriver(metrics: MetricsConfigService) = MetricsDeriver(
+        WorkItemStore(sharedDatabaseForTests()),
+        metrics,
+        TeamMembershipService(sharedDatabaseForTests(), metrics),
+        metricsStore(),
+        sharedDatabaseForTests(),
+    )
 
     /**
      * One row in EACH of the eight per-connection `metrics.*` config tables (v0.3.0 M1 commit 4
@@ -208,6 +231,9 @@ class IngestWorkerTest {
         override suspend fun run(context: SyncJobRunContext) = onRun(context)
     }
 
+    /** A job still pending or in flight — the retry loops below keep ticking while this holds. */
+    private fun isOpen(status: SyncJobStatus?) = status == null || status == SyncJobStatus.PENDING || status == SyncJobStatus.RUNNING
+
     @Test
     fun `a tick enqueues a due SYNC job, claims and runs it to success`() = runBlocking {
         ensureMigrated()
@@ -216,28 +242,55 @@ class IngestWorkerTest {
         val connId = createConnection(ds, syncIntervalMinutes = 45)
         var ran = false
         val connector = FakeConnector { ran = true }
-        // workerSlots is generous: this shared test database accumulates due-but-unclaimed SYNC
-        // jobs from other tests/classes across the whole suite run, and tick() only claims up to
-        // workerSlots per call — this must be large enough that OUR connection's job is reached
-        // within this single tick (jobs.list(connId, ...) below only inspects OUR OWN connection,
-        // so incidentally draining others' backlog through this same no-op-succeeding connector is harmless).
+        // Scoped to just this test's own connection (review round 1: a flat workerSlots = 500 drove
+        // tick() to claim-and-RUN up to 500 jobs from the ENTIRE shared test database on every call —
+        // now that a claimed DERIVE/PURGE actually does real work (MetricsStore.purgeAll, the
+        // config-revision re-derive check), that made the suite slow and its runtime dependent on
+        // whatever backlog other test classes happened to leave behind). A modest workerSlots keeps
+        // each tick() call cheap; the bounded retry loop (rather than one huge slot count) is what
+        // guarantees THIS connection's own jobs are eventually reached regardless of backlog size,
+        // so the test stays fast AND order-independent.
         val worker = IngestWorker(
             jobs,
             ds,
             metricsConfig(ds),
+            metricsStore(),
+            deriver(metricsConfig(ds)),
             mapOf(DataSourceKind.JIRA_CLOUD to connector),
-            testConfig(workerSlots = 500),
+            testConfig(workerSlots = 5),
             fixedEarlyMorningClock(),
         )
 
-        coroutineScope { worker.tick(this) }
+        // A successful SYNC now also chains a DERIVE job for this connection (v0.3.0 M3 commit 7)
+        // — filter to the SYNC kind so this assertion stays about the job under test.
+        suspend fun syncJob() = jobs.list(connId, SyncJobListFilter(kind = SyncJobKind.SYNC), pagingAll()).items.singleOrNull()
+        var job = syncJob()
+        var attempts = 0
+        while (isOpen(job?.status) && attempts < MAX_TICK_ATTEMPTS) {
+            coroutineScope { worker.tick(this) }
+            job = syncJob()
+            attempts++
+        }
 
         assertTrue(ran, "the claimed job's connector.run() must have executed")
-        val job = jobs.list(connId, SyncJobListFilter(), pagingAll()).items.single()
-        assertEquals(SyncJobStatus.SUCCEEDED, job.status)
+        assertEquals(SyncJobStatus.SUCCEEDED, job?.status)
         val connection = assertNotNull(ds.read(connId))
         assertNotNull(connection.status.lastSyncSucceededAt)
         assertEquals(0, connection.status.consecutiveFailures)
+
+        // v0.3.0 M3 commit 7: a successful SYNC chains a scheduled DERIVE job for the SAME
+        // connection — keep ticking (bounded) until it too reaches a terminal status, then assert it
+        // actually SUCCEEDED (review round 1: a bare "!= FAILED" tolerated a DERIVE job that simply
+        // had not been claimed yet within a single tick).
+        suspend fun deriveJob() = jobs.list(connId, SyncJobListFilter(kind = SyncJobKind.DERIVE), pagingAll()).items.singleOrNull()
+        var derive = deriveJob()
+        attempts = 0
+        while (isOpen(derive?.status) && attempts < MAX_TICK_ATTEMPTS) {
+            coroutineScope { worker.tick(this) }
+            derive = deriveJob()
+            attempts++
+        }
+        assertEquals(SyncJobStatus.SUCCEEDED, derive?.status, "the chained DERIVE job must actually succeed, not merely avoid FAILED")
     }
 
     @Test
@@ -252,6 +305,8 @@ class IngestWorkerTest {
             jobs,
             ds,
             metricsConfig(ds),
+            metricsStore(),
+            deriver(metricsConfig(ds)),
             mapOf(DataSourceKind.JIRA_CLOUD to connector),
             testConfig(workerSlots = 500),
             fixedEarlyMorningClock(),
@@ -278,6 +333,8 @@ class IngestWorkerTest {
             jobs,
             ds,
             metricsConfig(ds),
+            metricsStore(),
+            deriver(metricsConfig(ds)),
             mapOf(DataSourceKind.JIRA_CLOUD to connector),
             testConfig(workerSlots = 500),
             fixedEarlyMorningClock(),
@@ -285,7 +342,8 @@ class IngestWorkerTest {
 
         coroutineScope { worker.tick(this) }
 
-        val job = jobs.list(connId, SyncJobListFilter(), pagingAll()).items.single()
+        // Same DERIVE-chaining note as the "success" test above.
+        val job = jobs.list(connId, SyncJobListFilter(kind = SyncJobKind.SYNC), pagingAll()).items.single()
         assertEquals("issues", job.currentStream)
         assertEquals(1L, job.progress?.get("pages")?.jsonPrimitive?.long)
     }
@@ -322,7 +380,10 @@ class IngestWorkerTest {
 
         val config = testConfig(workerSlots = 500)
         val connector = FakeConnector { } // succeeds trivially — the connector's own purgeSteps are empty here
-        val worker = IngestWorker(jobs, ds, metrics, mapOf(DataSourceKind.JIRA_CLOUD to connector), config, System::currentTimeMillis)
+        val worker = IngestWorker(
+            jobs, ds, metrics, metricsStore(), deriver(metrics),
+            mapOf(DataSourceKind.JIRA_CLOUD to connector), config, System::currentTimeMillis,
+        )
 
         val firstJobId = jobs.requestJob(connId, SyncJobKind.PURGE, requestedByUserId = 1u, configRevision = 1L).jobId
         worker.runJob(claimFor(firstJobId, connId, SyncJobKind.PURGE))
@@ -334,6 +395,224 @@ class IngestWorkerTest {
         worker.runJob(claimFor(secondJobId, connId, SyncJobKind.PURGE))
         assertEquals(0L, countAllMetricsConfigRows(connId))
         assertEquals(SyncJobStatus.SUCCEEDED, jobs.read(connId, secondJobId)?.status)
+    }
+
+    /** A minimal, valid `metrics.fact_task_delivery` row for [connId] — every NOT NULL column filled. */
+    private fun minimalFactTaskDeliveryRow(issueId: Long) = ch.nokillswit.metrics.FactTaskDeliveryRow(
+        issueId = issueId,
+        issueKey = "ENG-$issueId",
+        createdAt = 0,
+        startedAt = null,
+        doneAt = null,
+        reopenCount = 0,
+        estimateAtStartMd = null,
+        estimateAtDoneMd = null,
+        estimateCurrentMd = null,
+        estimateSource = "NONE",
+        estimateChangesAfterStart = 0,
+        estimatedLate = false,
+        actualMd = 0.0,
+        hasWorklogs = false,
+        blockedMs = 0,
+        blockedWorkingDays = 0.0,
+        cycleMs = null,
+        cycleWorkingDays = null,
+        leadMs = null,
+        leadWorkingDays = null,
+        activeMs = 0,
+        waitMs = 0,
+        assigneeAccountIdAtDone = null,
+        assigneeTeamIdAtDone = null,
+        sprintIdAtDone = null,
+        sprintTeamIdAtDone = null,
+        creditTeamId = null,
+        currentTeamId = null,
+        currentAssigneeAccountId = null,
+        domainKey = null,
+        epicId = null,
+        epicDomainKey = null,
+        crossDomain = false,
+        activityType = "Task",
+        workCategory = null,
+        isSubtask = false,
+        parentTaskId = null,
+        currentStage = "NOT_STARTED",
+        flags = emptyList(),
+    )
+
+    /** A raw `metrics.fact_sprint_snapshot` row for [connId] — the Exposed table object (`MetricsStore.FactSprintSnapshot`)
+     * only declares its PK columns (commit 7 has no writer for this table yet), so every other NOT NULL column is filled
+     * via a literal `exec` insert instead. */
+    private suspend fun insertRawSnapshotRow(connId: UInt, sprintId: Long) {
+        suspendTransaction(sharedDatabaseForTests()) {
+            exec(
+                """
+                INSERT INTO metrics.fact_sprint_snapshot
+                    (connection_id, sprint_id, config_revision, processing_version, snapshot_at)
+                VALUES ($connId, $sprintId, 1, 1, 0)
+                """.trimIndent(),
+            )
+        }
+    }
+
+    private suspend fun countSnapshotRows(connId: UInt): Long = suspendTransaction(sharedDatabaseForTests()) {
+        MetricsStore.FactSprintSnapshot.selectAll().where { MetricsStore.FactSprintSnapshot.connectionId eq connId }.count()
+    }
+
+    @Test
+    fun `a PURGE job also drains metrics star rows and fact_sprint_snapshot rows for the connection`() = runBlocking {
+        ensureMigrated()
+        val ds = dataSources()
+        val jobs = syncJobs()
+        val metrics = metricsConfig(ds)
+        val store = metricsStore()
+        val connId = createConnection(ds)
+
+        suspendTransaction(sharedDatabaseForTests()) {
+            store.replaceFactTaskDelivery(connId, listOf(minimalFactTaskDeliveryRow(1L)), configRevision = 1L)
+        }
+        insertRawSnapshotRow(connId, sprintId = 999L)
+        val factCountBefore = suspendTransaction(sharedDatabaseForTests()) {
+            MetricsStore.FactTaskDelivery.selectAll().where { MetricsStore.FactTaskDelivery.connectionId eq connId }.count()
+        }
+        assertEquals(1L, factCountBefore, "fixture must seed exactly one fact_task_delivery row")
+        assertEquals(1L, countSnapshotRows(connId), "fixture must seed exactly one fact_sprint_snapshot row")
+
+        val config = testConfig(workerSlots = 500)
+        val connector = FakeConnector { }
+        val worker = IngestWorker(
+            jobs, ds, metrics, store, deriver(metrics),
+            mapOf(DataSourceKind.JIRA_CLOUD to connector), config, System::currentTimeMillis,
+        )
+
+        val jobId = jobs.requestJob(connId, SyncJobKind.PURGE, requestedByUserId = 1u, configRevision = 1L).jobId
+        worker.runJob(claimFor(jobId, connId, SyncJobKind.PURGE))
+
+        assertEquals(SyncJobStatus.SUCCEEDED, jobs.read(connId, jobId)?.status)
+        val factCountAfter = suspendTransaction(sharedDatabaseForTests()) {
+            MetricsStore.FactTaskDelivery.selectAll().where { MetricsStore.FactTaskDelivery.connectionId eq connId }.count()
+        }
+        assertEquals(0L, factCountAfter, "PURGE must drain the derived metrics star (review round 1: MetricsStore.purgeAll had no caller)")
+        assertEquals(0L, countSnapshotRows(connId), "PURGE must drain fact_sprint_snapshot rows too, via the allow-delete bypass")
+    }
+
+    @Test
+    fun `fact_sprint_snapshot rows are immutable outside the PURGE bypass`() = runBlocking {
+        ensureMigrated()
+        val ds = dataSources()
+        val connId = createConnection(ds)
+        insertRawSnapshotRow(connId, sprintId = 111L)
+
+        // An ordinary UPDATE must raise — the trigger rejects it unless `metrics.allow_snapshot_delete` is SET LOCAL 'on'.
+        assertFailsWith<Exception>("an ordinary UPDATE on a snapshot row must raise, not silently succeed") {
+            suspendTransaction(sharedDatabaseForTests()) {
+                exec("UPDATE metrics.fact_sprint_snapshot SET processing_version = 2 WHERE connection_id = $connId AND sprint_id = 111")
+            }
+        }
+
+        // An ordinary DELETE must raise too (review round 1: a BEFORE ROW trigger returning NULL
+        // unconditionally would silently SKIP even this permitted-by-app-code DELETE rather than
+        // actually deleting nothing while raising for UPDATE — this pins the DELETE side explicitly).
+        assertFailsWith<Exception>("an ordinary DELETE on a snapshot row must raise, not silently no-op") {
+            suspendTransaction(sharedDatabaseForTests()) {
+                exec("DELETE FROM metrics.fact_sprint_snapshot WHERE connection_id = $connId AND sprint_id = 111")
+            }
+        }
+        assertEquals(1L, countSnapshotRows(connId), "the row must still be there after both rejected mutations")
+
+        // The PURGE bypass: SET LOCAL the allow flag, then the SAME delete succeeds.
+        suspendTransaction(sharedDatabaseForTests()) {
+            exec("SET LOCAL metrics.allow_snapshot_delete = 'on'")
+            exec("DELETE FROM metrics.fact_sprint_snapshot WHERE connection_id = $connId AND sprint_id = 111")
+        }
+        assertEquals(0L, countSnapshotRows(connId), "the bypass must actually delete the row, not silently skip it too")
+    }
+
+    @Test
+    fun `onSucceeded enqueues a fresh DERIVE when the run's own config revision is now stale`() = runBlocking {
+        ensureMigrated()
+        val ds = dataSources()
+        val jobs = syncJobs()
+        val metrics = metricsConfig(ds)
+        val connId = createConnection(ds)
+        val worker = IngestWorker(
+            jobs, ds, metrics, metricsStore(), deriver(metrics),
+            mapOf(DataSourceKind.JIRA_CLOUD to FakeConnector { }), testConfig(), System::currentTimeMillis,
+        )
+
+        val staleJobId = jobs.requestJob(connId, SyncJobKind.DERIVE, requestedByUserId = 1u, configRevision = 1L).jobId
+        val revisionAtStart = metrics.currentRevision()
+        // Simulate a config PUT landing WHILE this DERIVE run was in flight — the exact race
+        // `uq_sync_jobs_open_per_kind` coalescing would otherwise swallow (review round 1 fix).
+        // The settings singleton is suite-global: restore it afterwards (withMetricsSettings) so
+        // no later test derives under a leaked hoursPerDay.
+        withMetricsSettings(metrics, { it.copy(hoursPerDay = it.hoursPerDay + 1) }) {
+            assertTrue(metrics.currentRevision() > revisionAtStart, "the bump must actually move the shared revision")
+            worker.onSucceeded(claimFor(staleJobId, connId, SyncJobKind.DERIVE), deriveRevisionUsed = revisionAtStart)
+        }
+
+        val deriveJobs = jobs.list(connId, SyncJobListFilter(kind = SyncJobKind.DERIVE), pagingAll()).items
+        assertEquals(2, deriveJobs.size, "a fresh DERIVE must be enqueued once this run's own revision is found stale")
+        assertEquals(SyncJobStatus.SUCCEEDED, jobs.read(connId, staleJobId)?.status, "the original run itself still finishes normally")
+    }
+
+    @Test
+    fun `onSucceeded does not re-enqueue DERIVE when the run's revision is still current`() = runBlocking {
+        ensureMigrated()
+        val ds = dataSources()
+        val jobs = syncJobs()
+        val metrics = metricsConfig(ds)
+        val connId = createConnection(ds)
+        val worker = IngestWorker(
+            jobs, ds, metrics, metricsStore(), deriver(metrics),
+            mapOf(DataSourceKind.JIRA_CLOUD to FakeConnector { }), testConfig(), System::currentTimeMillis,
+        )
+
+        val jobId = jobs.requestJob(connId, SyncJobKind.DERIVE, requestedByUserId = 1u, configRevision = 1L).jobId
+        val currentRevision = metrics.currentRevision()
+
+        worker.onSucceeded(claimFor(jobId, connId, SyncJobKind.DERIVE), deriveRevisionUsed = currentRevision)
+
+        val deriveJobs = jobs.list(connId, SyncJobListFilter(kind = SyncJobKind.DERIVE), pagingAll()).items
+        assertEquals(1, deriveJobs.size, "no fresh DERIVE should be enqueued when nothing about the config changed")
+    }
+
+    @Test
+    fun `onSucceeded chains a DERIVE after a successful RECONCILE`() = runBlocking {
+        ensureMigrated()
+        val ds = dataSources()
+        val jobs = syncJobs()
+        val metrics = metricsConfig(ds)
+        val connId = createConnection(ds)
+        val worker = IngestWorker(
+            jobs, ds, metrics, metricsStore(), deriver(metrics),
+            mapOf(DataSourceKind.JIRA_CLOUD to FakeConnector { }), testConfig(), System::currentTimeMillis,
+        )
+        val reconcileJobId = jobs.requestJob(connId, SyncJobKind.RECONCILE, requestedByUserId = 1u, configRevision = 1L).jobId
+
+        worker.onSucceeded(claimFor(reconcileJobId, connId, SyncJobKind.RECONCILE))
+
+        val deriveJobs = jobs.list(connId, SyncJobListFilter(kind = SyncJobKind.DERIVE), pagingAll()).items
+        assertEquals(1, deriveJobs.size, "a successful RECONCILE must chain exactly one DERIVE job")
+    }
+
+    @Test
+    fun `onSucceeded chains a DERIVE after a successful REPROCESS`() = runBlocking {
+        ensureMigrated()
+        val ds = dataSources()
+        val jobs = syncJobs()
+        val metrics = metricsConfig(ds)
+        val connId = createConnection(ds)
+        val worker = IngestWorker(
+            jobs, ds, metrics, metricsStore(), deriver(metrics),
+            mapOf(DataSourceKind.JIRA_CLOUD to FakeConnector { }), testConfig(), System::currentTimeMillis,
+        )
+        val reprocessJobId = jobs.requestJob(connId, SyncJobKind.REPROCESS, requestedByUserId = 1u, configRevision = 1L).jobId
+
+        worker.onSucceeded(claimFor(reprocessJobId, connId, SyncJobKind.REPROCESS))
+
+        val deriveJobs = jobs.list(connId, SyncJobListFilter(kind = SyncJobKind.DERIVE), pagingAll()).items
+        assertEquals(1, deriveJobs.size, "a successful REPROCESS must chain exactly one DERIVE job")
     }
 
     @Test
@@ -348,7 +627,10 @@ class IngestWorkerTest {
 
         val config = testConfig(workerSlots = 500)
         val connector = FakeConnector { error("simulated connector purge failure") }
-        val worker = IngestWorker(jobs, ds, metrics, mapOf(DataSourceKind.JIRA_CLOUD to connector), config, System::currentTimeMillis)
+        val worker = IngestWorker(
+            jobs, ds, metrics, metricsStore(), deriver(metrics),
+            mapOf(DataSourceKind.JIRA_CLOUD to connector), config, System::currentTimeMillis,
+        )
 
         val jobId = jobs.requestJob(connId, SyncJobKind.PURGE, requestedByUserId = 1u, configRevision = 1L).jobId
         worker.runJob(claimFor(jobId, connId, SyncJobKind.PURGE))
@@ -394,6 +676,8 @@ class IngestWorkerTest {
             jobs,
             ds,
             metricsConfig(ds),
+            metricsStore(),
+            deriver(metricsConfig(ds)),
             mapOf(DataSourceKind.JIRA_CLOUD to connector),
             config,
             System::currentTimeMillis,

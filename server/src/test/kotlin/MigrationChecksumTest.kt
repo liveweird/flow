@@ -35,6 +35,8 @@ class MigrationChecksumTest {
         "V13__create_norm_layer.sql" to -228001900,
         "V14__norm_phase3_gaps.sql" to -881475963,
         "V15__create_metrics_config.sql" to -414170277,
+        "V16__create_metrics_star.sql" to -1128653097,
+        "V17__metrics_contract_columns.sql" to 1803803927,
     )
 
     @Test

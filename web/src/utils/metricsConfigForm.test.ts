@@ -4,7 +4,10 @@ import {
   buildRequest,
   changedBoardIds,
   mergeWorkCategoryValues,
+  setDomainKeyForProject,
+  setOwnerTeamForDomainGroup,
   type BoardRowState,
+  type DomainRowState,
   type MetricsConfigFormState,
 } from "./metricsConfigForm";
 import type { DataSourceMetricsConfigOptions, DataSourceMetricsConfigResponse } from "../api/metrics";
@@ -42,7 +45,7 @@ describe("buildInitialState", () => {
       { statusId: "3", name: "In Progress", category: "IN_PROGRESS", stage: "", blocked: false },
       { statusId: "10", name: "Done", category: "DONE", stage: "", blocked: false },
     ]);
-    expect(state.domains).toEqual([{ projectKey: "ENG", domainKey: "ENG", domainName: "ENG" }]);
+    expect(state.domains).toEqual([{ projectKey: "ENG", domainKey: "ENG", domainName: "ENG", ownerTeamId: "" }]);
     expect(state.boards).toEqual([{ boardId: 1, name: "Board A", projectKey: "ENG", teamId: "" }]);
     expect(state.activityTypes).toEqual([{ issueType: "Story", activityType: "Story" }]);
     expect(state.sprintCapacities).toEqual([{ sprintId: 11, boardId: 1, name: "Sprint 1", state: "active", capacityMd: "" }]);
@@ -55,14 +58,19 @@ describe("buildInitialState", () => {
       configured: true,
       statusStages: [{ statusId: "3", stage: "IN_PROGRESS" }],
       blockedStatuses: ["3"],
-      domains: [{ projectKey: "ENG", domainKey: "ENGINEERING", domainName: "Engineering" }],
+      domains: [{ projectKey: "ENG", domainKey: "ENGINEERING", domainName: "Engineering", ownerTeamId: 5 }],
       boards: [{ boardId: 1, teamId: 5 }],
       activityTypes: [{ issueType: "Story", activityType: "Feature work" }],
       sprintCapacities: [{ sprintId: 11, capacityMd: 12.5 }],
     };
     const state = buildInitialState(config, OPTIONS);
     expect(state.statuses[0]).toEqual({ statusId: "3", name: "In Progress", category: "IN_PROGRESS", stage: "IN_PROGRESS", blocked: true });
-    expect(state.domains[0]).toEqual({ projectKey: "ENG", domainKey: "ENGINEERING", domainName: "Engineering" });
+    expect(state.domains[0]).toEqual({
+      projectKey: "ENG",
+      domainKey: "ENGINEERING",
+      domainName: "Engineering",
+      ownerTeamId: "5",
+    });
     expect(state.boards[0].teamId).toBe("5");
     expect(state.activityTypes[0].activityType).toBe("Feature work");
     expect(state.sprintCapacities[0].capacityMd).toBe("12.5");
@@ -108,7 +116,7 @@ describe("buildRequest", () => {
       { statusId: "10", name: "Done", category: "DONE", stage: "", blocked: false },
     ],
     fields: { estimateTask: "", estimateEpic: "", epicStart: "", epicDue: "duedate", workCategory: "customfield_10002" },
-    domains: [{ projectKey: "ENG", domainKey: "ENG", domainName: "ENG" }],
+    domains: [{ projectKey: "ENG", domainKey: "ENG", domainName: "ENG", ownerTeamId: "5" }],
     boards: [
       { boardId: 1, name: "Board A", projectKey: "ENG", teamId: "5" },
       { boardId: 2, name: "Board B", projectKey: "ENG", teamId: "" },
@@ -129,7 +137,7 @@ describe("buildRequest", () => {
     expect(request).toEqual({
       statusStages: [{ statusId: "3", stage: "IN_PROGRESS" }],
       fields: { estimateTask: null, estimateEpic: null, epicStart: null, epicDue: "duedate", workCategory: "customfield_10002" },
-      domains: [{ projectKey: "ENG", domainKey: "ENG", domainName: "ENG" }],
+      domains: [{ projectKey: "ENG", domainKey: "ENG", domainName: "ENG", ownerTeamId: 5 }],
       boards: [{ boardId: 1, teamId: 5 }],
       activityTypes: [{ issueType: "Story", activityType: "Story" }],
       workCategories: [{ valueId: "v1", valueName: "Bug", category: "Defect" }],
@@ -141,6 +149,11 @@ describe("buildRequest", () => {
   test("submits no work categories when no work-category field is chosen", () => {
     const request = buildRequest({ ...baseState, fields: { ...baseState.fields, workCategory: "" } });
     expect(request.workCategories).toEqual([]);
+  });
+
+  test("carries an unset owner team through as null", () => {
+    const request = buildRequest({ ...baseState, domains: [{ projectKey: "ENG", domainKey: "ENG", domainName: "ENG", ownerTeamId: "" }] });
+    expect(request.domains).toEqual([{ projectKey: "ENG", domainKey: "ENG", domainName: "ENG", ownerTeamId: null }]);
   });
 
   test("carries a chosen field id through instead of null", () => {
@@ -175,5 +188,59 @@ describe("changedBoardIds", () => {
     const before: BoardRowState[] = [{ boardId: 1, name: "Board A", projectKey: "ENG", teamId: "5" }];
     const after: BoardRowState[] = [{ boardId: 1, name: "Board A", projectKey: "ENG", teamId: "" }];
     expect(changedBoardIds(before, after)).toEqual(new Set());
+  });
+});
+
+describe("setOwnerTeamForDomainGroup", () => {
+  test("sets the owner on every row sharing the changed row's domain key", () => {
+    const domains: DomainRowState[] = [
+      { projectKey: "ENG", domainKey: "SHARED", domainName: "Shared", ownerTeamId: "5" },
+      { projectKey: "ENG2", domainKey: "SHARED", domainName: "Shared", ownerTeamId: "5" },
+      { projectKey: "OTHER", domainKey: "OTHER", domainName: "Other", ownerTeamId: "5" },
+    ];
+    const next = setOwnerTeamForDomainGroup(domains, "ENG", "6");
+    expect(next).toEqual([
+      { projectKey: "ENG", domainKey: "SHARED", domainName: "Shared", ownerTeamId: "6" },
+      { projectKey: "ENG2", domainKey: "SHARED", domainName: "Shared", ownerTeamId: "6" },
+      { projectKey: "OTHER", domainKey: "OTHER", domainName: "Other", ownerTeamId: "5" },
+    ]);
+  });
+
+  test("is a no-op when the changed project key is unknown", () => {
+    const domains: DomainRowState[] = [{ projectKey: "ENG", domainKey: "ENG", domainName: "ENG", ownerTeamId: "5" }];
+    expect(setOwnerTeamForDomainGroup(domains, "UNKNOWN", "6")).toBe(domains);
+  });
+});
+
+describe("setDomainKeyForProject", () => {
+  const rows = (): DomainRowState[] => [
+    { projectKey: "P1", domainKey: "P1", domainName: "P1", ownerTeamId: "5" },
+    { projectKey: "P2", domainKey: "P2", domainName: "P2", ownerTeamId: "6" },
+    { projectKey: "P3", domainKey: "P3", domainName: "P3", ownerTeamId: "" },
+  ];
+
+  test("merging into another domain gives the group the edited row's own owner, never two owners", () => {
+    const next = setDomainKeyForProject(rows(), "P2", "P1");
+    expect(next.filter((d) => d.domainKey === "P1").map((d) => d.ownerTeamId)).toEqual(["6", "6"]);
+    expect(next.find((d) => d.projectKey === "P3")?.ownerTeamId).toBe("");
+  });
+
+  test("an edited row without an owner adopts the group's existing owner", () => {
+    const next = setDomainKeyForProject(rows(), "P3", "P1");
+    expect(next.filter((d) => d.domainKey === "P1").map((d) => d.ownerTeamId)).toEqual(["5", "5"]);
+  });
+
+  test("a rename into a fresh key keeps the row's own owner and touches no other row", () => {
+    const next = setDomainKeyForProject(rows(), "P1", "NEW");
+    expect(next).toEqual([
+      { projectKey: "P1", domainKey: "NEW", domainName: "P1", ownerTeamId: "5" },
+      { projectKey: "P2", domainKey: "P2", domainName: "P2", ownerTeamId: "6" },
+      { projectKey: "P3", domainKey: "P3", domainName: "P3", ownerTeamId: "" },
+    ]);
+  });
+
+  test("is a no-op when the project key is unknown", () => {
+    const domains = rows();
+    expect(setDomainKeyForProject(domains, "UNKNOWN", "P1")).toBe(domains);
   });
 });

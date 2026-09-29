@@ -4,9 +4,10 @@ This doc defines what Flow's numbers MEAN: the entities, how they map to Jira, t
 measurement dimensions, the configuration they depend on, the analytical (`metrics`) model, the
 reports it serves, its invariants, and how known data imperfections are handled. It is the
 contract the metrics layer and every dashboard are built against. **Status: agreed 2026-09-27
-(D1–D16), validated against the target reports, not yet implemented** — the `metrics` schema, the
-PROCESS additions in "Gaps in `norm` today" and the configuration UI arrive in a later
-implementation plan (`BACKLOG.md`).
+(D1–D16), validated against the target reports; amended 2026-09-28 (A17–A21, see "Amendments"
+below); being implemented in v0.3.0** (`.claude/docs/metrics.md`). The per-measure operational
+contract — each report number's grain, time anchor, attribution, estimate snapshot, missing-data
+rule, frozen/live source and the test that pins it — is `.claude/docs/measures.md`.
 
 **Stance.** Facts stay in `norm.*` (`.claude/docs/ingestion.md` "Normalized layer" — what
 happened, never what it means); meaning lives in the `metrics` layer above it, which is rebuilt
@@ -56,13 +57,14 @@ Two slicing attributes apply to every task-level fact:
   matters). Activity types are standard issue types, one per task (D6).
 - **Work category** (Product Development, Maintenance, Cost of Poor Quality, …) — the value of a
   configurable custom field through a value → category map (1:1 by default): the **task's own
-  value, else its epic's** (D8), read at `done_at` (or now, if not done); otherwise
-  `(uncategorized)`.
+  value, else its epic's** (D8), classified as-is (the current value, under the current
+  map — see "Reading the numbers"); otherwise `(uncategorized)`.
 
 ## The three dimensions
 
 Everything is measured in **man-days (MD)**. Story points convert **1 SP = 1 MD**; worklog seconds
-convert by `hoursPerDay` (configuration, defaulting to Jira's own time-tracking setting, 8h).
+convert by `hoursPerDay` (a manual setting in v0.3.0, default 8h — reading Jira's own
+time-tracking setting is a backlog item).
 
 **Estimate snapshots.** Every task and epic keeps its estimate at four moments — at
 **commitment** (per sprint), at **start** (`started_at`), at **done** (`done_at`) and **current** —
@@ -97,7 +99,10 @@ below).
 - An epic's lifecycle comes from **its own status** (D11); where it disagrees with its children,
   the epic is flagged, never re-dated.
 - **Blocked time** = time an item spent Flagged or in a configured **blocked status** (e.g.
-  Blocked, Waiting), in working days — per item, and as a share of its cycle time.
+  Blocked, Waiting) between its `started_at` and its `done_at` (or now), in working days — per
+  item, and as a share of its cycle time.
+- **Flow efficiency** = active time ÷ cycle time, where active time is the time in IN_PROGRESS
+  stages inside the cycle minus blocked time, and wait time is the rest of the cycle (A18).
 - **Age** of an IN_PROGRESS item = working days since `started_at`, compared with its team's
   cycle-time percentiles (aging WIP).
 
@@ -119,14 +124,23 @@ Flow uses the user's vocabulary, which differs slightly from common Scrum usage:
   "delivered" by velocity — in Flow that is throughput.)
 - **Throughput** — how much a team *delivers* in a sprint: items done inside the sprint window
   while in the sprint.
-- **Commitment** — the sprint's scope at start + grace.
-- **Carry-over** — committed scope not done at completion that appears in the team's next sprint;
-  **dropped** scope is not done and in no later sprint. A carried-over task counts in the velocity
+- **Commitment** — the sprint's scope at start + grace that is still in the sprint at completion;
+  scope taken out is reported as **removed**, beside it and in no other bucket (A17).
+- **Carry-over** — scope in the sprint at completion (committed or added) that is not done and
+  appears in the team's next sprint; **dropped** scope is not done and in no later sprint. So a
+  sprint's final scope = delivered + carried over + dropped, always, and = committed + added in items
+  (in SP too, unless an item was re-estimated between its commitment and the sprint's close) (A17). A
+  task removed after being done counts as removed, not delivered. A carried-over task counts in the velocity
   of every sprint it was committed to, but in throughput only once — in the sprint where it was
   done (Jira's own convention).
 - **Backlog in sprints** — estimated backlog SP ÷ the team's mean delivered SP over its last N
   sprints: how far ahead the backlog reaches.
 - **Estimated backlog** — tasks ready to be picked up for sprint planning (D9, see Reports).
+
+See `.claude/docs/metrics.md` "Sprint scope, facts and snapshots (D13)" for how committed/added/
+removed/final/delivered/carried-over/dropped are actually computed and stored (`fact_sprint_scope`/
+`fact_sprint`), the default sprint capacity (A3), and the `fact_sprint_snapshot`/`reconstructed`
+rule this section's D13 describes.
 - **Activity type / work category** — see Entities.
 
 ## Configuration
@@ -140,7 +154,7 @@ layer (the same idea as `PROCESSING_VERSION` for `norm`): history is always read
 | Status → stage | each Jira status id → `NOT_STARTED` / `IN_PROGRESS` / `DONE`, with an optional per-domain override | seeded from Jira's status category (new / indeterminate / done); an unmapped status is flagged, never guessed |
 | Estimate field | one field id (tasks) + an optional override for epics | the field the data profile detects as `STORY_POINTS` |
 | Epic start/due fields | two field ids | "Start date" + `duedate`, or Jira Plans' "Target start"/"Target end" |
-| Project → domain | map | 1:1 |
+| Project → domain (+ owner team, A19) | map | 1:1; owner = the team of the one mapped board on that project, else none |
 | Board → team | 1:1 map (makes a sprint a team's sprint, and owns its backlog — D10) | none — must be set |
 | Team × sprint capacity | MD | members × working days − absence, editable per sprint |
 | `hoursPerDay`, working calendar, time zone | number; weekends + holidays; zone | Jira time-tracking setting; Mon–Fri; the unit's zone |
@@ -217,6 +231,10 @@ Jira user (by email) for "my numbers" shortcuts.
 - The two domain views of D3 **disagree by design** for cross-domain tasks: "delivered in domain
   X" (task's own domain) and "earned in domain X" (epic's domain) count them differently. Every
   domain-sliced chart labels which view it shows.
+- The two throughputs **disagree by design** too: the sprint view counts what was done inside the
+  sprint while in it, at its estimate at completion; the period view counts every task by its
+  `done_at`, at its estimate at done. A task finished after its sprint closed is in the second
+  only.
 - Attribution (team, domain, epic) is **as-was**; classification (activity type, work category,
   status → stage) is **as-is**, under the current configuration — so live numbers for a past
   period can move when configuration changes or late data arrives. Closed sprints are also frozen
@@ -242,7 +260,7 @@ user, and slices by domain, activity type and work category.
 | 7 | **Cycle time** | `fact_task_delivery` | per task; elapsed and working days; distribution |
 | 8 | **Reported time ÷ cycle time** | `fact_task_delivery` | `actual_md ÷ cycle time in working days` — how much of the elapsed working time was logged; distinct from the status-based flow efficiency (active ÷ total time in stages) |
 | 9 | **WIP** | `agg_daily_*` over `item_status`/`item_stage` | items in parallel per status (or stage, or board column) over time — tasks and epics |
-| 10 | **Estimated backlog depth** | `agg_daily_*` | count and SP of estimated tasks ready for planning (D9), now and as a trend; owned by the team whose board shows them, `(unowned)` otherwise |
+| 10 | **Estimated backlog depth** | `agg_daily_*` | count and SP of estimated tasks ready for planning (D9), now and as a trend; owned by the owner team of the task's domain (A19), `(unowned)` otherwise |
 | 11 | **Aging WIP** | `item_stage` + `fact_task_delivery` | the current age of every IN_PROGRESS task and epic against the team's cycle-time p50/p85/p95 over its last N done items; items past p85 highlighted |
 | 12 | **Blocked time** | `fact_task_delivery`, `fact_epic_delivery` | blocked time per item, as a share of cycle time, and as a distribution |
 | 13 | **Throughput in items; backlog in sprints** | `fact_sprint`, `agg_daily_*` | item counts beside SP in reports 1, 2, 6 and 10; backlog in sprints = estimated backlog SP ÷ mean delivered SP over the team's last N sprints |
@@ -338,6 +356,51 @@ Agreed with the user on 2026-09-27.
   second view (report 5 shows the adjustments in between).
 - **D16 — Added reports:** aging WIP, blocked time, item counts beside SP with the backlog in
   sprints, and a data-quality view (reports 11–14).
+
+## Amendments
+
+Agreed with the user on 2026-09-28, when writing `.claude/docs/measures.md` showed where the model
+above was silent or contradicted itself (the implementation plan's §0 A17–A21; `measures.md`
+carries the per-measure detail).
+
+- **A17 — Sprint buckets form a partition**: committed (in at start + grace and still in at
+  completion), added, removed (beside, removal wins over delivery), and carry-over/dropped for every
+  not-done item in the final scope — see the Glossary.
+- **A18 — Flow efficiency** (active ÷ cycle time) is a delivered measure beside report 8.
+- **A19 — A domain has an owning team** (configured per domain; the default is the team of the one
+  mapped board on that project). Epics and the estimated backlog are attributed to their domain's
+  owner team — this replaces D9's "owned by the team whose board shows it"; with no owner they are
+  `(unowned)`, and report 14 lists the domain. Tasks keep D5.
+- **A20 — Team-level EVM**: a team's PV is its sprints' committed scope, EV the scope it delivered
+  in them, AC its members' worklogs; team CPI is always shown with the team's foreign-work share
+  beside it, since that share is exactly where the author's-team cost and the sprint's-team value
+  diverge. Report 15 has epic, domain and team levels.
+- **A21 — The remaining rules** are settled from D1–D16 without a new decision: level-0 reads by
+  default (D2); an open item's team is D5 evaluated now; attribution of domain and epic is as-was at
+  `done_at` (or now); a task with no epic falls back to its own domain in the epic's-domain view;
+  WIP counts items at the end of each calendar day in the configured zone; foreign work also
+  compares the author's team with the assignee's team when the task has no sprint team. The full
+  list is in `measures.md`.
+- **A22 — Settled from the 9d Opus review** (main session, 2026-09-28; `.claude/docs/metrics.md`
+  "Derivation corrections from the measure contract" has the implementation detail):
+  - **Current sprint excludes closed sprints.** A sprint whose `complete_at ≤ now` (or whose Jira
+    `state` is `closed`) is never an open item's current sprint. A not-done task left in a closed
+    sprint is effectively backlog, so D5-at-now falls back to its assignee's team.
+  - **Now-evaluated team columns ignore soft-deleted teams.** This covers `current_team_id` and
+    `owner_team_id`: a board mapping or configured owner pointing at a soft-deleted team resolves to
+    none. As-was columns (`credit_team_id`, `author_team_id`, sprint team at done/started) keep the
+    historical team regardless.
+  - **The owner team belongs to the DOMAIN, not the project.** Resolution:
+    - use the configured owner if every project row of the domain agrees (a disagreeing PUT is a
+      400 once the API lands);
+    - else the team of the single mapped board across ALL the domain's projects;
+    - else none.
+
+    The resolved owner is persisted per domain on `dim_domain.owner_team_id` (V17), which reports
+    and data quality read.
+  - **Epic-logged worklogs.** For a worklog logged directly on an epic, foreign work compares the
+    author's team with the epic's OWNER team (A19), not the epic's assignee's team — epics carry no
+    sprint at all, so the sprint-team branch never applies to them either.
 
 ## Gaps in `norm` today
 

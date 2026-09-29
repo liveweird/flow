@@ -131,8 +131,11 @@
       "columnProject": "Klucz projektu",
       "columnDomainKey": "Klucz domeny",
       "columnDomainName": "Nazwa domeny",
+      "columnOwnerTeam": "Zespół właściciela",
       "domainKeyAria": "Klucz domeny dla {{project}}",
       "domainNameAria": "Nazwa domeny dla {{project}}",
+      "ownerTeamAria": "Zespół właściciela dla {{project}}",
+      "ownerTeamPlaceholder": "Bez właściciela",
       "empty": "Nie zaobserwowano jeszcze żadnych projektów — najpierw zsynchronizuj to połączenie."
     },
     "boards": {

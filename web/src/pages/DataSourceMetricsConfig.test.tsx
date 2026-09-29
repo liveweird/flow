@@ -158,7 +158,7 @@ describe("DataSourceMetricsConfig page", () => {
     expect(JSON.parse((putCall![1] as RequestInit).body as string)).toEqual({
       statusStages: [{ statusId: "3", stage: "IN_PROGRESS" }],
       fields: { estimateTask: null, estimateEpic: null, epicStart: null, epicDue: "duedate", workCategory: null },
-      domains: [{ projectKey: "ENG", domainKey: "ENG", domainName: "ENG" }],
+      domains: [{ projectKey: "ENG", domainKey: "ENG", domainName: "ENG", ownerTeamId: null }],
       boards: [],
       activityTypes: [{ issueType: "Story", activityType: "Story" }],
       workCategories: [],
@@ -269,6 +269,61 @@ describe("DataSourceMetricsConfig page", () => {
     expect(body.blockedStatuses).toEqual(["3"]);
   });
 
+  test("shows the stored owner team for a domain", async () => {
+    serve(mockFetch, {
+      config: {
+        ...baseConfig(true),
+        domains: [{ projectKey: "ENG", domainKey: "ENG", domainName: "ENG", ownerTeamId: 5 }],
+      },
+    });
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByText("Board A");
+    await user.click(screen.getByRole("tab", { name: "Domains" }));
+
+    const ownerSelect = (await screen.findByRole("combobox", { name: "Owner team for ENG" })) as HTMLInputElement;
+    await waitFor(() => expect(ownerSelect.value).toBe("Team A"));
+  });
+
+  test("changing the owner team on one row updates every row sharing the same domain key", async () => {
+    serve(mockFetch, {
+      config: {
+        ...baseConfig(true),
+        domains: [
+          { projectKey: "ENG", domainKey: "SHARED", domainName: "Shared", ownerTeamId: 5 },
+          { projectKey: "ENG2", domainKey: "SHARED", domainName: "Shared", ownerTeamId: 5 },
+        ],
+      },
+      optionsOverride: { projects: ["ENG", "ENG2"] },
+    });
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByText("Board A");
+    await user.click(screen.getByRole("tab", { name: "Domains" }));
+
+    const ownerSelectEng = await screen.findByRole("combobox", { name: "Owner team for ENG" });
+    await user.click(ownerSelectEng);
+    await user.click(await screen.findByRole("option", { name: "Team B" }));
+
+    const ownerSelectEng2 = (await screen.findByRole("combobox", { name: "Owner team for ENG2" })) as HTMLInputElement;
+    await waitFor(() => expect(ownerSelectEng2.value).toBe("Team B"));
+
+    await user.click(screen.getByRole("button", { name: /^save$/i }));
+
+    const putCall = await waitFor(() => {
+      const call = mockFetch.mock.calls.find(([url, init]) => url === CONFIG_URL && (init as RequestInit | undefined)?.method === "PUT");
+      expect(call).toBeTruthy();
+      return call!;
+    });
+    const body = JSON.parse((putCall[1] as RequestInit).body as string);
+    expect(body.domains).toEqual([
+      { projectKey: "ENG", domainKey: "SHARED", domainName: "Shared", ownerTeamId: 6 },
+      { projectKey: "ENG2", domainKey: "SHARED", domainName: "Shared", ownerTeamId: 6 },
+    ]);
+  });
+
   test("editing domains, activity types, a chosen work category and a sprint capacity updates the PUT body", async () => {
     serve(mockFetch, {
       config: { ...baseConfig(true), workCategories: [{ valueId: "v1", valueName: "Bug", category: "Stored default" }] },
@@ -318,7 +373,7 @@ describe("DataSourceMetricsConfig page", () => {
       return call!;
     });
     const body = JSON.parse((putCall[1] as RequestInit).body as string);
-    expect(body.domains).toEqual([{ projectKey: "ENG", domainKey: "ENGINEERING", domainName: "Engineering" }]);
+    expect(body.domains).toEqual([{ projectKey: "ENG", domainKey: "ENGINEERING", domainName: "Engineering", ownerTeamId: null }]);
     expect(body.activityTypes).toEqual([{ issueType: "Story", activityType: "Feature work" }]);
     expect(body.fields.workCategory).toBe("customfield_10002");
     expect(body.workCategories).toEqual([{ valueId: "v1", valueName: "Bug", category: "Defect" }]);

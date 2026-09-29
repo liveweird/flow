@@ -878,13 +878,15 @@ for (const issue of [...updatedIssues, movedIssue]) {
     const wasPoints = issue.storyPoints;
     if (issue.project.boardType === "scrum" && issue.type === ISSUE_TYPE.STORY) {
       issue.day2StoryPoints = rng.pick([1, 2, 3, 5, 8, 13, 21]);
+      // Real Jira Cloud number custom fields carry only fromString/toString (see the
+      // backfill-history emission above) — from/to stay null here too.
       pushHistory(issue.id, DAY2_NOW_MS, [
         {
           field: "Story Points",
           fieldId: CF.STORY_POINTS,
-          from: String(wasPoints ?? ""),
+          from: null,
           fromString: String(wasPoints ?? ""),
-          to: String(issue.day2StoryPoints),
+          to: null,
           toString: String(issue.day2StoryPoints),
         },
       ]);
@@ -1099,13 +1101,17 @@ for (const issue of startedEstimableStories) {
     issue.estimateChangedAfterStart = true;
     issue.storyPointHistory.push({ atMs: changeAtMs, value: newSp });
     estimateChangedAfterStartCount++;
+    // Real Jira Cloud number custom fields (Story Points included) carry their changelog value
+    // ONLY in fromString/toString — from/to (the id fields, meaningful for select/option fields)
+    // are null on a real tenant (`metrics/DeriveKernels.kt`'s `estimateTimeline` review round 1
+    // fix falls back to the text pair for exactly this reason).
     pushHistory(issue.id, changeAtMs, [
       {
         field: "Story Points",
         fieldId: CF.STORY_POINTS,
-        from: String(oldSp),
+        from: null,
         fromString: String(oldSp),
-        to: String(newSp),
+        to: null,
         toString: String(newSp),
       },
     ]);
@@ -1118,7 +1124,7 @@ for (const issue of startedEstimableStories) {
     issue.storyPointHistory = [{ atMs: issue.createdMs, value: null }, { atMs: changeAtMs, value: finalSp }];
     estimatedLateCount++;
     pushHistory(issue.id, changeAtMs, [
-      { field: "Story Points", fieldId: CF.STORY_POINTS, from: "", fromString: "", to: String(finalSp), toString: String(finalSp) },
+      { field: "Story Points", fieldId: CF.STORY_POINTS, from: null, fromString: "", to: null, toString: String(finalSp) },
     ]);
   }
 }
@@ -1484,17 +1490,19 @@ function computeSprintScope(project, sprint) {
       if (spAtCompletion > 0) hasNonZeroDelivered = true;
       continue; // delivered items are never also carried/dropped
     }
-    if (isCommitted) {
-      const hasLaterSprint = projectSprints.some((s, idx) => idx > sprintIndex && firstSprintEntryAt(issue, s.id) !== null);
-      if (hasLaterSprint) {
-        scope.carriedOverItems++;
-        scope.carriedOverMd += spAtCompletion;
-        scope.carriedOverIssueKeys.push(issue.key);
-      } else {
-        scope.droppedItems++;
-        scope.droppedMd += spAtCompletion;
-        scope.droppedIssueKeys.push(issue.key);
-      }
+    // A17: carried-over/dropped apply to EVERY final (in-scope-at-close) item not delivered in the
+    // sprint, committed OR added — not just committed ones. Every issue reaching this point is
+    // already final (the `if (!isFinal) continue;` guard above), so this is unconditional:
+    // final = committed + added = delivered + carried-over + dropped, always.
+    const hasLaterSprint = projectSprints.some((s, idx) => idx > sprintIndex && firstSprintEntryAt(issue, s.id) !== null);
+    if (hasLaterSprint) {
+      scope.carriedOverItems++;
+      scope.carriedOverMd += spAtCompletion;
+      scope.carriedOverIssueKeys.push(issue.key);
+    } else {
+      scope.droppedItems++;
+      scope.droppedMd += spAtCompletion;
+      scope.droppedIssueKeys.push(issue.key);
     }
   }
   scope.hasNonZeroDelivered = hasNonZeroDelivered;

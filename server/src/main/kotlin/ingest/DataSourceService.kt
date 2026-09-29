@@ -227,6 +227,16 @@ class DataSourceService(private val database: R2dbcDatabase, private val cipher:
     /** A due connection's id and its CURRENT `config_revision` (stamped onto the enqueued job). */
     data class DueConnection(val id: UInt, val configRevision: Long)
 
+    /**
+     * Every enabled, active connection's id and CURRENT `config_revision` (v0.3.0 M3 commit 7) —
+     * `MetricsConfigService.bumpRevision`'s own read, since a metrics-config mutation enqueues
+     * `DERIVE` for every one of them, not just the connection the mutation targeted.
+     */
+    suspend fun enabledActiveConnections(): List<DueConnection> = suspendTransaction(database) {
+        Connections.selectAll().where { Connections.active() and (Connections.enabled eq true) }.toList()
+            .map { DueConnection(it[Connections.id].value, it[Connections.configRevision]) }
+    }
+
     /** Enabled, active connections whose schedule has arrived (`next_sync_at` null or past) — IngestWorker's scheduler tick. */
     suspend fun dueForSync(now: Long): List<DueConnection> = suspendTransaction(database) {
         Connections.selectAll().where {

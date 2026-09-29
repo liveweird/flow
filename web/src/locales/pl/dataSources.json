@@ -32,7 +32,8 @@
       "SYNC": "Synchronizacja",
       "RECONCILE": "Uzgodnienie",
       "REPROCESS": "Przetworzenie ponowne",
-      "PURGE": "Usunięcie trwałe"
+      "PURGE": "Usunięcie trwałe",
+      "DERIVE": "Ponowne przeliczenie metryk"
     },
     "status": {
       "PENDING": "Oczekuje",

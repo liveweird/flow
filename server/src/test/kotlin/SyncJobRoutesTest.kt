@@ -90,6 +90,27 @@ class SyncJobRoutesTest {
     }
 
     @Test
+    fun `requesting a manual DERIVE job enqueues it, 202`() = testApplication {
+        // v0.3.0 M3 commit 7: DERIVE is connector-agnostic and, unlike PURGE, may be requested
+        // manually ("Re-derive now") — only PURGE stays scheduler-internal.
+        configureApp("app.role" to "web")
+        startApplication()
+        val admin = seededClient("sjderive", UserRole.ADMIN)
+        val created = admin.postJson("/api/v1/data-sources", dataSourceRequest()).body<DataSourceResponse>()
+
+        val response = admin.postJson(
+            "/api/v1/data-sources/${created.id}/sync-jobs",
+            ch.nokillswit.ingest.SyncJobRequest(SyncJobKind.DERIVE),
+        )
+        assertEquals(HttpStatusCode.Accepted, response.status)
+        val result = response.body<SyncJobActionResult>()
+        assertEquals(false, result.coalesced)
+        assertEquals(SyncJobKind.DERIVE, result.job.kind)
+        assertEquals(SyncJobStatus.PENDING, result.job.status)
+        assertEquals(created.id, result.job.connectionId)
+    }
+
+    @Test
     fun `a second request while one is open is coalesced`() = testApplication {
         configureApp("app.role" to "web")
         startApplication()

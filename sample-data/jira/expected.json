@@ -566,25 +566,28 @@
         "FLO-53"
       ],
       "carriedOverMd": 7,
-      "carriedOverItems": 4,
+      "carriedOverItems": 5,
       "carriedOverIssueKeys": [
         "FLO-54",
         "FLO-55",
         "FLO-58",
-        "FLO-61"
+        "FLO-61",
+        "FLO-62"
       ],
       "droppedMd": 22,
-      "droppedItems": 9,
+      "droppedItems": 11,
       "droppedIssueKeys": [
         "FLO-38",
         "FLO-42",
         "FLO-49",
         "FLO-50",
+        "FLO-51",
         "FLO-57",
         "FLO-59",
         "FLO-60",
         "FLO-63",
-        "FLO-64"
+        "FLO-64",
+        "FLO-65"
       ]
     },
     "epic": {

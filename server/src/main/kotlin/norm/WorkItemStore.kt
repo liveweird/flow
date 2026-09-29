@@ -20,6 +20,7 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.long
 import org.jetbrains.exposed.v1.core.*
 import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
 import org.jetbrains.exposed.v1.r2dbc.batchInsert
@@ -50,6 +51,9 @@ private fun parseAnomalies(json: String): List<TilingAnomaly> =
 
 /** The inverse of [stringArrayJson]. */
 private fun parseStringArray(json: String): List<String> = Json.parseToJsonElement(json).jsonArray.map { it.jsonPrimitive.content }
+
+/** The inverse of `longArrayJson` (`norm.work_items.current_sprint_ids`) — `WorkItemStore.workItemsForDerivation`'s own reader. */
+private fun parseLongArray(json: String): List<Long> = Json.parseToJsonElement(json).jsonArray.map { it.jsonPrimitive.long }
 
 /**
  * One custom-field value, as `(valueId, valueName)` pairs — `WorkItemStore.distinctCustomFieldValues`'
@@ -568,6 +572,81 @@ class WorkItemStore(private val database: R2dbcDatabase) {
             .map { WorklogRow(it[Worklogs.issueId], it[Worklogs.authorAccountId], it[Worklogs.timeSpentSeconds]) }.toList()
     }
 
+    /** One `norm.work_item_worklogs` row, keeping the timestamps `metrics/MetricsDeriver.kt`'s `fact_worklog` step (commit 9) needs. */
+    data class DerivationWorklogRow(
+        val worklogId: Long,
+        val issueId: Long,
+        val authorAccountId: String?,
+        val startedAt: Long,
+        val timeSpentSeconds: Long,
+        val createdAt: Long?,
+        val updatedAt: Long?,
+    )
+
+    /**
+     * Every `norm.work_item_worklogs` row for a connection, grouped by issue (v0.3.0 M3 commit 7)
+     * — `metrics/MetricsDeriver.kt`'s own per-issue read.
+     */
+    suspend fun worklogsByIssue(connectionId: UInt): Map<Long, List<DerivationWorklogRow>> = suspendTransaction(database) {
+        Worklogs.selectAll().where { Worklogs.connectionId eq connectionId }
+            .toList()
+            .map {
+                DerivationWorklogRow(
+                    worklogId = it[Worklogs.worklogId],
+                    issueId = it[Worklogs.issueId],
+                    authorAccountId = it[Worklogs.authorAccountId],
+                    startedAt = it[Worklogs.startedAt],
+                    timeSpentSeconds = it[Worklogs.timeSpentSeconds],
+                    createdAt = it[Worklogs.createdAt],
+                    updatedAt = it[Worklogs.updatedAt],
+                )
+            }
+            .groupBy { it.issueId }
+    }
+
+    /**
+     * One `norm.work_items` row's derivation-relevant columns (v0.3.0 M3 commit 7) —
+     * `metrics/MetricsDeriver.kt`'s per-issue input, LIVE (non-tombstoned) rows only.
+     */
+    data class DerivationWorkItemRow(
+        val issueId: Long,
+        val issueKey: String,
+        val projectKey: String,
+        val issueType: String,
+        val isSubtask: Boolean,
+        val parentIssueId: Long?,
+        val hierarchyLevel: Int?,
+        val summary: String?,
+        val createdAt: Long,
+        val assigneeAccountId: String?,
+        val dueAt: Long?,
+        val customFields: JsonObject,
+        val currentSprintIds: List<Long>,
+    )
+
+    /** Every LIVE work item for a connection, as [DerivationWorkItemRow] — `metrics/MetricsDeriver.kt`'s per-issue base row set. */
+    suspend fun workItemsForDerivation(connectionId: UInt): List<DerivationWorkItemRow> = suspendTransaction(database) {
+        WorkItems.selectAll().where {
+            (WorkItems.connectionId eq connectionId) and WorkItems.deletedAt.isNull() and WorkItems.movedOutAt.isNull()
+        }.toList().map { row ->
+            DerivationWorkItemRow(
+                issueId = row[WorkItems.issueId],
+                issueKey = row[WorkItems.issueKey],
+                projectKey = row[WorkItems.projectKey],
+                issueType = row[WorkItems.issueType],
+                isSubtask = row[WorkItems.isSubtask],
+                parentIssueId = row[WorkItems.parentIssueId],
+                hierarchyLevel = row[WorkItems.hierarchyLevel],
+                summary = row[WorkItems.summary],
+                createdAt = row[WorkItems.createdAt],
+                assigneeAccountId = row[WorkItems.assigneeAccountId],
+                dueAt = row[WorkItems.dueAt],
+                customFields = Json.parseToJsonElement(row[WorkItems.customFields]).jsonObject,
+                currentSprintIds = parseLongArray(row[WorkItems.currentSprintIds]),
+            )
+        }
+    }
+
     /**
      * Every `norm.work_item_field_intervals` row of [field] for a connection, as `(issueId,
      * valueId)` pairs — the sprint profile's own read.
@@ -582,11 +661,20 @@ class WorkItemStore(private val database: R2dbcDatabase) {
      * Every `norm.work_item_field_intervals` row of [field], connection-wide, grouped by issue and
      * ordered by `seq` (v0.3.0 M1 commit 2) — the metrics layer's per-issue replay read (e.g. PARENT
      * for `task_epic`, SPRINT for `task_sprint`), the connection-wide sibling of
-     * [fieldIntervalsForIssue].
+     * [fieldIntervalsForIssue]. [issueIds], when non-null (v0.3.0 M3 review round 2b — the batched
+     * DERIVE read), scopes the read to only those issues — `MetricsDeriver.kt`'s per-batch-of-200
+     * memory bound; `null` (every other caller) keeps the whole-connection scan.
      */
-    suspend fun fieldIntervalsByIssue(connectionId: UInt, field: TrackedField): Map<Long, List<NormalizedFieldInterval>> =
+    suspend fun fieldIntervalsByIssue(
+        connectionId: UInt,
+        field: TrackedField,
+        issueIds: Collection<Long>? = null,
+    ): Map<Long, List<NormalizedFieldInterval>> =
         suspendTransaction(database) {
-            FieldIntervals.selectAll().where { (FieldIntervals.connectionId eq connectionId) and (FieldIntervals.field eq field.name) }
+            if (issueIds != null && issueIds.isEmpty()) return@suspendTransaction emptyMap()
+            var predicate = (FieldIntervals.connectionId eq connectionId) and (FieldIntervals.field eq field.name)
+            if (issueIds != null) predicate = predicate and (FieldIntervals.issueId inList issueIds)
+            FieldIntervals.selectAll().where { predicate }
                 .toList()
                 .groupBy({ it[FieldIntervals.issueId] }) {
                     NormalizedFieldInterval(
@@ -604,12 +692,20 @@ class WorkItemStore(private val database: R2dbcDatabase) {
     /**
      * Every `norm.work_item_field_changes` row whose `field_id` is one of [fieldIds], connection-wide
      * (v0.3.0 M1 commit 2) — the metrics layer's per-field estimate/epic-date replay read (e.g. the
-     * configured estimate field's changes, to build `item_estimate` timelines).
+     * configured estimate field's changes, to build `item_estimate` timelines). [issueIds], when
+     * non-null (v0.3.0 M3 review round 2b), scopes the read to only those issues —
+     * `MetricsDeriver.kt`'s per-batch-of-200 memory bound; `null` keeps the whole-connection scan.
      */
-    suspend fun fieldChangesByFieldIds(connectionId: UInt, fieldIds: Collection<String>): List<FieldChangeRow> =
+    suspend fun fieldChangesByFieldIds(
+        connectionId: UInt,
+        fieldIds: Collection<String>,
+        issueIds: Collection<Long>? = null,
+    ): List<FieldChangeRow> =
         suspendTransaction(database) {
-            if (fieldIds.isEmpty()) return@suspendTransaction emptyList()
-            FieldChanges.selectAll().where { (FieldChanges.connectionId eq connectionId) and (FieldChanges.fieldId inList fieldIds) }
+            if (fieldIds.isEmpty() || issueIds?.isEmpty() == true) return@suspendTransaction emptyList()
+            var predicate = (FieldChanges.connectionId eq connectionId) and (FieldChanges.fieldId inList fieldIds)
+            if (issueIds != null) predicate = predicate and (FieldChanges.issueId inList issueIds)
+            FieldChanges.selectAll().where { predicate }
                 .orderBy(FieldChanges.issueId to SortOrder.ASC, FieldChanges.changedAt to SortOrder.ASC, FieldChanges.seq to SortOrder.ASC)
                 .toList()
                 .map { row ->
@@ -708,9 +804,20 @@ class WorkItemStore(private val database: R2dbcDatabase) {
                 .sortedBy { it.first }
         }
 
-    /** Every work item's tiled status intervals, ordered — the pipeline test's SQL-invariant-sweep/reopen-count source. */
-    suspend fun statusIntervalsByIssue(connectionId: UInt): Map<Long, List<NormalizedStatusInterval>> = suspendTransaction(database) {
-        StatusIntervals.selectAll().where { StatusIntervals.connectionId eq connectionId }
+    /**
+     * Every work item's tiled status intervals, ordered — the pipeline test's SQL-invariant-sweep/
+     * reopen-count source. [issueIds], when non-null (v0.3.0 M3 review round 2b), scopes the read to
+     * only those issues — `MetricsDeriver.kt`'s per-batch-of-200 memory bound; `null` (every other
+     * caller) keeps the whole-connection scan.
+     */
+    suspend fun statusIntervalsByIssue(
+        connectionId: UInt,
+        issueIds: Collection<Long>? = null,
+    ): Map<Long, List<NormalizedStatusInterval>> = suspendTransaction(database) {
+        if (issueIds != null && issueIds.isEmpty()) return@suspendTransaction emptyMap()
+        var predicate: Op<Boolean> = StatusIntervals.connectionId eq connectionId
+        if (issueIds != null) predicate = predicate and (StatusIntervals.issueId inList issueIds)
+        StatusIntervals.selectAll().where { predicate }
             .toList()
             .groupBy({ it[StatusIntervals.issueId] }) {
                 NormalizedStatusInterval(
@@ -724,6 +831,19 @@ class WorkItemStore(private val database: R2dbcDatabase) {
                 )
             }
             .mapValues { (_, intervals) -> intervals.sortedBy { it.seq } }
+    }
+
+    /**
+     * Every issue's summed `time_spent_seconds` for a connection (v0.3.0 M3 review round 2b) —
+     * `MetricsDeriver.kt`'s own memory-light worklog read: only the ONE number `ownWorklogSeconds`/
+     * `actualMdFor` ever sum, never the full [DerivationWorklogRow] shape (author/timestamps),
+     * which this commit's algorithm does not read at all.
+     */
+    suspend fun worklogSecondsByIssue(connectionId: UInt): Map<Long, Long> = suspendTransaction(database) {
+        Worklogs.select(Worklogs.issueId, Worklogs.timeSpentSeconds).where { Worklogs.connectionId eq connectionId }
+            .toList()
+            .groupBy({ it[Worklogs.issueId] }) { it[Worklogs.timeSpentSeconds] }
+            .mapValues { (_, seconds) -> seconds.sum() }
     }
 
     suspend fun workItemRow(connectionId: UInt, issueId: Long): org.jetbrains.exposed.v1.core.ResultRow? = suspendTransaction(database) {

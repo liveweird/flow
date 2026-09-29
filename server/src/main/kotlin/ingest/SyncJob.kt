@@ -9,7 +9,13 @@ import kotlinx.serialization.json.JsonObject
  * command queue. `ingest/SyncJobs.kt` is the service; `ingest/IngestWorker.kt` is the sole claimer
  * (the worker role); `ingest/SyncJobRoutes.kt` is the ADMIN-only job API (the web role).
  */
-enum class SyncJobKind { SYNC, RECONCILE, REPROCESS, PURGE }
+/**
+ * `DERIVE` (v0.3.0 M3 commit 7, `.claude/docs/ingestion.md` "The DERIVE job kind") is a
+ * connector-agnostic job — it reads `norm`/the metrics config and writes `metrics.*`, never
+ * touching Jira. `ingest/IngestWorker.kt` dispatches it to `metrics/MetricsDeriver.kt` BEFORE
+ * consulting the connector registry.
+ */
+enum class SyncJobKind { SYNC, RECONCILE, REPROCESS, PURGE, DERIVE }
 
 enum class SyncJobStatus { PENDING, RUNNING, SUCCEEDED, FAILED, CANCELLED }
 
