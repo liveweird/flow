@@ -74,6 +74,14 @@ jobs:
       # `--dependency-verification strict` is explicit here on top of the automatic enforcement
       # gradle/verification-metadata.xml already triggers — see .claude/docs/dependency-reproducibility.md.
       - run: ./gradlew --dependency-verification strict build --no-daemon --stacktrace
+      # Time visibility, never a gate: the slowest test classes/cases go to the job summary, and a
+      # ::warning:: annotation fires when the test time exceeds the `ci.server` alarm in
+      # scripts/timings/budgets.json. Uses the runner's preinstalled node (>= 20; the script needs 18+,
+      # built-ins only). `if: always()` so a failed or timed-out build still shows where the time went.
+      - name: Test time report (job summary)
+        if: always()
+        continue-on-error: true
+        run: node scripts/timings/local-times.mjs slow-tests server/build/test-results/test --top-classes 15 --top-tests 10 --budget ci.server-tests --summary-file "$GITHUB_STEP_SUMMARY" --allow-empty
       - name: Confirm lockfiles and verification metadata match the committed graph
         run: git diff --exit-code -- gradle/verification-metadata.xml gradle.lockfile settings-gradle.lockfile buildscript-gradle.lockfile core/gradle.lockfile core/buildscript-gradle.lockfile server/gradle.lockfile server/buildscript-gradle.lockfile
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
