@@ -19,7 +19,40 @@ permissions:
   contents: read
 
 jobs:
+  changes:
+    # Decides whether the server job runs. A pull request that changes only Markdown skips it (the
+    # ~30 min Testcontainers suite has nothing to verify) — except `.claude/docs/measures.md`, which
+    # `MeasureContractTest` reads. Pushes to master always run it, so every master commit (and so every
+    # release commit) is fully verified. Plain git, no third-party action.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      server: ${{ steps.diff.outputs.server }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - id: diff
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          server=true
+          if [ "$EVENT" = "pull_request" ]; then
+            changed=$(git diff --name-only "$BASE...$HEAD")
+            if [ -n "$changed" ] \
+              && ! printf '%s\n' "$changed" | grep -qEv '\.md$' \
+              && ! printf '%s\n' "$changed" | grep -qx '.claude/docs/measures.md'; then
+              server=false
+            fi
+          fi
+          echo "server=$server" >> "$GITHUB_OUTPUT"
+          echo "server job runs: $server"
+
   server:
+    needs: changes
+    if: needs.changes.outputs.server == 'true'
     # ubuntu-24.04 ships a Docker daemon — Testcontainers starts the pinned PostgreSQL 18 image on it.
     runs-on: ubuntu-24.04
     timeout-minutes: 30
