@@ -44,6 +44,7 @@ describe("visibleSections", () => {
         "/reports/backlog",
         "/reports/aging-wip",
         "/reports/blocked-time",
+        "/reports/epic-progress",
       ]);
       expect(reports?.items.some((l) => l.adminOnly)).toBe(false);
     }
@@ -63,6 +64,7 @@ describe("visibleSections", () => {
       "/reports/backlog",
       "/reports/aging-wip",
       "/reports/blocked-time",
+      "/reports/epic-progress",
     ]);
     const sidebar = visibleSections(true).flatMap((s) => s.items.map((l) => l.to));
     expect(sidebar).not.toContain("/reports/throughput");
@@ -74,6 +76,7 @@ describe("visibleSections", () => {
     expect(sidebar).not.toContain("/reports/backlog");
     expect(sidebar).not.toContain("/reports/aging-wip");
     expect(sidebar).not.toContain("/reports/blocked-time");
+    expect(sidebar).not.toContain("/reports/epic-progress");
   });
 
   test("the account leaves never sit in a section", () => {
@@ -107,6 +110,7 @@ describe("activeNavPath", () => {
     expect(activeNavPath("/reports/backlog", leaves)).toBe("/reports/wip");
     expect(activeNavPath("/reports/aging-wip", leaves)).toBe("/reports/wip");
     expect(activeNavPath("/reports/blocked-time", leaves)).toBe("/reports/wip");
+    expect(activeNavPath("/reports/epic-progress", leaves)).toBe("/reports/wip");
     expect(activeNavPath("/reports/cycle-time", leaves)).toBe("/reports/velocity");
     expect(activeNavPath("/reports/reported-time-ratio", leaves)).toBe("/reports/task-estimation-accuracy");
     // The longest match still wins across leaves.

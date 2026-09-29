@@ -27,6 +27,7 @@ describe("parseReportFilter / serializeReportFilter", () => {
       accountId: "acc-1",
       domainView: "EPIC",
       domain: "FLO",
+      epicId: "FLO-33",
       activityType: "Bug",
       workCategory: "Maintenance",
       breakdown: "DOMAIN",
@@ -36,6 +37,12 @@ describe("parseReportFilter / serializeReportFilter", () => {
       connectionId: 2,
     };
     expect(parseReportFilter(serializeReportFilter(filter))).toEqual(filter);
+  });
+
+  test("an epic key is text: kept as written, a blank one dropped, and serialized right after the domain", () => {
+    expect(parse("epicId=FLO-33")).toEqual({ epicId: "FLO-33" });
+    expect(parse("epicId=%20%20")).toEqual({});
+    expect(reportQuery({ activityType: "Bug", epicId: "FLO-33", domain: "FLO" })).toBe("domain=FLO&epicId=FLO-33&activityType=Bug");
   });
 
   test("the sprint-relative periods round-trip", () => {

@@ -60,6 +60,14 @@ describe("reportHref", () => {
     );
   });
 
+  test("epic progress keeps only a domain and an epic scope — never a domain view, activity type, work category, bucket, by or item kind", () => {
+    const search = "teamId=2&domainView=EPIC&domain=FLO&epicId=FLO-33&activityType=Bug&workCategory=X&bucket=MONTH&by=STATUS&itemKind=EPIC";
+    expect(reportHref("/reports/epic-progress", search)).toBe("/reports/epic-progress?teamId=2&domain=FLO&epicId=FLO-33");
+    // The epic is this report's own scope: no other report carries it.
+    expect(reportHref("/reports/wip", search)).not.toContain("epicId");
+    expect(reportHref("/reports/velocity", search)).toBe("/reports/velocity?teamId=2");
+  });
+
   test("an empty query, or one that only held dropped params, is the bare path; foreign params survive", () => {
     expect(reportHref("/reports/velocity", "")).toBe("/reports/velocity");
     expect(reportHref("/reports/velocity", "?bucket=WEEK")).toBe("/reports/velocity");

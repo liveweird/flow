@@ -1,7 +1,7 @@
 import { lazy, Suspense } from "react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
-import { Paper, SimpleGrid, Stack, Text } from "@mantine/core";
+import { SimpleGrid, Stack } from "@mantine/core";
 import { getBacklogReport, type BacklogReport } from "../api/reports";
 import BacklogTable from "../components/BacklogTable";
 import DailyTableDisclosure from "../components/DailyTableDisclosure";
@@ -12,6 +12,7 @@ import ReportFilterBar, { type ReportControls } from "../components/ReportFilter
 import ReportFiltersStatus from "../components/ReportFiltersStatus";
 import ReportMetaNote from "../components/ReportMetaNote";
 import ReportNote from "../components/ReportNote";
+import ReportTile from "../components/ReportTile";
 import ReportTabs from "../components/ReportTabs";
 import { useReportPage } from "../hooks/useReportPage";
 import { backlogRows, roundSprints, sprintsGap } from "../utils/backlogReport";
@@ -27,27 +28,6 @@ const BacklogTrendChart = lazy(() => import("../components/BacklogTrendChart"));
 const CONTROLS: ReportControls = { domain: true, domainExcludesTeam: true };
 
 const MISSING = "—";
-
-/** One headline figure: a label, the value, and the sentence that says what it means (or why it is missing). */
-function Tile({ label, value, hint }: { label: string; value: string; hint?: string }) {
-  return (
-    <Paper withBorder p="md" role="group" aria-label={label}>
-      <Stack gap={4}>
-        <Text size="xs" c="dimmed">
-          {label}
-        </Text>
-        <Text fz={28} fw={700} lh={1.2}>
-          {value}
-        </Text>
-        {hint && (
-          <Text size="xs" c="dimmed">
-            {hint}
-          </Text>
-        )}
-      </Stack>
-    </Paper>
-  );
-}
 
 /** "≈ N sprints ahead"; a positive figure that rounds to 0 reads "< 0.1", never "≈ 0"; null is a dash. */
 function sprintsValue(sprints: number | null | undefined, t: TFunction): string {
@@ -75,7 +55,7 @@ function SprintsTile({ report }: { report: BacklogReport }) {
     if (unit) hints.push(t("reports.backlog.unitNote"));
   }
   return (
-    <Tile
+    <ReportTile
       label={t("reports.backlog.tile.sprints")}
       value={sprintsValue(current.backlogInSprints, t)}
       hint={hints.join(" ")}
@@ -111,8 +91,8 @@ export default function ReportBacklog() {
           >
             {report && (
               <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="md">
-                <Tile label={t("reports.backlog.tile.md")} value={formatMd(report.current.md)} />
-                <Tile label={t("reports.backlog.tile.items")} value={String(report.current.items)} />
+                <ReportTile label={t("reports.backlog.tile.md")} value={formatMd(report.current.md)} />
+                <ReportTile label={t("reports.backlog.tile.items")} value={String(report.current.items)} />
                 <SprintsTile report={report} />
               </SimpleGrid>
             )}

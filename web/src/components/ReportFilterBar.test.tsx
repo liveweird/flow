@@ -201,6 +201,12 @@ describe("ReportFilterBar", () => {
     expect(screen.getByRole("combobox", { name: "Domain" })).toBeInTheDocument();
   });
 
+  test("a report with no user level offers the team but no member, even with a team chosen", async () => {
+    renderWithProviders(<Harness controls={{ noMember: true }} />, { route: "/reports/epic-progress?teamId=1" });
+    expect((screen.getByRole("combobox", { name: "Team" }) as HTMLInputElement).value).toBe("Alpha");
+    expect(screen.queryByRole("combobox", { name: "Member" })).not.toBeInTheDocument();
+  });
+
   test("a bare report link starts on the remembered team, and the URL says so", async () => {
     localStorage.setItem("flow.viewSettings.reports.teamId", "2");
     renderWithProviders(<Harness />, { route: "/reports/velocity" });

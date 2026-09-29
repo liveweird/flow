@@ -36,6 +36,8 @@ export interface ReportFilterState {
   accountId?: string;
   domainView?: DomainView;
   domain?: string;
+  /** An epic's issue key (`FLO-33`) — the epic progress report's EPIC scope; no other report has it. */
+  epicId?: string;
   activityType?: string;
   workCategory?: string;
   breakdown?: Breakdown;
@@ -58,6 +60,7 @@ const MANAGED_KEYS = [
   "accountId",
   "domainView",
   "domain",
+  "epicId",
   "activityType",
   "workCategory",
   "breakdown",
@@ -71,6 +74,7 @@ const MANAGED_KEYS = [
 export const REPORT_SPECIFIC_KEYS = [
   "domainView",
   "domain",
+  "epicId",
   "activityType",
   "workCategory",
   "breakdown",
@@ -147,6 +151,8 @@ export function parseReportFilter(params: URLSearchParams): ReportFilterState {
   if (domainView !== undefined) filter.domainView = domainView;
   const domain = parseText(params.get("domain"));
   if (domain !== undefined) filter.domain = domain;
+  const epicId = parseText(params.get("epicId"));
+  if (epicId !== undefined) filter.epicId = epicId;
   const activityType = parseText(params.get("activityType"));
   if (activityType !== undefined) filter.activityType = activityType;
   const workCategory = parseText(params.get("workCategory"));

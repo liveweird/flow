@@ -5,6 +5,18 @@ export function formatMd(value: number): string {
   return String(Math.round(value * 100) / 100);
 }
 
+/** Man-days with an explicit sign (a true minus): `+3.5`, `−2`, `0` — a variance reads as a direction. */
+export function formatSignedMd(value: number): string {
+  const rounded = Math.round(value * 100) / 100;
+  if (rounded === 0) return "0";
+  return `${rounded > 0 ? "+" : "−"}${Math.abs(rounded)}`;
+}
+
+/** A performance index (SPI, CPI) at exactly two decimals: `1.00`, `0.85`. */
+export function formatIndex(value: number): string {
+  return value.toFixed(2);
+}
+
 /**
  * How a measure's value is written. `extraDecimals` widens the precision — the histogram labels
  * ask for it when two neighbouring range ends would otherwise print the same ("1 – 1").

@@ -173,7 +173,7 @@ describe("ReportAgingWip page", () => {
     renderPage();
     await screen.findByRole("table", { name: "Open work, oldest first" });
     expect(screen.getByRole("tab", { name: "Aging WIP" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["WIP", "Estimated backlog", "Aging WIP", "Blocked time"]);
+    expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["WIP", "Estimated backlog", "Aging WIP", "Blocked time", "Epic progress"]);
   });
 
   test("a failure is reported once, as an inline alert", async () => {

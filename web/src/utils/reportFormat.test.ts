@@ -1,5 +1,15 @@
 import { describe, expect, test } from "vitest";
-import { formatDays, formatMd, formatMedian, formatPercent, formatRatio, formatSignedPercent, histogramLabels } from "./reportFormat";
+import {
+  formatDays,
+  formatIndex,
+  formatMd,
+  formatMedian,
+  formatPercent,
+  formatRatio,
+  formatSignedMd,
+  formatSignedPercent,
+  histogramLabels,
+} from "./reportFormat";
 
 describe("reportFormat", () => {
   test("man-days and ratios keep at most two decimals, no trailing zeros", () => {
@@ -8,6 +18,20 @@ describe("reportFormat", () => {
     expect(formatRatio(1.2549)).toBe("1.25");
     expect(formatRatio(1)).toBe("1");
     expect(formatRatio(0.5)).toBe("0.5");
+  });
+
+  test("a variance in man-days is signed with a true minus, and zero is bare", () => {
+    expect(formatSignedMd(3.5)).toBe("+3.5");
+    expect(formatSignedMd(-2)).toBe("−2");
+    expect(formatSignedMd(0)).toBe("0");
+    expect(formatSignedMd(-0.001)).toBe("0");
+    expect(formatSignedMd(1.256)).toBe("+1.26");
+  });
+
+  test("a performance index always prints two decimals", () => {
+    expect(formatIndex(1)).toBe("1.00");
+    expect(formatIndex(0.75)).toBe("0.75");
+    expect(formatIndex(0.8333333)).toBe("0.83");
   });
 
   test("days keep one decimal, widening on request", () => {

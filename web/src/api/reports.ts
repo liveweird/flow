@@ -55,6 +55,11 @@ export type AgingThresholds = AgingWipReport["thresholds"];
 export type BlockedTimeReport = paths["/api/v1/reports/blocked-time"]["get"]["responses"]["200"]["content"]["application/json"];
 export type BlockedTopItem = BlockedTimeReport["topItems"][number];
 export type BlockedGroup = BlockedTimeReport["groups"][number];
+export type EpicProgressReport =
+  paths["/api/v1/reports/epic-progress"]["get"]["responses"]["200"]["content"]["application/json"];
+export type EpicProgressPoint = EpicProgressReport["series"][number];
+export type EpicProgressRow = EpicProgressReport["rows"][number];
+export type EpicProgressEpic = NonNullable<EpicProgressReport["epic"]>;
 
 export async function getReportFilters(): Promise<ReportFilters> {
   return jsonRequest<ReportFilters>("/api/v1/reports/filters");
@@ -106,4 +111,8 @@ export async function getAgingWipReport(filter: ReportFilterState): Promise<Agin
 
 export async function getBlockedTimeReport(filter: ReportFilterState): Promise<BlockedTimeReport> {
   return jsonRequest<BlockedTimeReport>(`/api/v1/reports/blocked-time?${reportQuery(filter)}`);
+}
+
+export async function getEpicProgressReport(filter: ReportFilterState): Promise<EpicProgressReport> {
+  return jsonRequest<EpicProgressReport>(`/api/v1/reports/epic-progress?${reportQuery(filter)}`);
 }

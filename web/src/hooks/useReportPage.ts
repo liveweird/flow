@@ -16,12 +16,12 @@ export function useReportPage<T>(
   normalize?: (filter: ReportFilterState) => ReportFilterState,
 ) {
   const filtersQuery = useQuery({ queryKey: ["reports", "filters"], queryFn: getReportFilters, staleTime: 60_000 });
-  const { filter, setFilter } = useReportFilter(filtersQuery.data, normalize);
+  const { filter, setFilter, clearRememberedTeam } = useReportFilter(filtersQuery.data, normalize);
   const query = useQuery({
     queryKey: ["reports", report, reportQuery(filter)],
     queryFn: () => fetchReport(filter),
     enabled: filtersQuery.isSuccess,
     placeholderData: keepPreviousData,
   });
-  return { filtersQuery, filters: filtersQuery.data, filter, setFilter, query };
+  return { filtersQuery, filters: filtersQuery.data, filter, setFilter, clearRememberedTeam, query };
 }
