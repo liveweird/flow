@@ -1837,6 +1837,50 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/reports/cost-matrix:
+    get:
+      tags: [reports]
+      operationId: getReportCostMatrix
+      summary: Report 16 — the cost matrix (author team × domain, in man-days) and foreign work
+      description: |
+        Any authenticated user (D12), read-only — `.claude/docs/measures.md` "Report 16". Every worklog whose `started_at`
+        falls in the period (a sprint-relative period reads the resolved sprints' envelope), charged to the AUTHOR's team as of
+        `started_at` (rows; the authors in no team are the UNASSIGNED row, `teamId` 0, last) and to a domain (columns):
+        `domainView=EPIC` (the default) uses the task's epic's domain, an epic-less task falling back to its own; `TASK` uses the
+        task's own domain; a worklog logged on an epic takes the epic's own domain in both views (A21). `domain`, `activityType`,
+        `workCategory` (`UNCATEGORIZED` = none) and `connectionId` slice the worklogs. Levels: UNIT (default) — one row per author
+        team; `teamId` — one row per author of that team (`teamId=0`: the authors in no team), same columns; `teamId` and `accountId`
+        — that one author's row (no row when they logged nothing). `cells` is dense — one per column, in column order, 0 where
+        nothing was logged. MD are rounded to 2 decimals from EXACT sums: every total (row, column, grand) is the rounded exact
+        sum, never the sum of rounded cells, so a displayed total can differ from its displayed addends by up to 0.005 per addend;
+        every worklog lands in exactly one row and one column. `foreignShare` = foreign MD ÷ MD (A21: the author's team differs
+        from the task's sprint team at `started_at`, else from its assignee's team; an epic-logged worklog compares with the
+        epic's domain owner team, A22; an unknown side is never foreign), null when nothing was logged. `400` for the shared
+        parser's errors (`accountId` without `teamId`, `from` after `to`, a repeated key ...) and an unknown or inactive team,
+        connection or sprint (never 404); an unknown `domain` is a valid slice that answers empty. `breakdown` is accepted
+        and changes nothing.
+      parameters:
+        - { $ref: '#/components/parameters/ReportFrom' }
+        - { $ref: '#/components/parameters/ReportTo' }
+        - { $ref: '#/components/parameters/ReportLastSprints' }
+        - { $ref: '#/components/parameters/ReportSprintId' }
+        - { $ref: '#/components/parameters/ReportTeamId' }
+        - { $ref: '#/components/parameters/ReportAccountId' }
+        - { $ref: '#/components/parameters/ReportDomainView' }
+        - { $ref: '#/components/parameters/ReportDomain' }
+        - { $ref: '#/components/parameters/ReportActivityType' }
+        - { $ref: '#/components/parameters/ReportWorkCategory' }
+        - { $ref: '#/components/parameters/ReportConnectionId' }
+      responses:
+        '200':
+          description: The cost matrix report
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CostMatrixReport'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/reports/reported-time-ratio:
     get:
       tags: [reports]
@@ -4080,6 +4124,54 @@ components:
             Why the answer is empty or partial — nothing derived yet, no sprint resolved (incl. `teamId=0` with a
             sprint-relative period), connections that never derived and were left out of the cut-off, a period that lies
             after `asOf.day`; null otherwise.
+
+    CostColumn:
+      type: object
+      required: [domain, name, totalMd]
+      properties:
+        domain: { type: string, nullable: true, description: 'The domain key; null is the `(no domain)` column (invariant 6 says it never occurs).' }
+        name: { type: string, nullable: true, description: 'The domain display name; null when no domain row names the key.' }
+        totalMd: { type: number, format: double, description: 'The rounded EXACT sum of the column (2 decimals).' }
+
+    CostCell:
+      type: object
+      required: [domain, md]
+      properties:
+        domain: { type: string, nullable: true, description: 'The column this cell belongs to (`CostColumn.domain`).' }
+        md: { type: number, format: double, description: 'Man-days logged on the domain by the row (2 decimals, rounded from the exact sum).' }
+
+    CostRow:
+      type: object
+      required: [teamId, accountId, label, cells, totalMd, foreignMd, foreignShare]
+      properties:
+        teamId: { type: integer, format: int32, minimum: 0, nullable: true, description: 'UNIT: the author team (0 = UNASSIGNED, last). TEAM/USER: the requested team.' }
+        accountId: { type: string, nullable: true, description: 'TEAM/USER: the author (null = worklogs with no known author); null at UNIT.' }
+        label: { type: string, nullable: true, description: 'The team name (UNIT) or the Jira display name (TEAM/USER); null for UNASSIGNED and the no-author bucket.' }
+        cells:
+          type: array
+          description: Dense — one cell per column, in column order.
+          items: { $ref: '#/components/schemas/CostCell' }
+        totalMd: { type: number, format: double, description: 'The rounded EXACT sum of the row (not the sum of the rounded cells).' }
+        foreignMd: { type: number, format: double, description: 'The row''s foreign-work MD (A21).' }
+        foreignShare: { type: number, format: double, nullable: true, description: 'Exact foreign MD ÷ exact MD (0..1); null when the row logged nothing.' }
+        active: { type: boolean, nullable: true, description: 'UNIT rows only: false for a soft-deleted author team that still logged work in the period (its own drill answers 400); true for UNASSIGNED and live teams; null at TEAM/USER level.' }
+
+    CostMatrixReport:
+      type: object
+      required: [meta, columns, rows, totalMd, foreignMd, foreignShare]
+      properties:
+        meta: { $ref: '#/components/schemas/ReportMeta' }
+        columns:
+          type: array
+          description: The domains that received work, by domain key (a `(no domain)` column last, when one exists).
+          items: { $ref: '#/components/schemas/CostColumn' }
+        rows:
+          type: array
+          description: 'UNIT: one per author team, UNASSIGNED last. TEAM/USER: one per author, by display name.'
+          items: { $ref: '#/components/schemas/CostRow' }
+        totalMd: { type: number, format: double, description: 'The grand total: the rounded EXACT sum of every worklog in scope.' }
+        foreignMd: { type: number, format: double }
+        foreignShare: { type: number, format: double, nullable: true, description: 'Exact foreign MD ÷ exact MD; null when nothing was logged.' }
 
     ReportedTimeExcluded:
       type: object

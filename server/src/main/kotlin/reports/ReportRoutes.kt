@@ -78,6 +78,10 @@ class ReportBlockedTimeRoute
 @Resource("/api/v1/reports/epic-progress")
 class ReportEpicProgressRoute
 
+@Serializable
+@Resource("/api/v1/reports/cost-matrix")
+class ReportCostMatrixRoute
+
 val ReportServiceKey = AttributeKey<ReportService>("ReportService")
 
 /**
@@ -210,6 +214,7 @@ fun Application.configureReportRoutes() {
                 call.respond(HttpStatusCode.OK, reportService.blockedTime(filter, itemKind, nowMillis()))
             }
             epicProgressRoute(reportService, metricsConfig)
+            costMatrixRoute(reportService, metricsConfig)
             get<ReportEstimateAdjustmentsRoute> {
                 call.caller()
                 val calendar = reportsWorkingCalendar(metricsConfig)
@@ -235,6 +240,19 @@ private fun Route.epicProgressRoute(reportService: ReportService, metricsConfig:
         // A present-but-blank epicId is a mistake, not "no epic": it must not silently answer for the whole unit.
         if (epicId == null && params.contains("epicId")) throw BadRequestException("epicId must not be blank")
         call.respond(HttpStatusCode.OK, reportService.epicProgress(filter, epicId, nowMillis()))
+    }
+}
+
+/**
+ * The cost matrix (report 16) is a worklog-cost measure — PV/EV/AC-shaped, so it defaults to the EPIC domain view (D3); an explicit
+ * `domainView=TASK` switches the columns to the task's own domain. `breakdown` is parsed and changes nothing.
+ */
+private fun Route.costMatrixRoute(reportService: ReportService, metricsConfig: MetricsConfigService) {
+    get<ReportCostMatrixRoute> {
+        call.caller()
+        val calendar = reportsWorkingCalendar(metricsConfig)
+        val filter = call.request.queryParameters.parseReportFilter(calendar, nowMillis(), DomainView.EPIC)
+        call.respond(HttpStatusCode.OK, reportService.costMatrix(filter, nowMillis()))
     }
 }
 

@@ -1321,6 +1321,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/reports/cost-matrix": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Report 16 — the cost matrix (author team × domain, in man-days) and foreign work
+         * @description Any authenticated user (D12), read-only — `.claude/docs/measures.md` "Report 16". Every worklog whose `started_at`
+         *     falls in the period (a sprint-relative period reads the resolved sprints' envelope), charged to the AUTHOR's team as of
+         *     `started_at` (rows; the authors in no team are the UNASSIGNED row, `teamId` 0, last) and to a domain (columns):
+         *     `domainView=EPIC` (the default) uses the task's epic's domain, an epic-less task falling back to its own; `TASK` uses the
+         *     task's own domain; a worklog logged on an epic takes the epic's own domain in both views (A21). `domain`, `activityType`,
+         *     `workCategory` (`UNCATEGORIZED` = none) and `connectionId` slice the worklogs. Levels: UNIT (default) — one row per author
+         *     team; `teamId` — one row per author of that team (`teamId=0`: the authors in no team), same columns; `teamId` and `accountId`
+         *     — that one author's row (no row when they logged nothing). `cells` is dense — one per column, in column order, 0 where
+         *     nothing was logged. MD are rounded to 2 decimals from EXACT sums: every total (row, column, grand) is the rounded exact
+         *     sum, never the sum of rounded cells, so a displayed total can differ from its displayed addends by up to 0.005 per addend;
+         *     every worklog lands in exactly one row and one column. `foreignShare` = foreign MD ÷ MD (A21: the author's team differs
+         *     from the task's sprint team at `started_at`, else from its assignee's team; an epic-logged worklog compares with the
+         *     epic's domain owner team, A22; an unknown side is never foreign), null when nothing was logged. `400` for the shared
+         *     parser's errors (`accountId` without `teamId`, `from` after `to`, a repeated key ...) and an unknown or inactive team,
+         *     connection or sprint (never 404); an unknown `domain` is a valid slice that answers empty. `breakdown` is accepted
+         *     and changes nothing.
+         */
+        get: operations["getReportCostMatrix"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/reports/reported-time-ratio": {
         parameters: {
             query?: never;
@@ -3033,6 +3068,75 @@ export interface components {
             rows: components["schemas"]["EpicProgressRow"][];
             /** @description Why the answer is empty or partial — nothing derived yet, no sprint resolved (incl. `teamId=0` with a sprint-relative period), connections that never derived and were left out of the cut-off, a period that lies after `asOf.day`; null otherwise. */
             note: string | null;
+        };
+        CostColumn: {
+            /** @description The domain key; null is the `(no domain)` column (invariant 6 says it never occurs). */
+            domain: string | null;
+            /** @description The domain display name; null when no domain row names the key. */
+            name: string | null;
+            /**
+             * Format: double
+             * @description The rounded EXACT sum of the column (2 decimals).
+             */
+            totalMd: number;
+        };
+        CostCell: {
+            /** @description The column this cell belongs to (`CostColumn.domain`). */
+            domain: string | null;
+            /**
+             * Format: double
+             * @description Man-days logged on the domain by the row (2 decimals, rounded from the exact sum).
+             */
+            md: number;
+        };
+        CostRow: {
+            /**
+             * Format: int32
+             * @description UNIT: the author team (0 = UNASSIGNED, last). TEAM/USER: the requested team.
+             */
+            teamId: number | null;
+            /** @description TEAM/USER: the author (null = worklogs with no known author); null at UNIT. */
+            accountId: string | null;
+            /** @description The team name (UNIT) or the Jira display name (TEAM/USER); null for UNASSIGNED and the no-author bucket. */
+            label: string | null;
+            /** @description Dense — one cell per column, in column order. */
+            cells: components["schemas"]["CostCell"][];
+            /**
+             * Format: double
+             * @description The rounded EXACT sum of the row (not the sum of the rounded cells).
+             */
+            totalMd: number;
+            /**
+             * Format: double
+             * @description The row's foreign-work MD (A21).
+             */
+            foreignMd: number;
+            /**
+             * Format: double
+             * @description Exact foreign MD ÷ exact MD (0..1); null when the row logged nothing.
+             */
+            foreignShare: number | null;
+            /** @description UNIT rows only: false for a soft-deleted author team that still logged work in the period (its own drill answers 400); true for UNASSIGNED and live teams; null at TEAM/USER level. */
+            active?: boolean | null;
+        };
+        CostMatrixReport: {
+            meta: components["schemas"]["ReportMeta"];
+            /** @description The domains that received work, by domain key (a `(no domain)` column last, when one exists). */
+            columns: components["schemas"]["CostColumn"][];
+            /** @description UNIT: one per author team, UNASSIGNED last. TEAM/USER: one per author, by display name. */
+            rows: components["schemas"]["CostRow"][];
+            /**
+             * Format: double
+             * @description The grand total: the rounded EXACT sum of every worklog in scope.
+             */
+            totalMd: number;
+            /** Format: double */
+            foreignMd: number;
+            /**
+             * Format: double
+             * @description Exact foreign MD ÷ exact MD; null when nothing was logged.
+             */
+            foreignShare: number | null;
         };
         /** @description DONE level-0 tasks a reported-time-ratio read could not turn into a ratio, each in ONE bucket (`noWorklogs` first, incl. `actual_md` of 0.00; then `neverStarted`; then `zeroCycle`). `ratio.n + noWorklogs + neverStarted + zeroCycle = population`. */
         ReportedTimeExcluded: {
@@ -5168,6 +5272,52 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EpicProgressReport"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getReportCostMatrix: {
+        parameters: {
+            query?: {
+                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. */
+                from?: components["parameters"]["ReportFrom"];
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
+                to?: components["parameters"]["ReportTo"];
+                /** @description Each team's own last N closed sprints (union at unit level). Mutually exclusive with `from`/`to`/`sprintId`. */
+                lastSprints?: components["parameters"]["ReportLastSprints"];
+                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
+                sprintId?: components["parameters"]["ReportSprintId"];
+                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
+                teamId?: components["parameters"]["ReportTeamId"];
+                /** @description One Jira account id — sets the level to USER. Requires `teamId`. */
+                accountId?: components["parameters"]["ReportAccountId"];
+                /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
+                domainView?: components["parameters"]["ReportDomainView"];
+                /** @description Restricts to one domain key. */
+                domain?: components["parameters"]["ReportDomain"];
+                /** @description Restricts to one activity type (a standard Jira issue type name). */
+                activityType?: components["parameters"]["ReportActivityType"];
+                /** @description Restricts to one work category, or the literal `UNCATEGORIZED`. */
+                workCategory?: components["parameters"]["ReportWorkCategory"];
+                /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
+                connectionId?: components["parameters"]["ReportConnectionId"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The cost matrix report */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CostMatrixReport"];
                 };
             };
             400: components["responses"]["BadRequest"];
