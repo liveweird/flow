@@ -1837,6 +1837,51 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/reports/data-quality:
+    get:
+      tags: [reports]
+      operationId: getReportDataQuality
+      summary: Report 14 — data quality (where the data the other reports stand on is missing or inconsistent)
+      description: |
+        Any authenticated user (D12), read-only — `.claude/docs/measures.md` "Report 14". One response, many findings.
+        **Populations:** task findings count level-0 DONE tasks with `done_at` in the period (credit team / assignee at
+        done) and, separately (`open`), currently open STARTED tasks whatever the period (current team / assignee, A25);
+        worklog findings count worklogs with `started_at` in the period (author team as-was); epic findings count epics open
+        or done in the period (owner team, A19). A sprint-relative period reads the resolved sprints' envelope.
+        **Findings:** `worklogCoverage` (DONE tasks with worklogs, D14), `loggedHours` (hours a team member logged per
+        working day on the roster, to read against `hoursPerDay`), `lateLogging` (worklog created vs started),
+        `missing` (no estimate / epic / work category — only for connections with a work-category field —, unassigned
+        DONE tasks, epics without an own estimate, without dates, or with dates outside the ±10-year PV horizon so no PV curve
+        exists), `outsideSprint` (D10), `crossDomain`, `epicDrift` (D11), `domainsWithoutOwner` (A19), `unmappedStatuses`,
+        `unmappedBoards`, `authorsWithoutTeam`, `snapshotDrift` (D13: a closed sprint's live figure vs its frozen one) and
+        `deriveWarnings` (A13). Every list is capped at 50 with a `total` beside it. **Levels:** UNIT `groups` per team
+        (a null team is UNASSIGNED tasks/authors and UNOWNED epics), TEAM per member (no epic counts — epics carry no user),
+        USER none and no epics or sprint findings. The configuration-level findings (`unmappedStatuses`, `unmappedBoards`,
+        `snapshotDrift`, `deriveWarnings`) are not narrowed by the team; `domain` narrows `domainsWithoutOwner`. A real
+        `teamId` sees no `domainsWithoutOwner` and no `authorsWithoutTeam` (they belong to no team); `teamId=0` sees them.
+        `domainView` (default TASK) picks the domain a task/worklog is sliced by; `breakdown` is accepted and changes nothing.
+      parameters:
+        - { $ref: '#/components/parameters/ReportFrom' }
+        - { $ref: '#/components/parameters/ReportTo' }
+        - { $ref: '#/components/parameters/ReportLastSprints' }
+        - { $ref: '#/components/parameters/ReportSprintId' }
+        - { $ref: '#/components/parameters/ReportTeamId' }
+        - { $ref: '#/components/parameters/ReportAccountId' }
+        - { $ref: '#/components/parameters/ReportDomainView' }
+        - { $ref: '#/components/parameters/ReportDomain' }
+        - { $ref: '#/components/parameters/ReportActivityType' }
+        - { $ref: '#/components/parameters/ReportWorkCategory' }
+        - { $ref: '#/components/parameters/ReportConnectionId' }
+      responses:
+        '200':
+          description: The data quality report
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataQualityReport'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/reports/reported-time-ratio:
     get:
       tags: [reports]
@@ -4080,6 +4125,354 @@ components:
             Why the answer is empty or partial — nothing derived yet, no sprint resolved (incl. `teamId=0` with a
             sprint-relative period), connections that never derived and were left out of the cut-off, a period that lies
             after `asOf.day`; null otherwise.
+    DataQualityTaskRef:
+      type: object
+      description: One task a finding points at (`doneAt` null = still open).
+      required: [issueKey, summary, teamId, assigneeAccountId, assignee, doneAt, startedAt, estimateMd]
+      properties:
+        issueKey: { type: string }
+        summary: { type: string, nullable: true }
+        teamId: { type: integer, format: int32, minimum: 0, nullable: true, description: 'The credit team (DONE) / current team (open); null = UNASSIGNED.' }
+        assigneeAccountId: { type: string, nullable: true }
+        assignee: { type: string, nullable: true, description: The Jira display name (the account id when none is known). }
+        doneAt: { type: integer, format: int64, nullable: true }
+        startedAt: { type: integer, format: int64, nullable: true }
+        estimateMd: { type: number, format: double, nullable: true, description: 'The estimate at done (DONE) / the current one (open) in man-days; null = unestimated.' }
+    DataQualityDoneOpen:
+      type: object
+      description: A count split by DONE-in-the-period and currently open started tasks.
+      required: [done, open]
+      properties:
+        done: { type: integer, minimum: 0 }
+        open: { type: integer, minimum: 0 }
+    DataQualityTaskFinding:
+      type: object
+      description: >-
+        A task finding: `done` DONE tasks of the period plus `open` open started ones (0 for a finding that only makes sense
+        once a task is done), `total` their sum, `md` the matching tasks' estimates, and the first 50 in `items` (DONE newest
+        first, then open by age).
+      required: [done, open, total, md, items]
+      properties:
+        done: { type: integer, minimum: 0 }
+        open: { type: integer, minimum: 0 }
+        total: { type: integer, minimum: 0 }
+        md: { type: number, format: double }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/DataQualityTaskRef' }
+    DataQualityEpicRef:
+      type: object
+      description: One epic a finding points at; `flags` names the D11 drift codes (empty outside the drift finding).
+      required: [issueKey, summary, ownerTeamId, domainKey, startAt, dueAt, doneAt, flags]
+      properties:
+        issueKey: { type: string }
+        summary: { type: string, nullable: true }
+        ownerTeamId: { type: integer, format: int32, minimum: 0, nullable: true, description: 'The domain owner team (A19); null = UNOWNED.' }
+        domainKey: { type: string, nullable: true }
+        startAt: { type: integer, format: int64, nullable: true }
+        dueAt: { type: integer, format: int64, nullable: true }
+        doneAt: { type: integer, format: int64, nullable: true }
+        flags:
+          type: array
+          items: { type: string, enum: [EPIC_NOT_STARTED_WITH_ACTIVE_CHILDREN, EPIC_OPEN_AFTER_CHILDREN_DONE, EPIC_DONE_WITH_OPEN_CHILDREN] }
+    DataQualityEpicList:
+      type: object
+      description: A capped list of epics.
+      required: [total, items]
+      properties:
+        total: { type: integer, minimum: 0, description: How many matched — `items` carries the first 50. }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/DataQualityEpicRef' }
+    DataQualityUnownedDomain:
+      type: object
+      description: 'A domain no team owns (A19, A22): its epics and backlog land in UNOWNED.'
+      required: [connectionId, domainKey, name, projectKeys, epics]
+      properties:
+        connectionId: { type: integer, format: int32, minimum: 0 }
+        domainKey: { type: string }
+        name: { type: string }
+        projectKeys: { type: array, items: { type: string } }
+        epics: { type: integer, minimum: 0, description: The domain's epics (any state). }
+    DataQualityUnownedDomainList:
+      type: object
+      description: A capped list of domains without an owner team.
+      required: [total, items]
+      properties:
+        total: { type: integer, minimum: 0, description: How many matched — `items` carries the first 50. }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/DataQualityUnownedDomain' }
+    DataQualityUnmappedStatus:
+      type: object
+      description: A Jira status with no stage mapping — its time is tiled UNMAPPED, never started, never done.
+      required: [connectionId, statusId, name, category, items, openItems]
+      properties:
+        connectionId: { type: integer, format: int32, minimum: 0 }
+        statusId: { type: string }
+        name: { type: string }
+        category: { type: string, nullable: true }
+        items: { type: integer, minimum: 0, description: Work items (sub-tasks included) that have ever sat in the status. }
+        openItems: { type: integer, minimum: 0, description: Work items sitting in it now. }
+    DataQualityUnmappedStatusList:
+      type: object
+      description: A capped list of unmapped statuses.
+      required: [total, items]
+      properties:
+        total: { type: integer, minimum: 0, description: How many matched — `items` carries the first 50. }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/DataQualityUnmappedStatus' }
+    DataQualityUnmappedBoard:
+      type: object
+      description: A Jira board no team is mapped to — its sprints have no team and no snapshot.
+      required: [connectionId, boardId, name, projectKey, sprints, doneTasks]
+      properties:
+        connectionId: { type: integer, format: int32, minimum: 0 }
+        boardId: { type: integer, format: int64 }
+        name: { type: string }
+        projectKey: { type: string, nullable: true }
+        sprints: { type: integer, minimum: 0 }
+        doneTasks: { type: integer, minimum: 0, description: "Level-0 tasks of the period done inside one of the board's sprints (they fall back to the assignee's team, D5)." }
+    DataQualityUnmappedBoardList:
+      type: object
+      description: >-
+        A capped list of unmapped boards, plus the residual `unattributedDoneTasks`: tasks of the period done inside a sprint
+        with no team that belongs to none of the boards listed (the sprint has no board, or its board is mapped yet the sprint
+        carries no team) — so no task done in a teamless sprint is counted nowhere.
+      required: [total, items, unattributedDoneTasks]
+      properties:
+        total: { type: integer, minimum: 0, description: How many boards matched — `items` carries the first 50. }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/DataQualityUnmappedBoard' }
+        unattributedDoneTasks: { type: integer, minimum: 0 }
+    DataQualityAuthor:
+      type: object
+      description: A worklog author who was in no team when logging (a null `accountId` = worklogs with no known author).
+      required: [accountId, name, worklogs, md]
+      properties:
+        accountId: { type: string, nullable: true }
+        name: { type: string, nullable: true }
+        worklogs: { type: integer, minimum: 0 }
+        md: { type: number, format: double }
+    DataQualityAuthorList:
+      type: object
+      description: A capped list of authors without a team, most logged MD first.
+      required: [total, items]
+      properties:
+        total: { type: integer, minimum: 0, description: How many matched — `items` carries the first 50. }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/DataQualityAuthor' }
+    DataQualitySnapshotDrift:
+      type: object
+      description: >-
+        One figure of a closed, team-mapped sprint whose live value has moved away from the frozen snapshot (D13):
+        MD figures beyond 0.005, item counts exactly, load beyond 0.0005; a figure null on one side only counts.
+      required: [connectionId, sprintId, name, teamId, completeAt, field, live, frozen, delta, reconstructed]
+      properties:
+        connectionId: { type: integer, format: int32, minimum: 0 }
+        sprintId: { type: integer, format: int64 }
+        name: { type: string }
+        teamId: { type: integer, format: int32, minimum: 0 }
+        completeAt: { type: integer, format: int64, nullable: true }
+        field:
+          type: string
+          enum: [committedMd, committedItems, addedMd, addedItems, removedMd, removedItems, finalMd, finalItems, deliveredMd, deliveredItems, carriedOverMd, carriedOverItems, droppedMd, droppedItems, capacityMd, load]
+        live: { type: number, format: double, nullable: true }
+        frozen: { type: number, format: double, nullable: true }
+        delta: { type: number, format: double, nullable: true, description: '`live − frozen`, null when either is null.' }
+        reconstructed: { type: boolean, description: 'The snapshot was written by a DERIVE that ran after the sprint closed — a baseline rebuilt from history, not a real freeze.' }
+    DataQualitySnapshotDriftList:
+      type: object
+      description: A capped list of drifted sprint figures.
+      required: [total, items]
+      properties:
+        total: { type: integer, minimum: 0, description: How many matched — `items` carries the first 50. }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/DataQualitySnapshotDrift' }
+    DataQualityDeriveWarning:
+      type: object
+      description: 'A connection whose latest SUCCEEDED DERIVE run reported warnings (A13: `sprintFieldUnresolved` — the sprint step was skipped).'
+      required: [connectionId, connectionName, runId, startedAt, warnings]
+      properties:
+        connectionId: { type: integer, format: int32, minimum: 0 }
+        connectionName: { type: string }
+        runId: { type: integer, format: int32 }
+        startedAt: { type: integer, format: int64 }
+        warnings: { type: array, items: { type: string, enum: [sprintFieldUnresolved] } }
+    DataQualityPopulations:
+      type: object
+      required: [doneTasks, openStartedTasks, epics, worklogs]
+      properties:
+        doneTasks: { type: integer, minimum: 0 }
+        openStartedTasks: { type: integer, minimum: 0 }
+        epics: { type: integer, minimum: 0 }
+        worklogs: { type: integer, minimum: 0 }
+    DataQualityWorklogCoverage:
+      type: object
+      description: D14 — DONE tasks of the period with worklogs; `coverage` = `withWorklogs ÷ doneTasks` (fraction 0..1, null with no DONE task); `without` lists the tasks with none.
+      required: [doneTasks, withWorklogs, coverage, without]
+      properties:
+        doneTasks: { type: integer, minimum: 0 }
+        withWorklogs: { type: integer, minimum: 0 }
+        coverage: { type: number, format: double, nullable: true }
+        without: { $ref: '#/components/schemas/DataQualityTaskFinding' }
+    DataQualityLoggedHours:
+      type: object
+      description: >-
+        Hours logged by team members (Σ `md` × `hoursPerDay`; authors in no team are left out) over their member-days (roster
+        rows clipped to the period up to now, counted in working days). `hoursPerMemberDay` is null without member-days.
+      required: [memberDays, hours, hoursPerMemberDay]
+      properties:
+        memberDays: { type: number, format: double }
+        hours: { type: number, format: double }
+        hoursPerMemberDay: { type: number, format: double, nullable: true }
+    DataQualityLateWorklog:
+      type: object
+      required: [worklogId, issueKey, summary, authorAccountId, author, teamId, startedAt, lateDays]
+      properties:
+        worklogId: { type: integer, format: int64 }
+        issueKey: { type: string }
+        summary: { type: string, nullable: true }
+        authorAccountId: { type: string, nullable: true }
+        author: { type: string, nullable: true }
+        teamId: { type: integer, format: int32, minimum: 0, nullable: true, description: The author's team when logging; null = none. }
+        startedAt: { type: integer, format: int64 }
+        lateDays: { type: number, format: double, description: 'Days between the worklog''s start and when it was logged.' }
+    DataQualityLateLogging:
+      type: object
+      description: >-
+        Late logging over the period's worklogs: `measurable` of the `worklogs` know their creation time; `over1Day` /
+        `over7Days` count those logged more than 1 / 7 days after they started; `distribution` is the lateness in days
+        (hidden below `minSampleSize`); `worst` the latest-logged ones (at most 50).
+      required: [worklogs, measurable, over1Day, over7Days, distribution, worst]
+      properties:
+        worklogs: { type: integer, minimum: 0 }
+        measurable: { type: integer, minimum: 0 }
+        over1Day: { type: integer, minimum: 0 }
+        over7Days: { type: integer, minimum: 0 }
+        distribution: { $ref: '#/components/schemas/Distribution' }
+        worst:
+          type: array
+          items: { $ref: '#/components/schemas/DataQualityLateWorklog' }
+    DataQualityMissing:
+      type: object
+      description: >-
+        Missing data. The task findings split DONE-in-period from open started tasks; `workCategoryConfigured` says whether
+        any connection in scope has a work-category field (with none, `noWorkCategory` is empty by design); the epic findings
+        cover epics open or done in the period.
+      required: [noEstimate, noEpic, noWorkCategory, workCategoryConfigured, unassigned, epicsWithoutEstimate, epicsWithoutDates, epicsOutsidePvHorizon]
+      properties:
+        noEstimate: { $ref: '#/components/schemas/DataQualityTaskFinding' }
+        noEpic: { $ref: '#/components/schemas/DataQualityTaskFinding' }
+        noWorkCategory: { $ref: '#/components/schemas/DataQualityTaskFinding' }
+        workCategoryConfigured: { type: boolean }
+        unassigned: { $ref: '#/components/schemas/DataQualityTaskFinding' }
+        epicsWithoutEstimate: { $ref: '#/components/schemas/DataQualityEpicList' }
+        epicsWithoutDates: { $ref: '#/components/schemas/DataQualityEpicList' }
+        epicsOutsidePvHorizon:
+          allOf: [{ $ref: '#/components/schemas/DataQualityEpicList' }]
+          description: Epics with both dates set but at least one outside ±10 years of the connection's last DERIVE — they get no PV curve.
+    DataQualityTaskCounts:
+      type: object
+      required: [done, openStarted, withoutWorklogs, unassigned, outsideSprint, crossDomain, noEstimate, noEpic, noWorkCategory]
+      properties:
+        done: { type: integer, minimum: 0 }
+        openStarted: { type: integer, minimum: 0 }
+        withoutWorklogs: { type: integer, minimum: 0 }
+        unassigned: { type: integer, minimum: 0 }
+        outsideSprint: { type: integer, minimum: 0 }
+        crossDomain: { type: integer, minimum: 0 }
+        noEstimate: { $ref: '#/components/schemas/DataQualityDoneOpen' }
+        noEpic: { $ref: '#/components/schemas/DataQualityDoneOpen' }
+        noWorkCategory: { $ref: '#/components/schemas/DataQualityDoneOpen' }
+    DataQualityWorklogCounts:
+      type: object
+      required: [worklogs, md, over1Day, over7Days, hours, memberDays, hoursPerMemberDay]
+      properties:
+        worklogs: { type: integer, minimum: 0 }
+        md: { type: number, format: double }
+        over1Day: { type: integer, minimum: 0 }
+        over7Days: { type: integer, minimum: 0 }
+        hours: { type: number, format: double }
+        memberDays: { type: number, format: double }
+        hoursPerMemberDay: { type: number, format: double, nullable: true }
+    DataQualityEpicCounts:
+      type: object
+      required: [epics, withoutEstimate, withoutDates, outsidePvHorizon, drifting]
+      properties:
+        epics: { type: integer, minimum: 0 }
+        withoutEstimate: { type: integer, minimum: 0 }
+        withoutDates: { type: integer, minimum: 0 }
+        outsidePvHorizon: { type: integer, minimum: 0 }
+        drifting: { type: integer, minimum: 0 }
+    DataQualityGroup:
+      type: object
+      description: >-
+        A team (UNIT level; `teamId` null = UNASSIGNED tasks/authors and UNOWNED epics) or a member (TEAM level; a null
+        `accountId` with a null `label` is the unassigned bucket). `epics` is null at TEAM level — epics carry no user.
+        Always empty at USER level.
+      required: [teamId, accountId, label, tasks, worklogs, epics]
+      properties:
+        teamId: { type: integer, format: int32, minimum: 0, nullable: true }
+        accountId: { type: string, nullable: true }
+        label: { type: string, nullable: true }
+        tasks: { $ref: '#/components/schemas/DataQualityTaskCounts' }
+        worklogs: { $ref: '#/components/schemas/DataQualityWorklogCounts' }
+        epics:
+          allOf: [{ $ref: '#/components/schemas/DataQualityEpicCounts' }]
+          nullable: true
+    DataQualityReport:
+      type: object
+      required:
+        - meta
+        - hoursPerDay
+        - populations
+        - groups
+        - worklogCoverage
+        - loggedHours
+        - lateLogging
+        - missing
+        - outsideSprint
+        - crossDomain
+        - epicDrift
+        - domainsWithoutOwner
+        - unmappedStatuses
+        - unmappedBoards
+        - authorsWithoutTeam
+        - snapshotDrift
+        - deriveWarnings
+      properties:
+        meta: { $ref: '#/components/schemas/ReportMeta' }
+        hoursPerDay: { type: number, format: double, description: The configured hours per man-day the logged hours per member-day are read against. }
+        populations: { $ref: '#/components/schemas/DataQualityPopulations' }
+        groups:
+          type: array
+          items: { $ref: '#/components/schemas/DataQualityGroup' }
+        worklogCoverage: { $ref: '#/components/schemas/DataQualityWorklogCoverage' }
+        loggedHours: { $ref: '#/components/schemas/DataQualityLoggedHours' }
+        lateLogging: { $ref: '#/components/schemas/DataQualityLateLogging' }
+        missing: { $ref: '#/components/schemas/DataQualityMissing' }
+        outsideSprint:
+          allOf: [{ $ref: '#/components/schemas/DataQualityTaskFinding' }]
+          description: 'DONE tasks with no sprint at done (D10); `md` is their estimate at done.'
+        crossDomain:
+          allOf: [{ $ref: '#/components/schemas/DataQualityTaskFinding' }]
+          description: DONE tasks whose epic lives in another domain.
+        epicDrift:
+          allOf: [{ $ref: '#/components/schemas/DataQualityEpicList' }]
+          description: Epics with a D11 drift flag.
+        domainsWithoutOwner: { $ref: '#/components/schemas/DataQualityUnownedDomainList' }
+        unmappedStatuses: { $ref: '#/components/schemas/DataQualityUnmappedStatusList' }
+        unmappedBoards: { $ref: '#/components/schemas/DataQualityUnmappedBoardList' }
+        authorsWithoutTeam: { $ref: '#/components/schemas/DataQualityAuthorList' }
+        snapshotDrift: { $ref: '#/components/schemas/DataQualitySnapshotDriftList' }
+        deriveWarnings:
+          type: array
+          items: { $ref: '#/components/schemas/DataQualityDeriveWarning' }
 
     ReportedTimeExcluded:
       type: object

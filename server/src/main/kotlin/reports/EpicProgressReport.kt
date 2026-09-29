@@ -166,7 +166,7 @@ private sealed interface ProgressTarget {
 }
 
 /** A `dim_epic` row an `epicId` resolved to. */
-private data class EpicRef(
+private data class ResolvedEpic(
     val connectionId: UInt,
     val issueId: Long,
     val issueKey: String,
@@ -176,7 +176,7 @@ private data class EpicRef(
 )
 
 /** A [ProgressTarget] checked against the data: its response [scope] and, for an epic, its [epic] row. */
-private class ResolvedTarget(val target: ProgressTarget, val scope: EpicProgressScope?, val epic: EpicRef?)
+private class ResolvedTarget(val target: ProgressTarget, val scope: EpicProgressScope?, val epic: ResolvedEpic?)
 
 /** The request's clock and period, resolved: the connections, the calendar, the days it can list and the day it is read as of. */
 private class ProgressContext(
@@ -305,13 +305,13 @@ private suspend fun domainName(domainKey: String, connectionIds: List<UInt>): St
     return names.firstOrNull() ?: throw BadRequestException("Unknown domain: $domainKey")
 }
 
-private suspend fun epicRefOf(issueKey: String, connectionIds: List<UInt>): EpicRef {
+private suspend fun epicRefOf(issueKey: String, connectionIds: List<UInt>): ResolvedEpic {
     val e = MetricsStore.DimEpic
     val rows = e.select(e.connectionId, e.issueId, e.summary, e.startAt, e.dueAt)
         .where { (e.connectionId inList connectionIds) and (e.issueKey eq issueKey) }
         .orderBy(e.connectionId to SortOrder.ASC)
         .toList()
-        .map { EpicRef(it[e.connectionId].value, it[e.issueId], issueKey, it[e.summary], it[e.startAt], it[e.dueAt]) }
+        .map { ResolvedEpic(it[e.connectionId].value, it[e.issueId], issueKey, it[e.summary], it[e.startAt], it[e.dueAt]) }
     if (rows.isEmpty()) throw BadRequestException("Unknown epicId: $issueKey")
     if (rows.map { it.connectionId }.distinct().size > 1) {
         throw BadRequestException("epicId $issueKey exists in several connections; narrow with connectionId")
@@ -423,7 +423,7 @@ private class EpicDetail(val epic: EpicProgressEpic, private val originalCurve: 
         originalCurve?.let { curve -> curve.floorEntry(day)?.value ?: BigDecimal.ZERO }
 }
 
-private suspend fun epicDetail(epic: EpicRef, ctx: ProgressContext): EpicDetail {
+private suspend fun epicDetail(epic: ResolvedEpic, ctx: ProgressContext): EpicDetail {
     val plans = planRowsOf(epic)
     val current = plans.lastOrNull { it.supersededAt == null }
     val first = plans.firstOrNull()
@@ -457,7 +457,7 @@ private fun PlanRow.inHorizon(nowMs: Long): Boolean = DeriveKernels.inPvHorizon(
 
 private fun differs(a: BigDecimal?, b: BigDecimal?): Boolean = if (a == null || b == null) a !== b else a.compareTo(b) != 0
 
-private suspend fun planRowsOf(epic: EpicRef): List<PlanRow> {
+private suspend fun planRowsOf(epic: ResolvedEpic): List<PlanRow> {
     val p = MetricsStore.FactEpicPlan
     return p.select(p.baselinedAt, p.startAt, p.dueAt, p.budgetMd, p.budgetSource, p.supersededAt)
         .where { (p.connectionId eq epic.connectionId) and (p.issueId eq epic.issueId) }
@@ -467,7 +467,7 @@ private suspend fun planRowsOf(epic: EpicRef): List<PlanRow> {
 }
 
 /** With no current baseline the epic's budget is what its delivery fact says: the own estimate, else the child sum (D4). */
-private suspend fun deliveredBudget(epic: EpicRef): Pair<BigDecimal?, String?> {
+private suspend fun deliveredBudget(epic: ResolvedEpic): Pair<BigDecimal?, String?> {
     val e = MetricsStore.FactEpicDelivery
     val row = e.select(e.budgetSource, e.ownEstimateCurrentMd, e.childSumEstimateMd)
         .where { (e.connectionId eq epic.connectionId) and (e.issueId eq epic.issueId) }

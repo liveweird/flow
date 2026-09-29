@@ -735,6 +735,121 @@ graded on its populations and the thresholds against an independent percentile o
 rows; hand-built rows with exact hand-computed numbers incl. never-blocked zeros, both exclusions, the three item kinds and the
 drill). `400`s: an unknown team/connection/sprint, `accountId` without `teamId`, `from > to`, a bad `itemKind`.
 
+## Report 14 -- Data quality
+
+`GET /api/v1/reports/data-quality` (v0.3.0 M5 commit 17, `.claude/docs/measures.md` "Report 14"): where the data the other
+reports stand on is missing or inconsistent. One response, one section per finding; the shared parameters (`from`/`to`/
+`lastSprints`/`sprintId`, `teamId`/`accountId`, `domainView` -- default `TASK` --, `domain`, `activityType`, `workCategory`,
+`connectionId`); `breakdown` is accepted and changes nothing. Same D12 posture as every report.
+
+```
+DataQualityReport {
+  meta, hoursPerDay,
+  populations:     { doneTasks, openStartedTasks, epics, worklogs },
+  groups:          [{ teamId?, accountId?, label?, tasks: TaskCounts, worklogs: WorklogCounts, epics?: EpicCounts }],
+  worklogCoverage: { doneTasks, withWorklogs, coverage?, without: TaskFinding },
+  loggedHours:     { memberDays, hours, hoursPerMemberDay? },
+  lateLogging:     { worklogs, measurable, over1Day, over7Days, distribution: Distribution, worst: [LateWorklog] },
+  missing:         { noEstimate, noEpic, noWorkCategory: TaskFinding, workCategoryConfigured, unassigned: TaskFinding,
+                     epicsWithoutEstimate, epicsWithoutDates, epicsOutsidePvHorizon: QualityList<EpicRef> },
+  outsideSprint: TaskFinding,  crossDomain: TaskFinding,
+  epicDrift: QualityList<EpicRef>,
+  domainsWithoutOwner: QualityList<UnownedDomain>,  unmappedStatuses: QualityList<UnmappedStatus>,
+  unmappedBoards: QualityList<UnmappedBoard>,  authorsWithoutTeam: QualityList<AuthorWithoutTeam>,
+  snapshotDrift: QualityList<SnapshotDrift>,  deriveWarnings: [DeriveWarning]
+}
+TaskFinding { done, open, total, md, items: [TaskRef] }     // TaskRef { issueKey, summary?, teamId?, assigneeAccountId?, assignee?, doneAt?, startedAt?, estimateMd? }
+QualityList<T> { total, items: [T] }                        // items = the first 50; total says "and N more"
+```
+
+**Populations.** Task findings count level-0 tasks (D2) with `done_at` in the period -- the D5 credit team and the assignee at done
+-- and, separately (the `open` half of a `TaskFinding`, `openStartedTasks`), every currently open task that has started,
+whatever the period, attributed to the CURRENT team and assignee (A25, `taskFactSlice(openAttribution = true)`). Findings that
+only make sense once a task is done (worklog coverage, unassigned, outside any sprint, cross-domain) have `open` = 0. Worklog
+findings count `fact_worklog` rows with `started_at` in the period by the author's team as-was (`teamId=0` = no team) and
+account; the `domain` slice follows `domainView` (TASK: the task's domain, EPIC: the epic's else the task's, A21). Epic findings
+count epics open now or done in the period by the owner team (`teamId=0` = UNOWNED); USER level has no epics. A `lastSprints`/
+`sprintId` period reads the resolved sprints' envelope (`periodWindow`); with no resolved sprint the done-anchored findings are
+empty but the open ones remain.
+
+**The findings.**
+
+- **`worklogCoverage`** -- DONE tasks with worklogs; `coverage` is the fraction 0..1 (`null` with no DONE task), `without` lists the
+  tasks with `has_worklogs = false` (a task with a 2-minute worklog has worklogs -- unlike the accuracy reports' D14 rule there is no
+  `actual_md = 0.00` clause, measures.md's source is the flag).
+- **`loggedHours`** -- Σ `fact_worklog.md` × `hoursPerDay` of authors who were in a team, over their **member-days**: the dated
+  `metrics.team_membership` rows (D1) clipped to the period, capped at the request's now, counted in working days by the configured
+  calendar (`WorkingCalendar.workingDaysBetween`, the rule `dim_date.is_working_day` stores). `hoursPerMemberDay` is `null` without
+  member-days; read it against the top-level `hoursPerDay`. Each `groups[].worklogs` carries the same three numbers for its team
+  (UNIT) or member (TEAM, roster members with no worklog included -- a `0` is a finding).
+- **`lateLogging`** -- `late_ms` (created minus started, clamped at 0; `null` = creation time unknown, not measurable).
+  `over1Day`/`over7Days` count strictly more than 1/7 days; `distribution` is the lateness in days (hidden below `minSampleSize`);
+  `worst` the up-to-50 latest-logged ones (`lateDays` descending).
+- **`missing`** -- `noEstimate` (`estimate_source = 'NONE'`), `noEpic` (`epic_id IS NULL`), `noWorkCategory` (`work_category IS NULL`,
+  counted only for connections whose effective configuration has a work-category field; `workCategoryConfigured` says whether any
+  has), `unassigned` (DONE, no assignee at done); the three epic lists: `epicsWithoutEstimate` (`budget_source = 'CHILDREN'`),
+  `epicsWithoutDates` (start or due null), `epicsOutsidePvHorizon` (both set but one outside ±10 years of the connection's last
+  DERIVE clock -- its newest SUCCEEDED `derive_runs.started_at`, else the request clock -- `DeriveKernels.inPvHorizon`: no PV curve,
+  A23; a half-dated epic is "without dates" only).
+- **`outsideSprint`** (D10) -- DONE tasks with no sprint at done, `md` = their estimate at done. A task done inside a sprint of an
+  unmapped board is not here: it is counted under `unmappedBoards[].doneTasks`. **`crossDomain`** -- DONE tasks whose epic is in another
+  domain. **`epicDrift`** (D11) -- epics with a drift flag, `flags` naming them.
+- **`domainsWithoutOwner`** (A19, A22) -- `dim_domain.owner_team_id IS NULL`, with the domain's epic count; `domain` narrows; a real
+  `teamId` sees none (an unowned domain belongs to no team), UNIT and `teamId=0` see them.
+- **`unmappedStatuses`** -- statuses of `norm.statuses` with no stage in the connection's EFFECTIVE configuration
+  (`MetricsConfigService.effectiveConfig` -- the map DERIVE used), plus any status DERIVE actually tiled UNMAPPED; `items` = work
+  items (sub-tasks included) that ever sat in it, `openItems` those in it now (from `item_stage`). This is the **stage** map; a status
+  missing from a board's columns (`DataProfile`'s `unmappedStatusNames`, the stub's GTM `Waiting`) is a different thing and, with the
+  default category-based map, `Waiting` is mapped IN_PROGRESS.
+- **`unmappedBoards`** -- `{total, items, unattributedDoneTasks}`: `norm.boards` with no team in the effective board map, each with its
+  `sprints` (`norm.sprints`) and `doneTasks` (the period's DONE tasks that were done in one of them -- `sprint_id_at_done` set, no
+  `sprint_team_id_at_done`). **`unattributedDoneTasks`** is the residual: tasks done in a teamless sprint that belongs to none of the
+  listed boards (the sprint has no board, or its board IS mapped yet the sprint carries no team), so `outsideSprint` (no sprint),
+  the listed boards and the residual together account for every DONE task without a sprint team.
+- **`authorsWithoutTeam`** -- worklog authors with no team at `started_at`, by account (a `null` account = worklogs with no known
+  author), most MD first. A real `teamId` sees none.
+- **`snapshotDrift`** (D13) -- for the closed, team-mapped sprints of the period (`resolveSprintRows`, the sprint's team; USER level
+  none) every one of the 16 figures whose live `fact_sprint` value differs from `fact_sprint_snapshot`: the seven MD figures beyond
+  0.005, their item twins exactly, `capacityMd` beyond 0.005, `load` beyond 0.0005 (a figure null on one side only counts);
+  `live`, `frozen` and `delta`. A sprint with no snapshot has nothing to drift from.
+- **`deriveWarnings`** (A13) -- per connection in scope, its NEWEST successful run (by start, then id) carrying
+  `row_counts.sprintFieldUnresolved`: `{connectionId, connectionName, runId, startedAt, warnings: ["sprintFieldUnresolved"]}`.
+  Connections without a run, or whose latest run is clean, are not listed.
+
+**Not team-scoped.** `unmappedStatuses`, `unmappedBoards` (its `doneTasks` still follow the filter) and `deriveWarnings` are
+properties of a connection, not of a team: the team filter does not narrow them. `snapshotDrift` follows the sprint's own team.
+
+**Levels (`groups`).** UNIT: one group per team that has any finding row or roster (tasks by credit/current team, worklogs by author
+team, epics by owner team, roster by membership team); a `teamId: null` group is UNASSIGNED tasks and authors and UNOWNED epics. The
+roster is global (D1: a team's members are not tied to a connection) while the findings are per connection, so the two reads differ:
+the **default read** (every connection) keeps every roster team -- a silent team with member-days and no worklogs is the finding --
+whereas a read narrowed to one `connectionId` keeps only the teams that have a finding row in that connection, so its hours are not
+divided by the member-days of teams working elsewhere (the caveat: a team silent in that one connection is not listed). TEAM
+(`teamId`): one group per member (tasks by assignee at done / now, worklogs by author, roster members), `epics` null. USER (`teamId`
+and `accountId`): no groups, the top-level sections narrow to that member (no epics, no sprint findings). Ordered by label (null
+last). Σ groups equals the matching top-level count at UNIT level for every task and worklog count.
+
+**Cost.** Counts and sums are SQL: one `GROUP BY` (team, assignee) query per task population with conditional aggregates, one per
+worklog slice, `count(DISTINCT)` for the unmapped-status items and the per-domain epic counts; only the capped lists fetch rows (`ORDER
+BY … LIMIT 50`). The exceptions are deliberate: the lateness `Distribution` reads the one `late_ms` column of the period's worklogs
+(`buildDistribution` is Kotlin over a fetched list, `Distribution` above), and epics (an admin-scale set) are read whole. The mapping
+findings read the three configuration facts they need (`readConnectionMappings`: stage map, board map, work-category field, with
+`effectiveConfig`'s stored-else-defaults rule) instead of calling `effectiveConfig`, whose defaults scan the work items; DERIVE
+warnings read only each connection's newest successful run. Measured on the shared stub fixture scaled 20x (24k tasks, 24k
+worklogs): about 85 ms per request; at 1x about 35 ms.
+
+Code: `reports/DataQualityReport.kt` (DTOs, `dataQuality`), `DataQualityTasks.kt` (task, worklog and member-day rows),
+`DataQualityEpics.kt`, `DataQualityConfig.kt` (the mapping, drift and warning findings), `DataQualityAssembly.kt` (counting and
+the drill). Tests: `ReportDataQualityTest` -- the stub fixture graded section by section against independent counts over the raw fact
+rows (populations, coverage, every task finding, late logging against the generator's 1..5-day delays, teamless authors, epic
+findings, unmapped boards and the ownerless domains) and its UNIT/TEAM/USER/`teamId=0`/domain-sliced/sprint-relative drill; a private
+DERIVED clone whose configuration is changed and re-derived (a capacity override moves the live capacity and load away from the frozen
+snapshot; removing `Waiting` from the stage map makes it an unmapped status) plus hand-moved live figures for the delta arithmetic;
+hand-built rows for the populations and every task finding with hand-computed numbers, the member-days against plain weekday
+arithmetic, epics incl. the horizon cut around the connection's DERIVE clock, the owner drill and the domains, and hand-inserted
+DERIVE runs for the warnings. `400`s: `from > to`, `accountId` without `teamId`, an unknown connection/team/sprint, `lastSprints=0`,
+a bad `domainView`.
+
 ## Report 15 -- Epic progress (EVM)
 
 `GET /api/v1/reports/epic-progress` (v0.3.0 M5 commit 15c, `.claude/docs/measures.md` "Report 15 -- EVM"): planned value
@@ -827,6 +942,6 @@ above (a blank `epicId` included; a plain user gets `200`).
 
 ## Not yet built
 
-Every remaining named report (plan section 7's table: data quality, cost matrix) lands in its own later
+Every remaining named report (plan section 7's table: cost matrix) lands in its own later
 commit and grows this doc with its own `## Report N -- ...` section, following `.claude/docs/measures.md`'s own per-measure
 contract for what each number means.

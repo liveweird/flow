@@ -34,7 +34,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 - **Small follow-ups from M2 and M3:**
   - The Jira member picker resolves names from the first 100 unit people. Page through, or look up by account id.
   - "End membership" uses UTC; consider the configured zone.
-  - Surface `derive_runs.row_counts.sprintFieldUnresolved` in report 14 (data quality).
   - `epic_domain_key` uses the epic's current domain, not as-of (no epic-domain history exists).
   - Pin the case of a soft-deleted configured owner on a domain that also has a mapped board (the code resolves it to none, per A22; there is no test yet).
   - Velocity: the per-user snapshot figures are always null (reading the snapshot's scope JSON is not built).
@@ -44,7 +43,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   - Cache validators for the report endpoints.
   - Round each item's estimate before summing in `DeriveKernels.sprintTotals`, so `fact_sprint` and the per-user report groups agree exactly (today Σ groups can differ from the team by 0.01 MD per sprint when estimates have more than two decimals).
   - Report 7: an `epics` block (cycle time from `fact_epic_delivery`, owner team) — deferred from 12b.
-  - Report 14: flag epics whose dates fall outside the PV horizon (no PV curve).
   - `dim_date` rows outside a run's range keep a previous time zone's day bounds after a zone change (range joins could double-match at a stale boundary) — rewrite the whole table on a zone change.
   - Estimated backlog uses the OWN estimate only. A parent estimated through its sub-tasks (`estimate_source = SUBTASKS`) is missing from the backlog (A23). The fix is a composite-estimate bridge.
 

@@ -1321,6 +1321,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/reports/data-quality": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Report 14 — data quality (where the data the other reports stand on is missing or inconsistent)
+         * @description Any authenticated user (D12), read-only — `.claude/docs/measures.md` "Report 14". One response, many findings.
+         *     **Populations:** task findings count level-0 DONE tasks with `done_at` in the period (credit team / assignee at
+         *     done) and, separately (`open`), currently open STARTED tasks whatever the period (current team / assignee, A25);
+         *     worklog findings count worklogs with `started_at` in the period (author team as-was); epic findings count epics open
+         *     or done in the period (owner team, A19). A sprint-relative period reads the resolved sprints' envelope.
+         *     **Findings:** `worklogCoverage` (DONE tasks with worklogs, D14), `loggedHours` (hours a team member logged per
+         *     working day on the roster, to read against `hoursPerDay`), `lateLogging` (worklog created vs started),
+         *     `missing` (no estimate / epic / work category — only for connections with a work-category field —, unassigned
+         *     DONE tasks, epics without an own estimate, without dates, or with dates outside the ±10-year PV horizon so no PV curve
+         *     exists), `outsideSprint` (D10), `crossDomain`, `epicDrift` (D11), `domainsWithoutOwner` (A19), `unmappedStatuses`,
+         *     `unmappedBoards`, `authorsWithoutTeam`, `snapshotDrift` (D13: a closed sprint's live figure vs its frozen one) and
+         *     `deriveWarnings` (A13). Every list is capped at 50 with a `total` beside it. **Levels:** UNIT `groups` per team
+         *     (a null team is UNASSIGNED tasks/authors and UNOWNED epics), TEAM per member (no epic counts — epics carry no user),
+         *     USER none and no epics or sprint findings. The configuration-level findings (`unmappedStatuses`, `unmappedBoards`,
+         *     `snapshotDrift`, `deriveWarnings`) are not narrowed by the team; `domain` narrows `domainsWithoutOwner`. A real
+         *     `teamId` sees no `domainsWithoutOwner` and no `authorsWithoutTeam` (they belong to no team); `teamId=0` sees them.
+         *     `domainView` (default TASK) picks the domain a task/worklog is sliced by; `breakdown` is accepted and changes nothing.
+         */
+        get: operations["getReportDataQuality"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/reports/reported-time-ratio": {
         parameters: {
             query?: never;
@@ -3033,6 +3069,306 @@ export interface components {
             rows: components["schemas"]["EpicProgressRow"][];
             /** @description Why the answer is empty or partial — nothing derived yet, no sprint resolved (incl. `teamId=0` with a sprint-relative period), connections that never derived and were left out of the cut-off, a period that lies after `asOf.day`; null otherwise. */
             note: string | null;
+        };
+        /** @description One task a finding points at (`doneAt` null = still open). */
+        DataQualityTaskRef: {
+            issueKey: string;
+            summary: string | null;
+            /**
+             * Format: int32
+             * @description The credit team (DONE) / current team (open); null = UNASSIGNED.
+             */
+            teamId: number | null;
+            assigneeAccountId: string | null;
+            /** @description The Jira display name (the account id when none is known). */
+            assignee: string | null;
+            /** Format: int64 */
+            doneAt: number | null;
+            /** Format: int64 */
+            startedAt: number | null;
+            /**
+             * Format: double
+             * @description The estimate at done (DONE) / the current one (open) in man-days; null = unestimated.
+             */
+            estimateMd: number | null;
+        };
+        /** @description A count split by DONE-in-the-period and currently open started tasks. */
+        DataQualityDoneOpen: {
+            done: number;
+            open: number;
+        };
+        /** @description A task finding: `done` DONE tasks of the period plus `open` open started ones (0 for a finding that only makes sense once a task is done), `total` their sum, `md` the matching tasks' estimates, and the first 50 in `items` (DONE newest first, then open by age). */
+        DataQualityTaskFinding: {
+            done: number;
+            open: number;
+            total: number;
+            /** Format: double */
+            md: number;
+            items: components["schemas"]["DataQualityTaskRef"][];
+        };
+        /** @description One epic a finding points at; `flags` names the D11 drift codes (empty outside the drift finding). */
+        DataQualityEpicRef: {
+            issueKey: string;
+            summary: string | null;
+            /**
+             * Format: int32
+             * @description The domain owner team (A19); null = UNOWNED.
+             */
+            ownerTeamId: number | null;
+            domainKey: string | null;
+            /** Format: int64 */
+            startAt: number | null;
+            /** Format: int64 */
+            dueAt: number | null;
+            /** Format: int64 */
+            doneAt: number | null;
+            flags: ("EPIC_NOT_STARTED_WITH_ACTIVE_CHILDREN" | "EPIC_OPEN_AFTER_CHILDREN_DONE" | "EPIC_DONE_WITH_OPEN_CHILDREN")[];
+        };
+        /** @description A capped list of epics. */
+        DataQualityEpicList: {
+            /** @description How many matched — `items` carries the first 50. */
+            total: number;
+            items: components["schemas"]["DataQualityEpicRef"][];
+        };
+        /** @description A domain no team owns (A19, A22): its epics and backlog land in UNOWNED. */
+        DataQualityUnownedDomain: {
+            /** Format: int32 */
+            connectionId: number;
+            domainKey: string;
+            name: string;
+            projectKeys: string[];
+            /** @description The domain's epics (any state). */
+            epics: number;
+        };
+        /** @description A capped list of domains without an owner team. */
+        DataQualityUnownedDomainList: {
+            /** @description How many matched — `items` carries the first 50. */
+            total: number;
+            items: components["schemas"]["DataQualityUnownedDomain"][];
+        };
+        /** @description A Jira status with no stage mapping — its time is tiled UNMAPPED, never started, never done. */
+        DataQualityUnmappedStatus: {
+            /** Format: int32 */
+            connectionId: number;
+            statusId: string;
+            name: string;
+            category: string | null;
+            /** @description Work items (sub-tasks included) that have ever sat in the status. */
+            items: number;
+            /** @description Work items sitting in it now. */
+            openItems: number;
+        };
+        /** @description A capped list of unmapped statuses. */
+        DataQualityUnmappedStatusList: {
+            /** @description How many matched — `items` carries the first 50. */
+            total: number;
+            items: components["schemas"]["DataQualityUnmappedStatus"][];
+        };
+        /** @description A Jira board no team is mapped to — its sprints have no team and no snapshot. */
+        DataQualityUnmappedBoard: {
+            /** Format: int32 */
+            connectionId: number;
+            /** Format: int64 */
+            boardId: number;
+            name: string;
+            projectKey: string | null;
+            sprints: number;
+            /** @description Level-0 tasks of the period done inside one of the board's sprints (they fall back to the assignee's team, D5). */
+            doneTasks: number;
+        };
+        /** @description A capped list of unmapped boards, plus the residual `unattributedDoneTasks`: tasks of the period done inside a sprint with no team that belongs to none of the boards listed (the sprint has no board, or its board is mapped yet the sprint carries no team) — so no task done in a teamless sprint is counted nowhere. */
+        DataQualityUnmappedBoardList: {
+            /** @description How many boards matched — `items` carries the first 50. */
+            total: number;
+            items: components["schemas"]["DataQualityUnmappedBoard"][];
+            unattributedDoneTasks: number;
+        };
+        /** @description A worklog author who was in no team when logging (a null `accountId` = worklogs with no known author). */
+        DataQualityAuthor: {
+            accountId: string | null;
+            name: string | null;
+            worklogs: number;
+            /** Format: double */
+            md: number;
+        };
+        /** @description A capped list of authors without a team, most logged MD first. */
+        DataQualityAuthorList: {
+            /** @description How many matched — `items` carries the first 50. */
+            total: number;
+            items: components["schemas"]["DataQualityAuthor"][];
+        };
+        /** @description One figure of a closed, team-mapped sprint whose live value has moved away from the frozen snapshot (D13): MD figures beyond 0.005, item counts exactly, load beyond 0.0005; a figure null on one side only counts. */
+        DataQualitySnapshotDrift: {
+            /** Format: int32 */
+            connectionId: number;
+            /** Format: int64 */
+            sprintId: number;
+            name: string;
+            /** Format: int32 */
+            teamId: number;
+            /** Format: int64 */
+            completeAt: number | null;
+            /** @enum {string} */
+            field: "committedMd" | "committedItems" | "addedMd" | "addedItems" | "removedMd" | "removedItems" | "finalMd" | "finalItems" | "deliveredMd" | "deliveredItems" | "carriedOverMd" | "carriedOverItems" | "droppedMd" | "droppedItems" | "capacityMd" | "load";
+            /** Format: double */
+            live: number | null;
+            /** Format: double */
+            frozen: number | null;
+            /**
+             * Format: double
+             * @description `live − frozen`, null when either is null.
+             */
+            delta: number | null;
+            /** @description The snapshot was written by a DERIVE that ran after the sprint closed — a baseline rebuilt from history, not a real freeze. */
+            reconstructed: boolean;
+        };
+        /** @description A capped list of drifted sprint figures. */
+        DataQualitySnapshotDriftList: {
+            /** @description How many matched — `items` carries the first 50. */
+            total: number;
+            items: components["schemas"]["DataQualitySnapshotDrift"][];
+        };
+        /** @description A connection whose latest SUCCEEDED DERIVE run reported warnings (A13: `sprintFieldUnresolved` — the sprint step was skipped). */
+        DataQualityDeriveWarning: {
+            /** Format: int32 */
+            connectionId: number;
+            connectionName: string;
+            /** Format: int32 */
+            runId: number;
+            /** Format: int64 */
+            startedAt: number;
+            warnings: "sprintFieldUnresolved"[];
+        };
+        DataQualityPopulations: {
+            doneTasks: number;
+            openStartedTasks: number;
+            epics: number;
+            worklogs: number;
+        };
+        /** @description D14 — DONE tasks of the period with worklogs; `coverage` = `withWorklogs ÷ doneTasks` (fraction 0..1, null with no DONE task); `without` lists the tasks with none. */
+        DataQualityWorklogCoverage: {
+            doneTasks: number;
+            withWorklogs: number;
+            /** Format: double */
+            coverage: number | null;
+            without: components["schemas"]["DataQualityTaskFinding"];
+        };
+        /** @description Hours logged by team members (Σ `md` × `hoursPerDay`; authors in no team are left out) over their member-days (roster rows clipped to the period up to now, counted in working days). `hoursPerMemberDay` is null without member-days. */
+        DataQualityLoggedHours: {
+            /** Format: double */
+            memberDays: number;
+            /** Format: double */
+            hours: number;
+            /** Format: double */
+            hoursPerMemberDay: number | null;
+        };
+        DataQualityLateWorklog: {
+            /** Format: int64 */
+            worklogId: number;
+            issueKey: string;
+            summary: string | null;
+            authorAccountId: string | null;
+            author: string | null;
+            /**
+             * Format: int32
+             * @description The author's team when logging; null = none.
+             */
+            teamId: number | null;
+            /** Format: int64 */
+            startedAt: number;
+            /**
+             * Format: double
+             * @description Days between the worklog's start and when it was logged.
+             */
+            lateDays: number;
+        };
+        /** @description Late logging over the period's worklogs: `measurable` of the `worklogs` know their creation time; `over1Day` / `over7Days` count those logged more than 1 / 7 days after they started; `distribution` is the lateness in days (hidden below `minSampleSize`); `worst` the latest-logged ones (at most 50). */
+        DataQualityLateLogging: {
+            worklogs: number;
+            measurable: number;
+            over1Day: number;
+            over7Days: number;
+            distribution: components["schemas"]["Distribution"];
+            worst: components["schemas"]["DataQualityLateWorklog"][];
+        };
+        /** @description Missing data. The task findings split DONE-in-period from open started tasks; `workCategoryConfigured` says whether any connection in scope has a work-category field (with none, `noWorkCategory` is empty by design); the epic findings cover epics open or done in the period. */
+        DataQualityMissing: {
+            noEstimate: components["schemas"]["DataQualityTaskFinding"];
+            noEpic: components["schemas"]["DataQualityTaskFinding"];
+            noWorkCategory: components["schemas"]["DataQualityTaskFinding"];
+            workCategoryConfigured: boolean;
+            unassigned: components["schemas"]["DataQualityTaskFinding"];
+            epicsWithoutEstimate: components["schemas"]["DataQualityEpicList"];
+            epicsWithoutDates: components["schemas"]["DataQualityEpicList"];
+            /** @description Epics with both dates set but at least one outside ±10 years of the connection's last DERIVE — they get no PV curve. */
+            epicsOutsidePvHorizon: components["schemas"]["DataQualityEpicList"];
+        };
+        DataQualityTaskCounts: {
+            done: number;
+            openStarted: number;
+            withoutWorklogs: number;
+            unassigned: number;
+            outsideSprint: number;
+            crossDomain: number;
+            noEstimate: components["schemas"]["DataQualityDoneOpen"];
+            noEpic: components["schemas"]["DataQualityDoneOpen"];
+            noWorkCategory: components["schemas"]["DataQualityDoneOpen"];
+        };
+        DataQualityWorklogCounts: {
+            worklogs: number;
+            /** Format: double */
+            md: number;
+            over1Day: number;
+            over7Days: number;
+            /** Format: double */
+            hours: number;
+            /** Format: double */
+            memberDays: number;
+            /** Format: double */
+            hoursPerMemberDay: number | null;
+        };
+        DataQualityEpicCounts: {
+            epics: number;
+            withoutEstimate: number;
+            withoutDates: number;
+            outsidePvHorizon: number;
+            drifting: number;
+        };
+        /** @description A team (UNIT level; `teamId` null = UNASSIGNED tasks/authors and UNOWNED epics) or a member (TEAM level; a null `accountId` with a null `label` is the unassigned bucket). `epics` is null at TEAM level — epics carry no user. Always empty at USER level. */
+        DataQualityGroup: {
+            /** Format: int32 */
+            teamId: number | null;
+            accountId: string | null;
+            label: string | null;
+            tasks: components["schemas"]["DataQualityTaskCounts"];
+            worklogs: components["schemas"]["DataQualityWorklogCounts"];
+            epics: components["schemas"]["DataQualityEpicCounts"] | null;
+        };
+        DataQualityReport: {
+            meta: components["schemas"]["ReportMeta"];
+            /**
+             * Format: double
+             * @description The configured hours per man-day the logged hours per member-day are read against.
+             */
+            hoursPerDay: number;
+            populations: components["schemas"]["DataQualityPopulations"];
+            groups: components["schemas"]["DataQualityGroup"][];
+            worklogCoverage: components["schemas"]["DataQualityWorklogCoverage"];
+            loggedHours: components["schemas"]["DataQualityLoggedHours"];
+            lateLogging: components["schemas"]["DataQualityLateLogging"];
+            missing: components["schemas"]["DataQualityMissing"];
+            /** @description DONE tasks with no sprint at done (D10); `md` is their estimate at done. */
+            outsideSprint: components["schemas"]["DataQualityTaskFinding"];
+            /** @description DONE tasks whose epic lives in another domain. */
+            crossDomain: components["schemas"]["DataQualityTaskFinding"];
+            /** @description Epics with a D11 drift flag. */
+            epicDrift: components["schemas"]["DataQualityEpicList"];
+            domainsWithoutOwner: components["schemas"]["DataQualityUnownedDomainList"];
+            unmappedStatuses: components["schemas"]["DataQualityUnmappedStatusList"];
+            unmappedBoards: components["schemas"]["DataQualityUnmappedBoardList"];
+            authorsWithoutTeam: components["schemas"]["DataQualityAuthorList"];
+            snapshotDrift: components["schemas"]["DataQualitySnapshotDriftList"];
+            deriveWarnings: components["schemas"]["DataQualityDeriveWarning"][];
         };
         /** @description DONE level-0 tasks a reported-time-ratio read could not turn into a ratio, each in ONE bucket (`noWorklogs` first, incl. `actual_md` of 0.00; then `neverStarted`; then `zeroCycle`). `ratio.n + noWorklogs + neverStarted + zeroCycle = population`. */
         ReportedTimeExcluded: {
@@ -5168,6 +5504,52 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EpicProgressReport"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getReportDataQuality: {
+        parameters: {
+            query?: {
+                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. */
+                from?: components["parameters"]["ReportFrom"];
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
+                to?: components["parameters"]["ReportTo"];
+                /** @description Each team's own last N closed sprints (union at unit level). Mutually exclusive with `from`/`to`/`sprintId`. */
+                lastSprints?: components["parameters"]["ReportLastSprints"];
+                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
+                sprintId?: components["parameters"]["ReportSprintId"];
+                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
+                teamId?: components["parameters"]["ReportTeamId"];
+                /** @description One Jira account id — sets the level to USER. Requires `teamId`. */
+                accountId?: components["parameters"]["ReportAccountId"];
+                /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
+                domainView?: components["parameters"]["ReportDomainView"];
+                /** @description Restricts to one domain key. */
+                domain?: components["parameters"]["ReportDomain"];
+                /** @description Restricts to one activity type (a standard Jira issue type name). */
+                activityType?: components["parameters"]["ReportActivityType"];
+                /** @description Restricts to one work category, or the literal `UNCATEGORIZED`. */
+                workCategory?: components["parameters"]["ReportWorkCategory"];
+                /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
+                connectionId?: components["parameters"]["ReportConnectionId"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The data quality report */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DataQualityReport"];
                 };
             };
             400: components["responses"]["BadRequest"];

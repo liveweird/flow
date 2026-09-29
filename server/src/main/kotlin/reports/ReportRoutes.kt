@@ -78,7 +78,25 @@ class ReportBlockedTimeRoute
 @Resource("/api/v1/reports/epic-progress")
 class ReportEpicProgressRoute
 
+@Serializable
+@Resource("/api/v1/reports/data-quality")
+class ReportDataQualityRoute
+
 val ReportServiceKey = AttributeKey<ReportService>("ReportService")
+
+/**
+ * `GET /api/v1/reports/data-quality` (report 14). Findings about tasks follow the task's own domain (D3), so TASK is the default
+ * view; the period is the tasks' `done_at` and the worklogs' `started_at`, and open started tasks and open epics are listed
+ * whatever the period.
+ */
+private fun Route.reportDataQualityRoute(reportService: ReportService, metricsConfig: MetricsConfigService) {
+    get<ReportDataQualityRoute> {
+        call.caller()
+        val calendar = reportsWorkingCalendar(metricsConfig)
+        val filter = call.request.queryParameters.parseReportFilter(calendar, nowMillis(), DomainView.TASK)
+        call.respond(HttpStatusCode.OK, reportService.dataQuality(filter, nowMillis()))
+    }
+}
 
 /**
  * The `reports/` package's composition root, mirroring `metrics/Metrics.kt`'s OWN shape: this
@@ -210,6 +228,8 @@ fun Application.configureReportRoutes() {
                 call.respond(HttpStatusCode.OK, reportService.blockedTime(filter, itemKind, nowMillis()))
             }
             epicProgressRoute(reportService, metricsConfig)
+            // Data quality (report 14): where the data the other reports stand on is missing or inconsistent.
+            reportDataQualityRoute(reportService, metricsConfig)
             get<ReportEstimateAdjustmentsRoute> {
                 call.caller()
                 val calendar = reportsWorkingCalendar(metricsConfig)
