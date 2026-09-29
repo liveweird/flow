@@ -17,7 +17,6 @@ import io.ktor.server.resources.get
 import io.ktor.server.response.respond
 import io.ktor.server.routing.routing
 import io.ktor.util.AttributeKey
-import java.time.LocalDate
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -56,6 +55,14 @@ class ReportCycleTimeRoute
 @Resource("/api/v1/reports/reported-time-ratio")
 class ReportReportedTimeRatioRoute
 
+@Serializable
+@Resource("/api/v1/reports/wip")
+class ReportWipRoute
+
+@Serializable
+@Resource("/api/v1/reports/backlog")
+class ReportBacklogRoute
+
 val ReportServiceKey = AttributeKey<ReportService>("ReportService")
 
 /**
@@ -71,9 +78,10 @@ val ReportServiceKey = AttributeKey<ReportService>("ReportService")
  * v0.3.0 M4 commit 10a built `/reports/filters`; commit 10b adds `/reports/velocity` (Report 1), 10c
  * `/reports/throughput` (Report 2), 10d `/reports/sprint-consistency` (Reports 6.1-6.3), 12 the estimation
  * batch (`/reports/task-estimation-accuracy`, `/reports/epic-estimation-accuracy`,
- * `/reports/estimate-adjustments`), 12b `/reports/cycle-time` and `/reports/reported-time-ratio` — every later report
- * lands as its own commit (plan §10) and registers its own `get<...>` block in this SAME
- * `routing { authenticate { … } }` block, the `MetricsConfigRoutes.kt` shape (one registrar per resource, several routes inside).
+ * `/reports/estimate-adjustments`), 12b `/reports/cycle-time` and `/reports/reported-time-ratio`, 15
+ * `/reports/wip` and `/reports/backlog` — every later report lands as its own commit (plan §10) and registers its
+ * own `get<...>` block in this SAME `routing { authenticate { … } }` block, the `MetricsConfigRoutes.kt` shape (one
+ * registrar per resource, several routes inside).
  */
 fun Application.configureReportRoutes() {
     // The worker role serves only the health/ready probes (plugins/Health.kt) — see Role.kt.
@@ -152,6 +160,23 @@ fun Application.configureReportRoutes() {
                 val filter = call.request.queryParameters.parseReportFilter(calendar, nowMillis(), DomainView.TASK)
                 call.respond(HttpStatusCode.OK, reportService.reportedTimeRatio(filter, nowMillis()))
             }
+            // WIP (report 9) and the estimated backlog (reports 10 + 13) read the daily aggregates: delivery/flow
+            // measures, so the task's own domain (D3) — the aggregates carry no activity-type/work-category slice.
+            get<ReportWipRoute> {
+                call.caller()
+                val calendar = reportsWorkingCalendar(metricsConfig)
+                val params = call.request.queryParameters
+                val filter = params.parseReportFilter(calendar, nowMillis(), DomainView.TASK)
+                val by = params.optionalEnum<WipBy>("by") ?: WipBy.STAGE
+                val itemKind = params.optionalEnum<WipItemKind>("itemKind") ?: WipItemKind.TASK
+                call.respond(HttpStatusCode.OK, reportService.wip(filter, by, itemKind, nowMillis()))
+            }
+            get<ReportBacklogRoute> {
+                call.caller()
+                val calendar = reportsWorkingCalendar(metricsConfig)
+                val filter = call.request.queryParameters.parseReportFilter(calendar, nowMillis(), DomainView.TASK)
+                call.respond(HttpStatusCode.OK, reportService.backlog(filter, nowMillis()))
+            }
             get<ReportEstimateAdjustmentsRoute> {
                 call.caller()
                 val calendar = reportsWorkingCalendar(metricsConfig)
@@ -168,9 +193,5 @@ fun Application.configureReportRoutes() {
  * dates into UTC-millis bounds ([parseReportFilter]'s own doc comment), so this is the ONE place
  * every later report's route reuses rather than re-deriving the calendar itself.
  */
-private suspend fun reportsWorkingCalendar(metricsConfig: MetricsConfigService): WorkingCalendar {
-    val settings = metricsConfig.read()
-    val zone = zoneOf(settings.timeZone)
-    val holidays = settings.holidays.mapNotNull { runCatching { LocalDate.parse(it) }.getOrNull() }.toSet()
-    return WorkingCalendar(zone, settings.weekendDays.toSet(), holidays)
-}
+private suspend fun reportsWorkingCalendar(metricsConfig: MetricsConfigService): WorkingCalendar =
+    workingCalendarOf(metricsConfig.read())

@@ -128,6 +128,14 @@ place:
   scope and the `connectionId` existence check), `teams/TeamService.Teams` (the `teamId` existence
   check and team names) and `norm/WorkItemStore.People` (assignee display names) directly, inside
   the calling report's own transaction — read-only.
+- `reports/WipReport.kt` (v0.3.0 M5 commit 15, `GET /api/v1/reports/wip`) reads `norm/WorkItemStore.Statuses`
+  (status names for `by=STATUS`), `norm/WorkItemStore.BoardColumns` (the mapped board's columns for `by=COLUMN`, read
+  at query time so a board edit shows up without a re-derive) and `metrics/MetricsConfigService.BoardTeamMap` (which
+  board a team owns) directly, inside its own transaction — read-only, and `metrics/MetricsStore.AggDailyWip` for the
+  series itself. `reports/BacklogReport.kt` (`GET /api/v1/reports/backlog`) reads `metrics/MetricsStore.AggDailyFlow`
+  (the backlog trend) and `metrics/MetricsStore.FactSprint` (the mean `delivered_md` behind the backlog in sprints)
+  the same way. `reports/SnapshotSupport.kt`, shared by both, reads `metrics/MetricsStore.DeriveRuns` (the per-connection
+  newest successful run, via SQL `max()`) for the last-derived-day cut-off.
 
 List each new cross-feature read/write here as it lands — the list IS the permission.
 

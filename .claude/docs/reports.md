@@ -553,9 +553,115 @@ against an independent bucketing** -- WEEK and MONTH, zero-filled, hidden per bu
 exact hand-computed numbers incl. a zero-working-day cycle) and `ReportReportedTimeRatioTest` (the partition, groups,
 slices, hand-built bucket precedence and hidden state).
 
+## Reports 9, 10, 13 -- WIP and the estimated backlog
+
+Two endpoints (v0.3.0 M5 commit 15, `.claude/docs/measures.md` "Report 9", "Reports 10, 13") that read the DAILY
+AGGREGATES the DERIVE run writes (`.claude/docs/metrics.md` "Daily WIP aggregate", "Daily flow aggregate") instead of the
+fact tables, so they share their own preamble (`resolveReportScope`, then `snapshotScopeOf` and `planSnapshotDays` in
+`reports/SnapshotSupport.kt`). Both take the shared `from`/`to`/`lastSprints`/`sprintId`, `teamId`/`accountId`, `domain`
+and `connectionId` parameters. `breakdown` is accepted and changes nothing; so is `domainView`, but **`meta.domainView` is
+always `TASK`**: both reports read the task's own domain (D3 flow view; the epic side of WIP is the epic's own space), so an
+explicit `domainView=EPIC` is not a `400` but is not echoed back as if it had been honoured.
+
+**Scopes -- what the aggregate can answer.** `agg_daily_wip`/`agg_daily_flow` are stored per TEAM scope and per DOMAIN
+scope only: never per user, never team x domain. So:
+
+- **UNIT** (no `teamId`) sums every TEAM scope -- including the `UNASSIGNED` (tasks) and `UNOWNED` (epics, backlog)
+  scopes -- or, with `domain`, reads that DOMAIN scope (a task's as-was domain, an epic's own space).
+- **TEAM** (`teamId`) reads that team's TEAM scope. For WIP a task is in the team of D5 as of each day and an epic in
+  its domain's owner team (A19); the backlog's TEAM scope is the owner team (A19).
+- **`teamId=0`** is `UNASSIGNED` on the task side and `UNOWNED` on the epic side of WIP (so an explicit `itemKind=BOTH` adds the two),
+  and `UNOWNED` for the backlog.
+- **USER** (`teamId` and `accountId`) has no storage: the answer is an EMPTY series with a `note`, never a team-wide
+  number posing as a user's. `400`, checked first: `domain` together with `teamId` (no team x domain split) and
+  `activityType`/`workCategory` (not stored per day). Unknown `teamId`/`connectionId`/`sprintId` are `400` as elsewhere.
+
+**Series days.** One point per calendar day of the period in the configured zone (a `from`/`to` period as parsed; a
+`lastSprints`/`sprintId` period the resolved sprints' envelope, `periodWindow`, as throughput's period view). Days the
+aggregate has no row for are ZERO (the rows are sparse) -- but only days the aggregate actually covers:
+
+- **The cut-off.** The series stops after the last derived day, which with several connections in scope is the OLDEST, over
+  the connections that have derived, of each one's newest SUCCEEDED `derive_runs.started_at` day in the configured zone (SQL
+  `max()` per connection) -- so a lagging connection's missing days are never read as zeros. A period reaching past it lists
+  nothing for those days; a period entirely past it is an empty series. A connection with no successful run is ignored for
+  the cut-off (it has no rows either) but its id is named in `note`.
+- **Not derived yet.** When NO connection in scope has a successful DERIVE run the answer is an empty series/trend with
+  `note` "Not derived yet: ..." -- never a period's worth of zeros.
+- **`note`** carries whatever makes an empty or partial answer explicable: USER level (below), not derived yet, no sprint
+  resolved by a sprint-relative period (`teamId=0` gets its own wording: UNASSIGNED resolves no sprint), connections left out
+  of the cut-off. Several apply -> joined by ". "; `null` when there is nothing to say. `meta.derivedAt` still tells a client
+  how fresh the numbers are.
+
+### Report 9 -- `GET /api/v1/reports/wip`
+
+```
+WipReport {
+  meta, by: STATUS|STAGE|COLUMN, itemKind: TASK|EPIC|BOTH,
+  keys:   [{ key, label }],                                   // the legend, in display order
+  series: [{ day, isWorkingDay, counts: { <key>: n } }],      // counts carries EVERY key, zero-filled
+  note?:  string                                              // why the series is empty or partial (see "note" above)
+}
+```
+
+- `itemKind` (default `TASK`) counts level-0 tasks; `EPIC` counts epics and `BOTH` adds the two -- tasks and epics are different
+  grains (D2), so mixing them is an explicit choice; `by` (default `STAGE`)
+  keys `counts`. `STAGE`: the four stages `NOT_STARTED`, `IN_PROGRESS`, `DONE`, `UNMAPPED` -- always all four, `UNMAPPED` (a
+  status with no stage mapping) is its own key. `STATUS`: the Jira status id, `label` its `norm.statuses` name; only
+  statuses seen in the period, ordered by stage then name. `COLUMN`: the mapped board's columns in board order
+  (`norm.board_columns`, read at query time so a board edit needs no re-derive), plus `(no column)` when a status no column
+  holds has items in the period.
+- **The counts are end-of-day snapshots**: the number of items whose `item_stage` interval covers the END of that day, all
+  stages (the `DONE` count only grows -- a chart that wants "work in progress" picks the `IN_PROGRESS` key). Invariant 9's
+  other half lives in DERIVE's tests: the backlog never exceeds the NOT_STARTED WIP of its domain/day.
+- **`by=COLUMN` needs one team's board**: `400` at UNIT level, with `domain`, for `teamId=0` and for a team with no board
+  mapped in the connections in scope (a team has at most one board, D10). It reads only the board's connection's rows. A
+  USER-level request still validates the team's board, then answers empty.
+- `isWorkingDay` is the configured calendar's (weekends and holidays are not), so a chart can hide weekends. There is no
+  `workingDaysOnly` parameter -- the flag is the contract.
+
+### Reports 10, 13 -- `GET /api/v1/reports/backlog`
+
+```
+BacklogReport {
+  meta,
+  current: { asOfDay?, items, md, meanDeliveredMd?, windowSprints, sprintsUsed, backlogInSprints? },
+  trend:   [{ day, items, md }],                              // end-of-day, zero-filled
+  note?:   string                                             // why it is empty or partial (see "note" above)
+}
+```
+
+- **`trend`** is the estimated backlog (D9: level-0 NOT_STARTED tasks with an OWN estimate > 0 in no started sprint;
+  a parent estimated only through its sub-tasks is not in it, A23) at the end of each day, `md` in man-days. **`current`**
+  is the trend's last listed day (`asOfDay`, `null` for an empty trend), so it is the snapshot on the period's last day
+  (or on the last derived day when the period reaches beyond it).
+- **Backlog in sprints (report 13)**: `backlogInSprints = md / meanDeliveredMd`, where `meanDeliveredMd` is the mean
+  `fact_sprint.delivered_md` of the team's last `windowSprints` (`backlog_window_sprints`) CLOSED sprints completed before
+  the end of `asOfDay` -- as of the period end, so an older period is graded against the sprints known then -- and
+  `sprintsUsed` says how many were averaged (fewer than `windowSprints` when fewer exist; at UNIT level the MINIMUM across
+  the teams that have closed a sprint, so "some team has fewer than N" is detectable). **`null`** (`meanDeliveredMd`,
+  `backlogInSprints`) when no closed sprint exists; `backlogInSprints` alone is `null` for a mean of exactly 0. An open
+  sprint (no `complete_at`) never counts.
+- **Whose velocity**: the backlog's team is the OWNER team (A19), the sprint's team is the team of its board, both the same
+  Flow team. TEAM level uses that team's own sprints. UNIT level uses the SUM of every team's own mean (the unit's delivery
+  per sprint) over the unit's whole backlog -- including the `UNOWNED` part, which has no team velocity of its own, so a
+  large unowned backlog inflates the unit figure (report 14 lists domains without an owner). A `domain` slice and
+  `teamId=0` (UNOWNED) have no velocity of their own: `meanDeliveredMd` and `backlogInSprints` are `null`.
+
+Code: `reports/WipReport.kt`, `reports/BacklogReport.kt`, over `reports/SnapshotSupport.kt` (the scope predicates, the
+working calendar builder, the derived coverage, the day plan and its note). Tests -- `ReportWipTest` and `ReportBacklogTest` on
+`DerivedStubFixture`, plus `ReportSnapshotTestSupport.kt` (independent readers of `agg_daily_wip`/`agg_daily_flow`/
+`fact_sprint`, hand-row inserters): every day of every series against a sum taken straight off the aggregate rows (per
+stage, status and board column; `BOTH` = `TASK` + `EPIC`; the DOMAIN scopes; a team; `teamId=0`; the sprint-id envelope; the
+cut-off at the last derived day, incl. two connections with differing derive days and one that never derived; "not derived yet";
+the `teamId=0` sprint-relative note; `meta.domainView` forced to TASK; weekends), the mean against an independent computation over `fact_sprint` at several
+period ends (window full, fewer than N, one sprint), and hand-built rows in fresh DISABLED connections with hand-computed
+answers (the zero-fill, keys and their order, `(no column)`, the UNASSIGNED/UNOWNED split incl. an epic never being
+UNASSIGNED, scope isolation, the window, fewer than N, a mean of zero, no sprint at all, the UNIT sum). `400`s: a bad
+`by`/`itemKind`, `domain` with `teamId`, `activityType`, `workCategory`, an unknown team/connection/sprint, `by=COLUMN` at
+UNIT level / for `teamId=0` / for a team with no board.
+
 ## Not yet built
 
-Every remaining named report (plan section 7's table: WIP, backlog, aging WIP,
-blocked time, data quality, epic progress/EVM, cost matrix) lands in its own later commit and
-grows this doc with its own `## Report N -- ...` section, following `.claude/docs/measures.md`'s
-own per-measure contract for what each number means.
+Every remaining named report (plan section 7's table: aging WIP, blocked time, data quality, epic progress/EVM, cost
+matrix) lands in its own later commit and grows this doc with its own `## Report N -- ...` section, following
+`.claude/docs/measures.md`'s own per-measure contract for what each number means.

@@ -1128,6 +1128,88 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/reports/wip": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Report 9 — work in progress per status, stage or board column over time
+         * @description Any authenticated user (D12), read-only — `.claude/docs/measures.md` "Report 9 — WIP". Straight off the
+         *     daily aggregate `agg_daily_wip`: `series` has one point per calendar day of the period (in the configured
+         *     zone), each the END-of-day snapshot of how many items sat in each status / stage / board column — items
+         *     the aggregate has no row for count as zero, and every point carries every key of `keys`. `itemKind` (default
+         *     TASK) counts level-0 tasks, `EPIC` the epics (a different grain, D2) and `BOTH` the two added together. `by`
+         *     (default STAGE) keys `counts` by `STAGE` (the four stages NOT_STARTED, IN_PROGRESS, DONE, UNMAPPED — UNMAPPED, a status with no stage
+         *     mapping, is its own key), `STATUS` (the Jira status id, labelled with its name) or `COLUMN` (the mapped
+         *     board's column, read from `norm.board_columns` at query time; a status no column holds is "(no column)").
+         *     `isWorkingDay` lets a chart hide weekends. Levels: UNIT (default) sums every TEAM scope — including
+         *     UNASSIGNED tasks and UNOWNED epics — or, with `domain`, reads that DOMAIN scope (a task's as-was domain, an
+         *     epic's own space); `teamId` reads that team's TEAM scope (tasks: the D5 team as of each day, epics: the
+         *     domain's owner team, A19); `teamId=0` is UNASSIGNED on the task side and UNOWNED on the epic side. USER level
+         *     (`teamId` and `accountId`) is answered with an EMPTY `series` and a `note` — the aggregate has no per-user
+         *     scope. `by=COLUMN` needs a `teamId` naming a team with a mapped board (`400` otherwise, and at UNIT level).
+         *     `400` too: `domain` together with `teamId` (no team × domain split) and `activityType` / `workCategory`
+         *     (not stored per day). Sprint-relative periods use the resolved sprints' envelope. A period reaching past
+         *     the last derived day is cut off there rather than read as zero — the OLDEST, over the connections in scope
+         *     that have derived, of each one's last successful DERIVE day, so a lagging connection's missing days are not
+         *     zeros. No successful DERIVE for any connection in scope gives an empty `series` with a `note` ("Not derived
+         *     yet"); connections that never derived are ignored for the cut-off but named in the `note`. `breakdown` is
+         *     accepted and changes nothing; `domainView` is accepted but the report always reads the task's own domain, so
+         *     `meta.domainView` is always TASK.
+         */
+        get: operations["getReportWip"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/backlog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Reports 10 and 13 — the estimated backlog over time and the backlog in sprints
+         * @description Any authenticated user (D12), read-only — `.claude/docs/measures.md` "Reports 10, 13". The estimated backlog
+         *     (D9: level-0 NOT_STARTED tasks with an estimate that sit in no started sprint, priced at their OWN estimate)
+         *     as a daily trend off `agg_daily_flow`: `trend` has one point per calendar day of the period (configured
+         *     zone), each the END-of-day item count and man-days (a day with no aggregate row is zero). `current` is the
+         *     last listed day (`asOfDay`) plus report 13's backlog in sprints: `backlogInSprints = md ÷ meanDeliveredMd`,
+         *     where `meanDeliveredMd` is the mean `delivered_md` of the team's last `windowSprints`
+         *     (`backlog_window_sprints`) closed sprints as of that day — `sprintsUsed` of them when fewer exist (at UNIT level
+         *     the minimum across the teams that have closed a sprint, so "some team has fewer than N" is detectable) — and
+         *     `null` (with `backlogInSprints`) when there is no closed sprint or the mean is 0. The backlog is owned by
+         *     the OWNER team of the task's domain (A19). Levels: UNIT (default) sums every owner team — including the
+         *     UNOWNED backlog — and its `meanDeliveredMd` is the SUM of each team's own mean (the unit's delivery per
+         *     sprint); with `domain` it reads that DOMAIN scope and, as for `teamId=0` (the UNOWNED backlog), has no
+         *     velocity of its own (`meanDeliveredMd` and `backlogInSprints` null); `teamId` reads that owner team.
+         *     USER level (`teamId` and `accountId`) is answered empty with a `note` — the aggregate has no per-user
+         *     scope. `400` for `domain` together with `teamId` and for `activityType` / `workCategory` (not stored per
+         *     day). Sprint-relative periods use the resolved sprints' envelope. A period reaching past the last derived day
+         *     is cut off there rather than read as zero — the OLDEST, over the connections in scope that have derived, of
+         *     each one's last successful DERIVE day, so a lagging connection's missing days are not zeros. No successful
+         *     DERIVE for any connection in scope gives an empty `trend` with a `note` ("Not derived yet"); connections
+         *     that never derived are ignored for the cut-off but named in the `note`. `breakdown` is accepted and changes
+         *     nothing; `domainView` is accepted but the report always reads the task's own domain, so `meta.domainView` is
+         *     always TASK.
+         */
+        get: operations["getReportBacklog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/reports/reported-time-ratio": {
         parameters: {
             query?: never;
@@ -2477,6 +2559,82 @@ export interface components {
             trend: components["schemas"]["CycleTimeTrendBucket"][];
             groups: components["schemas"]["CycleTimeGroup"][];
         };
+        /** @description One legend entry of a WIP series — the `key` every point's `counts` uses, and its display `label`. */
+        WipKey: {
+            key: string;
+            label: string;
+        };
+        /** @description One calendar day of a WIP series; `counts` carries EVERY key of the report's `keys` (zero-filled). */
+        WipPoint: {
+            /** @description ISO date in the configured zone. */
+            day: string;
+            /** @description Whether the day is a working day of the configured calendar (weekends and holidays are not). */
+            isWorkingDay: boolean;
+            /** @description Items at the END of the day, per key of `keys`. */
+            counts: {
+                [key: string]: number;
+            };
+        };
+        WipReport: {
+            meta: components["schemas"]["ReportMeta"];
+            /**
+             * @description What `counts` is keyed by (the request's `by`, default STAGE).
+             * @enum {string}
+             */
+            by: "STATUS" | "STAGE" | "COLUMN";
+            /**
+             * @description Which items were counted (the request's `itemKind`, default TASK).
+             * @enum {string}
+             */
+            itemKind: "TASK" | "EPIC" | "BOTH";
+            /** @description The legend, in display order — the four stages for STAGE, the statuses seen (ordered by stage, then name) for STATUS, the board's columns in board order (plus "(no column)" when used) for COLUMN. */
+            keys: components["schemas"]["WipKey"][];
+            /** @description One point per calendar day of the period, oldest first, cut off after the last derived day. Empty at USER level (see `note`), for a period with nothing to read, and for a period entirely past the last derived day. */
+            series: components["schemas"]["WipPoint"][];
+            /** @description Why the series is empty or partial — USER level, not derived yet, no sprint resolved (incl. `teamId=0` with a sprint-relative period), connections that never derived and were left out of the cut-off; null otherwise. */
+            note?: string | null;
+        };
+        /** @description The estimated backlog at the END of one calendar day. */
+        BacklogTrendPoint: {
+            /** @description ISO date in the configured zone. */
+            day: string;
+            items: number;
+            /**
+             * Format: double
+             * @description Man-days — the sum of the items' own estimates.
+             */
+            md: number;
+        };
+        /** @description The backlog on the last listed day, and report 13's backlog in sprints. */
+        BacklogCurrent: {
+            /** @description The day the snapshot is read for (the trend's last day); null when the trend is empty. */
+            asOfDay?: string | null;
+            items: number;
+            /** Format: double */
+            md: number;
+            /**
+             * Format: double
+             * @description Mean `delivered_md` of the team's last `windowSprints` closed sprints as of `asOfDay` (at UNIT level the sum of each team's own mean); null with no closed sprint, or for a scope with no velocity of its own.
+             */
+            meanDeliveredMd?: number | null;
+            /** @description The configured window (`backlog_window_sprints`). */
+            windowSprints: number;
+            /** @description How many closed sprints the mean was taken over: fewer than the window when fewer exist, and at UNIT level the minimum across the teams that have closed a sprint. */
+            sprintsUsed: number;
+            /**
+             * Format: double
+             * @description `md ÷ meanDeliveredMd`; null when the mean is null or 0.
+             */
+            backlogInSprints?: number | null;
+        };
+        BacklogReport: {
+            meta: components["schemas"]["ReportMeta"];
+            current: components["schemas"]["BacklogCurrent"];
+            /** @description One point per calendar day of the period, oldest first, zero-filled, cut off after the last derived day. */
+            trend: components["schemas"]["BacklogTrendPoint"][];
+            /** @description Why the report is empty or partial — USER level, not derived yet, no sprint resolved (incl. `teamId=0` with a sprint-relative period), connections that never derived and were left out of the cut-off; null otherwise. */
+            note?: string | null;
+        };
         /** @description DONE level-0 tasks a reported-time-ratio read could not turn into a ratio, each in ONE bucket (`noWorklogs` first, incl. `actual_md` of 0.00; then `neverStarted`; then `zeroCycle`). `ratio.n + noWorklogs + neverStarted + zeroCycle = population`. */
         ReportedTimeExcluded: {
             population: number;
@@ -2652,6 +2810,10 @@ export interface components {
         ReportBreakdown: "NONE" | "DOMAIN" | "ACTIVITY_TYPE" | "WORK_CATEGORY";
         /** @description The time resolution of a report's bucketed series; weeks start Monday, buckets in the configured zone. */
         ReportBucket: "WEEK" | "MONTH";
+        /** @description What the WIP report keys its counts by; COLUMN needs a `teamId` with a mapped board. */
+        ReportWipBy: "STATUS" | "STAGE" | "COLUMN";
+        /** @description Which items the WIP report counts — level-0 tasks (default), epics (a different grain), or both added together. */
+        ReportWipItemKind: "TASK" | "EPIC" | "BOTH";
     };
     requestBodies: never;
     headers: never;
@@ -4365,6 +4527,102 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CycleTimeReport"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getReportWip: {
+        parameters: {
+            query?: {
+                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. */
+                from?: components["parameters"]["ReportFrom"];
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
+                to?: components["parameters"]["ReportTo"];
+                /** @description Each team's own last N closed sprints (union at unit level). Mutually exclusive with `from`/`to`/`sprintId`. */
+                lastSprints?: components["parameters"]["ReportLastSprints"];
+                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
+                sprintId?: components["parameters"]["ReportSprintId"];
+                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
+                teamId?: components["parameters"]["ReportTeamId"];
+                /** @description One Jira account id — sets the level to USER. Requires `teamId`. */
+                accountId?: components["parameters"]["ReportAccountId"];
+                /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
+                domainView?: components["parameters"]["ReportDomainView"];
+                /** @description Restricts to one domain key. */
+                domain?: components["parameters"]["ReportDomain"];
+                /** @description Restricts to one activity type (a standard Jira issue type name). */
+                activityType?: components["parameters"]["ReportActivityType"];
+                /** @description Restricts to one work category, or the literal `UNCATEGORIZED`. */
+                workCategory?: components["parameters"]["ReportWorkCategory"];
+                /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
+                connectionId?: components["parameters"]["ReportConnectionId"];
+                /** @description What the WIP report keys its counts by; COLUMN needs a `teamId` with a mapped board. */
+                by?: components["parameters"]["ReportWipBy"];
+                /** @description Which items the WIP report counts — level-0 tasks (default), epics (a different grain), or both added together. */
+                itemKind?: components["parameters"]["ReportWipItemKind"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The WIP report */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WipReport"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getReportBacklog: {
+        parameters: {
+            query?: {
+                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. */
+                from?: components["parameters"]["ReportFrom"];
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
+                to?: components["parameters"]["ReportTo"];
+                /** @description Each team's own last N closed sprints (union at unit level). Mutually exclusive with `from`/`to`/`sprintId`. */
+                lastSprints?: components["parameters"]["ReportLastSprints"];
+                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
+                sprintId?: components["parameters"]["ReportSprintId"];
+                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
+                teamId?: components["parameters"]["ReportTeamId"];
+                /** @description One Jira account id — sets the level to USER. Requires `teamId`. */
+                accountId?: components["parameters"]["ReportAccountId"];
+                /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
+                domainView?: components["parameters"]["ReportDomainView"];
+                /** @description Restricts to one domain key. */
+                domain?: components["parameters"]["ReportDomain"];
+                /** @description Restricts to one activity type (a standard Jira issue type name). */
+                activityType?: components["parameters"]["ReportActivityType"];
+                /** @description Restricts to one work category, or the literal `UNCATEGORIZED`. */
+                workCategory?: components["parameters"]["ReportWorkCategory"];
+                /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
+                connectionId?: components["parameters"]["ReportConnectionId"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The estimated backlog report */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BacklogReport"];
                 };
             };
             400: components["responses"]["BadRequest"];
