@@ -16,16 +16,15 @@ where work waits, not who is busy.
 
 - **v0.1.0 — foundation.** Sign-in with email MFA, users, teams, feature flags, EN/PL,
   light/dark theme.
-- **v0.2.0 (this codebase) — Jira ingestion.** An ADMIN-managed Jira Cloud connection (an
-  Atlassian service account + a scoped read-only API token, encrypted at rest with
-  `infra/crypto/FieldCipher`), a raw store with incremental cursors (`raw.*`), a neutral
-  normalized layer above it (`norm.*` — facts only, no interpretation), the data profile and the
-  admin pages over all of it (`.claude/docs/ingestion.md`). There are still no flow metrics —
-  `web/src/pages/Home.tsx` says so plainly instead of rendering an empty dashboard.
-- **Next — the domain model.** Agreed in `.claude/docs/domain-model.md` (DOMAIN/TASK/USER, TEAM,
-  EPIC, SPRINT; plan/delivery/cost as PV/EV/AC in man-days; the configuration, the `metrics`
-  star, fourteen target reports and its invariants); its implementation — PROCESS additions, the `metrics` schema, the
-  configuration UI, the first dashboards — is next (`BACKLOG.md`).
+- **v0.2.0 — Jira ingestion.** An ADMIN-managed Jira Cloud connection (an Atlassian service
+  account + a scoped read-only API token, encrypted at rest with `infra/crypto/FieldCipher`), a raw
+  store with incremental cursors (`raw.*`), a neutral normalized layer above it (`norm.*` — facts
+  only, no interpretation), the data profile and the admin pages over all of it
+  (`.claude/docs/ingestion.md`).
+- **v0.3.0 (this codebase) — the domain model, metrics, reports.** The model in
+  `.claude/docs/domain-model.md`, implemented: metrics configuration, a `DERIVE` job building the
+  `metrics` star from `norm` (`metrics/`), and sixteen reports (`reports/`; fifteen pages); Home is
+  the unit overview. Next: the real-Jira first sync, then `BACKLOG.md`.
 
 Brand: blue (the `flow` colour tuple in `web/src/theme.ts`, `primaryShade: { light: 8, dark: 9 }`);
 the logo is "Rolling" — a stream running round a blue disc and rolling inward into a curl
@@ -44,7 +43,7 @@ implementation rather than designing a new one.
   raw/derived cache split) is the template for Flow's own Jira connector in v0.2.0 — port its
   *shape*, not its GraphQL specifics.
 - **Lettuce** (`~/Sources/lettuce`) — `@mantine/charts` + `recharts` for the flow-metrics
-  dashboards to come; its WireMock teams-stub pattern for integration-testing an external API
+  dashboards; its WireMock teams-stub pattern for integration-testing an external API
   client without hitting the real service.
 - **Toadie** (`~/Sources/toadie`) — the `UrlFetch` SSRF guard (public-host validation before any
   server-initiated outbound call) — forward guidance for the Jira client from v0.2.0; see
@@ -114,7 +113,7 @@ is stripped from its scaffold: **JWT auth** with a sliding refresh pair and a se
 revocation blocklist, opt-in **email MFA**, self-service password reset, per-account lockout and
 per-IP rate limits, **ADMIN-managed users** with per-user **feature flags**, a synced per-user
 UI/email **language** (EN/PL), flat **teams** (an ADMIN-curated registry with rosters — the
-ownership unit the Jira domain model will point at), and the React shell (nav model, command
+ownership unit the metrics layer points at), and the React shell (nav model, command
 palette, theme, changelog). Every feature landed in the shape of the feature template below; the
 next one does too.
 
@@ -156,7 +155,7 @@ concern, create a `configureXxx()` extension under `plugins/` and register it in
 `plugins/Role.kt` and published as `AppRole { WEB, WORKER, ALL }` on `Application.attributes`; an
 unrecognized value fails startup in every mode. `web` serves the HTTP API (feature routes plus the
 SPA/static catch-all); `worker` serves only the health/ready probes — its one HTTP surface — and
-runs the ingestion worker arriving in v0.2.0 commit 5; `all` (dev, `docker compose`, the test
+runs the ingestion worker (incl. the metrics `DERIVE` job); `all` (dev, `docker compose`, the test
 suite) does both in one process. Every feature `configureXRoutes()` and `RoutingKt.configureRouting`
 early-return via `Application.servesApi()`; `Application.runsWorker()` is the WORKER|ALL
 counterpart. `configureHealth` always registers, and Flyway/Bootstrap always run, regardless of
@@ -252,10 +251,15 @@ ch.nokillswit
 │                       (JiraReferenceStream/IssuesStream/ChangelogStream/WorklogStream/
 │                       ReconcileStream/ProcessStream/ProfileStream), JiraNormalizer.kt (raw →
 │                       the neutral shape) and JiraProfile.kt (the data-profile aggregates)
-└── norm/               the connector-agnostic normalized layer (V13 `norm.*`): Tiling.kt (pure
-                        status/field interval tiling + anomaly flags), Normalization.kt
-                        (PROCESSING_VERSION, the glue), WorkItemStore.kt (per-issue REPLACE,
-                        reference-row rebuilds, purge)
+├── norm/               the connector-agnostic normalized layer (V13 `norm.*`): Tiling.kt (pure
+│                       status/field interval tiling + anomaly flags), Normalization.kt
+│                       (PROCESSING_VERSION, the glue), WorkItemStore.kt (per-issue REPLACE,
+│                       reference-row rebuilds, purge)
+├── metrics/            v0.3.0 metrics configuration + the DERIVE job (`.claude/docs/metrics.md`):
+│                       config/memberships services + routes, MetricsDeriver + Derive*Step files,
+│                       MetricsStore (V15–V17 `metrics.*`)
+└── reports/            the reports API (`.claude/docs/reports.md`): shared filter/`meta`/
+                        `Distribution` machinery + one `<Name>Report.kt` per report
 ```
 
 **Feature template — copy `teams/` (a small ADMIN-curated registry with a roster)**: it is the
@@ -272,9 +276,8 @@ soft-delete via `marked_as_deleted` + partial unique indexes, list = count + row
 predicate), a `V<n>__description.sql` migration (+ its checksum pin in `MigrationChecksumTest`),
 spec paths in `openapi/documentation.yaml`, `cd web && npm run gen:api` (same commit), lazy pages +
 `NAV_SECTIONS` entries (`web/src/utils/navigation.ts`), and an e2e spec + scenario doc +
-coverage-map line. A fuller shape (ownership guard, sub-collections, a checks pipeline) arrives
-with the Jira ingestion domain model in v0.2.0+ — see "Product" above and Covenant's `contracts/`
-package for the reference this repo will port from.
+coverage-map line. Fuller shapes (sub-collections, a checks pipeline) live in `ingest/`, `metrics/`
+and `reports/`; Covenant's `contracts/` package is the reference for what is not yet ported.
 
 ### The OpenAPI contract
 

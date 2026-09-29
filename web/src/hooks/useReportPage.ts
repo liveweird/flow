@@ -9,14 +9,19 @@ import { useReportFilter } from "./useReportFilter";
  * filters loaded (the remembered team is part of the key, so it must be known first) and kept
  * over the previous filter's data (`keepPreviousData`) while a change refetches.
  */
-export function useReportPage<T>(report: string, fetchReport: (filter: ReportFilterState) => Promise<T>) {
+export function useReportPage<T>(
+  report: string,
+  fetchReport: (filter: ReportFilterState) => Promise<T>,
+  /** Makes an unanswerable filter answerable (see `useReportFilter`); a module-level function. */
+  normalize?: (filter: ReportFilterState) => ReportFilterState,
+) {
   const filtersQuery = useQuery({ queryKey: ["reports", "filters"], queryFn: getReportFilters, staleTime: 60_000 });
-  const { filter, setFilter } = useReportFilter(filtersQuery.data);
+  const { filter, setFilter, clearRememberedTeam } = useReportFilter(filtersQuery.data, normalize);
   const query = useQuery({
     queryKey: ["reports", report, reportQuery(filter)],
     queryFn: () => fetchReport(filter),
     enabled: filtersQuery.isSuccess,
     placeholderData: keepPreviousData,
   });
-  return { filtersQuery, filters: filtersQuery.data, filter, setFilter, query };
+  return { filtersQuery, filters: filtersQuery.data, filter, setFilter, clearRememberedTeam, query };
 }

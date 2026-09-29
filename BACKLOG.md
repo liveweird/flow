@@ -1,6 +1,6 @@
 # Product backlog
 
-Updated 2026-09-28. This file tracks **outstanding work only**. Implemented behaviour and release history belong elsewhere:
+Updated 2026-09-29. This file tracks **outstanding work only**. Implemented behaviour and release history belong elsewhere:
 - [README.md](README.md);
 - the [application changelog](web/src/changelog/entries.ts);
 - the topic guides under `.claude/docs/`.
@@ -12,41 +12,29 @@ Entries are proposals, not delivery commitments.
 - Create an Atlassian service account with a scoped, read-only API token (scopes in `.claude/docs/jira-integration.md`).
 - Add the data source, run Test connection, and fix any scope gaps it reports.
 - Backfill 24 months, then read the data profile together (runbook: `.claude/docs/ingestion.md`, "Reading the data profile after the first real sync").
+- The first sync will bring adjustments (A10): the defaults the metrics configuration ships with (status → stage, the estimate and epic fields, the work-category field) meet real data for the first time.
 - Things to confirm on the real tenant, where the spike marked them uncertain:
   - Basic vs Bearer auth;
   - bulk-changelog availability and its per-request cap;
   - the search page-size ceiling;
   - how Sprint changes appear in the changelog.
 
-## Phase 3: the domain model — implementation in progress (v0.3.0)
+## Phase 3: the domain model — done in v0.3.0 (release pending)
 
-Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A25 override the body. A11–A16 were overnight judgement calls (approved 2026-09-28); A17–A21 came from the measure contract (`.claude/docs/measures.md`); A22 from the 9d review.
+Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 override the body. A11–A16 were overnight judgement calls (approved 2026-09-28), A23, A25, A26 and A27 approved 2026-09-29; A17–A21 came from the measure contract (`.claude/docs/measures.md`); A22 from the 9d review.
 
-- **Done and merged:** M1 (PR #22), M2 (PR #23), the configuration e2e (PR #24), Dependabot #17.
-- **M3 (derivation)** on `feat/v0.3.0-m3-derivation`, done so far:
-  - commits 7 and 8;
-  - 9a, worklog facts;
-  - the derived test fixture (the full build is ~4–6 min again);
-  - the measure contract;
-  - 9b, epic plans and PV;
-  - 9c, sprint buckets as a partition;
-  - 9d, V17: flow efficiency, current team, as-was attribution, owner per domain;
-  - 9e, the domain owner team in the config API and editor;
-  - the `MetricsDeriver.kt` split;
-  - 9f-wip, `agg_daily_wip`;
-  - 9f-flow, `agg_daily_flow` (A23: backlog, throughput, PV/EV/AC as daily increments);
-  - 9g, the re-derive/REPROCESS digest (`MetricsDigestTest`) and the scale-20 performance check. DERIVE takes 136 s cold and 99 s warm on 24k issues, under the 3-minute target; figures are in `metrics.md`.
-- **M4 (reports)** ships as two PRs (A24):
-  - the reports API (10a–10d: filters, velocity, throughput, sprint consistency) on `feat/v0.3.0-m4-reports`;
-  - the SPA and the estimation batch (11 onward) on `feat/v0.3.0-m4-web`.
+- **Delivered:**
+  - M1 (PR #22), M2 (PR #23), the configuration e2e (PR #24), Dependabot #17;
+  - M3, the derivation (PR #26): the V16/V17 star, DERIVE, the facts, `agg_daily_wip`/`agg_daily_flow`, the invariant-12 digest, and the scale-20 perf check (DERIVE 136 s cold on 24k issues);
+  - M4, the reports API (PR #27) and the report pages 1–8, the estimation batch and the reports e2e (PR #28);
+  - M5 (PR pending, `feat/v0.3.0-m5`): reports 9–16 (WIP and backlog, aging WIP and blocked time, epic progress, data quality, cost matrix) with their pages, the Home unit overview, the batch-2 e2e, the docs sweep and the v0.3.0 changelog.
+- **Release:** the version is bumped to 0.3.0 in the changelog; no tag or GitHub release until the user asks (`.claude/docs/app-releases.md`). The first deploy reprocesses the whole tenant (`PROCESSING_VERSION = 2`) and DERIVE follows — minutes on the worker, once.
 - **Next:**
-  1. **The M3 PR:** merge on green, then merge master into both M4 branches.
-  2. **M4:** the reports-API PR; then 12 (estimation batch: 3, 4, 5 done, 7, 8 next), 13 (estimation pages) and 14 (e2e) on the web branch, as the second PR.
-  3. **M5:** reports 9–16, the A9 overview Home, and the v0.3.0 release (only when asked).
-- **Small follow-ups from M2 and M3:**
+  - the real-Jira first sync and the adjustments it brings (A10) — see the section above;
+  - a compact always-loaded `conventions.md` (step 2 of the instruction-size work: `CLAUDE.md` plus the always-loaded docs still exceed the budget).
+- **Small follow-ups (M2–M5):**
   - The Jira member picker resolves names from the first 100 unit people. Page through, or look up by account id.
   - "End membership" uses UTC; consider the configured zone.
-  - Surface `derive_runs.row_counts.sprintFieldUnresolved` in report 14 (data quality).
   - `epic_domain_key` uses the epic's current domain, not as-of (no epic-domain history exists).
   - Pin the case of a soft-deleted configured owner on a domain that also has a mapped board (the code resolves it to none, per A22; there is no test yet).
   - Velocity: the per-user snapshot figures are always null (reading the snapshot's scope JSON is not built).
@@ -54,9 +42,9 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A25 over
   - A per-domain status→stage override UI.
   - Seed memberships from the Team field (D1).
   - Cache validators for the report endpoints.
+  - Report `meta.configRevision` should be the revision of the last successful DERIVE, not the live one.
   - Round each item's estimate before summing in `DeriveKernels.sprintTotals`, so `fact_sprint` and the per-user report groups agree exactly (today Σ groups can differ from the team by 0.01 MD per sprint when estimates have more than two decimals).
   - Report 7: an `epics` block (cycle time from `fact_epic_delivery`, owner team) — deferred from 12b.
-  - Report 14: flag epics whose dates fall outside the PV horizon (no PV curve).
   - `dim_date` rows outside a run's range keep a previous time zone's day bounds after a zone change (range joins could double-match at a stale boundary) — rewrite the whole table on a zone change.
   - Estimated backlog uses the OWN estimate only. A parent estimated through its sub-tasks (`estimate_source = SUBTASKS`) is missing from the backlog (A23). The fix is a composite-estimate bridge.
 

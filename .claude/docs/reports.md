@@ -1,10 +1,37 @@
-# Reports API (v0.3.0 M4)
+# Reports API (v0.3.0)
 
-This doc grows commit by commit alongside the v0.3.0 reports-API work (plan section 7 "Reports API"). It
-starts with the foundation commit 10a builds -- the shared filter parser, `Distribution`, the
-`meta` block, `GET /api/v1/reports/filters`, and the access posture every later report endpoint
-inherits. Velocity, throughput, sprint consistency and every other named report (plan section 7's table)
-land as their own commits and grow this doc with their own sections.
+The read-only reports API over the `metrics` star (plan section 7). It opens with the shared
+machinery every report inherits -- the filter parser, `Distribution`, the `meta` block,
+`GET /api/v1/reports/filters` and the access posture -- then one section per report. Each number's
+operational contract (grain, anchor, attribution, estimate snapshot, missing data, pinning test)
+is `.claude/docs/measures.md`; what the numbers mean is `.claude/docs/domain-model.md`.
+
+## Index of the sixteen reports (fifteen endpoints)
+
+Every endpoint is `GET`, under `/api/v1/reports/`, any signed-in user, no audit (D12).
+
+| # | Report | Endpoint | Section |
+|---|---|---|---|
+| 1 | Velocity | `/velocity` | [Report 1](#report-1----velocity) |
+| 2 | Throughput | `/throughput` | [Report 2](#report-2----throughput) |
+| 3 | Task estimation accuracy | `/task-estimation-accuracy` | [Reports 3, 4, 5](#reports-3-4-5----estimation-accuracy-and-adjustments) |
+| 4 | Epic estimation accuracy | `/epic-estimation-accuracy` | [Reports 3, 4, 5](#reports-3-4-5----estimation-accuracy-and-adjustments) |
+| 5 | Estimate adjustments | `/estimate-adjustments` | [Reports 3, 4, 5](#reports-3-4-5----estimation-accuracy-and-adjustments) |
+| 6 (6.1-6.3) | Sprint consistency (velocity vs throughput, carry-over, added scope) | `/sprint-consistency` | [Report 6](#report-6----sprint-consistency) |
+| 7 | Cycle time | `/cycle-time` | [Reports 7, 8](#reports-7-8----cycle-time-and-reported-time-ratio) |
+| 8 | Reported time / cycle time | `/reported-time-ratio` | [Reports 7, 8](#reports-7-8----cycle-time-and-reported-time-ratio) |
+| 9 | WIP | `/wip` | [Reports 9, 10, 13](#reports-9-10-13----wip-and-the-estimated-backlog) |
+| 10, 13 | Estimated backlog depth; item counts and backlog in sprints | `/backlog` | [Reports 9, 10, 13](#reports-9-10-13----wip-and-the-estimated-backlog) |
+| 11 | Aging WIP | `/aging-wip` | [Reports 11, 12](#reports-11-12----aging-wip-and-blocked-time) |
+| 12 | Blocked time | `/blocked-time` | [Reports 11, 12](#reports-11-12----aging-wip-and-blocked-time) |
+| 14 | Data quality | `/data-quality` | [Report 14](#report-14----data-quality) |
+| 15 | Epic progress (EVM) | `/epic-progress` | [Report 15](#report-15----epic-progress-evm) |
+| 16 | Cost matrix and foreign work | `/cost-matrix` | [Report 16](#report-16----cost-matrix-and-foreign-work) |
+
+Report 13 (item counts beside SP, backlog in sprints) is not an endpoint of its own: the item
+counts ride reports 1, 2, 6 and 10, and the backlog in sprints rides `/backlog`. The shared
+`GET /api/v1/reports/filters` (the pickers' reference data) is not a report and is described
+below.
 
 ## Access posture
 
@@ -17,7 +44,7 @@ does not apply (`.claude/docs/observability.md`).
 
 ## The shared filter parser (`reports/ReportFilter.kt`)
 
-Every report endpoint (once one lands) parses its query string through ONE function,
+Every report endpoint parses its query string through ONE function,
 `Parameters.parseReportFilter(calendar, nowMs, defaultDomainView)`, into a `ReportFilter`. It does
 **structural** validation only (ranges, mutual exclusion, ISO date syntax) -- id EXISTENCE (`teamId`,
 `sprintId`, `connectionId` against the database) is each report's own service's job once it reads
@@ -78,12 +105,15 @@ changes, only which side does the arithmetic.
 
 ## `meta` (`reports/ReportMeta.kt`)
 
-Every report response (once one lands) carries a `meta` block beside its own body:
+Every report response carries a `meta` block beside its own body:
 `{derivedAt, configRevision, from, to, level, domainView, resolvedSprints[{teamId, sprintIds}],
 minSampleSize}`. `derivedAt` is the latest SUCCEEDED `metrics.derive_runs.finished_at` across the
 connection(s) the report actually read (`null` before any connection has ever completed a DERIVE);
-`configRevision` mirrors the shared `metrics.settings.config_revision` every DERIVE stamps its rows
-with (invariant 12 -- `.claude/docs/domain-model.md`). `from`/`to` are populated only for a
+`configRevision` is the LIVE `metrics.settings.config_revision` at read time, NOT the revision the
+data was derived under (every DERIVE stamps its rows with the revision it ran under, invariant 12 --
+`.claude/docs/domain-model.md` -- but the response does not carry that one; after a configuration
+change and before its DERIVE finishes, `configRevision` is ahead of the data. `derivedAt` is the
+honest freshness signal). `from`/`to` are populated only for a
 `from`/`to`-selected period; a `lastSprints`/`sprintId` period instead describes itself entirely
 through `resolvedSprints`. `ReportFilter.toMeta(...)` assembles the DTO from an already-resolved
 filter plus the figures a report's own service computes -- pure, no DB access of its own.
@@ -553,9 +583,448 @@ against an independent bucketing** -- WEEK and MONTH, zero-filled, hidden per bu
 exact hand-computed numbers incl. a zero-working-day cycle) and `ReportReportedTimeRatioTest` (the partition, groups,
 slices, hand-built bucket precedence and hidden state).
 
-## Not yet built
+## Reports 9, 10, 13 -- WIP and the estimated backlog
 
-Every remaining named report (plan section 7's table: WIP, backlog, aging WIP,
-blocked time, data quality, epic progress/EVM, cost matrix) lands in its own later commit and
-grows this doc with its own `## Report N -- ...` section, following `.claude/docs/measures.md`'s
-own per-measure contract for what each number means.
+Two endpoints (v0.3.0 M5 commit 15, `.claude/docs/measures.md` "Report 9", "Reports 10, 13") that read the DAILY
+AGGREGATES the DERIVE run writes (`.claude/docs/metrics.md` "Daily WIP aggregate", "Daily flow aggregate") instead of the
+fact tables, so they share their own preamble (`resolveReportScope`, then `snapshotScopeOf` and `planSnapshotDays` in
+`reports/SnapshotSupport.kt`). Both take the shared `from`/`to`/`lastSprints`/`sprintId`, `teamId`/`accountId`, `domain`
+and `connectionId` parameters. `breakdown` is accepted and changes nothing; so is `domainView`, but **`meta.domainView` is
+always `TASK`**: both reports read the task's own domain (D3 flow view; the epic side of WIP is the epic's own space), so an
+explicit `domainView=EPIC` is not a `400` but is not echoed back as if it had been honoured.
+
+**Scopes -- what the aggregate can answer.** `agg_daily_wip`/`agg_daily_flow` are stored per TEAM scope and per DOMAIN
+scope only: never per user, never team x domain. So:
+
+- **UNIT** (no `teamId`) sums every TEAM scope -- including the `UNASSIGNED` (tasks) and `UNOWNED` (epics, backlog)
+  scopes -- or, with `domain`, reads that DOMAIN scope (a task's as-was domain, an epic's own space).
+- **TEAM** (`teamId`) reads that team's TEAM scope. For WIP a task is in the team of D5 as of each day and an epic in
+  its domain's owner team (A19); the backlog's TEAM scope is the owner team (A19).
+- **`teamId=0`** is `UNASSIGNED` on the task side and `UNOWNED` on the epic side of WIP (so an explicit `itemKind=BOTH` adds the two),
+  and `UNOWNED` for the backlog.
+- **USER** (`teamId` and `accountId`) has no storage: the answer is an EMPTY series with a `note`, never a team-wide
+  number posing as a user's. `400`, checked first: `domain` together with `teamId` (no team x domain split) and
+  `activityType`/`workCategory` (not stored per day). Unknown `teamId`/`connectionId`/`sprintId` are `400` as elsewhere.
+
+**Series days.** One point per calendar day of the period in the configured zone (a `from`/`to` period as parsed; a
+`lastSprints`/`sprintId` period the resolved sprints' envelope, `periodWindow`, as throughput's period view). Days the
+aggregate has no row for are ZERO (the rows are sparse) -- but only days the aggregate actually covers:
+
+- **The cut-off.** The series stops after the last derived day, which with several connections in scope is the OLDEST, over
+  the connections that have derived, of each one's newest SUCCEEDED `derive_runs.started_at` day in the configured zone (SQL
+  `max()` per connection) -- so a lagging connection's missing days are never read as zeros. A period reaching past it lists
+  nothing for those days; a period entirely past it is an empty series. A connection with no successful run is ignored for
+  the cut-off (it has no rows either) but its id is named in `note`.
+- **Not derived yet.** When NO connection in scope has a successful DERIVE run the answer is an empty series/trend with
+  `note` "Not derived yet: ..." -- never a period's worth of zeros.
+- **`note`** carries whatever makes an empty or partial answer explicable: USER level (below), not derived yet, no sprint
+  resolved by a sprint-relative period (`teamId=0` gets its own wording: UNASSIGNED resolves no sprint), connections left out
+  of the cut-off. Several apply -> joined by ". "; `null` when there is nothing to say. `meta.derivedAt` still tells a client
+  how fresh the numbers are.
+
+### Report 9 -- `GET /api/v1/reports/wip`
+
+```
+WipReport {
+  meta, by: STATUS|STAGE|COLUMN, itemKind: TASK|EPIC|BOTH,
+  keys:   [{ key, label }],                                   // the legend, in display order
+  series: [{ day, isWorkingDay, counts: { <key>: n } }],      // counts carries EVERY key, zero-filled
+  note?:  string                                              // why the series is empty or partial (see "note" above)
+}
+```
+
+- `itemKind` (default `TASK`) counts level-0 tasks; `EPIC` counts epics and `BOTH` adds the two -- tasks and epics are different
+  grains (D2), so mixing them is an explicit choice; `by` (default `STAGE`)
+  keys `counts`. `STAGE`: the four stages `NOT_STARTED`, `IN_PROGRESS`, `DONE`, `UNMAPPED` -- always all four, `UNMAPPED` (a
+  status with no stage mapping) is its own key. `STATUS`: the Jira status id, `label` its `norm.statuses` name; only
+  statuses seen in the period, ordered by stage then name. `COLUMN`: the mapped board's columns in board order
+  (`norm.board_columns`, read at query time so a board edit needs no re-derive), plus `(no column)` when a status no column
+  holds has items in the period.
+- **The counts are end-of-day snapshots**: the number of items whose `item_stage` interval covers the END of that day, all
+  stages (the `DONE` count only grows -- a chart that wants "work in progress" picks the `IN_PROGRESS` key). Invariant 9's
+  other half lives in DERIVE's tests: the backlog never exceeds the NOT_STARTED WIP of its domain/day.
+- **`by=COLUMN` needs one team's board**: `400` at UNIT level, with `domain`, for `teamId=0` and for a team with no board
+  mapped in the connections in scope (a team has at most one board, D10). It reads only the board's connection's rows. A
+  USER-level request still validates the team's board, then answers empty.
+- `isWorkingDay` is the configured calendar's (weekends and holidays are not), so a chart can hide weekends. There is no
+  `workingDaysOnly` parameter -- the flag is the contract.
+
+### Reports 10, 13 -- `GET /api/v1/reports/backlog`
+
+```
+BacklogReport {
+  meta,
+  current: { asOfDay?, items, md, meanDeliveredMd?, windowSprints, sprintsUsed, backlogInSprints? },
+  trend:   [{ day, items, md }],                              // end-of-day, zero-filled
+  note?:   string                                             // why it is empty or partial (see "note" above)
+}
+```
+
+- **`trend`** is the estimated backlog (D9: level-0 NOT_STARTED tasks with an OWN estimate > 0 in no started sprint;
+  a parent estimated only through its sub-tasks is not in it, A23) at the end of each day, `md` in man-days. **`current`**
+  is the trend's last listed day (`asOfDay`, `null` for an empty trend), so it is the snapshot on the period's last day
+  (or on the last derived day when the period reaches beyond it).
+- **Backlog in sprints (report 13)**: `backlogInSprints = md / meanDeliveredMd`, where `meanDeliveredMd` is the mean
+  `fact_sprint.delivered_md` of the team's last `windowSprints` (`backlog_window_sprints`) CLOSED sprints completed before
+  the end of `asOfDay` -- as of the period end, so an older period is graded against the sprints known then -- and
+  `sprintsUsed` says how many were averaged (fewer than `windowSprints` when fewer exist; at UNIT level the MINIMUM across
+  the teams that have closed a sprint, so "some team has fewer than N" is detectable). **`null`** (`meanDeliveredMd`,
+  `backlogInSprints`) when no closed sprint exists; `backlogInSprints` alone is `null` for a mean of exactly 0. An open
+  sprint (no `complete_at`) never counts.
+- **Whose velocity**: the backlog's team is the OWNER team (A19), the sprint's team is the team of its board, both the same
+  Flow team. TEAM level uses that team's own sprints. UNIT level uses the SUM of every team's own mean (the unit's delivery
+  per sprint) over the unit's whole backlog -- including the `UNOWNED` part, which has no team velocity of its own, so a
+  large unowned backlog inflates the unit figure (report 14 lists domains without an owner). A `domain` slice and
+  `teamId=0` (UNOWNED) have no velocity of their own: `meanDeliveredMd` and `backlogInSprints` are `null`.
+
+Code: `reports/WipReport.kt`, `reports/BacklogReport.kt`, over `reports/SnapshotSupport.kt` (the scope predicates, the
+working calendar builder, the derived coverage, the day plan and its note). Tests -- `ReportWipTest` and `ReportBacklogTest` on
+`DerivedStubFixture`, plus `ReportSnapshotTestSupport.kt` (independent readers of `agg_daily_wip`/`agg_daily_flow`/
+`fact_sprint`, hand-row inserters): every day of every series against a sum taken straight off the aggregate rows (per
+stage, status and board column; `BOTH` = `TASK` + `EPIC`; the DOMAIN scopes; a team; `teamId=0`; the sprint-id envelope; the
+cut-off at the last derived day, incl. two connections with differing derive days and one that never derived; "not derived yet";
+the `teamId=0` sprint-relative note; `meta.domainView` forced to TASK; weekends), the mean against an independent computation over `fact_sprint` at several
+period ends (window full, fewer than N, one sprint), and hand-built rows in fresh DISABLED connections with hand-computed
+answers (the zero-fill, keys and their order, `(no column)`, the UNASSIGNED/UNOWNED split incl. an epic never being
+UNASSIGNED, scope isolation, the window, fewer than N, a mean of zero, no sprint at all, the UNIT sum). `400`s: a bad
+`by`/`itemKind`, `domain` with `teamId`, `activityType`, `workCategory`, an unknown team/connection/sprint, `by=COLUMN` at
+UNIT level / for `teamId=0` / for a team with no board.
+
+## Reports 11, 12 -- Aging WIP and blocked time
+
+Two endpoints (v0.3.0 M5 commit 15 part b, `.claude/docs/measures.md` "Report 11", "Report 12") over
+`fact_task_delivery`/`fact_epic_delivery`, on the shared preamble (`resolveReportScope`, `taskFactSlice`/`epicFactSlice`, the
+`orgGroups` drill). Same D12 posture and shared filter parameters as every report.
+
+### Report 11 -- `GET /api/v1/reports/aging-wip`
+
+```
+AgingWipReport {
+  meta,
+  thresholds:     { n, hidden, percentiles: [{ percentile, workingDays? }] },   // tasks
+  epicThresholds: { n, hidden, percentiles: [...] },                            // epics
+  items: [{ issueKey, summary?, itemKind: TASK|EPIC, teamId?, assigneeAccountId?, assignee?, startedAt,
+            ageWorkingDays, blocked, band? }],                                  // oldest first, <= 500
+  itemsTruncated
+}
+```
+
+- **"As of now" -- the period is ignored.** The report has no period: the age is taken at the request's clock
+  (`nowMillis()` in the route, injected into the service so tests pin it) with the configured calendar
+  (`WorkingCalendar.workingDaysBetween(started_at, now)`, never negative). The shared parser still accepts `from`/`to`/
+  `lastSprints`/`sprintId` (a sprint-relative one only resolves sprints, or 400s for an unknown id).
+- **Items** = every OPEN level-0 task whose `current_stage` is IN_PROGRESS (`UNMAPPED` is not in progress) and every open epic
+  whose own stage (`dim_epic.current_stage`) is IN_PROGRESS, each with `started_at` set. Tasks are attributed to the CURRENT
+  team and assignee (A25: `taskFactSlice(openAttribution = true)`, `teamId=0` = no current team), epics to the owner team
+  (`teamId=0` = UNOWNED) with no assignee; USER level (`accountId`) lists that assignee's tasks and no epics. `domain`,
+  `activityType` and `workCategory` slice as elsewhere (`activityType` is not an epic attribute and is ignored for epics).
+  `assignee` is the Jira display name (the account id when none is known). `blocked` = an `item_blocked` row covers the
+  connection's DERIVE clock (its newest successful run's start: the deriver never writes an open row, it closes a still-open
+  spell AT that clock), i.e. blocked as of the last derive. Sorted by age descending (then connection, issue id), at most 500 with `itemsTruncated`.
+- **Thresholds** are the configured `aging_percentiles` (default 50/85/95) of `cycle_working_days` over the LAST
+  `aging_window_items` DONE items by `done_at` -- level-0 tasks by the credit team for `thresholds`, epics by the owner team
+  for `epicThresholds` (an epic's cycle is a different scale from a task's). They belong to the team: `accountId` narrows
+  the listed items but not the window, and at UNIT level the window spans the unit (each item carries its `teamId`; drill
+  with `teamId` for a team's own thresholds). Hidden below `minSampleSize` (`n` set, every `workingDays` null).
+- **`band`** = the highest configured threshold the age is strictly above (`"P85"` = above p85 but not above the next),
+  `"WITHIN"` when above none, `null` when that kind's thresholds are hidden.
+
+### Report 12 -- `GET /api/v1/reports/blocked-time`
+
+```
+BlockedTimeReport {
+  meta, itemKind: TASK|EPIC|BOTH,
+  blockedWorkingDays: Distribution,       // every DONE item in the period, zeros included
+  shareOfCycle:       Distribution,       // blocked_working_days / cycle_working_days, cycle > 0
+  blockedItems, excluded: { population, neverStarted, zeroCycle },
+  topItems: [{ issueKey, summary?, itemKind, teamId?, doneAt, blockedWorkingDays, cycleWorkingDays?, share? }],  // <= 20
+  groups:   [{ teamId?, accountId?, label?, blockedWorkingDays, shareOfCycle, blockedItems, excluded }]
+}
+```
+
+- **Population** = DONE items with `done_at` in the period (a sprint-relative period reads the resolved sprints' envelope):
+  level-0 tasks (`itemKind=TASK`, the DEFAULT -- tasks and epics are different grains, D2) credited to the D5 credit team /
+  assignee at done, epics (`EPIC`) to the owner team with no user, or both. USER level has no epics. Open items are not in
+  this report (aging WIP lists them, with their current `blocked` flag).
+- **`blockedWorkingDays`** is a `Distribution` over EVERY DONE item -- an item never blocked is a real zero and stays in
+  (`blockedItems` counts those blocked at all, so a sea of zeros is visible rather than hidden). Blocked time is what the
+  deriver stored (`blocked_working_days`: Flagged or in a configured blocked status, merged, clipped to `[started_at,
+  done_at)`). **`shareOfCycle`** covers the items with a cycle above zero; the rest are in exactly ONE `excluded` bucket,
+  `neverStarted` (no cycle) then `zeroCycle` (0 working days), so `shareOfCycle.n + neverStarted + zeroCycle == population`.
+  Both are hidden below `minSampleSize`.
+- **`topItems`** = the 20 most-blocked items (`blockedWorkingDays > 0`, then newest `doneAt`), keys/summaries from
+  `norm.work_items` (`dim_epic` for an epic). **Levels:** UNIT `groups` one per team (tasks and epics together), TEAM one per
+  assignee at done over the TASKS only -- epics have no user, so at TEAM level with `itemKind` EPIC/BOTH the totals include the
+  team's epics but Σ groups is the tasks' total -- and USER none.
+
+Code: `reports/AgingWipReport.kt`, `reports/BlockedTimeReport.kt` (DTOs and queries as extensions on `ReportService`; the
+shared `workItemLabels`). Tests: `ReportAgingWipTest` (hand-built rows with an INJECTED clock -- the service is called
+directly, never wall time: exact ages, bands, the thresholds window, hidden thresholds, blocked, USER/UNIT, plus the fixture
+graded on its populations and the thresholds against an independent percentile of the raw rows) and `ReportBlockedTimeTest`
+(the fixture's distributions, exclusion partition, groups and top list against an independent computation over the fact
+rows; hand-built rows with exact hand-computed numbers incl. never-blocked zeros, both exclusions, the three item kinds and the
+drill). `400`s: an unknown team/connection/sprint, `accountId` without `teamId`, `from > to`, a bad `itemKind`.
+
+## Report 14 -- Data quality
+
+`GET /api/v1/reports/data-quality` (v0.3.0 M5 commit 17, `.claude/docs/measures.md` "Report 14"): where the data the other
+reports stand on is missing or inconsistent. One response, one section per finding; the shared parameters (`from`/`to`/
+`lastSprints`/`sprintId`, `teamId`/`accountId`, `domainView` -- default `TASK` --, `domain`, `activityType`, `workCategory`,
+`connectionId`); `breakdown` is accepted and changes nothing. Same D12 posture as every report.
+
+```
+DataQualityReport {
+  meta, hoursPerDay,
+  populations:     { doneTasks, openStartedTasks, epics, worklogs },
+  groups:          [{ teamId?, accountId?, label?, tasks: TaskCounts, worklogs: WorklogCounts, epics?: EpicCounts }],
+  worklogCoverage: { doneTasks, withWorklogs, coverage?, without: TaskFinding },
+  loggedHours:     { memberDays, hours, hoursPerMemberDay? },
+  lateLogging:     { worklogs, measurable, over1Day, over7Days, distribution: Distribution, worst: [LateWorklog] },
+  missing:         { noEstimate, noEpic, noWorkCategory: TaskFinding, workCategoryConfigured, unassigned: TaskFinding,
+                     epicsWithoutEstimate, epicsWithoutDates, epicsOutsidePvHorizon: QualityList<EpicRef> },
+  outsideSprint: TaskFinding,  crossDomain: TaskFinding,
+  epicDrift: QualityList<EpicRef>,
+  domainsWithoutOwner: QualityList<UnownedDomain>,  unmappedStatuses: QualityList<UnmappedStatus>,
+  unmappedBoards: QualityList<UnmappedBoard>,  authorsWithoutTeam: QualityList<AuthorWithoutTeam>,
+  snapshotDrift: QualityList<SnapshotDrift>,  deriveWarnings: [DeriveWarning]
+}
+TaskFinding { done, open, total, md, items: [TaskRef] }     // TaskRef { issueKey, summary?, teamId?, assigneeAccountId?, assignee?, doneAt?, startedAt?, estimateMd? }
+QualityList<T> { total, items: [T] }                        // items = the first 50; total says "and N more"
+```
+
+**Populations.** Task findings count level-0 tasks (D2) with `done_at` in the period -- the D5 credit team and the assignee at done
+-- and, separately (the `open` half of a `TaskFinding`, `openStartedTasks`), every currently open task that has started,
+whatever the period, attributed to the CURRENT team and assignee (A25, `taskFactSlice(openAttribution = true)`). Findings that
+only make sense once a task is done (worklog coverage, unassigned, outside any sprint, cross-domain) have `open` = 0. Worklog
+findings count `fact_worklog` rows with `started_at` in the period by the author's team as-was (`teamId=0` = no team) and
+account; the `domain` slice follows `domainView` (TASK: the task's domain, EPIC: the epic's else the task's, A21). Epic findings
+count epics open now or done in the period by the owner team (`teamId=0` = UNOWNED); USER level has no epics. A `lastSprints`/
+`sprintId` period reads the resolved sprints' envelope (`periodWindow`); with no resolved sprint the done-anchored findings are
+empty but the open ones remain.
+
+**The findings.**
+
+- **`worklogCoverage`** -- DONE tasks with worklogs; `coverage` is the fraction 0..1 (`null` with no DONE task), `without` lists the
+  tasks with `has_worklogs = false` (a task with a 2-minute worklog has worklogs -- unlike the accuracy reports' D14 rule there is no
+  `actual_md = 0.00` clause, measures.md's source is the flag).
+- **`loggedHours`** -- Σ `fact_worklog.md` × `hoursPerDay` of authors who were in a team, over their **member-days**: the dated
+  `metrics.team_membership` rows (D1) clipped to the period, capped at the request's now, counted in working days by the configured
+  calendar (`WorkingCalendar.workingDaysBetween`, the rule `dim_date.is_working_day` stores). `hoursPerMemberDay` is `null` without
+  member-days; read it against the top-level `hoursPerDay`. Each `groups[].worklogs` carries the same three numbers for its team
+  (UNIT) or member (TEAM, roster members with no worklog included -- a `0` is a finding).
+- **`lateLogging`** -- `late_ms` (created minus started, clamped at 0; `null` = creation time unknown, not measurable).
+  `over1Day`/`over7Days` count strictly more than 1/7 days; `distribution` is the lateness in days (hidden below `minSampleSize`);
+  `worst` the up-to-50 latest-logged ones (`lateDays` descending).
+- **`missing`** -- `noEstimate` (`estimate_source = 'NONE'`), `noEpic` (`epic_id IS NULL`), `noWorkCategory` (`work_category IS NULL`,
+  counted only for connections whose effective configuration has a work-category field; `workCategoryConfigured` says whether any
+  has), `unassigned` (DONE, no assignee at done); the three epic lists: `epicsWithoutEstimate` (`budget_source = 'CHILDREN'`),
+  `epicsWithoutDates` (start or due null), `epicsOutsidePvHorizon` (both set but one outside ±10 years of the connection's last
+  DERIVE clock -- its newest SUCCEEDED `derive_runs.started_at`, else the request clock -- `DeriveKernels.inPvHorizon`: no PV curve,
+  A23; a half-dated epic is "without dates" only).
+- **`outsideSprint`** (D10) -- DONE tasks with no sprint at done, `md` = their estimate at done. A task done inside a sprint of an
+  unmapped board is not here: it is counted under `unmappedBoards[].doneTasks`. **`crossDomain`** -- DONE tasks whose epic is in another
+  domain. **`epicDrift`** (D11) -- epics with a drift flag, `flags` naming them.
+- **`domainsWithoutOwner`** (A19, A22) -- `dim_domain.owner_team_id IS NULL`, with the domain's epic count; `domain` narrows; a real
+  `teamId` sees none (an unowned domain belongs to no team), UNIT and `teamId=0` see them.
+- **`unmappedStatuses`** -- statuses of `norm.statuses` with no stage in the connection's EFFECTIVE configuration
+  (`MetricsConfigService.effectiveConfig` -- the map DERIVE used), plus any status DERIVE actually tiled UNMAPPED; `items` = work
+  items (sub-tasks included) that ever sat in it, `openItems` those in it now (from `item_stage`). This is the **stage** map; a status
+  missing from a board's columns (`DataProfile`'s `unmappedStatusNames`, the stub's GTM `Waiting`) is a different thing and, with the
+  default category-based map, `Waiting` is mapped IN_PROGRESS.
+- **`unmappedBoards`** -- `{total, items, unattributedDoneTasks}`: `norm.boards` with no team in the effective board map, each with its
+  `sprints` (`norm.sprints`) and `doneTasks` (the period's DONE tasks that were done in one of them -- `sprint_id_at_done` set, no
+  `sprint_team_id_at_done`). **`unattributedDoneTasks`** is the residual: tasks done in a teamless sprint that belongs to none of the
+  listed boards (the sprint has no board, or its board IS mapped yet the sprint carries no team), so `outsideSprint` (no sprint),
+  the listed boards and the residual together account for every DONE task without a sprint team.
+- **`authorsWithoutTeam`** -- worklog authors with no team at `started_at`, by account (a `null` account = worklogs with no known
+  author), most MD first. A real `teamId` sees none.
+- **`snapshotDrift`** (D13) -- for the closed, team-mapped sprints of the period (`resolveSprintRows`, the sprint's team; USER level
+  none) every one of the 16 figures whose live `fact_sprint` value differs from `fact_sprint_snapshot`: the seven MD figures beyond
+  0.005, their item twins exactly, `capacityMd` beyond 0.005, `load` beyond 0.0005 (a figure null on one side only counts);
+  `live`, `frozen` and `delta`. A sprint with no snapshot has nothing to drift from.
+- **`deriveWarnings`** (A13) -- per connection in scope, its NEWEST successful run (by start, then id) carrying
+  `row_counts.sprintFieldUnresolved`: `{connectionId, connectionName, runId, startedAt, warnings: ["sprintFieldUnresolved"]}`.
+  Connections without a run, or whose latest run is clean, are not listed.
+
+**Not team-scoped.** `unmappedStatuses`, `unmappedBoards` (its `doneTasks` still follow the filter) and `deriveWarnings` are
+properties of a connection, not of a team: the team filter does not narrow them. `snapshotDrift` follows the sprint's own team.
+
+**Levels (`groups`).** UNIT: one group per team that has any finding row or roster (tasks by credit/current team, worklogs by author
+team, epics by owner team, roster by membership team); a `teamId: null` group is UNASSIGNED tasks and authors and UNOWNED epics. The
+roster is global (D1: a team's members are not tied to a connection) while the findings are per connection, so the two reads differ:
+the **default read** (every connection) keeps every roster team -- a silent team with member-days and no worklogs is the finding --
+whereas a read narrowed to one `connectionId` keeps only the teams that have a finding row in that connection, so its hours are not
+divided by the member-days of teams working elsewhere (the caveat: a team silent in that one connection is not listed). TEAM
+(`teamId`): one group per member (tasks by assignee at done / now, worklogs by author, roster members), `epics` null. USER (`teamId`
+and `accountId`): no groups, the top-level sections narrow to that member (no epics, no sprint findings). Ordered by label (null
+last). Σ groups equals the matching top-level count at UNIT level for every task and worklog count.
+
+**Cost.** Counts and sums are SQL: one `GROUP BY` (team, assignee) query per task population with conditional aggregates, one per
+worklog slice, `count(DISTINCT)` for the unmapped-status items and the per-domain epic counts; only the capped lists fetch rows (`ORDER
+BY … LIMIT 50`). The exceptions are deliberate: the lateness `Distribution` reads the one `late_ms` column of the period's worklogs
+(`buildDistribution` is Kotlin over a fetched list, `Distribution` above), and epics (an admin-scale set) are read whole. The mapping
+findings read the three configuration facts they need (`readConnectionMappings`: stage map, board map, work-category field, with
+`effectiveConfig`'s stored-else-defaults rule) instead of calling `effectiveConfig`, whose defaults scan the work items; DERIVE
+warnings read only each connection's newest successful run. Measured on the shared stub fixture scaled 20x (24k tasks, 24k
+worklogs): about 85 ms per request; at 1x about 35 ms.
+
+Code: `reports/DataQualityReport.kt` (DTOs, `dataQuality`), `DataQualityTasks.kt` (task, worklog and member-day rows),
+`DataQualityEpics.kt`, `DataQualityConfig.kt` (the mapping, drift and warning findings), `DataQualityAssembly.kt` (counting and
+the drill). Tests: `ReportDataQualityTest` -- the stub fixture graded section by section against independent counts over the raw fact
+rows (populations, coverage, every task finding, late logging against the generator's 1..5-day delays, teamless authors, epic
+findings, unmapped boards and the ownerless domains) and its UNIT/TEAM/USER/`teamId=0`/domain-sliced/sprint-relative drill; a private
+DERIVED clone whose configuration is changed and re-derived (a capacity override moves the live capacity and load away from the frozen
+snapshot; removing `Waiting` from the stage map makes it an unmapped status) plus hand-moved live figures for the delta arithmetic;
+hand-built rows for the populations and every task finding with hand-computed numbers, the member-days against plain weekday
+arithmetic, epics incl. the horizon cut around the connection's DERIVE clock, the owner drill and the domains, and hand-inserted
+DERIVE runs for the warnings. `400`s: `from > to`, `accountId` without `teamId`, an unknown connection/team/sprint, `lastSprints=0`,
+a bad `domainView`.
+
+## Report 15 -- Epic progress (EVM)
+
+`GET /api/v1/reports/epic-progress` (v0.3.0 M5 commit 15c, `.claude/docs/measures.md` "Report 15 -- EVM"): planned value
+(PV), earned value (EV) and actual cost (AC) in man-days as CUMULATIVE curves, with SV/SPI/CV/CPI as of a day. Any signed-in
+user, read-only, no audit (D12). It reads `agg_daily_flow`'s per-day INCREMENTS (A23, `.claude/docs/metrics.md`) and sums
+them at query time **from the beginning of time** -- the running sum is not reset at `from`, so a series point is everything
+planned/earned/spent up to the end of that day. Takes the shared `from`/`to`/`lastSprints`/`sprintId` period, `connectionId`,
+and its own `epicId`; `domainView` defaults to (and only accepts) `EPIC`.
+
+```
+EpicProgressReport {
+  meta: ReportMeta                     // domainView always EPIC; level is the shared UNIT/TEAM/USER of teamId
+  level: UNIT | DOMAIN | EPIC | TEAM   // what the report is about
+  scope: { kind: EPIC|DOMAIN|TEAM, id?, key?, name } | null        // null at UNIT
+  series: [{ date, pv, ev, ac, pvOriginal? }]                      // cumulative, one point per calendar day; empty at UNIT
+  asOf: { day?, pv, ev, ac, sv, spi?, cv, cpi? }
+  epic?: { budgetMd?, budgetSource?, startAt?, dueAt?, inPvHorizon, hasPvCurve,
+           baselines: [{ effectiveFrom, supersededAt?, startAt?, dueAt?, budgetMd? }], drift: { dates, budget } }   // EPIC only
+  foreignWorkShare?: number            // TEAM only
+  rows: [{ kind: EPIC|DOMAIN|TEAM, id?, key?, name, pv, ev, ac, sv, spi?, cv, cpi?, active? }]   // active: TEAM rows only
+  note?: string
+}
+```
+
+- **Scope -- at most one of `epicId` / `domain` / `teamId`** (`400` for two or more): `epicId` is an epic's ISSUE KEY
+  (`FLO-33`, what every other report lists as `issueKey`; there is no numeric epic id on the wire) -> level `EPIC`; `domain` ->
+  `DOMAIN`; `teamId` -> `TEAM` (`0` = UNASSIGNED, a legal value); none -> `UNIT`. What each reads, from the aggregate's own scopes:
+  - **EPIC** / **DOMAIN**: the `EPIC` / `DOMAIN` scope rows. EV is the `estimate_at_done_md` of the level-0 tasks done under
+    the epic, AC the worklog MD logged on the epic's tasks and on the epic itself, PV the epic's CURRENT baseline spread over the
+    working days -- **epic-attributed work only** (a task with no epic has no plan to compare against, A23).
+  - **TEAM**: the `TEAM` scope -- PV = the team's sprints' committed scope on each sprint's start day, EV = what those sprints
+    delivered on the done day (A20), AC = the author's-team worklogs; `teamId=0` is the `UNASSIGNED` scope (AC only, so PV = 0 and SPI
+    is `null`). **`foreignWorkShare`** = Σ `fact_worklog.md` with `foreign_work` for the team's authors ÷ Σ their `md`, over the
+    SAME cumulative window as CPI -- from the beginning of time to the end of `asOf.day`, never just the requested period (a fraction
+    0..1, `null` when they logged nothing; the authors in no team of `teamId=0` are never foreign, so `0.0`): A20 -- read team CPI
+    with it.
+  - **UNIT**: every `DOMAIN` scope summed -- the epic basis, consistent with `domainView=EPIC`, and free of the double counting of
+    an item that sits in overlapping sprints (a sprint sum would count it once per sprint). So the UNIT headline is epic-attributed
+    work only, exactly what the domain rows below add up to. No series; `rows` is the drill.
+- **`400`s**, checked before any data is read: more than one scope, `accountId` (there is no user-level EVM), an explicit
+  `domainView=TASK` (EVM is always the EPIC view, D3), `activityType` / `workCategory` (not stored per day -- the WIP/backlog
+  reports' precedent), a blank `epicId` (a present-but-empty value is a mistake, not "the whole unit"), and an unknown epic key, domain, team, sprint or connection -- always `400`, never `404`. An epic key that
+  exists in several connections in scope is ambiguous (`400`, narrow with `connectionId`). `breakdown` is parsed and changes nothing.
+  A scope that cannot be checked because NOTHING in scope has derived yet (no `dim_epic`/`dim_domain` rows exist) is not `400`: it is
+  the empty "not derived yet" answer below, the scope named by the key alone.
+- **`asOf` -- the period rule.** `asOf.day` = min(the period's last day, today in the configured zone, the last DERIVED day);
+  the last derived day is `derivedCoverage`'s (the OLDEST, over the connections in scope that have derived, of each one's newest
+  SUCCEEDED `derive_runs.started_at` day -- the flow-snapshot reports' cut-off), because EV and AC are unknown past it and comparing
+  them to a plan that keeps running would bias SPI/CPI. `series` lists one point per calendar day of the period (the resolved
+  sprints' envelope, `periodWindow`, for a `lastSprints`/`sprintId` period) up to `asOf.day`. A period that starts AFTER `asOf.day`
+  has an empty series, `asOf` still the running sum at `asOf.day`, and a `note` saying so. `sv = ev - pv`, `spi = ev / pv` (`null`
+  when PV is 0), `cv = ev - ac`, `cpi = ev / ac` (`null` when AC is 0). MD are rounded to 2 decimals, the ratios are unrounded
+  (as every other report's ratios).
+- **`rows` -- the drill, as of `asOf.day`.** DOMAIN: one row per epic of that domain (`dim_epic.domain_key`, the epic's current
+  domain) with a current baseline OR any EV/AC up to `asOf` (`kind` EPIC, `key` the issue key, `name` the summary, else the key),
+  ordered by key -- an epic that changed domain is listed under its current one, while the DOMAIN totals keep the as-was attribution,
+  so the DOMAIN total is authoritative. UNIT: one `DOMAIN` row per domain (every domain the connections know, plus any domain scope
+  with figures) on the epic basis -- these add up to the unit's `asOf` -- then one `TEAM` row per team (every active team, plus any
+  team scope with figures -- `id` 0 is UNASSIGNED, sorted last) on the sprint/author basis: a DIFFERENT view (sprint scope, author-team
+  cost) whose rows do NOT sum to the UNIT headline. A team row carries `active`: `false` marks a soft-deleted team that still has
+  figures, whose own drill (`teamId`) answers `400`; UNASSIGNED and live teams are `true`. EPIC and TEAM: empty.
+- **The EPIC block.** `budgetMd`/`budgetSource` are the CURRENT baseline's (D4: `OWN` estimate, else `CHILDREN`), or, with no current
+  baseline, the delivery fact's; `startAt`/`dueAt` the epic's own dates (UTC midnight millis of a calendar date, zone-free);
+  `baselines` every `fact_epic_plan` baseline oldest first; `drift` compares the CURRENT baseline with the FIRST (`dates`: start or
+  due moved, `budget`: it changed -- both `false` with one baseline). `inPvHorizon` is literal: the current baseline is complete and
+  both its dates lie within +-10 years of the connection's DERIVE clock (`DeriveKernels.inPvHorizon`), otherwise there is no PV
+  (A23) -- while EV and AC still count. `hasPvCurve` adds that the window holds a working day, so PV is actually spread (a weekend-only
+  window is in the horizon but has no curve). `series[].pvOriginal` is the epic's FIRST baseline redrawn: the working days come from
+  `DeriveKernels.pvCurve` under the calendar DERIVE used -- `metrics.dim_date.is_working_day` where `dim_date` covers the whole
+  window (so a calendar or holiday edited since, on a connection not yet re-derived, does not move it), else the current settings
+  calendar (a superseded baseline's window outside the range DERIVE keeps stamped) -- and each day's cumulative value is rounded
+  exactly like the stored increments (`ROUND(budget * i / n, 2)`, the last day the budget), so an epic with ONE baseline has
+  `pvOriginal == pv` on every day (also for a budget that does not divide) and a re-planned one shows the gap. It is `null` where that
+  baseline has no curve (out of horizon, no working day) and at every other level.
+- **Multi-connection and derive state** are the flow-snapshot reports' precedent: `connectionId` narrows to one active connection
+  (else every active one, their rows summed); a connection with no successful DERIVE is ignored for the cut-off and named in `note`;
+  nothing derived at all answers empty (`series`/`rows` empty, `asOf.day` null, every figure 0) with the same "Not derived yet" note;
+  no sprint resolved for a sprint-relative period (or `teamId=0` with one) is empty with that note.
+
+Code: `reports/EpicProgressReport.kt` (DTOs, the query functions as extensions on `ReportService`; `snapshotNotes` in
+`reports/SnapshotSupport.kt` is now shared with WIP/backlog). Tests -- `ReportEpicProgressTest`: on the shared derived fixture every
+level's `asOf`, every series point (monotone, ending at `asOf`), the DOMAIN/UNIT drill rows and the sum of DOMAIN epic rows against
+an INDEPENDENT running sum of the persisted `agg_daily_flow` rows (UNIT against the DOMAIN scopes, the domain rows summing to it);
+the golden epic's PV reaching its budget on its due date, its exactly-one baseline and its plan block against `expected.json`; sprint-relative and past-the-derive periods; and, on hand-built rows in fresh disabled connections,
+the exact SV/SPI/CV/CPI (PV 0 -> SPI null, AC 0 -> CPI null), a superseded baseline (`pvOriginal` vs `pv`, both drift flags), an
+out-of-horizon epic, the drill rows (incl. a soft-deleted team marked `active: false`), `breakdown` ignored, the oldest-derive cut-off
+across connections, the never-derived answer, the cumulative team foreign-work share, `pvOriginal` against the stamped `dim_date`
+calendar and an independent `ROUND(b*i/n, 2)` for a non-divisible budget, `hasPvCurve` for a weekend-only window, and every `400`
+above (a blank `epicId` included; a plain user gets `200`).
+
+## Report 16 -- Cost matrix and foreign work
+
+`GET /api/v1/reports/cost-matrix` (v0.3.0 M5 commit 17b, `.claude/docs/measures.md` "Report 16"): the man-days logged in the period
+as an author-team x domain matrix, with the foreign-work share beside every row. Any signed-in user, read-only, no audit (D12). It
+reads `fact_worklog` directly (no aggregate, so no derive cut-off and no `note`): every worklog whose `started_at` is in the period
+(inclusive ISO dates in the configured zone; a `lastSprints`/`sprintId` period reads the resolved sprints' envelope, `periodWindow`)
+is charged to the AUTHOR's team as of `started_at` (`author_team_id`; null = UNASSIGNED) and to a domain.
+
+```
+CostMatrixReport {
+  meta,
+  columns: [{ domain?, name?, totalMd }],         // domains that received work, by key; `(no domain)` (domain null) last if any
+  rows:    [{ teamId?, accountId?, label?, cells: [{ domain?, md }], totalMd, foreignMd, foreignShare? }],
+  totalMd, foreignMd, foreignShare?               // the grand figures
+}
+```
+
+- **Columns and `domainView`.** `EPIC` (the DEFAULT -- a worklog-cost measure is PV/EV/AC-shaped, D3) uses `epic_domain_key`, an
+  epic-less task falling back to its own `task_domain_key` (so there is no `(no epic)` column); `TASK` uses `task_domain_key`, so a
+  cross-domain task moves from the epic's column to its own. A worklog logged ON an epic carries the epic's own domain in both
+  columns (A21) and is the same in both views. `task_domain_key` is never null (invariant 6), so the `(no domain)` column
+  (`domain` null) exists only so a corrupt row could never silently leave the totals. Columns are only the domains the scoped
+  worklogs reach (empty for none), ordered by key; `name` is `dim_domain.name` (the lowest connection id's for a key seen on several),
+  null when no row names it.
+- **Rows and levels.** UNIT: one row per author team that logged work, ordered by team name, UNASSIGNED (`teamId` 0, `label` null --
+  the authors in no team) last; `teamId` is the id a client drills with. `teamId` set: one row per AUTHOR of that team as of
+  `started_at`, by display name (`norm.people`, the account id when none is known; `label` null and `accountId` null for worklogs with
+  no known author, last), every row's `teamId` the requested one; `teamId=0` lists the authors in no team the same way. `teamId` +
+  `accountId`: that author's one row (no row when they logged nothing there). The columns of a drill are those of its own worklogs.
+  Teams and authors with no worklogs in scope have no row. A UNIT row carries `active`: `false` marks a soft-deleted author team that
+  still logged work in the period (it keeps its name; its own drill `teamId` answers `400`, the epic-progress team-row precedent);
+  UNASSIGNED and live teams are `true`; TEAM/USER rows leave it out. With a sprint-relative period a UNIT team row reads the unit's
+  UNION envelope (`periodWindow` over every resolved sprint), while the team drill resolves only that team's own sprints, so the two
+  can differ.
+- **Cells are DENSE** -- every row carries one cell per column, in column order, `md` 0 where nothing was logged.
+- **Rounding -- the rule, pinned by a test.** MD are summed EXACTLY (`decimal(8,4)` sums, no float) and rounded to 2 decimals half-up
+  ONCE, at the figure: a cell is the rounded exact sum of its worklogs; a row total, a column total and the grand total are each the
+  rounded exact sum of THEIR worklogs -- never the sum of already-rounded cells. Every worklog therefore lands in exactly one row and
+  one column (invariant 6) and each total is the true figure to the cent, but a displayed total can differ from the sum of its
+  displayed addends by up to 0.005 per addend (three cells of 0.3333 show 0.33 each and a row total of 1.00).
+- **Foreign work (A21, A22).** `foreignMd` = the exact MD with `fact_worklog.foreign_work`, `foreignShare` = exact foreign MD / exact MD
+  (a fraction 0..1, `null` when the row or the report logged nothing -- never 0). The flag is derive-time: task-logged = the author's
+  team differs from the task's sprint team at `started_at`, else from the assignee's team then; epic-logged = differs from the epic's
+  domain owner team; an unknown side is never foreign, so UNASSIGNED authors read 0.0. It is PER PERIOD -- the epic-progress report's
+  team `foreignWorkShare` is the same ratio over the cumulative window up to `asOf`, a different figure by design.
+- **Slices.** `domain` (matched against the same column the view uses), `activityType`, `workCategory` (`UNCATEGORIZED` = none) and
+  `connectionId` (else every active connection, summed) restrict the worklogs. `breakdown` is parsed and changes nothing.
+- **`400`s:** the shared parser's (`accountId` without `teamId`, `from` after `to`, mutually exclusive periods, `lastSprints` out of
+  range, a bad `domainView`/enum, a repeated scalar key) and an unknown or inactive team, connection or sprint -- always `400`, never
+  `404`. An unknown `domain`, `activityType` or `workCategory` is a valid slice with an empty answer; `teamId=0` with a sprint-relative
+  period resolves no sprint and is empty (the epic-progress precedent, no note field here).
+
+Code: `reports/CostMatrixReport.kt` (DTOs and the query as an extension on `ReportService`; the `orgGroups` drill and `resolveReportScope`
+from `ReportSupport.kt`). Tests -- `ReportCostMatrixTest`: on the shared derived fixture the grand total, every row, column, cell and
+the foreign figures in both views against an INDEPENDENT sum over the raw `fact_worklog` rows (two periods, a domain slice, the rows
+and columns reconciling to the total within the rounding bound); on hand-built rows in a fresh disabled connection the exact cells,
+the TASK/EPIC switch for a cross-domain task, an epic-logged and an epic-less worklog, the thirds rounding rule, the foreign shares
+(incl. null), the period and slice filters, the team/user/UNASSIGNED drills and every `400` (a plain user gets `200`).

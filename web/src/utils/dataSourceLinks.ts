@@ -3,6 +3,8 @@ export const dataSourcesPath = "/data-sources";
 export const dataSourcePath = (id: number) => `${dataSourcesPath}/${id}`;
 export const dataSourceProfilePath = (id: number) => `${dataSourcePath(id)}/profile`;
 export const dataSourceMetricsConfigPath = (id: number) => `${dataSourcePath(id)}/metrics-config`;
+/** The global metrics settings singleton (time zone, working days, percentiles) — the admin's other configuration surface. */
+export const metricsSettingsPath = "/metrics-settings";
 
 /** `key` prefills the inspector's lookup input (`?key=`); omit it to land on a blank form. */
 export function dataSourceInspectPath(id: number, key?: string): string {

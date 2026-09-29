@@ -5,6 +5,18 @@ export function formatMd(value: number): string {
   return String(Math.round(value * 100) / 100);
 }
 
+/** Man-days with an explicit sign (a true minus): `+3.5`, `−2`, `0` — a variance reads as a direction. */
+export function formatSignedMd(value: number): string {
+  const rounded = Math.round(value * 100) / 100;
+  if (rounded === 0) return "0";
+  return `${rounded > 0 ? "+" : "−"}${Math.abs(rounded)}`;
+}
+
+/** A performance index (SPI, CPI) at exactly two decimals: `1.00`, `0.85`. */
+export function formatIndex(value: number): string {
+  return value.toFixed(2);
+}
+
 /**
  * How a measure's value is written. `extraDecimals` widens the precision — the histogram labels
  * ask for it when two neighbouring range ends would otherwise print the same ("1 – 1").
@@ -19,8 +31,11 @@ const round = (value: number, decimals: number) => {
 /** A ratio (actual ÷ estimate) with two decimals and no trailing zeros: `1`, `1.25`, `0.5`. */
 export const formatRatio: ValueFormat = (value, extraDecimals = 0) => String(round(value, 2 + extraDecimals));
 
+/** One decimal, no trailing zeros: `3`, `3.5`, `0.4` — a mean count, a figure in sprints. */
+export const formatOneDecimal: ValueFormat = (value, extraDecimals = 0) => String(round(value, 1 + extraDecimals));
+
 /** Days (working or elapsed) with one decimal and no trailing zeros: `3`, `3.5`, `0.4`. */
-export const formatDays: ValueFormat = (value, extraDecimals = 0) => String(round(value, 1 + extraDecimals));
+export const formatDays: ValueFormat = (value, extraDecimals = 0) => formatOneDecimal(value, extraDecimals);
 
 /** A 0..1 fraction as a percentage with at most one decimal: `0.2` → `20%`, `0.125` → `12.5%`. */
 export const formatPercent: ValueFormat = (fraction, extraDecimals = 0) => `${round(fraction * 100, 1 + extraDecimals)}%`;

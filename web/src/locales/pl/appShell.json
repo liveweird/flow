@@ -12,7 +12,10 @@
     "dataSources": "Źródła danych",
     "metricsSettings": "Ustawienia metryk",
     "reportsDelivery": "Dostarczanie",
-    "reportsEstimation": "Szacowanie"
+    "reportsEstimation": "Szacowanie",
+    "reportsFlow": "Metryki przepływu",
+    "reportsDataQuality": "Jakość danych",
+    "reportsCost": "Macierz kosztów"
   },
   "section": {
     "overview": "Przegląd",

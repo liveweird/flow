@@ -128,7 +128,35 @@ place:
   scope and the `connectionId` existence check), `teams/TeamService.Teams` (the `teamId` existence
   check and team names) and `norm/WorkItemStore.People` (assignee display names) directly, inside
   the calling report's own transaction — read-only.
+- `reports/WipReport.kt` (v0.3.0 M5 commit 15, `GET /api/v1/reports/wip`) reads `norm/WorkItemStore.Statuses`
+  (status names for `by=STATUS`), `norm/WorkItemStore.BoardColumns` (the mapped board's columns for `by=COLUMN`, read
+  at query time so a board edit shows up without a re-derive) and `metrics/MetricsConfigService.BoardTeamMap` (which
+  board a team owns) directly, inside its own transaction — read-only, and `metrics/MetricsStore.AggDailyWip` for the
+  series itself. `reports/BacklogReport.kt` (`GET /api/v1/reports/backlog`) reads `metrics/MetricsStore.AggDailyFlow`
+  (the backlog trend) and `metrics/MetricsStore.FactSprint` (the mean `delivered_md` behind the backlog in sprints)
+  the same way. `reports/SnapshotSupport.kt`, shared by both, reads `metrics/MetricsStore.DeriveRuns` (the per-connection
+  newest successful run, via SQL `max()`) for the last-derived-day cut-off.
+- `reports/AgingWipReport.kt` and `reports/BlockedTimeReport.kt` (v0.3.0 M5 commit 15 part b, `GET /api/v1/reports/aging-wip`
+  and `/blocked-time`) read `norm/WorkItemStore.WorkItems` (issue key and summary, via the shared `workItemLabels`) and
+  `norm/WorkItemStore.People`/`teams/TeamService.Teams` (through `orgGroups`/`accountDisplayNames`) directly, plus the
+  `metrics` tables `FactTaskDelivery`, `FactEpicDelivery`, `DimEpic` and `ItemBlocked` -- all read-only, inside the report's
+  own transaction.
+- `reports/EpicProgressReport.kt` (v0.3.0 M5 commit 15c, `GET /api/v1/reports/epic-progress`) reads the `metrics` tables
+  `AggDailyFlow` (the per-day PV/EV/AC increments), `DimEpic`, `DimDomain`, `FactEpicPlan`, `FactEpicDelivery` (the budget
+  fallback) and `FactWorklog` (the team foreign-work share), plus `teams/TeamService.Teams` (team names and the active-team
+  list of the unit drill) -- all read-only, inside the report's own transaction.
+- `reports/CostMatrixReport.kt` (v0.3.0 M5 commit 17b, `GET /api/v1/reports/cost-matrix`) reads `metrics/MetricsStore.FactWorklog`
+  (grouped sums of `md`) and `DimDomain` (column names), plus `teams/TeamService.Teams`/`norm/WorkItemStore.People` through
+  `orgGroups` (team names, author display names) -- all read-only, inside the report's own transaction.
 
+- `reports/DataQualityReport.kt` and its helpers (`DataQualityTasks.kt`, `DataQualityEpics.kt`, `DataQualityConfig.kt`,
+  `DataQualityAssembly.kt`; v0.3.0 M5 commit 17, `GET /api/v1/reports/data-quality`) read, all read-only inside the report's own
+  transaction: `metrics/TeamMembershipService.TeamMembership` (the dated roster behind the member-day denominator),
+  `norm/WorkItemStore.Statuses`/`Boards`/`Sprints` (the mapping-gap findings), the per-connection config tables
+  `metrics/MetricsConfigService.StatusStageMap`/`BoardTeamMap`/`FieldConfig` (plus a distinct-connection existence probe of
+  `DomainMap`/`ActivityTypeMap`/`WorkCategoryMap`/`BlockedStatuses`/`TeamSprintCapacity`, `readConnectionMappings` -- the light
+  counterpart of `effectiveConfig`'s stored-else-defaults rule) and the `metrics` tables `FactTaskDelivery`, `FactEpicDelivery`, `FactWorklog`,
+  `FactSprint`, `FactSprintSnapshot`, `DimEpic`, `DimDomain`, `ItemStage` and `DeriveRuns` (incl. its `row_counts` JSON).
 List each new cross-feature read/write here as it lands — the list IS the permission.
 
 ### Schemas
@@ -446,6 +474,8 @@ ONE GiST index — `btree_gist` is what makes `=` available inside a GiST index 
   on the SAME retention window `sync_jobs` itself uses (`ingest.jobRetentionDays`,
   `MetricsStore.pruneDeriveRuns`, called once per DERIVE run) — the `sync_jobs` prune precedent
   applied to a table that otherwise grows forever for a connector deriving every few minutes.
+  Each connection's NEWEST `SUCCEEDED` run is exempt however old: the snapshot reports read it as
+  the connection's DERIVE clock, and without it a derived connection would read as never derived.
 
 ### The `metrics` schema — the derived star (V16)
 

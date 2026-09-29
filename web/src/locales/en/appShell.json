@@ -12,7 +12,10 @@
     "dataSources": "Data sources",
     "metricsSettings": "Metrics settings",
     "reportsDelivery": "Delivery",
-    "reportsEstimation": "Estimation"
+    "reportsEstimation": "Estimation",
+    "reportsFlow": "Flow metrics",
+    "reportsDataQuality": "Data quality",
+    "reportsCost": "Cost matrix"
   },
   "section": {
     "overview": "Overview",

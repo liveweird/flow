@@ -23,9 +23,10 @@ generated from a list, so a single scenario section stands in for each list.
 
 The list covers the Home page, the Teams list, the Users list and its create form, the
 ADMIN feature-flags screen, the Data sources list, the Metrics settings form (v0.3.0), the
-Velocity report (v0.3.0 — scanned in whatever state the default period gives it; the populated
-report pages are read by `reports.spec.ts`), Change password and the Changelog — see `tests/accessibility.spec.ts`'s `AUTHED_PAGES` list for the
-current set.
+Velocity, WIP, Epic progress, Data quality and Cost matrix reports (v0.3.0 — each scanned in
+whatever state the stack gives it; the same pages with derived data behind them are scanned by
+`reports.spec.ts`'s "the populated … pages have no WCAG A/AA violations"), Change password and the
+Changelog — see `tests/accessibility.spec.ts`'s `AUTHED_PAGES` list for the current set.
 
 ## Scenario: `<detail page>` has no WCAG A/AA violations
 

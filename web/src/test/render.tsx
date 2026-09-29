@@ -16,6 +16,8 @@ interface Options extends Omit<RenderOptions, "wrapper"> {
 
 export function renderWithProviders(ui: ReactElement, options: Options = {}) {
   const { route = "/", state, queryClient: suppliedQueryClient, ...rest } = options;
+  const [pathname, query] = route.split("?");
+  const entry = state === undefined ? route : { pathname, search: query === undefined ? "" : `?${query}`, state };
   const queryClient = suppliedQueryClient ?? new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -23,7 +25,7 @@ export function renderWithProviders(ui: ReactElement, options: Options = {}) {
     wrapper: ({ children }) => (
       <MantineProvider env="test" theme={theme}>
         <QueryClientProvider client={queryClient}>
-          <MemoryRouter initialEntries={[state === undefined ? route : { pathname: route, state }]}>{children}</MemoryRouter>
+          <MemoryRouter initialEntries={[entry]}>{children}</MemoryRouter>
         </QueryClientProvider>
       </MantineProvider>
     ),

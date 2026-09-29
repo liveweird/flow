@@ -3,8 +3,8 @@
 Vite + React 19 + TypeScript SPA: the shell + auth, user/feature management, MFA, password reset,
 the changelog, and the flat-teams registry — v0.1.0's foundation — plus, since v0.2.0, the Data
 sources pages (ADMIN-managed Jira Cloud connections, their sync jobs, data profile and raw-issue
-inspector — see "Data sources" below). Flow-metric dashboards arrive after the domain model;
-`pages/Home.tsx` still states plainly that there are none to show yet. Routes are lazy. New capability that Covenant, Toadie or
+inspector — see "Data sources" below) and, since v0.3.0, the metrics configuration pages and the
+fifteen report pages (sixteen reports; `pages/Report*.tsx`; `pages/Home.tsx` is the unit overview — see "Home overview" under Reports). Routes are lazy. New capability that Covenant, Toadie or
 Lettuce already has? Port their building blocks (see "Not yet ported" at the bottom) rather than
 inventing new ones.
 
@@ -350,8 +350,8 @@ endpoint (`requireAdmin` server-side).
   (`dataSourcesPath`, `dataSourcePath`, `dataSourceProfilePath`, `dataSourceInspectPath`) — never
   hand-assemble these URLs. `utils/dataSourceState.ts` holds the state→colour map and
   `formatEpochMillis` (the deterministic `YYYY-MM-DD HH:mm` rendering, "Never" for null).
-- `pages/Home.tsx`'s admin empty state links to `/data-sources` (a plain `Anchor` under the
-  `EmptyState`, not a rewrite of that shared component) — "keep it simple" per the commit plan.
+- `pages/Home.tsx`'s admin empty state links to `/data-sources` and `/metrics-settings` (plain `Anchor`s
+  under the `EmptyState`, not a rewrite of that shared component) — see "Home overview" under Reports.
 
 ## Metrics configuration (`pages/MetricsSettings.tsx`, `components/TeamJiraMembers.tsx`, `pages/DataSourceMetricsConfig.tsx`)
 
@@ -422,11 +422,14 @@ team membership landed in M2 commit 5, and the per-connection `metrics-config` p
 ## Reports (`pages/ReportVelocity.tsx`, `components/Report*.tsx`, `utils/reportFilter.ts`)
 
 The v0.3.0 report pages (`.claude/docs/reports.md` is the API; every report is any-authenticated,
-D12 — routes sit under `RequireAuth`, never `RequireAdmin`). Landed so far: the shell (Reports nav
-section → Delivery, `ReportTabs`), the filter bar, the shared blocks and the three Delivery pages
-(Velocity, Throughput, Sprint consistency, Cycle time) and the Estimation group (Task accuracy, Epic
-accuracy, Adjustments, Reported time — `ESTIMATION_TABS`, its own nav leaf); later reports append a page, a tab (`DELIVERY_TABS` in
-`utils/reportLinks.ts` — the Delivery nav leaf lists every tab route in `NavLeaf.activeFor`, so it
+D12 — routes sit under `RequireAuth`, never `RequireAdmin`). Fifteen pages carry the sixteen reports
+(report 13, the backlog in sprints, rides the Estimated backlog page): the shell (Reports nav
+section, `ReportTabs`), the filter bar, the shared blocks and the three tab groups — Delivery
+(Velocity, Throughput, Sprint consistency, Cycle time; `DELIVERY_TABS`), Estimation (Task accuracy,
+Epic accuracy, Adjustments, Reported time; `ESTIMATION_TABS`) and Flow metrics (WIP, Estimated
+backlog, Aging WIP, Blocked time, Epic progress; `FLOW_TABS`) — plus the Data quality and Cost
+matrix pages. A new report appends a page, a tab (the tab lists live in
+`utils/reportLinks.ts` — each group's nav leaf lists every tab route in `NavLeaf.activeFor`, so it
 stays highlighted on all of them) and a `reports.<name>` key block. Every page composes the same
 skeleton — `hooks/useReportPage` (filters query → keyed page query), `ReportFiltersStatus`,
 `ReportFilterBar`, `ReportMetaNote`, `ReportChartCard`, `ReportSprintsTable` (sprint · team ·
@@ -441,7 +444,7 @@ completed · the report's figures · the orange drift badge with the frozen figu
   key). Params this module does not own survive `applyReportFilter`; switching report tabs
   (`reportHref`) drops the report-specific params (`domainView`, `domain`, `activityType`,
   `workCategory`, `breakdown`, `bucket`) the target report has no control for, so a filter the user
-  cannot see or clear never follows them (`REPORT_SPECIFIC_PARAMS` in `utils/reportLinks.ts`). Presets are stored as
+  cannot see or clear never follows them (`REPORT_SPECIFIC_PARAMS` in `utils/reportLinks.ts`; `epicId` is one of them, kept only by epic progress). Presets are stored as
   absolute `from`/`to` dates (calendar days in the configured zone) and recognised again by
   `activePeriodChoice`. **The last team is remembered** (`useStoredState`, `reports.teamId`): a report
   opened with NO filter params at all (a bare nav click) starts on it and the URL is rewritten
@@ -486,6 +489,122 @@ completed · the report's figures · the orange drift badge with the frozen figu
   efficiency (active ÷ cycle time, shown as %, no "no time logged" bucket — so the two panels keep
   separate accountings), and reads the median first (the outlier note: very short cycles dominate
   the mean, p95 and the histogram's top; they are never dropped).
+- **Flow metrics group** (`pages/ReportWip.tsx`, `pages/ReportBacklog.tsx`, `FLOW_TABS`, the "Flow metrics" nav leaf
+  `appShell.nav.reportsFlow` — deliberately not just "Flow", which the brand text already is): the two
+  snapshot reports over the daily aggregates. Their bar offers only `domain` (never activity type/work category —
+  `400` server-side) and `domainExcludesTeam` makes the LAST of team/domain touched win (the aggregate has no
+  team × domain split; picking a domain therefore clears the remembered team, like any team clear), and a
+  pasted link with both is normalised on load — the team wins — by `useReportPage`'s `normalize` argument
+  (`dropDomainWithTeam`, `normalizeWipFilter`), which rewrites the URL too so a dropped param cannot come
+  back when another control changes. WIP adds two
+  managed params, `by` (stage · status · board column) and `itemKind` (tasks · epics · both), both always SENT
+  explicitly (`by=STAGE&itemKind=TASK` by default); `by=COLUMN` needs one team (`wipColumnAvailable`) so the
+  option is disabled with a hint otherwise and a stray `by=COLUMN` is dropped from the URL (falls back to
+  STAGE), and a `400` for a request that WAS for columns of one team is the "no board mapped" note, not a
+  failure (any other 400 is the normal failure alert). The chart is a stacked `AreaChart` of end-of-day counts with band
+  toggles (`Chip.Group`, local state): stages keep their vocabulary colours (gray/blue/teal/orange); statuses
+  and columns are arbitrary names, so they never wear a semantic hue: `BAND_CYCLE` alternates blue and gray
+  (flow.6, gray.6, flow.7, gray.6 — the only neutral shades that clear 3:1 on all four surfaces), assigned by
+  position among the bands SHOWN (`paintBands`) so neighbours never share a hue; beyond two bands a hue/shade
+  repeats and the legend, tooltip and tables carry identity. The ticked-bands state is per keying (and per team
+  for columns); STAGE starts with Not started and Done hidden (Done only
+  grows, Not started is the whole backlog). Its text alternatives are a per-band summary table and the full
+  daily table behind `DailyTableDisclosure` (a series can run to ~1100 rows). The backlog page is three tiles
+  (MD, items, "≈ N sprints ahead" — a dash plus the reason when there is no velocity or the mean is 0,
+  "< 0.1" instead of "≈ 0"; at UNIT level the wording says "at least N closed sprints per team", since the pace
+  is a sum of team means and `sprintsUsed` their minimum) and a
+  one-series MD `AreaChart` whose tooltip and table add the item count. The server's `note` (not derived yet,
+  USER level, …) is prose in English only: `ReportNote` shows it verbatim under a translated title, except the "Not derived yet" note when
+  `meta.derivedAt` is null (the translated meta line already says it).
+- **Aging WIP and blocked time** (`pages/ReportAgingWip.tsx`, `pages/ReportBlockedTime.tsx`, tabs 3 and 4 of
+  `FLOW_TABS`). Aging WIP is "as of now": its bar passes `noPeriod` (no period control) and the request drops
+  any period param (`withPeriod(filter, {})`; the URL keeps it so tab hops preserve it). It shows the
+  thresholds as a tile row per kind (`AgingThresholdsRow`; epics only when there are epics or a window; hidden
+  thresholds = a `MinSampleNotice` with `subject="thresholds"`) above the open-work table, in the server's
+  order (never re-sorted). **The band is the SERVER's** (`"P85"`, `"WITHIN"`, `null` = hidden) — never
+  recomputed from the age; `utils/agingReport.ts`'s `bandTone` only reads its RANK among the configured
+  thresholds of the item's own kind: the top threshold red ("above p95"), the next orange ("above p85"), the
+  rest gray — the text always names the threshold, colour is never the only carrier. Blocked is a red outline
+  badge with the word. Issue keys are plain text (no page links to Jira). Blocked time composes
+  `DistributionWithAccounting` twice (blocked working days over EVERY finished item, so no exclusions and a
+  "N of M were blocked at all" line; share of cycle with `neverStarted`/`zeroCycle`), the top-20 table and the
+  groups table; `itemKind` (default TASK, always sent) reuses the WIP bar control, and at TEAM level with epics
+  a line says the per-assignee groups cover tasks only.
+- **Epic progress (EVM)** (`pages/ReportEpicProgress.tsx`, the fifth tab of `FLOW_TABS`; `.claude/docs/reports.md` "Report 15").
+  The URL carries at most ONE scope — `epicId` (an epic's issue key, a report-specific managed param that only this
+  report keeps), `domain` or `teamId` (`0` = UNASSIGNED) — and `normalizeEpicProgressFilter` (`utils/epicProgressReport.ts`,
+  the `useReportPage` normalize hook) makes a pasted link answerable: epic over domain over team, and `domainView`,
+  `accountId`, `activityType`, `workCategory` (each a `400`) plus the ignored `breakdown`/`bucket`/`by`/`itemKind`
+  dropped — off the request and off the URL. The bar passes `domain` + `domainExcludesTeam` + `noMember` (no user
+  level) and the page routes its changes through `applyBarChange`, so the LAST scope touched wins, epic included.
+  Levels are drilled by the row NAME links (`scopedSearch` re-scopes the same report, the period travelling along); a
+  domain → epic drill carries the domain in the router `state` so the breadcrumb (`EpicProgressBreadcrumb`) can offer the
+  way back — a directly opened epic simply has only the unit above it. Tiles: PV/EV/AC, SV/CV signed
+  (`formatSignedMd`), SPI/CPI at two decimals (`formatIndex`) — a dash plus the reason when the server sends `null`
+  (PV 0 / AC 0), and above/below 1 said in WORDS (`indexVerdict`, read at the printed precision), never red or green:
+  an index under 1 is a fact about the plan, not a blocking failure. TEAM adds the foreign-work share beside CPI (A20).
+  The UNIT drill is two tables: the domains (the epic basis — they add up to the headline) and the teams (the sprint/
+  author basis — a different view, captioned as not adding up; a soft-deleted team, `active: false`, is marked "Deleted
+  team" and never linked). The chart is a `LineChart` of the CUMULATIVE PV (`flow.6`), EV (`teal.8`), AC (`gray.6`) over
+  ISO dates; at EPIC level the first baseline (`pvOriginal`) is a fourth series in the plan blue but DASHED, only when
+  some point has it (`connectNulls` off), and the full table sits behind `DailyTableDisclosure`. The EPIC plan panel
+  shows the budget and its source, the planned dates (calendar dates, read in UTC), the orange drift badges, every
+  baseline (`effectiveFrom`/`supersededAt` are instants, read in the configured zone) and the two gray "no plan curve"
+  notes (`!inPvHorizon` / in the horizon but `!hasPvCurve`) — EV and AC still count either way.
+- **Data quality** (`pages/ReportDataQuality.tsx`, `/reports/data-quality`, its own single-page nav leaf `appShell.nav.reportsDataQuality` —
+  a group of one, so no `ReportTabs` and no palette-only twin; `.claude/docs/reports.md` "Report 14"). One card per finding
+  (`components/DataQualityCard.tsx` the shell: h3 title, one plain-language line, a state badge — orange `Found: N`, teal `None found`, gray
+  `Not measured`, none for the logged-hours figure — and `CappedTable`, which says "and N more" when `total > items.length`), in the order
+  logging (`DataQualityLogging`) → missing data and epics (`DataQualityMissing`) → sprint/drift (`DataQualitySprint`) → configuration
+  (`DataQualityConfig`), the overview tiles (`DataQualitySummary`, each a link that scrolls to and focuses its card — no hash in the URL)
+  first and the groups table last. A clean finding keeps its card (users see it was checked). The bar offers period, team/member, domain,
+  domain view and — only with more than one connection — `connection` (`ReportControls.connection`); `normalizeDataQualityFilter` drops
+  every param the page has no control for (activity type, work category, breakdown, bucket, by, item kind, epic) off the request AND the
+  URL. What the API returns is rendered as is: a real team sees no domains/authors without a team (the card says a team's view lists none),
+  the connection-level findings say the team filter does not narrow them, USER level says epic and sprint findings are not read for one
+  person, and a work-category field nobody configured is "Not measured", not clean. Configuration findings are admin-actionable: the
+  connection cell links to `dataSourceMetricsConfigPath` for `useAdmin()` only, plain text for everyone else. Snapshot drift prints the
+  sprint, translated figure, live, frozen and the signed difference (`utils/dataQualityReport.ts`), marking `reconstructed` baselines with
+  an orange light badge and one explanatory line.
+- **Cost matrix** (`pages/ReportCostMatrix.tsx`, `/reports/cost-matrix`, its own single-page nav leaf `appShell.nav.reportsCost` — a
+  group of one like Data quality, since a matrix is a different shape from the flow reports' series, so no `ReportTabs` and no palette-only
+  twin; `.claude/docs/reports.md` "Report 16"). Tiles (man-days, foreign man-days, the overall foreign share — a dash and the reason when the
+  server sends `null`, never 0%), then `components/CostMatrixTable.tsx`: a HEAT TABLE — rows are the level's authors (UNIT: author teams,
+  UNASSIGNED `teamId` 0 last under the shared "Unassigned" label; TEAM: the team's authors, the no-author bucket "No known author"; USER: one
+  row), columns the domains (`domainView` default EPIC, the bar's "Delivered in / Earned in" toggle; the caption line says whose domain the
+  columns are), cells the man-days shaded on ONE sequential scale (`utils/heatScale.ts`: the brand blue mixed into the table surface in five
+  steps, linear against the largest CELL — `heatStep` — with each step's own text colour, pinned ≥ 4.5:1 in both schemes by
+  `heatScale.test.ts`; a zero cell has no fill and dimmed text; the number is the carrier and a legend says so), then row total, foreign MD
+  and foreign share (`formatPercent`, a dash for `null`) and a totals row. Every figure is the server's own rounded exact sum, NEVER re-added
+  from the cells shown (the footnote states the ≤ 0.005-per-addend rule). It is a real table: a visually hidden `caption`, `scope="col"`/
+  `scope="row"` headers, the first column and the header row sticky inside a `Table.ScrollContainer` (`theme.module.css` `.heatTable` — the
+  theme's card frame clips with `overflow: hidden`, which would keep `position: sticky` from engaging, so the class lifts it). A row NAME is
+  the way in (`drillSearch` in `utils/costMatrixReport.ts`: team → its authors, author → one person, the period travelling along; a one-sprint
+  period survives only into a team that lists the sprint); a soft-deleted team (`active: false`) is marked "Deleted team" and never linked
+  (its drill is a `400`), and UNASSIGNED is not linked under a sprint-relative period (`meta.from === null` — a team-less drill resolves no
+  sprint and answers empty). A sprint-relative period says so: the unit's team rows read the union envelope, a team drill only its own
+  sprints. The bar offers period, team/member, domain, domain view, activity type, work category and (with more than one) connection;
+  `normalizeCostMatrixFilter` drops `breakdown`, `bucket`, `by`, `itemKind` and `epicId` off the request and the URL.
+- **Home overview** (`pages/Home.tsx`, plan amendment A9; `utils/homeOverview.ts` is its pure logic). The landing page is
+  the WHOLE unit at a glance — never the remembered team, the page description says so — as four tiles over UNIT-level
+  report endpoints, **five requests and no aggregator** (`["home", <report>]` keys, staleTime 60 s; the budget is pinned by
+  `Home.test.tsx`): the shared `["reports","filters"]` reference data (same key as the report pages, so opening a report reuses
+  it; only its `timeZone` is read, nothing waits on it and its failure shows nowhere), `sprint-consistency?lastSprints=1` (each team's last closed sprint, all from one `fact_sprint` row:
+  committed = initial, final, delivered; a lazy `HomeVelocityChart` beside a table with a Closed date read in the configured zone and the
+  orange "Drift" badge + frozen figures like the report pages; title → Velocity, secondary links → Throughput and Sprint
+  consistency), `cycle-time` (the server's default trailing 90 days: median/p90/finished count and `CycleTimeTrendChart` at
+  `height={200}` with the trend as a visually hidden table), `aging-wip` (tasks in progress, and "Past p85" orange /
+  "Past p95" red as the top two configured thresholds' counts — read off the SERVER's `band` through `bandTone`, epics
+  not counted, dashes plus a reason when the thresholds are hidden, "N+" when the 500-item list was truncated) and
+  `data-quality` (`qualityHighlights`: the configuration kinds — derive warnings, unmapped statuses/boards, domains
+  without an owner — first, then the volume kinds by count, five shown as orange badges, a plural "and N more kind(s)",
+  "All findings"; teal "None found" when clean). `HomeTile` is the shell: a section whose h3 title IS the link into
+  the full report, a caption stating the period/scope, `aria-busy`, and its OWN skeleton/error triage (one failing report
+  never takes another tile down); the page owns the ONE polite "Loading…" live region. **No link is ever bare** (a bare report
+  URL applies the remembered team): every one carries `lastSprints=1` or a from/to period — the one the server resolved
+  (`overviewPeriod`: `meta.from/to` of the cycle-time or data-quality answer), else the same trailing 90 days computed
+  locally in the configured zone (UTC dates while the reference data is pending or failed). When every answer says `derivedAt: null` and none failed the page shows the empty state instead
+  (admin: data sources + metrics settings links); a failed request keeps the grid so the empty state never hides it.
 - **Load order**: `["reports","filters"]` (staleTime 60 s) → the page query keyed
   `["reports", <report>, <serialized filter>]`, `enabled` once the filters loaded,
   `placeholderData: keepPreviousData` (`ReportChartCard` dims the previous body and sets `aria-busy`).

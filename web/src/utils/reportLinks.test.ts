@@ -41,6 +41,45 @@ describe("reportHref", () => {
     );
   });
 
+  test("the flow reports keep exactly the controls they show", () => {
+    const search = "teamId=2&domainView=EPIC&domain=FLO&activityType=Bug&workCategory=X&bucket=MONTH&by=STATUS&itemKind=EPIC";
+    // WIP: a domain, what it counts and how it keys — no domain view, activity type, work category or bucket.
+    expect(reportHref("/reports/wip", search)).toBe("/reports/wip?teamId=2&domain=FLO&by=STATUS&itemKind=EPIC");
+    // The backlog has neither by nor itemKind.
+    expect(reportHref("/reports/backlog", search)).toBe("/reports/backlog?teamId=2&domain=FLO");
+    // …and no other report carries WIP's own two.
+    expect(reportHref("/reports/velocity", search)).toBe("/reports/velocity?teamId=2");
+    expect(reportHref("/reports/cycle-time", search)).not.toContain("by=");
+  });
+
+  test("aging WIP slices like the fact reports; blocked time also keeps its item kind — neither keeps by, bucket or a domain view", () => {
+    const search = "teamId=2&domainView=EPIC&domain=FLO&activityType=Bug&workCategory=X&bucket=MONTH&by=STATUS&itemKind=EPIC";
+    expect(reportHref("/reports/aging-wip", search)).toBe("/reports/aging-wip?teamId=2&domain=FLO&activityType=Bug&workCategory=X");
+    expect(reportHref("/reports/blocked-time", search)).toBe(
+      "/reports/blocked-time?teamId=2&domain=FLO&activityType=Bug&workCategory=X&itemKind=EPIC",
+    );
+  });
+
+  test("epic progress keeps only a domain and an epic scope — never a domain view, activity type, work category, bucket, by or item kind", () => {
+    const search = "teamId=2&domainView=EPIC&domain=FLO&epicId=FLO-33&activityType=Bug&workCategory=X&bucket=MONTH&by=STATUS&itemKind=EPIC";
+    expect(reportHref("/reports/epic-progress", search)).toBe("/reports/epic-progress?teamId=2&domain=FLO&epicId=FLO-33");
+    // The epic is this report's own scope: no other report carries it.
+    expect(reportHref("/reports/wip", search)).not.toContain("epicId");
+    expect(reportHref("/reports/velocity", search)).toBe("/reports/velocity?teamId=2");
+  });
+
+  test("data quality keeps a domain and its view — never an activity type, work category, bucket, by, item kind or epic", () => {
+    const search = "teamId=2&domainView=EPIC&domain=FLO&epicId=FLO-33&activityType=Bug&workCategory=X&bucket=MONTH&by=STATUS&itemKind=EPIC";
+    expect(reportHref("/reports/data-quality", search)).toBe("/reports/data-quality?teamId=2&domainView=EPIC&domain=FLO");
+  });
+
+  test("the cost matrix keeps the domain, its view, the activity type and the work category — never a bucket, by, item kind or epic", () => {
+    const search = "teamId=2&domainView=TASK&domain=FLO&epicId=FLO-33&activityType=Bug&workCategory=X&bucket=MONTH&by=STATUS&itemKind=EPIC&breakdown=DOMAIN";
+    expect(reportHref("/reports/cost-matrix", search)).toBe(
+      "/reports/cost-matrix?teamId=2&domainView=TASK&domain=FLO&activityType=Bug&workCategory=X",
+    );
+  });
+
   test("an empty query, or one that only held dropped params, is the bare path; foreign params survive", () => {
     expect(reportHref("/reports/velocity", "")).toBe("/reports/velocity");
     expect(reportHref("/reports/velocity", "?bucket=WEEK")).toBe("/reports/velocity");

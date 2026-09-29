@@ -1,7 +1,10 @@
 import type { ParseKeys } from "i18next";
 import {
   IconAdjustments,
+  IconChartAreaLine,
   IconChartBar,
+  IconChecklist,
+  IconCoin,
   IconTarget,
   IconHistory,
   IconHome2,
@@ -13,7 +16,7 @@ import {
   type Icon,
 } from "@tabler/icons-react";
 import { dataSourcesPath } from "./dataSourceLinks";
-import { DELIVERY_TABS, ESTIMATION_TABS, taskAccuracyPath, velocityPath } from "./reportLinks";
+import { costMatrixPath, dataQualityPath, DELIVERY_TABS, ESTIMATION_TABS, FLOW_TABS, taskAccuracyPath, velocityPath, wipPath } from "./reportLinks";
 import { teamsPath } from "./teamLinks";
 
 export type NavLeaf = {
@@ -68,6 +71,16 @@ const NAV_SECTIONS: ReadonlyArray<NavSection> = [
         icon: IconTarget,
         activeFor: ESTIMATION_TABS.map((tab) => tab.to),
       },
+      {
+        to: wipPath,
+        label: "appShell.nav.reportsFlow",
+        icon: IconChartAreaLine,
+        activeFor: FLOW_TABS.map((tab) => tab.to),
+      },
+      // A group of one report: the leaf is the page, so it needs no tabs and no palette-only twin.
+      { to: dataQualityPath, label: "appShell.nav.reportsDataQuality", icon: IconChecklist },
+      // Also a group of one: the cost matrix is a different shape from the flow reports (a matrix, not a series).
+      { to: costMatrixPath, label: "appShell.nav.reportsCost", icon: IconCoin },
     ],
   },
   {
@@ -90,9 +103,9 @@ export const ACCOUNT_NAV: ReadonlyArray<NavLeaf> = [
 
 /**
  * Palette-only leaves: every report of a nav group is its own route and must be findable by name,
- * but the sidebar carries ONE leaf per group (Delivery, Estimation). Tabs never appear in a section.
+ * but the sidebar carries ONE leaf per group (Delivery, Estimation, Flow). Tabs never appear in a section.
  */
-export const REPORT_PALETTE_LEAVES: ReadonlyArray<NavLeaf> = [...DELIVERY_TABS, ...ESTIMATION_TABS].map((tab) => ({
+export const REPORT_PALETTE_LEAVES: ReadonlyArray<NavLeaf> = [...DELIVERY_TABS, ...ESTIMATION_TABS, ...FLOW_TABS].map((tab) => ({
   to: tab.to,
   label: tab.label,
   icon: IconChartBar,

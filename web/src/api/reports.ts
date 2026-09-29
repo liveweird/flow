@@ -42,6 +42,39 @@ export type ReportedTimeRatioReport =
   paths["/api/v1/reports/reported-time-ratio"]["get"]["responses"]["200"]["content"]["application/json"];
 export type ReportedTimeGroup = ReportedTimeRatioReport["groups"][number];
 
+export type WipReport = paths["/api/v1/reports/wip"]["get"]["responses"]["200"]["content"]["application/json"];
+export type WipKey = WipReport["keys"][number];
+export type WipPoint = WipReport["series"][number];
+export type BacklogReport = paths["/api/v1/reports/backlog"]["get"]["responses"]["200"]["content"]["application/json"];
+export type BacklogCurrent = BacklogReport["current"];
+export type BacklogPoint = BacklogReport["trend"][number];
+
+export type AgingWipReport = paths["/api/v1/reports/aging-wip"]["get"]["responses"]["200"]["content"]["application/json"];
+export type AgingItem = AgingWipReport["items"][number];
+export type AgingThresholds = AgingWipReport["thresholds"];
+export type BlockedTimeReport = paths["/api/v1/reports/blocked-time"]["get"]["responses"]["200"]["content"]["application/json"];
+export type BlockedTopItem = BlockedTimeReport["topItems"][number];
+export type BlockedGroup = BlockedTimeReport["groups"][number];
+export type EpicProgressReport =
+  paths["/api/v1/reports/epic-progress"]["get"]["responses"]["200"]["content"]["application/json"];
+export type EpicProgressPoint = EpicProgressReport["series"][number];
+export type EpicProgressRow = EpicProgressReport["rows"][number];
+export type EpicProgressEpic = NonNullable<EpicProgressReport["epic"]>;
+
+export type DataQualityReport =
+  paths["/api/v1/reports/data-quality"]["get"]["responses"]["200"]["content"]["application/json"];
+export type DataQualityTaskFinding = DataQualityReport["worklogCoverage"]["without"];
+export type DataQualityTaskRef = DataQualityTaskFinding["items"][number];
+export type DataQualityEpicList = DataQualityReport["epicDrift"];
+export type DataQualityEpicRef = DataQualityEpicList["items"][number];
+export type DataQualityGroup = DataQualityReport["groups"][number];
+export type DataQualitySnapshotDrift = DataQualityReport["snapshotDrift"]["items"][number];
+export type DataQualityLateWorklog = DataQualityReport["lateLogging"]["worst"][number];
+
+export type CostMatrixReport =
+  paths["/api/v1/reports/cost-matrix"]["get"]["responses"]["200"]["content"]["application/json"];
+export type CostMatrixRow = CostMatrixReport["rows"][number];
+
 export async function getReportFilters(): Promise<ReportFilters> {
   return jsonRequest<ReportFilters>("/api/v1/reports/filters");
 }
@@ -76,4 +109,32 @@ export async function getCycleTimeReport(filter: ReportFilterState): Promise<Cyc
 
 export async function getReportedTimeRatioReport(filter: ReportFilterState): Promise<ReportedTimeRatioReport> {
   return jsonRequest<ReportedTimeRatioReport>(`/api/v1/reports/reported-time-ratio?${reportQuery(filter)}`);
+}
+
+export async function getWipReport(filter: ReportFilterState): Promise<WipReport> {
+  return jsonRequest<WipReport>(`/api/v1/reports/wip?${reportQuery(filter)}`);
+}
+
+export async function getBacklogReport(filter: ReportFilterState): Promise<BacklogReport> {
+  return jsonRequest<BacklogReport>(`/api/v1/reports/backlog?${reportQuery(filter)}`);
+}
+
+export async function getAgingWipReport(filter: ReportFilterState): Promise<AgingWipReport> {
+  return jsonRequest<AgingWipReport>(`/api/v1/reports/aging-wip?${reportQuery(filter)}`);
+}
+
+export async function getBlockedTimeReport(filter: ReportFilterState): Promise<BlockedTimeReport> {
+  return jsonRequest<BlockedTimeReport>(`/api/v1/reports/blocked-time?${reportQuery(filter)}`);
+}
+
+export async function getEpicProgressReport(filter: ReportFilterState): Promise<EpicProgressReport> {
+  return jsonRequest<EpicProgressReport>(`/api/v1/reports/epic-progress?${reportQuery(filter)}`);
+}
+
+export async function getDataQualityReport(filter: ReportFilterState): Promise<DataQualityReport> {
+  return jsonRequest<DataQualityReport>(`/api/v1/reports/data-quality?${reportQuery(filter)}`);
+}
+
+export async function getCostMatrixReport(filter: ReportFilterState): Promise<CostMatrixReport> {
+  return jsonRequest<CostMatrixReport>(`/api/v1/reports/cost-matrix?${reportQuery(filter)}`);
 }

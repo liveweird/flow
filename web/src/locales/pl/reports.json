@@ -10,7 +10,12 @@
     "epicAccuracy": "Trafność epików",
     "adjustments": "Korekty",
     "cycleTime": "Czas cyklu",
-    "reportedTime": "Zalogowany czas"
+    "reportedTime": "Zalogowany czas",
+    "wip": "WIP",
+    "backlog": "Oszacowany backlog",
+    "agingWip": "Wiek WIP",
+    "blockedTime": "Czas zablokowania",
+    "epicProgress": "Postęp epików"
   },
   "meta": {
     "derived": "Wyliczono {{date}} · wersja konfiguracji {{revision}}",
@@ -61,7 +66,22 @@
     "bucketOption": {
       "WEEK": "Tydzień",
       "MONTH": "Miesiąc"
-    }
+    },
+    "wipBy": "Licz według",
+    "wipByOption": {
+      "STAGE": "Etap",
+      "STATUS": "Status",
+      "COLUMN": "Kolumna tablicy"
+    },
+    "wipByColumnHint": "Kolumny tablicy wymagają jednego zespołu: wybierz zespół (nie „Wszystkie zespoły” ani „Nieprzypisane”) i wyczyść domenę.",
+    "itemKind": "Licz",
+    "itemKindOption": {
+      "TASK": "Zadania",
+      "EPIC": "Epiki",
+      "BOTH": "Zadania i epiki"
+    },
+    "connection": "Połączenie",
+    "allConnections": "Wszystkie połączenia"
   },
   "groups": {
     "byTeam": "Według zespołów",
@@ -69,7 +89,8 @@
     "team": "Zespół",
     "member": "Osoba",
     "unassigned": "Nieprzypisane",
-    "drillAria": "Pokaż: {{name}}"
+    "drillAria": "Pokaż: {{name}}",
+    "noOwner": "Brak zespołu właściciela"
   },
   "velocity": {
     "title": "Velocity",
@@ -164,7 +185,12 @@
     "share_few": "Rozpoczęto tylko {{count}} pozycje w tym wycinku — do pokazania udziału potrzeba co najmniej {{min}}.",
     "share_many": "Rozpoczęto tylko {{count}} pozycji w tym wycinku — do pokazania udziału potrzeba co najmniej {{min}}.",
     "share_other": "Rozpoczęto tylko {{count}} pozycji w tym wycinku — do pokazania udziału potrzeba co najmniej {{min}}.",
-    "none": "W tym wycinku nie ma nic do zmierzenia."
+    "none": "W tym wycinku nie ma nic do zmierzenia.",
+    "thresholds_one": "Tylko {{count}} zakończona pozycja w oknie — do pokazania progów potrzeba co najmniej {{min}}, więc żadna pozycja nie jest przypisana do pasma.",
+    "thresholds_few": "Tylko {{count}} zakończone pozycje w oknie — do pokazania progów potrzeba co najmniej {{min}}, więc żadna pozycja nie jest przypisana do pasma.",
+    "thresholds_many": "Tylko {{count}} zakończonych pozycji w oknie — do pokazania progów potrzeba co najmniej {{min}}, więc żadna pozycja nie jest przypisana do pasma.",
+    "thresholds_other": "Tylko {{count}} zakończonych pozycji w oknie — do pokazania progów potrzeba co najmniej {{min}}, więc żadna pozycja nie jest przypisana do pasma.",
+    "thresholdsNone": "W oknie nie ma jeszcze zakończonej pozycji, więc nie ma progów i żadna pozycja nie jest przypisana do pasma."
   },
   "distribution": {
     "p50": "Mediana (p50)",
@@ -326,6 +352,554 @@
       "ratioMedian": "Zalogowany stosunek (mediana)",
       "flowN": "Efektywność przepływu (pozycje)",
       "flowMedian": "Efektywność przepływu (mediana)"
+    }
+  },
+  "note": {
+    "title": "O tych danych"
+  },
+  "daily": {
+    "show": "Pokaż wartości dzień po dniu",
+    "hide": "Ukryj wartości dzień po dniu",
+    "day": "Dzień"
+  },
+  "wip": {
+    "title": "WIP",
+    "description": "Ile pozycji znajduje się w każdym etapie, statusie lub kolumnie tablicy na koniec każdego dnia. Pasma są ułożone jedno na drugim, więc górna krawędź to ich suma.",
+    "chartTitle": "Pozycje na koniec każdego dnia",
+    "caption": {
+      "STAGE": "Według etapu. „Nierozpoczęte” i „Zakończone” są na początku ukryte: „Nierozpoczęte” to cały backlog, a „Zakończone” tylko rośnie. Zaznacz je, aby zobaczyć całą pracę.",
+      "STATUS": "Według statusu, w kolejności etapów, a potem nazw.",
+      "COLUMN": "Według kolumn tablicy zespołu, w kolejności z tablicy."
+    },
+    "bothNote": "Zadania i epiki to różne poziomy szczegółowości; liczenie obu dodaje je do siebie.",
+    "yAxis": "Pozycje",
+    "chartLabel": "Wykres: pozycje na koniec każdego dnia, ułożone w pasma",
+    "show": "Pokaż na wykresie",
+    "workingDaysOnly": "Tylko dni robocze",
+    "noneShown": "Zaznacz co najmniej jedno pasmo, aby narysować wykres.",
+    "stage": {
+      "NOT_STARTED": "Nierozpoczęte",
+      "IN_PROGRESS": "W toku",
+      "DONE": "Zakończone",
+      "UNMAPPED": "Status bez przypisanego etapu"
+    },
+    "noColumn": "(bez kolumny)",
+    "summaryLabel": "Ostatni dzień, średnia i szczyt dla każdego pasma, w tabeli",
+    "dailyLabel": "Wartości dzień po dniu, w tabeli",
+    "column": {
+      "band": "Pasmo",
+      "latest": "Ostatni dzień ({{day}})",
+      "average": "Średnia dzienna",
+      "peak": "Szczyt"
+    },
+    "columnNeedsBoard": "Ten zespół nie ma przypisanej tablicy, więc jego pozycji nie można policzyć według kolumn tablicy. Licz według etapu lub statusu albo przypisz tablicę w konfiguracji źródła danych.",
+    "summaryNote": "Te wartości obejmują każdy dzień kalendarzowy okresu, niezależnie od tego, co pokazuje wykres."
+  },
+  "backlog": {
+    "title": "Oszacowany backlog",
+    "description": "Oszacowana praca, która się nie rozpoczęła: zadania poziomu 0 z własnym szacunkiem, które nie są w żadnym rozpoczętym sprincie, liczone na koniec każdego dnia. Zadanie nadrzędne oszacowane tylko przez zadania podrzędne nie wchodzi do backlogu (znana luka).",
+    "currentTitle": "Backlog na dzień {{day}}",
+    "tile": {
+      "md": "Backlog (MD)",
+      "items": "Pozycje",
+      "sprints": "Backlog w sprintach"
+    },
+    "sprintsAhead_one": "≈ {{count}} sprint przed nami",
+    "sprintsAhead_few": "≈ {{count}} sprinty przed nami",
+    "sprintsAhead_many": "≈ {{count}} sprintów przed nami",
+    "sprintsAhead_other": "≈ {{count}} sprinta przed nami",
+    "noVelocity": "Nie ma jeszcze zamkniętego sprintu albo ten wycinek nie ma własnej prędkości (backlog bez właściciela lub wycinek domeny), więc nie da się go wyrazić w sprintach.",
+    "zeroVelocity": "W ostatnich sprintach nic nie dostarczono, więc backlogu nie da się wyrazić w sprintach.",
+    "basisShort": "Zamkniętych sprintów jest mniej niż w oknie, więc tempo jest mniej pewne.",
+    "unitNote": "Na poziomie jednostki tempo to suma średnich poszczególnych zespołów, odniesiona do całego backlogu, także tej części, której nie ma żaden zespół, więc duży backlog bez właściciela zawyża wynik.",
+    "chartTitle": "Backlog w czasie",
+    "chartCaption": "Osobodni na koniec każdego dnia; podpowiedź i tabela dodają liczbę pozycji.",
+    "chartLabel": "Wykres: oszacowany backlog w osobodniach według dnia",
+    "series": {
+      "backlog": "Backlog"
+    },
+    "tableLabel": "Backlog według dnia, w tabeli",
+    "column": {
+      "md": "Backlog (MD)",
+      "items": "Backlog (pozycje)"
+    },
+    "basis_one": "Ostatnie tempo: {{md}} MD dostarczone na sprint, średnia z {{count}} zamkniętego sprintu (okno: {{window}}).",
+    "basis_few": "Ostatnie tempo: {{md}} MD dostarczone na sprint, średnia z {{count}} zamkniętych sprintów (okno: {{window}}).",
+    "basis_many": "Ostatnie tempo: {{md}} MD dostarczone na sprint, średnia z {{count}} zamkniętych sprintów (okno: {{window}}).",
+    "basis_other": "Ostatnie tempo: {{md}} MD dostarczone na sprint, średnia z {{count}} zamkniętego sprintu (okno: {{window}}).",
+    "unitBasis_one": "Ostatnie tempo: suma średnich dostaw poszczególnych zespołów na sprint, {{md}} MD, z co najmniej {{count}} zamkniętego sprintu na zespół (okno: {{window}}).",
+    "unitBasis_few": "Ostatnie tempo: suma średnich dostaw poszczególnych zespołów na sprint, {{md}} MD, z co najmniej {{count}} zamkniętych sprintów na zespół (okno: {{window}}).",
+    "unitBasis_many": "Ostatnie tempo: suma średnich dostaw poszczególnych zespołów na sprint, {{md}} MD, z co najmniej {{count}} zamkniętych sprintów na zespół (okno: {{window}}).",
+    "unitBasis_other": "Ostatnie tempo: suma średnich dostaw poszczególnych zespołów na sprint, {{md}} MD, z co najmniej {{count}} zamkniętego sprintu na zespół (okno: {{window}}).",
+    "unitBasisShort": "Któryś zespół ma mniej zamkniętych sprintów niż wynosi okno, więc tempo jest mniej pewne.",
+    "lessThanTenth": "< 0.1 sprintu przed nami"
+  },
+  "kind": {
+    "TASK": "Zadanie",
+    "EPIC": "Epik"
+  },
+  "agingWip": {
+    "title": "Wiek WIP",
+    "description": "Praca w toku w tej chwili i jak długo trwa każda pozycja: dni robocze od pierwszego rozpoczęcia do teraz. Wiek liczymy na teraz, więc okres nie ma tu zastosowania; pasma porównują każdy wiek z ostatnio zakończonymi pozycjami zespołu.",
+    "openTitle": "Otwarta praca, od najstarszej",
+    "caption": "Wiek liczymy według skonfigurowanego kalendarza roboczego. Blokadę odczytujemy na ostatnie wyliczenie.",
+    "thresholdsTitle": "Progi",
+    "thresholdsCaption": "Czas cyklu w dniach roboczych ostatnio zakończonych pozycji zespołu. Pozycję przypisujemy do pasma według najwyższego progu, który jej wiek przekracza.",
+    "tasksTitle": "Zadania",
+    "epicsTitle": "Epiki",
+    "basis_one": "Na podstawie ostatniej {{count}} zakończonej pozycji.",
+    "basis_few": "Na podstawie ostatnich {{count}} zakończonych pozycji.",
+    "basis_many": "Na podstawie ostatnich {{count}} zakończonych pozycji.",
+    "basis_other": "Na podstawie ostatnich {{count}} zakończonych pozycji.",
+    "thresholdUnit": "dni robocze",
+    "unitNote": "Na poziomie jednostki okno obejmuje całą jednostkę — wybierz zespół, aby zobaczyć jego własne progi.",
+    "userNote": "Progi należą do zespołu: pozycje osoby porównujemy z oknem zespołu.",
+    "empty": "W tej chwili nic nie jest w toku.",
+    "truncated": "Pokazujemy {{count}} najstarszych pozycji; pasuje ich więcej. Zawęź zespół lub domenę, aby zobaczyć resztę.",
+    "tableLabel": "Otwarta praca, od najstarszej",
+    "column": {
+      "item": "Pozycja",
+      "kind": "Rodzaj",
+      "team": "Zespół",
+      "assignee": "Osoba przypisana",
+      "started": "Rozpoczęto",
+      "age": "Wiek (dni robocze)",
+      "blocked": "Zablokowane",
+      "band": "Pasmo"
+    },
+    "blocked": "Zablokowane",
+    "band": {
+      "within": "W normie",
+      "above": "Powyżej {{p}}"
+    }
+  },
+  "blockedTime": {
+    "title": "Czas zablokowania",
+    "description": "Jak długo zakończone pozycje były zablokowane — oflagowane lub w statusie blokady — w dniach roboczych i jako udział ich cyklu. Pozycja, która nigdy nie była zablokowana, to prawdziwe zero i zostaje w pierwszym rozkładzie.",
+    "daysTitle": "Zablokowane dni robocze",
+    "daysCaption": "Każda zakończona pozycja w okresie; pozycja nigdy niezablokowana liczy się jako zero.",
+    "daysAxis": "zablokowane dni robocze",
+    "shareTitle": "Udział blokady w cyklu",
+    "shareCaption": "Zablokowane dni robocze ÷ dni robocze cyklu, dla pozycji, które mają cykl.",
+    "shareAxis": "zablokowane ÷ cykl",
+    "excluded": {
+      "neverStarted": "Nigdy nierozpoczęte, więc bez cyklu",
+      "zeroCycle": "Cykl równy zero dni roboczych"
+    },
+    "topTitle": "Najdłużej zablokowane pozycje",
+    "topCaption": "Do 20 zakończonych pozycji z największą liczbą zablokowanych dni roboczych; przy równej liczbie najnowsze pierwsze.",
+    "topEmpty": "W tym okresie żadna zakończona pozycja nie była zablokowana.",
+    "topTableLabel": "Najdłużej zablokowane pozycje, w tabeli",
+    "groupsTasksOnly": "Grupy obejmują tylko zadania (epiki nie mają osoby przypisanej), więc sumują się do wartości dla zadań, a nie do sum powyżej.",
+    "column": {
+      "item": "Pozycja",
+      "kind": "Rodzaj",
+      "team": "Zespół",
+      "done": "Zakończono",
+      "blocked": "Zablokowane (dni robocze)",
+      "cycle": "Cykl (dni robocze)",
+      "share": "Udział w cyklu",
+      "population": "Zakończone",
+      "blockedItems": "Zablokowane",
+      "daysMedian": "Zablokowane dni (mediana)",
+      "shareN": "Udział (pozycje)",
+      "shareMedian": "Udział (mediana)"
+    },
+    "blockedItems_one": "{{count}} z {{total}} zakończonych pozycji była choć raz zablokowana; pozostałe to zera i zostają w rozkładzie.",
+    "blockedItems_few": "{{count}} z {{total}} zakończonych pozycji były choć raz zablokowane; pozostałe to zera i zostają w rozkładzie.",
+    "blockedItems_many": "{{count}} z {{total}} zakończonych pozycji było choć raz zablokowanych; pozostałe to zera i zostają w rozkładzie.",
+    "blockedItems_other": "{{count}} z {{total}} zakończonych pozycji było choć raz zablokowanych; pozostałe to zera i zostają w rozkładzie."
+  },
+  "epicProgress": {
+    "title": "Postęp epików",
+    "description": "Wartość planowana (PV), wartość wypracowana (EV) i koszt rzeczywisty (AC) w osobodniach, zsumowane od początku do dnia odczytu, z odchyleniem harmonogramu SV = EV − PV, odchyleniem kosztu CV = EV − AC, wskaźnikiem wykonania harmonogramu SPI = EV ÷ PV i wskaźnikiem wykonania kosztów CPI = EV ÷ AC. Okres wybiera tylko dni widoczne na krzywych; liczby zawsze obejmują wszystko, co było przed nim.",
+    "levelTitle": {
+      "UNIT": "Cała jednostka",
+      "DOMAIN": "Domena: {{name}}",
+      "EPIC": "Epik: {{name}}",
+      "TEAM": "Zespół: {{name}}"
+    },
+    "levelNote": {
+      "UNIT": "Tylko praca przypisana do epików: zadanie bez epika nie ma planu, z którym można je porównać. Domeny poniżej sumują się do tych liczb, zespoły nie.",
+      "DOMAIN": "Tylko praca przypisana do epików: zadanie bez epika nie ma planu, z którym można je porównać.",
+      "EPIC": "Plan to bieżąca linia bazowa epika rozłożona równo na dni robocze między datą rozpoczęcia a terminem.",
+      "TEAM": "Widok sprintów: plan to zobowiązany zakres sprintów zespołu w dniu rozpoczęcia każdego z nich, wypracowane to to, co te sprinty dostarczyły, a koszt to czas zalogowany przez osoby z zespołu. Nie sumuje się do liczb jednostki."
+    },
+    "asOf": "Stan na dzień {{day}}",
+    "tile": {
+      "pv": "PV (MD)",
+      "ev": "EV (MD)",
+      "ac": "AC (MD)",
+      "sv": "SV (MD)",
+      "cv": "CV (MD)",
+      "spi": "SPI",
+      "cpi": "CPI",
+      "foreign": "Udział pracy spoza zespołu"
+    },
+    "spi": {
+      "above": "Przed planem",
+      "below": "Za planem",
+      "on": "Zgodnie z planem"
+    },
+    "cpi": {
+      "above": "Poniżej budżetu",
+      "below": "Powyżej budżetu",
+      "on": "Zgodnie z budżetem"
+    },
+    "spiNone": "Nie ma jeszcze planu: wartość planowana wynosi 0, więc nie ma wskaźnika.",
+    "cpiNone": "Nic jeszcze nie zalogowano: koszt rzeczywisty wynosi 0, więc nie ma wskaźnika.",
+    "foreignHint": "Jaka część czasu zalogowanego przez osoby z tego zespołu (do dnia odczytu) poszła na pracę innych zespołów. Czytaj CPI zespołu razem z nią.",
+    "foreignNone": "Nic jeszcze nie zalogowano, więc nie ma udziału.",
+    "breadcrumb": {
+      "label": "Gdzie jesteś w raporcie",
+      "unit": "Cała jednostka"
+    },
+    "chartTitle": "Narastająco: PV, EV i AC",
+    "chartCaption": "Osobodni na koniec każdego dnia, zsumowane od początku.",
+    "chartLabel": "Wykres: narastająca wartość planowana, wypracowana i koszt rzeczywisty w osobodniach według dnia",
+    "series": {
+      "pv": "Wartość planowana (PV)",
+      "pvOriginal": "Pierwotny plan (PV)",
+      "ev": "Wartość wypracowana (EV)",
+      "ac": "Koszt rzeczywisty (AC)"
+    },
+    "tableLabel": "Narastające PV, EV i AC według dnia, w tabeli",
+    "column": {
+      "pv": "PV",
+      "pvOriginal": "Pierwotny plan (PV)",
+      "ev": "EV",
+      "ac": "AC",
+      "sv": "SV",
+      "spi": "SPI",
+      "cv": "CV",
+      "cpi": "CPI",
+      "domain": "Domena",
+      "team": "Zespół",
+      "epic": "Epik"
+    },
+    "domainsTitle": "Domeny",
+    "domainsCaption": "Podstawa epików: te wiersze sumują się do liczb jednostki powyżej.",
+    "teamsTitle": "Zespoły (widok sprintów)",
+    "teamsCaption": "Podstawa sprintów: plan to zobowiązany zakres sprintów zespołu, wypracowane to to, co te sprinty dostarczyły, a koszt to czas zalogowany przez jego osoby. To inny widok niż domeny: te wiersze nie sumują się do liczb jednostki.",
+    "epicsTitle": "Epiki",
+    "epicsCaption": "Epiki tej domeny, które mają plan albo jakąkolwiek wartość wypracowaną lub koszt; sumy domeny powyżej pozostają wiążące.",
+    "noRows": "Na ten dzień nie ma czego wyświetlić.",
+    "deletedTeam": "Usunięty zespół",
+    "epic": {
+      "title": "Plan",
+      "budget": "Budżet",
+      "budgetValue": "{{md}} MD",
+      "budgetOwn": "własny szacunek epika",
+      "budgetChildren": "suma szacunków jego zadań",
+      "start": "Planowane rozpoczęcie",
+      "due": "Planowany termin",
+      "driftDates": "Daty przesunięte od pierwotnego planu",
+      "driftBudget": "Budżet zmieniony od pierwotnego planu",
+      "noHorizon": "Brak krzywej planu: w planie brakuje daty albo któraś data jest oddalona od dziś o więcej niż dziesięć lat, więc wartość planowana zostaje równa 0. Wartość wypracowana i koszt nadal się liczą.",
+      "noCurve": "Brak krzywej planu: planowane okno nie zawiera dnia roboczego, więc wartość planowana nie ma na co się rozłożyć. Wartość wypracowana i koszt nadal się liczą.",
+      "baselinesTitle": "Linie bazowe",
+      "baselinesLabel": "Linie bazowe planu, od najstarszej",
+      "effectiveFrom": "Obowiązuje od",
+      "supersededAt": "Zastąpiona dnia",
+      "current": "bieżąca"
+    }
+  },
+  "dataQuality": {
+    "title": "Jakość danych",
+    "description": "Miejsca, w których brakuje danych stojących za pozostałymi raportami albo są one niespójne. Każda karta opisuje jedno znalezisko, wyjaśnia, co ono znaczy, i wymienia pierwsze przypadki. Znalezisko nie jest oceną osób: wskazuje miejsce, w którym liczbie w innym raporcie warto ufać mniej.",
+    "cardsLabel": "Znaleziska",
+    "summary": {
+      "title": "Przegląd",
+      "populationsLabel": "Co sprawdzono",
+      "populations": {
+        "doneTasks": "Zakończone zadania",
+        "openStartedTasks": "Otwarte rozpoczęte zadania",
+        "epics": "Epiki",
+        "worklogs": "Wpisy czasu pracy"
+      },
+      "tilesLabel": "Najważniejsze liczby, każda prowadzi do swojej karty",
+      "groupLogging": "Logowanie czasu",
+      "groupMissing": "Brakujące dane",
+      "groupDrift": "Rozbieżność",
+      "groupConfig": "Konfiguracja",
+      "coverageHint": "{{withWorklogs}} z {{done}} zakończonych zadań ma wpisy czasu pracy",
+      "coverageNone": "W tym okresie nie ma zakończonych zadań",
+      "lateHint": "z {{count}} wpisów ze znaną chwilą zalogowania",
+      "doneOpen": "{{done}} zakończonych · {{open}} otwartych",
+      "doneOnly": "{{count}} zakończonych",
+      "notConfigured": "nie skonfigurowano pola kategorii pracy",
+      "sprintFigures": "wartości sprintów zmieniły się od zamrożenia",
+      "epicsHint": "epiki",
+      "statusesHint": "statusy bez etapu",
+      "boardsHint": "tablice bez zespołu",
+      "domainsHint": "domeny bez zespołu właściciela",
+      "warningsHint": "połączenia z ostrzeżeniem",
+      "groupSprint": "Przepływ i sprinty",
+      "boardsHintResidual": "tablice bez zespołu · zakończone zadania bez przypisania: {{count}}"
+    },
+    "state": {
+      "found": "Znaleziono: {{count}}",
+      "none": "Nic nie znaleziono",
+      "na": "Nie mierzono"
+    },
+    "more": "i {{count}} więcej (lista pokazuje pierwsze {{shown}})",
+    "tableLabel": "{{name}}, w tabeli",
+    "open": "Otwarte",
+    "unknownAuthor": "Nieznany autor",
+    "scope": {
+      "notTeam": "To cecha połączenia, więc filtr zespołu jej nie zawęża.",
+      "noTeam": "To nie należy do żadnego zespołu, więc widok jednego zespołu nic tu nie pokazuje. Wybierz „Wszystkie zespoły” albo „Nieprzypisane”, aby to zobaczyć.",
+      "boardList": "Filtr zespołu nie zawęża tylko listy tablic; liczby zakończonych zadań i reszta poniżej podlegają filtrowi."
+    },
+    "noSprintPerPerson": "Znaleziska o sprintach dotyczą sprintów zespołu, więc nie odczytujemy ich dla pojedynczej osoby.",
+    "notConfigured": "Żadne połączenie w tym zakresie nie ma skonfigurowanego pola kategorii pracy, więc tego znaleziska nie mierzymy.",
+    "admin": {
+      "configAria": "Otwórz konfigurację metryk połączenia {{name}}"
+    },
+    "stat": {
+      "done": "Zakończone",
+      "open": "Otwarte",
+      "estimate": "Szacunek (MD)",
+      "doneTasks": "Zakończone zadania",
+      "withWorklogs": "Z wpisami czasu pracy",
+      "coverage": "Pokrycie",
+      "memberDays": "Osobodni w zespołach",
+      "hours": "Zalogowane godziny",
+      "perMemberDay": "Godziny na osobodzień w zespole",
+      "configuredDay": "Skonfigurowany osobodzień",
+      "hoursUnit": "{{hours}} h",
+      "worklogs": "Wpisy czasu pracy",
+      "measurable": "Ze znaną chwilą zalogowania",
+      "over1": "Spóźnione ponad 1 dzień",
+      "over7": "Spóźnione ponad 7 dni",
+      "unattributed": "Zakończone w sprincie bez zespołu, którego nie wymieniono"
+    },
+    "cards": {
+      "coverage": {
+        "title": "Zakończone zadania bez wpisów czasu pracy",
+        "explain": "Zakończone zadania, na które nie zalogowano żadnego czasu. Bez wpisu nie znamy ich faktycznego nakładu, więc raporty szacowania nie mogą porównać go z szacunkiem."
+      },
+      "hours": {
+        "title": "Zalogowane godziny na osobę i dzień roboczy",
+        "explain": "Godziny zalogowane przez członków/członkinie zespołów, podzielone przez dni robocze, w których byli/były w składzie. Odczytuj je względem skonfigurowanej długości osobodnia: wartość znacznie niższa sugeruje, że czas nie jest logowany w pełni."
+      },
+      "late": {
+        "title": "Spóźnione logowanie czasu",
+        "explain": "Ile czasu po rozpoczęciu pracy zalogowano ją w systemie. Czas wpisany po kilku dniach powstaje z pamięci, więc faktyczny nakład jest mniej wiarygodny."
+      },
+      "authors": {
+        "title": "Autorzy/autorki bez zespołu",
+        "explain": "Osoby, które logowały czas, gdy nie należały do żadnego zespołu. Ich czas nie trafia do faktycznego kosztu żadnego zespołu."
+      },
+      "noEstimate": {
+        "title": "Zadania bez szacunku",
+        "explain": "Zadania w ogóle bez szacunku. Nie dodają wartości planowanej i nie da się ocenić ich trafności."
+      },
+      "noEpic": {
+        "title": "Zadania bez epika",
+        "explain": "Zadania, które nie należą do żadnego epika, więc postęp epików i planowanie na poziomie epików ich nie widzą."
+      },
+      "noWorkCategory": {
+        "title": "Zadania bez kategorii pracy",
+        "explain": "Zadania bez własnej kategorii pracy i bez kategorii z epika. W każdym podziale na kategorie trafiają do „bez kategorii”."
+      },
+      "unassigned": {
+        "title": "Zakończone zadania bez osoby przypisanej",
+        "explain": "Zadania, które w chwili zakończenia nie miały osoby przypisanej, więc nikomu nie zaliczamy tej pracy."
+      },
+      "epicsNoEstimate": {
+        "title": "Epiki bez własnego szacunku",
+        "explain": "Ich budżet to suma szacunków zadań podrzędnych, więc zmienia się przy każdym dodaniu lub przeszacowaniu zadania."
+      },
+      "epicsNoDates": {
+        "title": "Epiki bez dat",
+        "explain": "Epiki bez daty rozpoczęcia lub terminu. Bez obu dat nie da się narysować krzywej planu (wartości planowanej w czasie)."
+      },
+      "epicsHorizon": {
+        "title": "Epiki z datami daleko od dziś",
+        "explain": "Obie daty są ustawione, ale co najmniej jedna leży ponad dziesięć lat od ostatniego wyliczenia, najpewniej przez literówkę. Takie epiki nie mają krzywej planu."
+      },
+      "epicDrift": {
+        "title": "Epiki niezgodne ze swoimi zadaniami",
+        "explain": "Epik, który się nie rozpoczął, mimo że jego zadania są w toku, nadal jest otwarty, gdy wszystkie zadania są zakończone, albo jest zakończony, gdy część zadań jest otwarta."
+      },
+      "outsideSprint": {
+        "title": "Praca zakończona poza sprintem",
+        "explain": "Zadania zakończone bez sprintu (na przykład w przepływie Kanban). Liczą się jako dostarczona praca, ale nigdy do velocity żadnego sprintu."
+      },
+      "crossDomain": {
+        "title": "Zadania w innej domenie niż ich epik",
+        "explain": "Zakończone zadania, których epik należy do innej domeny. To, w której domenie się liczą, zależy od widoku domeny: dostarczone w (domena zadania) albo wypracowane w (domena epika)."
+      },
+      "snapshotDrift": {
+        "title": "Wartości sprintów zmienione od zamrożenia",
+        "explain": "Wartości zamkniętego sprintu zamrażamy przy jego zamknięciu. Te bieżące wartości różnią się od zamrożonych, zwykle po zmianie konfiguracji i ponownym wyliczeniu. Raporty pokazują wartości zamrożone i oznaczają sprint."
+      },
+      "domainsNoOwner": {
+        "title": "Domeny bez zespołu właściciela",
+        "explain": "Ich epiki i backlog trafiają do „Brak zespołu właściciela”. Administrator/ka może to naprawić w konfiguracji metryk."
+      },
+      "unmappedStatuses": {
+        "title": "Statusy bez etapu",
+        "explain": "Czas spędzony w tych statusach Jiry nie liczy się ani jako rozpoczęty, ani jako zakończony. Administrator/ka przypisuje im etap w konfiguracji metryk (Statusy)."
+      },
+      "unmappedBoards": {
+        "title": "Tablice bez zespołu",
+        "explain": "Ich sprinty nie mają zespołu ani zamrożonych wartości, a ich zadania przechodzą na zespół osoby przypisanej. Administrator/ka przypisuje zespół do każdej tablicy w konfiguracji metryk (Tablice)."
+      },
+      "deriveWarnings": {
+        "title": "Ostrzeżenia z wyliczania",
+        "explain": "Ostatnie udane wyliczenie tych połączeń pominęło jeden krok, więc zależne od niego raporty są niepełne lub nieaktualne. Administrator/ka może usunąć przyczynę w konfiguracji metryk."
+      }
+    },
+    "column": {
+      "task": "Zadanie",
+      "epic": "Epik",
+      "team": "Zespół",
+      "assignee": "Osoba przypisana",
+      "done": "Zakończono",
+      "started": "Rozpoczęto",
+      "estimate": "Szacunek (MD)",
+      "ownerTeam": "Zespół właściciela",
+      "domain": "Domena",
+      "start": "Start",
+      "due": "Termin",
+      "flags": "Niezgodność",
+      "author": "Autor/ka",
+      "worklogs": "Wpisy czasu",
+      "md": "MD",
+      "loggedAt": "Rozpoczęto",
+      "lateDays": "Dni spóźnienia",
+      "connection": "Połączenie",
+      "domainName": "Domena",
+      "projects": "Projekty",
+      "epics": "Epiki",
+      "status": "Status",
+      "category": "Kategoria w Jirze",
+      "items": "Pozycje, które w nim były",
+      "openItems": "W nim teraz",
+      "board": "Tablica",
+      "project": "Projekt",
+      "sprints": "Sprinty",
+      "doneTasks": "Zakończone zadania",
+      "sprint": "Sprint",
+      "closed": "Zamknięto",
+      "figure": "Wartość",
+      "live": "Bieżąca",
+      "frozen": "Zamrożona",
+      "delta": "Różnica",
+      "baseline": "Punkt odniesienia",
+      "lastRun": "Ostatnie udane wyliczenie",
+      "warning": "Ostrzeżenie"
+    },
+    "flag": {
+      "EPIC_NOT_STARTED_WITH_ACTIVE_CHILDREN": "Nierozpoczęty, zadania w toku",
+      "EPIC_OPEN_AFTER_CHILDREN_DONE": "Otwarty, wszystkie zadania zakończone",
+      "EPIC_DONE_WITH_OPEN_CHILDREN": "Zakończony, zadania otwarte"
+    },
+    "figure": {
+      "committedMd": "Zobowiązane (MD)",
+      "committedItems": "Zobowiązane (zadania)",
+      "addedMd": "Dodane (MD)",
+      "addedItems": "Dodane (zadania)",
+      "removedMd": "Usunięte (MD)",
+      "removedItems": "Usunięte (zadania)",
+      "finalMd": "Końcowe (MD)",
+      "finalItems": "Końcowe (zadania)",
+      "deliveredMd": "Dostarczone (MD)",
+      "deliveredItems": "Dostarczone (zadania)",
+      "carriedOverMd": "Przeniesione (MD)",
+      "carriedOverItems": "Przeniesione (zadania)",
+      "droppedMd": "Porzucone (MD)",
+      "droppedItems": "Porzucone (zadania)",
+      "capacityMd": "Pojemność (MD)",
+      "load": "Obciążenie"
+    },
+    "baseline": {
+      "frozen": "Zamrożone przy zakończeniu",
+      "reconstructed": "Odtworzone",
+      "reconstructedNote": "Odtworzone: migawkę zapisało wyliczenie, które uruchomiło się po zamknięciu sprintu, więc to punkt odniesienia odbudowany z historii, a nie prawdziwe zamrożenie."
+    },
+    "warning": {
+      "sprintFieldUnresolved": "Nie udało się ustalić pola sprintu, więc pominięto krok sprintów"
+    },
+    "late": {
+      "distributionTitle": "Dni między rozpoczęciem a zalogowaniem",
+      "distributionCaption": "Każdy wpis czasu pracy z okresu ze znaną chwilą zalogowania.",
+      "axis": "dni spóźnienia",
+      "worstTitle": "Najpóźniej zalogowane wpisy",
+      "worstCaption": "Do 50 wpisów, najpóźniej zalogowane pierwsze.",
+      "noWorklogs": "W tym okresie nie ma wpisów czasu pracy.",
+      "noneMeasurable": "Żaden wpis czasu pracy z tego okresu nie ma znanej chwili zalogowania, więc nie da się zmierzyć spóźnienia."
+    },
+    "hoursNone": "W tym okresie żadna osoba nie należała do składu zespołu, więc nie ma wartości na osobodzień w zespole.",
+    "unattributedNote_one": "{{count}} zakończone zadanie zrealizowano w sprincie bez zespołu, który nie należy do żadnej z powyższych tablic (sprint nie ma tablicy albo jego tablica ma zespół, a sprint go nie ma).",
+    "unattributedNote_few": "{{count}} zakończone zadania zrealizowano w sprincie bez zespołu, który nie należy do żadnej z powyższych tablic (sprint nie ma tablicy albo jego tablica ma zespół, a sprint go nie ma).",
+    "unattributedNote_many": "{{count}} zakończonych zadań zrealizowano w sprincie bez zespołu, który nie należy do żadnej z powyższych tablic (sprint nie ma tablicy albo jego tablica ma zespół, a sprint go nie ma).",
+    "unattributedNote_other": "{{count}} zakończonego zadania zrealizowano w sprincie bez zespołu, który nie należy do żadnej z powyższych tablic (sprint nie ma tablicy albo jego tablica ma zespół, a sprint go nie ma).",
+    "groups": {
+      "column": {
+        "done": "Zakończone zadania",
+        "open": "Otwarte rozpoczęte",
+        "withoutWorklogs": "Bez wpisów czasu",
+        "noEstimate": "Bez szacunku",
+        "noEpic": "Bez epika",
+        "unassigned": "Bez osoby przypisanej",
+        "outsideSprint": "Poza sprintem",
+        "over1": "Spóźnione ponad 1 dzień",
+        "over7": "Spóźnione ponad 7 dni",
+        "perMemberDay": "Godziny na osobodzień w zespole",
+        "epics": "Epiki",
+        "epicFindings": "Znaleziska o epikach"
+      },
+      "caption": "Liczby zadań bez szacunku i bez epika sumują zadania zakończone i otwarte. Epik może trafić do kilku znalezisk, więc ta kolumna liczy znaleziska, a nie epiki. Odczyt zawężony do jednego połączenia wymienia tylko zespoły, które mają w nim znalezisko, więc milczący zespół z innego połączenia nie jest pokazany."
+    },
+    "coverageNone": "W tym okresie nie ma zakończonych zadań, więc nie ma pokrycia do zmierzenia."
+  },
+  "costMatrix": {
+    "title": "Macierz kosztów",
+    "description": "Osobodni zalogowane w okresie, według zespołu, do którego autor/ka należał(a) w dniu logowania (wiersze), i według domeny (kolumny); obok każdego wiersza widać udział pracy spoza zespołu. Otwórz zespół, aby zobaczyć jego autorów/ki, a autora/kę, aby zobaczyć jedną osobę.",
+    "levelTitle": {
+      "UNIT": "Osobodni według zespołu autorów i domeny",
+      "TEAM": "Osobodni według autora/ki i domeny",
+      "USER": "Osobodni według domeny"
+    },
+    "caption": {
+      "UNIT": "Osobodni zalogowane w okresie: zespoły autorów w wierszach, domeny w kolumnach, dalej suma wiersza i praca spoza zespołu",
+      "TEAM": "Osobodni zalogowane w okresie: autorzy/ki zespołu w wierszach, domeny w kolumnach, dalej suma wiersza i praca spoza zespołu",
+      "USER": "Osobodni zalogowane w okresie przez tę osobę: domeny w kolumnach, dalej suma i praca spoza zespołu"
+    },
+    "domainView": {
+      "EPIC": "Kolumny pokazują domenę epika — zadanie bez epika liczy się w swojej własnej domenie.",
+      "TASK": "Kolumny pokazują własną domenę zadania, nawet gdy jego epik należy do innej."
+    },
+    "column": {
+      "team": "Zespół autorów",
+      "author": "Autor/ka",
+      "total": "Suma",
+      "foreignMd": "Praca spoza zespołu (MD)",
+      "foreignShare": "Udział spoza zespołu"
+    },
+    "totalRow": "Suma",
+    "noDomain": "(bez domeny)",
+    "noAuthor": "Nieznany autor",
+    "deletedTeam": "Usunięty zespół",
+    "tile": {
+      "total": "Zalogowane osobodni",
+      "foreign": "Praca spoza zespołu (MD)",
+      "share": "Udział pracy spoza zespołu"
+    },
+    "shareHint": "Osobodni pracy spoza zespołu jako udział w całości zalogowanej w okresie.",
+    "foreignHint": "Praca spoza zespołu to czas zalogowany na zadaniach poza pracą zespołu autora/ki: zadaniach ze sprintu innego zespołu albo, gdy zadanie nie ma zespołu sprintu, zadaniach przypisanych osobie z innego zespołu. Czas zalogowany na epiku jest pracą spoza zespołu, gdy domena epika należy do innego zespołu. Nieznany zespół nigdy nie liczy się jako obcy.",
+    "foreignNone": "Nic nie zalogowano, więc nie ma udziału.",
+    "sprintNote": {
+      "UNIT": "Okres wynika ze sprintów. Wiersz każdego zespołu czyta okno sprintów całej jednostki (sprinty wszystkich zespołów razem); otwarcie zespołu czyta tylko jego własne sprinty, więc jego liczby mogą się różnić od wiersza tutaj.",
+      "TEAM": "Okres wynika ze sprintów: to własne sprinty tego zespołu."
+    },
+    "rounding": "Każda liczba to jej własna dokładna suma, zaokrąglona raz do dwóch miejsc po przecinku. Suma może się więc różnić od sumy widocznych nad nią liczb nawet o 0,005 na każdą z nich.",
+    "legend": {
+      "label": "Skala kolorów",
+      "text": "Bardziej intensywna komórka ma więcej osobodni, do {{max}} MD w jednej komórce. Liczba w komórce to wartość; odcień tylko pomaga ją znaleźć."
     }
   }
 }

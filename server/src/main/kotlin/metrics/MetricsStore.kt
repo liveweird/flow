@@ -1195,10 +1195,22 @@ class MetricsStore(private val database: R2dbcDatabase) {
      * unbounded operational history exactly like `sync_jobs` (`.claude/docs/persistence.md` "Soft
      * delete (convention)" — the `sync_jobs` prune hard-delete exception applies here too): a
      * connection with a short `DERIVE` cadence would otherwise grow this table forever.
+     *
+     * Each connection's NEWEST SUCCEEDED run (by `started_at`, ties by `id`) is always kept, however old: it is
+     * the connection's DERIVE clock (`reports/SnapshotSupport.kt` `deriveClocks`), and pruning it would make
+     * every snapshot report read the still-derived connection as "not derived yet".
      */
     suspend fun pruneDeriveRuns(retentionMillis: Long, now: Long): Int = suspendTransaction(database) {
+        // ONE statement (keep-set as a subquery), so a run another DERIVE flips to SUCCEEDED mid-prune can
+        // never fall between a separate keep-set read and the delete.
+        val newestSucceeded = DeriveRuns.select(DeriveRuns.id)
+            .where { DeriveRuns.status eq "SUCCEEDED" }
+            .withDistinctOn(DeriveRuns.connectionId)
+            .orderBy(DeriveRuns.connectionId to SortOrder.ASC, DeriveRuns.startedAt to SortOrder.DESC, DeriveRuns.id to SortOrder.DESC)
         DeriveRuns.deleteWhere {
-            (DeriveRuns.status inList listOf("SUCCEEDED", "FAILED")) and (DeriveRuns.finishedAt less (now - retentionMillis))
+            (DeriveRuns.status inList listOf("SUCCEEDED", "FAILED")) and
+                (DeriveRuns.finishedAt less (now - retentionMillis)) and
+                (DeriveRuns.id notInSubQuery newestSucceeded)
         }
     }
 

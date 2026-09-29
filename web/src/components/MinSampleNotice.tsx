@@ -14,12 +14,13 @@ export default function MinSampleNotice({
 }: {
   n: number;
   minSampleSize: number;
-  subject?: "distribution" | "share";
+  subject?: "distribution" | "share" | "thresholds";
 }) {
   const { t } = useTranslation();
   return (
     <Alert color="gray" variant="light" icon={<IconInfoCircle size={16} />} role="note">
-      {n === 0 ? t("reports.minSample.none") : t(`reports.minSample.${subject}`, { count: n, min: minSampleSize })}
+      {/* An empty thresholds window still has to say no item is banded, so it has its own line. */}
+      {n === 0 ? t(subject === "thresholds" ? "reports.minSample.thresholdsNone" : "reports.minSample.none") : t(`reports.minSample.${subject}`, { count: n, min: minSampleSize })}
     </Alert>
   );
 }

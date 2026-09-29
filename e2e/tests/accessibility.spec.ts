@@ -2,26 +2,15 @@
 // and form pages, the detail pages of one API-seeded fixture team, and the overlays (a registry
 // editor modal) — where focus traps, aria-modal and labels actually live. Owns: the fixture
 // team (unique `e2e-axe-*` name), created and deleted via the API.
-import AxeBuilder from "@axe-core/playwright";
 import type { APIRequestContext, Locator, Page } from "@playwright/test";
-import { apiAsAdmin, expect, login, test, uniqueText } from "./helpers";
-
-const AXE_TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"];
+import { apiAsAdmin, axeViolations, expect, login, test, uniqueText } from "./helpers";
 
 // No waivers: the theme's text/dimmed/ink tokens are AA-tested in web/src/theme.test.ts, so
 // the color-contrast rule runs for real here (Lettuce's posture, not Toadie's waiver). Fix a
 // finding at the token level — never by patching single elements.
 async function scan(page: Page, include?: string): Promise<void> {
-  const builder = new AxeBuilder({ page }).withTags(AXE_TAGS);
-  const results = await (include ? builder.include(include) : builder).analyze();
   // Keep the assert readable on failure: one line per violation with the offending nodes.
-  const summary = results.violations.map((v) => ({
-    id: v.id,
-    impact: v.impact,
-    help: v.help,
-    nodes: v.nodes.map((n) => n.target.join(" ")),
-  }));
-  expect(summary).toEqual([]);
+  expect(await axeViolations(page, include)).toEqual([]);
 }
 
 test("login screen has no WCAG A/AA violations", async ({ page }) => {
@@ -40,6 +29,10 @@ const AUTHED_PAGES: { path: string; heading: string }[] = [
   { path: "/data-sources", heading: "Data sources" },
   { path: "/metrics-settings", heading: "Metrics settings" },
   { path: "/reports/velocity", heading: "Velocity" },
+  { path: "/reports/wip", heading: "WIP" },
+  { path: "/reports/epic-progress", heading: "Epic progress" },
+  { path: "/reports/data-quality", heading: "Data quality" },
+  { path: "/reports/cost-matrix", heading: "Cost matrix" },
   { path: "/change-password", heading: "Change password" },
   { path: "/changelog", heading: "Changelog" },
 ];

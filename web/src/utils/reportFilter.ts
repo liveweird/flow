@@ -14,6 +14,14 @@ export type Breakdown = "NONE" | "DOMAIN" | "ACTIVITY_TYPE" | "WORK_CATEGORY";
 export type Bucket = "WEEK" | "MONTH";
 export const BUCKETS: readonly Bucket[] = ["WEEK", "MONTH"];
 
+/** What the WIP report keys its counts by (report 9); the server defaults to STAGE. */
+export type WipBy = "STATUS" | "STAGE" | "COLUMN";
+export const WIP_BYS: readonly WipBy[] = ["STAGE", "STATUS", "COLUMN"];
+
+/** Which items the WIP report counts (report 9); the server defaults to TASK. */
+export type WipItemKind = "TASK" | "EPIC" | "BOTH";
+export const WIP_ITEM_KINDS: readonly WipItemKind[] = ["TASK", "EPIC", "BOTH"];
+
 const DOMAIN_VIEWS: readonly DomainView[] = ["TASK", "EPIC"];
 export const BREAKDOWNS: readonly Breakdown[] = ["NONE", "DOMAIN", "ACTIVITY_TYPE", "WORK_CATEGORY"];
 
@@ -28,11 +36,17 @@ export interface ReportFilterState {
   accountId?: string;
   domainView?: DomainView;
   domain?: string;
+  /** An epic's issue key (`FLO-33`) — the epic progress report's EPIC scope; no other report has it. */
+  epicId?: string;
   activityType?: string;
   workCategory?: string;
   breakdown?: Breakdown;
   /** Time resolution of a bucketed series (throughput); the server defaults to WEEK. */
   bucket?: Bucket;
+  /** What the WIP report keys its counts by. */
+  by?: WipBy;
+  /** Which items the WIP report counts. */
+  itemKind?: WipItemKind;
   connectionId?: number;
 }
 
@@ -46,15 +60,28 @@ const MANAGED_KEYS = [
   "accountId",
   "domainView",
   "domain",
+  "epicId",
   "activityType",
   "workCategory",
   "breakdown",
   "bucket",
+  "by",
+  "itemKind",
   "connectionId",
 ] as const;
 
 /** The managed params only some reports have a control for; the rest (period, team, member, connection) are shared. */
-export const REPORT_SPECIFIC_KEYS = ["domainView", "domain", "activityType", "workCategory", "breakdown", "bucket"] as const;
+export const REPORT_SPECIFIC_KEYS = [
+  "domainView",
+  "domain",
+  "epicId",
+  "activityType",
+  "workCategory",
+  "breakdown",
+  "bucket",
+  "by",
+  "itemKind",
+] as const;
 export type ReportSpecificKey = (typeof REPORT_SPECIFIC_KEYS)[number];
 
 /** True when the query string carries ANY param this module owns (valid or not). */
@@ -124,6 +151,8 @@ export function parseReportFilter(params: URLSearchParams): ReportFilterState {
   if (domainView !== undefined) filter.domainView = domainView;
   const domain = parseText(params.get("domain"));
   if (domain !== undefined) filter.domain = domain;
+  const epicId = parseText(params.get("epicId"));
+  if (epicId !== undefined) filter.epicId = epicId;
   const activityType = parseText(params.get("activityType"));
   if (activityType !== undefined) filter.activityType = activityType;
   const workCategory = parseText(params.get("workCategory"));
@@ -132,6 +161,10 @@ export function parseReportFilter(params: URLSearchParams): ReportFilterState {
   if (breakdown !== undefined) filter.breakdown = breakdown;
   const bucket = parseEnum(params.get("bucket"), BUCKETS);
   if (bucket !== undefined) filter.bucket = bucket;
+  const by = parseEnum(params.get("by"), WIP_BYS);
+  if (by !== undefined) filter.by = by;
+  const itemKind = parseEnum(params.get("itemKind"), WIP_ITEM_KINDS);
+  if (itemKind !== undefined) filter.itemKind = itemKind;
   const connectionId = parseInteger(params.get("connectionId"), 1);
   if (connectionId !== undefined) filter.connectionId = connectionId;
 
@@ -156,6 +189,39 @@ export function serializeReportFilter(filter: ReportFilterState): URLSearchParam
 
 export function reportQuery(filter: ReportFilterState): string {
   return serializeReportFilter(filter).toString();
+}
+
+/**
+ * True when the WIP report can be keyed by board column: one team's board — never the whole unit,
+ * the UNASSIGNED bucket (`teamId=0`) or a domain slice (the server answers `400` for each).
+ */
+export function wipColumnAvailable(filter: ReportFilterState): boolean {
+  return filter.teamId !== undefined && filter.teamId > 0 && filter.domain === undefined;
+}
+
+/**
+ * The snapshot reports (WIP, backlog) read a daily aggregate with no team × domain split, so the
+ * server answers `400` for both together. A pasted link carrying both is read with the team
+ * winning: the domain is dropped.
+ */
+export function dropDomainWithTeam(filter: ReportFilterState): ReportFilterState {
+  if (filter.teamId === undefined || filter.domain === undefined) return filter;
+  const next = { ...filter };
+  delete next.domain;
+  return next;
+}
+
+/**
+ * WIP's whole filter, made consistent: the team wins over a domain, and a board-column keying the
+ * filter cannot honour is dropped (so it falls back to the default, STAGE, and — being gone from the
+ * URL too — cannot come back by itself when a team is picked later).
+ */
+export function normalizeWipFilter(filter: ReportFilterState): ReportFilterState {
+  const next = dropDomainWithTeam(filter);
+  if (next.by !== "COLUMN" || wipColumnAvailable(next)) return next;
+  const withoutBy = { ...next };
+  delete withoutBy.by;
+  return withoutBy;
 }
 
 /** The drill level a filter selects — the same rule as the server's. */

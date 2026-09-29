@@ -10,7 +10,12 @@
     "epicAccuracy": "Epic accuracy",
     "adjustments": "Adjustments",
     "cycleTime": "Cycle time",
-    "reportedTime": "Reported time"
+    "reportedTime": "Reported time",
+    "wip": "WIP",
+    "backlog": "Estimated backlog",
+    "agingWip": "Aging WIP",
+    "blockedTime": "Blocked time",
+    "epicProgress": "Epic progress"
   },
   "meta": {
     "derived": "Derived {{date}} · configuration revision {{revision}}",
@@ -59,7 +64,22 @@
     "bucketOption": {
       "WEEK": "Week",
       "MONTH": "Month"
-    }
+    },
+    "wipBy": "Count by",
+    "wipByOption": {
+      "STAGE": "Stage",
+      "STATUS": "Status",
+      "COLUMN": "Board column"
+    },
+    "wipByColumnHint": "Board columns need one team: pick a team (not All teams or Unassigned) and clear the domain.",
+    "itemKind": "Count",
+    "itemKindOption": {
+      "TASK": "Tasks",
+      "EPIC": "Epics",
+      "BOTH": "Tasks and epics"
+    },
+    "connection": "Connection",
+    "allConnections": "All connections"
   },
   "groups": {
     "byTeam": "By team",
@@ -67,7 +87,8 @@
     "team": "Team",
     "member": "Member",
     "unassigned": "Unassigned",
-    "drillAria": "Show {{name}}"
+    "drillAria": "Show {{name}}",
+    "noOwner": "No owner team"
   },
   "velocity": {
     "title": "Velocity",
@@ -156,7 +177,10 @@
     "distribution_other": "Only {{count}} items in this selection — at least {{min}} are needed to show percentiles and a histogram.",
     "share_one": "Only {{count}} item started in this selection — at least {{min}} are needed to show a share.",
     "share_other": "Only {{count}} items started in this selection — at least {{min}} are needed to show a share.",
-    "none": "Nothing to measure in this selection."
+    "none": "Nothing to measure in this selection.",
+    "thresholds_one": "Only {{count}} finished item in the window — at least {{min}} are needed to show thresholds, so no item is banded.",
+    "thresholds_other": "Only {{count}} finished items in the window — at least {{min}} are needed to show thresholds, so no item is banded.",
+    "thresholdsNone": "No finished item in the window yet, so there are no thresholds and no item is banded."
   },
   "distribution": {
     "p50": "Median (p50)",
@@ -318,6 +342,542 @@
       "ratioMedian": "Reported ratio (median)",
       "flowN": "Flow efficiency (items)",
       "flowMedian": "Flow efficiency (median)"
+    }
+  },
+  "note": {
+    "title": "About this data"
+  },
+  "daily": {
+    "show": "Show daily figures",
+    "hide": "Hide daily figures",
+    "day": "Day"
+  },
+  "wip": {
+    "title": "WIP",
+    "description": "How many items sit in each stage, status or board column at the end of every day. The bands are stacked, so the top edge is their total.",
+    "chartTitle": "Items at the end of each day",
+    "caption": {
+      "STAGE": "By stage. Not started and Done are hidden at first: Not started holds the whole backlog and Done only ever grows. Tick them to see all the work.",
+      "STATUS": "By status, ordered by stage and then by name.",
+      "COLUMN": "By column of the team's board, in board order."
+    },
+    "bothNote": "Tasks and epics are different grains; counting both adds them together.",
+    "yAxis": "Items",
+    "chartLabel": "Chart: items at the end of each day, stacked by band",
+    "show": "Show in chart",
+    "workingDaysOnly": "Working days only",
+    "noneShown": "Tick at least one band to draw the chart.",
+    "stage": {
+      "NOT_STARTED": "Not started",
+      "IN_PROGRESS": "In progress",
+      "DONE": "Done",
+      "UNMAPPED": "Unmapped status"
+    },
+    "noColumn": "(no column)",
+    "summaryLabel": "Latest day, average and peak per band, as a table",
+    "dailyLabel": "Daily figures, as a table",
+    "column": {
+      "band": "Band",
+      "latest": "Latest day ({{day}})",
+      "average": "Daily average",
+      "peak": "Peak"
+    },
+    "columnNeedsBoard": "This team has no board mapped, so its items cannot be counted by board column. Count by stage or status instead, or map a board in the data source configuration.",
+    "summaryNote": "These figures cover every calendar day of the period, whatever the chart shows."
+  },
+  "backlog": {
+    "title": "Estimated backlog",
+    "description": "Estimated work that has not started: level-0 tasks with their own estimate that sit in no started sprint, counted at the end of each day. A parent estimated only through its sub-tasks is not in it (a known gap).",
+    "currentTitle": "Backlog on {{day}}",
+    "tile": {
+      "md": "Backlog (MD)",
+      "items": "Items",
+      "sprints": "Backlog in sprints"
+    },
+    "sprintsAhead_one": "≈ {{count}} sprint ahead",
+    "sprintsAhead_other": "≈ {{count}} sprints ahead",
+    "noVelocity": "No closed sprint yet, or this selection has no velocity of its own (the unowned backlog or a domain slice), so it cannot be expressed in sprints.",
+    "zeroVelocity": "The recent sprints delivered nothing, so the backlog cannot be expressed in sprints.",
+    "basisShort": "Fewer closed sprints than the window, so the pace is less certain.",
+    "unitNote": "At unit level the pace is the sum of each team's own mean, set against the whole backlog, including the part no team owns, so a large unowned backlog inflates the figure.",
+    "chartTitle": "Backlog over time",
+    "chartCaption": "Man-days at the end of each day; the tooltip and the table add the item count.",
+    "chartLabel": "Chart: estimated backlog in man-days by day",
+    "series": {
+      "backlog": "Backlog"
+    },
+    "tableLabel": "Backlog by day, as a table",
+    "column": {
+      "md": "Backlog (MD)",
+      "items": "Backlog (items)"
+    },
+    "basis_one": "Recent pace: {{md}} MD delivered per sprint, the mean of {{count}} closed sprint (window: {{window}}).",
+    "basis_other": "Recent pace: {{md}} MD delivered per sprint, the mean of {{count}} closed sprints (window: {{window}}).",
+    "unitBasis_one": "Recent pace: the sum of each team's own mean delivery per sprint, {{md}} MD, from at least {{count}} closed sprint per team (window: {{window}}).",
+    "unitBasis_other": "Recent pace: the sum of each team's own mean delivery per sprint, {{md}} MD, from at least {{count}} closed sprints per team (window: {{window}}).",
+    "unitBasisShort": "Some team has fewer closed sprints than the window, so the pace is less certain.",
+    "lessThanTenth": "< 0.1 sprints ahead"
+  },
+  "kind": {
+    "TASK": "Task",
+    "EPIC": "Epic"
+  },
+  "agingWip": {
+    "title": "Aging WIP",
+    "description": "The work in progress right now and how long each item has been going: working days from its first start until now. Age is as of now, so the period does not apply; the bands compare each age with the team's recent finished items.",
+    "openTitle": "Open work, oldest first",
+    "caption": "Age is counted on the configured working calendar. Blocked is as of the last derive.",
+    "thresholdsTitle": "Thresholds",
+    "thresholdsCaption": "Cycle time, in working days, of the team's last finished items. An item is banded by the highest threshold its age is above.",
+    "tasksTitle": "Tasks",
+    "epicsTitle": "Epics",
+    "basis_one": "Based on the last {{count}} finished item.",
+    "basis_other": "Based on the last {{count}} finished items.",
+    "thresholdUnit": "working days",
+    "unitNote": "At unit level the window spans the whole unit — pick a team for its own thresholds.",
+    "userNote": "Thresholds belong to the team: a member's items are read against the team's window.",
+    "empty": "Nothing is in progress right now.",
+    "truncated": "Showing the oldest {{count}} items; more match. Narrow the team or the domain to see the rest.",
+    "tableLabel": "Open work, oldest first",
+    "column": {
+      "item": "Item",
+      "kind": "Kind",
+      "team": "Team",
+      "assignee": "Assignee",
+      "started": "Started",
+      "age": "Age (working days)",
+      "blocked": "Blocked",
+      "band": "Band"
+    },
+    "blocked": "Blocked",
+    "band": {
+      "within": "Within",
+      "above": "Above {{p}}"
+    }
+  },
+  "blockedTime": {
+    "title": "Blocked time",
+    "description": "How long finished items spent blocked — flagged or in a blocked status — in working days and as a share of their cycle. An item that was never blocked is a real zero and stays in the first distribution.",
+    "daysTitle": "Blocked working days",
+    "daysCaption": "Every finished item in the period; an item never blocked counts as zero.",
+    "daysAxis": "blocked working days",
+    "shareTitle": "Blocked share of cycle",
+    "shareCaption": "Blocked working days ÷ cycle working days, for the items that have a cycle.",
+    "shareAxis": "blocked ÷ cycle",
+    "excluded": {
+      "neverStarted": "Never started, so no cycle",
+      "zeroCycle": "Cycle of zero working days"
+    },
+    "topTitle": "Most blocked items",
+    "topCaption": "Up to 20 finished items with the most blocked working days, newest first among equals.",
+    "topEmpty": "No finished item was blocked in this period.",
+    "topTableLabel": "Most blocked items, as a table",
+    "groupsTasksOnly": "The groups cover tasks only (epics have no assignee), so they add up to the tasks' total, not to the totals above.",
+    "column": {
+      "item": "Item",
+      "kind": "Kind",
+      "team": "Team",
+      "done": "Done",
+      "blocked": "Blocked (working days)",
+      "cycle": "Cycle (working days)",
+      "share": "Share of cycle",
+      "population": "Finished",
+      "blockedItems": "Blocked",
+      "daysMedian": "Blocked days (median)",
+      "shareN": "Share (items)",
+      "shareMedian": "Share (median)"
+    },
+    "blockedItems_one": "{{count}} of {{total}} finished items was blocked at all; the rest are zeros and stay in the distribution.",
+    "blockedItems_other": "{{count}} of {{total}} finished items were blocked at all; the rest are zeros and stay in the distribution."
+  },
+  "epicProgress": {
+    "title": "Epic progress",
+    "description": "Planned value (PV), earned value (EV) and actual cost (AC) in man-days, added up from the beginning of time to the as-of day, with the schedule variance SV = EV − PV, the cost variance CV = EV − AC, the schedule performance index SPI = EV ÷ PV and the cost performance index CPI = EV ÷ AC. The period only chooses which days the curves show; the figures always include everything before it.",
+    "levelTitle": {
+      "UNIT": "Whole unit",
+      "DOMAIN": "Domain: {{name}}",
+      "EPIC": "Epic: {{name}}",
+      "TEAM": "Team: {{name}}"
+    },
+    "levelNote": {
+      "UNIT": "Epic-attributed work only: a task with no epic has no plan to compare against. The domains below add up to these figures; the teams do not.",
+      "DOMAIN": "Epic-attributed work only: a task with no epic has no plan to compare against.",
+      "EPIC": "The plan is the epic's current baseline spread evenly over the working days between its start and due dates.",
+      "TEAM": "Sprint view: planned is the committed scope of the team's sprints on the day each starts, earned is what those sprints delivered, and cost is the time the team's members logged. It does not add up to the unit's figures."
+    },
+    "asOf": "As of {{day}}",
+    "tile": {
+      "pv": "PV (MD)",
+      "ev": "EV (MD)",
+      "ac": "AC (MD)",
+      "sv": "SV (MD)",
+      "cv": "CV (MD)",
+      "spi": "SPI",
+      "cpi": "CPI",
+      "foreign": "Foreign work share"
+    },
+    "spi": {
+      "above": "Ahead of plan",
+      "below": "Behind plan",
+      "on": "On plan"
+    },
+    "cpi": {
+      "above": "Under budget",
+      "below": "Over budget",
+      "on": "On budget"
+    },
+    "spiNone": "No plan yet: planned value is 0, so there is no ratio.",
+    "cpiNone": "Nothing logged yet: actual cost is 0, so there is no ratio.",
+    "foreignHint": "Share of the time this team's members logged (up to the as-of day) that went into other teams' work. Read the team's CPI together with it.",
+    "foreignNone": "Nothing logged yet, so there is no share.",
+    "breadcrumb": {
+      "label": "Where you are in the drill-down",
+      "unit": "Whole unit"
+    },
+    "chartTitle": "Cumulative PV, EV and AC",
+    "chartCaption": "Man-days at the end of each day, added up from the beginning of time.",
+    "chartLabel": "Chart: cumulative planned value, earned value and actual cost in man-days by day",
+    "series": {
+      "pv": "Planned value (PV)",
+      "pvOriginal": "Original plan (PV)",
+      "ev": "Earned value (EV)",
+      "ac": "Actual cost (AC)"
+    },
+    "tableLabel": "Cumulative PV, EV and AC by day, as a table",
+    "column": {
+      "pv": "PV",
+      "pvOriginal": "Original plan (PV)",
+      "ev": "EV",
+      "ac": "AC",
+      "sv": "SV",
+      "spi": "SPI",
+      "cv": "CV",
+      "cpi": "CPI",
+      "domain": "Domain",
+      "team": "Team",
+      "epic": "Epic"
+    },
+    "domainsTitle": "Domains",
+    "domainsCaption": "Epic basis: these rows add up to the unit's figures above.",
+    "teamsTitle": "Teams (sprint view)",
+    "teamsCaption": "Sprint basis: planned is each team's committed sprint scope, earned what those sprints delivered, cost the time its members logged. A different view from the domains: these rows do not add up to the unit's figures.",
+    "epicsTitle": "Epics",
+    "epicsCaption": "Epics of this domain that have a plan or any earned value or cost; the domain's totals above stay authoritative.",
+    "noRows": "Nothing to list as of this day.",
+    "deletedTeam": "Deleted team",
+    "epic": {
+      "title": "Plan",
+      "budget": "Budget",
+      "budgetValue": "{{md}} MD",
+      "budgetOwn": "the epic's own estimate",
+      "budgetChildren": "the sum of its tasks' estimates",
+      "start": "Planned start",
+      "due": "Planned due",
+      "driftDates": "Dates moved since the original plan",
+      "driftBudget": "Budget changed since the original plan",
+      "noHorizon": "No plan curve: the plan is missing a date, or a date lies more than ten years from today, so planned value stays 0. Earned value and cost still count.",
+      "noCurve": "No plan curve: the planned window holds no working day, so planned value has nothing to be spread over. Earned value and cost still count.",
+      "baselinesTitle": "Baselines",
+      "baselinesLabel": "Plan baselines, oldest first",
+      "effectiveFrom": "In effect from",
+      "supersededAt": "Replaced on",
+      "current": "current"
+    }
+  },
+  "dataQuality": {
+    "title": "Data quality",
+    "description": "Where the data behind the other reports is missing or inconsistent. Each card names one finding, says what it means and lists the first cases. A finding is not a verdict on people: it marks a place where a number elsewhere deserves less trust.",
+    "cardsLabel": "Findings",
+    "summary": {
+      "title": "Overview",
+      "populationsLabel": "What was checked",
+      "populations": {
+        "doneTasks": "Done tasks",
+        "openStartedTasks": "Open started tasks",
+        "epics": "Epics",
+        "worklogs": "Worklogs"
+      },
+      "tilesLabel": "Headline counts, each linking to its card",
+      "groupLogging": "Logging",
+      "groupMissing": "Missing data",
+      "groupDrift": "Drift",
+      "groupConfig": "Configuration",
+      "coverageHint": "{{withWorklogs}} of {{done}} done tasks have worklogs",
+      "coverageNone": "No done task in this period",
+      "lateHint": "of {{count}} worklogs with a known logging time",
+      "doneOpen": "{{done}} done · {{open}} open",
+      "doneOnly": "{{count}} done",
+      "notConfigured": "no work-category field configured",
+      "sprintFigures": "sprint figures moved since the freeze",
+      "epicsHint": "epics",
+      "statusesHint": "statuses without a stage",
+      "boardsHint": "boards without a team",
+      "domainsHint": "domains without an owner team",
+      "warningsHint": "connections with a warning",
+      "groupSprint": "Flow and sprint",
+      "boardsHintResidual": "boards without a team · unattributed done tasks: {{count}}"
+    },
+    "state": {
+      "found": "Found: {{count}}",
+      "none": "None found",
+      "na": "Not measured"
+    },
+    "more": "and {{count}} more (the list shows the first {{shown}})",
+    "tableLabel": "{{name}}, as a table",
+    "open": "Open",
+    "unknownAuthor": "Unknown author",
+    "scope": {
+      "notTeam": "This is a property of the connection, so the team filter does not narrow it.",
+      "noTeam": "This belongs to no team, so a single team's view lists none. Choose All teams or Unassigned to see it.",
+      "boardList": "Only the list of boards is not narrowed by the team; the done-task counts and the residual below follow the filter."
+    },
+    "noSprintPerPerson": "Sprint findings belong to a team's sprints, so they are not read for a single person.",
+    "notConfigured": "No connection in scope has a work-category field configured, so this finding is not measured.",
+    "admin": {
+      "configAria": "Open the metrics configuration of {{name}}"
+    },
+    "stat": {
+      "done": "Done",
+      "open": "Open",
+      "estimate": "Estimate (MD)",
+      "doneTasks": "Done tasks",
+      "withWorklogs": "With worklogs",
+      "coverage": "Coverage",
+      "memberDays": "Member-days",
+      "hours": "Hours logged",
+      "perMemberDay": "Hours per member-day",
+      "configuredDay": "Configured man-day",
+      "hoursUnit": "{{hours}} h",
+      "worklogs": "Worklogs",
+      "measurable": "With known logging time",
+      "over1": "Over 1 day late",
+      "over7": "Over 7 days late",
+      "unattributed": "Done in a team-less sprint of no listed board"
+    },
+    "cards": {
+      "coverage": {
+        "title": "Done tasks without worklogs",
+        "explain": "Done tasks that have no time logged at all. Without a worklog their actual effort is unknown, so the estimation reports cannot compare it with the estimate."
+      },
+      "hours": {
+        "title": "Logged hours per member and working day",
+        "explain": "Hours that team members logged, divided by the working days they were on a roster. Read it against the configured length of a man-day: a figure far below it suggests that time is not being logged in full."
+      },
+      "late": {
+        "title": "Late logging",
+        "explain": "How long after the work started it was logged. Time logged days later is written from memory, which makes actual effort less reliable."
+      },
+      "authors": {
+        "title": "Authors without a team",
+        "explain": "People who logged time while they were in no team. Their time is credited to no team's actual cost."
+      },
+      "noEstimate": {
+        "title": "Tasks without an estimate",
+        "explain": "Tasks with no estimate at all. They add no planned value and cannot be judged for accuracy."
+      },
+      "noEpic": {
+        "title": "Tasks without an epic",
+        "explain": "Tasks that belong to no epic, so epic progress and epic-level planning never see them."
+      },
+      "noWorkCategory": {
+        "title": "Tasks without a work category",
+        "explain": "Tasks with no work category of their own or from their epic. They fall into “uncategorized” in every category breakdown."
+      },
+      "unassigned": {
+        "title": "Done tasks without an assignee",
+        "explain": "Tasks that had no assignee when they were finished, so no person is credited with the work."
+      },
+      "epicsNoEstimate": {
+        "title": "Epics without an estimate of their own",
+        "explain": "Their budget is the sum of their children's estimates, so it changes whenever a child is added or re-estimated."
+      },
+      "epicsNoDates": {
+        "title": "Epics without dates",
+        "explain": "Epics missing a start or a due date. Without both, no plan curve (planned value over time) can be drawn."
+      },
+      "epicsHorizon": {
+        "title": "Epics with dates far from today",
+        "explain": "Both dates are set, but at least one lies more than ten years from the last derive, most likely a typo. These epics get no plan curve."
+      },
+      "epicDrift": {
+        "title": "Epics that disagree with their children",
+        "explain": "An epic that has not started while its children are active, is still open after every child is done, or is done while children are open."
+      },
+      "outsideSprint": {
+        "title": "Work done outside any sprint",
+        "explain": "Tasks finished with no sprint (a Kanban flow, say). They count as delivered work but never in any sprint's velocity."
+      },
+      "crossDomain": {
+        "title": "Tasks in another domain than their epic",
+        "explain": "Done tasks whose epic belongs to a different domain. Which domain they count in depends on the domain view: delivered in (the task's own) or earned in (the epic's)."
+      },
+      "snapshotDrift": {
+        "title": "Sprint figures that moved since the freeze",
+        "explain": "A closed sprint's figures are frozen when it closes. These live figures differ from the frozen ones, typically after a configuration change and a re-derive. Reports show the frozen figures and flag the sprint."
+      },
+      "domainsNoOwner": {
+        "title": "Domains without an owner team",
+        "explain": "Their epics and backlog land in “No owner team”. An administrator can fix this in the metrics configuration."
+      },
+      "unmappedStatuses": {
+        "title": "Statuses without a stage",
+        "explain": "Time spent in these Jira statuses counts as neither started nor done. An administrator maps them to a stage in the metrics configuration (Statuses)."
+      },
+      "unmappedBoards": {
+        "title": "Boards without a team",
+        "explain": "Their sprints have no team and no frozen figures, and their tasks fall back to the assignee's team. An administrator maps a team to each board in the metrics configuration (Boards)."
+      },
+      "deriveWarnings": {
+        "title": "Derive warnings",
+        "explain": "The latest successful derive of these connections skipped a step, so the reports that depend on it are missing or stale. An administrator can fix the cause in the metrics configuration."
+      }
+    },
+    "column": {
+      "task": "Task",
+      "epic": "Epic",
+      "team": "Team",
+      "assignee": "Assignee",
+      "done": "Done",
+      "started": "Started",
+      "estimate": "Estimate (MD)",
+      "ownerTeam": "Owner team",
+      "domain": "Domain",
+      "start": "Start",
+      "due": "Due",
+      "flags": "Disagreement",
+      "author": "Author",
+      "worklogs": "Worklogs",
+      "md": "MD",
+      "loggedAt": "Started",
+      "lateDays": "Days late",
+      "connection": "Connection",
+      "domainName": "Domain",
+      "projects": "Projects",
+      "epics": "Epics",
+      "status": "Status",
+      "category": "Jira category",
+      "items": "Items that sat in it",
+      "openItems": "Sitting in it now",
+      "board": "Board",
+      "project": "Project",
+      "sprints": "Sprints",
+      "doneTasks": "Done tasks",
+      "sprint": "Sprint",
+      "closed": "Closed",
+      "figure": "Figure",
+      "live": "Live",
+      "frozen": "Frozen",
+      "delta": "Difference",
+      "baseline": "Baseline",
+      "lastRun": "Latest successful run",
+      "warning": "Warning"
+    },
+    "flag": {
+      "EPIC_NOT_STARTED_WITH_ACTIVE_CHILDREN": "Not started, children active",
+      "EPIC_OPEN_AFTER_CHILDREN_DONE": "Open, all children done",
+      "EPIC_DONE_WITH_OPEN_CHILDREN": "Done, children open"
+    },
+    "figure": {
+      "committedMd": "Committed (MD)",
+      "committedItems": "Committed (items)",
+      "addedMd": "Added (MD)",
+      "addedItems": "Added (items)",
+      "removedMd": "Removed (MD)",
+      "removedItems": "Removed (items)",
+      "finalMd": "Final (MD)",
+      "finalItems": "Final (items)",
+      "deliveredMd": "Delivered (MD)",
+      "deliveredItems": "Delivered (items)",
+      "carriedOverMd": "Carried over (MD)",
+      "carriedOverItems": "Carried over (items)",
+      "droppedMd": "Dropped (MD)",
+      "droppedItems": "Dropped (items)",
+      "capacityMd": "Capacity (MD)",
+      "load": "Load"
+    },
+    "baseline": {
+      "frozen": "Frozen at close",
+      "reconstructed": "Reconstructed",
+      "reconstructedNote": "Reconstructed: the snapshot was written by a derive that ran after the sprint closed, so it is a baseline rebuilt from history, not a true freeze."
+    },
+    "warning": {
+      "sprintFieldUnresolved": "The sprint field could not be resolved, so the sprint step was skipped"
+    },
+    "late": {
+      "distributionTitle": "Days between start and logging",
+      "distributionCaption": "Every worklog of the period with a known logging time.",
+      "axis": "days late",
+      "worstTitle": "Latest-logged worklogs",
+      "worstCaption": "Up to 50 worklogs, the ones logged latest first.",
+      "noWorklogs": "No worklogs in this period.",
+      "noneMeasurable": "No worklog in this period has a known logging time, so lateness cannot be measured."
+    },
+    "hoursNone": "No team member was on a roster in this period, so there is no figure per member-day.",
+    "groups": {
+      "column": {
+        "done": "Done tasks",
+        "open": "Open started",
+        "withoutWorklogs": "Without worklogs",
+        "noEstimate": "No estimate",
+        "noEpic": "No epic",
+        "unassigned": "Unassigned",
+        "outsideSprint": "Outside sprint",
+        "over1": "Late over 1 day",
+        "over7": "Late over 7 days",
+        "perMemberDay": "Hours per member-day",
+        "epics": "Epics",
+        "epicFindings": "Epic findings"
+      },
+      "caption": "Estimate and epic counts add the done and the open tasks. An epic can appear in several epic findings, so that column counts findings, not epics. A read narrowed to one connection lists only the teams that have a finding in it, so a silent team of another connection is left out."
+    },
+    "unattributedNote_one": "{{count}} done task was finished in a team-less sprint that belongs to none of the boards above (the sprint has no board, or its board is mapped but the sprint carries no team).",
+    "unattributedNote_other": "{{count}} done tasks were finished in a team-less sprint that belongs to none of the boards above (the sprint has no board, or its board is mapped but the sprint carries no team).",
+    "coverageNone": "No done task in this period, so there is no coverage to measure."
+  },
+  "costMatrix": {
+    "title": "Cost matrix",
+    "description": "The man-days people logged in the period, by the team the author belonged to on the day (rows) and by domain (columns), with the share of foreign work beside every row. Open a team to see its authors, an author to see one person.",
+    "levelTitle": {
+      "UNIT": "Man-days by author team and domain",
+      "TEAM": "Man-days by author and domain",
+      "USER": "Man-days by domain"
+    },
+    "caption": {
+      "UNIT": "Man-days logged in the period: author teams in rows, domains in columns, then the row total and the foreign work",
+      "TEAM": "Man-days logged in the period: the team's authors in rows, domains in columns, then the row total and the foreign work",
+      "USER": "Man-days logged in the period by this author: domains in columns, then the total and the foreign work"
+    },
+    "domainView": {
+      "EPIC": "Columns show the epic's domain — a task with no epic counts in its own domain.",
+      "TASK": "Columns show the task's own domain, even when its epic belongs to another."
+    },
+    "column": {
+      "team": "Author team",
+      "author": "Author",
+      "total": "Total",
+      "foreignMd": "Foreign work (MD)",
+      "foreignShare": "Foreign share"
+    },
+    "totalRow": "Total",
+    "noDomain": "(no domain)",
+    "noAuthor": "No known author",
+    "deletedTeam": "Deleted team",
+    "tile": {
+      "total": "Man-days logged",
+      "foreign": "Foreign work (MD)",
+      "share": "Foreign work share"
+    },
+    "shareHint": "Foreign man-days as a share of everything logged in the period.",
+    "foreignHint": "Foreign work is time logged on tasks outside the author's own team's work: tasks of another team's sprint, or, when a task has no sprint team, tasks assigned to someone in another team. Time logged on an epic is foreign when the epic's domain belongs to another team. An unknown team is never counted as foreign.",
+    "foreignNone": "Nothing was logged, so there is no share.",
+    "sprintNote": {
+      "UNIT": "The period follows sprints. Each team row reads the whole unit's sprint window (every team's sprints together); opening a team reads only that team's own sprints, so its figures can differ from its row here.",
+      "TEAM": "The period follows sprints: this team's own sprints."
+    },
+    "rounding": "Every figure is its own exact sum, rounded once to two decimals. A total can therefore differ from the sum of the figures shown above it by up to 0.005 for each of them.",
+    "legend": {
+      "label": "Colour scale",
+      "text": "A more intense cell holds more man-days, up to {{max}} MD in one cell. The number in the cell is the figure; the shade only helps to find it."
     }
   }
 }

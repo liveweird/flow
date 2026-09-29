@@ -12,9 +12,9 @@ import { formatDays } from "../utils/reportFormat";
  * headers beside the chart and the tooltip carry identity too. A bucket below the minimum sample has
  * `null` values and `connectNulls` is off, so the line BREAKS there — a gap, never a zero; the
  * dots keep an isolated point visible between two gaps. A lazy chunk: recharts never enters the
- * main bundle.
+ * main bundle. `height` lets the Home overview draw the same chart smaller.
  */
-export default function CycleTimeTrendChart({ rows }: { rows: CycleTrendRow[] }) {
+export default function CycleTimeTrendChart({ rows, height = 280 }: { rows: CycleTrendRow[]; height?: number }) {
   const { t } = useTranslation();
   const series = [
     { name: "p50", label: t("reports.cycleTime.series.p50"), color: CHART_COLORS.trendMedian },
@@ -23,7 +23,7 @@ export default function CycleTimeTrendChart({ rows }: { rows: CycleTrendRow[] })
   return (
     <Box role="group" aria-label={t("reports.cycleTime.trendLabel")}>
       <LineChart
-        h={280}
+        h={height}
         data={rows}
         dataKey="label"
         series={series}
