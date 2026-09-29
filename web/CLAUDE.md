@@ -3,8 +3,8 @@
 Vite + React 19 + TypeScript SPA: the shell + auth, user/feature management, MFA, password reset,
 the changelog, and the flat-teams registry — v0.1.0's foundation — plus, since v0.2.0, the Data
 sources pages (ADMIN-managed Jira Cloud connections, their sync jobs, data profile and raw-issue
-inspector — see "Data sources" below). Flow-metric dashboards arrive after the domain model;
-`pages/Home.tsx` still states plainly that there are none to show yet. Routes are lazy. New capability that Covenant, Toadie or
+inspector — see "Data sources" below), and, since v0.3.0, the metrics configuration and the report
+pages; `pages/Home.tsx` is the unit overview over them (see "Home overview" under Reports). Routes are lazy. New capability that Covenant, Toadie or
 Lettuce already has? Port their building blocks (see "Not yet ported" at the bottom) rather than
 inventing new ones.
 
@@ -350,8 +350,8 @@ endpoint (`requireAdmin` server-side).
   (`dataSourcesPath`, `dataSourcePath`, `dataSourceProfilePath`, `dataSourceInspectPath`) — never
   hand-assemble these URLs. `utils/dataSourceState.ts` holds the state→colour map and
   `formatEpochMillis` (the deterministic `YYYY-MM-DD HH:mm` rendering, "Never" for null).
-- `pages/Home.tsx`'s admin empty state links to `/data-sources` (a plain `Anchor` under the
-  `EmptyState`, not a rewrite of that shared component) — "keep it simple" per the commit plan.
+- `pages/Home.tsx`'s admin empty state links to `/data-sources` and `/metrics-settings` (plain `Anchor`s
+  under the `EmptyState`, not a rewrite of that shared component) — see "Home overview" under Reports.
 
 ## Metrics configuration (`pages/MetricsSettings.tsx`, `components/TeamJiraMembers.tsx`, `pages/DataSourceMetricsConfig.tsx`)
 
@@ -582,6 +582,26 @@ completed · the report's figures · the orange drift badge with the frozen figu
   sprint and answers empty). A sprint-relative period says so: the unit's team rows read the union envelope, a team drill only its own
   sprints. The bar offers period, team/member, domain, domain view, activity type, work category and (with more than one) connection;
   `normalizeCostMatrixFilter` drops `breakdown`, `bucket`, `by`, `itemKind` and `epicId` off the request and the URL.
+- **Home overview** (`pages/Home.tsx`, plan amendment A9; `utils/homeOverview.ts` is its pure logic). The landing page is
+  the WHOLE unit at a glance — never the remembered team, the page description says so — as four tiles over UNIT-level
+  report endpoints, **five requests and no aggregator** (`["home", <report>]` keys, staleTime 60 s; the budget is pinned by
+  `Home.test.tsx`): the shared `["reports","filters"]` reference data (same key as the report pages, so opening a report reuses
+  it; only its `timeZone` is read, nothing waits on it and its failure shows nowhere), `sprint-consistency?lastSprints=1` (each team's last closed sprint, all from one `fact_sprint` row:
+  committed = initial, final, delivered; a lazy `HomeVelocityChart` beside a table with a Closed date read in the configured zone and the
+  orange "Drift" badge + frozen figures like the report pages; title → Velocity, secondary links → Throughput and Sprint
+  consistency), `cycle-time` (the server's default trailing 90 days: median/p90/finished count and `CycleTimeTrendChart` at
+  `height={200}` with the trend as a visually hidden table), `aging-wip` (tasks in progress, and "Past p85" orange /
+  "Past p95" red as the top two configured thresholds' counts — read off the SERVER's `band` through `bandTone`, epics
+  not counted, dashes plus a reason when the thresholds are hidden, "N+" when the 500-item list was truncated) and
+  `data-quality` (`qualityHighlights`: the configuration kinds — derive warnings, unmapped statuses/boards, domains
+  without an owner — first, then the volume kinds by count, five shown as orange badges, a plural "and N more kind(s)",
+  "All findings"; teal "None found" when clean). `HomeTile` is the shell: a section whose h3 title IS the link into
+  the full report, a caption stating the period/scope, `aria-busy`, and its OWN skeleton/error triage (one failing report
+  never takes another tile down); the page owns the ONE polite "Loading…" live region. **No link is ever bare** (a bare report
+  URL applies the remembered team): every one carries `lastSprints=1` or a from/to period — the one the server resolved
+  (`overviewPeriod`: `meta.from/to` of the cycle-time or data-quality answer), else the same trailing 90 days computed
+  locally in the configured zone (UTC dates while the reference data is pending or failed). When every answer says `derivedAt: null` and none failed the page shows the empty state instead
+  (admin: data sources + metrics settings links); a failed request keeps the grid so the empty state never hides it.
 - **Load order**: `["reports","filters"]` (staleTime 60 s) → the page query keyed
   `["reports", <report>, <serialized filter>]`, `enabled` once the filters loaded,
   `placeholderData: keepPreviousData` (`ReportChartCard` dims the previous body and sets `aria-busy`).

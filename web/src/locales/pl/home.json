@@ -1,7 +1,59 @@
 {
   "title": "Flow",
-  "intro": "Flow pokazuje, jak praca przepływa przez Twoje zespoły — metryki przepływu, wąskie gardła i trendy z Jiry.",
-  "empty": "Nie ma jeszcze podłączonych źródeł danych",
-  "emptyAdmin": "Nie ma jeszcze podłączonych źródeł danych.",
-  "emptyAdminLink": "Dodaj źródło danych"
+  "intro": "Cała jednostka w jednym rzucie oka — wszystkie zespoły razem, z ostatniego, stałego okresu (nie z zapamiętanego zespołu). Każdy kafelek otwiera pełny raport, w którym filtrujesz po zespole, osobie i okresie.",
+  "empty": "Nie wyliczono jeszcze żadnych danych. Przegląd pojawi się, gdy źródło danych zostanie podłączone i zsynchronizowane.",
+  "emptyAdmin": "Nie wyliczono jeszcze żadnych danych. Podłącz źródło danych, poczekaj na synchronizację i sprawdź ustawienia metryk.",
+  "emptyAdminLink": "Dodaj źródło danych",
+  "emptyAdminSettingsLink": "Ustawienia metryk",
+  "tilesLabel": "Przegląd jednostki",
+  "velocity": {
+    "title": "Velocity i przepustowość",
+    "caption": "Ostatni zamknięty sprint każdego zespołu, w osobodniach (MD): zakres początkowy i końcowy na tle tego, co dostarczono.",
+    "throughputLink": "Raport przepustowości",
+    "empty": "Nie ma jeszcze zamkniętego sprintu.",
+    "chartLabel": "Wykres: zakres początkowy, końcowy i dostarczony w ostatnim zamkniętym sprincie każdego zespołu",
+    "tableLabel": "Ostatni zamknięty sprint każdego zespołu, jako tabela",
+    "series": {
+      "initial": "Początkowy (zobowiązany)",
+      "final": "Końcowy",
+      "delivered": "Dostarczone"
+    },
+    "column": {
+      "team": "Zespół",
+      "sprint": "Sprint",
+      "closed": "Zamknięty",
+      "initial": "Początkowy (MD)",
+      "final": "Końcowy (MD)",
+      "delivered": "Dostarczone (MD)"
+    },
+    "consistencyLink": "Raport spójności sprintów"
+  },
+  "cycleTime": {
+    "title": "Czas cyklu",
+    "caption": "Zadania zakończone w ostatnich 90 dniach, w dniach roboczych.",
+    "captionDates": "Zadania zakończone w ostatnich 90 dniach ({{from}} – {{to}}), w dniach roboczych.",
+    "empty": "W tym okresie nie zakończono żadnego zadania.",
+    "statsLabel": "Czas cyklu w dniach roboczych",
+    "hidden": "Mniej niż {{min}} zakończonych zadań — nie ma jeszcze mediany ani p90."
+  },
+  "wip": {
+    "title": "Praca w toku",
+    "caption": "Zadania w toku w tej chwili, ich wiek w dniach roboczych na tle ostatnio zakończonych zadań jednostki.",
+    "statsLabel": "Praca w toku i jej wiek",
+    "inProgress": "W toku",
+    "past": "Powyżej p{{percentile}}",
+    "empty": "W tej chwili nic nie jest w toku.",
+    "hidden": "Za mało zakończonych zadań na progi wieku ({{n}} z wymaganych {{min}}).",
+    "truncated": "Lista zawiera 500 najstarszych pozycji, więc te liczby to minimum."
+  },
+  "quality": {
+    "title": "Jakość danych",
+    "caption": "Ustalenia zależne od okresu obejmują ostatnie 90 dni; ustalenia konfiguracyjne są bieżące. Najpierw konfiguracja, potem największe.",
+    "listLabel": "Ustalenia dotyczące jakości danych, od największych",
+    "all": "Wszystkie ustalenia",
+    "more_one": "i jeszcze {{count}} rodzaj ustaleń",
+    "more_few": "i jeszcze {{count}} rodzaje ustaleń",
+    "more_many": "i jeszcze {{count}} rodzajów ustaleń",
+    "more_other": "i jeszcze {{count}} rodzaju ustaleń"
+  }
 }

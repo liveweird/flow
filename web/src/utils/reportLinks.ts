@@ -3,16 +3,16 @@ import { REPORT_SPECIFIC_KEYS, type ReportSpecificKey } from "./reportFilter";
 
 /** The ONE place the reports route family is spelled out — never hand-assemble a report URL. */
 export const velocityPath = "/reports/velocity";
-const throughputPath = "/reports/throughput";
-const sprintConsistencyPath = "/reports/sprint-consistency";
-const cycleTimePath = "/reports/cycle-time";
+export const throughputPath = "/reports/throughput";
+export const sprintConsistencyPath = "/reports/sprint-consistency";
+export const cycleTimePath = "/reports/cycle-time";
 export const taskAccuracyPath = "/reports/task-estimation-accuracy";
 const epicAccuracyPath = "/reports/epic-estimation-accuracy";
 const estimateAdjustmentsPath = "/reports/estimate-adjustments";
 const reportedTimePath = "/reports/reported-time-ratio";
 export const wipPath = "/reports/wip";
 const backlogPath = "/reports/backlog";
-const agingWipPath = "/reports/aging-wip";
+export const agingWipPath = "/reports/aging-wip";
 const blockedTimePath = "/reports/blocked-time";
 export const epicProgressPath = "/reports/epic-progress";
 export const dataQualityPath = "/reports/data-quality";
