@@ -1,6 +1,6 @@
-// The v0.3.0 metrics CONFIGURATION surfaces (report pages arrive in a later commit, once they
-// exist): the global `metrics.settings` singleton, a data source's per-connection metrics
-// configuration (status→stage/board→team mapping over a real Jira-stub sync), and D1's dated
+// The v0.3.0 metrics CONFIGURATION surfaces (the report pages are `reports.spec.ts`'s): the
+// global `metrics.settings` singleton, a data source's per-connection metrics configuration
+// (status→stage/board→team mapping over a real Jira-stub sync), and D1's dated
 // Jira-user team membership. Owns: its own edits to the GLOBAL settings singleton — captured via
 // the API before the first test touches the page and restored via the API at the end (see that
 // test's own comment); a throwaway data source + throwaway team per test that needs one (unique

@@ -148,3 +148,115 @@ export async function apiAsAdmin(): Promise<{ api: APIRequestContext; userId: nu
   const api = await playwrightRequest.newContext({ baseURL: BASE_URL, extraHTTPHeaders: { Authorization: `Bearer ${token}` } });
   return { api, userId };
 }
+
+/** The Jira-stub connection settings every spec that syncs it uses (the compose `jira-stub`, `sample-data/jira/expected.json`'s `connection`). */
+const STUB_SITE_URL = "https://flow-e2e.atlassian.net";
+const STUB_EMAIL = "svc-account@flow-e2e.example.com";
+const STUB_TOKEN = "e2e-fake-api-token";
+const STUB_PROJECT_KEYS = ["FLO", "PLT", "GTM", "OPS"];
+
+/**
+ * A Jira-stub data source created and fully SYNCED through the API — for specs whose subject is
+ * something DOWNSTREAM of ingestion (the reports), not the ingestion journey the data-sources spec
+ * already drives through the UI. Waits for the SYNC job to finish (bounded, ~340s); the caller owns
+ * the connection and deletes it. `name` is unique per call.
+ */
+export async function syncStubDataSourceViaApi(api: APIRequestContext, namePrefix: string): Promise<{ id: number; name: string }> {
+  const name = uniqueText(namePrefix);
+  const created = await api.post("/api/v1/data-sources", {
+    data: {
+      name,
+      syncIntervalMinutes: 60,
+      jira: { siteUrl: STUB_SITE_URL, email: STUB_EMAIL, apiToken: STUB_TOKEN, projectKeys: STUB_PROJECT_KEYS },
+    },
+  });
+  expect(created.ok(), await created.text()).toBeTruthy();
+  const id = (await created.json()).id as number;
+  try {
+    const enqueued = await api.post(`/api/v1/data-sources/${id}/sync-jobs`, { data: { kind: "SYNC" } });
+    expect(enqueued.ok(), await enqueued.text()).toBeTruthy();
+    const deadline = Date.now() + 340_000;
+    for (;;) {
+      const status = await (await api.get(`/api/v1/data-sources/${id}/status`)).json();
+      const last = status.lastJobs?.SYNC as { status?: string; errorCode?: string | null } | undefined;
+      if (last?.status === "FAILED" || last?.status === "CANCELLED") {
+        throw new Error(`SYNC of data source ${id} ended ${last.status} (${last.errorCode ?? "no error code"})`);
+      }
+      if (status.currentJob === null && last?.status === "SUCCEEDED") break;
+      if (Date.now() > deadline) throw new Error(`SYNC of data source ${id} did not finish in time (last status: ${last?.status ?? "none"})`);
+      await new Promise((resolve) => setTimeout(resolve, 5_000));
+    }
+  } catch (failure) {
+    // The caller never receives the id of a connection that failed to sync — remove it here.
+    await api.delete(`/api/v1/data-sources/${id}`);
+    throw failure;
+  }
+  return { id, name };
+}
+
+/**
+ * The minimal metrics configuration reports need, through the API: a fresh team and the stub's FLO
+ * board mapped to it (D10 — a sprint is a team's sprint only through its board). Every other
+ * setting keeps the COMPUTED defaults (the config PUT is a full replace, so the current effective
+ * config is read first and written back with only `boards` changed). The caller owns the team.
+ * Sprint capacities and the Jira-user roster are deliberately not seeded — the velocity,
+ * throughput, sprint-consistency, estimation and cycle-time figures do not read them.
+ */
+export async function configureMetricsViaApi(
+  api: APIRequestContext,
+  dataSourceId: number,
+  teamName: string,
+): Promise<{ teamId: number }> {
+  const createdTeam = await api.post("/api/v1/teams", { data: { name: teamName } });
+  expect(createdTeam.ok(), await createdTeam.text()).toBeTruthy();
+  const teamId = (await createdTeam.json()).id as number;
+  try {
+    const optionsRes = await api.get(`/api/v1/data-sources/${dataSourceId}/metrics-config/options`);
+    expect(optionsRes.ok(), await optionsRes.text()).toBeTruthy();
+    const floBoard = ((await optionsRes.json()).boards as { boardId: number; projectKey?: string | null }[]).find(
+      (board) => board.projectKey === "FLO",
+    );
+    expect(floBoard, "the stub exposes a board on the FLO project").toBeDefined();
+
+    const currentRes = await api.get(`/api/v1/data-sources/${dataSourceId}/metrics-config`);
+    expect(currentRes.ok(), await currentRes.text()).toBeTruthy();
+    const current = await currentRes.json();
+    const saved = await api.put(`/api/v1/data-sources/${dataSourceId}/metrics-config`, {
+      data: {
+        statusStages: current.statusStages,
+        fields: current.fields,
+        domains: current.domains,
+        boards: [{ boardId: floBoard?.boardId, teamId }],
+        activityTypes: current.activityTypes,
+        workCategories: current.workCategories,
+        blockedStatuses: current.blockedStatuses,
+        sprintCapacities: current.sprintCapacities,
+      },
+    });
+    expect(saved.ok(), await saved.text()).toBeTruthy();
+  } catch (failure) {
+    // The caller never receives the id of a team whose setup failed — remove it here.
+    await api.delete(`/api/v1/teams/${teamId}`);
+    throw failure;
+  }
+  return { teamId };
+}
+
+/**
+ * Wait until a DERIVE has produced `sprintId` for `teamId` — the chained DERIVE (after the sync)
+ * and the one the board mapping enqueues may both run; the sprint only appears in the team's
+ * velocity once a derivation ran under the mapping. Polls the report API itself (bounded,
+ * ~240s), never a fixed sleep. A `400`/empty answer before that is expected and retried.
+ */
+export async function awaitDerivedSprint(api: APIRequestContext, teamId: number, sprintId: number): Promise<void> {
+  const deadline = Date.now() + 240_000;
+  for (;;) {
+    const res = await api.get(`/api/v1/reports/velocity?teamId=${teamId}&sprintId=${sprintId}`);
+    const text = await res.text();
+    if (res.ok() && ((JSON.parse(text) as { sprints: { sprintId: number }[] }).sprints ?? []).some((sprint) => sprint.sprintId === sprintId)) return;
+    if (Date.now() > deadline) {
+      throw new Error(`sprint ${sprintId} never appeared in team ${teamId}'s velocity within 240s (last answer: ${res.status()} ${text.slice(0, 300)})`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5_000));
+  }
+}

@@ -65,7 +65,10 @@ from Lettuce, that any new or edited spec must satisfy:
   teams (`e2e-metrics-team-*`) and a throwaway user, PLUS the GLOBAL `metrics.settings` singleton
   — captured through the API before its edits and restored through the API afterwards, the one
   spec in the suite that touches shared non-append-only state, since no other spec reads or
-  writes it.
+  writes it; `reports` owns its own synced Jira-stub connection (`e2e-reports-ds-*`), team
+  (`e2e-reports-team-*`, the stub's FLO board mapped to it) and throwaway regular user, all
+  created and deleted through the API — and every report it reads is narrowed to ITS team, since
+  an unnarrowed UNIT-level report would also count the other specs' synced connections.
 - **The Teams registry is shared, append-only state.** Several specs create teams concurrently
   (`teams`, `accessibility`, `list-mutation-refresh`), so a spec only ever appends and removes its
   OWN uniquely named `e2e-*` rows, never edits or deletes another's or a shared seed — and every
@@ -92,7 +95,7 @@ the same commit** — this list is the coverage map, the scenario file is the de
 
 - [`accessibility.spec.ts`](scenarios/accessibility.md) — axe WCAG A/AA smoke: login + the
   authenticated list/form pages (`/`, `/teams`, `/users`, `/users/new`, `/feature-flags`,
-  `/data-sources`, `/metrics-settings`, `/change-password`, `/changelog`), the detail pages of an API-seeded fixture
+  `/data-sources`, `/metrics-settings`, `/reports/velocity`, `/change-password`, `/changelog`), the detail pages of an API-seeded fixture
   team (its roster page, the admin's own edit-user and user-features pages), `/reset-password`,
   the not-found page, and a registry editor modal scoped to its dialog; `color-contrast` included
   (the theme's tokens are AA-tested in `web/src/theme.test.ts`).
@@ -125,12 +128,18 @@ the same commit** — this list is the coverage map, the scenario file is the de
   data profile and the raw issue inspector (a known key, then a malformed one) → delete from the
   list; a regular user sees no Data sources nav link and is bounced from the URL.
 - [`metrics-config.spec.ts`](scenarios/metrics-config.md) — the v0.3.0 metrics CONFIGURATION
-  surfaces (report pages arrive with a later commit): the global Metrics settings form (a save
+  surfaces (the reports are `reports.spec.ts`): the global Metrics settings form (a save
   persists, an all-weekend-days value is refused inline) restored to its pre-test values through
   the API; a synced Jira-stub connection's per-connection Metrics configuration (preselected
   stages, a board → team mapping, a second board mapped to the same team marked `409`); D1's
   dated Jira-user team membership on a throwaway team (an overlapping second membership refused
   inline) and a regular user's read-only view of it, with no Metrics settings nav access.
+- [`reports.spec.ts`](scenarios/reports.md) — the v0.3.0 reports, read by a NON-ADMIN user (D12)
+  over an API-seeded, synced-and-derived Jira-stub connection with the FLO board mapped to a
+  throwaway team (`helpers.ts`'s `syncStubDataSourceViaApi`/`configureMetricsViaApi`/
+  `awaitDerivedSprint`): the golden FLO sprint's figures in Velocity, Throughput (regrouped by
+  month — URL and table follow) and Sprint consistency; Cycle time and Task estimation accuracy
+  show their distributions (or the minimum-sample notice) with their accounting.
 - [`teams.spec.ts`](scenarios/teams.md) — the flat-teams registry: create through the modal →
   add a member from the searchable picker → rename → remove the member → delete from the list;
   a regular user's read-only list and roster (no New team, no row menu, no picker).
