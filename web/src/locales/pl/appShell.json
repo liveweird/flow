@@ -12,7 +12,8 @@
     "dataSources": "Źródła danych",
     "metricsSettings": "Ustawienia metryk",
     "reportsDelivery": "Dostarczanie",
-    "reportsEstimation": "Szacowanie"
+    "reportsEstimation": "Szacowanie",
+    "reportsFlow": "Metryki przepływu"
   },
   "section": {
     "overview": "Przegląd",

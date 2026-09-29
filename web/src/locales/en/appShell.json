@@ -12,7 +12,8 @@
     "dataSources": "Data sources",
     "metricsSettings": "Metrics settings",
     "reportsDelivery": "Delivery",
-    "reportsEstimation": "Estimation"
+    "reportsEstimation": "Estimation",
+    "reportsFlow": "Flow metrics"
   },
   "section": {
     "overview": "Overview",

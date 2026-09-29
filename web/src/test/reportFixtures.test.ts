@@ -2,6 +2,20 @@ import { describe, expect, test } from "vitest";
 import type { Distribution } from "../api/reports";
 import {
   ADJUSTMENTS,
+  AGING_EMPTY,
+  AGING_HIDDEN,
+  AGING_TEAM,
+  AGING_TRUNCATED,
+  AGING_UNIT,
+  BLOCKED_EMPTY,
+  BLOCKED_NONE,
+  BLOCKED_TEAM_BOTH,
+  BLOCKED_TIME,
+  BACKLOG,
+  BACKLOG_NO_VELOCITY,
+  BACKLOG_NOT_DERIVED,
+  BACKLOG_PARTIAL_WINDOW,
+  BACKLOG_ZERO_VELOCITY,
   ADJUSTMENTS_EMPTY,
   CYCLE_TIME,
   CYCLE_TIME_ALL_HIDDEN,
@@ -20,6 +34,12 @@ import {
   THROUGHPUT_MONTHS,
   THROUGHPUT_UNIT,
   VELOCITY_UNIT,
+  WIP_BOTH,
+  WIP_COLUMN,
+  WIP_EPICS,
+  WIP_NOT_DERIVED,
+  WIP_STAGE,
+  WIP_STATUS,
 } from "./reportFixtures";
 
 // The fixtures stand in for server responses, so they must obey the invariants the server does —
@@ -221,6 +241,75 @@ describe("cycle time and reported time fixtures hold the documented partitions",
           expect(report.groups.reduce((s, g) => s + g.flowEfficiencyExcluded[key], 0)).toBe(f[key]);
         }
       }
+    }
+  });
+
+  test("WIP: every point carries every key of the legend, days ascend, and nothing is listed for a report that never derived", () => {
+    for (const report of [WIP_STAGE, WIP_STATUS, WIP_COLUMN, WIP_EPICS, WIP_BOTH, WIP_NOT_DERIVED]) {
+      const keys = report.keys.map((k) => k.key).sort();
+      for (const point of report.series) expect(Object.keys(point.counts).sort()).toEqual(keys);
+      const days = report.series.map((p) => p.day);
+      expect(days).toEqual([...days].sort());
+    }
+    expect(WIP_NOT_DERIVED.series).toEqual([]);
+    expect(WIP_NOT_DERIVED.meta.derivedAt).toBeNull();
+    expect(WIP_NOT_DERIVED.note).toMatch(/^Not derived yet/);
+  });
+
+  test("backlog: current is the trend's last day, and backlog in sprints is md over the mean (null for no or a zero mean)", () => {
+    for (const report of [BACKLOG, BACKLOG_PARTIAL_WINDOW, BACKLOG_NO_VELOCITY, BACKLOG_ZERO_VELOCITY]) {
+      const last = report.trend.at(-1);
+      expect(report.current).toMatchObject({ asOfDay: last?.day, items: last?.items, md: last?.md });
+      const { md, meanDeliveredMd, backlogInSprints, sprintsUsed, windowSprints } = report.current;
+      expect(sprintsUsed).toBeLessThanOrEqual(windowSprints);
+      if (meanDeliveredMd == null || meanDeliveredMd === 0) expect(backlogInSprints).toBeNull();
+      else expect(backlogInSprints).toBeCloseTo(md / meanDeliveredMd, 6);
+    }
+    expect(BACKLOG_NOT_DERIVED.trend).toEqual([]);
+    expect(BACKLOG_NOT_DERIVED.current.asOfDay).toBeNull();
+  });
+
+  test("aging WIP: oldest first, and every band is the highest threshold of the item's OWN kind its age is above (null ⇔ hidden)", () => {
+    for (const report of [AGING_UNIT, AGING_TEAM, AGING_HIDDEN, AGING_TRUNCATED, AGING_EMPTY]) {
+      const ages = report.items.map((item) => item.ageWorkingDays);
+      expect(ages).toEqual([...ages].sort((a, b) => b - a));
+      for (const item of report.items) {
+        const thresholds = item.itemKind === "EPIC" ? report.epicThresholds : report.thresholds;
+        expect(thresholds.hidden).toBe(thresholds.n < MIN);
+        if (thresholds.hidden) {
+          expect(item.band ?? null).toBeNull();
+          for (const entry of thresholds.percentiles) expect(entry.workingDays ?? null).toBeNull();
+        } else {
+          const above = [...thresholds.percentiles].sort((a, b) => b.percentile - a.percentile).find((entry) => item.ageWorkingDays > (entry.workingDays ?? Infinity));
+          expect(item.band).toBe(above ? `P${above.percentile}` : "WITHIN");
+        }
+      }
+    }
+  });
+
+  test("blocked time: n + exclusions == population, groups sum to the whole, hidden ⇔ below the minimum", () => {
+    for (const report of [BLOCKED_TIME, BLOCKED_TEAM_BOTH, BLOCKED_NONE, BLOCKED_EMPTY]) {
+      const x = report.excluded;
+      // Every finished item is in the days distribution (zeros included); the share leaves out items without a cycle.
+      expect(report.blockedWorkingDays.n).toBe(x.population);
+      expect(report.shareOfCycle.n + x.neverStarted + x.zeroCycle).toBe(x.population);
+      for (const d of [report.blockedWorkingDays, report.shareOfCycle, ...report.groups.flatMap((g) => [g.blockedWorkingDays, g.shareOfCycle])]) {
+        expectWellFormed(d);
+      }
+      if (report.groups.length > 0) {
+        for (const g of report.groups) {
+          expect(g.blockedWorkingDays.n).toBe(g.excluded.population);
+          expect(g.shareOfCycle.n + g.excluded.neverStarted + g.excluded.zeroCycle).toBe(g.excluded.population);
+        }
+        // TEAM level with epics: the groups (per assignee) cover the tasks only, so they do not add up to the totals.
+        if (report.itemKind === "TASK") {
+          expect(report.groups.reduce((sum, g) => sum + g.excluded.population, 0)).toBe(x.population);
+          expect(report.groups.reduce((sum, g) => sum + g.shareOfCycle.n, 0)).toBe(report.shareOfCycle.n);
+          expect(report.groups.reduce((sum, g) => sum + g.blockedItems, 0)).toBe(report.blockedItems);
+        }
+      }
+      expect(report.blockedItems).toBeLessThanOrEqual(x.population);
+      expect(report.topItems.length).toBeLessThanOrEqual(20);
     }
   });
 });

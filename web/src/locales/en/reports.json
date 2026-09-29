@@ -10,7 +10,11 @@
     "epicAccuracy": "Epic accuracy",
     "adjustments": "Adjustments",
     "cycleTime": "Cycle time",
-    "reportedTime": "Reported time"
+    "reportedTime": "Reported time",
+    "wip": "WIP",
+    "backlog": "Estimated backlog",
+    "agingWip": "Aging WIP",
+    "blockedTime": "Blocked time"
   },
   "meta": {
     "derived": "Derived {{date}} · configuration revision {{revision}}",
@@ -59,6 +63,19 @@
     "bucketOption": {
       "WEEK": "Week",
       "MONTH": "Month"
+    },
+    "wipBy": "Count by",
+    "wipByOption": {
+      "STAGE": "Stage",
+      "STATUS": "Status",
+      "COLUMN": "Board column"
+    },
+    "wipByColumnHint": "Board columns need one team: pick a team (not All teams or Unassigned) and clear the domain.",
+    "itemKind": "Count",
+    "itemKindOption": {
+      "TASK": "Tasks",
+      "EPIC": "Epics",
+      "BOTH": "Tasks and epics"
     }
   },
   "groups": {
@@ -67,7 +84,8 @@
     "team": "Team",
     "member": "Member",
     "unassigned": "Unassigned",
-    "drillAria": "Show {{name}}"
+    "drillAria": "Show {{name}}",
+    "noOwner": "No owner team"
   },
   "velocity": {
     "title": "Velocity",
@@ -156,7 +174,10 @@
     "distribution_other": "Only {{count}} items in this selection — at least {{min}} are needed to show percentiles and a histogram.",
     "share_one": "Only {{count}} item started in this selection — at least {{min}} are needed to show a share.",
     "share_other": "Only {{count}} items started in this selection — at least {{min}} are needed to show a share.",
-    "none": "Nothing to measure in this selection."
+    "none": "Nothing to measure in this selection.",
+    "thresholds_one": "Only {{count}} finished item in the window — at least {{min}} are needed to show thresholds, so no item is banded.",
+    "thresholds_other": "Only {{count}} finished items in the window — at least {{min}} are needed to show thresholds, so no item is banded.",
+    "thresholdsNone": "No finished item in the window yet, so there are no thresholds and no item is banded."
   },
   "distribution": {
     "p50": "Median (p50)",
@@ -319,5 +340,151 @@
       "flowN": "Flow efficiency (items)",
       "flowMedian": "Flow efficiency (median)"
     }
+  },
+  "note": {
+    "title": "About this data"
+  },
+  "daily": {
+    "show": "Show daily figures",
+    "hide": "Hide daily figures",
+    "day": "Day"
+  },
+  "wip": {
+    "title": "WIP",
+    "description": "How many items sit in each stage, status or board column at the end of every day. The bands are stacked, so the top edge is their total.",
+    "chartTitle": "Items at the end of each day",
+    "caption": {
+      "STAGE": "By stage. Not started and Done are hidden at first: Not started holds the whole backlog and Done only ever grows. Tick them to see all the work.",
+      "STATUS": "By status, ordered by stage and then by name.",
+      "COLUMN": "By column of the team's board, in board order."
+    },
+    "bothNote": "Tasks and epics are different grains; counting both adds them together.",
+    "yAxis": "Items",
+    "chartLabel": "Chart: items at the end of each day, stacked by band",
+    "show": "Show in chart",
+    "workingDaysOnly": "Working days only",
+    "noneShown": "Tick at least one band to draw the chart.",
+    "stage": {
+      "NOT_STARTED": "Not started",
+      "IN_PROGRESS": "In progress",
+      "DONE": "Done",
+      "UNMAPPED": "Unmapped status"
+    },
+    "noColumn": "(no column)",
+    "summaryLabel": "Latest day, average and peak per band, as a table",
+    "dailyLabel": "Daily figures, as a table",
+    "column": {
+      "band": "Band",
+      "latest": "Latest day ({{day}})",
+      "average": "Daily average",
+      "peak": "Peak"
+    },
+    "columnNeedsBoard": "This team has no board mapped, so its items cannot be counted by board column. Count by stage or status instead, or map a board in the data source configuration.",
+    "summaryNote": "These figures cover every calendar day of the period, whatever the chart shows."
+  },
+  "backlog": {
+    "title": "Estimated backlog",
+    "description": "Estimated work that has not started: level-0 tasks with their own estimate that sit in no started sprint, counted at the end of each day. A parent estimated only through its sub-tasks is not in it (a known gap).",
+    "currentTitle": "Backlog on {{day}}",
+    "tile": {
+      "md": "Backlog (MD)",
+      "items": "Items",
+      "sprints": "Backlog in sprints"
+    },
+    "sprintsAhead_one": "≈ {{count}} sprint ahead",
+    "sprintsAhead_other": "≈ {{count}} sprints ahead",
+    "noVelocity": "No closed sprint yet, or this selection has no velocity of its own (the unowned backlog or a domain slice), so it cannot be expressed in sprints.",
+    "zeroVelocity": "The recent sprints delivered nothing, so the backlog cannot be expressed in sprints.",
+    "basisShort": "Fewer closed sprints than the window, so the pace is less certain.",
+    "unitNote": "At unit level the pace is the sum of each team's own mean, set against the whole backlog, including the part no team owns, so a large unowned backlog inflates the figure.",
+    "chartTitle": "Backlog over time",
+    "chartCaption": "Man-days at the end of each day; the tooltip and the table add the item count.",
+    "chartLabel": "Chart: estimated backlog in man-days by day",
+    "series": {
+      "backlog": "Backlog"
+    },
+    "tableLabel": "Backlog by day, as a table",
+    "column": {
+      "md": "Backlog (MD)",
+      "items": "Backlog (items)"
+    },
+    "basis_one": "Recent pace: {{md}} MD delivered per sprint, the mean of {{count}} closed sprint (window: {{window}}).",
+    "basis_other": "Recent pace: {{md}} MD delivered per sprint, the mean of {{count}} closed sprints (window: {{window}}).",
+    "unitBasis_one": "Recent pace: the sum of each team's own mean delivery per sprint, {{md}} MD, from at least {{count}} closed sprint per team (window: {{window}}).",
+    "unitBasis_other": "Recent pace: the sum of each team's own mean delivery per sprint, {{md}} MD, from at least {{count}} closed sprints per team (window: {{window}}).",
+    "unitBasisShort": "Some team has fewer closed sprints than the window, so the pace is less certain.",
+    "lessThanTenth": "< 0.1 sprints ahead"
+  },
+  "kind": {
+    "TASK": "Task",
+    "EPIC": "Epic"
+  },
+  "agingWip": {
+    "title": "Aging WIP",
+    "description": "The work in progress right now and how long each item has been going: working days from its first start until now. Age is as of now, so the period does not apply; the bands compare each age with the team's recent finished items.",
+    "openTitle": "Open work, oldest first",
+    "caption": "Age is counted on the configured working calendar. Blocked is as of the last derive.",
+    "thresholdsTitle": "Thresholds",
+    "thresholdsCaption": "Cycle time, in working days, of the team's last finished items. An item is banded by the highest threshold its age is above.",
+    "tasksTitle": "Tasks",
+    "epicsTitle": "Epics",
+    "basis_one": "Based on the last {{count}} finished item.",
+    "basis_other": "Based on the last {{count}} finished items.",
+    "thresholdUnit": "working days",
+    "unitNote": "At unit level the window spans the whole unit — pick a team for its own thresholds.",
+    "userNote": "Thresholds belong to the team: a member's items are read against the team's window.",
+    "empty": "Nothing is in progress right now.",
+    "truncated": "Showing the oldest {{count}} items; more match. Narrow the team or the domain to see the rest.",
+    "tableLabel": "Open work, oldest first",
+    "column": {
+      "item": "Item",
+      "kind": "Kind",
+      "team": "Team",
+      "assignee": "Assignee",
+      "started": "Started",
+      "age": "Age (working days)",
+      "blocked": "Blocked",
+      "band": "Band"
+    },
+    "blocked": "Blocked",
+    "band": {
+      "within": "Within",
+      "above": "Above {{p}}"
+    }
+  },
+  "blockedTime": {
+    "title": "Blocked time",
+    "description": "How long finished items spent blocked — flagged or in a blocked status — in working days and as a share of their cycle. An item that was never blocked is a real zero and stays in the first distribution.",
+    "daysTitle": "Blocked working days",
+    "daysCaption": "Every finished item in the period; an item never blocked counts as zero.",
+    "daysAxis": "blocked working days",
+    "shareTitle": "Blocked share of cycle",
+    "shareCaption": "Blocked working days ÷ cycle working days, for the items that have a cycle.",
+    "shareAxis": "blocked ÷ cycle",
+    "excluded": {
+      "neverStarted": "Never started, so no cycle",
+      "zeroCycle": "Cycle of zero working days"
+    },
+    "topTitle": "Most blocked items",
+    "topCaption": "Up to 20 finished items with the most blocked working days, newest first among equals.",
+    "topEmpty": "No finished item was blocked in this period.",
+    "topTableLabel": "Most blocked items, as a table",
+    "groupsTasksOnly": "The groups cover tasks only (epics have no assignee), so they add up to the tasks' total, not to the totals above.",
+    "column": {
+      "item": "Item",
+      "kind": "Kind",
+      "team": "Team",
+      "done": "Done",
+      "blocked": "Blocked (working days)",
+      "cycle": "Cycle (working days)",
+      "share": "Share of cycle",
+      "population": "Finished",
+      "blockedItems": "Blocked",
+      "daysMedian": "Blocked days (median)",
+      "shareN": "Share (items)",
+      "shareMedian": "Share (median)"
+    },
+    "blockedItems_one": "{{count}} of {{total}} finished items was blocked at all; the rest are zeros and stay in the distribution.",
+    "blockedItems_other": "{{count}} of {{total}} finished items were blocked at all; the rest are zeros and stay in the distribution."
   }
 }

@@ -22,6 +22,20 @@ describe("MinSampleNotice", () => {
     );
   });
 
+  test("the thresholds variant says no item is banded", () => {
+    renderWithProviders(<MinSampleNotice n={2} minSampleSize={5} subject="thresholds" />);
+    expect(screen.getByRole("note")).toHaveTextContent(
+      "Only 2 finished items in the window — at least 5 are needed to show thresholds, so no item is banded.",
+    );
+  });
+
+  test("an empty thresholds window keeps the 'no item is banded' consequence", () => {
+    renderWithProviders(<MinSampleNotice n={0} minSampleSize={5} subject="thresholds" />);
+    expect(screen.getByRole("note")).toHaveTextContent(
+      "No finished item in the window yet, so there are no thresholds and no item is banded.",
+    );
+  });
+
   test("an empty selection says there is nothing to measure", () => {
     renderWithProviders(<MinSampleNotice n={0} minSampleSize={5} />);
     expect(screen.getByRole("note")).toHaveTextContent("Nothing to measure in this selection.");
