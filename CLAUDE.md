@@ -309,7 +309,8 @@ this file disagree, the doc wins.
 | `.claude/docs/ingestion.md` | `ingest/`, the sync-job queue/worker, streams and cursors, PROCESS/`norm` tiling, the data profile, the Jira stub fixture |
 | `.claude/docs/jira-integration.md` | `jira/`: the Jira client, auth/gateway, backoff, endpoints, timestamps (never `Instant.parse` on Jira text) |
 | `.claude/docs/domain-model.md` | anything in `metrics/` or a report: entities, the PV/EV/AC dimensions, decisions D1–D16, amendments, invariants |
-| `.claude/docs/metrics.md` | `metrics/`: the configuration model, DERIVE, the `metrics` star mechanics |
+| `.claude/docs/metrics.md` | `metrics/`: the configuration model, DERIVE, the `metrics` star mechanics, the daily aggregates, performance figures |
+| `.claude/docs/measures.md` | any derived number or report: the per-measure contract (grain, anchor, attribution, estimate snapshot, missing data; `MeasureContractTest` checks its "Pinned by" column) |
 | `.claude/docs/dependencies.md` | any dependency, image or runtime-pin change (grouping, compatibility pins, acceptance checks) |
 | `.claude/docs/dependency-reproducibility.md` | lockfiles or `gradle/verification-metadata.xml` (the empty-`GRADLE_USER_HOME` rule) |
 | `.claude/docs/app-releases.md` | a version bump, changelog entry, tag or GitHub release |
