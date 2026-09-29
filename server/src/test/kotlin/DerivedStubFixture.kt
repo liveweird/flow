@@ -180,7 +180,14 @@ object DerivedStubFixture {
             )
             digest.hashRows(
                 MetricsStore.TaskEpic.selectAll().where { MetricsStore.TaskEpic.connectionId eq connId }
-                    .orderBy(MetricsStore.TaskEpic.issueId to SortOrder.ASC, MetricsStore.TaskEpic.validFrom to SortOrder.ASC)
+                    .orderBy(
+                        // A total order: zero-length intervals tie on (issue, valid_from), and a
+                        // tie's physical row order is not stable across runs.
+                        MetricsStore.TaskEpic.issueId to SortOrder.ASC,
+                        MetricsStore.TaskEpic.validFrom to SortOrder.ASC,
+                        MetricsStore.TaskEpic.validTo to SortOrder.ASC_NULLS_LAST,
+                        MetricsStore.TaskEpic.epicId to SortOrder.ASC_NULLS_LAST,
+                    )
                     .toList(),
                 listOf(
                     MetricsStore.TaskEpic.issueId,
@@ -191,7 +198,14 @@ object DerivedStubFixture {
             )
             digest.hashRows(
                 MetricsStore.TaskDomain.selectAll().where { MetricsStore.TaskDomain.connectionId eq connId }
-                    .orderBy(MetricsStore.TaskDomain.issueId to SortOrder.ASC, MetricsStore.TaskDomain.validFrom to SortOrder.ASC)
+                    .orderBy(
+                        // A total order: zero-length intervals tie on (issue, valid_from), and a
+                        // tie's physical row order is not stable across runs.
+                        MetricsStore.TaskDomain.issueId to SortOrder.ASC,
+                        MetricsStore.TaskDomain.validFrom to SortOrder.ASC,
+                        MetricsStore.TaskDomain.validTo to SortOrder.ASC_NULLS_LAST,
+                        MetricsStore.TaskDomain.domainKey to SortOrder.ASC_NULLS_LAST,
+                    )
                     .toList(),
                 listOf(
                     MetricsStore.TaskDomain.issueId,
@@ -202,7 +216,14 @@ object DerivedStubFixture {
             )
             digest.hashRows(
                 MetricsStore.TaskAssignee.selectAll().where { MetricsStore.TaskAssignee.connectionId eq connId }
-                    .orderBy(MetricsStore.TaskAssignee.issueId to SortOrder.ASC, MetricsStore.TaskAssignee.validFrom to SortOrder.ASC)
+                    .orderBy(
+                        // A total order: zero-length intervals tie on (issue, valid_from), and a
+                        // tie's physical row order is not stable across runs.
+                        MetricsStore.TaskAssignee.issueId to SortOrder.ASC,
+                        MetricsStore.TaskAssignee.validFrom to SortOrder.ASC,
+                        MetricsStore.TaskAssignee.validTo to SortOrder.ASC_NULLS_LAST,
+                        MetricsStore.TaskAssignee.accountId to SortOrder.ASC_NULLS_LAST,
+                    )
                     .toList(),
                 listOf(
                     MetricsStore.TaskAssignee.issueId,

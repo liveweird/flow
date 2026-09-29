@@ -211,6 +211,18 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     to what is already stored (the features-PUT no-op precedent), audited
     `metrics_config.updated`. `options` is read-only, no audit event. Tests:
     `MetricsConfigRoutesTest`.
+  - `/api/v1/reports/*` (v0.3.0 M4 commit 10a, `reports/ReportRoutes.kt`) → **any authenticated
+    user, the WHOLE surface, read-only** — D12 ("every signed-in user sees every report at every
+    level"), no `requireAdmin` guard anywhere in this package (unlike every other `metrics/`
+    surface above, all of which are ADMIN-gated). No mutation exists or ever will in this package
+    (reports only ever read `norm`/`metrics.*` rows another feature already wrote), so no audit
+    event of its own — see `.claude/docs/observability.md`. `GET /reports/filters` (this commit)
+    takes no query parameters and declares no `400`; a later report's own filter parameters are
+    validated by `reports/ReportFilter.kt`'s shared parser (`400`, the client-supplied-FK idiom:
+    structural checks only — mutual exclusion, ranges, ISO date syntax — never a DB existence
+    check, which is each report's own service's job once it reads the filter back). Tests:
+    `ReportFilterTest` (the parser's own 400 matrix, no DB), `ReportRoutesTest` (`200` for a
+    non-admin caller).
 - **Exceptions**: `UnauthorizedException` (→ 401), `ForbiddenException` (→ 403),
   `NotFoundException` (→ 404), `ConflictException` (→ 409), `TooManyRequestsException` (→ 429),
   and `BadGatewayException` (→ 502 — reserved for a future outbound-fetch upstream failure) live

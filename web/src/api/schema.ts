@@ -853,6 +853,142 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/reports/filters": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the reference data for the reports filter bar
+         * @description Any authenticated user (D12 — everyone sees every report level). No query parameters: the
+         *     reference data every report's own filter bar/validation reads before a report is even
+         *     requested — active teams with the sprints their board has ever produced and their CURRENT
+         *     Jira roster (D1, with display names), the domain/activity-type/work-category values a real
+         *     DERIVE run has actually produced, active connections (id+name only — never `settings`/the
+         *     encrypted API token), and the shared `derivedAt`/`configRevision`/`minSampleSize` figures
+         *     every report's own `meta` block also carries. Read-only — no audit event.
+         */
+        get: operations["getReportFilters"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/velocity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Report 1 — velocity (committed vs. final scope, per sprint)
+         * @description Any authenticated user (D12), read-only — `.claude/docs/measures.md` "Report 1 — Velocity".
+         *     `initialMd`/`initialItems` are the committed scope, `finalMd`/`finalItems` the final scope
+         *     (A17). `snapshot` is the frozen `fact_sprint_snapshot` figures (null until the sprint was
+         *     first seen closed and team-mapped by a DERIVE run — D13); `drift` compares the two live vs.
+         *     frozen (0.005 MD tolerance). Levels, from the shared filter: UNIT (default) groups every
+         *     team's own closed sprints in the period by team (`groups`, Σ final MD/items); `teamId`
+         *     narrows to TEAM level, `sprints` becomes that one team's own sprints and `groups` becomes a
+         *     per-user split (`fact_sprint_scope.assignee_at_commitment`, Σ committed/final MD — the same
+         *     removed-row rule the team total itself follows, so Σ users == the team total); `teamId` AND
+         *     `accountId` together narrow to USER level — `sprints` itself narrows to that one account's
+         *     own contribution and `groups` is always empty. `teamId=0` (UNASSIGNED) is always empty — a
+         *     sprint always carries a real team or is excluded from this report. Velocity carries no
+         *     domain slice, so `domainView` is echoed in `meta` but never changes the result. An active or
+         *     future sprint (`completedAt` null) is reachable only by an explicit `sprintId`: its live figures,
+         *     `snapshot` null, `drift` false.
+         */
+        get: operations["getReportVelocity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/throughput": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Report 2 — throughput (delivered scope per closed sprint and per time bucket)
+         * @description Any authenticated user (D12), read-only — `.claude/docs/measures.md` "Report 2 — Throughput"
+         *     (with the item counts of report 13). Two views that differ BY DESIGN: `bySprint` is the SPRINT
+         *     view (each team's sprints completed in the period, `fact_sprint.delivered_md/_items` — what was
+         *     done inside the sprint while in it, priced at the sprint's close; `snapshot`/`drift` as in
+         *     velocity); `byBucket` and `groups` are the PERIOD view (level-0 tasks — no sub-tasks — with
+         *     `done_at` in the period, priced at their estimate at done, an unestimated task counting as an
+         *     item worth 0 MD; team = the D5 credit team, `null` = UNASSIGNED; user = assignee at done). A
+         *     task done after its sprint closed is in the period view only. `bucket` (default `WEEK`; weeks
+         *     start Monday, both in the configured zone) sets the resolution of `byBucket`; `bucketStart` is
+         *     the bucket's first day (ISO date) and empty buckets are zero-filled across the whole window.
+         *     For a `from`/`to` period the window is exactly that range; for `lastSprints`/`sprintId` it is
+         *     the resolved sprints' overall envelope `[min(start_at, else complete_at, else now), max(complete_at,
+         *     else now)]` — an open sprint (no `complete_at`, reachable only by an explicit `sprintId`) ends at the
+         *     request's now, and a future sprint yields an empty period view. `domain` (with
+         *     `domainView`: TASK = the task's own domain, EPIC = the epic's domain with an epic-less task
+         *     falling back to its own when `epic_domain_key` is null, which also covers an epic outside the ingested
+         *     scope — A21), `activityType` and `workCategory` (`UNCATEGORIZED` = none)
+         *     slice the period view only; the sprint view carries no slice. Levels: UNIT (default) — `groups`
+         *     are one per credit team (a `teamId: null` group is UNASSIGNED); `teamId` narrows to TEAM level
+         *     (`bySprint` to that team's sprints, the period view to tasks credited to that team — `teamId=0`
+         *     selects UNASSIGNED credit for the period view and yields no sprints) and `groups` becomes one per
+         *     assignee at done; `teamId` AND `accountId` narrow to USER level (`groups` empty; `bySprint` is
+         *     that account's deliveries by assignee at commitment). Σ `groups` equals Σ `byBucket`.
+         *     `breakdown` is accepted by the shared parser but does not change this report.
+         */
+        get: operations["getReportThroughput"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/sprint-consistency": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Reports 6.1-6.3 — sprint consistency (committed, added, removed, final, delivered, carried over, dropped per sprint)
+         * @description Any authenticated user (D12), read-only — `.claude/docs/measures.md` "Report 6" (with the item
+         *     counts of report 13). Every sprint bucket in MD and items, straight off `fact_sprint`: committed,
+         *     added, removed (in no other bucket), final, delivered, carried over and dropped — A17 partition:
+         *     final = delivered + carried over + dropped always, and committed + added = final in items. `snapshot`
+         *     is the frozen `fact_sprint_snapshot` figures (null until the sprint was first seen closed and
+         *     team-mapped by a DERIVE run — D13); `drift` is true when any live figure differs from it (0.005 MD
+         *     tolerance, item counts exactly). Same period/level semantics as velocity: UNIT (default) — `groups`
+         *     sum every figure per team; `teamId` narrows to TEAM level, `sprints` to that team's own sprints and
+         *     `groups` becomes a per-user split (`fact_sprint_scope.assignee_at_commitment`, the same bucket
+         *     predicates the team figures use, so Σ groups == the team figures for every bucket; a null
+         *     `accountId` is the unassigned-at-commitment bucket); `teamId` AND `accountId` narrow to USER level —
+         *     `sprints` narrows to that account's own rows per sprint (`snapshot` null, `drift` false) and
+         *     `groups` is empty. `teamId=0` (UNASSIGNED) is always empty. An active or future sprint
+         *     (`completedAt` null) is reachable only by an explicit `sprintId`: its live figures, `snapshot` null.
+         */
+        get: operations["getReportSprintConsistency"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/metrics-settings": {
         parameters: {
             query?: never;
@@ -1735,6 +1871,287 @@ export interface components {
             /** Format: int64 */
             validTo?: number | null;
         };
+        HistogramBucket: {
+            /** Format: double */
+            from: number;
+            /** Format: double */
+            to: number;
+            /** Format: int64 */
+            count: number;
+        };
+        /** @description `hidden = true` (fewer than `minSampleSize` items) means only `n` is meaningful — every other field is null/empty. */
+        Distribution: {
+            /** Format: int64 */
+            n: number;
+            hidden: boolean;
+            /** Format: double */
+            mean?: number | null;
+            /** Format: double */
+            min?: number | null;
+            /** Format: double */
+            max?: number | null;
+            /** Format: double */
+            p50?: number | null;
+            /** Format: double */
+            p90?: number | null;
+            /** Format: double */
+            p95?: number | null;
+            histogram: components["schemas"]["HistogramBucket"][];
+        };
+        ResolvedSprintGroup: {
+            /** Format: int32 */
+            teamId: number;
+            sprintIds: number[];
+        };
+        /** @description The `meta` block every report response carries beside its own body. */
+        ReportMeta: {
+            /**
+             * Format: int64
+             * @description Epoch millis; null before any connection has ever completed a DERIVE.
+             */
+            derivedAt: number | null;
+            /** Format: int64 */
+            configRevision: number;
+            /** @description ISO date; null for a lastSprints/sprintId-selected period. */
+            from: string | null;
+            /** @description ISO date; null for a lastSprints/sprintId-selected period. */
+            to: string | null;
+            /** @enum {string} */
+            level: "UNIT" | "TEAM" | "USER";
+            /** @enum {string} */
+            domainView: "TASK" | "EPIC";
+            resolvedSprints: components["schemas"]["ResolvedSprintGroup"][];
+            minSampleSize: number;
+        };
+        ReportFilterSprint: {
+            /** Format: int64 */
+            sprintId: number;
+            name: string;
+            state: string;
+            /** Format: int64 */
+            startAt: number | null;
+            /** Format: int64 */
+            completeAt: number | null;
+        };
+        ReportFilterMember: {
+            accountId: string;
+            displayName: string;
+        };
+        ReportFilterTeam: {
+            /** Format: int32 */
+            id: number;
+            name: string;
+            sprints: components["schemas"]["ReportFilterSprint"][];
+            members: components["schemas"]["ReportFilterMember"][];
+        };
+        ReportFilterDomain: {
+            domainKey: string;
+            domainName: string;
+        };
+        ReportFilterConnection: {
+            /** Format: int32 */
+            id: number;
+            name: string;
+        };
+        ReportFilters: {
+            teams: components["schemas"]["ReportFilterTeam"][];
+            domains: components["schemas"]["ReportFilterDomain"][];
+            activityTypes: string[];
+            workCategories: string[];
+            connections: components["schemas"]["ReportFilterConnection"][];
+            /** Format: int64 */
+            derivedAt: number | null;
+            /** Format: int64 */
+            configRevision: number;
+            minSampleSize: number;
+        };
+        /** @description The four figures a velocity row carries, live or frozen. */
+        VelocitySnapshot: {
+            /** Format: double */
+            initialMd: number;
+            initialItems: number;
+            /** Format: double */
+            finalMd: number;
+            finalItems: number;
+        };
+        VelocitySprint: {
+            /** Format: int64 */
+            sprintId: number;
+            name: string;
+            /** Format: int32 */
+            teamId: number;
+            /**
+             * Format: int64
+             * @description Null only for an active/future sprint, reachable through an explicit sprintId.
+             */
+            completedAt: number | null;
+            /** Format: double */
+            initialMd: number;
+            initialItems: number;
+            /** Format: double */
+            finalMd: number;
+            finalItems: number;
+            snapshot: components["schemas"]["VelocitySnapshot"] | null;
+            drift: boolean;
+        };
+        /** @description A team's own sums (UNIT level) or one user's `assignee_at_commitment` sums (TEAM level) — always empty at USER level. `teamId`/`accountId`/`label` are mutually exclusive with each other's absence: exactly one of `teamId` or `accountId` is set per row (a null `accountId` with a null `label` is the unassigned-at-commitment bucket, never a stored sentinel). */
+        VelocityGroup: {
+            /** Format: int32 */
+            teamId?: number | null;
+            accountId?: string | null;
+            label?: string | null;
+            /** Format: double */
+            initialMd: number;
+            initialItems: number;
+            /** Format: double */
+            finalMd: number;
+            finalItems: number;
+        };
+        VelocityReport: {
+            meta: components["schemas"]["ReportMeta"];
+            sprints: components["schemas"]["VelocitySprint"][];
+            groups: components["schemas"]["VelocityGroup"][];
+        };
+        /** @description A sprint's delivered figures, live or frozen. */
+        ThroughputSnapshot: {
+            /** Format: double */
+            deliveredMd: number;
+            deliveredItems: number;
+        };
+        /** @description One sprint's delivered scope (the SPRINT view — priced at the sprint's close). */
+        ThroughputSprint: {
+            /** Format: int64 */
+            sprintId: number;
+            name: string;
+            /** Format: int32 */
+            teamId: number;
+            /**
+             * Format: int64
+             * @description Null only for an active/future sprint, reachable through an explicit sprintId.
+             */
+            completedAt: number | null;
+            /** Format: double */
+            deliveredMd: number;
+            deliveredItems: number;
+            snapshot: components["schemas"]["ThroughputSnapshot"] | null;
+            drift: boolean;
+        };
+        /** @description One time bucket of the PERIOD view (tasks by `done_at`, priced at done). */
+        ThroughputBucketRow: {
+            /** @description The bucket's first day, ISO date (a Monday for weeks, the 1st for months). */
+            bucketStart: string;
+            /** Format: double */
+            deliveredMd: number;
+            deliveredItems: number;
+        };
+        /** @description A credit team's sums (UNIT level; `teamId: null` is the UNASSIGNED bucket, `accountId` null) or one assignee-at-done's sums (TEAM level; `accountId` null with a null `label` is the unassigned bucket) over the PERIOD view — always empty at USER level. */
+        ThroughputGroup: {
+            /** Format: int32 */
+            teamId: number | null;
+            accountId: string | null;
+            label: string | null;
+            /** Format: double */
+            deliveredMd: number;
+            deliveredItems: number;
+        };
+        ThroughputReport: {
+            meta: components["schemas"]["ReportMeta"];
+            bySprint: components["schemas"]["ThroughputSprint"][];
+            byBucket: components["schemas"]["ThroughputBucketRow"][];
+            groups: components["schemas"]["ThroughputGroup"][];
+        };
+        /** @description The fourteen sprint figures (MD beside items), live or frozen. */
+        SprintFigures: {
+            /** Format: double */
+            committedMd: number;
+            committedItems: number;
+            /** Format: double */
+            addedMd: number;
+            addedItems: number;
+            /** Format: double */
+            removedMd: number;
+            removedItems: number;
+            /** Format: double */
+            finalMd: number;
+            finalItems: number;
+            /** Format: double */
+            deliveredMd: number;
+            deliveredItems: number;
+            /** Format: double */
+            carriedOverMd: number;
+            carriedOverItems: number;
+            /** Format: double */
+            droppedMd: number;
+            droppedItems: number;
+        };
+        SprintConsistencySprint: {
+            /** Format: int64 */
+            sprintId: number;
+            name: string;
+            /** Format: int32 */
+            teamId: number;
+            /**
+             * Format: int64
+             * @description Null only for an active/future sprint, reachable through an explicit sprintId.
+             */
+            completedAt: number | null;
+            /** Format: double */
+            committedMd: number;
+            committedItems: number;
+            /** Format: double */
+            addedMd: number;
+            addedItems: number;
+            /** Format: double */
+            removedMd: number;
+            removedItems: number;
+            /** Format: double */
+            finalMd: number;
+            finalItems: number;
+            /** Format: double */
+            deliveredMd: number;
+            deliveredItems: number;
+            /** Format: double */
+            carriedOverMd: number;
+            carriedOverItems: number;
+            /** Format: double */
+            droppedMd: number;
+            droppedItems: number;
+            snapshot: components["schemas"]["SprintFigures"] | null;
+            drift: boolean;
+        };
+        /** @description A team's summed figures (UNIT level, `teamId` set) or one user's `assignee_at_commitment` figures (TEAM level; a null `accountId` with a null `label` is the unassigned-at-commitment bucket) — always empty at USER level. */
+        SprintConsistencyGroup: {
+            /** Format: int32 */
+            teamId?: number | null;
+            accountId?: string | null;
+            label?: string | null;
+            /** Format: double */
+            committedMd: number;
+            committedItems: number;
+            /** Format: double */
+            addedMd: number;
+            addedItems: number;
+            /** Format: double */
+            removedMd: number;
+            removedItems: number;
+            /** Format: double */
+            finalMd: number;
+            finalItems: number;
+            /** Format: double */
+            deliveredMd: number;
+            deliveredItems: number;
+            /** Format: double */
+            carriedOverMd: number;
+            carriedOverItems: number;
+            /** Format: double */
+            droppedMd: number;
+            droppedItems: number;
+        };
+        SprintConsistencyReport: {
+            meta: components["schemas"]["ReportMeta"];
+            sprints: components["schemas"]["SprintConsistencySprint"][];
+            groups: components["schemas"]["SprintConsistencyGroup"][];
+        };
         /** @description RFC 7807 problem detail. Served as `application/problem+json`; instance is the request path without query parameters. */
         ProblemDetail: {
             /**
@@ -1850,6 +2267,32 @@ export interface components {
         Sort: string;
         /** @description Free-text substring filter (case- and accent-insensitive) — API-LIST-005. */
         Q: string;
+        /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. */
+        ReportFrom: string;
+        /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
+        ReportTo: string;
+        /** @description Each team's own last N closed sprints (union at unit level). Mutually exclusive with `from`/`to`/`sprintId`. */
+        ReportLastSprints: number;
+        /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
+        ReportSprintId: number;
+        /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
+        ReportTeamId: number;
+        /** @description One Jira account id — sets the level to USER. Requires `teamId`. */
+        ReportAccountId: string;
+        /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
+        ReportDomainView: "TASK" | "EPIC";
+        /** @description Restricts to one domain key. */
+        ReportDomain: string;
+        /** @description Restricts to one activity type (a standard Jira issue type name). */
+        ReportActivityType: string;
+        /** @description Restricts to one work category, or the literal `UNCATEGORIZED`. */
+        ReportWorkCategory: string;
+        /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
+        ReportConnectionId: number;
+        /** @description Replaces the org drill inside a report's own `groups` with a slice by this dimension instead. */
+        ReportBreakdown: "NONE" | "DOMAIN" | "ACTIVITY_TYPE" | "WORK_CATEGORY";
+        /** @description The time resolution of a report's bucketed series; weeks start Monday, buckets in the configured zone. */
+        ReportBucket: "WEEK" | "MONTH";
     };
     requestBodies: never;
     headers: never;
@@ -3233,6 +3676,156 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getReportFilters: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The reports reference data */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportFilters"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getReportVelocity: {
+        parameters: {
+            query?: {
+                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. */
+                from?: components["parameters"]["ReportFrom"];
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
+                to?: components["parameters"]["ReportTo"];
+                /** @description Each team's own last N closed sprints (union at unit level). Mutually exclusive with `from`/`to`/`sprintId`. */
+                lastSprints?: components["parameters"]["ReportLastSprints"];
+                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
+                sprintId?: components["parameters"]["ReportSprintId"];
+                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
+                teamId?: components["parameters"]["ReportTeamId"];
+                /** @description One Jira account id — sets the level to USER. Requires `teamId`. */
+                accountId?: components["parameters"]["ReportAccountId"];
+                /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
+                domainView?: components["parameters"]["ReportDomainView"];
+                /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
+                connectionId?: components["parameters"]["ReportConnectionId"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The velocity report */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VelocityReport"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getReportThroughput: {
+        parameters: {
+            query?: {
+                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. */
+                from?: components["parameters"]["ReportFrom"];
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
+                to?: components["parameters"]["ReportTo"];
+                /** @description Each team's own last N closed sprints (union at unit level). Mutually exclusive with `from`/`to`/`sprintId`. */
+                lastSprints?: components["parameters"]["ReportLastSprints"];
+                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
+                sprintId?: components["parameters"]["ReportSprintId"];
+                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
+                teamId?: components["parameters"]["ReportTeamId"];
+                /** @description One Jira account id — sets the level to USER. Requires `teamId`. */
+                accountId?: components["parameters"]["ReportAccountId"];
+                /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
+                domainView?: components["parameters"]["ReportDomainView"];
+                /** @description Restricts to one domain key. */
+                domain?: components["parameters"]["ReportDomain"];
+                /** @description Restricts to one activity type (a standard Jira issue type name). */
+                activityType?: components["parameters"]["ReportActivityType"];
+                /** @description Restricts to one work category, or the literal `UNCATEGORIZED`. */
+                workCategory?: components["parameters"]["ReportWorkCategory"];
+                /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
+                connectionId?: components["parameters"]["ReportConnectionId"];
+                /** @description The time resolution of a report's bucketed series; weeks start Monday, buckets in the configured zone. */
+                bucket?: components["parameters"]["ReportBucket"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The throughput report */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ThroughputReport"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getReportSprintConsistency: {
+        parameters: {
+            query?: {
+                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. */
+                from?: components["parameters"]["ReportFrom"];
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
+                to?: components["parameters"]["ReportTo"];
+                /** @description Each team's own last N closed sprints (union at unit level). Mutually exclusive with `from`/`to`/`sprintId`. */
+                lastSprints?: components["parameters"]["ReportLastSprints"];
+                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
+                sprintId?: components["parameters"]["ReportSprintId"];
+                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
+                teamId?: components["parameters"]["ReportTeamId"];
+                /** @description One Jira account id — sets the level to USER. Requires `teamId`. */
+                accountId?: components["parameters"]["ReportAccountId"];
+                /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
+                domainView?: components["parameters"]["ReportDomainView"];
+                /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
+                connectionId?: components["parameters"]["ReportConnectionId"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The sprint consistency report */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SprintConsistencyReport"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
             500: components["responses"]["InternalServerError"];
         };
     };

@@ -20,7 +20,7 @@ Entries are proposals, not delivery commitments.
 
 ## Phase 3: the domain model — implementation in progress (v0.3.0)
 
-Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A22 override the body. A11–A16 were overnight judgement calls (approved 2026-09-28); A17–A21 came from the measure contract (`.claude/docs/measures.md`); A22 from the 9d review.
+Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A25 override the body. A11–A16 were overnight judgement calls (approved 2026-09-28); A17–A21 came from the measure contract (`.claude/docs/measures.md`); A22 from the 9d review.
 
 - **Done and merged:** M1 (PR #22), M2 (PR #23), the configuration e2e (PR #24), Dependabot #17.
 - **M3 (derivation)** on `feat/v0.3.0-m3-derivation`, done so far:
@@ -54,6 +54,7 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A22 over
   - A per-domain status→stage override UI.
   - Seed memberships from the Team field (D1).
   - Cache validators for the report endpoints.
+  - Round each item's estimate before summing in `DeriveKernels.sprintTotals`, so `fact_sprint` and the per-user report groups agree exactly (today Σ groups can differ from the team by 0.01 MD per sprint when estimates have more than two decimals).
   - Report 14: flag epics whose dates fall outside the PV horizon (no PV curve).
   - `dim_date` rows outside a run's range keep a previous time zone's day bounds after a zone change (range joins could double-match at a stale boundary) — rewrite the whole table on a zone change.
   - Estimated backlog uses the OWN estimate only. A parent estimated through its sub-tasks (`estimate_source = SUBTASKS`) is missing from the backlog (A23). The fix is a composite-estimate bridge.
