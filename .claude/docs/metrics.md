@@ -173,7 +173,8 @@ connector kind.
 global settings (one transaction, so a racing settings write can never let this run stamp a
 revision newer than the config it actually derived under — review round 1), prune old
 `derive_runs` rows (`MetricsStore.pruneDeriveRuns`, the `SyncJobsService.prune` shape, run on
-`ingest.jobRetentionDays`), insert a `RUNNING` `derive_runs` row, then run the WHOLE rebuild inside
+`ingest.jobRetentionDays`, always keeping each connection's newest `SUCCEEDED` run — its DERIVE clock for the
+snapshot reports), insert a `RUNNING` `derive_runs` row, then run the WHOLE rebuild inside
 ONE `suspendTransaction`: delete every rebuildable `metrics.*` row for the connection, upsert
 `dim_date` over `[min(created_at) − 1y, now + 2y]`, insert `dim_domain` (small, config-derived,
 inserted once), then three ordered passes over the connection's LIVE `norm.work_items` rows.

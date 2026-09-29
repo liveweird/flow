@@ -63,7 +63,7 @@ class ReportBacklogTest {
     @Test
     fun `UNIT trend and current equal an independent sum of agg_daily_flow and the scopes isolate`() = testApplication {
         usePostgresTestcontainer()
-        val connId = derivedFixtureConnectionId()
+        val connId = DerivedStubFixture.connectionId()
         val client = seededClient("reports-backlog-unit")
         val rows = readFlowBacklogRows(connId).filter { it.day in isoDays(from, to) }
         val days = isoDays(from, to)
@@ -98,7 +98,7 @@ class ReportBacklogTest {
     @Test
     fun `backlog in sprints equals md over an independent mean of the last N closed sprints as of the period end`() = testApplication {
         usePostgresTestcontainer()
-        val connId = derivedFixtureConnectionId()
+        val connId = DerivedStubFixture.connectionId()
         val client = seededClient("reports-backlog-sprints")
         val zone = reportZone()
         val sprints = readClosedSprints(connId)
@@ -148,7 +148,7 @@ class ReportBacklogTest {
     @Test
     fun `sprint periods read the envelope, the trend stops at the last derived day, USER level is empty`() = testApplication {
         usePostgresTestcontainer()
-        val connId = derivedFixtureConnectionId()
+        val connId = DerivedStubFixture.connectionId()
         val client = seededClient("reports-backlog-window")
 
         val clamped = client.backlog("connectionId=$connId&from=2026-02-20&to=2026-12-31")
@@ -261,7 +261,7 @@ class ReportBacklogTest {
     @Test
     fun `teamId 0 with a sprint-relative period is empty with a note`() = testApplication {
         usePostgresTestcontainer()
-        val connId = derivedFixtureConnectionId()
+        val connId = DerivedStubFixture.connectionId()
         val body = seededClient("reports-backlog-unassigned-sprints").backlog("connectionId=$connId&teamId=0&lastSprints=2")
         assertTrue(body.trend.isEmpty())
         assertTrue(assertNotNull(body.note).contains("UNASSIGNED"))

@@ -463,6 +463,8 @@ ONE GiST index — `btree_gist` is what makes `=` available inside a GiST index 
   on the SAME retention window `sync_jobs` itself uses (`ingest.jobRetentionDays`,
   `MetricsStore.pruneDeriveRuns`, called once per DERIVE run) — the `sync_jobs` prune precedent
   applied to a table that otherwise grows forever for a connector deriving every few minutes.
+  Each connection's NEWEST `SUCCEEDED` run is exempt however old: the snapshot reports read it as
+  the connection's DERIVE clock, and without it a derived connection would read as never derived.
 
 ### The `metrics` schema — the derived star (V16)
 
