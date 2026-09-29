@@ -315,10 +315,12 @@ class ReportWipTest {
     }
 
     /**
-     * Two connections with DIFFERENT last-derived days (A through 2025-01-09, B through 2025-01-07) and a third that never
+     * Two connections with DIFFERENT last-derived days (A through 2020-01-09, B through 2020-01-07) and a third that never
      * derived, read together (no `connectionId`) through a domain only they carry. The series ends at the OLDEST derived day
      * — B's — so A's newer days are not shown against B's missing ones as if B had zeros; the never-derived one is named
-     * in the note. (The days sit in 2025 so no other test's connection can derive earlier than they do.)
+     * in the note. (The days sit in 2020, before every pinned clock in the suite — `IngestWorkerTest`'s early-morning
+     * worker clock (2024-01-01) derives whatever DERIVE jobs are pending for OTHER connections, and each connection's newest
+     * successful run is never pruned — so no other test's connection can have derived earlier than they do.)
      */
     @Test
     fun `the cut-off is the oldest last derived day across the connections in scope`() = testApplication {
@@ -327,19 +329,19 @@ class ReportWipTest {
         val connB = SyncedStubFixture.createConnection(namePrefix = "wip-lag-b", enabled = false)
         val connC = SyncedStubFixture.createConnection(namePrefix = "wip-lag-c", enabled = false)
         val domain = "ZZ-lag"
-        insertWipRows(connA, (5..9).map { WipRow("DOMAIN", domain, "2025-01-%02d".format(it), "TASK", "s1", "NOT_STARTED", it - 4) })
-        insertWipRows(connB, (5..7).map { WipRow("DOMAIN", domain, "2025-01-%02d".format(it), "TASK", "s1", "NOT_STARTED", 100) })
-        insertSucceededDerive(connA, noonUtc("2025-01-09"))
-        insertSucceededDerive(connB, noonUtc("2025-01-07"))
+        insertWipRows(connA, (5..9).map { WipRow("DOMAIN", domain, "2020-01-%02d".format(it), "TASK", "s1", "NOT_STARTED", it - 4) })
+        insertWipRows(connB, (5..7).map { WipRow("DOMAIN", domain, "2020-01-%02d".format(it), "TASK", "s1", "NOT_STARTED", 100) })
+        insertSucceededDerive(connA, noonUtc("2020-01-09"))
+        insertSucceededDerive(connB, noonUtc("2020-01-07"))
         try {
             val client = seededClient("reports-wip-lag")
-            val body = client.wip("from=2025-01-05&to=2025-01-11&domain=$domain")
-            assertEquals(listOf("2025-01-05", "2025-01-06", "2025-01-07"), body.series.map { it.day })
+            val body = client.wip("from=2020-01-05&to=2020-01-11&domain=$domain")
+            assertEquals(listOf("2020-01-05", "2020-01-06", "2020-01-07"), body.series.map { it.day })
             assertEquals(listOf(101, 102, 103), body.series.map { it.counts.getValue("NOT_STARTED") })
             assertTrue(assertNotNull(body.note).contains(connC.toString()), "the never-derived connection is named")
             // Narrowed to the connection that derived further, its own days are all listed and nothing is noted.
-            val onlyA = client.wip("connectionId=$connA&from=2025-01-05&to=2025-01-11&domain=$domain")
-            assertEquals((5..9).map { "2025-01-%02d".format(it) }, onlyA.series.map { it.day })
+            val onlyA = client.wip("connectionId=$connA&from=2020-01-05&to=2020-01-11&domain=$domain")
+            assertEquals((5..9).map { "2020-01-%02d".format(it) }, onlyA.series.map { it.day })
             assertNull(onlyA.note)
         } finally {
             deleteWipRows(connA)

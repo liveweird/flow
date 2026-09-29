@@ -197,6 +197,7 @@ across a REPROCESS (`markAllNeedsProcessing` + the PROCESS stream over the clone
 proves the digest is sensitive (one nudged value / one deleted bridge row changes it). Only that
 test opts into `includeDimDate`. A red
 digest is a real nondeterminism bug in the deriver, never grounds to loosen the test.
+**A connection's newest SUCCEEDED `derive_runs` row is never pruned** (it is the snapshot reports' DERIVE clock), so a derive under a pinned PAST clock stays that connection's clock for the rest of the suite — including `IngestWorkerTest`'s 2024-01-01 worker clock, which derives whatever DERIVE jobs other tests left pending. A test of the unit-wide last-derived-day cut-off (no `connectionId`, so every connection is in scope) must therefore place its days before every pinned clock in the suite (2020 today), and a test that inserts its own runs deletes them afterwards.
 `SyncedStubFixtureTest` also pins `cloneProcessedData` itself: a processed clone's
 status-interval digest must equal the source connection's. Effect: `MetricsDerivationTest`'s own
 runtime fell from ~324s (one full clone-and-reprocess per test, 16 of them) to well under a

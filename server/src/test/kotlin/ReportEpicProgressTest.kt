@@ -160,7 +160,7 @@ class ReportEpicProgressTest {
     @Test
     fun `each level's asOf, series and drill rows equal an independent sum of agg_daily_flow`() = testApplication {
         usePostgresTestcontainer()
-        val connId = derivedFixtureConnectionId()
+        val connId = DerivedStubFixture.connectionId()
         val client = seededClient("reports-evm-fixture")
         val rows = readFlowEvmRows(connId)
         val base = "connectionId=$connId&from=$from&to=$to"
@@ -244,7 +244,7 @@ class ReportEpicProgressTest {
     @Test
     fun `the golden epic's PV reaches its budget on its due date and pvOriginal redraws its first baseline`() = testApplication {
         usePostgresTestcontainer()
-        val connId = derivedFixtureConnectionId()
+        val connId = DerivedStubFixture.connectionId()
         val client = seededClient("reports-evm-golden")
         val rows = readFlowEvmRows(connId)
         val golden = goldenEpic
@@ -298,7 +298,7 @@ class ReportEpicProgressTest {
     @Test
     fun `lastSprints reads the sprint envelope but asOf never passes the last derived day`() = testApplication {
         usePostgresTestcontainer()
-        val connId = derivedFixtureConnectionId()
+        val connId = DerivedStubFixture.connectionId()
         val client = seededClient("reports-evm-sprints")
         val rows = readFlowEvmRows(connId)
 
@@ -619,9 +619,9 @@ class ReportEpicProgressTest {
             val connC = SyncedStubFixture.createConnection(namePrefix = "evm-lag-c", enabled = false)
             val store = MetricsStore(sharedDatabaseForTests())
             val domain = "ZZ-evm-lag"
-            fun day(n: Int) = "2025-01-%02d".format(n)
-            insertSucceededDerive(connA, noonUtc("2025-01-09"))
-            insertSucceededDerive(connB, noonUtc("2025-01-07"))
+            fun day(n: Int) = "2020-01-%02d".format(n)
+            insertSucceededDerive(connA, noonUtc("2020-01-09"))
+            insertSucceededDerive(connB, noonUtc("2020-01-07"))
             suspendTransaction(sharedDatabaseForTests()) {
                 store.insertDomains(connA, listOf(DimDomainRow(domain, "Lag", emptyList(), null)), configRevision = 1L)
                 store.insertDomains(connC, listOf(DimDomainRow(domain, "Lag", emptyList(), null)), configRevision = 1L)
@@ -630,7 +630,7 @@ class ReportEpicProgressTest {
             insertFlowEvmRows(connB, (5..7).map { evmRow("DOMAIN", domain, day(it), pv = "10.00", ev = "2.00", ac = "1.00") })
             try {
                 val client = seededClient("reports-evm-lag")
-                val body = client.epicProgress("from=2025-01-05&to=2025-01-11&domain=$domain")
+                val body = client.epicProgress("from=2020-01-05&to=2020-01-11&domain=$domain")
                 assertEquals(listOf(day(5), day(6), day(7)), body.series.map { it.date })
                 assertEquals(listOf(11.5, 23.0, 34.5), body.series.map { it.pv })
                 assertEquals(day(7), body.asOf.day)
@@ -638,14 +638,14 @@ class ReportEpicProgressTest {
                 assertEquals(9.0, body.asOf.ev)
                 assertEquals(4.5, body.asOf.ac)
                 assertTrue(assertNotNull(body.note).contains(connC.toString()), "the never-derived connection is named")
-                val onlyA = client.epicProgress("connectionId=$connA&from=2025-01-05&to=2025-01-11&domain=$domain")
+                val onlyA = client.epicProgress("connectionId=$connA&from=2020-01-05&to=2020-01-11&domain=$domain")
                 assertEquals((5..9).map { day(it) }, onlyA.series.map { it.date })
                 assertEquals(7.5, onlyA.asOf.pv)
                 assertNull(onlyA.note)
 
                 // connC never derived: empty, the same note the snapshot reports use, and nothing is validated against dimensions
                 // that do not exist yet (the domain is unknown there only because nothing derived).
-                val never = client.epicProgress("connectionId=$connC&from=2025-01-05&to=2025-01-11&domain=nowhere")
+                val never = client.epicProgress("connectionId=$connC&from=2020-01-05&to=2020-01-11&domain=nowhere")
                 assertTrue(never.series.isEmpty() && never.rows.isEmpty())
                 assertNull(never.asOf.day)
                 assertEquals(0.0, never.asOf.pv)
@@ -677,7 +677,7 @@ class ReportEpicProgressTest {
     fun `pvOriginal redraws with the derive-time working days and the stored cumulative rounding, and hasPvCurve needs a working day`() =
         testApplication {
             usePostgresTestcontainer()
-            derivedFixtureConnectionId() // stamps dim_date for the 2026 days below (the settings calendar); restored after
+            DerivedStubFixture.connectionId() // stamps dim_date for the 2026 days below (the settings calendar); restored after
             val connId = SyncedStubFixture.createConnection(namePrefix = "evm-original", enabled = false)
             insertSucceededDerive(connId, noonUtc("2026-06-01"))
             val store = MetricsStore(sharedDatabaseForTests())
@@ -757,7 +757,7 @@ class ReportEpicProgressTest {
     @Test
     fun `bad filters are 400, never 404, and a plain user is allowed`() = testApplication {
         usePostgresTestcontainer()
-        val connId = derivedFixtureConnectionId()
+        val connId = DerivedStubFixture.connectionId()
         val client = seededClient("reports-evm-400")
         val team = TestTeams.seed(SyncedStubFixture.unique("evm-400"))
         val dupA = SyncedStubFixture.createConnection(namePrefix = "evm-dup-a", enabled = false)
