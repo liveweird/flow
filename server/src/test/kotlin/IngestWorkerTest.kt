@@ -187,11 +187,17 @@ class IngestWorkerTest {
         workerId = "test-worker-${unique("id")}",
     )
 
-    private suspend fun createConnection(dataSources: DataSourceService, syncIntervalMinutes: Int = 30): UInt =
+    /**
+     * DISABLED unless [enabled]: only a test that needs the worker's own scheduler tick or claim loop to
+     * pick the connection up says so — a disabled connection is never re-derived by another test's
+     * worker after a config bump (`.claude/docs/testing.md`), and tests driving `runJob`/`onSucceeded`
+     * with a hand-built claim never need the scheduler to see it.
+     */
+    private suspend fun createConnection(dataSources: DataSourceService, syncIntervalMinutes: Int = 30, enabled: Boolean = false): UInt =
         dataSources.create(
             DataSourceRequest(
                 name = unique("conn"),
-                enabled = true,
+                enabled = enabled,
                 syncIntervalMinutes = syncIntervalMinutes,
                 backfillFrom = defaultBackfillFrom(),
                 reconcileHourUtc = 3,
@@ -239,7 +245,7 @@ class IngestWorkerTest {
         ensureMigrated()
         val ds = dataSources()
         val jobs = syncJobs()
-        val connId = createConnection(ds, syncIntervalMinutes = 45)
+        val connId = createConnection(ds, syncIntervalMinutes = 45, enabled = true)
         var ran = false
         val connector = FakeConnector { ran = true }
         // Scoped to just this test's own connection (review round 1: a flat workerSlots = 500 drove
@@ -298,7 +304,7 @@ class IngestWorkerTest {
         ensureMigrated()
         val ds = dataSources()
         val jobs = syncJobs()
-        val connId = createConnection(ds, syncIntervalMinutes = 30)
+        val connId = createConnection(ds, syncIntervalMinutes = 30, enabled = true)
         val connector = FakeConnector { error("simulated stream failure") }
         // See the identical workerSlots note in the "success" test above.
         val worker = IngestWorker(
@@ -327,7 +333,7 @@ class IngestWorkerTest {
         ensureMigrated()
         val ds = dataSources()
         val jobs = syncJobs()
-        val connId = createConnection(ds)
+        val connId = createConnection(ds, enabled = true)
         val connector = FakeConnector { context -> context.heartbeat("""{"pages":1}""", "issues") }
         val worker = IngestWorker(
             jobs,
@@ -707,7 +713,7 @@ class IngestWorkerTest {
             val ds = DataSourceService(sharedDatabaseForTests(), FieldCipher(DEV_DATA_ENCRYPTION_KEY))
             val jobs = SyncJobsService(sharedDatabaseForTests(), defaultMaxAttempts = 3)
             runBlocking {
-                val newConnId = createConnection(ds)
+                val newConnId = createConnection(ds, enabled = true)
                 connId2 = newConnId
                 jobId2 = jobs.requestJob(newConnId, SyncJobKind.SYNC, requestedByUserId = 1u, configRevision = 1L).jobId
             }

@@ -132,11 +132,13 @@ connection instead of syncing its own. The rule going forward:
   downgrade, an index gap)** must never touch the shared connection — `SyncedStubFixture
   .cloneRawData(fromConnectionId, toConnectionId)` copies `raw.jira_issues`/`raw.jira_entities`/
   `raw.jira_changelogs`/`raw.jira_worklogs` verbatim (including `needs_processing`/
-  `processing_version`/the tombstone columns) into a fresh connection id via `INSERT … SELECT`-style
-  `batchInsert`s — cheap, no HTTP — and the test drives only the ONE stream under test
-  (`JiraProcessStream`, `JiraReconcileStream`, `JiraWorklogStream`, …) directly against that clone,
-  the same production code a real job would run, just without the surrounding streams that already
-  ran once to produce the shared fixture.
+  `processing_version`/the tombstone columns) into a fresh connection id with ONE SQL
+  `INSERT … SELECT` per table (the columns come from the Exposed table objects and an
+  `information_schema` check fails the clone if they ever differ from the database's, so a new column
+  cannot be silently dropped; surrogate SERIAL ids are not copied) — cheap, no HTTP — and the test
+  drives only the ONE stream under test (`JiraProcessStream`, `JiraReconcileStream`,
+  `JiraWorklogStream`, …) directly against that clone, the same production code a real job would run,
+  just without the surrounding streams that already ran once to produce the shared fixture.
 - **A test whose SUBJECT is the sync streams themselves** (cursor resume, `CURSOR_EXPIRED`, lease
   loss, the bulkfetch fallback, the day2 incremental/worklog feed) keeps a REAL HTTP sync — but
   drives the smallest path that exercises it: a single stream directly where the fixture already
