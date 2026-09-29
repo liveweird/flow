@@ -15,7 +15,9 @@ Two layers of configuration exist, both change-tracked through the SAME shared
   `metrics.settings` singleton: the calendar (time zone, weekend days, holidays), `hoursPerDay`,
   commitment grace, minimum sample size, the aging-WIP window/percentiles, the backlog-in-sprints
   window and the epic-drift threshold. See `MetricsSettingsResponse`/`Request` in
-  `metrics/MetricsSettings.kt`.
+  `metrics/MetricsSettings.kt`. A PUT that changes anything bumps the revision through
+  `MetricsConfigService.bumpRevision`, which enqueues `DERIVE` for every enabled, active
+  connection; an identical re-PUT bumps and enqueues nothing.
 - **Per-connection configuration** (`GET/PUT /api/v1/data-sources/{id}/metrics-config`, v0.3.0 M1
   commit 4) — everything that is specific to one Jira connection's own data shape: status → stage,
   the estimate/epic-date/work-category field choices, project → domain, board → team, activity
