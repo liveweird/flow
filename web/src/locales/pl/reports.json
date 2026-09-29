@@ -14,7 +14,8 @@
     "wip": "WIP",
     "backlog": "Oszacowany backlog",
     "agingWip": "Wiek WIP",
-    "blockedTime": "Czas zablokowania"
+    "blockedTime": "Czas zablokowania",
+    "epicProgress": "Postęp epików"
   },
   "meta": {
     "derived": "Wyliczono {{date}} · wersja konfiguracji {{revision}}",
@@ -506,5 +507,99 @@
     "blockedItems_few": "{{count}} z {{total}} zakończonych pozycji były choć raz zablokowane; pozostałe to zera i zostają w rozkładzie.",
     "blockedItems_many": "{{count}} z {{total}} zakończonych pozycji było choć raz zablokowanych; pozostałe to zera i zostają w rozkładzie.",
     "blockedItems_other": "{{count}} z {{total}} zakończonych pozycji było choć raz zablokowanych; pozostałe to zera i zostają w rozkładzie."
+  },
+  "epicProgress": {
+    "title": "Postęp epików",
+    "description": "Wartość planowana (PV), wartość wypracowana (EV) i koszt rzeczywisty (AC) w osobodniach, zsumowane od początku do dnia odczytu, z odchyleniem harmonogramu SV = EV − PV, odchyleniem kosztu CV = EV − AC, wskaźnikiem wykonania harmonogramu SPI = EV ÷ PV i wskaźnikiem wykonania kosztów CPI = EV ÷ AC. Okres wybiera tylko dni widoczne na krzywych; liczby zawsze obejmują wszystko, co było przed nim.",
+    "levelTitle": {
+      "UNIT": "Cała jednostka",
+      "DOMAIN": "Domena: {{name}}",
+      "EPIC": "Epik: {{name}}",
+      "TEAM": "Zespół: {{name}}"
+    },
+    "levelNote": {
+      "UNIT": "Tylko praca przypisana do epików: zadanie bez epika nie ma planu, z którym można je porównać. Domeny poniżej sumują się do tych liczb, zespoły nie.",
+      "DOMAIN": "Tylko praca przypisana do epików: zadanie bez epika nie ma planu, z którym można je porównać.",
+      "EPIC": "Plan to bieżąca linia bazowa epika rozłożona równo na dni robocze między datą rozpoczęcia a terminem.",
+      "TEAM": "Widok sprintów: plan to zobowiązany zakres sprintów zespołu w dniu rozpoczęcia każdego z nich, wypracowane to to, co te sprinty dostarczyły, a koszt to czas zalogowany przez osoby z zespołu. Nie sumuje się do liczb jednostki."
+    },
+    "asOf": "Stan na dzień {{day}}",
+    "tile": {
+      "pv": "PV (MD)",
+      "ev": "EV (MD)",
+      "ac": "AC (MD)",
+      "sv": "SV (MD)",
+      "cv": "CV (MD)",
+      "spi": "SPI",
+      "cpi": "CPI",
+      "foreign": "Udział pracy spoza zespołu"
+    },
+    "spi": {
+      "above": "Przed planem",
+      "below": "Za planem",
+      "on": "Zgodnie z planem"
+    },
+    "cpi": {
+      "above": "Poniżej budżetu",
+      "below": "Powyżej budżetu",
+      "on": "Zgodnie z budżetem"
+    },
+    "spiNone": "Nie ma jeszcze planu: wartość planowana wynosi 0, więc nie ma wskaźnika.",
+    "cpiNone": "Nic jeszcze nie zalogowano: koszt rzeczywisty wynosi 0, więc nie ma wskaźnika.",
+    "foreignHint": "Jaka część czasu zalogowanego przez osoby z tego zespołu (do dnia odczytu) poszła na pracę innych zespołów. Czytaj CPI zespołu razem z nią.",
+    "foreignNone": "Nic jeszcze nie zalogowano, więc nie ma udziału.",
+    "breadcrumb": {
+      "label": "Gdzie jesteś w raporcie",
+      "unit": "Cała jednostka"
+    },
+    "chartTitle": "Narastająco: PV, EV i AC",
+    "chartCaption": "Osobodni na koniec każdego dnia, zsumowane od początku.",
+    "chartLabel": "Wykres: narastająca wartość planowana, wypracowana i koszt rzeczywisty w osobodniach według dnia",
+    "series": {
+      "pv": "Wartość planowana (PV)",
+      "pvOriginal": "Pierwotny plan (PV)",
+      "ev": "Wartość wypracowana (EV)",
+      "ac": "Koszt rzeczywisty (AC)"
+    },
+    "tableLabel": "Narastające PV, EV i AC według dnia, w tabeli",
+    "column": {
+      "pv": "PV",
+      "pvOriginal": "Pierwotny plan (PV)",
+      "ev": "EV",
+      "ac": "AC",
+      "sv": "SV",
+      "spi": "SPI",
+      "cv": "CV",
+      "cpi": "CPI",
+      "domain": "Domena",
+      "team": "Zespół",
+      "epic": "Epik"
+    },
+    "domainsTitle": "Domeny",
+    "domainsCaption": "Podstawa epików: te wiersze sumują się do liczb jednostki powyżej.",
+    "teamsTitle": "Zespoły (widok sprintów)",
+    "teamsCaption": "Podstawa sprintów: plan to zobowiązany zakres sprintów zespołu, wypracowane to to, co te sprinty dostarczyły, a koszt to czas zalogowany przez jego osoby. To inny widok niż domeny: te wiersze nie sumują się do liczb jednostki.",
+    "epicsTitle": "Epiki",
+    "epicsCaption": "Epiki tej domeny, które mają plan albo jakąkolwiek wartość wypracowaną lub koszt; sumy domeny powyżej pozostają wiążące.",
+    "noRows": "Na ten dzień nie ma czego wyświetlić.",
+    "deletedTeam": "Usunięty zespół",
+    "epic": {
+      "title": "Plan",
+      "budget": "Budżet",
+      "budgetValue": "{{md}} MD",
+      "budgetOwn": "własny szacunek epika",
+      "budgetChildren": "suma szacunków jego zadań",
+      "start": "Planowane rozpoczęcie",
+      "due": "Planowany termin",
+      "driftDates": "Daty przesunięte od pierwotnego planu",
+      "driftBudget": "Budżet zmieniony od pierwotnego planu",
+      "noHorizon": "Brak krzywej planu: w planie brakuje daty albo któraś data jest oddalona od dziś o więcej niż dziesięć lat, więc wartość planowana zostaje równa 0. Wartość wypracowana i koszt nadal się liczą.",
+      "noCurve": "Brak krzywej planu: planowane okno nie zawiera dnia roboczego, więc wartość planowana nie ma na co się rozłożyć. Wartość wypracowana i koszt nadal się liczą.",
+      "baselinesTitle": "Linie bazowe",
+      "baselinesLabel": "Linie bazowe planu, od najstarszej",
+      "effectiveFrom": "Obowiązuje od",
+      "supersededAt": "Zastąpiona dnia",
+      "current": "bieżąca"
+    }
   }
 }

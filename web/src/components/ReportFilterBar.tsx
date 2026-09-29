@@ -50,6 +50,8 @@ export interface ReportControls {
   domainExcludesTeam?: boolean;
   /** The report is "as of now" and ignores the period (aging WIP): no period control at all. */
   noPeriod?: boolean;
+  /** The report has no user level (epic progress answers `400` to `accountId`): no member control. */
+  noMember?: boolean;
 }
 
 const UNCATEGORIZED = "UNCATEGORIZED";
@@ -231,7 +233,7 @@ export default function ReportFilterBar({
             searchable
             w={200}
           />
-          {team && (
+          {team && !controls.noMember && (
             <Select
               label={t("reports.filters.member")}
               placeholder={t("reports.filters.wholeTeam")}

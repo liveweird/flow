@@ -14,6 +14,7 @@ export const wipPath = "/reports/wip";
 const backlogPath = "/reports/backlog";
 const agingWipPath = "/reports/aging-wip";
 const blockedTimePath = "/reports/blocked-time";
+export const epicProgressPath = "/reports/epic-progress";
 
 export type ReportTabDef = { to: string; label: ParseKeys };
 
@@ -33,12 +34,13 @@ export const ESTIMATION_TABS: ReadonlyArray<ReportTabDef> = [
   { to: reportedTimePath, label: "reports.tabs.reportedTime" },
 ];
 
-/** The Flow group's tabs (WIP · estimated backlog · aging WIP · blocked time). */
+/** The Flow group's tabs (WIP · estimated backlog · aging WIP · blocked time · epic progress). */
 export const FLOW_TABS: ReadonlyArray<ReportTabDef> = [
   { to: wipPath, label: "reports.tabs.wip" },
   { to: backlogPath, label: "reports.tabs.backlog" },
   { to: agingWipPath, label: "reports.tabs.agingWip" },
   { to: blockedTimePath, label: "reports.tabs.blockedTime" },
+  { to: epicProgressPath, label: "reports.tabs.epicProgress" },
 ];
 
 /**
@@ -63,6 +65,8 @@ const REPORT_SPECIFIC_PARAMS: Readonly<Record<string, readonly ReportSpecificKey
   // Aging WIP slices like the fact reports but has no period; blocked time also counts tasks, epics or both.
   [agingWipPath]: ["domain", "activityType", "workCategory"],
   [blockedTimePath]: ["domain", "activityType", "workCategory", "itemKind"],
+  // EVM is always the epic view and has no per-day activity type/work category; its scope is ONE of epic, domain or team.
+  [epicProgressPath]: ["domain", "epicId"],
 };
 
 /**

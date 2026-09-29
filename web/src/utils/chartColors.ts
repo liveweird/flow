@@ -35,6 +35,11 @@ export const CHART_COLORS = {
   trendTail: "gray.6",
   /** The backlog is planned work nobody has started: the plan blue. */
   backlog: "flow.6",
+  /** EVM curves: planned value is the plan blue (and so is the original plan, told apart by its dash), earned value is delivery teal, actual cost the neutral gray. */
+  evmPlanned: "flow.6",
+  evmOriginalPlan: "flow.6",
+  evmEarned: "teal.8",
+  evmActual: "gray.6",
   /** WIP bands by stage: gray = not started, blue = in progress (active work), teal = done, orange = unmapped (a soft configuration finding). */
   stageNotStarted: "gray.6",
   stageInProgress: "flow.6",

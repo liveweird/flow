@@ -14,7 +14,8 @@
     "wip": "WIP",
     "backlog": "Estimated backlog",
     "agingWip": "Aging WIP",
-    "blockedTime": "Blocked time"
+    "blockedTime": "Blocked time",
+    "epicProgress": "Epic progress"
   },
   "meta": {
     "derived": "Derived {{date}} · configuration revision {{revision}}",
@@ -486,5 +487,99 @@
     },
     "blockedItems_one": "{{count}} of {{total}} finished items was blocked at all; the rest are zeros and stay in the distribution.",
     "blockedItems_other": "{{count}} of {{total}} finished items were blocked at all; the rest are zeros and stay in the distribution."
+  },
+  "epicProgress": {
+    "title": "Epic progress",
+    "description": "Planned value (PV), earned value (EV) and actual cost (AC) in man-days, added up from the beginning of time to the as-of day, with the schedule variance SV = EV − PV, the cost variance CV = EV − AC, the schedule performance index SPI = EV ÷ PV and the cost performance index CPI = EV ÷ AC. The period only chooses which days the curves show; the figures always include everything before it.",
+    "levelTitle": {
+      "UNIT": "Whole unit",
+      "DOMAIN": "Domain: {{name}}",
+      "EPIC": "Epic: {{name}}",
+      "TEAM": "Team: {{name}}"
+    },
+    "levelNote": {
+      "UNIT": "Epic-attributed work only: a task with no epic has no plan to compare against. The domains below add up to these figures; the teams do not.",
+      "DOMAIN": "Epic-attributed work only: a task with no epic has no plan to compare against.",
+      "EPIC": "The plan is the epic's current baseline spread evenly over the working days between its start and due dates.",
+      "TEAM": "Sprint view: planned is the committed scope of the team's sprints on the day each starts, earned is what those sprints delivered, and cost is the time the team's members logged. It does not add up to the unit's figures."
+    },
+    "asOf": "As of {{day}}",
+    "tile": {
+      "pv": "PV (MD)",
+      "ev": "EV (MD)",
+      "ac": "AC (MD)",
+      "sv": "SV (MD)",
+      "cv": "CV (MD)",
+      "spi": "SPI",
+      "cpi": "CPI",
+      "foreign": "Foreign work share"
+    },
+    "spi": {
+      "above": "Ahead of plan",
+      "below": "Behind plan",
+      "on": "On plan"
+    },
+    "cpi": {
+      "above": "Under budget",
+      "below": "Over budget",
+      "on": "On budget"
+    },
+    "spiNone": "No plan yet: planned value is 0, so there is no ratio.",
+    "cpiNone": "Nothing logged yet: actual cost is 0, so there is no ratio.",
+    "foreignHint": "Share of the time this team's members logged (up to the as-of day) that went into other teams' work. Read the team's CPI together with it.",
+    "foreignNone": "Nothing logged yet, so there is no share.",
+    "breadcrumb": {
+      "label": "Where you are in the drill-down",
+      "unit": "Whole unit"
+    },
+    "chartTitle": "Cumulative PV, EV and AC",
+    "chartCaption": "Man-days at the end of each day, added up from the beginning of time.",
+    "chartLabel": "Chart: cumulative planned value, earned value and actual cost in man-days by day",
+    "series": {
+      "pv": "Planned value (PV)",
+      "pvOriginal": "Original plan (PV)",
+      "ev": "Earned value (EV)",
+      "ac": "Actual cost (AC)"
+    },
+    "tableLabel": "Cumulative PV, EV and AC by day, as a table",
+    "column": {
+      "pv": "PV",
+      "pvOriginal": "Original plan (PV)",
+      "ev": "EV",
+      "ac": "AC",
+      "sv": "SV",
+      "spi": "SPI",
+      "cv": "CV",
+      "cpi": "CPI",
+      "domain": "Domain",
+      "team": "Team",
+      "epic": "Epic"
+    },
+    "domainsTitle": "Domains",
+    "domainsCaption": "Epic basis: these rows add up to the unit's figures above.",
+    "teamsTitle": "Teams (sprint view)",
+    "teamsCaption": "Sprint basis: planned is each team's committed sprint scope, earned what those sprints delivered, cost the time its members logged. A different view from the domains: these rows do not add up to the unit's figures.",
+    "epicsTitle": "Epics",
+    "epicsCaption": "Epics of this domain that have a plan or any earned value or cost; the domain's totals above stay authoritative.",
+    "noRows": "Nothing to list as of this day.",
+    "deletedTeam": "Deleted team",
+    "epic": {
+      "title": "Plan",
+      "budget": "Budget",
+      "budgetValue": "{{md}} MD",
+      "budgetOwn": "the epic's own estimate",
+      "budgetChildren": "the sum of its tasks' estimates",
+      "start": "Planned start",
+      "due": "Planned due",
+      "driftDates": "Dates moved since the original plan",
+      "driftBudget": "Budget changed since the original plan",
+      "noHorizon": "No plan curve: the plan is missing a date, or a date lies more than ten years from today, so planned value stays 0. Earned value and cost still count.",
+      "noCurve": "No plan curve: the planned window holds no working day, so planned value has nothing to be spread over. Earned value and cost still count.",
+      "baselinesTitle": "Baselines",
+      "baselinesLabel": "Plan baselines, oldest first",
+      "effectiveFrom": "In effect from",
+      "supersededAt": "Replaced on",
+      "current": "current"
+    }
   }
 }

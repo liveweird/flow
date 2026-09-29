@@ -11,6 +11,7 @@ import type {
   EpicEstimationAccuracyReport,
   EstimateAdjustmentsReport,
   CycleTimeReport,
+  EpicProgressReport,
   ReportedTimeRatioReport,
   ReportFilters,
   SprintConsistencyReport,
@@ -782,4 +783,128 @@ export const BLOCKED_EMPTY: BlockedTimeReport = {
   excluded: { population: 0, neverStarted: 0, zeroCycle: 0 },
   topItems: [],
   groups: [],
+};
+
+// ---- Epic progress / EVM (report 15) -------------------------------------------------------
+// Consistent by construction: sv = ev − pv, cv = ev − ac, spi = ev ÷ pv, cpi = ev ÷ ac (null when the
+// denominator is 0); a series ends at the as-of figures; the UNIT domain rows add up to the headline.
+
+const EVM_POINTS = [
+  { date: "2026-09-27", pv: 8, ev: 4, ac: 6 },
+  { date: "2026-09-28", pv: 10, ev: 6, ac: 8 },
+  { date: "2026-09-29", pv: 12, ev: 9, ac: 10 },
+];
+const EVM_AS_OF = { day: "2026-09-29", pv: 12, ev: 9, ac: 10, sv: -3, spi: 0.75, cv: -1, cpi: 0.9 };
+
+/** The whole unit: the domains (epic basis), then the teams (sprint basis — one soft-deleted, one UNASSIGNED). */
+export const EPIC_PROGRESS_UNIT: EpicProgressReport = {
+  meta: { ...META, domainView: "EPIC" },
+  level: "UNIT",
+  scope: null,
+  series: [],
+  asOf: EVM_AS_OF,
+  epic: null,
+  foreignWorkShare: null,
+  rows: [
+    { kind: "DOMAIN", id: null, key: "FLO", name: "Flow", pv: 12, ev: 9, ac: 10, sv: -3, spi: 0.75, cv: -1, cpi: 0.9 },
+    { kind: "TEAM", id: 1, key: null, name: "Alpha", active: true, pv: 20, ev: 15, ac: 18, sv: -5, spi: 0.75, cv: -3, cpi: 15 / 18 },
+    { kind: "TEAM", id: 4, key: null, name: "Old team", active: false, pv: 5, ev: 5, ac: 4, sv: 0, spi: 1, cv: 1, cpi: 1.25 },
+    { kind: "TEAM", id: 0, key: null, name: "Unassigned", active: true, pv: 0, ev: 0, ac: 3, sv: 0, spi: null, cv: -3, cpi: 0 },
+  ],
+  note: null,
+};
+
+export const EPIC_PROGRESS_DOMAIN: EpicProgressReport = {
+  meta: { ...META, domainView: "EPIC" },
+  level: "DOMAIN",
+  scope: { kind: "DOMAIN", id: null, key: "FLO", name: "Flow" },
+  series: EVM_POINTS.map((point) => ({ ...point, pvOriginal: null })),
+  asOf: EVM_AS_OF,
+  epic: null,
+  foreignWorkShare: null,
+  rows: [
+    { kind: "EPIC", id: null, key: "FLO-33", name: "Reporting epic", pv: 8, ev: 6, ac: 7, sv: -2, spi: 0.75, cv: -1, cpi: 6 / 7 },
+    { kind: "EPIC", id: null, key: "FLO-40", name: "FLO-40", pv: 4, ev: 3, ac: 3, sv: -1, spi: 0.75, cv: 0, cpi: 1 },
+  ],
+  note: null,
+};
+
+/** An epic re-planned once: the original plan is drawn, both drift flags are set, the budget comes from its tasks. */
+export const EPIC_PROGRESS_EPIC: EpicProgressReport = {
+  meta: { ...META, domainView: "EPIC" },
+  level: "EPIC",
+  scope: { kind: "EPIC", id: null, key: "FLO-33", name: "Reporting epic" },
+  series: EVM_POINTS.map((point, index) => ({ ...point, pvOriginal: [10, 12, 14][index] })),
+  asOf: EVM_AS_OF,
+  epic: {
+    budgetMd: 20,
+    budgetSource: "CHILDREN",
+    startAt: Date.UTC(2026, 8, 1),
+    dueAt: Date.UTC(2026, 9, 31),
+    inPvHorizon: true,
+    hasPvCurve: true,
+    baselines: [
+      { effectiveFrom: 1_780_000_000_000 - 86_400_000 * 30, supersededAt: 1_780_000_000_000 - 86_400_000 * 10, startAt: Date.UTC(2026, 8, 1), dueAt: Date.UTC(2026, 9, 15), budgetMd: 16 },
+      { effectiveFrom: 1_780_000_000_000 - 86_400_000 * 10, supersededAt: null, startAt: Date.UTC(2026, 8, 1), dueAt: Date.UTC(2026, 9, 31), budgetMd: 20 },
+    ],
+    drift: { dates: true, budget: true },
+  },
+  foreignWorkShare: null,
+  rows: [],
+  note: null,
+};
+
+/** An epic with no plan at all: PV 0 (no SPI), no original curve, no drift. */
+export const EPIC_PROGRESS_NO_PLAN: EpicProgressReport = {
+  ...EPIC_PROGRESS_EPIC,
+  series: EVM_POINTS.map((point) => ({ ...point, pv: 0, pvOriginal: null })),
+  asOf: { day: "2026-09-29", pv: 0, ev: 9, ac: 10, sv: 9, spi: null, cv: -1, cpi: 0.9 },
+  epic: {
+    budgetMd: null,
+    budgetSource: null,
+    startAt: null,
+    dueAt: null,
+    inPvHorizon: false,
+    hasPvCurve: false,
+    baselines: [],
+    drift: { dates: false, budget: false },
+  },
+};
+
+/** In the horizon, but the window is a weekend: no working day, so no curve. */
+export const EPIC_PROGRESS_NO_CURVE: EpicProgressReport = {
+  ...EPIC_PROGRESS_EPIC,
+  series: EVM_POINTS.map((point) => ({ ...point, pv: 0, pvOriginal: null })),
+  epic: { ...EPIC_PROGRESS_EPIC.epic!, hasPvCurve: false, baselines: [], drift: { dates: false, budget: false } },
+};
+
+/** A team with nothing logged: CPI and the foreign-work share are both missing. */
+export const EPIC_PROGRESS_TEAM: EpicProgressReport = {
+  meta: { ...META, level: "TEAM", domainView: "EPIC" },
+  level: "TEAM",
+  scope: { kind: "TEAM", id: 1, key: null, name: "Alpha" },
+  series: EVM_POINTS.map((point) => ({ ...point, pvOriginal: null })),
+  asOf: EVM_AS_OF,
+  epic: null,
+  foreignWorkShare: 0.125,
+  rows: [],
+  note: null,
+};
+
+export const EPIC_PROGRESS_TEAM_NO_COST: EpicProgressReport = {
+  ...EPIC_PROGRESS_TEAM,
+  asOf: { day: "2026-09-29", pv: 12, ev: 9, ac: 0, sv: -3, spi: 0.75, cv: 9, cpi: null },
+  foreignWorkShare: null,
+};
+
+export const EPIC_PROGRESS_NOT_DERIVED: EpicProgressReport = {
+  meta: { ...META, domainView: "EPIC", derivedAt: null },
+  level: "UNIT",
+  scope: null,
+  series: [],
+  asOf: { day: null, pv: 0, ev: 0, ac: 0, sv: 0, spi: null, cv: 0, cpi: null },
+  epic: null,
+  foreignWorkShare: null,
+  rows: [],
+  note: NOT_DERIVED,
 };

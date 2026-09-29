@@ -441,7 +441,7 @@ completed · the report's figures · the orange drift badge with the frozen figu
   key). Params this module does not own survive `applyReportFilter`; switching report tabs
   (`reportHref`) drops the report-specific params (`domainView`, `domain`, `activityType`,
   `workCategory`, `breakdown`, `bucket`) the target report has no control for, so a filter the user
-  cannot see or clear never follows them (`REPORT_SPECIFIC_PARAMS` in `utils/reportLinks.ts`). Presets are stored as
+  cannot see or clear never follows them (`REPORT_SPECIFIC_PARAMS` in `utils/reportLinks.ts`; `epicId` is one of them, kept only by epic progress). Presets are stored as
   absolute `from`/`to` dates (calendar days in the configured zone) and recognised again by
   `activePeriodChoice`. **The last team is remembered** (`useStoredState`, `reports.teamId`): a report
   opened with NO filter params at all (a bare nav click) starts on it and the URL is rewritten
@@ -527,6 +527,27 @@ completed · the report's figures · the orange drift badge with the frozen figu
   "N of M were blocked at all" line; share of cycle with `neverStarted`/`zeroCycle`), the top-20 table and the
   groups table; `itemKind` (default TASK, always sent) reuses the WIP bar control, and at TEAM level with epics
   a line says the per-assignee groups cover tasks only.
+- **Epic progress (EVM)** (`pages/ReportEpicProgress.tsx`, the fifth tab of `FLOW_TABS`; `.claude/docs/reports.md` "Report 15").
+  The URL carries at most ONE scope — `epicId` (an epic's issue key, a report-specific managed param that only this
+  report keeps), `domain` or `teamId` (`0` = UNASSIGNED) — and `normalizeEpicProgressFilter` (`utils/epicProgressReport.ts`,
+  the `useReportPage` normalize hook) makes a pasted link answerable: epic over domain over team, and `domainView`,
+  `accountId`, `activityType`, `workCategory` (each a `400`) plus the ignored `breakdown`/`bucket`/`by`/`itemKind`
+  dropped — off the request and off the URL. The bar passes `domain` + `domainExcludesTeam` + `noMember` (no user
+  level) and the page routes its changes through `applyBarChange`, so the LAST scope touched wins, epic included.
+  Levels are drilled by the row NAME links (`scopedSearch` re-scopes the same report, the period travelling along); a
+  domain → epic drill carries the domain in the router `state` so the breadcrumb (`EpicProgressBreadcrumb`) can offer the
+  way back — a directly opened epic simply has only the unit above it. Tiles: PV/EV/AC, SV/CV signed
+  (`formatSignedMd`), SPI/CPI at two decimals (`formatIndex`) — a dash plus the reason when the server sends `null`
+  (PV 0 / AC 0), and above/below 1 said in WORDS (`indexVerdict`, read at the printed precision), never red or green:
+  an index under 1 is a fact about the plan, not a blocking failure. TEAM adds the foreign-work share beside CPI (A20).
+  The UNIT drill is two tables: the domains (the epic basis — they add up to the headline) and the teams (the sprint/
+  author basis — a different view, captioned as not adding up; a soft-deleted team, `active: false`, is marked "Deleted
+  team" and never linked). The chart is a `LineChart` of the CUMULATIVE PV (`flow.6`), EV (`teal.8`), AC (`gray.6`) over
+  ISO dates; at EPIC level the first baseline (`pvOriginal`) is a fourth series in the plan blue but DASHED, only when
+  some point has it (`connectNulls` off), and the full table sits behind `DailyTableDisclosure`. The EPIC plan panel
+  shows the budget and its source, the planned dates (calendar dates, read in UTC), the orange drift badges, every
+  baseline (`effectiveFrom`/`supersededAt` are instants, read in the configured zone) and the two gray "no plan curve"
+  notes (`!inPvHorizon` / in the horizon but `!hasPvCurve`) — EV and AC still count either way.
 - **Load order**: `["reports","filters"]` (staleTime 60 s) → the page query keyed
   `["reports", <report>, <serialized filter>]`, `enabled` once the filters loaded,
   `placeholderData: keepPreviousData` (`ReportChartCard` dims the previous body and sets `aria-busy`).
