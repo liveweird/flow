@@ -20,7 +20,7 @@ Entries are proposals, not delivery commitments.
 
 ## Phase 3: the domain model — implementation in progress (v0.3.0)
 
-Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A25 override the body. A11–A16 were overnight judgement calls (approved 2026-09-28), A23, A25, A26 and A27 approved 2026-09-29; A17–A21 came from the measure contract (`.claude/docs/measures.md`); A22 from the 9d review.
+Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 override the body. A11–A16 were overnight judgement calls (approved 2026-09-28), A23, A25, A26 and A27 approved 2026-09-29; A17–A21 came from the measure contract (`.claude/docs/measures.md`); A22 from the 9d review.
 
 - **Done and merged:**
   - M1 (PR #22), M2 (PR #23), the configuration e2e (PR #24), Dependabot #17;
