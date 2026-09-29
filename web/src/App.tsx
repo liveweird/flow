@@ -37,6 +37,8 @@ const ReportEpicAccuracy = lazy(() => import("./pages/ReportEpicAccuracy"));
 const ReportEstimateAdjustments = lazy(() => import("./pages/ReportEstimateAdjustments"));
 const ReportCycleTime = lazy(() => import("./pages/ReportCycleTime"));
 const ReportReportedTime = lazy(() => import("./pages/ReportReportedTime"));
+const ReportWip = lazy(() => import("./pages/ReportWip"));
+const ReportBacklog = lazy(() => import("./pages/ReportBacklog"));
 const CreateUser = lazy(() => import("./pages/CreateUser"));
 const EditUser = lazy(() => import("./pages/EditUser"));
 const ChangePassword = lazy(() => import("./pages/ChangePassword"));
@@ -216,6 +218,8 @@ export default function App() {
             <Route path="reports/estimate-adjustments" element={<ReportEstimateAdjustments />} />
             <Route path="reports/cycle-time" element={<ReportCycleTime />} />
             <Route path="reports/reported-time-ratio" element={<ReportReportedTime />} />
+            <Route path="reports/wip" element={<ReportWip />} />
+            <Route path="reports/backlog" element={<ReportBacklog />} />
             {/* The management surface — ADMIN only, guarded once here (the pages no longer redirect themselves). */}
             <Route element={<RequireAdmin />}>
               <Route path="users" element={<Users />} />

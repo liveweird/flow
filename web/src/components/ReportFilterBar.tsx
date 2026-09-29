@@ -13,12 +13,17 @@ import {
   DATE_PRESETS,
   LAST_SPRINT_COUNTS,
   presetRange,
+  WIP_BYS,
+  WIP_ITEM_KINDS,
+  wipColumnAvailable,
   withPeriod,
   type Breakdown,
   type Bucket,
   type DomainView,
   type PeriodChoice,
   type ReportFilterState,
+  type WipBy,
+  type WipItemKind,
 } from "../utils/reportFilter";
 
 /**
@@ -34,6 +39,15 @@ export interface ReportControls {
   breakdown?: boolean;
   /** The week/month resolution of a bucketed series (throughput). */
   bucket?: boolean;
+  /** What the WIP report keys its counts by (stage, status, board column). */
+  wipBy?: boolean;
+  /** Which items the WIP report counts (tasks, epics, both). */
+  itemKind?: boolean;
+  /**
+   * The report's aggregate has no team × domain split (the server answers `400` for both together),
+   * so the last of the two controls touched wins: picking a team clears the domain and vice versa.
+   */
+  domainExcludesTeam?: boolean;
 }
 
 const UNCATEGORIZED = "UNCATEGORIZED";
@@ -102,6 +116,7 @@ export default function ReportFilterBar({
       ? undefined
       : filters.teams.find((candidate) => candidate.sprints.some((sprint) => sprint.sprintId === filter.sprintId)));
   const sprints = sprintsNewestFirst(sprintTeam);
+  const columnAvailable = wipColumnAvailable(filter);
   // "Custom range" can coincide with a preset's dates (the range it starts from), so picking it is
   // remembered here rather than re-derived from the URL, which cannot tell the two apart.
   const [customPicked, setCustomPicked] = useState(false);
@@ -141,6 +156,7 @@ export default function ReportFilterBar({
       delete next.teamId;
     } else {
       next.teamId = Number(value);
+      if (controls.domainExcludesTeam) delete next.domain;
     }
     // A sprint belongs to one team — it survives only a change to a team that lists it.
     const stillListed = filters.teams
@@ -230,7 +246,14 @@ export default function ReportFilterBar({
               placeholder={t("reports.filters.anyValue")}
               data={filters.domains.map((domain) => ({ value: domain.domainKey, label: domain.domainName }))}
               value={filter.domain ?? null}
-              onChange={(value) => setKey("domain", value)}
+              onChange={(value) => {
+                if (!controls.domainExcludesTeam || value === null) return setKey("domain", value);
+                // No team × domain split: the domain replaces the team (and the member under it).
+                const next = { ...filter, domain: value };
+                delete next.teamId;
+                delete next.accountId;
+                onChange(next);
+              }}
               clearable
               clearButtonProps={{ "aria-label": t("reports.filters.clearAria", { name: t("reports.filters.domain") }) }}
               searchable
@@ -267,7 +290,11 @@ export default function ReportFilterBar({
             />
           )}
         </Group>
-        {(controls.domainView !== undefined || controls.breakdown || controls.bucket) && (
+        {(controls.domainView !== undefined ||
+          controls.breakdown ||
+          controls.bucket ||
+          controls.wipBy ||
+          controls.itemKind) && (
           <Group gap="lg" align="flex-end" wrap="wrap">
             {controls.domainView !== undefined && (
               <Box>
@@ -295,6 +322,42 @@ export default function ReportFilterBar({
                   data={BUCKETS.map((value) => ({ value, label: t(`reports.filters.bucketOption.${value}`) }))}
                   value={filter.bucket ?? "WEEK"}
                   onChange={(value) => setKey("bucket", value as Bucket)}
+                />
+              </Box>
+            )}
+            {controls.wipBy && (
+              <Box>
+                <Text size="sm" fw={500} mb={4} id="report-wip-by">
+                  {t("reports.filters.wipBy")}
+                </Text>
+                <SegmentedControl
+                  aria-labelledby="report-wip-by"
+                  data={WIP_BYS.map((value) => ({
+                    value,
+                    label: t(`reports.filters.wipByOption.${value}`),
+                    disabled: value === "COLUMN" && !columnAvailable,
+                  }))}
+                  // A column choice the filter can no longer honour (a shared link, a team since cleared) reads as the default.
+                  value={filter.by === "COLUMN" && !columnAvailable ? "STAGE" : (filter.by ?? "STAGE")}
+                  onChange={(value) => setKey("by", value as WipBy)}
+                />
+                {!columnAvailable && (
+                  <Text size="xs" c="dimmed" mt={4} maw={320}>
+                    {t("reports.filters.wipByColumnHint")}
+                  </Text>
+                )}
+              </Box>
+            )}
+            {controls.itemKind && (
+              <Box>
+                <Text size="sm" fw={500} mb={4} id="report-item-kind">
+                  {t("reports.filters.itemKind")}
+                </Text>
+                <SegmentedControl
+                  aria-labelledby="report-item-kind"
+                  data={WIP_ITEM_KINDS.map((value) => ({ value, label: t(`reports.filters.itemKindOption.${value}`) }))}
+                  value={filter.itemKind ?? "TASK"}
+                  onChange={(value) => setKey("itemKind", value as WipItemKind)}
                 />
               </Box>
             )}

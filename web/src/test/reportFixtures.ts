@@ -3,6 +3,7 @@
 // breaks the fixtures, not just the page.
 import type {
   AdjustmentFigures,
+  BacklogReport,
   Distribution,
   EpicAccuracyRow,
   EpicEstimationAccuracyReport,
@@ -14,6 +15,7 @@ import type {
   TaskEstimationAccuracyReport,
   ThroughputReport,
   VelocityReport,
+  WipReport,
 } from "../api/reports";
 
 export const FILTERS: ReportFilters = {
@@ -548,4 +550,113 @@ export const REPORTED_TIME_EMPTY: ReportedTimeRatioReport = {
   flowEfficiency: hiddenDistribution(0),
   flowEfficiencyExcluded: { population: 0, neverStarted: 0, zeroCycle: 0 },
   groups: [],
+};
+
+// ---- WIP (report 9) and the estimated backlog (reports 10, 13) ------------------------------
+
+const NOT_DERIVED = "Not derived yet: no connection in scope has a successful DERIVE run.";
+
+const STAGE_KEYS = ["NOT_STARTED", "IN_PROGRESS", "DONE", "UNMAPPED"].map((key) => ({ key, label: key }));
+
+/** Fri–Tue: the weekend days are not working days; every point carries every key, zero-filled. */
+export const WIP_STAGE: WipReport = {
+  meta: META,
+  by: "STAGE",
+  itemKind: "TASK",
+  keys: STAGE_KEYS,
+  series: [
+    { day: "2026-09-25", isWorkingDay: true, counts: { NOT_STARTED: 40, IN_PROGRESS: 6, DONE: 100, UNMAPPED: 1 } },
+    { day: "2026-09-26", isWorkingDay: false, counts: { NOT_STARTED: 40, IN_PROGRESS: 6, DONE: 100, UNMAPPED: 1 } },
+    { day: "2026-09-27", isWorkingDay: false, counts: { NOT_STARTED: 40, IN_PROGRESS: 6, DONE: 100, UNMAPPED: 1 } },
+    { day: "2026-09-28", isWorkingDay: true, counts: { NOT_STARTED: 39, IN_PROGRESS: 8, DONE: 101, UNMAPPED: 1 } },
+    { day: "2026-09-29", isWorkingDay: true, counts: { NOT_STARTED: 38, IN_PROGRESS: 9, DONE: 102, UNMAPPED: 1 } },
+  ],
+  note: null,
+};
+
+export const WIP_STATUS: WipReport = {
+  meta: META,
+  by: "STATUS",
+  itemKind: "TASK",
+  keys: [
+    { key: "10001", label: "To Do" },
+    { key: "10002", label: "In Progress" },
+    { key: "10003", label: "Done" },
+  ],
+  series: [
+    { day: "2026-09-28", isWorkingDay: true, counts: { "10001": 39, "10002": 8, "10003": 101 } },
+    { day: "2026-09-29", isWorkingDay: true, counts: { "10001": 38, "10002": 9, "10003": 102 } },
+  ],
+  note: null,
+};
+
+export const WIP_COLUMN: WipReport = {
+  meta: { ...META, level: "TEAM" },
+  by: "COLUMN",
+  itemKind: "TASK",
+  keys: [
+    { key: "Backlog", label: "Backlog" },
+    { key: "Doing", label: "Doing" },
+    { key: "(no column)", label: "(no column)" },
+  ],
+  series: [{ day: "2026-09-29", isWorkingDay: true, counts: { Backlog: 12, Doing: 4, "(no column)": 2 } }],
+  note: null,
+};
+
+export const WIP_EPICS: WipReport = { ...WIP_STAGE, itemKind: "EPIC" };
+export const WIP_BOTH: WipReport = { ...WIP_STAGE, itemKind: "BOTH" };
+
+/** No connection has derived: an empty series and the server's explanation. */
+export const WIP_NOT_DERIVED: WipReport = {
+  meta: { ...META, derivedAt: null },
+  by: "STAGE",
+  itemKind: "TASK",
+  keys: STAGE_KEYS,
+  series: [],
+  note: NOT_DERIVED,
+};
+
+const BACKLOG_TREND = [
+  { day: "2026-09-27", items: 10, md: 21 },
+  { day: "2026-09-28", items: 11, md: 23.5 },
+  { day: "2026-09-29", items: 12, md: 25 },
+];
+
+/** 25 MD over a mean of 10 MD per sprint (three of three closed sprints) = 2.5 sprints ahead. */
+export const BACKLOG: BacklogReport = {
+  meta: META,
+  current: { asOfDay: "2026-09-29", items: 12, md: 25, meanDeliveredMd: 10, windowSprints: 3, sprintsUsed: 3, backlogInSprints: 2.5 },
+  trend: BACKLOG_TREND,
+  note: null,
+};
+
+/** TEAM level, one closed sprint of the three-sprint window: 25 ÷ 8 = 3.125 sprints. */
+export const BACKLOG_PARTIAL_WINDOW: BacklogReport = {
+  meta: { ...META, level: "TEAM" },
+  current: { asOfDay: "2026-09-29", items: 12, md: 25, meanDeliveredMd: 8, windowSprints: 3, sprintsUsed: 1, backlogInSprints: 3.125 },
+  trend: BACKLOG_TREND,
+  note: null,
+};
+
+/** No closed sprint (or a scope with no velocity of its own): no mean, so no figure in sprints. */
+export const BACKLOG_NO_VELOCITY: BacklogReport = {
+  meta: { ...META, level: "TEAM" },
+  current: { asOfDay: "2026-09-29", items: 12, md: 25, meanDeliveredMd: null, windowSprints: 3, sprintsUsed: 0, backlogInSprints: null },
+  trend: BACKLOG_TREND,
+  note: null,
+};
+
+/** A mean of exactly 0: the mean is there, the ratio is not. */
+export const BACKLOG_ZERO_VELOCITY: BacklogReport = {
+  meta: { ...META, level: "TEAM" },
+  current: { asOfDay: "2026-09-29", items: 12, md: 25, meanDeliveredMd: 0, windowSprints: 3, sprintsUsed: 3, backlogInSprints: null },
+  trend: BACKLOG_TREND,
+  note: null,
+};
+
+export const BACKLOG_NOT_DERIVED: BacklogReport = {
+  meta: { ...META, derivedAt: null },
+  current: { asOfDay: null, items: 0, md: 0, meanDeliveredMd: null, windowSprints: 3, sprintsUsed: 0, backlogInSprints: null },
+  trend: [],
+  note: NOT_DERIVED,
 };

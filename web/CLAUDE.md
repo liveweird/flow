@@ -486,6 +486,33 @@ completed · the report's figures · the orange drift badge with the frozen figu
   efficiency (active ÷ cycle time, shown as %, no "no time logged" bucket — so the two panels keep
   separate accountings), and reads the median first (the outlier note: very short cycles dominate
   the mean, p95 and the histogram's top; they are never dropped).
+- **Flow metrics group** (`pages/ReportWip.tsx`, `pages/ReportBacklog.tsx`, `FLOW_TABS`, the "Flow metrics" nav leaf
+  `appShell.nav.reportsFlow` — deliberately not just "Flow", which the brand text already is): the two
+  snapshot reports over the daily aggregates. Their bar offers only `domain` (never activity type/work category —
+  `400` server-side) and `domainExcludesTeam` makes the LAST of team/domain touched win (the aggregate has no
+  team × domain split; picking a domain therefore clears the remembered team, like any team clear), and a
+  pasted link with both is normalised on load — the team wins — by `useReportPage`'s `normalize` argument
+  (`dropDomainWithTeam`, `normalizeWipFilter`), which rewrites the URL too so a dropped param cannot come
+  back when another control changes. WIP adds two
+  managed params, `by` (stage · status · board column) and `itemKind` (tasks · epics · both), both always SENT
+  explicitly (`by=STAGE&itemKind=TASK` by default); `by=COLUMN` needs one team (`wipColumnAvailable`) so the
+  option is disabled with a hint otherwise and a stray `by=COLUMN` is dropped from the URL (falls back to
+  STAGE), and a `400` for a request that WAS for columns of one team is the "no board mapped" note, not a
+  failure (any other 400 is the normal failure alert). The chart is a stacked `AreaChart` of end-of-day counts with band
+  toggles (`Chip.Group`, local state): stages keep their vocabulary colours (gray/blue/teal/orange); statuses
+  and columns are arbitrary names, so they never wear a semantic hue: `BAND_CYCLE` alternates blue and gray
+  (flow.6, gray.6, flow.7, gray.6 — the only neutral shades that clear 3:1 on all four surfaces), assigned by
+  position among the bands SHOWN (`paintBands`) so neighbours never share a hue; beyond two bands a hue/shade
+  repeats and the legend, tooltip and tables carry identity. The ticked-bands state is per keying (and per team
+  for columns); STAGE starts with Not started and Done hidden (Done only
+  grows, Not started is the whole backlog). Its text alternatives are a per-band summary table and the full
+  daily table behind `DailyTableDisclosure` (a series can run to ~1100 rows). The backlog page is three tiles
+  (MD, items, "≈ N sprints ahead" — a dash plus the reason when there is no velocity or the mean is 0,
+  "< 0.1" instead of "≈ 0"; at UNIT level the wording says "at least N closed sprints per team", since the pace
+  is a sum of team means and `sprintsUsed` their minimum) and a
+  one-series MD `AreaChart` whose tooltip and table add the item count. The server's `note` (not derived yet,
+  USER level, …) is prose in English only: `ReportNote` shows it verbatim under a translated title, except the "Not derived yet" note when
+  `meta.derivedAt` is null (the translated meta line already says it).
 - **Load order**: `["reports","filters"]` (staleTime 60 s) → the page query keyed
   `["reports", <report>, <serialized filter>]`, `enabled` once the filters loaded,
   `placeholderData: keepPreviousData` (`ReportChartCard` dims the previous body and sets `aria-busy`).

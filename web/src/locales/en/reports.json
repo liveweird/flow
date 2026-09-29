@@ -10,7 +10,9 @@
     "epicAccuracy": "Epic accuracy",
     "adjustments": "Adjustments",
     "cycleTime": "Cycle time",
-    "reportedTime": "Reported time"
+    "reportedTime": "Reported time",
+    "wip": "WIP",
+    "backlog": "Estimated backlog"
   },
   "meta": {
     "derived": "Derived {{date}} · configuration revision {{revision}}",
@@ -59,6 +61,19 @@
     "bucketOption": {
       "WEEK": "Week",
       "MONTH": "Month"
+    },
+    "wipBy": "Count by",
+    "wipByOption": {
+      "STAGE": "Stage",
+      "STATUS": "Status",
+      "COLUMN": "Board column"
+    },
+    "wipByColumnHint": "Board columns need one team: pick a team (not All teams or Unassigned) and clear the domain.",
+    "itemKind": "Count",
+    "itemKindOption": {
+      "TASK": "Tasks",
+      "EPIC": "Epics",
+      "BOTH": "Tasks and epics"
     }
   },
   "groups": {
@@ -319,5 +334,79 @@
       "flowN": "Flow efficiency (items)",
       "flowMedian": "Flow efficiency (median)"
     }
+  },
+  "note": {
+    "title": "About this data"
+  },
+  "daily": {
+    "show": "Show daily figures",
+    "hide": "Hide daily figures",
+    "day": "Day"
+  },
+  "wip": {
+    "title": "WIP",
+    "description": "How many items sit in each stage, status or board column at the end of every day. The bands are stacked, so the top edge is their total.",
+    "chartTitle": "Items at the end of each day",
+    "caption": {
+      "STAGE": "By stage. Not started and Done are hidden at first: Not started holds the whole backlog and Done only ever grows. Tick them to see all the work.",
+      "STATUS": "By status, ordered by stage and then by name.",
+      "COLUMN": "By column of the team's board, in board order."
+    },
+    "bothNote": "Tasks and epics are different grains; counting both adds them together.",
+    "yAxis": "Items",
+    "chartLabel": "Chart: items at the end of each day, stacked by band",
+    "show": "Show in chart",
+    "workingDaysOnly": "Working days only",
+    "noneShown": "Tick at least one band to draw the chart.",
+    "stage": {
+      "NOT_STARTED": "Not started",
+      "IN_PROGRESS": "In progress",
+      "DONE": "Done",
+      "UNMAPPED": "Unmapped status"
+    },
+    "noColumn": "(no column)",
+    "summaryLabel": "Latest day, average and peak per band, as a table",
+    "dailyLabel": "Daily figures, as a table",
+    "column": {
+      "band": "Band",
+      "latest": "Latest day ({{day}})",
+      "average": "Daily average",
+      "peak": "Peak"
+    },
+    "columnNeedsBoard": "This team has no board mapped, so its items cannot be counted by board column. Count by stage or status instead, or map a board in the data source configuration.",
+    "summaryNote": "These figures cover every calendar day of the period, whatever the chart shows."
+  },
+  "backlog": {
+    "title": "Estimated backlog",
+    "description": "Estimated work that has not started: level-0 tasks with their own estimate that sit in no started sprint, counted at the end of each day. A parent estimated only through its sub-tasks is not in it (a known gap).",
+    "currentTitle": "Backlog on {{day}}",
+    "tile": {
+      "md": "Backlog (MD)",
+      "items": "Items",
+      "sprints": "Backlog in sprints"
+    },
+    "sprintsAhead_one": "≈ {{count}} sprint ahead",
+    "sprintsAhead_other": "≈ {{count}} sprints ahead",
+    "noVelocity": "No closed sprint yet, or this selection has no velocity of its own (the unowned backlog or a domain slice), so it cannot be expressed in sprints.",
+    "zeroVelocity": "The recent sprints delivered nothing, so the backlog cannot be expressed in sprints.",
+    "basisShort": "Fewer closed sprints than the window, so the pace is less certain.",
+    "unitNote": "At unit level the pace is the sum of each team's own mean, set against the whole backlog, including the part no team owns, so a large unowned backlog inflates the figure.",
+    "chartTitle": "Backlog over time",
+    "chartCaption": "Man-days at the end of each day; the tooltip and the table add the item count.",
+    "chartLabel": "Chart: estimated backlog in man-days by day",
+    "series": {
+      "backlog": "Backlog"
+    },
+    "tableLabel": "Backlog by day, as a table",
+    "column": {
+      "md": "Backlog (MD)",
+      "items": "Backlog (items)"
+    },
+    "basis_one": "Recent pace: {{md}} MD delivered per sprint, the mean of {{count}} closed sprint (window: {{window}}).",
+    "basis_other": "Recent pace: {{md}} MD delivered per sprint, the mean of {{count}} closed sprints (window: {{window}}).",
+    "unitBasis_one": "Recent pace: the sum of each team's own mean delivery per sprint, {{md}} MD, from at least {{count}} closed sprint per team (window: {{window}}).",
+    "unitBasis_other": "Recent pace: the sum of each team's own mean delivery per sprint, {{md}} MD, from at least {{count}} closed sprints per team (window: {{window}}).",
+    "unitBasisShort": "Some team has fewer closed sprints than the window, so the pace is less certain.",
+    "lessThanTenth": "< 0.1 sprints ahead"
   }
 }

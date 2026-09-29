@@ -154,6 +154,45 @@ describe("ReportFilterBar", () => {
     expect(search().get("breakdown")).toBe("DOMAIN");
   });
 
+  test("a report with no team × domain split lets the last of the two win", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Harness controls={{ domain: true, domainExcludesTeam: true }} />, { route: "/reports/wip?teamId=1&accountId=acc-ann" });
+    await pick(user, "Domain", "Flow");
+    expect(search().get("domain")).toBe("FLO");
+    expect(search().has("teamId")).toBe(false);
+    expect(search().has("accountId")).toBe(false);
+    await pick(user, "Team", "Beta");
+    expect(search().get("teamId")).toBe("2");
+    expect(search().has("domain")).toBe(false);
+  });
+
+  test("clearing the domain leaves the team alone, and a report without the exclusion keeps both", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Harness controls={{ domain: true }} />, { route: "/reports/throughput?teamId=1&domain=FLO" });
+    await pick(user, "Team", "Beta");
+    expect(search().get("domain")).toBe("FLO");
+    expect(search().get("teamId")).toBe("2");
+  });
+
+  test("the WIP controls write by and itemKind; board column is disabled until one team is picked", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Harness controls={{ wipBy: true, itemKind: true }} />, { route: "/reports/wip" });
+    expect(screen.getByRole("radio", { name: "Stage" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: "Tasks" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: "Board column" })).toBeDisabled();
+    await user.click(screen.getByText("Epics"));
+    expect(search().get("itemKind")).toBe("EPIC");
+    await user.click(screen.getByText("Status"));
+    expect(search().get("by")).toBe("STATUS");
+    await pick(user, "Team", "Alpha");
+    await waitFor(() => expect(screen.getByRole("radio", { name: "Board column" })).toBeEnabled());
+    await user.click(screen.getByText("Board column"));
+    expect(search().get("by")).toBe("COLUMN");
+    // The team goes: a column choice nothing can honour reads as the default again.
+    await user.click(screen.getByLabelText("Clear Team"));
+    await waitFor(() => expect(screen.getByRole("radio", { name: "Stage" })).toBeChecked());
+  });
+
   test("a bare report link starts on the remembered team, and the URL says so", async () => {
     localStorage.setItem("flow.viewSettings.reports.teamId", "2");
     renderWithProviders(<Harness />, { route: "/reports/velocity" });

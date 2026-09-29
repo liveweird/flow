@@ -3,11 +3,15 @@ import { epochMillisToIsoDateInZone } from "./isoDate";
 import {
   activePeriodChoice,
   applyReportFilter,
+  dropDomainWithTeam,
   filterLevel,
+  hasReportFilterParams,
+  normalizeWipFilter,
   parseReportFilter,
   presetRange,
   reportQuery,
   serializeReportFilter,
+  wipColumnAvailable,
   withPeriod,
   type ReportFilterState,
 } from "./reportFilter";
@@ -27,6 +31,8 @@ describe("parseReportFilter / serializeReportFilter", () => {
       workCategory: "Maintenance",
       breakdown: "DOMAIN",
       bucket: "MONTH",
+      by: "COLUMN",
+      itemKind: "BOTH",
       connectionId: 2,
     };
     expect(parseReportFilter(serializeReportFilter(filter))).toEqual(filter);
@@ -52,8 +58,22 @@ describe("parseReportFilter / serializeReportFilter", () => {
     expect(parse("lastSprints=0")).toEqual({});
     expect(parse("lastSprints=53")).toEqual({});
     expect(parse("sprintId=-3&teamId=abc")).toEqual({});
-    expect(parse("domainView=SIDEWAYS&breakdown=x&bucket=DAY&connectionId=0")).toEqual({});
+    expect(parse("domainView=SIDEWAYS&breakdown=x&bucket=DAY&connectionId=0&by=ROW&itemKind=STORY")).toEqual({});
     expect(parse("domain=&activityType=%20")).toEqual({});
+  });
+
+  test("the WIP report's keying and item kind are ordinary managed params, serialized before the connection", () => {
+    expect(parse("itemKind=EPIC&by=STATUS&connectionId=2")).toEqual({ by: "STATUS", itemKind: "EPIC", connectionId: 2 });
+    expect(reportQuery({ itemKind: "TASK", by: "STAGE", teamId: 1 })).toBe("teamId=1&by=STAGE&itemKind=TASK");
+    expect(hasReportFilterParams(new URLSearchParams("by=STAGE"))).toBe(true);
+  });
+
+  test("board columns are available for one team only: not the unit, unassigned, or a domain slice", () => {
+    expect(wipColumnAvailable({ teamId: 1 })).toBe(true);
+    expect(wipColumnAvailable({ teamId: 1, accountId: "a" })).toBe(true);
+    expect(wipColumnAvailable({})).toBe(false);
+    expect(wipColumnAvailable({ teamId: 0 })).toBe(false);
+    expect(wipColumnAvailable({ teamId: 1, domain: "FLO" })).toBe(false);
   });
 
   test("a reversed or over-long range is dropped as a pair", () => {
@@ -129,5 +149,26 @@ describe("period presets", () => {
       to: "2026-02-01",
     });
     expect(withPeriod({ teamId: 2, from: "2026-01-01" }, { lastSprints: 3 })).toEqual({ teamId: 2, lastSprints: 3 });
+  });
+});
+
+describe("dropDomainWithTeam and normalizeWipFilter", () => {
+  test("a team and a domain together: the team wins; either alone is untouched (and the same object)", () => {
+    expect(dropDomainWithTeam({ teamId: 1, domain: "FLO", lastSprints: 3 })).toEqual({ teamId: 1, lastSprints: 3 });
+    expect(dropDomainWithTeam({ teamId: 0, domain: "FLO" })).toEqual({ teamId: 0 });
+    const domainOnly: ReportFilterState = { domain: "FLO" };
+    expect(dropDomainWithTeam(domainOnly)).toBe(domainOnly);
+    const teamOnly: ReportFilterState = { teamId: 1 };
+    expect(dropDomainWithTeam(teamOnly)).toBe(teamOnly);
+  });
+
+  test("WIP keeps a column keying only for one team, and judges it AFTER the domain conflict is resolved", () => {
+    expect(normalizeWipFilter({ by: "COLUMN" })).toEqual({});
+    expect(normalizeWipFilter({ by: "COLUMN", teamId: 0 })).toEqual({ teamId: 0 });
+    expect(normalizeWipFilter({ by: "COLUMN", domain: "FLO" })).toEqual({ domain: "FLO" });
+    expect(normalizeWipFilter({ by: "COLUMN", teamId: 1 })).toEqual({ by: "COLUMN", teamId: 1 });
+    // The team wins over the domain, which leaves the columns valid.
+    expect(normalizeWipFilter({ by: "COLUMN", teamId: 1, domain: "FLO" })).toEqual({ by: "COLUMN", teamId: 1 });
+    expect(normalizeWipFilter({ by: "STATUS", itemKind: "EPIC" })).toEqual({ by: "STATUS", itemKind: "EPIC" });
   });
 });

@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import { DEFAULT_THEME, type MantineColorsTuple } from "@mantine/core";
 import { theme } from "../theme";
 import { DARK_TOKENS, LIGHT_TOKENS } from "../themeVariables";
-import { CHART_COLORS, FINAL_COLOR } from "./chartColors";
+import { BAND_CYCLE, CHART_COLORS, FINAL_COLOR } from "./chartColors";
 
 function luminance(hex: string): number {
   const [r, g, b] = [1, 3, 5]
@@ -31,6 +31,20 @@ describe("chart series colours clear WCAG 1.4.11 (3:1) on every chart surface", 
     for (const surface of [...LIGHT_SURFACES, ...DARK_SURFACES]) {
       expect(contrast(shade(color), surface), `${color} on ${surface}`).toBeGreaterThanOrEqual(3);
     }
+  });
+
+  test.each(BAND_CYCLE.map((color) => [color]))("the WIP band cycle colour %s in both schemes", (color) => {
+    for (const surface of [...LIGHT_SURFACES, ...DARK_SURFACES]) {
+      expect(contrast(shade(color), surface), `${color} on ${surface}`).toBeGreaterThanOrEqual(3);
+    }
+  });
+
+  test("the WIP band cycle alternates hues (neighbours never share one, wrap-around included) and uses no semantic hue", () => {
+    const hue = (color: string) => color.split(".")[0];
+    BAND_CYCLE.forEach((color, i) => {
+      expect(hue(color)).not.toBe(hue(BAND_CYCLE[(i + 1) % BAND_CYCLE.length]));
+    });
+    for (const semantic of ["teal", "orange", "red"]) expect(BAND_CYCLE.map(hue)).not.toContain(semantic);
   });
 
   test("the final-scope blue is picked per scheme — flow.8 fails on dark paper", () => {

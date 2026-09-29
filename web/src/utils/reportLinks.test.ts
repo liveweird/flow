@@ -41,6 +41,17 @@ describe("reportHref", () => {
     );
   });
 
+  test("the flow reports keep exactly the controls they show", () => {
+    const search = "teamId=2&domainView=EPIC&domain=FLO&activityType=Bug&workCategory=X&bucket=MONTH&by=STATUS&itemKind=EPIC";
+    // WIP: a domain, what it counts and how it keys — no domain view, activity type, work category or bucket.
+    expect(reportHref("/reports/wip", search)).toBe("/reports/wip?teamId=2&domain=FLO&by=STATUS&itemKind=EPIC");
+    // The backlog has neither by nor itemKind.
+    expect(reportHref("/reports/backlog", search)).toBe("/reports/backlog?teamId=2&domain=FLO");
+    // …and no other report carries WIP's own two.
+    expect(reportHref("/reports/velocity", search)).toBe("/reports/velocity?teamId=2");
+    expect(reportHref("/reports/cycle-time", search)).not.toContain("by=");
+  });
+
   test("an empty query, or one that only held dropped params, is the bare path; foreign params survive", () => {
     expect(reportHref("/reports/velocity", "")).toBe("/reports/velocity");
     expect(reportHref("/reports/velocity", "?bucket=WEEK")).toBe("/reports/velocity");

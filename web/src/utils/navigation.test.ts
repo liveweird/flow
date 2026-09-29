@@ -26,7 +26,7 @@ describe("visibleSections", () => {
   test("Reports is visible to everyone — an admin sees the same leaves there", () => {
     for (const admin of [false, true]) {
       const reports = visibleSections(admin).find((s) => s.label === "appShell.section.reports");
-      expect(reports?.items.map((l) => l.to)).toEqual(["/reports/velocity", "/reports/task-estimation-accuracy"]);
+      expect(reports?.items.map((l) => l.to)).toEqual(["/reports/velocity", "/reports/task-estimation-accuracy", "/reports/wip"]);
       expect(reports?.items[0].activeFor).toEqual([
         "/reports/velocity",
         "/reports/throughput",
@@ -39,6 +39,7 @@ describe("visibleSections", () => {
         "/reports/estimate-adjustments",
         "/reports/reported-time-ratio",
       ]);
+      expect(reports?.items[2].activeFor).toEqual(["/reports/wip", "/reports/backlog"]);
       expect(reports?.items.some((l) => l.adminOnly)).toBe(false);
     }
   });
@@ -53,6 +54,8 @@ describe("visibleSections", () => {
       "/reports/epic-estimation-accuracy",
       "/reports/estimate-adjustments",
       "/reports/reported-time-ratio",
+      "/reports/wip",
+      "/reports/backlog",
     ]);
     const sidebar = visibleSections(true).flatMap((s) => s.items.map((l) => l.to));
     expect(sidebar).not.toContain("/reports/throughput");
@@ -61,6 +64,7 @@ describe("visibleSections", () => {
     expect(sidebar).not.toContain("/reports/estimate-adjustments");
     expect(sidebar).not.toContain("/reports/cycle-time");
     expect(sidebar).not.toContain("/reports/reported-time-ratio");
+    expect(sidebar).not.toContain("/reports/backlog");
   });
 
   test("the account leaves never sit in a section", () => {
@@ -89,9 +93,11 @@ describe("activeNavPath", () => {
     expect(activeNavPath("/reports/task-estimation-accuracy", leaves)).toBe("/reports/task-estimation-accuracy");
     expect(activeNavPath("/reports/epic-estimation-accuracy", leaves)).toBe("/reports/task-estimation-accuracy");
     expect(activeNavPath("/reports/estimate-adjustments", leaves)).toBe("/reports/task-estimation-accuracy");
+    // …and so does the Flow leaf.
+    expect(activeNavPath("/reports/wip", leaves)).toBe("/reports/wip");
+    expect(activeNavPath("/reports/backlog", leaves)).toBe("/reports/wip");
     expect(activeNavPath("/reports/cycle-time", leaves)).toBe("/reports/velocity");
     expect(activeNavPath("/reports/reported-time-ratio", leaves)).toBe("/reports/task-estimation-accuracy");
-    expect(activeNavPath("/reports/wip", leaves)).toBeNull();
     // The longest match still wins across leaves.
     const custom = [
       { to: "/a", label: "appShell.nav.home", icon: leaves[0].icon, activeFor: ["/b/deep"] },

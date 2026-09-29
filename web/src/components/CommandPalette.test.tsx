@@ -51,6 +51,9 @@ describe("CommandPalette", () => {
       "Epic accuracy",
       "Adjustments",
       "Reported time",
+      "Flow metrics",
+      "WIP",
+      "Estimated backlog",
     ]) {
       expect(screen.getByRole("button", { name: new RegExp(`^${report}$`) })).toBeInTheDocument();
     }

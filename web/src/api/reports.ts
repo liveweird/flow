@@ -42,6 +42,13 @@ export type ReportedTimeRatioReport =
   paths["/api/v1/reports/reported-time-ratio"]["get"]["responses"]["200"]["content"]["application/json"];
 export type ReportedTimeGroup = ReportedTimeRatioReport["groups"][number];
 
+export type WipReport = paths["/api/v1/reports/wip"]["get"]["responses"]["200"]["content"]["application/json"];
+export type WipKey = WipReport["keys"][number];
+export type WipPoint = WipReport["series"][number];
+export type BacklogReport = paths["/api/v1/reports/backlog"]["get"]["responses"]["200"]["content"]["application/json"];
+export type BacklogCurrent = BacklogReport["current"];
+export type BacklogPoint = BacklogReport["trend"][number];
+
 export async function getReportFilters(): Promise<ReportFilters> {
   return jsonRequest<ReportFilters>("/api/v1/reports/filters");
 }
@@ -76,4 +83,12 @@ export async function getCycleTimeReport(filter: ReportFilterState): Promise<Cyc
 
 export async function getReportedTimeRatioReport(filter: ReportFilterState): Promise<ReportedTimeRatioReport> {
   return jsonRequest<ReportedTimeRatioReport>(`/api/v1/reports/reported-time-ratio?${reportQuery(filter)}`);
+}
+
+export async function getWipReport(filter: ReportFilterState): Promise<WipReport> {
+  return jsonRequest<WipReport>(`/api/v1/reports/wip?${reportQuery(filter)}`);
+}
+
+export async function getBacklogReport(filter: ReportFilterState): Promise<BacklogReport> {
+  return jsonRequest<BacklogReport>(`/api/v1/reports/backlog?${reportQuery(filter)}`);
 }

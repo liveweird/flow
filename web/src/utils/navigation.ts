@@ -1,6 +1,7 @@
 import type { ParseKeys } from "i18next";
 import {
   IconAdjustments,
+  IconChartAreaLine,
   IconChartBar,
   IconTarget,
   IconHistory,
@@ -13,7 +14,7 @@ import {
   type Icon,
 } from "@tabler/icons-react";
 import { dataSourcesPath } from "./dataSourceLinks";
-import { DELIVERY_TABS, ESTIMATION_TABS, taskAccuracyPath, velocityPath } from "./reportLinks";
+import { DELIVERY_TABS, ESTIMATION_TABS, FLOW_TABS, taskAccuracyPath, velocityPath, wipPath } from "./reportLinks";
 import { teamsPath } from "./teamLinks";
 
 export type NavLeaf = {
@@ -68,6 +69,12 @@ const NAV_SECTIONS: ReadonlyArray<NavSection> = [
         icon: IconTarget,
         activeFor: ESTIMATION_TABS.map((tab) => tab.to),
       },
+      {
+        to: wipPath,
+        label: "appShell.nav.reportsFlow",
+        icon: IconChartAreaLine,
+        activeFor: FLOW_TABS.map((tab) => tab.to),
+      },
     ],
   },
   {
@@ -90,9 +97,9 @@ export const ACCOUNT_NAV: ReadonlyArray<NavLeaf> = [
 
 /**
  * Palette-only leaves: every report of a nav group is its own route and must be findable by name,
- * but the sidebar carries ONE leaf per group (Delivery, Estimation). Tabs never appear in a section.
+ * but the sidebar carries ONE leaf per group (Delivery, Estimation, Flow). Tabs never appear in a section.
  */
-export const REPORT_PALETTE_LEAVES: ReadonlyArray<NavLeaf> = [...DELIVERY_TABS, ...ESTIMATION_TABS].map((tab) => ({
+export const REPORT_PALETTE_LEAVES: ReadonlyArray<NavLeaf> = [...DELIVERY_TABS, ...ESTIMATION_TABS, ...FLOW_TABS].map((tab) => ({
   to: tab.to,
   label: tab.label,
   icon: IconChartBar,

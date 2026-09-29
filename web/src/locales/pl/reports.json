@@ -10,7 +10,9 @@
     "epicAccuracy": "Trafność epików",
     "adjustments": "Korekty",
     "cycleTime": "Czas cyklu",
-    "reportedTime": "Zalogowany czas"
+    "reportedTime": "Zalogowany czas",
+    "wip": "WIP",
+    "backlog": "Oszacowany backlog"
   },
   "meta": {
     "derived": "Wyliczono {{date}} · wersja konfiguracji {{revision}}",
@@ -61,6 +63,19 @@
     "bucketOption": {
       "WEEK": "Tydzień",
       "MONTH": "Miesiąc"
+    },
+    "wipBy": "Licz według",
+    "wipByOption": {
+      "STAGE": "Etap",
+      "STATUS": "Status",
+      "COLUMN": "Kolumna tablicy"
+    },
+    "wipByColumnHint": "Kolumny tablicy wymagają jednego zespołu: wybierz zespół (nie „Wszystkie zespoły” ani „Nieprzypisane”) i wyczyść domenę.",
+    "itemKind": "Licz",
+    "itemKindOption": {
+      "TASK": "Zadania",
+      "EPIC": "Epiki",
+      "BOTH": "Zadania i epiki"
     }
   },
   "groups": {
@@ -327,5 +342,85 @@
       "flowN": "Efektywność przepływu (pozycje)",
       "flowMedian": "Efektywność przepływu (mediana)"
     }
+  },
+  "note": {
+    "title": "O tych danych"
+  },
+  "daily": {
+    "show": "Pokaż wartości dzień po dniu",
+    "hide": "Ukryj wartości dzień po dniu",
+    "day": "Dzień"
+  },
+  "wip": {
+    "title": "WIP",
+    "description": "Ile pozycji znajduje się w każdym etapie, statusie lub kolumnie tablicy na koniec każdego dnia. Pasma są ułożone jedno na drugim, więc górna krawędź to ich suma.",
+    "chartTitle": "Pozycje na koniec każdego dnia",
+    "caption": {
+      "STAGE": "Według etapu. „Nierozpoczęte” i „Zakończone” są na początku ukryte: „Nierozpoczęte” to cały backlog, a „Zakończone” tylko rośnie. Zaznacz je, aby zobaczyć całą pracę.",
+      "STATUS": "Według statusu, w kolejności etapów, a potem nazw.",
+      "COLUMN": "Według kolumn tablicy zespołu, w kolejności z tablicy."
+    },
+    "bothNote": "Zadania i epiki to różne poziomy szczegółowości; liczenie obu dodaje je do siebie.",
+    "yAxis": "Pozycje",
+    "chartLabel": "Wykres: pozycje na koniec każdego dnia, ułożone w pasma",
+    "show": "Pokaż na wykresie",
+    "workingDaysOnly": "Tylko dni robocze",
+    "noneShown": "Zaznacz co najmniej jedno pasmo, aby narysować wykres.",
+    "stage": {
+      "NOT_STARTED": "Nierozpoczęte",
+      "IN_PROGRESS": "W toku",
+      "DONE": "Zakończone",
+      "UNMAPPED": "Status bez przypisanego etapu"
+    },
+    "noColumn": "(bez kolumny)",
+    "summaryLabel": "Ostatni dzień, średnia i szczyt dla każdego pasma, w tabeli",
+    "dailyLabel": "Wartości dzień po dniu, w tabeli",
+    "column": {
+      "band": "Pasmo",
+      "latest": "Ostatni dzień ({{day}})",
+      "average": "Średnia dzienna",
+      "peak": "Szczyt"
+    },
+    "columnNeedsBoard": "Ten zespół nie ma przypisanej tablicy, więc jego pozycji nie można policzyć według kolumn tablicy. Licz według etapu lub statusu albo przypisz tablicę w konfiguracji źródła danych.",
+    "summaryNote": "Te wartości obejmują każdy dzień kalendarzowy okresu, niezależnie od tego, co pokazuje wykres."
+  },
+  "backlog": {
+    "title": "Oszacowany backlog",
+    "description": "Oszacowana praca, która się nie rozpoczęła: zadania poziomu 0 z własnym szacunkiem, które nie są w żadnym rozpoczętym sprincie, liczone na koniec każdego dnia. Zadanie nadrzędne oszacowane tylko przez zadania podrzędne nie wchodzi do backlogu (znana luka).",
+    "currentTitle": "Backlog na dzień {{day}}",
+    "tile": {
+      "md": "Backlog (MD)",
+      "items": "Pozycje",
+      "sprints": "Backlog w sprintach"
+    },
+    "sprintsAhead_one": "≈ {{count}} sprint przed nami",
+    "sprintsAhead_few": "≈ {{count}} sprinty przed nami",
+    "sprintsAhead_many": "≈ {{count}} sprintów przed nami",
+    "sprintsAhead_other": "≈ {{count}} sprinta przed nami",
+    "noVelocity": "Nie ma jeszcze zamkniętego sprintu albo ten wycinek nie ma własnej prędkości (backlog bez właściciela lub wycinek domeny), więc nie da się go wyrazić w sprintach.",
+    "zeroVelocity": "W ostatnich sprintach nic nie dostarczono, więc backlogu nie da się wyrazić w sprintach.",
+    "basisShort": "Zamkniętych sprintów jest mniej niż w oknie, więc tempo jest mniej pewne.",
+    "unitNote": "Na poziomie jednostki tempo to suma średnich poszczególnych zespołów, odniesiona do całego backlogu, także tej części, której nie ma żaden zespół, więc duży backlog bez właściciela zawyża wynik.",
+    "chartTitle": "Backlog w czasie",
+    "chartCaption": "Osobodni na koniec każdego dnia; podpowiedź i tabela dodają liczbę pozycji.",
+    "chartLabel": "Wykres: oszacowany backlog w osobodniach według dnia",
+    "series": {
+      "backlog": "Backlog"
+    },
+    "tableLabel": "Backlog według dnia, w tabeli",
+    "column": {
+      "md": "Backlog (MD)",
+      "items": "Backlog (pozycje)"
+    },
+    "basis_one": "Ostatnie tempo: {{md}} MD dostarczone na sprint, średnia z {{count}} zamkniętego sprintu (okno: {{window}}).",
+    "basis_few": "Ostatnie tempo: {{md}} MD dostarczone na sprint, średnia z {{count}} zamkniętych sprintów (okno: {{window}}).",
+    "basis_many": "Ostatnie tempo: {{md}} MD dostarczone na sprint, średnia z {{count}} zamkniętych sprintów (okno: {{window}}).",
+    "basis_other": "Ostatnie tempo: {{md}} MD dostarczone na sprint, średnia z {{count}} zamkniętego sprintu (okno: {{window}}).",
+    "unitBasis_one": "Ostatnie tempo: suma średnich dostaw poszczególnych zespołów na sprint, {{md}} MD, z co najmniej {{count}} zamkniętego sprintu na zespół (okno: {{window}}).",
+    "unitBasis_few": "Ostatnie tempo: suma średnich dostaw poszczególnych zespołów na sprint, {{md}} MD, z co najmniej {{count}} zamkniętych sprintów na zespół (okno: {{window}}).",
+    "unitBasis_many": "Ostatnie tempo: suma średnich dostaw poszczególnych zespołów na sprint, {{md}} MD, z co najmniej {{count}} zamkniętych sprintów na zespół (okno: {{window}}).",
+    "unitBasis_other": "Ostatnie tempo: suma średnich dostaw poszczególnych zespołów na sprint, {{md}} MD, z co najmniej {{count}} zamkniętego sprintu na zespół (okno: {{window}}).",
+    "unitBasisShort": "Któryś zespół ma mniej zamkniętych sprintów niż wynosi okno, więc tempo jest mniej pewne.",
+    "lessThanTenth": "< 0.1 sprintu przed nami"
   }
 }

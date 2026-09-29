@@ -2,6 +2,11 @@ import { describe, expect, test } from "vitest";
 import type { Distribution } from "../api/reports";
 import {
   ADJUSTMENTS,
+  BACKLOG,
+  BACKLOG_NO_VELOCITY,
+  BACKLOG_NOT_DERIVED,
+  BACKLOG_PARTIAL_WINDOW,
+  BACKLOG_ZERO_VELOCITY,
   ADJUSTMENTS_EMPTY,
   CYCLE_TIME,
   CYCLE_TIME_ALL_HIDDEN,
@@ -20,6 +25,12 @@ import {
   THROUGHPUT_MONTHS,
   THROUGHPUT_UNIT,
   VELOCITY_UNIT,
+  WIP_BOTH,
+  WIP_COLUMN,
+  WIP_EPICS,
+  WIP_NOT_DERIVED,
+  WIP_STAGE,
+  WIP_STATUS,
 } from "./reportFixtures";
 
 // The fixtures stand in for server responses, so they must obey the invariants the server does —
@@ -222,5 +233,30 @@ describe("cycle time and reported time fixtures hold the documented partitions",
         }
       }
     }
+  });
+
+  test("WIP: every point carries every key of the legend, days ascend, and nothing is listed for a report that never derived", () => {
+    for (const report of [WIP_STAGE, WIP_STATUS, WIP_COLUMN, WIP_EPICS, WIP_BOTH, WIP_NOT_DERIVED]) {
+      const keys = report.keys.map((k) => k.key).sort();
+      for (const point of report.series) expect(Object.keys(point.counts).sort()).toEqual(keys);
+      const days = report.series.map((p) => p.day);
+      expect(days).toEqual([...days].sort());
+    }
+    expect(WIP_NOT_DERIVED.series).toEqual([]);
+    expect(WIP_NOT_DERIVED.meta.derivedAt).toBeNull();
+    expect(WIP_NOT_DERIVED.note).toMatch(/^Not derived yet/);
+  });
+
+  test("backlog: current is the trend's last day, and backlog in sprints is md over the mean (null for no or a zero mean)", () => {
+    for (const report of [BACKLOG, BACKLOG_PARTIAL_WINDOW, BACKLOG_NO_VELOCITY, BACKLOG_ZERO_VELOCITY]) {
+      const last = report.trend.at(-1);
+      expect(report.current).toMatchObject({ asOfDay: last?.day, items: last?.items, md: last?.md });
+      const { md, meanDeliveredMd, backlogInSprints, sprintsUsed, windowSprints } = report.current;
+      expect(sprintsUsed).toBeLessThanOrEqual(windowSprints);
+      if (meanDeliveredMd == null || meanDeliveredMd === 0) expect(backlogInSprints).toBeNull();
+      else expect(backlogInSprints).toBeCloseTo(md / meanDeliveredMd, 6);
+    }
+    expect(BACKLOG_NOT_DERIVED.trend).toEqual([]);
+    expect(BACKLOG_NOT_DERIVED.current.asOfDay).toBeNull();
   });
 });
