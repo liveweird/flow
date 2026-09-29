@@ -20,18 +20,17 @@ Entries are proposals, not delivery commitments.
 
 ## Phase 3: the domain model — implementation in progress (v0.3.0)
 
-Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A25 override the body. A11–A16 were overnight judgement calls (approved 2026-09-28), A23 and A25 approved 2026-09-29; A17–A21 came from the measure contract (`.claude/docs/measures.md`); A22 from the 9d review.
+Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A25 override the body. A11–A16 were overnight judgement calls (approved 2026-09-28), A23, A25, A26 and A27 approved 2026-09-29; A17–A21 came from the measure contract (`.claude/docs/measures.md`); A22 from the 9d review.
 
 - **Done and merged:**
   - M1 (PR #22), M2 (PR #23), the configuration e2e (PR #24), Dependabot #17;
   - M3, the derivation (PR #26): the V16/V17 star, DERIVE, the facts, `agg_daily_wip`/`agg_daily_flow`, the invariant-12 digest, and the scale-20 perf check (DERIVE 136 s cold on 24k issues);
   - M4, the reports API (PR #27) and the report pages 1–8, the estimation batch and the reports e2e (PR #28).
-- **M5** on `feat/v0.3.0-m5`: 15a (`/reports/wip`, `/reports/backlog`) and 15b (`/reports/aging-wip`, `/reports/blocked-time`).
+- **M5** on `feat/v0.3.0-m5`: 15a (`/reports/wip`, `/reports/backlog`), 15b (`/reports/aging-wip`, `/reports/blocked-time`), 15c (`/reports/epic-progress`), 16a/16b (the pages for reports 9–12), and the derive-run prune fix.
 - **Next:**
-  1. **M5 15c:** `/reports/epic-progress` (report 15, EVM; A7 + A20). It was due in commit 15 and was missed.
-  2. **16:** the flow pages for reports 9–12 and 15.
-  3. **17 and 18:** the data quality (14) and cost matrix (16) reports and their pages, and the Home overview (A9).
-  4. **19:** the batch-2 e2e, the docs sweep, and the v0.3.0 changelog. No tag or release without asking.
+  1. **16c:** the epic-progress page (report 15).
+  2. **17 and 18:** the data quality (14) and cost matrix (16) reports and their pages, and the Home overview (A9).
+  3. **19:** the batch-2 e2e, the docs sweep, and the v0.3.0 changelog. No tag or release without asking.
 - **Small follow-ups from M2 and M3:**
   - The Jira member picker resolves names from the first 100 unit people. Page through, or look up by account id.
   - "End membership" uses UTC; consider the configured zone.
