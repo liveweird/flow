@@ -9,20 +9,14 @@ import java.time.ZoneId
 import java.time.temporal.TemporalAdjusters
 import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.Serializable
-import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.greaterEq
 import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.isNotNull
-import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.core.less
-import org.jetbrains.exposed.v1.core.or
 import org.jetbrains.exposed.v1.r2dbc.select
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
-
-/** The literal `workCategory` value that selects tasks with no category (`.claude/docs/reports.md`). */
-private const val UNCATEGORIZED = "UNCATEGORIZED"
 
 /** The `bucket` query param: the period view's time resolution. Weeks start Monday; both in the configured zone. */
 @Serializable
@@ -114,24 +108,18 @@ suspend fun ReportService.throughput(
     bucket: ThroughputBucket,
     nowMs: Long,
 ): ThroughputReport = suspendTransaction(database) {
-    val settings = metricsConfig.read()
-    val zone = zoneOf(settings.timeZone)
-    val connectionIds = resolveConnectionScope(filter.connectionId)
-    val derivedAt = latestDerivedAt(connectionIds)
-    val unassigned = filter.teamId == UNASSIGNED_TEAM_ID
-    if (!unassigned) filter.teamId?.let { requireActiveTeam(it) }
-    val narrowTeamId = filter.teamId.takeIf { filter.level != ReportLevel.UNIT && !unassigned }
-
     // teamId=0: no sprint ever carries "no team", so the sprint view (and any sprint-relative window) is empty.
-    val sprintRows = if (unassigned) emptyList() else resolveSprintRows(filter.period, connectionIds, narrowTeamId)
-    val meta = filter.toMeta(derivedAt, settings.configRevision, settings.minSampleSize, resolvedSprintGroups(filter.period, sprintRows))
+    val scope = resolveReportScope(filter, nowMs)
+    val zone = zoneOf(scope.settings.timeZone)
+    val connectionIds = scope.connectionIds
+    val sprintRows = scope.sprintRows
 
     val bySprint = when (filter.level) {
         ReportLevel.USER -> userSprints(sprintRows, requireNotNull(filter.accountId) { "USER level always carries an accountId" })
         else -> teamSprints(sprintRows)
     }.sortedWith(compareBy<ThroughputSprint, Long?>(nullsLast()) { it.completedAt }.thenBy { it.sprintId })
 
-    val window = periodWindow(filter.period, sprintRows, nowMs)
+    val window = scope.window
     val tasks = if (window == null) emptyList() else fetchDoneTasks(filter, connectionIds, window)
     val byBucket = if (window == null) emptyList() else bucketRows(tasks, window, zone, bucket)
     val groups = when (filter.level) {
@@ -139,46 +127,14 @@ suspend fun ReportService.throughput(
         ReportLevel.TEAM -> userThroughputGroups(tasks)
         ReportLevel.USER -> emptyList()
     }
-    ThroughputReport(meta, bySprint, byBucket, groups)
-}
-
-/**
- * The period view's `[fromMs, toMsExclusive)` window: a `from`/`to` period as parsed; a
- * `lastSprints`/`sprintId` period the resolved sprints' overall envelope — `[min(start_at, else
- * complete_at, else now), max(complete_at, else now)]` (inclusive end). An OPEN sprint (no
- * `complete_at`, reachable only by an explicit `sprintId`) therefore ends at [nowMs]; a sprint with no
- * `start_at` starts where it ends, and a not-yet-started future sprint starts after `now`, giving an
- * empty window and so an empty period view. `null` when no sprint resolved (nothing to read).
- */
-private fun periodWindow(period: ReportPeriod, sprintRows: List<SprintRow>, nowMs: Long): Pair<Long, Long>? = when (period) {
-    is ReportPeriod.DateRange -> period.fromMs to period.toMs
-    else -> if (sprintRows.isEmpty()) {
-        null
-    } else {
-        sprintRows.minOf { it.startAt ?: it.completedAt ?: nowMs } to sprintRows.maxOf { it.completedAt ?: nowMs } + 1
-    }
+    ThroughputReport(scope.meta, bySprint, byBucket, groups)
 }
 
 private suspend fun fetchDoneTasks(filter: ReportFilter, connectionIds: List<UInt>, window: Pair<Long, Long>): List<DoneTask> {
     if (connectionIds.isEmpty()) return emptyList()
     val t = MetricsStore.FactTaskDelivery
-    var predicate: Op<Boolean> = (t.connectionId inList connectionIds) and (t.isSubtask eq false) and
+    val predicate = taskFactSlice(filter, connectionIds) and
         t.doneAt.isNotNull() and (t.doneAt greaterEq window.first) and (t.doneAt less window.second)
-    filter.teamId?.let { team ->
-        predicate = predicate and if (team == UNASSIGNED_TEAM_ID) t.creditTeamId.isNull() else (t.creditTeamId eq team)
-    }
-    filter.accountId?.let { predicate = predicate and (t.assigneeAccountIdAtDone eq it) }
-    filter.domain?.let { domain ->
-        predicate = predicate and when (filter.domainView) {
-            DomainView.TASK -> t.domainKey eq domain
-            // A21: the epic's domain view, a task with no epic falls back to its own domain.
-            DomainView.EPIC -> (t.epicDomainKey eq domain) or (t.epicDomainKey.isNull() and (t.domainKey eq domain))
-        }
-    }
-    filter.activityType?.let { predicate = predicate and (t.activityType eq it) }
-    filter.workCategory?.let { category ->
-        predicate = predicate and if (category == UNCATEGORIZED) t.workCategory.isNull() else (t.workCategory eq category)
-    }
     return t.select(t.doneAt, t.estimateAtDoneMd, t.creditTeamId, t.assigneeAccountIdAtDone).where { predicate }.toList().map {
         DoneTask(
             doneAt = it[t.doneAt]!!,

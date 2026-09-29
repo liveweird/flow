@@ -1420,6 +1420,137 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/reports/task-estimation-accuracy:
+    get:
+      tags: [reports]
+      operationId: getReportTaskEstimationAccuracy
+      summary: Report 3 — task estimation accuracy (actual cost ÷ estimate, a distribution)
+      description: |
+        Any authenticated user (D12), read-only — `.claude/docs/measures.md` "Reports 3, 4, 5". Population:
+        level-0 tasks (no sub-tasks — their worklogs and estimates roll into the parent) DONE in the period
+        (`done_at`); team = the D5 credit team, user = assignee at done, domain per `domainView` (default TASK).
+        `atStart` is `actual_md ÷ estimate at start` (D15, the primary view), `atDone` the same over the
+        estimate at done — both `Distribution`s, hidden below `minSampleSize`. A task lands in exactly ONE
+        exclusion bucket (`excluded`, checked in this order): `noWorklogs` (D14 — no time logged, or so little that
+        `actual_md` is 0.00; both views),
+        `neverStarted` (no `started_at`, so no estimate at start — `atStart` only), `unestimatedAtStart`
+        (no estimate at start, including estimated-late) / `unestimatedAtDone` (no estimate at done). So
+        `atStart.n + noWorklogs + neverStarted + unestimatedAtStart = population` and
+        `atDone.n + noWorklogs + unestimatedAtDone = population`. Levels: UNIT (default) — `groups` one per
+        credit team (`teamId` null = UNASSIGNED); `teamId` narrows to TEAM (`teamId=0` = the UNASSIGNED
+        credit) and `groups` becomes one per assignee at done (null `accountId` = unassigned); `teamId` AND
+        `accountId` narrow to USER (`groups` empty). Each group carries its own distributions and exclusion
+        counts. For `lastSprints`/`sprintId` the period is the resolved sprints' overall envelope, as in
+        throughput. `breakdown` is accepted by the shared parser but does not change this report.
+      parameters:
+        - { $ref: '#/components/parameters/ReportFrom' }
+        - { $ref: '#/components/parameters/ReportTo' }
+        - { $ref: '#/components/parameters/ReportLastSprints' }
+        - { $ref: '#/components/parameters/ReportSprintId' }
+        - { $ref: '#/components/parameters/ReportTeamId' }
+        - { $ref: '#/components/parameters/ReportAccountId' }
+        - { $ref: '#/components/parameters/ReportDomainView' }
+        - { $ref: '#/components/parameters/ReportDomain' }
+        - { $ref: '#/components/parameters/ReportActivityType' }
+        - { $ref: '#/components/parameters/ReportWorkCategory' }
+        - { $ref: '#/components/parameters/ReportConnectionId' }
+      responses:
+        '200':
+          description: The task estimation accuracy report
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskEstimationAccuracyReport'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/reports/epic-estimation-accuracy:
+    get:
+      tags: [reports]
+      operationId: getReportEpicEstimationAccuracy
+      summary: Report 4 — epic estimation accuracy (actual cost ÷ the epic's OWN estimate, a distribution)
+      description: |
+        Any authenticated user (D12), read-only — `.claude/docs/measures.md` "Reports 3, 4, 5". Population:
+        epics DONE by their own status (D11) in the period (`done_at`); team = the epic's domain OWNER team
+        (A19, `teamId=0` = no owner, UNOWNED), domain = the epic's own space (an epic's domain is the same
+        under either `domainView`, which defaults to EPIC and is only echoed in `meta`), `workCategory`
+        slices; `activityType` is not an epic attribute and is ignored (not declared here). `atStart` is `actual_md ÷ OWN
+        estimate at start` (D15), `atDone` the same at done; the sum of the child estimates is listed
+        alongside in `epics` (never used as the estimate). An epic lands in exactly ONE exclusion bucket
+        (`excluded`): `noActual` (`actual_md = 0`), `neverStarted` (no `started_at`, so no estimate at start —
+        `atStart` only), else `unestimatedAtStart` / `unestimatedAtDone` (no OWN estimate at that snapshot —
+        e.g. a budget that is only the child sum). `epics` lists every DONE epic
+        in scope, newest `doneAt` first (then connection id, then issue id), at most 200 (`epicsTruncated` says when more
+        matched); `ratio`/`ratioAtDone` are null for an excluded epic. Levels: UNIT (default) — `groups` one
+        per owner team; TEAM narrows to that owner team and has no groups (epics carry no user); USER
+        (`teamId` AND `accountId`) is always empty. Sprint-relative periods use the resolved sprints'
+        envelope, as in throughput. `breakdown` is accepted but does not change this report.
+      parameters:
+        - { $ref: '#/components/parameters/ReportFrom' }
+        - { $ref: '#/components/parameters/ReportTo' }
+        - { $ref: '#/components/parameters/ReportLastSprints' }
+        - { $ref: '#/components/parameters/ReportSprintId' }
+        - { $ref: '#/components/parameters/ReportTeamId' }
+        - { $ref: '#/components/parameters/ReportAccountId' }
+        - { $ref: '#/components/parameters/ReportDomainView' }
+        - { $ref: '#/components/parameters/ReportDomain' }
+        - { $ref: '#/components/parameters/ReportWorkCategory' }
+        - { $ref: '#/components/parameters/ReportConnectionId' }
+      responses:
+        '200':
+          description: The epic estimation accuracy report
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EpicEstimationAccuracyReport'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/reports/estimate-adjustments:
+    get:
+      tags: [reports]
+      operationId: getReportEstimateAdjustments
+      summary: Report 5 — estimate adjustments (how often and by how much an estimate moved after start)
+      description: |
+        Any authenticated user (D12), read-only — `.claude/docs/measures.md` "Reports 3, 4, 5". `tasks`
+        (level-0 tasks: team = D5 credit team, user = assignee at done, domain per `domainView`, default
+        TASK) and `epics` (the epic's OWN estimate: team = owner team, domain = its own space) each carry
+        `AdjustmentFigures`: of the items STARTED in the period (`started_at`), how many had an estimate
+        change after start (`changedAfterStart`, `share` their 0..1 fraction — null, counts only, when fewer
+        than `minSampleSize` items started) and how many were estimated late
+        (no estimate at start, one later); and, over the items DONE in the period (`done_at`) with both
+        estimates, the distribution of the fractional change start → done (`(done − start) ÷ start`, `0.25`
+        is +25 percent). Estimated-late items are counted separately and never enter the distribution
+        (`changeExcluded`: `changeDistribution.n + estimatedLate + unestimated = population`). Attribution
+        (A25): a DONE task is attributed to its credit team and assignee at done, a still-OPEN task to its
+        current team and current assignee (branching on `done_at`; a DONE task with no credit team is
+        legitimately UNASSIGNED). Levels: UNIT (default) — `groups` one per team (both kinds; `teamId` null =
+        UNASSIGNED tasks / UNOWNED epics); TEAM narrows to that team, `groups` one per assignee at done
+        (tasks only, `epics` null); USER narrows tasks to that account, `epics` is empty and `groups` empty
+        (epics carry no user). Sprint-relative periods use the resolved sprints' envelope, as in throughput.
+        `breakdown` is accepted but does not change this report.
+      parameters:
+        - { $ref: '#/components/parameters/ReportFrom' }
+        - { $ref: '#/components/parameters/ReportTo' }
+        - { $ref: '#/components/parameters/ReportLastSprints' }
+        - { $ref: '#/components/parameters/ReportSprintId' }
+        - { $ref: '#/components/parameters/ReportTeamId' }
+        - { $ref: '#/components/parameters/ReportAccountId' }
+        - { $ref: '#/components/parameters/ReportDomainView' }
+        - { $ref: '#/components/parameters/ReportDomain' }
+        - { $ref: '#/components/parameters/ReportActivityType' }
+        - { $ref: '#/components/parameters/ReportWorkCategory' }
+        - { $ref: '#/components/parameters/ReportConnectionId' }
+      responses:
+        '200':
+          description: The estimate adjustments report
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EstimateAdjustmentsReport'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/metrics-settings:
     get:
       tags: [metrics]
@@ -3048,6 +3179,167 @@ components:
         groups:
           type: array
           items: { $ref: '#/components/schemas/SprintConsistencyGroup' }
+
+    TaskAccuracyExcluded:
+      type: object
+      description: >-
+        DONE level-0 tasks a task-accuracy read could not turn into a ratio, each in ONE bucket
+        (`noWorklogs` first — D14, incl. `actual_md` of 0.00, both views; then `neverStarted` — `atStart` only; then
+        `unestimatedAtStart` / `unestimatedAtDone`). `atStart.n + noWorklogs + neverStarted +
+        unestimatedAtStart = population`; `atDone.n + noWorklogs + unestimatedAtDone = population`.
+      required: [population, noWorklogs, neverStarted, unestimatedAtStart, unestimatedAtDone]
+      properties:
+        population: { type: integer, minimum: 0 }
+        noWorklogs: { type: integer, minimum: 0 }
+        neverStarted: { type: integer, minimum: 0 }
+        unestimatedAtStart: { type: integer, minimum: 0 }
+        unestimatedAtDone: { type: integer, minimum: 0 }
+    TaskAccuracyGroup:
+      type: object
+      description: >-
+        A credit team (UNIT level; `teamId` null = UNASSIGNED, `accountId` null) or an assignee at done
+        (TEAM level; a null `accountId` with a null `label` is the unassigned bucket) — always empty at
+        USER level.
+      required: [teamId, accountId, label, atStart, atDone, excluded]
+      properties:
+        teamId: { type: integer, format: int32, minimum: 0, nullable: true }
+        accountId: { type: string, nullable: true }
+        label: { type: string, nullable: true }
+        atStart: { $ref: '#/components/schemas/Distribution' }
+        atDone: { $ref: '#/components/schemas/Distribution' }
+        excluded: { $ref: '#/components/schemas/TaskAccuracyExcluded' }
+    TaskEstimationAccuracyReport:
+      type: object
+      required: [meta, atStart, atDone, excluded, groups]
+      properties:
+        meta: { $ref: '#/components/schemas/ReportMeta' }
+        atStart:
+          allOf: [{ $ref: '#/components/schemas/Distribution' }]
+          description: "`actual_md ÷ estimate at start` (D15) per DONE level-0 task."
+        atDone:
+          allOf: [{ $ref: '#/components/schemas/Distribution' }]
+          description: "`actual_md ÷ estimate at done` per DONE level-0 task."
+        excluded: { $ref: '#/components/schemas/TaskAccuracyExcluded' }
+        groups:
+          type: array
+          items: { $ref: '#/components/schemas/TaskAccuracyGroup' }
+
+    EpicAccuracyExcluded:
+      type: object
+      description: >-
+        DONE epics an accuracy read could not turn into a ratio, each in ONE bucket (`noActual` first,
+        then `neverStarted` — `atStart` only — then `unestimatedAtStart` / `unestimatedAtDone`).
+        `atStart.n + noActual + neverStarted + unestimatedAtStart = population`;
+        `atDone.n + noActual + unestimatedAtDone = population`.
+      required: [population, noActual, neverStarted, unestimatedAtStart, unestimatedAtDone]
+      properties:
+        population: { type: integer, minimum: 0 }
+        noActual: { type: integer, minimum: 0 }
+        neverStarted: { type: integer, minimum: 0 }
+        unestimatedAtStart: { type: integer, minimum: 0 }
+        unestimatedAtDone: { type: integer, minimum: 0 }
+    EpicAccuracyRow:
+      type: object
+      description: >-
+        One DONE epic in scope. `ratio` is `actualMd ÷ ownEstimateAtStartMd` (D15), `ratioAtDone` the same
+        at done — each null when the epic is excluded from that distribution. `childSumMd` is the sum of
+        the child estimates, shown beside the own estimate.
+      required: [issueKey, summary, ownerTeamId, doneAt, ownEstimateAtStartMd, ownEstimateAtDoneMd, childSumMd, actualMd, ratio, ratioAtDone]
+      properties:
+        issueKey: { type: string }
+        summary: { type: string, nullable: true }
+        ownerTeamId: { type: integer, format: int32, minimum: 0, nullable: true, description: "The domain's owner team (A19); null = UNOWNED." }
+        doneAt: { type: integer, format: int64 }
+        ownEstimateAtStartMd: { type: number, format: double, nullable: true }
+        ownEstimateAtDoneMd: { type: number, format: double, nullable: true }
+        childSumMd: { type: number, format: double }
+        actualMd: { type: number, format: double }
+        ratio: { type: number, format: double, nullable: true }
+        ratioAtDone: { type: number, format: double, nullable: true }
+    EpicAccuracyGroup:
+      type: object
+      description: One owner team (UNIT level only; `teamId` null = UNOWNED).
+      required: [teamId, label, atStart, atDone, excluded]
+      properties:
+        teamId: { type: integer, format: int32, minimum: 0, nullable: true }
+        label: { type: string, nullable: true }
+        atStart: { $ref: '#/components/schemas/Distribution' }
+        atDone: { $ref: '#/components/schemas/Distribution' }
+        excluded: { $ref: '#/components/schemas/EpicAccuracyExcluded' }
+    EpicEstimationAccuracyReport:
+      type: object
+      required: [meta, atStart, atDone, excluded, epics, epicsTruncated, groups]
+      properties:
+        meta: { $ref: '#/components/schemas/ReportMeta' }
+        atStart:
+          allOf: [{ $ref: '#/components/schemas/Distribution' }]
+          description: "`actual_md ÷ OWN estimate at start` (D15) per DONE epic."
+        atDone:
+          allOf: [{ $ref: '#/components/schemas/Distribution' }]
+          description: "`actual_md ÷ OWN estimate at done` per DONE epic."
+        excluded: { $ref: '#/components/schemas/EpicAccuracyExcluded' }
+        epics:
+          type: array
+          maxItems: 200
+          description: Every DONE epic in scope, newest `doneAt` first (then connection id, then issue id), at most 200.
+          items: { $ref: '#/components/schemas/EpicAccuracyRow' }
+        epicsTruncated: { type: boolean, description: "True when more than 200 epics matched." }
+        groups:
+          type: array
+          items: { $ref: '#/components/schemas/EpicAccuracyGroup' }
+
+    AdjustmentChangeExcluded:
+      type: object
+      description: >-
+        DONE items (by `done_at`) the change distribution could not take, each in ONE bucket:
+        `estimatedLate` (never a `+∞` change), else `unestimated` (either estimate missing, incl. never
+        started). `changeDistribution.n + estimatedLate + unestimated = population`.
+      required: [population, estimatedLate, unestimated]
+      properties:
+        population: { type: integer, minimum: 0 }
+        estimatedLate: { type: integer, minimum: 0 }
+        unestimated: { type: integer, minimum: 0 }
+    AdjustmentFigures:
+      type: object
+      description: >-
+        The adjustment figures of one item kind. Of the items STARTED in the period: `changedAfterStart`
+        had an estimate change after start, `share` is their 0..1 fraction (null when fewer than
+        `minSampleSize` items started),
+        `estimatedLate` gained an estimate only after start. `changeDistribution` is the fractional change
+        start → done (`(done − start) ÷ start`) over items DONE in the period with both estimates.
+      required: [started, changedAfterStart, share, estimatedLate, changeDistribution, changeExcluded]
+      properties:
+        started: { type: integer, minimum: 0 }
+        changedAfterStart: { type: integer, minimum: 0 }
+        share: { type: number, format: double, nullable: true }
+        estimatedLate: { type: integer, minimum: 0 }
+        changeDistribution: { $ref: '#/components/schemas/Distribution' }
+        changeExcluded: { $ref: '#/components/schemas/AdjustmentChangeExcluded' }
+    EstimateAdjustmentsGroup:
+      type: object
+      description: >-
+        A team (UNIT level; `teamId` null = UNASSIGNED tasks / UNOWNED epics, `accountId` null) or an
+        assignee at done (TEAM level, tasks only — `epics` null; a null `accountId` with a null `label`
+        is the unassigned bucket) — always empty at USER level.
+      required: [teamId, accountId, label, tasks, epics]
+      properties:
+        teamId: { type: integer, format: int32, minimum: 0, nullable: true }
+        accountId: { type: string, nullable: true }
+        label: { type: string, nullable: true }
+        tasks: { $ref: '#/components/schemas/AdjustmentFigures' }
+        epics:
+          allOf: [{ $ref: '#/components/schemas/AdjustmentFigures' }]
+          nullable: true
+    EstimateAdjustmentsReport:
+      type: object
+      required: [meta, tasks, epics, groups]
+      properties:
+        meta: { $ref: '#/components/schemas/ReportMeta' }
+        tasks: { $ref: '#/components/schemas/AdjustmentFigures' }
+        epics: { $ref: '#/components/schemas/AdjustmentFigures' }
+        groups:
+          type: array
+          items: { $ref: '#/components/schemas/EstimateAdjustmentsGroup' }
 
     ProblemDetail:
       type: object
