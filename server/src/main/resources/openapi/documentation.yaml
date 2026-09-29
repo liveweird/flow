@@ -1697,6 +1697,88 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/reports/aging-wip:
+    get:
+      tags: [reports]
+      operationId: getReportAgingWip
+      summary: Report 11 — the age of every in-progress task and epic against the cycle-time percentiles
+      description: |
+        Any authenticated user (D12), read-only — `.claude/docs/measures.md` "Report 11". An "as of now" read: the
+        period parameters are accepted but ignored (a sprint-relative one only resolves sprints). `items` lists every
+        OPEN level-0 task and epic in an IN_PROGRESS stage (`UNMAPPED` is not in progress), oldest first, at most 500
+        (`itemsTruncated`), each with its age in WORKING days from `started_at` to the request's clock, computed with
+        the configured calendar. Tasks are attributed to the CURRENT team and assignee (A25), epics to the owner team
+        and have no assignee. `thresholds` are the configured percentiles (`aging_percentiles`) of `cycle_working_days`
+        over the LAST `aging_window_items` DONE level-0 tasks of the scope (credit team; `n` of them), `epicThresholds`
+        the same over DONE epics — hidden (only `n`, every `workingDays` null) below `minSampleSize`. An item's `band`
+        is the highest threshold its age is above (`P85` = above p85 but not above the next), `WITHIN` when above none,
+        null when its thresholds are hidden. Thresholds belong to the team, so `accountId` narrows the listed items
+        only; at UNIT level they span the whole unit. `blocked` = blocked as of the connection's last DERIVE (a blocked spell covers its clock). Levels:
+        UNIT (default), `teamId` (`0` = UNASSIGNED tasks / UNOWNED epics), USER (`teamId` and `accountId` — tasks only,
+        epics have no user). `domain`, `activityType` and `workCategory` slice as elsewhere.
+      parameters:
+        - { $ref: '#/components/parameters/ReportFrom' }
+        - { $ref: '#/components/parameters/ReportTo' }
+        - { $ref: '#/components/parameters/ReportLastSprints' }
+        - { $ref: '#/components/parameters/ReportSprintId' }
+        - { $ref: '#/components/parameters/ReportTeamId' }
+        - { $ref: '#/components/parameters/ReportAccountId' }
+        - { $ref: '#/components/parameters/ReportDomainView' }
+        - { $ref: '#/components/parameters/ReportDomain' }
+        - { $ref: '#/components/parameters/ReportActivityType' }
+        - { $ref: '#/components/parameters/ReportWorkCategory' }
+        - { $ref: '#/components/parameters/ReportConnectionId' }
+      responses:
+        '200':
+          description: The aging WIP report
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgingWipReport'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/reports/blocked-time:
+    get:
+      tags: [reports]
+      operationId: getReportBlockedTime
+      summary: Report 12 — blocked working days per DONE item and as a share of its cycle
+      description: |
+        Any authenticated user (D12), read-only — `.claude/docs/measures.md` "Report 12". Population: DONE items by
+        `done_at` in the period — level-0 tasks (`itemKind=TASK`, the default), epics (`EPIC`) or both (`BOTH`); tasks are
+        attributed to the D5 credit team and the assignee at done, epics to the owner team (no user). Blocked time is
+        the working days between an item's start and its done that it spent Flagged or in a configured blocked status
+        (merged, so overlapping spells count once). `blockedWorkingDays` is a `Distribution` over EVERY DONE item — an
+        item never blocked is a real zero — and `blockedItems` counts those blocked at all. `shareOfCycle` is
+        `blocked ÷ cycle working days` over the items with a cycle above zero; each other item is in exactly ONE
+        `excluded` bucket (`neverStarted`, then `zeroCycle`), so `shareOfCycle.n + neverStarted + zeroCycle =
+        population`. Both distributions are hidden below `minSampleSize`. `topItems` lists the 20 most-blocked items.
+        Levels: UNIT `groups` per team (tasks and epics), TEAM per assignee at done (tasks only — epics have no user,
+        so Σ groups is the tasks' total there), USER none and no epics. Sprint-relative periods use the resolved
+        sprints' envelope. `breakdown` is accepted and changes nothing.
+      parameters:
+        - { $ref: '#/components/parameters/ReportFrom' }
+        - { $ref: '#/components/parameters/ReportTo' }
+        - { $ref: '#/components/parameters/ReportLastSprints' }
+        - { $ref: '#/components/parameters/ReportSprintId' }
+        - { $ref: '#/components/parameters/ReportTeamId' }
+        - { $ref: '#/components/parameters/ReportAccountId' }
+        - { $ref: '#/components/parameters/ReportDomainView' }
+        - { $ref: '#/components/parameters/ReportDomain' }
+        - { $ref: '#/components/parameters/ReportActivityType' }
+        - { $ref: '#/components/parameters/ReportWorkCategory' }
+        - { $ref: '#/components/parameters/ReportConnectionId' }
+        - { $ref: '#/components/parameters/ReportBlockedItemKind' }
+      responses:
+        '200':
+          description: The blocked time report
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BlockedTimeReport'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/reports/reported-time-ratio:
     get:
       tags: [reports]
@@ -1922,6 +2004,12 @@ components:
       required: false
       schema: { type: string, enum: [TASK, EPIC, BOTH], default: TASK }
       description: Which items the WIP report counts — level-0 tasks (default), epics (a different grain), or both added together.
+    ReportBlockedItemKind:
+      name: itemKind
+      in: query
+      required: false
+      schema: { type: string, enum: [TASK, EPIC, BOTH], default: TASK }
+      description: Which DONE items the blocked-time report counts — level-0 tasks (default), epics (a different grain), or both.
   responses:
     UnsupportedMediaType:
       description: Request body must use application/json. A missing body or Content-Type remains a 400.
@@ -3698,6 +3786,113 @@ components:
             Why the report is empty or partial — USER level, not derived yet, no sprint resolved (incl. `teamId=0`
             with a sprint-relative period), connections that never derived and were left out of the cut-off; null
             otherwise.
+
+    AgingPercentile:
+      type: object
+      required: [percentile]
+      properties:
+        percentile: { type: integer, minimum: 1, maximum: 99, description: A configured `aging_percentiles` entry. }
+        workingDays: { type: number, format: double, nullable: true, description: 'That percentile of the cycle working days; null while the thresholds are hidden.' }
+
+    AgingThresholds:
+      type: object
+      description: The cycle-time percentiles of the last `aging_window_items` DONE items; hidden below `minSampleSize`.
+      required: [n, hidden, percentiles]
+      properties:
+        n: { type: integer, format: int64, minimum: 0, description: How many DONE items the window held. }
+        hidden: { type: boolean }
+        percentiles:
+          type: array
+          items: { $ref: '#/components/schemas/AgingPercentile' }
+
+    AgingItem:
+      type: object
+      required: [issueKey, itemKind, startedAt, ageWorkingDays, blocked]
+      properties:
+        issueKey: { type: string }
+        summary: { type: string, nullable: true }
+        itemKind: { type: string, enum: [TASK, EPIC] }
+        teamId: { type: integer, format: int32, minimum: 0, nullable: true, description: 'The current team (tasks) or owner team (epics); null = UNASSIGNED / UNOWNED.' }
+        assigneeAccountId: { type: string, nullable: true }
+        assignee: { type: string, nullable: true, description: The assignee's Jira display name; null for an epic or an unassigned task. }
+        startedAt: { type: integer, format: int64, description: Epoch millis of the first entry into an IN_PROGRESS stage. }
+        ageWorkingDays: { type: number, format: double, minimum: 0, description: Working days from `startedAt` to the request's clock. }
+        blocked: { type: boolean, description: "Blocked as of the connection's last DERIVE (a blocked spell covers its clock)." }
+        band:
+          type: string
+          nullable: true
+          description: 'The highest threshold the age is above (`P50`, `P85`, ...), `WITHIN` when above none, null when the thresholds are hidden.'
+
+    AgingWipReport:
+      type: object
+      required: [meta, thresholds, epicThresholds, items, itemsTruncated]
+      properties:
+        meta: { $ref: '#/components/schemas/ReportMeta' }
+        thresholds: { $ref: '#/components/schemas/AgingThresholds' }
+        epicThresholds: { $ref: '#/components/schemas/AgingThresholds' }
+        items:
+          type: array
+          description: Every in-progress task and epic, oldest first, at most 500.
+          items: { $ref: '#/components/schemas/AgingItem' }
+        itemsTruncated: { type: boolean, description: True when more than 500 items matched. }
+
+    BlockedShareExcluded:
+      type: object
+      description: >-
+        DONE items with no measurable share of cycle, each in ONE bucket (`neverStarted`, then `zeroCycle`).
+        `shareOfCycle.n + neverStarted + zeroCycle = population`.
+      required: [population, neverStarted, zeroCycle]
+      properties:
+        population: { type: integer, minimum: 0 }
+        neverStarted: { type: integer, minimum: 0 }
+        zeroCycle: { type: integer, minimum: 0 }
+
+    BlockedTopItem:
+      type: object
+      required: [issueKey, itemKind, doneAt, blockedWorkingDays]
+      properties:
+        issueKey: { type: string }
+        summary: { type: string, nullable: true }
+        itemKind: { type: string, enum: [TASK, EPIC] }
+        teamId: { type: integer, format: int32, minimum: 0, nullable: true }
+        doneAt: { type: integer, format: int64 }
+        blockedWorkingDays: { type: number, format: double, minimum: 0 }
+        cycleWorkingDays: { type: number, format: double, nullable: true }
+        share: { type: number, format: double, nullable: true, description: '`blockedWorkingDays / cycleWorkingDays`; null when the item has no measurable cycle.' }
+
+    BlockedGroup:
+      type: object
+      required: [blockedWorkingDays, shareOfCycle, blockedItems, excluded]
+      properties:
+        teamId: { type: integer, format: int32, minimum: 0, nullable: true }
+        accountId: { type: string, nullable: true }
+        label: { type: string, nullable: true }
+        blockedWorkingDays: { $ref: '#/components/schemas/Distribution' }
+        shareOfCycle: { $ref: '#/components/schemas/Distribution' }
+        blockedItems: { type: integer, minimum: 0 }
+        excluded: { $ref: '#/components/schemas/BlockedShareExcluded' }
+
+    BlockedTimeReport:
+      type: object
+      required: [meta, itemKind, blockedWorkingDays, shareOfCycle, blockedItems, excluded, topItems, groups]
+      properties:
+        meta: { $ref: '#/components/schemas/ReportMeta' }
+        itemKind: { type: string, enum: [TASK, EPIC, BOTH], description: 'Which DONE items were counted (the request itemKind, default TASK).' }
+        blockedWorkingDays:
+          allOf: [{ $ref: '#/components/schemas/Distribution' }]
+          description: '`blocked_working_days` of every DONE item — zeros (never blocked) included.'
+        shareOfCycle:
+          allOf: [{ $ref: '#/components/schemas/Distribution' }]
+          description: '`blocked_working_days / cycle_working_days` over the items with a cycle above zero.'
+        blockedItems: { type: integer, minimum: 0, description: How many DONE items were blocked at all. }
+        excluded: { $ref: '#/components/schemas/BlockedShareExcluded' }
+        topItems:
+          type: array
+          description: The 20 most-blocked DONE items, most first.
+          items: { $ref: '#/components/schemas/BlockedTopItem' }
+        groups:
+          type: array
+          items: { $ref: '#/components/schemas/BlockedGroup' }
 
     ReportedTimeExcluded:
       type: object

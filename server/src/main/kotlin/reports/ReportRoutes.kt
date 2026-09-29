@@ -63,6 +63,14 @@ class ReportWipRoute
 @Resource("/api/v1/reports/backlog")
 class ReportBacklogRoute
 
+@Serializable
+@Resource("/api/v1/reports/aging-wip")
+class ReportAgingWipRoute
+
+@Serializable
+@Resource("/api/v1/reports/blocked-time")
+class ReportBlockedTimeRoute
+
 val ReportServiceKey = AttributeKey<ReportService>("ReportService")
 
 /**
@@ -176,6 +184,23 @@ fun Application.configureReportRoutes() {
                 val calendar = reportsWorkingCalendar(metricsConfig)
                 val filter = call.request.queryParameters.parseReportFilter(calendar, nowMillis(), DomainView.TASK)
                 call.respond(HttpStatusCode.OK, reportService.backlog(filter, nowMillis()))
+            }
+            // Aging WIP (report 11) is "as of now" (the period is ignored); blocked time (report 12) is a delivery/flow
+            // measure over DONE items, so the task's own domain (D3). Tasks and epics are different grains: the blocked-time
+            // `itemKind` defaults to TASK.
+            get<ReportAgingWipRoute> {
+                call.caller()
+                val calendar = reportsWorkingCalendar(metricsConfig)
+                val filter = call.request.queryParameters.parseReportFilter(calendar, nowMillis(), DomainView.TASK)
+                call.respond(HttpStatusCode.OK, reportService.agingWip(filter, nowMillis()))
+            }
+            get<ReportBlockedTimeRoute> {
+                call.caller()
+                val calendar = reportsWorkingCalendar(metricsConfig)
+                val params = call.request.queryParameters
+                val filter = params.parseReportFilter(calendar, nowMillis(), DomainView.TASK)
+                val itemKind = params.optionalEnum<BlockedItemKind>("itemKind") ?: BlockedItemKind.TASK
+                call.respond(HttpStatusCode.OK, reportService.blockedTime(filter, itemKind, nowMillis()))
             }
             get<ReportEstimateAdjustmentsRoute> {
                 call.caller()

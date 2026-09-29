@@ -119,14 +119,24 @@ internal data class DerivedCoverage(val day: LocalDate?, val notDerived: List<UI
 
 internal suspend fun derivedCoverage(connectionIds: List<UInt>, calendar: WorkingCalendar): DerivedCoverage {
     if (connectionIds.isEmpty()) return DerivedCoverage(null, emptyList())
+    val newestByConnection = deriveClocks(connectionIds)
+    val oldest = newestByConnection.values.minOrNull()
+    return DerivedCoverage(oldest?.let { calendar.dayOf(it) }, connectionIds.filter { it !in newestByConnection })
+}
+
+/**
+ * The DERIVE clock of each connection that has derived: its newest SUCCEEDED `derive_runs.started_at` (the run's `now` —
+ * `MetricsDeriver.derive` stamps `startedAt = now`, the same instant it closes every still-open interval at). Connections
+ * that never derived successfully are absent. One SQL `max()` per connection.
+ */
+internal suspend fun deriveClocks(connectionIds: List<UInt>): Map<UInt, Long> {
+    if (connectionIds.isEmpty()) return emptyMap()
     val runs = MetricsStore.DeriveRuns
     val newestStart = runs.startedAt.max()
-    val newestByConnection = runs.select(runs.connectionId, newestStart)
+    return runs.select(runs.connectionId, newestStart)
         .where { (runs.status eq DERIVE_RUN_SUCCEEDED) and (runs.connectionId inList connectionIds.map { it.toInt() }) }
         .groupBy(runs.connectionId)
-        .toList().mapNotNull { row -> row[newestStart]?.let { row[runs.connectionId] to it } }.toMap()
-    val oldest = newestByConnection.values.minOrNull()
-    return DerivedCoverage(oldest?.let { calendar.dayOf(it) }, connectionIds.filter { it.toInt() !in newestByConnection })
+        .toList().mapNotNull { row -> row[newestStart]?.let { row[runs.connectionId].toUInt() to it } }.toMap()
 }
 
 /** The answer's days plus the [note] explaining an empty or partial one (`null` when there is nothing to say). */

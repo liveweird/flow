@@ -136,6 +136,11 @@ place:
   (the backlog trend) and `metrics/MetricsStore.FactSprint` (the mean `delivered_md` behind the backlog in sprints)
   the same way. `reports/SnapshotSupport.kt`, shared by both, reads `metrics/MetricsStore.DeriveRuns` (the per-connection
   newest successful run, via SQL `max()`) for the last-derived-day cut-off.
+- `reports/AgingWipReport.kt` and `reports/BlockedTimeReport.kt` (v0.3.0 M5 commit 15 part b, `GET /api/v1/reports/aging-wip`
+  and `/blocked-time`) read `norm/WorkItemStore.WorkItems` (issue key and summary, via the shared `workItemLabels`) and
+  `norm/WorkItemStore.People`/`teams/TeamService.Teams` (through `orgGroups`/`accountDisplayNames`) directly, plus the
+  `metrics` tables `FactTaskDelivery`, `FactEpicDelivery`, `DimEpic` and `ItemBlocked` -- all read-only, inside the report's
+  own transaction.
 
 List each new cross-feature read/write here as it lands — the list IS the permission.
 

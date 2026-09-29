@@ -660,8 +660,83 @@ UNASSIGNED, scope isolation, the window, fewer than N, a mean of zero, no sprint
 `by`/`itemKind`, `domain` with `teamId`, `activityType`, `workCategory`, an unknown team/connection/sprint, `by=COLUMN` at
 UNIT level / for `teamId=0` / for a team with no board.
 
+## Reports 11, 12 -- Aging WIP and blocked time
+
+Two endpoints (v0.3.0 M5 commit 15 part b, `.claude/docs/measures.md` "Report 11", "Report 12") over
+`fact_task_delivery`/`fact_epic_delivery`, on the shared preamble (`resolveReportScope`, `taskFactSlice`/`epicFactSlice`, the
+`orgGroups` drill). Same D12 posture and shared filter parameters as every report.
+
+### Report 11 -- `GET /api/v1/reports/aging-wip`
+
+```
+AgingWipReport {
+  meta,
+  thresholds:     { n, hidden, percentiles: [{ percentile, workingDays? }] },   // tasks
+  epicThresholds: { n, hidden, percentiles: [...] },                            // epics
+  items: [{ issueKey, summary?, itemKind: TASK|EPIC, teamId?, assigneeAccountId?, assignee?, startedAt,
+            ageWorkingDays, blocked, band? }],                                  // oldest first, <= 500
+  itemsTruncated
+}
+```
+
+- **"As of now" -- the period is ignored.** The report has no period: the age is taken at the request's clock
+  (`nowMillis()` in the route, injected into the service so tests pin it) with the configured calendar
+  (`WorkingCalendar.workingDaysBetween(started_at, now)`, never negative). The shared parser still accepts `from`/`to`/
+  `lastSprints`/`sprintId` (a sprint-relative one only resolves sprints, or 400s for an unknown id).
+- **Items** = every OPEN level-0 task whose `current_stage` is IN_PROGRESS (`UNMAPPED` is not in progress) and every open epic
+  whose own stage (`dim_epic.current_stage`) is IN_PROGRESS, each with `started_at` set. Tasks are attributed to the CURRENT
+  team and assignee (A25: `taskFactSlice(openAttribution = true)`, `teamId=0` = no current team), epics to the owner team
+  (`teamId=0` = UNOWNED) with no assignee; USER level (`accountId`) lists that assignee's tasks and no epics. `domain`,
+  `activityType` and `workCategory` slice as elsewhere (`activityType` is not an epic attribute and is ignored for epics).
+  `assignee` is the Jira display name (the account id when none is known). `blocked` = an `item_blocked` row covers the
+  connection's DERIVE clock (its newest successful run's start: the deriver never writes an open row, it closes a still-open
+  spell AT that clock), i.e. blocked as of the last derive. Sorted by age descending (then connection, issue id), at most 500 with `itemsTruncated`.
+- **Thresholds** are the configured `aging_percentiles` (default 50/85/95) of `cycle_working_days` over the LAST
+  `aging_window_items` DONE items by `done_at` -- level-0 tasks by the credit team for `thresholds`, epics by the owner team
+  for `epicThresholds` (an epic's cycle is a different scale from a task's). They belong to the team: `accountId` narrows
+  the listed items but not the window, and at UNIT level the window spans the unit (each item carries its `teamId`; drill
+  with `teamId` for a team's own thresholds). Hidden below `minSampleSize` (`n` set, every `workingDays` null).
+- **`band`** = the highest configured threshold the age is strictly above (`"P85"` = above p85 but not above the next),
+  `"WITHIN"` when above none, `null` when that kind's thresholds are hidden.
+
+### Report 12 -- `GET /api/v1/reports/blocked-time`
+
+```
+BlockedTimeReport {
+  meta, itemKind: TASK|EPIC|BOTH,
+  blockedWorkingDays: Distribution,       // every DONE item in the period, zeros included
+  shareOfCycle:       Distribution,       // blocked_working_days / cycle_working_days, cycle > 0
+  blockedItems, excluded: { population, neverStarted, zeroCycle },
+  topItems: [{ issueKey, summary?, itemKind, teamId?, doneAt, blockedWorkingDays, cycleWorkingDays?, share? }],  // <= 20
+  groups:   [{ teamId?, accountId?, label?, blockedWorkingDays, shareOfCycle, blockedItems, excluded }]
+}
+```
+
+- **Population** = DONE items with `done_at` in the period (a sprint-relative period reads the resolved sprints' envelope):
+  level-0 tasks (`itemKind=TASK`, the DEFAULT -- tasks and epics are different grains, D2) credited to the D5 credit team /
+  assignee at done, epics (`EPIC`) to the owner team with no user, or both. USER level has no epics. Open items are not in
+  this report (aging WIP lists them, with their current `blocked` flag).
+- **`blockedWorkingDays`** is a `Distribution` over EVERY DONE item -- an item never blocked is a real zero and stays in
+  (`blockedItems` counts those blocked at all, so a sea of zeros is visible rather than hidden). Blocked time is what the
+  deriver stored (`blocked_working_days`: Flagged or in a configured blocked status, merged, clipped to `[started_at,
+  done_at)`). **`shareOfCycle`** covers the items with a cycle above zero; the rest are in exactly ONE `excluded` bucket,
+  `neverStarted` (no cycle) then `zeroCycle` (0 working days), so `shareOfCycle.n + neverStarted + zeroCycle == population`.
+  Both are hidden below `minSampleSize`.
+- **`topItems`** = the 20 most-blocked items (`blockedWorkingDays > 0`, then newest `doneAt`), keys/summaries from
+  `norm.work_items` (`dim_epic` for an epic). **Levels:** UNIT `groups` one per team (tasks and epics together), TEAM one per
+  assignee at done over the TASKS only -- epics have no user, so at TEAM level with `itemKind` EPIC/BOTH the totals include the
+  team's epics but Σ groups is the tasks' total -- and USER none.
+
+Code: `reports/AgingWipReport.kt`, `reports/BlockedTimeReport.kt` (DTOs and queries as extensions on `ReportService`; the
+shared `workItemLabels`). Tests: `ReportAgingWipTest` (hand-built rows with an INJECTED clock -- the service is called
+directly, never wall time: exact ages, bands, the thresholds window, hidden thresholds, blocked, USER/UNIT, plus the fixture
+graded on its populations and the thresholds against an independent percentile of the raw rows) and `ReportBlockedTimeTest`
+(the fixture's distributions, exclusion partition, groups and top list against an independent computation over the fact
+rows; hand-built rows with exact hand-computed numbers incl. never-blocked zeros, both exclusions, the three item kinds and the
+drill). `400`s: an unknown team/connection/sprint, `accountId` without `teamId`, `from > to`, a bad `itemKind`.
+
 ## Not yet built
 
-Every remaining named report (plan section 7's table: aging WIP, blocked time, data quality, epic progress/EVM, cost
-matrix) lands in its own later commit and grows this doc with its own `## Report N -- ...` section, following
-`.claude/docs/measures.md`'s own per-measure contract for what each number means.
+Every remaining named report (plan section 7's table: data quality, epic progress/EVM, cost matrix) lands in its own later
+commit and grows this doc with its own `## Report N -- ...` section, following `.claude/docs/measures.md`'s own per-measure
+contract for what each number means.

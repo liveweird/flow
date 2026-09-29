@@ -77,7 +77,7 @@ fun buildDistribution(values: List<Double>, minSampleSize: Int, histogramBuckets
 }
 
 /** PostgreSQL's `percentile_cont(fraction) WITHIN GROUP (ORDER BY …)` — linear interpolation between the two closest ranks. */
-private fun percentileContinuous(sorted: List<Double>, fraction: Double): Double {
+internal fun percentileContinuous(sorted: List<Double>, fraction: Double): Double {
     if (sorted.size == 1) return sorted.single()
     val rank = fraction * (sorted.size - 1)
     val lower = floor(rank).toInt()

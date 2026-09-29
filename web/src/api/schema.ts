@@ -1210,6 +1210,69 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/reports/aging-wip": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Report 11 — the age of every in-progress task and epic against the cycle-time percentiles
+         * @description Any authenticated user (D12), read-only — `.claude/docs/measures.md` "Report 11". An "as of now" read: the
+         *     period parameters are accepted but ignored (a sprint-relative one only resolves sprints). `items` lists every
+         *     OPEN level-0 task and epic in an IN_PROGRESS stage (`UNMAPPED` is not in progress), oldest first, at most 500
+         *     (`itemsTruncated`), each with its age in WORKING days from `started_at` to the request's clock, computed with
+         *     the configured calendar. Tasks are attributed to the CURRENT team and assignee (A25), epics to the owner team
+         *     and have no assignee. `thresholds` are the configured percentiles (`aging_percentiles`) of `cycle_working_days`
+         *     over the LAST `aging_window_items` DONE level-0 tasks of the scope (credit team; `n` of them), `epicThresholds`
+         *     the same over DONE epics — hidden (only `n`, every `workingDays` null) below `minSampleSize`. An item's `band`
+         *     is the highest threshold its age is above (`P85` = above p85 but not above the next), `WITHIN` when above none,
+         *     null when its thresholds are hidden. Thresholds belong to the team, so `accountId` narrows the listed items
+         *     only; at UNIT level they span the whole unit. `blocked` = blocked as of the connection's last DERIVE (a blocked spell covers its clock). Levels:
+         *     UNIT (default), `teamId` (`0` = UNASSIGNED tasks / UNOWNED epics), USER (`teamId` and `accountId` — tasks only,
+         *     epics have no user). `domain`, `activityType` and `workCategory` slice as elsewhere.
+         */
+        get: operations["getReportAgingWip"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/blocked-time": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Report 12 — blocked working days per DONE item and as a share of its cycle
+         * @description Any authenticated user (D12), read-only — `.claude/docs/measures.md` "Report 12". Population: DONE items by
+         *     `done_at` in the period — level-0 tasks (`itemKind=TASK`, the default), epics (`EPIC`) or both (`BOTH`); tasks are
+         *     attributed to the D5 credit team and the assignee at done, epics to the owner team (no user). Blocked time is
+         *     the working days between an item's start and its done that it spent Flagged or in a configured blocked status
+         *     (merged, so overlapping spells count once). `blockedWorkingDays` is a `Distribution` over EVERY DONE item — an
+         *     item never blocked is a real zero — and `blockedItems` counts those blocked at all. `shareOfCycle` is
+         *     `blocked ÷ cycle working days` over the items with a cycle above zero; each other item is in exactly ONE
+         *     `excluded` bucket (`neverStarted`, then `zeroCycle`), so `shareOfCycle.n + neverStarted + zeroCycle =
+         *     population`. Both distributions are hidden below `minSampleSize`. `topItems` lists the 20 most-blocked items.
+         *     Levels: UNIT `groups` per team (tasks and epics), TEAM per assignee at done (tasks only — epics have no user,
+         *     so Σ groups is the tasks' total there), USER none and no epics. Sprint-relative periods use the resolved
+         *     sprints' envelope. `breakdown` is accepted and changes nothing.
+         */
+        get: operations["getReportBlockedTime"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/reports/reported-time-ratio": {
         parameters: {
             query?: never;
@@ -2635,6 +2698,115 @@ export interface components {
             /** @description Why the report is empty or partial — USER level, not derived yet, no sprint resolved (incl. `teamId=0` with a sprint-relative period), connections that never derived and were left out of the cut-off; null otherwise. */
             note?: string | null;
         };
+        AgingPercentile: {
+            /** @description A configured `aging_percentiles` entry. */
+            percentile: number;
+            /**
+             * Format: double
+             * @description That percentile of the cycle working days; null while the thresholds are hidden.
+             */
+            workingDays?: number | null;
+        };
+        /** @description The cycle-time percentiles of the last `aging_window_items` DONE items; hidden below `minSampleSize`. */
+        AgingThresholds: {
+            /**
+             * Format: int64
+             * @description How many DONE items the window held.
+             */
+            n: number;
+            hidden: boolean;
+            percentiles: components["schemas"]["AgingPercentile"][];
+        };
+        AgingItem: {
+            issueKey: string;
+            summary?: string | null;
+            /** @enum {string} */
+            itemKind: "TASK" | "EPIC";
+            /**
+             * Format: int32
+             * @description The current team (tasks) or owner team (epics); null = UNASSIGNED / UNOWNED.
+             */
+            teamId?: number | null;
+            assigneeAccountId?: string | null;
+            /** @description The assignee's Jira display name; null for an epic or an unassigned task. */
+            assignee?: string | null;
+            /**
+             * Format: int64
+             * @description Epoch millis of the first entry into an IN_PROGRESS stage.
+             */
+            startedAt: number;
+            /**
+             * Format: double
+             * @description Working days from `startedAt` to the request's clock.
+             */
+            ageWorkingDays: number;
+            /** @description Blocked as of the connection's last DERIVE (a blocked spell covers its clock). */
+            blocked: boolean;
+            /** @description The highest threshold the age is above (`P50`, `P85`, ...), `WITHIN` when above none, null when the thresholds are hidden. */
+            band?: string | null;
+        };
+        AgingWipReport: {
+            meta: components["schemas"]["ReportMeta"];
+            thresholds: components["schemas"]["AgingThresholds"];
+            epicThresholds: components["schemas"]["AgingThresholds"];
+            /** @description Every in-progress task and epic, oldest first, at most 500. */
+            items: components["schemas"]["AgingItem"][];
+            /** @description True when more than 500 items matched. */
+            itemsTruncated: boolean;
+        };
+        /** @description DONE items with no measurable share of cycle, each in ONE bucket (`neverStarted`, then `zeroCycle`). `shareOfCycle.n + neverStarted + zeroCycle = population`. */
+        BlockedShareExcluded: {
+            population: number;
+            neverStarted: number;
+            zeroCycle: number;
+        };
+        BlockedTopItem: {
+            issueKey: string;
+            summary?: string | null;
+            /** @enum {string} */
+            itemKind: "TASK" | "EPIC";
+            /** Format: int32 */
+            teamId?: number | null;
+            /** Format: int64 */
+            doneAt: number;
+            /** Format: double */
+            blockedWorkingDays: number;
+            /** Format: double */
+            cycleWorkingDays?: number | null;
+            /**
+             * Format: double
+             * @description `blockedWorkingDays / cycleWorkingDays`; null when the item has no measurable cycle.
+             */
+            share?: number | null;
+        };
+        BlockedGroup: {
+            /** Format: int32 */
+            teamId?: number | null;
+            accountId?: string | null;
+            label?: string | null;
+            blockedWorkingDays: components["schemas"]["Distribution"];
+            shareOfCycle: components["schemas"]["Distribution"];
+            blockedItems: number;
+            excluded: components["schemas"]["BlockedShareExcluded"];
+        };
+        BlockedTimeReport: {
+            meta: components["schemas"]["ReportMeta"];
+            /**
+             * @description Which DONE items were counted (the request itemKind, default TASK).
+             * @enum {string}
+             */
+            itemKind: "TASK" | "EPIC" | "BOTH";
+            /** @description `blocked_working_days` of every DONE item — zeros (never blocked) included. */
+            blockedWorkingDays: components["schemas"]["Distribution"];
+            /** @description `blocked_working_days / cycle_working_days` over the items with a cycle above zero. */
+            shareOfCycle: components["schemas"]["Distribution"];
+            /** @description How many DONE items were blocked at all. */
+            blockedItems: number;
+            excluded: components["schemas"]["BlockedShareExcluded"];
+            /** @description The 20 most-blocked DONE items, most first. */
+            topItems: components["schemas"]["BlockedTopItem"][];
+            groups: components["schemas"]["BlockedGroup"][];
+        };
         /** @description DONE level-0 tasks a reported-time-ratio read could not turn into a ratio, each in ONE bucket (`noWorklogs` first, incl. `actual_md` of 0.00; then `neverStarted`; then `zeroCycle`). `ratio.n + noWorklogs + neverStarted + zeroCycle = population`. */
         ReportedTimeExcluded: {
             population: number;
@@ -2814,6 +2986,8 @@ export interface components {
         ReportWipBy: "STATUS" | "STAGE" | "COLUMN";
         /** @description Which items the WIP report counts — level-0 tasks (default), epics (a different grain), or both added together. */
         ReportWipItemKind: "TASK" | "EPIC" | "BOTH";
+        /** @description Which DONE items the blocked-time report counts — level-0 tasks (default), epics (a different grain), or both. */
+        ReportBlockedItemKind: "TASK" | "EPIC" | "BOTH";
     };
     requestBodies: never;
     headers: never;
@@ -4623,6 +4797,100 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BacklogReport"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getReportAgingWip: {
+        parameters: {
+            query?: {
+                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. */
+                from?: components["parameters"]["ReportFrom"];
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
+                to?: components["parameters"]["ReportTo"];
+                /** @description Each team's own last N closed sprints (union at unit level). Mutually exclusive with `from`/`to`/`sprintId`. */
+                lastSprints?: components["parameters"]["ReportLastSprints"];
+                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
+                sprintId?: components["parameters"]["ReportSprintId"];
+                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
+                teamId?: components["parameters"]["ReportTeamId"];
+                /** @description One Jira account id — sets the level to USER. Requires `teamId`. */
+                accountId?: components["parameters"]["ReportAccountId"];
+                /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
+                domainView?: components["parameters"]["ReportDomainView"];
+                /** @description Restricts to one domain key. */
+                domain?: components["parameters"]["ReportDomain"];
+                /** @description Restricts to one activity type (a standard Jira issue type name). */
+                activityType?: components["parameters"]["ReportActivityType"];
+                /** @description Restricts to one work category, or the literal `UNCATEGORIZED`. */
+                workCategory?: components["parameters"]["ReportWorkCategory"];
+                /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
+                connectionId?: components["parameters"]["ReportConnectionId"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The aging WIP report */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgingWipReport"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getReportBlockedTime: {
+        parameters: {
+            query?: {
+                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. */
+                from?: components["parameters"]["ReportFrom"];
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
+                to?: components["parameters"]["ReportTo"];
+                /** @description Each team's own last N closed sprints (union at unit level). Mutually exclusive with `from`/`to`/`sprintId`. */
+                lastSprints?: components["parameters"]["ReportLastSprints"];
+                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
+                sprintId?: components["parameters"]["ReportSprintId"];
+                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
+                teamId?: components["parameters"]["ReportTeamId"];
+                /** @description One Jira account id — sets the level to USER. Requires `teamId`. */
+                accountId?: components["parameters"]["ReportAccountId"];
+                /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
+                domainView?: components["parameters"]["ReportDomainView"];
+                /** @description Restricts to one domain key. */
+                domain?: components["parameters"]["ReportDomain"];
+                /** @description Restricts to one activity type (a standard Jira issue type name). */
+                activityType?: components["parameters"]["ReportActivityType"];
+                /** @description Restricts to one work category, or the literal `UNCATEGORIZED`. */
+                workCategory?: components["parameters"]["ReportWorkCategory"];
+                /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
+                connectionId?: components["parameters"]["ReportConnectionId"];
+                /** @description Which DONE items the blocked-time report counts — level-0 tasks (default), epics (a different grain), or both. */
+                itemKind?: components["parameters"]["ReportBlockedItemKind"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The blocked time report */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BlockedTimeReport"];
                 };
             };
             400: components["responses"]["BadRequest"];

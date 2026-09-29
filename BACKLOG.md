@@ -22,28 +22,17 @@ Entries are proposals, not delivery commitments.
 
 Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A25 override the body. A11–A16 were overnight judgement calls (approved 2026-09-28); A17–A21 came from the measure contract (`.claude/docs/measures.md`); A22 from the 9d review.
 
-- **Done and merged:** M1 (PR #22), M2 (PR #23), the configuration e2e (PR #24), Dependabot #17.
-- **M3 (derivation)** on `feat/v0.3.0-m3-derivation`, done so far:
-  - commits 7 and 8;
-  - 9a, worklog facts;
-  - the derived test fixture (the full build is ~4–6 min again);
-  - the measure contract;
-  - 9b, epic plans and PV;
-  - 9c, sprint buckets as a partition;
-  - 9d, V17: flow efficiency, current team, as-was attribution, owner per domain;
-  - 9e, the domain owner team in the config API and editor;
-  - the `MetricsDeriver.kt` split;
-  - 9f-wip, `agg_daily_wip`;
-  - 9f-flow, `agg_daily_flow` (A23: backlog, throughput, PV/EV/AC as daily increments);
-  - 9g, the re-derive/REPROCESS digest (`MetricsDigestTest`) and the scale-20 performance check. DERIVE takes 136 s cold and 99 s warm on 24k issues, under the 3-minute target; figures are in `metrics.md`.
-- **M4 (reports)** ships as two PRs (A24):
-  - the reports API (10a–10d: filters, velocity, throughput, sprint consistency) on `feat/v0.3.0-m4-reports`;
-  - the SPA and the estimation batch (11 onward) on `feat/v0.3.0-m4-web`.
+- **Done and merged:**
+  - M1 (PR #22), M2 (PR #23), the configuration e2e (PR #24), Dependabot #17;
+  - M3, the derivation (PR #26): the V16/V17 star, DERIVE, the facts, `agg_daily_wip`/`agg_daily_flow`, the invariant-12 digest, and the scale-20 perf check (DERIVE 136 s cold on 24k issues);
+  - M4, the reports API (PR #27) and the report pages 1–8, the estimation batch and the reports e2e (PR #28).
+- **M5** on `feat/v0.3.0-m5`: 15a (`/reports/wip`, `/reports/backlog`) and 15b (`/reports/aging-wip`, `/reports/blocked-time`).
 - **Next:**
-  1. **The M3 PR:** merge on green, then merge master into both M4 branches.
-  2. **M4:** the reports-API PR; then 12 (estimation batch: 3, 4, 5 done, 7, 8 next), 13 (estimation pages) and 14 (e2e) on the web branch, as the second PR.
-  3. **M5:** reports 9–16, the A9 overview Home, and the v0.3.0 release (only when asked).
+  1. **M5 16:** the flow pages for reports 9–12.
+  2. **17 and 18:** the data-quality report (14) and its page, and the Home entry (A9).
+  3. **19:** the batch-2 e2e, the docs sweep, and the v0.3.0 changelog. No tag or release without asking.
 - **Small follow-ups from M2 and M3:**
+  - `MetricsStore.pruneDeriveRuns` can delete a connection's NEWEST successful DERIVE run once it is older than the retention window. The snapshot reports (WIP, backlog) then read that connection as "not derived yet". Keep the newest SUCCEEDED run per connection when pruning. Found in 15b; a test helper re-inserts it for now.
   - The Jira member picker resolves names from the first 100 unit people. Page through, or look up by account id.
   - "End membership" uses UTC; consider the configured zone.
   - Surface `derive_runs.row_counts.sprintFieldUnresolved` in report 14 (data quality).
