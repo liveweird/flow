@@ -21,6 +21,22 @@ import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 
 val MetricsStoreKey = AttributeKey<MetricsStore>("MetricsStore")
 
+/**
+ * The tables `DeriveWipStep.kt`/`DeriveFlowStep.kt`'s SQL reads and `MetricsDeriver` has just
+ * rebuilt in its transaction ([MetricsStore.analyzeDerivedTables]): the connection-scoped dims,
+ * bridges and facts, plus the global `dim_date` (upserted in the same run; every step joins it).
+ * Deliberately NOT here: `agg_daily_*` (written by those steps, never read by them),
+ * `fact_epic_delivery`/`item_blocked`/`fact_sprint_snapshot` (read by neither), `team_membership`
+ * (config, not rebuilt by DERIVE) and `norm.*` (PROCESS already committed those rows, so autovacuum
+ * analyzes them). `MetricsAnalyzeTest` checks the list against the steps' SQL sources.
+ */
+internal val ANALYZED_TABLES: List<String> = listOf(
+    "metrics.dim_date", "metrics.dim_domain", "metrics.dim_task", "metrics.dim_epic", "metrics.dim_sprint",
+    "metrics.task_epic", "metrics.task_domain", "metrics.task_assignee", "metrics.task_sprint",
+    "metrics.item_estimate", "metrics.item_stage",
+    "metrics.fact_task_delivery", "metrics.fact_sprint", "metrics.fact_sprint_scope", "metrics.fact_worklog", "metrics.fact_epic_plan",
+)
+
 private fun stringArrayJson(values: List<String>): String = buildJsonArray { values.forEach { add(JsonPrimitive(it)) } }.toString()
 
 /** `metrics.fact_sprint_snapshot.scope` — the sprint's own [SprintScopeItem] rows, frozen as JSON (D13). */
@@ -1187,6 +1203,24 @@ class MetricsStore(private val database: R2dbcDatabase) {
      * [execAggDailyWip]).
      */
     suspend fun execAggDailyFlow(sql: String) = suspendTransaction(database) { exec(sql) }
+
+    /**
+     * `ANALYZE` over [ANALYZED_TABLES] — every table the WIP and flow `INSERT ... SELECT`s read —
+     * so the planner sees the rows THIS run just rebuilt. DERIVE rewrites them inside ONE
+     * transaction, and autovacuum can neither see uncommitted rows nor run in time for the very next
+     * statement, so without it those statements plan against stale (or, on a fresh table, default
+     * `rows=1`) estimates: nested loops over tens of thousands of rows, and every re-derive of the
+     * same connection slower than the last as dead tuples pile up. Unlike `VACUUM`, `ANALYZE` is
+     * legal inside a transaction block, and it counts the transaction's own inserted rows as live and
+     * its own deletes as dead, so the statistics describe the rebuilt state. Table names are fixed
+     * constants (no user input); reuses the CALLER's transaction like [execAggDailyWip].
+     * The tables stay locked (`SHARE UPDATE EXCLUSIVE`) until that transaction commits. Between
+     * DERIVEs this is never contended — they are already serialized by the global `dim_date` upsert
+     * (overlapping ranges, row locks held to commit) — and it conflicts only with VACUUM/ANALYZE/
+     * autovacuum and DDL: autovacuum on these tables is skipped or cancelled meanwhile (an
+     * anti-wraparound vacuum would make the derive wait — rare).
+     */
+    suspend fun analyzeDerivedTables() = suspendTransaction(database) { exec("ANALYZE ${ANALYZED_TABLES.joinToString(", ")}") }
 
     /**
      * Hard-deletes terminal `derive_runs` rows older than [retentionMillis] (v0.3.0 M3 review round
