@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { formatMd, formatMedian, formatPercent, formatRatio, formatSignedPercent, histogramLabels } from "./reportFormat";
+import { formatDays, formatMd, formatMedian, formatPercent, formatRatio, formatSignedPercent, histogramLabels } from "./reportFormat";
 
 describe("reportFormat", () => {
   test("man-days and ratios keep at most two decimals, no trailing zeros", () => {
@@ -8,6 +8,13 @@ describe("reportFormat", () => {
     expect(formatRatio(1.2549)).toBe("1.25");
     expect(formatRatio(1)).toBe("1");
     expect(formatRatio(0.5)).toBe("0.5");
+  });
+
+  test("days keep one decimal, widening on request", () => {
+    expect(formatDays(3.5)).toBe("3.5");
+    expect(formatDays(3)).toBe("3");
+    expect(formatDays(3.14159)).toBe("3.1");
+    expect(formatDays(3.14159, 1)).toBe("3.14");
   });
 
   test("a share is a percentage with at most one decimal", () => {

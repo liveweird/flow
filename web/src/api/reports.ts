@@ -35,6 +35,13 @@ export type EstimateAdjustmentsReport =
 export type AdjustmentFigures = EstimateAdjustmentsReport["tasks"];
 export type EstimateAdjustmentsGroup = EstimateAdjustmentsReport["groups"][number];
 
+export type CycleTimeReport = paths["/api/v1/reports/cycle-time"]["get"]["responses"]["200"]["content"]["application/json"];
+export type CycleTimeTrendBucket = CycleTimeReport["trend"][number];
+export type CycleTimeGroup = CycleTimeReport["groups"][number];
+export type ReportedTimeRatioReport =
+  paths["/api/v1/reports/reported-time-ratio"]["get"]["responses"]["200"]["content"]["application/json"];
+export type ReportedTimeGroup = ReportedTimeRatioReport["groups"][number];
+
 export async function getReportFilters(): Promise<ReportFilters> {
   return jsonRequest<ReportFilters>("/api/v1/reports/filters");
 }
@@ -61,4 +68,12 @@ export async function getEpicEstimationAccuracyReport(filter: ReportFilterState)
 
 export async function getEstimateAdjustmentsReport(filter: ReportFilterState): Promise<EstimateAdjustmentsReport> {
   return jsonRequest<EstimateAdjustmentsReport>(`/api/v1/reports/estimate-adjustments?${reportQuery(filter)}`);
+}
+
+export async function getCycleTimeReport(filter: ReportFilterState): Promise<CycleTimeReport> {
+  return jsonRequest<CycleTimeReport>(`/api/v1/reports/cycle-time?${reportQuery(filter)}`);
+}
+
+export async function getReportedTimeRatioReport(filter: ReportFilterState): Promise<ReportedTimeRatioReport> {
+  return jsonRequest<ReportedTimeRatioReport>(`/api/v1/reports/reported-time-ratio?${reportQuery(filter)}`);
 }

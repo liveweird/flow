@@ -1,9 +1,8 @@
 import { useTranslation } from "react-i18next";
 import { SimpleGrid, Stack, Table, Text } from "@mantine/core";
 import { getEpicEstimationAccuracyReport, type EpicAccuracyGroup } from "../api/reports";
-import DistributionPanel from "../components/DistributionPanel";
+import DistributionWithAccounting from "../components/DistributionWithAccounting";
 import EpicsPerPersonNote from "../components/EpicsPerPersonNote";
-import ExcludedList from "../components/ExcludedList";
 import PageHeader from "../components/PageHeader";
 import ReportChartCard from "../components/ReportChartCard";
 import ReportFilterBar, { type ReportControls } from "../components/ReportFilterBar";
@@ -59,43 +58,33 @@ export default function ReportEpicAccuracy() {
               {report && (
                 <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg">
                   {/* Each view carries ITS OWN accounting: the two partitions differ, so they never share a list. */}
-                  <Stack gap="lg">
-                    <DistributionPanel
-                      title={t("reports.epicAccuracy.startTitle")}
-                      caption={t("reports.epicAccuracy.startCaption")}
-                      distribution={report.atStart}
-                      minSampleSize={report.meta.minSampleSize}
-                      format={formatRatio}
-                      axisLabel={t("reports.ratio.axis")}
-                    />
-                    <ExcludedList
-                      population={report.excluded.population}
-                      measured={report.atStart.n}
-                      items={[
-                        { label: t("reports.epicAccuracy.excluded.noActual"), count: report.excluded.noActual },
-                        { label: t("reports.epicAccuracy.excluded.neverStarted"), count: report.excluded.neverStarted },
-                        { label: t("reports.epicAccuracy.excluded.unestimatedAtStart"), count: report.excluded.unestimatedAtStart },
-                      ]}
-                    />
-                  </Stack>
-                  <Stack gap="lg">
-                    <DistributionPanel
-                      title={t("reports.epicAccuracy.doneTitle")}
-                      caption={t("reports.epicAccuracy.doneCaption")}
-                      distribution={report.atDone}
-                      minSampleSize={report.meta.minSampleSize}
-                      format={formatRatio}
-                      axisLabel={t("reports.ratio.axis")}
-                    />
-                    <ExcludedList
-                      population={report.excluded.population}
-                      measured={report.atDone.n}
-                      items={[
-                        { label: t("reports.epicAccuracy.excluded.noActual"), count: report.excluded.noActual },
-                        { label: t("reports.epicAccuracy.excluded.unestimatedAtDone"), count: report.excluded.unestimatedAtDone },
-                      ]}
-                    />
-                  </Stack>
+                  <DistributionWithAccounting
+                    title={t("reports.epicAccuracy.startTitle")}
+                    caption={t("reports.epicAccuracy.startCaption")}
+                    distribution={report.atStart}
+                    minSampleSize={report.meta.minSampleSize}
+                    format={formatRatio}
+                    axisLabel={t("reports.ratio.axis")}
+                    population={report.excluded.population}
+                    items={[
+                      { label: t("reports.epicAccuracy.excluded.noActual"), count: report.excluded.noActual },
+                      { label: t("reports.epicAccuracy.excluded.neverStarted"), count: report.excluded.neverStarted },
+                      { label: t("reports.epicAccuracy.excluded.unestimatedAtStart"), count: report.excluded.unestimatedAtStart },
+                    ]}
+                  />
+                  <DistributionWithAccounting
+                    title={t("reports.epicAccuracy.doneTitle")}
+                    caption={t("reports.epicAccuracy.doneCaption")}
+                    distribution={report.atDone}
+                    minSampleSize={report.meta.minSampleSize}
+                    format={formatRatio}
+                    axisLabel={t("reports.ratio.axis")}
+                    population={report.excluded.population}
+                    items={[
+                      { label: t("reports.epicAccuracy.excluded.noActual"), count: report.excluded.noActual },
+                      { label: t("reports.epicAccuracy.excluded.unestimatedAtDone"), count: report.excluded.unestimatedAtDone },
+                    ]}
+                  />
                 </SimpleGrid>
               )}
             </ReportChartCard>

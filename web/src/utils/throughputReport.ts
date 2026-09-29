@@ -7,10 +7,15 @@ export interface ThroughputChartRow {
   deliveredItems: number;
 }
 
-/** One row per bucket: a week is labelled by its Monday (`2026-09-28`), a month by `2026-09`. */
+/** A bucket's label: a week by its Monday (`2026-09-28`), a month by `2026-09`. */
+export function bucketLabel(bucketStart: string, bucket: Bucket): string {
+  return bucket === "MONTH" ? bucketStart.slice(0, 7) : bucketStart;
+}
+
+/** One row per bucket, labelled by `bucketLabel`. */
 export function throughputChartRows(buckets: readonly ThroughputBucketRow[], bucket: Bucket): ThroughputChartRow[] {
   return buckets.map((row) => ({
-    label: bucket === "MONTH" ? row.bucketStart.slice(0, 7) : row.bucketStart,
+    label: bucketLabel(row.bucketStart, bucket),
     deliveredMd: row.deliveredMd,
     deliveredItems: row.deliveredItems,
   }));

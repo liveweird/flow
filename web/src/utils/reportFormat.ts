@@ -19,6 +19,9 @@ const round = (value: number, decimals: number) => {
 /** A ratio (actual ÷ estimate) with two decimals and no trailing zeros: `1`, `1.25`, `0.5`. */
 export const formatRatio: ValueFormat = (value, extraDecimals = 0) => String(round(value, 2 + extraDecimals));
 
+/** Days (working or elapsed) with one decimal and no trailing zeros: `3`, `3.5`, `0.4`. */
+export const formatDays: ValueFormat = (value, extraDecimals = 0) => String(round(value, 1 + extraDecimals));
+
 /** A 0..1 fraction as a percentage with at most one decimal: `0.2` → `20%`, `0.125` → `12.5%`. */
 export const formatPercent: ValueFormat = (fraction, extraDecimals = 0) => `${round(fraction * 100, 1 + extraDecimals)}%`;
 

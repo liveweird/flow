@@ -424,8 +424,8 @@ team membership landed in M2 commit 5, and the per-connection `metrics-config` p
 The v0.3.0 report pages (`.claude/docs/reports.md` is the API; every report is any-authenticated,
 D12 — routes sit under `RequireAuth`, never `RequireAdmin`). Landed so far: the shell (Reports nav
 section → Delivery, `ReportTabs`), the filter bar, the shared blocks and the three Delivery pages
-(Velocity, Throughput, Sprint consistency) and the Estimation group's first three (Task accuracy,
-Epic accuracy, Adjustments — `ESTIMATION_TABS`, its own nav leaf); later reports append a page, a tab (`DELIVERY_TABS` in
+(Velocity, Throughput, Sprint consistency, Cycle time) and the Estimation group (Task accuracy, Epic
+accuracy, Adjustments, Reported time — `ESTIMATION_TABS`, its own nav leaf); later reports append a page, a tab (`DELIVERY_TABS` in
 `utils/reportLinks.ts` — the Delivery nav leaf lists every tab route in `NavLeaf.activeFor`, so it
 stays highlighted on all of them) and a `reports.<name>` key block. Every page composes the same
 skeleton — `hooks/useReportPage` (filters query → keyed page query), `ReportFiltersStatus`,
@@ -473,6 +473,19 @@ completed · the report's figures · the orange drift badge with the frozen figu
   beside it; an epic's own estimate is never replaced by its child sum (both are columns). The epic
   accuracy page offers only domain and work category (an epic's domain is its own space under either
   domain view, and it has no activity type); the other two estimation pages offer the domain view too.
+- **Cycle time and reported time**: `DistributionWithAccounting` (panel + its own `n + Σ = population`
+  list) is the unit every distribution page composes. Cycle time shows working days (primary) and
+  elapsed days, then the trend — a `LineChart` of p50 (solid `flow.6`) and p90 (`gray.6`, DASHED, so
+  the two lines differ by dash as well as hue: the legend swatches are hue-only, so the dash, the trend
+  table's column headers and the tooltip carry identity) per week/month, reusing throughput's bucket control and its
+  "the report travels with the bucket that produced it" rule. A bucket below the minimum sample has
+  `null` p50/p90: the line BREAKS there (`connectNulls` off — a gap, never a zero) and the trend
+  table beside it prints a dash but keeps that bucket's real `n`; if no bucket is plottable a note
+  replaces the empty frame. Reported time explains in its description that the ratio is "how much of
+  the elapsed working time was logged" (actual MD ÷ cycle working days), distinct from flow
+  efficiency (active ÷ cycle time, shown as %, no "no time logged" bucket — so the two panels keep
+  separate accountings), and reads the median first (the outlier note: very short cycles dominate
+  the mean, p95 and the histogram's top; they are never dropped).
 - **Load order**: `["reports","filters"]` (staleTime 60 s) → the page query keyed
   `["reports", <report>, <serialized filter>]`, `enabled` once the filters loaded,
   `placeholderData: keepPreviousData` (`ReportChartCard` dims the previous body and sets `aria-busy`).

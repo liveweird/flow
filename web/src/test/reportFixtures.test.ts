@@ -3,10 +3,17 @@ import type { Distribution } from "../api/reports";
 import {
   ADJUSTMENTS,
   ADJUSTMENTS_EMPTY,
+  CYCLE_TIME,
+  CYCLE_TIME_ALL_HIDDEN,
+  CYCLE_TIME_EMPTY,
+  CYCLE_TIME_MONTHS,
   CONSISTENCY_UNIT,
   EPIC_ACCURACY,
   EPIC_ACCURACY_EMPTY,
   FILTERS,
+  REPORTED_TIME,
+  REPORTED_TIME_EMPTY,
+  REPORTED_TIME_HIDDEN,
   TASK_ACCURACY,
   TASK_ACCURACY_EMPTY,
   TASK_ACCURACY_HIDDEN,
@@ -149,5 +156,71 @@ describe("estimation fixtures hold the documented partitions", () => {
       expect(ADJUSTMENTS.groups.reduce((s, g) => s + (g.epics?.[key] ?? 0), 0)).toBe(ADJUSTMENTS.epics[key]);
     }
     expect(ADJUSTMENTS.groups.reduce((s, g) => s + g.tasks.changeExcluded.population, 0)).toBe(ADJUSTMENTS.tasks.changeExcluded.population);
+  });
+});
+
+describe("cycle time and reported time fixtures hold the documented partitions", () => {
+  test("cycle time: both views measure population − neverStarted, groups sum to the whole, hidden ⇔ below the minimum", () => {
+    for (const report of [CYCLE_TIME, CYCLE_TIME_ALL_HIDDEN, CYCLE_TIME_MONTHS, CYCLE_TIME_EMPTY]) {
+      const measured = report.excluded.population - report.excluded.neverStarted;
+      expect(report.workingDays.n).toBe(measured);
+      expect(report.elapsedDays.n).toBe(measured);
+      for (const d of [report.workingDays, report.elapsedDays, ...report.groups.flatMap((g) => [g.workingDays, g.elapsedDays])]) {
+        expectWellFormed(d);
+      }
+      for (const g of report.groups) {
+        expect(g.workingDays.n).toBe(g.excluded.population - g.excluded.neverStarted);
+        expect(g.elapsedDays.n).toBe(g.workingDays.n);
+      }
+      if (report.groups.length > 0) {
+        expect(report.groups.reduce((s, g) => s + g.workingDays.n, 0)).toBe(report.workingDays.n);
+        expect(report.groups.reduce((s, g) => s + g.excluded.population, 0)).toBe(report.excluded.population);
+        expect(report.groups.reduce((s, g) => s + g.excluded.neverStarted, 0)).toBe(report.excluded.neverStarted);
+      }
+    }
+  });
+
+  test("cycle time trend: the buckets' n sum to the measured tasks; p50/p90 are null exactly when n is below the minimum", () => {
+    for (const report of [CYCLE_TIME, CYCLE_TIME_ALL_HIDDEN, CYCLE_TIME_MONTHS]) {
+      expect(report.trend.reduce((sum, b) => sum + b.n, 0)).toBe(report.workingDays.n);
+    }
+    for (const b of [...CYCLE_TIME.trend, ...CYCLE_TIME_MONTHS.trend]) {
+      expect(b.p50 === null).toBe(b.n < MIN);
+      expect(b.p90 === null).toBe(b.n < MIN);
+    }
+    // The fixture really has hidden buckets to render as gaps — including an empty one — and visible ones around them.
+    expect(CYCLE_TIME.trend.some((b) => b.p50 === null && b.n > 0)).toBe(true);
+    expect(CYCLE_TIME.trend.some((b) => b.n === 0)).toBe(true);
+    expect(CYCLE_TIME.trend.filter((b) => b.p50 !== null).length).toBeGreaterThanOrEqual(2);
+  });
+
+  test("reported time: each measure reconciles to its population, groups sum to the whole", () => {
+    for (const report of [REPORTED_TIME, REPORTED_TIME_HIDDEN, REPORTED_TIME_EMPTY]) {
+      const x = report.excluded;
+      const f = report.flowEfficiencyExcluded;
+      expect(report.ratio.n + x.noWorklogs + x.neverStarted + x.zeroCycle).toBe(x.population);
+      expect(report.flowEfficiency.n + f.neverStarted + f.zeroCycle).toBe(f.population);
+      // Same population, different partitions (no worklog bucket for flow efficiency).
+      expect(f.population).toBe(x.population);
+      for (const d of [report.ratio, report.flowEfficiency, ...report.groups.flatMap((g) => [g.ratio, g.flowEfficiency])]) {
+        expectWellFormed(d);
+      }
+      for (const g of report.groups) {
+        expect(g.ratio.n + g.excluded.noWorklogs + g.excluded.neverStarted + g.excluded.zeroCycle).toBe(g.excluded.population);
+        expect(g.flowEfficiency.n + g.flowEfficiencyExcluded.neverStarted + g.flowEfficiencyExcluded.zeroCycle).toBe(
+          g.flowEfficiencyExcluded.population,
+        );
+      }
+      if (report.groups.length > 0) {
+        expect(report.groups.reduce((s, g) => s + g.ratio.n, 0)).toBe(report.ratio.n);
+        expect(report.groups.reduce((s, g) => s + g.flowEfficiency.n, 0)).toBe(report.flowEfficiency.n);
+        for (const key of ["population", "noWorklogs", "neverStarted", "zeroCycle"] as const) {
+          expect(report.groups.reduce((s, g) => s + g.excluded[key], 0)).toBe(x[key]);
+        }
+        for (const key of ["population", "neverStarted", "zeroCycle"] as const) {
+          expect(report.groups.reduce((s, g) => s + g.flowEfficiencyExcluded[key], 0)).toBe(f[key]);
+        }
+      }
+    }
   });
 });

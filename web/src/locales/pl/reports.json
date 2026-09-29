@@ -8,7 +8,9 @@
     "sprintConsistency": "Spójność sprintów",
     "taskAccuracy": "Trafność zadań",
     "epicAccuracy": "Trafność epików",
-    "adjustments": "Korekty"
+    "adjustments": "Korekty",
+    "cycleTime": "Czas cyklu",
+    "reportedTime": "Zalogowany czas"
   },
   "meta": {
     "derived": "Wyliczono {{date}} · wersja konfiguracji {{revision}}",
@@ -266,5 +268,64 @@
     "lateNote": "Wyszacowane po fakcie wliczają się do zmienionych po starcie.",
     "domainViewNote": "Widok domeny dotyczy zadań; epiki zawsze czytają własną przestrzeń."
   },
-  "epicsNotPerPerson": "Epiki nie są przypisywane do pojedynczych osób, więc nie ma danych o epikach dla jednej osoby."
+  "epicsNotPerPerson": "Epiki nie są przypisywane do pojedynczych osób, więc nie ma danych o epikach dla jednej osoby.",
+  "cycleTime": {
+    "title": "Czas cyklu",
+    "description": "Ile trwały zakończone zadania od pierwszego startu do zakończenia — w dniach roboczych (widok podstawowy, wg skonfigurowanego kalendarza) i w dniach kalendarzowych. Zadanie otwarte ponownie liczy się w całości.",
+    "workingTitle": "Dni robocze",
+    "workingCaption": "Widok podstawowy — dni wg skonfigurowanego kalendarza pracy.",
+    "elapsedTitle": "Dni kalendarzowe",
+    "elapsedCaption": "Widok drugi — dni zegarowe, z weekendami i świętami.",
+    "workingAxis": "dni robocze",
+    "elapsedAxis": "dni kalendarzowe",
+    "excluded": {
+      "neverStarted": "Nigdy nierozpoczęte (utworzone od razu jako zakończone), więc bez cyklu"
+    },
+    "trendTitle": "Trend: mediana i p90 w okresach",
+    "trendCaption": "Dni robocze, według okresu zakończenia zadania. Okres ze zbyt małą liczbą pozycji nie ma punktu na linii — jest przerwa, nigdy zero.",
+    "trendAllHidden": "Żaden okres nie ma dość zakończonych pozycji, by pokazać medianę i p90.",
+    "trendLabel": "Wykres: mediana i p90 czasu cyklu w dniach roboczych według okresów",
+    "trendTableLabel": "Trend, w tabeli",
+    "series": {
+      "p50": "Mediana (p50)",
+      "p90": "p90"
+    },
+    "column": {
+      "bucketWEEK": "Tydzień od",
+      "bucketMONTH": "Miesiąc",
+      "n": "Pozycje",
+      "p50": "Mediana",
+      "p90": "p90",
+      "population": "Zakończone",
+      "workingN": "Dni robocze (pozycje)",
+      "workingMedian": "Dni robocze (mediana)",
+      "elapsedN": "Dni kalendarzowe (pozycje)",
+      "elapsedMedian": "Dni kalendarzowe (mediana)"
+    },
+    "belowMinimum": "poniżej minimalnej próby"
+  },
+  "reportedTime": {
+    "title": "Zalogowany czas",
+    "description": "Jaka część upłyniętego czasu roboczego została zalogowana: zalogowane osobodni ÷ dni robocze cyklu. To nie jest efektywność przepływu, czyli udział cyklu spędzony aktywnie w toku (pokazana obok).",
+    "ratioTitle": "Zalogowany czas ÷ czas cyklu",
+    "ratioCaption": "Zalogowane osobodni na dzień roboczy cyklu — 1 oznacza pełny dzień zalogowany na każdy dzień roboczy.",
+    "ratioAxis": "zalogowane MD ÷ dni robocze cyklu",
+    "outlierNote": "Bardzo krótkie cykle dają bardzo duże stosunki. Są prawdziwe i nigdy nie są pomijane, więc najpierw czytaj medianę (p50) — średnia, p95 i prawy koniec histogramu mogą być przez nie zdominowane.",
+    "flowTitle": "Efektywność przepływu",
+    "flowCaption": "Czas aktywny ÷ czas cyklu: czas w toku i niezablokowany jako udział całego cyklu. Zalogowany czas nie ma znaczenia.",
+    "flowAxis": "czas aktywny ÷ czas cyklu",
+    "excluded": {
+      "noWorklogs": "Nie zalogowano czasu",
+      "neverStarted": "Nigdy nierozpoczęte, więc bez cyklu",
+      "zeroCycle": "Cykl równy zero dni roboczych",
+      "flowZeroCycle": "Cykl równy zero upłyniętego czasu"
+    },
+    "column": {
+      "population": "Zakończone",
+      "ratioN": "Zalogowany stosunek (pozycje)",
+      "ratioMedian": "Zalogowany stosunek (mediana)",
+      "flowN": "Efektywność przepływu (pozycje)",
+      "flowMedian": "Efektywność przepływu (mediana)"
+    }
+  }
 }

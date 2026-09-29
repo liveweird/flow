@@ -29,6 +29,9 @@ export const CHART_COLORS = {
   dropped: "red.7",
   added: "orange.8",
   removed: "gray.6",
+  /** Trend lines: the median is the blue primary, the p90 tail the neutral gray — and it is dashed. */
+  trendMedian: "flow.6",
+  trendTail: "gray.6",
 } as const;
 
 /** The final-scope blue: the deeper step in the light scheme, a lighter one in the dark. */

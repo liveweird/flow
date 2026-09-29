@@ -7,6 +7,8 @@ import type {
   EpicAccuracyRow,
   EpicEstimationAccuracyReport,
   EstimateAdjustmentsReport,
+  CycleTimeReport,
+  ReportedTimeRatioReport,
   ReportFilters,
   SprintConsistencyReport,
   TaskEstimationAccuracyReport,
@@ -430,5 +432,120 @@ export const ADJUSTMENTS_EMPTY: EstimateAdjustmentsReport = {
   meta: META,
   tasks: noAdjustments(),
   epics: noAdjustments(),
+  groups: [],
+};
+
+// ---- Cycle time and reported time (reports 7, 8) ------------------------------------------------
+// Partitions (checked by reportFixtures.test.ts): cycle time — workingDays.n == elapsedDays.n ==
+// population − neverStarted, trend n's sum to it, a bucket's p50/p90 are null exactly when its n is
+// below the minimum; reported time — ratio.n + noWorklogs + neverStarted + zeroCycle == population and
+// flowEfficiency.n + neverStarted + zeroCycle == population.
+
+export const CYCLE_TIME: CycleTimeReport = {
+  meta: META,
+  workingDays: shownDistribution([3, 6, 5, 3, 1], 0, 2, { p50: 3.5, p90: 7.5, p95: 9, mean: 4.1 }),
+  elapsedDays: shownDistribution([2, 5, 6, 3, 2], 0, 3, { p50: 5, p90: 11, p95: 13, mean: 6 }),
+  excluded: { population: 20, neverStarted: 2 },
+  trend: [
+    { bucketStart: "2026-09-07", p50: 3, p90: 7.5, n: 8 },
+    { bucketStart: "2026-09-14", p50: null, p90: null, n: 3 },
+    { bucketStart: "2026-09-21", p50: 2.5, p90: 6, n: 7 },
+    { bucketStart: "2026-09-28", p50: null, p90: null, n: 0 },
+  ],
+  groups: [
+    {
+      teamId: 1,
+      accountId: null,
+      label: "Alpha",
+      workingDays: shownDistribution([2, 3, 2, 1, 1], 0, 2, { p50: 3.2, p90: 7, p95: 8, mean: 3.9 }),
+      elapsedDays: shownDistribution([1, 3, 3, 1, 1], 0, 3, { p50: 5, p90: 10, p95: 12, mean: 5.8 }),
+      excluded: { population: 10, neverStarted: 1 },
+    },
+    {
+      teamId: 2,
+      accountId: null,
+      label: "Beta",
+      workingDays: shownDistribution([1, 3, 2, 1, 0], 0, 2, { p50: 3.8, p90: 6.5, p95: 7, mean: 4 }),
+      elapsedDays: shownDistribution([1, 2, 3, 1, 0], 0, 3, { p50: 5.5, p90: 9, p95: 10, mean: 5.6 }),
+      excluded: { population: 7, neverStarted: 0 },
+    },
+    {
+      teamId: null,
+      accountId: null,
+      label: null,
+      workingDays: hiddenDistribution(2),
+      elapsedDays: hiddenDistribution(2),
+      excluded: { population: 3, neverStarted: 1 },
+    },
+  ],
+};
+
+/** Every period below the minimum sample: a trend with no points at all. */
+export const CYCLE_TIME_ALL_HIDDEN: CycleTimeReport = {
+  ...CYCLE_TIME,
+  trend: CYCLE_TIME.trend.map((b) => ({ ...b, p50: null, p90: null })),
+};
+
+/** The month variant: same tasks, coarser buckets (n's still sum to the measured tasks). */
+export const CYCLE_TIME_MONTHS: CycleTimeReport = {
+  ...CYCLE_TIME,
+  trend: [
+    { bucketStart: "2026-08-01", p50: 4, p90: 8, n: 11 },
+    { bucketStart: "2026-09-01", p50: 3, p90: 7, n: 7 },
+  ],
+};
+
+export const CYCLE_TIME_EMPTY: CycleTimeReport = {
+  meta: META,
+  workingDays: hiddenDistribution(0),
+  elapsedDays: hiddenDistribution(0),
+  excluded: { population: 0, neverStarted: 0 },
+  trend: [{ bucketStart: "2026-09-07", p50: null, p90: null, n: 0 }],
+  groups: [],
+};
+
+export const REPORTED_TIME: ReportedTimeRatioReport = {
+  meta: META,
+  ratio: shownDistribution([6, 4, 2, 1, 1], 0, 0.5, { p50: 0.6, p90: 1.8, p95: 2.2, mean: 0.9 }),
+  excluded: { population: 20, noWorklogs: 3, neverStarted: 2, zeroCycle: 1 },
+  flowEfficiency: shownDistribution([4, 6, 4, 2, 1], 0, 0.2, { p50: 0.4, p90: 0.8, p95: 0.9, mean: 0.45 }),
+  flowEfficiencyExcluded: { population: 20, neverStarted: 2, zeroCycle: 1 },
+  groups: [
+    {
+      teamId: 1,
+      accountId: null,
+      label: "Alpha",
+      ratio: shownDistribution([3, 3, 2, 1, 1], 0, 0.5, { p50: 0.7, p90: 1.9, p95: 2.2, mean: 1 }),
+      excluded: { population: 12, noWorklogs: 0, neverStarted: 1, zeroCycle: 1 },
+      flowEfficiency: shownDistribution([2, 4, 2, 1, 1], 0, 0.2, { p50: 0.4, p90: 0.8, p95: 0.9, mean: 0.45 }),
+      flowEfficiencyExcluded: { population: 12, neverStarted: 1, zeroCycle: 1 },
+    },
+    {
+      teamId: 2,
+      accountId: null,
+      label: "Beta",
+      ratio: hiddenDistribution(4),
+      excluded: { population: 8, noWorklogs: 3, neverStarted: 1, zeroCycle: 0 },
+      flowEfficiency: shownDistribution([2, 2, 2, 1, 0], 0, 0.2, { p50: 0.35, p90: 0.7, p95: 0.8, mean: 0.4 }),
+      flowEfficiencyExcluded: { population: 8, neverStarted: 1, zeroCycle: 0 },
+    },
+  ],
+};
+
+export const REPORTED_TIME_HIDDEN: ReportedTimeRatioReport = {
+  meta: META,
+  ratio: hiddenDistribution(3),
+  excluded: { population: 9, noWorklogs: 4, neverStarted: 1, zeroCycle: 1 },
+  flowEfficiency: hiddenDistribution(4),
+  flowEfficiencyExcluded: { population: 9, neverStarted: 1, zeroCycle: 4 },
+  groups: [],
+};
+
+export const REPORTED_TIME_EMPTY: ReportedTimeRatioReport = {
+  meta: META,
+  ratio: hiddenDistribution(0),
+  excluded: { population: 0, noWorklogs: 0, neverStarted: 0, zeroCycle: 0 },
+  flowEfficiency: hiddenDistribution(0),
+  flowEfficiencyExcluded: { population: 0, neverStarted: 0, zeroCycle: 0 },
   groups: [],
 };

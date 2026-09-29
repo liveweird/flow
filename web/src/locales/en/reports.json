@@ -8,7 +8,9 @@
     "sprintConsistency": "Sprint consistency",
     "taskAccuracy": "Task accuracy",
     "epicAccuracy": "Epic accuracy",
-    "adjustments": "Adjustments"
+    "adjustments": "Adjustments",
+    "cycleTime": "Cycle time",
+    "reportedTime": "Reported time"
   },
   "meta": {
     "derived": "Derived {{date}} · configuration revision {{revision}}",
@@ -258,5 +260,64 @@
     "lateNote": "Estimated late is included in Changed after start.",
     "domainViewNote": "The domain view applies to tasks; epics always read their own space."
   },
-  "epicsNotPerPerson": "Epics aren't attributed to individual people, so there are no epic figures for a single person."
+  "epicsNotPerPerson": "Epics aren't attributed to individual people, so there are no epic figures for a single person.",
+  "cycleTime": {
+    "title": "Cycle time",
+    "description": "How long finished tasks took from first start to done — in working days (the primary view, on the configured calendar) and in elapsed calendar days. A reopened task counts its whole span.",
+    "workingTitle": "Working days",
+    "workingCaption": "Primary view — days on the configured working calendar.",
+    "elapsedTitle": "Elapsed days",
+    "elapsedCaption": "Second view — wall-clock days, weekends and holidays included.",
+    "workingAxis": "working days",
+    "elapsedAxis": "elapsed days",
+    "excluded": {
+      "neverStarted": "Never started (created straight into done), so no cycle"
+    },
+    "trendTitle": "Trend: median and p90 per period",
+    "trendCaption": "Working days, by the period each task finished in. A period with too few items has no line point — a gap, never a zero.",
+    "trendAllHidden": "No period has enough finished items to show a median and p90.",
+    "trendLabel": "Chart: median and p90 cycle time in working days by period",
+    "trendTableLabel": "Trend, as a table",
+    "series": {
+      "p50": "Median (p50)",
+      "p90": "p90"
+    },
+    "column": {
+      "bucketWEEK": "Week starting",
+      "bucketMONTH": "Month",
+      "n": "Items",
+      "p50": "Median",
+      "p90": "p90",
+      "population": "Finished",
+      "workingN": "Working days (items)",
+      "workingMedian": "Working days (median)",
+      "elapsedN": "Elapsed days (items)",
+      "elapsedMedian": "Elapsed days (median)"
+    },
+    "belowMinimum": "below the minimum sample"
+  },
+  "reportedTime": {
+    "title": "Reported time",
+    "description": "How much of the elapsed working time was logged: man-days logged ÷ working days of cycle time. It is not flow efficiency, which is the share of the cycle spent actively in progress (shown beside it).",
+    "ratioTitle": "Reported time ÷ cycle time",
+    "ratioCaption": "Man-days logged per working day of cycle time — 1 means a full day logged for every working day.",
+    "ratioAxis": "actual MD ÷ cycle working days",
+    "outlierNote": "Very short cycles give very large ratios. They are real and never dropped, so read the median (p50) first — the mean, p95 and the top of the histogram can be dominated by them.",
+    "flowTitle": "Flow efficiency",
+    "flowCaption": "Active time ÷ cycle time: time in progress and not blocked, as a share of the whole cycle. Logged time plays no part.",
+    "flowAxis": "active ÷ cycle time",
+    "excluded": {
+      "noWorklogs": "No time logged",
+      "neverStarted": "Never started, so no cycle",
+      "zeroCycle": "Cycle of zero working days",
+      "flowZeroCycle": "Cycle of zero elapsed time"
+    },
+    "column": {
+      "population": "Finished",
+      "ratioN": "Reported ratio (items)",
+      "ratioMedian": "Reported ratio (median)",
+      "flowN": "Flow efficiency (items)",
+      "flowMedian": "Flow efficiency (median)"
+    }
+  }
 }

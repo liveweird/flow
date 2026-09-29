@@ -25,7 +25,7 @@ describe("ReportTabs", () => {
       </>,
       { route: "/reports/throughput?teamId=2" },
     );
-    expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["Velocity", "Throughput", "Sprint consistency"]);
+    expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["Velocity", "Throughput", "Sprint consistency", "Cycle time"]);
     expect(screen.getByRole("tab", { name: "Throughput" })).toHaveAttribute("aria-selected", "true");
     await user.click(screen.getByRole("tab", { name: "Sprint consistency" }));
     expect(screen.getByTestId("where").textContent).toBe("/reports/sprint-consistency?teamId=2");
@@ -40,7 +40,12 @@ describe("ReportTabs", () => {
       </>,
       { route: "/reports/task-estimation-accuracy?teamId=2&domain=FLO&activityType=Bug&domainView=EPIC" },
     );
-    expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["Task accuracy", "Epic accuracy", "Adjustments"]);
+    expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
+      "Task accuracy",
+      "Epic accuracy",
+      "Adjustments",
+      "Reported time",
+    ]);
     expect(screen.getByRole("tab", { name: "Task accuracy" })).toHaveAttribute("aria-selected", "true");
     // Epics have no activity type / domain-view control, so those params do not follow.
     await user.click(screen.getByRole("tab", { name: "Epic accuracy" }));

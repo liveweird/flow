@@ -1,8 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { SimpleGrid, Stack, Text } from "@mantine/core";
 import { getTaskEstimationAccuracyReport, type TaskAccuracyGroup } from "../api/reports";
-import DistributionPanel from "../components/DistributionPanel";
-import ExcludedList from "../components/ExcludedList";
+import DistributionWithAccounting from "../components/DistributionWithAccounting";
 import PageHeader from "../components/PageHeader";
 import ReportChartCard from "../components/ReportChartCard";
 import ReportFilterBar, { type ReportControls } from "../components/ReportFilterBar";
@@ -52,43 +51,33 @@ export default function ReportTaskAccuracy() {
             {report && (
               <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg">
                 {/* Each view carries ITS OWN accounting: the two partitions differ, so they never share a list. */}
-                <Stack gap="lg">
-                  <DistributionPanel
-                    title={t("reports.taskAccuracy.startTitle")}
-                    caption={t("reports.taskAccuracy.startCaption")}
-                    distribution={report.atStart}
-                    minSampleSize={report.meta.minSampleSize}
-                    format={formatRatio}
-                    axisLabel={t("reports.ratio.axis")}
-                  />
-                  <ExcludedList
-                    population={report.excluded.population}
-                    measured={report.atStart.n}
-                    items={[
-                      { label: t("reports.taskAccuracy.excluded.noWorklogs"), count: report.excluded.noWorklogs },
-                      { label: t("reports.taskAccuracy.excluded.neverStarted"), count: report.excluded.neverStarted },
-                      { label: t("reports.taskAccuracy.excluded.unestimatedAtStart"), count: report.excluded.unestimatedAtStart },
-                    ]}
-                  />
-                </Stack>
-                <Stack gap="lg">
-                  <DistributionPanel
-                    title={t("reports.taskAccuracy.doneTitle")}
-                    caption={t("reports.taskAccuracy.doneCaption")}
-                    distribution={report.atDone}
-                    minSampleSize={report.meta.minSampleSize}
-                    format={formatRatio}
-                    axisLabel={t("reports.ratio.axis")}
-                  />
-                  <ExcludedList
-                    population={report.excluded.population}
-                    measured={report.atDone.n}
-                    items={[
-                      { label: t("reports.taskAccuracy.excluded.noWorklogs"), count: report.excluded.noWorklogs },
-                      { label: t("reports.taskAccuracy.excluded.unestimatedAtDone"), count: report.excluded.unestimatedAtDone },
-                    ]}
-                  />
-                </Stack>
+                <DistributionWithAccounting
+                  title={t("reports.taskAccuracy.startTitle")}
+                  caption={t("reports.taskAccuracy.startCaption")}
+                  distribution={report.atStart}
+                  minSampleSize={report.meta.minSampleSize}
+                  format={formatRatio}
+                  axisLabel={t("reports.ratio.axis")}
+                  population={report.excluded.population}
+                  items={[
+                    { label: t("reports.taskAccuracy.excluded.noWorklogs"), count: report.excluded.noWorklogs },
+                    { label: t("reports.taskAccuracy.excluded.neverStarted"), count: report.excluded.neverStarted },
+                    { label: t("reports.taskAccuracy.excluded.unestimatedAtStart"), count: report.excluded.unestimatedAtStart },
+                  ]}
+                />
+                <DistributionWithAccounting
+                  title={t("reports.taskAccuracy.doneTitle")}
+                  caption={t("reports.taskAccuracy.doneCaption")}
+                  distribution={report.atDone}
+                  minSampleSize={report.meta.minSampleSize}
+                  format={formatRatio}
+                  axisLabel={t("reports.ratio.axis")}
+                  population={report.excluded.population}
+                  items={[
+                    { label: t("reports.taskAccuracy.excluded.noWorklogs"), count: report.excluded.noWorklogs },
+                    { label: t("reports.taskAccuracy.excluded.unestimatedAtDone"), count: report.excluded.unestimatedAtDone },
+                  ]}
+                />
               </SimpleGrid>
             )}
           </ReportChartCard>
