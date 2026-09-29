@@ -125,6 +125,10 @@ describe("Home page — the unit overview", () => {
       ["Alpha", "Alpha 2", "2026-09-10", "20", "24.5", "18", "DriftFrozen at completion: committed 20 · final 22 · delivered 16.5 MD"],
       ["Beta", "Beta 1", "2026-09-01", "10", "10", "10", ""],
     ]);
+    // The table sits in a focusable, named scroll region: it scrolls sideways in a half-width tile and a keyboard must reach it.
+    const scroller = within(velocity).getByRole("region", { name: "Each team's last closed sprint, as a table" });
+    expect(scroller).toHaveAttribute("tabindex", "0");
+    expect(scroller).toContainElement(table);
     expect(within(velocity).getByText(/Each team's last closed sprint, in man-days/)).toBeInTheDocument();
   });
 

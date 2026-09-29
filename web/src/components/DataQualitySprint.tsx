@@ -39,7 +39,7 @@ function SnapshotDriftCard({ report, scope, timeZone }: { report: DataQualityRep
       header: t("reports.dataQuality.column.baseline"),
       render: (row) =>
         row.reconstructed ? (
-          <Badge color="orange" variant="outline">
+          <Badge color="orange" variant="light">
             {t("reports.dataQuality.baseline.reconstructed")}
           </Badge>
         ) : (

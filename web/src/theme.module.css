@@ -191,7 +191,8 @@
 }
 
 /* The scroller is a keyboard stop (it scrolls a table wider or taller than the screen): a visible focus ring. */
-.heatScroll:focus-visible {
+.heatScroll:focus-visible,
+.tableScroll:focus-visible {
   outline: 2px solid var(--flow-accent-ink);
   outline-offset: 2px;
 }
