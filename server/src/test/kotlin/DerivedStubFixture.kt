@@ -16,9 +16,15 @@ import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.jetbrains.exposed.v1.core.Column
+import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
+import org.jetbrains.exposed.v1.core.Table
+import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.greaterEq
+import org.jetbrains.exposed.v1.core.lessEq
+import org.jetbrains.exposed.v1.r2dbc.Query
 import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import kotlin.test.assertEquals
@@ -52,7 +58,7 @@ object DerivedStubFixture {
 
     private lateinit var baselineDigest: String
 
-    private fun metricsConfig() = MetricsConfigService(
+    fun metricsConfig() = MetricsConfigService(
         sharedDatabaseForTests(),
         SyncedStubFixture.workItems(),
         SyncedStubFixture.dataSources(),
@@ -69,8 +75,8 @@ object DerivedStubFixture {
         sharedDatabaseForTests(),
     )
 
-    private fun deriveClaim(connId: UInt) = SyncJobClaim(
-        id = 1u,
+    private fun deriveClaim(connId: UInt, jobId: UInt) = SyncJobClaim(
+        id = jobId,
         connectionId = connId,
         connectorKind = DataSourceKind.JIRA_CLOUD,
         kind = SyncJobKind.DERIVE,
@@ -78,6 +84,46 @@ object DerivedStubFixture {
         maxAttempts = 3,
         syncIntervalMinutes = 60,
     )
+
+    /**
+     * Maps the FLO board (id 1) to a freshly seeded team on [connId] through ONE full-replace PUT
+     * that preserves the COMPUTED defaults (estimate field detection etc.) — a bare `replaceConfig`
+     * with only `boards` set would otherwise wipe every other field back to its bare unconfigured
+     * null, since a stored config is a FULL replace, not a patch (the same reason
+     * `MetricsDerivationTest.mapFloBoardToTeam` reads `effectiveConfig` first). Returns the team id.
+     */
+    suspend fun mapFloBoardToNewTeam(connId: UInt, config: MetricsConfigService, teamPrefix: String): UInt {
+        val teamId = TestTeams.seed(SyncedStubFixture.unique(teamPrefix))
+        val current = config.effectiveConfig(connId)
+        config.replaceConfig(
+            connId,
+            DataSourceMetricsConfigRequest(
+                statusStages = current.statusStages,
+                fields = current.fields,
+                domains = current.domains,
+                boards = listOf(MetricsBoardTeamMapping(FLO_BOARD_ID, teamId)),
+                activityTypes = current.activityTypes,
+                workCategories = current.workCategories,
+                blockedStatuses = current.blockedStatuses,
+                sprintCapacities = current.sprintCapacities,
+            ),
+        )
+        return teamId
+    }
+
+    /**
+     * ONE DERIVE of [connId] under [PINNED_NOW] — the caller owns the surrounding
+     * `withMetricsSettings { }` (`hoursPerDay = 8.0`): wrapping each call separately would bump
+     * `metrics.settings.config_revision` twice per call, and every derived row is stamped with the
+     * revision, so two derives that must compare equal share ONE wrapper.
+     */
+    suspend fun derivePinned(connId: UInt, config: MetricsConfigService, jobId: UInt = 1u) {
+        deriver(config).derive(SyncJobRunContext(deriveClaim(connId, jobId), clock = { PINNED_NOW }) { _, _ -> true })
+    }
+
+    /** [withMetricsSettings] with the fixture's pinned `hoursPerDay = 8.0`. */
+    suspend fun <T> withPinnedSettings(config: MetricsConfigService, block: suspend () -> T): T =
+        withMetricsSettings(config, { it.copy(hoursPerDay = HOURS_PER_DAY) }, block)
 
     /**
      * Runs the cheap processed clone + FLO-board mapping + one pinned DERIVE exactly once per JVM
@@ -94,31 +140,10 @@ object DerivedStubFixture {
             SyncedStubFixture.cloneProcessedData(sourceConnId, connId)
 
             val config = metricsConfig()
-            val teamId = TestTeams.seed(SyncedStubFixture.unique("flo-derived-team"))
-            // Preserves the COMPUTED defaults (estimate field detection etc.) — a bare replaceConfig
-            // with only `boards` set would otherwise wipe every other field back to its bare
-            // unconfigured null, since a stored config is a FULL replace, not a patch (the same
-            // reason `MetricsDerivationTest.mapFloBoardToTeam` reads `effectiveConfig` first).
-            val current = config.effectiveConfig(connId)
-            config.replaceConfig(
-                connId,
-                DataSourceMetricsConfigRequest(
-                    statusStages = current.statusStages,
-                    fields = current.fields,
-                    domains = current.domains,
-                    boards = listOf(MetricsBoardTeamMapping(FLO_BOARD_ID, teamId)),
-                    activityTypes = current.activityTypes,
-                    workCategories = current.workCategories,
-                    blockedStatuses = current.blockedStatuses,
-                    sprintCapacities = current.sprintCapacities,
-                ),
-            )
+            mapFloBoardToNewTeam(connId, config, "flo-derived-team")
+            withPinnedSettings(config) { derivePinned(connId, config) }
 
-            withMetricsSettings(config, { it.copy(hoursPerDay = HOURS_PER_DAY) }) {
-                deriver(config).derive(SyncJobRunContext(deriveClaim(connId), clock = { PINNED_NOW }) { _, _ -> true })
-            }
-
-            baselineDigest = digest(connId)
+            baselineDigest = metricsDigest(connId)
             derivedConnectionId = connId
             connId
         }
@@ -129,7 +154,7 @@ object DerivedStubFixture {
         val connId = connectionId()
         assertEquals(
             baselineDigest,
-            digest(connId),
+            metricsDigest(connId),
             "the shared derived fixture's connection $connId must never be mutated by a read-only test",
         )
     }
@@ -190,96 +215,90 @@ object DerivedStubFixture {
         return digest.hex()
     }
 
+    /** One table's slice of [metricsDigest]: the connection-scoping predicate and any bookkeeping columns left out of the hash. */
+    private class DigestSpec(val table: Table, val scope: Op<Boolean>, val exclude: Set<Column<*>> = emptySet())
+
     /**
-     * Extends [factTaskDeliveryDigest] with `fact_sprint`/`fact_sprint_scope`/`fact_worklog` —
-     * none of the three carries a surrogate id (all three key on real, composite natural columns
-     * — see `metrics/MetricsStore.kt`), so every column is hashed as-is.
+     * MD5 over EVERY derived `metrics.*` table for one connection (invariant 12's proof — the
+     * reprocess-digest pattern, `.claude/docs/testing.md`): the dimensions, every bridge, both
+     * accumulating facts, the sprint facts, worklog and epic-plan facts and both daily aggregates —
+     * plus, only when [includeDimDate] is set, the `dim_date` days the connection's own WIP
+     * aggregate spans. `dim_date` is GLOBAL and every DERIVE by ANY connection upserts it stamped
+     * with the then-current `config_revision`, so it is opt-in: only a caller whose derives all sit
+     * inside one settings wrapper in a sequential suite (`MetricsDigestTest`) may hash it — the
+     * shared-fixture tripwire must not, or it would go red whenever another deriving test ran first.
+     * Left out on purpose:
+     *
+     * - `derive_runs` (run bookkeeping — a second DERIVE legitimately adds a row);
+     * - the surrogate `id` column of every bridge/`fact_epic_plan` (a fresh `autoIncrement()` value
+     *   on every DERIVE's delete+insert would make two identical runs spuriously differ);
+     * - `fact_sprint_snapshot.snapshot_at`/`reconstructed` (write-time bookkeeping of an append-only
+     *   row; every OTHER snapshot column — the frozen figures, the scope JSON, the config revision —
+     *   is hashed). NOTE the snapshot slice is trivially equal across re-derives (append-only, never
+     *   rewritten): the LIVE `fact_sprint` is what proves the frozen figures are reproducible.
+     *
+     * Row order is deterministic: the table's own primary key where it has a real one, else every
+     * hashed column in declaration order (the surrogate-id tables have no natural key of their own,
+     * so their whole row is the key). Each table contributes a `#name/rowCount` header line, so an
+     * empty table can never be mistaken for a shifted neighbour.
      */
-    private suspend fun digest(connId: UInt): String {
-        val sprintDigest = MessageDigest.getInstance("MD5")
+    suspend fun metricsDigest(connId: UInt, includeDimDate: Boolean = false): String {
+        val digest = MessageDigest.getInstance("MD5")
+        val specs = listOf(
+            DigestSpec(MetricsStore.DimDomain, MetricsStore.DimDomain.connectionId eq connId),
+            DigestSpec(MetricsStore.DimTask, MetricsStore.DimTask.connectionId eq connId),
+            DigestSpec(MetricsStore.DimEpic, MetricsStore.DimEpic.connectionId eq connId),
+            DigestSpec(MetricsStore.DimSprint, MetricsStore.DimSprint.connectionId eq connId),
+            DigestSpec(MetricsStore.TaskEpic, MetricsStore.TaskEpic.connectionId eq connId),
+            DigestSpec(MetricsStore.TaskDomain, MetricsStore.TaskDomain.connectionId eq connId),
+            DigestSpec(MetricsStore.TaskAssignee, MetricsStore.TaskAssignee.connectionId eq connId),
+            DigestSpec(MetricsStore.TaskSprint, MetricsStore.TaskSprint.connectionId eq connId),
+            DigestSpec(MetricsStore.ItemEstimate, MetricsStore.ItemEstimate.connectionId eq connId),
+            DigestSpec(MetricsStore.ItemStage, MetricsStore.ItemStage.connectionId eq connId),
+            DigestSpec(MetricsStore.ItemBlocked, MetricsStore.ItemBlocked.connectionId eq connId),
+            DigestSpec(MetricsStore.FactTaskDelivery, MetricsStore.FactTaskDelivery.connectionId eq connId),
+            DigestSpec(MetricsStore.FactEpicDelivery, MetricsStore.FactEpicDelivery.connectionId eq connId),
+            DigestSpec(MetricsStore.FactSprintScope, MetricsStore.FactSprintScope.connectionId eq connId),
+            DigestSpec(MetricsStore.FactSprint, MetricsStore.FactSprint.connectionId eq connId),
+            DigestSpec(
+                MetricsStore.FactSprintSnapshot,
+                MetricsStore.FactSprintSnapshot.connectionId eq connId,
+                setOf(MetricsStore.FactSprintSnapshot.snapshotAt, MetricsStore.FactSprintSnapshot.reconstructed),
+            ),
+            DigestSpec(MetricsStore.FactWorklog, MetricsStore.FactWorklog.connectionId eq connId),
+            DigestSpec(MetricsStore.FactEpicPlan, MetricsStore.FactEpicPlan.connectionId eq connId),
+            DigestSpec(MetricsStore.AggDailyWip, MetricsStore.AggDailyWip.connectionId eq connId),
+            DigestSpec(MetricsStore.AggDailyFlow, MetricsStore.AggDailyFlow.connectionId eq connId),
+        )
         suspendTransaction(sharedDatabaseForTests()) {
-            sprintDigest.hashRows(
-                MetricsStore.FactSprint.selectAll().where { MetricsStore.FactSprint.connectionId eq connId }
-                    .orderBy(MetricsStore.FactSprint.sprintId to SortOrder.ASC)
-                    .toList(),
-                MetricsStore.FactSprint.columns,
-            )
-            sprintDigest.hashRows(
-                MetricsStore.FactSprintScope.selectAll().where { MetricsStore.FactSprintScope.connectionId eq connId }
-                    .orderBy(MetricsStore.FactSprintScope.sprintId to SortOrder.ASC, MetricsStore.FactSprintScope.issueId to SortOrder.ASC)
-                    .toList(),
-                MetricsStore.FactSprintScope.columns,
-            )
-            sprintDigest.hashRows(
-                MetricsStore.FactWorklog.selectAll().where { MetricsStore.FactWorklog.connectionId eq connId }
-                    .orderBy(MetricsStore.FactWorklog.worklogId to SortOrder.ASC)
-                    .toList(),
-                MetricsStore.FactWorklog.columns,
-            )
-            // `fact_epic_plan` (v0.3.0 M3 commit 9b) carries a surrogate `id` like `fact_task_delivery`'s
-            // own bridges above — excluded from the hashed columns for the same reason; ordered by its
-            // own natural key `(issue_id, baseline_seq)`.
-            sprintDigest.hashRows(
-                MetricsStore.FactEpicPlan.selectAll().where { MetricsStore.FactEpicPlan.connectionId eq connId }
-                    .orderBy(MetricsStore.FactEpicPlan.issueId to SortOrder.ASC, MetricsStore.FactEpicPlan.baselineSeq to SortOrder.ASC)
-                    .toList(),
-                listOf(
-                    MetricsStore.FactEpicPlan.issueId,
-                    MetricsStore.FactEpicPlan.baselineSeq,
-                    MetricsStore.FactEpicPlan.baselinedAt,
-                    MetricsStore.FactEpicPlan.startAt,
-                    MetricsStore.FactEpicPlan.dueAt,
-                    MetricsStore.FactEpicPlan.budgetMd,
-                    MetricsStore.FactEpicPlan.budgetSource,
-                    MetricsStore.FactEpicPlan.supersededAt,
-                ),
-            )
-            // `fact_epic_delivery` (v0.3.0 M3 commit 9d/9e, A19/A22's `owner_team_id`) — PK
-            // `(connection_id, issue_id)`, no surrogate id, ordered by issue id.
-            sprintDigest.hashRows(
-                MetricsStore.FactEpicDelivery.selectAll().where { MetricsStore.FactEpicDelivery.connectionId eq connId }
-                    .orderBy(MetricsStore.FactEpicDelivery.issueId to SortOrder.ASC)
-                    .toList(),
-                MetricsStore.FactEpicDelivery.columns,
-            )
-            // `dim_domain` (V17, A19/A22's `owner_team_id`) — PK `(connection_id, domain_key)`, no
-            // surrogate id, ordered by domain key (its own natural key).
-            sprintDigest.hashRows(
-                MetricsStore.DimDomain.selectAll().where { MetricsStore.DimDomain.connectionId eq connId }
-                    .orderBy(MetricsStore.DimDomain.domainKey to SortOrder.ASC)
-                    .toList(),
-                MetricsStore.DimDomain.columns,
-            )
-            // `agg_daily_wip` (v0.3.0 M3 commit 9f, report 9) — no surrogate id, PK
-            // `(connection_id, scope_kind, scope_id, day, item_kind, status_id, stage)`, ordered by
-            // that same natural key.
-            sprintDigest.hashRows(
-                MetricsStore.AggDailyWip.selectAll().where { MetricsStore.AggDailyWip.connectionId eq connId }
-                    .orderBy(
-                        MetricsStore.AggDailyWip.scopeKind to SortOrder.ASC,
-                        MetricsStore.AggDailyWip.scopeId to SortOrder.ASC,
-                        MetricsStore.AggDailyWip.day to SortOrder.ASC,
-                        MetricsStore.AggDailyWip.itemKind to SortOrder.ASC,
-                        MetricsStore.AggDailyWip.statusId to SortOrder.ASC,
-                        MetricsStore.AggDailyWip.stage to SortOrder.ASC,
-                    )
-                    .toList(),
-                MetricsStore.AggDailyWip.columns,
-            )
-            // `agg_daily_flow` (v0.3.0 M3 commit 9f, reports 10/2) — PK
-            // `(connection_id, scope_kind, scope_id, day)`, ordered by that same natural key.
-            sprintDigest.hashRows(
-                MetricsStore.AggDailyFlow.selectAll().where { MetricsStore.AggDailyFlow.connectionId eq connId }
-                    .orderBy(
-                        MetricsStore.AggDailyFlow.scopeKind to SortOrder.ASC,
-                        MetricsStore.AggDailyFlow.scopeId to SortOrder.ASC,
-                        MetricsStore.AggDailyFlow.day to SortOrder.ASC,
-                    )
-                    .toList(),
-                MetricsStore.AggDailyFlow.columns,
-            )
+            for (spec in specs) {
+                digest.hashTable(spec.table, spec.table.selectAll().where { spec.scope }, spec.exclude)
+            }
+            // Opt-in (see the KDoc): hash only the days this connection's own WIP aggregate spans,
+            // so another connection's wider range can never leak into this connection's digest.
+            val wipDays = if (!includeDimDate) emptyList() else MetricsStore.AggDailyWip.selectAll()
+                .where { MetricsStore.AggDailyWip.connectionId eq connId }
+                .toList().map { it[MetricsStore.AggDailyWip.day] }
+            if (wipDays.isNotEmpty()) {
+                val firstDay = wipDays.min()
+                val lastDay = wipDays.max()
+                digest.hashTable(
+                    MetricsStore.DimDate,
+                    MetricsStore.DimDate.selectAll()
+                        .where { (MetricsStore.DimDate.day greaterEq firstDay) and (MetricsStore.DimDate.day lessEq lastDay) },
+                    emptySet(),
+                )
+            }
         }
-        return "${factTaskDeliveryDigest(connId)}:${sprintDigest.hex()}"
+        return digest.hex()
+    }
+
+    private suspend fun MessageDigest.hashTable(table: Table, query: Query, exclude: Set<Column<*>>) {
+        val hashed = table.columns.filter { it.name != "id" && it !in exclude }
+        val keyColumns = table.primaryKey?.columns.orEmpty().filter { it.name != "id" }.ifEmpty { hashed }
+        val rows = query.orderBy(*keyColumns.map { it to SortOrder.ASC }.toTypedArray()).toList()
+        update("#${table.tableName}/${rows.size}\n".toByteArray())
+        hashRows(rows, hashed)
     }
 
     private fun MessageDigest.hashRows(rows: List<ResultRow>, columns: List<Column<*>>) {

@@ -227,6 +227,28 @@ previously-written facts are untouched either way (the failed transaction rolled
 delete committed, or never started). There is deliberately no `CANCELLED` status — see
 `.claude/docs/persistence.md` "The `metrics` schema — the derived star (V16)".
 
+### Reproducibility (invariant 12)
+
+Every derived number is a pure function of `norm.*` plus ONE configuration revision, and
+`MetricsDigestTest` proves it over the persisted rows (the reprocess-digest pattern,
+`.claude/docs/testing.md`). `DerivedStubFixture.metricsDigest(connId)` MD5-hashes every derived
+table — the dimensions, every bridge, both accumulating facts, the sprint/worklog/epic-plan facts,
+`agg_daily_wip`/`agg_daily_flow` (plus, opt-in via `includeDimDate`, the `dim_date` days the
+connection's WIP aggregate spans — `dim_date` is global and upserted by every DERIVE with the
+then-current revision, so only `MetricsDigestTest` hashes it) — in a deterministic order (the primary key, else every hashed column). Left out on purpose: `derive_runs`
+(run bookkeeping), the surrogate `id` of the bridge/`fact_epic_plan` tables (a fresh
+`autoIncrement()` per DERIVE) and `fact_sprint_snapshot.snapshot_at`/`reconstructed` (write-time
+bookkeeping of an append-only row; the frozen figures themselves ARE hashed, though that slice is
+trivially equal across re-derives — the live `fact_sprint` is what proves them reproducible). Three cases, each on a
+private disabled clone under the pinned clock: (1) a second DERIVE over the same `norm` rows and
+the same `config_revision` yields an identical digest and writes no second snapshot row; (2) a
+REPROCESS (PROCESS rebuilding `norm.*` from the clone's raw rows) followed by a re-DERIVE
+reproduces the digest of the first; (3) a negative sensitivity check — nudging one
+`fact_task_delivery.blocked_working_days` by 0.0001, or deleting one `task_sprint` row (a
+surrogate-id table), changes the digest, so the digest cannot be vacuous. Both derives share one `withMetricsSettings` wrapper — every
+derived row carries the revision, and each wrapper call would bump it. A red digest is a real
+nondeterminism bug (ordering, rounding, a clock read), never something to loosen.
+
 ## Calendar math (`metrics/WorkingCalendar.kt`)
 
 Pure, timezone-aware: `dayOf(instant)` folds an epoch millis into an ISO date string in the
@@ -804,7 +826,7 @@ table in (`scope_kind, scope_id, day` order).
 
 ## Not yet ported / not yet written
 
-The DERIVE reprocess/perf checks round out commit 9.
+The DERIVE perf check rounds out commit 9 (the reprocess/re-derive check landed as `MetricsDigestTest`, "Reproducibility (invariant 12)" above).
 
 The report API and the report pages arrive with their own commits and their own sections here.
 
