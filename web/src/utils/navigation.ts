@@ -4,6 +4,7 @@ import {
   IconChartAreaLine,
   IconChartBar,
   IconChecklist,
+  IconCoin,
   IconTarget,
   IconHistory,
   IconHome2,
@@ -15,7 +16,7 @@ import {
   type Icon,
 } from "@tabler/icons-react";
 import { dataSourcesPath } from "./dataSourceLinks";
-import { dataQualityPath, DELIVERY_TABS, ESTIMATION_TABS, FLOW_TABS, taskAccuracyPath, velocityPath, wipPath } from "./reportLinks";
+import { costMatrixPath, dataQualityPath, DELIVERY_TABS, ESTIMATION_TABS, FLOW_TABS, taskAccuracyPath, velocityPath, wipPath } from "./reportLinks";
 import { teamsPath } from "./teamLinks";
 
 export type NavLeaf = {
@@ -78,6 +79,8 @@ const NAV_SECTIONS: ReadonlyArray<NavSection> = [
       },
       // A group of one report: the leaf is the page, so it needs no tabs and no palette-only twin.
       { to: dataQualityPath, label: "appShell.nav.reportsDataQuality", icon: IconChecklist },
+      // Also a group of one: the cost matrix is a different shape from the flow reports (a matrix, not a series).
+      { to: costMatrixPath, label: "appShell.nav.reportsCost", icon: IconCoin },
     ],
   },
   {

@@ -6,6 +6,7 @@ import type {
   AgingWipReport,
   BacklogReport,
   BlockedTimeReport,
+  CostMatrixReport,
   Distribution,
   EpicAccuracyRow,
   EpicEstimationAccuracyReport,
@@ -1212,4 +1213,202 @@ export const DATA_QUALITY_USER: DataQualityReport = {
   },
   epicDrift: { total: 0, items: [] },
   snapshotDrift: { total: 0, items: [] },
+};
+
+// Cost matrix. Consistent by construction (checked by reportFixtures.test.ts): cells are dense and in column
+// order, every total is within the rounding bound (0.005 per addend) of the sum it stands for, and a foreign
+// share is the row's foreign MD over its MD (null when nothing was logged).
+
+/** The whole unit, EPIC view: a live team, a soft-deleted one that still logged work, and the unassigned authors. */
+export const COST_MATRIX_UNIT: CostMatrixReport = {
+  meta: { ...META, domainView: "EPIC" },
+  columns: [
+    { domain: "FLO", name: "Flow", totalMd: 11.5 },
+    { domain: "OPS", name: "Operations", totalMd: 3 },
+  ],
+  rows: [
+    {
+      teamId: 1,
+      accountId: null,
+      label: "Alpha",
+      active: true,
+      cells: [
+        { domain: "FLO", md: 10 },
+        { domain: "OPS", md: 2.5 },
+      ],
+      totalMd: 12.5,
+      foreignMd: 3.75,
+      foreignShare: 0.3,
+    },
+    {
+      teamId: 4,
+      accountId: null,
+      label: "Old team",
+      active: false,
+      cells: [
+        { domain: "FLO", md: 1 },
+        { domain: "OPS", md: 0 },
+      ],
+      totalMd: 1,
+      foreignMd: 0,
+      foreignShare: 0,
+    },
+    {
+      teamId: 0,
+      accountId: null,
+      label: null,
+      active: true,
+      cells: [
+        { domain: "FLO", md: 0.5 },
+        { domain: "OPS", md: 0.5 },
+      ],
+      totalMd: 1,
+      foreignMd: 0,
+      foreignShare: 0,
+    },
+  ],
+  totalMd: 14.5,
+  foreignMd: 3.75,
+  foreignShare: 3.75 / 14.5,
+};
+
+/** The same unit read in the TASK view: a cross-domain task moved from the epic's column to its own. */
+export const COST_MATRIX_TASK_VIEW: CostMatrixReport = {
+  ...COST_MATRIX_UNIT,
+  meta: { ...META, domainView: "TASK" },
+  columns: [
+    { domain: "FLO", name: "Flow", totalMd: 9.5 },
+    { domain: "OPS", name: "Operations", totalMd: 5 },
+  ],
+  rows: [
+    { ...COST_MATRIX_UNIT.rows[0], cells: [{ domain: "FLO", md: 8 }, { domain: "OPS", md: 4.5 }] },
+    { ...COST_MATRIX_UNIT.rows[1], cells: [{ domain: "FLO", md: 1 }, { domain: "OPS", md: 0 }] },
+    { ...COST_MATRIX_UNIT.rows[2], cells: [{ domain: "FLO", md: 0.5 }, { domain: "OPS", md: 0.5 }] },
+  ],
+};
+
+/** A sprint-relative period: the server sends no `from`/`to`. */
+export const COST_MATRIX_SPRINTS: CostMatrixReport = {
+  ...COST_MATRIX_UNIT,
+  meta: { ...META, domainView: "EPIC", from: null, to: null, resolvedSprints: [{ teamId: 1, sprintIds: [11, 12] }] },
+};
+
+/** The rounding rule: three thirds of a man-day show 0.33 each, their exact sum shows 1 — never 0.99. */
+export const COST_MATRIX_THIRDS: CostMatrixReport = {
+  meta: { ...META, domainView: "EPIC" },
+  columns: [
+    { domain: "A", name: "Alfa", totalMd: 0.33 },
+    { domain: "B", name: "Bravo", totalMd: 0.33 },
+    { domain: "C", name: null, totalMd: 0.33 },
+  ],
+  rows: [
+    {
+      teamId: 1,
+      accountId: null,
+      label: "Alpha",
+      active: true,
+      cells: [
+        { domain: "A", md: 0.33 },
+        { domain: "B", md: 0.33 },
+        { domain: "C", md: 0.33 },
+      ],
+      totalMd: 1,
+      foreignMd: 0,
+      foreignShare: 0,
+    },
+  ],
+  totalMd: 1,
+  foreignMd: 0,
+  foreignShare: 0,
+};
+
+/** One team's authors (TEAM level), one of them logging under no known author. */
+export const COST_MATRIX_TEAM: CostMatrixReport = {
+  meta: { ...META, level: "TEAM", domainView: "EPIC" },
+  columns: [
+    { domain: "FLO", name: "Flow", totalMd: 6 },
+    { domain: null, name: null, totalMd: 1 },
+  ],
+  rows: [
+    {
+      teamId: 1,
+      accountId: "acc-ann",
+      label: "Ann Author",
+      cells: [
+        { domain: "FLO", md: 4 },
+        { domain: null, md: 0 },
+      ],
+      totalMd: 4,
+      foreignMd: 1,
+      foreignShare: 0.25,
+    },
+    {
+      teamId: 1,
+      accountId: "acc-bob",
+      label: "Bob Builder",
+      cells: [
+        { domain: "FLO", md: 2 },
+        { domain: null, md: 0 },
+      ],
+      totalMd: 2,
+      foreignMd: 0,
+      foreignShare: 0,
+    },
+    {
+      teamId: 1,
+      accountId: null,
+      label: null,
+      cells: [
+        { domain: "FLO", md: 0 },
+        { domain: null, md: 1 },
+      ],
+      totalMd: 1,
+      foreignMd: 0,
+      foreignShare: 0,
+    },
+  ],
+  totalMd: 7,
+  foreignMd: 1,
+  foreignShare: 1 / 7,
+};
+
+/** One author (USER level): no drill left. */
+export const COST_MATRIX_USER: CostMatrixReport = {
+  meta: { ...META, level: "USER", domainView: "EPIC" },
+  columns: [{ domain: "FLO", name: "Flow", totalMd: 4 }],
+  rows: [
+    {
+      teamId: 1,
+      accountId: "acc-ann",
+      label: "Ann Author",
+      cells: [{ domain: "FLO", md: 4 }],
+      totalMd: 4,
+      foreignMd: 1,
+      foreignShare: 0.25,
+    },
+  ],
+  totalMd: 4,
+  foreignMd: 1,
+  foreignShare: 0.25,
+};
+
+/** Worklogs that add up to no man-days at all: the rows exist, the share does not. */
+export const COST_MATRIX_NO_SHARE: CostMatrixReport = {
+  meta: { ...META, domainView: "EPIC" },
+  columns: [{ domain: "FLO", name: "Flow", totalMd: 0 }],
+  rows: [
+    { teamId: 1, accountId: null, label: "Alpha", active: true, cells: [{ domain: "FLO", md: 0 }], totalMd: 0, foreignMd: 0, foreignShare: null },
+  ],
+  totalMd: 0,
+  foreignMd: 0,
+  foreignShare: null,
+};
+
+export const COST_MATRIX_EMPTY: CostMatrixReport = {
+  meta: { ...META, domainView: "EPIC" },
+  columns: [],
+  rows: [],
+  totalMd: 0,
+  foreignMd: 0,
+  foreignShare: null,
 };

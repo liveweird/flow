@@ -17,6 +17,14 @@ import {
   BACKLOG_PARTIAL_WINDOW,
   BACKLOG_ZERO_VELOCITY,
   ADJUSTMENTS_EMPTY,
+  COST_MATRIX_EMPTY,
+  COST_MATRIX_NO_SHARE,
+  COST_MATRIX_SPRINTS,
+  COST_MATRIX_TASK_VIEW,
+  COST_MATRIX_TEAM,
+  COST_MATRIX_THIRDS,
+  COST_MATRIX_UNIT,
+  COST_MATRIX_USER,
   CYCLE_TIME,
   DATA_QUALITY,
   DATA_QUALITY_CAPPED,
@@ -377,5 +385,57 @@ describe("cycle time and reported time fixtures hold the documented partitions",
     // The capped fixture really is capped: 50 rows of 75.
     expect(DATA_QUALITY_CAPPED.missing.noEpic.items).toHaveLength(50);
     expect(DATA_QUALITY_CAPPED.missing.noEpic.total).toBe(75);
+  });
+});
+
+describe("cost matrix fixtures", () => {
+  const ALL = [
+    COST_MATRIX_UNIT,
+    COST_MATRIX_TASK_VIEW,
+    COST_MATRIX_SPRINTS,
+    COST_MATRIX_THIRDS,
+    COST_MATRIX_TEAM,
+    COST_MATRIX_USER,
+    COST_MATRIX_NO_SHARE,
+    COST_MATRIX_EMPTY,
+  ];
+
+  test("cells are dense and in column order; every total is within the rounding bound of the sum it stands for", () => {
+    for (const report of ALL) {
+      const domains = report.columns.map((column) => column.domain);
+      for (const row of report.rows) {
+        expect(row.cells.map((cell) => cell.domain)).toEqual(domains);
+        // Each figure is its own exact sum rounded once: 0.005 per addend at most.
+        expect(Math.abs(row.cells.reduce((sum, cell) => sum + cell.md, 0) - row.totalMd)).toBeLessThanOrEqual(0.005 * row.cells.length + 1e-9);
+      }
+      report.columns.forEach((column, i) => {
+        const sum = report.rows.reduce((total, row) => total + row.cells[i].md, 0);
+        expect(Math.abs(sum - column.totalMd)).toBeLessThanOrEqual(0.005 * report.rows.length + 1e-9);
+      });
+      expect(Math.abs(report.rows.reduce((sum, row) => sum + row.totalMd, 0) - report.totalMd)).toBeLessThanOrEqual(0.005 * report.rows.length + 1e-9);
+      expect(report.rows.reduce((sum, row) => sum + row.foreignMd, 0)).toBeCloseTo(report.foreignMd, 6);
+    }
+  });
+
+  test("a foreign share is the foreign MD over the MD, null exactly when nothing was logged", () => {
+    for (const report of ALL) {
+      for (const figures of [report, ...report.rows]) {
+        if (figures.totalMd === 0) expect(figures.foreignShare).toBeNull();
+        else expect(figures.foreignShare).toBeCloseTo(figures.foreignMd / figures.totalMd, 6);
+        expect(figures.foreignMd).toBeLessThanOrEqual(figures.totalMd);
+      }
+    }
+  });
+
+  test("unit rows carry `active` (unassigned last, team 0), team and user rows leave it out; the views differ only in the columns", () => {
+    expect(COST_MATRIX_UNIT.rows.map((row) => row.teamId)).toEqual([1, 4, 0]);
+    expect(COST_MATRIX_UNIT.rows.every((row) => row.active !== undefined)).toBe(true);
+    expect(COST_MATRIX_UNIT.rows[1].active).toBe(false);
+    for (const report of [COST_MATRIX_TEAM, COST_MATRIX_USER]) expect(report.rows.every((row) => row.active === undefined)).toBe(true);
+    expect(COST_MATRIX_TASK_VIEW.totalMd).toBe(COST_MATRIX_UNIT.totalMd);
+    expect(COST_MATRIX_TASK_VIEW.rows.map((row) => row.totalMd)).toEqual(COST_MATRIX_UNIT.rows.map((row) => row.totalMd));
+    // The thirds fixture IS the rounding rule: three 0.33 cells, a total of 1.
+    expect(COST_MATRIX_THIRDS.rows[0].cells.every((cell) => Math.abs(cell.md - 0.33) < 1e-9)).toBe(true);
+    expect(COST_MATRIX_THIRDS.rows[0].totalMd).toBe(1);
   });
 });

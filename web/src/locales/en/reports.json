@@ -833,5 +833,51 @@
     "unattributedNote_one": "{{count}} done task was finished in a team-less sprint that belongs to none of the boards above (the sprint has no board, or its board is mapped but the sprint carries no team).",
     "unattributedNote_other": "{{count}} done tasks were finished in a team-less sprint that belongs to none of the boards above (the sprint has no board, or its board is mapped but the sprint carries no team).",
     "coverageNone": "No done task in this period, so there is no coverage to measure."
+  },
+  "costMatrix": {
+    "title": "Cost matrix",
+    "description": "The man-days people logged in the period, by the team the author belonged to on the day (rows) and by domain (columns), with the share of foreign work beside every row. Open a team to see its authors, an author to see one person.",
+    "levelTitle": {
+      "UNIT": "Man-days by author team and domain",
+      "TEAM": "Man-days by author and domain",
+      "USER": "Man-days by domain"
+    },
+    "caption": {
+      "UNIT": "Man-days logged in the period: author teams in rows, domains in columns, then the row total and the foreign work",
+      "TEAM": "Man-days logged in the period: the team's authors in rows, domains in columns, then the row total and the foreign work",
+      "USER": "Man-days logged in the period by this author: domains in columns, then the total and the foreign work"
+    },
+    "domainView": {
+      "EPIC": "Columns show the epic's domain — a task with no epic counts in its own domain.",
+      "TASK": "Columns show the task's own domain, even when its epic belongs to another."
+    },
+    "column": {
+      "team": "Author team",
+      "author": "Author",
+      "total": "Total",
+      "foreignMd": "Foreign work (MD)",
+      "foreignShare": "Foreign share"
+    },
+    "totalRow": "Total",
+    "noDomain": "(no domain)",
+    "noAuthor": "No known author",
+    "deletedTeam": "Deleted team",
+    "tile": {
+      "total": "Man-days logged",
+      "foreign": "Foreign work (MD)",
+      "share": "Foreign work share"
+    },
+    "shareHint": "Foreign man-days as a share of everything logged in the period.",
+    "foreignHint": "Foreign work is time logged on tasks outside the author's own team's work: tasks of another team's sprint, or, when a task has no sprint team, tasks assigned to someone in another team. Time logged on an epic is foreign when the epic's domain belongs to another team. An unknown team is never counted as foreign.",
+    "foreignNone": "Nothing was logged, so there is no share.",
+    "sprintNote": {
+      "UNIT": "The period follows sprints. Each team row reads the whole unit's sprint window (every team's sprints together); opening a team reads only that team's own sprints, so its figures can differ from its row here.",
+      "TEAM": "The period follows sprints: this team's own sprints."
+    },
+    "rounding": "Every figure is its own exact sum, rounded once to two decimals. A total can therefore differ from the sum of the figures shown above it by up to 0.005 for each of them.",
+    "legend": {
+      "label": "Colour scale",
+      "text": "A more intense cell holds more man-days, up to {{max}} MD in one cell. The number in the cell is the figure; the shade only helps to find it."
+    }
   }
 }

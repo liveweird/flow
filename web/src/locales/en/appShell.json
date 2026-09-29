@@ -14,7 +14,8 @@
     "reportsDelivery": "Delivery",
     "reportsEstimation": "Estimation",
     "reportsFlow": "Flow metrics",
-    "reportsDataQuality": "Data quality"
+    "reportsDataQuality": "Data quality",
+    "reportsCost": "Cost matrix"
   },
   "section": {
     "overview": "Overview",

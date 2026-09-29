@@ -71,6 +71,10 @@ export type DataQualityGroup = DataQualityReport["groups"][number];
 export type DataQualitySnapshotDrift = DataQualityReport["snapshotDrift"]["items"][number];
 export type DataQualityLateWorklog = DataQualityReport["lateLogging"]["worst"][number];
 
+export type CostMatrixReport =
+  paths["/api/v1/reports/cost-matrix"]["get"]["responses"]["200"]["content"]["application/json"];
+export type CostMatrixRow = CostMatrixReport["rows"][number];
+
 export async function getReportFilters(): Promise<ReportFilters> {
   return jsonRequest<ReportFilters>("/api/v1/reports/filters");
 }
@@ -129,4 +133,8 @@ export async function getEpicProgressReport(filter: ReportFilterState): Promise<
 
 export async function getDataQualityReport(filter: ReportFilterState): Promise<DataQualityReport> {
   return jsonRequest<DataQualityReport>(`/api/v1/reports/data-quality?${reportQuery(filter)}`);
+}
+
+export async function getCostMatrixReport(filter: ReportFilterState): Promise<CostMatrixReport> {
+  return jsonRequest<CostMatrixReport>(`/api/v1/reports/cost-matrix?${reportQuery(filter)}`);
 }

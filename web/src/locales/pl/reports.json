@@ -855,5 +855,51 @@
       "caption": "Liczby zadań bez szacunku i bez epika sumują zadania zakończone i otwarte. Epik może trafić do kilku znalezisk, więc ta kolumna liczy znaleziska, a nie epiki. Odczyt zawężony do jednego połączenia wymienia tylko zespoły, które mają w nim znalezisko, więc milczący zespół z innego połączenia nie jest pokazany."
     },
     "coverageNone": "W tym okresie nie ma zakończonych zadań, więc nie ma pokrycia do zmierzenia."
+  },
+  "costMatrix": {
+    "title": "Macierz kosztów",
+    "description": "Osobodni zalogowane w okresie, według zespołu, do którego autor/ka należał(a) w dniu logowania (wiersze), i według domeny (kolumny); obok każdego wiersza widać udział pracy spoza zespołu. Otwórz zespół, aby zobaczyć jego autorów/ki, a autora/kę, aby zobaczyć jedną osobę.",
+    "levelTitle": {
+      "UNIT": "Osobodni według zespołu autorów i domeny",
+      "TEAM": "Osobodni według autora/ki i domeny",
+      "USER": "Osobodni według domeny"
+    },
+    "caption": {
+      "UNIT": "Osobodni zalogowane w okresie: zespoły autorów w wierszach, domeny w kolumnach, dalej suma wiersza i praca spoza zespołu",
+      "TEAM": "Osobodni zalogowane w okresie: autorzy/ki zespołu w wierszach, domeny w kolumnach, dalej suma wiersza i praca spoza zespołu",
+      "USER": "Osobodni zalogowane w okresie przez tę osobę: domeny w kolumnach, dalej suma i praca spoza zespołu"
+    },
+    "domainView": {
+      "EPIC": "Kolumny pokazują domenę epika — zadanie bez epika liczy się w swojej własnej domenie.",
+      "TASK": "Kolumny pokazują własną domenę zadania, nawet gdy jego epik należy do innej."
+    },
+    "column": {
+      "team": "Zespół autorów",
+      "author": "Autor/ka",
+      "total": "Suma",
+      "foreignMd": "Praca spoza zespołu (MD)",
+      "foreignShare": "Udział spoza zespołu"
+    },
+    "totalRow": "Suma",
+    "noDomain": "(bez domeny)",
+    "noAuthor": "Nieznany autor",
+    "deletedTeam": "Usunięty zespół",
+    "tile": {
+      "total": "Zalogowane osobodni",
+      "foreign": "Praca spoza zespołu (MD)",
+      "share": "Udział pracy spoza zespołu"
+    },
+    "shareHint": "Osobodni pracy spoza zespołu jako udział w całości zalogowanej w okresie.",
+    "foreignHint": "Praca spoza zespołu to czas zalogowany na zadaniach poza pracą zespołu autora/ki: zadaniach ze sprintu innego zespołu albo, gdy zadanie nie ma zespołu sprintu, zadaniach przypisanych osobie z innego zespołu. Czas zalogowany na epiku jest pracą spoza zespołu, gdy domena epika należy do innego zespołu. Nieznany zespół nigdy nie liczy się jako obcy.",
+    "foreignNone": "Nic nie zalogowano, więc nie ma udziału.",
+    "sprintNote": {
+      "UNIT": "Okres wynika ze sprintów. Wiersz każdego zespołu czyta okno sprintów całej jednostki (sprinty wszystkich zespołów razem); otwarcie zespołu czyta tylko jego własne sprinty, więc jego liczby mogą się różnić od wiersza tutaj.",
+      "TEAM": "Okres wynika ze sprintów: to własne sprinty tego zespołu."
+    },
+    "rounding": "Każda liczba to jej własna dokładna suma, zaokrąglona raz do dwóch miejsc po przecinku. Suma może się więc różnić od sumy widocznych nad nią liczb nawet o 0,005 na każdą z nich.",
+    "legend": {
+      "label": "Skala kolorów",
+      "text": "Bardziej intensywna komórka ma więcej osobodni, do {{max}} MD w jednej komórce. Liczba w komórce to wartość; odcień tylko pomaga ją znaleźć."
+    }
   }
 }

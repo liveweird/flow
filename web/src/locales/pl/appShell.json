@@ -14,7 +14,8 @@
     "reportsDelivery": "Dostarczanie",
     "reportsEstimation": "Szacowanie",
     "reportsFlow": "Metryki przepływu",
-    "reportsDataQuality": "Jakość danych"
+    "reportsDataQuality": "Jakość danych",
+    "reportsCost": "Macierz kosztów"
   },
   "section": {
     "overview": "Przegląd",
