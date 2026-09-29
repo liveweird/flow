@@ -735,8 +735,98 @@ graded on its populations and the thresholds against an independent percentile o
 rows; hand-built rows with exact hand-computed numbers incl. never-blocked zeros, both exclusions, the three item kinds and the
 drill). `400`s: an unknown team/connection/sprint, `accountId` without `teamId`, `from > to`, a bad `itemKind`.
 
+## Report 15 -- Epic progress (EVM)
+
+`GET /api/v1/reports/epic-progress` (v0.3.0 M5 commit 15c, `.claude/docs/measures.md` "Report 15 -- EVM"): planned value
+(PV), earned value (EV) and actual cost (AC) in man-days as CUMULATIVE curves, with SV/SPI/CV/CPI as of a day. Any signed-in
+user, read-only, no audit (D12). It reads `agg_daily_flow`'s per-day INCREMENTS (A23, `.claude/docs/metrics.md`) and sums
+them at query time **from the beginning of time** -- the running sum is not reset at `from`, so a series point is everything
+planned/earned/spent up to the end of that day. Takes the shared `from`/`to`/`lastSprints`/`sprintId` period, `connectionId`,
+and its own `epicId`; `domainView` defaults to (and only accepts) `EPIC`.
+
+```
+EpicProgressReport {
+  meta: ReportMeta                     // domainView always EPIC; level is the shared UNIT/TEAM/USER of teamId
+  level: UNIT | DOMAIN | EPIC | TEAM   // what the report is about
+  scope: { kind: EPIC|DOMAIN|TEAM, id?, key?, name } | null        // null at UNIT
+  series: [{ date, pv, ev, ac, pvOriginal? }]                      // cumulative, one point per calendar day; empty at UNIT
+  asOf: { day?, pv, ev, ac, sv, spi?, cv, cpi? }
+  epic?: { budgetMd?, budgetSource?, startAt?, dueAt?, inPvHorizon, hasPvCurve,
+           baselines: [{ effectiveFrom, supersededAt?, startAt?, dueAt?, budgetMd? }], drift: { dates, budget } }   // EPIC only
+  foreignWorkShare?: number            // TEAM only
+  rows: [{ kind: EPIC|DOMAIN|TEAM, id?, key?, name, pv, ev, ac, sv, spi?, cv, cpi?, active? }]   // active: TEAM rows only
+  note?: string
+}
+```
+
+- **Scope -- at most one of `epicId` / `domain` / `teamId`** (`400` for two or more): `epicId` is an epic's ISSUE KEY
+  (`FLO-33`, what every other report lists as `issueKey`; there is no numeric epic id on the wire) -> level `EPIC`; `domain` ->
+  `DOMAIN`; `teamId` -> `TEAM` (`0` = UNASSIGNED, a legal value); none -> `UNIT`. What each reads, from the aggregate's own scopes:
+  - **EPIC** / **DOMAIN**: the `EPIC` / `DOMAIN` scope rows. EV is the `estimate_at_done_md` of the level-0 tasks done under
+    the epic, AC the worklog MD logged on the epic's tasks and on the epic itself, PV the epic's CURRENT baseline spread over the
+    working days -- **epic-attributed work only** (a task with no epic has no plan to compare against, A23).
+  - **TEAM**: the `TEAM` scope -- PV = the team's sprints' committed scope on each sprint's start day, EV = what those sprints
+    delivered on the done day (A20), AC = the author's-team worklogs; `teamId=0` is the `UNASSIGNED` scope (AC only, so PV = 0 and SPI
+    is `null`). **`foreignWorkShare`** = Σ `fact_worklog.md` with `foreign_work` for the team's authors ÷ Σ their `md`, over the
+    SAME cumulative window as CPI -- from the beginning of time to the end of `asOf.day`, never just the requested period (a fraction
+    0..1, `null` when they logged nothing; the authors in no team of `teamId=0` are never foreign, so `0.0`): A20 -- read team CPI
+    with it.
+  - **UNIT**: every `DOMAIN` scope summed -- the epic basis, consistent with `domainView=EPIC`, and free of the double counting of
+    an item that sits in overlapping sprints (a sprint sum would count it once per sprint). So the UNIT headline is epic-attributed
+    work only, exactly what the domain rows below add up to. No series; `rows` is the drill.
+- **`400`s**, checked before any data is read: more than one scope, `accountId` (there is no user-level EVM), an explicit
+  `domainView=TASK` (EVM is always the EPIC view, D3), `activityType` / `workCategory` (not stored per day -- the WIP/backlog
+  reports' precedent), a blank `epicId` (a present-but-empty value is a mistake, not "the whole unit"), and an unknown epic key, domain, team, sprint or connection -- always `400`, never `404`. An epic key that
+  exists in several connections in scope is ambiguous (`400`, narrow with `connectionId`). `breakdown` is parsed and changes nothing.
+  A scope that cannot be checked because NOTHING in scope has derived yet (no `dim_epic`/`dim_domain` rows exist) is not `400`: it is
+  the empty "not derived yet" answer below, the scope named by the key alone.
+- **`asOf` -- the period rule.** `asOf.day` = min(the period's last day, today in the configured zone, the last DERIVED day);
+  the last derived day is `derivedCoverage`'s (the OLDEST, over the connections in scope that have derived, of each one's newest
+  SUCCEEDED `derive_runs.started_at` day -- the flow-snapshot reports' cut-off), because EV and AC are unknown past it and comparing
+  them to a plan that keeps running would bias SPI/CPI. `series` lists one point per calendar day of the period (the resolved
+  sprints' envelope, `periodWindow`, for a `lastSprints`/`sprintId` period) up to `asOf.day`. A period that starts AFTER `asOf.day`
+  has an empty series, `asOf` still the running sum at `asOf.day`, and a `note` saying so. `sv = ev - pv`, `spi = ev / pv` (`null`
+  when PV is 0), `cv = ev - ac`, `cpi = ev / ac` (`null` when AC is 0). MD are rounded to 2 decimals, the ratios are unrounded
+  (as every other report's ratios).
+- **`rows` -- the drill, as of `asOf.day`.** DOMAIN: one row per epic of that domain (`dim_epic.domain_key`, the epic's current
+  domain) with a current baseline OR any EV/AC up to `asOf` (`kind` EPIC, `key` the issue key, `name` the summary, else the key),
+  ordered by key -- an epic that changed domain is listed under its current one, while the DOMAIN totals keep the as-was attribution,
+  so the DOMAIN total is authoritative. UNIT: one `DOMAIN` row per domain (every domain the connections know, plus any domain scope
+  with figures) on the epic basis -- these add up to the unit's `asOf` -- then one `TEAM` row per team (every active team, plus any
+  team scope with figures -- `id` 0 is UNASSIGNED, sorted last) on the sprint/author basis: a DIFFERENT view (sprint scope, author-team
+  cost) whose rows do NOT sum to the UNIT headline. A team row carries `active`: `false` marks a soft-deleted team that still has
+  figures, whose own drill (`teamId`) answers `400`; UNASSIGNED and live teams are `true`. EPIC and TEAM: empty.
+- **The EPIC block.** `budgetMd`/`budgetSource` are the CURRENT baseline's (D4: `OWN` estimate, else `CHILDREN`), or, with no current
+  baseline, the delivery fact's; `startAt`/`dueAt` the epic's own dates (UTC midnight millis of a calendar date, zone-free);
+  `baselines` every `fact_epic_plan` baseline oldest first; `drift` compares the CURRENT baseline with the FIRST (`dates`: start or
+  due moved, `budget`: it changed -- both `false` with one baseline). `inPvHorizon` is literal: the current baseline is complete and
+  both its dates lie within +-10 years of the connection's DERIVE clock (`DeriveKernels.inPvHorizon`), otherwise there is no PV
+  (A23) -- while EV and AC still count. `hasPvCurve` adds that the window holds a working day, so PV is actually spread (a weekend-only
+  window is in the horizon but has no curve). `series[].pvOriginal` is the epic's FIRST baseline redrawn: the working days come from
+  `DeriveKernels.pvCurve` under the calendar DERIVE used -- `metrics.dim_date.is_working_day` where `dim_date` covers the whole
+  window (so a calendar or holiday edited since, on a connection not yet re-derived, does not move it), else the current settings
+  calendar (a superseded baseline's window outside the range DERIVE keeps stamped) -- and each day's cumulative value is rounded
+  exactly like the stored increments (`ROUND(budget * i / n, 2)`, the last day the budget), so an epic with ONE baseline has
+  `pvOriginal == pv` on every day (also for a budget that does not divide) and a re-planned one shows the gap. It is `null` where that
+  baseline has no curve (out of horizon, no working day) and at every other level.
+- **Multi-connection and derive state** are the flow-snapshot reports' precedent: `connectionId` narrows to one active connection
+  (else every active one, their rows summed); a connection with no successful DERIVE is ignored for the cut-off and named in `note`;
+  nothing derived at all answers empty (`series`/`rows` empty, `asOf.day` null, every figure 0) with the same "Not derived yet" note;
+  no sprint resolved for a sprint-relative period (or `teamId=0` with one) is empty with that note.
+
+Code: `reports/EpicProgressReport.kt` (DTOs, the query functions as extensions on `ReportService`; `snapshotNotes` in
+`reports/SnapshotSupport.kt` is now shared with WIP/backlog). Tests -- `ReportEpicProgressTest`: on the shared derived fixture every
+level's `asOf`, every series point (monotone, ending at `asOf`), the DOMAIN/UNIT drill rows and the sum of DOMAIN epic rows against
+an INDEPENDENT running sum of the persisted `agg_daily_flow` rows (UNIT against the DOMAIN scopes, the domain rows summing to it);
+the golden epic's PV reaching its budget on its due date, its exactly-one baseline and its plan block against `expected.json`; sprint-relative and past-the-derive periods; and, on hand-built rows in fresh disabled connections,
+the exact SV/SPI/CV/CPI (PV 0 -> SPI null, AC 0 -> CPI null), a superseded baseline (`pvOriginal` vs `pv`, both drift flags), an
+out-of-horizon epic, the drill rows (incl. a soft-deleted team marked `active: false`), `breakdown` ignored, the oldest-derive cut-off
+across connections, the never-derived answer, the cumulative team foreign-work share, `pvOriginal` against the stamped `dim_date`
+calendar and an independent `ROUND(b*i/n, 2)` for a non-divisible budget, `hasPvCurve` for a weekend-only window, and every `400`
+above (a blank `epicId` included; a plain user gets `200`).
+
 ## Not yet built
 
-Every remaining named report (plan section 7's table: data quality, epic progress/EVM, cost matrix) lands in its own later
+Every remaining named report (plan section 7's table: data quality, cost matrix) lands in its own later
 commit and grows this doc with its own `## Report N -- ...` section, following `.claude/docs/measures.md`'s own per-measure
 contract for what each number means.

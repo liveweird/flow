@@ -28,8 +28,9 @@ internal const val SCOPE_UNASSIGNED = "UNASSIGNED"
 /** The `scope_id` of an epic / backlog item whose domain has no owner team (`teamId=0` for epics and the backlog). */
 internal const val SCOPE_UNOWNED = "UNOWNED"
 
-private const val SCOPE_KIND_TEAM = "TEAM"
-private const val SCOPE_KIND_DOMAIN = "DOMAIN"
+internal const val SCOPE_KIND_TEAM = "TEAM"
+internal const val SCOPE_KIND_DOMAIN = "DOMAIN"
+internal const val SCOPE_KIND_EPIC = "EPIC"
 
 /**
  * Which aggregate rows a daily-snapshot report reads (`.claude/docs/reports.md` "Reports 9, 10, 13"): the daily
@@ -142,7 +143,7 @@ internal suspend fun deriveClocks(connectionIds: List<UInt>): Map<UInt, Long> {
 /** The answer's days plus the [note] explaining an empty or partial one (`null` when there is nothing to say). */
 internal data class SnapshotPlan(val days: List<LocalDate>, val note: String?)
 
-private const val NOT_DERIVED_NOTE = "Not derived yet: no connection in scope has a successful DERIVE run"
+internal const val NOT_DERIVED_NOTE = "Not derived yet: no connection in scope has a successful DERIVE run"
 private const val UNASSIGNED_SPRINTS_NOTE = "teamId=0 (UNASSIGNED) resolves no sprint, so a sprint-relative period has nothing to read"
 private const val NO_SPRINT_NOTE = "The sprint-relative period resolved no sprint, so there is nothing to read"
 
@@ -156,14 +157,24 @@ internal suspend fun planSnapshotDays(scope: ReportScope, filter: ReportFilter, 
     if (filter.level == ReportLevel.USER) return SnapshotPlan(emptyList(), userNote)
     val coverage = derivedCoverage(scope.connectionIds, calendar)
     val coveredThrough = coverage.day ?: return SnapshotPlan(emptyList(), NOT_DERIVED_NOTE)
-    val notes = buildList {
+    val notes = snapshotNotes(scope, filter, coverage)
+    return SnapshotPlan(snapshotDays(scope.window, calendar, coveredThrough), notes.joinToString(". ").ifEmpty { null })
+}
+
+/**
+ * What makes a daily-aggregate answer empty or partial, in the order a client reads it: nothing derived at all
+ * ([NOT_DERIVED_NOTE], alone), no sprint resolved for a sprint-relative period (`teamId=0` gets its own wording), and the
+ * connections in scope that have never derived (named, and ignored for the cut-off). Shared by the snapshot reports and EVM.
+ */
+internal fun snapshotNotes(scope: ReportScope, filter: ReportFilter, coverage: DerivedCoverage): List<String> {
+    if (coverage.day == null) return listOf(NOT_DERIVED_NOTE)
+    return buildList {
         if (scope.window == null) add(if (filter.teamId == UNASSIGNED_TEAM_ID) UNASSIGNED_SPRINTS_NOTE else NO_SPRINT_NOTE)
         if (coverage.notDerived.isNotEmpty()) {
             val ids = coverage.notDerived.joinToString()
             add("Connection(s) $ids have no successful DERIVE run yet and are ignored for the last-derived-day cut-off")
         }
     }
-    return SnapshotPlan(snapshotDays(scope.window, calendar, coveredThrough), notes.joinToString(". ").ifEmpty { null })
 }
 
 /** Both snapshot reports read the TASK's own domain (D3 flow view) — `domainView=EPIC` is accepted, but the response says TASK. */

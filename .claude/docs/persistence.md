@@ -141,6 +141,10 @@ place:
   `norm/WorkItemStore.People`/`teams/TeamService.Teams` (through `orgGroups`/`accountDisplayNames`) directly, plus the
   `metrics` tables `FactTaskDelivery`, `FactEpicDelivery`, `DimEpic` and `ItemBlocked` -- all read-only, inside the report's
   own transaction.
+- `reports/EpicProgressReport.kt` (v0.3.0 M5 commit 15c, `GET /api/v1/reports/epic-progress`) reads the `metrics` tables
+  `AggDailyFlow` (the per-day PV/EV/AC increments), `DimEpic`, `DimDomain`, `FactEpicPlan`, `FactEpicDelivery` (the budget
+  fallback) and `FactWorklog` (the team foreign-work share), plus `teams/TeamService.Teams` (team names and the active-team
+  list of the unit drill) -- all read-only, inside the report's own transaction.
 
 List each new cross-feature read/write here as it lands — the list IS the permission.
 

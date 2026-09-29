@@ -1779,6 +1779,64 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/reports/epic-progress:
+    get:
+      tags: [reports]
+      operationId: getReportEpicProgress
+      summary: Report 15 — epic progress / EVM (PV, EV, AC as cumulative curves with SV, SPI, CV, CPI)
+      description: |
+        Any authenticated user (D12), read-only — `.claude/docs/measures.md` "Report 15 — EVM". Planned value, earned
+        value and actual cost in man-days, read off the per-day INCREMENTS in `agg_daily_flow` (A23) and summed at query
+        time from the beginning of time — a series point is the CUMULATIVE value at the end of that day, including
+        everything before the period. Select the scope with AT MOST ONE of `epicId` (an epic's issue key, level EPIC),
+        `domain` (level DOMAIN — epic-attributed work only), `teamId` (level TEAM, sprint and author based, A20;
+        `0` = UNASSIGNED) — none is the whole UNIT: its `asOf` is the sum of every DOMAIN scope (the epic basis, consistent
+        with the EPIC domain view; the domain rows add up to it), it lists no `series`, and `rows` drills into the domains
+        and the teams. `400` for more than
+        one of them, for a blank `epicId`, for `accountId` (no user-level EVM), for an explicit `domainView=TASK` (EVM is always the EPIC
+        view, D3), for `activityType` / `workCategory` (not stored per day), and for an unknown epic, domain, team,
+        sprint or connection (never 404); an `epicId` that exists in several connections in scope is ambiguous — narrow
+        with `connectionId`. `breakdown` is accepted and changes nothing.
+        `asOf` is read at the last day of the period, but never later than today or than the last derived day (the
+        oldest, over the connections in scope that have derived, of each one's last successful DERIVE day, so EV and AC
+        are never compared with a plan they have not caught up with). `asOf.day` names it; SV = EV − PV, SPI = EV ÷ PV
+        (null when PV is 0), CV = EV − AC, CPI = EV ÷ AC (null when AC is 0). `series` lists one point per calendar day
+        of the period up to `asOf.day`. At EPIC level each point also carries `pvOriginal` (the epic's FIRST baseline
+        redrawn) and `epic` describes the plan: the current budget and its source, the baselines
+        (`fact_epic_plan`), `drift` (the current baseline against the first), `inPvHorizon` (the current baseline is complete
+        and both dates lie within ±10 years of the DERIVE clock — otherwise there is no PV, A23) and `hasPvCurve` (in the
+        horizon AND the window holds a working day, so PV is actually spread). `pvOriginal` uses the working days DERIVE
+        stamped in `dim_date` where they cover the window, else the current calendar. At TEAM level `foreignWorkShare` is
+        the share of the team authors' logged MD from the beginning of time up to `asOf.day` — the same cumulative window
+        as CPI — that was foreign work (A20 — read team CPI with it). `rows` is the drill table as of `asOf.day`: at DOMAIN
+        level one row per epic of that domain with a current baseline or any EV/AC; at UNIT level one row per domain
+        (epic basis, summing to the unit's `asOf`) and one per team (sprint/author basis — a different view that does NOT
+        sum to the unit headline; `active` is false for a soft-deleted team, whose own drill answers 400), told apart by
+        `kind`; empty at EPIC and TEAM level. Sprint-relative periods use the resolved sprints'
+        envelope. Nothing derived yet gives an empty answer with a `note` ("Not derived yet").
+      parameters:
+        - { $ref: '#/components/parameters/ReportFrom' }
+        - { $ref: '#/components/parameters/ReportTo' }
+        - { $ref: '#/components/parameters/ReportLastSprints' }
+        - { $ref: '#/components/parameters/ReportSprintId' }
+        - { $ref: '#/components/parameters/ReportEpicId' }
+        - { $ref: '#/components/parameters/ReportTeamId' }
+        - { $ref: '#/components/parameters/ReportAccountId' }
+        - { $ref: '#/components/parameters/ReportDomainView' }
+        - { $ref: '#/components/parameters/ReportDomain' }
+        - { $ref: '#/components/parameters/ReportActivityType' }
+        - { $ref: '#/components/parameters/ReportWorkCategory' }
+        - { $ref: '#/components/parameters/ReportConnectionId' }
+      responses:
+        '200':
+          description: The epic progress report
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EpicProgressReport'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/reports/reported-time-ratio:
     get:
       tags: [reports]
@@ -1944,6 +2002,14 @@ components:
       required: false
       schema: { type: integer, format: int32, minimum: 0 }
       description: Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER.
+    ReportEpicId:
+      name: epicId
+      in: query
+      required: false
+      schema: { type: string }
+      description: >-
+        One epic's issue key (as `issueKey` lists it, e.g. `FLO-33`) — selects epic progress at level EPIC.
+        Mutually exclusive with `domain` and `teamId`.
     ReportAccountId:
       name: accountId
       in: query
@@ -3893,6 +3959,127 @@ components:
         groups:
           type: array
           items: { $ref: '#/components/schemas/BlockedGroup' }
+
+    EpicProgressScope:
+      type: object
+      description: The one thing a curve is about.
+      required: [kind, id, key, name]
+      properties:
+        kind: { type: string, enum: [EPIC, DOMAIN, TEAM] }
+        id: { type: integer, format: int32, minimum: 0, nullable: true, description: 'The team id (`0` = UNASSIGNED); null for an epic or a domain.' }
+        key: { type: string, nullable: true, description: The epic's issue key or the domain key; null for a team. }
+        name: { type: string, description: 'The epic summary (its key when none), the domain name or the team name.' }
+
+    EpicProgressPoint:
+      type: object
+      description: One calendar day of the series (configured zone) — CUMULATIVE values at the end of the day.
+      required: [date, pv, ev, ac, pvOriginal]
+      properties:
+        date: { type: string, description: 'ISO date (YYYY-MM-DD).' }
+        pv: { type: number, format: double, description: Cumulative planned value in man-days. }
+        ev: { type: number, format: double, description: Cumulative earned value in man-days. }
+        ac: { type: number, format: double, description: Cumulative actual cost in man-days. }
+        pvOriginal: { type: number, format: double, nullable: true, description: "EPIC level: the epic's first baseline redrawn (cumulative man-days); null elsewhere and when that baseline has no curve." }
+
+    EpicProgressAsOf:
+      type: object
+      description: The figures at `day`, man-days at two decimals.
+      required: [day, pv, ev, ac, sv, spi, cv, cpi]
+      properties:
+        day: { type: string, nullable: true, description: 'ISO date the figures are read at; null when there is nothing to read.' }
+        pv: { type: number, format: double }
+        ev: { type: number, format: double }
+        ac: { type: number, format: double }
+        sv: { type: number, format: double, description: 'Schedule variance: EV − PV.' }
+        spi: { type: number, format: double, nullable: true, description: Schedule performance index EV ÷ PV; null when PV is 0. }
+        cv: { type: number, format: double, description: 'Cost variance: EV − AC.' }
+        cpi: { type: number, format: double, nullable: true, description: Cost performance index EV ÷ AC; null when AC is 0. }
+
+    EpicProgressRow:
+      type: object
+      description: One drill row, its figures as of the response's `asOf.day`.
+      required: [kind, id, key, name, pv, ev, ac, sv, spi, cv, cpi]
+      properties:
+        kind: { type: string, enum: [EPIC, DOMAIN, TEAM] }
+        id: { type: integer, format: int32, minimum: 0, nullable: true, description: 'The team id (`0` = UNASSIGNED) of a TEAM row; null otherwise.' }
+        key: { type: string, nullable: true, description: The epic's issue key or the domain key; null for a team. }
+        name: { type: string }
+        active: { type: boolean, nullable: true, description: 'TEAM rows only: false for a soft-deleted team that still has figures (its own drill answers 400); null otherwise.' }
+        pv: { type: number, format: double }
+        ev: { type: number, format: double }
+        ac: { type: number, format: double }
+        sv: { type: number, format: double }
+        spi: { type: number, format: double, nullable: true }
+        cv: { type: number, format: double }
+        cpi: { type: number, format: double, nullable: true }
+
+    EpicProgressBaseline:
+      type: object
+      description: One `fact_epic_plan` baseline, in effect from `effectiveFrom` until `supersededAt` (null = the current one).
+      required: [effectiveFrom, supersededAt, startAt, dueAt, budgetMd]
+      properties:
+        effectiveFrom: { type: integer, format: int64, description: Epoch millis the baseline took effect. }
+        supersededAt: { type: integer, format: int64, nullable: true }
+        startAt: { type: integer, format: int64, nullable: true, description: Epoch millis of UTC midnight of the planned start date (a zone-free calendar date). }
+        dueAt: { type: integer, format: int64, nullable: true, description: Epoch millis of UTC midnight of the planned due date (a zone-free calendar date). }
+        budgetMd: { type: number, format: double, nullable: true }
+
+    EpicProgressDrift:
+      type: object
+      description: Whether the CURRENT baseline differs from the FIRST one (both false with a single baseline or none current).
+      required: [dates, budget]
+      properties:
+        dates: { type: boolean, description: The start and/or due date moved. }
+        budget: { type: boolean, description: The budget changed. }
+
+    EpicProgressEpic:
+      type: object
+      description: The EPIC level's plan facts.
+      required: [budgetMd, budgetSource, startAt, dueAt, inPvHorizon, hasPvCurve, baselines, drift]
+      properties:
+        budgetMd: { type: number, format: double, nullable: true, description: 'The current budget: the current baseline''s, else the delivery fact''s (own estimate, else the child sum, D4).' }
+        budgetSource: { type: string, nullable: true, description: 'OWN (the epic''s own estimate) or CHILDREN (the child sum, D4); null with no baseline and no delivery fact.' }
+        startAt: { type: integer, format: int64, nullable: true, description: Epoch millis of UTC midnight of the epic's own start date. }
+        dueAt: { type: integer, format: int64, nullable: true, description: Epoch millis of UTC midnight of the epic's own due date. }
+        inPvHorizon: { type: boolean, description: 'True when the current baseline is complete and both its dates lie within ±10 years of the DERIVE clock; false means no PV at all (A23).' }
+        hasPvCurve: { type: boolean, description: 'inPvHorizon AND the baseline window holds at least one working day, so PV is actually spread over it.' }
+        baselines:
+          type: array
+          description: Every baseline, oldest first.
+          items: { $ref: '#/components/schemas/EpicProgressBaseline' }
+        drift: { $ref: '#/components/schemas/EpicProgressDrift' }
+
+    EpicProgressReport:
+      type: object
+      required: [meta, level, scope, series, asOf, epic, foreignWorkShare, rows, note]
+      properties:
+        meta: { $ref: '#/components/schemas/ReportMeta' }
+        level: { type: string, enum: [UNIT, DOMAIN, EPIC, TEAM], description: 'What the report is about (`meta.level` keeps the shared UNIT/TEAM/USER meaning of `teamId`).' }
+        scope:
+          allOf: [{ $ref: '#/components/schemas/EpicProgressScope' }]
+          nullable: true
+          description: The epic, domain or team; null at UNIT level.
+        series:
+          type: array
+          description: One point per calendar day of the period up to `asOf.day`; empty at UNIT level.
+          items: { $ref: '#/components/schemas/EpicProgressPoint' }
+        asOf: { $ref: '#/components/schemas/EpicProgressAsOf' }
+        epic:
+          allOf: [{ $ref: '#/components/schemas/EpicProgressEpic' }]
+          nullable: true
+          description: EPIC level only.
+        foreignWorkShare: { type: number, format: double, nullable: true, description: "TEAM level only: the team authors' foreign-work MD ÷ their logged MD from the beginning of time up to asOf.day (0..1, A20 — the same cumulative window as CPI); null when they logged none." }
+        rows:
+          type: array
+          description: 'The drill table as of `asOf.day`: a domain''s epics (DOMAIN), the domains then the teams (UNIT); empty at EPIC and TEAM level.'
+          items: { $ref: '#/components/schemas/EpicProgressRow' }
+        note:
+          type: string
+          nullable: true
+          description: >-
+            Why the answer is empty or partial — nothing derived yet, no sprint resolved (incl. `teamId=0` with a
+            sprint-relative period), connections that never derived and were left out of the cut-off, a period that lies
+            after `asOf.day`; null otherwise.
 
     ReportedTimeExcluded:
       type: object

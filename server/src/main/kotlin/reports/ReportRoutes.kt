@@ -4,6 +4,7 @@ import ch.nokillswit.authz.caller
 import ch.nokillswit.infra.db.R2dbcDatabaseKey
 import ch.nokillswit.infra.db.nowMillis
 import ch.nokillswit.infra.paging.optionalEnum
+import ch.nokillswit.infra.paging.optionalString
 import ch.nokillswit.metrics.MetricsConfigService
 import ch.nokillswit.metrics.MetricsConfigServiceKey
 import ch.nokillswit.metrics.TeamMembershipServiceKey
@@ -12,9 +13,11 @@ import ch.nokillswit.plugins.servesApi
 import io.ktor.http.HttpStatusCode
 import io.ktor.resources.Resource
 import io.ktor.server.application.Application
+import io.ktor.server.plugins.BadRequestException
 import io.ktor.server.auth.authenticate
 import io.ktor.server.resources.get
 import io.ktor.server.response.respond
+import io.ktor.server.routing.Route
 import io.ktor.server.routing.routing
 import io.ktor.util.AttributeKey
 import kotlinx.serialization.Serializable
@@ -71,6 +74,10 @@ class ReportAgingWipRoute
 @Resource("/api/v1/reports/blocked-time")
 class ReportBlockedTimeRoute
 
+@Serializable
+@Resource("/api/v1/reports/epic-progress")
+class ReportEpicProgressRoute
+
 val ReportServiceKey = AttributeKey<ReportService>("ReportService")
 
 /**
@@ -87,9 +94,9 @@ val ReportServiceKey = AttributeKey<ReportService>("ReportService")
  * `/reports/throughput` (Report 2), 10d `/reports/sprint-consistency` (Reports 6.1-6.3), 12 the estimation
  * batch (`/reports/task-estimation-accuracy`, `/reports/epic-estimation-accuracy`,
  * `/reports/estimate-adjustments`), 12b `/reports/cycle-time` and `/reports/reported-time-ratio`, 15
- * `/reports/wip` and `/reports/backlog` — every later report lands as its own commit (plan §10) and registers its
- * own `get<...>` block in this SAME `routing { authenticate { … } }` block, the `MetricsConfigRoutes.kt` shape (one
- * registrar per resource, several routes inside).
+ * `/reports/wip` and `/reports/backlog`, 15c `/reports/epic-progress` — every later report lands as its own commit
+ * (plan §10) and registers its own `get<...>` block in this SAME `routing { authenticate { … } }` block, the
+ * `MetricsConfigRoutes.kt` shape (one registrar per resource, several routes inside).
  */
 fun Application.configureReportRoutes() {
     // The worker role serves only the health/ready probes (plugins/Health.kt) — see Role.kt.
@@ -202,6 +209,7 @@ fun Application.configureReportRoutes() {
                 val itemKind = params.optionalEnum<BlockedItemKind>("itemKind") ?: BlockedItemKind.TASK
                 call.respond(HttpStatusCode.OK, reportService.blockedTime(filter, itemKind, nowMillis()))
             }
+            epicProgressRoute(reportService, metricsConfig)
             get<ReportEstimateAdjustmentsRoute> {
                 call.caller()
                 val calendar = reportsWorkingCalendar(metricsConfig)
@@ -209,6 +217,24 @@ fun Application.configureReportRoutes() {
                 call.respond(HttpStatusCode.OK, reportService.estimateAdjustments(filter, nowMillis()))
             }
         }
+    }
+}
+
+/**
+ * Epic progress / EVM (report 15) is PV/EV/AC-shaped, so it defaults to (and only accepts) the EPIC domain view (D3); `epicId` —
+ * an epic's issue key — is its own parameter, outside the shared filter. A private `Route.xxx` registrar, since
+ * [configureReportRoutes] itself has outgrown detekt's `LongMethod` threshold (the documented feature-template idiom).
+ */
+private fun Route.epicProgressRoute(reportService: ReportService, metricsConfig: MetricsConfigService) {
+    get<ReportEpicProgressRoute> {
+        call.caller()
+        val calendar = reportsWorkingCalendar(metricsConfig)
+        val params = call.request.queryParameters
+        val filter = params.parseReportFilter(calendar, nowMillis(), DomainView.EPIC)
+        val epicId = params.optionalString("epicId")
+        // A present-but-blank epicId is a mistake, not "no epic": it must not silently answer for the whole unit.
+        if (epicId == null && params.contains("epicId")) throw BadRequestException("epicId must not be blank")
+        call.respond(HttpStatusCode.OK, reportService.epicProgress(filter, epicId, nowMillis()))
     }
 }
 
