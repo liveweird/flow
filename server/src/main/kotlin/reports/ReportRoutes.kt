@@ -48,6 +48,14 @@ class ReportEpicEstimationAccuracyRoute
 @Resource("/api/v1/reports/estimate-adjustments")
 class ReportEstimateAdjustmentsRoute
 
+@Serializable
+@Resource("/api/v1/reports/cycle-time")
+class ReportCycleTimeRoute
+
+@Serializable
+@Resource("/api/v1/reports/reported-time-ratio")
+class ReportReportedTimeRatioRoute
+
 val ReportServiceKey = AttributeKey<ReportService>("ReportService")
 
 /**
@@ -62,7 +70,8 @@ val ReportServiceKey = AttributeKey<ReportService>("ReportService")
  *
  * v0.3.0 M4 commit 10a built `/reports/filters`; commit 10b adds `/reports/velocity` (Report 1), 10c
  * `/reports/throughput` (Report 2), 10d `/reports/sprint-consistency` (Reports 6.1-6.3), 12 the estimation
- * batch (`/reports/task-estimation-accuracy`, `/reports/epic-estimation-accuracy`, `/reports/estimate-adjustments`) — every later report
+ * batch (`/reports/task-estimation-accuracy`, `/reports/epic-estimation-accuracy`,
+ * `/reports/estimate-adjustments`), 12b `/reports/cycle-time` and `/reports/reported-time-ratio` — every later report
  * lands as its own commit (plan §10) and registers its own `get<...>` block in this SAME
  * `routing { authenticate { … } }` block, the `MetricsConfigRoutes.kt` shape (one registrar per resource, several routes inside).
  */
@@ -127,6 +136,21 @@ fun Application.configureReportRoutes() {
                 val calendar = reportsWorkingCalendar(metricsConfig)
                 val filter = call.request.queryParameters.parseReportFilter(calendar, nowMillis(), DomainView.EPIC)
                 call.respond(HttpStatusCode.OK, reportService.epicEstimationAccuracy(filter, nowMillis()))
+            }
+            // Cycle time (report 7) and reported ÷ cycle (report 8): delivery/flow measures, so the task's own domain (D3).
+            get<ReportCycleTimeRoute> {
+                call.caller()
+                val calendar = reportsWorkingCalendar(metricsConfig)
+                val params = call.request.queryParameters
+                val filter = params.parseReportFilter(calendar, nowMillis(), DomainView.TASK)
+                val bucket = params.optionalEnum<ThroughputBucket>("bucket") ?: ThroughputBucket.WEEK
+                call.respond(HttpStatusCode.OK, reportService.cycleTime(filter, bucket, nowMillis()))
+            }
+            get<ReportReportedTimeRatioRoute> {
+                call.caller()
+                val calendar = reportsWorkingCalendar(metricsConfig)
+                val filter = call.request.queryParameters.parseReportFilter(calendar, nowMillis(), DomainView.TASK)
+                call.respond(HttpStatusCode.OK, reportService.reportedTimeRatio(filter, nowMillis()))
             }
             get<ReportEstimateAdjustmentsRoute> {
                 call.caller()

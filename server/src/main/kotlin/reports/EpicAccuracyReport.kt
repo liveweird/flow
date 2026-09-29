@@ -129,7 +129,21 @@ suspend fun ReportService.epicEstimationAccuracy(filter: ReportFilter, nowMs: Lo
         val window = scope.window.takeIf { filter.level != ReportLevel.USER }
         val epics = window?.let { fetchAccuracyEpics(filter, scope.connectionIds, it) }.orEmpty()
         val total = epicAccuracyOf(epics)
-        val groups = if (filter.level == ReportLevel.UNIT) teamEpicGroups(epics, minSample) else emptyList()
+        // Epics carry no user: only UNIT level drills (by owner team); TEAM has no groups, USER is empty.
+        val groups = if (filter.level != ReportLevel.UNIT) {
+            emptyList()
+        } else {
+            orgGroups(ReportLevel.UNIT, epics, { it.ownerTeamId }, { null }).map { (key, rows) ->
+                val result = epicAccuracyOf(rows)
+                EpicAccuracyGroup(
+                    teamId = key.teamId,
+                    label = key.label,
+                    atStart = buildDistribution(result.atStart, minSample),
+                    atDone = buildDistribution(result.atDone, minSample),
+                    excluded = result.excluded,
+                )
+            }
+        }
         val listed = epics.sortedWith(compareByDescending<AccuracyEpic> { it.doneAt }.thenBy { it.connectionId }.thenBy { it.issueId })
             .take(EPIC_ACCURACY_MAX_ROWS)
         EpicEstimationAccuracyReport(
@@ -189,19 +203,4 @@ private suspend fun epicRows(epics: List<AccuracyEpic>): List<EpicAccuracyRow> {
             ratioAtDone = epic.ratioAtDone,
         )
     }
-}
-
-private suspend fun teamEpicGroups(epics: List<AccuracyEpic>, minSample: Int): List<EpicAccuracyGroup> {
-    val byTeam = epics.groupBy { it.ownerTeamId }
-    val names = teamNames(byTeam.keys.filterNotNull())
-    return byTeam.map { (teamId, rows) ->
-        val result = epicAccuracyOf(rows)
-        EpicAccuracyGroup(
-            teamId = teamId,
-            label = teamId?.let { names[it] ?: it.toString() },
-            atStart = buildDistribution(result.atStart, minSample),
-            atDone = buildDistribution(result.atDone, minSample),
-            excluded = result.excluded,
-        )
-    }.sortedWith(byLabelThenId({ it.label }, { it.teamId }, { null }))
 }

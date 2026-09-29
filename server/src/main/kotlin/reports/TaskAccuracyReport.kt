@@ -106,10 +106,16 @@ suspend fun ReportService.taskEstimationAccuracy(filter: ReportFilter, nowMs: Lo
         val minSample = scope.settings.minSampleSize
         val tasks = scope.window?.let { fetchAccuracyTasks(filter, scope.connectionIds, it) }.orEmpty()
         val total = accuracyOf(tasks)
-        val groups = when (filter.level) {
-            ReportLevel.UNIT -> teamAccuracyGroups(tasks, minSample)
-            ReportLevel.TEAM -> userAccuracyGroups(tasks, minSample)
-            ReportLevel.USER -> emptyList()
+        val groups = orgGroups(filter.level, tasks, { it.creditTeamId }, { it.accountId }).map { (key, rows) ->
+            val result = accuracyOf(rows)
+            TaskAccuracyGroup(
+                teamId = key.teamId,
+                accountId = key.accountId,
+                label = key.label,
+                atStart = buildDistribution(result.atStart, minSample),
+                atDone = buildDistribution(result.atDone, minSample),
+                excluded = result.excluded,
+            )
         }
         TaskEstimationAccuracyReport(
             meta = scope.meta,
@@ -138,32 +144,4 @@ private suspend fun fetchAccuracyTasks(filter: ReportFilter, connectionIds: List
             estimateAtDoneMd = it[t.estimateAtDoneMd],
         )
     }
-}
-
-private suspend fun teamAccuracyGroups(tasks: List<AccuracyTask>, minSample: Int): List<TaskAccuracyGroup> {
-    val byTeam = tasks.groupBy { it.creditTeamId }
-    val names = teamNames(byTeam.keys.filterNotNull())
-    return byTeam.map { (teamId, rows) ->
-        accuracyGroup(teamId, null, teamId?.let { names[it] ?: it.toString() }, rows, minSample)
-    }.sortedWith(byLabelThenId({ it.label }, { it.teamId }, { it.accountId }))
-}
-
-private suspend fun userAccuracyGroups(tasks: List<AccuracyTask>, minSample: Int): List<TaskAccuracyGroup> {
-    val byAccount = tasks.groupBy { it.accountId }
-    val displayNames = accountDisplayNames(byAccount.keys.filterNotNull())
-    return byAccount.map { (accountId, rows) ->
-        accuracyGroup(null, accountId, accountId?.let { displayNames[it] ?: it }, rows, minSample)
-    }.sortedWith(byLabelThenId({ it.label }, { it.teamId }, { it.accountId }))
-}
-
-private fun accuracyGroup(teamId: UInt?, accountId: String?, label: String?, rows: List<AccuracyTask>, minSample: Int): TaskAccuracyGroup {
-    val result = accuracyOf(rows)
-    return TaskAccuracyGroup(
-        teamId = teamId,
-        accountId = accountId,
-        label = label,
-        atStart = buildDistribution(result.atStart, minSample),
-        atDone = buildDistribution(result.atDone, minSample),
-        excluded = result.excluded,
-    )
 }

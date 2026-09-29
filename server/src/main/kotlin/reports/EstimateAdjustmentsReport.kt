@@ -123,11 +123,7 @@ suspend fun ReportService.estimateAdjustments(filter: ReportFilter, nowMs: Long)
             meta = scope.meta,
             tasks = figuresOf(tasks, empty, minSample),
             epics = figuresOf(epics, empty, minSample),
-            groups = when (filter.level) {
-                ReportLevel.UNIT -> teamAdjustmentGroups(tasks, epics, empty, minSample)
-                ReportLevel.TEAM -> userAdjustmentGroups(tasks, empty, minSample)
-                ReportLevel.USER -> emptyList()
-            },
+            groups = adjustmentGroups(filter.level, tasks, epics, empty, minSample),
         )
     }
 
@@ -182,41 +178,25 @@ private suspend fun fetchAdjustmentEpics(filter: ReportFilter, connectionIds: Li
     }
 }
 
-private suspend fun teamAdjustmentGroups(
+/** One item tagged with its kind, so a single [orgGroups] drill can hold tasks and epics side by side at UNIT level. */
+private data class KindedItem(val item: AdjustmentItem, val isEpic: Boolean)
+
+private suspend fun adjustmentGroups(
+    level: ReportLevel,
     tasks: List<AdjustmentItem>,
     epics: List<AdjustmentItem>,
     window: Pair<Long, Long>,
     minSample: Int,
 ): List<EstimateAdjustmentsGroup> {
-    val taskTeams = tasks.groupBy { it.team }
-    val epicTeams = epics.groupBy { it.team }
-    val keys = (taskTeams.keys + epicTeams.keys)
-    val names = teamNames(keys.filterNotNull())
-    return keys.map { teamId ->
+    // UNIT: tasks and epics share the team key (UNASSIGNED tasks / UNOWNED epics together); TEAM: tasks only, by user.
+    val items = tasks.map { KindedItem(it, false) } + if (level == ReportLevel.UNIT) epics.map { KindedItem(it, true) } else emptyList()
+    return orgGroups(level, items, { it.item.team }, { it.item.account }).map { (key, rows) ->
         EstimateAdjustmentsGroup(
-            teamId = teamId,
-            accountId = null,
-            label = teamId?.let { names[it] ?: it.toString() },
-            tasks = figuresOf(taskTeams[teamId].orEmpty(), window, minSample),
-            epics = figuresOf(epicTeams[teamId].orEmpty(), window, minSample),
+            teamId = key.teamId,
+            accountId = key.accountId,
+            label = key.label,
+            tasks = figuresOf(rows.filterNot { it.isEpic }.map { it.item }, window, minSample),
+            epics = if (level == ReportLevel.UNIT) figuresOf(rows.filter { it.isEpic }.map { it.item }, window, minSample) else null,
         )
-    }.sortedWith(byLabelThenId({ it.label }, { it.teamId }, { it.accountId }))
-}
-
-private suspend fun userAdjustmentGroups(
-    tasks: List<AdjustmentItem>,
-    window: Pair<Long, Long>,
-    minSample: Int,
-): List<EstimateAdjustmentsGroup> {
-    val byAccount = tasks.groupBy { it.account }
-    val displayNames = accountDisplayNames(byAccount.keys.filterNotNull())
-    return byAccount.map { (accountId, rows) ->
-        EstimateAdjustmentsGroup(
-            teamId = null,
-            accountId = accountId,
-            label = accountId?.let { displayNames[it] ?: it },
-            tasks = figuresOf(rows, window, minSample),
-            epics = null,
-        )
-    }.sortedWith(byLabelThenId({ it.label }, { it.teamId }, { it.accountId }))
+    }
 }

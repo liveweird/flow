@@ -108,6 +108,9 @@ internal data class TaskFact(
     val activityType: String,
     val domainKey: String?,
     val workCategory: String?,
+    val cycleMs: Long?,
+    val cycleWorkingDays: BigDecimal?,
+    val activeMs: Long,
 )
 
 internal suspend fun readTaskFacts(connId: UInt): List<TaskFact> = suspendTransaction(sharedDatabaseForTests()) {
@@ -128,6 +131,9 @@ internal suspend fun readTaskFacts(connId: UInt): List<TaskFact> = suspendTransa
             activityType = it[t.activityType],
             domainKey = it[t.domainKey],
             workCategory = it[t.workCategory],
+            cycleMs = it[t.cycleMs],
+            cycleWorkingDays = it[t.cycleWorkingDays],
+            activeMs = it[t.activeMs],
         )
     }
 }
@@ -194,12 +200,15 @@ internal fun handTask(
     category: String? = null,
     activityType: String = "Story",
     subtask: Boolean = false,
+    cycleMs: Long? = null,
+    cycleWorkingDays: Double? = null,
+    activeMs: Long = 0,
 ) = FactTaskDeliveryRow(
     issueId = issueId, issueKey = "HB-$issueId", createdAt = 0, startedAt = startedAt, doneAt = doneAt, reopenCount = 0,
     estimateAtStartMd = estimateAtStartMd, estimateAtDoneMd = estimateAtDoneMd, estimateCurrentMd = estimateCurrentMd,
     estimateSource = "OWN", estimateChangesAfterStart = changes, estimatedLate = estimatedLate, actualMd = actualMd,
-    hasWorklogs = hasWorklogs, blockedMs = 0, blockedWorkingDays = 0.0, cycleMs = null, cycleWorkingDays = null, leadMs = null,
-    leadWorkingDays = null, activeMs = 0, waitMs = 0, assigneeAccountIdAtDone = account, assigneeTeamIdAtDone = null,
+    hasWorklogs = hasWorklogs, blockedMs = 0, blockedWorkingDays = 0.0, cycleMs = cycleMs, cycleWorkingDays = cycleWorkingDays,
+    leadMs = null, leadWorkingDays = null, activeMs = activeMs, waitMs = 0, assigneeAccountIdAtDone = account, assigneeTeamIdAtDone = null,
     sprintIdAtDone = null, sprintTeamIdAtDone = null, creditTeamId = creditTeamId, currentTeamId = currentTeamId,
     currentAssigneeAccountId = currentAssignee, domainKey = domain, epicId = null, epicDomainKey = epicDomain,
     crossDomain = epicDomain != null && epicDomain != domain, activityType = activityType, workCategory = category,

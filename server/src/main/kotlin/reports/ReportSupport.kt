@@ -377,5 +377,35 @@ internal fun <T> byLabelThenId(label: (T) -> String?, teamId: (T) -> UInt?, acco
         .thenBy(nullsLast<UInt>()) { teamId(it) }
         .thenBy(nullsLast<String>()) { accountId(it) }
 
+/** One org-drill entry's identity: a credit team (UNIT level, `teamId` null = UNASSIGNED) or an assignee (TEAM level). */
+internal data class OrgGroupKey(val teamId: UInt?, val accountId: String?, val label: String?)
+
+/**
+ * The org drill of a DONE-item report: UNIT groups [items] by team (label = the team name), TEAM by user (label = the
+ * Jira display name, a null account = the unassigned bucket), USER none. Ordered deterministically (label, null last,
+ * then team id, then account id). The caller turns each `(key, rows)` into its own group DTO.
+ */
+internal suspend fun <T> orgGroups(
+    level: ReportLevel,
+    items: List<T>,
+    team: (T) -> UInt?,
+    account: (T) -> String?,
+): List<Pair<OrgGroupKey, List<T>>> {
+    val keyed: List<Pair<OrgGroupKey, List<T>>> = when (level) {
+        ReportLevel.UNIT -> {
+            val byTeam = items.groupBy(team)
+            val names = teamNames(byTeam.keys.filterNotNull())
+            byTeam.map { (id, rows) -> OrgGroupKey(id, null, id?.let { names[it] ?: it.toString() }) to rows }
+        }
+        ReportLevel.TEAM -> {
+            val byAccount = items.groupBy(account)
+            val displayNames = accountDisplayNames(byAccount.keys.filterNotNull())
+            byAccount.map { (id, rows) -> OrgGroupKey(null, id, id?.let { displayNames[it] ?: it }) to rows }
+        }
+        ReportLevel.USER -> emptyList()
+    }
+    return keyed.sortedWith(byLabelThenId({ it.first.label }, { it.first.teamId }, { it.first.accountId }))
+}
+
 /** A positive estimate — `0` means unestimated (domain-model.md), and a stored `null` never reaches a division. */
 internal fun BigDecimal?.isEstimate(): Boolean = this != null && this.signum() > 0

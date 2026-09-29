@@ -484,9 +484,78 @@ the raw fact rows -- whole population, per group (`Σ group n == n`), per user, 
 pins the buckets, the ratios, the hidden state (`minSampleSize` pinned with `withMinSampleSize`), the 200-row cap and
 the estimated-late separation on hand-built rows in a fresh DISABLED connection with hand-computed answers.
 
+## Reports 7, 8 -- Cycle time and reported time ratio
+
+Two endpoints (v0.3.0 M4 commit 12b, `.claude/docs/measures.md` "Reports 7, 8") over `fact_task_delivery`, on the
+same preamble and slice as the estimation reports (`resolveReportScope`, `taskFactSlice`, and the shared
+`orgGroups` drill in `ReportSupport.kt`; the fetch `fetchDoneCycleTasks` is shared by both). Population = level-0
+tasks (D2) with `done_at` in the window; team = the D5 **credit** team (`teamId=0` = UNASSIGNED), user = assignee
+at done, domain per `domainView` (default `TASK`, D3), plus `activityType`/`workCategory`; a `lastSprints`/`sprintId`
+period reads the resolved sprints' envelope, as throughput's period view. **Epics are not in these reports**
+(measures.md's Report 7 row mentions "epics by own status", but the model's Report 7 source is `fact_task_delivery`
+alone -- an epic cycle time is not shown). `breakdown` is parsed and changes nothing.
+
+### Report 7 -- `GET /api/v1/reports/cycle-time`
+
+```
+CycleTimeReport {
+  meta, elapsedDays: Distribution, workingDays: Distribution,     // cycle_ms in days / cycle_working_days
+  excluded: { population, neverStarted },
+  trend: [{ bucketStart, p50?, p90?, n }],                        // bucket=WEEK|MONTH, default WEEK
+  groups: [{ teamId?, accountId?, label?, elapsedDays, workingDays, excluded }]
+}
+```
+
+- **Cycle** = `done_at - started_at` (first entry into IN_PROGRESS to the start of the trailing DONE run, so a
+  reopened task counts its whole span). `elapsedDays` is wall-clock (`cycle_ms / 86_400_000`), `workingDays` the
+  configured calendar's fractional working days.
+- **One exclusion**: `neverStarted` (`cycle_ms` null, i.e. no `started_at` -- created straight into DONE), so
+  `workingDays.n == elapsedDays.n == population - neverStarted`. **A cycle of zero working days is a real value and
+  stays in** (`zeroCycle` is a reported-time-ratio bucket only, where it would divide by zero).
+- **`trend`**: one entry per week (Monday start) or month (the 1st) across the WHOLE window, zero-filled -- the
+  throughput report's own `bucketStart`/`bucketStarts` math, in the configured zone -- placing each measurable task
+  by `done_at`, on **working days**. `p50`/`p90` come from the same `buildDistribution` and are `null` when the
+  bucket's `n` is below `minSampleSize` (`n` always set; an empty bucket has `n` 0), so hiding is per bucket.
+- **Levels**: UNIT `groups` per credit team, TEAM per assignee at done, USER none; each group has its own two
+  distributions (hidden below the minimum, `n` always set, so `Σ group n == n`) and `excluded`; groups are ordered by
+  label (null last), then team id, then account id.
+
+### Report 8 -- `GET /api/v1/reports/reported-time-ratio`
+
+```
+ReportedTimeRatioReport { meta, ratio: Distribution,             // actual_md / cycle_working_days
+                          excluded: { population, noWorklogs, neverStarted, zeroCycle },
+                          flowEfficiency: Distribution,          // A18: active_ms / cycle_ms
+                          flowEfficiencyExcluded: { population, neverStarted, zeroCycle },
+                          groups: [{ teamId?, accountId?, label?, ratio, excluded,
+                                     flowEfficiency, flowEfficiencyExcluded }] }
+```
+
+- Man-days logged per working day of cycle time. Each task is in the distribution or in exactly ONE bucket, checked
+  in this order: `noWorklogs` (D14 -- `has_worklogs = false` or `actual_md` of 0.00, as in report 3), `neverStarted`
+  (no cycle), `zeroCycle` (`cycle_working_days = 0`). So `ratio.n + noWorklogs + neverStarted + zeroCycle ==
+  population`. Levels and groups as report 7.
+- **The ratio's mean, p95 and histogram can be dominated by very short cycles** -- dividing by a cycle of a fraction
+  of a working day produces a very large ratio. That is a real outlier and is never dropped (only a cycle of exactly
+  zero working days is excluded, as `zeroCycle`); read the p50 first.
+- **Flow efficiency (A18) is shown beside it**, over the same DONE level-0 population: `flowEfficiency` is `active_ms /
+  cycle_ms` (active = IN_PROGRESS-stage time minus blocked time while in progress, `.claude/docs/measures.md`'s "Flow
+  efficiency (A18)" row) and `flowEfficiencyExcluded` puts each unmeasurable task in exactly ONE bucket, in this order:
+  `neverStarted` (no cycle), then `zeroCycle` (`cycle_ms = 0`). Worklogs play no part, so a task with none is still
+  measured -- unlike the ratio there is no `noWorklogs` bucket -- and `flowEfficiency.n + neverStarted + zeroCycle ==
+  population`. Note the two `zeroCycle`s differ: the ratio's is zero WORKING days, this one zero ELAPSED time. Groups
+  carry both measures; `Σ group n == n` for each.
+
+Code: `reports/CycleTimeReport.kt`, `reports/ReportedTimeRatioReport.kt`. Tests -- one class per endpoint on
+`DerivedStubFixture`, with the independent oracle of `ReportEstimationTestSupport.kt`: `ReportCycleTimeTest`
+(distributions, per-group at every level, `teamId=0`, slices, the sprint envelope, and **every trend bucket's p50/p90/n
+against an independent bucketing** -- WEEK and MONTH, zero-filled, hidden per bucket -- plus hand-built rows with
+exact hand-computed numbers incl. a zero-working-day cycle) and `ReportReportedTimeRatioTest` (the partition, groups,
+slices, hand-built bucket precedence and hidden state).
+
 ## Not yet built
 
-Every remaining named report (plan section 7's table: cycle time, reported-time ratio, WIP, backlog, aging WIP,
+Every remaining named report (plan section 7's table: WIP, backlog, aging WIP,
 blocked time, data quality, epic progress/EVM, cost matrix) lands in its own later commit and
 grows this doc with its own `## Report N -- ...` section, following `.claude/docs/measures.md`'s
 own per-measure contract for what each number means.
