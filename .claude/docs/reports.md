@@ -940,8 +940,61 @@ across connections, the never-derived answer, the cumulative team foreign-work s
 calendar and an independent `ROUND(b*i/n, 2)` for a non-divisible budget, `hasPvCurve` for a weekend-only window, and every `400`
 above (a blank `epicId` included; a plain user gets `200`).
 
-## Not yet built
+## Report 16 -- Cost matrix and foreign work
 
-Every remaining named report (plan section 7's table: cost matrix) lands in its own later
-commit and grows this doc with its own `## Report N -- ...` section, following `.claude/docs/measures.md`'s own per-measure
-contract for what each number means.
+`GET /api/v1/reports/cost-matrix` (v0.3.0 M5 commit 17b, `.claude/docs/measures.md` "Report 16"): the man-days logged in the period
+as an author-team x domain matrix, with the foreign-work share beside every row. Any signed-in user, read-only, no audit (D12). It
+reads `fact_worklog` directly (no aggregate, so no derive cut-off and no `note`): every worklog whose `started_at` is in the period
+(inclusive ISO dates in the configured zone; a `lastSprints`/`sprintId` period reads the resolved sprints' envelope, `periodWindow`)
+is charged to the AUTHOR's team as of `started_at` (`author_team_id`; null = UNASSIGNED) and to a domain.
+
+```
+CostMatrixReport {
+  meta,
+  columns: [{ domain?, name?, totalMd }],         // domains that received work, by key; `(no domain)` (domain null) last if any
+  rows:    [{ teamId?, accountId?, label?, cells: [{ domain?, md }], totalMd, foreignMd, foreignShare? }],
+  totalMd, foreignMd, foreignShare?               // the grand figures
+}
+```
+
+- **Columns and `domainView`.** `EPIC` (the DEFAULT -- a worklog-cost measure is PV/EV/AC-shaped, D3) uses `epic_domain_key`, an
+  epic-less task falling back to its own `task_domain_key` (so there is no `(no epic)` column); `TASK` uses `task_domain_key`, so a
+  cross-domain task moves from the epic's column to its own. A worklog logged ON an epic carries the epic's own domain in both
+  columns (A21) and is the same in both views. `task_domain_key` is never null (invariant 6), so the `(no domain)` column
+  (`domain` null) exists only so a corrupt row could never silently leave the totals. Columns are only the domains the scoped
+  worklogs reach (empty for none), ordered by key; `name` is `dim_domain.name` (the lowest connection id's for a key seen on several),
+  null when no row names it.
+- **Rows and levels.** UNIT: one row per author team that logged work, ordered by team name, UNASSIGNED (`teamId` 0, `label` null --
+  the authors in no team) last; `teamId` is the id a client drills with. `teamId` set: one row per AUTHOR of that team as of
+  `started_at`, by display name (`norm.people`, the account id when none is known; `label` null and `accountId` null for worklogs with
+  no known author, last), every row's `teamId` the requested one; `teamId=0` lists the authors in no team the same way. `teamId` +
+  `accountId`: that author's one row (no row when they logged nothing there). The columns of a drill are those of its own worklogs.
+  Teams and authors with no worklogs in scope have no row. A UNIT row carries `active`: `false` marks a soft-deleted author team that
+  still logged work in the period (it keeps its name; its own drill `teamId` answers `400`, the epic-progress team-row precedent);
+  UNASSIGNED and live teams are `true`; TEAM/USER rows leave it out. With a sprint-relative period a UNIT team row reads the unit's
+  UNION envelope (`periodWindow` over every resolved sprint), while the team drill resolves only that team's own sprints, so the two
+  can differ.
+- **Cells are DENSE** -- every row carries one cell per column, in column order, `md` 0 where nothing was logged.
+- **Rounding -- the rule, pinned by a test.** MD are summed EXACTLY (`decimal(8,4)` sums, no float) and rounded to 2 decimals half-up
+  ONCE, at the figure: a cell is the rounded exact sum of its worklogs; a row total, a column total and the grand total are each the
+  rounded exact sum of THEIR worklogs -- never the sum of already-rounded cells. Every worklog therefore lands in exactly one row and
+  one column (invariant 6) and each total is the true figure to the cent, but a displayed total can differ from the sum of its
+  displayed addends by up to 0.005 per addend (three cells of 0.3333 show 0.33 each and a row total of 1.00).
+- **Foreign work (A21, A22).** `foreignMd` = the exact MD with `fact_worklog.foreign_work`, `foreignShare` = exact foreign MD / exact MD
+  (a fraction 0..1, `null` when the row or the report logged nothing -- never 0). The flag is derive-time: task-logged = the author's
+  team differs from the task's sprint team at `started_at`, else from the assignee's team then; epic-logged = differs from the epic's
+  domain owner team; an unknown side is never foreign, so UNASSIGNED authors read 0.0. It is PER PERIOD -- the epic-progress report's
+  team `foreignWorkShare` is the same ratio over the cumulative window up to `asOf`, a different figure by design.
+- **Slices.** `domain` (matched against the same column the view uses), `activityType`, `workCategory` (`UNCATEGORIZED` = none) and
+  `connectionId` (else every active connection, summed) restrict the worklogs. `breakdown` is parsed and changes nothing.
+- **`400`s:** the shared parser's (`accountId` without `teamId`, `from` after `to`, mutually exclusive periods, `lastSprints` out of
+  range, a bad `domainView`/enum, a repeated scalar key) and an unknown or inactive team, connection or sprint -- always `400`, never
+  `404`. An unknown `domain`, `activityType` or `workCategory` is a valid slice with an empty answer; `teamId=0` with a sprint-relative
+  period resolves no sprint and is empty (the epic-progress precedent, no note field here).
+
+Code: `reports/CostMatrixReport.kt` (DTOs and the query as an extension on `ReportService`; the `orgGroups` drill and `resolveReportScope`
+from `ReportSupport.kt`). Tests -- `ReportCostMatrixTest`: on the shared derived fixture the grand total, every row, column, cell and
+the foreign figures in both views against an INDEPENDENT sum over the raw `fact_worklog` rows (two periods, a domain slice, the rows
+and columns reconciling to the total within the rounding bound); on hand-built rows in a fresh disabled connection the exact cells,
+the TASK/EPIC switch for a cross-domain task, an epic-logged and an epic-less worklog, the thirds rounding rule, the foreign shares
+(incl. null), the period and slice filters, the team/user/UNASSIGNED drills and every `400` (a plain user gets `200`).

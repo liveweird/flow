@@ -145,6 +145,9 @@ place:
   `AggDailyFlow` (the per-day PV/EV/AC increments), `DimEpic`, `DimDomain`, `FactEpicPlan`, `FactEpicDelivery` (the budget
   fallback) and `FactWorklog` (the team foreign-work share), plus `teams/TeamService.Teams` (team names and the active-team
   list of the unit drill) -- all read-only, inside the report's own transaction.
+- `reports/CostMatrixReport.kt` (v0.3.0 M5 commit 17b, `GET /api/v1/reports/cost-matrix`) reads `metrics/MetricsStore.FactWorklog`
+  (grouped sums of `md`) and `DimDomain` (column names), plus `teams/TeamService.Teams`/`norm/WorkItemStore.People` through
+  `orgGroups` (team names, author display names) -- all read-only, inside the report's own transaction.
 
 - `reports/DataQualityReport.kt` and its helpers (`DataQualityTasks.kt`, `DataQualityEpics.kt`, `DataQualityConfig.kt`,
   `DataQualityAssembly.kt`; v0.3.0 M5 commit 17, `GET /api/v1/reports/data-quality`) read, all read-only inside the report's own
