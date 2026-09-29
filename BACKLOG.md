@@ -33,14 +33,16 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A22 over
   - 9d, V17: flow efficiency, current team, as-was attribution, owner per domain;
   - 9e, the domain owner team in the config API and editor;
   - the `MetricsDeriver.kt` split;
-  - 9f-wip, `agg_daily_wip`.
-- **M4 (reports)** on `feat/v0.3.0-m4-reports`, stacked on M3, runs in parallel: 10a, the reports API core and `/reports/filters`; 10b, `/reports/velocity`.
+  - 9f-wip, `agg_daily_wip`;
+  - 9f-flow, `agg_daily_flow` (A23: backlog, throughput, PV/EV/AC as daily increments);
+  - 9g, the re-derive/REPROCESS digest (`MetricsDigestTest`) and the scale-20 performance check. DERIVE takes 136 s cold and 99 s warm on 24k issues, under the 3-minute target; figures are in `metrics.md`.
+- **M4 (reports)** ships as two PRs (A24):
+  - the reports API (10a–10d: filters, velocity, throughput, sprint consistency) on `feat/v0.3.0-m4-reports`;
+  - the SPA and the estimation batch (11 onward) on `feat/v0.3.0-m4-web`.
 - **Next:**
-  1. **9f-flow:** `agg_daily_flow` — estimated backlog (D9, domain owner), PV/EV/AC at epic, domain and team level (A20), throughput, and the invariant-9 sweep.
-  2. **9g:** the re-derive digest, and the `--scale 20` performance run (DERIVE under 3 min). The 9f-wip review flagged that the WIP `INSERT … SELECT` is O(days × tasks) with correlated subqueries and doesn't use the GiST interval indexes. Measure it here and rewrite it if it misses the target. The flow step's throughput join on `dim_date` (a range join with no `day_start_ms` index) needs measuring too.
-  3. **The M3 PR:** merge on green, then merge master into M4.
-  4. **M4:** 10c throughput, 10d sprint consistency, then commits 11–14 (the chart dependencies, report pages 1–8, the estimation batch, e2e).
-  5. **M5:** reports 9–16, the A9 overview Home, and the v0.3.0 release (only when asked).
+  1. **The M3 PR:** merge on green, then merge master into both M4 branches.
+  2. **M4:** the reports-API PR; then 12 (estimation batch: 3, 4, 5 done, 7, 8 next), 13 (estimation pages) and 14 (e2e) on the web branch, as the second PR.
+  3. **M5:** reports 9–16, the A9 overview Home, and the v0.3.0 release (only when asked).
 - **Small follow-ups from M2 and M3:**
   - The Jira member picker resolves names from the first 100 unit people. Page through, or look up by account id.
   - "End membership" uses UTC; consider the configured zone.
