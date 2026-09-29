@@ -3,7 +3,9 @@
   "unitMd": "MD",
   "tabs": {
     "label": "Raporty w tej grupie",
-    "velocity": "Velocity"
+    "velocity": "Velocity",
+    "throughput": "Przepustowość",
+    "sprintConsistency": "Spójność sprintów"
   },
   "meta": {
     "derived": "Wyliczono {{date}} · wersja konfiguracji {{revision}}",
@@ -49,6 +51,11 @@
       "DOMAIN": "Domeny",
       "ACTIVITY_TYPE": "Typu aktywności",
       "WORK_CATEGORY": "Kategorii pracy"
+    },
+    "bucket": "Grupuj według",
+    "bucketOption": {
+      "WEEK": "Tydzień",
+      "MONTH": "Miesiąc"
     }
   },
   "groups": {
@@ -68,18 +75,79 @@
       "final": "Końcowy"
     },
     "column": {
-      "sprint": "Sprint",
-      "team": "Zespół",
-      "completed": "Zakończony",
       "initialMd": "Początkowy (MD)",
       "initialItems": "Początkowy (zadania)",
       "finalMd": "Końcowy (MD)",
-      "finalItems": "Końcowy (zadania)",
-      "drift": "Od zakończenia"
+      "finalItems": "Końcowy (zadania)"
     },
-    "open": "Otwarty",
     "chartLabel": "Wykres: zakres początkowy i końcowy według sprintów",
-    "drift": "Rozbieżność",
     "snapshot": "Zamrożone przy zakończeniu: początkowy {{initialMd}} MD, końcowy {{finalMd}} MD"
+  },
+  "items_one": "{{count}} zadanie",
+  "items_few": "{{count}} zadania",
+  "items_many": "{{count}} zadań",
+  "items_other": "{{count}} zadania",
+  "sprints": {
+    "sprint": "Sprint",
+    "team": "Zespół",
+    "completed": "Zakończony",
+    "open": "Otwarty",
+    "drift": "Od zakończenia",
+    "driftBadge": "Rozbieżność"
+  },
+  "throughput": {
+    "title": "Przepustowość",
+    "description": "Co dostarczył każdy zespół: praca zakończona w tygodniu lub miesiącu oraz zakres zrobiony w każdym sprincie. Oba widoki różnią się celowo — zadanie zakończone po zamknięciu sprintu liczy się tylko w okresie.",
+    "periodTitle": "Dostarczone w okresach",
+    "caption": {
+      "TASK": "Widok domeny: dostarczone w — zadanie liczy się w swojej domenie.",
+      "EPIC": "Widok domeny: wypracowane w — zadanie liczy się w domenie swojego epika."
+    },
+    "summary": "Dostarczone w okresie: {{md}} MD ({{items}})",
+    "chartLabel": "Wykres: dostarczony zakres według okresów",
+    "series": {
+      "delivered": "Dostarczone"
+    },
+    "sprintTitle": "Dostarczone w sprintach",
+    "sprintCaption": "Widok sprintowy: co zrobiono w sprincie, gdy zadanie w nim było, wycenione na moment zamknięcia sprintu. Ignoruje filtry domeny, typu aktywności i kategorii pracy.",
+    "column": {
+      "deliveredMd": "Dostarczone (MD)",
+      "deliveredItems": "Dostarczone (zadania)",
+      "bucketWEEK": "Tydzień od",
+      "bucketMONTH": "Miesiąc"
+    },
+    "snapshot": "Zamrożone przy zakończeniu: dostarczone {{md}} MD, {{items}}",
+    "bucketTableLabel": "Dostarczone w okresach, w tabeli"
+  },
+  "sprintConsistency": {
+    "title": "Spójność sprintów",
+    "description": "Jak zmieniał się zakres sprintu: co zobowiązano na starcie, co dodano i usunięto w trakcie oraz gdzie skończył się zakres końcowy.",
+    "scopeTitle": "Zobowiązane i dostarczone w sprintach",
+    "scopeLabel": "Wykres: zobowiązany i dostarczony zakres według sprintów",
+    "partitionTitle": "Gdzie skończył się zakres końcowy",
+    "partitionCaption": "Zakres końcowy = dostarczone + przeniesione + porzucone, więc wysokość słupka to zakres końcowy sprintu.",
+    "partitionLabel": "Wykres: zakres końcowy podzielony na przeniesiony, dostarczony i porzucony, według sprintów",
+    "changesTitle": "Zmiany zakresu w trakcie sprintu",
+    "changesLabel": "Wykres: zakres dodany i usunięty w każdym sprincie",
+    "tableTitle": "Wszystkie wartości",
+    "tableCaption": "Osobodni, a w nawiasie liczba zadań.",
+    "series": {
+      "committed": "Zobowiązane",
+      "delivered": "Dostarczone",
+      "carriedOver": "Przeniesione",
+      "dropped": "Porzucone",
+      "added": "Dodane",
+      "removed": "Usunięte"
+    },
+    "column": {
+      "committed": "Zobowiązane",
+      "added": "Dodane",
+      "removed": "Usunięte",
+      "final": "Końcowe",
+      "delivered": "Dostarczone",
+      "carriedOver": "Przeniesione",
+      "dropped": "Porzucone"
+    },
+    "snapshot": "Zamrożone przy zakończeniu: zobowiązane {{committed}} · końcowe {{final}} · dostarczone {{delivered}} MD"
   }
 }

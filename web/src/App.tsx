@@ -30,6 +30,8 @@ const RawIssueInspector = lazy(() => import("./pages/RawIssueInspector"));
 const DataSourceMetricsConfig = lazy(() => import("./pages/DataSourceMetricsConfig"));
 const MetricsSettings = lazy(() => import("./pages/MetricsSettings"));
 const ReportVelocity = lazy(() => import("./pages/ReportVelocity"));
+const ReportThroughput = lazy(() => import("./pages/ReportThroughput"));
+const ReportSprintConsistency = lazy(() => import("./pages/ReportSprintConsistency"));
 const CreateUser = lazy(() => import("./pages/CreateUser"));
 const EditUser = lazy(() => import("./pages/EditUser"));
 const ChangePassword = lazy(() => import("./pages/ChangePassword"));
@@ -202,6 +204,8 @@ export default function App() {
             <Route path="teams/:id" element={<TeamDetails />} />
             {/* Reports: any signed-in user (D12) — never inside the RequireAdmin group. */}
             <Route path="reports/velocity" element={<ReportVelocity />} />
+            <Route path="reports/throughput" element={<ReportThroughput />} />
+            <Route path="reports/sprint-consistency" element={<ReportSprintConsistency />} />
             {/* The management surface — ADMIN only, guarded once here (the pages no longer redirect themselves). */}
             <Route element={<RequireAdmin />}>
               <Route path="users" element={<Users />} />

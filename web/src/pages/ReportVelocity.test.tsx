@@ -87,6 +87,17 @@ describe("ReportVelocity page", () => {
     expect(velocityCalls(mockFetch)).toEqual(["/api/v1/reports/velocity?"]);
   });
 
+  test("offers no report-specific controls — no bucket, domain view, domain, activity type or category", async () => {
+    serve(mockFetch);
+    renderPage();
+    await screen.findByTestId("bar-chart");
+    expect(screen.queryByRole("radio", { name: "Week" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("radio", { name: "Delivered in" })).not.toBeInTheDocument();
+    for (const name of ["Domain", "Activity type", "Work category"]) {
+      expect(screen.queryByRole("combobox", { name })).not.toBeInTheDocument();
+    }
+  });
+
   test("drilling into a team narrows the URL, refetches, and shows the members", async () => {
     serve(mockFetch);
     const user = userEvent.setup();

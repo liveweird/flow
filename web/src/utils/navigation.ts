@@ -12,7 +12,7 @@ import {
   type Icon,
 } from "@tabler/icons-react";
 import { dataSourcesPath } from "./dataSourceLinks";
-import { velocityPath } from "./reportLinks";
+import { DELIVERY_TABS, velocityPath } from "./reportLinks";
 import { teamsPath } from "./teamLinks";
 
 export type NavLeaf = {
@@ -22,6 +22,11 @@ export type NavLeaf = {
   icon: Icon;
   /** When set, the leaf renders only for ADMIN sessions. */
   adminOnly?: boolean;
+  /**
+   * Further routes this leaf stays highlighted on (a report group's other tabs, each of which
+   * is its own route). Prefix-matched like `to`; the leaf itself always links to `to`.
+   */
+  activeFor?: ReadonlyArray<string>;
 };
 
 /** A labelled, always-open block of leaves — a section, never a collapsible group. */
@@ -49,7 +54,14 @@ const NAV_SECTIONS: ReadonlyArray<NavSection> = [
   },
   {
     label: "appShell.section.reports",
-    items: [{ to: velocityPath, label: "appShell.nav.reportsDelivery", icon: IconChartBar }],
+    items: [
+      {
+        to: velocityPath,
+        label: "appShell.nav.reportsDelivery",
+        icon: IconChartBar,
+        activeFor: DELIVERY_TABS.map((tab) => tab.to),
+      },
+    ],
   },
   {
     label: "appShell.section.administration",
@@ -69,6 +81,16 @@ export const ACCOUNT_NAV: ReadonlyArray<NavLeaf> = [
   { to: "/changelog", label: "appShell.nav.changelog", icon: IconHistory },
 ];
 
+/**
+ * Palette-only leaves: every report of a nav group is its own route and must be findable by name,
+ * but the sidebar carries ONE leaf per group (Delivery). Tabs never appear in a section.
+ */
+export const REPORT_PALETTE_LEAVES: ReadonlyArray<NavLeaf> = DELIVERY_TABS.map((tab) => ({
+  to: tab.to,
+  label: tab.label,
+  icon: IconChartBar,
+}));
+
 /** The sections a session may see: admin-only leaves filtered, empty sections dropped. */
 export function visibleSections(admin: boolean): NavSection[] {
   return NAV_SECTIONS.flatMap((section) => {
@@ -77,14 +99,16 @@ export function visibleSections(admin: boolean): NavSection[] {
   });
 }
 
-/** Longest-matching-prefix active-link resolution — "/" only matches exactly. */
+/**
+ * Longest-matching-prefix active-link resolution — "/" only matches exactly. A leaf matches on its
+ * own `to` and on every `activeFor` route; the answer is always the leaf's `to`.
+ */
 export function activeNavPath(pathname: string, leaves: ReadonlyArray<NavLeaf>): string | null {
-  const matches = (to: string) =>
-    to === "/" ? pathname === "/" : pathname === to || pathname.startsWith(`${to}/`);
+  const matches = (path: string) =>
+    path === "/" ? pathname === "/" : pathname === path || pathname.startsWith(`${path}/`);
   return (
     leaves
-      .map((leaf) => leaf.to)
-      .filter(matches)
-      .sort((a, b) => b.length - a.length)[0] ?? null
+      .flatMap((leaf) => [leaf.to, ...(leaf.activeFor ?? [])].filter(matches).map((path) => ({ to: leaf.to, length: path.length })))
+      .sort((a, b) => b.length - a.length)[0]?.to ?? null
   );
 }

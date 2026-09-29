@@ -12,8 +12,36 @@ function Where() {
 
 describe("ReportTabs", () => {
   test("a group with one report renders no tabs", () => {
-    renderWithProviders(<ReportTabs tabs={DELIVERY_TABS} />, { route: "/reports/velocity" });
+    renderWithProviders(<ReportTabs tabs={DELIVERY_TABS.slice(0, 1)} />, { route: "/reports/velocity" });
     expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
+  });
+
+  test("the Delivery group offers velocity, throughput and sprint consistency, with the current route selected", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <>
+        <ReportTabs tabs={DELIVERY_TABS} />
+        <Where />
+      </>,
+      { route: "/reports/throughput?teamId=2" },
+    );
+    expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["Velocity", "Throughput", "Sprint consistency"]);
+    expect(screen.getByRole("tab", { name: "Throughput" })).toHaveAttribute("aria-selected", "true");
+    await user.click(screen.getByRole("tab", { name: "Sprint consistency" }));
+    expect(screen.getByTestId("where").textContent).toBe("/reports/sprint-consistency?teamId=2");
+  });
+
+  test("switching to a report without the controls drops the params it cannot show", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <>
+        <ReportTabs tabs={DELIVERY_TABS} />
+        <Where />
+      </>,
+      { route: "/reports/throughput?teamId=2&domain=FLO&bucket=MONTH" },
+    );
+    await user.click(screen.getByRole("tab", { name: "Velocity" }));
+    expect(screen.getByTestId("where").textContent).toBe("/reports/velocity?teamId=2");
   });
 
   test("switching reports keeps the filter query", async () => {

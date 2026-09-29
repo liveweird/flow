@@ -26,6 +26,7 @@ describe("parseReportFilter / serializeReportFilter", () => {
       activityType: "Bug",
       workCategory: "Maintenance",
       breakdown: "DOMAIN",
+      bucket: "MONTH",
       connectionId: 2,
     };
     expect(parseReportFilter(serializeReportFilter(filter))).toEqual(filter);
@@ -51,7 +52,7 @@ describe("parseReportFilter / serializeReportFilter", () => {
     expect(parse("lastSprints=0")).toEqual({});
     expect(parse("lastSprints=53")).toEqual({});
     expect(parse("sprintId=-3&teamId=abc")).toEqual({});
-    expect(parse("domainView=SIDEWAYS&breakdown=x&connectionId=0")).toEqual({});
+    expect(parse("domainView=SIDEWAYS&breakdown=x&bucket=DAY&connectionId=0")).toEqual({});
     expect(parse("domain=&activityType=%20")).toEqual({});
   });
 
@@ -74,8 +75,8 @@ describe("parseReportFilter / serializeReportFilter", () => {
   });
 
   test("applyReportFilter replaces managed keys and keeps unrelated ones", () => {
-    const next = applyReportFilter(new URLSearchParams("teamId=1&lastSprints=3&bucket=MONTH"), { teamId: 2 });
-    expect(next.toString()).toBe("bucket=MONTH&teamId=2");
+    const next = applyReportFilter(new URLSearchParams("teamId=1&lastSprints=3&utm=x"), { teamId: 2, bucket: "MONTH" });
+    expect(next.toString()).toBe("utm=x&teamId=2&bucket=MONTH");
   });
 });
 

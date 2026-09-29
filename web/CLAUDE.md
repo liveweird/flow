@@ -423,15 +423,24 @@ team membership landed in M2 commit 5, and the per-connection `metrics-config` p
 
 The v0.3.0 report pages (`.claude/docs/reports.md` is the API; every report is any-authenticated,
 D12 — routes sit under `RequireAuth`, never `RequireAdmin`). Landed so far: the shell (Reports nav
-section → Delivery, `ReportTabs`), the filter bar, the shared blocks and Velocity; later reports
-append a page, a tab and a `reports.<name>` key block.
+section → Delivery, `ReportTabs`), the filter bar, the shared blocks and the three Delivery pages
+(Velocity, Throughput, Sprint consistency); later reports append a page, a tab (`DELIVERY_TABS` in
+`utils/reportLinks.ts` — the Delivery nav leaf lists every tab route in `NavLeaf.activeFor`, so it
+stays highlighted on all of them) and a `reports.<name>` key block. Every page composes the same
+skeleton — `hooks/useReportPage` (filters query → keyed page query), `ReportFiltersStatus`,
+`ReportFilterBar`, `ReportMetaNote`, `ReportChartCard`, `ReportSprintsTable` (sprint · team ·
+completed · the report's figures · the orange drift badge with the frozen figures as text),
+`ReportGroupsTable` — copy `pages/ReportVelocity.tsx`.
 
 - **The URL is the filter** (`utils/reportFilter.ts`, `hooks/useReportFilter.ts`): `from`/`to`,
   `lastSprints`, `sprintId`, `teamId`, `accountId`, `domainView`, `domain`, `activityType`,
-  `workCategory`, `breakdown`, `connectionId` — deep-linkable, parsed forgivingly (an invalid or
+  `workCategory`, `breakdown`, `bucket`, `connectionId` — deep-linkable, parsed forgivingly (an invalid or
   conflicting param is DROPPED, never sent; the period is exclusive with precedence `sprintId` >
   `lastSprints` > dates), serialized in one canonical key order (that string is also the page query
-  key). Unrelated params (a later `bucket`) survive `applyReportFilter`. Presets are stored as
+  key). Params this module does not own survive `applyReportFilter`; switching report tabs
+  (`reportHref`) drops the report-specific params (`domainView`, `domain`, `activityType`,
+  `workCategory`, `breakdown`, `bucket`) the target report has no control for, so a filter the user
+  cannot see or clear never follows them (`REPORT_SPECIFIC_PARAMS` in `utils/reportLinks.ts`). Presets are stored as
   absolute `from`/`to` dates (calendar days in the configured zone) and recognised again by
   `activePeriodChoice`. **The last team is remembered** (`useStoredState`, `reports.teamId`): a report
   opened with NO filter params at all (a bare nav click) starts on it and the URL is rewritten
@@ -439,7 +448,10 @@ append a page, a tab and a `reports.<name>` key block.
   link stays unit-level). Only the Team control touches the memory (picking stores, clearing clears).
 - **`components/ReportFilterBar.tsx`** is a controlled component (`filters`, `filter`, `onChange`);
   optional controls (domain view "delivered in / earned in", domain, activity type, work category,
-  breakdown) render ONLY where the report passes them in `controls` — velocity passes none.
+  breakdown, and the week/month `bucket` `SegmentedControl`) render ONLY where the report passes them
+  in `controls` — velocity and sprint consistency pass none, throughput passes domain view, domain,
+  activity type, work category and bucket (not breakdown, which it ignores). Every report is also a
+  command-palette entry (`REPORT_PALETTE_LEAVES`, palette-only: the sidebar carries one Delivery leaf).
 - **Load order**: `["reports","filters"]` (staleTime 60 s) → the page query keyed
   `["reports", <report>, <serialized filter>]`, `enabled` once the filters loaded,
   `placeholderData: keepPreviousData` (`ReportChartCard` dims the previous body and sets `aria-busy`).
@@ -448,15 +460,25 @@ append a page, a tab and a `reports.<name>` key block.
 - **Chart rules** (ported from Lettuce): charts live only in lazy chunks (the page lazy-imports its
   chart component), each chart component imports `@mantine/charts/styles.css` itself, a legend for
   two or more series (none for one), one axis (never dual), and every chart has its numbers in a
-  table beside it. Tests mock `@mantine/charts` (recharts draws nothing under happy-dom) and assert
-  the props. **Colour vocabulary, no new hue**: blue = plan/committed, teal = delivered, red =
-  dropped/blocked, orange = carried over/added scope/drift, gray = removed/neutral. Chart marks must
-  clear WCAG 1.4.11 (≥ 3:1) on every surface they sit on — white and the `#f5f7fb` canvas (light),
-  the `#2e2e2e` paper and `#1f1f1f` canvas (dark) — so a series colour is picked per scheme
-  (`useComputedColorScheme`), never one shade for both. Velocity: initial = `flow.6` (3.56 white /
-  3.32 canvas · 3.82 paper / 4.63 canvas), final = `flow.8` in light (5.02 / 4.68) and `flow.4` in
-  dark (5.49 paper / 6.66 canvas; `flow.8` would be 2.70:1 on dark paper, `flow.5` 2.99:1 on white).
-  Recompute the ratios when adding a series colour.
+  table beside it (velocity and the sprint charts: the per-sprint table; throughput's period chart:
+  `ThroughputBucketTable`). Colour is never the only carrier of identity — legend, tooltip and table are. Tests mock `@mantine/charts` (recharts draws nothing under happy-dom) and assert
+  the props. **Colour vocabulary, no new hue** — concrete shades in `utils/chartColors.ts`: blue `flow.6` =
+  plan/committed, teal `teal.8` = delivered, orange `orange.8` = carried over/added scope, red
+  `red.7` = dropped/blocked, gray `gray.6` = removed/neutral; the final-scope blue is per scheme
+  (`useComputedColorScheme`: `flow.8` light, `flow.4` dark). Every mark must clear WCAG 1.4.11
+  (≥ 3:1) on white and the `#f5f7fb` canvas (light) and the `#2e2e2e` paper and `#1f1f1f` canvas
+  (dark); `chartColors.test.ts` recomputes the ratios from the theme (the file's comment holds the
+  table: e.g. flow.6 3.56 on white, teal.8 3.44 on dark paper, red.7 3.53, orange.8 3.79, gray.6 3.32
+  on white; flow.8 is 2.70:1 on dark paper, hence `flow.4` there). Adjacent series in ONE chart must
+  also differ enough to tell apart (the dataviz validator's ΔE ≥ 15 floor): never two shades of one
+  hue side by side (velocity's initial/final pair is a known exception — legend, tooltip and table
+  carry it), and stacked segments are ordered so orange and red never touch (sprint consistency:
+  carried over · delivered · dropped, teal between). One question per chart: sprint consistency is
+  three small charts (committed vs delivered; the stacked final = carried + delivered + dropped;
+  added vs removed), not one fourteen-series chart. A report's own resolution param (`bucket`) is a
+  managed filter param, serialized into the query key; a page that must label data by the request
+  that produced it returns that request's param WITH the report (throughput's `bucket`), so a
+  refetch over kept data never mislabels the old rows.
 - **Dates are days in the configured zone**: `GET /reports/filters` returns `timeZone`
   (`metrics.settings.time_zone`), the zone the server reads `from`/`to` in; the bar's "today", presets
   and date-picker maximum come from `todayIsoDate(filters.timeZone)`, and dates render through

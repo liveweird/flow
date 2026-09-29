@@ -9,11 +9,13 @@ import { todayIsoDate } from "../utils/isoDate";
 import {
   activePeriodChoice,
   BREAKDOWNS,
+  BUCKETS,
   DATE_PRESETS,
   LAST_SPRINT_COUNTS,
   presetRange,
   withPeriod,
   type Breakdown,
+  type Bucket,
   type DomainView,
   type PeriodChoice,
   type ReportFilterState,
@@ -30,6 +32,8 @@ export interface ReportControls {
   activityType?: boolean;
   workCategory?: boolean;
   breakdown?: boolean;
+  /** The week/month resolution of a bucketed series (throughput). */
+  bucket?: boolean;
 }
 
 const UNCATEGORIZED = "UNCATEGORIZED";
@@ -263,7 +267,7 @@ export default function ReportFilterBar({
             />
           )}
         </Group>
-        {(controls.domainView !== undefined || controls.breakdown) && (
+        {(controls.domainView !== undefined || controls.breakdown || controls.bucket) && (
           <Group gap="lg" align="flex-end" wrap="wrap">
             {controls.domainView !== undefined && (
               <Box>
@@ -278,6 +282,19 @@ export default function ReportFilterBar({
                   ]}
                   value={filter.domainView ?? controls.domainView}
                   onChange={(value) => setKey("domainView", value as DomainView)}
+                />
+              </Box>
+            )}
+            {controls.bucket && (
+              <Box>
+                <Text size="sm" fw={500} mb={4} id="report-bucket">
+                  {t("reports.filters.bucket")}
+                </Text>
+                <SegmentedControl
+                  aria-labelledby="report-bucket"
+                  data={BUCKETS.map((value) => ({ value, label: t(`reports.filters.bucketOption.${value}`) }))}
+                  value={filter.bucket ?? "WEEK"}
+                  onChange={(value) => setKey("bucket", value as Bucket)}
                 />
               </Box>
             )}

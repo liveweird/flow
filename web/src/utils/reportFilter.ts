@@ -11,6 +11,9 @@ import { isoDateToEpochMillis, epochMillisToIsoDate, isValidIsoDate } from "./is
 export type DomainView = "TASK" | "EPIC";
 export type Breakdown = "NONE" | "DOMAIN" | "ACTIVITY_TYPE" | "WORK_CATEGORY";
 
+export type Bucket = "WEEK" | "MONTH";
+export const BUCKETS: readonly Bucket[] = ["WEEK", "MONTH"];
+
 const DOMAIN_VIEWS: readonly DomainView[] = ["TASK", "EPIC"];
 export const BREAKDOWNS: readonly Breakdown[] = ["NONE", "DOMAIN", "ACTIVITY_TYPE", "WORK_CATEGORY"];
 
@@ -28,6 +31,8 @@ export interface ReportFilterState {
   activityType?: string;
   workCategory?: string;
   breakdown?: Breakdown;
+  /** Time resolution of a bucketed series (throughput); the server defaults to WEEK. */
+  bucket?: Bucket;
   connectionId?: number;
 }
 
@@ -44,8 +49,13 @@ const MANAGED_KEYS = [
   "activityType",
   "workCategory",
   "breakdown",
+  "bucket",
   "connectionId",
 ] as const;
+
+/** The managed params only some reports have a control for; the rest (period, team, member, connection) are shared. */
+export const REPORT_SPECIFIC_KEYS = ["domainView", "domain", "activityType", "workCategory", "breakdown", "bucket"] as const;
+export type ReportSpecificKey = (typeof REPORT_SPECIFIC_KEYS)[number];
 
 /** True when the query string carries ANY param this module owns (valid or not). */
 export function hasReportFilterParams(params: URLSearchParams): boolean {
@@ -120,6 +130,8 @@ export function parseReportFilter(params: URLSearchParams): ReportFilterState {
   if (workCategory !== undefined) filter.workCategory = workCategory;
   const breakdown = parseEnum(params.get("breakdown"), BREAKDOWNS);
   if (breakdown !== undefined) filter.breakdown = breakdown;
+  const bucket = parseEnum(params.get("bucket"), BUCKETS);
+  if (bucket !== undefined) filter.bucket = bucket;
   const connectionId = parseInteger(params.get("connectionId"), 1);
   if (connectionId !== undefined) filter.connectionId = connectionId;
 

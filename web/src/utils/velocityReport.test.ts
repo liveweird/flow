@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { ReportFilters, VelocitySprint } from "../api/reports";
-import { sortSprints, teamNameOf, velocityChartRows } from "./velocityReport";
+import { velocityChartRows } from "./velocityReport";
 
 const sprint = (over: Partial<VelocitySprint>): VelocitySprint => ({
   sprintId: 1,
@@ -43,13 +43,5 @@ describe("velocityChartRows", () => {
     );
     expect(rows.map((r) => r.label)).toEqual(["Alpha · S1", "Beta · S2"]);
     expect(rows[0]).toMatchObject({ initialMd: 10, finalMd: 12, initialItems: 4, finalItems: 5 });
-  });
-
-  test("same completion time falls back to the sprint id", () => {
-    expect(sortSprints([{ sprintId: 9, completedAt: 5 }, { sprintId: 2, completedAt: 5 }]).map((s) => s.sprintId)).toEqual([2, 9]);
-  });
-
-  test("an unknown team renders as its id", () => {
-    expect(teamNameOf(filters, 77)).toBe("#77");
   });
 });
