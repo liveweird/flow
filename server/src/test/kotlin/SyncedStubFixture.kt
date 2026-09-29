@@ -23,16 +23,18 @@ import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.HttpTimeout
 import java.security.MessageDigest
+import java.sql.DriverManager
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
-import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import org.jetbrains.exposed.v1.core.AutoIncColumnType
+import org.jetbrains.exposed.v1.core.Column
+import org.jetbrains.exposed.v1.core.Table
 import org.jetbrains.exposed.v1.core.eq
-import org.jetbrains.exposed.v1.r2dbc.batchInsert
 import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
-import org.jetbrains.exposed.v1.r2dbc.update
 import kotlin.test.assertEquals
 
 /**
@@ -221,88 +223,106 @@ object SyncedStubFixture {
         assertEquals(baseline, current, "the shared synced fixture's connection $connId must never be mutated by a read-only test")
     }
 
+    internal val RAW_CLONE_TABLES: List<Table> = listOf(
+        JiraRawStore.Issues, JiraRawStore.Entities, JiraRawStore.Changelogs, JiraRawStore.Worklogs,
+    )
+
+    internal val PROCESSED_CLONE_TABLES: List<Table> = listOf(
+        WorkItemStore.WorkItems, WorkItemStore.StatusIntervals, WorkItemStore.FieldIntervals, WorkItemStore.FieldChanges,
+        WorkItemStore.Worklogs, WorkItemStore.Statuses, WorkItemStore.People, WorkItemStore.Boards, WorkItemStore.BoardColumns,
+        WorkItemStore.Sprints,
+    )
+
+    private const val CONNECTION_ID_COLUMN = "connection_id"
+
+    /** Tables whose Exposed column set has already been proven equal to the database's (once per JVM fork). */
+    private val verifiedColumnSets = ConcurrentHashMap.newKeySet<String>()
+
+    private fun quoted(column: Column<*>) = "\"${column.name}\""
+
+    /**
+     * ONE `INSERT ... SELECT` for [table]: every column the Exposed object declares is copied
+     * verbatim from [fromConnectionId]'s rows, except `connection_id` (rewritten to [toConnectionId])
+     * and the surrogate SERIAL `id` (auto-increment columns get fresh values in the clone). The
+     * column list comes from the table object, and [assertColumnSetMatchesDatabase] proves it equals
+     * the database's own, so a column added by a migration but forgotten in the Exposed object (or
+     * the reverse) fails the clone instead of being silently dropped.
+     */
+    private fun cloneTableSql(table: Table, fromConnectionId: UInt, toConnectionId: UInt): String {
+        val copied = table.columns.filter { it.columnType !is AutoIncColumnType<*> && it.name != CONNECTION_ID_COLUMN }
+        val targetList = (listOf("\"$CONNECTION_ID_COLUMN\"") + copied.map(::quoted)).joinToString(", ")
+        val selectList = (listOf("$toConnectionId") + copied.map(::quoted)).joinToString(", ")
+        return "INSERT INTO ${table.tableName} ($targetList) SELECT $selectList " +
+            "FROM ${table.tableName} WHERE $CONNECTION_ID_COLUMN = $fromConnectionId"
+    }
+
+    private fun assertColumnSetMatchesDatabase(conn: java.sql.Connection, table: Table) {
+        if (table.tableName in verifiedColumnSets) return
+        val (schema, name) = table.tableName.split('.')
+        val sql = "SELECT column_name FROM information_schema.columns WHERE table_schema = ? AND table_name = ?"
+        val database = conn.prepareStatement(sql).use { st ->
+            st.setString(1, schema)
+            st.setString(2, name)
+            st.executeQuery().use { rs -> buildSet { while (rs.next()) add(rs.getString(1)) } }
+        }
+        assertEquals(
+            database,
+            table.columns.map { it.name }.toSet(),
+            "${table.tableName}: the Exposed columns must equal the database's, or the SQL clone would drop one",
+        )
+        verifiedColumnSets += table.tableName
+    }
+
+    /** `table name -> row count` for [connId] over every table [cloneRawData]/[cloneProcessedData] copy (raw and norm). */
+    internal fun cloneTableRowCounts(connId: UInt): Map<String, Long> =
+        DriverManager.getConnection(PostgresTestSupport.jdbcUrl, PostgresTestSupport.user, PostgresTestSupport.password).use { conn ->
+            conn.createStatement().use { st ->
+                (RAW_CLONE_TABLES + PROCESSED_CLONE_TABLES).associate { table ->
+                    table.tableName to st.executeQuery("SELECT COUNT(*) FROM ${table.tableName} WHERE $CONNECTION_ID_COLUMN = $connId")
+                        .use { rs -> rs.next(); rs.getLong(1) }
+                }
+            }
+        }
+
+    /** Runs one `INSERT ... SELECT` per table (plus [extra]) in ONE database transaction on a plain JDBC connection. */
+    private fun cloneInTransaction(
+        tables: List<Table>,
+        fromConnectionId: UInt,
+        toConnectionId: UInt,
+        extra: (java.sql.Statement) -> Unit = {},
+    ) {
+        DriverManager.getConnection(PostgresTestSupport.jdbcUrl, PostgresTestSupport.user, PostgresTestSupport.password).use { conn ->
+            conn.autoCommit = false
+            try {
+                conn.createStatement().use { st ->
+                    for (table in tables) {
+                        assertColumnSetMatchesDatabase(conn, table)
+                        st.executeUpdate(cloneTableSql(table, fromConnectionId, toConnectionId))
+                    }
+                    extra(st)
+                }
+                conn.commit()
+            } catch (failure: Throwable) {
+                // A failing rollback must never mask the failure that caused it.
+                runCatching { conn.rollback() }.onFailure(failure::addSuppressed)
+                throw failure
+            }
+        }
+    }
+
     /**
      * Copies one connection's `raw.jira_issues`/`raw.jira_entities`/`raw.jira_changelogs`/
      * `raw.jira_worklogs` rows verbatim into another connection id — the cheap substrate a
      * MUTATING test runs its one stream under test against, instead of a second real HTTP sync.
-     * Every column, including `needs_processing`/`processing_version`/the tombstone columns, is
-     * copied AS-IS: the clone reproduces exactly the "freshly synced" raw state the shared
-     * connection was in right after its own backfill, so a test that wants PROCESS to run again
-     * (REPROCESS, or after RECONCILE tombstones a row) still has to ask for that explicitly, the
-     * same way a real REPROCESS job would (`JiraRawStore.markAllNeedsProcessing`).
+     * One SQL `INSERT ... SELECT` per table ([cloneTableSql]): every column, including
+     * `needs_processing`/`processing_version`/the tombstone columns, is copied AS-IS, so the clone
+     * reproduces exactly the "freshly synced" raw state the shared connection was in right after its
+     * own backfill; a test that wants PROCESS to run again (REPROCESS, or after RECONCILE tombstones
+     * a row) still has to ask for that explicitly, the same way a real REPROCESS job would
+     * (`JiraRawStore.markAllNeedsProcessing`).
      */
     suspend fun cloneRawData(fromConnectionId: UInt, toConnectionId: UInt) {
-        val db = sharedDatabaseForTests()
-        suspendTransaction(db) {
-            val issues = JiraRawStore.Issues.selectAll().where { JiraRawStore.Issues.connectionId eq fromConnectionId }.toList()
-            if (issues.isNotEmpty()) {
-                JiraRawStore.Issues.batchInsert(issues) { row ->
-                    this[JiraRawStore.Issues.connectionId] = toConnectionId
-                    this[JiraRawStore.Issues.issueId] = row[JiraRawStore.Issues.issueId]
-                    this[JiraRawStore.Issues.issueKey] = row[JiraRawStore.Issues.issueKey]
-                    this[JiraRawStore.Issues.projectId] = row[JiraRawStore.Issues.projectId]
-                    this[JiraRawStore.Issues.projectKey] = row[JiraRawStore.Issues.projectKey]
-                    this[JiraRawStore.Issues.issueUpdatedAt] = row[JiraRawStore.Issues.issueUpdatedAt]
-                    this[JiraRawStore.Issues.payload] = row[JiraRawStore.Issues.payload]
-                    this[JiraRawStore.Issues.sha256] = row[JiraRawStore.Issues.sha256]
-                    this[JiraRawStore.Issues.firstSeenAt] = row[JiraRawStore.Issues.firstSeenAt]
-                    this[JiraRawStore.Issues.fetchedAt] = row[JiraRawStore.Issues.fetchedAt]
-                    this[JiraRawStore.Issues.changedAt] = row[JiraRawStore.Issues.changedAt]
-                    this[JiraRawStore.Issues.changelogSyncedAt] = row[JiraRawStore.Issues.changelogSyncedAt]
-                    this[JiraRawStore.Issues.worklogsSyncedAt] = row[JiraRawStore.Issues.worklogsSyncedAt]
-                    this[JiraRawStore.Issues.needsProcessing] = row[JiraRawStore.Issues.needsProcessing]
-                    this[JiraRawStore.Issues.processedAt] = row[JiraRawStore.Issues.processedAt]
-                    this[JiraRawStore.Issues.processedHash] = row[JiraRawStore.Issues.processedHash]
-                    this[JiraRawStore.Issues.processingVersion] = row[JiraRawStore.Issues.processingVersion]
-                    this[JiraRawStore.Issues.deletedAt] = row[JiraRawStore.Issues.deletedAt]
-                    this[JiraRawStore.Issues.movedOutAt] = row[JiraRawStore.Issues.movedOutAt]
-                }
-            }
-
-            val entities = JiraRawStore.Entities.selectAll().where { JiraRawStore.Entities.connectionId eq fromConnectionId }.toList()
-            if (entities.isNotEmpty()) {
-                JiraRawStore.Entities.batchInsert(entities) { row ->
-                    this[JiraRawStore.Entities.connectionId] = toConnectionId
-                    this[JiraRawStore.Entities.kind] = row[JiraRawStore.Entities.kind]
-                    this[JiraRawStore.Entities.entityId] = row[JiraRawStore.Entities.entityId]
-                    this[JiraRawStore.Entities.payload] = row[JiraRawStore.Entities.payload]
-                    this[JiraRawStore.Entities.sha256] = row[JiraRawStore.Entities.sha256]
-                    this[JiraRawStore.Entities.firstSeenAt] = row[JiraRawStore.Entities.firstSeenAt]
-                    this[JiraRawStore.Entities.lastSeenAt] = row[JiraRawStore.Entities.lastSeenAt]
-                    this[JiraRawStore.Entities.changedAt] = row[JiraRawStore.Entities.changedAt]
-                    this[JiraRawStore.Entities.deletedAt] = row[JiraRawStore.Entities.deletedAt]
-                }
-            }
-
-            val changelogs = JiraRawStore.Changelogs.selectAll().where { JiraRawStore.Changelogs.connectionId eq fromConnectionId }.toList()
-            if (changelogs.isNotEmpty()) {
-                JiraRawStore.Changelogs.batchInsert(changelogs) { row ->
-                    this[JiraRawStore.Changelogs.connectionId] = toConnectionId
-                    this[JiraRawStore.Changelogs.historyId] = row[JiraRawStore.Changelogs.historyId]
-                    this[JiraRawStore.Changelogs.issueId] = row[JiraRawStore.Changelogs.issueId]
-                    this[JiraRawStore.Changelogs.createdAt] = row[JiraRawStore.Changelogs.createdAt]
-                    this[JiraRawStore.Changelogs.authorAccountId] = row[JiraRawStore.Changelogs.authorAccountId]
-                    this[JiraRawStore.Changelogs.payload] = row[JiraRawStore.Changelogs.payload]
-                    this[JiraRawStore.Changelogs.fetchedAt] = row[JiraRawStore.Changelogs.fetchedAt]
-                }
-            }
-
-            val worklogs = JiraRawStore.Worklogs.selectAll().where { JiraRawStore.Worklogs.connectionId eq fromConnectionId }.toList()
-            if (worklogs.isNotEmpty()) {
-                JiraRawStore.Worklogs.batchInsert(worklogs) { row ->
-                    this[JiraRawStore.Worklogs.connectionId] = toConnectionId
-                    this[JiraRawStore.Worklogs.worklogId] = row[JiraRawStore.Worklogs.worklogId]
-                    this[JiraRawStore.Worklogs.issueId] = row[JiraRawStore.Worklogs.issueId]
-                    this[JiraRawStore.Worklogs.worklogUpdatedAt] = row[JiraRawStore.Worklogs.worklogUpdatedAt]
-                    this[JiraRawStore.Worklogs.payload] = row[JiraRawStore.Worklogs.payload]
-                    this[JiraRawStore.Worklogs.sha256] = row[JiraRawStore.Worklogs.sha256]
-                    this[JiraRawStore.Worklogs.firstSeenAt] = row[JiraRawStore.Worklogs.firstSeenAt]
-                    this[JiraRawStore.Worklogs.fetchedAt] = row[JiraRawStore.Worklogs.fetchedAt]
-                    this[JiraRawStore.Worklogs.changedAt] = row[JiraRawStore.Worklogs.changedAt]
-                    this[JiraRawStore.Worklogs.deletedAt] = row[JiraRawStore.Worklogs.deletedAt]
-                }
-            }
-        }
+        cloneInTransaction(RAW_CLONE_TABLES, fromConnectionId, toConnectionId)
     }
 
     /**
@@ -312,190 +332,20 @@ object SyncedStubFixture {
      * `profile_at`, all copied verbatim and rewritten to [toConnectionId] — never re-running
      * `jira/JiraProcessStream.kt`/`jira/JiraProfileStream.kt` against the clone, since the SHARED
      * connection [fromConnectionId] already ran them once (`.claude/docs/testing.md` "Shared synced
-     * fixture"). Surrogate `SERIAL id` columns (`StatusIntervals`/`FieldIntervals`/`FieldChanges`)
-     * are never copied — every other column is copied as-is. [DerivedStubFixture] is this
-     * function's first consumer; `SyncedStubFixtureTest` pins that the clone's own status-interval
-     * digest matches the source connection's.
+     * fixture"). Same mechanism as [cloneRawData] (one SQL `INSERT ... SELECT` per table, columns from
+     * the Exposed table objects, surrogate `SERIAL id` columns never copied); the raw and processed
+     * copies run in ONE transaction. [DerivedStubFixture] is this function's first consumer;
+     * `SyncedStubFixtureTest` pins that the clone's own status-interval digest matches the source
+     * connection's.
      */
     suspend fun cloneProcessedData(fromConnectionId: UInt, toConnectionId: UInt) {
-        cloneRawData(fromConnectionId, toConnectionId)
-        val db = sharedDatabaseForTests()
-        suspendTransaction(db) {
-            val workItemRows = WorkItemStore.WorkItems.selectAll()
-                .where { WorkItemStore.WorkItems.connectionId eq fromConnectionId }.toList()
-            if (workItemRows.isNotEmpty()) {
-                WorkItemStore.WorkItems.batchInsert(workItemRows) { row ->
-                    this[WorkItemStore.WorkItems.connectionId] = toConnectionId
-                    this[WorkItemStore.WorkItems.issueId] = row[WorkItemStore.WorkItems.issueId]
-                    this[WorkItemStore.WorkItems.issueKey] = row[WorkItemStore.WorkItems.issueKey]
-                    this[WorkItemStore.WorkItems.projectKey] = row[WorkItemStore.WorkItems.projectKey]
-                    this[WorkItemStore.WorkItems.issueType] = row[WorkItemStore.WorkItems.issueType]
-                    this[WorkItemStore.WorkItems.isSubtask] = row[WorkItemStore.WorkItems.isSubtask]
-                    this[WorkItemStore.WorkItems.parentIssueId] = row[WorkItemStore.WorkItems.parentIssueId]
-                    this[WorkItemStore.WorkItems.summary] = row[WorkItemStore.WorkItems.summary]
-                    this[WorkItemStore.WorkItems.statusId] = row[WorkItemStore.WorkItems.statusId]
-                    this[WorkItemStore.WorkItems.statusName] = row[WorkItemStore.WorkItems.statusName]
-                    this[WorkItemStore.WorkItems.statusCategory] = row[WorkItemStore.WorkItems.statusCategory]
-                    this[WorkItemStore.WorkItems.resolution] = row[WorkItemStore.WorkItems.resolution]
-                    this[WorkItemStore.WorkItems.priority] = row[WorkItemStore.WorkItems.priority]
-                    this[WorkItemStore.WorkItems.assigneeAccountId] = row[WorkItemStore.WorkItems.assigneeAccountId]
-                    this[WorkItemStore.WorkItems.reporterAccountId] = row[WorkItemStore.WorkItems.reporterAccountId]
-                    this[WorkItemStore.WorkItems.createdAt] = row[WorkItemStore.WorkItems.createdAt]
-                    this[WorkItemStore.WorkItems.updatedAt] = row[WorkItemStore.WorkItems.updatedAt]
-                    this[WorkItemStore.WorkItems.resolvedAt] = row[WorkItemStore.WorkItems.resolvedAt]
-                    this[WorkItemStore.WorkItems.storyPoints] = row[WorkItemStore.WorkItems.storyPoints]
-                    this[WorkItemStore.WorkItems.originalEstimateSeconds] = row[WorkItemStore.WorkItems.originalEstimateSeconds]
-                    this[WorkItemStore.WorkItems.timeSpentSeconds] = row[WorkItemStore.WorkItems.timeSpentSeconds]
-                    this[WorkItemStore.WorkItems.labels] = row[WorkItemStore.WorkItems.labels]
-                    this[WorkItemStore.WorkItems.components] = row[WorkItemStore.WorkItems.components]
-                    this[WorkItemStore.WorkItems.fixVersions] = row[WorkItemStore.WorkItems.fixVersions]
-                    this[WorkItemStore.WorkItems.currentSprintIds] = row[WorkItemStore.WorkItems.currentSprintIds]
-                    this[WorkItemStore.WorkItems.teamValue] = row[WorkItemStore.WorkItems.teamValue]
-                    this[WorkItemStore.WorkItems.flagged] = row[WorkItemStore.WorkItems.flagged]
-                    this[WorkItemStore.WorkItems.rank] = row[WorkItemStore.WorkItems.rank]
-                    this[WorkItemStore.WorkItems.hierarchyLevel] = row[WorkItemStore.WorkItems.hierarchyLevel]
-                    this[WorkItemStore.WorkItems.dueAt] = row[WorkItemStore.WorkItems.dueAt]
-                    this[WorkItemStore.WorkItems.customFields] = row[WorkItemStore.WorkItems.customFields]
-                    this[WorkItemStore.WorkItems.anomalies] = row[WorkItemStore.WorkItems.anomalies]
-                    this[WorkItemStore.WorkItems.deletedAt] = row[WorkItemStore.WorkItems.deletedAt]
-                    this[WorkItemStore.WorkItems.movedOutAt] = row[WorkItemStore.WorkItems.movedOutAt]
-                    this[WorkItemStore.WorkItems.processedAt] = row[WorkItemStore.WorkItems.processedAt]
-                    this[WorkItemStore.WorkItems.processingVersion] = row[WorkItemStore.WorkItems.processingVersion]
-                }
-            }
-
-            val statusIntervalRows = WorkItemStore.StatusIntervals.selectAll()
-                .where { WorkItemStore.StatusIntervals.connectionId eq fromConnectionId }.toList()
-            if (statusIntervalRows.isNotEmpty()) {
-                WorkItemStore.StatusIntervals.batchInsert(statusIntervalRows) { row ->
-                    this[WorkItemStore.StatusIntervals.connectionId] = toConnectionId
-                    this[WorkItemStore.StatusIntervals.issueId] = row[WorkItemStore.StatusIntervals.issueId]
-                    this[WorkItemStore.StatusIntervals.seq] = row[WorkItemStore.StatusIntervals.seq]
-                    this[WorkItemStore.StatusIntervals.statusId] = row[WorkItemStore.StatusIntervals.statusId]
-                    this[WorkItemStore.StatusIntervals.statusName] = row[WorkItemStore.StatusIntervals.statusName]
-                    this[WorkItemStore.StatusIntervals.statusCategory] = row[WorkItemStore.StatusIntervals.statusCategory]
-                    this[WorkItemStore.StatusIntervals.fromAt] = row[WorkItemStore.StatusIntervals.fromAt]
-                    this[WorkItemStore.StatusIntervals.toAt] = row[WorkItemStore.StatusIntervals.toAt]
-                    this[WorkItemStore.StatusIntervals.intervalSource] = row[WorkItemStore.StatusIntervals.intervalSource]
-                }
-            }
-
-            val fieldIntervalRows = WorkItemStore.FieldIntervals.selectAll()
-                .where { WorkItemStore.FieldIntervals.connectionId eq fromConnectionId }.toList()
-            if (fieldIntervalRows.isNotEmpty()) {
-                WorkItemStore.FieldIntervals.batchInsert(fieldIntervalRows) { row ->
-                    this[WorkItemStore.FieldIntervals.connectionId] = toConnectionId
-                    this[WorkItemStore.FieldIntervals.issueId] = row[WorkItemStore.FieldIntervals.issueId]
-                    this[WorkItemStore.FieldIntervals.field] = row[WorkItemStore.FieldIntervals.field]
-                    this[WorkItemStore.FieldIntervals.seq] = row[WorkItemStore.FieldIntervals.seq]
-                    this[WorkItemStore.FieldIntervals.valueId] = row[WorkItemStore.FieldIntervals.valueId]
-                    this[WorkItemStore.FieldIntervals.valueText] = row[WorkItemStore.FieldIntervals.valueText]
-                    this[WorkItemStore.FieldIntervals.fromAt] = row[WorkItemStore.FieldIntervals.fromAt]
-                    this[WorkItemStore.FieldIntervals.toAt] = row[WorkItemStore.FieldIntervals.toAt]
-                }
-            }
-
-            val fieldChangeRows = WorkItemStore.FieldChanges.selectAll()
-                .where { WorkItemStore.FieldChanges.connectionId eq fromConnectionId }.toList()
-            if (fieldChangeRows.isNotEmpty()) {
-                WorkItemStore.FieldChanges.batchInsert(fieldChangeRows) { row ->
-                    this[WorkItemStore.FieldChanges.connectionId] = toConnectionId
-                    this[WorkItemStore.FieldChanges.issueId] = row[WorkItemStore.FieldChanges.issueId]
-                    this[WorkItemStore.FieldChanges.seq] = row[WorkItemStore.FieldChanges.seq]
-                    this[WorkItemStore.FieldChanges.field] = row[WorkItemStore.FieldChanges.field]
-                    this[WorkItemStore.FieldChanges.changedAt] = row[WorkItemStore.FieldChanges.changedAt]
-                    this[WorkItemStore.FieldChanges.fromValue] = row[WorkItemStore.FieldChanges.fromValue]
-                    this[WorkItemStore.FieldChanges.fromText] = row[WorkItemStore.FieldChanges.fromText]
-                    this[WorkItemStore.FieldChanges.toValue] = row[WorkItemStore.FieldChanges.toValue]
-                    this[WorkItemStore.FieldChanges.toText] = row[WorkItemStore.FieldChanges.toText]
-                    this[WorkItemStore.FieldChanges.fieldId] = row[WorkItemStore.FieldChanges.fieldId]
-                }
-            }
-
-            val worklogRows = WorkItemStore.Worklogs.selectAll()
-                .where { WorkItemStore.Worklogs.connectionId eq fromConnectionId }.toList()
-            if (worklogRows.isNotEmpty()) {
-                WorkItemStore.Worklogs.batchInsert(worklogRows) { row ->
-                    this[WorkItemStore.Worklogs.connectionId] = toConnectionId
-                    this[WorkItemStore.Worklogs.worklogId] = row[WorkItemStore.Worklogs.worklogId]
-                    this[WorkItemStore.Worklogs.issueId] = row[WorkItemStore.Worklogs.issueId]
-                    this[WorkItemStore.Worklogs.authorAccountId] = row[WorkItemStore.Worklogs.authorAccountId]
-                    this[WorkItemStore.Worklogs.startedAt] = row[WorkItemStore.Worklogs.startedAt]
-                    this[WorkItemStore.Worklogs.timeSpentSeconds] = row[WorkItemStore.Worklogs.timeSpentSeconds]
-                    this[WorkItemStore.Worklogs.createdAt] = row[WorkItemStore.Worklogs.createdAt]
-                    this[WorkItemStore.Worklogs.updatedAt] = row[WorkItemStore.Worklogs.updatedAt]
-                }
-            }
-
-            val statusRows = WorkItemStore.Statuses.selectAll()
-                .where { WorkItemStore.Statuses.connectionId eq fromConnectionId }.toList()
-            if (statusRows.isNotEmpty()) {
-                WorkItemStore.Statuses.batchInsert(statusRows) { row ->
-                    this[WorkItemStore.Statuses.connectionId] = toConnectionId
-                    this[WorkItemStore.Statuses.statusId] = row[WorkItemStore.Statuses.statusId]
-                    this[WorkItemStore.Statuses.name] = row[WorkItemStore.Statuses.name]
-                    this[WorkItemStore.Statuses.category] = row[WorkItemStore.Statuses.category]
-                }
-            }
-
-            val peopleRows = WorkItemStore.People.selectAll()
-                .where { WorkItemStore.People.connectionId eq fromConnectionId }.toList()
-            if (peopleRows.isNotEmpty()) {
-                WorkItemStore.People.batchInsert(peopleRows) { row ->
-                    this[WorkItemStore.People.connectionId] = toConnectionId
-                    this[WorkItemStore.People.accountId] = row[WorkItemStore.People.accountId]
-                    this[WorkItemStore.People.displayName] = row[WorkItemStore.People.displayName]
-                    this[WorkItemStore.People.email] = row[WorkItemStore.People.email]
-                    this[WorkItemStore.People.active] = row[WorkItemStore.People.active]
-                }
-            }
-
-            val boardRows = WorkItemStore.Boards.selectAll()
-                .where { WorkItemStore.Boards.connectionId eq fromConnectionId }.toList()
-            if (boardRows.isNotEmpty()) {
-                WorkItemStore.Boards.batchInsert(boardRows) { row ->
-                    this[WorkItemStore.Boards.connectionId] = toConnectionId
-                    this[WorkItemStore.Boards.boardId] = row[WorkItemStore.Boards.boardId]
-                    this[WorkItemStore.Boards.name] = row[WorkItemStore.Boards.name]
-                    this[WorkItemStore.Boards.boardType] = row[WorkItemStore.Boards.boardType]
-                    this[WorkItemStore.Boards.projectKey] = row[WorkItemStore.Boards.projectKey]
-                }
-            }
-
-            val boardColumnRows = WorkItemStore.BoardColumns.selectAll()
-                .where { WorkItemStore.BoardColumns.connectionId eq fromConnectionId }.toList()
-            if (boardColumnRows.isNotEmpty()) {
-                WorkItemStore.BoardColumns.batchInsert(boardColumnRows) { row ->
-                    this[WorkItemStore.BoardColumns.connectionId] = toConnectionId
-                    this[WorkItemStore.BoardColumns.boardId] = row[WorkItemStore.BoardColumns.boardId]
-                    this[WorkItemStore.BoardColumns.seq] = row[WorkItemStore.BoardColumns.seq]
-                    this[WorkItemStore.BoardColumns.name] = row[WorkItemStore.BoardColumns.name]
-                    this[WorkItemStore.BoardColumns.statusIds] = row[WorkItemStore.BoardColumns.statusIds]
-                }
-            }
-
-            val sprintRows = WorkItemStore.Sprints.selectAll()
-                .where { WorkItemStore.Sprints.connectionId eq fromConnectionId }.toList()
-            if (sprintRows.isNotEmpty()) {
-                WorkItemStore.Sprints.batchInsert(sprintRows) { row ->
-                    this[WorkItemStore.Sprints.connectionId] = toConnectionId
-                    this[WorkItemStore.Sprints.sprintId] = row[WorkItemStore.Sprints.sprintId]
-                    this[WorkItemStore.Sprints.boardId] = row[WorkItemStore.Sprints.boardId]
-                    this[WorkItemStore.Sprints.name] = row[WorkItemStore.Sprints.name]
-                    this[WorkItemStore.Sprints.state] = row[WorkItemStore.Sprints.state]
-                    this[WorkItemStore.Sprints.startAt] = row[WorkItemStore.Sprints.startAt]
-                    this[WorkItemStore.Sprints.endAt] = row[WorkItemStore.Sprints.endAt]
-                    this[WorkItemStore.Sprints.goal] = row[WorkItemStore.Sprints.goal]
-                    this[WorkItemStore.Sprints.completeAt] = row[WorkItemStore.Sprints.completeAt]
-                }
-            }
-
-            val sourceProfileRow = DataSourceService.Connections.selectAll()
-                .where { DataSourceService.Connections.id eq fromConnectionId }.toList().single()
-            DataSourceService.Connections.update({ DataSourceService.Connections.id eq toConnectionId }) {
-                it[profile] = sourceProfileRow[DataSourceService.Connections.profile]
-                it[profileAt] = sourceProfileRow[DataSourceService.Connections.profileAt]
-            }
+        cloneInTransaction(RAW_CLONE_TABLES + PROCESSED_CLONE_TABLES, fromConnectionId, toConnectionId) { st ->
+            val connections = DataSourceService.Connections.tableName
+            val updated = st.executeUpdate(
+                "UPDATE $connections SET profile = src.profile, profile_at = src.profile_at " +
+                    "FROM $connections src WHERE src.id = $fromConnectionId AND $connections.id = $toConnectionId",
+            )
+            assertEquals(1, updated, "the clone's source_connections row must receive the source's profile")
         }
     }
 }

@@ -3,6 +3,7 @@ package ch.nokillswit
 import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 /**
  * Guards the suite-wide [SyncedStubFixture] against accidental mutation
@@ -22,8 +23,21 @@ class SyncedStubFixtureTest {
     @Test
     fun `cloneProcessedData reproduces the source connection's own status-interval digest`() = runBlocking {
         val sourceConnId = SyncedStubFixture.connectionId()
-        val cloneConnId = SyncedStubFixture.createConnection(namePrefix = "jira-processed-clone-check")
+        val cloneConnId = SyncedStubFixture.createConnection(namePrefix = "jira-processed-clone-check", enabled = false)
         SyncedStubFixture.cloneProcessedData(sourceConnId, cloneConnId)
+
+        // The REPROCESS test's "before" state IS this clone, so every cloned table (raw and norm) must hold
+        // exactly the source's row count — a dropped table or filter would otherwise pass the digest below.
+        val sourceCounts = SyncedStubFixture.cloneTableRowCounts(sourceConnId)
+        assertEquals(
+            sourceCounts,
+            SyncedStubFixture.cloneTableRowCounts(cloneConnId),
+            "every cloned table must have the source's row count",
+        )
+        assertTrue(
+            sourceCounts.getValue("norm.work_items") > 0 && sourceCounts.getValue("raw.jira_issues") > 0,
+            "the source must be synced",
+        )
 
         val items = SyncedStubFixture.workItems()
         assertEquals(

@@ -65,6 +65,8 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   - `DirectSocketFactory` and `fastFallback(false)` have no isolated tests.
 - **Data profile: multi-project boards.** A board whose filter spans several projects shows no observed or unmapped statuses, because `BoardRef` carries a single project key. Revisit if real boards span projects.
 - **Details page: the sync-jobs history doesn't auto-refresh.** Only the summary above it (connection, current job, counts) refetches every 5 s while a job is open, so a history row keeps saying Running until a reload. Refresh the history query on the same condition. (Found by the v0.2.0 e2e journey.)
+- **`dim_date` deadlock risk between two connections' DERIVEs (pre-existing).** Both upsert the global `dim_date` inside their one transaction; if A's `widenDimDate` reaches below B's range start while B holds rows A needs (and vice versa), Postgres raises 40P01 — one derive ends FAILED and is retried. Take `dim_date` out of the per-derive transaction or pre-extend it.
+- **`workerSlots=2` gives DERIVE no real parallelism.** Two derives serialize on the `dim_date` row locks held to commit; consider taking `dim_date` out of the per-derive transaction or pre-extending it (same fix as above).
 - **Two connections to one Jira site are allowed** (different project scopes). Confirm this is the wanted behaviour once real usage exists.
 
 ## Security and operations

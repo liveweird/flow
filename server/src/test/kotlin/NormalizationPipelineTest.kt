@@ -85,10 +85,15 @@ class NormalizationPipelineTest {
     private fun rawStore() = SyncedStubFixture.rawStore()
     private fun workItems() = SyncedStubFixture.workItems()
 
-    /** A fresh connection with [sharedConnId]'s raw rows cloned in — the substrate a mutating test drives its own stream against. */
-    private suspend fun clonedConnection(sharedConnId: UInt): UInt {
-        val connId = SyncedStubFixture.createConnection(namePrefix = "jira-norm-clone")
-        SyncedStubFixture.cloneRawData(sharedConnId, connId)
+    /**
+     * A fresh DISABLED connection (no worker may pick it up, and no config bump elsewhere in the suite
+     * enqueues a real-clock DERIVE for it — `.claude/docs/testing.md`) with [sharedConnId]'s raw rows
+     * cloned in — the substrate a mutating test drives its own stream against. [processed] also clones
+     * the already-PROCESSed `norm.*` rows ([SyncedStubFixture.cloneProcessedData]).
+     */
+    private suspend fun clonedConnection(sharedConnId: UInt, processed: Boolean = false): UInt {
+        val connId = SyncedStubFixture.createConnection(namePrefix = "jira-norm-clone", enabled = false)
+        if (processed) SyncedStubFixture.cloneProcessedData(sharedConnId, connId) else SyncedStubFixture.cloneRawData(sharedConnId, connId)
         return connId
     }
 
@@ -196,20 +201,28 @@ class NormalizationPipelineTest {
     @Test
     fun `REPROCESS leaves the normalized digest unchanged`() = runBlocking {
         val sharedConnId = SyncedStubFixture.connectionId()
-        val connId = clonedConnection(sharedConnId)
+        // The "before" state is a PROCESSED clone (SyncedStubFixtureTest pins that its digest equals the
+        // source's), so exactly ONE PROCESS pass — the REPROCESS under test — has to run.
+        val connId = clonedConnection(sharedConnId, processed = true)
         val store = rawStore()
         val items = workItems()
         val context = SyncedStubFixture.freshContext(connId)
+        val digestBefore = normalizedDigest(items, connId)
 
         // The clone reproduces the shared connection's own POST-process raw state (needs_processing
         // = false), so — exactly like a real REPROCESS job (`JiraConnector.runReprocess`) — every
         // issue must be flagged again before PROCESS has anything to rebuild.
-        store.markAllNeedsProcessing(connId)
+        assertTrue(store.markAllNeedsProcessing(connId) > 0, "the REPROCESS must flag issues, or before == after could be a no-op")
+        assertTrue(
+            store.issuesToProcess(connId, currentProcessingVersion = PROCESSING_VERSION, limit = 1).isNotEmpty(),
+            "flagged issues must be eligible for PROCESS",
+        )
         JiraProcessStream(store, items).run(context)
-        val digestBefore = normalizedDigest(items, connId)
-
-        store.markAllNeedsProcessing(connId)
-        JiraProcessStream(store, items).run(context)
+        assertEquals(
+            emptyList(),
+            store.issuesToProcess(connId, currentProcessingVersion = PROCESSING_VERSION, limit = 1),
+            "the PROCESS pass must have actually reprocessed (and cleared) every flagged issue",
+        )
         val digestAfter = normalizedDigest(items, connId)
 
         assertEquals(digestBefore, digestAfter, "a REPROCESS must rebuild byte-for-byte identical normalized rows")

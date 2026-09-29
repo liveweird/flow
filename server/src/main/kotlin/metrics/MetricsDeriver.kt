@@ -187,6 +187,10 @@ class MetricsDeriver(
         val worklogCount = runWorklogStep(connectionId, workItems, context, derivedById, configRevision)
         val epicPlanCount = runEpicPlanStep(connectionId, workItems, context, derivedById, factEpicsByIssueId, configRevision)
         widenDimDate(connectionId, calendar, initialRange, createdMin, now, configRevision)
+        // Planner statistics for the tables rebuilt in THIS transaction — the WIP/flow INSERT..SELECTs below
+        // otherwise plan against stale rows=1 estimates (autovacuum never sees uncommitted rows). ANALYZE is
+        // legal in a transaction block (VACUUM is not) and counts this transaction's own rows.
+        metricsStore.analyzeDerivedTables()
         val wipCount = runWipStep(connectionId, now, configRevision)
         val flowCount = runFlowStep(metricsStore, connectionId, now, configRevision)
 
