@@ -1,0 +1,29 @@
+{
+  "_readme": "The ONE place for time budgets (seconds). target = what it SHOULD take for this tiny app (tiny DB, no external integration); alarm = hard ceiling. A breach or a rising trend is an investigation entry in .claude/docs/build-times.md, never a reason to raise a number here silently. Longer reasoning per row lives in that doc.",
+  "trend": {
+    "window": 5,
+    "ratio": 1.25,
+    "minDeltaSeconds": 10,
+    "minDeltaFromSeconds": 60
+  },
+  "historicTimeoutMinutes": [30],
+  "budgets": {
+    "ci": {
+      "changes": { "target": 15, "alarm": 30, "why": "one checkout + one git diff" },
+      "server-tests": { "target": 180, "alarm": 480, "why": "the test task alone: ~800 tests on 4 vCPU; leaves 2 min of the 5 min job target (and 2 of the 10 min alarm) for setup, compile, detekt and Kover" },
+      "server": { "target": 300, "alarm": 600, "why": "compile + detekt + tests + Kover on 4 vCPU; a tiny DB should not need more than 5 min" },
+      "gradle-vulnerability-scan": { "target": 60, "alarm": 120, "why": "resolve lockfiles + one trivy run on a few thousand lines of lockfile" },
+      "web": { "target": 90, "alarm": 180, "why": "npm ci (cached) + lint + knip + vitest + vite build of a small SPA" },
+      "e2e-static": { "target": 30, "alarm": 60, "why": "npm ci (cached) + eslint + knip + tsc over a handful of specs" },
+      "images": { "target": 150, "alarm": 240, "why": "multi-stage docker build: gradle installDist + vite build, layer cache cold on a runner" },
+      "e2e": { "target": 420, "alarm": 900, "why": "PROVISIONAL (nightly): images build + compose up + Playwright over a tiny stack; revisit with the first real data" }
+    },
+    "local": {
+      "server-build": { "target": 180, "alarm": 360, "why": "./gradlew cleanTest build on 18 cores: compile, detekt, all tests, Kover, alignment" },
+      "server-test": { "target": 120, "alarm": 300, "why": "./gradlew :server:test - ~800 tests against one shared Postgres container" },
+      "web-gates": { "target": 90, "alarm": 180, "why": "lint:api + check:api + lint + knip + test:coverage + build" },
+      "e2e-static": { "target": 30, "alarm": 60, "why": "lint + knip + typecheck + check:scenarios" },
+      "e2e-playwright": { "target": 300, "alarm": 600, "why": "PROVISIONAL: blackbox suite against a running compose stack; revisit with the first real data" }
+    }
+  }
+}
