@@ -52,6 +52,14 @@ describe("reportHref", () => {
     expect(reportHref("/reports/cycle-time", search)).not.toContain("by=");
   });
 
+  test("aging WIP slices like the fact reports; blocked time also keeps its item kind — neither keeps by, bucket or a domain view", () => {
+    const search = "teamId=2&domainView=EPIC&domain=FLO&activityType=Bug&workCategory=X&bucket=MONTH&by=STATUS&itemKind=EPIC";
+    expect(reportHref("/reports/aging-wip", search)).toBe("/reports/aging-wip?teamId=2&domain=FLO&activityType=Bug&workCategory=X");
+    expect(reportHref("/reports/blocked-time", search)).toBe(
+      "/reports/blocked-time?teamId=2&domain=FLO&activityType=Bug&workCategory=X&itemKind=EPIC",
+    );
+  });
+
   test("an empty query, or one that only held dropped params, is the bare path; foreign params survive", () => {
     expect(reportHref("/reports/velocity", "")).toBe("/reports/velocity");
     expect(reportHref("/reports/velocity", "?bucket=WEEK")).toBe("/reports/velocity");

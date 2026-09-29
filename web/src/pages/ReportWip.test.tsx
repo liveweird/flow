@@ -345,12 +345,12 @@ describe("ReportWip page", () => {
     expect(within(box).getByText(note)).toBeInTheDocument();
   });
 
-  test("Flow is a tab group: WIP is selected beside the estimated backlog", async () => {
+  test("Flow is a tab group: WIP is selected beside the other three", async () => {
     serve(mockFetch);
     renderPage();
     await screen.findByTestId("area-chart");
     expect(screen.getByRole("tab", { name: "WIP" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["WIP", "Estimated backlog"]);
+    expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["WIP", "Estimated backlog", "Aging WIP", "Blocked time"]);
   });
 
   test("a failure is an inline alert", async () => {

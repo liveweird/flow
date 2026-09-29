@@ -2,6 +2,15 @@ import { describe, expect, test } from "vitest";
 import type { Distribution } from "../api/reports";
 import {
   ADJUSTMENTS,
+  AGING_EMPTY,
+  AGING_HIDDEN,
+  AGING_TEAM,
+  AGING_TRUNCATED,
+  AGING_UNIT,
+  BLOCKED_EMPTY,
+  BLOCKED_NONE,
+  BLOCKED_TEAM_BOTH,
+  BLOCKED_TIME,
   BACKLOG,
   BACKLOG_NO_VELOCITY,
   BACKLOG_NOT_DERIVED,
@@ -258,5 +267,49 @@ describe("cycle time and reported time fixtures hold the documented partitions",
     }
     expect(BACKLOG_NOT_DERIVED.trend).toEqual([]);
     expect(BACKLOG_NOT_DERIVED.current.asOfDay).toBeNull();
+  });
+
+  test("aging WIP: oldest first, and every band is the highest threshold of the item's OWN kind its age is above (null ⇔ hidden)", () => {
+    for (const report of [AGING_UNIT, AGING_TEAM, AGING_HIDDEN, AGING_TRUNCATED, AGING_EMPTY]) {
+      const ages = report.items.map((item) => item.ageWorkingDays);
+      expect(ages).toEqual([...ages].sort((a, b) => b - a));
+      for (const item of report.items) {
+        const thresholds = item.itemKind === "EPIC" ? report.epicThresholds : report.thresholds;
+        expect(thresholds.hidden).toBe(thresholds.n < MIN);
+        if (thresholds.hidden) {
+          expect(item.band ?? null).toBeNull();
+          for (const entry of thresholds.percentiles) expect(entry.workingDays ?? null).toBeNull();
+        } else {
+          const above = [...thresholds.percentiles].sort((a, b) => b.percentile - a.percentile).find((entry) => item.ageWorkingDays > (entry.workingDays ?? Infinity));
+          expect(item.band).toBe(above ? `P${above.percentile}` : "WITHIN");
+        }
+      }
+    }
+  });
+
+  test("blocked time: n + exclusions == population, groups sum to the whole, hidden ⇔ below the minimum", () => {
+    for (const report of [BLOCKED_TIME, BLOCKED_TEAM_BOTH, BLOCKED_NONE, BLOCKED_EMPTY]) {
+      const x = report.excluded;
+      // Every finished item is in the days distribution (zeros included); the share leaves out items without a cycle.
+      expect(report.blockedWorkingDays.n).toBe(x.population);
+      expect(report.shareOfCycle.n + x.neverStarted + x.zeroCycle).toBe(x.population);
+      for (const d of [report.blockedWorkingDays, report.shareOfCycle, ...report.groups.flatMap((g) => [g.blockedWorkingDays, g.shareOfCycle])]) {
+        expectWellFormed(d);
+      }
+      if (report.groups.length > 0) {
+        for (const g of report.groups) {
+          expect(g.blockedWorkingDays.n).toBe(g.excluded.population);
+          expect(g.shareOfCycle.n + g.excluded.neverStarted + g.excluded.zeroCycle).toBe(g.excluded.population);
+        }
+        // TEAM level with epics: the groups (per assignee) cover the tasks only, so they do not add up to the totals.
+        if (report.itemKind === "TASK") {
+          expect(report.groups.reduce((sum, g) => sum + g.excluded.population, 0)).toBe(x.population);
+          expect(report.groups.reduce((sum, g) => sum + g.shareOfCycle.n, 0)).toBe(report.shareOfCycle.n);
+          expect(report.groups.reduce((sum, g) => sum + g.blockedItems, 0)).toBe(report.blockedItems);
+        }
+      }
+      expect(report.blockedItems).toBeLessThanOrEqual(x.population);
+      expect(report.topItems.length).toBeLessThanOrEqual(20);
+    }
   });
 });

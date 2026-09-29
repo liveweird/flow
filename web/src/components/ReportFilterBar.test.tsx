@@ -193,6 +193,14 @@ describe("ReportFilterBar", () => {
     await waitFor(() => expect(screen.getByRole("radio", { name: "Stage" })).toBeChecked());
   });
 
+  test("a report that is as of now offers no period at all — the other controls stay", async () => {
+    renderWithProviders(<Harness controls={{ noPeriod: true, domain: true }} />, { route: "/reports/aging-wip?lastSprints=3" });
+    expect(screen.queryByRole("combobox", { name: "Period" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Date range")).not.toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Team" })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Domain" })).toBeInTheDocument();
+  });
+
   test("a bare report link starts on the remembered team, and the URL says so", async () => {
     localStorage.setItem("flow.viewSettings.reports.teamId", "2");
     renderWithProviders(<Harness />, { route: "/reports/velocity" });

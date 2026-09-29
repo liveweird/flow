@@ -48,6 +48,8 @@ export interface ReportControls {
    * so the last of the two controls touched wins: picking a team clears the domain and vice versa.
    */
   domainExcludesTeam?: boolean;
+  /** The report is "as of now" and ignores the period (aging WIP): no period control at all. */
+  noPeriod?: boolean;
 }
 
 const UNCATEGORIZED = "UNCATEGORIZED";
@@ -189,15 +191,17 @@ export default function ReportFilterBar({
     <DatesProvider settings={{ locale: i18n.resolvedLanguage ?? "en", firstDayOfWeek: 1 }}>
       <Stack gap="sm">
         <Group gap="sm" align="flex-end" wrap="wrap" role="group" aria-label={t("reports.filters.title")}>
-          <Select
-            label={t("reports.filters.period")}
-            data={periodData}
-            value={choice}
-            onChange={changePeriod}
-            allowDeselect={false}
-            w={200}
-          />
-          {choice === "custom" && (
+          {!controls.noPeriod && (
+            <Select
+              label={t("reports.filters.period")}
+              data={periodData}
+              value={choice}
+              onChange={changePeriod}
+              allowDeselect={false}
+              w={200}
+            />
+          )}
+          {!controls.noPeriod && choice === "custom" && (
             // Keyed by the URL's range so Back/forward resyncs the picker's local half-choice.
             <CustomRange
               key={`${filter.from}|${filter.to}`}
@@ -206,7 +210,7 @@ export default function ReportFilterBar({
               onChange={onChange}
             />
           )}
-          {choice === "sprint" && (
+          {!controls.noPeriod && choice === "sprint" && (
             <Select
               label={t("reports.filters.sprint")}
               data={sprints.map((sprint) => ({ value: String(sprint.sprintId), label: sprint.name }))}

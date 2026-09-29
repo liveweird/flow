@@ -12,6 +12,8 @@ const estimateAdjustmentsPath = "/reports/estimate-adjustments";
 const reportedTimePath = "/reports/reported-time-ratio";
 export const wipPath = "/reports/wip";
 const backlogPath = "/reports/backlog";
+const agingWipPath = "/reports/aging-wip";
+const blockedTimePath = "/reports/blocked-time";
 
 export type ReportTabDef = { to: string; label: ParseKeys };
 
@@ -31,10 +33,12 @@ export const ESTIMATION_TABS: ReadonlyArray<ReportTabDef> = [
   { to: reportedTimePath, label: "reports.tabs.reportedTime" },
 ];
 
-/** The Flow group's tabs (WIP · estimated backlog). */
+/** The Flow group's tabs (WIP · estimated backlog · aging WIP · blocked time). */
 export const FLOW_TABS: ReadonlyArray<ReportTabDef> = [
   { to: wipPath, label: "reports.tabs.wip" },
   { to: backlogPath, label: "reports.tabs.backlog" },
+  { to: agingWipPath, label: "reports.tabs.agingWip" },
+  { to: blockedTimePath, label: "reports.tabs.blockedTime" },
 ];
 
 /**
@@ -56,6 +60,9 @@ const REPORT_SPECIFIC_PARAMS: Readonly<Record<string, readonly ReportSpecificKey
   // type or work category; WIP adds what it counts and how it keys the counts.
   [wipPath]: ["domain", "by", "itemKind"],
   [backlogPath]: ["domain"],
+  // Aging WIP slices like the fact reports but has no period; blocked time also counts tasks, epics or both.
+  [agingWipPath]: ["domain", "activityType", "workCategory"],
+  [blockedTimePath]: ["domain", "activityType", "workCategory", "itemKind"],
 };
 
 /**

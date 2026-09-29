@@ -513,6 +513,20 @@ completed · the report's figures · the orange drift badge with the frozen figu
   one-series MD `AreaChart` whose tooltip and table add the item count. The server's `note` (not derived yet,
   USER level, …) is prose in English only: `ReportNote` shows it verbatim under a translated title, except the "Not derived yet" note when
   `meta.derivedAt` is null (the translated meta line already says it).
+- **Aging WIP and blocked time** (`pages/ReportAgingWip.tsx`, `pages/ReportBlockedTime.tsx`, tabs 3 and 4 of
+  `FLOW_TABS`). Aging WIP is "as of now": its bar passes `noPeriod` (no period control) and the request drops
+  any period param (`withPeriod(filter, {})`; the URL keeps it so tab hops preserve it). It shows the
+  thresholds as a tile row per kind (`AgingThresholdsRow`; epics only when there are epics or a window; hidden
+  thresholds = a `MinSampleNotice` with `subject="thresholds"`) above the open-work table, in the server's
+  order (never re-sorted). **The band is the SERVER's** (`"P85"`, `"WITHIN"`, `null` = hidden) — never
+  recomputed from the age; `utils/agingReport.ts`'s `bandTone` only reads its RANK among the configured
+  thresholds of the item's own kind: the top threshold red ("above p95"), the next orange ("above p85"), the
+  rest gray — the text always names the threshold, colour is never the only carrier. Blocked is a red outline
+  badge with the word. Issue keys are plain text (no page links to Jira). Blocked time composes
+  `DistributionWithAccounting` twice (blocked working days over EVERY finished item, so no exclusions and a
+  "N of M were blocked at all" line; share of cycle with `neverStarted`/`zeroCycle`), the top-20 table and the
+  groups table; `itemKind` (default TASK, always sent) reuses the WIP bar control, and at TEAM level with epics
+  a line says the per-assignee groups cover tasks only.
 - **Load order**: `["reports","filters"]` (staleTime 60 s) → the page query keyed
   `["reports", <report>, <serialized filter>]`, `enabled` once the filters loaded,
   `placeholderData: keepPreviousData` (`ReportChartCard` dims the previous body and sets `aria-busy`).

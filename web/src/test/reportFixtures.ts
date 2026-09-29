@@ -3,7 +3,9 @@
 // breaks the fixtures, not just the page.
 import type {
   AdjustmentFigures,
+  AgingWipReport,
   BacklogReport,
+  BlockedTimeReport,
   Distribution,
   EpicAccuracyRow,
   EpicEstimationAccuracyReport,
@@ -659,4 +661,125 @@ export const BACKLOG_NOT_DERIVED: BacklogReport = {
   current: { asOfDay: null, items: 0, md: 0, meanDeliveredMd: null, windowSprints: 3, sprintsUsed: 0, backlogInSprints: null },
   trend: [],
   note: NOT_DERIVED,
+};
+
+// ---- Aging WIP (report 11) and blocked time (report 12) -------------------------------------
+// Aging: items oldest first, every band consistent with the thresholds of the item's OWN kind
+// (`band` null ⇔ that kind's thresholds are hidden). Blocked time obeys the partitions the estimation
+// fixtures do: shareOfCycle.n + neverStarted + zeroCycle == population, groups sum to the whole.
+
+const DEFAULT_PERCENTILES = [
+  { percentile: 50, workingDays: 8 },
+  { percentile: 85, workingDays: 15 },
+  { percentile: 95, workingDays: 25 },
+];
+const HIDDEN_PERCENTILES = [50, 85, 95].map((percentile) => ({ percentile, workingDays: null }));
+
+/** Tasks: window of 40, thresholds shown. Epics: 2 finished epics, hidden — so the epic carries no band. */
+export const AGING_UNIT: AgingWipReport = {
+  meta: META,
+  thresholds: { n: 40, hidden: false, percentiles: DEFAULT_PERCENTILES },
+  epicThresholds: { n: 2, hidden: true, percentiles: HIDDEN_PERCENTILES },
+  items: [
+    { issueKey: "FLO-E1", summary: "Reporting epic", itemKind: "EPIC", teamId: 1, startedAt: Date.UTC(2026, 6, 20), ageWorkingDays: 40, blocked: false, band: null },
+    { issueKey: "FLO-1", summary: "Stuck on review", itemKind: "TASK", teamId: 1, assigneeAccountId: "acc-ann", assignee: "Ann Author", startedAt: Date.UTC(2026, 7, 10), ageWorkingDays: 30, blocked: true, band: "P95" },
+    { issueKey: "FLO-2", summary: "Slow but moving", itemKind: "TASK", teamId: 2, assigneeAccountId: "acc-cy", assignee: "Cy Coder", startedAt: Date.UTC(2026, 8, 7), ageWorkingDays: 15.5, blocked: false, band: "P85" },
+    { issueKey: "FLO-3", summary: null, itemKind: "TASK", teamId: 2, assigneeAccountId: "acc-cy", assignee: "Cy Coder", startedAt: Date.UTC(2026, 8, 15), ageWorkingDays: 9, blocked: false, band: "P50" },
+    { issueKey: "FLO-4", summary: "Fresh", itemKind: "TASK", teamId: null, assigneeAccountId: null, assignee: null, startedAt: Date.UTC(2026, 8, 22), ageWorkingDays: 6, blocked: false, band: "WITHIN" },
+  ],
+  itemsTruncated: false,
+};
+
+export const AGING_TEAM: AgingWipReport = { ...AGING_UNIT, meta: { ...META, level: "TEAM" } };
+
+/** A window below the minimum sample: no threshold value, no band anywhere. */
+export const AGING_HIDDEN: AgingWipReport = {
+  meta: META,
+  thresholds: { n: 3, hidden: true, percentiles: HIDDEN_PERCENTILES },
+  epicThresholds: { n: 0, hidden: true, percentiles: HIDDEN_PERCENTILES },
+  items: AGING_UNIT.items.filter((item) => item.itemKind === "TASK").map((item) => ({ ...item, band: null })),
+  itemsTruncated: false,
+};
+
+export const AGING_TRUNCATED: AgingWipReport = { ...AGING_UNIT, itemsTruncated: true };
+
+export const AGING_EMPTY: AgingWipReport = { ...AGING_UNIT, items: [] };
+
+export const BLOCKED_TIME: BlockedTimeReport = {
+  meta: META,
+  itemKind: "TASK",
+  blockedWorkingDays: shownDistribution([12, 4, 2, 1, 1], 0, 1, { p50: 0.5, p90: 2.5, p95: 3.5, mean: 0.9 }),
+  shareOfCycle: shownDistribution([9, 4, 2, 1, 1], 0, 0.2, { p50: 0.05, p90: 0.5, p95: 0.7, mean: 0.15 }),
+  blockedItems: 9,
+  excluded: { population: 20, neverStarted: 2, zeroCycle: 1 },
+  topItems: [
+    { issueKey: "FLO-10", summary: "Waiting on vendor", itemKind: "TASK", teamId: 1, doneAt: Date.UTC(2026, 8, 20), blockedWorkingDays: 6.5, cycleWorkingDays: 10, share: 0.65 },
+    { issueKey: "FLO-11", summary: null, itemKind: "TASK", teamId: null, doneAt: Date.UTC(2026, 8, 12), blockedWorkingDays: 4, cycleWorkingDays: 0, share: null },
+  ],
+  groups: [
+    {
+      teamId: 1,
+      accountId: null,
+      label: "Alpha",
+      blockedWorkingDays: shownDistribution([7, 3, 1, 1, 0], 0, 1, { p50: 0.4, p90: 2, p95: 3, mean: 0.7 }),
+      shareOfCycle: shownDistribution([6, 2, 1, 1, 0], 0, 0.2, { p50: 0.04, p90: 0.4, p95: 0.6, mean: 0.12 }),
+      blockedItems: 5,
+      excluded: { population: 12, neverStarted: 1, zeroCycle: 1 },
+    },
+    {
+      teamId: 2,
+      accountId: null,
+      label: "Beta",
+      blockedWorkingDays: shownDistribution([3, 1, 1, 0, 0], 0, 1, { p50: 0.6, p90: 2, p95: 2.5, mean: 0.8 }),
+      shareOfCycle: hiddenDistribution(4),
+      blockedItems: 2,
+      excluded: { population: 5, neverStarted: 1, zeroCycle: 0 },
+    },
+    {
+      teamId: null,
+      accountId: null,
+      label: null,
+      blockedWorkingDays: hiddenDistribution(3),
+      shareOfCycle: hiddenDistribution(3),
+      blockedItems: 2,
+      excluded: { population: 3, neverStarted: 0, zeroCycle: 0 },
+    },
+  ],
+};
+
+/** TEAM level, epics included: the groups (per assignee) cover the tasks only. */
+export const BLOCKED_TEAM_BOTH: BlockedTimeReport = {
+  ...BLOCKED_TIME,
+  meta: { ...META, level: "TEAM" },
+  itemKind: "BOTH",
+  topItems: [
+    ...BLOCKED_TIME.topItems,
+    { issueKey: "FLO-E2", summary: "Platform epic", itemKind: "EPIC", teamId: 1, doneAt: Date.UTC(2026, 8, 2), blockedWorkingDays: 3, cycleWorkingDays: 30, share: 0.1 },
+  ],
+  groups: BLOCKED_TIME.groups.slice(0, 2).map((group, i) => ({
+    ...group,
+    teamId: null,
+    accountId: i === 0 ? "acc-ann" : "acc-bob",
+    label: i === 0 ? "Ann Author" : "Bob Builder",
+  })),
+};
+
+/** Nothing was ever blocked: every item is a real zero, the top list is empty. */
+export const BLOCKED_NONE: BlockedTimeReport = {
+  ...BLOCKED_TIME,
+  blockedWorkingDays: shownDistribution([20, 0, 0, 0, 0], 0, 1, { p50: 0, p90: 0, p95: 0, mean: 0 }),
+  blockedItems: 0,
+  topItems: [],
+  groups: [],
+};
+
+export const BLOCKED_EMPTY: BlockedTimeReport = {
+  meta: META,
+  itemKind: "TASK",
+  blockedWorkingDays: hiddenDistribution(0),
+  shareOfCycle: hiddenDistribution(0),
+  blockedItems: 0,
+  excluded: { population: 0, neverStarted: 0, zeroCycle: 0 },
+  topItems: [],
+  groups: [],
 };

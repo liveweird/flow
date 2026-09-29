@@ -12,7 +12,9 @@
     "cycleTime": "Czas cyklu",
     "reportedTime": "Zalogowany czas",
     "wip": "WIP",
-    "backlog": "Oszacowany backlog"
+    "backlog": "Oszacowany backlog",
+    "agingWip": "Wiek WIP",
+    "blockedTime": "Czas zablokowania"
   },
   "meta": {
     "derived": "Wyliczono {{date}} · wersja konfiguracji {{revision}}",
@@ -84,7 +86,8 @@
     "team": "Zespół",
     "member": "Osoba",
     "unassigned": "Nieprzypisane",
-    "drillAria": "Pokaż: {{name}}"
+    "drillAria": "Pokaż: {{name}}",
+    "noOwner": "Brak zespołu właściciela"
   },
   "velocity": {
     "title": "Velocity",
@@ -179,7 +182,12 @@
     "share_few": "Rozpoczęto tylko {{count}} pozycje w tym wycinku — do pokazania udziału potrzeba co najmniej {{min}}.",
     "share_many": "Rozpoczęto tylko {{count}} pozycji w tym wycinku — do pokazania udziału potrzeba co najmniej {{min}}.",
     "share_other": "Rozpoczęto tylko {{count}} pozycji w tym wycinku — do pokazania udziału potrzeba co najmniej {{min}}.",
-    "none": "W tym wycinku nie ma nic do zmierzenia."
+    "none": "W tym wycinku nie ma nic do zmierzenia.",
+    "thresholds_one": "Tylko {{count}} zakończona pozycja w oknie — do pokazania progów potrzeba co najmniej {{min}}, więc żadna pozycja nie jest przypisana do pasma.",
+    "thresholds_few": "Tylko {{count}} zakończone pozycje w oknie — do pokazania progów potrzeba co najmniej {{min}}, więc żadna pozycja nie jest przypisana do pasma.",
+    "thresholds_many": "Tylko {{count}} zakończonych pozycji w oknie — do pokazania progów potrzeba co najmniej {{min}}, więc żadna pozycja nie jest przypisana do pasma.",
+    "thresholds_other": "Tylko {{count}} zakończonych pozycji w oknie — do pokazania progów potrzeba co najmniej {{min}}, więc żadna pozycja nie jest przypisana do pasma.",
+    "thresholdsNone": "W oknie nie ma jeszcze zakończonej pozycji, więc nie ma progów i żadna pozycja nie jest przypisana do pasma."
   },
   "distribution": {
     "p50": "Mediana (p50)",
@@ -422,5 +430,81 @@
     "unitBasis_other": "Ostatnie tempo: suma średnich dostaw poszczególnych zespołów na sprint, {{md}} MD, z co najmniej {{count}} zamkniętego sprintu na zespół (okno: {{window}}).",
     "unitBasisShort": "Któryś zespół ma mniej zamkniętych sprintów niż wynosi okno, więc tempo jest mniej pewne.",
     "lessThanTenth": "< 0.1 sprintu przed nami"
+  },
+  "kind": {
+    "TASK": "Zadanie",
+    "EPIC": "Epik"
+  },
+  "agingWip": {
+    "title": "Wiek WIP",
+    "description": "Praca w toku w tej chwili i jak długo trwa każda pozycja: dni robocze od pierwszego rozpoczęcia do teraz. Wiek liczymy na teraz, więc okres nie ma tu zastosowania; pasma porównują każdy wiek z ostatnio zakończonymi pozycjami zespołu.",
+    "openTitle": "Otwarta praca, od najstarszej",
+    "caption": "Wiek liczymy według skonfigurowanego kalendarza roboczego. Blokadę odczytujemy na ostatnie wyliczenie.",
+    "thresholdsTitle": "Progi",
+    "thresholdsCaption": "Czas cyklu w dniach roboczych ostatnio zakończonych pozycji zespołu. Pozycję przypisujemy do pasma według najwyższego progu, który jej wiek przekracza.",
+    "tasksTitle": "Zadania",
+    "epicsTitle": "Epiki",
+    "basis_one": "Na podstawie ostatniej {{count}} zakończonej pozycji.",
+    "basis_few": "Na podstawie ostatnich {{count}} zakończonych pozycji.",
+    "basis_many": "Na podstawie ostatnich {{count}} zakończonych pozycji.",
+    "basis_other": "Na podstawie ostatnich {{count}} zakończonych pozycji.",
+    "thresholdUnit": "dni robocze",
+    "unitNote": "Na poziomie jednostki okno obejmuje całą jednostkę — wybierz zespół, aby zobaczyć jego własne progi.",
+    "userNote": "Progi należą do zespołu: pozycje osoby porównujemy z oknem zespołu.",
+    "empty": "W tej chwili nic nie jest w toku.",
+    "truncated": "Pokazujemy {{count}} najstarszych pozycji; pasuje ich więcej. Zawęź zespół lub domenę, aby zobaczyć resztę.",
+    "tableLabel": "Otwarta praca, od najstarszej",
+    "column": {
+      "item": "Pozycja",
+      "kind": "Rodzaj",
+      "team": "Zespół",
+      "assignee": "Osoba przypisana",
+      "started": "Rozpoczęto",
+      "age": "Wiek (dni robocze)",
+      "blocked": "Zablokowane",
+      "band": "Pasmo"
+    },
+    "blocked": "Zablokowane",
+    "band": {
+      "within": "W normie",
+      "above": "Powyżej {{p}}"
+    }
+  },
+  "blockedTime": {
+    "title": "Czas zablokowania",
+    "description": "Jak długo zakończone pozycje były zablokowane — oflagowane lub w statusie blokady — w dniach roboczych i jako udział ich cyklu. Pozycja, która nigdy nie była zablokowana, to prawdziwe zero i zostaje w pierwszym rozkładzie.",
+    "daysTitle": "Zablokowane dni robocze",
+    "daysCaption": "Każda zakończona pozycja w okresie; pozycja nigdy niezablokowana liczy się jako zero.",
+    "daysAxis": "zablokowane dni robocze",
+    "shareTitle": "Udział blokady w cyklu",
+    "shareCaption": "Zablokowane dni robocze ÷ dni robocze cyklu, dla pozycji, które mają cykl.",
+    "shareAxis": "zablokowane ÷ cykl",
+    "excluded": {
+      "neverStarted": "Nigdy nierozpoczęte, więc bez cyklu",
+      "zeroCycle": "Cykl równy zero dni roboczych"
+    },
+    "topTitle": "Najdłużej zablokowane pozycje",
+    "topCaption": "Do 20 zakończonych pozycji z największą liczbą zablokowanych dni roboczych; przy równej liczbie najnowsze pierwsze.",
+    "topEmpty": "W tym okresie żadna zakończona pozycja nie była zablokowana.",
+    "topTableLabel": "Najdłużej zablokowane pozycje, w tabeli",
+    "groupsTasksOnly": "Grupy obejmują tylko zadania (epiki nie mają osoby przypisanej), więc sumują się do wartości dla zadań, a nie do sum powyżej.",
+    "column": {
+      "item": "Pozycja",
+      "kind": "Rodzaj",
+      "team": "Zespół",
+      "done": "Zakończono",
+      "blocked": "Zablokowane (dni robocze)",
+      "cycle": "Cykl (dni robocze)",
+      "share": "Udział w cyklu",
+      "population": "Zakończone",
+      "blockedItems": "Zablokowane",
+      "daysMedian": "Zablokowane dni (mediana)",
+      "shareN": "Udział (pozycje)",
+      "shareMedian": "Udział (mediana)"
+    },
+    "blockedItems_one": "{{count}} z {{total}} zakończonych pozycji była choć raz zablokowana; pozostałe to zera i zostają w rozkładzie.",
+    "blockedItems_few": "{{count}} z {{total}} zakończonych pozycji były choć raz zablokowane; pozostałe to zera i zostają w rozkładzie.",
+    "blockedItems_many": "{{count}} z {{total}} zakończonych pozycji było choć raz zablokowanych; pozostałe to zera i zostają w rozkładzie.",
+    "blockedItems_other": "{{count}} z {{total}} zakończonych pozycji było choć raz zablokowanych; pozostałe to zera i zostają w rozkładzie."
   }
 }
