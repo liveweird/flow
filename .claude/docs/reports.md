@@ -1,10 +1,37 @@
-# Reports API (v0.3.0 M4)
+# Reports API (v0.3.0)
 
-This doc grows commit by commit alongside the v0.3.0 reports-API work (plan section 7 "Reports API"). It
-starts with the foundation commit 10a builds -- the shared filter parser, `Distribution`, the
-`meta` block, `GET /api/v1/reports/filters`, and the access posture every later report endpoint
-inherits. Velocity, throughput, sprint consistency and every other named report (plan section 7's table)
-land as their own commits and grow this doc with their own sections.
+The read-only reports API over the `metrics` star (plan section 7). It opens with the shared
+machinery every report inherits -- the filter parser, `Distribution`, the `meta` block,
+`GET /api/v1/reports/filters` and the access posture -- then one section per report. Each number's
+operational contract (grain, anchor, attribution, estimate snapshot, missing data, pinning test)
+is `.claude/docs/measures.md`; what the numbers mean is `.claude/docs/domain-model.md`.
+
+## Index of the sixteen reports (fifteen endpoints)
+
+Every endpoint is `GET`, under `/api/v1/reports/`, any signed-in user, no audit (D12).
+
+| # | Report | Endpoint | Section |
+|---|---|---|---|
+| 1 | Velocity | `/velocity` | [Report 1](#report-1----velocity) |
+| 2 | Throughput | `/throughput` | [Report 2](#report-2----throughput) |
+| 3 | Task estimation accuracy | `/task-estimation-accuracy` | [Reports 3, 4, 5](#reports-3-4-5----estimation-accuracy-and-adjustments) |
+| 4 | Epic estimation accuracy | `/epic-estimation-accuracy` | [Reports 3, 4, 5](#reports-3-4-5----estimation-accuracy-and-adjustments) |
+| 5 | Estimate adjustments | `/estimate-adjustments` | [Reports 3, 4, 5](#reports-3-4-5----estimation-accuracy-and-adjustments) |
+| 6 (6.1-6.3) | Sprint consistency (velocity vs throughput, carry-over, added scope) | `/sprint-consistency` | [Report 6](#report-6----sprint-consistency) |
+| 7 | Cycle time | `/cycle-time` | [Reports 7, 8](#reports-7-8----cycle-time-and-reported-time-ratio) |
+| 8 | Reported time / cycle time | `/reported-time-ratio` | [Reports 7, 8](#reports-7-8----cycle-time-and-reported-time-ratio) |
+| 9 | WIP | `/wip` | [Reports 9, 10, 13](#reports-9-10-13----wip-and-the-estimated-backlog) |
+| 10, 13 | Estimated backlog depth; item counts and backlog in sprints | `/backlog` | [Reports 9, 10, 13](#reports-9-10-13----wip-and-the-estimated-backlog) |
+| 11 | Aging WIP | `/aging-wip` | [Reports 11, 12](#reports-11-12----aging-wip-and-blocked-time) |
+| 12 | Blocked time | `/blocked-time` | [Reports 11, 12](#reports-11-12----aging-wip-and-blocked-time) |
+| 14 | Data quality | `/data-quality` | [Report 14](#report-14----data-quality) |
+| 15 | Epic progress (EVM) | `/epic-progress` | [Report 15](#report-15----epic-progress-evm) |
+| 16 | Cost matrix and foreign work | `/cost-matrix` | [Report 16](#report-16----cost-matrix-and-foreign-work) |
+
+Report 13 (item counts beside SP, backlog in sprints) is not an endpoint of its own: the item
+counts ride reports 1, 2, 6 and 10, and the backlog in sprints rides `/backlog`. The shared
+`GET /api/v1/reports/filters` (the pickers' reference data) is not a report and is described
+below.
 
 ## Access posture
 
@@ -17,7 +44,7 @@ does not apply (`.claude/docs/observability.md`).
 
 ## The shared filter parser (`reports/ReportFilter.kt`)
 
-Every report endpoint (once one lands) parses its query string through ONE function,
+Every report endpoint parses its query string through ONE function,
 `Parameters.parseReportFilter(calendar, nowMs, defaultDomainView)`, into a `ReportFilter`. It does
 **structural** validation only (ranges, mutual exclusion, ISO date syntax) -- id EXISTENCE (`teamId`,
 `sprintId`, `connectionId` against the database) is each report's own service's job once it reads
@@ -78,12 +105,15 @@ changes, only which side does the arithmetic.
 
 ## `meta` (`reports/ReportMeta.kt`)
 
-Every report response (once one lands) carries a `meta` block beside its own body:
+Every report response carries a `meta` block beside its own body:
 `{derivedAt, configRevision, from, to, level, domainView, resolvedSprints[{teamId, sprintIds}],
 minSampleSize}`. `derivedAt` is the latest SUCCEEDED `metrics.derive_runs.finished_at` across the
 connection(s) the report actually read (`null` before any connection has ever completed a DERIVE);
-`configRevision` mirrors the shared `metrics.settings.config_revision` every DERIVE stamps its rows
-with (invariant 12 -- `.claude/docs/domain-model.md`). `from`/`to` are populated only for a
+`configRevision` is the LIVE `metrics.settings.config_revision` at read time, NOT the revision the
+data was derived under (every DERIVE stamps its rows with the revision it ran under, invariant 12 --
+`.claude/docs/domain-model.md` -- but the response does not carry that one; after a configuration
+change and before its DERIVE finishes, `configRevision` is ahead of the data. `derivedAt` is the
+honest freshness signal). `from`/`to` are populated only for a
 `from`/`to`-selected period; a `lastSprints`/`sprintId` period instead describes itself entirely
 through `resolvedSprints`. `ReportFilter.toMeta(...)` assembles the DTO from an already-resolved
 filter plus the figures a report's own service computes -- pure, no DB access of its own.

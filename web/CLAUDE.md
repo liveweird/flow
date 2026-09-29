@@ -3,8 +3,8 @@
 Vite + React 19 + TypeScript SPA: the shell + auth, user/feature management, MFA, password reset,
 the changelog, and the flat-teams registry — v0.1.0's foundation — plus, since v0.2.0, the Data
 sources pages (ADMIN-managed Jira Cloud connections, their sync jobs, data profile and raw-issue
-inspector — see "Data sources" below). Flow-metric dashboards arrive after the domain model;
-`pages/Home.tsx` still states plainly that there are none to show yet. Routes are lazy. New capability that Covenant, Toadie or
+inspector — see "Data sources" below) and, since v0.3.0, the metrics configuration pages and the
+fifteen report pages (sixteen reports; `pages/Report*.tsx`; `pages/Home.tsx` is the unit overview). Routes are lazy. New capability that Covenant, Toadie or
 Lettuce already has? Port their building blocks (see "Not yet ported" at the bottom) rather than
 inventing new ones.
 
@@ -422,11 +422,14 @@ team membership landed in M2 commit 5, and the per-connection `metrics-config` p
 ## Reports (`pages/ReportVelocity.tsx`, `components/Report*.tsx`, `utils/reportFilter.ts`)
 
 The v0.3.0 report pages (`.claude/docs/reports.md` is the API; every report is any-authenticated,
-D12 — routes sit under `RequireAuth`, never `RequireAdmin`). Landed so far: the shell (Reports nav
-section → Delivery, `ReportTabs`), the filter bar, the shared blocks and the three Delivery pages
-(Velocity, Throughput, Sprint consistency, Cycle time) and the Estimation group (Task accuracy, Epic
-accuracy, Adjustments, Reported time — `ESTIMATION_TABS`, its own nav leaf); later reports append a page, a tab (`DELIVERY_TABS` in
-`utils/reportLinks.ts` — the Delivery nav leaf lists every tab route in `NavLeaf.activeFor`, so it
+D12 — routes sit under `RequireAuth`, never `RequireAdmin`). Fifteen pages carry the sixteen reports
+(report 13, the backlog in sprints, rides the Estimated backlog page): the shell (Reports nav
+section, `ReportTabs`), the filter bar, the shared blocks and the three tab groups — Delivery
+(Velocity, Throughput, Sprint consistency, Cycle time; `DELIVERY_TABS`), Estimation (Task accuracy,
+Epic accuracy, Adjustments, Reported time; `ESTIMATION_TABS`) and Flow metrics (WIP, Estimated
+backlog, Aging WIP, Blocked time, Epic progress; `FLOW_TABS`) — plus the Data quality and Cost
+matrix pages. A new report appends a page, a tab (the tab lists live in
+`utils/reportLinks.ts` — each group's nav leaf lists every tab route in `NavLeaf.activeFor`, so it
 stays highlighted on all of them) and a `reports.<name>` key block. Every page composes the same
 skeleton — `hooks/useReportPage` (filters query → keyed page query), `ReportFiltersStatus`,
 `ReportFilterBar`, `ReportMetaNote`, `ReportChartCard`, `ReportSprintsTable` (sprint · team ·

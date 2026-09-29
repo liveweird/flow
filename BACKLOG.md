@@ -1,6 +1,6 @@
 # Product backlog
 
-Updated 2026-09-28. This file tracks **outstanding work only**. Implemented behaviour and release history belong elsewhere:
+Updated 2026-09-29. This file tracks **outstanding work only**. Implemented behaviour and release history belong elsewhere:
 - [README.md](README.md);
 - the [application changelog](web/src/changelog/entries.ts);
 - the topic guides under `.claude/docs/`.
@@ -12,26 +12,27 @@ Entries are proposals, not delivery commitments.
 - Create an Atlassian service account with a scoped, read-only API token (scopes in `.claude/docs/jira-integration.md`).
 - Add the data source, run Test connection, and fix any scope gaps it reports.
 - Backfill 24 months, then read the data profile together (runbook: `.claude/docs/ingestion.md`, "Reading the data profile after the first real sync").
+- The first sync will bring adjustments (A10): the defaults the metrics configuration ships with (status → stage, the estimate and epic fields, the work-category field) meet real data for the first time.
 - Things to confirm on the real tenant, where the spike marked them uncertain:
   - Basic vs Bearer auth;
   - bulk-changelog availability and its per-request cap;
   - the search page-size ceiling;
   - how Sprint changes appear in the changelog.
 
-## Phase 3: the domain model — implementation in progress (v0.3.0)
+## Phase 3: the domain model — done in v0.3.0 (release pending)
 
 Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 override the body. A11–A16 were overnight judgement calls (approved 2026-09-28), A23, A25, A26 and A27 approved 2026-09-29; A17–A21 came from the measure contract (`.claude/docs/measures.md`); A22 from the 9d review.
 
-- **Done and merged:**
+- **Delivered:**
   - M1 (PR #22), M2 (PR #23), the configuration e2e (PR #24), Dependabot #17;
   - M3, the derivation (PR #26): the V16/V17 star, DERIVE, the facts, `agg_daily_wip`/`agg_daily_flow`, the invariant-12 digest, and the scale-20 perf check (DERIVE 136 s cold on 24k issues);
-  - M4, the reports API (PR #27) and the report pages 1–8, the estimation batch and the reports e2e (PR #28).
-- **M5** on `feat/v0.3.0-m5`: 15a (`/reports/wip`, `/reports/backlog`), 15b (`/reports/aging-wip`, `/reports/blocked-time`), 15c (`/reports/epic-progress`), 16a/16b (the pages for reports 9–12), and the derive-run prune fix.
+  - M4, the reports API (PR #27) and the report pages 1–8, the estimation batch and the reports e2e (PR #28);
+  - M5 (PR pending, `feat/v0.3.0-m5`): reports 9–16 (WIP and backlog, aging WIP and blocked time, epic progress, data quality, cost matrix) with their pages, the Home unit overview, the batch-2 e2e, the docs sweep and the v0.3.0 changelog.
+- **Release:** the version is bumped to 0.3.0 in the changelog; no tag or GitHub release until the user asks (`.claude/docs/app-releases.md`). The first deploy reprocesses the whole tenant (`PROCESSING_VERSION = 2`) and DERIVE follows — minutes on the worker, once.
 - **Next:**
-  1. **16c:** the epic-progress page (report 15).
-  2. **17 and 18:** the data quality (14) and cost matrix (16) reports and their pages, and the Home overview (A9).
-  3. **19:** the batch-2 e2e, the docs sweep, and the v0.3.0 changelog. No tag or release without asking.
-- **Small follow-ups from M2 and M3:**
+  - the real-Jira first sync and the adjustments it brings (A10) — see the section above;
+  - a compact always-loaded `conventions.md` (step 2 of the instruction-size work: `CLAUDE.md` plus the always-loaded docs still exceed the budget).
+- **Small follow-ups (M2–M5):**
   - The Jira member picker resolves names from the first 100 unit people. Page through, or look up by account id.
   - "End membership" uses UTC; consider the configured zone.
   - `epic_domain_key` uses the epic's current domain, not as-of (no epic-domain history exists).
@@ -41,6 +42,7 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   - A per-domain status→stage override UI.
   - Seed memberships from the Team field (D1).
   - Cache validators for the report endpoints.
+  - Report `meta.configRevision` should be the revision of the last successful DERIVE, not the live one.
   - Round each item's estimate before summing in `DeriveKernels.sprintTotals`, so `fact_sprint` and the per-user report groups agree exactly (today Σ groups can differ from the team by 0.01 MD per sprint when estimates have more than two decimals).
   - Report 7: an `epics` block (cycle time from `fact_epic_delivery`, owner team) — deferred from 12b.
   - `dim_date` rows outside a run's range keep a previous time zone's day bounds after a zone change (range joins could double-match at a stale boundary) — rewrite the whole table on a zone change.

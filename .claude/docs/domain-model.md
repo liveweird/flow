@@ -5,9 +5,10 @@ measurement dimensions, the configuration they depend on, the analytical (`metri
 reports it serves, its invariants, and how known data imperfections are handled. It is the
 contract the metrics layer and every dashboard are built against. **Status: agreed 2026-09-27
 (D1–D16), validated against the target reports; amended 2026-09-28 (A17–A21, see "Amendments"
-below); being implemented in v0.3.0** (`.claude/docs/metrics.md`). The per-measure operational
-contract — each report number's grain, time anchor, attribution, estimate snapshot, missing-data
-rule, frozen/live source and the test that pins it — is `.claude/docs/measures.md`.
+below); implemented in v0.3.0** (the configuration, DERIVE and the star: `.claude/docs/metrics.md`;
+the sixteen reports: `.claude/docs/reports.md`). The per-measure operational contract — each
+report number's grain, time anchor, attribution, estimate snapshot, missing-data rule,
+frozen/live source and the test that pins it — is `.claude/docs/measures.md`.
 
 **Stance.** Facts stay in `norm.*` (`.claude/docs/ingestion.md` "Normalized layer" — what
 happened, never what it means); meaning lives in the `metrics` layer above it, which is rebuilt
@@ -265,6 +266,8 @@ user, and slices by domain, activity type and work category.
 | 12 | **Blocked time** | `fact_task_delivery`, `fact_epic_delivery` | blocked time per item, as a share of cycle time, and as a distribution |
 | 13 | **Throughput in items; backlog in sprints** | `fact_sprint`, `agg_daily_*` | item counts beside SP in reports 1, 2, 6 and 10; backlog in sprints = estimated backlog SP ÷ mean delivered SP over the team's last N sprints |
 | 14 | **Data quality** | all facts | per team and domain: worklog coverage (DONE tasks with worklogs; logged hours per member per working day vs `hoursPerDay`), late logging (worklog created vs `started`), tasks without an estimate, epic or work category, epic drift (D11), unmapped statuses, work done outside any sprint, sprint-snapshot drift (D13) |
+| 15 | **Epic progress (EVM)** | `agg_daily_flow` (per-day PV/EV/AC increments, summed at query time), `fact_epic_plan` | PV, EV and AC in man-days as cumulative curves with SV/SPI/CV/CPI as of a day, at epic, domain and team level (A7, A20); superseded baselines redraw the "as originally planned" curve |
+| 16 | **Cost matrix and foreign work** | `fact_worklog` | man-days logged in the period as an author-team × domain matrix, with the foreign-work share beside every row (A8, D3) |
 
 ## Invariants
 
@@ -392,7 +395,7 @@ carries the per-measure detail).
     historical team regardless.
   - **The owner team belongs to the DOMAIN, not the project.** Resolution:
     - use the configured owner if every project row of the domain agrees (a disagreeing PUT is a
-      400 once the API lands);
+      400);
     - else the team of the single mapped board across ALL the domain's projects;
     - else none.
 
@@ -402,15 +405,16 @@ carries the per-measure detail).
     author's team with the epic's OWNER team (A19), not the epic's assignee's team — epics carry no
     sprint at all, so the sprint-team branch never applies to them either.
 
-## Gaps in `norm` today
+## Gaps in `norm` (closed in v0.3.0)
 
-What the implementation must add to PROCESS (with a `PROCESSING_VERSION` bump) before the
-`metrics` layer can be built:
+What the implementation had to add to PROCESS (with a `PROCESSING_VERSION` bump) before the
+`metrics` layer could be built — all of it shipped in V14 / `PROCESSING_VERSION = 2`
+(`.claude/docs/ingestion.md` "Normalized layer"):
 
 - **Epic membership history.** `norm.work_items.parent_issue_id` is the current parent only, and
   `norm.work_item_field_changes` does not keep parent changes. Jira Cloud's `parent` field replaced
-  Epic Link; the changelog spelling (`Parent`, `IssueParentAssociation`, `Epic Link`) must be
-  confirmed on the real tenant, then tiled into `task_epic`.
+  Epic Link; parent changes are now tiled as a `PARENT` field into `task_epic` (the spelling
+  confirmation is still open, below).
 - **Estimate history, tasks and epics.** Story-point changes are kept verbatim for the detected
   story-points field but not tiled, and a different epic estimate field (if configured) is not kept
   at all; `item_estimate` needs both as intervals.
@@ -425,6 +429,12 @@ What the implementation must add to PROCESS (with a `PROCESSING_VERSION` bump) b
   has the full payload.
 - **Worklog time zone.** `started` carries its own offset; converting to working days uses Flow's
   calendar and zone, not the author's local day.
+
+**Still open (not closed by v0.3.0):**
+
+- **The `parent` changelog spelling** (`Parent`, `IssueParentAssociation`, `Epic Link`) is handled
+  for all three, but is confirmed only against the stub — real-tenant confirmation waits for the
+  first real sync (A10, `BACKLOG.md`).
 - Sprints map to teams through their **board**, and a board may span several spaces — harmless
   here, because a sprint maps to a team, not to a domain; backlog ownership uses the board's own
   project (`norm.boards.project_key`), so a multi-project board's other projects fall to

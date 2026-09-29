@@ -8,13 +8,29 @@ outlier detection, and input for continuous improvement. The name refers to the 
 (Theory of Constraints, Kanban, Reinertsen's cost-of-delay economics): exposing where work waits,
 not who is busy.
 
-## What's here today (v0.2.0 — Jira ingestion)
+## What's here today (v0.3.0 — the domain model, metrics and reports)
 
-- **Jira Cloud ingestion** — ADMIN-managed connections (a service account's scoped, read-only
-  API token, encrypted at rest), scheduled and on-demand syncs into a raw store with resumable
-  cursors, a daily reconcile, a neutral normalized layer (status/field intervals, worklogs,
-  sprints, boards), a data profile of what the tenant's data actually contains, and a raw issue
-  inspector — see "Connecting Jira" below. No flow metrics yet: they come with the domain model.
+- **Metrics configuration** — ADMIN-managed: global settings (working calendar and time zone,
+  hours per day, sample-size and aging-WIP thresholds) and, per Jira connection, the status →
+  stage, project → domain and board → team maps and the estimate, epic-date and work-category
+  fields, plus effective-dated team memberships (a Jira user belongs to at most one team at a
+  time). Every change is one recorded configuration revision.
+- **Derivation** — a `DERIVE` job runs on the worker after every sync and every configuration
+  change and rebuilds the analytical `metrics` star (facts in man-days, daily aggregates, frozen
+  sprint snapshots) from the normalized layer and the configuration — never from a Jira call.
+  See `.claude/docs/metrics.md`.
+- **Sixteen reports** on fifteen pages (the backlog in sprints sits on the estimated-backlog
+  page), open to every signed-in user and drilling unit → team → user; period-based reports take
+  any calendar period or the last N sprints: velocity, throughput, sprint consistency and cycle
+  time; task and epic estimation accuracy, estimate adjustments and reported ÷ cycle time; WIP,
+  the estimated backlog, aging WIP and blocked time; epic progress (planned value, earned value
+  and actual cost — PV/EV/AC — in man-days); data quality; and the team × domain cost matrix with
+  foreign work. The Home page is the unit overview. See `.claude/docs/reports.md`.
+- **Jira Cloud ingestion** (v0.2.0) — ADMIN-managed connections (a service account's scoped,
+  read-only API token, encrypted at rest), scheduled and on-demand syncs into a raw store with
+  resumable cursors, a daily reconcile, a neutral normalized layer (status/field intervals,
+  worklogs, sprints, boards), a data profile of what the tenant's data actually contains, and a
+  raw issue inspector — see "Connecting Jira" below.
 
 Built on the v0.1.0 foundation:
 
@@ -29,10 +45,10 @@ Built on the v0.1.0 foundation:
 
 ## Roadmap
 
-- **Next — the domain model.** Assumptions, a conceptual model and its invariants for flow
-  metrics, built on the normalized layer and a real tenant's data profile.
-- **Then** — the metric catalogue, the interpretation layer and the first dashboards; GitLab as a
-  second connector on the same ingestion framework.
+- **Next** — the first sync against a real Jira tenant and the adjustments it brings, then the
+  follow-ups in `BACKLOG.md` (a per-domain stage override UI, seeding memberships from the Team
+  field, cache validators for the reports); GitLab as a second connector on the same ingestion
+  framework.
 
 See `CLAUDE.md`'s "Product" and "Donors" sections for the full roadmap and which sibling project
 (Covenant, Lettuce, Toadie) each future capability ports from.
@@ -71,6 +87,14 @@ Ports are chosen to coexist with [Lettuce](https://github.com/liveweird/lettuce)
 [Covenant](https://github.com/liveweird/covenant) (8082 / 5434 / 5175 / 8027) on the same machine:
 the app is on **8084**, Postgres is host-mapped to **5435**, the Vite dev server uses **5176**,
 Mailpit **8028**. All host ports bind to 127.0.0.1.
+
+### Scale-20 performance check
+
+`docker-compose.perf.yaml` is the phase-3 performance check: the normal stack with its Jira stub
+serving a generated ~24k-issue dataset, run as its own compose project (`flow-perf`, its own
+volumes and host ports) so it never touches a dev stack. It verifies that DERIVE stays inside its
+budget at that scale; the recipe, the measured timings and where the time goes are in
+`.claude/docs/metrics.md` "Performance (scale 20)".
 
 ## Running on Kubernetes (local)
 

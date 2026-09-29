@@ -1,10 +1,10 @@
 # Metrics layer (v0.3.0)
 
-This doc grows commit by commit alongside the v0.3.0 metrics-layer work (the phase-3 plan,
-`.claude/docs/domain-model.md`). It starts with the configuration model — the ADMIN-curated inputs
-every later DERIVE run reads under ONE recorded revision. The derivation algorithm, the star schema
-mechanics and the report API each add their own section as they land (see the plan's commit
-sequence — commits 7-19).
+This doc is the operational reference for the v0.3.0 metrics layer (the model itself:
+`.claude/docs/domain-model.md`): the ADMIN-curated inputs every DERIVE run reads under ONE
+recorded revision, the derivation algorithm, the star schema mechanics, the daily aggregates and
+the scale-20 performance figures. The per-number contracts are `.claude/docs/measures.md`; the
+reports API that reads this layer is `.claude/docs/reports.md`.
 
 ## Configuration model
 
@@ -26,7 +26,7 @@ Two layers of configuration exist, both change-tracked through the SAME shared
 
 Both `metrics/TeamMembership*.kt`'s dated Jira-user team membership (D1, v0.3.0 M1 commit 3, its
 own doc coverage in `.claude/docs/domain-model.md` "Configuration") and the per-connection resource
-below bump the SAME shared revision — a DERIVE run (arriving with commit 7) always reads the
+below bump the SAME shared revision — a DERIVE run always reads the
 `norm` facts under ONE recorded `config_revision`, so every derived number names exactly which
 configuration produced it (D-invariant 12, "every live number is reproducible from `norm` + one
 configuration revision").
@@ -858,11 +858,14 @@ docker compose -p flow-perf -f docker-compose.yaml -f docker-compose.perf.yaml d
 
 **Where the DERIVE time goes** (second run, from postgres' statement log — the whole run is ONE transaction, so there is no per-step timing in `derive_runs`): the WIP step's four `INSERT … SELECT`s take 46.7 s in total — **team/task 38.1 s**, team/epic 4.6 s, domain 3.2 s, epic 0.8 s — the flow step's three statements ~1 s (each 0.3-0.4 s), and the remaining ~51 s is the JVM side (passes 1-3, sprint, worklog and epic-plan steps, all statements under 300 ms, i.e. the batched read/compute/insert loops). `EXPLAIN (ANALYZE, BUFFERS)` of the team/task WIP body shows the shape the step's own header warns about: the day × `item_stage` join yields 5.3 M candidate (day, interval) pairs of which 4.48 M survive the task join, and both correlated `COALESCE` sub-selects (sprint → team, assignee → team) run once per surviving row (4.4-4.5 M executions each, ~73 M buffer hits). Cost is O(days × open items), so it scales linearly with the date range and the number of tasks: a 24-month history would cost roughly double the WIP step, still inside the budget; the first thing to do if it ever is not is to resolve the team per (task, interval) once instead of per (task, interval, day) — no migration needed.
 
-## Not yet ported / not yet written
+## Status
 
-Commit 9 is complete: the re-derive/REPROCESS check is `MetricsDigestTest` ("Reproducibility (invariant 12)" above), and the scale-20 performance check is recorded above.
-
-The report API and the report pages arrive with their own commits and their own sections here.
+The metrics layer is complete for v0.3.0: the configuration, DERIVE, the star and its aggregates,
+and the re-derive/REPROCESS check ("Reproducibility (invariant 12)" above) are all shipped, and the
+scale-20 performance check is recorded above. The report API and pages that read it are documented
+in `.claude/docs/reports.md`; what is deliberately not built yet is listed in `BACKLOG.md` (a
+per-domain status-to-stage override UI, seeding memberships from Jira's Team field, reading
+`hoursPerDay` from Jira's time-tracking configuration).
 
 **Membership history is permanent (by design).** Deleting a team closes its members' open
 memberships at that moment (so they can join another team from then on), but the history before
