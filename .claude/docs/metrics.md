@@ -824,9 +824,40 @@ EPIC plus the fact-derived oracle for EV/AC; team AC against `fact_worklog` (no 
 `DeriveKernelsTest` pins `dimDateRange` and `inPvHorizon`. `DerivedStubFixture`'s digest folds the
 table in (`scope_kind, scope_id, day` order).
 
+## Performance (scale 20)
+
+The v0.3.0 plan's DERIVE budget is **< 3 min on ≈ 24k issues**. Measured 2026-09-29 (v0.3.0 M3 commit 9g, branch `chore/m3-perf-check` on top of `e491ab3`), on an Apple M5 Max (18 cores, 128 GB) running the stack in OrbStack (16 GB VM), through `docker-compose.perf.yaml` — its own compose project (`flow-perf`), its own volumes, ports 8184/5535/8194/8128, sized like production (app: `JAVA_OPTS=-Xmx512m` in a 768 MiB container as in `k8s/worker-deployment.yaml`; postgres 1 GiB as in `k8s/postgres-deployment.yaml`; the WireMock stub with 1 GiB heap and no request journal). A fresh database, one enabled connection (FLO/PLT/GTM/OPS), the FLO board (id 1) mapped to one team, everything else the computed defaults.
+
+**Reproduce:**
+
+```
+node sample-data/jira/generate.mjs --scale 20 --out /tmp/flow-jira-x20      # ~8 s, 240 MB, never committed
+docker compose -p flow-perf -f docker-compose.yaml -f docker-compose.perf.yaml up --build -d
+# admin@flow.local / changeme on http://localhost:8184 — POST /api/v1/teams, POST /api/v1/data-sources
+# (siteUrl https://<any>.atlassian.net — every call is rerouted to the stub), POST .../sync-jobs {"kind":"SYNC"};
+# once SYNC succeeds: GET .../metrics-config, PUT it back with boards:[{boardId:1,teamId:<team>}]
+# (that PUT enqueues DERIVE); read the timings:
+docker compose -p flow-perf exec postgres psql -U flow -d flow \
+  -c "select id, status, finished_at - started_at as ms, row_counts from metrics.derive_runs"
+docker compose -p flow-perf -f docker-compose.yaml -f docker-compose.perf.yaml down -v   # ONLY the perf project
+```
+
+(`FLOW_PERF_STUB_DIR` points the stub at another `--out` directory. Access tokens live 15 min — log in again for a long poll. For per-statement times `ALTER SYSTEM SET log_min_duration_statement = 300` on the perf database and read `docker logs flow-perf-postgres`.)
+
+| Measure | Value |
+|---|---|
+| Dataset | 24,000 issues (23,720 tasks + 280 epics), 105,703 raw changelog histories, 73,283 status intervals, 23,977 worklogs, 84 sprints, 4 projects; issues created 2025-09-01 … 2026-09-29 (394 calendar days — the generator's history is ~13 months, a real 24-month backfill has ~2x the days) |
+| SYNC (REFERENCE → PROFILE, cold database) | **438 s** (7 min 18 s); the follow-up RECONCILE took 6 s |
+| **DERIVE, first run (cold JVM)** | **136.4 s** — target met (76 % of the 180 s budget) |
+| DERIVE, second run (warm JVM, same data) | 99.3 s |
+| `row_counts` | tasks 23,720; epics 280; sprints 84; worklogs 23,977; epicPlans 351; aggWipRows 302,325; aggFlowRows 43,254 |
+| Database size after DERIVE | 428 MB; app container 694 MiB of 768 MiB RSS at the end (no OOM), postgres 237 MiB |
+
+**Where the DERIVE time goes** (second run, from postgres' statement log — the whole run is ONE transaction, so there is no per-step timing in `derive_runs`): the WIP step's four `INSERT … SELECT`s take 46.7 s in total — **team/task 38.1 s**, team/epic 4.6 s, domain 3.2 s, epic 0.8 s — the flow step's three statements ~1 s (each 0.3-0.4 s), and the remaining ~51 s is the JVM side (passes 1-3, sprint, worklog and epic-plan steps, all statements under 300 ms, i.e. the batched read/compute/insert loops). `EXPLAIN (ANALYZE, BUFFERS)` of the team/task WIP body shows the shape the step's own header warns about: the day × `item_stage` join yields 5.3 M candidate (day, interval) pairs of which 4.48 M survive the task join, and both correlated `COALESCE` sub-selects (sprint → team, assignee → team) run once per surviving row (4.4-4.5 M executions each, ~73 M buffer hits). Cost is O(days × open items), so it scales linearly with the date range and the number of tasks: a 24-month history would cost roughly double the WIP step, still inside the budget; the first thing to do if it ever is not is to resolve the team per (task, interval) once instead of per (task, interval, day) — no migration needed.
+
 ## Not yet ported / not yet written
 
-The DERIVE perf check rounds out commit 9 (the reprocess/re-derive check landed as `MetricsDigestTest`, "Reproducibility (invariant 12)" above).
+Commit 9 is complete: the re-derive/REPROCESS check is `MetricsDigestTest` ("Reproducibility (invariant 12)" above), and the scale-20 performance check is recorded above.
 
 The report API and the report pages arrive with their own commits and their own sections here.
 
