@@ -197,40 +197,7 @@ fun Application.configureReportRoutes() {
                 val filter = call.request.queryParameters.parseReportFilter(calendar, nowMillis(), DomainView.TASK)
                 call.respond(HttpStatusCode.OK, reportService.reportedTimeRatio(filter, nowMillis()))
             }
-            // WIP (report 9) and the estimated backlog (reports 10 + 13) read the daily aggregates: delivery/flow
-            // measures, so the task's own domain (D3) — the aggregates carry no activity-type/work-category slice.
-            get<ReportWipRoute> {
-                call.caller()
-                val calendar = reportsWorkingCalendar(metricsConfig)
-                val params = call.request.queryParameters
-                val filter = params.parseReportFilter(calendar, nowMillis(), DomainView.TASK)
-                val by = params.optionalEnum<WipBy>("by") ?: WipBy.STAGE
-                val itemKind = params.optionalEnum<WipItemKind>("itemKind") ?: WipItemKind.TASK
-                call.respond(HttpStatusCode.OK, reportService.wip(filter, by, itemKind, nowMillis()))
-            }
-            get<ReportBacklogRoute> {
-                call.caller()
-                val calendar = reportsWorkingCalendar(metricsConfig)
-                val filter = call.request.queryParameters.parseReportFilter(calendar, nowMillis(), DomainView.TASK)
-                call.respond(HttpStatusCode.OK, reportService.backlog(filter, nowMillis()))
-            }
-            // Aging WIP (report 11) is "as of now" (the period is ignored); blocked time (report 12) is a delivery/flow
-            // measure over DONE items, so the task's own domain (D3). Tasks and epics are different grains: the blocked-time
-            // `itemKind` defaults to TASK.
-            get<ReportAgingWipRoute> {
-                call.caller()
-                val calendar = reportsWorkingCalendar(metricsConfig)
-                val filter = call.request.queryParameters.parseReportFilter(calendar, nowMillis(), DomainView.TASK)
-                call.respond(HttpStatusCode.OK, reportService.agingWip(filter, nowMillis()))
-            }
-            get<ReportBlockedTimeRoute> {
-                call.caller()
-                val calendar = reportsWorkingCalendar(metricsConfig)
-                val params = call.request.queryParameters
-                val filter = params.parseReportFilter(calendar, nowMillis(), DomainView.TASK)
-                val itemKind = params.optionalEnum<BlockedItemKind>("itemKind") ?: BlockedItemKind.TASK
-                call.respond(HttpStatusCode.OK, reportService.blockedTime(filter, itemKind, nowMillis()))
-            }
+            flowRoutes(reportService, metricsConfig)
             epicProgressRoute(reportService, metricsConfig)
             reportDataQualityRoute(reportService, metricsConfig)
             costMatrixRoute(reportService, metricsConfig)
@@ -283,3 +250,43 @@ private fun Route.costMatrixRoute(reportService: ReportService, metricsConfig: M
  */
 private suspend fun reportsWorkingCalendar(metricsConfig: MetricsConfigService): WorkingCalendar =
     workingCalendarOf(metricsConfig.read())
+
+/**
+ * The flow batch (reports 9–12), grouped out of [configureReportRoutes] per the `*Routes.kt` idiom (detekt `LongMethod`).
+ */
+private fun Route.flowRoutes(reportService: ReportService, metricsConfig: MetricsConfigService) {
+    // WIP (report 9) and the estimated backlog (reports 10 + 13) read the daily aggregates: delivery/flow
+    // measures, so the task's own domain (D3) — the aggregates carry no activity-type/work-category slice.
+    get<ReportWipRoute> {
+        call.caller()
+        val calendar = reportsWorkingCalendar(metricsConfig)
+        val params = call.request.queryParameters
+        val filter = params.parseReportFilter(calendar, nowMillis(), DomainView.TASK)
+        val by = params.optionalEnum<WipBy>("by") ?: WipBy.STAGE
+        val itemKind = params.optionalEnum<WipItemKind>("itemKind") ?: WipItemKind.TASK
+        call.respond(HttpStatusCode.OK, reportService.wip(filter, by, itemKind, nowMillis()))
+    }
+    get<ReportBacklogRoute> {
+        call.caller()
+        val calendar = reportsWorkingCalendar(metricsConfig)
+        val filter = call.request.queryParameters.parseReportFilter(calendar, nowMillis(), DomainView.TASK)
+        call.respond(HttpStatusCode.OK, reportService.backlog(filter, nowMillis()))
+    }
+    // Aging WIP (report 11) is "as of now" (the period is ignored); blocked time (report 12) is a delivery/flow
+    // measure over DONE items, so the task's own domain (D3). Tasks and epics are different grains: the blocked-time
+    // `itemKind` defaults to TASK.
+    get<ReportAgingWipRoute> {
+        call.caller()
+        val calendar = reportsWorkingCalendar(metricsConfig)
+        val filter = call.request.queryParameters.parseReportFilter(calendar, nowMillis(), DomainView.TASK)
+        call.respond(HttpStatusCode.OK, reportService.agingWip(filter, nowMillis()))
+    }
+    get<ReportBlockedTimeRoute> {
+        call.caller()
+        val calendar = reportsWorkingCalendar(metricsConfig)
+        val params = call.request.queryParameters
+        val filter = params.parseReportFilter(calendar, nowMillis(), DomainView.TASK)
+        val itemKind = params.optionalEnum<BlockedItemKind>("itemKind") ?: BlockedItemKind.TASK
+        call.respond(HttpStatusCode.OK, reportService.blockedTime(filter, itemKind, nowMillis()))
+    }
+}
