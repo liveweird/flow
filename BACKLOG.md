@@ -19,7 +19,7 @@ Entries are proposals, not delivery commitments.
   - the search page-size ceiling;
   - how Sprint changes appear in the changelog.
 
-## Phase 3: the domain model — done in v0.3.0 (release pending)
+## Phase 3: the domain model — done in v0.3.0 (released 2026-09-29)
 
 Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 override the body. A11–A16 were overnight judgement calls (approved 2026-09-28), A23, A25, A26 and A27 approved 2026-09-29; A17–A21 came from the measure contract (`.claude/docs/measures.md`); A22 from the 9d review.
 
@@ -27,7 +27,7 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   - M1 (PR #22), M2 (PR #23), the configuration e2e (PR #24), Dependabot #17;
   - M3, the derivation (PR #26): the V16/V17 star, DERIVE, the facts, `agg_daily_wip`/`agg_daily_flow`, the invariant-12 digest, and the scale-20 perf check (DERIVE 136 s cold on 24k issues);
   - M4, the reports API (PR #27) and the report pages 1–8, the estimation batch and the reports e2e (PR #28);
-  - M5 (PR pending, `feat/v0.3.0-m5`): reports 9–16 (WIP and backlog, aging WIP and blocked time, epic progress, data quality, cost matrix) with their pages, the Home unit overview, the batch-2 e2e, the docs sweep and the v0.3.0 changelog.
+  - M5 (PR #29): reports 9–16 (WIP and backlog, aging WIP and blocked time, epic progress, data quality, cost matrix) with their pages, the Home unit overview, the batch-2 e2e, the docs sweep and the v0.3.0 changelog.
 - **Release:** the version is bumped to 0.3.0 in the changelog; no tag or GitHub release until the user asks (`.claude/docs/app-releases.md`). The first deploy reprocesses the whole tenant (`PROCESSING_VERSION = 2`) and DERIVE follows — minutes on the worker, once.
 - **Next:**
   - the real-Jira first sync and the adjustments it brings (A10) — see the section above;
