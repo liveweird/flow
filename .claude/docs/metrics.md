@@ -829,7 +829,7 @@ table in (`scope_kind, scope_id, day` order).
 
 ## Performance (scale 20)
 
-The v0.3.0 plan's DERIVE budget is **< 3 min on ≈ 24k issues**. Measured 2026-09-29 (v0.3.0 M3 commit 9g, branch `chore/m3-perf-check` on top of `e491ab3`), on an Apple M5 Max (18 cores, 128 GB) running the stack in OrbStack (16 GB VM), through `docker-compose.perf.yaml` — its own compose project (`flow-perf`), its own volumes, ports 8184/5535/8194/8128, sized like production (app: `JAVA_OPTS=-Xmx512m` in a 768 MiB container as in `k8s/worker-deployment.yaml`; postgres 1 GiB as in `k8s/postgres-deployment.yaml`; the WireMock stub with 1 GiB heap and no request journal). A fresh database, one enabled connection (FLO/PLT/GTM/OPS), the FLO board (id 1) mapped to one team, everything else the computed defaults.
+The v0.3.0 plan's DERIVE budget is **< 3 min on ≈ 24k issues**. Measured 2026-09-29 (v0.3.0 M5 commit 19b, branch `chore/m5-perf` on top of `14089b8` — the M5 head, every server report included; it re-runs M3's commit 9g check), on an Apple M5 Max (18 cores, 128 GB) running the stack in OrbStack (16 GB VM), through `docker-compose.perf.yaml` — its own compose project (`flow-perf`), its own volumes, ports 8184/5535/8194/8128, sized like production (app: `JAVA_OPTS=-Xmx512m` in a 768 MiB container as in `k8s/worker-deployment.yaml`; postgres 1 GiB as in `k8s/postgres-deployment.yaml`; the WireMock stub with 1 GiB heap and no request journal). A fresh database, one enabled connection (FLO/PLT/GTM/OPS), the FLO board (id 1) mapped to one team, everything else the computed defaults — except `blockedStatuses` = Blocked + Waiting (status ids 10003/10004), set in the same PUT so the blocked-time report has something to measure (the 9g run left it empty).
 
 **Reproduce:**
 
@@ -845,18 +845,47 @@ docker compose -p flow-perf exec postgres psql -U flow -d flow \
 docker compose -p flow-perf -f docker-compose.yaml -f docker-compose.perf.yaml down -v   # ONLY the perf project
 ```
 
-(`FLOW_PERF_STUB_DIR` points the stub at another `--out` directory. Access tokens live 15 min — log in again for a long poll. For per-statement times `ALTER SYSTEM SET log_min_duration_statement = 300` on the perf database and read `docker logs flow-perf-postgres`.)
+(The metrics-config PUT body is the GET body minus `configured` (an unknown key is a `400`), with `boards` and `blockedStatuses` filled in. `{"kind":"DERIVE"}` on `.../sync-jobs` re-runs DERIVE on demand. `FLOW_PERF_STUB_DIR` points the stub at another `--out` directory. Access tokens live 15 min — log in again for a long poll. For per-statement times `ALTER SYSTEM SET log_min_duration_statement = 300` on the perf database and read `docker logs flow-perf-postgres`.)
 
 | Measure | Value |
 |---|---|
 | Dataset | 24,000 issues (23,720 tasks + 280 epics), 105,703 raw changelog histories, 73,283 status intervals, 23,977 worklogs, 84 sprints, 4 projects; issues created 2025-09-01 … 2026-09-29 (394 calendar days — the generator's history is ~13 months, a real 24-month backfill has ~2x the days) |
-| SYNC (REFERENCE → PROFILE, cold database) | **438 s** (7 min 18 s); the follow-up RECONCILE took 6 s |
-| **DERIVE, first run (cold JVM)** | **136.4 s** — target met (76 % of the 180 s budget) |
-| DERIVE, second run (warm JVM, same data) | 99.3 s |
+| SYNC (REFERENCE → PROFILE, cold database) | **478 s** (7 min 58 s; 438 s at 9g); the follow-up RECONCILE took 6 s |
+| **DERIVE, first run (cold JVM)** | **137.8 s** — the DERIVE the SYNC itself enqueues, before the board is mapped to a team (76 % of the 180 s budget) |
+| DERIVE, board mapped to the team (app restarted first, so a fresh JVM) | 86.3 s |
+| DERIVE, again on the same data (warm JVM) | **82.4 s** — 99.3 s at 9g; the difference is run-to-run noise, not a change in the code |
 | `row_counts` | tasks 23,720; epics 280; sprints 84; worklogs 23,977; epicPlans 351; aggWipRows 302,325; aggFlowRows 43,254 |
-| Database size after DERIVE | 428 MB; app container 694 MiB of 768 MiB RSS at the end (no OOM), postgres 237 MiB |
+| Database size after DERIVE | 466 MB (428 MB at 9g); app container 663 MiB of 768 MiB RSS right after the last DERIVE and 507 MiB after the report runs below (no OOM, `OOMKilled=false`), postgres 256 MiB |
 
-**Where the DERIVE time goes** (second run, from postgres' statement log — the whole run is ONE transaction, so there is no per-step timing in `derive_runs`): the WIP step's four `INSERT … SELECT`s take 46.7 s in total — **team/task 38.1 s**, team/epic 4.6 s, domain 3.2 s, epic 0.8 s — the flow step's three statements ~1 s (each 0.3-0.4 s), and the remaining ~51 s is the JVM side (passes 1-3, sprint, worklog and epic-plan steps, all statements under 300 ms, i.e. the batched read/compute/insert loops). `EXPLAIN (ANALYZE, BUFFERS)` of the team/task WIP body shows the shape the step's own header warns about: the day × `item_stage` join yields 5.3 M candidate (day, interval) pairs of which 4.48 M survive the task join, and both correlated `COALESCE` sub-selects (sprint → team, assignee → team) run once per surviving row (4.4-4.5 M executions each, ~73 M buffer hits). Cost is O(days × open items), so it scales linearly with the date range and the number of tasks: a 24-month history would cost roughly double the WIP step, still inside the budget; the first thing to do if it ever is not is to resolve the team per (task, interval) once instead of per (task, interval, day) — no migration needed.
+**Where the DERIVE time goes** (M3's 9g profile of the then-second run — not re-profiled at 19b, the totals above give no reason to think the shape moved; from postgres' statement log — the whole run is ONE transaction, so there is no per-step timing in `derive_runs`): the WIP step's four `INSERT … SELECT`s take 46.7 s in total — **team/task 38.1 s**, team/epic 4.6 s, domain 3.2 s, epic 0.8 s — the flow step's three statements ~1 s (each 0.3-0.4 s), and the remaining ~51 s is the JVM side (passes 1-3, sprint, worklog and epic-plan steps, all statements under 300 ms, i.e. the batched read/compute/insert loops). `EXPLAIN (ANALYZE, BUFFERS)` of the team/task WIP body shows the shape the step's own header warns about: the day × `item_stage` join yields 5.3 M candidate (day, interval) pairs of which 4.48 M survive the task join, and both correlated `COALESCE` sub-selects (sprint → team, assignee → team) run once per surviving row (4.4-4.5 M executions each, ~73 M buffer hits). Cost is O(days × open items), so it scales linearly with the date range and the number of tasks: a 24-month history would cost roughly double the WIP step, still inside the budget; the first thing to do if it ever is not is to resolve the team per (task, interval) once instead of per (task, interval, day) — no migration needed.
+
+
+### Report latency
+
+Every `/api/v1/reports/*` endpoint against the same scale-20 database (last DERIVE done, system idle, the app's 768 MiB container as above), one signed-in ADMIN, sequential `fetch` calls from a node script on the host (localhost, so this is server time plus loopback, no network): **20 requests after 2 warm-ups per case**, p50 / p95 / max in **milliseconds**. UNIT = no `teamId`; TEAM = `teamId=1` (the FLO team, which owns every mapped sprint); *default* = no period parameter (the trailing 90 days), *wide* = `from=2025-09-01&to=2026-09-29`, the whole ~13-month history (a real 24-month backfill has ~2x that; the parser caps a period at 1100 days). `aging-wip` has no period (as of now; its response is capped at 500 items — it truncates, `itemsTruncated`).
+
+| Endpoint | UNIT, default period | UNIT, wide period | TEAM, default period | TEAM, wide period |
+|---|---|---|---|---|
+| `filters` | 6 / 7 / 7 | n/a | n/a | n/a |
+| `velocity` | 5 / 6 / 8 | 10 / 11 / 74 | 21 / 23 / 24 | 96 / 103 / 110 |
+| `throughput` | 20 / 24 / 24 | 62 / 68 / 69 | 9 / 9 / 9 | 29 / 34 / 34 |
+| `sprint-consistency` | 5 / 5 / 6 | 9 / 11 / 11 | 22 / 25 / 25 | 90 / 96 / 114 |
+| `task-estimation-accuracy` | 18 / 20 / 21 | 82 / 88 / 89 | 9 / 10 / 12 | 32 / 35 / 35 |
+| `epic-estimation-accuracy` | 4 / 6 / 7 | 7 / 8 / 8 | 3 / 4 / 4 | 5 / 7 / 7 |
+| `estimate-adjustments` | 31 / 34 / 35 | 138 / 149 / 151 | 12 / 13 / 13 | 43 / 49 / 51 |
+| `cycle-time` | 24 / 25 / 25 | 108 / 116 / 119 | 10 / 11 / 11 | 41 / 42 / 43 |
+| `reported-time-ratio` | 21 / 23 / 23 | 104 / 108 / 109 | 10 / 11 / 11 | 39 / 41 / 42 |
+| `wip` | 5 / 6 / 6 | 14 / 15 / 16 | 4 / 5 / 5 | 10 / 11 / 11 |
+| `backlog` | 4 / 4 / 5 | 6 / 6 / 7 | 4 / 4 / 5 | 6 / 6 / 7 |
+| `aging-wip` (as of now, no period) | 271 / 278 / 280 | (same) | 10 / 12 / 12 | (same) |
+| `blocked-time` | 20 / 21 / 22 | 92 / 99 / 100 | 10 / 12 / 14 | 40 / 47 / 47 |
+| `epic-progress` | 7 / 8 / 9 | 8 / 9 / 9 | 5 / 6 / 7 | 6 / 7 / 7 |
+| `data-quality` | 53 / 56 / 57 | 140 / 149 / 150 | 26 / 30 / 76 | 40 / 50 / 51 |
+| `cost-matrix` | 5 / 5 / 5 | 9 / 10 / 10 | 2 / 3 / 3 | 3 / 3 / 4 |
+
+Extra cases, same method: `epic-progress` at EPIC level (`epicId=FLO-10`, wide) 6 / 7 / 8, at DOMAIN level (`domain=FLO`, wide) 10 / 14 / 14; the Home page carries no report calls today, but the calls an overview would make — `velocity?lastSprints=1` 4 / 5 / 5, `cycle-time` UNIT default 23 / 26 / 26, `aging-wip` and `data-quality` above — are all far under a tenth of a second.
+
+**Conclusion:** the plan target (every report p95 < 1.5 s) is met with a wide margin — the slowest case anywhere is the UNIT `aging-wip` at **278 ms** p95 (it ages every open item at the request's clock before the 500-row cap), then the wide-period distribution reports (`estimate-adjustments`, `data-quality`, `cycle-time`, `reported-time-ratio`: 100-150 ms); everything else is under 110 ms. Nothing is over or near budget, so no statement was captured or tuned. These are warm-cache reads on an otherwise idle stack: concurrent users and a cold buffer cache are not measured here.
 
 ## Status
 
