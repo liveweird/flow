@@ -52,6 +52,8 @@ export interface ReportControls {
   noPeriod?: boolean;
   /** The report has no user level (epic progress answers `400` to `accountId`): no member control. */
   noMember?: boolean;
+  /** Narrow to one Jira connection (data quality); shown only when there is more than one to choose from. */
+  connection?: boolean;
 }
 
 const UNCATEGORIZED = "UNCATEGORIZED";
@@ -262,6 +264,19 @@ export default function ReportFilterBar({
               }}
               clearable
               clearButtonProps={{ "aria-label": t("reports.filters.clearAria", { name: t("reports.filters.domain") }) }}
+              searchable
+              w={200}
+            />
+          )}
+          {controls.connection && filters.connections.length > 1 && (
+            <Select
+              label={t("reports.filters.connection")}
+              placeholder={t("reports.filters.allConnections")}
+              data={filters.connections.map((connection) => ({ value: String(connection.id), label: connection.name }))}
+              value={filter.connectionId === undefined ? null : String(filter.connectionId)}
+              onChange={(value) => setKey("connectionId", value === null ? null : Number(value))}
+              clearable
+              clearButtonProps={{ "aria-label": t("reports.filters.clearAria", { name: t("reports.filters.connection") }) }}
               searchable
               w={200}
             />

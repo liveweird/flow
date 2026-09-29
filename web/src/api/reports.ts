@@ -61,6 +61,20 @@ export type EpicProgressPoint = EpicProgressReport["series"][number];
 export type EpicProgressRow = EpicProgressReport["rows"][number];
 export type EpicProgressEpic = NonNullable<EpicProgressReport["epic"]>;
 
+export type DataQualityReport =
+  paths["/api/v1/reports/data-quality"]["get"]["responses"]["200"]["content"]["application/json"];
+export type DataQualityTaskFinding = DataQualityReport["worklogCoverage"]["without"];
+export type DataQualityTaskRef = DataQualityTaskFinding["items"][number];
+export type DataQualityEpicList = DataQualityReport["epicDrift"];
+export type DataQualityEpicRef = DataQualityEpicList["items"][number];
+export type DataQualityGroup = DataQualityReport["groups"][number];
+export type DataQualitySnapshotDrift = DataQualityReport["snapshotDrift"]["items"][number];
+export type DataQualityLateWorklog = DataQualityReport["lateLogging"]["worst"][number];
+
+export type CostMatrixReport =
+  paths["/api/v1/reports/cost-matrix"]["get"]["responses"]["200"]["content"]["application/json"];
+export type CostMatrixRow = CostMatrixReport["rows"][number];
+
 export async function getReportFilters(): Promise<ReportFilters> {
   return jsonRequest<ReportFilters>("/api/v1/reports/filters");
 }
@@ -115,4 +129,12 @@ export async function getBlockedTimeReport(filter: ReportFilterState): Promise<B
 
 export async function getEpicProgressReport(filter: ReportFilterState): Promise<EpicProgressReport> {
   return jsonRequest<EpicProgressReport>(`/api/v1/reports/epic-progress?${reportQuery(filter)}`);
+}
+
+export async function getDataQualityReport(filter: ReportFilterState): Promise<DataQualityReport> {
+  return jsonRequest<DataQualityReport>(`/api/v1/reports/data-quality?${reportQuery(filter)}`);
+}
+
+export async function getCostMatrixReport(filter: ReportFilterState): Promise<CostMatrixReport> {
+  return jsonRequest<CostMatrixReport>(`/api/v1/reports/cost-matrix?${reportQuery(filter)}`);
 }

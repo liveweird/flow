@@ -56,6 +56,8 @@ describe("CommandPalette", () => {
       "Estimated backlog",
       "Aging WIP",
       "Blocked time",
+      "Data quality",
+      "Cost matrix",
     ]) {
       expect(screen.getByRole("button", { name: new RegExp(`^${report}$`) })).toBeInTheDocument();
     }

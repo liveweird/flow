@@ -6,11 +6,17 @@ import type {
   AgingWipReport,
   BacklogReport,
   BlockedTimeReport,
+  CostMatrixReport,
   Distribution,
   EpicAccuracyRow,
   EpicEstimationAccuracyReport,
   EstimateAdjustmentsReport,
   CycleTimeReport,
+  DataQualityEpicRef,
+  DataQualityGroup,
+  DataQualityReport,
+  DataQualityTaskFinding,
+  DataQualityTaskRef,
   EpicProgressReport,
   ReportedTimeRatioReport,
   ReportFilters,
@@ -907,4 +913,502 @@ export const EPIC_PROGRESS_NOT_DERIVED: EpicProgressReport = {
   foreignWorkShare: null,
   rows: [],
   note: NOT_DERIVED,
+};
+
+// ---- Data quality (report 14) --------------------------------------------------------------
+// Consistent by construction (checked by reportFixtures.test.ts): a finding's `total` is its
+// `done + open`, a capped list never carries more than 50 rows nor more than `total`, and at UNIT level
+// the groups add up to the matching headline count.
+
+const dqTask = (issueKey: string, extra: Partial<DataQualityTaskRef> = {}): DataQualityTaskRef => ({
+  issueKey,
+  summary: `Summary of ${issueKey}`,
+  teamId: 1,
+  assigneeAccountId: "acc-ann",
+  assignee: "Ann Author",
+  doneAt: Date.UTC(2026, 8, 20),
+  startedAt: Date.UTC(2026, 8, 10),
+  estimateMd: 3,
+  ...extra,
+});
+
+const dqFinding = (done: number, open: number, md: number, items: DataQualityTaskRef[]): DataQualityTaskFinding => ({
+  done,
+  open,
+  total: done + open,
+  md,
+  items,
+});
+
+const DQ_NO_TASKS = dqFinding(0, 0, 0, []);
+
+const dqEpic = (issueKey: string, extra: Partial<DataQualityEpicRef> = {}): DataQualityEpicRef => ({
+  issueKey,
+  summary: `Epic ${issueKey}`,
+  ownerTeamId: 1,
+  domainKey: "FLO",
+  startAt: Date.UTC(2026, 7, 1),
+  dueAt: Date.UTC(2026, 10, 1),
+  doneAt: null,
+  flags: [],
+  ...extra,
+});
+
+const dqCounts = (
+  done: number,
+  openStarted: number,
+  extra: Partial<DataQualityGroup["tasks"]> = {},
+): DataQualityGroup["tasks"] => ({
+  done,
+  openStarted,
+  withoutWorklogs: 0,
+  unassigned: 0,
+  outsideSprint: 0,
+  crossDomain: 0,
+  noEstimate: { done: 0, open: 0 },
+  noEpic: { done: 0, open: 0 },
+  noWorkCategory: { done: 0, open: 0 },
+  ...extra,
+});
+
+const dqLogged = (
+  worklogs: number,
+  over1Day: number,
+  over7Days: number,
+  hours: number,
+  memberDays: number,
+): DataQualityGroup["worklogs"] => ({
+  worklogs,
+  md: hours / 8,
+  over1Day,
+  over7Days,
+  hours,
+  memberDays,
+  hoursPerMemberDay: memberDays === 0 ? null : hours / memberDays,
+});
+
+const DQ_LATE = shownDistribution([12, 9, 4, 3], 0, 2, { p50: 1.5, p90: 5, p95: 6, mean: 2.4 });
+
+/** The whole unit, every finding populated; one of each list shape (a reconstructed baseline, a residual on the boards). */
+export const DATA_QUALITY: DataQualityReport = {
+  meta: META,
+  hoursPerDay: 8,
+  populations: { doneTasks: 20, openStartedTasks: 3, epics: 4, worklogs: 30 },
+  groups: [
+    {
+      teamId: 1,
+      accountId: null,
+      label: null,
+      tasks: dqCounts(12, 2, {
+        withoutWorklogs: 3,
+        outsideSprint: 2,
+        crossDomain: 1,
+        noEstimate: { done: 2, open: 1 },
+        noEpic: { done: 3, open: 1 },
+        noWorkCategory: { done: 1, open: 1 },
+      }),
+      worklogs: dqLogged(17, 9, 2, 90, 15),
+      epics: { epics: 2, withoutEstimate: 1, withoutDates: 1, outsidePvHorizon: 0, drifting: 1 },
+    },
+    {
+      teamId: 2,
+      accountId: null,
+      label: null,
+      tasks: dqCounts(6, 1, {
+        withoutWorklogs: 1,
+        unassigned: 1,
+        outsideSprint: 1,
+        noEstimate: { done: 1, open: 0 },
+        noEpic: { done: 2, open: 1 },
+        noWorkCategory: { done: 1, open: 0 },
+      }),
+      worklogs: dqLogged(10, 6, 1, 40, 10),
+      epics: { epics: 1, withoutEstimate: 1, withoutDates: 0, outsidePvHorizon: 1, drifting: 0 },
+    },
+    {
+      teamId: null,
+      accountId: null,
+      label: null,
+      tasks: dqCounts(2, 0, { unassigned: 1 }),
+      worklogs: dqLogged(3, 1, 0, 0, 0),
+      epics: { epics: 1, withoutEstimate: 0, withoutDates: 1, outsidePvHorizon: 0, drifting: 1 },
+    },
+  ],
+  worklogCoverage: {
+    doneTasks: 20,
+    withWorklogs: 16,
+    coverage: 0.8,
+    without: dqFinding(4, 0, 7.5, [dqTask("FLO-1"), dqTask("FLO-2", { summary: null, estimateMd: null, assignee: null })]),
+  },
+  loggedHours: { memberDays: 25, hours: 130, hoursPerMemberDay: 5.2 },
+  lateLogging: {
+    worklogs: 30,
+    measurable: 28,
+    over1Day: 16,
+    over7Days: 3,
+    distribution: DQ_LATE,
+    worst: [
+      {
+        worklogId: 501,
+        issueKey: "FLO-9",
+        summary: "Late one",
+        authorAccountId: "acc-bob",
+        author: "Bob Builder",
+        teamId: 1,
+        startedAt: Date.UTC(2026, 8, 1),
+        lateDays: 11.5,
+      },
+      {
+        worklogId: 502,
+        issueKey: "FLO-10",
+        summary: null,
+        authorAccountId: null,
+        author: null,
+        teamId: null,
+        startedAt: Date.UTC(2026, 8, 3),
+        lateDays: 7.2,
+      },
+    ],
+  },
+  missing: {
+    noEstimate: dqFinding(3, 1, 0, [dqTask("FLO-3", { estimateMd: null }), dqTask("FLO-4", { doneAt: null, estimateMd: null })]),
+    noEpic: dqFinding(5, 2, 12, [dqTask("FLO-5")]),
+    noWorkCategory: dqFinding(2, 1, 6, [dqTask("FLO-6")]),
+    workCategoryConfigured: true,
+    unassigned: dqFinding(2, 0, 4, [dqTask("FLO-7", { teamId: null, assigneeAccountId: null, assignee: null })]),
+    epicsWithoutEstimate: { total: 2, items: [dqEpic("FLO-E1"), dqEpic("FLO-E2", { ownerTeamId: 2 })] },
+    epicsWithoutDates: { total: 2, items: [dqEpic("FLO-E3", { ownerTeamId: null, startAt: null, dueAt: null }), dqEpic("FLO-E1", { dueAt: null })] },
+    epicsOutsidePvHorizon: {
+      total: 1,
+      items: [dqEpic("FLO-E2", { ownerTeamId: 2, dueAt: Date.UTC(2050, 0, 1) })],
+    },
+  },
+  outsideSprint: dqFinding(3, 0, 8, [dqTask("FLO-8")]),
+  crossDomain: dqFinding(1, 0, 2, [dqTask("FLO-11")]),
+  epicDrift: {
+    total: 2,
+    items: [
+      dqEpic("FLO-E1", { flags: ["EPIC_NOT_STARTED_WITH_ACTIVE_CHILDREN"] }),
+      dqEpic("FLO-E3", { ownerTeamId: null, flags: ["EPIC_OPEN_AFTER_CHILDREN_DONE", "EPIC_DONE_WITH_OPEN_CHILDREN"] }),
+    ],
+  },
+  domainsWithoutOwner: {
+    total: 1,
+    items: [{ connectionId: 1, domainKey: "OPS", name: "Operations", projectKeys: ["OPS", "OPS2"], epics: 3 }],
+  },
+  unmappedStatuses: {
+    total: 1,
+    items: [{ connectionId: 1, statusId: "10099", name: "Waiting for vendor", category: "In Progress", items: 14, openItems: 2 }],
+  },
+  unmappedBoards: {
+    total: 1,
+    items: [{ connectionId: 1, boardId: 5, name: "OPS board", projectKey: "OPS", sprints: 4, doneTasks: 3 }],
+    unattributedDoneTasks: 2,
+  },
+  authorsWithoutTeam: {
+    total: 2,
+    items: [
+      { accountId: "acc-zed", name: "Zed Zero", worklogs: 2, md: 1.5 },
+      { accountId: null, name: null, worklogs: 1, md: 0.5 },
+    ],
+  },
+  snapshotDrift: {
+    total: 3,
+    items: [
+      { connectionId: 1, sprintId: 12, name: "Alpha 2", teamId: 1, completeAt: Date.UTC(2026, 8, 10), field: "capacityMd", live: 40, frozen: 32, delta: 8, reconstructed: false },
+      { connectionId: 1, sprintId: 12, name: "Alpha 2", teamId: 1, completeAt: Date.UTC(2026, 8, 10), field: "load", live: 0.875, frozen: 1.1, delta: -0.225, reconstructed: false },
+      { connectionId: 1, sprintId: 21, name: "Beta 1", teamId: 2, completeAt: null, field: "committedItems", live: 9, frozen: 8, delta: 1, reconstructed: true },
+    ],
+  },
+  deriveWarnings: [
+    { connectionId: 1, connectionName: "Stub", runId: 7, startedAt: 1_780_000_000_000, warnings: ["sprintFieldUnresolved"] },
+  ],
+};
+
+/** Every finding checked and clean: the cards still render, each saying none was found. */
+export const DATA_QUALITY_CLEAN: DataQualityReport = {
+  ...DATA_QUALITY,
+  groups: [],
+  worklogCoverage: { doneTasks: 20, withWorklogs: 20, coverage: 1, without: DQ_NO_TASKS },
+  lateLogging: { worklogs: 30, measurable: 30, over1Day: 0, over7Days: 0, distribution: DQ_LATE, worst: [] },
+  missing: {
+    noEstimate: DQ_NO_TASKS,
+    noEpic: DQ_NO_TASKS,
+    noWorkCategory: DQ_NO_TASKS,
+    workCategoryConfigured: true,
+    unassigned: DQ_NO_TASKS,
+    epicsWithoutEstimate: { total: 0, items: [] },
+    epicsWithoutDates: { total: 0, items: [] },
+    epicsOutsidePvHorizon: { total: 0, items: [] },
+  },
+  outsideSprint: DQ_NO_TASKS,
+  crossDomain: DQ_NO_TASKS,
+  epicDrift: { total: 0, items: [] },
+  domainsWithoutOwner: { total: 0, items: [] },
+  unmappedStatuses: { total: 0, items: [] },
+  unmappedBoards: { total: 0, items: [], unattributedDoneTasks: 0 },
+  authorsWithoutTeam: { total: 0, items: [] },
+  snapshotDrift: { total: 0, items: [] },
+  deriveWarnings: [],
+};
+
+/** A list the server capped: 50 rows of 75 matches, so the card says "and 25 more". */
+export const DATA_QUALITY_CAPPED: DataQualityReport = {
+  ...DATA_QUALITY,
+  missing: {
+    ...DATA_QUALITY.missing,
+    noEpic: dqFinding(70, 5, 100, Array.from({ length: 50 }, (_, i) => dqTask(`CAP-${i + 1}`))),
+  },
+  unmappedStatuses: {
+    total: 53,
+    items: Array.from({ length: 50 }, (_, i) => ({
+      connectionId: 1,
+      statusId: String(20000 + i),
+      name: `Status ${i + 1}`,
+      category: null,
+      items: 1,
+      openItems: 0,
+    })),
+  },
+};
+
+/** One team's members: no epic counts (epics carry no user), no work-category field, a hidden lateness distribution, and no team-less findings. */
+export const DATA_QUALITY_TEAM: DataQualityReport = {
+  ...DATA_QUALITY,
+  meta: { ...META, level: "TEAM" },
+  groups: [
+    {
+      teamId: null,
+      accountId: "acc-ann",
+      label: "Ann Author",
+      tasks: dqCounts(8, 1, { withoutWorklogs: 2 }),
+      worklogs: dqLogged(9, 4, 1, 45, 10),
+      epics: null,
+    },
+    {
+      teamId: null,
+      accountId: "acc-bob",
+      label: "Bob Builder",
+      tasks: dqCounts(4, 1),
+      worklogs: dqLogged(8, 5, 1, 45, 5),
+      epics: null,
+    },
+  ],
+  lateLogging: { ...DATA_QUALITY.lateLogging, distribution: hiddenDistribution(3), worst: [] },
+  missing: { ...DATA_QUALITY.missing, workCategoryConfigured: false, noWorkCategory: DQ_NO_TASKS },
+  domainsWithoutOwner: { total: 0, items: [] },
+  authorsWithoutTeam: { total: 0, items: [] },
+};
+
+/** One member: no groups, no epic or sprint findings. */
+export const DATA_QUALITY_USER: DataQualityReport = {
+  ...DATA_QUALITY_TEAM,
+  meta: { ...META, level: "USER" },
+  groups: [],
+  missing: {
+    ...DATA_QUALITY_TEAM.missing,
+    epicsWithoutEstimate: { total: 0, items: [] },
+    epicsWithoutDates: { total: 0, items: [] },
+    epicsOutsidePvHorizon: { total: 0, items: [] },
+  },
+  epicDrift: { total: 0, items: [] },
+  snapshotDrift: { total: 0, items: [] },
+};
+
+// Cost matrix. Consistent by construction (checked by reportFixtures.test.ts): cells are dense and in column
+// order, every total is within the rounding bound (0.005 per addend) of the sum it stands for, and a foreign
+// share is the row's foreign MD over its MD (null when nothing was logged).
+
+/** The whole unit, EPIC view: a live team, a soft-deleted one that still logged work, and the unassigned authors. */
+export const COST_MATRIX_UNIT: CostMatrixReport = {
+  meta: { ...META, domainView: "EPIC" },
+  columns: [
+    { domain: "FLO", name: "Flow", totalMd: 11.5 },
+    { domain: "OPS", name: "Operations", totalMd: 3 },
+  ],
+  rows: [
+    {
+      teamId: 1,
+      accountId: null,
+      label: "Alpha",
+      active: true,
+      cells: [
+        { domain: "FLO", md: 10 },
+        { domain: "OPS", md: 2.5 },
+      ],
+      totalMd: 12.5,
+      foreignMd: 3.75,
+      foreignShare: 0.3,
+    },
+    {
+      teamId: 4,
+      accountId: null,
+      label: "Old team",
+      active: false,
+      cells: [
+        { domain: "FLO", md: 1 },
+        { domain: "OPS", md: 0 },
+      ],
+      totalMd: 1,
+      foreignMd: 0,
+      foreignShare: 0,
+    },
+    {
+      teamId: 0,
+      accountId: null,
+      label: null,
+      active: true,
+      cells: [
+        { domain: "FLO", md: 0.5 },
+        { domain: "OPS", md: 0.5 },
+      ],
+      totalMd: 1,
+      foreignMd: 0,
+      foreignShare: 0,
+    },
+  ],
+  totalMd: 14.5,
+  foreignMd: 3.75,
+  foreignShare: 3.75 / 14.5,
+};
+
+/** The same unit read in the TASK view: a cross-domain task moved from the epic's column to its own. */
+export const COST_MATRIX_TASK_VIEW: CostMatrixReport = {
+  ...COST_MATRIX_UNIT,
+  meta: { ...META, domainView: "TASK" },
+  columns: [
+    { domain: "FLO", name: "Flow", totalMd: 9.5 },
+    { domain: "OPS", name: "Operations", totalMd: 5 },
+  ],
+  rows: [
+    { ...COST_MATRIX_UNIT.rows[0], cells: [{ domain: "FLO", md: 8 }, { domain: "OPS", md: 4.5 }] },
+    { ...COST_MATRIX_UNIT.rows[1], cells: [{ domain: "FLO", md: 1 }, { domain: "OPS", md: 0 }] },
+    { ...COST_MATRIX_UNIT.rows[2], cells: [{ domain: "FLO", md: 0.5 }, { domain: "OPS", md: 0.5 }] },
+  ],
+};
+
+/** A sprint-relative period: the server sends no `from`/`to`. */
+export const COST_MATRIX_SPRINTS: CostMatrixReport = {
+  ...COST_MATRIX_UNIT,
+  meta: { ...META, domainView: "EPIC", from: null, to: null, resolvedSprints: [{ teamId: 1, sprintIds: [11, 12] }] },
+};
+
+/** The rounding rule: three thirds of a man-day show 0.33 each, their exact sum shows 1 — never 0.99. */
+export const COST_MATRIX_THIRDS: CostMatrixReport = {
+  meta: { ...META, domainView: "EPIC" },
+  columns: [
+    { domain: "A", name: "Alfa", totalMd: 0.33 },
+    { domain: "B", name: "Bravo", totalMd: 0.33 },
+    { domain: "C", name: null, totalMd: 0.33 },
+  ],
+  rows: [
+    {
+      teamId: 1,
+      accountId: null,
+      label: "Alpha",
+      active: true,
+      cells: [
+        { domain: "A", md: 0.33 },
+        { domain: "B", md: 0.33 },
+        { domain: "C", md: 0.33 },
+      ],
+      totalMd: 1,
+      foreignMd: 0,
+      foreignShare: 0,
+    },
+  ],
+  totalMd: 1,
+  foreignMd: 0,
+  foreignShare: 0,
+};
+
+/** One team's authors (TEAM level), one of them logging under no known author. */
+export const COST_MATRIX_TEAM: CostMatrixReport = {
+  meta: { ...META, level: "TEAM", domainView: "EPIC" },
+  columns: [
+    { domain: "FLO", name: "Flow", totalMd: 6 },
+    { domain: null, name: null, totalMd: 1 },
+  ],
+  rows: [
+    {
+      teamId: 1,
+      accountId: "acc-ann",
+      label: "Ann Author",
+      cells: [
+        { domain: "FLO", md: 4 },
+        { domain: null, md: 0 },
+      ],
+      totalMd: 4,
+      foreignMd: 1,
+      foreignShare: 0.25,
+    },
+    {
+      teamId: 1,
+      accountId: "acc-bob",
+      label: "Bob Builder",
+      cells: [
+        { domain: "FLO", md: 2 },
+        { domain: null, md: 0 },
+      ],
+      totalMd: 2,
+      foreignMd: 0,
+      foreignShare: 0,
+    },
+    {
+      teamId: 1,
+      accountId: null,
+      label: null,
+      cells: [
+        { domain: "FLO", md: 0 },
+        { domain: null, md: 1 },
+      ],
+      totalMd: 1,
+      foreignMd: 0,
+      foreignShare: 0,
+    },
+  ],
+  totalMd: 7,
+  foreignMd: 1,
+  foreignShare: 1 / 7,
+};
+
+/** One author (USER level): no drill left. */
+export const COST_MATRIX_USER: CostMatrixReport = {
+  meta: { ...META, level: "USER", domainView: "EPIC" },
+  columns: [{ domain: "FLO", name: "Flow", totalMd: 4 }],
+  rows: [
+    {
+      teamId: 1,
+      accountId: "acc-ann",
+      label: "Ann Author",
+      cells: [{ domain: "FLO", md: 4 }],
+      totalMd: 4,
+      foreignMd: 1,
+      foreignShare: 0.25,
+    },
+  ],
+  totalMd: 4,
+  foreignMd: 1,
+  foreignShare: 0.25,
+};
+
+/** Worklogs that add up to no man-days at all: the rows exist, the share does not. */
+export const COST_MATRIX_NO_SHARE: CostMatrixReport = {
+  meta: { ...META, domainView: "EPIC" },
+  columns: [{ domain: "FLO", name: "Flow", totalMd: 0 }],
+  rows: [
+    { teamId: 1, accountId: null, label: "Alpha", active: true, cells: [{ domain: "FLO", md: 0 }], totalMd: 0, foreignMd: 0, foreignShare: null },
+  ],
+  totalMd: 0,
+  foreignMd: 0,
+  foreignShare: null,
+};
+
+export const COST_MATRIX_EMPTY: CostMatrixReport = {
+  meta: { ...META, domainView: "EPIC" },
+  columns: [],
+  rows: [],
+  totalMd: 0,
+  foreignMd: 0,
+  foreignShare: null,
 };

@@ -68,6 +68,18 @@ describe("reportHref", () => {
     expect(reportHref("/reports/velocity", search)).toBe("/reports/velocity?teamId=2");
   });
 
+  test("data quality keeps a domain and its view — never an activity type, work category, bucket, by, item kind or epic", () => {
+    const search = "teamId=2&domainView=EPIC&domain=FLO&epicId=FLO-33&activityType=Bug&workCategory=X&bucket=MONTH&by=STATUS&itemKind=EPIC";
+    expect(reportHref("/reports/data-quality", search)).toBe("/reports/data-quality?teamId=2&domainView=EPIC&domain=FLO");
+  });
+
+  test("the cost matrix keeps the domain, its view, the activity type and the work category — never a bucket, by, item kind or epic", () => {
+    const search = "teamId=2&domainView=TASK&domain=FLO&epicId=FLO-33&activityType=Bug&workCategory=X&bucket=MONTH&by=STATUS&itemKind=EPIC&breakdown=DOMAIN";
+    expect(reportHref("/reports/cost-matrix", search)).toBe(
+      "/reports/cost-matrix?teamId=2&domainView=TASK&domain=FLO&activityType=Bug&workCategory=X",
+    );
+  });
+
   test("an empty query, or one that only held dropped params, is the bare path; foreign params survive", () => {
     expect(reportHref("/reports/velocity", "")).toBe("/reports/velocity");
     expect(reportHref("/reports/velocity", "?bucket=WEEK")).toBe("/reports/velocity");

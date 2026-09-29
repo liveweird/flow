@@ -4,7 +4,7 @@ Vite + React 19 + TypeScript SPA: the shell + auth, user/feature management, MFA
 the changelog, and the flat-teams registry — v0.1.0's foundation — plus, since v0.2.0, the Data
 sources pages (ADMIN-managed Jira Cloud connections, their sync jobs, data profile and raw-issue
 inspector — see "Data sources" below) and, since v0.3.0, the metrics configuration pages and the
-fifteen report pages (sixteen reports; `pages/Report*.tsx`; `pages/Home.tsx` is the unit overview). Routes are lazy. New capability that Covenant, Toadie or
+fifteen report pages (sixteen reports; `pages/Report*.tsx`; `pages/Home.tsx` is the unit overview — see "Home overview" under Reports). Routes are lazy. New capability that Covenant, Toadie or
 Lettuce already has? Port their building blocks (see "Not yet ported" at the bottom) rather than
 inventing new ones.
 
@@ -350,8 +350,8 @@ endpoint (`requireAdmin` server-side).
   (`dataSourcesPath`, `dataSourcePath`, `dataSourceProfilePath`, `dataSourceInspectPath`) — never
   hand-assemble these URLs. `utils/dataSourceState.ts` holds the state→colour map and
   `formatEpochMillis` (the deterministic `YYYY-MM-DD HH:mm` rendering, "Never" for null).
-- `pages/Home.tsx`'s admin empty state links to `/data-sources` (a plain `Anchor` under the
-  `EmptyState`, not a rewrite of that shared component) — "keep it simple" per the commit plan.
+- `pages/Home.tsx`'s admin empty state links to `/data-sources` and `/metrics-settings` (plain `Anchor`s
+  under the `EmptyState`, not a rewrite of that shared component) — see "Home overview" under Reports.
 
 ## Metrics configuration (`pages/MetricsSettings.tsx`, `components/TeamJiraMembers.tsx`, `pages/DataSourceMetricsConfig.tsx`)
 
@@ -551,6 +551,60 @@ completed · the report's figures · the orange drift badge with the frozen figu
   shows the budget and its source, the planned dates (calendar dates, read in UTC), the orange drift badges, every
   baseline (`effectiveFrom`/`supersededAt` are instants, read in the configured zone) and the two gray "no plan curve"
   notes (`!inPvHorizon` / in the horizon but `!hasPvCurve`) — EV and AC still count either way.
+- **Data quality** (`pages/ReportDataQuality.tsx`, `/reports/data-quality`, its own single-page nav leaf `appShell.nav.reportsDataQuality` —
+  a group of one, so no `ReportTabs` and no palette-only twin; `.claude/docs/reports.md` "Report 14"). One card per finding
+  (`components/DataQualityCard.tsx` the shell: h3 title, one plain-language line, a state badge — orange `Found: N`, teal `None found`, gray
+  `Not measured`, none for the logged-hours figure — and `CappedTable`, which says "and N more" when `total > items.length`), in the order
+  logging (`DataQualityLogging`) → missing data and epics (`DataQualityMissing`) → sprint/drift (`DataQualitySprint`) → configuration
+  (`DataQualityConfig`), the overview tiles (`DataQualitySummary`, each a link that scrolls to and focuses its card — no hash in the URL)
+  first and the groups table last. A clean finding keeps its card (users see it was checked). The bar offers period, team/member, domain,
+  domain view and — only with more than one connection — `connection` (`ReportControls.connection`); `normalizeDataQualityFilter` drops
+  every param the page has no control for (activity type, work category, breakdown, bucket, by, item kind, epic) off the request AND the
+  URL. What the API returns is rendered as is: a real team sees no domains/authors without a team (the card says a team's view lists none),
+  the connection-level findings say the team filter does not narrow them, USER level says epic and sprint findings are not read for one
+  person, and a work-category field nobody configured is "Not measured", not clean. Configuration findings are admin-actionable: the
+  connection cell links to `dataSourceMetricsConfigPath` for `useAdmin()` only, plain text for everyone else. Snapshot drift prints the
+  sprint, translated figure, live, frozen and the signed difference (`utils/dataQualityReport.ts`), marking `reconstructed` baselines with
+  an orange outline badge and one explanatory line.
+- **Cost matrix** (`pages/ReportCostMatrix.tsx`, `/reports/cost-matrix`, its own single-page nav leaf `appShell.nav.reportsCost` — a
+  group of one like Data quality, since a matrix is a different shape from the flow reports' series, so no `ReportTabs` and no palette-only
+  twin; `.claude/docs/reports.md` "Report 16"). Tiles (man-days, foreign man-days, the overall foreign share — a dash and the reason when the
+  server sends `null`, never 0%), then `components/CostMatrixTable.tsx`: a HEAT TABLE — rows are the level's authors (UNIT: author teams,
+  UNASSIGNED `teamId` 0 last under the shared "Unassigned" label; TEAM: the team's authors, the no-author bucket "No known author"; USER: one
+  row), columns the domains (`domainView` default EPIC, the bar's "Delivered in / Earned in" toggle; the caption line says whose domain the
+  columns are), cells the man-days shaded on ONE sequential scale (`utils/heatScale.ts`: the brand blue mixed into the table surface in five
+  steps, linear against the largest CELL — `heatStep` — with each step's own text colour, pinned ≥ 4.5:1 in both schemes by
+  `heatScale.test.ts`; a zero cell has no fill and dimmed text; the number is the carrier and a legend says so), then row total, foreign MD
+  and foreign share (`formatPercent`, a dash for `null`) and a totals row. Every figure is the server's own rounded exact sum, NEVER re-added
+  from the cells shown (the footnote states the ≤ 0.005-per-addend rule). It is a real table: a visually hidden `caption`, `scope="col"`/
+  `scope="row"` headers, the first column and the header row sticky inside a `Table.ScrollContainer` (`theme.module.css` `.heatTable` — the
+  theme's card frame clips with `overflow: hidden`, which would keep `position: sticky` from engaging, so the class lifts it). A row NAME is
+  the way in (`drillSearch` in `utils/costMatrixReport.ts`: team → its authors, author → one person, the period travelling along; a one-sprint
+  period survives only into a team that lists the sprint); a soft-deleted team (`active: false`) is marked "Deleted team" and never linked
+  (its drill is a `400`), and UNASSIGNED is not linked under a sprint-relative period (`meta.from === null` — a team-less drill resolves no
+  sprint and answers empty). A sprint-relative period says so: the unit's team rows read the union envelope, a team drill only its own
+  sprints. The bar offers period, team/member, domain, domain view, activity type, work category and (with more than one) connection;
+  `normalizeCostMatrixFilter` drops `breakdown`, `bucket`, `by`, `itemKind` and `epicId` off the request and the URL.
+- **Home overview** (`pages/Home.tsx`, plan amendment A9; `utils/homeOverview.ts` is its pure logic). The landing page is
+  the WHOLE unit at a glance — never the remembered team, the page description says so — as four tiles over UNIT-level
+  report endpoints, **five requests and no aggregator** (`["home", <report>]` keys, staleTime 60 s; the budget is pinned by
+  `Home.test.tsx`): the shared `["reports","filters"]` reference data (same key as the report pages, so opening a report reuses
+  it; only its `timeZone` is read, nothing waits on it and its failure shows nowhere), `sprint-consistency?lastSprints=1` (each team's last closed sprint, all from one `fact_sprint` row:
+  committed = initial, final, delivered; a lazy `HomeVelocityChart` beside a table with a Closed date read in the configured zone and the
+  orange "Drift" badge + frozen figures like the report pages; title → Velocity, secondary links → Throughput and Sprint
+  consistency), `cycle-time` (the server's default trailing 90 days: median/p90/finished count and `CycleTimeTrendChart` at
+  `height={200}` with the trend as a visually hidden table), `aging-wip` (tasks in progress, and "Past p85" orange /
+  "Past p95" red as the top two configured thresholds' counts — read off the SERVER's `band` through `bandTone`, epics
+  not counted, dashes plus a reason when the thresholds are hidden, "N+" when the 500-item list was truncated) and
+  `data-quality` (`qualityHighlights`: the configuration kinds — derive warnings, unmapped statuses/boards, domains
+  without an owner — first, then the volume kinds by count, five shown as orange badges, a plural "and N more kind(s)",
+  "All findings"; teal "None found" when clean). `HomeTile` is the shell: a section whose h3 title IS the link into
+  the full report, a caption stating the period/scope, `aria-busy`, and its OWN skeleton/error triage (one failing report
+  never takes another tile down); the page owns the ONE polite "Loading…" live region. **No link is ever bare** (a bare report
+  URL applies the remembered team): every one carries `lastSprints=1` or a from/to period — the one the server resolved
+  (`overviewPeriod`: `meta.from/to` of the cycle-time or data-quality answer), else the same trailing 90 days computed
+  locally in the configured zone (UTC dates while the reference data is pending or failed). When every answer says `derivedAt: null` and none failed the page shows the empty state instead
+  (admin: data sources + metrics settings links); a failed request keeps the grid so the empty state never hides it.
 - **Load order**: `["reports","filters"]` (staleTime 60 s) → the page query keyed
   `["reports", <report>, <serialized filter>]`, `enabled` once the filters loaded,
   `placeholderData: keepPreviousData` (`ReportChartCard` dims the previous body and sets `aria-busy`).

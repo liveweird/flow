@@ -26,7 +26,13 @@ describe("visibleSections", () => {
   test("Reports is visible to everyone — an admin sees the same leaves there", () => {
     for (const admin of [false, true]) {
       const reports = visibleSections(admin).find((s) => s.label === "appShell.section.reports");
-      expect(reports?.items.map((l) => l.to)).toEqual(["/reports/velocity", "/reports/task-estimation-accuracy", "/reports/wip"]);
+      expect(reports?.items.map((l) => l.to)).toEqual([
+        "/reports/velocity",
+        "/reports/task-estimation-accuracy",
+        "/reports/wip",
+        "/reports/data-quality",
+        "/reports/cost-matrix",
+      ]);
       expect(reports?.items[0].activeFor).toEqual([
         "/reports/velocity",
         "/reports/throughput",
@@ -46,6 +52,10 @@ describe("visibleSections", () => {
         "/reports/blocked-time",
         "/reports/epic-progress",
       ]);
+      // Data quality is a group of one: its leaf is the page, with no tabs to list.
+      expect(reports?.items[3].activeFor).toBeUndefined();
+      // …and so is the cost matrix.
+      expect(reports?.items[4].activeFor).toBeUndefined();
       expect(reports?.items.some((l) => l.adminOnly)).toBe(false);
     }
   });
@@ -66,7 +76,12 @@ describe("visibleSections", () => {
       "/reports/blocked-time",
       "/reports/epic-progress",
     ]);
+    // …and Data quality is the sidebar's own leaf, so it has no palette-only twin (it would list twice).
+    expect(REPORT_PALETTE_LEAVES.map((l) => l.to)).not.toContain("/reports/data-quality");
+    expect(REPORT_PALETTE_LEAVES.map((l) => l.to)).not.toContain("/reports/cost-matrix");
     const sidebar = visibleSections(true).flatMap((s) => s.items.map((l) => l.to));
+    expect(sidebar).toContain("/reports/data-quality");
+    expect(sidebar).toContain("/reports/cost-matrix");
     expect(sidebar).not.toContain("/reports/throughput");
     expect(sidebar).not.toContain("/reports/sprint-consistency");
     expect(sidebar).not.toContain("/reports/epic-estimation-accuracy");
@@ -111,6 +126,8 @@ describe("activeNavPath", () => {
     expect(activeNavPath("/reports/aging-wip", leaves)).toBe("/reports/wip");
     expect(activeNavPath("/reports/blocked-time", leaves)).toBe("/reports/wip");
     expect(activeNavPath("/reports/epic-progress", leaves)).toBe("/reports/wip");
+    expect(activeNavPath("/reports/data-quality", leaves)).toBe("/reports/data-quality");
+    expect(activeNavPath("/reports/cost-matrix", leaves)).toBe("/reports/cost-matrix");
     expect(activeNavPath("/reports/cycle-time", leaves)).toBe("/reports/velocity");
     expect(activeNavPath("/reports/reported-time-ratio", leaves)).toBe("/reports/task-estimation-accuracy");
     // The longest match still wins across leaves.

@@ -3,18 +3,20 @@ import { REPORT_SPECIFIC_KEYS, type ReportSpecificKey } from "./reportFilter";
 
 /** The ONE place the reports route family is spelled out — never hand-assemble a report URL. */
 export const velocityPath = "/reports/velocity";
-const throughputPath = "/reports/throughput";
-const sprintConsistencyPath = "/reports/sprint-consistency";
-const cycleTimePath = "/reports/cycle-time";
+export const throughputPath = "/reports/throughput";
+export const sprintConsistencyPath = "/reports/sprint-consistency";
+export const cycleTimePath = "/reports/cycle-time";
 export const taskAccuracyPath = "/reports/task-estimation-accuracy";
 const epicAccuracyPath = "/reports/epic-estimation-accuracy";
 const estimateAdjustmentsPath = "/reports/estimate-adjustments";
 const reportedTimePath = "/reports/reported-time-ratio";
 export const wipPath = "/reports/wip";
 const backlogPath = "/reports/backlog";
-const agingWipPath = "/reports/aging-wip";
+export const agingWipPath = "/reports/aging-wip";
 const blockedTimePath = "/reports/blocked-time";
 export const epicProgressPath = "/reports/epic-progress";
+export const dataQualityPath = "/reports/data-quality";
+export const costMatrixPath = "/reports/cost-matrix";
 
 export type ReportTabDef = { to: string; label: ParseKeys };
 
@@ -67,6 +69,10 @@ const REPORT_SPECIFIC_PARAMS: Readonly<Record<string, readonly ReportSpecificKey
   [blockedTimePath]: ["domain", "activityType", "workCategory", "itemKind"],
   // EVM is always the epic view and has no per-day activity type/work category; its scope is ONE of epic, domain or team.
   [epicProgressPath]: ["domain", "epicId"],
+  // Data quality takes the domain and its view, but has no control for an activity type or work category.
+  [dataQualityPath]: ["domain", "domainView"],
+  // The cost matrix slices the worklogs by every one of these; its rows and columns are the org drill and the domains.
+  [costMatrixPath]: ["domain", "domainView", "activityType", "workCategory"],
 };
 
 /**

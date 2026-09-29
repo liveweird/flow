@@ -1,7 +1,57 @@
 {
   "title": "Flow",
-  "intro": "Flow shows how work flows through your teams — flow metrics, bottlenecks and trends from Jira.",
-  "empty": "No data source connected yet",
-  "emptyAdmin": "No data source connected yet.",
-  "emptyAdminLink": "Add a data source"
+  "intro": "The whole unit at a glance — every team together, over a fixed recent period (not your remembered team). Each tile opens its full report, where you can filter by team, member and period.",
+  "empty": "No data has been derived yet. The overview appears once a data source is connected and synced.",
+  "emptyAdmin": "No data has been derived yet. Connect a data source, let it sync and check the metrics settings.",
+  "emptyAdminLink": "Add a data source",
+  "emptyAdminSettingsLink": "Metrics settings",
+  "tilesLabel": "Unit overview",
+  "velocity": {
+    "title": "Velocity and throughput",
+    "caption": "Each team's last closed sprint, in man-days: initial and final scope against what it delivered.",
+    "throughputLink": "Throughput report",
+    "empty": "No closed sprint yet.",
+    "chartLabel": "Chart: initial scope, final scope and delivered scope of each team's last closed sprint",
+    "tableLabel": "Each team's last closed sprint, as a table",
+    "series": {
+      "initial": "Initial (committed)",
+      "final": "Final",
+      "delivered": "Delivered"
+    },
+    "column": {
+      "team": "Team",
+      "sprint": "Sprint",
+      "closed": "Closed",
+      "initial": "Initial (MD)",
+      "final": "Final (MD)",
+      "delivered": "Delivered (MD)"
+    },
+    "consistencyLink": "Sprint consistency report"
+  },
+  "cycleTime": {
+    "title": "Cycle time",
+    "caption": "Tasks finished in the last 90 days, in working days.",
+    "captionDates": "Tasks finished in the last 90 days ({{from}} – {{to}}), in working days.",
+    "empty": "No task finished in this period.",
+    "statsLabel": "Cycle time in working days",
+    "hidden": "Fewer than {{min}} finished tasks — no median or p90 yet."
+  },
+  "wip": {
+    "title": "Work in progress",
+    "caption": "Tasks in progress right now, aged in working days against the unit's recent finished tasks.",
+    "statsLabel": "Work in progress and aging",
+    "inProgress": "In progress",
+    "past": "Past p{{percentile}}",
+    "empty": "Nothing is in progress right now.",
+    "hidden": "Not enough finished tasks for aging thresholds ({{n}} of the {{min}} needed).",
+    "truncated": "The list holds the oldest 500 items, so these figures are at least."
+  },
+  "quality": {
+    "title": "Data quality",
+    "caption": "Period-bound findings cover the last 90 days; configuration findings are current. Configuration first, then the largest.",
+    "listLabel": "Data-quality findings, largest first",
+    "all": "All findings",
+    "more_one": "and {{count}} more kind of finding",
+    "more_other": "and {{count}} more kinds of findings"
+  }
 }

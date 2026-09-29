@@ -159,6 +159,75 @@
 
 /* Form sections: a flat block under a small-caps legend on a hairline (v1.20.0) —
    `Fieldset variant="unstyled"` keeps the fieldset/legend semantics without the frame. */
+/* A report finding's card: the overview tiles focus it, so its title must clear the fixed header
+   (the same 80px the form sections use). */
+.reportCard {
+  scroll-margin-top: 80px;
+}
+
+/* The cost matrix (a heat table): the header row and the author column stay in view while it scrolls.
+   The theme's card frame clips with `overflow: hidden` — a scroll container of its own, which would keep
+   `position: sticky` from ever engaging against the ScrollContainer — so the clip goes and the four
+   corner cells take the radius themselves. Sticky cells need an opaque surface to slide over. */
+.table.heatTable {
+  overflow: visible;
+  font-variant-numeric: tabular-nums;
+}
+
+.heatTable thead tr:first-child th:first-child {
+  border-top-left-radius: var(--mantine-radius-md);
+}
+
+.heatTable thead tr:first-child th:last-child {
+  border-top-right-radius: var(--mantine-radius-md);
+}
+
+.heatTable tfoot tr:last-child th:first-child {
+  border-bottom-left-radius: var(--mantine-radius-md);
+}
+
+.heatTable tfoot tr:last-child td:last-child {
+  border-bottom-right-radius: var(--mantine-radius-md);
+}
+
+/* The scroller is a keyboard stop (it scrolls a table wider or taller than the screen): a visible focus ring. */
+.heatScroll:focus-visible {
+  outline: 2px solid var(--flow-accent-ink);
+  outline-offset: 2px;
+}
+
+/* The caption names the table for assistive technology; the card title and the domain-view line say the same
+   to everyone else (a visible caption would be centred on a table wider than the screen). */
+.heatCaption {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* The totals row: a heavier rule above it (the last body row drops its own border) and bold figures. */
+.heatTable tfoot th,
+.heatTable tfoot td {
+  font-weight: 600;
+  border-top: 1px solid light-dark(var(--mantine-color-gray-4), var(--mantine-color-dark-3));
+}
+
+.heatStickyCol {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background-color: var(--mantine-color-body);
+  border-right: 1px solid light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4));
+}
+
+/* A sticky header is painted with the body colour (not the theme's header tint), so the sticky first cell is
+   the same: an opaque surface to slide over, matching its neighbours. */
+.table.heatTable thead .heatStickyCol {
+  background-color: var(--mantine-color-body);
+}
+
 .formSection {
   padding: 0;
   scroll-margin-top: 80px;

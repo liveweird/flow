@@ -1,22 +1,10 @@
 import { DEFAULT_THEME } from "@mantine/core";
 import { describe, expect, it } from "vitest";
 import indexCss from "./index.css?raw";
+import { contrast } from "./test/contrast";
 import { theme } from "./theme";
 import { DARK_TOKENS, LIGHT_TOKENS, LIGHT_VARIANT_INKS } from "./themeVariables";
 
-// WCAG 2.x relative luminance + contrast ratio — the guard that keeps the colour tokens
-// AA-clean (the e2e axe scan runs the color-contrast rule un-waived).
-function channel(hex: string, offset: number): number {
-  const c = Number.parseInt(hex.slice(offset, offset + 2), 16) / 255;
-  return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-}
-function luminance(hex: string): number {
-  return 0.2126 * channel(hex, 1) + 0.7152 * channel(hex, 3) + 0.0722 * channel(hex, 5);
-}
-function contrast(a: string, b: string): number {
-  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
-  return (hi + 0.05) / (lo + 0.05);
-}
 // Mantine's own `darken(color, alpha)`: each channel scaled by (1 - alpha), rounded — the dark
 // scheme's light-variant surface is `darken(<hue>-9, 0.5)` (get-css-color-variables.mjs).
 function darken(hex: string, alpha: number): string {
