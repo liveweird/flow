@@ -565,7 +565,7 @@ completed · the report's figures · the orange drift badge with the frozen figu
   person, and a work-category field nobody configured is "Not measured", not clean. Configuration findings are admin-actionable: the
   connection cell links to `dataSourceMetricsConfigPath` for `useAdmin()` only, plain text for everyone else. Snapshot drift prints the
   sprint, translated figure, live, frozen and the signed difference (`utils/dataQualityReport.ts`), marking `reconstructed` baselines with
-  an orange outline badge and one explanatory line.
+  an orange light badge and one explanatory line.
 - **Cost matrix** (`pages/ReportCostMatrix.tsx`, `/reports/cost-matrix`, its own single-page nav leaf `appShell.nav.reportsCost` — a
   group of one like Data quality, since a matrix is a different shape from the flow reports' series, so no `ReportTabs` and no palette-only
   twin; `.claude/docs/reports.md` "Report 16"). Tiles (man-days, foreign man-days, the overall foreign share — a dash and the reason when the

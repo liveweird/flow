@@ -1,3 +1,4 @@
+import AxeBuilder from "@axe-core/playwright";
 import { type APIRequestContext, expect, type Page, request as playwrightRequest, test } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { BASE_URL } from "../playwright.config";
@@ -259,4 +260,82 @@ export async function awaitDerivedSprint(api: APIRequestContext, teamId: number,
     }
     await new Promise((resolve) => setTimeout(resolve, 5_000));
   }
+}
+
+/**
+ * Stub people who logged work in the sample data's window (`sample-data/jira/expected.json`'s
+ * `teams.roster`), in the order `addStubMemberViaApi` tries them.
+ */
+const STUB_MEMBER_CANDIDATES = [
+  { accountId: "5f8a1b2c3d4e5f6a7b8c9d16", displayName: "Sample User 16" },
+  { accountId: "5f8a1b2c3d4e5f6a7b8c9d22", displayName: "Sample User 22" },
+  { accountId: "5f8a1b2c3d4e5f6a7b8c9d24", displayName: "Sample User 24" },
+  { accountId: "5f8a1b2c3d4e5f6a7b8c9d12", displayName: "Sample User 12" },
+  { accountId: "5f8a1b2c3d4e5f6a7b8c9d30", displayName: "Sample User 30" },
+  { accountId: "5f8a1b2c3d4e5f6a7b8c9d04", displayName: "Sample User 4" },
+];
+
+/**
+ * Put one stub Jira person on `teamId` from the start of 2025, open-ended, through the API — so a
+ * report that attributes authors to teams (the cost matrix) has a real team row. D1's exclusion
+ * constraint scopes a person to ONE team at any instant GLOBALLY, and a deleted team keeps its
+ * membership rows, so a person left over from an aborted run answers `409`: the next candidate is
+ * tried instead of failing the run. The caller deletes the membership BEFORE the team.
+ */
+export async function addStubMemberViaApi(
+  api: APIRequestContext,
+  teamId: number,
+): Promise<{ membershipId: number; accountId: string; displayName: string }> {
+  const validFrom = Date.UTC(2025, 0, 1);
+  for (const candidate of STUB_MEMBER_CANDIDATES) {
+    const created = await api.post(`/api/v1/teams/${teamId}/jira-memberships`, {
+      data: { accountId: candidate.accountId, validFrom, validTo: null },
+    });
+    if (created.status() === 409) continue;
+    expect(created.status(), await created.text()).toBe(201);
+    return { membershipId: (await created.json()).id as number, ...candidate };
+  }
+  throw new Error("every stub member candidate already belongs to another team — clear the leftover memberships");
+}
+
+/**
+ * Wait until a DERIVE has run under the team's board mapping AND its member: the cost matrix
+ * names the team as an author team only once the roster was read. Polls the report API itself
+ * (bounded, ~240s), never a fixed sleep; `window` is the `from`/`to` query the caller reads with.
+ */
+export async function awaitDerivedTeamCost(
+  api: APIRequestContext,
+  dataSourceId: number,
+  teamId: number,
+  window: string,
+): Promise<void> {
+  const deadline = Date.now() + 240_000;
+  for (;;) {
+    const res = await api.get(`/api/v1/reports/cost-matrix?connectionId=${dataSourceId}&${window}`);
+    const text = await res.text();
+    if (res.ok() && ((JSON.parse(text) as { rows: { teamId: number | null }[] }).rows ?? []).some((row) => row.teamId === teamId)) return;
+    if (Date.now() > deadline) {
+      throw new Error(`team ${teamId} never appeared in the cost matrix within 240s (last answer: ${res.status()} ${text.slice(0, 300)})`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5_000));
+  }
+}
+
+const AXE_TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"];
+
+/**
+ * An axe WCAG 2.0/2.1 A+AA scan of the open page (or of `include`, a selector), as one readable
+ * line per violation with the offending nodes — `[]` when clean. No waivers, `color-contrast`
+ * included: the theme's tokens are AA-tested in `web/src/theme.test.ts`, so a finding is fixed at
+ * the token level, never by patching single elements.
+ */
+export async function axeViolations(page: Page, include?: string): Promise<{ id: string; impact: string | null | undefined; help: string; nodes: string[] }[]> {
+  const builder = new AxeBuilder({ page }).withTags(AXE_TAGS);
+  const results = await (include ? builder.include(include) : builder).analyze();
+  return results.violations.map((v) => ({
+    id: v.id,
+    impact: v.impact,
+    help: v.help,
+    nodes: v.nodes.map((n) => n.target.join(" ")),
+  }));
 }

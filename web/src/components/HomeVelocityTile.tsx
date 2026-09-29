@@ -5,6 +5,7 @@ import type { SprintConsistencyReport } from "../api/reports";
 import { formatDate } from "../utils/formatDate";
 import { overviewTeamRows } from "../utils/homeOverview";
 import { formatMd } from "../utils/reportFormat";
+import classes from "../theme.module.css";
 import HomeTile from "./HomeTile";
 import LoadingBlock from "./LoadingBlock";
 
@@ -51,7 +52,15 @@ export default function HomeVelocityTile({
           <Suspense fallback={<LoadingBlock />}>
             <HomeVelocityChart rows={rows} />
           </Suspense>
-          <Table.ScrollContainer minWidth={520}>
+          {/* A native scroller that is itself focusable: in a half-width tile the table scrolls sideways, and the keyboard must reach it. */}
+          <Table.ScrollContainer
+            type="native"
+            minWidth={520}
+            className={classes.tableScroll}
+            tabIndex={0}
+            role="region"
+            aria-label={t("home.velocity.tableLabel")}
+          >
             <Table verticalSpacing={4} aria-label={t("home.velocity.tableLabel")}>
               <Table.Thead>
                 <Table.Tr>
