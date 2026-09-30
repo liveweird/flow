@@ -1,5 +1,6 @@
 package ch.nokillswit.reports
 
+import ch.nokillswit.infra.time.MILLIS_PER_DAY
 import ch.nokillswit.metrics.MetricsStore
 import ch.nokillswit.metrics.TeamMembershipService
 import ch.nokillswit.metrics.WorkingCalendar
@@ -33,8 +34,7 @@ import org.jetbrains.exposed.v1.r2dbc.select
  * grouped rows and the JSON shapes live in `DataQualityAssembly.kt`; every function runs inside the caller's `suspendTransaction`.
  */
 
-internal const val DQ_MS_PER_DAY = 86_400_000L
-private const val DQ_WEEK_MS = 7 * DQ_MS_PER_DAY
+private const val DQ_WEEK_MS = 7 * MILLIS_PER_DAY
 
 /** The precision `fact_task_delivery`'s estimate columns carry; a sum over them never needs more integer digits than this. */
 private const val ESTIMATE_SUM_PRECISION = 14
@@ -257,7 +257,7 @@ internal suspend fun fetchWorklogAggs(scope: WorklogScope): List<WorklogAgg> {
     val size = Count(w.worklogId)
     val md = Sum(w.md, w.md.columnType)
     val measurable = Count(w.lateMs)
-    val over1 = Count(Case().When(w.lateMs greater DQ_MS_PER_DAY, intLiteral(1)))
+    val over1 = Count(Case().When(w.lateMs greater MILLIS_PER_DAY, intLiteral(1)))
     val over7 = Count(Case().When(w.lateMs greater DQ_WEEK_MS, intLiteral(1)))
     return w.select(w.authorTeamId, w.authorAccountId, size, md, measurable, over1, over7)
         .where { slice }.groupBy(w.authorTeamId, w.authorAccountId).toList().map {

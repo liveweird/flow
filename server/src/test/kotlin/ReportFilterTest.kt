@@ -2,7 +2,6 @@ package ch.nokillswit
 
 import ch.nokillswit.metrics.WorkingCalendar
 import ch.nokillswit.reports.DomainView
-import ch.nokillswit.reports.ReportBreakdown
 import ch.nokillswit.reports.ReportLevel
 import ch.nokillswit.reports.ReportPeriod
 import ch.nokillswit.reports.parseReportFilter
@@ -29,7 +28,7 @@ class ReportFilterTest {
     private val now = LocalDate.of(2026, 6, 15).atStartOfDay(ZoneId.of("UTC")).toInstant().toEpochMilli()
 
     @Test
-    fun `defaults - trailing 90 days ending today, UNIT level, no breakdown`() {
+    fun `defaults - trailing 90 days ending today, UNIT level`() {
         val filter = parametersOf().parseReportFilter(utcCalendar, now, DomainView.TASK)
         val period = assertIs<ReportPeriod.DateRange>(filter.period)
         assertEquals(LocalDate.of(2026, 6, 15), period.toDate)
@@ -38,7 +37,6 @@ class ReportFilterTest {
         assertNull(filter.teamId)
         assertNull(filter.accountId)
         assertEquals(DomainView.TASK, filter.domainView)
-        assertEquals(ReportBreakdown.NONE, filter.breakdown)
     }
 
     @Test
@@ -113,6 +111,18 @@ class ReportFilterTest {
     }
 
     @Test
+    fun `sprintId below 1 is 400 - the spec's minimum`() {
+        for (value in listOf("0", "-1", "-9223372036854775808")) {
+            val failure = assertFailsWith<BadRequestException> {
+                parametersOf("sprintId" to listOf(value)).parseReportFilter(utcCalendar, now, DomainView.TASK)
+            }
+            assertTrue(failure.message!!.contains("sprintId must be at least 1"), value)
+        }
+        val one = parametersOf("sprintId" to listOf("1")).parseReportFilter(utcCalendar, now, DomainView.TASK)
+        assertEquals(ReportPeriod.BySprintId(1L), one.period)
+    }
+
+    @Test
     fun `from-to, lastSprints and sprintId are mutually exclusive`() {
         val combos = listOf(
             parametersOf("from" to listOf("2026-01-01"), "lastSprints" to listOf("3")),
@@ -154,12 +164,19 @@ class ReportFilterTest {
     }
 
     @Test
-    fun `an unknown domainView or breakdown value is 400`() {
+    fun `an unknown domainView value is 400`() {
         assertFailsWith<BadRequestException> {
             parametersOf("domainView" to listOf("BOGUS")).parseReportFilter(utcCalendar, now, DomainView.TASK)
         }
-        assertFailsWith<BadRequestException> {
-            parametersOf("breakdown" to listOf("BOGUS")).parseReportFilter(utcCalendar, now, DomainView.TASK)
+    }
+
+    @Test
+    fun `the removed breakdown param is ignored like any unknown param name - never a 400`() {
+        // list-endpoints.md: unknown parameter names stay ignored by deliberate leniency. `breakdown` was parsed but
+        // changed nothing in any report; it was removed until a report actually slices `groups` by it.
+        val plain = parametersOf().parseReportFilter(utcCalendar, now, DomainView.TASK)
+        for (value in listOf("DOMAIN", "NONE", "BOGUS")) {
+            assertEquals(plain, parametersOf("breakdown" to listOf(value)).parseReportFilter(utcCalendar, now, DomainView.TASK), value)
         }
     }
 
@@ -171,19 +188,17 @@ class ReportFilterTest {
     }
 
     @Test
-    fun `optional filters and breakdown parse through`() {
+    fun `optional filters parse through`() {
         val params = parametersOf(
             "domain" to listOf("FLO"),
             "activityType" to listOf("Bug"),
             "workCategory" to listOf("UNCATEGORIZED"),
             "connectionId" to listOf("3"),
-            "breakdown" to listOf("DOMAIN"),
         )
         val filter = params.parseReportFilter(utcCalendar, now, DomainView.TASK)
         assertEquals("FLO", filter.domain)
         assertEquals("Bug", filter.activityType)
         assertEquals("UNCATEGORIZED", filter.workCategory)
         assertEquals(3u, filter.connectionId)
-        assertEquals(ReportBreakdown.DOMAIN, filter.breakdown)
     }
 }

@@ -205,8 +205,6 @@ private class DayIncrement(val day: String, val evm: Evm)
 /** The display name of the `teamId=0` bucket. */
 private const val TEAM_UNASSIGNED_NAME = "Unassigned"
 
-private fun BigDecimal.md(): Double = setScale(2, RoundingMode.HALF_UP).toDouble()
-
 private fun Evm.toAsOf(day: LocalDate?) = EpicProgressAsOf(day?.toString(), pv.md(), ev.md(), ac.md(), sv.md(), spi, cv.md(), cpi)
 
 private fun Evm.toRow(kind: EpicProgressKind, id: UInt?, key: String?, name: String, active: Boolean? = null) =
@@ -490,7 +488,7 @@ private suspend fun curveOf(plan: PlanRow, ctx: ProgressContext): TreeMap<LocalD
     val count = BigDecimal(curve.size)
     val cumulative = TreeMap<LocalDate, BigDecimal>()
     curve.forEachIndexed { index, point ->
-        cumulative[point.day] = budget.multiply(BigDecimal(index + 1)).divide(count, 2, RoundingMode.HALF_UP)
+        cumulative[point.day] = budget.multiply(BigDecimal(index + 1)).divide(count, MD_SCALE, RoundingMode.HALF_UP)
     }
     return cumulative
 }

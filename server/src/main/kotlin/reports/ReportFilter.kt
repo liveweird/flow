@@ -18,6 +18,7 @@ private const val DEFAULT_PERIOD_DAYS = 90
 private const val MAX_PERIOD_SPAN_DAYS = 1100
 
 private const val MIN_LAST_SPRINTS = 1
+private const val MIN_SPRINT_ID = 1L
 private const val MAX_LAST_SPRINTS = 52
 
 /**
@@ -32,10 +33,6 @@ enum class ReportLevel { UNIT, TEAM, USER }
 /** D3's two domain views — per-report default, passed in by the caller (`.claude/docs/domain-model.md` "Amendments"). */
 @Serializable
 enum class DomainView { TASK, EPIC }
-
-/** The `breakdown` query param — replaces the org drill inside a report's own `groups` (plan §7). */
-@Serializable
-enum class ReportBreakdown { NONE, DOMAIN, ACTIVITY_TYPE, WORK_CATEGORY }
 
 /**
  * The three MUTUALLY EXCLUSIVE ways a report's period is selected (plan §7): an explicit calendar
@@ -74,7 +71,6 @@ data class ReportFilter(
     val activityType: String?,
     val workCategory: String?,
     val connectionId: UInt?,
-    val breakdown: ReportBreakdown,
 )
 
 /**
@@ -112,7 +108,6 @@ fun Parameters.parseReportFilter(calendar: WorkingCalendar, nowMs: Long, default
         activityType = optionalString("activityType"),
         workCategory = optionalString("workCategory"),
         connectionId = optionalUInt("connectionId"),
-        breakdown = optionalEnum<ReportBreakdown>("breakdown") ?: ReportBreakdown.NONE,
     )
 }
 
@@ -142,7 +137,12 @@ private fun parseLastSprints(raw: String): Int {
     return count
 }
 
-private fun parseSprintId(raw: String): Long = raw.toLongOrNull() ?: throw BadRequestException("sprintId must be an integer")
+private fun parseSprintId(raw: String): Long {
+    val id = raw.toLongOrNull() ?: throw BadRequestException("sprintId must be an integer")
+    // The spec declares `minimum: 1` (Jira sprint ids are positive); a smaller value can name no sprint anyway.
+    if (id < MIN_SPRINT_ID) throw BadRequestException("sprintId must be at least $MIN_SPRINT_ID")
+    return id
+}
 
 private fun parseDateRange(fromRaw: String?, toRaw: String?, calendar: WorkingCalendar, nowMs: Long): ReportPeriod.DateRange {
     val toDate = toRaw?.let { parseIsoDate(it, "to") } ?: calendar.dayOf(nowMs)

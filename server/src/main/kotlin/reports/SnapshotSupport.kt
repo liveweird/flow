@@ -53,7 +53,7 @@ internal sealed interface SnapshotScope {
 /**
  * The scope [filter] selects, or `400` for a combination the aggregates cannot answer: `activityType` and
  * `workCategory` are not stored per day, and `domain` cannot combine with `teamId` (no team × domain split).
- * `breakdown` and `domainView` are accepted and ignored, as in the other reports. USER level (`accountId`) is not
+ * `domainView` is accepted and ignored, as in the other reports. USER level (`accountId`) is not
  * rejected here — the report answers it empty, with a documented note — but the same combinations still 400.
  */
 internal fun snapshotScopeOf(filter: ReportFilter): SnapshotScope {

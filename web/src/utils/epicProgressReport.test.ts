@@ -18,7 +18,6 @@ describe("normalizeEpicProgressFilter", () => {
         domainView: "TASK",
         activityType: "Bug",
         workCategory: "Maintenance",
-        breakdown: "DOMAIN",
         bucket: "MONTH",
         by: "STATUS",
         itemKind: "EPIC",

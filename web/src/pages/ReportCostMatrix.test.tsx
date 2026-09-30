@@ -183,7 +183,7 @@ describe("ReportCostMatrix page", () => {
   test("a pasted link keeps what the report reads and loses what only other reports own — off the request and off the URL", async () => {
     serve(mockFetch);
     renderPage(
-      "/reports/cost-matrix?teamId=1&domainView=TASK&domain=FLO&activityType=Bug&workCategory=UNCATEGORIZED&connectionId=1&epicId=FLO-33&breakdown=DOMAIN&bucket=WEEK&by=STATUS&itemKind=EPIC",
+      "/reports/cost-matrix?teamId=1&domainView=TASK&domain=FLO&activityType=Bug&workCategory=UNCATEGORIZED&connectionId=1&epicId=FLO-33&bucket=WEEK&by=STATUS&itemKind=EPIC",
     );
     await screen.findByRole("table");
     await waitFor(() =>
@@ -192,7 +192,7 @@ describe("ReportCostMatrix page", () => {
     expect(calls(mockFetch).at(-1)).toBe(
       `${URL_PREFIX}teamId=1&domainView=TASK&domain=FLO&activityType=Bug&workCategory=UNCATEGORIZED&connectionId=1`,
     );
-    expect(calls(mockFetch).some((url) => /epicId|breakdown|bucket|by=|itemKind/.test(url))).toBe(false);
+    expect(calls(mockFetch).some((url) => /epicId|bucket|by=|itemKind/.test(url))).toBe(false);
   });
 
   test("a team row opens its authors, carrying the period; a deleted team is marked and not linked; the unassigned row is linked to the team-less authors", async () => {

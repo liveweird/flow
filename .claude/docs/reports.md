@@ -62,7 +62,7 @@ data actually lives.
   - `lastSprints` (1..52) -- each team's own last N CLOSED sprints, unioned at UNIT level
     (`.claude/docs/domain-model.md`: "sprint-relative periods ... are per team"). A report's own
     service resolves the actual sprint ids and reports them in `meta.resolvedSprints`.
-  - `sprintId` -- one specific sprint's own period.
+  - `sprintId` -- one specific sprint's own period; must be >= 1 (`400` otherwise, like a `lastSprints` outside 1..52).
 - **Level -- `teamId`/`accountId` (plan section 7):** no `teamId` -> `UNIT` (groups by team); `teamId`
   alone -> `TEAM` (groups by user); `teamId` AND `accountId` together -> `USER` (the one user).
   `accountId` without `teamId` is `400` -- a user-level read always needs to know within which
@@ -75,8 +75,10 @@ data actually lives.
 - **Optional filters** -- `domain`, `activityType`, `workCategory` (the literal `UNCATEGORIZED` is a
   legal value, not just a real category name), `connectionId` -- all structural pass-through here,
   validated against the connection(s) in scope by the report's own service.
-- **`breakdown=NONE|DOMAIN|ACTIVITY_TYPE|WORK_CATEGORY`** -- replaces the org drill inside a
-  report's own `groups` with a slice by this dimension instead.
+- **No `breakdown` parameter.** A `breakdown=NONE|DOMAIN|ACTIVITY_TYPE|WORK_CATEGORY` slice of `groups` was parsed by
+  every report but changed none of them, so it was removed (checkup C12); a request still carrying it is ignored like
+  any unknown parameter name (`.claude/docs/list-endpoints.md`: unknown names stay ignored by deliberate leniency).
+  Re-add it WITH its first consuming report, not before.
 - Every scalar param goes through the shared strict readers (`infra/paging/QueryParams.kt`, see
   `.claude/docs/list-endpoints.md`): a repeated key is `400` (the `singleValue` rule), an unknown
   enum value is `400` (listing the allowed set).
@@ -307,7 +309,6 @@ ThroughputReport {
   empty and `bySprint` narrows to that account's deliveries by `assignee_at_commitment`
   (`done_in_sprint` rows at `estimate_at_done_md`; `snapshot`/`drift` are `null`/`false`, velocity's
   same narrowing). **Σ `groups` == Σ `byBucket`** (MD and items) at UNIT and TEAM level.
-- **`breakdown`** is parsed by the shared filter but, as in velocity, does not change this report.
 - **Two separate measures.** Never expect Σ `bySprint` == Σ `byBucket` (see the two-views note above).
 
 Code: `reports/ThroughputReport.kt` (DTOs, pure bucket math, the queries) over `reports/
@@ -401,9 +402,8 @@ Three endpoints (v0.3.0 M4 commit 12, `.claude/docs/measures.md` "Reports 3, 4, 
 `resolveReportScope`: settings, connection scope, the `400` existence checks, meta, and the period window) and
 the same slice predicates as throughput's period view (`taskFactSlice`/`epicFactSlice`). All take the shared
 `from`/`to`/`lastSprints`/`sprintId`, `teamId`/`accountId`, `domainView`, `domain`, `workCategory` and
-`connectionId` parameters (tasks also `activityType`); `breakdown` is parsed and, as in the earlier reports,
-changes nothing. A `lastSprints`/`sprintId` period resolves the sprints and reads their overall **envelope** as
-the window, exactly as throughput's period view does (`periodWindow`, `meta.resolvedSprints`); `teamId=0` resolves
+`connectionId` parameters (tasks also `activityType`). A `lastSprints`/`sprintId` period resolves the sprints and reads their
+overall **envelope** as the window, exactly as throughput's period view does (`periodWindow`, `meta.resolvedSprints`); `teamId=0` resolves
 no sprint, so with a sprint-relative period it reads nothing.
 
 **Tasks vs epics.** Task reads are level-0 tasks only (`is_subtask = false`, D2 -- a sub-task's worklogs and
@@ -523,7 +523,7 @@ tasks (D2) with `done_at` in the window; team = the D5 **credit** team (`teamId=
 at done, domain per `domainView` (default `TASK`, D3), plus `activityType`/`workCategory`; a `lastSprints`/`sprintId`
 period reads the resolved sprints' envelope, as throughput's period view. **Epics are not in these reports**
 (measures.md's Report 7 row mentions "epics by own status", but the model's Report 7 source is `fact_task_delivery`
-alone -- an epic cycle time is not shown). `breakdown` is parsed and changes nothing.
+alone -- an epic cycle time is not shown).
 
 ### Report 7 -- `GET /api/v1/reports/cycle-time`
 
@@ -589,7 +589,7 @@ Two endpoints (v0.3.0 M5 commit 15, `.claude/docs/measures.md` "Report 9", "Repo
 AGGREGATES the DERIVE run writes (`.claude/docs/metrics.md` "Daily WIP aggregate", "Daily flow aggregate") instead of the
 fact tables, so they share their own preamble (`resolveReportScope`, then `snapshotScopeOf` and `planSnapshotDays` in
 `reports/SnapshotSupport.kt`). Both take the shared `from`/`to`/`lastSprints`/`sprintId`, `teamId`/`accountId`, `domain`
-and `connectionId` parameters. `breakdown` is accepted and changes nothing; so is `domainView`, but **`meta.domainView` is
+and `connectionId` parameters. `domainView` is accepted and changes nothing, but **`meta.domainView` is
 always `TASK`**: both reports read the task's own domain (D3 flow view; the epic side of WIP is the epic's own space), so an
 explicit `domainView=EPIC` is not a `400` but is not echoed back as if it had been honoured.
 
@@ -770,7 +770,7 @@ drill). `400`s: an unknown team/connection/sprint, `accountId` without `teamId`,
 `GET /api/v1/reports/data-quality` (v0.3.0 M5 commit 17, `.claude/docs/measures.md` "Report 14"): where the data the other
 reports stand on is missing or inconsistent. One response, one section per finding; the shared parameters (`from`/`to`/
 `lastSprints`/`sprintId`, `teamId`/`accountId`, `domainView` -- default `TASK` --, `domain`, `activityType`, `workCategory`,
-`connectionId`); `breakdown` is accepted and changes nothing. Same D12 posture as every report.
+`connectionId`). Same D12 posture as every report.
 
 ```
 DataQualityReport {
@@ -922,7 +922,7 @@ EpicProgressReport {
 - **`400`s**, checked before any data is read: more than one scope, `accountId` (there is no user-level EVM), an explicit
   `domainView=TASK` (EVM is always the EPIC view, D3), `activityType` / `workCategory` (not stored per day -- the WIP/backlog
   reports' precedent), a blank `epicId` (a present-but-empty value is a mistake, not "the whole unit"), and an unknown epic key, domain, team, sprint or connection -- always `400`, never `404`. An epic key that
-  exists in several connections in scope is ambiguous (`400`, narrow with `connectionId`). `breakdown` is parsed and changes nothing.
+  exists in several connections in scope is ambiguous (`400`, narrow with `connectionId`).
   A scope that cannot be checked because NOTHING in scope has derived yet (no `dim_epic`/`dim_domain` rows exist) is not `400`: it is
   the empty "not derived yet" answer below, the scope named by the key alone.
 - **`asOf` -- the period rule.** `asOf.day` = min(the period's last day, today in the configured zone, the last DERIVED day);
@@ -965,7 +965,7 @@ level's `asOf`, every series point (monotone, ending at `asOf`), the DOMAIN/UNIT
 an INDEPENDENT running sum of the persisted `agg_daily_flow` rows (UNIT against the DOMAIN scopes, the domain rows summing to it);
 the golden epic's PV reaching its budget on its due date, its exactly-one baseline and its plan block against `expected.json`; sprint-relative and past-the-derive periods; and, on hand-built rows in fresh disabled connections,
 the exact SV/SPI/CV/CPI (PV 0 -> SPI null, AC 0 -> CPI null), a superseded baseline (`pvOriginal` vs `pv`, both drift flags), an
-out-of-horizon epic, the drill rows (incl. a soft-deleted team marked `active: false`), `breakdown` ignored, the oldest-derive cut-off
+out-of-horizon epic, the drill rows (incl. a soft-deleted team marked `active: false`), the oldest-derive cut-off
 across connections, the never-derived answer, the cumulative team foreign-work share, `pvOriginal` against the stamped `dim_date`
 calendar and an independent `ROUND(b*i/n, 2)` for a non-divisible budget, `hasPvCurve` for a weekend-only window, and every `400`
 above (a blank `epicId` included; a plain user gets `200`).
@@ -1016,7 +1016,7 @@ CostMatrixReport {
   domain owner team; an unknown side is never foreign, so UNASSIGNED authors read 0.0. It is PER PERIOD -- the epic-progress report's
   team `foreignWorkShare` is the same ratio over the cumulative window up to `asOf`, a different figure by design.
 - **Slices.** `domain` (matched against the same column the view uses), `activityType`, `workCategory` (`UNCATEGORIZED` = none) and
-  `connectionId` (else every active connection, summed) restrict the worklogs. `breakdown` is parsed and changes nothing.
+  `connectionId` (else every active connection, summed) restrict the worklogs.
 - **`400`s:** the shared parser's (`accountId` without `teamId`, `from` after `to`, mutually exclusive periods, `lastSprints` out of
   range, a bad `domainView`/enum, a repeated scalar key) and an unknown or inactive team, connection or sprint -- always `400`, never
   `404`. An unknown `domain`, `activityType` or `workCategory` is a valid slice with an empty answer; `teamId=0` with a sprint-relative

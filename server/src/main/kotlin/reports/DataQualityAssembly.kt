@@ -1,5 +1,6 @@
 package ch.nokillswit.reports
 
+import ch.nokillswit.infra.time.MILLIS_PER_DAY
 import ch.nokillswit.metrics.MetricsSettingsResponse
 
 /*
@@ -104,14 +105,14 @@ internal suspend fun lateLoggingOf(input: DataQualityInput): LateLogging {
         over1Day = input.worklogs.sumOf { it.over1Day },
         over7Days = input.worklogs.sumOf { it.over7Days },
         distribution = buildDistribution(
-            fetchLatenessMs(input.worklogScope).map { it.toDouble() / DQ_MS_PER_DAY }, input.settings.minSampleSize,
+            fetchLatenessMs(input.worklogScope).map { it.toDouble() / MILLIS_PER_DAY }, input.settings.minSampleSize,
         ),
         worst = worst.map { w ->
             val label = labels[w.connectionId to w.issueId]
             LateWorklog(
                 worklogId = w.worklogId, issueKey = label?.first ?: w.issueId.toString(), summary = label?.second,
                 authorAccountId = w.account, author = w.account?.let { authors[it] ?: it }, teamId = w.team,
-                startedAt = w.startedAt, lateDays = w.lateMs!!.toDouble() / DQ_MS_PER_DAY,
+                startedAt = w.startedAt, lateDays = w.lateMs!!.toDouble() / MILLIS_PER_DAY,
             )
         },
     )

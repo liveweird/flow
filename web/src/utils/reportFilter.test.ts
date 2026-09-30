@@ -31,7 +31,6 @@ describe("parseReportFilter / serializeReportFilter", () => {
       epicId: "FLO-33",
       activityType: "Bug",
       workCategory: "Maintenance",
-      breakdown: "DOMAIN",
       bucket: "MONTH",
       by: "COLUMN",
       itemKind: "BOTH",
@@ -66,7 +65,7 @@ describe("parseReportFilter / serializeReportFilter", () => {
     expect(parse("lastSprints=0")).toEqual({});
     expect(parse("lastSprints=53")).toEqual({});
     expect(parse("sprintId=-3&teamId=abc")).toEqual({});
-    expect(parse("domainView=SIDEWAYS&breakdown=x&bucket=DAY&connectionId=0&by=ROW&itemKind=STORY")).toEqual({});
+    expect(parse("domainView=SIDEWAYS&bucket=DAY&connectionId=0&by=ROW&itemKind=STORY")).toEqual({});
     expect(parse("domain=&activityType=%20")).toEqual({});
   });
 
@@ -171,7 +170,6 @@ describe("dropReportSpecific", () => {
     epicId: "FLO-1",
     activityType: "Bug",
     workCategory: "Run",
-    breakdown: "DOMAIN",
     bucket: "WEEK",
     by: "STATUS",
     itemKind: "EPIC",

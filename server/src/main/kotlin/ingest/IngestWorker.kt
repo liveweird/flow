@@ -3,6 +3,7 @@ package ch.nokillswit.ingest
 import ch.nokillswit.audit.audit
 import ch.nokillswit.infra.config.requireConfigInt
 import ch.nokillswit.infra.config.requireConfigLong
+import ch.nokillswit.infra.time.MILLIS_PER_DAY
 import ch.nokillswit.metrics.MetricsConfigService
 import ch.nokillswit.metrics.MetricsConfigServiceKey
 import ch.nokillswit.metrics.MetricsDeriver
@@ -50,7 +51,6 @@ val IngestClockKey = AttributeKey<() -> Long>("IngestClock")
 val IngestWorkerStartedKey = AttributeKey<Boolean>("IngestWorkerStarted")
 
 private const val SHUTDOWN_JOIN_TIMEOUT_MS = 5_000L
-private const val MILLIS_PER_DAY = 24L * 60 * 60 * 1000
 private const val MIN_HEARTBEAT_INTERVAL_MS = 1_000L
 
 data class IngestConfig(

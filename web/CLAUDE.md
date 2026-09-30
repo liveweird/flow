@@ -446,12 +446,12 @@ completed · the report's figures · the orange drift badge with the frozen figu
 
 - **The URL is the filter** (`utils/reportFilter.ts`, `hooks/useReportFilter.ts`): `from`/`to`,
   `lastSprints`, `sprintId`, `teamId`, `accountId`, `domainView`, `domain`, `activityType`,
-  `workCategory`, `breakdown`, `bucket`, `connectionId` — deep-linkable, parsed forgivingly (an invalid or
+  `workCategory`, `bucket`, `connectionId` — deep-linkable, parsed forgivingly (an invalid or
   conflicting param is DROPPED, never sent; the period is exclusive with precedence `sprintId` >
   `lastSprints` > dates), serialized in one canonical key order (that string is also the page query
   key). Params this module does not own survive `applyReportFilter`; switching report tabs
   (`reportHref`) drops the report-specific params (`domainView`, `domain`, `activityType`,
-  `workCategory`, `breakdown`, `bucket`) the target report has no control for, so a filter the user
+  `workCategory`, `bucket`) the target report has no control for, so a filter the user
   cannot see or clear never follows them (`REPORT_SPECIFIC_PARAMS` in `utils/reportLinks.ts`; `epicId` is one of them, kept only by epic progress; a page's normalizer drops the rest through `dropReportSpecific(filter, reportSpecificKeep(path))`, so the table stays the one source). A team id the reference data no longer lists prints `#<id>` through `teamLabel` (`utils/reportFormat.ts`). Presets are stored as
   absolute `from`/`to` dates (calendar days in the configured zone) and recognised again by
   `activePeriodChoice`. **The last team is remembered** (`useStoredState`, `reports.teamId`): a report
@@ -460,9 +460,9 @@ completed · the report's figures · the orange drift badge with the frozen figu
   link stays unit-level). Only the Team control touches the memory (picking stores, clearing clears).
 - **`components/ReportFilterBar.tsx`** is a controlled component (`filters`, `filter`, `onChange`);
   optional controls (domain view "delivered in / earned in", domain, activity type, work category,
-  breakdown, and the week/month `bucket` `SegmentedControl`) render ONLY where the report passes them
+  and the week/month `bucket` `SegmentedControl`) render ONLY where the report passes them
   in `controls` — velocity and sprint consistency pass none, throughput passes domain view, domain,
-  activity type, work category and bucket (not breakdown, which it ignores). Every report is also a
+  activity type, work category and bucket. Every report is also a
   command-palette entry (`REPORT_PALETTE_LEAVES`, palette-only: the sidebar carries one Delivery leaf).
 - **Distributions** (`components/DistributionPanel.tsx`): a `Distribution` renders as a percentile
   strip (median p50, p90, p95, mean, item count), a lazy `DistributionHistogram` (single blue series,
@@ -542,7 +542,7 @@ completed · the report's figures · the orange drift badge with the frozen figu
   The URL carries at most ONE scope — `epicId` (an epic's issue key, a report-specific managed param that only this
   report keeps), `domain` or `teamId` (`0` = UNASSIGNED) — and `normalizeEpicProgressFilter` (`utils/epicProgressReport.ts`,
   the `useReportPage` normalize hook) makes a pasted link answerable: epic over domain over team, and `domainView`,
-  `accountId`, `activityType`, `workCategory` (each a `400`) plus the ignored `breakdown`/`bucket`/`by`/`itemKind`
+  `accountId`, `activityType`, `workCategory` (each a `400`) plus the ignored `bucket`/`by`/`itemKind`
   dropped — off the request and off the URL. The bar passes `domain` + `domainExcludesTeam` + `noMember` (no user
   level) and the page routes its changes through `applyBarChange`, so the LAST scope touched wins, epic included.
   Levels are drilled by the row NAME links (`scopedSearch` re-scopes the same report, the period travelling along); a
@@ -567,7 +567,7 @@ completed · the report's figures · the orange drift badge with the frozen figu
   (`DataQualityConfig`), the overview tiles (`DataQualitySummary`, each a link that scrolls to and focuses its card — no hash in the URL)
   first and the groups table last. A clean finding keeps its card (users see it was checked). The bar offers period, team/member, domain,
   domain view and — only with more than one connection — `connection` (`ReportControls.connection`); `normalizeDataQualityFilter` drops
-  every param the page has no control for (activity type, work category, breakdown, bucket, by, item kind, epic) off the request AND the
+  every param the page has no control for (activity type, work category, bucket, by, item kind, epic) off the request AND the
   URL. What the API returns is rendered as is: a real team sees no domains/authors without a team (the card says a team's view lists none),
   the connection-level findings say the team filter does not narrow them, USER level says epic and sprint findings are not read for one
   person, and a work-category field nobody configured is "Not measured", not clean. Configuration findings are admin-actionable: the
@@ -592,7 +592,7 @@ completed · the report's figures · the orange drift badge with the frozen figu
   (its drill is a `400`), and UNASSIGNED is not linked under a sprint-relative period (`meta.from === null` — a team-less drill resolves no
   sprint and answers empty). A sprint-relative period says so: the unit's team rows read the union envelope, a team drill only its own
   sprints. The bar offers period, team/member, domain, domain view, activity type, work category and (with more than one) connection;
-  `normalizeCostMatrixFilter` drops `breakdown`, `bucket`, `by`, `itemKind` and `epicId` off the request and the URL.
+  `normalizeCostMatrixFilter` drops `bucket`, `by`, `itemKind` and `epicId` off the request and the URL.
 - **Home overview** (`pages/Home.tsx`, plan amendment A9; `utils/homeOverview.ts` is its pure logic). The landing page is
   the WHOLE unit at a glance — never the remembered team, the page description says so — as four tiles over UNIT-level
   report endpoints, **five requests and no aggregator** (`["home", <report>]` keys, staleTime 60 s; the budget is pinned by

@@ -105,7 +105,7 @@ describe("ReportDataQuality page — request, overview and the findings", () => 
   test("sends only the params the page owns; a link's foreign ones are dropped from the request and the URL", async () => {
     serve(mockFetch);
     renderPage(
-      "/reports/data-quality?connectionId=1&domain=FLO&domainView=EPIC&teamId=1&activityType=Bug&workCategory=X&breakdown=DOMAIN&bucket=WEEK&by=STATUS&itemKind=EPIC&epicId=FLO-1&utm=x",
+      "/reports/data-quality?connectionId=1&domain=FLO&domainView=EPIC&teamId=1&activityType=Bug&workCategory=X&bucket=WEEK&by=STATUS&itemKind=EPIC&epicId=FLO-1&utm=x",
     );
     expect(await screen.findByRole("heading", { level: 2, name: "Data quality" })).toBeInTheDocument();
     await ready();

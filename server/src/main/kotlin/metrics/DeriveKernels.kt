@@ -1,5 +1,6 @@
 package ch.nokillswit.metrics
 
+import ch.nokillswit.infra.time.MILLIS_PER_DAY
 import ch.nokillswit.norm.FieldChangeRow
 import ch.nokillswit.norm.NormalizedFieldInterval
 import ch.nokillswit.norm.NormalizedStatusInterval
@@ -136,8 +137,7 @@ data class SprintTotals(
  * property-testable, called once per issue by `metrics/MetricsDeriver.kt` over ALREADY-persisted
  * `norm.*` rows and the connection's effective metrics configuration.
  */
-internal const val ONE_DAY_MS = 24L * 60 * 60 * 1000
-internal const val ONE_YEAR_MS = 365L * ONE_DAY_MS
+internal const val ONE_YEAR_MS = 365L * MILLIS_PER_DAY
 internal const val TWO_YEARS_MS = 2 * ONE_YEAR_MS
 
 /** How far back `dim_date` reaches at most, whatever a stale timestamp says (`dimDateRange`). */
@@ -182,8 +182,8 @@ object DeriveKernels {
         var from = maxOf(earliestFactMs ?: nowMs, floor) - ONE_YEAR_MS
         var to = nowMs + TWO_YEARS_MS
         epicWindows.filter { (start, due) -> inPvHorizon(start, due, nowMs) }.forEach { (start, due) ->
-            from = minOf(from, start - ONE_DAY_MS)
-            to = maxOf(to, due + ONE_DAY_MS)
+            from = minOf(from, start - MILLIS_PER_DAY)
+            to = maxOf(to, due + MILLIS_PER_DAY)
         }
         return DimDateRange(from, to)
     }
@@ -486,8 +486,6 @@ object DeriveKernels {
         points[points.lastIndex] = points.last().copy(projectKey = projectKeyFromIssueKey(currentIssueKey))
         return points
     }
-
-    private const val MILLIS_PER_DAY = 24L * 60 * 60 * 1000
 
     /**
      * One task's `metrics.fact_sprint_scope` row for ONE sprint (v0.3.0 M3 commit 8,

@@ -234,7 +234,9 @@ the cross-cutting statuses a shared plugin answers for every route alike and one
 offers no honest way to force — and `server/build.gradle.kts` fails the `test` task on a
 non-empty file whenever the WHOLE suite ran (a `--tests` filter skips the gate). A new operation
 therefore lands with a test per declared status, or with its status list trimmed to what the
-route can actually answer (`CoverageGapsTest` pins the cross-cutting statuses). Tests that use
+route can actually answer (`CoverageGapsTest` pins the cross-cutting statuses). `413` is declared on EVERY operation that takes a request body
+(`OpenApiSpecTest` pins it) but is never a per-operation test — the one `PayloadValidationTest` case covers the shared
+limit. Tests that use
 `testApplication`'s default `client` bypass the plugin — prefer `jsonClient()`.
 
 **Schemathesis (optional manual fuzz pass, not in CI).** Property-based fuzzing of the running

@@ -52,6 +52,20 @@ internal fun dayRangeCte(connectionId: UInt, now: Long): String = """
     )
 """.trimIndent()
 
+/**
+ * The end-of-day covering predicate every WIP (and backlog) read shares: the interval `[alias.from,
+ * alias.to)` covers the END instant of the current `day_range` row (`d.day_end_ms`) — started before
+ * it, and still open or ended at/after it. `from`/`to` default to the `metrics.*` effective-dating
+ * columns; the `norm.work_item_field_intervals` read passes `from_at`/`to_at`.
+ */
+internal fun coveringAt(alias: String, from: String = "valid_from", to: String = "valid_to"): String =
+    "$alias.$from < d.day_end_ms AND ($alias.$to IS NULL OR $alias.$to >= d.day_end_ms)"
+
+/** `INSERT INTO metrics.agg_daily_wip (…)` — mirrors `flowInsertHead`; the SELECT after it supplies the columns in order. */
+private fun wipInsertHead(): String =
+    "INSERT INTO metrics.agg_daily_wip " +
+        "(connection_id, scope_kind, scope_id, day, item_kind, status_id, stage, item_count, config_revision)"
+
 private fun teamTaskWipSql(connectionId: UInt, now: Long, configRevision: Long): String = """
     WITH ${dayRangeCte(connectionId, now)},
     rows AS (
@@ -62,24 +76,23 @@ private fun teamTaskWipSql(connectionId: UInt, now: Long, configRevision: Long):
                  FROM norm.work_item_field_intervals fi
                  JOIN metrics.dim_sprint ds ON ds.connection_id = $connectionId AND ds.sprint_id = fi.value_id::bigint
                  WHERE fi.connection_id = $connectionId AND fi.issue_id = t.issue_id AND fi.field = 'SPRINT'
-                   AND fi.from_at < d.day_end_ms AND (fi.to_at IS NULL OR fi.to_at >= d.day_end_ms)
+                   AND ${coveringAt("fi", "from_at", "to_at")}
                    AND ds.team_id IS NOT NULL AND (ds.complete_at IS NULL OR ds.complete_at > d.day_end_ms)
                  LIMIT 1),
                 (SELECT tm.team_id
                  FROM metrics.task_assignee ta
                  JOIN metrics.team_membership tm ON tm.account_id = ta.account_id
-                     AND tm.valid_from < d.day_end_ms AND (tm.valid_to IS NULL OR tm.valid_to >= d.day_end_ms)
+                     AND ${coveringAt("tm")}
                  WHERE ta.connection_id = $connectionId AND ta.issue_id = t.issue_id
-                   AND ta.valid_from < d.day_end_ms AND (ta.valid_to IS NULL OR ta.valid_to >= d.day_end_ms)
+                   AND ${coveringAt("ta")}
                  LIMIT 1)
             ) AS team_id
         FROM day_range d
         JOIN metrics.dim_task t ON t.connection_id = $connectionId AND t.is_subtask = false
         JOIN metrics.item_stage s ON s.connection_id = $connectionId AND s.issue_id = t.issue_id
-            AND s.valid_from < d.day_end_ms AND (s.valid_to IS NULL OR s.valid_to >= d.day_end_ms)
+            AND ${coveringAt("s")}
     )
-    INSERT INTO metrics.agg_daily_wip
-        (connection_id, scope_kind, scope_id, day, item_kind, status_id, stage, item_count, config_revision)
+    ${wipInsertHead()}
     SELECT $connectionId, 'TEAM', COALESCE(team_id::text, 'UNASSIGNED'), day, 'TASK', status_id, stage, COUNT(*), $configRevision
     FROM rows
     GROUP BY team_id, day, status_id, stage
@@ -92,11 +105,10 @@ private fun teamEpicWipSql(connectionId: UInt, now: Long, configRevision: Long):
         FROM day_range d
         JOIN metrics.dim_epic e ON e.connection_id = $connectionId
         JOIN metrics.item_stage s ON s.connection_id = $connectionId AND s.issue_id = e.issue_id
-            AND s.valid_from < d.day_end_ms AND (s.valid_to IS NULL OR s.valid_to >= d.day_end_ms)
+            AND ${coveringAt("s")}
         LEFT JOIN metrics.dim_domain dom ON dom.connection_id = $connectionId AND dom.domain_key = e.domain_key
     )
-    INSERT INTO metrics.agg_daily_wip
-        (connection_id, scope_kind, scope_id, day, item_kind, status_id, stage, item_count, config_revision)
+    ${wipInsertHead()}
     SELECT $connectionId, 'TEAM', COALESCE(team_id::text, 'UNOWNED'), day, 'EPIC', status_id, stage, COUNT(*), $configRevision
     FROM rows
     GROUP BY team_id, day, status_id, stage
@@ -110,19 +122,18 @@ private fun domainWipSql(connectionId: UInt, now: Long, configRevision: Long): S
         FROM day_range d
         JOIN metrics.dim_task t ON t.connection_id = $connectionId AND t.is_subtask = false
         JOIN metrics.item_stage s ON s.connection_id = $connectionId AND s.issue_id = t.issue_id
-            AND s.valid_from < d.day_end_ms AND (s.valid_to IS NULL OR s.valid_to >= d.day_end_ms)
+            AND ${coveringAt("s")}
         LEFT JOIN metrics.task_domain td ON td.connection_id = $connectionId AND td.issue_id = t.issue_id
-            AND td.valid_from < d.day_end_ms AND (td.valid_to IS NULL OR td.valid_to >= d.day_end_ms)
+            AND ${coveringAt("td")}
     ),
     epic_rows AS (
         SELECT d.day AS day, s.status_id AS status_id, s.stage AS stage, e.domain_key AS domain_key
         FROM day_range d
         JOIN metrics.dim_epic e ON e.connection_id = $connectionId
         JOIN metrics.item_stage s ON s.connection_id = $connectionId AND s.issue_id = e.issue_id
-            AND s.valid_from < d.day_end_ms AND (s.valid_to IS NULL OR s.valid_to >= d.day_end_ms)
+            AND ${coveringAt("s")}
     )
-    INSERT INTO metrics.agg_daily_wip
-        (connection_id, scope_kind, scope_id, day, item_kind, status_id, stage, item_count, config_revision)
+    ${wipInsertHead()}
     SELECT $connectionId, 'DOMAIN', domain_key, day, 'TASK', status_id, stage, COUNT(*), $configRevision
     FROM task_rows
     WHERE domain_key IS NOT NULL
@@ -141,12 +152,11 @@ private fun epicWipSql(connectionId: UInt, now: Long, configRevision: Long): Str
         FROM day_range d
         JOIN metrics.dim_task t ON t.connection_id = $connectionId AND t.is_subtask = false
         JOIN metrics.item_stage s ON s.connection_id = $connectionId AND s.issue_id = t.issue_id
-            AND s.valid_from < d.day_end_ms AND (s.valid_to IS NULL OR s.valid_to >= d.day_end_ms)
+            AND ${coveringAt("s")}
         LEFT JOIN metrics.task_epic te ON te.connection_id = $connectionId AND te.issue_id = t.issue_id
-            AND te.valid_from < d.day_end_ms AND (te.valid_to IS NULL OR te.valid_to >= d.day_end_ms)
+            AND ${coveringAt("te")}
     )
-    INSERT INTO metrics.agg_daily_wip
-        (connection_id, scope_kind, scope_id, day, item_kind, status_id, stage, item_count, config_revision)
+    ${wipInsertHead()}
     SELECT $connectionId, 'EPIC', epic_id::text, day, 'TASK', status_id, stage, COUNT(*), $configRevision
     FROM rows
     WHERE epic_id IS NOT NULL
