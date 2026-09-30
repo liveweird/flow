@@ -18,6 +18,7 @@ import java.sql.DriverManager
 import java.util.UUID
 import java.util.concurrent.TimeoutException
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -69,15 +70,21 @@ class ConnectionPoolTest {
             }
             // Poll while (up to) four of the twelve coroutines are holding a pooled connection
             // and the rest are queued waiting to acquire one.
+            // The pool is saturated once four backends are seen; an over-acquiring pool would have opened
+            // its extra ones by then, so keep watching for a short settle window rather than a fixed 2 s
+            // (2 s stays the ceiling if the fourth backend is slow to appear, e.g. on a busy CI runner).
             var maxObserved = 0
+            var saturatedAt = 0L
             val deadline = System.nanoTime() + 2_000_000_000L
-            while (System.nanoTime() < deadline) {
+            while (System.nanoTime() < deadline && (saturatedAt == 0L || System.nanoTime() - saturatedAt < SETTLE_NANOS)) {
                 maxObserved = maxOf(maxObserved, activeConnections(appName))
+                if (saturatedAt == 0L && maxObserved >= 4) saturatedAt = System.nanoTime()
                 delay(50)
             }
-            assertTrue(
-                maxObserved in 1..4,
-                "expected at most 4 concurrent pooled connections (postgres.pool.maxSize), observed $maxObserved",
+            assertEquals(
+                4,
+                maxObserved,
+                "expected the pool to fill to, and never exceed, 4 concurrent pooled connections (postgres.pool.maxSize)",
             )
             gate.complete(Unit)
             // Exiting this coroutineScope suspends until all 12 launched transactions complete —
@@ -203,5 +210,10 @@ class ConnectionPoolTest {
     fun `postgres pool maxAcquireTimeSeconds above its ceiling fails startup`() = testApplication {
         configureApp("postgres.pool.maxAcquireTimeSeconds" to "601")
         assertStartupFails("postgres.pool.maxAcquireTimeSeconds") { startApplication() }
+    }
+
+    private companion object {
+        /** How long the pool is watched after it first shows `maxSize` (4) backends — ample for a stray fifth to appear. */
+        const val SETTLE_NANOS = 500_000_000L
     }
 }

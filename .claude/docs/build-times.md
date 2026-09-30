@@ -289,7 +289,7 @@ evidence and recorded here as a dated entry (finding + fix, or "measured, intend
 7. **The nightly `e2e` grew +120 % in 3 days** (3m31s → 7m48s) with no e2e budget or step breakdown:
    is it the growing compose image build, the stack start-up, or the Playwright specs (reports batches
    landed 09-29)? Run `ci-times.mjs --workflows e2e --steps e2e`.
-8. **Test-harness side effects (not isolated).** `NormalizationPipelineTest.clonedConnection` and
+8. **Test-harness side effects (partly answered 2026-09-30 — see 11).** `IngestWorkerTest`'s ticks are measured and fenced (`withOnlyConnections`); the effect of other classes' enabled-connection leftovers elsewhere is still unmeasured. `NormalizationPipelineTest.clonedConnection` and
    `IngestWorkerTest` create ENABLED connections, so any config change anywhere enqueues a DERIVE that a
    worker in another class runs with the real clock (`IngestWorkerTest` saw 40 derives; ~30
    empty-connection derives spend 2-6 s each in `dim_date` upsert row-lock contention). The effect on
@@ -323,6 +323,35 @@ evidence and recorded here as a dated entry (finding + fix, or "measured, intend
    before/after from the low-load pair. The gain concentrates where test-side transactions are
    numerous (`NormalizationPipelineTest` -57 %, `DataProfileTest` -48 %); `MetricsDerivationTest` and
    `MetricsDigestTest` are DERIVE-bound (question 3) and move ~10 %.
+
+11. **Small tests that took seconds for no data reason — ANSWERED 2026-09-30 (`perf/slow-small-tests`).**
+   Prompted by a CI run of PR #40 (4 vCPU) in which single-request or handful-of-request tests cost
+   5-20 s. Each was measured locally (18 cores, load average 4-5 from other worktrees, so single figures
+   carry +-10 %; scratch timing tests, removed) against the baseline full run of master (`:server:test`,
+   795 tests, suite span 3m19s):
+
+   | Test (class) | CI | Local before | Cause (measured) | Verdict | Local after |
+   |---|---|---|---|---|---|
+   | `AnonymousAccessTest` "a correctly signed access token without a jti is 401" (one request) | 20 s | 5.5-6.0 s | It is the FIRST test of the JVM (the class sorts first): Testcontainers start 1.9 s + the first `testApplication` 2.1 s (Flyway over an empty database, class loading; the 2nd and 3rd boots take 75 ms) + JIT. On CI add the postgres/ryuk image pull and a 2-3x slower core. The same test alone in the class after the first costs 0.08-0.23 s | **Intended, attribution only**: whichever test runs first pays the one-time container + migrate cost; no per-test waste to remove | 5.3-5.6 s (unchanged) |
+   | `ForwardedHeadersTest` (5 tests, 3 of them 2.3-2.6 s) | 11 s | 7.5 s | Each of the 3 tests sends 11-12 failed logins with a distinct UNKNOWN email; the login route answers an unknown email with a discarded full cost-12 bcrypt verify (`TIMING_EQUALIZER_HASH`, the anti-enumeration timing equalizer): 226 ms measured per verify locally, x 11-12 = 2.5 s per test. Nothing to do with proxy trust | **Fixed**: each attempt logs in as a freshly SEEDED account (`TestUsers.seed`, bcrypt cost 4, ~1 ms) with a wrong password — the same 401 path, same bucket, same assertions; the equalizer itself is production behaviour and untouched | 0.32 s |
+   | `RawForwardedForLinesTest` (1 test) | 5.3 s | 3.0 s | Same: 12 raw unknown-email logins x 226 ms = 2.7 s over ~0.3 s of Netty boot | **Fixed**: same seeded-account approach | 0.6 s |
+   | `DerivedStubFixtureTest` (1 test) | 12 s | 3.8-4.4 s | The test only compares a digest; the time is `DerivedStubFixture.connectionId()`'s one-time clone (0.27 s) + pinned DERIVE (2.9-4.4 s) that its first user pays (and, on CI when nothing ran before it, the shared ~16-23 s sync) | **Intended, attribution only**: `MetricsDerivationTest` pays it instead if this class is skipped; the suite total is identical | 3.9-4.4 s (unchanged) |
+   | `MetricsAnalyzeTest` (2 tests, 9.6 s) | 9.6 s | 3.5 s | Its subject IS a DERIVE (`ANALYZE` inside DERIVE): clone 0.27 s + derive 2.9-4.4 s; the `last_analyze` poll resolves on its first read (7 ms, 1 poll — the 500 ms poll interval is never slept) | **Intended** (a derive is the subject; a smaller one would not pin the same statistics) | 3.5-3.7 s |
+   | `ConnectionPoolTest` (8 tests) | 5 s | 4.4 s | (a) "concurrent transactions are bounded" polled a FIXED 2 s window; (b) "a saturated pool times out an acquire" waits for the real timeout | (a) **Fixed**: watch until the pool shows its `maxSize` backends, then a 500 ms settle window (2 s stays the ceiling), same assertion; (b) **Intended**: the timeout is the subject and `maxAcquireTimeSeconds` has `min = 1`. Side finding, not changed: r2dbc-pool surfaced the acquire failure at **2x the configured value** (1 s -> 2.0 s, 2 s -> 4.0 s, measured on the bare `ConnectionPool.create()` too), so the effective production acquire budget is twice `postgres.pool.maxAcquireTimeSeconds` | 2.9 s (a: 2.1 -> 0.6 s; b: 2.1 s) |
+   | `IngestWorkerTest` "heartbeat writes progress" 5.6 s, "a failing run schedules a backoff" 3.4 s, "a tick enqueues a due SYNC job" 3.0 s | (not in the CI list) | 13.3 s the class | The three tests drive `IngestWorker.tick()`, which enqueues due jobs for EVERY enabled connection in the shared database and claims from the ENTIRE shared queue. Probed in the full run: 13-14 pending DERIVEs of enabled connections left by earlier classes (`DataSourceRoutesTest`, the encryption tests, `DataProfileTest`, and the 1,200-issue `jira-shared-fixture` connection — a real ~4 s derive) and, after the first tick, a SYNC plus its chained DERIVE per enabled foreign connection. The same tests alone take 0.45-1.1 s. This is open question 8 (harness side effects), now measured | **Fixed**: `withOnlyConnections` (`TestEnvironment.kt`) fences each tick — every OTHER enabled connection is temporarily disabled and every OTHER claimable job (PENDING, or RUNNING with an expired lease) parked under a far-future lease, set up in one transaction and restored in a finally (the `TestUsers.withSoloAdmins` precedent: borrowed, never destroyed). No assertion changed | 2.3 s the class (0.3-0.8 s per test) |
+
+   Whole suite, local, `cleanTest :server:test` (795 tests, gaps empty): sum of the four touched classes
+   (`IngestWorkerTest`, `ForwardedHeadersTest`, `RawForwardedForLinesTest`, `ConnectionPoolTest`)
+   **28.2 s -> 6.1 s (-22.1 s)**; suite span 3m19s -> 3m02s / 3m14s (two runs; the noise from
+   the shared machine, +-10 s on `MetricsDerivationTest` alone, is as large as the gain, so read the
+   per-class rows, not the totals). CI should gain about twice the local figure: bcrypt and the
+   derive-free classes scale with the 2-3x slower core, and the fence removes the backlog derives that ran
+   on it. Not touched: any other test under 2 s (`ProductionHttpTest` ~1 s each boots a real Netty engine,
+   `BootstrapTest` ~1 s is a cost-12 hash of the rotated admin password, the cancel test's 1 s is the
+   heartbeat interval — all intended).
+   Guidance for new tests (also in `testing.md`): a test that needs MANY failed logins (rate-limit,
+   lockout, proxy trust) seeds real accounts — an unknown email costs a cost-12 bcrypt verify per attempt; a
+   test that calls `IngestWorker.tick()` wraps it in the queue fence.
 
 **What the suite is made of (local, pre-fix run, 782 tests, 12m30s of class time):**
 `MetricsDerivationTest` 5m55s (47 %), `MetricsDigestTest` 2m00s (16 %), `NormalizationPipelineTest`

@@ -35,6 +35,16 @@ with unique prefixes/filters (`uniqueEmail("marker")`) rather than asserting abs
   `withAuditCapture { }` (attach/detach on the audit logger), `withSeedRestored { }` and
   `assertStartupFails(part) { }` for bootstrap/fail-closed tests — use these instead of re-rolling
   the blocks they replaced.
+- **Many failed logins → seeded accounts.** A login for an UNKNOWN email pays a discarded cost-12 bcrypt
+  verify (the timing equalizer, ~225 ms locally); a test that needs a dozen failures (rate limit,
+  proxy trust) logs in as freshly seeded accounts (`TestUsers.seed`, cost 4) with a wrong password —
+  the same 401 path at ~1 ms (`.claude/docs/build-times.md` WHY 11); soft-delete them afterwards.
+- **`IngestWorker.tick()` claims from the whole shared queue** (and enqueues due jobs for every enabled
+  connection), so a direct tick runs whatever other classes left pending. Wrap it in
+  `withOnlyConnections(setOf(connId), tickClockMillis) { }` (`TestEnvironment.kt`, beside `withSoloAdmins`):
+  for the duration, every OTHER connection is disabled and every OTHER job the claim scan could take (PENDING,
+  or RUNNING with `lease_until` below the tick's clock) is parked under a far-future lease — set up in one
+  transaction, restored in a `finally`.
 - `TestTeams.seed(name, memberIds)` — a fresh team fixture; beside it, raw-row readers for what
   the API hides (`TestTeams.rawRows`/`rawMemberIds`, `TestUsers.stampPasswordChangedAt`). Shared
   suite state (the seed admin) is never mutated destructively — tests mint UNIQUE rows and remove

@@ -60,6 +60,9 @@ private val migrated = AtomicBoolean(false)
 /** A bound on the retry loops that keep ticking a scoped [IngestWorker] until ITS OWN job finishes — never an expected real-world count. */
 private const val MAX_TICK_ATTEMPTS = 50
 
+/** The manual clock every worker in this class ticks with (2024-01-01T01:00:00Z) — also what the queue fence compares leases against. */
+private val TICK_CLOCK_MILLIS = java.time.Instant.parse("2024-01-01T01:00:00Z").toEpochMilli()
+
 private fun ensureMigrated() {
     if (migrated.compareAndSet(false, true)) {
         org.flywaydb.core.Flyway.configure()
@@ -219,10 +222,7 @@ class IngestWorkerTest {
      * for a freshly created connection (never also a RECONCILE, which real-time `now` could
      * nondeterministically make due too).
      */
-    private fun fixedEarlyMorningClock(): () -> Long {
-        val fixed = java.time.Instant.parse("2024-01-01T01:00:00Z").toEpochMilli()
-        return { fixed }
-    }
+    private fun fixedEarlyMorningClock(): () -> Long = { TICK_CLOCK_MILLIS }
 
     private class FakeConnector(private val onRun: suspend (SyncJobRunContext) -> Unit = {}) : Connector {
         override val kind = DataSourceKind.JIRA_CLOUD
@@ -270,12 +270,28 @@ class IngestWorkerTest {
         // A successful SYNC now also chains a DERIVE job for this connection (v0.3.0 M3 commit 7)
         // — filter to the SYNC kind so this assertion stays about the job under test.
         suspend fun syncJob() = jobs.list(connId, SyncJobListFilter(kind = SyncJobKind.SYNC), pagingAll()).items.singleOrNull()
+        // v0.3.0 M3 commit 7: a successful SYNC chains a scheduled DERIVE job for the SAME
+        // connection — keep ticking (bounded) until each reaches a terminal status, then assert both
+        // actually SUCCEEDED (review round 1: a bare "!= FAILED" tolerated a DERIVE job that simply
+        // had not been claimed yet within a single tick).
+        suspend fun deriveJob() = jobs.list(connId, SyncJobListFilter(kind = SyncJobKind.DERIVE), pagingAll()).items.singleOrNull()
         var job = syncJob()
+        var derive = deriveJob()
         var attempts = 0
-        while (isOpen(job?.status) && attempts < MAX_TICK_ATTEMPTS) {
-            coroutineScope { worker.tick(this) }
-            job = syncJob()
-            attempts++
+        // ONE fence around both tick loops — see withOnlyConnections (TestEnvironment.kt).
+        withOnlyConnections(setOf(connId), TICK_CLOCK_MILLIS) {
+            while (isOpen(job?.status) && attempts < MAX_TICK_ATTEMPTS) {
+                coroutineScope { worker.tick(this) }
+                job = syncJob()
+                attempts++
+            }
+            attempts = 0
+            derive = deriveJob()
+            while (isOpen(derive?.status) && attempts < MAX_TICK_ATTEMPTS) {
+                coroutineScope { worker.tick(this) }
+                derive = deriveJob()
+                attempts++
+            }
         }
 
         assertTrue(ran, "the claimed job's connector.run() must have executed")
@@ -283,19 +299,6 @@ class IngestWorkerTest {
         val connection = assertNotNull(ds.read(connId))
         assertNotNull(connection.status.lastSyncSucceededAt)
         assertEquals(0, connection.status.consecutiveFailures)
-
-        // v0.3.0 M3 commit 7: a successful SYNC chains a scheduled DERIVE job for the SAME
-        // connection — keep ticking (bounded) until it too reaches a terminal status, then assert it
-        // actually SUCCEEDED (review round 1: a bare "!= FAILED" tolerated a DERIVE job that simply
-        // had not been claimed yet within a single tick).
-        suspend fun deriveJob() = jobs.list(connId, SyncJobListFilter(kind = SyncJobKind.DERIVE), pagingAll()).items.singleOrNull()
-        var derive = deriveJob()
-        attempts = 0
-        while (isOpen(derive?.status) && attempts < MAX_TICK_ATTEMPTS) {
-            coroutineScope { worker.tick(this) }
-            derive = deriveJob()
-            attempts++
-        }
         assertEquals(SyncJobStatus.SUCCEEDED, derive?.status, "the chained DERIVE job must actually succeed, not merely avoid FAILED")
     }
 
@@ -318,7 +321,7 @@ class IngestWorkerTest {
             fixedEarlyMorningClock(),
         )
 
-        coroutineScope { worker.tick(this) }
+        withOnlyConnections(setOf(connId), TICK_CLOCK_MILLIS) { coroutineScope { worker.tick(this) } }
 
         val job = jobs.list(connId, SyncJobListFilter(), pagingAll()).items.single()
         assertEquals(SyncJobStatus.FAILED, job.status)
@@ -346,7 +349,7 @@ class IngestWorkerTest {
             fixedEarlyMorningClock(),
         )
 
-        coroutineScope { worker.tick(this) }
+        withOnlyConnections(setOf(connId), TICK_CLOCK_MILLIS) { coroutineScope { worker.tick(this) } }
 
         // Same DERIVE-chaining note as the "success" test above.
         val job = jobs.list(connId, SyncJobListFilter(kind = SyncJobKind.SYNC), pagingAll()).items.single()
