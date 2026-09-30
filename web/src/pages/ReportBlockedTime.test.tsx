@@ -83,7 +83,7 @@ describe("ReportBlockedTime page", () => {
     serve(mockFetch, () => jsonResponse(200, { ...BLOCKED_TIME, shareOfCycle: { n: 3, hidden: true, histogram: [] } }));
     renderPage();
     expect(await screen.findByText(/Only 3 items in this selection — at least 5 are needed/)).toBeInTheDocument();
-    expect(screen.getAllByTestId("bar-chart")).toHaveLength(1);
+    expect(await screen.findAllByTestId("bar-chart")).toHaveLength(1);
   });
 
   test("the most-blocked items, in the server's order, with a dash where there is no cycle or share", async () => {

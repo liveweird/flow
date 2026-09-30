@@ -176,13 +176,29 @@ evidence and recorded here as a dated entry (finding + fix, or "measured, intend
      and 428 ms with the real `setup.ts` — so ~275 ms x 108 files = ~30 s of CPU (about 20 %) is the
      setup import, before any test runs. About 20 of the 43 `.ts` test files render nothing, but a
      lean setup for them would save only ~6 s of CPU (~4 %) — not pursued.
-   - **`isolate: false` halves the run** (`--no-isolate`, `--maxWorkers=3`: 17-18 s vs ~40 s) **but is not
-     safe today**: 9-15 tests fail, a different set per run — the chart tests (`vi.mock("@mantine/charts")`
-     factories: `DistributionHistogram`, `DistributionPanel`, `VelocityChart`, `SprintConsistencyChart`,
-     `EpicProgressChart`, …), `useDeleteConfirm`, `Users`, and the report pages built on them leak
-     module mocks and stubs across files sharing a worker. This is the one big lever: make those files
-     isolation-clean (`vi.resetModules`/per-file mock reset), then flip it. Open follow-up, not a
-     config flag to try again as-is.
+   - **`isolate: false` halves the run — and, since 2026-09-30 (second batch), is on.** Under
+     `--no-isolate` (3 workers) the suite took 17-18 s against ~40 s, but 9-15 tests failed, a different
+     set per run. Root causes, all order dependence rather than real bugs: (1) **the shared module
+     registry** — `vi.mock` only affects modules imported AFTER it, so a source module an earlier file
+     left cached (`useDeleteConfirm` with the real toast, the report pages with a chart mock — or the
+     real chart — from another file) kept the wrong dependency; fixed once in `src/test/setup.ts`, which
+     now runs `vi.resetModules()` before each file (npm packages are externalised and stay cached, so
+     it costs a re-transform of `src/`, not a re-import of Mantine) and imports `../i18n` after it so
+     the file and the setup share ONE i18n instance; (2) **tests that assumed a warm lazy chart chunk**
+     — `ReportEpicProgress` (two synchronous `getByTestId("line-chart")` after the first data
+     assertion), `ReportBlockedTime` (`getAllByTestId("bar-chart")`), `ReportSprintConsistency`
+     (`findAllByTestId` returns as soon as the FIRST of three lazy charts lands) and `Home` (the
+     Suspense fallbacks are extra `status` regions until the chunks land) — they passed only because an
+     earlier test in the file, in file order, had already loaded the chunk; they now await it
+     (`findBy…`/`waitFor`), no assertion removed. These four also failed under `--sequence.shuffle`
+     WITH isolation on, i.e. they were latent order dependencies regardless of this change. Proof: 25
+     `--no-isolate --sequence.shuffle` runs green (871/871), then `npm run test:coverage` 5x and
+     `--coverage --sequence.shuffle` 3x green with the coverage unchanged (statements 96.57, branches
+     92.7, functions 94.73, lines 98.42). Interleaved 4 rounds against `--isolate` on the same tree:
+     3 workers (CI-shaped) **36.2 s → 17.5 s (-52 %), CPU user+sys 125 s → 50 s**; default 18 workers
+     **14.1 s → 9.9 s (-30 %), CPU 183 s → 104 s**. The rule that keeps it safe is in
+     `.claude/docs/testing.md` ("Frontend tests"): a new test that leaks state fails under shuffle —
+     reset the leak in `afterEach`, never flip `isolate` back.
    - **`css: true` processed every Mantine stylesheet in every file for nothing** — happy-dom lays
      nothing out and the `env="test"` rule already bypasses CSS-dependent visibility. Changed to
      `css: { include: [/src[\\/]index\.css/] }`: only `src/index.css` is still processed, because
@@ -192,16 +208,18 @@ evidence and recorded here as a dated entry (finding + fix, or "measured, intend
    - **`pool: 'threads'`** (worker threads instead of forked processes; still one module registry per
      file): interleaved 4 rounds, 3 workers: 37.0 s → 34.7 s (-6 %), sys time 13.7 s → 9 s. All 866
      tests green in every run.
-   - **Both together** (measured separately above, each kept because it is green and consistently
-     faster): 3 workers **37.0 s → 32.7 s interleaved (-12 %), and 29-32 s in four later runs vs 34-44 s
+   - **CSS + threads together, before the isolation work** (measured separately above, each kept
+     because it is green and consistently faster): 3 workers **37.0 s → 32.7 s interleaved (-12 %), and 29-32 s in four later runs vs 34-44 s
      before**; default 18 workers 12.9 s → 11.5 s (-11 %; CPU user+sys ~183 s → ~157 s). Coverage figures identical (statements
      96.57, branches 92.68, functions 94.73, lines 98.42 — thresholds untouched). Coverage instrumentation
      itself costs ~15 % (`--coverage` 42 s vs 36 s without, 3 workers) and stays: it is a gate.
    - **Did not help / not tried:** narrowing `coverage.include` (not measured — the untested-file scan is
-     small next to the 108 workers' startup), and `isolate: false` (unsafe, above). Expected CI effect:
-     ~72 s of vitest (-12 %, the 3-worker figure applied to 82 s); the `web` job budget (1.5 min target)
-     still needs the isolation fix to be met — re-measure with `ci-times.mjs --steps web` after the first
-     master run.
+     small next to the per-file cost it would save), and a lean setup for the render-free `.ts` tests
+     (moot once isolation is off: the setup now runs once per worker's file, not once per fresh worker).
+     Expected CI effect of the whole WHY-6 series: ~82 s of vitest -> roughly 35-40 s (the 3-worker
+     local ratio, -52 %, applied to the runner's 82 s minus the CSS/threads gain); re-measure with
+     `ci-times.mjs --steps web` after the first master run — the `web` job budget (1.5 min) should then
+     be met.
 
 7. **The nightly `e2e` grew +120 % in 3 days** (3m31s → 7m48s) with no e2e budget or step breakdown:
    is it the growing compose image build, the stack start-up, or the Playwright specs (reports batches

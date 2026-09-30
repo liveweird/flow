@@ -86,6 +86,16 @@ holds the fetch-stubbing helpers. The shared setup also forces the reduced-motio
 makes every Mantine test provider honor it: `Transition` invokes its animation hook even with
 `env="test"`, so synchronous reduced-motion transitions prevent callbacks from outliving happy-dom
 teardown. Other media queries retain their normal behavior; the application theme is unchanged.
+
+**The suite runs with `isolate: false`** (`web/vite.config.ts` — a worker reuses its module registry and
+globals across files; the measured gain is in `build-times.md`, WHY 6). Vitest already scopes `vi.mock`
+registrations per test file; what carries over is the EVALUATED `src/` modules, so `setup.ts` calls
+`vi.resetModules()` before every file (npm packages stay cached) and each file's own mocks apply. Tests must not assume anything an earlier test left
+behind — await lazy chart chunks (`findBy…`/`waitFor`, never a synchronous `getBy…` right after the first
+data assertion), reset module-level state in `afterEach`, and unstub globals/timers a test installed. The
+proof is `cd web && npx vitest run --sequence.shuffle` (run it a few times after adding a test); a test
+that only passes in file order is the bug, not the config.
+
 `locales/parity.test.ts` enforces EN↔PL key parity for every shipped language (auto-discovers
 language folders; also pins folders == `SUPPORTED_LANGUAGES`).
 
