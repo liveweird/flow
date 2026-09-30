@@ -8,7 +8,6 @@ import ch.nokillswit.norm.WorkItemStore
 import ch.nokillswit.teams.TeamService
 import io.ktor.server.plugins.BadRequestException
 import java.math.BigDecimal
-import java.time.ZoneId
 import kotlinx.coroutines.flow.toList
 import org.jetbrains.exposed.v1.core.JoinType
 import org.jetbrains.exposed.v1.core.Op
@@ -42,9 +41,6 @@ internal const val UNASSIGNED_TEAM_ID: UInt = 0u
 
 /** The tolerance a live `fact_sprint` figure may drift from its frozen `fact_sprint_snapshot` before it is flagged (plan §7, D13). */
 internal const val SPRINT_DRIFT_TOLERANCE_MD = 0.005
-
-/** The configured zone (`metrics.settings.time_zone`), UTC when the stored id is unparseable — the one place reports resolve it. */
-internal fun zoneOf(timeZone: String): ZoneId = runCatching { ZoneId.of(timeZone) }.getOrDefault(ZoneId.of("UTC"))
 
 /** One `fact_sprint` row (joined with `dim_sprint` for its name/start), scoped to a real team; every report's figures ride along. */
 internal data class SprintRow(
@@ -347,6 +343,31 @@ internal fun taskFactSlice(filter: ReportFilter, connectionIds: List<UInt>, open
     filter.activityType?.let { predicate = predicate and (t.activityType eq it) }
     filter.workCategory?.let { category ->
         predicate = predicate and if (category == UNCATEGORIZED) t.workCategory.isNull() else (t.workCategory eq category)
+    }
+    return predicate
+}
+
+/**
+ * The `fact_worklog` rows of the period: `started_at` in [window], the author's team (`teamId=0` = no team) and account, and
+ * the domain per `domainView` (TASK: the task's; EPIC: the epic's, else the task's — A21), `activityType`, `workCategory`.
+ */
+internal fun worklogSlice(filter: ReportFilter, connectionIds: List<UInt>, window: Pair<Long, Long>): Op<Boolean> {
+    val w = MetricsStore.FactWorklog
+    var predicate: Op<Boolean> = (w.connectionId inList connectionIds) and
+        (w.startedAt greaterEq window.first) and (w.startedAt less window.second)
+    filter.teamId?.let { team ->
+        predicate = predicate and if (team == UNASSIGNED_TEAM_ID) w.authorTeamId.isNull() else (w.authorTeamId eq team)
+    }
+    filter.accountId?.let { predicate = predicate and (w.authorAccountId eq it) }
+    filter.domain?.let { domain ->
+        predicate = predicate and when (filter.domainView) {
+            DomainView.TASK -> w.taskDomainKey eq domain
+            DomainView.EPIC -> (w.epicDomainKey eq domain) or (w.epicDomainKey.isNull() and (w.taskDomainKey eq domain))
+        }
+    }
+    filter.activityType?.let { predicate = predicate and (w.activityType eq it) }
+    filter.workCategory?.let { category ->
+        predicate = predicate and if (category == UNCATEGORIZED) w.workCategory.isNull() else (w.workCategory eq category)
     }
     return predicate
 }

@@ -74,4 +74,18 @@ class WorkingCalendar(
         }
         return rows
     }
+
+    companion object {
+        /** The configured zone (`metrics.settings.time_zone`), UTC when the stored id is unparseable — the one place it is resolved. */
+        fun zoneOf(timeZone: String): ZoneId = runCatching { ZoneId.of(timeZone) }.getOrDefault(ZoneId.of("UTC"))
+
+        /**
+         * The configured calendar (`metrics.settings` zone, weekend days and holidays) — the one builder DERIVE and every report
+         * share, so a stored holiday that no longer parses is skipped the same way in both.
+         */
+        fun of(settings: MetricsSettingsResponse): WorkingCalendar {
+            val holidays = settings.holidays.mapNotNull { runCatching { LocalDate.parse(it) }.getOrNull() }.toSet()
+            return WorkingCalendar(zoneOf(settings.timeZone), settings.weekendDays.toSet(), holidays)
+        }
+    }
 }

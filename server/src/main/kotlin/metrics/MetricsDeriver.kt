@@ -8,8 +8,6 @@ import ch.nokillswit.norm.TrackedField
 import ch.nokillswit.norm.WorkItemStore
 import ch.nokillswit.teams.TeamService
 import io.ktor.util.AttributeKey
-import java.time.LocalDate
-import java.time.ZoneId
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.withContext
@@ -95,9 +93,7 @@ class MetricsDeriver(
         val (settings, config) = suspendTransaction(database) {
             metricsConfig.read() to metricsConfig.effectiveConfig(connectionId)
         }
-        val zone = runCatching { ZoneId.of(settings.timeZone) }.getOrDefault(ZoneId.of("UTC"))
-        val holidays = settings.holidays.mapNotNull { runCatching { LocalDate.parse(it) }.getOrNull() }.toSet()
-        val calendar = WorkingCalendar(zone, settings.weekendDays.toSet(), holidays)
+        val calendar = WorkingCalendar.of(settings)
 
         // Hard-deletes old terminal derive_runs rows on every DERIVE (review round 2b) — the
         // `SyncJobsService.prune` shape, `.claude/docs/persistence.md` "Soft delete (convention)".

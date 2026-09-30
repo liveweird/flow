@@ -69,6 +69,9 @@ data actually lives.
   team's roster it is being read. `teamId = 0` is the UNASSIGNED sentinel bucket, a real value, not
   "absent" -- never rejected here (a real check that a POSITIVE `teamId` names an actual team is a
   report service's own job, downstream).
+- **Group order.** The org drill (`groups`) of velocity, throughput, sprint consistency and the DONE-item reports is built by
+  `orgGroups` (`reports/ReportSupport.kt`), ordered by label (null last), then team id, then account id -- so two groups
+  with an equal label never swap between requests.
 - **`domainView=TASK|EPIC`** (D3) -- the caller (each report's own route) supplies its own default
   (plan section 7: `EPIC` for PV/EV/AC-shaped measures -- backlog, worklog cost, epic accuracy; `TASK`
   elsewhere); an explicit `domainView` param overrides it.

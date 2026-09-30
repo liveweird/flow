@@ -1,5 +1,6 @@
 package ch.nokillswit.reports
 
+import ch.nokillswit.infra.db.nowMillis
 import ch.nokillswit.metrics.DeriveKernels
 import ch.nokillswit.metrics.MetricsStore
 import ch.nokillswit.metrics.SprintScopeItem
@@ -161,25 +162,11 @@ private data class ScopeEntry(val connectionId: UInt, val sprintId: Long, val it
  * `groups` empty). `teamId = 0` (UNASSIGNED) is always empty. See `.claude/docs/reports.md`.
  */
 suspend fun ReportService.sprintConsistency(filter: ReportFilter): SprintConsistencyReport = suspendTransaction(database) {
-    val settings = metricsConfig.read()
-    val connectionIds = resolveConnectionScope(filter.connectionId)
-    val derivedAt = latestDerivedAt(connectionIds)
-
-    if (filter.teamId == UNASSIGNED_TEAM_ID) {
-        return@suspendTransaction SprintConsistencyReport(
-            filter.toMeta(derivedAt, settings.configRevision, settings.minSampleSize),
-            emptyList(),
-            emptyList(),
-        )
-    }
-    filter.teamId?.let { requireActiveTeam(it) }
-    val narrowTeamId = filter.teamId.takeIf { filter.level != ReportLevel.UNIT }
-
-    val sprintRows = resolveSprintRows(filter.period, connectionIds, narrowTeamId)
-        .sortedWith(compareBy<SprintRow, Long?>(nullsLast()) { it.completedAt }.thenBy { it.sprintId })
-    val meta = filter.toMeta(
-        derivedAt, settings.configRevision, settings.minSampleSize, resolvedSprintGroups(filter.period, sprintRows),
-    )
+    // A sprint-anchored report reads no time window, so `nowMs` only feeds the scope's unused `window`.
+    val scope = resolveReportScope(filter, nowMillis())
+    // Chronological, so `meta.resolvedSprints` lists each team's sprints in that order too (the scope's meta is unsorted).
+    val sprintRows = scope.sprintRows.sortedWith(compareBy<SprintRow, Long?>(nullsLast()) { it.completedAt }.thenBy { it.sprintId })
+    val meta = scope.meta.copy(resolvedSprints = resolvedSprintGroups(filter.period, sprintRows))
 
     when (filter.level) {
         ReportLevel.USER -> {
@@ -240,22 +227,13 @@ private suspend fun fetchScopeEntries(sprintRows: List<SprintRow>, accountId: St
 }
 
 /** Σ of every figure per team, straight off the sprint rows' own `fact_sprint` figures (UNIT-level groups). */
-private suspend fun teamConsistencyGroups(sprintRows: List<SprintRow>): List<SprintConsistencyGroup> {
-    val byTeam = sprintRows.groupBy { it.teamId }
-    if (byTeam.isEmpty()) return emptyList()
-    val names = teamNames(byTeam.keys)
-    return byTeam.map { (teamId, rows) ->
-        rows.map { it.full }.fold(NO_FIGURES, SprintFigures::sum).toGroup(teamId, null, names[teamId] ?: teamId.toString())
-    }.sortedBy { it.label }
-}
+private suspend fun teamConsistencyGroups(sprintRows: List<SprintRow>): List<SprintConsistencyGroup> =
+    orgGroups(ReportLevel.UNIT, sprintRows, { it.teamId }, { null }).map { (key, rows) ->
+        rows.map { it.full }.fold(NO_FIGURES, SprintFigures::sum).toGroup(key.teamId, null, key.label)
+    }
 
-/** One group per `assignee_at_commitment` (null = unassigned), the kernel's own bucket predicates over that user's rows. */
-private suspend fun userConsistencyGroups(entries: List<ScopeEntry>): List<SprintConsistencyGroup> {
-    if (entries.isEmpty()) return emptyList()
-    val byAccount = entries.groupBy { it.item.assigneeAtCommitment }
-    val displayNames = accountDisplayNames(byAccount.keys.filterNotNull())
-    return byAccount.map { (accountId, rows) ->
-        DeriveKernels.sprintTotals(rows.map { it.item }).toFigures()
-            .toGroup(null, accountId, accountId?.let { displayNames[it] ?: it })
-    }.sortedWith(compareBy(nullsLast()) { it.label })
-}
+/** One group per `assignee_at_commitment` (null = unassigned, last), the kernel's own bucket predicates over that user's rows. */
+private suspend fun userConsistencyGroups(entries: List<ScopeEntry>): List<SprintConsistencyGroup> =
+    orgGroups(ReportLevel.TEAM, entries, { null }, { it.item.assigneeAtCommitment }).map { (key, rows) ->
+        DeriveKernels.sprintTotals(rows.map { it.item }).toFigures().toGroup(null, key.accountId, key.label)
+    }
