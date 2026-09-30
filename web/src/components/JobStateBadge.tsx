@@ -4,10 +4,10 @@ import type { SyncJobStatus } from "../api/dataSources";
 
 /**
  * The sync-job status badge (plan §10/§11): teal SUCCEEDED (the app's success colour), red
- * FAILED (blocking), gray PENDING/CANCELLED (neutral) — and, as the one deliberate exception to
- * "blue is restrained to primary CTAs" (`web/CLAUDE.md` theming section), blue RUNNING, so an
- * in-progress job reads as active rather than merely neutral. Shared by the current-job card and
- * the jobs history table.
+ * FAILED (blocking), gray PENDING/CANCELLED (neutral) and blue RUNNING — blue is the colour
+ * vocabulary's "in progress" (`web/CLAUDE.md`, "The colour vocabulary is app-wide"), so a running
+ * job reads as active rather than merely neutral. Shared by the current-job card and the jobs
+ * history table.
  */
 export default function JobStateBadge({ status }: { status: SyncJobStatus }) {
   const { t } = useTranslation();

@@ -123,7 +123,7 @@ send-before-store delivery-failure case).
 
 **Per-IP login bucket** (`security.rateLimit.loginPerMinute`, `$LOGIN_RATE_LIMIT_PER_MINUTE`;
 every bucket is installed by `plugins/RateLimits.kt`, which also owns the bucket names — today
-`login`, `refresh`, `password-reset`, `mfa`): blank **follows the mode** — 10/min in production,
+`login`, `refresh`, `password-reset`, `mfa`, `data-source-test`): blank **follows the mode** — 10/min in production,
 1000/min in development — and an explicit number pins it in either mode (the `http.exposeOpenApi`
 idiom). Development is lifted because the e2e suite drives its logins from one host and would
 otherwise sleep out the bucket; **the per-account lockout above is the actual brute-force defence
@@ -286,7 +286,7 @@ NOTHING`. The migration is kept **unchanged** (dev + e2e depend on it; checksums
 — production neutralizes it at startup via the bootstrap above. There are no demo seed users.
 **Kubernetes secrets** live in the `flow-secrets` Secret in the `flow` namespace
 (`k8s/secret.yaml` is a placeholder template — create the real one out-of-band with the
-`kubectl create secret generic` command in its header; the app deployment consumes it via
+`kubectl create secret generic` command in its header; both the `app` and `worker` Deployments consume it via
 `secretKeyRef`).
 
 **Probes and the plain-HTTP crash-loop** (`k8s/web-deployment.yaml` and `k8s/worker-deployment.yaml`,

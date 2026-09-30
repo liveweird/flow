@@ -10,5 +10,5 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      # Postgres 18's fresh cluster alone is ~40 MiB; contracts are capped at 2 MiB each.
+      # Postgres 18's fresh cluster alone is ~40 MiB; the raw Jira store and the derived tables grow from there.
       storage: 1Gi

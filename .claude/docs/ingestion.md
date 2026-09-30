@@ -524,7 +524,7 @@ point"/"flagged" substring match). The legacy Epic Link field (`gh-epic-link`,
 PARENT tiling's fallback above.
 
 **Custom-field current-value capture and `hierarchyLevel` (v0.3.0 M1 commit 2, V14,
-`.claude/docs/domain-model.md` "Gaps in `norm` today").** `JiraNormalizer.normalizeIssue` collects
+`.claude/docs/domain-model.md` "Gaps in `norm`").** `JiraNormalizer.normalizeIssue` collects
 EVERY non-null `customfield_*` key on the issue's current `fields` — never filtered by which ones
 are "known" — canonicalizes the resulting object (`infra/json/CanonicalJson.kt`) and stores it
 verbatim as `norm.work_items.custom_fields`; the metrics layer picks the configured fields at

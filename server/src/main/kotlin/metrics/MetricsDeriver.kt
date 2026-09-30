@@ -516,7 +516,7 @@ class MetricsDeriver(
 
     /**
      * The worklog step (v0.3.0 M3 commit 9, `.claude/docs/domain-model.md` "Cross-team time"/D3,
-     * `.claude/docs/metrics.md` "Worklog cost facts (fact_worklog)"): one `fact_worklog` row per
+     * `.claude/docs/metrics.md` "Worklog cost facts"): one `fact_worklog` row per
      * `norm.work_item_worklogs` row, carrying the author's team AND the task's domain/epic, BOTH
      * as-of the worklog's own `started_at` — never the item's current/done-time values. Batches over
      * only the items that actually carry a worklog, re-reading each batch's PARENT/`issuekey`/SPRINT

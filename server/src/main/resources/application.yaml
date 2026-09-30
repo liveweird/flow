@@ -38,11 +38,11 @@ ktor:
       # registry) — before the data-sources/sync-job routes, which read it off attributes.
       - ch.nokillswit.jira.JiraKt.configureJira
       # The metrics layer's composition root (v0.3.0 M1 commit 3, `.claude/docs/domain-model.md`
-      # "Configuration" — `metrics.md` itself arrives with commit 4, per the phase-3 plan):
+      # "Configuration"; `.claude/docs/metrics.md` is its own guide):
       # publishes MetricsConfigService/TeamMembershipService and registers the tiny
       # /metrics-settings singleton's own routes. After configureJira (the metrics layer reads
-      # `norm`, which configureJira publishes), before the worker scheduler (which gains a DERIVE
-      # dispatch to this package from a later commit).
+      # `norm`, which configureJira publishes), before the worker scheduler (which dispatches the
+      # DERIVE job kind to this package).
       - ch.nokillswit.metrics.MetricsKt.configureMetrics
       # The FLOW_ROLE=worker scheduler (v0.2.0 plan §5) — a no-op unless runsWorker(); after the
       # Connector registry, before the feature route modules.
@@ -67,9 +67,9 @@ ktor:
 
 app:
   # The FLOW_ROLE switch (plugins/Role.kt): web|worker|all, case-insensitive. `web` serves the
-  # HTTP API; `worker` serves only the health/ready probes and runs the ingestion worker (arriving
-  # in commit 5 of the v0.2.0 plan); `all` (the default — dev, docker compose, tests) does both in
-  # one process. An unrecognized value fails startup in every mode.
+  # HTTP API; `worker` serves only the health/ready probes and runs the ingestion worker; `all`
+  # (the default — dev, docker compose) does both in one process; the test suite defaults to
+  # `web` (TestEnvironment.kt). An unrecognized value fails startup in every mode.
   role: "$FLOW_ROLE:all"
 
 security:
@@ -112,7 +112,7 @@ security:
     maxAttempts: "$MFA_MAX_ATTEMPTS:5"
     maxTracked: "$MFA_MAX_TRACKED:10000"
   # Application-level encryption at rest (infra/crypto/): an AES-256-GCM key (64 hex chars,
-  # `openssl rand -hex 32`) for any future stored credential (e.g. a Jira API token). The
+  # `openssl rand -hex 32`) for stored credentials (today the Jira API token). The
   # default is a committed dev-only key (infra/crypto/Crypto.kt — it is on the burned list,
   # so production startup refuses it).
   # LOSING THIS KEY MEANS LOSING EVERY STORED ENCRYPTED VALUE — back it up apart from the DB.
@@ -275,11 +275,10 @@ postgres:
     # The ceiling on concurrent pooled connections for this instance.
     maxSize: "$POSTGRES_POOL_MAX_SIZE:20"
     # The floor the pool fills up to on its FIRST acquire (r2dbc-pool warms up lazily — no
-    # explicit warmup() call). Outside development mode, configureBootstrap's seed-password check
-    # queries the database during boot, so these connections are already open before the first
-    # request there; in development (the common local/test path) nothing acquires during boot
-    # unless ADMIN_INITIAL_PASSWORD is set — the encrypted-at-rest backfill would be the other
-    # boot-time acquirer, but that registry is empty today.
+    # explicit warmup() call). configureBootstrap queries the database during every boot — the
+    # encrypted-at-rest backfill over the `EncryptedAtRest` registry (the Jira API token) runs in
+    # every mode, and outside development mode so does the seed-password check — so these
+    # connections are already open before the first request.
     initialSize: "$POSTGRES_POOL_INITIAL_SIZE:2"
     # How long a caller waits for a free connection before failing (surfaces as a 500 —
     # see "Connection pool" in persistence.md — rather than a new declared status).
