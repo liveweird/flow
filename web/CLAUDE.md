@@ -586,7 +586,7 @@ completed · the report's figures · the orange drift badge with the frozen figu
   `heatScale.test.ts`; a zero cell has no fill and dimmed text; the number is the carrier and a legend says so), then row total, foreign MD
   and foreign share (`formatPercent`, a dash for `null`) and a totals row. Every figure is the server's own rounded exact sum, NEVER re-added
   from the cells shown (the footnote states the ≤ 0.005-per-addend rule). It is a real table: a visually hidden `caption`, `scope="col"`/
-  `scope="row"` headers, the first column and the header row sticky inside a `Table.ScrollContainer` (`theme.module.css` `.heatTable` — the
+  `scope="row"` headers, the first column and the header row sticky inside a `ScrollRegion` (`theme.module.css` `.heatTable` — the
   theme's card frame clips with `overflow: hidden`, which would keep `position: sticky` from engaging, so the class lifts it). A row NAME is
   the way in (`drillSearch` in `utils/costMatrixReport.ts`: team → its authors, author → one person, the period travelling along; a one-sprint
   period survives only into a team that lists the sprint); a soft-deleted team (`active: false`) is marked "Deleted team" and never linked

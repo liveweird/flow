@@ -12,18 +12,15 @@ export default function ScrollRegion({
   label,
   minWidth,
   maxHeight,
-  className = classes.tableScroll,
   children,
 }: {
   label: string;
   minWidth: number;
   maxHeight?: number | string;
-  /** Overrides the default focus ring class (the cost matrix carries its own sticky-column styling). */
-  className?: string;
   children: ReactNode;
 }) {
   return (
-    <Table.ScrollContainer type="native" minWidth={minWidth} maxHeight={maxHeight} className={className} tabIndex={0} role="region" aria-label={label}>
+    <Table.ScrollContainer type="native" minWidth={minWidth} maxHeight={maxHeight} className={classes.tableScroll} tabIndex={0} role="region" aria-label={label}>
       {children}
     </Table.ScrollContainer>
   );

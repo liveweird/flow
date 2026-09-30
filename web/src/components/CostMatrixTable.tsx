@@ -73,7 +73,7 @@ export default function CostMatrixTable({ report, filters }: { report: CostMatri
 
   return (
     <Stack gap="xs">
-      <ScrollRegion label={caption} minWidth={640} maxHeight="70vh" className={classes.heatScroll}>
+      <ScrollRegion label={caption} minWidth={640} maxHeight="70vh">
         <Table stickyHeader captionSide="top" className={classes.heatTable}>
           <Table.Caption className={classes.heatCaption}>{caption}</Table.Caption>
           <Table.Thead>
