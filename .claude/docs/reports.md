@@ -963,8 +963,11 @@ EpicProgressReport {
   nothing derived at all answers empty (`series`/`rows` empty, `asOf.day` null, every figure 0) with the same "Not derived yet" note;
   no sprint resolved for a sprint-relative period (or `teamId=0` with one) is empty with that note.
 
-Code: `reports/EpicProgressReport.kt` (DTOs, the query functions as extensions on `ReportService`; `snapshotNotes` in
-`reports/SnapshotSupport.kt` is now shared with WIP/backlog). Tests -- `ReportEpicProgressTest`: on the shared derived fixture every
+Code: `reports/EpicProgressReport.kt` (the DTOs, the `epicProgress` entry as an extension on `ReportService` and `progressOf`, the
+assembly; `snapshotNotes` in `reports/SnapshotSupport.kt` is shared with WIP/backlog), split by concern like `DataQuality*`:
+`EpicProgressTargets.kt` (`ProgressTarget`/`ResolvedTarget`, the `400` combination checks `progressTargetOf`, `resolveTarget`),
+`EpicProgressEvm.kt` (the `Evm` triple, `aggPredicate`/`fetchIncrements`/`totalsThrough`, the EPIC-level plan block and curve replay
+`epicDetail`, `foreignWorkShare`) and `EpicProgressRows.kt` (the `domainRows`/`unitRows` drill tables). Tests -- `ReportEpicProgressTest`: on the shared derived fixture every
 level's `asOf`, every series point (monotone, ending at `asOf`), the DOMAIN/UNIT drill rows and the sum of DOMAIN epic rows against
 an INDEPENDENT running sum of the persisted `agg_daily_flow` rows (UNIT against the DOMAIN scopes, the domain rows summing to it);
 the golden epic's PV reaching its budget on its due date, its exactly-one baseline and its plan block against `expected.json`; sprint-relative and past-the-derive periods; and, on hand-built rows in fresh disabled connections,
