@@ -12,7 +12,7 @@ import {
 } from "../api/metrics";
 import { useAdmin } from "../auth";
 import { epochMillisToIsoDate, nowEpochMillis, startOfTodayEpochMillis } from "../utils/isoDate";
-import { loadErrorMessage, saveErrorMessage } from "../utils/saveError";
+import { saveErrorMessage } from "../utils/saveError";
 import { showSuccessToast } from "../utils/toast";
 import ConfirmDeleteModal from "./ConfirmDeleteModal";
 import EmptyState from "./EmptyState";
@@ -20,6 +20,7 @@ import JiraMemberModal from "./JiraMemberModal";
 import LoadingBlock from "./LoadingBlock";
 import RowActionsMenu from "./RowActionsMenu";
 import { useDeleteConfirm } from "../hooks/useDeleteConfirm";
+import ErrorAlert from "./ErrorAlert";
 
 const DIRECTORY_PAGE_SIZE = 100;
 
@@ -93,9 +94,7 @@ export default function TeamJiraMembers({ teamId }: { teamId: number }) {
   if (memberships.isLoading) return <LoadingBlock />;
   if (memberships.isError) {
     return (
-      <Alert color="red" variant="light">
-        {loadErrorMessage(memberships.error, t)}
-      </Alert>
+      <ErrorAlert error={memberships.error} />
     );
   }
 

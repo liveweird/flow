@@ -4,6 +4,7 @@ import {
   activePeriodChoice,
   applyReportFilter,
   dropDomainWithTeam,
+  dropReportSpecific,
   filterLevel,
   hasReportFilterParams,
   normalizeWipFilter,
@@ -156,6 +157,43 @@ describe("period presets", () => {
       to: "2026-02-01",
     });
     expect(withPeriod({ teamId: 2, from: "2026-01-01" }, { lastSprints: 3 })).toEqual({ teamId: 2, lastSprints: 3 });
+  });
+});
+
+describe("dropReportSpecific", () => {
+  const all: ReportFilterState = {
+    teamId: 1,
+    accountId: "a1",
+    lastSprints: 3,
+    connectionId: 2,
+    domainView: "TASK",
+    domain: "FLO",
+    epicId: "FLO-1",
+    activityType: "Bug",
+    workCategory: "Run",
+    breakdown: "DOMAIN",
+    bucket: "WEEK",
+    by: "STATUS",
+    itemKind: "EPIC",
+  };
+
+  test("drops every report-specific param except the kept ones, and never the shared ones", () => {
+    expect(dropReportSpecific(all, new Set())).toEqual({ teamId: 1, accountId: "a1", lastSprints: 3, connectionId: 2 });
+    expect(dropReportSpecific(all, new Set(["domain", "epicId"]))).toEqual({
+      teamId: 1,
+      accountId: "a1",
+      lastSprints: 3,
+      connectionId: 2,
+      domain: "FLO",
+      epicId: "FLO-1",
+    });
+  });
+
+  test("returns a copy and leaves its input alone", () => {
+    const input: ReportFilterState = { domain: "FLO", bucket: "WEEK" };
+    const out = dropReportSpecific(input, new Set(["domain"]));
+    expect(out).not.toBe(input);
+    expect(input).toEqual({ domain: "FLO", bucket: "WEEK" });
   });
 });
 

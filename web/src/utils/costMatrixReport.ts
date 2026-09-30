@@ -1,5 +1,6 @@
 import type { CostMatrixReport, ReportFilters, ReportMeta } from "../api/reports";
-import { applyReportFilter, parseReportFilter, type ReportFilterState } from "./reportFilter";
+import { applyReportFilter, dropReportSpecific, parseReportFilter, type ReportFilterState } from "./reportFilter";
+import { costMatrixPath, reportSpecificKeep } from "./reportLinks";
 
 /**
  * Makes a filter the cost matrix can answer, and says what its page can show. The report reads the
@@ -9,11 +10,7 @@ import { applyReportFilter, parseReportFilter, type ReportFilterState } from "./
  * dropped off the request AND the URL.
  */
 export function normalizeCostMatrixFilter(filter: ReportFilterState): ReportFilterState {
-  const next = { ...filter };
-  for (const key of ["breakdown", "bucket", "by", "itemKind", "epicId"] as const) {
-    delete next[key];
-  }
-  return next;
+  return dropReportSpecific(filter, reportSpecificKeep(costMatrixPath));
 }
 
 /** True for a `lastSprints`/`sprintId` period: the server resolves sprints and sends no `from`/`to`. */

@@ -20,10 +20,11 @@ import { useDeleteConfirm } from "../hooks/useDeleteConfirm";
 import { usePagedSort } from "../hooks/usePagedSort";
 import { useResetPassword } from "../hooks/useResetPassword";
 import { isString, useStoredState } from "../hooks/useStoredState";
-import { loadErrorMessage, saveErrorMessage } from "../utils/saveError";
+import { saveErrorMessage } from "../utils/saveError";
 import PageHeader from "../components/PageHeader";
 import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
 import { editUserPath, newUserPath, userFeaturesPath } from "../utils/userLinks";
+import ErrorAlert from "../components/ErrorAlert";
 
 const SORT_FIELDS = ["name", "email"] as const;
 type SortField = (typeof SORT_FIELDS)[number];
@@ -118,11 +119,7 @@ export default function Users() {
         />
       </FilterPanel>
 
-      {isError && (
-        <Alert color="red" variant="light" title={t("users.loadFailed")}>
-          {loadErrorMessage(error, t)}
-        </Alert>
-      )}
+      {isError && <ErrorAlert error={error} title={t("users.loadFailed")} />}
 
       <Table>
         <Table.Thead>

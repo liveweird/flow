@@ -170,7 +170,8 @@ scratch, use `npm install --legacy-peer-deps`.
   "Failed to fetch") — map statuses to i18n keys via the shared mappers in `utils/saveError.ts`:
   `saveErrorMessage(err, t, keys)` for mutations (per-status keys + a `failed` fallback) and
   `loadErrorMessage(err, t)` for list loads. Errors render inline as `color="red" variant="light"`
-  Alerts — never as toasts.
+  Alerts — never as toasts. A failed QUERY renders through `components/ErrorAlert.tsx`
+  (`error`, optional `title`), never an inline `<Alert>{loadErrorMessage(…)}</Alert>`.
 - The `@mantine/notifications` host is mounted in `main.tsx` (top-center, autoClose 2500, limit 3
   — deliberately not in App, so unit tests never mount it). **Success toasts only, with fixed
   vocabulary only** (`showSuccessToast(t("<area>.toast.*"))` in `utils/toast.tsx` — teal, never
@@ -448,7 +449,7 @@ completed · the report's figures · the orange drift badge with the frozen figu
   key). Params this module does not own survive `applyReportFilter`; switching report tabs
   (`reportHref`) drops the report-specific params (`domainView`, `domain`, `activityType`,
   `workCategory`, `breakdown`, `bucket`) the target report has no control for, so a filter the user
-  cannot see or clear never follows them (`REPORT_SPECIFIC_PARAMS` in `utils/reportLinks.ts`; `epicId` is one of them, kept only by epic progress). Presets are stored as
+  cannot see or clear never follows them (`REPORT_SPECIFIC_PARAMS` in `utils/reportLinks.ts`; `epicId` is one of them, kept only by epic progress; a page's normalizer drops the rest through `dropReportSpecific(filter, reportSpecificKeep(path))`, so the table stays the one source). A team id the reference data no longer lists prints `#<id>` through `teamLabel` (`utils/reportFormat.ts`). Presets are stored as
   absolute `from`/`to` dates (calendar days in the configured zone) and recognised again by
   `activePeriodChoice`. **The last team is remembered** (`useStoredState`, `reports.teamId`): a report
   opened with NO filter params at all (a bare nav click) starts on it and the URL is rewritten

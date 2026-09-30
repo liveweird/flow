@@ -15,8 +15,8 @@ import ReportNote from "../components/ReportNote";
 import ReportTabs from "../components/ReportTabs";
 import { WipDailyTable, WipSummaryTable } from "../components/WipTables";
 import { useReportPage } from "../hooks/useReportPage";
-import { normalizeWipFilter, wipColumnAvailable } from "../utils/reportFilter";
-import { FLOW_TABS } from "../utils/reportLinks";
+import { dropReportSpecific, normalizeWipFilter, wipColumnAvailable, type ReportFilterState } from "../utils/reportFilter";
+import { FLOW_TABS, reportSpecificKeep, wipPath } from "../utils/reportLinks";
 import { DEFAULT_HIDDEN_BANDS, paintBands, wipBands, wipChartRows } from "../utils/wipReport";
 
 // The chart (and with it recharts) rides its own lazy chunk.
@@ -26,16 +26,19 @@ const WipChart = lazy(() => import("../components/WipChart"));
 // daily aggregate has no team × domain split), and answers 400 to an activity type or work category.
 const CONTROLS: ReportControls = { domain: true, domainExcludesTeam: true, wipBy: true, itemKind: true };
 
+/** Off the request and the URL: what the page has no control for (a `400` for an activity type or work category), then team-over-domain and the column rule. */
+const normalizeWipPage = (filter: ReportFilterState) => normalizeWipFilter(dropReportSpecific(filter, reportSpecificKeep(wipPath)));
+
 /** Report 9 — WIP: items per stage, status or board column at the end of every day. */
 export default function ReportWip() {
   const { t } = useTranslation();
-  // The request is always explicit — what to key by and which items. `normalizeWipFilter` (URL
-  // included) already dropped what the server would answer 400: a domain beside a team, a column
-  // keying without one team.
+  // The request is always explicit — what to key by and which items. `normalizeWipPage` (URL
+  // included) already dropped what the server would answer 400: params the page has no control for, a domain
+  // beside a team, a column keying without one team.
   const { filtersQuery, filters, filter, setFilter, query } = useReportPage(
     "wip",
     (requested) => getWipReport({ ...requested, by: requested.by ?? "STAGE", itemKind: requested.itemKind ?? "TASK" }),
-    normalizeWipFilter,
+    normalizeWipPage,
   );
   const report = query.data;
   // The ticked bands: local to the page, remembered per keying — and, for columns, per team (a status

@@ -1,5 +1,6 @@
 import type { EpicProgressPoint } from "../api/reports";
-import { applyReportFilter, parseReportFilter, type ReportFilterState } from "./reportFilter";
+import { applyReportFilter, dropReportSpecific, parseReportFilter, type ReportFilterState } from "./reportFilter";
+import { epicProgressPath, reportSpecificKeep } from "./reportLinks";
 import { formatIndex } from "./reportFormat";
 
 /** The scope an epic progress link selects: at most ONE of these is ever set. */
@@ -18,10 +19,8 @@ export interface EpicScope {
  * then team) — the URL is rewritten to it, so a dropped scope cannot come back on its own.
  */
 export function normalizeEpicProgressFilter(filter: ReportFilterState): ReportFilterState {
-  const next = { ...filter };
-  for (const key of ["domainView", "accountId", "activityType", "workCategory", "breakdown", "bucket", "by", "itemKind"] as const) {
-    delete next[key];
-  }
+  const next = dropReportSpecific(filter, reportSpecificKeep(epicProgressPath));
+  delete next.accountId;
   if (next.epicId !== undefined) {
     delete next.domain;
     delete next.teamId;

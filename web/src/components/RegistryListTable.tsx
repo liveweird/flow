@@ -1,11 +1,10 @@
 import type { ReactNode } from "react";
 import type { Icon } from "@tabler/icons-react";
-import { Alert, Table } from "@mantine/core";
-import { useTranslation } from "react-i18next";
+import { Table } from "@mantine/core";
 import EmptyState from "./EmptyState";
 import PaginationBar from "./PaginationBar";
 import TableLoadingRow from "./TableLoadingRow";
-import { loadErrorMessage } from "../utils/saveError";
+import ErrorAlert from "./ErrorAlert";
 
 /** Common load/error/empty/pagination shell for the small registry tables. */
 export default function RegistryListTable({
@@ -43,15 +42,9 @@ export default function RegistryListTable({
   onPageChange: (page: number) => void;
   onPageSizeChange: (size: number) => void;
 }) {
-  const { t } = useTranslation();
-
   return (
     <>
-      {isError && (
-        <Alert color="red" variant="light" title={errorTitle}>
-          {loadErrorMessage(error, t)}
-        </Alert>
-      )}
+      {isError && <ErrorAlert error={error} title={errorTitle} />}
       <Table>
         <Table.Thead>{header}</Table.Thead>
         <Table.Tbody>

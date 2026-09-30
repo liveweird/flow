@@ -19,8 +19,8 @@ import {
   WEEKEND_DAY_OPTIONS,
   type MetricsSettingsFormValues,
 } from "../utils/metricsForm";
-import { loadErrorMessage } from "../utils/saveError";
 import { showSuccessToast } from "../utils/toast";
+import ErrorAlert from "../components/ErrorAlert";
 
 /**
  * The global `metrics.settings` singleton (`.claude/docs/domain-model.md` "Configuration") —
@@ -73,9 +73,7 @@ export default function MetricsSettings() {
         {settings.isLoading ? (
           <LoadingBlock />
         ) : settings.isError ? (
-          <Alert color="red" variant="light">
-            {loadErrorMessage(settings.error, t)}
-          </Alert>
+          <ErrorAlert error={settings.error} />
         ) : (
           <form onSubmit={form.onSubmit(onSubmit)} noValidate>
             <Stack>

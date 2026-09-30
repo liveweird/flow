@@ -84,6 +84,18 @@ export const REPORT_SPECIFIC_KEYS = [
 ] as const;
 export type ReportSpecificKey = (typeof REPORT_SPECIFIC_KEYS)[number];
 
+/**
+ * A copy of the filter without every report-specific param the page has no control for — everything
+ * in `REPORT_SPECIFIC_KEYS` except `keep`. The shared params (period, team, member, connection) always stay.
+ */
+export function dropReportSpecific(filter: ReportFilterState, keep: ReadonlySet<ReportSpecificKey>): ReportFilterState {
+  const next = { ...filter };
+  for (const key of REPORT_SPECIFIC_KEYS) {
+    if (!keep.has(key)) delete next[key];
+  }
+  return next;
+}
+
 /** True when the query string carries ANY param this module owns (valid or not). */
 export function hasReportFilterParams(params: URLSearchParams): boolean {
   return MANAGED_KEYS.some((key) => params.has(key));

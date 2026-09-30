@@ -2,7 +2,7 @@ import { useTranslation } from "react-i18next";
 import { Table, Text } from "@mantine/core";
 import type { BlockedTopItem, ReportFilters } from "../api/reports";
 import { formatDate } from "../utils/formatDate";
-import { formatDays, formatPercent } from "../utils/reportFormat";
+import { formatDays, formatPercent, teamLabel } from "../utils/reportFormat";
 
 const MISSING = "—";
 
@@ -19,7 +19,7 @@ export default function BlockedTopItemsTable({
   const teamName = (item: BlockedTopItem) =>
     item.teamId == null
       ? t(item.itemKind === "EPIC" ? "reports.groups.noOwner" : "reports.groups.unassigned")
-      : (filters.teams.find((team) => team.id === item.teamId)?.name ?? String(item.teamId));
+      : teamLabel(item.teamId, filters.teams);
   return (
     <Table.ScrollContainer minWidth={640}>
       <Table aria-label={t("reports.blockedTime.topTableLabel")}>
