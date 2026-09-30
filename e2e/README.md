@@ -35,7 +35,7 @@ npm run test:setup            # stack reuse/start/failure paths preserve service
 ```
 
 `check:scenarios` enforces the same-commit rule below mechanically (both directions, orphan
-files included); `accessibility.spec.ts` is its one registered skip — the parameterized-title
+files included); `accessibility.spec.ts` and `accessibility-data.spec.ts` are its registered skips — the parameterized-title
 carve-out in [`scenarios/README.md`](scenarios/README.md).
 
 ## Parallel execution
@@ -49,8 +49,9 @@ from Lettuce, that any new or edited spec must satisfy:
 - Each spec's scenario file declares its **Owns** line (exclusive server-side state; "nothing —
   read-only" when applicable). Today: `auth`, `changelog` and `shell` (device-local
   localStorage only) are read-only; `accessibility` owns one API-seeded fixture team
-  (`e2e-axe-team-*`) and one synced Jira-stub connection (`e2e-axe-ds-*`) with the team its FLO
-  board is mapped to (`e2e-axe-data-team-*`), all deleted through the API; `users` owns its
+  (`e2e-axe-team-*`); `accessibility-data` owns one synced Jira-stub connection (`e2e-axe-ds-*`,
+  paused once derived) with the team its FLO board is mapped to (`e2e-axe-data-team-*`), both deleted
+  through the API; `users` owns its
   throwaway accounts; `teams` owns its throwaway teams (unique `e2e-team-*` names) and users; `i18n` owns its throwaway user (and ONLY that user's
   language — **seeded accounts must stay English**: every login applies the stored language to
   that session's UI, so a Polish seed admin would flip parallel specs mid-run); `password-reset`
@@ -101,14 +102,16 @@ the same commit** — this list is the coverage map, the scenario file is the de
 
 - [`accessibility.spec.ts`](scenarios/accessibility.md) — axe WCAG A/AA smoke: login + the
   authenticated list/form pages (`/`, `/teams`, `/users`, `/users/new`, `/feature-flags`,
-  `/data-sources`, `/metrics-settings`, all fifteen `/reports/*` routes, `/change-password`,
-  `/changelog`), the detail pages of an API-seeded fixture team (its roster page, the admin's own
-  edit-user and user-features pages), `/reset-password`, the not-found page, and a registry editor
-  modal scoped to its dialog; then, over its own API-seeded, synced-and-derived Jira-stub connection,
-  every report with derived data behind it plus the data-source details, data profile, raw issue
-  inspector and metrics-configuration pages — and a DARK-scheme pass (`colorScheme: "dark"`, the
-  `auto` default following it) over the login screen, the list/form/report pages and the data-backed
-  set; `color-contrast` included (the theme's tokens are AA-tested in `web/src/theme.test.ts`).
+  `/data-sources`, `/metrics-settings`, all fifteen `/reports/*` routes — each scanned once settled —
+  `/change-password`, `/changelog`), the detail pages of an API-seeded fixture team (its roster page,
+  the admin's own edit-user and user-features pages), `/reset-password`, the not-found page, and a
+  registry editor modal scoped to its dialog; the login screen and the list/form/report pages again in
+  the DARK scheme (`colorScheme: "dark"`, which the `auto` default follows); `color-contrast` included
+  (the theme's tokens are AA-tested in `web/src/theme.test.ts`).
+- [`accessibility-data.spec.ts`](scenarios/accessibility-data.md) — the same axe scan over its own
+  API-seeded, synced-and-derived (then paused) Jira-stub connection: every report with derived data
+  behind it plus the data-source details, data profile, raw issue inspector and metrics-configuration
+  pages, in the light and the dark scheme.
 - [`auth.spec.ts`](scenarios/auth.md) — login / logout / invalid credentials / guarded deep link with query and hash;
   explicit sign-out from a non-home protected page returns the next sign-in to Home,
   including while server revocation is delayed.
@@ -200,7 +203,7 @@ on the real form driver.
 - **The authz matrix** — covered by the server tests (`GuardsTest`, `AnonymousAccessTest`); E2E
   asserts only user-visible consequences.
 - **Dark-mode rendering** — the palette is theme-owned (`web/src/theme.ts`); `shell.spec.ts`
-  asserts the color-scheme attribute switches and persists, and `accessibility.spec.ts` scans the
+  asserts the color-scheme attribute switches and persists, and the two accessibility specs scan the
   page sets in the dark scheme (contrast), but no e2e asserts rendered colors, and there is no
   visual-regression suite.
 - **Responsive / cross-browser / visual automation** — the suite deliberately runs a single

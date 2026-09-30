@@ -370,7 +370,8 @@ async function readEstimateAdjustments(page: Page): Promise<void> {
     const started = Number(await blockFigure(block, "Started"));
     const changed = Number(await blockFigure(block, "Changed after start"));
     const late = Number(await blockFigure(block, "Estimated late"));
-    expect(started, "work started in the window").toBeGreaterThan(0);
+    // The share is withheld below the minimum sample (5, as the server's `meta.minSampleSize`): the stub starts far more.
+    expect(started, "started count clears the minimum sample, so the share is shown").toBeGreaterThanOrEqual(5);
     expect(changed).toBeLessThanOrEqual(started);
     expect(late, "estimated late is counted within changed after start").toBeLessThanOrEqual(changed);
     expect(await blockFigure(block, "Share changed")).toMatch(/^\d+(\.\d+)?%$/);
@@ -441,7 +442,10 @@ async function readEstimatedBacklog(page: Page): Promise<void> {
   // The team's backlog: its board is mapped, so the pace of its closed sprints turns man-days into sprints.
   await openReport(page, "/reports/backlog", `&teamId=${teamId}`);
   await expect(page.getByRole("heading", { level: 2, name: "Estimated backlog", exact: true })).toBeVisible();
-  await expect(page.getByRole("heading", { level: 3, name: `Backlog on ${dayOffset(7)}`, exact: true })).toBeVisible();
+  // The card is "as of" the newest derived day inside the window — never later than the window's end.
+  const asOf = /^Backlog on (\d{4}-\d{2}-\d{2})$/.exec(await page.getByRole("heading", { level: 3, name: /^Backlog on / }).innerText())?.[1] ?? "";
+  expect(asOf, "the as-of day").toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  expect(asOf <= dayOffset(7), "as-of inside the window").toBe(true);
   const tile = (label: string) => page.getByRole("group", { name: label, exact: true });
   const teamMd = (await tile("Backlog (MD)").locator("p").nth(1).innerText()).trim();
   const teamItems = (await tile("Items").locator("p").nth(1).innerText()).trim();
@@ -450,12 +454,12 @@ async function readEstimatedBacklog(page: Page): Promise<void> {
   await expect(tile("Backlog in sprints")).toContainText(/≈ [\d.]+ sprints? ahead/);
   await expect(tile("Backlog in sprints")).toContainText(/Recent pace: [\d.]+ MD delivered per sprint, the mean of \d+ closed sprints?/);
 
-  // The trend: the chart, and its text alternative — the newest day first, equal to today's tiles.
+  // The trend: the chart, and its text alternative — the newest day first, equal to the tiles' as-of day and figures.
   await expect(page.getByRole("group", { name: "Chart: estimated backlog in man-days by day" })).toBeVisible();
   await page.getByRole("button", { name: "Show daily figures" }).click();
   const daily = page.getByRole("table", { name: "Backlog by day, as a table" });
   const newest = daily.getByRole("row").nth(1).getByRole("cell");
-  await expect(newest.nth(0)).toHaveText(dayOffset(7));
+  await expect(newest.nth(0)).toHaveText(asOf);
   await expect(newest.nth(1)).toHaveText(teamMd);
   await expect(newest.nth(2)).toHaveText(teamItems);
   expect(await daily.getByRole("row").count(), "header + one row per day of the window").toBeGreaterThan(100);

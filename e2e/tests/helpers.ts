@@ -353,3 +353,66 @@ export async function axeViolations(page: Page, include?: string): Promise<{ id:
     nodes: v.nodes.map((n) => n.target.join(" ")),
   }));
 }
+
+export type Scheme = "light" | "dark";
+
+/** The scheme the page must actually render in — Mantine stamps it on <html> (the `auto` default follows Playwright's emulated `colorScheme`). */
+export async function expectScheme(page: Page, scheme: Scheme): Promise<void> {
+  await expect(page.locator("html")).toHaveAttribute("data-mantine-color-scheme", scheme);
+}
+
+/** Every report route (nav model: `web/src/utils/reportLinks.ts`) with its page title. */
+export const REPORT_PAGES: { path: string; heading: string }[] = [
+  { path: "/reports/velocity", heading: "Velocity" },
+  { path: "/reports/throughput", heading: "Throughput" },
+  { path: "/reports/sprint-consistency", heading: "Sprint consistency" },
+  { path: "/reports/cycle-time", heading: "Cycle time" },
+  { path: "/reports/task-estimation-accuracy", heading: "Task estimation accuracy" },
+  { path: "/reports/epic-estimation-accuracy", heading: "Epic estimation accuracy" },
+  { path: "/reports/estimate-adjustments", heading: "Estimate adjustments" },
+  { path: "/reports/reported-time-ratio", heading: "Reported time" },
+  { path: "/reports/wip", heading: "WIP" },
+  { path: "/reports/backlog", heading: "Estimated backlog" },
+  { path: "/reports/aging-wip", heading: "Aging WIP" },
+  { path: "/reports/blocked-time", heading: "Blocked time" },
+  { path: "/reports/epic-progress", heading: "Epic progress" },
+  { path: "/reports/data-quality", heading: "Data quality" },
+  { path: "/reports/cost-matrix", heading: "Cost matrix" },
+];
+
+/** A report has settled once its page title is up, no spinner is left (filters, data, lazy charts) and nothing failed — what a scan waits for. */
+export const reportSettled = (heading: string) => async (page: Page) => {
+  await expect(page.getByRole("heading", { level: 2, name: heading, exact: true })).toBeVisible();
+  await expect(page.getByRole("status", { name: "Loading…" })).toHaveCount(0);
+  await expect(page.getByRole("alert")).toHaveCount(0);
+};
+
+/**
+ * Pause a data source's syncing through the API (a full replace of its settings with `enabled:
+ * false`; a blank token keeps the stored one). A paused connection keeps everything it derived and
+ * stays readable by `connectionId`, but no config bump elsewhere in the suite re-derives it — the
+ * fixture connections of page-scanning specs are paused once their derive is done.
+ */
+export async function pauseDataSourceViaApi(api: APIRequestContext, id: number): Promise<void> {
+  const current = await api.get(`/api/v1/data-sources/${id}`);
+  expect(current.ok(), await current.text()).toBeTruthy();
+  const source = await current.json();
+  const saved = await api.put(`/api/v1/data-sources/${id}`, {
+    data: {
+      name: source.name,
+      enabled: false,
+      syncIntervalMinutes: source.syncIntervalMinutes,
+      backfillFrom: source.backfillFrom,
+      reconcileHourUtc: source.reconcileHourUtc,
+      // Spelled out: the response's read-only fields (`hasApiToken`, `cloudId`) are not accepted back.
+      jira: {
+        siteUrl: source.jira.siteUrl,
+        email: source.jira.email,
+        apiToken: "",
+        projectKeys: source.jira.projectKeys,
+        authScheme: source.jira.authScheme,
+      },
+    },
+  });
+  expect(saved.ok(), await saved.text()).toBeTruthy();
+}

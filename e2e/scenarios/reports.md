@@ -252,12 +252,12 @@ finished in autumn 2025, before the six-month window opens.
 ## Scenario: the user reads the estimated backlog and what it means in sprints
 
 1. The user opens **Estimated backlog** for the seeded team (deep link, fixed window).
-   - *Expected*: the card is titled "Backlog on" the window's last day; the Backlog (MD) and Items
+   - *Expected*: the card is titled "Backlog on" its as-of day (the newest derived day inside the window, never after its end); the Backlog (MD) and Items
      tiles hold positive figures and the "Backlog in sprints" tile reads "≈ N sprints ahead" with
      its "Recent pace: … the mean of N closed sprints" basis.
 2. They open the daily figures under the trend chart.
    - *Expected*: the chart and its text alternative are shown; the table's newest row is the
-     window's last day and equals the tiles' man-days and items; the table has a row per day of the
+     as-of day and equals the tiles' man-days and items; the table has a row per day of the
      window.
 3. They clear the **Team** filter.
    - *Expected*: the URL loses the team; the sprints tile states that at unit level the pace is the
