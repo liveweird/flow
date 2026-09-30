@@ -1,9 +1,8 @@
 import { useId, type ReactNode } from "react";
 import { Link as RouterLink } from "react-router-dom";
-import { useTranslation } from "react-i18next";
-import { Alert, Anchor, Box, Group, Paper, Skeleton, Stack, Text, Title } from "@mantine/core";
+import { Anchor, Box, Group, Paper, Skeleton, Stack, Text, Title } from "@mantine/core";
 import { IconChevronRight } from "@tabler/icons-react";
-import { loadErrorMessage } from "../utils/saveError";
+import ErrorAlert from "./ErrorAlert";
 
 /**
  * One tile of the Home overview: the title IS the link into the full report (an `Anchor` inside the
@@ -29,15 +28,10 @@ export default function HomeTile({
   links?: ReadonlyArray<{ to: string; label: string }>;
   children: ReactNode;
 }) {
-  const { t } = useTranslation();
   const titleId = useId();
   let body: ReactNode;
   if (error) {
-    body = (
-      <Alert color="red" variant="light" role="alert">
-        {loadErrorMessage(error, t)}
-      </Alert>
-    );
+    body = <ErrorAlert error={error} />;
   } else if (isPending) {
     // Decorative: the page owns the ONE polite "Loading…" live region (five tiles must not announce five times).
     body = (

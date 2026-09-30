@@ -80,6 +80,7 @@ function StatusesTab({
   }));
   return (
     <MappingTable
+      label={t("metrics.config.tab.statuses")}
       idColumnLabel={t("metrics.config.statuses.columnStatus")}
       fieldColumnLabels={[t("metrics.config.statuses.columnStage"), t("metrics.config.statuses.columnBlocked")]}
       rows={rows}
@@ -167,6 +168,7 @@ function DomainsTab({
   }));
   return (
     <MappingTable
+      label={t("metrics.config.tab.domains")}
       idColumnLabel={t("metrics.config.domains.columnProject")}
       fieldColumnLabels={[
         t("metrics.config.domains.columnDomainKey"),
@@ -209,6 +211,7 @@ function BoardsTab({
   }));
   return (
     <MappingTable
+      label={t("metrics.config.tab.boards")}
       idColumnLabel={t("metrics.config.boards.columnBoard")}
       fieldColumnLabels={[t("metrics.config.boards.columnTeam")]}
       rows={rows}
@@ -241,6 +244,7 @@ function ActivityTypesTab({
   }));
   return (
     <MappingTable
+      label={t("metrics.config.tab.activityTypes")}
       idColumnLabel={t("metrics.config.activityTypes.columnIssueType")}
       fieldColumnLabels={[t("metrics.config.activityTypes.columnActivityType")]}
       rows={rows}
@@ -290,6 +294,7 @@ function WorkCategoriesTab({
         </Text>
       )}
       <MappingTable
+        label={t("metrics.config.tab.workCategories")}
         idColumnLabel={t("metrics.config.workCategories.columnValue")}
         fieldColumnLabels={[t("metrics.config.workCategories.columnCategory")]}
         rows={rows}

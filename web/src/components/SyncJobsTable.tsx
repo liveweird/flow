@@ -77,6 +77,7 @@ export default function SyncJobsTable({
       </Group>
 
       <RegistryListTable
+        label={t("dataSources.details.jobsTitle")}
         errorTitle={t("dataSources.details.jobsLoadFailed")}
         error={error}
         isError={isError}

@@ -16,6 +16,7 @@ import { isLastAdminConflict, loadErrorMessage, saveErrorMessage } from "../util
 import { showSuccessToast } from "../utils/toast";
 import PageHeader from "../components/PageHeader";
 import { FORM_MAX_WIDTH } from "../utils/layout";
+import { usersPath } from "../utils/userLinks";
 
 export default function EditUser() {
   const { t } = useTranslation();
@@ -51,7 +52,7 @@ export default function EditUser() {
     });
   }
 
-  if (!idIsValid) return <Navigate to="/users" replace />;
+  if (!idIsValid) return <Navigate to={usersPath} replace />;
 
   async function onSubmit(values: UserFormValues) {
     setError(null);
@@ -73,7 +74,7 @@ export default function EditUser() {
       await queryClient.invalidateQueries({ queryKey: ["users"] });
       await queryClient.invalidateQueries({ queryKey: ["user", id] });
       showSuccessToast(t("users.toast.updated"));
-      navigate("/users", { replace: true });
+      navigate(usersPath, { replace: true });
     } catch (err) {
       setError(
         isLastAdminConflict(err)
@@ -94,14 +95,14 @@ export default function EditUser() {
 
   return (
     <Stack gap="md">
-      <PageHeader title={t("users.editUser")} backTo={{ to: "/users", label: t("users.title") }} />
+      <PageHeader title={t("users.editUser")} backTo={{ to: usersPath, label: t("users.title") }} />
       <Paper withBorder p="xl" maw={FORM_MAX_WIDTH}>
         <Stack>
           {isLoading || isError ? (
             <EditPageLoadState
               isLoading={isLoading}
               message={notFound ? t("users.userNotFound") : loadErrorMessage(fetchError, t)}
-              backTo="/users"
+              backTo={usersPath}
               backLabel={t("users.backToUsers")}
             />
           ) : (
@@ -114,7 +115,7 @@ export default function EditUser() {
                   </Alert>
                 )}
                 <Group justify="flex-end" gap="sm">
-                  <Button component={RouterLink} to="/users" variant="default">
+                  <Button component={RouterLink} to={usersPath} variant="default">
                     {t("common.action.cancel")}
                   </Button>
                   <Button type="submit" loading={submitting}>

@@ -9,9 +9,16 @@ import {
   formatSignedMd,
   formatSignedPercent,
   histogramLabels,
+  teamLabel,
 } from "./reportFormat";
 
 describe("reportFormat", () => {
+  test("a team prints its name, or its id once it is no longer listed", () => {
+    const teams = [{ id: 1, name: "Alpha" }];
+    expect(teamLabel(1, teams)).toBe("Alpha");
+    expect(teamLabel(77, teams)).toBe("#77");
+  });
+
   test("man-days and ratios keep at most two decimals, no trailing zeros", () => {
     expect(formatMd(12.5)).toBe("12.5");
     expect(formatMd(8)).toBe("8");

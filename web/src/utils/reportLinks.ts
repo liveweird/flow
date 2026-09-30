@@ -11,7 +11,7 @@ const epicAccuracyPath = "/reports/epic-estimation-accuracy";
 const estimateAdjustmentsPath = "/reports/estimate-adjustments";
 const reportedTimePath = "/reports/reported-time-ratio";
 export const wipPath = "/reports/wip";
-const backlogPath = "/reports/backlog";
+export const backlogPath = "/reports/backlog";
 export const agingWipPath = "/reports/aging-wip";
 const blockedTimePath = "/reports/blocked-time";
 export const epicProgressPath = "/reports/epic-progress";
@@ -75,15 +75,20 @@ const REPORT_SPECIFIC_PARAMS: Readonly<Record<string, readonly ReportSpecificKey
   [costMatrixPath]: ["domain", "domainView", "activityType", "workCategory"],
 };
 
+/** The report-specific params a report route has a control for — what its own filter normalizer keeps. */
+export function reportSpecificKeep(path: string): ReadonlySet<ReportSpecificKey> {
+  return new Set(REPORT_SPECIFIC_PARAMS[path] ?? []);
+}
+
 /**
  * A report route carrying the current filter query, so switching tabs keeps the period/team/member —
  * minus the report-specific params the target's controls do not use.
  */
 export function reportHref(path: string, search: string): string {
   const params = new URLSearchParams(search);
-  const allowed = REPORT_SPECIFIC_PARAMS[path] ?? [];
+  const keep = reportSpecificKeep(path);
   for (const key of REPORT_SPECIFIC_KEYS) {
-    if (!allowed.includes(key)) params.delete(key);
+    if (!keep.has(key)) params.delete(key);
   }
   const query = params.toString();
   return query === "" ? path : `${path}?${query}`;

@@ -13,7 +13,7 @@
       "minSampleSize": "Minimalna liczebność próby",
       "agingWindowItems": "Okno starzenia WIP (elementy)",
       "agingPercentiles": "Percentyle starzenia",
-      "agingPercentilesHint": "Musi zawierać 85 (przegląd jakości danych odczytuje go po nazwie).",
+      "agingPercentilesHint": "Musi zawierać 85 (przegląd jakości danych odwołuje się do niego po nazwie).",
       "backlogWindowSprints": "Okno zaległości (sprinty)",
       "epicDriftDays": "Próg dryfu epika (dni)"
     },
@@ -69,7 +69,7 @@
     "endMembership": "Zakończ członkostwo",
     "removeTitle": "Usunąć wiersz członkostwa?",
     "removeFailed": "Nie udało się usunąć wiersza członkostwa",
-    "removeBody": "Ten wiersz członkostwa dla {{name}} zostanie trwale usunięty.",
+    "removeBody": "Trwale usuniemy ten wiersz członkostwa dla {{name}}.",
     "toast": {
       "added": "Dodano członka/kinię Jira",
       "ended": "Członkostwo zakończone",
@@ -88,7 +88,7 @@
   },
   "config": {
     "title": "Konfiguracja metryk",
-    "notConfiguredBanner": "Wyświetlane są wyliczone wartości domyślne — zapisz, aby je potwierdzić",
+    "notConfiguredBanner": "Pokazujemy wyliczone wartości domyślne — zapisz, aby je potwierdzić",
     "loadFailedGeneric": "Nie udało się wczytać konfiguracji metryk",
     "saveForbidden": "Tylko administratorzy/rki mogą edytować konfigurację metryk",
     "saveConflict": "Ten zespół jest już przypisany do innej tablicy",
@@ -117,7 +117,7 @@
         "IN_PROGRESS": "W trakcie",
         "DONE": "Zakończony"
       },
-      "empty": "Nie zaobserwowano jeszcze żadnych statusów — najpierw zsynchronizuj to połączenie."
+      "empty": "Nie widzimy jeszcze żadnych statusów — najpierw zsynchronizuj to połączenie."
     },
     "fields": {
       "estimateTask": "Pole szacowania zadania",
@@ -137,35 +137,35 @@
       "domainNameAria": "Nazwa domeny dla {{project}}",
       "ownerTeamAria": "Zespół właściciela dla {{project}}",
       "ownerTeamPlaceholder": "Bez właściciela",
-      "empty": "Nie zaobserwowano jeszcze żadnych projektów — najpierw zsynchronizuj to połączenie."
+      "empty": "Nie widzimy jeszcze żadnych projektów — najpierw zsynchronizuj to połączenie."
     },
     "boards": {
       "columnBoard": "Tablica",
       "columnTeam": "Zespół",
       "teamAria": "Zespół dla {{board}}",
       "teamPlaceholder": "Niezmapowana",
-      "empty": "Nie zaobserwowano jeszcze żadnych tablic — najpierw zsynchronizuj to połączenie."
+      "empty": "Nie widzimy jeszcze żadnych tablic — najpierw zsynchronizuj to połączenie."
     },
     "activityTypes": {
       "columnIssueType": "Typ zgłoszenia",
       "columnActivityType": "Typ aktywności",
       "activityTypeAria": "Typ aktywności dla {{issueType}}",
-      "empty": "Nie zaobserwowano jeszcze żadnych typów zgłoszeń — najpierw zsynchronizuj to połączenie."
+      "empty": "Nie widzimy jeszcze żadnych typów zgłoszeń — najpierw zsynchronizuj to połączenie."
     },
     "workCategories": {
       "columnValue": "Wartość",
       "columnCategory": "Kategoria",
       "categoryAria": "Kategoria dla {{value}}",
-      "empty": "Nie zaobserwowano jeszcze żadnych wartości dla tego pola.",
+      "empty": "Nie widzimy jeszcze żadnych wartości dla tego pola.",
       "chooseField": "Najpierw wybierz pole kategorii pracy na karcie Pola.",
-      "truncated": "Pokazano tylko pierwsze 200 różnych wartości."
+      "truncated": "Pokazujemy tylko pierwsze 200 różnych wartości."
     },
     "capacities": {
       "columnSprint": "Sprint",
       "columnCapacity": "Pojemność (osobodni)",
       "capacityAria": "Pojemność dla {{sprint}}",
       "capacityHint": "Puste pole używa wyliczonej wartości domyślnej (członkowie/kinie × dni robocze).",
-      "empty": "Nie zaobserwowano jeszcze żadnych sprintów — najpierw zsynchronizuj to połączenie."
+      "empty": "Nie widzimy jeszcze żadnych sprintów — najpierw zsynchronizuj to połączenie."
     }
   }
 }

@@ -6,7 +6,7 @@
   "editTitle": "Edytuj źródło danych",
   "empty": "Nie ma jeszcze źródeł danych",
   "loadFailed": "Nie udało się wczytać źródeł danych",
-  "notFound": "To źródło danych nie istnieje (lub zostało usunięte).",
+  "notFound": "To źródło danych nie istnieje (albo ktoś je usunął).",
   "backToDataSources": "Wróć do źródeł danych",
   "open": "Otwórz",
   "openAria": "Otwórz {{name}}",
@@ -46,7 +46,7 @@
   "syncNow": "Synchronizuj teraz",
   "syncNowAria": "Synchronizuj teraz: {{name}}",
   "deleteTitle": "Usunąć źródło danych?",
-  "deleteBody": "Źródło danych „{{name}}” zostanie usunięte. Jego dane z Jiry zostaną usunięte po okresie karencji.",
+  "deleteBody": "Usuniemy źródło danych „{{name}}”. Jego dane z Jiry usuniemy po okresie karencji.",
   "deleteFailed": "Nie udało się usunąć źródła danych",
   "deleteConflict": "Tego źródła danych nie można teraz usunąć.",
   "saveForbidden": "Tylko administratorzy/rki mogą zarządzać źródłami danych",
@@ -89,6 +89,7 @@
   },
   "testConnection": "Testuj połączenie",
   "test": {
+    "tableAria": "Wyniki testu połączenia",
     "column": {
       "endpoint": "Punkt końcowy",
       "required": "Wymagane",
@@ -114,6 +115,7 @@
     "currentStream": "Bieżący strumień",
     "progressCounter": "Licznik",
     "progressValue": "Wartość",
+    "progressTableAria": "Liczniki postępu zadania",
     "cursors": "Kursory",
     "noCursors": "Brak kursorów — to połączenie jeszcze się nie synchronizowało.",
     "cursor": {

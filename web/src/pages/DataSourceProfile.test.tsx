@@ -3,6 +3,7 @@ import { screen } from "@testing-library/react";
 import { Route, Routes } from "react-router-dom";
 import DataSourceProfile from "./DataSourceProfile";
 import { jsonResponse } from "../test/http";
+import { headingOutline } from "../test/headings";
 import { renderWithProviders } from "../test/render";
 
 const TOKEN_KEY = "flow.auth.token";
@@ -105,6 +106,33 @@ describe("DataSourceProfile page", () => {
     expect(screen.getByText("ACTIVE: 1, CLOSED: 9")).toBeInTheDocument();
     expect(screen.getByText("STATUS_CHAIN_BROKEN")).toBeInTheDocument();
     expect(screen.getByText("2")).toBeInTheDocument();
+  });
+
+  test("headings descend h2 (page) -> h3 (sections) and every table is named", async () => {
+    serve(mockFetch, FULL_PROFILE);
+    renderPage();
+
+    await screen.findByText("Computed at 2023-11-14 22:13");
+    expect(headingOutline()).toEqual([
+      [2, "Data profile"],
+      [3, "Range"],
+      [3, "Projects"],
+      [3, "Workflows"],
+      [3, "Boards"],
+      [3, "Custom fields"],
+      [3, "Estimates"],
+      [3, "Worklogs"],
+      [3, "Reopens"],
+      [3, "Sprints"],
+      [3, "People"],
+      [3, "Anomalies"],
+    ]);
+    for (const name of ["Range", "Projects", "Boards", "Custom fields", "Estimates", "Worklogs", "Reopens", "Sprints", "People", "Anomalies"]) {
+      expect(screen.getByRole("table", { name })).toBeInTheDocument();
+    }
+    // One table per workflow, named after its project and issue type.
+    expect(screen.getByRole("table", { name: /^ENG · / })).toBeInTheDocument();
+    expect(screen.getAllByRole("table").every((table) => table.getAttribute("aria-label"))).toBe(true);
   });
 
   test("renders the no-data fallback for empty sections, and omits the range section when absent", async () => {

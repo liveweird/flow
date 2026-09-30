@@ -224,6 +224,16 @@ describe("ReportWip page", () => {
     expect((screen.getByRole("combobox", { name: "Domain" }) as HTMLInputElement).value).toBe("");
   });
 
+  test("a pasted link with an activity type or work category is read without them — off the request and off the URL", async () => {
+    serve(mockFetch);
+    renderPage("/reports/wip?teamId=1&activityType=Bug&workCategory=Run");
+    await screen.findByTestId("area-chart");
+    await waitFor(() => expect(search().has("activityType")).toBe(false));
+    expect(search().has("workCategory")).toBe(false);
+    expect(search().get("teamId")).toBe("1");
+    expect(calls(mockFetch)).toEqual([`${URL_PREFIX}teamId=1&by=STAGE&itemKind=TASK`]);
+  });
+
   test("a column keying the filter cannot honour leaves the URL too, so a later team pick does not revive it", async () => {
     serve(mockFetch);
     const user = userEvent.setup();

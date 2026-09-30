@@ -1,4 +1,5 @@
 import type { ReportFilters } from "../api/reports";
+import { teamLabel } from "./reportFormat";
 
 /** The identity every sprint row of every sprint-shaped report carries. */
 export interface SprintIdentity {
@@ -15,10 +16,6 @@ export function sortSprints<S extends Pick<SprintIdentity, "completedAt" | "spri
   );
 }
 
-export function teamNameOf(filters: ReportFilters, teamId: number): string {
-  return filters.teams.find((team) => team.id === teamId)?.name ?? `#${teamId}`;
-}
-
 /**
  * The sprints in completion order, each with its chart category label: the sprint's name,
  * prefixed with its team when several teams share the chart.
@@ -30,6 +27,6 @@ export function labelledSprints<S extends SprintIdentity>(
   const multiTeam = new Set(sprints.map((sprint) => sprint.teamId)).size > 1;
   return sortSprints(sprints).map((sprint) => ({
     sprint,
-    label: multiTeam ? `${teamNameOf(filters, sprint.teamId)} · ${sprint.name}` : sprint.name,
+    label: multiTeam ? `${teamLabel(sprint.teamId, filters.teams)} · ${sprint.name}` : sprint.name,
   }));
 }

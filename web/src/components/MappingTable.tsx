@@ -49,11 +49,14 @@ export interface MappingRow {
  * state — this component is a pure renderer over `rows`.
  */
 export default function MappingTable({
+  label,
   idColumnLabel,
   fieldColumnLabels,
   rows,
   emptyMessage,
 }: {
+  /** The table's accessible name — the tab it sits in. */
+  label: string;
   idColumnLabel: string;
   fieldColumnLabels: string[];
   rows: MappingRow[];
@@ -67,7 +70,7 @@ export default function MappingTable({
     ) : null;
   }
   return (
-    <Table>
+    <Table aria-label={label}>
       <Table.Thead>
         <Table.Tr>
           <Table.Th>{idColumnLabel}</Table.Th>

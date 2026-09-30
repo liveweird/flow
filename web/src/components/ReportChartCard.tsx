@@ -1,10 +1,10 @@
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { Alert, Box, Paper, Stack, Text, Title } from "@mantine/core";
+import { Box, Paper, Stack, Text, Title } from "@mantine/core";
 import { IconChartBar } from "@tabler/icons-react";
 import EmptyState from "./EmptyState";
 import LoadingBlock from "./LoadingBlock";
-import { loadErrorMessage } from "../utils/saveError";
+import ErrorAlert from "./ErrorAlert";
 
 /**
  * The shell every report block lives in: a title, an optional caption (the domain-view label, a
@@ -35,11 +35,7 @@ export default function ReportChartCard({
   const { t } = useTranslation();
   let body: ReactNode;
   if (error) {
-    body = (
-      <Alert color="red" variant="light" role="alert">
-        {loadErrorMessage(error, t)}
-      </Alert>
-    );
+    body = <ErrorAlert error={error} />;
   } else if (isPending) {
     body = <LoadingBlock />;
   } else if (empty) {

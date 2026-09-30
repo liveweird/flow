@@ -65,6 +65,26 @@ describe("ReportTabs", () => {
     expect(screen.getByTestId("where").textContent).toBe("/reports/velocity?teamId=2");
   });
 
+  test("each tab is a real link carrying the filter query, so middle- and cmd-click open a new tab", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <>
+        <ReportTabs tabs={DELIVERY_TABS} />
+        <Where />
+      </>,
+      { route: "/reports/throughput?teamId=2&domain=FLO&bucket=MONTH" },
+    );
+    const velocity = screen.getByRole("tab", { name: "Velocity" });
+    expect(velocity.tagName).toBe("A");
+    expect(velocity).toHaveAttribute("href", "/reports/velocity?teamId=2");
+    expect(screen.getByRole("tab", { name: "Cycle time" })).toHaveAttribute("href", "/reports/cycle-time?teamId=2&domain=FLO&bucket=MONTH");
+    // A modified click is the browser's (new tab): the router must not also navigate in place.
+    await user.keyboard("{Control>}");
+    await user.click(velocity);
+    await user.keyboard("{/Control}");
+    expect(screen.getByTestId("where").textContent).toBe("/reports/throughput?teamId=2&domain=FLO&bucket=MONTH");
+  });
+
   test("switching reports keeps the filter query", async () => {
     const user = userEvent.setup();
     renderWithProviders(

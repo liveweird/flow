@@ -4,7 +4,7 @@ import { Link as RouterLink, useLocation, useSearchParams } from "react-router-d
 import type { AgingItem, AgingWipReport, ReportFilters } from "../api/reports";
 import { bandPercentileLabel, bandTone, thresholdsFor } from "../utils/agingReport";
 import { formatDate } from "../utils/formatDate";
-import { formatDays } from "../utils/reportFormat";
+import { formatDays, teamLabel } from "../utils/reportFormat";
 import { applyReportFilter, parseReportFilter } from "../utils/reportFilter";
 
 const MISSING = "—";
@@ -34,7 +34,7 @@ export default function AgingItemsTable({
 
   const teamCell = (item: AgingItem) => {
     if (item.teamId == null) return <Text size="sm" c="dimmed">{item.itemKind === "EPIC" ? t("reports.groups.noOwner") : t("reports.groups.unassigned")}</Text>;
-    const name = filters.teams.find((team) => team.id === item.teamId)?.name ?? String(item.teamId);
+    const name = teamLabel(item.teamId, filters.teams);
     if (level !== "UNIT") return <Text size="sm">{name}</Text>;
     return (
       <Anchor

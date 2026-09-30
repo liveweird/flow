@@ -115,7 +115,8 @@
     "completed": "Completed",
     "open": "Open",
     "drift": "Since completion",
-    "driftBadge": "Drift"
+    "driftBadge": "Drift",
+    "tableAria": "Sprints and their figures"
   },
   "throughput": {
     "title": "Throughput",

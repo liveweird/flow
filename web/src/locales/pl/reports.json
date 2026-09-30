@@ -19,7 +19,7 @@
   },
   "meta": {
     "derived": "Wyliczono {{date}} · wersja konfiguracji {{revision}}",
-    "notDerived": "Nie wyliczono jeszcze żadnych danych."
+    "notDerived": "Nie wyliczyliśmy jeszcze żadnych danych."
   },
   "filters": {
     "title": "Filtry raportu",
@@ -119,7 +119,8 @@
     "completed": "Zakończony",
     "open": "Otwarty",
     "drift": "Od zakończenia",
-    "driftBadge": "Rozbieżność"
+    "driftBadge": "Rozbieżność",
+    "tableAria": "Sprinty i ich wartości"
   },
   "throughput": {
     "title": "Przepustowość",
@@ -207,7 +208,10 @@
   },
   "excluded": {
     "title": "Pominięte w tym rozkładzie",
-    "population": "Z {{count}} zakończonych w tym okresie:",
+    "population_one": "Z {{count}} zakończonej pozycji w tym okresie:",
+    "population_few": "Z {{count}} zakończonych pozycji w tym okresie:",
+    "population_many": "Z {{count}} zakończonych pozycji w tym okresie:",
+    "population_other": "Z {{count}} zakończonych pozycji w tym okresie:",
     "measured": "w rozkładzie"
   },
   "ratio": {
@@ -240,7 +244,7 @@
   },
   "epicAccuracy": {
     "title": "Trafność szacowania epików",
-    "description": "Jak koszt rzeczywisty zakończonych epików ma się do ICH WŁASNEGO szacunku: rzeczywiste osobodni ÷ własny szacunek. Suma szacunków zadań podrzędnych jest pokazana obok i nigdy nie zastępuje szacunku.",
+    "description": "Jak koszt rzeczywisty zakończonych epików ma się do ICH WŁASNEGO szacunku: rzeczywiste osobodni ÷ własny szacunek. Sumę szacunków zadań podrzędnych pokazujemy obok i nigdy nie zastępuje ona szacunku.",
     "startTitle": "Względem własnego szacunku na starcie",
     "startCaption": "Widok podstawowy.",
     "doneTitle": "Względem własnego szacunku przy zakończeniu",
@@ -252,7 +256,7 @@
       "unestimatedAtDone": "Bez własnego szacunku przy zakończeniu"
     },
     "epicsTitle": "Zakończone epiki",
-    "epicsTruncated": "Pokazano {{count}} najnowszych epików; rozkłady powyżej liczą wszystkie.",
+    "epicsTruncated": "Pokazujemy {{count}} najnowszych epików; rozkłady powyżej liczą wszystkie.",
     "column": {
       "epic": "Epik",
       "doneAt": "Zakończony",
@@ -271,7 +275,7 @@
   },
   "adjustments": {
     "title": "Korekty szacunków",
-    "description": "Jak często szacunek zmienia się po rozpoczęciu pracy i o ile między startem a zakończeniem. Szacunek, który pojawił się dopiero po starcie, jest liczony osobno — nigdy jako nieskończona zmiana.",
+    "description": "Jak często szacunek zmienia się po rozpoczęciu pracy i o ile między startem a zakończeniem. Szacunek, który pojawił się dopiero po starcie, liczymy osobno — nigdy jako nieskończoną zmianę.",
     "tasksTitle": "Zadania",
     "epicsTitle": "Epiki",
     "started": "Rozpoczęte",
@@ -292,9 +296,9 @@
     },
     "axis": "zmiana od startu do zakończenia",
     "lateNote": "Wyszacowane po fakcie wliczają się do zmienionych po starcie.",
-    "domainViewNote": "Widok domeny dotyczy zadań; epiki zawsze czytają własną przestrzeń."
+    "domainViewNote": "Widok domeny dotyczy zadań; epiki zawsze mają własną przestrzeń."
   },
-  "epicsNotPerPerson": "Epiki nie są przypisywane do pojedynczych osób, więc nie ma danych o epikach dla jednej osoby.",
+  "epicsNotPerPerson": "Nie przypisujemy epików do pojedynczych osób, więc nie mamy danych o epikach dla jednej osoby.",
   "cycleTime": {
     "title": "Czas cyklu",
     "description": "Ile trwały zakończone zadania od pierwszego startu do zakończenia — w dniach roboczych (widok podstawowy, wg skonfigurowanego kalendarza) i w dniach kalendarzowych. Zadanie otwarte ponownie liczy się w całości.",
@@ -336,7 +340,7 @@
     "ratioTitle": "Zalogowany czas ÷ czas cyklu",
     "ratioCaption": "Zalogowane osobodni na dzień roboczy cyklu — 1 oznacza pełny dzień zalogowany na każdy dzień roboczy.",
     "ratioAxis": "zalogowane MD ÷ dni robocze cyklu",
-    "outlierNote": "Bardzo krótkie cykle dają bardzo duże stosunki. Są prawdziwe i nigdy nie są pomijane, więc najpierw czytaj medianę (p50) — średnia, p95 i prawy koniec histogramu mogą być przez nie zdominowane.",
+    "outlierNote": "Bardzo krótkie cykle dają bardzo duże stosunki. Są prawdziwe i nigdy ich nie pomijamy, więc zacznij od mediany (p50) — średnia, p95 i prawy koniec histogramu mogą być przez nie zdominowane.",
     "flowTitle": "Efektywność przepływu",
     "flowCaption": "Czas aktywny ÷ czas cyklu: czas w toku i niezablokowany jako udział całego cyklu. Zalogowany czas nie ma znaczenia.",
     "flowAxis": "czas aktywny ÷ czas cyklu",
@@ -442,7 +446,7 @@
     "title": "Wiek WIP",
     "description": "Praca w toku w tej chwili i jak długo trwa każda pozycja: dni robocze od pierwszego rozpoczęcia do teraz. Wiek liczymy na teraz, więc okres nie ma tu zastosowania; pasma porównują każdy wiek z ostatnio zakończonymi pozycjami zespołu.",
     "openTitle": "Otwarta praca, od najstarszej",
-    "caption": "Wiek liczymy według skonfigurowanego kalendarza roboczego. Blokadę odczytujemy na ostatnie wyliczenie.",
+    "caption": "Wiek liczymy według skonfigurowanego kalendarza roboczego. Stan blokady bierzemy z ostatniego wyliczenia.",
     "thresholdsTitle": "Progi",
     "thresholdsCaption": "Czas cyklu w dniach roboczych ostatnio zakończonych pozycji zespołu. Pozycję przypisujemy do pasma według najwyższego progu, który jej wiek przekracza.",
     "tasksTitle": "Zadania",
@@ -548,7 +552,7 @@
     },
     "spiNone": "Nie ma jeszcze planu: wartość planowana wynosi 0, więc nie ma wskaźnika.",
     "cpiNone": "Nic jeszcze nie zalogowano: koszt rzeczywisty wynosi 0, więc nie ma wskaźnika.",
-    "foreignHint": "Jaka część czasu zalogowanego przez osoby z tego zespołu (do dnia odczytu) poszła na pracę innych zespołów. Czytaj CPI zespołu razem z nią.",
+    "foreignHint": "Jaka część czasu zalogowanego przez osoby z tego zespołu (do dnia odczytu) poszła na pracę innych zespołów. Oceniaj CPI zespołu razem z nią.",
     "foreignNone": "Nic jeszcze nie zalogowano, więc nie ma udziału.",
     "breadcrumb": {
       "label": "Gdzie jesteś w raporcie",
@@ -595,7 +599,7 @@
       "due": "Planowany termin",
       "driftDates": "Daty przesunięte od pierwotnego planu",
       "driftBudget": "Budżet zmieniony od pierwotnego planu",
-      "noHorizon": "Brak krzywej planu: w planie brakuje daty albo któraś data jest oddalona od dziś o więcej niż dziesięć lat, więc wartość planowana zostaje równa 0. Wartość wypracowana i koszt nadal się liczą.",
+      "noHorizon": "Brak krzywej planu: w planie brakuje daty albo któraś data jest oddalona od dziś o więcej niż dziesięć lat, więc wartość planowana wynosi 0. Wartość wypracowana i koszt nadal się liczą.",
       "noCurve": "Brak krzywej planu: planowane okno nie zawiera dnia roboczego, więc wartość planowana nie ma na co się rozłożyć. Wartość wypracowana i koszt nadal się liczą.",
       "baselinesTitle": "Linie bazowe",
       "baselinesLabel": "Linie bazowe planu, od najstarszej",
@@ -651,7 +655,7 @@
       "noTeam": "To nie należy do żadnego zespołu, więc widok jednego zespołu nic tu nie pokazuje. Wybierz „Wszystkie zespoły” albo „Nieprzypisane”, aby to zobaczyć.",
       "boardList": "Filtr zespołu nie zawęża tylko listy tablic; liczby zakończonych zadań i reszta poniżej podlegają filtrowi."
     },
-    "noSprintPerPerson": "Znaleziska o sprintach dotyczą sprintów zespołu, więc nie odczytujemy ich dla pojedynczej osoby.",
+    "noSprintPerPerson": "Znaleziska o sprintach dotyczą sprintów zespołu, więc nie liczymy ich dla pojedynczej osoby.",
     "notConfigured": "Żadne połączenie w tym zakresie nie ma skonfigurowanego pola kategorii pracy, więc tego znaleziska nie mierzymy.",
     "admin": {
       "configAria": "Otwórz konfigurację metryk połączenia {{name}}"
@@ -681,7 +685,7 @@
       },
       "hours": {
         "title": "Zalogowane godziny na osobę i dzień roboczy",
-        "explain": "Godziny zalogowane przez członków/członkinie zespołów, podzielone przez dni robocze, w których byli/były w składzie. Odczytuj je względem skonfigurowanej długości osobodnia: wartość znacznie niższa sugeruje, że czas nie jest logowany w pełni."
+        "explain": "Godziny zalogowane przez członków/członkinie zespołów, podzielone przez dni robocze, w których byli/były w składzie. Oceniaj je względem skonfigurowanej długości osobodnia: wartość znacznie niższa sugeruje, że czas nie jest logowany w pełni."
       },
       "late": {
         "title": "Spóźnione logowanie czasu",
@@ -852,7 +856,7 @@
         "epics": "Epiki",
         "epicFindings": "Znaleziska o epikach"
       },
-      "caption": "Liczby zadań bez szacunku i bez epika sumują zadania zakończone i otwarte. Epik może trafić do kilku znalezisk, więc ta kolumna liczy znaleziska, a nie epiki. Odczyt zawężony do jednego połączenia wymienia tylko zespoły, które mają w nim znalezisko, więc milczący zespół z innego połączenia nie jest pokazany."
+      "caption": "Liczby zadań bez szacunku i bez epika sumują zadania zakończone i otwarte. Epik może trafić do kilku znalezisk, więc ta kolumna liczy znaleziska, a nie epiki. Odczyt zawężony do jednego połączenia wymienia tylko zespoły, które mają w nim znalezisko, więc nie pokazujemy milczącego zespołu z innego połączenia."
     },
     "coverageNone": "W tym okresie nie ma zakończonych zadań, więc nie ma pokrycia do zmierzenia."
   },
@@ -893,7 +897,7 @@
     "foreignHint": "Praca spoza zespołu to czas zalogowany na zadaniach poza pracą zespołu autora/ki: zadaniach ze sprintu innego zespołu albo, gdy zadanie nie ma zespołu sprintu, zadaniach przypisanych osobie z innego zespołu. Czas zalogowany na epiku jest pracą spoza zespołu, gdy domena epika należy do innego zespołu. Nieznany zespół nigdy nie liczy się jako obcy.",
     "foreignNone": "Nic nie zalogowano, więc nie ma udziału.",
     "sprintNote": {
-      "UNIT": "Okres wynika ze sprintów. Wiersz każdego zespołu czyta okno sprintów całej jednostki (sprinty wszystkich zespołów razem); otwarcie zespołu czyta tylko jego własne sprinty, więc jego liczby mogą się różnić od wiersza tutaj.",
+      "UNIT": "Okres wynika ze sprintów. Wiersz każdego zespołu obejmuje okno sprintów całej jednostki (sprinty wszystkich zespołów razem); otwarcie zespołu obejmuje tylko jego własne sprinty, więc jego liczby mogą się różnić od wiersza tutaj.",
       "TEAM": "Okres wynika ze sprintów: to własne sprinty tego zespołu."
     },
     "rounding": "Każda liczba to jej własna dokładna suma, zaokrąglona raz do dwóch miejsc po przecinku. Suma może się więc różnić od sumy widocznych nad nią liczb nawet o 0,005 na każdą z nich.",

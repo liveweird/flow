@@ -3,6 +3,7 @@ import { Badge, Text } from "@mantine/core";
 import type { DataQualityReport, DataQualitySnapshotDrift } from "../api/reports";
 import { formatDriftDelta, formatDriftValue } from "../utils/dataQualityReport";
 import { formatDate } from "../utils/formatDate";
+import { teamLabel } from "../utils/reportFormat";
 import DataQualityCard, { CappedTable, type DataQualityScope, type QualityColumn } from "./DataQualityCard";
 import DataQualityTaskCard from "./DataQualityTaskCard";
 
@@ -24,7 +25,7 @@ function SnapshotDriftCard({ report, scope, timeZone }: { report: DataQualityRep
             {row.name}
           </Text>
           <Text size="xs" c="dimmed">
-            {scope.filters.teams.find((team) => team.id === row.teamId)?.name ?? `#${row.teamId}`}
+            {teamLabel(row.teamId, scope.filters.teams)}
           </Text>
         </>
       ),

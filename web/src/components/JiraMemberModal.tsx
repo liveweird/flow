@@ -1,14 +1,15 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Alert, Loader, Modal, Select, Stack, TextInput } from "@mantine/core";
+import { Loader, Modal, Select, Stack, TextInput } from "@mantine/core";
 import { useForm } from "@mantine/form";
 import { useDebouncedValue } from "@mantine/hooks";
 import { useQuery } from "@tanstack/react-query";
 import { createTeamJiraMembership, listJiraUsers } from "../api/metrics";
 import { isValidIsoDate, isoDateToEpochMillis } from "../utils/isoDate";
-import { loadErrorMessage, saveErrorMessage } from "../utils/saveError";
+import { saveErrorMessage } from "../utils/saveError";
 import { showSuccessToast } from "../utils/toast";
 import RegistryEditorActions from "./RegistryEditorActions";
+import ErrorAlert from "./ErrorAlert";
 
 type JiraMemberFormValues = {
   accountId: string | null;
@@ -120,20 +121,16 @@ export default function JiraMemberModal({
             }
             {...form.getInputProps("accountId")}
           />
-          {people.isError && (
-            <Alert color="red" variant="light" role="alert">
-              {loadErrorMessage(people.error, t)}
-            </Alert>
-          )}
+          {people.isError && <ErrorAlert error={people.error} />}
           <TextInput
             label={t("metrics.teamMembers.field.validFrom")}
-            placeholder="YYYY-MM-DD"
+            placeholder={t("common.dateFormatHint")}
             {...form.getInputProps("validFrom")}
           />
           <TextInput
             label={t("metrics.teamMembers.field.validTo")}
             description={t("metrics.teamMembers.field.validToHint")}
-            placeholder="YYYY-MM-DD"
+            placeholder={t("common.dateFormatHint")}
             {...form.getInputProps("validTo")}
           />
           <RegistryEditorActions error={error} submitting={submitting} isEdit={false} onClose={onClose} gap="sm" />

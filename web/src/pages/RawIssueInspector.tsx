@@ -69,7 +69,7 @@ function WorkItemSummary({ inspection }: { inspection: RawIssueInspection }) {
     );
   }
   return (
-    <Table>
+    <Table aria-label={t("dataSources.inspect.section.workItem")}>
       <Table.Tbody>
         <Table.Tr>
           <Table.Th>{t("dataSources.inspect.column.issueKey")}</Table.Th>
@@ -121,7 +121,7 @@ function IntervalsSection({ inspection }: { inspection: RawIssueInspection }) {
             {t("dataSources.inspect.none")}
           </Text>
         ) : (
-          <Table>
+          <Table aria-label={t("dataSources.inspect.statusIntervals")}>
             <Table.Thead>
               <Table.Tr>
                 <Table.Th>{t("dataSources.inspect.column.seq")}</Table.Th>
@@ -156,7 +156,7 @@ function IntervalsSection({ inspection }: { inspection: RawIssueInspection }) {
             {t("dataSources.inspect.none")}
           </Text>
         ) : (
-          <Table>
+          <Table aria-label={t("dataSources.inspect.fieldIntervals")}>
             <Table.Thead>
               <Table.Tr>
                 <Table.Th>{t("dataSources.inspect.column.field")}</Table.Th>
@@ -189,7 +189,7 @@ function InspectionResult({ inspection }: { inspection: RawIssueInspection }) {
   return (
     <Stack gap="lg">
       <Group gap="xs">
-        <Title order={4}>{inspection.issueKey}</Title>
+        <Title order={3} size="h4">{inspection.issueKey}</Title>
         {inspection.needsProcessing && (
           <Badge color="gray" variant="light">
             {t("dataSources.inspect.needsProcessing")}
@@ -208,32 +208,32 @@ function InspectionResult({ inspection }: { inspection: RawIssueInspection }) {
       </Group>
 
       <Stack gap="xs">
-        <Title order={5}>{t("dataSources.inspect.section.workItem")}</Title>
+        <Title order={4} size="h5">{t("dataSources.inspect.section.workItem")}</Title>
         <WorkItemSummary inspection={inspection} />
       </Stack>
 
       <Stack gap="xs">
-        <Title order={5}>{t("dataSources.inspect.section.intervals")}</Title>
+        <Title order={4} size="h5">{t("dataSources.inspect.section.intervals")}</Title>
         <IntervalsSection inspection={inspection} />
       </Stack>
 
       <Stack gap="xs">
-        <Title order={5}>{t("dataSources.inspect.section.anomalies")}</Title>
+        <Title order={4} size="h5">{t("dataSources.inspect.section.anomalies")}</Title>
         <AnomaliesList anomalies={inspection.anomalies} />
       </Stack>
 
       <Stack gap="xs">
-        <Title order={5}>{t("dataSources.inspect.section.changelogs", { count: inspection.changelogs?.length ?? 0 })}</Title>
+        <Title order={4} size="h5">{t("dataSources.inspect.section.changelogs", { count: inspection.changelogs?.length ?? 0 })}</Title>
         <RawJsonList entries={inspection.changelogs} />
       </Stack>
 
       <Stack gap="xs">
-        <Title order={5}>{t("dataSources.inspect.section.worklogs", { count: inspection.worklogs?.length ?? 0 })}</Title>
+        <Title order={4} size="h5">{t("dataSources.inspect.section.worklogs", { count: inspection.worklogs?.length ?? 0 })}</Title>
         <RawJsonList entries={inspection.worklogs} />
       </Stack>
 
       <Stack gap="xs">
-        <Title order={5}>{t("dataSources.inspect.section.payload")}</Title>
+        <Title order={4} size="h5">{t("dataSources.inspect.section.payload")}</Title>
         <Code block>{JSON.stringify(inspection.payload, null, 2)}</Code>
       </Stack>
     </Stack>

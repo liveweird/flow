@@ -58,8 +58,8 @@ function CurrentJobSection({ job }: { job: SyncJobResponse }) {
   const { t } = useTranslation();
   return (
     <Stack gap="xs">
-      <Title order={4}>{t("dataSources.details.currentJob")}</Title>
-      <Table>
+      <Title order={3} size="h4">{t("dataSources.details.currentJob")}</Title>
+      <Table aria-label={t("dataSources.details.currentJob")}>
         <Table.Tbody>
           <Table.Tr>
             <Table.Th>{t("dataSources.details.jobColumn.kind")}</Table.Th>
@@ -78,7 +78,7 @@ function CurrentJobSection({ job }: { job: SyncJobResponse }) {
         </Table.Tbody>
       </Table>
       {job.progress && Object.keys(job.progress).length > 0 && (
-        <Table>
+        <Table aria-label={t("dataSources.details.progressTableAria")}>
           <Table.Thead>
             <Table.Tr>
               <Table.Th>{t("dataSources.details.progressCounter")}</Table.Th>
@@ -114,8 +114,8 @@ function CountsSection({ counts }: { counts: SyncCounts }) {
       : "—";
   return (
     <Stack gap="xs">
-      <Title order={4}>{t("dataSources.details.counts")}</Title>
-      <Table>
+      <Title order={3} size="h4">{t("dataSources.details.counts")}</Title>
+      <Table aria-label={t("dataSources.details.counts")}>
         <Table.Tbody>
           <Table.Tr>
             <Table.Th>{t("dataSources.details.count.rawIssues")}</Table.Th>
@@ -344,8 +344,8 @@ export default function DataSourceDetails() {
       <Box maw={CONTENT_MAX_WIDTH}>
         <Stack gap="lg">
           <Stack gap="xs">
-            <Title order={4}>{t("dataSources.details.connection")}</Title>
-            <Table>
+            <Title order={3} size="h4">{t("dataSources.details.connection")}</Title>
+            <Table aria-label={t("dataSources.details.connection")}>
               <Table.Tbody>
                 <Table.Tr>
                   <Table.Th>{t("dataSources.column.state")}</Table.Th>
@@ -406,14 +406,14 @@ export default function DataSourceDetails() {
           {currentJob && <CurrentJobSection job={currentJob} />}
 
           <Stack gap="xs">
-            <Title order={4}>{t("dataSources.details.cursors")}</Title>
+            <Title order={3} size="h4">{t("dataSources.details.cursors")}</Title>
             <CursorTable cursors={data.cursors} />
           </Stack>
 
           <CountsSection counts={data.counts} />
 
           <Stack gap="xs">
-            <Title order={4}>{t("dataSources.details.jobsTitle")}</Title>
+            <Title order={3} size="h4">{t("dataSources.details.jobsTitle")}</Title>
             <SyncJobsTable
               data={jobs.data}
               isLoading={jobs.isLoading}
