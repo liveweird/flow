@@ -2600,6 +2600,64 @@ class MetricsDerivationTest {
             Unit
         }
 
+    /**
+     * `dim_date` widening beyond the initial `[createdMin - 1y, now + 2y]` range: an epic whose (in-PV-horizon, 10y)
+     * due date lies past `now + 2y` must still get its `dim_date` days — the flow aggregates JOIN `dim_date`, so a
+     * missing day would silently drop the epic's PV. The golden epic of a private clone gets a 2031 due date (the
+     * `duedate` field's history removed, so the new value IS the whole timeline); `dim_date` rows past the table's
+     * previous end are removed afterwards.
+     */
+    @Test
+    fun `an epic due past now plus two years widens dim_date and gets its PV rows`() = runBlocking {
+        DerivedStubFixture.connectionId() // the shared derive has already stamped the initial span
+        val connId = clonedProcessedConnection()
+        val epicIssueId = metricsDerivationGoldenEpic.issueId.toLong()
+        val dueDay = "2031-06-30" // a Monday, inside the 10-year PV horizon, beyond PINNED_NOW + 2 years
+        val lastDayBefore = suspendTransaction(sharedDatabaseForTests()) {
+            MetricsStore.DimDate.selectAll().orderBy(MetricsStore.DimDate.day to SortOrder.DESC).limit(1).toList().single()[MetricsStore.DimDate.day]
+        }
+        assertTrue(lastDayBefore < dueDay, "the initial dim_date range must end before the widened epic's due day")
+        suspendTransaction(sharedDatabaseForTests()) {
+            val scope = "connection_id = $connId AND issue_id = $epicIssueId"
+            exec("UPDATE norm.work_items SET due_at = ${isoDateEpochMillis(dueDay)} WHERE $scope")
+            exec("DELETE FROM norm.work_item_field_changes WHERE $scope AND field = 'duedate'")
+        }
+        val config = metricsConfig()
+        try {
+            DerivedStubFixture.withPinnedSettings(config) { DerivedStubFixture.derivePinned(connId, config) }
+
+            val dimDays = suspendTransaction(sharedDatabaseForTests()) {
+                MetricsStore.DimDate.selectAll().where { MetricsStore.DimDate.day greater lastDayBefore }.toList()
+                    .map { it[MetricsStore.DimDate.day] }.toSet()
+            }
+            assertTrue(dueDay in dimDays && "2031-07-01" in dimDays, "dim_date must reach the due day plus one day of slack")
+
+            val flow = MetricsStore.AggDailyFlow
+            val pv = suspendTransaction(sharedDatabaseForTests()) {
+                flow.selectAll().where {
+                    (flow.connectionId eq connId) and (flow.scopeKind eq "EPIC") and (flow.scopeId eq epicIssueId.toString()) and
+                        (flow.pvMd neq java.math.BigDecimal.ZERO)
+                }.toList().associate { it[flow.day] to it[flow.pvMd] }
+            }
+            val budget = suspendTransaction(sharedDatabaseForTests()) {
+                val plan = MetricsStore.FactEpicPlan
+                plan.selectAll().where { (plan.connectionId eq connId) and (plan.issueId eq epicIssueId) and plan.supersededAt.isNull() }
+                    .toList().single()
+            }
+            assertEquals(isoDateEpochMillis(dueDay), budget[MetricsStore.FactEpicPlan.dueAt], "the widened due date is the current one")
+            assertTrue(dueDay in pv, "the epic's PV must reach its (widened) due day")
+            val total = pv.values.fold(java.math.BigDecimal.ZERO) { a, b -> a + b }.toDouble()
+            assertTrue(
+                abs(total - budget[MetricsStore.FactEpicPlan.budgetMd]!!.toDouble()) <= PV_CUMULATIVE_TOLERANCE,
+                "the epic's PV must total its budget ($total)",
+            )
+        } finally {
+            suspendTransaction(sharedDatabaseForTests()) {
+                MetricsStore.DimDate.deleteWhere { MetricsStore.DimDate.day greater lastDayBefore }
+            }
+        }
+    }
+
     private companion object {
         const val PINNED_NOW = 1_772_668_800_000L // 2026-03-05T00:00:00Z, per the v0.3.0 plan's pinned-clock convention
         const val THIRTY_DAYS_MS = 30L * 24 * 60 * 60 * 1000

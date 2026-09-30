@@ -494,9 +494,10 @@ private suspend fun curveOf(plan: PlanRow, ctx: ProgressContext): TreeMap<LocalD
 }
 
 /**
- * The working days DERIVE spread [plan]'s window over are `metrics.dim_date.is_working_day` (stamped at the last derive, so a
- * calendar edited since — or a holiday added — does not move a curve that was never re-derived). When `dim_date` covers every day of
- * the window that IS the calendar (fed to the kernel as a holiday set over a weekend-less calendar); when it does not — a superseded
+ * The working days DERIVE spread [plan]'s window over are `metrics.dim_date.is_working_day` (the table is global; a DERIVE at the
+ * current settings revision rewrites every row that differs, so it carries the current calendar once any DERIVE of ANY connection
+ * at that revision has run — a calendar edited since moves the curve only then). When `dim_date` covers every day of the window
+ * that IS the calendar (fed to the kernel as a holiday set over a weekend-less calendar); when it does not — a superseded
  * baseline's window outside the range DERIVE keeps stamped — the current settings calendar stands in.
  */
 private suspend fun deriveTimeCalendar(plan: PlanRow, ctx: ProgressContext): WorkingCalendar {

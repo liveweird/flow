@@ -11,6 +11,7 @@ import ch.nokillswit.metrics.MetricsConfigService
 import ch.nokillswit.metrics.MetricsDeriver
 import ch.nokillswit.metrics.MetricsStore
 import ch.nokillswit.metrics.TeamMembershipService
+import ch.nokillswit.metrics.WorkingCalendar
 import java.security.MessageDigest
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.sync.Mutex
@@ -25,6 +26,7 @@ import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.greaterEq
 import org.jetbrains.exposed.v1.core.lessEq
 import org.jetbrains.exposed.v1.r2dbc.Query
+import org.jetbrains.exposed.v1.r2dbc.batchUpsert
 import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import kotlin.test.assertEquals
@@ -149,6 +151,24 @@ object DerivedStubFixture {
         }
     }
 
+    /**
+     * Overwrites `dim_date` rows VERBATIM (upsert on `day`, no calendar involved) — for a test that
+     * needs a row [MetricsStore.ensureDimDate] would never write (a stale zone, a non-working weekday).
+     * The caller restores what it touched; the next DERIVE (or an `ensureDimDate`) also rewrites any
+     * row that differs from its calendar.
+     */
+    suspend fun stampDimDate(rows: List<WorkingCalendar.DimDateRow>, configRevision: Long) {
+        suspendTransaction(sharedDatabaseForTests()) {
+            MetricsStore.DimDate.batchUpsert(rows, MetricsStore.DimDate.day) { row ->
+                this[MetricsStore.DimDate.day] = row.day
+                this[MetricsStore.DimDate.dayStartMs] = row.dayStartMs
+                this[MetricsStore.DimDate.dayEndMs] = row.dayEndMs
+                this[MetricsStore.DimDate.isWorkingDay] = row.isWorkingDay
+                this[MetricsStore.DimDate.configRevision] = configRevision
+            }
+        }
+    }
+
     /** Guard against accidental mutation of the shared derived connection — driven by `DerivedStubFixtureTest`. */
     suspend fun assertUnchanged() {
         val connId = connectionId()
@@ -244,8 +264,9 @@ object DerivedStubFixture {
      * reprocess-digest pattern, `.claude/docs/testing.md`): the dimensions, every bridge, both
      * accumulating facts, the sprint facts, worklog and epic-plan facts and both daily aggregates —
      * plus, only when [includeDimDate] is set, the `dim_date` days the connection's own WIP
-     * aggregate spans. `dim_date` is GLOBAL and every DERIVE by ANY connection upserts it stamped
-     * with the then-current `config_revision`, so it is opt-in: only a caller whose derives all sit
+     * aggregate spans. `dim_date` is GLOBAL and every DERIVE by ANY connection may rewrite a row (and
+     * stamp it with the then-current `config_revision`) when a calendar setting changed, so it is opt-in: only a
+     * caller whose derives all sit
      * inside one settings wrapper in a sequential suite (`MetricsDigestTest`) may hash it — the
      * shared-fixture tripwire must not, or it would go red whenever another deriving test ran first.
      * Left out on purpose:

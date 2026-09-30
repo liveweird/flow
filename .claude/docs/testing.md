@@ -227,7 +227,7 @@ maps the FLO board (id 1) to one freshly seeded team, and derives ONCE under a p
 `DerivedStubFixtureTest` is the tripwire, the same role `SyncedStubFixtureTest` plays for
 `SyncedStubFixture`: it re-derives `DerivedStubFixture.metricsDigest` — an MD5 over EVERY derived
 `metrics.*` table (dimensions, bridges, facts, both daily aggregates — NOT the global `dim_date`,
-which any deriving test re-stamps, so the tripwire stays class-order independent; ordered by primary key, else
+which any deriving test under another calendar rewrites, so the tripwire stays class-order independent; ordered by primary key, else
 by every hashed column; the surrogate `id`, `derive_runs` and the snapshot's `snapshot_at`/
 `reconstructed` bookkeeping excluded; the reprocess-digest pattern above, applied to invariant 12)
 — and compares it against the baseline captured the moment the fixture's own DERIVE first
@@ -239,6 +239,7 @@ across a REPROCESS (`markAllNeedsProcessing` + the PROCESS stream over the clone
 proves the digest is sensitive (one nudged value / one deleted bridge row changes it). Only that
 test opts into `includeDimDate`. A red
 digest is a real nondeterminism bug in the deriver, never grounds to loosen the test.
+**`dim_date` is global and rewritten whole by a calendar change** (`MetricsStore.ensureDimDate`): a test that switches the time zone/weekend/holidays and derives (`DimDateContentionTest`) restores the table afterwards from a snapshot (every row with its ORIGINAL `config_revision` — `ensureDimDate` never overwrites a newer revision, and a high stamped revision would make later tests' calendar changes skip the rows — and drops the rows it added outside the previous span), and a test that needs a row the calendar would never write stamps it with `DerivedStubFixture.stampDimDate` and restores it in a `finally`.
 **A connection's newest SUCCEEDED `derive_runs` row is never pruned** (it is the snapshot reports' DERIVE clock), so a derive under a pinned PAST clock stays that connection's clock for the rest of the suite — including `IngestWorkerTest`'s 2024-01-01 worker clock, which derives whatever DERIVE jobs other tests left pending. A test of the unit-wide last-derived-day cut-off (no `connectionId`, so every connection is in scope) must therefore place its days before every pinned clock in the suite (2020 today), and a test that inserts its own runs deletes them afterwards.
 `SyncedStubFixtureTest` also pins `cloneProcessedData` itself: a processed clone's
 status-interval digest must equal the source connection's. Effect: `MetricsDerivationTest`'s own

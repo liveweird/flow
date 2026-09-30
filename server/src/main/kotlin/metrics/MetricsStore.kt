@@ -17,14 +17,26 @@ import org.jetbrains.exposed.v1.r2dbc.deleteWhere
 import org.jetbrains.exposed.v1.r2dbc.insert
 import org.jetbrains.exposed.v1.r2dbc.select
 import org.jetbrains.exposed.v1.r2dbc.selectAll
+import org.jetbrains.exposed.v1.r2dbc.transactions.inTopLevelSuspendTransaction
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
+import java.time.LocalDate
 
 val MetricsStoreKey = AttributeKey<MetricsStore>("MetricsStore")
 
 /**
+ * The ONE PostgreSQL advisory-lock key of [MetricsStore.ensureDimDate] — the ASCII bytes of
+ * "FlowDate" as a positive `bigint`. `pg_advisory_xact_lock` keys share one namespace per database,
+ * so no other code may take this key (`.claude/docs/persistence.md` lists it).
+ */
+internal const val DIM_DATE_LOCK_KEY = 0x466C6F7744617465L
+
+/** Rows per `batchUpsert` in [MetricsStore.ensureDimDate] (a cold table is tens of thousands of rows). */
+private const val DIM_DATE_WRITE_BATCH = 1000
+
+/**
  * The tables `DeriveWipStep.kt`/`DeriveFlowStep.kt`'s SQL reads and `MetricsDeriver` has just
  * rebuilt in its transaction ([MetricsStore.analyzeDerivedTables]): the connection-scoped dims,
- * bridges and facts, plus the global `dim_date` (upserted in the same run; every step joins it).
+ * bridges and facts, plus the global `dim_date` (ensured in the same run, in its own transaction; every step joins it).
  * Deliberately NOT here: `agg_daily_*` (written by those steps, never read by them),
  * `fact_epic_delivery`/`item_blocked`/`fact_sprint_snapshot` (read by neither), `team_membership`
  * (config, not rebuilt by DERIVE) and `norm.*` (PROCESS already committed those rows, so autovacuum
@@ -252,8 +264,8 @@ data class FactSprintRow(
  * "Analytical model") — Exposed table objects (the `norm` schema-qualification precedent, `Table(
  * "metrics.…")`) plus batch writers `metrics/MetricsDeriver.kt` calls inside its ONE per-connection
  * transaction. Every table here is rebuilt WHOLESALE per DERIVE run (delete this connection's rows,
- * insert the freshly derived ones) EXCEPT [DimDate] (global, upserted `ON CONFLICT (day) DO
- * UPDATE`) and [FactSprintSnapshot] (append-only — no update/delete writer exists here at all; the
+ * insert the freshly derived ones) EXCEPT [DimDate] (global, reconciled by [MetricsStore.ensureDimDate]
+ * in its own transaction) and [FactSprintSnapshot] (append-only — no update/delete writer exists here at all; the
  * DB's own trigger, `.claude/docs/persistence.md`, is the actual enforcement). `dim_sprint`/
  * `task_sprint`/`fact_sprint*`/`fact_worklog`/`fact_epic_plan` writers landed across commits 7-9b
  * (this commit created every `metrics.*` table object, so [purgeAll] already drains them all);
@@ -647,17 +659,66 @@ class MetricsStore(private val database: R2dbcDatabase) {
         override val primaryKey = PrimaryKey(connectionId, scopeKind, scopeId, day)
     }
 
-    /** `dim_date` is global — upserted `ON CONFLICT (day) DO UPDATE`, never deleted per connection. */
-    suspend fun upsertDimDate(rows: List<WorkingCalendar.DimDateRow>, configRevision: Long) = suspendTransaction(database) {
-        if (rows.isEmpty()) return@suspendTransaction
-        DimDate.batchUpsert(rows, DimDate.day) { row ->
-            this[DimDate.day] = row.day
-            this[DimDate.dayStartMs] = row.dayStartMs
-            this[DimDate.dayEndMs] = row.dayEndMs
-            this[DimDate.isWorkingDay] = row.isWorkingDay
-            this[DimDate.configRevision] = configRevision
+    /**
+     * Brings the global `metrics.dim_date` in line with [calendar] over the whole span the table and
+     * [range] together cover, in its OWN short transaction — never the caller's. Returns the number of
+     * rows written (0 in steady state).
+     *
+     * Why a separate transaction: `dim_date` is shared by every connection's DERIVE, and a write made
+     * inside a DERIVE's one big transaction holds its row locks until that (minutes-long) commit —
+     * two DERIVEs with different ranges could deadlock (SQLSTATE 40P01) or, at best, serialized on
+     * the locks. [inTopLevelSuspendTransaction] takes a fresh pooled connection and COMMITS before
+     * returning even when called from inside a `suspendTransaction`, so the caller's later statements
+     * (PostgreSQL `READ COMMITTED` — nothing in this repo sets another level — take a fresh snapshot
+     * per statement) see the committed rows while the DERIVE holds no `dim_date` lock at all. The one
+     * serialization point left is [DIM_DATE_LOCK_KEY]: a transaction-scoped advisory lock taken FIRST,
+     * so concurrent ensures queue (milliseconds) instead of deadlocking on row locks taken in
+     * different orders. No table references `dim_date(day)` (V16/V17 declare no foreign key to it).
+     *
+     * What is written: the target span is the union of the stored days' `[min, max]` and [range]
+     * (gaps between disjoint ranges are filled); every day in it is recomputed with [calendar] and
+     * upserted ONLY when missing or when its `day_start_ms`/`day_end_ms`/`is_working_day` differ — so
+     * a time-zone/weekend/holiday change rewrites EVERY stored row, not just the run's own range,
+     * while an unchanged calendar writes nothing. `config_revision` is the revision the row's current
+     * content was written under (stamped on written rows only); the `day` key is never updated.
+     *
+     * **A stale caller only inserts.** Under the advisory lock the CURRENT global revision
+     * (`metrics.settings.config_revision`) is read: a caller whose [configRevision] is lower started under an
+     * older calendar, and rewriting differing rows to it would roll the table back under a newer run (also
+     * across an A→B→A change, where row stamps alone cannot tell) — so it inserts MISSING rows only and never
+     * updates one. That stale run is itself re-derived (`bumpRevision` enqueued it). Only a caller at the
+     * current revision rewrites differing rows.
+     */
+    suspend fun ensureDimDate(calendar: WorkingCalendar, range: DimDateRange, configRevision: Long): Int =
+        inTopLevelSuspendTransaction(database) {
+            exec("SELECT pg_advisory_xact_lock($DIM_DATE_LOCK_KEY)")
+            val currentRevision = MetricsConfigService.Settings.select(MetricsConfigService.Settings.configRevision).toList()
+                .single()[MetricsConfigService.Settings.configRevision]
+            val mayRewrite = configRevision >= currentRevision
+            val stored = DimDate.selectAll().toList().associate {
+                it[DimDate.day] to WorkingCalendar.DimDateRow(
+                    it[DimDate.day], it[DimDate.dayStartMs], it[DimDate.dayEndMs], it[DimDate.isWorkingDay],
+                )
+            }
+            val rangeFrom = calendar.dayOf(range.fromMs)
+            val rangeTo = calendar.dayOf(range.toMs)
+            val fromDay = stored.keys.minOrNull()?.let { minOf(LocalDate.parse(it), rangeFrom) } ?: rangeFrom
+            val toDay = stored.keys.maxOrNull()?.let { maxOf(LocalDate.parse(it), rangeTo) } ?: rangeTo
+            val changed = calendar.dimDateRows(fromDay, toDay).filter { wanted ->
+                val existing = stored[wanted.day]
+                existing == null || (mayRewrite && existing != wanted)
+            }
+            changed.chunked(DIM_DATE_WRITE_BATCH).forEach { chunk ->
+                DimDate.batchUpsert(chunk, DimDate.day) { row ->
+                    this[DimDate.day] = row.day
+                    this[DimDate.dayStartMs] = row.dayStartMs
+                    this[DimDate.dayEndMs] = row.dayEndMs
+                    this[DimDate.isWorkingDay] = row.isWorkingDay
+                    this[DimDate.configRevision] = configRevision
+                }
+            }
+            changed.size
         }
-    }
 
     /**
      * `(start_at, due_at)` of every CURRENT epic baseline (`superseded_at IS NULL`, start/due/budget
@@ -1186,11 +1247,13 @@ class MetricsStore(private val database: R2dbcDatabase) {
      * legal inside a transaction block, and it counts the transaction's own inserted rows as live and
      * its own deletes as dead, so the statistics describe the rebuilt state. Table names are fixed
      * constants (no user input); reuses the CALLER's transaction like [execAggDailyWip].
-     * The tables stay locked (`SHARE UPDATE EXCLUSIVE`) until that transaction commits. Between
-     * DERIVEs this is never contended — they are already serialized by the global `dim_date` upsert
-     * (overlapping ranges, row locks held to commit) — and it conflicts only with VACUUM/ANALYZE/
-     * autovacuum and DDL: autovacuum on these tables is skipped or cancelled meanwhile (an
-     * anti-wraparound vacuum would make the derive wait — rare).
+     * The tables stay locked (`SHARE UPDATE EXCLUSIVE`, which conflicts with itself) until that
+     * transaction commits. Two DERIVEs therefore serialize from this statement to their commit: the
+     * second one's ANALYZE waits for the first's commit (no deadlock — every DERIVE ANALYZEs the same
+     * tables in the same order). The fact-building phase before it overlaps freely (`dim_date` is
+     * ensured in its own transaction). The lock also conflicts with VACUUM/autovacuum and DDL: autovacuum
+     * on these tables is skipped or cancelled meanwhile (an anti-wraparound vacuum would make the derive
+     * wait — rare). It must NOT be made skippable: it has to see this transaction's uncommitted rows.
      */
     suspend fun analyzeDerivedTables() = suspendTransaction(database) { exec("ANALYZE ${ANALYZED_TABLES.joinToString(", ")}") }
 
