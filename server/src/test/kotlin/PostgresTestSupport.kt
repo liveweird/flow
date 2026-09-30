@@ -18,7 +18,23 @@ object PostgresTestSupport {
             withPassword("flow")
             start()
             Runtime.getRuntime().addShutdownHook(Thread { stop() })
+            // Migrate before ANYONE gets the container: Gradle forks change class order, so the first class of
+            // a JVM may touch the DB (a fixture, a raw JDBC helper) before any test booted the app's Flyway
+            // module. Same call as `infra/db/Flyway.kt`; idempotent — the app's own migrate() then no-ops.
+            org.flywaydb.core.Flyway.configure()
+                .dataSource(jdbcUrl, username, password)
+                .locations("classpath:db/migration")
+                .load()
+                .migrate()
         }
+    }
+
+    /**
+     * Starts the container and applies every migration (once per JVM, `by lazy` is synchronized). Every
+     * accessor below already triggers this; call it explicitly where a test only needs "a migrated database".
+     */
+    fun ensureMigrated() {
+        container.jdbcUrl
     }
 
     val jdbcUrl: String get() = container.jdbcUrl

@@ -56,9 +56,9 @@ jobs:
     if: needs.changes.outputs.server == 'true'
     # ubuntu-24.04 ships a Docker daemon — Testcontainers starts the pinned PostgreSQL 18 image on it.
     runs-on: ubuntu-24.04
-    # The suite took 29m54s on #29 (the metrics tests re-derive the stub fixture many times); 45 min is
-    # headroom while the suite is sped up, not a target.
-    timeout-minutes: 45
+    # The job is ~10-12 min today (the suite took 29m54s on #29 before the derive/PROCESS fixes); 25 min is
+    # headroom for runner variance, not a target (`.claude/docs/build-times.md`).
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
@@ -76,7 +76,9 @@ jobs:
       # `build` = compile + detekt + test + koverVerify + checkDependencyAlignment (`check`).
       # `--dependency-verification strict` is explicit here on top of the automatic enforcement
       # gradle/verification-metadata.xml already triggers — see .claude/docs/dependency-reproducibility.md.
-      - run: ./gradlew --dependency-verification strict build --no-daemon --stacktrace
+      # `-Pforks=2`: two parallel test JVMs, each with its own Testcontainers Postgres (`.claude/docs/testing.md`
+      # "Parallel forks"; `-Xmx512m` x 2 forks + 2 Postgres fit the 16 GB / 4 vCPU runner).
+      - run: ./gradlew --dependency-verification strict build --no-daemon --stacktrace -Pforks=2
       # Time visibility, never a gate: the slowest test classes/cases go to the job summary, and a
       # ::warning:: annotation fires when the test time exceeds the `ci.server` alarm in
       # scripts/timings/budgets.json. Uses the runner's preinstalled node (>= 20; the script needs 18+,

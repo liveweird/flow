@@ -57,7 +57,7 @@ free-form; the ones with budgets are `server-build`, `server-test`, `web-gates`,
 `server-build`, `web-gates`) — the point is a series, not a benchmark session.
 `slow-tests` also takes `--wall <s>` (the Gradle-reported total), `--top-classes`, `--top-tests`,
 `--budget ci.server-tests` and `--summary-file`. Suite span and the sum of class times are both shown
-(the suite runs in one fork, so they agree).
+(they agree with one fork; with `-Pforks=N` the span is the wall and the sum is N forks' CPU time, fixtures included).
 
 **In CI** the `server` job ends its build with a "Test time report (job summary)" step (`if: always()`,
 `continue-on-error`, never a gate): the top 15 slowest classes and top 10 cases go to the run's job
@@ -88,7 +88,7 @@ miss is a question to answer, not a number to adjust. CI runners are public-repo
 | CI `e2e` step: `Start the stack` | 45 s | 2 min | PROVISIONAL: `docker compose up -d --wait` — postgres + app (JVM boot, Flyway) healthy |
 | CI `e2e` step: `Run E2E` | 4 min | 9 min | PROVISIONAL: the Playwright specs alone (the old combined step, build and start-up included, took 7m06s of the 7m48s job on 09-29) |
 | local `server-build` (`./gradlew cleanTest build`) | 3 min | 6 min | 18 cores; compile, detekt, all tests, Kover, alignment |
-| local `server-test` | 2 min | 5 min | ~800 tests against ONE shared Postgres container |
+| local `server-test` | 2 min | 5 min | ~800 tests against ONE shared Postgres container per fork (default 1 fork; `-Pforks=2` ~-28 %, WHY 5) |
 | local `web-gates` | 1.5 min | 3 min | lint:api + check:api + lint + knip + coverage tests + build |
 | local `e2e-static` | 30 s | 1 min | lint + knip + typecheck + scenario parity |
 | local `e2e-playwright` | 5 min | 10 min | PROVISIONAL: blackbox suite on a running stack; revisit with the first recorded runs |
@@ -256,11 +256,47 @@ evidence and recorded here as a dated entry (finding + fix, or "measured, intend
 4. **Kover costs ~10 %.** Instrumentation off: suite 369 → 334 s (-9.5 %), the `MetricsDerivationTest`
    class -15 %. `koverVerify` is a `check` gate, so it stays on in CI; a local-dev switch is cheap.
    Open: is the floor worth 10 % of every CI run, or can coverage be measured on a schedule?
-5. **CI 4 vCPU vs local 18 cores.** The suite is single-fork. `maxParallelForks=2/3` passed all 782
-   tests locally (-29 % / -33 %) but broke the OpenAPI coverage gate (each fork writes the same
-   `coverage.md`/`gaps.txt`; 59-62 false gaps), duplicates the per-fork Postgres + ~30 s sync + derived
-   fixture (sum of class time 367 → 499 → 608 s), and Kover across forks is unverified. Expect only
-   -15-25 % on 4 vCPU. Do it LAST, and only if CI is still over target after the fixes above.
+5. **CI 4 vCPU vs local 18 cores — ANSWERED 2026-09-30 (`perf/parallel-forks`, checkup D1).** The suite now
+   runs in parallel JVM forks: `server/build.gradle.kts` reads `-Pforks=N` into `maxParallelForks` (default 1),
+   CI passes `-Pforks=2`. What made it possible (the three blockers the old entry listed): (1) the OpenAPI gate
+   is fork-safe since #42 (each fork writes `exercised-<pid>-<uuid>.txt`, the last one to exit re-merges them
+   into ONE `coverage.md`/`gaps.txt`); (2) **class order was not robust** — `MetricsDigestTest` first in a JVM
+   died with `relation "source_connections" does not exist` (nothing had run Flyway) — `PostgresTestSupport`
+   now migrates the container inside its own lazy init, so any first class works; (3) Kover across forks,
+   verified below. `forkEvery` is unset and the test JVM keeps Gradle's default 512 MiB heap, so 2 forks x
+   512 MiB + 2 Postgres containers is ~1.5 GB on a 16 GB runner.
+
+   Measured locally (18 cores; the machine is shared with other worktrees, so the 1-minute load average at the
+   start of each run is listed; `cleanTest :server:test`, 822 tests, wall = Gradle's whole invocation incl. ~15 s
+   of configuration/up-to-date checks):
+
+   | forks | wall, run 1 (load) | wall, run 2 (load) | vs 1 fork | sum of class time |
+   |---|---|---|---|---|
+   | 1 | 213 s (2.8) | 228 s (6.3) | — | 3m45s |
+   | 2 | 166 s (4.0) | 151 s (7.8) | -28 % | ~4m30s |
+   | 3 | 134 s (11.5) | — | -39 % | — |
+
+   Fixtures are per fork (each JVM pays its own container + Flyway + ~25 s stub SYNC + one DERIVE), so class time
+   sums to more than the single fork's (~3m45s -> ~4m30s, +20 % of CPU) — the wall gain is real but sub-linear:
+   2 forks -28 %, 3 forks -39 %, and a 4th would mostly add fixed cost. On the 4 vCPU CI runner (Postgres per
+   fork + the Kover agent share those cores) expect the smaller end of the report's -15-25 %; the local default
+   stays 1 (a fork per class-batch also multiplies the Postgres containers on a dev laptop already running a
+   compose stack) — pass `-Pforks=2` when you want the faster loop. The whole gated `cleanTest build`
+   (compile, detekt, tests, Kover, alignment) measured **203 s single fork vs 143 s at `-Pforks=2`**
+   (-30 %, final tree, load ~5.5 both). **Gates under forks (all verified):** `gaps.txt` empty and
+   `coverage.md` listing "62 of 62 operations exercised; 249 of 367 declared pairs" in every forked run (identical
+   to the single fork); `koverVerify` passes; Kover line/branch coverage with `-Pforks=2` is 98.19 % / 80.19 %
+   against 98.23 % / 80.23 % single-fork (the reports merge; the 0.04-point difference is timing-dependent
+   coverage of async paths).
+
+   **The largest class does not bound the forked wall time — measured, so `MetricsDerivationTest` was NOT
+   split.** At 1 fork it is 65 s of 225 s; ten of its 37 tests (the ones cloning their own connection) are
+   ~63 s of that, the 27 read-only tests are nearly free. A trial split into read / sprint-clone /
+   attribution-clone classes (pure move, compiled, detekt clean, same 37 test names and bodies) measured
+   157 s and 174 s at 2 forks and 137 s at 3 (vs 166/151 and 134 unsplit): no gain, because the wall is
+   bound by per-fork fixed cost plus total work, not by one class. It stays one class; revisit only if a
+   class grows past ~1/3 of the suite.
+
 6. **Web job growth — ANSWERED 2026-09-30 (checkup A17; CI 3m15s → 1m09s after #37, see the trajectory entry above).** 1m16s → ~2m20s median in four days; the
    latest master run spent 1m22s (68 %) in `npm run test:coverage`, lint 12 s, `npm ci` 10 s, build 7 s.
    Locally (18 cores; every count and time below is from before the A7 test landed — 108 files, 866 tests) the suite takes **12.5-13.4 s** (`real`; 143-159 s user +
