@@ -25,6 +25,13 @@ regardless of which surface a given instance serves. An unrecognized `FLOW_ROLE`
 startup in every mode — a bad role is a deploy-time config error, not something to limp along
 with.
 
+**Cold start.** Flyway is the first database contact at boot, so it retries its connection
+(`postgres.connectRetries` / `POSTGRES_CONNECT_RETRIES`, default 10, 0..15 so the worst wait stays inside the k8s startup probe; doubling waits capped at
+8 s, ~63 s at 10) instead of failing at once — a `web`/`worker` pod that starts before Postgres
+accepts connections waits rather than crash-looping. That is inside the k8s `startupProbe` budget
+(~150 s); after the retries are spent the original connection error is raised and the process exits
+as before. `0` restores fail-fast.
+
 `Application.servesApi()` (true for `WEB`/`ALL`) is the guard every feature route module and the
 SPA catch-all check first; `Application.runsWorker()` (true for `WORKER`/`ALL`) is its counterpart
 for the ingestion worker.

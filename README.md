@@ -88,6 +88,10 @@ Ports are chosen to coexist with [Lettuce](https://github.com/liveweird/lettuce)
 the app is on **8084**, Postgres is host-mapped to **5435**, the Vite dev server uses **5176**,
 Mailpit **8028**. All host ports bind to 127.0.0.1.
 
+On a cold start the app waits for Postgres rather than exiting: Flyway retries its boot connection
+(`POSTGRES_CONNECT_RETRIES`, default 10 — about a minute of backing-off attempts; see "Configuration"),
+so `docker compose up` and Kubernetes restarts need no manual ordering.
+
 ### Scale-20 performance check
 
 `docker-compose.perf.yaml` is the phase-3 performance check: the normal stack with its Jira stub
@@ -267,6 +271,7 @@ transport at startup (`.claude/docs/security.md`).
 | `POSTGRES_R2DBC_URL` | `r2dbc:postgresql://localhost:5435/flow` | The runtime R2DBC URL. |
 | `POSTGRES_USER` | `flow` | Database user. |
 | `POSTGRES_PASSWORD` | `flow` | Database password. |
+| `POSTGRES_CONNECT_RETRIES` | `10` | How many times Flyway retries its boot connection (doubling waits capped at 8 s, ~63 s at 10) so a cold start waits for Postgres instead of crash-looping; `0` fails fast (0..15 — 15 is ~2 min, inside the k8s startup-probe budget). |
 | `POSTGRES_POOL_MAX_SIZE` | `20` | Ceiling on concurrent pooled R2DBC connections for this instance (1..1000). |
 | `POSTGRES_POOL_INITIAL_SIZE` | `2` | Connections the pool fills up to on its first acquire (0..maxSize). |
 | `POSTGRES_POOL_MAX_ACQUIRE_SECONDS` | `10` | How long a caller waits for a free pooled connection before failing (1..600). |

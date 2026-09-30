@@ -451,6 +451,58 @@ class MetricsDerivationTest {
         )
     }
 
+    @Test
+    fun `a DERIVE marks a dead worker's orphaned RUNNING run of its connection FAILED, sparing other connections`() = runBlocking {
+        val connId = clonedProcessedConnection()
+        val otherConnId = SyncedStubFixture.createConnection(namePrefix = "orphan-other", enabled = false)
+        val config = metricsConfig()
+        val deriver = MetricsDeriver(workItems(), config, teamMembership(config), metricsStore(), sharedDatabaseForTests())
+
+        suspend fun insertRunning(conn: UInt): Int = suspendTransaction(sharedDatabaseForTests()) {
+            MetricsStore.DeriveRuns.insert {
+                it[MetricsStore.DeriveRuns.connectionId] = conn.toInt()
+                it[MetricsStore.DeriveRuns.configRevision] = 1L
+                it[MetricsStore.DeriveRuns.processingVersion] = 1
+                it[MetricsStore.DeriveRuns.startedAt] = PINNED_NOW - 60_000
+                it[MetricsStore.DeriveRuns.status] = "RUNNING"
+            }[MetricsStore.DeriveRuns.id]
+        }
+        suspend fun runRow(id: Int): ResultRow = suspendTransaction(sharedDatabaseForTests()) {
+            MetricsStore.DeriveRuns.selectAll().where { MetricsStore.DeriveRuns.id eq id }.toList().single()
+        }
+        val orphan = insertRunning(connId)
+        val otherConnRunning = insertRunning(otherConnId)
+        try {
+            val claim = SyncJobClaim(
+                id = 6u,
+                connectionId = connId,
+                connectorKind = DataSourceKind.JIRA_CLOUD,
+                kind = SyncJobKind.DERIVE,
+                attempt = 1,
+                maxAttempts = 3,
+                syncIntervalMinutes = 60,
+            )
+            deriver.derive(SyncJobRunContext(claim, clock = { PINNED_NOW }) { _, _ -> true })
+
+            val orphanRow = runRow(orphan)
+            assertEquals("FAILED", orphanRow[MetricsStore.DeriveRuns.status])
+            assertEquals("abandoned: worker lost its lease", orphanRow[MetricsStore.DeriveRuns.errorDetail])
+            assertEquals(PINNED_NOW, orphanRow[MetricsStore.DeriveRuns.finishedAt])
+            assertEquals("RUNNING", runRow(otherConnRunning)[MetricsStore.DeriveRuns.status], "another connection's run is never touched")
+
+            val rows = suspendTransaction(sharedDatabaseForTests()) {
+                MetricsStore.DeriveRuns.selectAll().where { MetricsStore.DeriveRuns.connectionId eq connId.toInt() }.toList()
+            }
+            val fresh = rows.single { it[MetricsStore.DeriveRuns.id] != orphan }
+            assertEquals("SUCCEEDED", fresh[MetricsStore.DeriveRuns.status], "the new run itself is not swept up")
+            assertNull(fresh[MetricsStore.DeriveRuns.errorDetail])
+        } finally {
+            suspendTransaction(sharedDatabaseForTests()) {
+                MetricsStore.DeriveRuns.deleteWhere { MetricsStore.DeriveRuns.id eq otherConnRunning }
+            }
+        }
+    }
+
     /** A single simple task on a FRESH (never-stub-synced) connection, its current status carrying the UNKNOWN Jira category. */
     private suspend fun seedUnmappedStatusIssue(connId: UInt) {
         workItems().replaceStatuses(connId, listOf(StatusRef("77", "Weird", StatusCategory.UNKNOWN)))

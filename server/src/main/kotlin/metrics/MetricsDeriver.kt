@@ -15,6 +15,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
 import org.jetbrains.exposed.v1.r2dbc.insert
@@ -28,6 +29,7 @@ val MetricsDeriverKey = AttributeKey<MetricsDeriver>("MetricsDeriver")
  * `DeriveSprintStep.kt`/`DeriveEpicPlanStep.kt`) — an epic is level 1, never "type name = Epic". */
 internal const val EPIC_HIERARCHY_LEVEL = 1
 private const val MAX_ERROR_DETAIL_LENGTH = 1000
+private const val ABANDONED_RUN_DETAIL = "abandoned: worker lost its lease"
 
 /** `MetricsDeriver`'s own default (v0.3.0 M3 review round 2b) — mirrors `application.yaml`'s `ingest.jobRetentionDays` default. */
 internal const val DEFAULT_JOB_RETENTION_DAYS = 90L
@@ -100,6 +102,17 @@ class MetricsDeriver(
         suspendTransaction(database) { metricsStore.pruneDeriveRuns(jobRetentionDays * MILLIS_PER_DAY, now) }
 
         val runId = suspendTransaction(database) {
+            // Only one DERIVE per connection can run (the job queue's lease guarantees it), so any
+            // OTHER RUNNING row for this connection belongs to a worker that died mid-DERIVE (SIGKILL,
+            // lost lease) and can never finish — nothing else would ever mark it terminal, and
+            // `pruneDeriveRuns` only deletes SUCCEEDED/FAILED rows. Same transaction as our own insert.
+            MetricsStore.DeriveRuns.update({
+                (MetricsStore.DeriveRuns.connectionId eq connectionId.toInt()) and (MetricsStore.DeriveRuns.status eq "RUNNING")
+            }) {
+                it[status] = "FAILED"
+                it[MetricsStore.DeriveRuns.finishedAt] = now
+                it[errorDetail] = ABANDONED_RUN_DETAIL
+            }
             MetricsStore.DeriveRuns.insert {
                 it[MetricsStore.DeriveRuns.connectionId] = connectionId.toInt()
                 it[MetricsStore.DeriveRuns.jobId] = jobId.toInt()
@@ -241,7 +254,9 @@ class MetricsDeriver(
             if (counts.sprintFieldUnresolved) put("sprintFieldUnresolved", JsonPrimitive(true))
         }.toString()
         suspendTransaction(database) {
-            MetricsStore.DeriveRuns.update({ MetricsStore.DeriveRuns.id eq runId }) {
+            // Only while still RUNNING: a newer DERIVE of the same connection may already have swept this run
+            // FAILED as abandoned (a lease-expired zombie) — its late write must not overwrite that.
+            MetricsStore.DeriveRuns.update({ (MetricsStore.DeriveRuns.id eq runId) and (MetricsStore.DeriveRuns.status eq "RUNNING") }) {
                 it[status] = "SUCCEEDED"
                 it[MetricsStore.DeriveRuns.finishedAt] = finishedAt
                 it[rowCounts] = countsJson
@@ -251,7 +266,9 @@ class MetricsDeriver(
 
     private suspend fun markRunFailed(runId: Int, failure: Exception, finishedAt: Long) = withContext(NonCancellable) {
         suspendTransaction(database) {
-            MetricsStore.DeriveRuns.update({ MetricsStore.DeriveRuns.id eq runId }) {
+            // Only while still RUNNING: a newer DERIVE of the same connection may already have swept this run
+            // FAILED as abandoned (a lease-expired zombie) — its late write must not overwrite that.
+            MetricsStore.DeriveRuns.update({ (MetricsStore.DeriveRuns.id eq runId) and (MetricsStore.DeriveRuns.status eq "RUNNING") }) {
                 it[status] = "FAILED"
                 it[MetricsStore.DeriveRuns.finishedAt] = finishedAt
                 it[errorDetail] = failure.message?.take(MAX_ERROR_DETAIL_LENGTH)
