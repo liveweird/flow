@@ -21,11 +21,20 @@ settings. These are separate from the version-update configuration. Security upd
 the normal checks; never auto-merge a breaking migration to clear an alert.
 
 Dependabot does not cover every declaration here. At each monthly maintenance pass, inspect the
-exact JDK pin in `mise.toml`, Ktor's imported catalog in `settings.gradle.kts`, the pinned
-PostgreSQL image literal in `server/src/test/kotlin/PostgresTestSupport.kt`, and the runtime
+exact JDK pin in `mise.toml`, Ktor's imported catalog in `settings.gradle.kts`, and the runtime
 versions actually used by cached images and local tools. Compare official release metadata, not
 just open PRs. The CI toolchain pins (`.nvmrc`, the `java-version` in `ci.yml`, the wrapper checksum,
 the kubeconform version/sha) are in that same manual list — see "CI toolchain pins and scans".
+
+**The PostgreSQL image is pinned in THREE places that must move together:** `docker-compose.yaml`,
+`k8s/postgres-deployment.yaml` and `PostgresTestSupport.IMAGE`
+(`server/src/test/kotlin/PostgresTestSupport.kt`). Dependabot only sees the first two, and as
+separate PRs (the `docker-compose` and `docker` ecosystems cannot share a group; the `postgres`
+group in `dependabot.yml` merges the `/` and `/k8s` `docker` directories at most). So a Postgres
+tag/digest bump lands in ONE hand-assembled PR touching all three literals — close or redo
+Dependabot's split PRs into it, re-deriving the digest per the provenance rule below. The
+Testcontainers literal is no longer a monthly manual inspection item: `PostgresImagePinTest`
+asserts it equals the compose and k8s `image:` values, so a partial bump fails the build.
 
 ## Compatibility boundaries
 

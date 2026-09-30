@@ -57,9 +57,12 @@ fun Application.configureJiraUsersRoutes() {
             get<JiraUsersRoute> {
                 val caller = call.caller()
                 val params = call.request.queryParameters
+                // Guard FIRST, on the RAW value, before anything decodes or validates: only the default
+                // scope (absent/blank/UNIT) is any-authenticated; SITE — and any value that is not plainly
+                // UNIT, since a non-admin must not learn from a 400 which spellings the enum accepts — is
+                // ADMIN only, so 403 wins over 400 (authorization.md). A repeated `scope` counts every value.
+                if (params.getAll("scope").orEmpty().any { it.isNotBlank() && it != JiraUserScope.UNIT.name }) requireAdmin(caller)
                 val scope = params.optionalEnum<JiraUserScope>("scope") ?: JiraUserScope.UNIT
-                // Guard before ANY read — a non-admin's scope=site request never touches the DB.
-                if (scope == JiraUserScope.SITE) requireAdmin(caller)
 
                 val paging = call.parsePaging(sortable = JIRA_USER_SORT_FIELDS)
                 val q = params.optionalString("q")

@@ -4,6 +4,7 @@ import io.ktor.server.application.*
 import io.ktor.http.*
 import io.ktor.http.content.*
 import io.ktor.server.plugins.cachingheaders.*
+import io.ktor.server.request.path
 import io.ktor.server.response.*
 import io.ktor.server.plugins.cors.routing.*
 import io.ktor.server.plugins.compression.*
@@ -25,6 +26,16 @@ import ch.nokillswit.infra.config.requireConfigInt
  */
 const val MAX_REQUEST_BODY_BYTES: Long = 10L * 1024 * 1024
 
+/**
+ * Whether Swagger UI + the spec are served: `http.exposeOpenApi` when set, else development mode. ONE
+ * definition for both the route install (below) and the CSP exemption (`SecurityHeaders.kt`) — the
+ * exemption must never apply where the UI is not actually mounted.
+ */
+internal fun Application.exposesOpenApi(): Boolean =
+    environment.config.propertyOrNull("http.exposeOpenApi")?.getString()
+        ?.takeIf { it.isNotBlank() }?.toBoolean()
+        ?: developmentMode
+
 fun Application.configureHttp() {
     install(RequestBodyLimit) {
         bodyLimit { MAX_REQUEST_BODY_BYTES }
@@ -40,6 +51,12 @@ fun Application.configureHttp() {
                 ContentType.Text.JavaScript,
                 ContentType.Application.JavaScript,
                 -> CachingOptions(CacheControl.MaxAge(maxAgeSeconds = 24 * 60 * 60))
+                // API answers (JSON and RFC 7807 problem+json) carry per-user, bearer-authorized data:
+                // `no-store` keeps them out of browser/proxy caches (a shared machine's back button, an
+                // intermediary replaying one user's list to another). Scoped to /api/ so a static JSON
+                // asset the SPA ships (if one ever appears) is not swept up.
+                ContentType.Application.Json, ContentType.Application.ProblemJson ->
+                    if (call.request.path().startsWith("/api/")) CachingOptions(CacheControl.NoStore(null)) else null
                 else -> null
             }
         }
@@ -119,10 +136,7 @@ fun Application.configureHttp() {
     // are served only in development mode — or when explicitly re-enabled for a trusted
     // environment via HTTP_EXPOSE_OPENAPI=true. (Bearer-token auth cannot protect a
     // browser-loaded UI: page loads carry no Authorization header.)
-    val exposeOpenApi = environment.config.propertyOrNull("http.exposeOpenApi")?.getString()
-        ?.takeIf { it.isNotBlank() }?.toBoolean()
-        ?: developmentMode
-    if (exposeOpenApi) {
+    if (exposesOpenApi()) {
         // swaggerUI serves both the UI page and the spec (GET /openapi/documentation.yaml).
         routing {
             swaggerUI(path = "openapi")

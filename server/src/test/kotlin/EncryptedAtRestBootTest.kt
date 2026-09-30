@@ -20,6 +20,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
@@ -86,9 +87,21 @@ class EncryptedAtRestBootTest {
             // the rotation backfill re-encrypts EVERY row in the table (including every other
             // test's) under keyTwo, so previousKey must be the key everything was actually
             // encrypted under.
-            testApplication {
-                configureApp("security.encryption.key" to keyTwo, "security.encryption.previousKey" to DEV_DATA_ENCRYPTION_KEY)
-                startApplication()
+            withAuditCapture { capture ->
+                testApplication {
+                    configureApp("security.encryption.key" to keyTwo, "security.encryption.previousKey" to DEV_DATA_ENCRYPTION_KEY)
+                    startApplication()
+                }
+                val event = capture.events.singleOrNull { it.message == "crypto.reencrypted" }
+                assertNotNull(event, "the rotation backfill must leave an audit event")
+                assertTrue(event.hasKeyValue("rotating", true))
+                assertTrue(event.hasKeyValue("label", "Jira API token"))
+                val rows = event.keyValuePairs.single { it.key == "rows" }.value as Int
+                assertTrue(rows >= 1, "at least the seeded row was re-encrypted: $rows")
+                assertTrue(
+                    event.keyValuePairs.none { plaintextToken in it.value.toString() || keyTwo in it.value.toString() },
+                    "the audit event must never carry a token or a key",
+                )
             }
 
             val rawUnderKeyTwo = rawSecret(dataSourceId)

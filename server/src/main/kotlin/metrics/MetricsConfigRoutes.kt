@@ -4,6 +4,7 @@ import ch.nokillswit.audit.audit
 import ch.nokillswit.authz.caller
 import ch.nokillswit.authz.orNotFound
 import ch.nokillswit.authz.requireAdmin
+import ch.nokillswit.infra.paging.optionalString
 import ch.nokillswit.ingest.DataSourceServiceKey
 import ch.nokillswit.plugins.servesApi
 import io.ktor.http.HttpStatusCode
@@ -68,7 +69,7 @@ fun Application.configureMetricsConfigRoutes() {
                 requireAdmin(caller)
                 val connectionId = route.parent.id
                 dataSources.read(connectionId).orNotFound("Data source")
-                val workCategoryField = call.request.queryParameters["workCategoryField"]?.takeIf { it.isNotBlank() }
+                val workCategoryField = call.request.queryParameters.optionalString("workCategoryField")
                 call.respond(HttpStatusCode.OK, metricsConfig.options(connectionId, workCategoryField))
             }
         }

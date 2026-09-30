@@ -541,4 +541,16 @@ class MetricsConfigRoutesTest {
         assertTrue(options.sprints.any { it.sprintId == seeded.sprintId })
         assertEquals(emptyList(), options.workCategoryValues, "no ?workCategoryField= given")
     }
+
+    @Test
+    fun `a repeated workCategoryField is a 400, never a silent first-value-wins`() = testApplication {
+        usePostgresTestcontainer()
+        val admin = seededClient("metricsoptionsrepeat", UserRole.ADMIN)
+        val connId = runBlocking { createConnection(dataSources()) }
+
+        val repeated = admin.get("/api/v1/data-sources/$connId/metrics-config/options?workCategoryField=a&workCategoryField=b")
+        assertEquals(HttpStatusCode.BadRequest, repeated.status)
+        assertEquals(HttpStatusCode.OK, admin.get("/api/v1/data-sources/$connId/metrics-config/options?workCategoryField=a").status)
+        assertEquals(HttpStatusCode.OK, admin.get("/api/v1/data-sources/$connId/metrics-config/options?workCategoryField=").status)
+    }
 }

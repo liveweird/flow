@@ -1,5 +1,6 @@
 package ch.nokillswit.plugins
 
+import ch.nokillswit.infra.config.requireConfigInt
 import io.ktor.server.application.*
 import io.ktor.server.plugins.origin
 import io.ktor.server.plugins.ratelimit.RateLimit
@@ -20,6 +21,7 @@ object RateLimits {
     const val DATA_SOURCE_TEST = "data-source-test"
 
     const val DEFAULT_REFRESH_PER_MINUTE = 30
+    private const val MAX_LIMIT_PER_MINUTE = 1_000_000
     private const val MFA_PER_MINUTE = 10
     private const val DATA_SOURCE_TEST_PER_MINUTE = 10
     private const val LOGIN_PER_MINUTE_PRODUCTION = 10
@@ -29,7 +31,12 @@ object RateLimits {
 
     /** Blank follows the mode; a number pins the bucket in either mode (the `http.exposeOpenApi` idiom). */
     internal fun Application.configuredLimit(key: String, default: Int): Int =
-        environment.config.propertyOrNull(key)?.getString()?.takeIf { it.isNotBlank() }?.toInt() ?: default
+        if (environment.config.propertyOrNull(key)?.getString().isNullOrBlank()) {
+            default
+        } else {
+            // Boot-validated: a non-numeric or non-positive limit (0 blocks every request) refuses startup.
+            requireConfigInt(environment.config, key, min = 1, max = MAX_LIMIT_PER_MINUTE)
+        }
 
     internal fun Application.loginLimit() = configuredLimit(
         "security.rateLimit.loginPerMinute",

@@ -1251,7 +1251,8 @@ paths:
         this unit's own data (an assignee or worklog author on an ACTIVE connection's live work
         items, or one that ever held a `metrics.team_membership` row) — the same population every
         other any-authenticated surface can already name. `scope=SITE` — ADMIN only (guard before
-        any read; `403` for anyone else), the whole site directory, for picking a brand-new team
+        any read; `403` for anyone else, and likewise for any non-`UNIT` value — the guard runs
+        before the value is validated), the whole site directory, for picking a brand-new team
         member.
 
         - Sortable fields: `displayName`. Default ascending, `accountId` ascending tiebreaker.

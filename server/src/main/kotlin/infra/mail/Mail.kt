@@ -1,5 +1,6 @@
 package ch.nokillswit.infra.mail
 
+import ch.nokillswit.infra.config.requireConfigInt
 import ch.nokillswit.plugins.respondProblem
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.*
@@ -61,7 +62,7 @@ fun Application.configureMail() {
             }
             SmtpMailer(
                 host = host,
-                port = environment.config.property("mail.smtp.port").getString().toInt(),
+                port = requireConfigInt(environment.config, "mail.smtp.port", min = 1, max = 65535),
                 user = environment.config.property("mail.smtp.user").getString(),
                 password = environment.config.property("mail.smtp.password").getString(),
                 from = environment.config.property("mail.from").getString(),

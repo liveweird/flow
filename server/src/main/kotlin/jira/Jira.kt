@@ -22,6 +22,9 @@ import okhttp3.EventListener
 
 val JiraConnectorKey = AttributeKey<JiraConnector>("JiraConnector")
 
+/** The shared guarded client — published so a test can assert it is closed on [ApplicationStopped]. */
+val JiraHttpClientKey = AttributeKey<HttpClient>("JiraHttpClient")
+
 /**
  * Wires the Jira HTTP stack (v0.2.0 plan §3/§6): ONE guarded `HttpClient(OkHttp)` shared by every
  * connection — the allow-list ([isAllowedJiraHost]) checks the GENERAL tenant-host shape
@@ -60,6 +63,11 @@ fun Application.configureJira() {
         },
         requestTimeoutSeconds = requestTimeoutSeconds,
     )
+    // ONE long-lived client for the app's whole life: closing it on ApplicationStopped releases the OkHttp
+    // dispatcher/connection-pool threads (a stopped Application otherwise leaks them — the test suite
+    // starts and stops hundreds), like the database pool's own ApplicationStopped disposal.
+    attributes.put(JiraHttpClientKey, httpClient)
+    monitor.subscribe(ApplicationStopped) { httpClient.close() }
     val jiraHttp = JiraHttp(
         httpClient,
         maxRetries,

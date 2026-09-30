@@ -191,8 +191,9 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     a `metrics.team_membership` row) — D12 exposes only names another any-authenticated surface can
     already produce; `/jira-memberships` itself only ever carries an `accountId`, never a display
     name, so this is the FIRST place that pairs one with the other. **`scope=SITE`, ADMIN only**
-    (`requireAdmin` runs before any query-param-derived read — a non-admin gets a uniform `403`) —
-    the whole site directory, for picking a brand-new team member. `q` substrings the display name;
+    (`requireAdmin` runs on the RAW `scope` before anything decodes or validates — a non-admin gets a
+    uniform `403` for `SITE` and for any spelling that is not plainly `UNIT`, so 403 wins over the enum's
+    400) — the whole site directory, for picking a brand-new team member. `q` substrings the display name;
     `teamId` narrows to that team's CURRENT membership, combined with `scope` by set intersection
     (an unknown `teamId` is simply an empty page, not an error — no path id is involved). No
     mutation, so no audit event of its own. Tests: `JiraUsersRoutesTest`.

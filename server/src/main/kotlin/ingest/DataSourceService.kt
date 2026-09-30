@@ -114,6 +114,7 @@ class DataSourceService(private val database: R2dbcDatabase, private val cipher:
 
     /** Creates the connection; `settings` starts from the request, `cloudId` fills in on the first successful probe/sync. */
     suspend fun create(request: DataSourceRequest): UInt = suspendTransaction(database) {
+        validateDataSource(request, apiTokenRequired = true) // re-checked service-side so direct callers stay guarded
         val stamp = nowMillis()
         val settings = JiraConnectionSettings(
             siteUrl = request.jira.siteUrl,
@@ -145,6 +146,7 @@ class DataSourceService(private val database: R2dbcDatabase, private val cipher:
      * is missing/deleted (→ 404 at the route).
      */
     suspend fun update(id: UInt, request: DataSourceRequest): DataSourceUpdateResult? = suspendTransaction(database) {
+        validateDataSource(request, apiTokenRequired = false)
         val current = Connections.selectAll().where { (Connections.id eq id) and Connections.active() }
             .forUpdate().toList().singleOrNull() ?: return@suspendTransaction null
         val currentSettings = decodeSettings(current[Connections.settings])

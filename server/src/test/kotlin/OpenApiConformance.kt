@@ -13,8 +13,9 @@ import io.ktor.client.statement.bodyAsText
 import io.swagger.v3.oas.models.OpenAPI
 import io.swagger.v3.parser.OpenAPIV3Parser
 import io.swagger.v3.parser.core.models.ParseOptions
-import java.nio.file.Files
+import java.nio.file.Path
 import java.nio.file.Paths
+import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -128,9 +129,12 @@ val OpenApiConformance = createClientPlugin("OpenApiConformance") {
 }
 
 /**
- * Records the (method, path-template, status) triples the suite exercised and writes
- * `build/reports/openapi-conformance/coverage.md` at JVM exit — a report, not a gate.
- * Single test JVM today (Gradle default forks); with parallel forks the last one wins.
+ * Records the (method, path-template, status) triples this JVM exercised. At JVM exit it writes them to its
+ * OWN `exercised-<pid>.txt` and then, under a file lock, re-merges EVERY fork's file into the ONE
+ * `coverage.md` + `gaps.txt` ([OpenApiCoverageMerge]) — so a pair exercised by ANY fork is covered, and
+ * whichever fork exits last leaves the complete union behind (an earlier exit leaves a superset of the gaps,
+ * never a subset). `server/build.gradle.kts` clears the directory before the `test` task and reads `gaps.txt`
+ * after it (the gate).
  */
 object OpenApiCoverage {
     private data class Template(val path: String, val regex: Regex, val paramCount: Int)
@@ -146,21 +150,14 @@ object OpenApiCoverage {
         }.sortedWith(compareBy({ it.paramCount }, { -it.path.length }))
     }
 
-    private val exercised = ConcurrentHashMap.newKeySet<Triple<String, String, Int>>()
+    private val exercised = ConcurrentHashMap.newKeySet<ExercisedHit>()
 
-    /**
-     * Statuses a SHARED plugin or interceptor produces for every operation alike, each pinned once by
-     * its own test rather than per route: `400` (a malformed id or body — ErrorHandling's negative-segment
-     * intercept and the converter vocabulary; `PayloadValidationTest`), `401` (the JWT challenge —
-     * `AnonymousAccessTest` sweeps it), `413` (`RequestBodyLimit` — `PayloadValidationTest`), `429` (the
-     * per-IP buckets — `RateLimitResponseTest` + one case per bucket), `500`/`default` (the catch-all —
-     * no honest way to force one through the public API).
-     */
-    private val CROSS_CUTTING_STATUSES = setOf("400", "401", "413", "415", "429", "500", "default")
+    /** Relative to the test task's working directory (`server/`), where Gradle's `build/` lives. */
+    private val reportDir: Path = Paths.get("build/reports/openapi-conformance")
 
     fun record(method: String, path: String, status: Int) {
         val template = templates.firstOrNull { it.regex.matches(path) }?.path ?: "(no template: $path)"
-        exercised.add(Triple(method.uppercase(), template, status))
+        exercised.add(ExercisedHit(method.uppercase(), template, status))
     }
 
     init {
@@ -169,56 +166,15 @@ object OpenApiCoverage {
 
     private fun writeReport() {
         if (exercised.isEmpty()) return
-        val lines = mutableListOf("# OpenAPI conformance coverage", "")
-        var operations = 0
-        var operationsHit = 0
-        var pairs = 0
-        var pairsHit = 0
-        OpenApiSpec.parsed.paths.forEach { (path, item) ->
-            item.readOperationsMap().forEach { (method, operation) ->
-                operations++
-                val declared = operation.responses.keys
-                val hits = exercised.filter { it.first == method.name && it.second == path }.map { it.third }
-                if (hits.isNotEmpty()) operationsHit++
-                lines += "### ${method.name} $path — ${operation.operationId ?: "(no operationId)"}"
-                declared.forEach { statusKey ->
-                    pairs++
-                    val hit = hits.any { it.toString() == statusKey }
-                    if (hit) pairsHit++
-                    lines += "- [${if (hit) "x" else " "}] $statusKey"
+        OpenApiCoverageMerge.publish(
+            reportDir,
+            "${ProcessHandle.current().pid()}-${UUID.randomUUID()}",
+            exercised,
+            OpenApiSpec.parsed.paths.flatMap { (path, item) ->
+                item.readOperationsMap().map { (method, operation) ->
+                    DeclaredOperation(method.name, path, operation.operationId, operation.responses.keys.toList())
                 }
-                val undeclared = hits.filter { h -> declared.none { it == h.toString() } && "default" !in declared }
-                if (undeclared.isNotEmpty()) lines += "- ⚠ exercised but undeclared: ${undeclared.sorted().joinToString()}"
-                lines += ""
-            }
-        }
-        val unresolved = exercised.filter { it.second.startsWith("(no template") }
-        if (unresolved.isNotEmpty()) {
-            lines += "## Requests matching no spec path"
-            unresolved.sortedBy { it.second }.forEach { lines += "- ${it.first} ${it.second} -> ${it.third}" }
-            lines += ""
-        }
-        lines.add(2, "")
-        lines.add(2, "$operationsHit of $operations operations exercised; $pairsHit of $pairs declared (operation, status) pairs.")
-        val target = Paths.get("build/reports/openapi-conformance/coverage.md")
-        Files.createDirectories(target.parent)
-        Files.write(target, lines)
-        Files.write(target.resolveSibling("gaps.txt"), gaps())
-    }
-
-    /**
-     * The GATE's input (server/build.gradle.kts fails the full-suite `test` task on a non-empty file):
-     * every declared (operation, status) pair the suite never produced, minus [CROSS_CUTTING_STATUSES].
-     * A new operation therefore needs a test per declared feature status (2xx/3xx, 403, 404, 409, 502,
-     * 503 …), or its status list trimmed to what the route can actually answer.
-     */
-    private fun gaps(): List<String> = OpenApiSpec.parsed.paths.flatMap { (path, item) ->
-        item.readOperationsMap().flatMap { (method, operation) ->
-            val hits = exercised.filter { it.first == method.name && it.second == path }.map { it.third.toString() }.toSet()
-            operation.responses.keys
-                .filterNot { it in CROSS_CUTTING_STATUSES }
-                .filterNot { it in hits }
-                .map { "${method.name} $path $it (${operation.operationId})" }
-        }
+            },
+        )
     }
 }

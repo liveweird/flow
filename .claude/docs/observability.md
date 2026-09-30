@@ -62,6 +62,15 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
   (byUserId/teamId/name) / `team.deleted` (byUserId/teamId) / `team.member_added` /
   `team.member_removed` (byUserId/teamId/targetUserId) — every team mutation; a rejected save
   emits nothing,
+- `bootstrap.admin_password_rotated` (userId/email — the fixed seed-admin email, never the password or
+  its hash; `infra/db/Bootstrap.kt`, only when `ADMIN_INITIAL_PASSWORD` actually replaced the seed
+  hash, so an idempotent re-boot emits nothing) / `crypto.reencrypted` (rows/label/rotating — the
+  boot backfill in `infra/db/Bootstrap.kt` encrypted `rows` legacy-plaintext rows of one
+  `EncryptedAtRest` service `label`, or, with `rotating` true, re-encrypted every row under the new
+  key; emitted only when `rows` > 0 — so with a rotation `previousKey` configured it fires on EVERY boot of
+  EVERY replica, since each rewrites the whole table until the key is dropped — and it never names a key
+  or a value) — the two boot-time
+  credential events, so a key rotation or admin-password reset leaves a trail beyond a log line,
 - `authz.denied` (every 403, from the `ForbiddenException` handler in `plugins/ErrorHandling.kt`,
   with method/path/byUserId/detail),
 - `data_source.created` (byUserId/dataSourceId/name/siteHost — HOST only, never the full

@@ -1,5 +1,6 @@
 package ch.nokillswit.infra.db
 
+import ch.nokillswit.audit.audit
 import ch.nokillswit.auth.hashPassword
 import ch.nokillswit.auth.verifyPassword
 import ch.nokillswit.ingest.DataSourceServiceKey
@@ -51,7 +52,15 @@ suspend fun Application.configureBootstrap() {
             expectedHash = SEED_PASSWORD_HASH,
             newHash = hashPassword(adminInitialPassword),
         )
-        if (rotated > 0) log.info("Bootstrap: rotated the seed admin password from ADMIN_INITIAL_PASSWORD")
+        if (rotated > 0) {
+            log.info("Bootstrap: rotated the seed admin password from ADMIN_INITIAL_PASSWORD")
+            // Ids and the fixed seed email only — never the password or its hash.
+            audit(
+                "bootstrap.admin_password_rotated",
+                "userId" to userService.findWithIdByEmail(SEED_ADMIN_EMAIL)?.first?.toLong(),
+                "email" to SEED_ADMIN_EMAIL,
+            )
+        }
     }
 
     if (!developmentMode) {
@@ -86,6 +95,7 @@ suspend fun Application.configureBootstrap() {
         val encrypted = service.encryptLegacyRows(reencryptAll = rotating)
         if (encrypted > 0) {
             log.info("Bootstrap: ${if (rotating) "re-" else ""}encrypted $encrypted ${service.encryptedRowLabel} row(s) at rest")
+            audit("crypto.reencrypted", "rows" to encrypted, "label" to service.encryptedRowLabel, "rotating" to rotating)
         }
     }
 }

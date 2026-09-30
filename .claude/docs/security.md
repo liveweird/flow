@@ -63,11 +63,29 @@ localStorage is view state). A deliberate trade-off, documented rather than hidd
 running on the origin can read the REFRESH token, i.e. a renewable session unbound to device/IP
 revocable through `/logout` or a password change/reset — so the real control is keeping foreign
 script out. That control is `plugins/SecurityHeaders.kt`, installed unconditionally and pinned by
-`ServerTest`: a strict CSP (`script-src 'self'`, `object-src 'none'`, `base-uri 'self'`,
-`frame-ancestors 'none'`), `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`,
-`Referrer-Policy: no-referrer`. Consequences: never weaken `script-src` (no CDN scripts, no
-`unsafe-inline` — Vite bundles everything same-origin, fonts included), and the SPA must stay free
-of `dangerouslySetInnerHTML`/`eval` sinks (currently zero). Moving tokens to httpOnly cookies would
+`ServerTest`: a strict CSP (`script-src 'self'`, `style-src 'self' 'unsafe-inline'`,
+`object-src 'none'`, `base-uri 'self'`, `frame-ancestors 'none'` — the whole string is pinned
+verbatim in `ServerTest`), `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`,
+`Referrer-Policy: no-referrer`. Every `/api/` JSON and problem+json answer additionally carries
+`Cache-Control: no-store` (`plugins/Http.kt`'s `CachingHeaders`, pinned by `ServerTest` together
+with the unchanged caching of the SPA's static assets), so per-user data never lands in a browser
+or proxy cache.
+
+`style-src` carries `'unsafe-inline'` deliberately: Mantine's style props/CSS variables render
+inline `style` attributes and runtime `<style>` tags, and the app uses `style={{}}` itself — a
+STYLES-only concession; it does not reopen script injection.
+
+The Swagger UI is the ONLY CSP exemption (it bootstraps with inline script/style), and it applies
+only when `http.exposeOpenApi` is on (`Application.exposesOpenApi()`, the same definition that
+mounts the UI: the property when set, else development mode) AND the path is exactly `/openapi` or
+starts with `/openapi/`. With it off — production by default — `/openapi`, `/openapi/x` and
+look-alikes such as `/openapiX` are ordinary paths (the SPA catch-all answers them with
+`index.html`) and carry the full CSP. The exempt paths still get the non-CSP hardening headers.
+All of it is pinned in `ServerTest`.
+
+Consequences: never weaken `script-src` (no CDN scripts, no `unsafe-inline` for scripts — Vite
+bundles everything same-origin, fonts included), and the SPA must stay free of
+`dangerouslySetInnerHTML`/`eval` sinks (currently zero). Moving tokens to httpOnly cookies would
 trade this for CSRF machinery — revisit only with that full picture.
 
 **Login timing equalizer** (`auth/AuthRoutes.kt` + `TIMING_EQUALIZER_HASH` in
