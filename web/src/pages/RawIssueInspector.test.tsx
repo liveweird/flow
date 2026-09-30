@@ -4,6 +4,7 @@ import { screen } from "@testing-library/react";
 import { Route, Routes } from "react-router-dom";
 import RawIssueInspector from "./RawIssueInspector";
 import { jsonResponse } from "../test/http";
+import { headingOutline } from "../test/headings";
 import { renderWithProviders } from "../test/render";
 
 const TOKEN_KEY = "flow.auth.token";
@@ -81,7 +82,20 @@ describe("RawIssueInspector page", () => {
     await user.type(screen.getByLabelText("Issue key or id"), "ENG-123");
     await user.click(screen.getByRole("button", { name: "Look up" }));
 
-    expect(await screen.findByRole("heading", { level: 4, name: "ENG-123" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { level: 3, name: "ENG-123" })).toBeInTheDocument();
+    expect(headingOutline()).toEqual([
+      [2, "Raw issue inspector"],
+      [3, "ENG-123"],
+      [4, "Work item"],
+      [4, "Intervals"],
+      [4, "Anomalies"],
+      [4, "Changelogs (1)"],
+      [4, "Worklogs (1)"],
+      [4, "Raw payload"],
+    ]);
+    for (const name of ["Work item", "Status intervals", "Field intervals"]) {
+      expect(screen.getByRole("table", { name })).toBeInTheDocument();
+    }
     expect(screen.getByText("In Progress (In progress)")).toBeInTheDocument();
     expect(screen.getByText("To Do")).toBeInTheDocument();
     expect(screen.getByText("Ann")).toBeInTheDocument();

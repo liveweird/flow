@@ -89,7 +89,10 @@ inventing new ones.
   forms. The one spinner is `components/LoadingBlock.tsx` (`TableLoadingRow` wraps it);
   `components/EditPageLoadState.tsx` is the edit pages' shared load-failure triage (centered
   loader, else a back-to-list alert); `EmptyState` takes the Tabler icon COMPONENT and sizes it
-  itself.
+  itself. **One heading outline everywhere**: the `PageHeader` title is the h2, a page's cards/sections are h3
+  (`<Title order={3} size="h4">` keeps the look), their inner blocks h4; and every `Table` has an accessible
+  name (`aria-label` — the words of the heading above it, or a `<area>.tableAria` key). Page tests pin the
+  outline with `test/headings.ts`'s `headingOutline()`.
 
 ## The typed API layer (`src/api/`)
 
@@ -170,7 +173,8 @@ scratch, use `npm install --legacy-peer-deps`.
   "Failed to fetch") — map statuses to i18n keys via the shared mappers in `utils/saveError.ts`:
   `saveErrorMessage(err, t, keys)` for mutations (per-status keys + a `failed` fallback) and
   `loadErrorMessage(err, t)` for list loads. Errors render inline as `color="red" variant="light"`
-  Alerts — never as toasts.
+  Alerts — never as toasts. A failed QUERY renders through `components/ErrorAlert.tsx`
+  (`error`, optional `title`), never an inline `<Alert>{loadErrorMessage(…)}</Alert>`.
 - The `@mantine/notifications` host is mounted in `main.tsx` (top-center, autoClose 2500, limit 3
   — deliberately not in App, so unit tests never mount it). **Success toasts only, with fixed
   vocabulary only** (`showSuccessToast(t("<area>.toast.*"))` in `utils/toast.tsx` — teal, never
@@ -428,7 +432,7 @@ team membership landed in M2 commit 5, and the per-connection `metrics-config` p
 The v0.3.0 report pages (`.claude/docs/reports.md` is the API; every report is any-authenticated,
 D12 — routes sit under `RequireAuth`, never `RequireAdmin`). Fifteen pages carry the sixteen reports
 (report 13, the backlog in sprints, rides the Estimated backlog page): the shell (Reports nav
-section, `ReportTabs`), the filter bar, the shared blocks and the three tab groups — Delivery
+section, `ReportTabs` — real router links with `role="tab"`, so middle-click opens a report in a new tab), the filter bar, the shared blocks and the three tab groups — Delivery
 (Velocity, Throughput, Sprint consistency, Cycle time; `DELIVERY_TABS`), Estimation (Task accuracy,
 Epic accuracy, Adjustments, Reported time; `ESTIMATION_TABS`) and Flow metrics (WIP, Estimated
 backlog, Aging WIP, Blocked time, Epic progress; `FLOW_TABS`) — plus the Data quality and Cost
@@ -448,7 +452,7 @@ completed · the report's figures · the orange drift badge with the frozen figu
   key). Params this module does not own survive `applyReportFilter`; switching report tabs
   (`reportHref`) drops the report-specific params (`domainView`, `domain`, `activityType`,
   `workCategory`, `breakdown`, `bucket`) the target report has no control for, so a filter the user
-  cannot see or clear never follows them (`REPORT_SPECIFIC_PARAMS` in `utils/reportLinks.ts`; `epicId` is one of them, kept only by epic progress). Presets are stored as
+  cannot see or clear never follows them (`REPORT_SPECIFIC_PARAMS` in `utils/reportLinks.ts`; `epicId` is one of them, kept only by epic progress; a page's normalizer drops the rest through `dropReportSpecific(filter, reportSpecificKeep(path))`, so the table stays the one source). A team id the reference data no longer lists prints `#<id>` through `teamLabel` (`utils/reportFormat.ts`). Presets are stored as
   absolute `from`/`to` dates (calendar days in the configured zone) and recognised again by
   `activePeriodChoice`. **The last team is remembered** (`useStoredState`, `reports.teamId`): a report
   opened with NO filter params at all (a bare nav click) starts on it and the URL is rewritten
@@ -661,7 +665,7 @@ are English (THE default and fallback everywhere) and Polish. All user-facing st
   `tsc`/`npm run build`. Fields holding a key are typed `ParseKeys` (from `i18next`), never
   `string` (the `NavLeaf` `label` pattern in `utils/navigation.ts`); functions taking a translator
   take `TFunction`, never a hand-written `(key: string) => string`.
-- **`common.*` is the shared source**: actions, field labels, shared vocabulary. Reuse it instead
+- **`common.*` is the shared source**: actions, field labels, shared vocabulary (`common.dateFormatHint` is the date-input placeholder: `YYYY-MM-DD` in EN, `RRRR-MM-DD` in PL). Reuse it instead
   of duplicating; build Mantine `Select` option labels from `t()` at render so they translate.
 - **Keep key parity vs EN for every shipped language** — a shipped bundle is all-or-nothing: every
   English key must exist in each `locales/<lang>/` (language-specific plural variants are

@@ -1,6 +1,7 @@
 import type { DataQualitySnapshotDrift, ReportFilters } from "../api/reports";
-import type { ReportFilterState } from "./reportFilter";
-import { formatMd, formatSignedMd } from "./reportFormat";
+import { dropReportSpecific, type ReportFilterState } from "./reportFilter";
+import { dataQualityPath, reportSpecificKeep } from "./reportLinks";
+import { formatMd, formatSignedMd, teamLabel } from "./reportFormat";
 
 /**
  * Makes a filter the data quality report can answer, and says what its page can show. The report
@@ -9,11 +10,7 @@ import { formatMd, formatSignedMd } from "./reportFormat";
  * the other reports' own `bucket`, `by`, `itemKind`, `epicId`) are dropped off the request AND the URL.
  */
 export function normalizeDataQualityFilter(filter: ReportFilterState): ReportFilterState {
-  const next = { ...filter };
-  for (const key of ["activityType", "workCategory", "breakdown", "bucket", "by", "itemKind", "epicId"] as const) {
-    delete next[key];
-  }
-  return next;
+  return dropReportSpecific(filter, reportSpecificKeep(dataQualityPath));
 }
 
 /** The DOM id of a finding's card (`dq-<card>`): the overview tiles link and move focus to it. */
@@ -32,7 +29,7 @@ export function connectionName(filters: ReportFilters, connectionId: number): st
 /** A team's name from the reference data; the given text for the unassigned bucket (`null`), its id when it is no longer listed. */
 export function teamName(filters: ReportFilters, teamId: number | null, unassigned: string): string {
   if (teamId === null) return unassigned;
-  return filters.teams.find((team) => team.id === teamId)?.name ?? `#${teamId}`;
+  return teamLabel(teamId, filters.teams);
 }
 
 type DriftField = DataQualitySnapshotDrift["field"];

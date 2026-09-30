@@ -3,7 +3,8 @@ import { useTranslation } from "react-i18next";
 import { Badge, Group, Table, Text } from "@mantine/core";
 import type { ReportFilters } from "../api/reports";
 import { formatDate } from "../utils/formatDate";
-import { sortSprints, teamNameOf, type SprintIdentity } from "../utils/reportSprints";
+import { teamLabel } from "../utils/reportFormat";
+import { sortSprints, type SprintIdentity } from "../utils/reportSprints";
 
 export interface SprintColumn<S> {
   key: string;
@@ -34,7 +35,7 @@ export default function ReportSprintsTable<S extends SprintIdentity & { drift: b
   const { t } = useTranslation();
   return (
     <Table.ScrollContainer minWidth={minWidth}>
-      <Table>
+      <Table aria-label={t("reports.sprints.tableAria")}>
         <Table.Thead>
           <Table.Tr>
             <Table.Th>{t("reports.sprints.sprint")}</Table.Th>
@@ -54,7 +55,7 @@ export default function ReportSprintsTable<S extends SprintIdentity & { drift: b
             return (
               <Table.Tr key={`${sprint.teamId}:${sprint.sprintId}`}>
                 <Table.Td>{sprint.name}</Table.Td>
-                <Table.Td>{teamNameOf(filters, sprint.teamId)}</Table.Td>
+                <Table.Td>{teamLabel(sprint.teamId, filters.teams)}</Table.Td>
                 <Table.Td>{formatDate(sprint.completedAt, t("reports.sprints.open"), filters.timeZone)}</Table.Td>
                 {columns.map((column) => (
                   <Table.Td key={column.key} ta="right">

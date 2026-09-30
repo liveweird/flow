@@ -18,6 +18,7 @@ import {
 import { dataSourcesPath } from "./dataSourceLinks";
 import { costMatrixPath, dataQualityPath, DELIVERY_TABS, ESTIMATION_TABS, FLOW_TABS, taskAccuracyPath, velocityPath, wipPath } from "./reportLinks";
 import { teamsPath } from "./teamLinks";
+import { usersPath } from "./userLinks";
 
 export type NavLeaf = {
   to: string;
@@ -87,7 +88,7 @@ const NAV_SECTIONS: ReadonlyArray<NavSection> = [
     label: "appShell.section.administration",
     items: [
       { to: teamsPath, label: "appShell.nav.teams", icon: IconUsersGroup },
-      { to: "/users", label: "appShell.nav.users", icon: IconUsers, adminOnly: true },
+      { to: usersPath, label: "appShell.nav.users", icon: IconUsers, adminOnly: true },
       { to: "/feature-flags", label: "appShell.nav.featureFlags", icon: IconToggleLeft, adminOnly: true },
       { to: dataSourcesPath, label: "appShell.nav.dataSources", icon: IconPlugConnected, adminOnly: true },
       { to: "/metrics-settings", label: "appShell.nav.metricsSettings", icon: IconAdjustments, adminOnly: true },

@@ -12,6 +12,7 @@ import { showSuccessToast } from "../utils/toast";
 import { loadErrorMessage, saveErrorMessage } from "../utils/saveError";
 import PageHeader from "../components/PageHeader";
 import { FORM_MAX_WIDTH } from "../utils/layout";
+import { usersPath } from "../utils/userLinks";
 
 /**
  * The per-user feature-flags editor (Lettuce's, ported): one switch per feature
@@ -47,7 +48,7 @@ export default function UserFeatures() {
           FEATURES.map((f) => [f, overrides[f] ?? !(data.disabledFeatures ?? []).includes(f)]),
         ) as Record<Feature, boolean>);
 
-  if (!idIsValid) return <Navigate to="/users" replace />;
+  if (!idIsValid) return <Navigate to={usersPath} replace />;
 
   async function onSave() {
     if (enabled == null) return;
@@ -58,7 +59,7 @@ export default function UserFeatures() {
       await queryClient.invalidateQueries({ queryKey: ["users"] });
       await queryClient.invalidateQueries({ queryKey: ["user", id] });
       showSuccessToast(t("users.toast.featuresSaved"));
-      navigate("/users", { replace: true });
+      navigate(usersPath, { replace: true });
     } catch (err) {
       setError(
         saveErrorMessage(err, t, {
@@ -76,14 +77,14 @@ export default function UserFeatures() {
 
   return (
     <Stack gap="md">
-      <PageHeader title={t("users.featuresTitle")} backTo={{ to: "/users", label: t("users.title") }} />
+      <PageHeader title={t("users.featuresTitle")} backTo={{ to: usersPath, label: t("users.title") }} />
       <Paper withBorder p="xl" maw={FORM_MAX_WIDTH}>
         <Stack>
           {isLoading || isError || enabled == null ? (
             <EditPageLoadState
               isLoading={isLoading || (!isError && enabled == null)}
               message={notFound ? t("users.userNotFound") : loadErrorMessage(fetchError, t)}
-              backTo="/users"
+              backTo={usersPath}
               backLabel={t("users.backToUsers")}
             />
           ) : (
@@ -111,7 +112,7 @@ export default function UserFeatures() {
                 </Alert>
               )}
               <Group justify="flex-end" gap="sm">
-                <Button component={RouterLink} to="/users" variant="default">
+                <Button component={RouterLink} to={usersPath} variant="default">
                   {t("common.action.cancel")}
                 </Button>
                 <Button onClick={onSave} loading={submitting}>

@@ -125,6 +125,16 @@ describe("ReportBacklog page", () => {
     expect(calls(mockFetch)).toEqual([`${URL_PREFIX}teamId=1`]);
   });
 
+  test("a pasted link with an activity type or work category is read without them — off the request and off the URL", async () => {
+    serve(mockFetch);
+    renderPage("/reports/backlog?teamId=1&activityType=Bug&workCategory=Run");
+    await screen.findByTestId("area-chart");
+    await waitFor(() => expect(search().has("activityType")).toBe(false));
+    expect(search().has("workCategory")).toBe(false);
+    expect(search().get("teamId")).toBe("1");
+    expect(calls(mockFetch)).toEqual([`${URL_PREFIX}teamId=1`]);
+  });
+
   test("fewer closed sprints than the window: the figure is shown, with the caveat and the singular", async () => {
     serve(mockFetch, BACKLOG_PARTIAL_WINDOW);
     renderPage();

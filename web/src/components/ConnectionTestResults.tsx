@@ -24,7 +24,7 @@ export default function ConnectionTestResults({ result }: { result: ConnectionTe
   const { t } = useTranslation();
   return (
     <Stack gap="xs">
-      <Table>
+      <Table aria-label={t("dataSources.test.tableAria")}>
         <Table.Thead>
           <Table.Tr>
             <Table.Th>{t("dataSources.test.column.endpoint")}</Table.Th>

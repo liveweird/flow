@@ -4,6 +4,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import { Route, Routes } from "react-router-dom";
 import DataSourceDetails from "./DataSourceDetails";
 import { jsonResponse } from "../test/http";
+import { headingOutline } from "../test/headings";
 import { renderWithProviders } from "../test/render";
 import { showSuccessToast } from "../utils/toast";
 
@@ -133,6 +134,24 @@ describe("DataSourceDetails page", () => {
     expect(screen.getByText("42")).toBeInTheDocument();
     expect(screen.getByText("issues")).toBeInTheDocument();
     expect(screen.getByText("10")).toBeInTheDocument();
+  });
+
+  test("headings descend h2 (page) -> h3 (cards) and every table is named", async () => {
+    serve(mockFetch);
+    renderPage();
+
+    await screen.findByRole("heading", { level: 2, name: "Acme Jira" });
+    expect(headingOutline()).toEqual([
+      [2, "Acme Jira"],
+      [3, "Connection"],
+      [3, "Current job"],
+      [3, "Cursors"],
+      [3, "Raw store counts"],
+      [3, "Sync jobs"],
+    ]);
+    for (const name of ["Connection", "Current job", "Job progress counters", "Cursors", "Raw store counts", "Sync jobs"]) {
+      expect(await screen.findByRole("table", { name })).toBeInTheDocument();
+    }
   });
 
   test("a data source not found by id shows the not-found message with a way back", async () => {

@@ -19,9 +19,11 @@ import { FEATURES, type Feature } from "../api/session";
 import { useAdmin } from "../auth";
 import { listUsers, updateUserFeatures, type UserPage } from "../api/users";
 import { showSuccessToast } from "../utils/toast";
-import { loadErrorMessage, saveErrorMessage } from "../utils/saveError";
+import { saveErrorMessage } from "../utils/saveError";
 import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
+import { userFeaturesPath } from "../utils/userLinks";
 import PageHeader from "../components/PageHeader";
+import ErrorAlert from "../components/ErrorAlert";
 
 const SORT_FIELDS = ["id", "name", "email"] as const;
 type SortField = (typeof SORT_FIELDS)[number];
@@ -235,11 +237,7 @@ export default function FeatureFlags() {
         />
       </FilterPanel>
 
-      {isError && (
-        <Alert color="red" variant="light" title={t("users.loadFailed")}>
-          {loadErrorMessage(loadError, t)}
-        </Alert>
-      )}
+      {isError && <ErrorAlert error={loadError} title={t("users.loadFailed")} />}
       {error && (
         <Alert color="red" variant="light">
           {error}
@@ -268,7 +266,7 @@ export default function FeatureFlags() {
         </Alert>
       )}
 
-      <Table>
+      <Table aria-label={t("users.featureFlags.title")}>
         <Table.Thead>
           <Table.Tr>
             <SortHeader
@@ -302,7 +300,7 @@ export default function FeatureFlags() {
                       same rows). */}
                   <Anchor
                     component={RouterLink}
-                    to={`/users/${u.id}/features`}
+                    to={userFeaturesPath(u.id)}
                     size="sm"
                     fw={500}
                     aria-label={t("users.featuresAria", { name: u.name })}

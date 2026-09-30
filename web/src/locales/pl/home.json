@@ -1,8 +1,8 @@
 {
   "title": "Flow",
   "intro": "Cała jednostka w jednym rzucie oka — wszystkie zespoły razem, z ostatniego, stałego okresu (nie z zapamiętanego zespołu). Każdy kafelek otwiera pełny raport, w którym filtrujesz po zespole, osobie i okresie.",
-  "empty": "Nie wyliczono jeszcze żadnych danych. Przegląd pojawi się, gdy źródło danych zostanie podłączone i zsynchronizowane.",
-  "emptyAdmin": "Nie wyliczono jeszcze żadnych danych. Podłącz źródło danych, poczekaj na synchronizację i sprawdź ustawienia metryk.",
+  "empty": "Nie wyliczyliśmy jeszcze żadnych danych. Przegląd pojawi się, gdy podłączymy źródło danych i je zsynchronizujemy.",
+  "emptyAdmin": "Nie wyliczyliśmy jeszcze żadnych danych. Podłącz źródło danych, poczekaj na synchronizację i sprawdź ustawienia metryk.",
   "emptyAdminLink": "Dodaj źródło danych",
   "emptyAdminSettingsLink": "Ustawienia metryk",
   "tilesLabel": "Przegląd jednostki",

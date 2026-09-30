@@ -1,5 +1,10 @@
 import type { Distribution } from "../api/reports";
 
+/** A team's name from the reference data; `#<id>` when it is no longer listed (a deleted team still owns history). */
+export function teamLabel(teamId: number, teams: ReadonlyArray<{ id: number; name: string }>): string {
+  return teams.find((team) => team.id === teamId)?.name ?? `#${teamId}`;
+}
+
 /** Man-days with at most two decimals and no trailing zeros ("12.5", "8", "0.33"). */
 export function formatMd(value: number): string {
   return String(Math.round(value * 100) / 100);

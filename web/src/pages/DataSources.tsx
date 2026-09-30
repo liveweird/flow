@@ -116,6 +116,7 @@ export default function DataSources() {
       )}
 
       <RegistryListTable
+        label={t("dataSources.title")}
         errorTitle={t("dataSources.loadFailed")}
         error={error}
         isError={isError}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SUPPORTED_LANGUAGES } from "../i18n";
+import i18n, { SUPPORTED_LANGUAGES } from "../i18n";
 
 // Guards translation parity for EVERY shipped language against the canonical EN tree, so
 // languages can't silently drift. A shipped locale bundle is all-or-nothing — partialness
@@ -104,6 +104,33 @@ describe("locale parity vs EN", () => {
       }
     }
     expect(mismatches, "placeholder token mismatches").toEqual([]);
+  });
+
+  it("Polish plural families carry all four CLDR forms (one/few/many/other)", () => {
+    const incomplete: string[] = [];
+    for (const [area, json] of BY_LANGUAGE.get("pl") ?? []) {
+      const families = new Map<string, Set<string>>();
+      for (const key of Object.keys(flatten(json))) {
+        const suffix = PLURAL_SUFFIX.exec(key)?.[1];
+        if (suffix === undefined) continue;
+        const forms = families.get(base(key)) ?? new Set<string>();
+        forms.add(suffix);
+        families.set(base(key), forms);
+      }
+      for (const [family, forms] of families) {
+        const missing = ["one", "few", "many", "other"].filter((form) => !forms.has(form));
+        if (missing.length > 0) incomplete.push(`pl/${area}:${family} lacks ${missing.join(",")}`);
+      }
+    }
+    expect(incomplete, "Polish plural families with missing forms").toEqual([]);
+  });
+
+  it("the Polish excluded-list opener agrees with its count", () => {
+    const t = i18n.getFixedT("pl");
+    expect(t("reports.excluded.population", { count: 1 })).toBe("Z 1 zakończonej pozycji w tym okresie:");
+    expect(t("reports.excluded.population", { count: 3 })).toBe("Z 3 zakończonych pozycji w tym okresie:");
+    expect(t("reports.excluded.population", { count: 12 })).toBe("Z 12 zakończonych pozycji w tym okresie:");
+    expect(i18n.getFixedT("en")("reports.excluded.population", { count: 3 })).toBe("Of 3 finished in this period:");
   });
 
   it.each([...SUPPORTED_LANGUAGES])("%s — no empty string values in any area", (lang) => {

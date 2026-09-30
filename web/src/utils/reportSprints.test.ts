@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { FILTERS } from "../test/reportFixtures";
-import { labelledSprints, sortSprints, teamNameOf } from "./reportSprints";
+import { labelledSprints, sortSprints } from "./reportSprints";
 
 const sprint = (over: Partial<Parameters<typeof sortSprints>[0][number]> & { name?: string; teamId?: number }) => ({
   sprintId: 1,
@@ -26,9 +26,5 @@ describe("reportSprints", () => {
         (l) => l.label,
       ),
     ).toEqual(["Alpha · A", "Beta · B"]);
-  });
-
-  test("an unknown team renders as its id", () => {
-    expect(teamNameOf(FILTERS, 77)).toBe("#77");
   });
 });
