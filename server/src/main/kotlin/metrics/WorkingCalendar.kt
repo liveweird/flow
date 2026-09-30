@@ -9,7 +9,7 @@ import java.time.ZonedDateTime
  * The working calendar (v0.3.0 M3 commit 7, `.claude/docs/domain-model.md` "Working days =
  * fractional calendar working days"): pure, no DB, no Jira shapes — [zoneId]/[weekendDays]
  * (ISO-8601 weekday numbers, 1=Monday..7=Sunday)/[holidays] (ISO dates) come straight off
- * `metrics.settings` (`MetricsConfigService`). Every day boundary is computed via [ZonedDateTime]
+ * `metrics.settings` (`MetricsSettingsService`). Every day boundary is computed via [ZonedDateTime]
  * rather than `24 * 60 * 60 * 1000` arithmetic, so a DST transition day's actual length (23h or 25h
  * in `Europe/Warsaw`) is reflected correctly rather than assumed to be exactly 24 hours.
  */

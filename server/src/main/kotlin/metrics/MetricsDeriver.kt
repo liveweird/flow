@@ -68,7 +68,9 @@ internal const val ISSUE_KEY_FIELD_ID = "issuekey"
  */
 class MetricsDeriver(
     private val workItemStore: WorkItemStore,
+    private val metricsSettings: MetricsSettingsService,
     private val metricsConfig: MetricsConfigService,
+    private val domainOwners: DomainOwnerResolver,
     private val teamMembership: TeamMembershipService,
     private val metricsStore: MetricsStore,
     private val database: R2dbcDatabase,
@@ -92,7 +94,7 @@ class MetricsDeriver(
         val jobId = context.claim.id
         val now = context.clock()
         val (settings, config) = suspendTransaction(database) {
-            metricsConfig.read() to metricsConfig.effectiveConfig(connectionId)
+            metricsSettings.read() to metricsConfig.effectiveConfig(connectionId)
         }
         val calendar = WorkingCalendar.of(settings)
 
@@ -346,7 +348,7 @@ class MetricsDeriver(
     /**
      * A19/A22 (`.claude/docs/domain-model.md` "Amendments", `.claude/docs/metrics.md`): each
      * configured DOMAIN's (not project's — several project rows may share one `domainKey`) owner
-     * team, resolved via the ONE shared implementation, `MetricsConfigService
+     * team, resolved via the ONE shared implementation, `DomainOwnerResolver
      * .resolveOwnerTeamByDomain` (moved there in v0.3.0 M3 commit 9e so the metrics-config GET's
      * own owner-default filling never duplicates this algorithm) — see that function's own doc for
      * the agreement/fallback rules. [configuredOwners] is read UNFILTERED by team activity: a
@@ -359,11 +361,11 @@ class MetricsDeriver(
         boardTeamByBoardId: Map<Long, UInt>,
         activeTeamIds: Set<UInt>,
     ): Map<String, UInt> {
-        val configuredOwners = metricsConfig.domainOwnerTeamIds(connectionId)
+        val configuredOwners = domainOwners.domainOwnerTeamIds(connectionId)
         val boardsByProject = workItemStore.allBoardRefs(connectionId).filter { it.projectKey != null }
             .groupBy({ it.projectKey!! }, { it.boardId })
         val projectKeysByDomain = config.domains.groupBy({ it.domainKey }, { it.projectKey })
-        return metricsConfig.resolveOwnerTeamByDomain(
+        return domainOwners.resolveOwnerTeamByDomain(
             projectKeysByDomain, configuredOwners, boardsByProject, boardTeamByBoardId, activeTeamIds,
         )
     }

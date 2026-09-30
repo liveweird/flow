@@ -5,8 +5,8 @@ import ch.nokillswit.infra.db.R2dbcDatabaseKey
 import ch.nokillswit.infra.db.nowMillis
 import ch.nokillswit.infra.paging.optionalEnum
 import ch.nokillswit.infra.paging.optionalString
-import ch.nokillswit.metrics.MetricsConfigService
-import ch.nokillswit.metrics.MetricsConfigServiceKey
+import ch.nokillswit.metrics.MetricsSettingsService
+import ch.nokillswit.metrics.MetricsSettingsServiceKey
 import ch.nokillswit.metrics.TeamMembershipServiceKey
 import ch.nokillswit.metrics.WorkingCalendar
 import ch.nokillswit.plugins.servesApi
@@ -94,7 +94,7 @@ val ReportServiceKey = AttributeKey<ReportService>("ReportService")
  * package composes services `configureDatabase`/`configureJira`/`configureMetrics` already
  * published, so it constructs and publishes [ReportService] here — inside its own
  * `configureReportRoutes()` — rather than in `infra/db/Database.kt` itself, which runs BEFORE
- * `configureMetrics` and so cannot see [MetricsConfigServiceKey]/[TeamMembershipServiceKey] yet.
+ * `configureMetrics` and so cannot see [MetricsSettingsServiceKey]/[TeamMembershipServiceKey] yet.
  * Registered in `application.yaml` after `configureMetrics`/the ingest route modules (the
  * "— features" group), alongside `MetricsConfigRoutes.kt`/`TeamMembershipRoutes.kt`/
  * `JiraUsersRoutes.kt`.
@@ -107,9 +107,9 @@ fun Application.configureReportRoutes() {
     if (!servesApi()) return
 
     val database = attributes[R2dbcDatabaseKey]
-    val metricsConfig = attributes[MetricsConfigServiceKey]
+    val metricsSettings = attributes[MetricsSettingsServiceKey]
     val teamMembership = attributes[TeamMembershipServiceKey]
-    val reportService = ReportService(database, metricsConfig, teamMembership)
+    val reportService = ReportService(database, metricsSettings, teamMembership)
     attributes.put(ReportServiceKey, reportService)
 
     routing {
@@ -123,9 +123,9 @@ fun Application.configureReportRoutes() {
                 call.caller()
                 call.respond(HttpStatusCode.OK, reportService.filters(nowMillis()))
             }
-            deliveryRoutes(reportService, metricsConfig)
-            flowRoutes(reportService, metricsConfig)
-            qualityEpicAndCostRoutes(reportService, metricsConfig)
+            deliveryRoutes(reportService, metricsSettings)
+            flowRoutes(reportService, metricsSettings)
+            qualityEpicAndCostRoutes(reportService, metricsSettings)
         }
     }
 }
@@ -137,13 +137,13 @@ fun Application.configureReportRoutes() {
  * `400`s keep their order) and the request's `now`.
  */
 private inline fun <reified R : Any> Route.reportGet(
-    metricsConfig: MetricsConfigService,
+    metricsSettings: MetricsSettingsService,
     defaultView: DomainView,
     crossinline respond: suspend (filter: ReportFilter, params: Parameters, nowMs: Long) -> Any,
 ) {
     get<R> {
         call.caller()
-        val calendar = reportsWorkingCalendar(metricsConfig)
+        val calendar = reportsWorkingCalendar(metricsSettings)
         val nowMs = nowMillis()
         val params = call.request.queryParameters
         val filter = params.parseReportFilter(calendar, nowMs, defaultView)
@@ -152,66 +152,66 @@ private inline fun <reified R : Any> Route.reportGet(
 }
 
 /** The sprint, estimation, cycle-time and reported-time reports (1–8), in report order. */
-private fun Route.deliveryRoutes(reportService: ReportService, metricsConfig: MetricsConfigService) {
+private fun Route.deliveryRoutes(reportService: ReportService, metricsSettings: MetricsSettingsService) {
     // Velocity (report 1) carries no domain slice (measures.md's Report 1 rows: domain "—"), so the TASK/EPIC default is a
     // harmless placeholder — every response still echoes it in `meta`.
-    reportGet<ReportVelocityRoute>(metricsConfig, DomainView.TASK) { filter, _, _ -> reportService.velocity(filter) }
+    reportGet<ReportVelocityRoute>(metricsSettings, DomainView.TASK) { filter, _, _ -> reportService.velocity(filter) }
     // Throughput's (report 2) period view honours domain/activityType/workCategory and defaults to the TASK domain view
     // (D3: delivery/flow measures stay with the task's own domain).
-    reportGet<ReportThroughputRoute>(metricsConfig, DomainView.TASK) { filter, params, nowMs ->
+    reportGet<ReportThroughputRoute>(metricsSettings, DomainView.TASK) { filter, params, nowMs ->
         reportService.throughput(filter, params.optionalEnum<ThroughputBucket>("bucket") ?: ThroughputBucket.WEEK, nowMs)
     }
     // Estimation accuracy (reports 3, 4) and adjustments (report 5). Tasks default to the TASK domain view (D3); epic
     // accuracy is PV/EV/AC-shaped (plan §7) so it defaults to EPIC — which for an epic is always its own space either way,
     // the view is only echoed in `meta`.
-    reportGet<ReportTaskEstimationAccuracyRoute>(metricsConfig, DomainView.TASK) { filter, _, nowMs ->
+    reportGet<ReportTaskEstimationAccuracyRoute>(metricsSettings, DomainView.TASK) { filter, _, nowMs ->
         reportService.taskEstimationAccuracy(filter, nowMs)
     }
-    reportGet<ReportEpicEstimationAccuracyRoute>(metricsConfig, DomainView.EPIC) { filter, _, nowMs ->
+    reportGet<ReportEpicEstimationAccuracyRoute>(metricsSettings, DomainView.EPIC) { filter, _, nowMs ->
         reportService.epicEstimationAccuracy(filter, nowMs)
     }
-    reportGet<ReportEstimateAdjustmentsRoute>(metricsConfig, DomainView.TASK) { filter, _, nowMs ->
+    reportGet<ReportEstimateAdjustmentsRoute>(metricsSettings, DomainView.TASK) { filter, _, nowMs ->
         reportService.estimateAdjustments(filter, nowMs)
     }
     // Sprint consistency (reports 6.1-6.3) is sprint-scoped like velocity: no domain slice, so the TASK/EPIC default is a
     // harmless placeholder echoed in `meta`.
-    reportGet<ReportSprintConsistencyRoute>(metricsConfig, DomainView.TASK) { filter, _, _ -> reportService.sprintConsistency(filter) }
+    reportGet<ReportSprintConsistencyRoute>(metricsSettings, DomainView.TASK) { filter, _, _ -> reportService.sprintConsistency(filter) }
     // Cycle time (report 7) and reported ÷ cycle (report 8): delivery/flow measures, so the task's own domain (D3).
-    reportGet<ReportCycleTimeRoute>(metricsConfig, DomainView.TASK) { filter, params, nowMs ->
+    reportGet<ReportCycleTimeRoute>(metricsSettings, DomainView.TASK) { filter, params, nowMs ->
         reportService.cycleTime(filter, params.optionalEnum<ThroughputBucket>("bucket") ?: ThroughputBucket.WEEK, nowMs)
     }
-    reportGet<ReportReportedTimeRatioRoute>(metricsConfig, DomainView.TASK) { filter, _, nowMs ->
+    reportGet<ReportReportedTimeRatioRoute>(metricsSettings, DomainView.TASK) { filter, _, nowMs ->
         reportService.reportedTimeRatio(filter, nowMs)
     }
 }
 
 /** The flow batch (reports 9–12). */
-private fun Route.flowRoutes(reportService: ReportService, metricsConfig: MetricsConfigService) {
+private fun Route.flowRoutes(reportService: ReportService, metricsSettings: MetricsSettingsService) {
     // WIP (report 9) and the estimated backlog (reports 10 + 13) read the daily aggregates: delivery/flow
     // measures, so the task's own domain (D3) — the aggregates carry no activity-type/work-category slice.
-    reportGet<ReportWipRoute>(metricsConfig, DomainView.TASK) { filter, params, nowMs ->
+    reportGet<ReportWipRoute>(metricsSettings, DomainView.TASK) { filter, params, nowMs ->
         val by = params.optionalEnum<WipBy>("by") ?: WipBy.STAGE
         val itemKind = params.optionalEnum<WipItemKind>("itemKind") ?: WipItemKind.TASK
         reportService.wip(filter, by, itemKind, nowMs)
     }
-    reportGet<ReportBacklogRoute>(metricsConfig, DomainView.TASK) { filter, _, nowMs -> reportService.backlog(filter, nowMs) }
+    reportGet<ReportBacklogRoute>(metricsSettings, DomainView.TASK) { filter, _, nowMs -> reportService.backlog(filter, nowMs) }
     // Aging WIP (report 11) is "as of now" (the period is ignored); blocked time (report 12) is a delivery/flow
     // measure over DONE items, so the task's own domain (D3). Tasks and epics are different grains: the blocked-time
     // `itemKind` defaults to TASK.
-    reportGet<ReportAgingWipRoute>(metricsConfig, DomainView.TASK) { filter, _, nowMs -> reportService.agingWip(filter, nowMs) }
-    reportGet<ReportBlockedTimeRoute>(metricsConfig, DomainView.TASK) { filter, params, nowMs ->
+    reportGet<ReportAgingWipRoute>(metricsSettings, DomainView.TASK) { filter, _, nowMs -> reportService.agingWip(filter, nowMs) }
+    reportGet<ReportBlockedTimeRoute>(metricsSettings, DomainView.TASK) { filter, params, nowMs ->
         reportService.blockedTime(filter, params.optionalEnum<BlockedItemKind>("itemKind") ?: BlockedItemKind.TASK, nowMs)
     }
 }
 
 /** Data quality, epic progress and the cost matrix (reports 14–16). */
-private fun Route.qualityEpicAndCostRoutes(reportService: ReportService, metricsConfig: MetricsConfigService) {
+private fun Route.qualityEpicAndCostRoutes(reportService: ReportService, metricsSettings: MetricsSettingsService) {
     // Data quality (report 14): findings about tasks follow the task's own domain (D3), so TASK is the default view; the period
     // is the tasks' `done_at` and the worklogs' `started_at`, and open started tasks and open epics are listed whatever the period.
-    reportGet<ReportDataQualityRoute>(metricsConfig, DomainView.TASK) { filter, _, nowMs -> reportService.dataQuality(filter, nowMs) }
+    reportGet<ReportDataQualityRoute>(metricsSettings, DomainView.TASK) { filter, _, nowMs -> reportService.dataQuality(filter, nowMs) }
     // Epic progress / EVM (report 15) is PV/EV/AC-shaped, so it defaults to (and only accepts) the EPIC domain view (D3);
     // `epicId` — an epic's issue key — is its own parameter, outside the shared filter.
-    reportGet<ReportEpicProgressRoute>(metricsConfig, DomainView.EPIC) { filter, params, nowMs ->
+    reportGet<ReportEpicProgressRoute>(metricsSettings, DomainView.EPIC) { filter, params, nowMs ->
         val epicId = params.optionalString("epicId")
         // A present-but-blank epicId is a mistake, not "no epic": it must not silently answer for the whole unit.
         if (epicId == null && params.contains("epicId")) throw BadRequestException("epicId must not be blank")
@@ -219,7 +219,7 @@ private fun Route.qualityEpicAndCostRoutes(reportService: ReportService, metrics
     }
     // The cost matrix (report 16) is a worklog-cost measure — PV/EV/AC-shaped, so it defaults to the EPIC domain view (D3); an
     // explicit `domainView=TASK` switches the columns to the task's own domain.
-    reportGet<ReportCostMatrixRoute>(metricsConfig, DomainView.EPIC) { filter, _, nowMs -> reportService.costMatrix(filter, nowMs) }
+    reportGet<ReportCostMatrixRoute>(metricsSettings, DomainView.EPIC) { filter, _, nowMs -> reportService.costMatrix(filter, nowMs) }
 }
 
 /**
@@ -228,5 +228,5 @@ private fun Route.qualityEpicAndCostRoutes(reportService: ReportService, metrics
  * dates into UTC-millis bounds ([parseReportFilter]'s own doc comment), so this is the ONE place
  * every later report's route reuses rather than re-deriving the calendar itself.
  */
-private suspend fun reportsWorkingCalendar(metricsConfig: MetricsConfigService): WorkingCalendar =
-    WorkingCalendar.of(metricsConfig.read())
+private suspend fun reportsWorkingCalendar(metricsSettings: MetricsSettingsService): WorkingCalendar =
+    WorkingCalendar.of(metricsSettings.read())

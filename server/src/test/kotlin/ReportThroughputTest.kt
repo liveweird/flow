@@ -1,7 +1,7 @@
 package ch.nokillswit
 
 import ch.nokillswit.metrics.FactTaskDeliveryRow
-import ch.nokillswit.metrics.MetricsConfigService
+import ch.nokillswit.metrics.MetricsSettingsService
 import ch.nokillswit.metrics.MetricsStore
 import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.reports.ThroughputReport
@@ -69,7 +69,7 @@ private fun List<DoneTask>.mdSum(): Double = fold(BigDecimal.ZERO) { acc, task -
 class ReportThroughputTest {
 
     private suspend fun zone(): ZoneId = suspendTransaction(sharedDatabaseForTests()) {
-        ZoneId.of(MetricsConfigService.Settings.selectAll().toList().single()[MetricsConfigService.Settings.timeZone])
+        ZoneId.of(MetricsSettingsService.Settings.selectAll().toList().single()[MetricsSettingsService.Settings.timeZone])
     }
 
     private suspend fun doneTasks(connId: UInt): List<DoneTask> = suspendTransaction(sharedDatabaseForTests()) {

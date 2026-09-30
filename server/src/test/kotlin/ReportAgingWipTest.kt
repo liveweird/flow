@@ -60,8 +60,8 @@ class ReportAgingWipTest {
     )
 
     private fun service(): ReportService {
-        val config = DerivedStubFixture.metricsConfig()
-        return ReportService(sharedDatabaseForTests(), config, TeamMembershipService(sharedDatabaseForTests(), config))
+        val metricsSettings = DerivedStubFixture.metricsSettings()
+        return ReportService(sharedDatabaseForTests(), metricsSettings, TeamMembershipService(sharedDatabaseForTests(), metricsSettings))
     }
 
     @Test
@@ -115,7 +115,7 @@ class ReportAgingWipTest {
         assertTrue(body.items.all { it.issueKey.isNotBlank() && it.issueKey.any { c -> c == '-' } }, "keys come from norm.work_items")
 
         // Thresholds: the configured percentiles of the LAST N done tasks' cycle working days, from the raw rows.
-        val settings = suspendTransaction(sharedDatabaseForTests()) { DerivedStubFixture.metricsConfig().read() }
+        val settings = suspendTransaction(sharedDatabaseForTests()) { DerivedStubFixture.metricsSettings().read() }
         val done = facts.first.filter { it[t.doneAt] != null && it[t.cycleWorkingDays] != null }
             .sortedByDescending { it[t.doneAt] }.take(settings.agingWindowItems).map { it[t.cycleWorkingDays]!!.toDouble() }.sorted()
         assertEquals(done.size.toLong(), body.thresholds.n)
@@ -183,8 +183,8 @@ class ReportAgingWipTest {
             )
         }
         try {
-            val config = DerivedStubFixture.metricsConfig()
-            val body = withMetricsSettings(config, { it.copy(agingWindowItems = 5, minSampleSize = 2) }) {
+            val metricsSettings = DerivedStubFixture.metricsSettings()
+            val body = withMetricsSettings(metricsSettings, { it.copy(agingWindowItems = 5, minSampleSize = 2) }) {
                 service().agingWip(filter(connId, teamX), now)
             }
             // Keys fall back to the issue id: hand-built issues have no norm.work_items rows.
@@ -217,21 +217,21 @@ class ReportAgingWipTest {
             assertEquals(false, body.itemsTruncated)
 
             // Hidden thresholds (minimum sample size above n) leave every task without a band.
-            val hidden = withMetricsSettings(config, { it.copy(agingWindowItems = 5, minSampleSize = 6) }) {
+            val hidden = withMetricsSettings(metricsSettings, { it.copy(agingWindowItems = 5, minSampleSize = 6) }) {
                 service().agingWip(filter(connId, teamX), now)
             }
             assertTrue(hidden.thresholds.hidden && hidden.thresholds.percentiles.all { it.workingDays == null })
             assertTrue(hidden.items.all { it.band == null })
 
             // USER level narrows the listed tasks to that assignee (epics have no user) but keeps the team's thresholds.
-            val user = withMetricsSettings(config, { it.copy(agingWindowItems = 5, minSampleSize = 2) }) {
+            val user = withMetricsSettings(metricsSettings, { it.copy(agingWindowItems = 5, minSampleSize = 2) }) {
                 service().agingWip(filter(connId, teamX, "acc-1"), now)
             }
             assertEquals(listOf("11"), user.items.map { it.issueKey })
             assertEquals(5, user.thresholds.n)
             assertEquals("WITHIN", user.items.single().band)
             // UNIT level lists team Y's task too.
-            val unit = withMetricsSettings(config, { it.copy(agingWindowItems = 5, minSampleSize = 2) }) {
+            val unit = withMetricsSettings(metricsSettings, { it.copy(agingWindowItems = 5, minSampleSize = 2) }) {
                 service().agingWip(filter(connId), now)
             }
             assertTrue(unit.items.any { it.issueKey == "21" && it.teamId == teamY })

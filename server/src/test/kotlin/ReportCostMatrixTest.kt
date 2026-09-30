@@ -465,12 +465,12 @@ class ReportCostMatrixTest {
                 )
             }
             suspend fun total(day: String) = client.cost("connectionId=${f.connId}&from=$day&to=$day").totalMd
-            val config = DerivedStubFixture.metricsConfig()
-            withMetricsSettings(config, { it.copy(timeZone = "Etc/GMT-1") }) {
+            val metricsSettings = DerivedStubFixture.metricsSettings()
+            withMetricsSettings(metricsSettings, { it.copy(timeZone = "Etc/GMT-1") }) {
                 assertEquals(1.25, total("2026-01-20"), "23:30 local is still Jan 20; 00:30 local is Jan 21")
                 assertEquals(2.0, total("2026-01-21"))
             }
-            withMetricsSettings(config, { it.copy(timeZone = "UTC") }) {
+            withMetricsSettings(metricsSettings, { it.copy(timeZone = "UTC") }) {
                 assertEquals(3.25, total("2026-01-20"))
                 assertEquals(0.0, total("2026-01-21"))
             }

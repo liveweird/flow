@@ -174,8 +174,8 @@ class ReportBlockedTimeTest {
         try {
             val client = seededClient("reports-blocked-hand-built")
             val query = "connectionId=$connId&from=2026-01-01&to=2026-01-31"
-            val config = DerivedStubFixture.metricsConfig()
-            suspend fun get(q: String) = withMetricsSettings(config, { it.copy(minSampleSize = 2) }) { client.blocked(q) }
+            val metricsSettings = DerivedStubFixture.metricsSettings()
+            suspend fun get(q: String) = withMetricsSettings(metricsSettings, { it.copy(minSampleSize = 2) }) { client.blocked(q) }
 
             val body = get(query)
             assertEquals("TASK", body.itemKind.name)

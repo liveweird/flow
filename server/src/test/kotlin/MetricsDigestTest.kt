@@ -44,14 +44,14 @@ class MetricsDigestTest {
     @Test
     fun `re-deriving the same norm under the same config revision yields a byte-identical metrics digest`() = runBlocking {
         val connId = preparedClone("digest-rederive-team")
-        val config = DerivedStubFixture.metricsConfig()
+        val metricsSettings = DerivedStubFixture.metricsSettings()
 
-        val run = DerivedStubFixture.withPinnedSettings(config) {
-            DerivedStubFixture.derivePinned(connId, config, jobId = 1u)
+        val run = DerivedStubFixture.withPinnedSettings(metricsSettings) {
+            DerivedStubFixture.derivePinned(connId, jobId = 1u)
             val first = DerivedStubFixture.metricsDigest(connId, includeDimDate = true)
             val firstSnapshots = snapshotRowCount(connId)
 
-            DerivedStubFixture.derivePinned(connId, config, jobId = 2u)
+            DerivedStubFixture.derivePinned(connId, jobId = 2u)
             TwoDerives(first, firstSnapshots, DerivedStubFixture.metricsDigest(connId, includeDimDate = true), snapshotRowCount(connId))
         }
 
@@ -74,12 +74,12 @@ class MetricsDigestTest {
     @Test
     fun `REPROCESS then DERIVE reproduces the same metrics digest`() = runBlocking {
         val connId = preparedClone("digest-reprocess-team")
-        val config = DerivedStubFixture.metricsConfig()
+        val metricsSettings = DerivedStubFixture.metricsSettings()
         val store = SyncedStubFixture.rawStore()
         val items = SyncedStubFixture.workItems()
 
-        val (before, after) = DerivedStubFixture.withPinnedSettings(config) {
-            DerivedStubFixture.derivePinned(connId, config, jobId = 1u)
+        val (before, after) = DerivedStubFixture.withPinnedSettings(metricsSettings) {
+            DerivedStubFixture.derivePinned(connId, jobId = 1u)
             val digestBefore = DerivedStubFixture.metricsDigest(connId, includeDimDate = true)
 
             // The clone reproduces the shared connection's POST-process raw state (needs_processing =
@@ -88,7 +88,7 @@ class MetricsDigestTest {
             store.markAllNeedsProcessing(connId)
             JiraProcessStream(store, items).run(SyncedStubFixture.freshContext(connId))
 
-            DerivedStubFixture.derivePinned(connId, config, jobId = 2u)
+            DerivedStubFixture.derivePinned(connId, jobId = 2u)
             digestBefore to DerivedStubFixture.metricsDigest(connId, includeDimDate = true)
         }
 
@@ -102,8 +102,8 @@ class MetricsDigestTest {
     @Test
     fun `the metrics digest is sensitive - a nudged fact value or a deleted bridge row changes it`() = runBlocking {
         val connId = preparedClone("digest-sensitivity-team")
-        val config = DerivedStubFixture.metricsConfig()
-        DerivedStubFixture.withPinnedSettings(config) { DerivedStubFixture.derivePinned(connId, config, jobId = 1u) }
+        val metricsSettings = DerivedStubFixture.metricsSettings()
+        DerivedStubFixture.withPinnedSettings(metricsSettings) { DerivedStubFixture.derivePinned(connId, jobId = 1u) }
         val baseline = DerivedStubFixture.metricsDigest(connId)
 
         // A 0.0001 nudge (the column's own scale) on ONE task's fact value.

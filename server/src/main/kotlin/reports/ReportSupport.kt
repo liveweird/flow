@@ -303,7 +303,7 @@ internal data class ReportScope(
  * sprint at all), `meta` and the window. Runs inside the caller's transaction.
  */
 internal suspend fun ReportService.resolveReportScope(filter: ReportFilter, nowMs: Long): ReportScope {
-    val settings = metricsConfig.read()
+    val settings = metricsSettings.read()
     val connectionIds = resolveConnectionScope(filter.connectionId)
     val derivedAt = latestDerivedAt(connectionIds)
     val unassigned = filter.teamId == UNASSIGNED_TEAM_ID

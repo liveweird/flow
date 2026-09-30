@@ -14,7 +14,10 @@ import ch.nokillswit.ingest.SyncJobListFilter
 import ch.nokillswit.ingest.SyncJobsService
 import ch.nokillswit.ingest.defaultBackfillFrom
 import ch.nokillswit.metrics.DataSourceMetricsConfigRequest
+import ch.nokillswit.metrics.DomainOwnerResolver
+import ch.nokillswit.metrics.MetricsConfigOptions
 import ch.nokillswit.metrics.MetricsConfigService
+import ch.nokillswit.metrics.MetricsSettingsService
 import ch.nokillswit.metrics.MetricsFieldConfig
 import ch.nokillswit.metrics.MetricsStage
 import ch.nokillswit.metrics.asRequest
@@ -36,7 +39,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * `metrics/MetricsConfigService.kt`'s `defaultConfig`/`options` branches (v0.3.0 M1 commit 4
+ * `metrics/MetricsConfigService.kt`'s `defaultConfig` and `metrics/MetricsConfigOptions.kt`'s `options` branches (v0.3.0 M1 commit 4
  * review fix) — direct construction against [sharedDatabaseForTests], no `testApplication`
  * (the `IngestWorkerTest` shape): a profile with no `STORY_POINTS`-detected field, a "Target
  * start" field standing in for "Start date", the UNKNOWN-category status exclusion, and
@@ -48,8 +51,17 @@ class MetricsConfigServiceTest {
     private fun dataSources() = DataSourceService(sharedDatabaseForTests(), FieldCipher(DEV_DATA_ENCRYPTION_KEY))
     private fun workItems() = WorkItemStore(sharedDatabaseForTests())
     private fun syncJobs() = SyncJobsService(sharedDatabaseForTests(), 3)
-    private fun metricsConfig(dataSources: DataSourceService, jobs: SyncJobsService = syncJobs()) =
-        MetricsConfigService(sharedDatabaseForTests(), workItems(), dataSources, jobs)
+    private fun metricsSettings(dataSources: DataSourceService, jobs: SyncJobsService = syncJobs()) =
+        MetricsSettingsService(sharedDatabaseForTests(), dataSources, jobs)
+    private fun metricsConfig(dataSources: DataSourceService) = MetricsConfigService(
+        sharedDatabaseForTests(),
+        workItems(),
+        dataSources,
+        metricsSettings(dataSources),
+        DomainOwnerResolver(sharedDatabaseForTests(), workItems()),
+    )
+    private fun metricsConfigOptions(dataSources: DataSourceService) =
+        MetricsConfigOptions(sharedDatabaseForTests(), workItems(), dataSources)
     private fun pagingAll() = PageRequest(page = 1, pageSize = 100, sort = emptyList())
 
     private suspend fun createConnection(dataSources: DataSourceService): UInt = dataSources.create(
@@ -210,7 +222,7 @@ class MetricsConfigServiceTest {
         val options = (1..250).joinToString(",") { """{"id":"v$it","value":"Value $it"}""" }
         seedWorkItem(connId, issueId = 5L, customFieldsJson = """{"customfield_9001":[$options]}""")
 
-        val optionsResponse = metricsConfig(ds).options(connId, "customfield_9001")
+        val optionsResponse = metricsConfigOptions(ds).options(connId, "customfield_9001")
         assertEquals(200, optionsResponse.workCategoryValues.size)
         assertTrue(optionsResponse.workCategoryValuesTruncated)
     }
@@ -243,7 +255,7 @@ class MetricsConfigServiceTest {
 
         val result = workItems().distinctCustomFieldValues(connId, "customfield_9002")
         assertEquals(1, result.size)
-        val optionsResponse = metricsConfig(ds).options(connId, "customfield_9002")
+        val optionsResponse = metricsConfigOptions(ds).options(connId, "customfield_9002")
         assertEquals(false, optionsResponse.workCategoryValuesTruncated)
     }
 
@@ -251,11 +263,11 @@ class MetricsConfigServiceTest {
     fun `bumpRevision enqueues a DERIVE job for every enabled active connection`() = runBlocking {
         val ds = dataSources()
         val jobs = syncJobs()
-        val config = metricsConfig(ds, jobs)
+        val settings = metricsSettings(ds, jobs)
         val connA = createConnection(ds)
         val connB = createConnection(ds)
 
-        config.bumpRevision()
+        settings.bumpRevision()
 
         val deriveA = jobs.list(connA, SyncJobListFilter(kind = SyncJobKind.DERIVE), pagingAll()).items
         val deriveB = jobs.list(connB, SyncJobListFilter(kind = SyncJobKind.DERIVE), pagingAll()).items
@@ -267,11 +279,11 @@ class MetricsConfigServiceTest {
     fun `a second bumpRevision while one DERIVE job is still PENDING coalesces rather than duplicating`() = runBlocking {
         val ds = dataSources()
         val jobs = syncJobs()
-        val config = metricsConfig(ds, jobs)
+        val settings = metricsSettings(ds, jobs)
         val connId = createConnection(ds)
 
-        config.bumpRevision()
-        config.bumpRevision()
+        settings.bumpRevision()
+        settings.bumpRevision()
 
         val deriveJobs = jobs.list(connId, SyncJobListFilter(kind = SyncJobKind.DERIVE), pagingAll()).items
         assertEquals(1, deriveJobs.size, "a second bump while the first DERIVE is still PENDING must coalesce, not duplicate")
@@ -280,23 +292,23 @@ class MetricsConfigServiceTest {
     fun `a real settings change enqueues DERIVE for an enabled connection and an identical re-PUT does not`() = runBlocking {
         val ds = dataSources()
         val jobs = syncJobs()
-        val config = metricsConfig(ds, jobs)
+        val settings = metricsSettings(ds, jobs)
         val connId = createConnection(ds)
         fun deriveJobs() = runBlocking { jobs.list(connId, SyncJobListFilter(kind = SyncJobKind.DERIVE), pagingAll()).items }
         assertEquals(0, deriveJobs().size)
 
         // withMetricsSettings restores the suite-global singleton afterwards.
-        withMetricsSettings(config, { it.copy(hoursPerDay = it.hoursPerDay + 1) }) {
+        withMetricsSettings(settings, { it.copy(hoursPerDay = it.hoursPerDay + 1) }) {
             val afterChange = deriveJobs()
             assertEquals(1, afterChange.size, "a settings change must enqueue a DERIVE for every enabled connection")
 
             // Cancel that job so an identical re-PUT enqueuing (wrongly) would be visible as a NEW row
             // instead of coalescing into the still-PENDING one.
             jobs.requestCancel(connId, afterChange.single().id)
-            val revisionBefore = config.currentRevision()
-            val identical = config.replace(config.read().asRequest(), byUserId = 1u)
+            val revisionBefore = settings.currentRevision()
+            val identical = settings.replace(settings.read().asRequest(), byUserId = 1u)
             assertEquals(false, identical.changed)
-            assertEquals(revisionBefore, config.currentRevision(), "an identical re-PUT must not bump the revision")
+            assertEquals(revisionBefore, settings.currentRevision(), "an identical re-PUT must not bump the revision")
             assertEquals(1, deriveJobs().size, "an identical re-PUT must not enqueue another DERIVE")
         }
     }

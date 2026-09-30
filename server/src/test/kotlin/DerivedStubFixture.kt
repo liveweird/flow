@@ -6,9 +6,11 @@ import ch.nokillswit.ingest.SyncJobKind
 import ch.nokillswit.ingest.SyncJobRunContext
 import ch.nokillswit.ingest.SyncJobsService
 import ch.nokillswit.metrics.DataSourceMetricsConfigRequest
+import ch.nokillswit.metrics.DomainOwnerResolver
 import ch.nokillswit.metrics.MetricsBoardTeamMapping
 import ch.nokillswit.metrics.MetricsConfigService
 import ch.nokillswit.metrics.MetricsDeriver
+import ch.nokillswit.metrics.MetricsSettingsService
 import ch.nokillswit.metrics.MetricsStore
 import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.metrics.TeamMembershipService
@@ -61,19 +63,30 @@ object DerivedStubFixture {
 
     private lateinit var baselineDigest: String
 
-    fun metricsConfig() = MetricsConfigService(
+    fun metricsSettings() = MetricsSettingsService(
         sharedDatabaseForTests(),
-        SyncedStubFixture.workItems(),
         SyncedStubFixture.dataSources(),
         SyncJobsService(sharedDatabaseForTests(), 3),
     )
 
-    private fun teamMembership(config: MetricsConfigService) = TeamMembershipService(sharedDatabaseForTests(), config)
+    private fun domainOwners() = DomainOwnerResolver(sharedDatabaseForTests(), SyncedStubFixture.workItems())
 
-    private fun deriver(config: MetricsConfigService) = MetricsDeriver(
+    fun metricsConfig() = MetricsConfigService(
+        sharedDatabaseForTests(),
         SyncedStubFixture.workItems(),
-        config,
-        teamMembership(config),
+        SyncedStubFixture.dataSources(),
+        metricsSettings(),
+        domainOwners(),
+    )
+
+    private fun teamMembership(settings: MetricsSettingsService) = TeamMembershipService(sharedDatabaseForTests(), settings)
+
+    private fun deriver() = MetricsDeriver(
+        SyncedStubFixture.workItems(),
+        metricsSettings(),
+        metricsConfig(),
+        domainOwners(),
+        teamMembership(metricsSettings()),
         MetricsStore(sharedDatabaseForTests()),
         sharedDatabaseForTests(),
     )
@@ -120,13 +133,13 @@ object DerivedStubFixture {
      * `metrics.settings.config_revision` twice per call, and every derived row is stamped with the
      * revision, so two derives that must compare equal share ONE wrapper.
      */
-    suspend fun derivePinned(connId: UInt, config: MetricsConfigService, jobId: UInt = 1u) {
-        deriver(config).derive(SyncJobRunContext(deriveClaim(connId, jobId), clock = { PINNED_NOW }) { _, _ -> true })
+    suspend fun derivePinned(connId: UInt, jobId: UInt = 1u) {
+        deriver().derive(SyncJobRunContext(deriveClaim(connId, jobId), clock = { PINNED_NOW }) { _, _ -> true })
     }
 
     /** [withMetricsSettings] with the fixture's pinned `hoursPerDay = 8.0`. */
-    suspend fun <T> withPinnedSettings(config: MetricsConfigService, block: suspend () -> T): T =
-        withMetricsSettings(config, { it.copy(hoursPerDay = HOURS_PER_DAY) }, block)
+    suspend fun <T> withPinnedSettings(settings: MetricsSettingsService, block: suspend () -> T): T =
+        withMetricsSettings(settings, { it.copy(hoursPerDay = HOURS_PER_DAY) }, block)
 
     /**
      * Runs the cheap processed clone + FLO-board mapping + one pinned DERIVE exactly once per JVM
@@ -142,9 +155,8 @@ object DerivedStubFixture {
             val connId = SyncedStubFixture.createConnection(namePrefix = "jira-derived-fixture", enabled = false)
             SyncedStubFixture.cloneProcessedData(sourceConnId, connId)
 
-            val config = metricsConfig()
-            mapFloBoardToNewTeam(connId, config, "flo-derived-team")
-            withPinnedSettings(config) { derivePinned(connId, config) }
+            mapFloBoardToNewTeam(connId, metricsConfig(), "flo-derived-team")
+            withPinnedSettings(metricsSettings()) { derivePinned(connId) }
 
             baselineDigest = metricsDigest(connId)
             derivedConnectionId = connId

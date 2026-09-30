@@ -63,7 +63,7 @@ data class MetricsSettingsRequest(
 /** The outcome of a PUT — [changed] false means an idempotent re-PUT, no write/revision bump/audit (the features-PUT precedent). */
 data class MetricsSettingsUpdateOutcome(val response: MetricsSettingsResponse, val changed: Boolean)
 
-/** The stored response, reshaped back into request form — [MetricsConfigService.replace]'s own no-op comparison. */
+/** The stored response, reshaped back into request form — [MetricsSettingsService.replace]'s own no-op comparison. */
 internal fun MetricsSettingsResponse.asRequest(): MetricsSettingsRequest = MetricsSettingsRequest(
     hoursPerDay = hoursPerDay,
     timeZone = timeZone,

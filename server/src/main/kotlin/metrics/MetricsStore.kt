@@ -136,8 +136,8 @@ class MetricsStore(private val database: R2dbcDatabase) {
     suspend fun ensureDimDate(calendar: WorkingCalendar, range: DimDateRange, configRevision: Long): Int =
         inTopLevelSuspendTransaction(database) {
             exec("SELECT pg_advisory_xact_lock($DIM_DATE_LOCK_KEY)")
-            val currentRevision = MetricsConfigService.Settings.select(MetricsConfigService.Settings.configRevision).toList()
-                .single()[MetricsConfigService.Settings.configRevision]
+            val currentRevision = MetricsSettingsService.Settings.select(MetricsSettingsService.Settings.configRevision).toList()
+                .single()[MetricsSettingsService.Settings.configRevision]
             val mayRewrite = configRevision >= currentRevision
             val stored = DimDate.selectAll().toList().associate {
                 it[DimDate.day] to WorkingCalendar.DimDateRow(

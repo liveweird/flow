@@ -461,7 +461,7 @@ class MetricsConfigRoutesTest {
         // Map ONLY the board to a team (never the owner itself) — the connection is now
         // `configured`, but this domain's OWN ownerTeamId stays unset in storage; GET must still
         // fill it with the SAME board-fallback default `MetricsDeriver.ownerTeamByDomain` would
-        // compute for a DERIVE run (`MetricsConfigService.resolveOwnerTeamByDomain` — one
+        // compute for a DERIVE run (`DomainOwnerResolver.resolveOwnerTeamByDomain` — one
         // implementation).
         assertEquals(
             HttpStatusCode.NoContent,

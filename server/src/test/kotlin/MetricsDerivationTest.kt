@@ -7,9 +7,11 @@ import ch.nokillswit.ingest.SyncJobRunContext
 import ch.nokillswit.ingest.SyncJobsService
 import ch.nokillswit.metrics.DataSourceMetricsConfigRequest
 import ch.nokillswit.metrics.DeriveKernels
+import ch.nokillswit.metrics.DomainOwnerResolver
 import ch.nokillswit.metrics.MetricsBoardTeamMapping
 import ch.nokillswit.metrics.MetricsConfigService
 import ch.nokillswit.metrics.MetricsDeriver
+import ch.nokillswit.metrics.MetricsSettingsService
 import ch.nokillswit.metrics.MetricsSprintCapacity
 import ch.nokillswit.metrics.MetricsStore
 import ch.nokillswit.metrics.MetricsTables
@@ -162,9 +164,12 @@ private fun <T> valueAtDayEnd(rows: List<BridgeInterval<T>>, dayEndMs: Long): T?
 class MetricsDerivationTest {
     private fun workItems() = SyncedStubFixture.workItems()
     private fun dataSources() = SyncedStubFixture.dataSources()
+    private fun metricsSettings() =
+        MetricsSettingsService(sharedDatabaseForTests(), dataSources(), SyncJobsService(sharedDatabaseForTests(), 3))
+    private fun domainOwners() = DomainOwnerResolver(sharedDatabaseForTests(), workItems())
     private fun metricsConfig() =
-        MetricsConfigService(sharedDatabaseForTests(), workItems(), dataSources(), SyncJobsService(sharedDatabaseForTests(), 3))
-    private fun teamMembership(config: MetricsConfigService) = TeamMembershipService(sharedDatabaseForTests(), config)
+        MetricsConfigService(sharedDatabaseForTests(), workItems(), dataSources(), metricsSettings(), domainOwners())
+    private fun teamMembership() = TeamMembershipService(sharedDatabaseForTests(), metricsSettings())
     private fun metricsStore() = MetricsStore(sharedDatabaseForTests())
 
     /**
@@ -424,14 +429,7 @@ class MetricsDerivationTest {
     @Test
     fun `invariant 12-lite — a second DERIVE over unchanged input yields a byte-identical fact_task_delivery digest`() = runBlocking {
         val connId = clonedProcessedConnection()
-        val config = metricsConfig()
-        val deriver = MetricsDeriver(
-            workItems(),
-            config,
-            teamMembership(config),
-            metricsStore(),
-            sharedDatabaseForTests(),
-        )
+        val deriver = deriver()
         fun claim(id: UInt) = SyncJobClaim(
             id = id,
             connectionId = connId,
@@ -459,8 +457,7 @@ class MetricsDerivationTest {
     fun `a DERIVE marks a dead worker's orphaned RUNNING run of its connection FAILED, sparing other connections`() = runBlocking {
         val connId = clonedProcessedConnection()
         val otherConnId = SyncedStubFixture.createConnection(namePrefix = "orphan-other", enabled = false)
-        val config = metricsConfig()
-        val deriver = MetricsDeriver(workItems(), config, teamMembership(config), metricsStore(), sharedDatabaseForTests())
+        val deriver = deriver()
 
         suspend fun insertRunning(conn: UInt): Int = suspendTransaction(sharedDatabaseForTests()) {
             MetricsTables.DeriveRuns.insert {
@@ -561,8 +558,7 @@ class MetricsDerivationTest {
         val connId = SyncedStubFixture.createConnection(dataSources = ds, namePrefix = "jira-unmapped", enabled = false)
         seedUnmappedStatusIssue(connId)
 
-        val config = metricsConfig()
-        val deriver = MetricsDeriver(workItems(), config, teamMembership(config), metricsStore(), sharedDatabaseForTests())
+        val deriver = deriver()
         val claim = SyncJobClaim(
             id = 7u,
             connectionId = connId,
@@ -629,8 +625,10 @@ class MetricsDerivationTest {
         return teamId
     }
 
-    private fun deriver(config: MetricsConfigService) =
-        MetricsDeriver(workItems(), config, teamMembership(config), metricsStore(), sharedDatabaseForTests())
+    private fun deriver() =
+        MetricsDeriver(
+            workItems(), metricsSettings(), metricsConfig(), domainOwners(), teamMembership(), metricsStore(), sharedDatabaseForTests(),
+        )
 
     private fun deriveClaim(id: UInt, connId: UInt) = SyncJobClaim(
         id = id, connectionId = connId, connectorKind = DataSourceKind.JIRA_CLOUD, kind = SyncJobKind.DERIVE,
@@ -820,7 +818,7 @@ class MetricsDerivationTest {
             mapFloBoardToTeam(connId, config)
             val sprintId = metricsDerivationGoldenSprint.sprintId
 
-            deriver(config).derive(SyncJobRunContext(deriveClaim(12u, connId), clock = { PINNED_NOW }) { _, _ -> true })
+            deriver().derive(SyncJobRunContext(deriveClaim(12u, connId), clock = { PINNED_NOW }) { _, _ -> true })
 
             val snapshotRow = suspendTransaction(sharedDatabaseForTests()) {
                 MetricsTables.FactSprintSnapshot.selectAll()
@@ -855,7 +853,7 @@ class MetricsDerivationTest {
             assertTrue(updateAttempt.isFailure, "an UPDATE against fact_sprint_snapshot must raise, per the immutability trigger")
 
             // A second DERIVE must not touch the existing snapshot row at all — same count, same digest.
-            deriver(config).derive(SyncJobRunContext(deriveClaim(13u, connId), clock = { PINNED_NOW }) { _, _ -> true })
+            deriver().derive(SyncJobRunContext(deriveClaim(13u, connId), clock = { PINNED_NOW }) { _, _ -> true })
             val snapshotRowsAfterSecondDerive = suspendTransaction(sharedDatabaseForTests()) {
                 MetricsTables.FactSprintSnapshot.selectAll()
                     .where {
@@ -920,8 +918,7 @@ class MetricsDerivationTest {
                     ),
                 ),
             )
-            val config = metricsConfig()
-            deriver(config).derive(SyncJobRunContext(deriveClaim(51u, connId), clock = { PINNED_NOW }) { _, _ -> true })
+            deriver().derive(SyncJobRunContext(deriveClaim(51u, connId), clock = { PINNED_NOW }) { _, _ -> true })
 
             val sprintRows = suspendTransaction(sharedDatabaseForTests()) {
                 MetricsTables.DimSprint.selectAll().where { MetricsTables.DimSprint.connectionId eq connId }.toList()
@@ -963,7 +960,7 @@ class MetricsDerivationTest {
         )
         val sprintBefore = workItems().allSprintRefs(connId).single { it.sprintId == sprintId }
         val membershipStart = sprintBefore.startAtMs!! - THIRTY_DAYS_MS
-        val membershipService = teamMembership(config)
+        val membershipService = teamMembership()
         val membershipA = membershipService.create(teamId, TeamMembershipCreateRequest(accountA, membershipStart, null))
         val membershipB = membershipService.create(teamId, TeamMembershipCreateRequest(accountB, membershipStart, null))
         // `metrics.team_membership` is GLOBAL by account id (`.claude/docs/persistence.md` "metrics.team_membership
@@ -971,12 +968,12 @@ class MetricsDerivationTest {
         // "every membership row" sweep (`TeamMembershipService.allMembershipsByAccount`) never sees it (review
         // round 2c fix).
         try {
-            deriver(config).derive(SyncJobRunContext(deriveClaim(20u, connId), clock = { PINNED_NOW }) { _, _ -> true })
+            deriver().derive(SyncJobRunContext(deriveClaim(20u, connId), clock = { PINNED_NOW }) { _, _ -> true })
 
             // Computed independently of `MetricsDeriver`'s own private `sprintCapacity` — the SAME
             // `WorkingCalendar` class DERIVE itself uses (`WorkingCalendarTest` already proves its own
             // math), fed the connection's CURRENT stored settings and OUR OWN two membership rows.
-            val settings = config.read()
+            val settings = metricsSettings().read()
             val calendar = WorkingCalendar(
                 ZoneId.of(settings.timeZone),
                 settings.weekendDays.toSet(),
@@ -1014,7 +1011,7 @@ class MetricsDerivationTest {
                     sprintCapacities = listOf(MetricsSprintCapacity(sprintId, CONFIGURED_CAPACITY_MD)),
                 ),
             )
-            deriver(config).derive(SyncJobRunContext(deriveClaim(21u, connId), clock = { PINNED_NOW }) { _, _ -> true })
+            deriver().derive(SyncJobRunContext(deriveClaim(21u, connId), clock = { PINNED_NOW }) { _, _ -> true })
 
             val dimRowConfigured = suspendTransaction(sharedDatabaseForTests()) {
                 MetricsTables.DimSprint.selectAll()
@@ -1044,8 +1041,7 @@ class MetricsDerivationTest {
     fun `D5 - the OPS Kanban project's DONE tasks carry no sprint credit, falling back to the assignee's team at done`() =
         runBlocking {
             val connId = clonedProcessedConnection()
-            val config = metricsConfig()
-            deriver(config).derive(SyncJobRunContext(deriveClaim(30u, connId), clock = { PINNED_NOW }) { _, _ -> true })
+            deriver().derive(SyncJobRunContext(deriveClaim(30u, connId), clock = { PINNED_NOW }) { _, _ -> true })
 
             val doneOpsRows = suspendTransaction(sharedDatabaseForTests()) {
                 MetricsTables.FactTaskDelivery.selectAll()
@@ -1078,7 +1074,7 @@ class MetricsDerivationTest {
 
             val teamId = TestTeams.seed(uniqueEmail("ops-credit-team"))
             val doneAt = target[MetricsTables.FactTaskDelivery.doneAt]!!
-            val membershipService = teamMembership(config)
+            val membershipService = teamMembership()
             val membership = membershipService.create(teamId, TeamMembershipCreateRequest(targetAccountId, doneAt - THIRTY_DAYS_MS, null))
             // `targetAccountId` is a REAL stub account id (an actual assignee in the sample dataset), not a
             // synthetic UUID — `metrics.team_membership` is GLOBAL by account id, so a leftover open
@@ -1086,7 +1082,7 @@ class MetricsDerivationTest {
             // including the SHARED `DerivedStubFixture` connection (`.claude/docs/testing.md`'s tripwire
             // rationale, review round 2c fix). Clean up regardless of assertion outcome.
             try {
-                deriver(config).derive(SyncJobRunContext(deriveClaim(31u, connId), clock = { PINNED_NOW }) { _, _ -> true })
+                deriver().derive(SyncJobRunContext(deriveClaim(31u, connId), clock = { PINNED_NOW }) { _, _ -> true })
 
                 suspend fun reread(issueId: Long): ResultRow = suspendTransaction(sharedDatabaseForTests()) {
                     MetricsTables.FactTaskDelivery.selectAll()
@@ -1125,7 +1121,7 @@ class MetricsDerivationTest {
             val teamId = mapFloBoardToTeam(connId, config)
             val goldenSprintId = metricsDerivationGoldenSprint.sprintId
 
-            deriver(config).derive(SyncJobRunContext(deriveClaim(40u, connId), clock = { PINNED_NOW }) { _, _ -> true })
+            deriver().derive(SyncJobRunContext(deriveClaim(40u, connId), clock = { PINNED_NOW }) { _, _ -> true })
 
             val goldenSnapshotBefore = suspendTransaction(sharedDatabaseForTests()) {
                 MetricsTables.FactSprintSnapshot.selectAll()
@@ -1152,7 +1148,7 @@ class MetricsDerivationTest {
                 }
             }
 
-            deriver(config).derive(SyncJobRunContext(deriveClaim(41u, connId), clock = { PINNED_NOW }) { _, _ -> true })
+            deriver().derive(SyncJobRunContext(deriveClaim(41u, connId), clock = { PINNED_NOW }) { _, _ -> true })
 
             val newlyClosedSnapshot = suspendTransaction(sharedDatabaseForTests()) {
                 MetricsTables.FactSprintSnapshot.selectAll()
@@ -1613,7 +1609,7 @@ class MetricsDerivationTest {
             }
             TestTeams.service.delete(teamSoftDeleted)
 
-            deriver(config).derive(SyncJobRunContext(deriveClaim(90u, connId), clock = { PINNED_NOW }) { _, _ -> true })
+            deriver().derive(SyncJobRunContext(deriveClaim(90u, connId), clock = { PINNED_NOW }) { _, _ -> true })
 
             val domainRows = suspendTransaction(sharedDatabaseForTests()) {
                 MetricsTables.DimDomain.selectAll().where { MetricsTables.DimDomain.connectionId eq connId }
@@ -1662,8 +1658,7 @@ class MetricsDerivationTest {
     @Test
     fun `fact_task_delivery - domain is AS-WAS at done_at, not the current project (A21)`() = runBlocking {
         val connId = clonedProcessedConnection()
-        val config = metricsConfig()
-        deriver(config).derive(SyncJobRunContext(deriveClaim(70u, connId), clock = { PINNED_NOW }) { _, _ -> true })
+        deriver().derive(SyncJobRunContext(deriveClaim(70u, connId), clock = { PINNED_NOW }) { _, _ -> true })
 
         val target = suspendTransaction(sharedDatabaseForTests()) {
             MetricsTables.FactTaskDelivery.selectAll()
@@ -1701,7 +1696,7 @@ class MetricsDerivationTest {
             }
         }
 
-        deriver(config).derive(SyncJobRunContext(deriveClaim(71u, connId), clock = { PINNED_NOW }) { _, _ -> true })
+        deriver().derive(SyncJobRunContext(deriveClaim(71u, connId), clock = { PINNED_NOW }) { _, _ -> true })
 
         val after = suspendTransaction(sharedDatabaseForTests()) {
             MetricsTables.FactTaskDelivery.selectAll()
@@ -1723,8 +1718,7 @@ class MetricsDerivationTest {
     fun `fact_task_delivery - epic is AS-WAS at done_at, a genuinely null covering value is never flattened into the current epic`() =
         runBlocking {
             val connId = clonedProcessedConnection()
-            val config = metricsConfig()
-            deriver(config).derive(SyncJobRunContext(deriveClaim(80u, connId), clock = { PINNED_NOW }) { _, _ -> true })
+            deriver().derive(SyncJobRunContext(deriveClaim(80u, connId), clock = { PINNED_NOW }) { _, _ -> true })
 
             val target = suspendTransaction(sharedDatabaseForTests()) {
                 MetricsTables.FactTaskDelivery.selectAll()
@@ -1776,7 +1770,7 @@ class MetricsDerivationTest {
                 WorkItemStore.WorkItems.update({ predicate }) { it[parentIssueId] = epicIssueId }
             }
 
-            deriver(config).derive(SyncJobRunContext(deriveClaim(81u, connId), clock = { PINNED_NOW }) { _, _ -> true })
+            deriver().derive(SyncJobRunContext(deriveClaim(81u, connId), clock = { PINNED_NOW }) { _, _ -> true })
 
             val after = suspendTransaction(sharedDatabaseForTests()) {
                 MetricsTables.FactTaskDelivery.selectAll()
@@ -1824,7 +1818,7 @@ class MetricsDerivationTest {
         val assigneeAccountId = "current-team-assignee-${UUID.randomUUID()}"
         workItems().replacePeople(peopleConnId, listOf(PersonRef(assigneeAccountId, "Current Team Assignee", null, active = true)))
         val teamAssignee = TestTeams.seed(uniqueEmail("current-team-assignee"))
-        val membershipService = teamMembership(config)
+        val membershipService = teamMembership()
         val membership =
             membershipService.create(teamAssignee, TeamMembershipCreateRequest(assigneeAccountId, PINNED_NOW - THIRTY_DAYS_MS, null))
         try {
@@ -1871,7 +1865,7 @@ class MetricsDerivationTest {
                 }
             }
 
-            deriver(config).derive(SyncJobRunContext(deriveClaim(95u, connId), clock = { PINNED_NOW }) { _, _ -> true })
+            deriver().derive(SyncJobRunContext(deriveClaim(95u, connId), clock = { PINNED_NOW }) { _, _ -> true })
 
             val after = suspendTransaction(sharedDatabaseForTests()) {
                 MetricsTables.FactTaskDelivery.selectAll()
@@ -1901,7 +1895,6 @@ class MetricsDerivationTest {
     fun `fact_worklog - foreign_work is true when author and assignee teams differ, with no sprint team known at started_at (A21)`() =
         runBlocking {
             val connId = clonedProcessedConnection()
-            val config = metricsConfig()
 
             val peopleConnId = SyncedStubFixture.createConnection(namePrefix = "foreign-work-people")
             val authorAccountId = "foreign-work-author-${UUID.randomUUID()}"
@@ -1915,7 +1908,7 @@ class MetricsDerivationTest {
             )
             val teamAuthor = TestTeams.seed(uniqueEmail("foreign-work-author"))
             val teamAssignee = TestTeams.seed(uniqueEmail("foreign-work-assignee"))
-            val membershipService = teamMembership(config)
+            val membershipService = teamMembership()
             var membershipAuthor: TeamMembershipResponse? = null
             var membershipAssignee: TeamMembershipResponse? = null
             try {
@@ -1969,7 +1962,7 @@ class MetricsDerivationTest {
                     }
                 }
 
-                deriver(config).derive(SyncJobRunContext(deriveClaim(96u, connId), clock = { PINNED_NOW }) { _, _ -> true })
+                deriver().derive(SyncJobRunContext(deriveClaim(96u, connId), clock = { PINNED_NOW }) { _, _ -> true })
 
                 val row = suspendTransaction(sharedDatabaseForTests()) {
                     MetricsTables.FactWorklog.selectAll()
@@ -2651,9 +2644,8 @@ class MetricsDerivationTest {
             exec("UPDATE norm.work_items SET due_at = ${isoDateEpochMillis(dueDay)} WHERE $scope")
             exec("DELETE FROM norm.work_item_field_changes WHERE $scope AND field = 'duedate'")
         }
-        val config = metricsConfig()
         try {
-            DerivedStubFixture.withPinnedSettings(config) { DerivedStubFixture.derivePinned(connId, config) }
+            DerivedStubFixture.withPinnedSettings(metricsSettings()) { DerivedStubFixture.derivePinned(connId) }
 
             val dimDays = suspendTransaction(sharedDatabaseForTests()) {
                 MetricsTables.DimDate.selectAll().where { MetricsTables.DimDate.day greater lastDayBefore }.toList()

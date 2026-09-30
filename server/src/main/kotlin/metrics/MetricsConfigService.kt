@@ -1,25 +1,13 @@
 package ch.nokillswit.metrics
 
 import ch.nokillswit.infra.db.active
-import ch.nokillswit.infra.db.jsonb
-import ch.nokillswit.infra.db.nowMillis
-import ch.nokillswit.infra.json.parseStringArray
-import ch.nokillswit.infra.json.stringArrayJson
 import ch.nokillswit.ingest.DataProfileSections
 import ch.nokillswit.ingest.DataSourceService
-import ch.nokillswit.ingest.SyncJobKind
-import ch.nokillswit.ingest.SyncJobsService
-import ch.nokillswit.norm.MAX_DISTINCT_FIELD_VALUES
 import ch.nokillswit.norm.WorkItemStore
 import ch.nokillswit.teams.TeamService
 import io.ktor.util.AttributeKey
 import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.buildJsonArray
-import kotlinx.serialization.json.int
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonPrimitive
 import org.jetbrains.exposed.v1.core.*
 import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
 import org.jetbrains.exposed.v1.r2dbc.batchInsert
@@ -27,7 +15,6 @@ import org.jetbrains.exposed.v1.r2dbc.deleteWhere
 import org.jetbrains.exposed.v1.r2dbc.select
 import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
-import org.jetbrains.exposed.v1.r2dbc.update
 
 /** Decodes `source_connections.profile` — rolling-deploy tolerance, the `ingest/DataProfileRoutes.kt` idiom. */
 private val METRICS_PROFILE_JSON = Json { ignoreUnknownKeys = true }
@@ -59,45 +46,28 @@ val MetricsConfigServiceKey = AttributeKey<MetricsConfigService>("MetricsConfigS
 /** A PUT that changed nothing bumps no revision and prompts no audit (the features-PUT precedent). */
 data class MetricsConfigUpdateOutcome(val response: DataSourceMetricsConfig, val changed: Boolean)
 
-/** The singleton row's fixed id (`V15__create_metrics_config.sql`'s `CHECK (id = 1)`). */
-private const val SETTINGS_ID = 1
-
-private fun intArrayJson(values: List<Int>): String = buildJsonArray { values.forEach { add(JsonPrimitive(it)) } }.toString()
-private fun parseIntArray(json: String): List<Int> = Json.parseToJsonElement(json).jsonArray.map { it.jsonPrimitive.int }
+/**
+ * `source_connections.profile`, decoded — null when the connection has never completed a PROCESS pass.
+ * Shared by [MetricsConfigService] and [MetricsConfigOptions].
+ */
+internal suspend fun DataSourceService.readProfileSections(connectionId: UInt): DataProfileSections? =
+    readProfile(connectionId)?.profileJson?.let { METRICS_PROFILE_JSON.decodeFromString(it) }
 
 /**
- * The ONE global configuration revision (v0.3.0 M1 commit 3, `.claude/docs/domain-model.md`
- * "Configuration"): `metrics.settings` is a singleton row holding the calendar/thresholds every
- * DERIVE run reads, plus the `config_revision` counter every later config mutation (global
- * settings, per-connection maps, team membership alike) bumps inside its OWN transaction — the
- * `DataSourceService.update` revision idiom (`ingest/DataSourceService.kt:169`), just against one
- * shared row instead of one row per connection. `TeamMembershipService` (same package) calls
- * [bumpRevision] directly — not a cross-feature read, since both live in `metrics`.
+ * The per-connection metrics configuration (checkup D3 — what remains of the former all-in-one
+ * `MetricsConfigService` once the global settings singleton ([MetricsSettingsService]), the editor's
+ * reference data ([MetricsConfigOptions]) and owner-team resolution ([DomainOwnerResolver]) moved
+ * out): the connection's eight config tables, the effective-config read (stored or computed
+ * defaults), the full-replace PUT, the PURGE drain and the detected Sprint field id. A config PUT
+ * bumps the ONE shared revision through [settings].
  */
 class MetricsConfigService(
     private val database: R2dbcDatabase,
     private val workItemStore: WorkItemStore,
     private val dataSources: DataSourceService,
-    private val syncJobs: SyncJobsService,
+    private val settings: MetricsSettingsService,
+    private val owners: DomainOwnerResolver,
 ) {
-
-    object Settings : Table("metrics.settings") {
-        val id = integer("id")
-        val configRevision = long("config_revision")
-        val hoursPerDay = decimal("hours_per_day", precision = 4, scale = 2)
-        val timeZone = varchar("time_zone", 64)
-        val weekendDays = jsonb("weekend_days")
-        val holidays = jsonb("holidays")
-        val commitmentGraceMinutes = integer("commitment_grace_minutes")
-        val minSampleSize = integer("min_sample_size")
-        val agingWindowItems = integer("aging_window_items")
-        val agingPercentiles = jsonb("aging_percentiles")
-        val backlogWindowSprints = integer("backlog_window_sprints")
-        val epicDriftDays = integer("epic_drift_days")
-        val updatedAt = long("updated_at")
-        val updatedByUserId = long("updated_by_user_id").nullable()
-        override val primaryKey = PrimaryKey(id)
-    }
 
     // The eight per-connection config tables `DataSourceMetricsConfig` composes (v0.3.0 M1 commit
     // 4, `V15__create_metrics_config.sql`) — no `SERIAL`/`INTEGER` ids, natural keys throughout
@@ -165,89 +135,6 @@ class MetricsConfigService(
         override val primaryKey = PrimaryKey(connectionId, statusId)
     }
 
-    suspend fun read(): MetricsSettingsResponse = suspendTransaction(database) {
-        Settings.selectAll().where { Settings.id eq SETTINGS_ID }.toList().single().toResponse()
-    }
-
-    /** The current revision alone — cheap read for a caller (e.g. a future DERIVE enqueue) that only needs the number. */
-    suspend fun currentRevision(): Long = suspendTransaction(database) {
-        Settings.selectAll().where { Settings.id eq SETTINGS_ID }.toList().single()[Settings.configRevision]
-    }
-
-    /**
-     * A full-replace PUT: every column moves to the request's values, and the revision bumps (and
-     * DERIVE is enqueued, [bumpRevision]) in the SAME transaction — UNLESS the request is
-     * byte-for-byte what is already stored, in which case nothing is written, nothing is enqueued
-     * and [MetricsSettingsUpdateOutcome.changed] is false (the features-PUT precedent: an
-     * idempotent re-PUT is a no-op, not a fresh revision/audit line).
-     */
-    suspend fun replace(request: MetricsSettingsRequest, byUserId: UInt): MetricsSettingsUpdateOutcome = suspendTransaction(database) {
-        validateMetricsSettings(request) // re-checked service-side so direct callers stay guarded
-        val current = Settings.selectAll().where { Settings.id eq SETTINGS_ID }.toList().single().toResponse()
-        if (current.asRequest() == request) {
-            return@suspendTransaction MetricsSettingsUpdateOutcome(current, changed = false)
-        }
-        Settings.update({ Settings.id eq SETTINGS_ID }) {
-            it[hoursPerDay] = request.hoursPerDay.toBigDecimal()
-            it[timeZone] = request.timeZone
-            it[weekendDays] = intArrayJson(request.weekendDays)
-            it[holidays] = stringArrayJson(request.holidays)
-            it[commitmentGraceMinutes] = request.commitmentGraceMinutes
-            it[minSampleSize] = request.minSampleSize
-            it[agingWindowItems] = request.agingWindowItems
-            it[agingPercentiles] = intArrayJson(request.agingPercentiles)
-            it[backlogWindowSprints] = request.backlogWindowSprints
-            it[epicDriftDays] = request.epicDriftDays
-            it[updatedAt] = nowMillis()
-            it[updatedByUserId] = byUserId.toLong()
-        }
-        // The shared revision moves through bumpRevision (nested into this transaction), which also
-        // enqueues DERIVE for every enabled connection — a settings change reaches derived numbers
-        // exactly like a membership or per-connection config change does.
-        bumpRevision()
-        val updated = Settings.selectAll().where { Settings.id eq SETTINGS_ID }.toList().single().toResponse()
-        MetricsSettingsUpdateOutcome(updated, changed = true)
-    }
-
-    /**
-     * Bumps the shared revision alone (a team-membership mutation, or — from commit 4 on — a
-     * per-connection config PUT): no other column changes, so `updatedAt`/`updatedByUserId` stay
-     * whatever the last SETTINGS edit left them — those two describe the settings form itself, not
-     * "the last thing that touched the revision". Since v0.3.0 M3 commit 7, ALSO enqueues `DERIVE`
-     * (scheduler priority — `SyncJobsService.enqueueScheduled`) for EVERY enabled, active
-     * connection, stamped with that connection's OWN `source_connections.config_revision` (the
-     * value `SyncJobsService.claim`'s `CONFIG_CHANGED` check compares against — a DIFFERENT counter
-     * from the metrics settings revision this method itself bumps): any configuration change —
-     * global settings, a team membership edit, a per-connection metrics-config PUT — must reach
-     * every connection's derived numbers, not just the one that happened to be edited (plan §2
-     * decision 1). Must run INSIDE the caller's transaction (nested `suspendTransaction` against the
-     * SAME database).
-     */
-    suspend fun bumpRevision(): Long = suspendTransaction(database) {
-        Settings.update({ Settings.id eq SETTINGS_ID }) { it[configRevision] = Settings.configRevision + 1 }
-        val newRevision = Settings.selectAll().where { Settings.id eq SETTINGS_ID }.toList().single()[Settings.configRevision]
-        dataSources.enabledActiveConnections().forEach { connection ->
-            syncJobs.enqueueScheduled(connection.id, SyncJobKind.DERIVE, connection.configRevision)
-        }
-        newRevision
-    }
-
-    private fun ResultRow.toResponse(): MetricsSettingsResponse = MetricsSettingsResponse(
-        configRevision = this[Settings.configRevision],
-        hoursPerDay = this[Settings.hoursPerDay].toDouble(),
-        timeZone = this[Settings.timeZone],
-        weekendDays = parseIntArray(this[Settings.weekendDays]),
-        holidays = parseStringArray(this[Settings.holidays]),
-        commitmentGraceMinutes = this[Settings.commitmentGraceMinutes],
-        minSampleSize = this[Settings.minSampleSize],
-        agingWindowItems = this[Settings.agingWindowItems],
-        agingPercentiles = parseIntArray(this[Settings.agingPercentiles]),
-        backlogWindowSprints = this[Settings.backlogWindowSprints],
-        epicDriftDays = this[Settings.epicDriftDays],
-        updatedAt = this[Settings.updatedAt],
-        updatedByUserId = this[Settings.updatedByUserId]?.toUInt(),
-    )
-
     /**
      * `GET /api/v1/data-sources/{id}/metrics-config` (v0.3.0 M1 commit 4): the connection's STORED
      * configuration, or — when nothing is stored — the computed DEFAULTS ([defaultConfig]),
@@ -257,7 +144,7 @@ class MetricsConfigService(
      */
     suspend fun effectiveConfig(connectionId: UInt): DataSourceMetricsConfig = suspendTransaction(database) {
         val config = readStoredConfig(connectionId) ?: defaultConfig(connectionId)
-        withResolvedOwners(connectionId, config)
+        owners.withResolvedOwners(connectionId, config)
     }
 
     /**
@@ -367,39 +254,10 @@ class MetricsConfigService(
                 }
             }
 
-            bumpRevision()
+            settings.bumpRevision()
             val updated = readStoredConfig(connectionId) ?: defaultConfig(connectionId)
             MetricsConfigUpdateOutcome(updated, changed = true)
         }
-
-    /**
-     * `GET /api/v1/data-sources/{id}/metrics-config/options` (v0.3.0 M1 commit 4) — the reference
-     * data the metrics-config editor picks from. [workCategoryField] (the `?workCategoryField=`
-     * query param) is the ONLY optional input: when present, [DataSourceMetricsConfigOptions.workCategoryValues]
-     * is populated from that field's own distinct observed values (capped at
-     * [MAX_DISTINCT_FIELD_VALUES], alphabetically by id — [DataSourceMetricsConfigOptions.workCategoryValuesTruncated]
-     * `true` when more exist); absent, it stays empty (no field chosen yet to enumerate values for).
-     * The cap is a DISPLAY concern only — [referenceData]'s own id validation reads the full,
-     * uncapped set, so a legitimate value beyond the first 200 is still accepted on a `PUT`.
-     */
-    suspend fun options(connectionId: UInt, workCategoryField: String?): DataSourceMetricsConfigOptions = suspendTransaction(database) {
-        val profile = readProfileSections(connectionId)
-        val workCategoryValues = workCategoryField?.let { field -> workItemStore.distinctCustomFieldValues(connectionId, field) }.orEmpty()
-        DataSourceMetricsConfigOptions(
-            statuses = workItemStore.allStatusRefs(connectionId).sortedBy { it.statusId }
-                .map { MetricsStatusOption(it.statusId, it.name, it.category) },
-            fields = profile?.customFields.orEmpty().map { MetricsFieldOption(it.id, it.name, it.type, it.role) },
-            projects = workItemStore.distinctProjectKeys(connectionId).sorted(),
-            boards = workItemStore.allBoardRefs(connectionId).sortedBy { it.boardId }
-                .map { MetricsBoardOption(it.boardId, it.name, it.projectKey) },
-            issueTypes = workItemStore.distinctIssueTypes(connectionId).sorted(),
-            workCategoryValues = workCategoryValues.take(MAX_DISTINCT_FIELD_VALUES)
-                .map { (valueId, valueName) -> MetricsFieldValueOption(valueId, valueName) },
-            workCategoryValuesTruncated = workCategoryValues.size > MAX_DISTINCT_FIELD_VALUES,
-            sprints = workItemStore.allSprintRefs(connectionId).sortedBy { it.sprintId }
-                .map { MetricsSprintOption(it.sprintId, it.boardId, it.name, it.state) },
-        )
-    }
 
     /**
      * The PURGE job's generic, connector-agnostic cleanup step (v0.3.0 M1 commit 4,
@@ -421,7 +279,7 @@ class MetricsConfigService(
 
     /** Every id/value [validateDataSourceMetricsConfig] checks the request against — see [MetricsConfigReferenceData]'s own doc. */
     private suspend fun referenceData(connectionId: UInt, request: DataSourceMetricsConfigRequest): MetricsConfigReferenceData {
-        val profile = readProfileSections(connectionId)
+        val profile = dataSources.readProfileSections(connectionId)
         val activeTeamIds = TeamService.Teams.select(TeamService.Teams.id).where { TeamService.Teams.active() }
             .toList().map { it[TeamService.Teams.id].value }.toSet()
         return MetricsConfigReferenceData(
@@ -442,7 +300,7 @@ class MetricsConfigService(
         val statusStages = workItemStore.allStatusRefs(connectionId).mapNotNull { status ->
             status.category.toDefaultStage()?.let { MetricsStatusStage(status.statusId, it) }
         }
-        val profile = readProfileSections(connectionId)
+        val profile = dataSources.readProfileSections(connectionId)
         val storyPointsFieldId = profile?.customFields.orEmpty().firstOrNull { it.role == STORY_POINTS_ROLE }?.id
         val epicStartFieldId = profile?.customFields.orEmpty()
             .firstOrNull { it.name.contains(START_DATE_NAME_FRAGMENT, ignoreCase = true) }?.id
@@ -536,10 +394,6 @@ class MetricsConfigService(
         )
     }
 
-    /** `source_connections.profile`, decoded — null when the connection has never completed a PROCESS pass. */
-    private suspend fun readProfileSections(connectionId: UInt): DataProfileSections? =
-        dataSources.readProfile(connectionId)?.profileJson?.let { METRICS_PROFILE_JSON.decodeFromString(it) }
-
     /**
      * The connection's own Sprint custom field id, auto-detected from the stored data profile's
      * `customFields[].role == "SPRINT"` (`jira/JiraProfile.kt`'s schema-based discovery,
@@ -554,88 +408,6 @@ class MetricsConfigService(
      * SAME profile-role lookup [defaultConfig] already runs for `STORY_POINTS`.
      */
     suspend fun detectedSprintFieldId(connectionId: UInt): String? = suspendTransaction(database) {
-        readProfileSections(connectionId)?.customFields.orEmpty().firstOrNull { it.role == SPRINT_ROLE }?.id
-    }
-
-    /**
-     * A19/A22 (V17, commit 9d/9e, `.claude/docs/domain-model.md` "Amendments"): every project key
-     * this connection has an EXPLICITLY configured owner team for — `metrics/MetricsDeriver.kt`'s
-     * `ownerTeamByDomain` resolves per DOMAIN key (several project rows may share one), agreeing
-     * configured owners winning outright, a disagreement resolving to none, and only a project with
-     * NO configured owner at all falling back to the one mapped `board_team_map` board on it. Only
-     * rows with a non-null `owner_team_id` are returned here (an unconfigured project is simply
-     * absent, never present with a `null` value) — `ownerTeamByDomain` itself additionally drops any
-     * value pointing at a currently soft-deleted team (A22).
-     */
-    suspend fun domainOwnerTeamIds(connectionId: UInt): Map<String, UInt> = suspendTransaction(database) {
-        DomainMap.select(DomainMap.projectKey, DomainMap.ownerTeamId)
-            .where { (DomainMap.connectionId eq connectionId) and DomainMap.ownerTeamId.isNotNull() }
-            .toList().associate { it[DomainMap.projectKey] to it[DomainMap.ownerTeamId]!!.value }
-    }
-
-    /**
-     * A19/A22 (v0.3.0 M1 commit 4 / M3 commit 9e, `.claude/docs/domain-model.md` "Amendments",
-     * `.claude/docs/metrics.md`) — resolves each configured DOMAIN key's (not project's — several
-     * project rows may share one) owner team. Pure and DB-free: the ONE implementation
-     * `MetricsDeriver.ownerTeamByDomain` (the DERIVE run) and [withResolvedOwners] (the GET
-     * default/display, below) both call, rather than duplicating the agreement/fallback algorithm.
-     *
-     * 1. Every project row belonging to the domain that carries a CONFIGURED owner in
-     *    [configuredOwners] must AGREE on the same team — rows with no configured owner are
-     *    ignored when checking agreement, so a single configured row among several unconfigured
-     *    ones still "agrees" trivially. A genuine DISAGREEMENT between two or more distinct
-     *    configured owners resolves to NO owner outright — it does NOT fall through to the board
-     *    fallback below. A configured owner that is not currently ACTIVE (soft-deleted) also
-     *    resolves to no owner rather than falling through (A22 — the admin's explicit choice is
-     *    never silently replaced).
-     * 2. Absent any configured owner at all, the team of the SINGLE `board_team_map` board (also
-     *    active-team-filtered) mapped across ALL of the domain's project keys
-     *    ([boardsByProject]) — no mapped board, or more than one distinct team among several
-     *    boards across the domain's projects, resolves to no owner.
-     * 3. Otherwise absent from the map entirely — the caller's `UNOWNED`/`null` bucket.
-     */
-    fun resolveOwnerTeamByDomain(
-        projectKeysByDomain: Map<String, List<String>>,
-        configuredOwners: Map<String, UInt>,
-        boardsByProject: Map<String, List<Long>>,
-        boardTeamByBoardId: Map<Long, UInt>,
-        activeTeamIds: Set<UInt>,
-    ): Map<String, UInt> {
-        val activeBoardTeamByBoardId = boardTeamByBoardId.filterValues { it in activeTeamIds }
-        return projectKeysByDomain.mapNotNull { (domainKey, projectKeys) ->
-            val distinctConfigured = projectKeys.mapNotNull { configuredOwners[it] }.distinct()
-            val owner = when {
-                distinctConfigured.size > 1 -> null
-                distinctConfigured.size == 1 -> distinctConfigured.single().takeIf { it in activeTeamIds }
-                else -> projectKeys.flatMap { boardsByProject[it].orEmpty() }
-                    .mapNotNull { activeBoardTeamByBoardId[it] }.distinct().singleOrNull()
-            }
-            owner?.let { domainKey to it }
-        }.toMap()
-    }
-
-    /**
-     * v0.3.0 M3 commit 9e: fills every [DataSourceMetricsConfig.domains] row whose
-     * [MetricsDomainMapping.ownerTeamId] is unconfigured (`null`) with the SAME computed default
-     * [resolveOwnerTeamByDomain] would give a DERIVE run — so a `GET` always shows the owner a
-     * report/DERIVE run would actually use, whether an admin configured it explicitly or this
-     * connection is entirely unconfigured. An EXPLICITLY stored (non-null) value is never
-     * overwritten — [resolveOwnerTeamByDomain]'s own [configuredOwners] input is built from those
-     * same explicit values, so a domain that already agrees on one owner resolves to it here too.
-     */
-    private suspend fun withResolvedOwners(connectionId: UInt, config: DataSourceMetricsConfig): DataSourceMetricsConfig {
-        if (config.domains.none { it.ownerTeamId == null }) return config
-        val activeTeamIds = TeamService.Teams.select(TeamService.Teams.id).where { TeamService.Teams.active() }
-            .toList().map { it[TeamService.Teams.id].value }.toSet()
-        val configuredOwners = config.domains.mapNotNull { domain -> domain.ownerTeamId?.let { domain.projectKey to it } }.toMap()
-        val boardsByProject = workItemStore.allBoardRefs(connectionId).filter { it.projectKey != null }
-            .groupBy({ it.projectKey!! }, { it.boardId })
-        val boardTeamByBoardId = config.boards.associate { it.boardId to it.teamId }
-        val projectKeysByDomain = config.domains.groupBy({ it.domainKey }, { it.projectKey })
-        val resolved = resolveOwnerTeamByDomain(projectKeysByDomain, configuredOwners, boardsByProject, boardTeamByBoardId, activeTeamIds)
-        val domains = config.domains.map { domain ->
-            if (domain.ownerTeamId != null) domain else domain.copy(ownerTeamId = resolved[domain.domainKey])
-        }
-        return config.copy(domains = domains)
+        dataSources.readProfileSections(connectionId)?.customFields.orEmpty().firstOrNull { it.role == SPRINT_ROLE }?.id
     }
 }

@@ -432,11 +432,12 @@ class ReportDataQualityTest {
     @Test
     fun `snapshot drift and an unmapped status appear after a config change and a re-derive, and not before`() {
         val config = DerivedStubFixture.metricsConfig()
+        val metricsSettings = DerivedStubFixture.metricsSettings()
         val snapshot = MetricsTables.FactSprintSnapshot
         val live = MetricsTables.FactSprint
         val connId = runBlocking {
             val id = derivedClone()
-            DerivedStubFixture.withPinnedSettings(config) { DerivedStubFixture.derivePinned(id, config, jobId = 1u) }
+            DerivedStubFixture.withPinnedSettings(metricsSettings) { DerivedStubFixture.derivePinned(id, jobId = 1u) }
             id
         }
         try {
@@ -471,7 +472,7 @@ class ReportDataQualityTest {
                     sprintCapacities = listOf(MetricsSprintCapacity(sprintId, 77.0)),
                 ),
             )
-            DerivedStubFixture.withPinnedSettings(config) { DerivedStubFixture.derivePinned(connId, config, jobId = 2u) }
+            DerivedStubFixture.withPinnedSettings(metricsSettings) { DerivedStubFixture.derivePinned(connId, jobId = 2u) }
             waiting
         }
 
@@ -758,7 +759,7 @@ class ReportDataQualityTest {
             wl(5, a9, null, "2026-01-08", 3 * DAY_MS, 2.0), wl(6, a1, teamX, "2026-01-09", null, 1.0),
             wl(7, a1, teamX, "2025-12-20", DAY_MS, 9.0), // before the period
         )
-        val settingsConfig = DerivedStubFixture.metricsConfig()
+        val settingsConfig = DerivedStubFixture.metricsSettings()
         val settings = settingsConfig.read()
         val weekend = settings.weekendDays.toSet()
         val holidays = settings.holidays.map { LocalDate.parse(it) }.toSet()
@@ -964,10 +965,10 @@ class ReportDataQualityTest {
             val other = SyncedStubFixture.createConnection(namePrefix = "dq-roster-other", enabled = false)
             try {
                 insertMembership(account, team, startOfDay(zone, "2025-12-01"))
-                val config = DerivedStubFixture.metricsConfig()
-                val settings = config.read()
+                val metricsSettings = DerivedStubFixture.metricsSettings()
+                val settings = metricsSettings.read()
                 val client = seededClient("dq-roster")
-                val body = withMetricsSettings(config, { it.copy(hoursPerDay = 8.0) }) {
+                val body = withMetricsSettings(metricsSettings, { it.copy(hoursPerDay = 8.0) }) {
                     client.dq("from=2026-01-01&to=2026-01-31")
                 }
                 val silent = body.groups.single { it.teamId == team }

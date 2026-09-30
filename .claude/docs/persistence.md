@@ -102,7 +102,7 @@ place:
 - `TeamService` joins `UserService.Users` for the roster's display fields and the active-member
   counts, and checks member ids against active users inside the create/add transaction.
 - `TeamService.delete` (v0.3.0 M1 commit 3) WRITES `metrics/TeamMembershipService.TeamMembership`
-  and `metrics/MetricsConfigService.Settings` directly, in the SAME transaction as the team's own
+  and `metrics/MetricsSettingsService.Settings` directly, in the SAME transaction as the team's own
   soft delete: it closes/removes the team's D1 Jira-user memberships and bumps the shared
   `config_revision` — see "The `metrics` schema — configuration (V15)" below for why (a deleted
   team must never strand an account behind an `EXCLUDE`-guarded open membership it can no longer
@@ -465,12 +465,13 @@ ONE GiST index — `btree_gist` is what makes `=` available inside a GiST index 
 
 - **`metrics.settings`** — the ONE global configuration singleton (`id = 1` CHECK, seeded by the
   migration with every column at its documented default), read/written by
-  `metrics/MetricsConfigService.kt`. `time_zone` defaults to `'Europe/Warsaw'`, not UTC (main-session
+  `metrics/MetricsSettingsService.kt` (the table object `MetricsSettingsService.Settings` lives there; the eight
+  per-connection config tables stay nested in `MetricsConfigService`). `time_zone` defaults to `'Europe/Warsaw'`, not UTC (main-session
   amendment A4 — the unit is Polish; an admin can change it). `hours_per_day` is a manual setting in
   v0.3.0 (A5) — reading Jira's own time-tracking configuration is deferred to `BACKLOG.md`.
   `config_revision` is the ONE revision the whole metrics layer is built against: bumped inside
   EVERY config mutation's own transaction — this row's own PUT, `metrics/TeamMembershipService.kt`'s
-  create/update/delete (nested into the SAME transaction via `MetricsConfigService.bumpRevision`,
+  create/update/delete (nested into the SAME transaction via `MetricsSettingsService.bumpRevision`,
   since both live in the `metrics` package — not a cross-feature read), and, from a later commit on,
   every per-connection config PUT.
 - **`metrics.status_stage_map`/`field_config`/`domain_map`/`board_team_map`/`team_sprint_capacity`/
@@ -564,7 +565,7 @@ already rebuilt WHOLESALE by every DERIVE run, unlike `norm.*`'s per-issue REPLA
   `ownerTeamByDomain` (renamed from `ownerTeamByProject` — it resolves per DOMAIN key, since several
   project rows may share one, not per project; see "Owner team" in `.claude/docs/metrics.md`'s
   "Derivation corrections" for the full agreement/fallback algorithm and the A22 soft-deleted-team
-  exclusion) via `MetricsConfigService.resolveOwnerTeamByDomain` (the one shared implementation,
+  exclusion) via `DomainOwnerResolver.resolveOwnerTeamByDomain` (the one shared implementation,
   v0.3.0 M3 commit 9e). This column landed nullable and unwritable through the API in V17/commit
   9d; commit 9e added `domains[].ownerTeamId` to the per-connection metrics-config request/response
   DTO and the OpenAPI spec (`.claude/docs/metrics.md` "Domain owner team") — `MetricsConfigService

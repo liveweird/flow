@@ -8,6 +8,8 @@ import ch.nokillswit.metrics.MetricsConfigService
 import ch.nokillswit.metrics.MetricsConfigServiceKey
 import ch.nokillswit.metrics.MetricsDeriver
 import ch.nokillswit.metrics.MetricsDeriverKey
+import ch.nokillswit.metrics.MetricsSettingsService
+import ch.nokillswit.metrics.MetricsSettingsServiceKey
 import ch.nokillswit.metrics.MetricsStore
 import ch.nokillswit.metrics.MetricsStoreKey
 import ch.nokillswit.plugins.runsWorker
@@ -120,6 +122,7 @@ fun Application.configureIngestWorker() {
             syncJobs = app.attributes[SyncJobsServiceKey],
             dataSources = app.attributes[DataSourceServiceKey],
             metricsConfig = app.attributes[MetricsConfigServiceKey],
+            metricsSettings = app.attributes[MetricsSettingsServiceKey],
             metricsStore = app.attributes[MetricsStoreKey],
             deriver = app.attributes[MetricsDeriverKey],
             connectors = connectors,
@@ -163,6 +166,7 @@ class IngestWorker(
     private val syncJobs: SyncJobsService,
     private val dataSources: DataSourceService,
     private val metricsConfig: MetricsConfigService,
+    private val metricsSettings: MetricsSettingsService,
     private val metricsStore: MetricsStore,
     private val deriver: MetricsDeriver,
     private val connectors: Map<DataSourceKind, Connector>,
@@ -315,7 +319,7 @@ class IngestWorker(
         // OLD configuration. Compare the revision it recorded against the CURRENT one and enqueue a
         // fresh DERIVE if it is now stale (review round 1 fix) — coalescing again is harmless once
         // this run's own row is terminal.
-        if (claim.kind == SyncJobKind.DERIVE && deriveRevisionUsed != null && metricsConfig.currentRevision() > deriveRevisionUsed) {
+        if (claim.kind == SyncJobKind.DERIVE && deriveRevisionUsed != null && metricsSettings.currentRevision() > deriveRevisionUsed) {
             dataSources.read(claim.connectionId)?.let { connection ->
                 syncJobs.enqueueScheduled(claim.connectionId, SyncJobKind.DERIVE, connection.configRevision, clock())
             }

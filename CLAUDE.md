@@ -256,7 +256,10 @@ ch.nokillswit
 │                       (PROCESSING_VERSION, the glue), WorkItemStore.kt (per-page REPLACE (per-issue scope),
 │                       reference-row rebuilds, purge)
 ├── metrics/            v0.3.0 metrics configuration + the DERIVE job (`.claude/docs/metrics.md`):
-│                       config/memberships/Jira-users services + routes, MetricsSettings,
+│                       config/memberships/Jira-users services + routes (the config service is split: MetricsSettingsService — the
+│                       `metrics.settings` singleton + the shared revision bump; MetricsConfigService — the per-connection
+│                       config tables/PUT/PURGE drain; MetricsConfigOptions — the editor's reference data; DomainOwnerResolver
+│                       — the A19/A22 owner-team resolution), MetricsSettings,
 │                       DataSourceMetricsConfig, WorkingCalendar, MetricsDeriver + Derive*Step/
 │                       Kernels/Model/TaskRows files, MetricsStore (the batch writers) + MetricsTables (the Exposed
 │                       table objects, `MetricsTables.DimDate` …) + MetricsRows (the row shapes) (V15–V17 `metrics.*`)

@@ -125,11 +125,11 @@ class DimDateContentionTest {
     @Test
     fun `DERIVE holds no dim_date row locks, so a foreign transaction holding them never blocks it`() = runBlocking {
         val connId = preparedClone("dimdate-locks-team")
-        val config = DerivedStubFixture.metricsConfig()
-        DerivedStubFixture.withPinnedSettings(config) {
-            DerivedStubFixture.derivePinned(connId, config, jobId = 1u)
+        val metricsSettings = DerivedStubFixture.metricsSettings()
+        DerivedStubFixture.withPinnedSettings(metricsSettings) {
+            DerivedStubFixture.derivePinned(connId, jobId = 1u)
 
-            val (_, blocked) = holdingDimDateRowLocks { DerivedStubFixture.derivePinned(connId, config, jobId = 2u) }
+            val (_, blocked) = holdingDimDateRowLocks { DerivedStubFixture.derivePinned(connId, jobId = 2u) }
             assertFalse(blocked, "a re-DERIVE must finish while another transaction row-locks every dim_date row")
         }
         assertEquals("SUCCEEDED", latestRunStatus(connId))
@@ -176,19 +176,19 @@ class DimDateContentionTest {
     @Test
     fun `a calendar change rewrites dim_date rows outside the run's range, not only inside it`() = runBlocking {
         DerivedStubFixture.connectionId() // the shared derive has stamped the initial span under the settings calendar
-        val config = DerivedStubFixture.metricsConfig()
+        val metricsSettings = DerivedStubFixture.metricsSettings()
         val snapshot = snapshotDimDate()
         val before = snapshot.map { it.row }
         val farDay = LocalDate.parse("2012-03-07") // far outside any run's range (clone created ~2020s - 1y), inside the 50-year floor
-        val farRow = WorkingCalendar.of(config.read()).dimDateRows(farDay, farDay).single()
+        val farRow = WorkingCalendar.of(metricsSettings.read()).dimDateRows(farDay, farDay).single()
         DerivedStubFixture.stampDimDate(listOf(farRow), configRevision = 1L)
         val connId = preparedClone("dimdate-calendar-team")
         try {
-            DerivedStubFixture.withPinnedSettings(config) {
+            DerivedStubFixture.withPinnedSettings(metricsSettings) {
                 // A different zone (day bounds move) AND a different weekend (working flags move).
-                withMetricsSettings(config, { it.copy(timeZone = "Asia/Tokyo", weekendDays = listOf(5, 6)) }) {
-                    DerivedStubFixture.derivePinned(connId, config, jobId = 1u)
-                    val calendar = WorkingCalendar.of(config.read())
+                withMetricsSettings(metricsSettings, { it.copy(timeZone = "Asia/Tokyo", weekendDays = listOf(5, 6)) }) {
+                    DerivedStubFixture.derivePinned(connId, jobId = 1u)
+                    val calendar = WorkingCalendar.of(metricsSettings.read())
                     val after = dimDateDays()
                     assertTrue(after.any { it.day == farRow.day }, "the far-past row must survive the derive")
                     assertNotEquals(farRow, calendar.dimDateRows(farDay, farDay).single(), "the two calendars must disagree on the far day")
@@ -205,9 +205,9 @@ class DimDateContentionTest {
     @Test
     fun `ensureDimDate over a settled table writes nothing`() = runBlocking {
         DerivedStubFixture.connectionId()
-        val config = DerivedStubFixture.metricsConfig()
+        val metricsSettings = DerivedStubFixture.metricsSettings()
         val store = MetricsStore(sharedDatabaseForTests())
-        val settings = config.read()
+        val settings = metricsSettings.read()
         val calendar = WorkingCalendar.of(settings)
         val revision = settings.configRevision
         val snapshot = snapshotDimDate()
@@ -233,9 +233,9 @@ class DimDateContentionTest {
     @Test
     fun `a stale caller (A to B to A settings changes) only inserts missing days and never rewrites a row`() = runBlocking {
         DerivedStubFixture.connectionId()
-        val config = DerivedStubFixture.metricsConfig()
+        val metricsSettings = DerivedStubFixture.metricsSettings()
         val store = MetricsStore(sharedDatabaseForTests())
-        val calendarX = WorkingCalendar.of(config.read())
+        val calendarX = WorkingCalendar.of(metricsSettings.read())
         val calendarY = WorkingCalendar(ZoneId.of("Asia/Tokyo"), setOf(5, 6), emptySet())
         val snapshot = snapshotDimDate()
         val rowsBefore = snapshot.map { it.row }
@@ -244,8 +244,10 @@ class DimDateContentionTest {
         try {
             // A (calendar X) -> B (Tokyo, revision r+1) -> A again (X, revision r+2): a DERIVE that started under B is stale.
             var staleRevision = 0L
-            withMetricsSettings(config, { it.copy(timeZone = "Asia/Tokyo") }) { staleRevision = config.read().configRevision }
-            val current = config.read().configRevision
+            withMetricsSettings(metricsSettings, { it.copy(timeZone = "Asia/Tokyo") }) {
+                staleRevision = metricsSettings.read().configRevision
+            }
+            val current = metricsSettings.read().configRevision
             assertTrue(staleRevision < current, "the settings revision must have moved on since the stale run started")
 
             assertEquals(0, store.ensureDimDate(calendarY, pinned, staleRevision), "a stale caller rewrites no stored row")
@@ -271,9 +273,9 @@ class DimDateContentionTest {
     @Test
     fun `ensureDimDate commits separately from the caller's still-open transaction`() = runBlocking {
         DerivedStubFixture.connectionId()
-        val config = DerivedStubFixture.metricsConfig()
+        val metricsSettings = DerivedStubFixture.metricsSettings()
         val store = MetricsStore(sharedDatabaseForTests())
-        val settings = config.read()
+        val settings = metricsSettings.read()
         val calendar = WorkingCalendar.of(settings)
         val snapshot = snapshotDimDate()
         val firstStored = LocalDate.parse(snapshot.first().row.day)
@@ -319,9 +321,9 @@ class DimDateContentionTest {
     @Test
     fun `concurrent ensureDimDate calls queue on one advisory lock`() = runBlocking {
         DerivedStubFixture.connectionId()
-        val config = DerivedStubFixture.metricsConfig()
+        val metricsSettings = DerivedStubFixture.metricsSettings()
         val store = MetricsStore(sharedDatabaseForTests())
-        val calendar = WorkingCalendar.of(config.read())
+        val calendar = WorkingCalendar.of(metricsSettings.read())
         val range = DimDateRange(DerivedStubFixture.PINNED_NOW, DerivedStubFixture.PINNED_NOW)
         val locked = CompletableDeferred<Unit>()
         val release = CompletableDeferred<Unit>()
@@ -334,7 +336,7 @@ class DimDateContentionTest {
                 }
             }
             locked.await()
-            val ensure = async { store.ensureDimDate(calendar, range, config.read().configRevision) }
+            val ensure = async { store.ensureDimDate(calendar, range, metricsSettings.read().configRevision) }
             delay(ADVISORY_WAIT_MS)
             assertFalse(ensure.isCompleted, "ensureDimDate must wait while another transaction holds the dim_date advisory lock")
             release.complete(Unit)

@@ -5,7 +5,7 @@ import ch.nokillswit.authz.NotFoundException
 import ch.nokillswit.infra.db.containsNormalized
 import ch.nokillswit.infra.paging.PageRequest
 import ch.nokillswit.infra.paging.applyPaging
-import ch.nokillswit.metrics.MetricsConfigService.Settings as MetricsSettingsTable
+import ch.nokillswit.metrics.MetricsSettingsService.Settings as MetricsSettingsTable
 import ch.nokillswit.metrics.TeamMembershipService.TeamMembership as MetricsTeamMembershipTable
 import ch.nokillswit.users.UserService
 import io.ktor.server.plugins.BadRequestException

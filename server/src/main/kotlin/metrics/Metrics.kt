@@ -26,9 +26,12 @@ class MetricsSettingsRoute
 
 /**
  * The `metrics` package's composition root (v0.3.0 M1 commit 3, extended in commit 4): constructs
- * and publishes [MetricsConfigService] (the `metrics.settings` singleton AND, as of commit 4, the
- * per-connection `metrics-config`/`options` reads `MetricsConfigRoutes.kt` serves — hence the
- * `WorkItemStoreKey`/`DataSourceServiceKey` dependencies below) and [TeamMembershipService] (D1's
+ * and publishes [MetricsSettingsService] (the `metrics.settings` singleton), [MetricsConfigService]
+ * (as of commit 4, the per-connection `metrics-config` reads/PUT), [MetricsConfigOptions] (the
+ * editor's `options` read — those two serve `MetricsConfigRoutes.kt`, hence the
+ * `WorkItemStoreKey`/`DataSourceServiceKey` dependencies below), [DomainOwnerResolver] (the A19/A22
+ * owner-team resolution both `MetricsConfigService` and `MetricsDeriver` use; checkup D3 split the
+ * former all-in-one config service into these four) and [TeamMembershipService] (D1's
  * dated Jira-user membership), then — since the settings resource is a tiny ADMIN singleton with
  * no id of its own — registers its GET/PUT routes right here (the `plugins/Health.kt` shape: an
  * infra module that is also its own small route surface). `TeamMembershipService`'s,
@@ -41,9 +44,13 @@ fun Application.configureMetrics() {
     val database = attributes[R2dbcDatabaseKey]
     val workItemStore = attributes[WorkItemStoreKey]
     val dataSources = attributes[DataSourceServiceKey]
-    val metricsConfig = MetricsConfigService(database, workItemStore, dataSources, attributes[SyncJobsServiceKey])
+    val metricsSettings = MetricsSettingsService(database, dataSources, attributes[SyncJobsServiceKey])
+    attributes.put(MetricsSettingsServiceKey, metricsSettings)
+    val domainOwners = DomainOwnerResolver(database, workItemStore)
+    val metricsConfig = MetricsConfigService(database, workItemStore, dataSources, metricsSettings, domainOwners)
     attributes.put(MetricsConfigServiceKey, metricsConfig)
-    val teamMembership = TeamMembershipService(database, metricsConfig)
+    attributes.put(MetricsConfigOptionsKey, MetricsConfigOptions(database, workItemStore, dataSources))
+    val teamMembership = TeamMembershipService(database, metricsSettings)
     attributes.put(TeamMembershipServiceKey, teamMembership)
     val metricsStore = MetricsStore(database)
     attributes.put(MetricsStoreKey, metricsStore)
@@ -56,7 +63,9 @@ fun Application.configureMetrics() {
     // reaches the route-registration early return, but still needs this attribute present).
     attributes.put(
         MetricsDeriverKey,
-        MetricsDeriver(workItemStore, metricsConfig, teamMembership, metricsStore, database, jobRetentionDays),
+        MetricsDeriver(
+            workItemStore, metricsSettings, metricsConfig, domainOwners, teamMembership, metricsStore, database, jobRetentionDays,
+        ),
     )
 
     // The worker role serves only the health/ready probes (plugins/Health.kt) — see Role.kt.
@@ -67,14 +76,14 @@ fun Application.configureMetrics() {
             get<MetricsSettingsRoute> {
                 val caller = call.caller()
                 requireAdmin(caller)
-                call.respond(HttpStatusCode.OK, metricsConfig.read())
+                call.respond(HttpStatusCode.OK, metricsSettings.read())
             }
             put<MetricsSettingsRoute> {
                 val caller = call.caller()
                 requireAdmin(caller)
                 val request = sanitizedMetricsSettings(call.receive())
                 validateMetricsSettings(request)
-                val outcome = metricsConfig.replace(request, caller.userId)
+                val outcome = metricsSettings.replace(request, caller.userId)
                 if (outcome.changed) {
                     audit(
                         "metrics_settings.updated",

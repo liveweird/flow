@@ -22,8 +22,10 @@ import ch.nokillswit.ingest.SyncJobsService
 import ch.nokillswit.ingest.backoffMillis
 import ch.nokillswit.ingest.MAX_BACKOFF_MILLIS
 import ch.nokillswit.ingest.defaultBackfillFrom
+import ch.nokillswit.metrics.DomainOwnerResolver
 import ch.nokillswit.metrics.MetricsConfigService
 import ch.nokillswit.metrics.MetricsDeriver
+import ch.nokillswit.metrics.MetricsSettingsService
 import ch.nokillswit.metrics.MetricsStore
 import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.metrics.TeamMembershipService
@@ -73,17 +75,26 @@ class IngestWorkerTest {
         sharedDatabaseForTests(),
         WorkItemStore(sharedDatabaseForTests()),
         dataSources,
-        SyncJobsService(sharedDatabaseForTests(), 3),
+        metricsSettings(dataSources),
+        domainOwners(),
     )
+
+    /** The shared-revision dependency (`currentRevision` — the DERIVE `CONFIG_CHANGED` check) — a fresh, stateless instance. */
+    private fun metricsSettings(dataSources: DataSourceService) =
+        MetricsSettingsService(sharedDatabaseForTests(), dataSources, SyncJobsService(sharedDatabaseForTests(), 3))
+
+    private fun domainOwners() = DomainOwnerResolver(sharedDatabaseForTests(), WorkItemStore(sharedDatabaseForTests()))
 
     /** The PURGE step's OTHER generic dependency (round 1 review: `MetricsStore.purgeAll` had no caller) — a fresh, stateless instance. */
     private fun metricsStore() = MetricsStore(sharedDatabaseForTests())
 
     /** The DERIVE job's dependency (v0.3.0 M3 commit 7) — a fresh instance per test, it is stateless. */
-    private fun deriver(metrics: MetricsConfigService) = MetricsDeriver(
+    private fun deriver(dataSources: DataSourceService) = MetricsDeriver(
         WorkItemStore(sharedDatabaseForTests()),
-        metrics,
-        TeamMembershipService(sharedDatabaseForTests(), metrics),
+        metricsSettings(dataSources),
+        metricsConfig(dataSources),
+        domainOwners(),
+        TeamMembershipService(sharedDatabaseForTests(), metricsSettings(dataSources)),
         metricsStore(),
         sharedDatabaseForTests(),
     )
@@ -240,8 +251,9 @@ class IngestWorkerTest {
             jobs,
             ds,
             metricsConfig(ds),
+            metricsSettings(ds),
             metricsStore(),
-            deriver(metricsConfig(ds)),
+            deriver(ds),
             mapOf(DataSourceKind.JIRA_CLOUD to connector),
             testConfig(workerSlots = 5),
             fixedEarlyMorningClock(),
@@ -293,8 +305,9 @@ class IngestWorkerTest {
             jobs,
             ds,
             metricsConfig(ds),
+            metricsSettings(ds),
             metricsStore(),
-            deriver(metricsConfig(ds)),
+            deriver(ds),
             mapOf(DataSourceKind.JIRA_CLOUD to connector),
             testConfig(workerSlots = 500),
             fixedEarlyMorningClock(),
@@ -320,8 +333,9 @@ class IngestWorkerTest {
             jobs,
             ds,
             metricsConfig(ds),
+            metricsSettings(ds),
             metricsStore(),
-            deriver(metricsConfig(ds)),
+            deriver(ds),
             mapOf(DataSourceKind.JIRA_CLOUD to connector),
             testConfig(workerSlots = 500),
             fixedEarlyMorningClock(),
@@ -367,7 +381,7 @@ class IngestWorkerTest {
         val config = testConfig(workerSlots = 500)
         val connector = FakeConnector { } // succeeds trivially — the connector's own purgeSteps are empty here
         val worker = IngestWorker(
-            jobs, ds, metrics, metricsStore(), deriver(metrics),
+            jobs, ds, metrics, metricsSettings(ds), metricsStore(), deriver(ds),
             mapOf(DataSourceKind.JIRA_CLOUD to connector), config, System::currentTimeMillis,
         )
 
@@ -466,7 +480,7 @@ class IngestWorkerTest {
         val config = testConfig(workerSlots = 500)
         val connector = FakeConnector { }
         val worker = IngestWorker(
-            jobs, ds, metrics, store, deriver(metrics),
+            jobs, ds, metrics, metricsSettings(ds), store, deriver(ds),
             mapOf(DataSourceKind.JIRA_CLOUD to connector), config, System::currentTimeMillis,
         )
 
@@ -519,18 +533,18 @@ class IngestWorkerTest {
         val metrics = metricsConfig(ds)
         val connId = createConnection(ds)
         val worker = IngestWorker(
-            jobs, ds, metrics, metricsStore(), deriver(metrics),
+            jobs, ds, metrics, metricsSettings(ds), metricsStore(), deriver(ds),
             mapOf(DataSourceKind.JIRA_CLOUD to FakeConnector { }), testConfig(), System::currentTimeMillis,
         )
 
         val staleJobId = jobs.requestJob(connId, SyncJobKind.DERIVE, requestedByUserId = 1u, configRevision = 1L).jobId
-        val revisionAtStart = metrics.currentRevision()
+        val revisionAtStart = metricsSettings(ds).currentRevision()
         // Simulate a config PUT landing WHILE this DERIVE run was in flight — the exact race
         // `uq_sync_jobs_open_per_kind` coalescing would otherwise swallow (review round 1 fix).
         // The settings singleton is suite-global: restore it afterwards (withMetricsSettings) so
         // no later test derives under a leaked hoursPerDay.
-        withMetricsSettings(metrics, { it.copy(hoursPerDay = it.hoursPerDay + 1) }) {
-            assertTrue(metrics.currentRevision() > revisionAtStart, "the bump must actually move the shared revision")
+        withMetricsSettings(metricsSettings(ds), { it.copy(hoursPerDay = it.hoursPerDay + 1) }) {
+            assertTrue(metricsSettings(ds).currentRevision() > revisionAtStart, "the bump must actually move the shared revision")
             worker.onSucceeded(claimFor(staleJobId, connId, SyncJobKind.DERIVE), deriveRevisionUsed = revisionAtStart)
         }
 
@@ -546,12 +560,12 @@ class IngestWorkerTest {
         val metrics = metricsConfig(ds)
         val connId = createConnection(ds)
         val worker = IngestWorker(
-            jobs, ds, metrics, metricsStore(), deriver(metrics),
+            jobs, ds, metrics, metricsSettings(ds), metricsStore(), deriver(ds),
             mapOf(DataSourceKind.JIRA_CLOUD to FakeConnector { }), testConfig(), System::currentTimeMillis,
         )
 
         val jobId = jobs.requestJob(connId, SyncJobKind.DERIVE, requestedByUserId = 1u, configRevision = 1L).jobId
-        val currentRevision = metrics.currentRevision()
+        val currentRevision = metricsSettings(ds).currentRevision()
 
         worker.onSucceeded(claimFor(jobId, connId, SyncJobKind.DERIVE), deriveRevisionUsed = currentRevision)
 
@@ -566,7 +580,7 @@ class IngestWorkerTest {
         val metrics = metricsConfig(ds)
         val connId = createConnection(ds)
         val worker = IngestWorker(
-            jobs, ds, metrics, metricsStore(), deriver(metrics),
+            jobs, ds, metrics, metricsSettings(ds), metricsStore(), deriver(ds),
             mapOf(DataSourceKind.JIRA_CLOUD to FakeConnector { }), testConfig(), System::currentTimeMillis,
         )
         val reconcileJobId = jobs.requestJob(connId, SyncJobKind.RECONCILE, requestedByUserId = 1u, configRevision = 1L).jobId
@@ -584,7 +598,7 @@ class IngestWorkerTest {
         val metrics = metricsConfig(ds)
         val connId = createConnection(ds)
         val worker = IngestWorker(
-            jobs, ds, metrics, metricsStore(), deriver(metrics),
+            jobs, ds, metrics, metricsSettings(ds), metricsStore(), deriver(ds),
             mapOf(DataSourceKind.JIRA_CLOUD to FakeConnector { }), testConfig(), System::currentTimeMillis,
         )
         val reprocessJobId = jobs.requestJob(connId, SyncJobKind.REPROCESS, requestedByUserId = 1u, configRevision = 1L).jobId
@@ -607,7 +621,7 @@ class IngestWorkerTest {
         val config = testConfig(workerSlots = 500)
         val connector = FakeConnector { error("simulated connector purge failure") }
         val worker = IngestWorker(
-            jobs, ds, metrics, metricsStore(), deriver(metrics),
+            jobs, ds, metrics, metricsSettings(ds), metricsStore(), deriver(ds),
             mapOf(DataSourceKind.JIRA_CLOUD to connector), config, System::currentTimeMillis,
         )
 
@@ -654,8 +668,9 @@ class IngestWorkerTest {
             jobs,
             ds,
             metricsConfig(ds),
+            metricsSettings(ds),
             metricsStore(),
-            deriver(metricsConfig(ds)),
+            deriver(ds),
             mapOf(DataSourceKind.JIRA_CLOUD to connector),
             config,
             System::currentTimeMillis,

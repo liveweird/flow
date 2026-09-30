@@ -39,13 +39,12 @@ class MetricsAnalyzeTest {
         SyncedStubFixture.ensureMigrated()
         val connId = SyncedStubFixture.createConnection(namePrefix = "jira-analyze-clone", enabled = false)
         SyncedStubFixture.cloneProcessedData(SyncedStubFixture.connectionId(), connId)
-        val config = DerivedStubFixture.metricsConfig()
-        DerivedStubFixture.mapFloBoardToNewTeam(connId, config, "analyze-team")
+        DerivedStubFixture.mapFloBoardToNewTeam(connId, DerivedStubFixture.metricsConfig(), "analyze-team")
 
         val startedAt = jdbc { conn ->
             conn.createStatement().use { st -> st.executeQuery("SELECT clock_timestamp()").use { rs -> rs.next(); rs.getTimestamp(1) } }
         }
-        DerivedStubFixture.withPinnedSettings(config) { DerivedStubFixture.derivePinned(connId, config, jobId = 1u) }
+        DerivedStubFixture.withPinnedSettings(DerivedStubFixture.metricsSettings()) { DerivedStubFixture.derivePinned(connId, jobId = 1u) }
 
         // The stats collector reports asynchronously (a second or so after commit): poll, never sleep blind.
         var polls = 0

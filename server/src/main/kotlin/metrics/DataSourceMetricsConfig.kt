@@ -32,7 +32,7 @@ data class MetricsFieldConfig(
  * [domainKey] must carry the same [ownerTeamId] (null or equal — [validateDataSourceMetricsConfig]
  * 400s a disagreement). Left unconfigured (`null`) on a stored row, `MetricsConfigService`'s GET
  * fills it with the SAME computed default `MetricsDeriver`'s own DERIVE run would resolve — see
- * `MetricsConfigService.resolveOwnerTeamByDomain`.
+ * `DomainOwnerResolver.resolveOwnerTeamByDomain`.
  */
 @Serializable
 data class MetricsDomainMapping(val projectKey: String, val domainKey: String, val domainName: String, val ownerTeamId: UInt? = null)
@@ -202,7 +202,7 @@ fun validateDataSourceMetricsConfig(request: DataSourceMetricsConfigRequest, ref
  * inactive `ownerTeamId` (A19/A22, v0.3.0 M3 commit 9e — the `boards[].teamId` idiom), and every
  * project row of the SAME `domainKey` agreeing on one owner (null or equal) — a genuine
  * disagreement is a malformed request, never silently resolved to "no owner" here (the DERIVE-time
- * resolution does that instead, see `MetricsConfigService.resolveOwnerTeamByDomain`).
+ * resolution does that instead, see `DomainOwnerResolver.resolveOwnerTeamByDomain`).
  */
 private fun validateDomains(domains: List<MetricsDomainMapping>, ref: MetricsConfigReferenceData) {
     domains.forEach { domain ->
@@ -261,7 +261,7 @@ data class MetricsFieldValueOption(val valueId: String, val valueName: String?)
 /**
  * `GET /api/v1/data-sources/{id}/metrics-config/options` (v0.3.0 M1 commit 4) — the reference data
  * the metrics-config editor picks from; [workCategoryValues] is empty unless `?workCategoryField=`
- * names a field id (`MetricsConfigService.options`). [workCategoryValuesTruncated] is `true` when
+ * names a field id (`MetricsConfigOptions.options`). [workCategoryValuesTruncated] is `true` when
  * the field carries more than `WorkItemStore`'s distinct-value cap (200) — the response still
  * shows the first 200 (alphabetically by id) rather than growing unbounded for a poorly-chosen
  * high-cardinality field.

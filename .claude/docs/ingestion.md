@@ -88,7 +88,7 @@ if one is already open); a `DERIVE` run itself enqueues nothing UNLESS the share
 `metrics.settings.config_revision` moved WHILE it was running (a config PUT that coalesced into the
 already-open job rather than getting its own — review round 1 fix, `derive()`'s return value is the
 revision the run actually used, compared against `metricsConfig.currentRevision()` in `onSucceeded`).
-`MetricsConfigService.bumpRevision` — every global-settings PUT, team-membership mutation, and
+`MetricsSettingsService.bumpRevision` — every global-settings PUT, team-membership mutation, and
 per-connection metrics-config PUT — separately enqueues a `DERIVE` for EVERY enabled, active
 connection (not just the one edited), since a configuration change must reach every connection's
 derived numbers.

@@ -2,7 +2,7 @@ package ch.nokillswit.reports
 
 import ch.nokillswit.infra.db.active
 import ch.nokillswit.ingest.DataSourceService
-import ch.nokillswit.metrics.MetricsConfigService
+import ch.nokillswit.metrics.MetricsSettingsService
 import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.metrics.TeamMembershipService
 import ch.nokillswit.norm.WorkItemStore
@@ -38,11 +38,11 @@ class ReportService(
     // internal, not private: `VelocityReport.kt`'s `ReportService.velocity()` extension (same
     // package, the `.claude/docs/reports.md` "past ~120 lines -> a new file" idiom) needs both.
     internal val database: R2dbcDatabase,
-    internal val metricsConfig: MetricsConfigService,
+    internal val metricsSettings: MetricsSettingsService,
     private val teamMembership: TeamMembershipService,
 ) {
     suspend fun filters(nowMs: Long): ReportFilters = suspendTransaction(database) {
-        val settings = metricsConfig.read()
+        val settings = metricsSettings.read()
 
         val teamRows = TeamService.Teams.selectAll().where { TeamService.Teams.active() }
             .orderBy(TeamService.Teams.name)

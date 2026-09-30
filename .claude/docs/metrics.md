@@ -9,14 +9,16 @@ reports API that reads this layer is `.claude/docs/reports.md`.
 ## Configuration model
 
 Two layers of configuration exist, both change-tracked through the SAME shared
-`metrics.settings.config_revision` counter (`metrics/MetricsConfigService.kt`):
+`metrics.settings.config_revision` counter (`metrics/MetricsSettingsService.kt`; the per-connection config
+lives in `MetricsConfigService.kt`, the editor options in `MetricsConfigOptions.kt`, owner resolution in
+`DomainOwnerResolver.kt` — the checkup-D3 split of the former all-in-one config service):
 
 - **Global settings** (`GET/PUT /api/v1/metrics-settings`, v0.3.0 M1 commit 3) — the ONE
   `metrics.settings` singleton: the calendar (time zone, weekend days, holidays), `hoursPerDay`,
   commitment grace, minimum sample size, the aging-WIP window/percentiles, the backlog-in-sprints
   window and the epic-drift threshold. See `MetricsSettingsResponse`/`Request` in
   `metrics/MetricsSettings.kt`. A PUT that changes anything bumps the revision through
-  `MetricsConfigService.bumpRevision`, which enqueues `DERIVE` for every enabled, active
+  `MetricsSettingsService.bumpRevision`, which enqueues `DERIVE` for every enabled, active
   connection; an identical re-PUT bumps and enqueues nothing.
 - **Per-connection configuration** (`GET/PUT /api/v1/data-sources/{id}/metrics-config`, v0.3.0 M1
   commit 4) — everything that is specific to one Jira connection's own data shape: status → stage,
@@ -74,7 +76,7 @@ a `404` and never an empty shell an admin has to fill in from scratch before rep
 **Validation — the client-supplied-FK idiom, `400` never `404`** (there is no path id inside the
 body): every id `DataSourceMetricsConfigRequest` carries is checked against exactly this
 connection's own reference data (`metrics/DataSourceMetricsConfig.kt`'s `MetricsConfigReferenceData`,
-computed by `MetricsConfigService.replaceConfig`/`.referenceData`):
+computed by `MetricsConfigService.replaceConfig`/`.referenceData`; the editor's `options` read is `MetricsConfigOptions.options`):
 
 - `statusStages[].statusId` and `blockedStatuses[]` → `norm.statuses` (`WorkItemStore.allStatusRefs`).
 - Every non-null field id (`fields.*`) → the stored data profile's `customFields` ids, plus the one
@@ -126,11 +128,11 @@ through this API (it landed schema-only in V17, commit 9d — see `.claude/docs/
 longer carries a prior value forward across its own full-replace (the request now owns it
 outright). The agreement/board-fallback algorithm itself — "every project row of a domain that
 carries a configured owner must agree; absent one, fall back to the domain's single mapped board's
-team; otherwise no owner" — lives in exactly ONE place, `MetricsConfigService
+team; otherwise no owner" — lives in exactly ONE place, `DomainOwnerResolver
 .resolveOwnerTeamByDomain`, a pure function both `MetricsDeriver.ownerTeamByDomain` (the DERIVE
 run, reading the EXPLICIT, DB-fresh `domain_map.owner_team_id` values via
-`MetricsConfigService.domainOwnerTeamIds`) and this service's own `GET` (`effectiveConfig` →
-`withResolvedOwners`) call — never duplicated. **`GET` always shows the resolved owner, not just
+`DomainOwnerResolver.domainOwnerTeamIds`) and this service's own `GET` (`MetricsConfigService.effectiveConfig` →
+`DomainOwnerResolver.withResolvedOwners`) call — never duplicated. **`GET` always shows the resolved owner, not just
 the raw stored value**: a `domains[]` row whose `ownerTeamId` is unset (`null`, whether the
 connection is otherwise `configured` or the row is one of `defaultConfig`'s own computed rows)
 is filled in with `resolveOwnerTeamByDomain`'s own board-fallback default — the SAME figure a
@@ -654,11 +656,11 @@ A18/A19/A21 describe. This commit closes all five, backed by the additive V17 co
 - **Owner team (A19, A22) — storage and derivation, per DOMAIN not per project; the config API
   landed in commit 9e (see "Domain owner team" above).** `MetricsDeriver.ownerTeamByDomain`
   (renamed from `ownerTeamByProject`) resolves each DOMAIN's (not project's — several project rows
-  may share one `domainKey`) owner via `MetricsConfigService.resolveOwnerTeamByDomain` (moved
+  may share one `domainKey`) owner via `DomainOwnerResolver.resolveOwnerTeamByDomain` (moved
   there in commit 9e so there is ONE implementation, shared with the config `GET`'s own owner
   defaulting):
   1) every project row of the domain that carries a CONFIGURED owner
-  (`metrics.domain_map.owner_team_id`, `MetricsConfigService.domainOwnerTeamIds`, filtered to
+  (`metrics.domain_map.owner_team_id`, `DomainOwnerResolver.domainOwnerTeamIds`, filtered to
   currently ACTIVE teams first — A22, a soft-deleted team's mapping resolves as if unconfigured)
   must AGREE — rows with no configured owner are ignored when checking agreement (a single
   configured row among unconfigured ones still "agrees" trivially); a genuine DISAGREEMENT between

@@ -3,7 +3,7 @@ package ch.nokillswit
 import ch.nokillswit.ingest.SyncJobsService
 import ch.nokillswit.metrics.FactEpicDeliveryRow
 import ch.nokillswit.metrics.FactTaskDeliveryRow
-import ch.nokillswit.metrics.MetricsConfigService
+import ch.nokillswit.metrics.MetricsSettingsService
 import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.reports.Distribution
 import java.math.BigDecimal
@@ -64,20 +64,19 @@ internal fun assertDistribution(label: String, expected: List<Double>, actual: D
     assertEquals(expected.size.toLong(), actual.histogram.sumOf { it.count }, "$label histogram counts must sum to n")
 }
 
-/** A `MetricsConfigService` over the shared test database — `DerivedStubFixture`'s own construction. */
-private fun estimationMetricsConfig() = MetricsConfigService(
+/** A `MetricsSettingsService` over the shared test database — `DerivedStubFixture`'s own construction. */
+private fun estimationMetricsSettings() = MetricsSettingsService(
     sharedDatabaseForTests(),
-    SyncedStubFixture.workItems(),
     SyncedStubFixture.dataSources(),
     SyncJobsService(sharedDatabaseForTests(), 3),
 )
 
 /** Runs [block] with `metrics.settings.min_sample_size` pinned to [size], restoring the exact prior settings afterwards. */
 internal suspend fun <T> withMinSampleSize(size: Int, block: suspend () -> T): T =
-    withMetricsSettings(estimationMetricsConfig(), { it.copy(minSampleSize = size) }, block)
+    withMetricsSettings(estimationMetricsSettings(), { it.copy(minSampleSize = size) }, block)
 
 internal suspend fun reportZone(): ZoneId = suspendTransaction(sharedDatabaseForTests()) {
-    ZoneId.of(MetricsConfigService.Settings.selectAll().toList().single()[MetricsConfigService.Settings.timeZone])
+    ZoneId.of(MetricsSettingsService.Settings.selectAll().toList().single()[MetricsSettingsService.Settings.timeZone])
 }
 
 /** `[fromMs, toMs)` for inclusive ISO dates in [zone] — the reports' own exclusive-`to` convention, re-derived. */

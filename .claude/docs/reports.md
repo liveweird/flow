@@ -175,7 +175,7 @@ transaction, listed in `.claude/docs/persistence.md`'s cross-feature-read rule:
 `reports/ReportRoutes.kt`'s `configureReportRoutes()` is this package's composition root -- it
 mirrors `metrics/Metrics.kt`'s own shape rather than `infra/db/Database.kt`'s: this package
 composes services `configureDatabase`/`configureJira`/`configureMetrics` have ALREADY published
-(`MetricsConfigServiceKey`, `TeamMembershipServiceKey`), so it constructs and publishes
+(`MetricsSettingsServiceKey`, `TeamMembershipServiceKey`), so it constructs and publishes
 `ReportService` right here, inside its own configure function, rather than in `Database.kt` itself
 -- which runs BEFORE `configureMetrics` and so cannot see those keys yet. Registered in
 `application.yaml` in the "-- features" group, after the metrics feature routes it reads from.
