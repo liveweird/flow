@@ -55,7 +55,14 @@ export default defineConfig({
     globals: true,
     environment: 'happy-dom',
     setupFiles: ['./src/test/setup.ts'],
-    css: true,
+    // No CSS is processed under happy-dom (it lays nothing out; the Mantine `env="test"` rule
+    // already bypasses CSS-dependent visibility) — EXCEPT src/index.css, which theme.test.ts reads
+    // `?raw` to pin its first-paint hexes to the canvas tokens. Measured in build-times.md (WHY 6).
+    css: { include: [/src[\\/]index\.css/] },
+    // Worker threads instead of forked processes: same isolation per file (the module registry is
+    // per worker either way), but a cheaper spawn — measured -6 % wall and -30 % sys time on the
+    // CI-shaped 3-worker run (build-times.md, WHY 6). Not `isolate: false` — see the same entry.
+    pool: 'threads',
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html'],

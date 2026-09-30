@@ -163,10 +163,46 @@ evidence and recorded here as a dated entry (finding + fix, or "measured, intend
    `coverage.md`/`gaps.txt`; 59-62 false gaps), duplicates the per-fork Postgres + ~30 s sync + derived
    fixture (sum of class time 367 → 499 → 608 s), and Kover across forks is unverified. Expect only
    -15-25 % on 4 vCPU. Do it LAST, and only if CI is still over target after the fixes above.
-6. **Web job growth is unexplored.** 1m16s → ~2m20s median in four days; the latest master run spent
-   1m22s (68 %) in `npm run test:coverage` (`ci-times.mjs --steps web`), lint 12 s, `npm ci` 10 s,
-   build 7 s. Why does the vitest suite of a small SPA take 82 s on the runner — how long does it take
-   locally, and which files dominate (a `slow-tests`-style breakdown for vitest does not exist yet)?
+6. **Web job growth — measured 2026-09-30 (checkup A17).** 1m16s → ~2m20s median in four days; the
+   latest master run spent 1m22s (68 %) in `npm run test:coverage`, lint 12 s, `npm ci` 10 s, build 7 s.
+   Locally (18 cores; every count and time below is from before the A7 test landed — 108 files, 866 tests) the suite takes **12.5-13.4 s** (`real`; 143-159 s user +
+   28-32 s sys of CPU), so the runner's 82 s is CPU-bound, not a slow file: `--maxWorkers=3` (a 4 vCPU
+   runner's default) reproduces it at **34-44 s** on the same machine. vitest's own breakdown (summed
+   over files): tests 47-56 %, **setup 24-32 %**, environment 10-14 %, import 5-7 %, transform 2-5 %.
+   Where it goes:
+   - **Isolation is the fixed cost.** Every file gets a fresh worker (`Isolate  108 workers spawned ·
+     ~145 ms startup each`) and re-runs `src/test/setup.ts`. One no-op test file costs 152 ms with no
+     setup file, 246 ms with only `../i18n` (both locale bundles), ~300 ms with only `@mantine/core`,
+     and 428 ms with the real `setup.ts` — so ~275 ms x 108 files = ~30 s of CPU (about 20 %) is the
+     setup import, before any test runs. About 20 of the 43 `.ts` test files render nothing, but a
+     lean setup for them would save only ~6 s of CPU (~4 %) — not pursued.
+   - **`isolate: false` halves the run** (`--no-isolate`, `--maxWorkers=3`: 17-18 s vs ~40 s) **but is not
+     safe today**: 9-15 tests fail, a different set per run — the chart tests (`vi.mock("@mantine/charts")`
+     factories: `DistributionHistogram`, `DistributionPanel`, `VelocityChart`, `SprintConsistencyChart`,
+     `EpicProgressChart`, …), `useDeleteConfirm`, `Users`, and the report pages built on them leak
+     module mocks and stubs across files sharing a worker. This is the one big lever: make those files
+     isolation-clean (`vi.resetModules`/per-file mock reset), then flip it. Open follow-up, not a
+     config flag to try again as-is.
+   - **`css: true` processed every Mantine stylesheet in every file for nothing** — happy-dom lays
+     nothing out and the `env="test"` rule already bypasses CSS-dependent visibility. Changed to
+     `css: { include: [/src[\\/]index\.css/] }`: only `src/index.css` is still processed, because
+     `theme.test.ts` reads it `?raw` (a plain `css: false` fails exactly that one test; every other
+     file, `chartColors.test.ts` included, never touches CSS). Interleaved 4 rounds, 3 workers:
+     37.0 s → 34.9 s median (-6 %), user CPU -5 s.
+   - **`pool: 'threads'`** (worker threads instead of forked processes; still one module registry per
+     file): interleaved 4 rounds, 3 workers: 37.0 s → 34.7 s (-6 %), sys time 13.7 s → 9 s. All 866
+     tests green in every run.
+   - **Both together** (measured separately above, each kept because it is green and consistently
+     faster): 3 workers **37.0 s → 32.7 s interleaved (-12 %), and 29-32 s in four later runs vs 34-44 s
+     before**; default 18 workers 12.9 s → 11.5 s (-11 %; CPU user+sys ~183 s → ~157 s). Coverage figures identical (statements
+     96.57, branches 92.68, functions 94.73, lines 98.42 — thresholds untouched). Coverage instrumentation
+     itself costs ~15 % (`--coverage` 42 s vs 36 s without, 3 workers) and stays: it is a gate.
+   - **Did not help / not tried:** narrowing `coverage.include` (not measured — the untested-file scan is
+     small next to the 108 workers' startup), and `isolate: false` (unsafe, above). Expected CI effect:
+     ~72 s of vitest (-12 %, the 3-worker figure applied to 82 s); the `web` job budget (1.5 min target)
+     still needs the isolation fix to be met — re-measure with `ci-times.mjs --steps web` after the first
+     master run.
+
 7. **The nightly `e2e` grew +120 % in 3 days** (3m31s → 7m48s) with no e2e budget or step breakdown:
    is it the growing compose image build, the stack start-up, or the Playwright specs (reports batches
    landed 09-29)? Run `ci-times.mjs --workflows e2e --steps e2e`.
