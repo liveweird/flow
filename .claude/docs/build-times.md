@@ -93,7 +93,7 @@ below, never a failing check.
 | Measure | Target | Ceiling | Reasoning / measured |
 |---|---|---|---|
 | `stub-clone` (`cloneProcessedData`) | 0.5 s | 1.5 s | an `INSERT … SELECT` of the same 14 tables measured 220 ms; the Exposed clone takes 3.6 s |
-| `stub-process` (PROCESS, 1,200 issues) | 3 s | 8 s | ~2.5 ms per issue is generous for one indexed read plus a handful of writes; measured 16 s |
+| `stub-process` (PROCESS, 1,200 issues) | 3 s | 8 s | ~2.5 ms per issue is generous for a page-batched read plus a handful of batched writes; measured 2.4-3.2 s after the page batching (2026-09-30), was 16-19 s at 13.5-15 ms per issue |
 | `stub-derive` (one DERIVE of the stub) | 1 s | 3 s | 1,200 items, ~1,300 days; measured 2.5-2.9 s WITH the statistics fix, 7-26 s without |
 | `derive-perf` (scale-20, ~24k issues, `docker-compose.perf.yaml`) | 20 s | 180 s | 20x the stub at 1 s; the ceiling is the v0.3.0 plan budget (< 3 min); measured 82 s |
 
@@ -147,6 +147,66 @@ plus a regression pin). Production caveat: at 24k issues the WIP team/task state
 per row after ANALYZE (its two correlated sub-selects), so the documented 46.7 s WIP figure may be
 that, not statistics — the effect of ANALYZE at scale 20 is NOT measured.
 
+**Cause found: PROCESS paid ~13 statement round trips and one transaction PER ISSUE (2026-09-30,
+`perf/process-speed`).** Measured with temporary per-statement timers (local, 18 cores, the 1,200-issue
+stub, a clone of the synced raw rows, `needs_processing` on every issue; instrumentation removed):
+
+| Per issue (before) | ms, unpooled test DB | ms, pooled |
+|---|---|---|
+| first statement of the transaction (`SELECT 1` probe: connection open + BEGIN) | **4.2** | 0.22-0.29 |
+| the `raw.jira_issues` PK read (payload included) after it | 0.5 | 0.26-0.32 |
+| changelog read / worklog read | 0.55 / 0.55 | 0.26 / 0.25 |
+| 4 `DELETE`s by `(connection_id, issue_id)` (indexed, `V13`) | 0.45-0.52 each | 0.21-0.26 each |
+| 4 `batchInsert`s (status / field intervals / field changes / worklogs) | 1.25 / 1.5 / 1.2 / 0.7 | 0.53-0.64 / 0.89-1.1 / 0.69-0.84 / 0.4-0.5 |
+| existing-row select + `work_items` insert/update | 0.7 + 0.53 | 0.27-0.32 + 0.29-0.35 |
+| `markProcessed` update | 0.43 | 0.24-0.29 |
+| normalize (pure) | 0.12 | 0.10 |
+| **per issue / 1,200-issue pass** | **14.4-15.5 ms / 16.3-18.9 s** | **5.7-7.0 ms / 6.9-8.5 s** (the pooled runs include four probe statements, ~1 ms) |
+
+- **The "4.8 ms PK read" was not a read.** It was the connection: the FIRST statement of every
+  per-issue transaction paid 4.2 ms (a second `SELECT 1` in the same transaction: 0.14 ms), while the
+  read itself is 0.5 ms and the payload decode 0.4 ms. `TestEnvironment.kt`'s `sharedTestDatabase` is
+  `R2dbcDatabase.connect(url, …)` — UNPOOLED, one new PostgreSQL backend per `suspendTransaction`
+  (`persistence.md` "Connection pool" forbids exactly that in production, where `connectPooled` is
+  used). So the profiled 16 s was ~5 s of test-harness connection setup plus ~11 s of the real cost;
+  production PROCESS through the pool measured 6.9-8.5 s per pass, not 16 s.
+- **The real cost is round trips: ~13 statements and a transaction per issue** (BEGIN/COMMIT, three
+  reads, four deletes, four inserts, a select, an upsert, a mark) at ~0.25-0.5 ms each. Nothing was
+  missing an index (no `EXPLAIN` was needed: every DELETE/read is an indexed `(connection_id,
+  issue_id)` lookup whose 0.2-0.5 ms wall time is a round trip, cf. 0.09-0.14 ms for a bare `SELECT 1`) and no query returned a big payload.
+- **Fix: one transaction and ~13 statements per PAGE of 50** (`JiraProcessStream`,
+  `WorkItemStore.replaceWorkItems`, `JiraRawStore.issuesForProcessing`/`changelogPayloadsForIssues`/
+  `worklogPayloadsForIssues`/`markProcessedBatch` — ingestion.md "PROCESS batching, failure
+  isolation and progress"): `IN (…)` reads, in-memory normalization, one delete + one `batchInsert`
+  per table, one `batchUpsert` of `work_items`, one mark; a DB error in the page write falls back to
+  the per-issue path so failure isolation is unchanged. **No migration** (the indexes were right).
+  Now: **2.4-3.2 s per pass (~2-2.7 ms per issue) on either database**; what is left is Exposed's
+  per-ROW batch cost (~0.15 ms per inserted row: field intervals ~0.8 s, field changes ~0.6 s, status
+  intervals ~0.45 s, the `work_items` upsert ~0.2 s of the ~2.5 s; reads 0.07 s, normalize 0.09 s).
+  "Byte-identical rows" is established two ways. WITHIN the new code, by the digests:
+  `NormalizationPipelineTest`'s REPROCESS digest (now over `norm.work_items` minus `processed_at`,
+  the status/field intervals, the field changes and `norm.work_item_worklogs`, so the `batchUpsert`
+  rewrite is pinned directly), the one-issue-page digest, the invariant sweep, `SyncedStubFixtureTest`'s
+  clone digest and `MetricsDigestTest`'s REPROCESS-then-DERIVE digest. AGAINST master's per-issue
+  code, once (2026-09-30, a temporary scratch test, removed): the same MD5 over all of those tables of
+  the full-SYNC stub connection is `6b35a794d3360bec2f01ce30de8ecd7c` on master `4363cd4` and on this
+  change.
+- **Side finding fixed in the same change:** `issuesToProcess` re-claimed the lowest stale ids on
+  every loop turn, so an issue that failed (and stays flagged) kept `PROCESS` spinning forever; it is
+  now keyset-paged (`afterIssueId`), each stale issue is visited once per run.
+- **Scale 20 (24k issues), projected from the per-issue figures (NOT measured at scale):** before
+  ~5.4 min against the unpooled numbers (~2.3 min pooled — the production shape); after ~1 min. The
+  first v0.3.0 deploy reprocesses the whole tenant, so this is the number that matters there.
+- **Whole suite, local, `./gradlew cleanTest build` on master `4363cd4` vs this change** (one run
+  each, 18 cores; the "after" run also carries three NEW ~6 s tests): wall **7m05s → 5m55s**, sum of
+  class times **6m46s → 5m40s** (784 → 787 tests). Classes: `NormalizationPipelineTest` 1m27s → 52s,
+  `DataProfileTest` 46s → 23s (its one-time shared sync: 45 s → 23 s), `MetricsDigestTest` 46s → 33s
+  (`REPROCESS then DERIVE` 29 s → 16 s), `JiraSyncPipelineTest` 7.9 s → 8.1 s (it only READS the
+  shared sync). `MetricsDerivationTest` (1m26s → 1m29s) is DERIVE-bound and unchanged. CI (4 vCPU)
+  should gain more in absolute terms: its PROCESS-bearing classes were the ones that grew there.
+  Still over the 3 min local target — the rest is DERIVE (question 3) and the unpooled harness
+  database (question 10).
+
 Open questions — each is "why does this take this long for a tiny dataset?", to be answered with
 evidence and recorded here as a dated entry (finding + fix, or "measured, intended because …"):
 
@@ -155,13 +215,7 @@ evidence and recorded here as a dated entry (finding + fix, or "measured, intend
    `information_schema`, serial ids skipped) of the same 14 tables took 220 ms with an identical
    status-interval digest. Why do we round-trip 1,200 items through the JVM to copy them? Target
    `stub-clone` 0.5 s. Estimated -54 s locally.
-2. **PROCESS is 13.5 ms per issue** (16.3 s per pass of 1,200 issues, identical with and without
-   ANALYZE). Reading the raw issue by primary key takes ~4.8 ms — suspicious for a PK lookup, likely
-   payload decode; `replaceWorkItem` ~7.4 ms for ~10 statements; the normalizer itself 0.1 ms. Why is
-   an indexed read 50x slower than it should be? Five full passes per suite cost ~98 s (fixture sync
-   1, `NormalizationPipelineTest` REPROCESS digest 2, the tombstone test 1, `MetricsDigestTest`
-   REPROCESS 1); the REPROCESS-digest test could clone the PROCESSED state and run one pass (-16 s).
-   Target `stub-process` 3 s.
+2. **PROCESS was 13.5 ms per issue — ANSWERED 2026-09-30, see "Cause found: PROCESS" above.**
 3. **DERIVE's JVM passes.** Even with ANALYZE ~70 % of a DERIVE is JVM-side batched loops: pass 1 +
    pass 2 ~1.6 s and the sprint + worklog steps ~0.5 s for 1,200 items (the `dim_date` upsert alone is
    ~150 ms for 1,281 days). Why does computing facts for 1,200 rows cost 1.6 s? Target `stub-derive` 1 s
@@ -242,6 +296,13 @@ evidence and recorded here as a dated entry (finding + fix, or "measured, intend
    wall time is unmeasured.
 9. **`images` is one 2m25s step** (`docker compose build`), +30 % since 09-26 with a cold layer cache
    each run. Is the layer cache being used at all (is there a `cache-from`)? Not investigated.
+10. **The shared test database is unpooled.** `sharedTestDatabase` (`TestEnvironment.kt`) opens a
+   fresh PostgreSQL backend per `suspendTransaction` (~4.2 ms measured; a pooled connection answers a
+   first statement in ~0.25 ms). Every test-side service call, fixture clone and read helper pays it;
+   the suite runs thousands of transactions. Not changed by the PROCESS fix (it is a test-wide
+   harness change: pool size vs tests that hold a transaction open while another call runs,
+   `ConnectionPoolTest`'s expectations). Worth measuring: a pooled `sharedTestDatabase` (`maxSize` 20
+   like production) and a full-suite run.
 
 **What the suite is made of (local, pre-fix run, 782 tests, 12m30s of class time):**
 `MetricsDerivationTest` 5m55s (47 %), `MetricsDigestTest` 2m00s (16 %), `NormalizationPipelineTest`
