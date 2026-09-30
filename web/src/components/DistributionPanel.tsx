@@ -5,6 +5,7 @@ import type { Distribution } from "../api/reports";
 import { histogramLabels, type ValueFormat } from "../utils/reportFormat";
 import LoadingBlock from "./LoadingBlock";
 import MinSampleNotice from "./MinSampleNotice";
+import ScrollRegion from "./ScrollRegion";
 
 // The histogram (and with it recharts) rides its own lazy chunk.
 const DistributionHistogram = lazy(() => import("./DistributionHistogram"));
@@ -73,7 +74,7 @@ export default function DistributionPanel({
           <Suspense fallback={<LoadingBlock />}>
             <DistributionHistogram rows={rows} name={title} xAxisLabel={axisLabel} />
           </Suspense>
-          <Table.ScrollContainer minWidth={260}>
+          <ScrollRegion label={`${t("reports.distribution.histogramTable")} — ${title}`} minWidth={260}>
             <Table verticalSpacing={4} aria-label={`${t("reports.distribution.histogramTable")} — ${title}`}>
               <Table.Thead>
                 <Table.Tr>
@@ -91,7 +92,7 @@ export default function DistributionPanel({
                 ))}
               </Table.Tbody>
             </Table>
-          </Table.ScrollContainer>
+          </ScrollRegion>
         </>
       )}
     </Stack>

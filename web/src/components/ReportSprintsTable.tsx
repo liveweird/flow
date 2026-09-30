@@ -1,11 +1,11 @@
 import { useTranslation } from "react-i18next";
-import { Badge, Group, Table, Text } from "@mantine/core";
+import { Badge, Group, Text } from "@mantine/core";
 import type { ReportFilters } from "../api/reports";
 import { formatDate } from "../utils/formatDate";
 import { teamLabel } from "../utils/reportFormat";
 import { sortSprints, type SprintIdentity } from "../utils/reportSprints";
-import classes from "../theme.module.css";
 import ColumnTable, { type ColumnDef } from "./ColumnTable";
+import ScrollRegion from "./ScrollRegion";
 
 export type SprintColumn<S> = ColumnDef<S>;
 
@@ -60,22 +60,13 @@ export default function ReportSprintsTable<S extends SprintIdentity & { drift: b
     },
   ];
   return (
-    // A native scroller that is itself focusable: a table wider than the page (sprint consistency's ten
-    // columns) scrolls sideways, and the keyboard must reach it (axe: scrollable-region-focusable).
-    <Table.ScrollContainer
-      type="native"
-      minWidth={minWidth}
-      className={classes.tableScroll}
-      tabIndex={0}
-      role="region"
-      aria-label={t("reports.sprints.tableAria")}
-    >
+    <ScrollRegion label={t("reports.sprints.tableAria")} minWidth={minWidth}>
       <ColumnTable
         aria-label={t("reports.sprints.tableAria")}
         columns={columnsWithIdentity}
         rows={sortSprints(sprints)}
         rowKey={(sprint) => `${sprint.teamId}:${sprint.sprintId}`}
       />
-    </Table.ScrollContainer>
+    </ScrollRegion>
   );
 }

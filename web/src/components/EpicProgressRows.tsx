@@ -7,6 +7,7 @@ import { scopedSearch, type EpicScope } from "../utils/epicProgressReport";
 import { parseReportFilter } from "../utils/reportFilter";
 import { formatIndex, formatMd, formatSignedMd } from "../utils/reportFormat";
 import { epicProgressPath } from "../utils/reportLinks";
+import ScrollRegion from "./ScrollRegion";
 
 /** What travels with a drill from a domain to one of its epics, so the epic page can offer the way back. */
 export interface EpicDrillState {
@@ -44,7 +45,7 @@ function FiguresTable({
           {t("reports.epicProgress.noRows")}
         </Text>
       ) : (
-        <Table.ScrollContainer minWidth={640}>
+        <ScrollRegion label={title} minWidth={640}>
           <Table aria-label={title}>
             <Table.Thead>
               <Table.Tr>
@@ -71,7 +72,7 @@ function FiguresTable({
               ))}
             </Table.Tbody>
           </Table>
-        </Table.ScrollContainer>
+        </ScrollRegion>
       )}
     </Stack>
   );

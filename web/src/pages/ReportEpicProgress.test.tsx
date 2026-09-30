@@ -165,6 +165,8 @@ describe("ReportEpicProgress page", () => {
     expect(screen.queryByRole("group", { name: "Foreign work share" })).not.toBeInTheDocument();
     // Its epics are the drill; the breadcrumb leads back to the unit.
     const epics = screen.getByRole("table", { name: "Epics" });
+    // A table that can outgrow its box scrolls in a focusable, labelled region (axe: scrollable-region-focusable).
+    expect(epics.closest('[role="region"]')).toHaveAttribute("tabindex", "0");
     expect(bodyRows(epics).map((r) => r[0])).toEqual(["FLO-33 Reporting epic", "FLO-40"]);
     expect(screen.getByRole("link", { name: "Show FLO-33" }).getAttribute("href")).toBe(
       "/reports/epic-progress?lastSprints=3&epicId=FLO-33",
@@ -191,6 +193,8 @@ describe("ReportEpicProgress page", () => {
     expect(within(plan).getByText("Dates moved since the original plan")).toBeInTheDocument();
     expect(within(plan).getByText("Budget changed since the original plan")).toBeInTheDocument();
     const baselines = within(plan).getByRole("table", { name: "Plan baselines, oldest first" });
+    // A table that can outgrow its box scrolls in a focusable, labelled region (axe: scrollable-region-focusable).
+    expect(baselines.closest('[role="region"]')).toHaveAttribute("tabindex", "0");
     expect(bodyRows(baselines)).toEqual([
       ["2026-04-28", "2026-05-18", "2026-09-01", "2026-10-15", "16"],
       ["2026-05-18", "current", "2026-09-01", "2026-10-31", "20"],
@@ -200,6 +204,8 @@ describe("ReportEpicProgress page", () => {
     expect(screen.queryByRole("table", { name: /Cumulative PV, EV and AC by day/ })).not.toBeInTheDocument();
     await userEvent.setup().click(screen.getByRole("button", { name: "Show daily figures" }));
     const daily = screen.getByRole("table", { name: "Cumulative PV, EV and AC by day, as a table" });
+    // A table that can outgrow its box scrolls in a focusable, labelled region (axe: scrollable-region-focusable).
+    expect(daily.closest('[role="region"]')).toHaveAttribute("tabindex", "0");
     expect(within(daily).getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Day", "PV", "Original plan (PV)", "EV", "AC"]);
     expect(bodyRows(daily)[0]).toEqual(["2026-09-29", "12", "14", "9", "10"]);
   });

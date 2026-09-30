@@ -2,12 +2,13 @@ import { useTranslation } from "react-i18next";
 import { Table } from "@mantine/core";
 import type { BacklogRow } from "../utils/backlogReport";
 import { formatMd } from "../utils/reportFormat";
+import ScrollRegion from "./ScrollRegion";
 
 /** The trend chart's numbers, newest day first: man-days and item count. */
 export default function BacklogTable({ rows }: { rows: readonly BacklogRow[] }) {
   const { t } = useTranslation();
   return (
-    <Table.ScrollContainer minWidth={320} maxHeight={360}>
+    <ScrollRegion label={t("reports.backlog.tableLabel")} minWidth={320} maxHeight={360}>
       <Table verticalSpacing={4} stickyHeader aria-label={t("reports.backlog.tableLabel")}>
         <Table.Thead>
           <Table.Tr>
@@ -26,6 +27,6 @@ export default function BacklogTable({ rows }: { rows: readonly BacklogRow[] }) 
           ))}
         </Table.Tbody>
       </Table>
-    </Table.ScrollContainer>
+    </ScrollRegion>
   );
 }

@@ -7,6 +7,7 @@ import { drillSearch, isSprintRelative, maxCellMd } from "../utils/costMatrixRep
 import { HEAT_STEPS, heatStep, heatStyle } from "../utils/heatScale";
 import { formatMd, formatPercent } from "../utils/reportFormat";
 import classes from "../theme.module.css";
+import ScrollRegion from "./ScrollRegion";
 
 const MISSING = "—";
 
@@ -72,16 +73,7 @@ export default function CostMatrixTable({ report, filters }: { report: CostMatri
 
   return (
     <Stack gap="xs">
-      {/* A native scroller that is itself focusable, so the keyboard can scroll a table wider or taller than the screen. */}
-      <Table.ScrollContainer
-        type="native"
-        minWidth={640}
-        maxHeight="70vh"
-        className={classes.heatScroll}
-        tabIndex={0}
-        role="region"
-        aria-label={caption}
-      >
+      <ScrollRegion label={caption} minWidth={640} maxHeight="70vh" className={classes.heatScroll}>
         <Table stickyHeader captionSide="top" className={classes.heatTable}>
           <Table.Caption className={classes.heatCaption}>{caption}</Table.Caption>
           <Table.Thead>
@@ -150,7 +142,7 @@ export default function CostMatrixTable({ report, filters }: { report: CostMatri
             </Table.Tr>
           </Table.Tfoot>
         </Table>
-      </Table.ScrollContainer>
+      </ScrollRegion>
       {max > 0 && (
         <Group gap="xs" wrap="wrap" role="group" aria-label={t("reports.costMatrix.legend.label")}>
           <Text size="xs" c="dimmed">

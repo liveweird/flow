@@ -738,6 +738,10 @@ are English (THE default and fallback everywhere) and Polish. All user-facing st
   `Drawer` passes `closeButtonProps={{ "aria-label": t("common.action.close") }}` — Mantine's
   close X has no default name — or hides the X with `withCloseButton={false}` when a footer
   button is the one deliberate exit (`OneTimePasswordModal`).
+- **A scroller that can overflow is a focusable, labelled region.** A table wider than its box or
+  capped by `maxHeight` goes in `components/ScrollRegion.tsx` (native scroller, `tabIndex={0}`,
+  `role="region"`, the table's own i18n name as `aria-label`, the `tableScroll` focus ring) — never a
+  bare `Table.ScrollContainer`; axe's `scrollable-region-focusable` fails any that overflows without it.
 - The logo SVGs (`public/logo-*.svg` + `favicon.svg` — "Rolling": one tapering stream running round a
   blue disc and rolling inward into a curl, dark variant inverted to navy on `flow.4`; rendered by
   `components/BrandLogo.tsx`) are the brand mark. The path is computed geometry (a tapered ribbon along

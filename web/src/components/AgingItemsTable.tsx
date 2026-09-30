@@ -6,6 +6,7 @@ import { bandPercentileLabel, bandTone, thresholdsFor } from "../utils/agingRepo
 import { formatDate } from "../utils/formatDate";
 import { formatDays, teamLabel } from "../utils/reportFormat";
 import { applyReportFilter, parseReportFilter } from "../utils/reportFilter";
+import ScrollRegion from "./ScrollRegion";
 
 const MISSING = "—";
 
@@ -79,7 +80,7 @@ export default function AgingItemsTable({
 
   return (
     <Stack gap="xs">
-      <Table.ScrollContainer minWidth={760}>
+      <ScrollRegion label={t("reports.agingWip.tableLabel")} minWidth={760}>
         <Table aria-label={t("reports.agingWip.tableLabel")}>
           <Table.Thead>
             <Table.Tr>
@@ -127,7 +128,7 @@ export default function AgingItemsTable({
             ))}
           </Table.Tbody>
         </Table>
-      </Table.ScrollContainer>
+      </ScrollRegion>
       {report.itemsTruncated && (
         <Text size="xs" c="dimmed">
           {t("reports.agingWip.truncated", { count: report.items.length })}

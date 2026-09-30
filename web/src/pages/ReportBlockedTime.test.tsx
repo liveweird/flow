@@ -125,6 +125,8 @@ describe("ReportBlockedTime page", () => {
     // The BOTH fixture is TEAM level: per-assignee groups over the tasks, an epic in the top list.
     expect(await screen.findByText(/The groups cover tasks only/)).toBeInTheDocument();
     const top = screen.getByRole("table", { name: "Most blocked items, as a table" });
+    // A table that can outgrow its box scrolls in a focusable, labelled region (axe: scrollable-region-focusable).
+    expect(top.closest('[role="region"]')).toHaveAttribute("tabindex", "0");
     expect(within(top).getByRole("columnheader", { name: "Kind" })).toBeInTheDocument();
     expect(within(top).getByText("FLO-E2")).toBeInTheDocument();
     expect(within(top).getByText("Epic")).toBeInTheDocument();

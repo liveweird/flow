@@ -178,6 +178,8 @@ describe("ReportBacklog page", () => {
     expect(screen.queryByRole("table", { name: "Backlog by day, as a table" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Show daily figures" }));
     const table = screen.getByRole("table", { name: "Backlog by day, as a table" });
+    // A table that can outgrow its box scrolls in a focusable, labelled region (axe: scrollable-region-focusable).
+    expect(table.closest('[role="region"]')).toHaveAttribute("tabindex", "0");
     const rows = within(table).getAllByRole("row").slice(1).map((r) => within(r).getAllByRole("cell").map((c) => c.textContent));
     expect(rows).toEqual([
       ["2026-09-29", "25", "12"],

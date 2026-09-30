@@ -14,6 +14,7 @@ import { useReportPage } from "../hooks/useReportPage";
 import { formatDate } from "../utils/formatDate";
 import { formatMd, formatMedian, formatRatio } from "../utils/reportFormat";
 import { ESTIMATION_TABS } from "../utils/reportLinks";
+import ScrollRegion from "../components/ScrollRegion";
 
 // An epic's domain is its own space under either domain view and it has no activity type, so those
 // two controls would change nothing — only domain and work category slice this report.
@@ -97,7 +98,7 @@ export default function ReportEpicAccuracy() {
               isRefreshing={query.isPlaceholderData}
               empty={false}
             >
-              <Table.ScrollContainer minWidth={900}>
+              <ScrollRegion label={t("reports.epicAccuracy.epicsTitle")} minWidth={900}>
                 <Table aria-label={t("reports.epicAccuracy.epicsTitle")}>
                   <Table.Thead>
                     <Table.Tr>
@@ -136,7 +137,7 @@ export default function ReportEpicAccuracy() {
                     ))}
                   </Table.Tbody>
                 </Table>
-              </Table.ScrollContainer>
+              </ScrollRegion>
             </ReportChartCard>
           )}
           {report && report.groups.length > 0 && (
