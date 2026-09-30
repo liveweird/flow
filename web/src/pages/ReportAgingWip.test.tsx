@@ -99,6 +99,8 @@ describe("ReportAgingWip page", () => {
     expect(screen.queryByRole("group", { name: "Tasks" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Epics" })).not.toBeInTheDocument();
     const table = screen.getByRole("table", { name: "Open work, oldest first" });
+    // A table that can outgrow its box scrolls in a focusable, labelled region (axe: scrollable-region-focusable).
+    expect(table.closest('[role="region"]')).toHaveAttribute("tabindex", "0");
     expect(rowsOf(table).map((r) => r.at(-1))).toEqual(["—", "—", "—", "—"]);
     expect(within(table).queryByText(/Above|Within/)).not.toBeInTheDocument();
   });

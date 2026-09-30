@@ -1,9 +1,22 @@
 // Axe accessibility smoke: WCAG 2.0/2.1 A+AA scans over the login screen, the authenticated list
-// and form pages, the detail pages of one API-seeded fixture team, and the overlays (a registry
-// editor modal) — where focus traps, aria-modal and labels actually live. Owns: the fixture
-// team (unique `e2e-axe-*` name), created and deleted via the API.
+// and form pages (every report route among them), the detail pages of one API-seeded fixture
+// team, and the overlays (a registry editor modal) — where focus traps, aria-modal and labels
+// actually live; the page sets run in the light scheme and again in the dark one. The pages that
+// need a synced data source are `accessibility-data.spec.ts`. Owns: the fixture team (unique
+// `e2e-axe-*` name), created and deleted via the API.
 import type { APIRequestContext, Locator, Page } from "@playwright/test";
-import { apiAsAdmin, axeViolations, expect, login, test, uniqueText } from "./helpers";
+import {
+  apiAsAdmin,
+  axeViolations,
+  expect,
+  expectScheme,
+  login,
+  REPORT_PAGES,
+  reportSettled,
+  type Scheme,
+  test,
+  uniqueText,
+} from "./helpers";
 
 // No waivers: the theme's text/dimmed/ink tokens are AA-tested in web/src/theme.test.ts, so
 // the color-contrast rule runs for real here (Lettuce's posture, not Toadie's waiver). Fix a
@@ -20,7 +33,7 @@ test("login screen has no WCAG A/AA violations", async ({ page }) => {
 });
 
 // One test per page keeps the report line-per-page.
-const AUTHED_PAGES: { path: string; heading: string }[] = [
+const AUTHED_PAGES: { path: string; heading: string; settled?: (page: Page) => Promise<void> }[] = [
   { path: "/", heading: "Flow" },
   { path: "/teams", heading: "Teams" },
   { path: "/users", heading: "Users" },
@@ -28,23 +41,39 @@ const AUTHED_PAGES: { path: string; heading: string }[] = [
   { path: "/feature-flags", heading: "Feature flags" },
   { path: "/data-sources", heading: "Data sources" },
   { path: "/metrics-settings", heading: "Metrics settings" },
-  { path: "/reports/velocity", heading: "Velocity" },
-  { path: "/reports/wip", heading: "WIP" },
-  { path: "/reports/epic-progress", heading: "Epic progress" },
-  { path: "/reports/data-quality", heading: "Data quality" },
-  { path: "/reports/cost-matrix", heading: "Cost matrix" },
+  // A report is scanned once it settled (title, no spinner, no alert), not the moment its heading paints.
+  ...REPORT_PAGES.map(({ path, heading }) => ({ path, heading, settled: reportSettled(heading) })),
   { path: "/change-password", heading: "Change password" },
   { path: "/changelog", heading: "Changelog" },
 ];
 
-for (const { path, heading } of AUTHED_PAGES) {
-  test(`${path} has no WCAG A/AA violations`, async ({ page }) => {
-    await login(page);
-    await page.goto(path);
-    await expect(page.getByRole("heading", { name: heading })).toBeVisible();
+// The light pass keeps its original titles; the dark pass (Playwright's `colorScheme: "dark"`, which
+// the app's `auto` default follows) repeats the set under a suffix, so a finding names its scheme.
+function registerAuthedPageScans(scheme: Scheme): void {
+  const suffix = scheme === "dark" ? " in the dark scheme" : "";
+  for (const { path, heading, settled } of AUTHED_PAGES) {
+    test(`${path} has no WCAG A/AA violations${suffix}`, async ({ page }) => {
+      await login(page);
+      await page.goto(path);
+      // The page title is the first heading (a report repeats it as its card title).
+      await expect(page.getByRole("heading", { name: heading }).first()).toBeVisible();
+      await settled?.(page);
+      await expectScheme(page, scheme);
+      await scan(page);
+    });
+  }
+}
+registerAuthedPageScans("light");
+test.describe("dark scheme", () => {
+  test.use({ colorScheme: "dark" });
+  registerAuthedPageScans("dark");
+  test("login screen has no WCAG A/AA violations in the dark scheme", async ({ page }) => {
+    await page.goto("/login");
+    await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible();
+    await expectScheme(page, "dark");
     await scan(page);
   });
-}
+});
 
 test.describe("detail pages and overlays", () => {
   let api: APIRequestContext;

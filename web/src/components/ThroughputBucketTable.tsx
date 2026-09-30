@@ -2,12 +2,13 @@ import { useTranslation } from "react-i18next";
 import { Table } from "@mantine/core";
 import { formatMd } from "../utils/reportFormat";
 import type { ThroughputChartRow } from "../utils/throughputReport";
+import ScrollRegion from "./ScrollRegion";
 
 /** The chart's numbers: one compact row per week/month (the bucket's first day, MD, items). */
 export default function ThroughputBucketTable({ rows, bucket }: { rows: ThroughputChartRow[]; bucket: "WEEK" | "MONTH" }) {
   const { t } = useTranslation();
   return (
-    <Table.ScrollContainer minWidth={320}>
+    <ScrollRegion label={t("reports.throughput.bucketTableLabel")} minWidth={320}>
       <Table verticalSpacing={4} aria-label={t("reports.throughput.bucketTableLabel")}>
         <Table.Thead>
           <Table.Tr>
@@ -26,6 +27,6 @@ export default function ThroughputBucketTable({ rows, bucket }: { rows: Throughp
           ))}
         </Table.Tbody>
       </Table>
-    </Table.ScrollContainer>
+    </ScrollRegion>
   );
 }

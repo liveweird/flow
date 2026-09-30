@@ -3,6 +3,7 @@ import { Table, Text } from "@mantine/core";
 import type { BlockedTopItem, ReportFilters } from "../api/reports";
 import { formatDate } from "../utils/formatDate";
 import { formatDays, formatPercent, teamLabel } from "../utils/reportFormat";
+import ScrollRegion from "./ScrollRegion";
 
 const MISSING = "—";
 
@@ -21,7 +22,7 @@ export default function BlockedTopItemsTable({
       ? t(item.itemKind === "EPIC" ? "reports.groups.noOwner" : "reports.groups.unassigned")
       : teamLabel(item.teamId, filters.teams);
   return (
-    <Table.ScrollContainer minWidth={640}>
+    <ScrollRegion label={t("reports.blockedTime.topTableLabel")} minWidth={640}>
       <Table aria-label={t("reports.blockedTime.topTableLabel")}>
         <Table.Thead>
           <Table.Tr>
@@ -57,6 +58,6 @@ export default function BlockedTopItemsTable({
           ))}
         </Table.Tbody>
       </Table>
-    </Table.ScrollContainer>
+    </ScrollRegion>
   );
 }

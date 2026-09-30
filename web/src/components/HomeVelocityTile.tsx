@@ -5,9 +5,9 @@ import type { SprintConsistencyReport } from "../api/reports";
 import { formatDate } from "../utils/formatDate";
 import { overviewTeamRows } from "../utils/homeOverview";
 import { formatMd } from "../utils/reportFormat";
-import classes from "../theme.module.css";
 import HomeTile from "./HomeTile";
 import LoadingBlock from "./LoadingBlock";
+import ScrollRegion from "./ScrollRegion";
 
 // The chart (and with it recharts) rides its own lazy chunk.
 const HomeVelocityChart = lazy(() => import("./HomeVelocityChart"));
@@ -52,15 +52,7 @@ export default function HomeVelocityTile({
           <Suspense fallback={<LoadingBlock />}>
             <HomeVelocityChart rows={rows} />
           </Suspense>
-          {/* A native scroller that is itself focusable: in a half-width tile the table scrolls sideways, and the keyboard must reach it. */}
-          <Table.ScrollContainer
-            type="native"
-            minWidth={520}
-            className={classes.tableScroll}
-            tabIndex={0}
-            role="region"
-            aria-label={t("home.velocity.tableLabel")}
-          >
+          <ScrollRegion label={t("home.velocity.tableLabel")} minWidth={520}>
             <Table verticalSpacing={4} aria-label={t("home.velocity.tableLabel")}>
               <Table.Thead>
                 <Table.Tr>
@@ -102,7 +94,7 @@ export default function HomeVelocityTile({
                 ))}
               </Table.Tbody>
             </Table>
-          </Table.ScrollContainer>
+          </ScrollRegion>
         </SimpleGrid>
       )}
     </HomeTile>

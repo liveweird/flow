@@ -147,6 +147,8 @@ describe("ReportWip page", () => {
     renderPage();
     await screen.findByTestId("area-chart");
     const table = screen.getByRole("table", { name: "Latest day, average and peak per band, as a table" });
+    // A table that can outgrow its box scrolls in a focusable, labelled region (axe: scrollable-region-focusable).
+    expect(table.closest('[role="region"]')).toHaveAttribute("tabindex", "0");
     expect(within(table).getByRole("columnheader", { name: "Latest day (2026-09-29)" })).toBeInTheDocument();
     const rows = within(table).getAllByRole("row").slice(1).map((r) => within(r).getAllByRole("cell").map((c) => c.textContent));
     expect(rows).toEqual([
@@ -168,6 +170,8 @@ describe("ReportWip page", () => {
     await user.click(toggle);
     expect(screen.getByRole("button", { name: "Hide daily figures" })).toHaveAttribute("aria-expanded", "true");
     const table = screen.getByRole("table", { name: "Daily figures, as a table" });
+    // A table that can outgrow its box scrolls in a focusable, labelled region (axe: scrollable-region-focusable).
+    expect(table.closest('[role="region"]')).toHaveAttribute("tabindex", "0");
     const rows = within(table).getAllByRole("row").slice(1).map((r) => within(r).getAllByRole("cell").map((c) => c.textContent));
     expect(rows[0]).toEqual(["2026-09-29", "38", "9", "102", "1"]);
     expect(rows).toHaveLength(5);

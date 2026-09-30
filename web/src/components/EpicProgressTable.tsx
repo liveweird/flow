@@ -2,12 +2,13 @@ import { useTranslation } from "react-i18next";
 import { Table } from "@mantine/core";
 import type { EvmRow } from "../utils/epicProgressReport";
 import { formatMd } from "../utils/reportFormat";
+import ScrollRegion from "./ScrollRegion";
 
 /** The chart's numbers, newest day first: cumulative PV, EV and AC (and the original plan at EPIC level). */
 export default function EpicProgressTable({ rows, withOriginal }: { rows: readonly EvmRow[]; withOriginal: boolean }) {
   const { t } = useTranslation();
   return (
-    <Table.ScrollContainer minWidth={360} maxHeight={360}>
+    <ScrollRegion label={t("reports.epicProgress.tableLabel")} minWidth={360} maxHeight={360}>
       <Table verticalSpacing={4} stickyHeader aria-label={t("reports.epicProgress.tableLabel")}>
         <Table.Thead>
           <Table.Tr>
@@ -30,6 +31,6 @@ export default function EpicProgressTable({ rows, withOriginal }: { rows: readon
           ))}
         </Table.Tbody>
       </Table>
-    </Table.ScrollContainer>
+    </ScrollRegion>
   );
 }

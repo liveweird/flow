@@ -1,10 +1,11 @@
 import { useTranslation } from "react-i18next";
-import { Badge, Group, Table, Text } from "@mantine/core";
+import { Badge, Group, Text } from "@mantine/core";
 import type { ReportFilters } from "../api/reports";
 import { formatDate } from "../utils/formatDate";
 import { teamLabel } from "../utils/reportFormat";
 import { sortSprints, type SprintIdentity } from "../utils/reportSprints";
 import ColumnTable, { type ColumnDef } from "./ColumnTable";
+import ScrollRegion from "./ScrollRegion";
 
 export type SprintColumn<S> = ColumnDef<S>;
 
@@ -59,13 +60,13 @@ export default function ReportSprintsTable<S extends SprintIdentity & { drift: b
     },
   ];
   return (
-    <Table.ScrollContainer minWidth={minWidth}>
+    <ScrollRegion label={t("reports.sprints.tableAria")} minWidth={minWidth}>
       <ColumnTable
         aria-label={t("reports.sprints.tableAria")}
         columns={columnsWithIdentity}
         rows={sortSprints(sprints)}
         rowKey={(sprint) => `${sprint.teamId}:${sprint.sprintId}`}
       />
-    </Table.ScrollContainer>
+    </ScrollRegion>
   );
 }

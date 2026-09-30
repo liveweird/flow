@@ -1,12 +1,13 @@
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { Anchor, Badge, Box, Group, Paper, Stack, Table, Text, Title } from "@mantine/core";
+import { Anchor, Badge, Box, Group, Paper, Stack, Text, Title } from "@mantine/core";
 import { Link as RouterLink } from "react-router-dom";
 import type { ReportFilters } from "../api/reports";
 import { cardAnchor, connectionName, moreCount } from "../utils/dataQualityReport";
 import { dataSourceMetricsConfigPath } from "../utils/dataSourceLinks";
 import classes from "../theme.module.css";
 import ColumnTable, { type ColumnDef } from "./ColumnTable";
+import ScrollRegion from "./ScrollRegion";
 
 /** Every card of the page — the key of its `reports.dataQuality.cards.*` text and of its anchor. */
 export type CardId =
@@ -169,7 +170,7 @@ export function CappedTable<T>({
   const more = moreCount({ total: total ?? rows.length, items: rows });
   return (
     <Stack gap="xs">
-      <Table.ScrollContainer minWidth={520}>
+      <ScrollRegion label={t("reports.dataQuality.tableLabel", { name: label })} minWidth={520}>
         <ColumnTable
           verticalSpacing={4}
           aria-label={t("reports.dataQuality.tableLabel", { name: label })}
@@ -177,7 +178,7 @@ export function CappedTable<T>({
           rows={rows}
           rowKey={rowKey}
         />
-      </Table.ScrollContainer>
+      </ScrollRegion>
       {more > 0 && (
         <Text size="sm" c="dimmed">
           {t("reports.dataQuality.more", { count: more, shown: rows.length })}

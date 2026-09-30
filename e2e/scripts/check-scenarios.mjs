@@ -1,7 +1,7 @@
 // The scenario-parity gate (2026-08 review round): every spec has its scenario file and every
 // test() title appears as a `## Scenario:` heading VERBATIM — and vice versa (the compiler
 // contract in scenarios/README.md, previously verified by hand at every checkup).
-// accessibility.spec.ts is the ONE registered exception: its titles are a template literal
+// accessibility.spec.ts and accessibility-data.spec.ts are the registered exceptions: its titles are a template literal
 // instantiated per page, so its scenario keeps a placeholder heading (see scenarios/README.md).
 import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -10,7 +10,7 @@ import { dirname, join } from "node:path";
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const testsDir = join(root, "tests");
 const scenariosDir = join(root, "scenarios");
-const SKIP = new Set(["accessibility.spec.ts"]);
+const SKIP = new Set(["accessibility.spec.ts", "accessibility-data.spec.ts"]);
 
 // Matches a top-level test declaration's double-quoted title (also when the title starts on
 // the next line); modifier calls (`test.skip(`, `test.only(`) don't match — they are preceded by a dot.

@@ -5,6 +5,7 @@ import { IconInfoCircle } from "@tabler/icons-react";
 import type { EpicProgressEpic } from "../api/reports";
 import { formatDate } from "../utils/formatDate";
 import { formatMd } from "../utils/reportFormat";
+import ScrollRegion from "./ScrollRegion";
 
 const MISSING = "—";
 
@@ -70,7 +71,7 @@ export default function EpicPlanPanel({ epic, timeZone }: { epic: EpicProgressEp
       {epic.baselines.length > 0 && (
         <Stack gap="xs">
           <Title order={4}>{t("reports.epicProgress.epic.baselinesTitle")}</Title>
-          <Table.ScrollContainer minWidth={520}>
+          <ScrollRegion label={t("reports.epicProgress.epic.baselinesLabel")} minWidth={520}>
             <Table aria-label={t("reports.epicProgress.epic.baselinesLabel")}>
               <Table.Thead>
                 <Table.Tr>
@@ -97,7 +98,7 @@ export default function EpicPlanPanel({ epic, timeZone }: { epic: EpicProgressEp
                 ))}
               </Table.Tbody>
             </Table>
-          </Table.ScrollContainer>
+          </ScrollRegion>
         </Stack>
       )}
     </Stack>

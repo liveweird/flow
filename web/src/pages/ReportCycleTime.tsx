@@ -16,6 +16,7 @@ import { useReportPage } from "../hooks/useReportPage";
 import { cycleTrendRows, trendHasPoints } from "../utils/cycleTimeReport";
 import { formatDays, formatMedian } from "../utils/reportFormat";
 import { DELIVERY_TABS } from "../utils/reportLinks";
+import ScrollRegion from "../components/ScrollRegion";
 
 // The trend chart (and with it recharts) rides its own lazy chunk.
 const CycleTimeTrendChart = lazy(() => import("../components/CycleTimeTrendChart"));
@@ -107,7 +108,7 @@ export default function ReportCycleTime() {
                     {t("reports.cycleTime.trendAllHidden")}
                   </Alert>
                 )}
-                <Table.ScrollContainer minWidth={320}>
+                <ScrollRegion label={t("reports.cycleTime.trendTableLabel")} minWidth={320}>
                   <Table verticalSpacing={4} aria-label={t("reports.cycleTime.trendTableLabel")}>
                     <Table.Thead>
                       <Table.Tr>
@@ -129,7 +130,7 @@ export default function ReportCycleTime() {
                       ))}
                     </Table.Tbody>
                   </Table>
-                </Table.ScrollContainer>
+                </ScrollRegion>
               </Stack>
             </ReportChartCard>
           )}

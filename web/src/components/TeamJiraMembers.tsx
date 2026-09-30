@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Alert, Badge, Box, Button, Group, Menu, Stack, Table, Text } from "@mantine/core";
+import { Alert, Badge, Button, Group, Menu, Stack, Table, Text } from "@mantine/core";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { IconCalendarOff, IconUserPlus, IconUsersGroup } from "@tabler/icons-react";
 import {
@@ -19,6 +19,7 @@ import EmptyState from "./EmptyState";
 import JiraMemberModal from "./JiraMemberModal";
 import LoadingBlock from "./LoadingBlock";
 import RowActionsMenu from "./RowActionsMenu";
+import ScrollRegion from "./ScrollRegion";
 import { useDeleteConfirm } from "../hooks/useDeleteConfirm";
 import ErrorAlert from "./ErrorAlert";
 
@@ -120,7 +121,7 @@ export default function TeamJiraMembers({ teamId }: { teamId: number }) {
       {rows.length === 0 ? (
         <EmptyState icon={IconUsersGroup} label={t("metrics.teamMembers.empty")} />
       ) : (
-        <Box style={{ overflowX: "auto" }}>
+        <ScrollRegion label={t("metrics.teamMembers.tableAria")} minWidth={560}>
           <Table aria-label={t("metrics.teamMembers.tableAria")}>
             <Table.Thead>
               <Table.Tr>
@@ -178,7 +179,7 @@ export default function TeamJiraMembers({ teamId }: { teamId: number }) {
               })}
             </Table.Tbody>
           </Table>
-        </Box>
+        </ScrollRegion>
       )}
 
       {adding && (

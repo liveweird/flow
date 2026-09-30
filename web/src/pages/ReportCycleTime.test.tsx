@@ -95,6 +95,8 @@ describe("ReportCycleTime page", () => {
     expect(chart.getAttribute("data-connect-nulls")).toBe("false");
 
     const table = screen.getByRole("table", { name: "Trend, as a table" });
+    // A table that can outgrow its box scrolls in a focusable, labelled region (axe: scrollable-region-focusable).
+    expect(table.closest('[role="region"]')).toHaveAttribute("tabindex", "0");
     expect(within(table).getByRole("columnheader", { name: "Week starting" })).toBeInTheDocument();
     const rows = within(table).getAllByRole("row").slice(1).map((r) => within(r).getAllByRole("cell").map((c) => c.textContent));
     expect(rows).toEqual([

@@ -33,7 +33,7 @@ Rules:
 
 - **The `## Scenario:` heading must equal the `test()` title verbatim** — that is the
   traceability link, greppable in both directions. One `## Scenario` section per test in the file.
-  The ONE registered exception: a spec that generates tests from a list (today only
-  `accessibility.spec.ts`, one `test(`\`${path} has no WCAG A/AA violations\``)` per page) keeps a
+  The registered exception: a spec that generates tests from a list (today only
+  `accessibility.spec.ts` and `accessibility-data.spec.ts`, one `test(`\`${path} has no WCAG A/AA violations\``)` per page) keeps a
   single scenario section whose heading uses the template placeholder (`<path>`), since there is
   no literal title to mirror.

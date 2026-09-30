@@ -5,7 +5,8 @@
   anonymous visitor for the login screen
 - **Owns** (exclusive server-side state): one fixture team (unique `e2e-axe-*` name), created
   through the API before the detail-page block and deleted after it; the list/form pages and
-  the login screen are read-only
+  the login screen are read-only (the pages that need a synced data source are
+  [accessibility-data.md](accessibility-data.md))
 
 This is the registered template-title exception (see README.md): one `test()` per page is
 generated from a list, so a single scenario section stands in for each list.
@@ -22,41 +23,32 @@ generated from a list, so a single scenario section stands in for each list.
    - *Expected*: an axe scan (same tags) reports zero violations.
 
 The list covers the Home page, the Teams list, the Users list and its create form, the
-ADMIN feature-flags screen, the Data sources list, the Metrics settings form (v0.3.0), the
-Velocity, WIP, Epic progress, Data quality and Cost matrix reports (v0.3.0 — each scanned in
-whatever state the stack gives it; the same pages with derived data behind them are scanned by
-`reports.spec.ts`'s "the populated … pages have no WCAG A/AA violations"), Change password and the
-Changelog — see `tests/accessibility.spec.ts`'s `AUTHED_PAGES` list for the current set.
+ADMIN feature-flags screen, the Data sources list, the Metrics settings form (v0.3.0), every
+report route (all fifteen, v0.3.0 — each scanned in whatever state the stack gives it; the same
+pages with derived data behind them are scanned by `accessibility-data.spec.ts` and by
+`reports.spec.ts`'s "the populated … pages have no WCAG A/AA violations"; each report is scanned once
+it settled — title up, no spinner, no error alert), Change password and the Changelog — see
+`tests/accessibility.spec.ts`'s `AUTHED_PAGES` list for the current set.
 
-## Scenario: `<detail page>` has no WCAG A/AA violations
+## Scenario: `<path>` has no WCAG A/AA violations in the dark scheme
 
-1. Before the block, the admin's API session seeds one team (`e2e-axe-team-*`).
-2. The admin signs in and opens the page — the team's roster page, their own edit-user and
-   user-features pages — and waits for its settled element (the heading).
-   - *Expected*: an axe scan (same tags) reports zero violations.
-3. After the block, the API session deletes the team.
+1. The browser context emulates the dark colour scheme (Playwright `colorScheme: "dark"`; the
+   app's `auto` default follows it). The admin signs in, opens `<path>` (the same list as above)
+   and waits for its heading.
+   - *Expected*: `<html>` carries `data-mantine-color-scheme="dark"` — the scan really runs in the
+     dark palette — and an axe scan (same tags, `color-contrast` included) reports zero violations.
 
-## Scenario: the reset-password page has no WCAG A/AA violations
+## Scenario: login screen has no WCAG A/AA violations in the dark scheme
 
-1. An anonymous visitor opens `/reset-password` and waits for its heading.
-   - *Expected*: zero violations.
-
-## Scenario: the not-found page has no WCAG A/AA violations
-
-1. The admin opens an address that matches no route.
-   - *Expected*: the not-found page renders inside the shell with zero violations.
-
-## Scenario: `<overlay>` has no WCAG A/AA violations
-
-1. The admin opens the overlay — the New team editor modal from the Teams page — and waits
-   for the dialog.
-   - *Expected*: an axe scan scoped to the dialog reports zero violations (focus trap, `aria-modal`,
-     labelled close button, contrast).
+1. An anonymous visitor with the dark scheme emulated opens `/login` and waits for the sign-in form.
+   - *Expected*: the dark scheme is on `<html>` and the axe scan reports zero violations.
 
 ## Not covered here (and why)
 
 - **Interactive journeys mid-flight** (the one-time password reveal, a confirm mid-transition)
   — those need the journey that produces them; covered by their own journey specs where
   reachable through the ordinary flow.
+- **Modals and detail pages in the dark scheme** — the dark pass covers the page sets above, not the
+  overlay or the fixture team's detail pages.
 - **Colour tokens themselves** — the ratios are pinned in `web/src/theme.test.ts`; axe here
   verifies the rendered pages honour them.

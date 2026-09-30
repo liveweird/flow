@@ -2,13 +2,14 @@ import { useTranslation } from "react-i18next";
 import { Table } from "@mantine/core";
 import type { WipPoint } from "../api/reports";
 import { wipBandSummary, type WipBand } from "../utils/wipReport";
+import ScrollRegion from "./ScrollRegion";
 
 /** The chart's text alternative: per band, the latest day's count, the daily average and the peak. */
 export function WipSummaryTable({ series, bands }: { series: readonly WipPoint[]; bands: readonly WipBand[] }) {
   const { t } = useTranslation();
   const latestDay = series.at(-1)?.day ?? "";
   return (
-    <Table.ScrollContainer minWidth={320}>
+    <ScrollRegion label={t("reports.wip.summaryLabel")} minWidth={320}>
       <Table verticalSpacing={4} aria-label={t("reports.wip.summaryLabel")}>
         <Table.Thead>
           <Table.Tr>
@@ -32,7 +33,7 @@ export function WipSummaryTable({ series, bands }: { series: readonly WipPoint[]
           })}
         </Table.Tbody>
       </Table>
-    </Table.ScrollContainer>
+    </ScrollRegion>
   );
 }
 
@@ -40,7 +41,7 @@ export function WipSummaryTable({ series, bands }: { series: readonly WipPoint[]
 export function WipDailyTable({ series, bands }: { series: readonly WipPoint[]; bands: readonly WipBand[] }) {
   const { t } = useTranslation();
   return (
-    <Table.ScrollContainer minWidth={320} maxHeight={360}>
+    <ScrollRegion label={t("reports.wip.dailyLabel")} minWidth={320} maxHeight={360}>
       <Table verticalSpacing={4} stickyHeader aria-label={t("reports.wip.dailyLabel")}>
         <Table.Thead>
           <Table.Tr>
@@ -65,6 +66,6 @@ export function WipDailyTable({ series, bands }: { series: readonly WipPoint[]; 
           ))}
         </Table.Tbody>
       </Table>
-    </Table.ScrollContainer>
+    </ScrollRegion>
   );
 }

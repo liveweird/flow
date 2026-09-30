@@ -1,4 +1,4 @@
-# Reports (v0.3.0 — the non-admin journey: batch 1 M4 commit 14, batch 2 M5 commit 19)
+# Reports (v0.3.0 — the non-admin journey: batch 1 M4 commit 14, batch 2 M5 commit 19, checkup A15)
 
 - **Spec**: [tests/reports.spec.ts](../tests/reports.spec.ts)
 - **Actors**: the seed administrator (`admin@flow.local`), through the API only, to seed and clean
@@ -38,7 +38,9 @@ before it to 7 days after — the stub's data ends there, so today's date never 
 data) and open their report by deep link, `?connectionId=<this spec's connection>&from=…&to=…`,
 because the URL IS the filter: `connectionId` narrows a unit-level report to this spec's connection
 (other specs' synced connections would otherwise count), and the team is added where the scenario
-reads a team.
+reads a team. The epic reports (Epic estimation accuracy, Estimate adjustments) read a year-long
+window (`EPIC_WINDOW`: from 365 days before the reference date) instead, because the stub's epics all
+finished in autumn 2025, before the six-month window opens.
 
 ## Scenario: a regular user reads the golden sprint's velocity
 
@@ -185,6 +187,88 @@ reads a team.
 3. They go back Home and follow the **Velocity and throughput** tile's title.
    - *Expected*: the Velocity report opens with `lastSprints=1` in the URL.
 
+## Scenario: the user reads epic estimation accuracy against each epic's own estimate
+
+1. The user opens **Epic estimation accuracy** for this spec's connection over the default fixed
+   window (deep link).
+   - *Expected*: the report loads and, since the stub's epics all finished before that window
+     opens, shows the "No data in this period" empty state — no "Finished epics" table.
+2. They open the same report over the year-long window (`EPIC_WINDOW`, from 365 days before the
+   reference date), where the stub's epics finished.
+   - *Expected*: the "Against the own estimate at start" and "… at done" views are both shown, each
+     a percentile strip with its own "Left out of this distribution" accounting, and each
+     accounting's closing "n + reasons = population" line adds up; a "Derived … · configuration
+     revision N" line is shown; the "Finished epics" table has one row per epic in the population.
+3. They read the golden epic's row (`golden.epic`).
+   - *Expected*: the own estimate at start and at done equal the golden budget, the child sum is the
+     golden child sum, and the ratio is actual ÷ the OWN estimate — not actual ÷ the child sum.
+4. They narrow the **Domain** to GTM, then clear it.
+   - *Expected*: the URL gains `domain=GTM` and only GTM epics remain (no FLO, OPS or PLT row); after
+     the clear the golden FLO epic is back.
+5. They follow the seeded team's name link in the "By team" table.
+   - *Expected*: the URL gains the team; only the team's epics remain (the golden one among them, no
+     GTM/OPS/PLT row); the team has fewer epics than the minimum sample, so each view shows the
+     counts-only note ("Only N items in this selection …") instead of percentiles.
+6. They pick the roster person in the **Member** dropdown.
+   - *Expected*: the URL gains `accountId`; one note says epics are not attributed to individual
+     people; the "Finished epics" table is gone.
+
+## Scenario: the user reads how estimates were adjusted
+
+1. The user opens **Estimate adjustments** over the year-long window (deep link).
+   - *Expected*: the report loads with the note that the domain view applies to tasks while epics
+     read their own space.
+2. They read the "Tasks" and "Epics" blocks.
+   - *Expected*: each block shows started (more than zero), changed after start (at most started),
+     estimated late (at most changed) and a share changed written as a percentage; each has a
+     "Change from start to done" percentile strip and its accounting line adds up.
+3. They narrow **Activity type** to Bug, then clear it.
+   - *Expected*: the URL gains `activityType=Bug` and the tasks started figure drops; after the
+     clear it is back to the unfiltered figure.
+4. They follow the seeded team's name link in the "By team" table.
+   - *Expected*: the URL gains the team and a "By member" table appears.
+5. They pick the roster person in the **Member** dropdown.
+   - *Expected*: the URL gains `accountId`; the Epics block is replaced by the note that epics are not
+     attributed to individual people; the Tasks block is still shown.
+
+## Scenario: the user reads reported time beside flow efficiency
+
+1. The user opens Epic estimation accuracy (deep link) and switches to the **Reported time** tab.
+   - *Expected*: the URL is the `reported-time-ratio` route and still carries the spec's connection;
+     the **Reported time** report loads.
+2. They read the two views.
+   - *Expected*: "Reported time ÷ cycle time" and "Flow efficiency" are both shown, each a percentile
+     strip with its own accounting (the partitions differ) that adds up; the very-short-cycles
+     outlier note is shown; the ratio's histogram is available as a table.
+3. They narrow **Domain** to FLO, then clear it.
+   - *Expected*: the URL gains `domain=FLO` and the population ("Of N finished in this period")
+     shrinks; after the clear it is back.
+4. They switch the **Domain view** to "Earned in".
+   - *Expected*: the URL gains `domainView=EPIC` and the report still renders.
+5. They follow the seeded team's name link in the "By team" table.
+   - *Expected*: the URL gains the team, a "By member" table appears, and the team's finished work
+     is a part of the unit's.
+
+## Scenario: the user reads the estimated backlog and what it means in sprints
+
+1. The user opens **Estimated backlog** for the seeded team (deep link, fixed window).
+   - *Expected*: the card is titled "Backlog on" its as-of day (the newest derived day inside the window, never after its end); the Backlog (MD) and Items
+     tiles hold positive figures and the "Backlog in sprints" tile reads "≈ N sprints ahead" with
+     its "Recent pace: … the mean of N closed sprints" basis.
+2. They open the daily figures under the trend chart.
+   - *Expected*: the chart and its text alternative are shown; the table's newest row is the
+     as-of day and equals the tiles' man-days and items; the table has a row per day of the
+     window.
+3. They clear the **Team** filter.
+   - *Expected*: the URL loses the team; the sprints tile states that at unit level the pace is the
+     sum of each team's own mean; the unit's man-days exceed the team's (the unowned backlog is in
+     it).
+4. They pick the **Domain** FLO.
+   - *Expected*: the URL gains `domain=FLO`; the sprints tile shows a dash and says the selection has
+     no velocity of its own rather than inventing a pace.
+5. They pick the seeded team.
+   - *Expected*: the URL gains the team and loses the domain — there is no team × domain split.
+
 ## Scenario: the populated flow, epic and cost pages have no WCAG A/AA violations
 
 1. The user opens WIP (the seeded team), Epic progress (the golden epic) and the Cost matrix by
@@ -210,9 +294,12 @@ reads a team.
   recomputations of the persisted facts, by the server's `Report*Test` classes. The golden sprint's
   figures are the one place the browser journey pins numbers, because they are written into
   `expected.json`.
-- **Epic accuracy, estimate adjustments, reported time** — sibling tabs of the estimation group
-  with the same components; covered by their own server tests and `web/src/pages/Report*.test.tsx`.
-  A later batch can extend this journey if the risk warrants it.
+- **The figures of the estimation and backlog journeys** — epic accuracy's ratios, the adjustment
+  shares and medians, reported time's ratio and flow efficiency and the backlog's man-days depend
+  on the stub dataset and the clock; they are pinned by the server's `Report*Test` classes. The
+  journeys assert structure and self-consistency (accountings add up, a row count equals the
+  population, the trend's newest day equals the tiles) and the few figures the generator writes down
+  (`golden.epic`'s budget and child sum).
 - **Managing the Jira-user roster** — D1 membership editing is covered by `metrics-config.spec.ts`;
   here the roster is one API-seeded person, only so the cost matrix has an author-team row.
 - **The figures of the batch-2 pages** — the WIP counts, the aging bands and thresholds, the blocked
@@ -221,6 +308,6 @@ reads a team.
   `Report*Test` classes. The journeys assert structure, self-consistency (a tile equals its card, the
   totals add up, a member's sprints add up to the team level's figure) and the few figures the
   generator writes down (`golden.epic`).
-- **The remaining tabs and pages** — Estimated backlog, Epic accuracy, Adjustments and Reported
-  time; covered by `web/src/pages/Report*.test.tsx` and the server tests.
-- **The empty state** of a period with no data — covered by the SPA's `ReportChartCard.test.tsx`.
+- **The empty state** of a period with no data — asserted end to end only where a journey meets it
+  for free (epic accuracy's default window); its component is covered by the SPA's
+  `ReportChartCard.test.tsx`.
