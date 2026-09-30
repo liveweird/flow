@@ -113,6 +113,7 @@ paths:
                   - $ref: '#/components/schemas/MfaChallengeResponse'
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '503':
@@ -150,6 +151,7 @@ paths:
                 $ref: '#/components/schemas/LoginResponse'
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/InternalServerError' }
 
@@ -184,6 +186,7 @@ paths:
                 $ref: '#/components/schemas/LoginResponse'
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/InternalServerError' }
 
@@ -206,6 +209,7 @@ paths:
         '204':
           description: Token revoked
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '500': { $ref: '#/components/responses/InternalServerError' }
 
   /api/v1/password-reset:
@@ -238,6 +242,7 @@ paths:
         '202':
           description: Accepted — if the account exists, an email is on its way
         '400': { $ref: '#/components/responses/BadRequest' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '503':
@@ -382,6 +387,7 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '500': { $ref: '#/components/responses/InternalServerError' }
     delete:
       tags: [users]
@@ -438,6 +444,7 @@ paths:
             application/problem+json:
               schema: { $ref: '#/components/schemas/ProblemDetail' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '500': { $ref: '#/components/responses/InternalServerError' }
 
   /api/v1/users/{id}/language:
@@ -474,6 +481,7 @@ paths:
             application/problem+json:
               schema: { $ref: '#/components/schemas/ProblemDetail' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '500': { $ref: '#/components/responses/InternalServerError' }
 
   /api/v1/users/{id}/password:
@@ -512,6 +520,7 @@ paths:
             application/problem+json:
               schema: { $ref: '#/components/schemas/ProblemDetail' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '500': { $ref: '#/components/responses/InternalServerError' }
 
   /api/v1/teams:
@@ -618,6 +627,7 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '500': { $ref: '#/components/responses/InternalServerError' }
     delete:
       tags: [teams]
@@ -718,6 +728,7 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/teams/{id}/jira-memberships/{membershipId}:
     parameters:
@@ -748,6 +759,7 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '500': { $ref: '#/components/responses/InternalServerError' }
     delete:
       tags: [metrics]
@@ -925,6 +937,7 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '500': { $ref: '#/components/responses/InternalServerError' }
     delete:
       tags: [data-sources]
@@ -1007,6 +1020,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/data-sources/{id}/sync-jobs/{jobId}:
     parameters:
@@ -1194,6 +1208,7 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/data-sources/{id}/metrics-config/options:
     parameters:
@@ -1357,7 +1372,6 @@ paths:
         selects UNASSIGNED credit for the period view and yields no sprints) and `groups` becomes one per
         assignee at done; `teamId` AND `accountId` narrow to USER level (`groups` empty; `bySprint` is
         that account's deliveries by assignee at commitment). Σ `groups` equals Σ `byBucket`.
-        `breakdown` is accepted by the shared parser but does not change this report.
       parameters:
         - { $ref: '#/components/parameters/ReportFrom' }
         - { $ref: '#/components/parameters/ReportTo' }
@@ -1441,7 +1455,7 @@ paths:
         credit) and `groups` becomes one per assignee at done (null `accountId` = unassigned); `teamId` AND
         `accountId` narrow to USER (`groups` empty). Each group carries its own distributions and exclusion
         counts. For `lastSprints`/`sprintId` the period is the resolved sprints' overall envelope, as in
-        throughput. `breakdown` is accepted by the shared parser but does not change this report.
+        throughput.
       parameters:
         - { $ref: '#/components/parameters/ReportFrom' }
         - { $ref: '#/components/parameters/ReportTo' }
@@ -1484,7 +1498,7 @@ paths:
         matched); `ratio`/`ratioAtDone` are null for an excluded epic. Levels: UNIT (default) — `groups` one
         per owner team; TEAM narrows to that owner team and has no groups (epics carry no user); USER
         (`teamId` AND `accountId`) is always empty. Sprint-relative periods use the resolved sprints'
-        envelope, as in throughput. `breakdown` is accepted but does not change this report.
+        envelope, as in throughput.
       parameters:
         - { $ref: '#/components/parameters/ReportFrom' }
         - { $ref: '#/components/parameters/ReportTo' }
@@ -1528,7 +1542,6 @@ paths:
         UNASSIGNED tasks / UNOWNED epics); TEAM narrows to that team, `groups` one per assignee at done
         (tasks only, `epics` null); USER narrows tasks to that account, `epics` is empty and `groups` empty
         (epics carry no user). Sprint-relative periods use the resolved sprints' envelope, as in throughput.
-        `breakdown` is accepted but does not change this report.
       parameters:
         - { $ref: '#/components/parameters/ReportFrom' }
         - { $ref: '#/components/parameters/ReportTo' }
@@ -1571,7 +1584,7 @@ paths:
         `groups` one per credit team (`teamId` null = UNASSIGNED); `teamId` narrows to TEAM (`teamId=0` = the
         UNASSIGNED credit) and `groups` becomes one per assignee at done; `teamId` AND `accountId` narrow to
         USER (`groups` empty). Sprint-relative periods use the resolved sprints' envelope, as in throughput.
-        Epics are not part of this report. `breakdown` is accepted but does not change it.
+        Epics are not part of this report.
       parameters:
         - { $ref: '#/components/parameters/ReportFrom' }
         - { $ref: '#/components/parameters/ReportTo' }
@@ -1620,9 +1633,8 @@ paths:
         the last derived day is cut off there rather than read as zero — the OLDEST, over the connections in scope
         that have derived, of each one's last successful DERIVE day, so a lagging connection's missing days are not
         zeros. No successful DERIVE for any connection in scope gives an empty `series` with a `note` ("Not derived
-        yet"); connections that never derived are ignored for the cut-off but named in the `note`. `breakdown` is
-        accepted and changes nothing; `domainView` is accepted but the report always reads the task's own domain, so
-        `meta.domainView` is always TASK.
+        yet"); connections that never derived are ignored for the cut-off but named in the `note`. `domainView` is
+        accepted but the report always reads the task's own domain, so `meta.domainView` is always TASK.
       parameters:
         - { $ref: '#/components/parameters/ReportFrom' }
         - { $ref: '#/components/parameters/ReportTo' }
@@ -1672,9 +1684,8 @@ paths:
         is cut off there rather than read as zero — the OLDEST, over the connections in scope that have derived, of
         each one's last successful DERIVE day, so a lagging connection's missing days are not zeros. No successful
         DERIVE for any connection in scope gives an empty `trend` with a `note` ("Not derived yet"); connections
-        that never derived are ignored for the cut-off but named in the `note`. `breakdown` is accepted and changes
-        nothing; `domainView` is accepted but the report always reads the task's own domain, so `meta.domainView` is
-        always TASK.
+        that never derived are ignored for the cut-off but named in the `note`. `domainView` is accepted but the report always reads
+        the task's own domain, so `meta.domainView` is always TASK.
       parameters:
         - { $ref: '#/components/parameters/ReportFrom' }
         - { $ref: '#/components/parameters/ReportTo' }
@@ -1755,7 +1766,7 @@ paths:
         population`. Both distributions are hidden below `minSampleSize`. `topItems` lists the 20 most-blocked items.
         Levels: UNIT `groups` per team (tasks and epics), TEAM per assignee at done (tasks only — epics have no user,
         so Σ groups is the tasks' total there), USER none and no epics. Sprint-relative periods use the resolved
-        sprints' envelope. `breakdown` is accepted and changes nothing.
+        sprints' envelope.
       parameters:
         - { $ref: '#/components/parameters/ReportFrom' }
         - { $ref: '#/components/parameters/ReportTo' }
@@ -1796,7 +1807,7 @@ paths:
         one of them, for a blank `epicId`, for `accountId` (no user-level EVM), for an explicit `domainView=TASK` (EVM is always the EPIC
         view, D3), for `activityType` / `workCategory` (not stored per day), and for an unknown epic, domain, team,
         sprint or connection (never 404); an `epicId` that exists in several connections in scope is ambiguous — narrow
-        with `connectionId`. `breakdown` is accepted and changes nothing.
+        with `connectionId`.
         `asOf` is read at the last day of the period, but never later than today or than the last derived day (the
         oldest, over the connections in scope that have derived, of each one's last successful DERIVE day, so EV and AC
         are never compared with a plan they have not caught up with). `asOf.day` names it; SV = EV − PV, SPI = EV ÷ PV
@@ -1859,7 +1870,7 @@ paths:
         USER none and no epics or sprint findings. The configuration-level findings (`unmappedStatuses`, `unmappedBoards`,
         `snapshotDrift`, `deriveWarnings`) are not narrowed by the team; `domain` narrows `domainsWithoutOwner`. A real
         `teamId` sees no `domainsWithoutOwner` and no `authorsWithoutTeam` (they belong to no team); `teamId=0` sees them.
-        `domainView` (default TASK) picks the domain a task/worklog is sliced by; `breakdown` is accepted and changes nothing.
+        `domainView` (default TASK) picks the domain a task/worklog is sliced by.
       parameters:
         - { $ref: '#/components/parameters/ReportFrom' }
         - { $ref: '#/components/parameters/ReportTo' }
@@ -1902,8 +1913,7 @@ paths:
         from the task's sprint team at `started_at`, else from its assignee's team; an epic-logged worklog compares with the
         epic's domain owner team, A22; an unknown side is never foreign), null when nothing was logged. `400` for the shared
         parser's errors (`accountId` without `teamId`, `from` after `to`, a repeated key ...) and an unknown or inactive team,
-        connection or sprint (never 404); an unknown `domain` is a valid slice that answers empty. `breakdown` is accepted
-        and changes nothing.
+        connection or sprint (never 404); an unknown `domain` is a valid slice that answers empty.
       parameters:
         - { $ref: '#/components/parameters/ReportFrom' }
         - { $ref: '#/components/parameters/ReportTo' }
@@ -1947,7 +1957,6 @@ paths:
         `zeroCycle` = `cycle_ms` of 0, so `flowEfficiency.n + neverStarted + zeroCycle = population`); worklogs play
         no part, so a task with none is still measured. Reported time ratios can be dominated by very short
         cycles, a real outlier that is never dropped: the mean, p95 and histogram reflect it.
-        `breakdown` is accepted but does not change this report.
       parameters:
         - { $ref: '#/components/parameters/ReportFrom' }
         - { $ref: '#/components/parameters/ReportTo' }
@@ -2011,6 +2020,7 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '500': { $ref: '#/components/responses/InternalServerError' }
 
 components:
@@ -2063,7 +2073,7 @@ components:
       name: from
       in: query
       required: false
-      schema: { type: string, description: "ISO date (YYYY-MM-DD)." }
+      schema: { type: string, format: date, description: "ISO date (YYYY-MM-DD)." }
       description: >-
         Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today).
         Mutually exclusive with `lastSprints`/`sprintId`.
@@ -2071,7 +2081,7 @@ components:
       name: to
       in: query
       required: false
-      schema: { type: string, description: "ISO date (YYYY-MM-DD)." }
+      schema: { type: string, format: date, description: "ISO date (YYYY-MM-DD)." }
       description: Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days.
     ReportLastSprints:
       name: lastSprints
@@ -2083,7 +2093,7 @@ components:
       name: sprintId
       in: query
       required: false
-      schema: { type: integer, format: int64 }
+      schema: { type: integer, format: int64, minimum: 1 }
       description: One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`.
     ReportTeamId:
       name: teamId
@@ -2135,12 +2145,6 @@ components:
       required: false
       schema: { type: integer, format: int32, minimum: 0 }
       description: Restricts to one data source's own connection. Defaults to every enabled, active connection.
-    ReportBreakdown:
-      name: breakdown
-      in: query
-      required: false
-      schema: { type: string, enum: [NONE, DOMAIN, ACTIVITY_TYPE, WORK_CATEGORY], default: NONE }
-      description: Replaces the org drill inside a report's own `groups` with a slice by this dimension instead.
     ReportBucket:
       name: bucket
       in: query
@@ -2207,8 +2211,9 @@ components:
     PayloadTooLarge:
       description: >-
         Request body exceeds the global 10 MiB ceiling — a memory-DoS backstop shared by
-        every endpoint (declared here on the largest-bodied operation; field-level maxLength
-        rules reject oversized values far earlier on ordinary payloads).
+        every endpoint, so declared on every operation that takes a body (field-level maxLength
+        rules reject oversized values far earlier on ordinary payloads). Cross-cutting for the
+        coverage gate: pinned once by `PayloadValidationTest`, never once per operation.
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/ProblemDetail' }
@@ -3361,8 +3366,8 @@ components:
       properties:
         derivedAt: { type: integer, format: int64, nullable: true, description: "Epoch millis; null before any connection has ever completed a DERIVE." }
         configRevision: { type: integer, format: int64, minimum: 1 }
-        from: { type: string, nullable: true, description: "ISO date; null for a lastSprints/sprintId-selected period." }
-        to: { type: string, nullable: true, description: "ISO date; null for a lastSprints/sprintId-selected period." }
+        from: { type: string, format: date, nullable: true, description: "ISO date; null for a lastSprints/sprintId-selected period." }
+        to: { type: string, format: date, nullable: true, description: "ISO date; null for a lastSprints/sprintId-selected period." }
         level: { type: string, enum: [UNIT, TEAM, USER] }
         domainView: { type: string, enum: [TASK, EPIC] }
         resolvedSprints:

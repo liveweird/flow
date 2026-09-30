@@ -127,13 +127,12 @@ describe("ReportFilterBar", () => {
       expect(screen.queryByRole("combobox", { name: label })).not.toBeInTheDocument();
     }
     expect(screen.queryByText("Domain view")).not.toBeInTheDocument();
-    expect(screen.queryByText("Break down by")).not.toBeInTheDocument();
   });
 
   test("the offered controls write their params", async () => {
     const user = userEvent.setup();
     renderWithProviders(
-      <Harness controls={{ domainView: "EPIC", domain: true, activityType: true, workCategory: true, breakdown: true }} />,
+      <Harness controls={{ domainView: "EPIC", domain: true, activityType: true, workCategory: true }} />,
       { route: "/reports/velocity" },
     );
     // The report's own default view is preselected; choosing the other writes the param.
@@ -150,9 +149,6 @@ describe("ReportFilterBar", () => {
     expect(params.get("domain")).toBe("FLO");
     expect(params.get("activityType")).toBe("Bug");
     expect(params.get("workCategory")).toBe("UNCATEGORIZED");
-
-    await user.click(screen.getByRole("radio", { name: "Domain" }));
-    expect(search().get("breakdown")).toBe("DOMAIN");
   });
 
   test("a report with no team × domain split lets the last of the two win", async () => {

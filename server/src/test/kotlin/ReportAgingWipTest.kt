@@ -6,7 +6,6 @@ import ch.nokillswit.metrics.MetricsStore
 import ch.nokillswit.metrics.TeamMembershipService
 import ch.nokillswit.reports.AgingWipReport
 import ch.nokillswit.reports.DomainView
-import ch.nokillswit.reports.ReportBreakdown
 import ch.nokillswit.reports.ReportFilter
 import ch.nokillswit.reports.ReportLevel
 import ch.nokillswit.reports.ReportPeriod
@@ -56,7 +55,7 @@ class ReportAgingWipTest {
             else -> ReportLevel.USER
         },
         teamId = teamId, accountId = accountId, domainView = DomainView.TASK, domain = null, activityType = null,
-        workCategory = null, connectionId = connId, breakdown = ReportBreakdown.NONE,
+        workCategory = null, connectionId = connId,
     )
 
     private fun service(): ReportService {

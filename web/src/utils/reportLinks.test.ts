@@ -10,10 +10,10 @@ describe("reportHref", () => {
   });
 
   test("drops the report-specific params the target has no control for", () => {
-    const search = "teamId=2&domainView=EPIC&domain=FLO&activityType=Bug&workCategory=X&breakdown=DOMAIN&bucket=MONTH";
+    const search = "teamId=2&domainView=EPIC&domain=FLO&activityType=Bug&workCategory=X&bucket=MONTH";
     expect(reportHref("/reports/velocity", search)).toBe("/reports/velocity?teamId=2");
     expect(reportHref("/reports/sprint-consistency", search)).toBe("/reports/sprint-consistency?teamId=2");
-    // Throughput keeps its own five, and still has no breakdown control.
+    // Throughput keeps its own five.
     expect(reportHref("/reports/throughput", search)).toBe(
       "/reports/throughput?teamId=2&domainView=EPIC&domain=FLO&activityType=Bug&workCategory=X&bucket=MONTH",
     );
@@ -74,7 +74,7 @@ describe("reportHref", () => {
   });
 
   test("the cost matrix keeps the domain, its view, the activity type and the work category — never a bucket, by, item kind or epic", () => {
-    const search = "teamId=2&domainView=TASK&domain=FLO&epicId=FLO-33&activityType=Bug&workCategory=X&bucket=MONTH&by=STATUS&itemKind=EPIC&breakdown=DOMAIN";
+    const search = "teamId=2&domainView=TASK&domain=FLO&epicId=FLO-33&activityType=Bug&workCategory=X&bucket=MONTH&by=STATUS&itemKind=EPIC";
     expect(reportHref("/reports/cost-matrix", search)).toBe(
       "/reports/cost-matrix?teamId=2&domainView=TASK&domain=FLO&activityType=Bug&workCategory=X",
     );

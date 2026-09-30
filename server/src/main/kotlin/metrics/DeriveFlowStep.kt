@@ -52,9 +52,9 @@ private val AC_COLUMNS = listOf("ac_md")
  * covering `item_stage` is NOT_STARTED, whose covering `item_estimate` is > 0 (null/0 =
  * unestimated) and that sits in no sprint that has already started (`start_at < day_end_ms` — a
  * future sprint still counts as backlog; an active or closed one takes the task out). "Covering"
- * is [runWipStep]'s end-of-day rule (`valid_from < day_end_ms AND (valid_to IS NULL OR valid_to >=
- * day_end_ms)`). DOMAIN is the as-was domain (the WIP `domainWipSql` rule), TEAM that domain's
- * resolved `owner_team_id` (as-is; else `UNOWNED`, including a task with no domain), EPIC the
+ * is the WIP step's end-of-day rule, the one shared [coveringAt] predicate (`valid_from <
+ * day_end_ms AND (valid_to IS NULL OR valid_to >= day_end_ms)`). DOMAIN is the as-was domain (the WIP `domainWipSql`
+ * rule), TEAM that domain's resolved `owner_team_id` (as-is; else `UNOWNED`, including a task with no domain), EPIC the
  * covering `task_epic` epic. Set-based: joins on the covering predicates plus one `NOT EXISTS`.
  */
 private fun backlogFlowSql(connectionId: UInt, now: Long, configRevision: Long): String = """
@@ -64,19 +64,19 @@ private fun backlogFlowSql(connectionId: UInt, now: Long, configRevision: Long):
         FROM day_range d
         JOIN metrics.dim_task t ON t.connection_id = $connectionId AND t.is_subtask = false
         JOIN metrics.item_stage s ON s.connection_id = $connectionId AND s.issue_id = t.issue_id AND s.stage = 'NOT_STARTED'
-            AND s.valid_from < d.day_end_ms AND (s.valid_to IS NULL OR s.valid_to >= d.day_end_ms)
+            AND ${coveringAt("s")}
         JOIN metrics.item_estimate e ON e.connection_id = $connectionId AND e.issue_id = t.issue_id AND e.estimate_md > 0
-            AND e.valid_from < d.day_end_ms AND (e.valid_to IS NULL OR e.valid_to >= d.day_end_ms)
+            AND ${coveringAt("e")}
         LEFT JOIN metrics.task_domain td ON td.connection_id = $connectionId AND td.issue_id = t.issue_id
-            AND td.valid_from < d.day_end_ms AND (td.valid_to IS NULL OR td.valid_to >= d.day_end_ms)
+            AND ${coveringAt("td")}
         LEFT JOIN metrics.task_epic te ON te.connection_id = $connectionId AND te.issue_id = t.issue_id
-            AND te.valid_from < d.day_end_ms AND (te.valid_to IS NULL OR te.valid_to >= d.day_end_ms)
+            AND ${coveringAt("te")}
         WHERE NOT EXISTS (
             SELECT 1
             FROM metrics.task_sprint ts
             JOIN metrics.dim_sprint sp ON sp.connection_id = $connectionId AND sp.sprint_id = ts.sprint_id
             WHERE ts.connection_id = $connectionId AND ts.issue_id = t.issue_id
-              AND ts.valid_from < d.day_end_ms AND (ts.valid_to IS NULL OR ts.valid_to >= d.day_end_ms)
+              AND ${coveringAt("ts")}
               AND sp.start_at IS NOT NULL AND sp.start_at < d.day_end_ms
         )
     ),

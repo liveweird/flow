@@ -5,9 +5,8 @@ import { costMatrixPath, reportSpecificKeep } from "./reportLinks";
 /**
  * Makes a filter the cost matrix can answer, and says what its page can show. The report reads the
  * domain view (default EPIC), a domain, an activity type, a work category and a connection, and the page
- * has a control for each; it also accepts `breakdown` (and changes nothing), while `bucket`, `by`,
- * `itemKind` and `epicId` are other reports' own params. Every one the page cannot show or clear is
- * dropped off the request AND the URL.
+ * has a control for each, while `bucket`, `by`, `itemKind` and `epicId` are other reports' own params. Every one
+ * the page cannot show or clear is dropped off the request AND the URL.
  */
 export function normalizeCostMatrixFilter(filter: ReportFilterState): ReportFilterState {
   return dropReportSpecific(filter, reportSpecificKeep(costMatrixPath));

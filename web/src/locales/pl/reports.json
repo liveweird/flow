@@ -55,13 +55,6 @@
     "domainView": "Widok domeny",
     "deliveredIn": "Dostarczone w",
     "earnedIn": "Wypracowane w",
-    "breakdown": "Podziel według",
-    "breakdownOption": {
-      "NONE": "Bez podziału",
-      "DOMAIN": "Domeny",
-      "ACTIVITY_TYPE": "Typu aktywności",
-      "WORK_CATEGORY": "Kategorii pracy"
-    },
     "bucket": "Grupuj według",
     "bucketOption": {
       "WEEK": "Tydzień",

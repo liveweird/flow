@@ -1,7 +1,10 @@
 package ch.nokillswit
 
 import ch.nokillswit.infra.json.canonicalJson
+import ch.nokillswit.infra.json.parseStringArray
 import ch.nokillswit.infra.json.sha256Hex
+import ch.nokillswit.infra.json.stringArrayJson
+import ch.nokillswit.infra.time.MILLIS_PER_DAY
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
@@ -9,7 +12,9 @@ import kotlin.test.assertTrue
 
 /**
  * Canonical JSON (`infra/json/CanonicalJson.kt`, the first stored-`jsonb` consumer): recursive
- * key sorting, order-preserving arrays, and a stable sha256 digest over the result.
+ * key sorting, order-preserving arrays, and a stable sha256 digest over the result — plus the
+ * shared string-array codec (`infra/json/JsonArrays.kt`) and the shared day constant
+ * (`infra/time/Millis.kt`) that the stores and steps used to each re-declare.
  */
 class CanonicalJsonTest {
 
@@ -60,5 +65,19 @@ class CanonicalJsonTest {
         assertEquals(64, hashA.length)
         assertTrue(hashA.all { it.isDigit() || it in 'a'..'f' })
         assertNotEquals(hashA, sha256Hex(canonicalJson("""{"a":1,"b":3}""")))
+    }
+
+    @Test
+    fun `stringArrayJson renders a compact array in list order and parseStringArray inverts it`() {
+        assertEquals("""["b","a"]""", stringArrayJson(listOf("b", "a")))
+        assertEquals("[]", stringArrayJson(emptyList()))
+        val awkward = listOf("quote\"", "back\\slash", "zażółć", "")
+        assertEquals(awkward, parseStringArray(stringArrayJson(awkward)))
+        assertEquals(emptyList(), parseStringArray("[]"))
+    }
+
+    @Test
+    fun `MILLIS_PER_DAY is one fixed 24-hour day`() {
+        assertEquals(86_400_000L, MILLIS_PER_DAY)
     }
 }

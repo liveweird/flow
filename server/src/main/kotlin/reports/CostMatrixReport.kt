@@ -4,7 +4,6 @@ import ch.nokillswit.infra.db.active
 import ch.nokillswit.metrics.MetricsStore
 import ch.nokillswit.teams.TeamService
 import java.math.BigDecimal
-import java.math.RoundingMode
 import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.Serializable
 import org.jetbrains.exposed.v1.core.SortOrder
@@ -59,11 +58,6 @@ data class CostMatrixReport(
 
 /** One grouped `fact_worklog` aggregate: the exact MD of one (author team, author, domain, foreign?) combination. */
 private data class CostAggregate(val teamId: UInt?, val account: String?, val domain: String?, val foreign: Boolean, val md: BigDecimal)
-
-private const val MD_SCALE = 2
-
-/** A total is ALWAYS the rounded exact sum, never the sum of rounded cells (`.claude/docs/reports.md` "Report 16"). */
-private fun BigDecimal.md(): Double = setScale(MD_SCALE, RoundingMode.HALF_UP).toDouble()
 
 private fun Iterable<CostAggregate>.exact(): BigDecimal = fold(BigDecimal.ZERO) { sum, aggregate -> sum + aggregate.md }
 
