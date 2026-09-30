@@ -207,7 +207,7 @@ class TeamService(private val database: R2dbcDatabase) {
         val count = TeamMembers.userId.count()
         return TeamMembers.innerJoin(UserService.Users)
             .select(TeamMembers.teamId, count)
-            .where { (TeamMembers.teamId inList teamIds) and (UserService.Users.markedAsDeleted eq false) }
+            .where { (TeamMembers.teamId inList teamIds) and UserService.Users.active() }
             .groupBy(TeamMembers.teamId)
             .map { it[TeamMembers.teamId].value to it[count].toInt() }
             .toList()
@@ -226,7 +226,7 @@ class TeamService(private val database: R2dbcDatabase) {
     private suspend fun requireActiveUsers(ids: List<UInt>, asNotFound: Boolean = false) {
         if (ids.isEmpty()) return
         val found = UserService.Users.select(UserService.Users.id)
-            .where { (UserService.Users.id inList ids) and (UserService.Users.markedAsDeleted eq false) }
+            .where { (UserService.Users.id inList ids) and UserService.Users.active() }
             .map { it[UserService.Users.id].value }
             .toList()
             .toSet()

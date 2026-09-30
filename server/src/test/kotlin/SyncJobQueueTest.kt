@@ -17,7 +17,6 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
 import java.util.UUID
-import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -25,33 +24,12 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * These tests construct [ch.nokillswit.ingest.SyncJobsService]/[DataSourceService] directly
- * against [sharedDatabaseForTests] WITHOUT ever booting a `testApplication` (no HTTP layer is
- * exercised) — so, unlike every other suspend-only DB test (`JsonbColumnTest`'s own scratch
- * table aside), nothing else in this JVM fork is guaranteed to have run Flyway against the shared
- * Testcontainer first (Gradle's `test` task may fork workers, each starting its OWN container
- * lazily; `--tests`-filtered runs can pick a fork where no other class's `startApplication()` runs
- * before this one). [ensureMigrated] replicates `infra/db/Flyway.kt`'s `configureFlyway()` call
- * directly (idempotent — Flyway no-ops once applied) rather than booting a whole app, which would
- * also start a live ingest worker in the default `all` role and race these tests' own claims.
- */
-private val migrated = AtomicBoolean(false)
-
-private fun ensureMigrated() {
-    if (migrated.compareAndSet(false, true)) {
-        org.flywaydb.core.Flyway.configure()
-            .dataSource(PostgresTestSupport.jdbcUrl, PostgresTestSupport.user, PostgresTestSupport.password)
-            .locations("classpath:db/migration")
-            .load()
-            .migrate()
-    }
-}
-
-/**
  * The sync-job queue (v0.2.0 plan §4/§5/§9, V9 `sync_jobs`): claim/lease/heartbeat, coalescing,
  * the one-RUNNING-per-connection rule, the claim-time terminal checks (`RETRIES_EXHAUSTED`,
  * `CONFIG_CHANGED`) and retention pruning — direct-against-`SyncJobsService` tests (no HTTP layer;
- * `SyncJobRoutesTest` covers the API).
+ * `SyncJobRoutesTest` covers the API). No `testApplication` is booted (that would also start a live
+ * ingest worker in the default `all` role and race these tests' own claims); the shared container is
+ * already migrated by [PostgresTestSupport] the moment [sharedDatabaseForTests] first touches it.
  */
 class SyncJobQueueTest {
     private fun unique(prefix: String) = "$prefix-${UUID.randomUUID().toString().substring(0, 8)}"
@@ -129,7 +107,6 @@ class SyncJobQueueTest {
 
     @Test
     fun `two concurrent claimers race for one job - exactly one wins`() = runBlocking {
-        ensureMigrated()
         val ds = dataSources()
         val jobs = syncJobs()
         val connId = createConnection(ds)
@@ -147,7 +124,6 @@ class SyncJobQueueTest {
 
     @Test
     fun `an expired lease is re-claimed by another worker`() = runBlocking {
-        ensureMigrated()
         val ds = dataSources()
         val jobs = syncJobs()
         val connId = createConnection(ds)
@@ -169,7 +145,6 @@ class SyncJobQueueTest {
 
     @Test
     fun `heartbeat after the lease is lost returns false`() = runBlocking {
-        ensureMigrated()
         val ds = dataSources()
         val jobs = syncJobs()
         val connId = createConnection(ds)
@@ -189,7 +164,6 @@ class SyncJobQueueTest {
 
     @Test
     fun `release on cancellation puts a RUNNING job back to PENDING`() = runBlocking {
-        ensureMigrated()
         val ds = dataSources()
         val jobs = syncJobs()
         val connId = createConnection(ds)
@@ -207,7 +181,6 @@ class SyncJobQueueTest {
 
     @Test
     fun `a second SYNC request while one is open coalesces onto the same job`() = runBlocking {
-        ensureMigrated()
         val ds = dataSources()
         val jobs = syncJobs()
         val connId = createConnection(ds)
@@ -225,7 +198,6 @@ class SyncJobQueueTest {
 
     @Test
     fun `at most one RUNNING job per connection, even across different kinds`() = runBlocking {
-        ensureMigrated()
         val ds = dataSources()
         val jobs = syncJobs()
         val connId = createConnection(ds)
@@ -244,7 +216,6 @@ class SyncJobQueueTest {
 
     @Test
     fun `a config_revision mismatch cancels the job as CONFIG_CHANGED`() = runBlocking {
-        ensureMigrated()
         val ds = dataSources()
         val jobs = syncJobs()
         val connId = createConnection(ds)
@@ -281,7 +252,6 @@ class SyncJobQueueTest {
 
     @Test
     fun `a job already at max_attempts is failed RETRIES_EXHAUSTED at claim time`() = runBlocking {
-        ensureMigrated()
         val ds = dataSources()
         val jobs = syncJobs(maxAttempts = 2)
         val connId = createConnection(ds)
@@ -309,7 +279,6 @@ class SyncJobQueueTest {
 
     @Test
     fun `prune hard-deletes terminal rows past retention but keeps recent and open ones`() = runBlocking {
-        ensureMigrated()
         val ds = dataSources()
         val jobs = syncJobs()
         val connId = createConnection(ds)

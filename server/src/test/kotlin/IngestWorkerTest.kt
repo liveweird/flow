@@ -37,7 +37,6 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
 import io.ktor.server.testing.testApplication
 import java.util.UUID
-import java.util.concurrent.atomic.AtomicBoolean
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.r2dbc.insert
 import org.jetbrains.exposed.v1.r2dbc.selectAll
@@ -48,30 +47,11 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
-/**
- * The direct-construction tests below hit [sharedDatabaseForTests] without booting a
- * `testApplication` — see `SyncJobQueueTest.kt`'s identical note: nothing else in this JVM fork
- * is guaranteed to have run Flyway first (Gradle test forking, `--tests` filtering), so
- * [ensureMigrated] replicates `infra/db/Flyway.kt`'s migrate() call directly (idempotent) instead
- * of booting a whole app — which would also start a live, competing ingest worker in `all` role.
- */
-private val migrated = AtomicBoolean(false)
-
 /** A bound on the retry loops that keep ticking a scoped [IngestWorker] until ITS OWN job finishes — never an expected real-world count. */
 private const val MAX_TICK_ATTEMPTS = 50
 
 /** The manual clock every worker in this class ticks with (2024-01-01T01:00:00Z) — also what the queue fence compares leases against. */
 private val TICK_CLOCK_MILLIS = java.time.Instant.parse("2024-01-01T01:00:00Z").toEpochMilli()
-
-private fun ensureMigrated() {
-    if (migrated.compareAndSet(false, true)) {
-        org.flywaydb.core.Flyway.configure()
-            .dataSource(PostgresTestSupport.jdbcUrl, PostgresTestSupport.user, PostgresTestSupport.password)
-            .locations("classpath:db/migration")
-            .load()
-            .migrate()
-    }
-}
 
 /**
  * `ingest/IngestWorker.kt` (v0.2.0 plan §5/§11): the scheduler tick, claim+run loop, success/
@@ -242,7 +222,6 @@ class IngestWorkerTest {
 
     @Test
     fun `a tick enqueues a due SYNC job, claims and runs it to success`() = runBlocking {
-        ensureMigrated()
         val ds = dataSources()
         val jobs = syncJobs()
         val connId = createConnection(ds, syncIntervalMinutes = 45, enabled = true)
@@ -304,7 +283,6 @@ class IngestWorkerTest {
 
     @Test
     fun `a failing run schedules a backoff and is FAILED, not silently dropped`() = runBlocking {
-        ensureMigrated()
         val ds = dataSources()
         val jobs = syncJobs()
         val connId = createConnection(ds, syncIntervalMinutes = 30, enabled = true)
@@ -333,7 +311,6 @@ class IngestWorkerTest {
 
     @Test
     fun `a stream's heartbeat writes progress and current_stream onto the sync job`() = runBlocking {
-        ensureMigrated()
         val ds = dataSources()
         val jobs = syncJobs()
         val connId = createConnection(ds, enabled = true)
@@ -378,7 +355,6 @@ class IngestWorkerTest {
 
     @Test
     fun `a PURGE job drains all eight metrics config tables, and a second PURGE is a no-op`() = runBlocking {
-        ensureMigrated()
         val ds = dataSources()
         val jobs = syncJobs()
         val metrics = metricsConfig(ds)
@@ -470,7 +446,6 @@ class IngestWorkerTest {
 
     @Test
     fun `a PURGE job also drains metrics star rows and fact_sprint_snapshot rows for the connection`() = runBlocking {
-        ensureMigrated()
         val ds = dataSources()
         val jobs = syncJobs()
         val metrics = metricsConfig(ds)
@@ -507,7 +482,6 @@ class IngestWorkerTest {
 
     @Test
     fun `fact_sprint_snapshot rows are immutable outside the PURGE bypass`() = runBlocking {
-        ensureMigrated()
         val ds = dataSources()
         val connId = createConnection(ds)
         insertRawSnapshotRow(connId, sprintId = 111L)
@@ -539,7 +513,6 @@ class IngestWorkerTest {
 
     @Test
     fun `onSucceeded enqueues a fresh DERIVE when the run's own config revision is now stale`() = runBlocking {
-        ensureMigrated()
         val ds = dataSources()
         val jobs = syncJobs()
         val metrics = metricsConfig(ds)
@@ -567,7 +540,6 @@ class IngestWorkerTest {
 
     @Test
     fun `onSucceeded does not re-enqueue DERIVE when the run's revision is still current`() = runBlocking {
-        ensureMigrated()
         val ds = dataSources()
         val jobs = syncJobs()
         val metrics = metricsConfig(ds)
@@ -588,7 +560,6 @@ class IngestWorkerTest {
 
     @Test
     fun `onSucceeded chains a DERIVE after a successful RECONCILE`() = runBlocking {
-        ensureMigrated()
         val ds = dataSources()
         val jobs = syncJobs()
         val metrics = metricsConfig(ds)
@@ -607,7 +578,6 @@ class IngestWorkerTest {
 
     @Test
     fun `onSucceeded chains a DERIVE after a successful REPROCESS`() = runBlocking {
-        ensureMigrated()
         val ds = dataSources()
         val jobs = syncJobs()
         val metrics = metricsConfig(ds)
@@ -626,7 +596,6 @@ class IngestWorkerTest {
 
     @Test
     fun `a connector purge failure prevents the generic metrics-config drain and FAILS the job`() = runBlocking {
-        ensureMigrated()
         val ds = dataSources()
         val jobs = syncJobs()
         val metrics = metricsConfig(ds)
@@ -663,7 +632,6 @@ class IngestWorkerTest {
 
     @Test
     fun `a cancel request during a run is honoured - the job stops and is CANCELLED`() = runBlocking {
-        ensureMigrated()
         val ds = dataSources()
         val jobs = syncJobs()
         val connId = createConnection(ds)

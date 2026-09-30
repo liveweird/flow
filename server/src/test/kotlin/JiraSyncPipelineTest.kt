@@ -45,7 +45,6 @@ import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import java.io.File
 import java.util.UUID
-import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -53,21 +52,6 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
-
-private val migrated = AtomicBoolean(false)
-
-// See IngestWorkerTest.kt's identical note: this suite drives ch.nokillswit.jira.JiraConnector and
-// its streams directly (deterministic, no worker/scheduler timing) against sharedDatabaseForTests(),
-// so nothing else in this JVM fork is guaranteed to have run Flyway first.
-private fun ensureMigrated() {
-    if (migrated.compareAndSet(false, true)) {
-        org.flywaydb.core.Flyway.configure()
-            .dataSource(PostgresTestSupport.jdbcUrl, PostgresTestSupport.user, PostgresTestSupport.password)
-            .locations("classpath:db/migration")
-            .load()
-            .migrate()
-    }
-}
 
 private val IN_SCOPE_PROJECT_KEYS = listOf("FLO", "PLT", "GTM", "OPS")
 private val ISSUES_TEST_JSON = Json { ignoreUnknownKeys = true }
@@ -316,7 +300,6 @@ class JiraSyncPipelineTest {
 
     @Test
     fun `a PURGE step removes every raw row for the connection`() = runBlocking {
-        ensureMigrated()
         val ds = dataSources()
         val connId = createConnection(ds)
         val store = rawStore()
@@ -392,7 +375,6 @@ class JiraSyncPipelineTest {
 
     @Test
     fun `a fault-injected page fails the ISSUES run, and the next run resumes with identical totals`() = runBlocking {
-        ensureMigrated()
         val ds = dataSources()
         val connId = createConnection(ds)
         val store = rawStore()
@@ -426,7 +408,6 @@ class JiraSyncPipelineTest {
 
     @Test
     fun `CURSOR_EXPIRED on a page drops the token and restarts from the watermark, completing successfully`() = runBlocking {
-        ensureMigrated()
         val ds = dataSources()
         val connId = createConnection(ds)
         val store = rawStore()
@@ -463,7 +444,6 @@ class JiraSyncPipelineTest {
 
     @Test
     fun `a lease loss mid-run stops the ISSUES stream without ever fetching the next page`() = runBlocking {
-        ensureMigrated()
         val ds = dataSources()
         val connId = createConnection(ds)
         val store = rawStore()

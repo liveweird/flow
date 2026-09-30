@@ -7,6 +7,7 @@ import ch.nokillswit.infra.crypto.reencryptRows
 import ch.nokillswit.infra.db.SoftDeletable
 import ch.nokillswit.infra.db.active
 import ch.nokillswit.infra.db.containsNormalized
+import ch.nokillswit.infra.db.deleted
 import ch.nokillswit.infra.db.jsonb
 import ch.nokillswit.infra.db.nowMillis
 import ch.nokillswit.infra.json.canonicalJson
@@ -258,7 +259,7 @@ class DataSourceService(private val database: R2dbcDatabase, private val cipher:
     /** Soft-deleted connections past the purge grace period and never successfully purged. */
     suspend fun dueForPurge(now: Long, graceMillis: Long): List<DueConnection> = suspendTransaction(database) {
         Connections.selectAll().where {
-            (Connections.markedAsDeleted eq true) and (Connections.purgedAt.isNull()) and (Connections.updatedAt lessEq (now - graceMillis))
+            Connections.deleted() and (Connections.purgedAt.isNull()) and (Connections.updatedAt lessEq (now - graceMillis))
         }.toList().map { DueConnection(it[Connections.id].value, it[Connections.configRevision]) }
     }
 
