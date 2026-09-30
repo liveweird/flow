@@ -253,7 +253,7 @@ ch.nokillswit
 │                       the neutral shape) and JiraProfile.kt (the data-profile aggregates)
 ├── norm/               the connector-agnostic normalized layer (V13 `norm.*`): Tiling.kt (pure
 │                       status/field interval tiling + anomaly flags), Normalization.kt
-│                       (PROCESSING_VERSION, the glue), WorkItemStore.kt (per-issue REPLACE,
+│                       (PROCESSING_VERSION, the glue), WorkItemStore.kt (per-page REPLACE (per-issue scope),
 │                       reference-row rebuilds, purge)
 ├── metrics/            v0.3.0 metrics configuration + the DERIVE job (`.claude/docs/metrics.md`):
 │                       config/memberships services + routes, MetricsDeriver + Derive*Step files,
