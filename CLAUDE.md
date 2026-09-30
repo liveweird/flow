@@ -57,6 +57,7 @@ Gradle wrapper is at `./gradlew` (use `gradlew.bat` on Windows). JDK 21 toolchai
 or activate mise in your shell. If `./gradlew` still resolves the wrong JDK (a system JRE ahead of
 the mise shim on `PATH`), point it explicitly: `JAVA_HOME=$(mise where java) ./gradlew build`.
 
+- All local gates, timed like CI: `scripts/gates.sh [server|web|e2e|all]` (stops at the first failure, records to the shared timings TSV — `.claude/docs/build-times.md`)
 - Build everything: `./gradlew build`
 - Run the server (Ktor + Netty on port 8084): `./gradlew :server:run`
 - Run all tests: `./gradlew test`

@@ -40,6 +40,13 @@ node scripts/timings/local-times.mjs report                       # latest / med
 node scripts/timings/local-times.mjs slow-tests                   # top classes + cases from server/build/test-results/test
 ```
 
+**The one entry point — `scripts/gates.sh [server|web|e2e|all]`** (default `all`) runs the gates the way CI does,
+each wrapped in `record`: `server-build` (`./gradlew cleanTest build`, with `JAVA_HOME=$(mise where java)` and the
+OrbStack `DOCKER_HOST` set only when unset and the socket exists), `web-gates`, `e2e-static`. It stops at the first
+failing gate with that gate's exit code, prints one line per gate and ends with `local-times.mjs report`. Prefer it
+to typing the commands above, so every pre-commit run lands in the series. (Playwright is not part of it — it needs
+a running stack.)
+
 `record` runs the command, appends one row (ISO time, git short sha, branch, worktree, activity,
 seconds, exit code, host cores) to `${XDG_DATA_HOME:-~/.local/share}/flow/timings.tsv` — outside the
 repo, **shared by every worktree** — prints the verdict against the budget and exits with the
@@ -130,6 +137,32 @@ side by side.
 | `e2e-static` | 16 s | 16 s | 17 s | 15 s | flat |
 | `gradle-vulnerability-scan` | 42 s | 38 s | 44 s | 42 s | flat (27-90 s = network noise) |
 | `e2e` (nightly, Playwright) | 3m31s (dispatch) | 4m15s | 5m50s | 7m48s | +120 % in 3 days — unexplained, see WHY 7 |
+
+## Trajectory and status, 2026-09-30
+
+Source: `node scripts/timings/ci-times.mjs --branch master` (23 successful master runs, 09-26 → 09-30) and
+`--tsv --limit 40` for the PR runs.
+
+**CI trajectory over tonight's PRs.** The `server` job was ~30 min at its worst (09-29: the M4/M5 runs at
+21-30 min; the docs-only run #69 hit the old 30-min timeout). Master pushes since: #33 (ANALYZE inside DERIVE + faster
+fixtures) 15m08s → #34/#35 11m26s-12m37s → #36 (PROCESS in pages of 50) 12m56s → #40 (pooled test database) **8m18s**;
+the latest PR run (#41's branch, `1e0dad4`) is **10m01s** on a 4 vCPU runner. Read every figure with the
+runner-variance warning above in mind — two cancelled master runs (#91, #93) stopped at 5-10 min and never
+counted. The `web` job: **3m15s (master, before #37) → 1m55s (first master run with #37: vitest `isolate: false`,
+CSS/threads — WHY 6) → 1m23s (#40's push) → 1m09s** (#41's PR run), inside its 1m30s target. Still over
+target: `server` (10m01s vs 5 min) and `images` (4m06s: the BuildKit cache and the Trivy scan landed together in
+#35 — WHY 9 needs a fresh look, below).
+
+**WHY 5 (CI 4 vCPU vs local 18 cores) — status 2026-09-30: pending.** Checkup A2 made parallel test forks
+possible; checkup D1 is the change that ENABLES them (`maxParallelForks` above 1) and has not landed. Until it does
+the suite stays single-fork and CI keeps its 4-vCPU penalty; the expected gain is still only ~15-25 % on 4 vCPU
+(question 5 has the local -29 % / -33 %, and the fixture duplication that limits it). Re-measure with
+`ci-times.mjs --branch master` on the first master run after D1.
+
+**The 45-minute timeout.** The `server` job's `timeout-minutes: 45` (`.github/workflows/ci.yml`) was raised from 30
+when run #69 hit it; it is a stop-gap, not a budget (the alarm is 10 min). Once D1 lands and the master median sits
+below the alarm for a few runs, bring it down (to ~20 min, at least 2x the alarm) in the same change that
+records the measurement — the same "measurement first" rule as `budgets.json`.
 
 ## Known causes and open WHY questions
 
@@ -228,7 +261,7 @@ evidence and recorded here as a dated entry (finding + fix, or "measured, intend
    `coverage.md`/`gaps.txt`; 59-62 false gaps), duplicates the per-fork Postgres + ~30 s sync + derived
    fixture (sum of class time 367 → 499 → 608 s), and Kover across forks is unverified. Expect only
    -15-25 % on 4 vCPU. Do it LAST, and only if CI is still over target after the fixes above.
-6. **Web job growth — measured 2026-09-30 (checkup A17).** 1m16s → ~2m20s median in four days; the
+6. **Web job growth — ANSWERED 2026-09-30 (checkup A17; CI 3m15s → 1m09s after #37, see the trajectory entry above).** 1m16s → ~2m20s median in four days; the
    latest master run spent 1m22s (68 %) in `npm run test:coverage`, lint 12 s, `npm ci` 10 s, build 7 s.
    Locally (18 cores; every count and time below is from before the A7 test landed — 108 files, 866 tests) the suite takes **12.5-13.4 s** (`real`; 143-159 s user +
    28-32 s sys of CPU), so the runner's 82 s is CPU-bound, not a slow file: `--maxWorkers=3` (a 4 vCPU
@@ -295,7 +328,10 @@ evidence and recorded here as a dated entry (finding + fix, or "measured, intend
    empty-connection derives spend 2-6 s each in `dim_date` upsert row-lock contention). The effect on
    wall time is unmeasured.
 9. **`images` is one 2m25s step** (`docker compose build`), +30 % since 09-26 with a cold layer cache
-   each run. Is the layer cache being used at all (is there a `cache-from`)? Not investigated.
+   each run. Is the layer cache being used at all (is there a `cache-from`)? Not investigated before
+   2026-09-30; #35 then added the BuildKit layer cache (`.github/compose-buildx-cache.yaml`) AND a Trivy scan
+   of the image in one change. Latest master figure 4m06s (median of 5, TREND +76 %, over the 4-min alarm):
+   is the cache hit (`--steps images`), and how long is the scan? Still open.
 10. **The shared test database was unpooled — ANSWERED 2026-09-30 (`perf/pooled-test-db`).**
    `sharedTestDatabase` (`TestEnvironment.kt`) opened a fresh PostgreSQL backend per
    `suspendTransaction` (~4.2 ms; a pooled connection answers a first statement in ~0.25 ms) for every
