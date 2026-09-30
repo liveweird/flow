@@ -55,6 +55,7 @@
     "addTitle": "Add a Jira member",
     "pickPerson": "Search people by name…",
     "noMatchingPeople": "No matching people",
+    "loadingPeople": "Loading people…",
     "field": {
       "person": "Person",
       "validFrom": "Valid from",

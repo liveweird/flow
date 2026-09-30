@@ -55,6 +55,7 @@
     "addTitle": "Dodaj członka/kinię Jira",
     "pickPerson": "Szukaj osób po nazwie…",
     "noMatchingPeople": "Brak pasujących osób",
+    "loadingPeople": "Wczytywanie osób…",
     "field": {
       "person": "Osoba",
       "validFrom": "Ważne od",

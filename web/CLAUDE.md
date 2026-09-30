@@ -385,7 +385,10 @@ team membership landed in M2 commit 5, and the per-connection `metrics-config` p
   ADMIN-only mutations: "Add Jira member" opens `components/JiraMemberModal.tsx` (a searchable
   person `Select` over `GET /api/v1/jira-users?scope=SITE` — the whole site directory, since a
   brand-new member may not yet be UNIT-relevant — plus a required valid-from and optional valid-to
-  date; the exclusion-constraint `409` renders inline in the modal, never a toast), a per-row "End
+  date; the directory query shows a labelled `Loader` (`role="status"`) and `aria-busy` while pending and
+  an inline red `Alert` (`loadErrorMessage`) on failure — "No matching people" only states a completed
+  search for the current term, never during the debounce window or a pending/failed load; the
+  exclusion-constraint `409` renders inline in the modal, never a toast), a per-row "End
   membership" (only on the open-ended row — direct PUT setting `validTo` to today's UTC midnight,
   the `startOfTodayEpochMillis` helper) and Delete (`ConfirmDeleteModal`, the `useDeleteConfirm`
   precedent). **Dates are plain `YYYY-MM-DD` `TextInput`s** (`utils/isoDate.ts`'s

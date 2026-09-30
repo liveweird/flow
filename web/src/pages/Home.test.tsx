@@ -337,8 +337,9 @@ describe("Home page — the unit overview", () => {
     expect(tile("Data quality")).toHaveAttribute("aria-busy", "true");
     expect(within(tile("Data quality")).queryByRole("list")).not.toBeInTheDocument();
     expect(tile("Cycle time")).toHaveAttribute("aria-busy", "false");
-    // One status region for the whole page, not one per loading tile.
-    expect(screen.getAllByRole("status")).toHaveLength(1);
+    // One status region for the whole page, not one per loading tile (the lazy chart chunks' own
+    // Suspense fallbacks are `status` regions too, so wait for them to land first).
+    await waitFor(() => expect(screen.getAllByRole("status")).toHaveLength(1));
     expect(screen.getByRole("status")).toHaveTextContent("Loading…");
   });
 

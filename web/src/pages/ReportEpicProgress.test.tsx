@@ -231,7 +231,7 @@ describe("ReportEpicProgress page", () => {
     // No baseline, no drift, no original plan drawn.
     expect(screen.queryByRole("table", { name: "Plan baselines, oldest first" })).not.toBeInTheDocument();
     expect(screen.queryByText(/since the original plan/)).not.toBeInTheDocument();
-    expect(screen.getByTestId("line-chart").getAttribute("data-series")).toBe("pv,ev,ac");
+    expect((await screen.findByTestId("line-chart")).getAttribute("data-series")).toBe("pv,ev,ac");
   });
 
   test("in the horizon but with no working day: its own note, not the horizon one", async () => {
@@ -250,7 +250,7 @@ describe("ReportEpicProgress page", () => {
     expect(within(foreign).getByText("12.5%")).toBeInTheDocument();
     expect(within(foreign).getByText(/Read the team's CPI together with it/)).toBeInTheDocument();
     expect(screen.getByText(/Sprint view: planned is the committed scope of the team's sprints/)).toBeInTheDocument();
-    expect(screen.getByTestId("line-chart").getAttribute("data-series")).toBe("pv,ev,ac");
+    expect((await screen.findByTestId("line-chart")).getAttribute("data-series")).toBe("pv,ev,ac");
     // No user level: the bar has a team but no member control.
     expect(screen.getByRole("combobox", { name: "Team" })).toBeInTheDocument();
     expect(screen.queryByRole("combobox", { name: "Member" })).not.toBeInTheDocument();
