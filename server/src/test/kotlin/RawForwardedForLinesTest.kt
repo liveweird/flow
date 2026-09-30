@@ -1,5 +1,6 @@
 package ch.nokillswit
 
+import ch.nokillswit.users.UserRole
 import io.ktor.server.netty.EngineMain
 import java.io.BufferedReader
 import java.io.InputStreamReader
@@ -41,6 +42,7 @@ class RawForwardedForLinesTest {
                 "-P:security.rateLimit.loginPerMinute=10",
             ),
         )
+        val seeded = mutableListOf<UInt>()
         try {
             server.start(wait = false)
             val port = runBlocking { server.engine.resolvedConnectors().first().port }
@@ -49,8 +51,13 @@ class RawForwardedForLinesTest {
             // appended as its OWN, physically separate header line — never comma-joined into
             // the first, unlike anything sent through ktor-client's header() API.
             fun rawLoginStatus(clientLine: String, proxyLine: String): Int {
+                // A SEEDED account with a wrong password, never an unknown email: unknown emails pay the
+                // login route's constant-time cost-12 bcrypt verify (~225 ms locally, ~2x on CI) x 12 attempts.
+                // Seeded BEFORE the socket opens, and soft-deleted in the outer finally.
+                val email = "xff-raw-${UUID.randomUUID()}@test"
+                seeded += runBlocking { TestUsers.seed(email, "the-right-password", role = UserRole.USER) }
                 Socket("127.0.0.1", port).use { socket ->
-                    val body = """{"email":"xff-raw-${UUID.randomUUID()}@test","password":"wrong"}"""
+                    val body = """{"email":"$email","password":"wrong"}"""
                     val bytes = body.toByteArray()
                     val request = buildString {
                         append("POST /api/v1/login HTTP/1.1\r\n")
@@ -80,6 +87,7 @@ class RawForwardedForLinesTest {
             assertEquals(401, rawLoginStatus("10.9.99.1", "203.0.113.8"))
         } finally {
             server.stop(gracePeriodMillis = 100, timeoutMillis = 1_000)
+            runBlocking { seeded.forEach { TestUsers.softDelete(it) } }
         }
     }
 }
