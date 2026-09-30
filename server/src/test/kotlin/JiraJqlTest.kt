@@ -37,7 +37,16 @@ class JiraJqlTest {
     }
 
     @Test
-    fun `reconcile orders by id ascending with no date bound`() {
-        assertEquals("project in (\"ENG\") ORDER BY id ASC", JiraJql.reconcile(listOf("ENG")))
+    fun `reconcile adds a relative updated bound and orders by id ascending`() {
+        assertEquals(
+            "project in (\"ENG\",\"OPS\") AND updated >= \"-525600m\" ORDER BY id ASC",
+            JiraJql.reconcile(listOf("ENG", "OPS"), 525_600),
+        )
+        assertEquals("project in (\"ENG\") AND updated >= \"-0m\" ORDER BY id ASC", JiraJql.reconcile(listOf("ENG"), 0))
+    }
+
+    @Test
+    fun `reconcile rejects a negative minute window`() {
+        assertFailsWith<IllegalArgumentException> { JiraJql.reconcile(listOf("ENG"), -1) }
     }
 }

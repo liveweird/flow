@@ -229,9 +229,11 @@ tables in the `raw` schema — the REFERENCE and ISSUES streams' target
   `markWorklogsSynced` flag `needs_processing = true` on every issue they touch, and
   `JiraRawStore.issuesToProcess` claims the resulting backlog, ascending issue id, batches of 50.
   `deleted_at`/`moved_out_at` are tombstone columns the RECONCILE stream sets (V12,
-  `jira/JiraReconcileStream.kt`); nothing in the REFERENCE/ISSUES/CHANGELOGS/WORKLOGS streams sets
-  `moved_out_at` on its own — a key/project change during an ISSUES page is just an ordinary column
-  update, not a distinct "move" code path. Three partial indexes back the streams' own claim scans:
+  `jira/JiraReconcileStream.kt`); the ISSUES stream also sets `moved_out_at` at the start of every
+  SYNC for stored rows whose project left the connection's scope (`JiraRawStore.markOutOfScopeProjects`,
+  by project id, local and idempotent), and clears both on a resurrecting `upsertIssue`. Nothing else
+  sets them — a key/project change during an ISSUES page is just an ordinary column update, not a
+  distinct "move" code path. Three partial indexes back the streams' own claim scans:
   `idx_raw_jira_issues_needs_processing` (PROCESS, plan commit 8a),
   `idx_raw_jira_issues_stale_changelog` (CHANGELOGS, plan commit 7, V10,
   `changelog_synced_at IS NULL AND deleted_at IS NULL`, read by

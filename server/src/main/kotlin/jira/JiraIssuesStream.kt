@@ -28,7 +28,7 @@ internal data class IssuesCursor(
  * again immediately after a fresh query; this only guards against a pathological/misbehaving
  * upstream.
  */
-private const val MAX_CURSOR_RESTARTS = 5
+internal const val MAX_CURSOR_RESTARTS = 5
 
 /**
  * The ISSUES stream (v0.2.0 plan §7): pages `search/jql` with an opaque `nextPageToken`, JQL scoped
@@ -38,6 +38,9 @@ private const val MAX_CURSOR_RESTARTS = 5
  * (`.claude/docs/jira-integration.md` "ISSUES stream fields"); this also serves the normalization
  * layer landing in a later commit, since Jira does not let a caller ask for "every SYSTEM field
  * plus every discovered custom field" any more cheaply than asking for all of them.
+ *
+ * Every run starts by tombstoning (`moved_out_at`, no HTTP) the stored issues of any project no
+ * longer in [projectKeys] (`JiraRawStore.markOutOfScopeProjects`).
  *
  * `N` (the relative `-Nm` window) is minutes since `backfillFromEpochMillis` on the very first run,
  * or minutes since the last completed run's watermark plus [incrementalOverlapMinutes] afterward.
@@ -57,6 +60,12 @@ class JiraIssuesStream(
     override val name: String = "issues"
 
     override suspend fun run(context: StreamContext) {
+        // A project removed from the connection's scope: tombstone its stored issues locally, before
+        // any page — RECONCILE never has to probe them one by one (`JiraRawStore.markOutOfScopeProjects`).
+        context.transaction {
+            val movedOut = rawStore.markOutOfScopeProjects(context.connectionId, projectKeys, context.clock())
+            if (movedOut > 0) context.incrementProgress("movedOutOfScope", movedOut.toLong())
+        }
         var state = loadOrStart(context)
         var restarts = 0
         while (true) {
@@ -127,11 +136,4 @@ class JiraIssuesStream(
             runStartedAt = now,
         )
     }
-}
-
-/** Minutes between two epoch-millis instants, rounded UP (never under-covers a partial minute) and floored at zero. */
-private fun minutesBetween(fromMillis: Long, toMillis: Long): Long {
-    val millis = toMillis - fromMillis
-    if (millis <= 0) return 0
-    return (millis + 59_999L) / 60_000L
 }

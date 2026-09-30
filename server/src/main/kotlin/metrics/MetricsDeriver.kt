@@ -2,6 +2,7 @@ package ch.nokillswit.metrics
 
 import ch.nokillswit.infra.db.active
 import ch.nokillswit.infra.time.MILLIS_PER_DAY
+import ch.nokillswit.infra.time.MILLIS_PER_MINUTE
 import ch.nokillswit.ingest.SyncJobRunContext
 import ch.nokillswit.norm.PROCESSING_VERSION
 import ch.nokillswit.norm.SprintRef
@@ -44,8 +45,6 @@ internal const val DERIVE_BATCH_SIZE = 200
 
 /** `jira/JiraNormalizer.kt`'s own tracked field id for the issue-key changelog item — `task_domain`'s history source. */
 internal const val ISSUE_KEY_FIELD_ID = "issuekey"
-
-private const val MILLIS_PER_MINUTE = 60_000L
 
 /**
  * The `DERIVE` job body (v0.3.0 M3 commit 7, `.claude/docs/domain-model.md` "Analytical model",

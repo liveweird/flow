@@ -3,6 +3,7 @@ package ch.nokillswit
 import ch.nokillswit.jira.JiraProcessStream
 import ch.nokillswit.jira.JiraRawStore
 import ch.nokillswit.jira.JiraReconcileStream
+import ch.nokillswit.jira.backfillFromEpochMillis
 import ch.nokillswit.jira.parseJiraInstantEpochMillis
 import ch.nokillswit.norm.PROCESSING_VERSION
 import ch.nokillswit.norm.StatusCategory
@@ -567,7 +568,9 @@ class NormalizationPipelineTest {
         JiraStubServer.setScenarioState("jira-day2", "day2")
         try {
             val client = SyncedStubFixture.buildClient()
-            JiraReconcileStream(client, store, SyncedStubFixture.IN_SCOPE_PROJECT_KEYS).run(context)
+            JiraReconcileStream(
+                client, store, SyncedStubFixture.IN_SCOPE_PROJECT_KEYS, backfillFromEpochMillis(SyncedStubFixture.BACKFILL_FROM),
+            ).run(context)
             JiraProcessStream(store, items).run(context)
 
             val deletedId = expectedFixtureDay2Deleted()
@@ -688,7 +691,9 @@ class NormalizationPipelineTest {
         JiraStubServer.setScenarioState("jira-day2", "day2")
         try {
             val client = SyncedStubFixture.buildClient()
-            JiraReconcileStream(client, store, SyncedStubFixture.IN_SCOPE_PROJECT_KEYS).run(context)
+            JiraReconcileStream(
+                client, store, SyncedStubFixture.IN_SCOPE_PROJECT_KEYS, backfillFromEpochMillis(SyncedStubFixture.BACKFILL_FROM),
+            ).run(context)
             JiraProcessStream(store, items).run(context)
 
             val deletedId = expectedFixtureDay2Deleted()

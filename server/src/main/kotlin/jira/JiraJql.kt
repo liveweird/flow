@@ -30,6 +30,15 @@ object JiraJql {
         return "${scope(projectKeys)} AND updated >= \"-${sinceMinutes}m\" ORDER BY updated ASC"
     }
 
-    /** The RECONCILE id-sweep query: scope only, ordered by id so paging is stable and resumable. */
-    fun reconcile(projectKeys: List<String>): String = "${scope(projectKeys)} ORDER BY id ASC"
+    /**
+     * The RECONCILE id-sweep query: scope AND a relative `updated` bound reaching back to the
+     * connection's `backfillFrom` (the same window the ISSUES stream's first run covered), ordered
+     * by id so paging is stable and resumable. Without the bound the sweep would list issues older
+     * than anything Flow ever fetched, and every one of them would be fetched one by one as an
+     * "index gap".
+     */
+    fun reconcile(projectKeys: List<String>, sinceMinutes: Long): String {
+        require(sinceMinutes >= 0) { "sinceMinutes must not be negative" }
+        return "${scope(projectKeys)} AND updated >= \"-${sinceMinutes}m\" ORDER BY id ASC"
+    }
 }
