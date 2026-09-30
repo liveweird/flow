@@ -6,6 +6,7 @@ import type { ReportFilters } from "../api/reports";
 import { cardAnchor, connectionName, moreCount } from "../utils/dataQualityReport";
 import { dataSourceMetricsConfigPath } from "../utils/dataSourceLinks";
 import classes from "../theme.module.css";
+import ColumnTable, { type ColumnDef } from "./ColumnTable";
 
 /** Every card of the page — the key of its `reports.dataQuality.cards.*` text and of its anchor. */
 export type CardId =
@@ -139,12 +140,7 @@ export function QualityStats({ items }: { items: ReadonlyArray<readonly [string,
   );
 }
 
-export interface QualityColumn<T> {
-  key: string;
-  header: string;
-  render: (row: T) => ReactNode;
-  align?: "right";
-}
+export type QualityColumn<T> = ColumnDef<T>;
 
 /**
  * The capped list of a finding as a table, with "and N more" when the server matched more than it
@@ -174,28 +170,13 @@ export function CappedTable<T>({
   return (
     <Stack gap="xs">
       <Table.ScrollContainer minWidth={520}>
-        <Table verticalSpacing={4} aria-label={t("reports.dataQuality.tableLabel", { name: label })}>
-          <Table.Thead>
-            <Table.Tr>
-              {columns.map((column) => (
-                <Table.Th key={column.key} ta={column.align}>
-                  {column.header}
-                </Table.Th>
-              ))}
-            </Table.Tr>
-          </Table.Thead>
-          <Table.Tbody>
-            {rows.map((row, index) => (
-              <Table.Tr key={rowKey(row, index)}>
-                {columns.map((column) => (
-                  <Table.Td key={column.key} ta={column.align}>
-                    {column.render(row)}
-                  </Table.Td>
-                ))}
-              </Table.Tr>
-            ))}
-          </Table.Tbody>
-        </Table>
+        <ColumnTable
+          verticalSpacing={4}
+          aria-label={t("reports.dataQuality.tableLabel", { name: label })}
+          columns={columns}
+          rows={rows}
+          rowKey={rowKey}
+        />
       </Table.ScrollContainer>
       {more > 0 && (
         <Text size="sm" c="dimmed">

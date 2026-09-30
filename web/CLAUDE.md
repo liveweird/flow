@@ -464,6 +464,7 @@ completed · the report's figures · the orange drift badge with the frozen figu
   in `controls` — velocity and sprint consistency pass none, throughput passes domain view, domain,
   activity type, work category and bucket. Every report is also a
   command-palette entry (`REPORT_PALETTE_LEAVES`, palette-only: the sidebar carries one Delivery leaf).
+  The bar is only the frame: `ReportPeriodControls` (with the `hooks/usePeriodChoice` hook), `ReportScopeControls` (team, member, domain, connection and the sprint-survival rule) and `ReportSliceControls` (+ `ReportSliceSelects`: activity type, work category and the segmented toggles) own the controls, `ReportFilterSelect` is their shared clearable select, and `ReportControls` lives in `utils/reportFilter.ts`. Report tables render through the generic `components/ColumnTable.tsx` (`ColumnDef`: header, render, align; `GroupColumn`/`SprintColumn`/`QualityColumn` are aliases of it).
 - **Distributions** (`components/DistributionPanel.tsx`): a `Distribution` renders as a percentile
   strip (median p50, p90, p95, mean, item count), a lazy `DistributionHistogram` (single blue series,
   no legend) and the histogram as a table; `hidden` (fewer items than `meta.minSampleSize`)
