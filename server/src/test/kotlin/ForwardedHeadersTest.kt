@@ -1,6 +1,7 @@
 package ch.nokillswit
 
 import ch.nokillswit.auth.LoginRequest
+import ch.nokillswit.users.UserRole
 import io.ktor.client.HttpClient
 import io.ktor.client.request.header
 import io.ktor.client.request.post
@@ -10,6 +11,8 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.server.testing.testApplication
+import kotlinx.coroutines.runBlocking
+import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -18,18 +21,33 @@ import kotlin.test.assertEquals
  * buckets key on the client address the TRUSTED proxy reported, read from the END of
  * X-Forwarded-For — never the first value, which is whatever the client sent when a proxy
  * appends instead of replacing (Lettuce's v3.6.2 hardening, ported via Toadie). Every attempt
- * uses a distinct unknown email so the per-account lockout (5 per email) never trips, and the
- * login bucket is pinned to 10 like RateLimitResponseTest; every testApplication boots a fresh
- * app, so buckets never leak.
+ * uses a distinct freshly seeded account (wrong password) so the per-account lockout (5 per
+ * email) never trips, and the login bucket is pinned to 10 like RateLimitResponseTest; every
+ * testApplication boots a fresh app, so buckets never leak. The accounts are SEEDED (bcrypt cost
+ * 4), never unknown emails: an unknown email pays the login route's constant-time cost-12 bcrypt
+ * verify (`TIMING_EQUALIZER_HASH`, ~225 ms locally, ~2x on a CI runner), i.e. ~2.5 s per 11-attempt
+ * test that has nothing to do with proxy trust (`.claude/docs/build-times.md`).
  */
 class ForwardedHeadersTest {
 
-    private suspend fun HttpClient.login(forwardedFor: String?): HttpStatusCode =
-        post("/api/v1/login") {
+    /** The accounts [login] seeds — soft-deleted after each test (shared suite state is never left behind). */
+    private val seeded = mutableListOf<UInt>()
+
+    @AfterTest
+    fun removeSeededAccounts() = runBlocking {
+        seeded.forEach { TestUsers.softDelete(it) }
+        seeded.clear()
+    }
+
+    private suspend fun HttpClient.login(forwardedFor: String?): HttpStatusCode {
+        val email = uniqueEmail("xff")
+        seeded += TestUsers.seed(email, "the-right-password", role = UserRole.USER)
+        return post("/api/v1/login") {
             contentType(ContentType.Application.Json)
             if (forwardedFor != null) header(HttpHeaders.XForwardedFor, forwardedFor)
-            setBody(LoginRequest(uniqueEmail("xff"), "wrong"))
+            setBody(LoginRequest(email, "wrong"))
         }.status
+    }
 
     @Test
     fun `behind a proxy the login bucket keys on the LAST X-Forwarded-For value`() = testApplication {

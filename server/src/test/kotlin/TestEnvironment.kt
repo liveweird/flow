@@ -319,6 +319,91 @@ object TestUsers {
     }
 }
 
+/** A lease no test clock ever reaches (year ~2286) — how [withOnlyConnections] parks other connections' jobs. */
+private const val PARKED_LEASE_UNTIL = 9_999_999_999_999L
+
+private const val PARKED_LEASE_OWNER = "test-parked"
+
+/**
+ * Fences `IngestWorker.tick()`: a tick enqueues due jobs for EVERY enabled connection in the shared
+ * database and claims from the ENTIRE shared queue, so an unfenced tick runs whatever other classes
+ * left behind (measured: ~14 pending DERIVEs, one of the 1,200-issue shared stub at ~4 s, plus a SYNC
+ * and its chained DERIVE per enabled foreign connection — `.claude/docs/build-times.md` WHY 11).
+ *
+ * Runs [block] with, for every connection NOT in [ownConnectionIds]: `enabled` switched off (no
+ * `config_revision` bump, so nothing is enqueued), and every job the claim scan could pick up — a
+ * PENDING row, or a RUNNING row whose `lease_until` is below [leaseClockMillis] (the tick's own
+ * clock; an expired lease is re-claimable) — parked as a RUNNING row leased far beyond any test
+ * clock. The setup is ONE transaction (a failure part-way leaves nothing changed) and the restore
+ * runs in a `finally`: every parked job gets its original status, lease owner and lease back and
+ * every disabled connection is re-enabled — the [TestUsers.withSoloAdmins] precedent, shared state
+ * is borrowed, never destroyed. Jobs of [ownConnectionIds] are untouched.
+ */
+internal suspend fun <T> withOnlyConnections(ownConnectionIds: Set<UInt>, leaseClockMillis: Long, block: suspend () -> T): T {
+    data class Parked(val id: Int, val status: String, val leaseOwner: String?, val leaseUntil: Long?)
+
+    fun <R> transaction(body: (java.sql.Connection) -> R): R =
+        java.sql.DriverManager
+            .getConnection(PostgresTestSupport.jdbcUrl, PostgresTestSupport.user, PostgresTestSupport.password)
+            .use { c ->
+                c.autoCommit = false
+                try {
+                    body(c).also { c.commit() }
+                } catch (e: Throwable) {
+                    c.rollback()
+                    throw e
+                }
+            }
+
+    val own = ownConnectionIds.map { it.toInt() }.toTypedArray()
+    val (parkedConnections, parkedJobs) = transaction { c ->
+        val ownArray = c.createArrayOf("integer", own)
+        val disable = "UPDATE source_connections SET enabled = FALSE WHERE enabled AND id <> ALL(?) RETURNING id"
+        val connections = c.prepareStatement(disable).use { st ->
+            st.setArray(1, ownArray)
+            st.executeQuery().use { rs -> buildList { while (rs.next()) add(rs.getInt(1)) } }
+        }
+        val claimable = "SELECT id, status, lease_owner, lease_until FROM sync_jobs WHERE connection_id <> ALL(?) AND " +
+            "(status = 'PENDING' OR (status = 'RUNNING' AND lease_until < ?))"
+        val jobs = c.prepareStatement(claimable).use { st ->
+            st.setArray(1, ownArray)
+            st.setLong(2, leaseClockMillis)
+            st.executeQuery().use { rs ->
+                buildList { while (rs.next()) add(Parked(rs.getInt(1), rs.getString(2), rs.getString(3), rs.getObject(4) as Long?)) }
+            }
+        }
+        val park = "UPDATE sync_jobs SET status = 'RUNNING', lease_owner = '$PARKED_LEASE_OWNER', lease_until = ? WHERE id = ANY(?)"
+        c.prepareStatement(park).use { st ->
+            st.setLong(1, PARKED_LEASE_UNTIL)
+            st.setArray(2, c.createArrayOf("integer", jobs.map { it.id }.toTypedArray()))
+            st.executeUpdate()
+        }
+        connections to jobs
+    }
+    try {
+        return block()
+    } finally {
+        transaction { c ->
+            val unpark = "UPDATE sync_jobs SET status = ?, lease_owner = ?, lease_until = ? " +
+                "WHERE id = ? AND lease_owner = '$PARKED_LEASE_OWNER'"
+            c.prepareStatement(unpark).use { st ->
+                for (job in parkedJobs) {
+                    st.setString(1, job.status)
+                    st.setString(2, job.leaseOwner)
+                    st.setObject(3, job.leaseUntil, java.sql.Types.BIGINT)
+                    st.setInt(4, job.id)
+                    st.addBatch()
+                }
+                st.executeBatch()
+            }
+            c.prepareStatement("UPDATE source_connections SET enabled = TRUE WHERE id = ANY(?)").use { st ->
+                st.setArray(1, c.createArrayOf("integer", parkedConnections.toTypedArray()))
+                st.executeUpdate()
+            }
+        }
+    }
+}
+
 object TestSeedState {
     suspend fun restoreSeedAccounts() {
         suspendTransaction(sharedTestDatabase) {
