@@ -51,6 +51,16 @@ merges the forks' coverage.
   `withAuditCapture { }` (attach/detach on the audit logger), `withSeedRestored { }` and
   `assertStartupFails(part) { }` for bootstrap/fail-closed tests — use these instead of re-rolling
   the blocks they replaced.
+- **Many failed logins → seeded accounts.** A login for an UNKNOWN email pays a discarded cost-12 bcrypt
+  verify (the timing equalizer, ~225 ms locally); a test that needs a dozen failures (rate limit,
+  proxy trust) logs in as freshly seeded accounts (`TestUsers.seed`, cost 4) with a wrong password —
+  the same 401 path at ~1 ms (`.claude/docs/build-times.md` WHY 11); soft-delete them afterwards.
+- **`IngestWorker.tick()` claims from the whole shared queue** (and enqueues due jobs for every enabled
+  connection), so a direct tick runs whatever other classes left pending. Wrap it in
+  `withOnlyConnections(setOf(connId), tickClockMillis) { }` (`TestEnvironment.kt`, beside `withSoloAdmins`):
+  for the duration, every OTHER connection is disabled and every OTHER job the claim scan could take (PENDING,
+  or RUNNING with `lease_until` below the tick's clock) is parked under a far-future lease — set up in one
+  transaction, restored in a `finally`.
 - `TestTeams.seed(name, memberIds)` — a fresh team fixture; beside it, raw-row readers for what
   the API hides (`TestTeams.rawRows`/`rawMemberIds`, `TestUsers.stampPasswordChangedAt`). Shared
   suite state (the seed admin) is never mutated destructively — tests mint UNIQUE rows and remove
@@ -71,7 +81,7 @@ data class's generated constructor and serializer — noise no test can exercise
 lives in a wire shape (services, validators and a DTO's companion object stay measured). The
 floors sit just below current actuals — the convention is to **re-measure and raise** them as
 coverage improves, never to lower them for new code: `check` runs only `koverVerify`, so run
-`./gradlew :server:koverXmlReport` for fresh actuals. every fork's Kover agent writes into the one shared `test.ic` (if CI ever flakes on Kover, fall back to `-Pforks=1`), so
+`./gradlew :server:koverXmlReport` for fresh actuals. Every fork's Kover agent writes into the one shared `test.ic` (if CI ever flakes on Kover, fall back to `-Pforks=1`), so
 `-Pforks=2` measures the same code as the single fork (2026-09-30: line 98.19 % vs 98.23 %, branch 80.19 % vs
 80.23 % — the ±0.04 is timing-dependent coverage, not a loss; `koverVerify` passes either way). Frontend vitest enforces thresholds in
 `web/vite.config.ts` (`test.coverage.thresholds`, same re-measure convention — the current
