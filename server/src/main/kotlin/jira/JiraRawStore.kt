@@ -3,10 +3,14 @@ package ch.nokillswit.jira
 import ch.nokillswit.infra.db.jsonb
 import ch.nokillswit.infra.json.canonicalJson
 import ch.nokillswit.infra.json.sha256Hex
+import ch.nokillswit.infra.time.MILLIS_PER_MINUTE
 import ch.nokillswit.ingest.DataSourceService
 import io.ktor.util.AttributeKey
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.toList
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.jetbrains.exposed.v1.core.*
 import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
 import org.jetbrains.exposed.v1.r2dbc.deleteWhere
@@ -16,8 +20,22 @@ import org.jetbrains.exposed.v1.r2dbc.select
 import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.r2dbc.update
+import org.slf4j.LoggerFactory
 
 val JiraRawStoreKey = AttributeKey<JiraRawStore>("JiraRawStore")
+
+private val log = LoggerFactory.getLogger(JiraRawStore::class.java)
+
+/**
+ * How far past the RECONCILE sweep's window start a stored issue must have been updated to count as
+ * an anti-join candidate (`JiraRawStore.issuesMissingFromSeen`) — covers the relative `-Nm` bound's
+ * drift while the pass runs; rows inside it are a small permanent blind spot, and a pass longer than
+ * this only costs no-op probes.
+ */
+internal const val RECONCILE_CANDIDATE_SLACK_MILLIS = 5 * MILLIS_PER_MINUTE
+
+/** An anti-join candidate: a stored issue the sweep did not list, with its stored project id. */
+data class ReconcileCandidate(val issueId: Long, val projectId: Long)
 
 /** Batch size for the PURGE step's connector-cleanup (plan §0 A2) — bounds one DELETE's row count. */
 internal const val JIRA_PURGE_BATCH_SIZE = 500
@@ -147,6 +165,10 @@ class JiraRawStore(private val database: R2dbcDatabase) {
                 it[needsProcessing] = true
                 it[deletedAt] = null
                 it[movedOutAt] = null
+                // A resurrected issue was skipped by the incremental worklog feed while tombstoned (and that feed's
+                // cursor moved on), so the per-issue worklog backfill must run for it again. The changelog needs no
+                // reset: `changed_at = now` already makes it stale against `changelog_synced_at`.
+                if (tombstoned) it[worklogsSyncedAt] = null
             }
             if (tombstoned) RawUpsertOutcome.RESURRECTED else RawUpsertOutcome.CHANGED
         }
@@ -415,18 +437,87 @@ class JiraRawStore(private val database: R2dbcDatabase) {
     }
 
     /**
+     * The project ids of [projectKeys], resolved against the REFERENCE stream's live `PROJECT`
+     * entities (`raw.jira_entities`, refreshed earlier in the same SYNC), or `null` when ANY key does
+     * not resolve to a current (non-tombstoned) project — a renamed, mistyped or deleted project.
+     * Scope is decided by project ID, never by the `project_key` text stored on an issue row: a Jira
+     * project rename changes the key on every re-fetched issue while the id stays, so key matching
+     * would wrongly call a renamed project's issues out of scope. Callers treat `null` as "scope
+     * unknown" and must fail safe (never tombstone on it).
+     */
+    suspend fun resolveProjectIds(connectionId: UInt, projectKeys: List<String>): Set<Long>? {
+        val idByKey = entityRowsByKind(connectionId, JiraEntityKind.PROJECT.name).mapNotNull { (_, payload) ->
+            val project = Json.parseToJsonElement(payload).jsonObject
+            val key = project["key"]?.jsonPrimitive?.content
+            val id = project["id"]?.jsonPrimitive?.content?.toLongOrNull()
+            if (key == null || id == null) null else key to id
+        }.toMap()
+        val ids = projectKeys.map { idByKey[it] ?: return null }
+        return ids.toSet()
+    }
+
+    /**
      * The RECONCILE stream's anti-join (v0.2.0 plan §7): non-tombstoned raw issues for
      * [connectionId] absent from [jobId]'s seen set — Jira either deleted or moved them out of
-     * scope while Flow wasn't looking.
+     * scope while Flow wasn't looking. Candidates are restricted to the in-scope [projectIds]
+     * ([resolveProjectIds]; `null` = scope unresolved, so no project restriction) and to rows last
+     * updated at or after [windowStartMillis] plus [RECONCILE_CANDIDATE_SLACK_MILLIS]: the sweep's
+     * `updated >= "-Nm"` window starts at [windowStartMillis] (Jira evaluates the relative bound per
+     * request, so it drifts forward by the pass's own duration), and the few minutes of slack keep a
+     * row on the window's edge from becoming a false-positive probe (a longer pass costs only no-op
+     * probes that answer 200, still in scope). Rows older than the window are never candidates.
      */
-    suspend fun issuesMissingFromSeen(connectionId: UInt, jobId: UInt): List<Long> = suspendTransaction(database) {
+    suspend fun issuesMissingFromSeen(
+        connectionId: UInt,
+        jobId: UInt,
+        projectIds: Set<Long>?,
+        windowStartMillis: Long,
+    ): List<ReconcileCandidate> = suspendTransaction(database) {
         val seenIds = ReconcileSeen.select(ReconcileSeen.issueId)
             .where { (ReconcileSeen.connectionId eq connectionId) and (ReconcileSeen.jobId eq jobId.toInt()) }
             .map { it[ReconcileSeen.issueId] }.toList().toSet()
-        Issues.select(Issues.issueId)
-            .where { (Issues.connectionId eq connectionId) and Issues.deletedAt.isNull() and Issues.movedOutAt.isNull() }
-            .map { it[Issues.issueId] }.toList()
-            .filterNot { it in seenIds }
+        Issues.select(Issues.issueId, Issues.projectId)
+            .where {
+                val candidate = (Issues.connectionId eq connectionId) and Issues.deletedAt.isNull() and Issues.movedOutAt.isNull() and
+                    (Issues.issueUpdatedAt greaterEq windowStartMillis + RECONCILE_CANDIDATE_SLACK_MILLIS)
+                if (projectIds == null) candidate else candidate and (Issues.projectId inList projectIds)
+            }
+            .map { ReconcileCandidate(it[Issues.issueId], it[Issues.projectId]) }.toList()
+            .filterNot { it.issueId in seenIds }
+    }
+
+    /**
+     * Tombstones, locally and with no HTTP, every stored issue of a project that is no longer in
+     * [projectKeys] (an admin removed the project from the connection's scope): `moved_out_at = now`
+     * and `needs_processing`, the key/project columns untouched — the row keeps the project it
+     * really belongs to. Scope is decided by project ID ([resolveProjectIds]); FAIL SAFE: when any
+     * configured key does not resolve to a live project (renamed, mistyped, deleted) the step is
+     * skipped entirely with a WARN and returns 0 — never tombstone on an unresolved scope.
+     * Already-tombstoned rows are left alone, so a repeat call is a no-op. A re-added project's rows
+     * are resurrected by the next SYNC's scope catch-up (the project is searched again from
+     * `backfillFrom`; [upsertIssue]'s tombstoned branch clears the tombstones). The ISSUES stream
+     * calls this at the start of every SYNC, which keeps RECONCILE from probing a removed project's
+     * stored issues one by one (`issuesMissingFromSeen` only considers in-scope projects).
+     */
+    suspend fun markOutOfScopeProjects(connectionId: UInt, projectKeys: List<String>, now: Long): Int {
+        val projectIds = resolveProjectIds(connectionId, projectKeys)
+        if (projectIds == null) {
+            log.warn(
+                "skipping the out-of-scope tombstone for connection {}: a configured project key does not resolve to a live " +
+                    "PROJECT entity (renamed, mistyped or deleted project)",
+                connectionId,
+            )
+            return 0
+        }
+        return suspendTransaction(database) {
+            Issues.update({
+                (Issues.connectionId eq connectionId) and (Issues.projectId notInList projectIds) and
+                    Issues.deletedAt.isNull() and Issues.movedOutAt.isNull()
+            }) {
+                it[movedOutAt] = now
+                it[needsProcessing] = true
+            }
+        }
     }
 
     /** The RECONCILE stream's index-gap case (v0.2.0 plan §7): ids [jobId]'s sweep saw that `raw.jira_issues` never stored. */

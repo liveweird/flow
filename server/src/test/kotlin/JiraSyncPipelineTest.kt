@@ -398,7 +398,7 @@ class JiraSyncPipelineTest {
         val store = rawStore()
         val cursorService = cursors()
         val client = buildClient(maxRetries = 0)
-        val stream = JiraIssuesStream(client, store, IN_SCOPE_PROJECT_KEYS, 0L, 10L, 100)
+        val stream = JiraIssuesStream(client, store, IN_SCOPE_PROJECT_KEYS, 0L, "1970-01-01", 10L, 100)
         val context = StreamContext(connId, 1u, sharedDatabaseForTests(), cursorService, jobHeartbeat = { _, _ -> true })
 
         val fault = JiraStubServer.addOverride(
@@ -432,7 +432,7 @@ class JiraSyncPipelineTest {
         val store = rawStore()
         val cursorService = cursors()
         val client = buildClient(maxRetries = 0)
-        val stream = JiraIssuesStream(client, store, IN_SCOPE_PROJECT_KEYS, 0L, 10L, 100)
+        val stream = JiraIssuesStream(client, store, IN_SCOPE_PROJECT_KEYS, 0L, "1970-01-01", 10L, 100)
         val context = StreamContext(connId, 1u, sharedDatabaseForTests(), cursorService, jobHeartbeat = { _, _ -> true })
 
         // A ONE-SHOT 410 via a dedicated WireMock scenario: it fires exactly once (then flips its
@@ -469,7 +469,7 @@ class JiraSyncPipelineTest {
         val store = rawStore()
         val cursorService = cursors()
         val client = buildClient()
-        val stream = JiraIssuesStream(client, store, IN_SCOPE_PROJECT_KEYS, 0L, 10L, 100)
+        val stream = JiraIssuesStream(client, store, IN_SCOPE_PROJECT_KEYS, 0L, "1970-01-01", 10L, 100)
         var heartbeats = 0
         val context = StreamContext(connId, 1u, sharedDatabaseForTests(), cursorService, jobHeartbeat = { _, _ ->
             heartbeats++
@@ -561,6 +561,10 @@ class JiraSyncPipelineTest {
         val sharedConnId = SyncedStubFixture.connectionId()
         val connId = SyncedStubFixture.createConnection(namePrefix = "jira-reconcile-gap")
         SyncedStubFixture.cloneRawData(sharedConnId, connId)
+        // The index-gap phase only runs once an ISSUES run has covered the scope: carry the shared
+        // backfill's completed cursor over (cloneRawData copies rows, not cursors).
+        val completedIssuesCursor = assertNotNull(cursors().get(sharedConnId, "issues"))
+        with(completedIssuesCursor) { cursors().put(connId, "issues", cursor, watermarkAt, lastCompletedAt) }
         val connector = buildConnector()
         val store = rawStore()
 

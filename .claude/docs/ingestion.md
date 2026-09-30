@@ -241,7 +241,12 @@ above).
   completes), `jql` (the exact query driving the CURRENT run, computed once and reused for every
   page — a real tenant's paging must reuse the same query text), `nextPageToken` (Jira's opaque
   cursor) and `runStartedAt` (this run's own start time, becoming the new watermark once the run's
-  LAST page is written).
+  LAST page is written). Four nullable scope fields (defaults, no migration — the cursor JSON ignores
+  unknown keys) record which scope the watermark stands for: `coveredProjectKeys`/
+  `coveredBackfillFrom` (what a COMPLETED run downloaded — the watermark is only valid for these) and
+  `runProjectKeys`/`runBackfillFrom` (what the CURRENT run's `jql` was built for). Both pairs move
+  together on the last page: covered := run, watermark := `runStartedAt`. See "Watermark, overlap and
+  relative JQL" below.
 - **`changelogs`** (`jira/JiraChangelogStream.kt`'s `ChangelogsCursor`): a SINGLE field,
   `bulkUnavailableUntil` (null by default) — see "CHANGELOGS stream" below for what sets/reads it.
   The stream needs no page-position cursor of its own: an interrupted batch's issues are simply
@@ -252,9 +257,13 @@ above).
   half of the stream needs no cursor of its own either, for the same reason as CHANGELOGS: a stale
   issue (`worklogs_synced_at IS NULL`) simply stays stale until backfilled.
 - **`reconcile`** (`jira/JiraReconcileStream.kt`'s `ReconcileCursor`): `passStartedAt` (fixed for the
-  whole pass, preserved across a resume — diagnostic only, unlike REFERENCE's identically-named
-  field it drives no tombstone-sweep boundary here) and `nextPageToken` (the id-sweep's own resume
-  point) — see "RECONCILE stream" below.
+  whole pass), `nextPageToken` (the id-sweep's own resume point), `jql` (the exact sweep query of
+  this pass, computed once — Jira ties a page token to its query text), `windowStartMillis` (where
+  the sweep window starts, which the anti-join reuses) and `jobId` (the job that started the pass)
+  — see "RECONCILE stream" below. A pass is resumed only by that same job and only while it has a
+  page token; a cursor from another job, a legacy cursor written before the sweep was windowed
+  (its token belongs to the old unbounded query) or a finished sweep a crash left behind is
+  dropped and a FRESH pass starts (`passStartedAt` = now, the scratch ids drained).
 
 **Per-page transaction with the cursor advance.** Every page (or, for REFERENCE's single-shot
 steps, every whole step) writes its raw-store rows and its own `sync_cursors` row inside the SAME
@@ -275,8 +284,11 @@ commits — a lost lease is caught here, never before the write.
   page. Users are keyed by `accountId`, every other single/paged step's entity id is the payload's
   own `id` field.
 - ISSUES resumes a persisted `nextPageToken` AS-IS (same `jql`/`runStartedAt`/token) if one exists —
-  meaning a prior run was interrupted mid-page; otherwise it starts a fresh run from the last
-  completed watermark.
+  meaning a prior run was interrupted mid-page — AND its `runProjectKeys`/`runBackfillFrom` still equal
+  the configured scope. If the admin changed the scope while the run was interrupted, the token (tied to
+  a query for the old scope) is discarded and a fresh run starts; the covered scope and watermark stay as
+  the interrupted run left them. Without a token it starts a fresh run from the last completed
+  watermark.
 
 **Entity tombstoning at pass end.** Once every REFERENCE step completes, `JiraReferenceStream.run`
 tombstones every `JiraEntityKind` in one final transaction
@@ -294,6 +306,41 @@ just before the watermark but the search only surfaced after it. The watermark i
 to `runStartedAt` once the run's LAST page (`nextPageToken == null`) is written — a run that
 crashes mid-page leaves the watermark exactly where the previous completed run left it, so the next
 run's `-Nm` window naturally re-covers everything since then.
+
+**Covered scope and the catch-up clause.** The watermark only says "everything updated since then has
+been fetched" for the scope the run that set it searched, so the cursor records that scope
+(`coveredProjectKeys`, `coveredBackfillFrom`; the current run's own pair is `runProjectKeys`/
+`runBackfillFrom`). A fresh run compares it with the configured scope:
+
+- **Retained** projects (covered ∩ configured) are searched since the watermark plus the overlap — or,
+  when `backfillFrom` moved EARLIER than `coveredBackfillFrom`, since the NEW `backfillFrom`.
+- **Added** projects (configured − covered, which includes a project that was removed and added back)
+  are searched since `backfillFrom`. That re-search is also what resurrects a re-added project's locally
+  tombstoned rows (`upsertIssue`'s tombstoned branch clears `moved_out_at`).
+- The two windows go into ONE query, `JiraJql.incremental(clauses)`:
+  `(project in (R) AND updated >= "-Na") OR (project in (A) AND updated >= "-Nb") ORDER BY updated ASC`.
+  With only one clause (no project added, or none retained) the text is exactly the single-clause
+  `incremental(projectKeys, sinceMinutes)` form — an unchanged scope sends today's query byte for byte.
+  The very first run (no watermark) is one clause since `backfillFrom`.
+- **Narrowing** (fewer projects, or a LATER `backfillFrom`) downloads nothing and keeps the watermark.
+  The covered KEYS shrink to covered ∩ configured at the START of the run, in the same transaction as
+  `markOutOfScopeProjects`'s tombstones (`shrinkCoveredScope`; `last_completed_at` and everything else in
+  the cursor stay) — so a run that fails before its last page cannot leave a removed project "covered":
+  re-adding it is then an ADDED project (full catch-up), not a retained one. The covered `backfillFrom`
+  and the watermark move on the last page as usual.
+- **An earlier `backfillFrom` re-reads the whole retained range once.** The retained projects are
+  searched from the NEW date, not just the missing slice; issues already stored come back unchanged
+  (`upsertIssue` → UNCHANGED, cheap), only the missing history is new.
+- **Renaming a key in the connection** (OLD → NEW, e.g. after a Jira key rename) makes NEW an ADDED
+  project: one full re-read of that project from `backfillFrom`; OLD drops out of the scope.
+- **Legacy cursor.** A cursor written before scope tracking (no `covered*` fields, watermark set) is read
+  as covering the CURRENT scope (`IssuesCursor.normalizedFor`), so deploying this re-downloads nothing;
+  the fields are filled in by the next run.
+- The one decision "has a completed run downloaded the configured scope" is
+  `IssuesCursor.coversScope(projectKeys, backfillFromMillis)` — a watermark exists, no configured key is
+  uncovered and `coveredBackfillFrom` is not later than the configured date. It is built from the same two
+  helpers `freshRun` splits its clauses with (`uncoveredKeys`, `backfillMovedEarlier`), and RECONCILE's
+  index-gap guard calls it.
 
 **`CURSOR_EXPIRED` restart.** `HttpJiraClient.searchJql` (`jira/JiraClient.kt`) maps a 400/410
 response to `CURSOR_EXPIRED` only when the request carried a `nextPageToken` (a first page's own
@@ -363,7 +410,8 @@ worklogs touched an issue this connection happens to see on the feed, since `/wo
 carries no project/scope filter of its own. A1's fix has two parts, run in this order:
 
 1. **Per-issue backfill first** (`backfillPerIssue`): issues with `worklogs_synced_at IS NULL` (not
-   tombstoned) — first ingested, or newly back in scope — are read via `GET /issue/{id}/worklog`
+   deleted) — first ingested, or resurrected (`upsertIssue` clears the stamp when it un-tombstones a row,
+   because the incremental feed skips tombstoned issues and its cursor moves on) — are read via `GET /issue/{id}/worklog`
    (`startAt`-paged), one issue per transaction+heartbeat, same shape as `JiraChangelogStream`'s
    per-issue fallback. This is the only step that ever reaches back before the stream's own start —
    but it only ever asks Jira about issues Flow already knows are in scope (a row in
@@ -404,22 +452,41 @@ scheduler enqueues it once a day, past `reconcile_hour_utc` (see "Scheduling" ab
 once the stream returns — RECONCILE's OWN job-level bookkeeping, parallel to how a SYNC's
 `recordSyncOutcome` works.
 
-**The id-sweep.** `JiraJql.reconcile(projectKeys)` (`<scope> ORDER BY id ASC`) pages
-`search/jql fields=id` (`RECONCILE_PAGE_SIZE` = 5000 ids per page) into the `raw.jira_reconcile_seen`
-scratch table (V12, `.claude/docs/persistence.md` "The Jira RECONCILE scratch table (V12)") — every
-in-scope issue id Jira reports for THIS pass, nothing else. Each page's rows and its own
-`sync_cursors` row (the `ReconcileCursor`: `passStartedAt` fixed for the pass, `nextPageToken` for
-mid-page resume) commit in the SAME transaction, then `context.heartbeat()` — the same
+**The id-sweep.** `JiraJql.reconcile(projectKeys, sinceMinutes)`
+(`<scope> AND updated >= "-Nm" ORDER BY id ASC`) pages `search/jql fields=id`
+(`RECONCILE_PAGE_SIZE` = 5000 ids per page) into the `raw.jira_reconcile_seen` scratch table (V12,
+`.claude/docs/persistence.md` "The Jira RECONCILE scratch table (V12)") — every in-scope issue id
+Jira reports for THIS pass inside the window, nothing else. **The window** is the one the ISSUES
+stream's first run covers: `N` = WHOLE minutes (rounded down, so the sweep never starts before
+`backfillFrom`) from the connection's `backfillFrom` (UTC midnight, `jira/JiraTime.kt`'s
+`backfillFromEpochMillis`, shared with the SYNC runner) to `passStartedAt`. Without the bound the
+sweep would list every older in-scope issue, and each one would be fetched by the index-gap path one
+`GET /issue/{id}` at a time. **Stored rows last updated before `backfillFrom` are kept but NOT
+re-checked** — their Jira deletions and moves are not detected. The JQL and the window start are
+computed ONCE per pass and stored in the cursor, so a resumed pass pages with the SAME query text and
+anti-joins with the SAME window. A `CURSOR_EXPIRED` response restarts the pass the way the ISSUES
+stream does (fresh `passStartedAt`/window/JQL, the abandoned sweep's scratch ids drained; bounded by
+`MAX_CURSOR_RESTARTS`, then the error propagates). Each page's rows and its own `sync_cursors` row
+(the `ReconcileCursor`) commit in the SAME transaction, then `context.heartbeat()` — the same
 per-page-transaction-then-heartbeat shape every other stream uses.
 
 **The anti-join, once the sweep completes.** Two disjoint checks decide what changed while Flow
 wasn't looking, both keyed off the now-complete `raw.jira_reconcile_seen` set for this job:
 
-- **`JiraRawStore.issuesMissingFromSeen`** — a non-tombstoned `raw.jira_issues` row this pass never
-  saw. Probed individually via `GET /issue/{id}?fields=project,key` (`RECONCILE_ISSUE_FIELDS` — only
+- **`JiraRawStore.issuesMissingFromSeen`** — a non-tombstoned `raw.jira_issues` row of an IN-SCOPE
+  project whose `issue_updated_at` is at or after the window start plus FIVE MINUTES
+  (`RECONCILE_CANDIDATE_SLACK_MILLIS`) that this pass never saw. Scope is decided by project ID (see
+  "Out-of-scope projects" below), never by the stored `project_key` text — a Jira project rename
+  changes the key but not the id; when the scope cannot be resolved the project restriction is
+  dropped (and a WARN logged). The window restriction is what makes "absent from the sweep" mean
+  "gone"; the five minutes of slack only cover the relative bound's drift while the pass runs (Jira
+  evaluates `-Nm` per request) so a row on the window's edge is not a false-positive probe — a small
+  permanent blind spot, while a pass longer than that costs only no-op probes (a 200, still in
+  scope). Probed individually via `GET /issue/{id}?fields=project,key` (`RECONCILE_ISSUE_FIELDS` — only
   what the decision needs, never the full document): a **404** means Jira deleted it
-  (`JiraRawStore.markIssueDeleted` sets `deleted_at`); a **200** whose `fields.project.key` is no
-  longer in `projectKeys` means it moved out of scope (`markIssueMovedOut` sets `moved_out_at` AND
+  (`JiraRawStore.markIssueDeleted` sets `deleted_at`); a **200** whose `fields.project.id` differs from the row's stored `project_id` AND is not an
+  in-scope project id (by key only if the scope is unresolved) means it moved out of scope — an
+  unchanged id is a rename, never a move (`markIssueMovedOut` sets `moved_out_at` AND
   refreshes `issue_key`/`project_id`/`project_key` to their new value in the same update — the issue
   really did get a new key when it moved projects). Either way `needs_processing` is flagged, so the
   PROCESS step that ends this SAME job (see "Normalized layer" below) has a real reason to look at
@@ -430,7 +497,31 @@ wasn't looking, both keyed off the now-complete `raw.jira_reconcile_seen` set fo
 - **`JiraRawStore.seenButUnknownIds`** — an id the sweep saw that `raw.jira_issues` never stored (an
   index gap: a missed ISSUES page, most likely). Fetched via `GET /issue/{id}` in full and written
   through `JiraRawStore.upsertIssue` — the SAME write path the ISSUES stream itself uses, flagged
-  `needs_processing` by that path's own insert branch.
+  `needs_processing` by that path's own insert branch. **Guarded:** this phase is skipped while the
+  `issues` cursor has no completed run covering the current scope (`coversScope`: no watermark yet, a
+  configured project not covered, or `coveredBackfillFrom` later than `backfillFrom` — a first backfill
+  or a scope catch-up is pending). Then "seen but not stored" just means the ISSUES stream has not
+  downloaded that part yet, and fetching it one `GET /issue/{id}` at a time would duplicate its bulk
+  work slowly; the skip is logged at INFO and counted as the `indexGapSkipped` progress counter (the
+  number of ids left alone). The deleted/moved-out phase above always runs. When no `PROJECT` reference
+  entities exist at all (no SYNC has completed), the scope-not-resolved message is INFO too, not the
+  rename/mistype WARN.
+
+**Out-of-scope projects (local tombstone, no HTTP).** A project an admin REMOVES from the
+connection's `projectKeys` is handled outside RECONCILE: `JiraIssuesStream.run` begins EVERY SYNC
+with `JiraRawStore.markOutOfScopeProjects` — one `UPDATE` setting `moved_out_at = now` and
+`needs_processing = true` on every stored, not-yet-tombstoned row whose `project_id` is not an
+in-scope project id (key/project columns unchanged; counted as the `movedOutOfScope` progress
+counter). The in-scope ids are `JiraRawStore.resolveProjectIds`: each configured key resolved
+against the live `PROJECT` entities REFERENCE refreshed earlier in the same SYNC. **Scope is by id,
+not by the `project_key` text on an issue row** (a rename would otherwise tombstone a live project's
+issues every SYNC) and **fails safe**: if ANY configured key does not resolve to a current
+(non-tombstoned) `PROJECT` entity — a renamed, mistyped or deleted project — the step is skipped
+entirely with a WARN and nothing is tombstoned. The next PROCESS mirrors a tombstone onto
+`norm.work_items` like any other moved-out issue. A re-added project's rows are resurrected by the
+next SYNC's scope catch-up (the re-added project is searched again from `backfillFrom`;
+`upsertIssue`'s tombstoned branch clears `deleted_at`/`moved_out_at`). Without this step RECONCILE
+would probe every stored issue of the removed project one by one.
 
 **Idempotent by construction.** `markIssueDeleted`/`markIssueMovedOut` are guarded on
 `deletedAt.isNull()`/`movedOutAt.isNull()`, so a second RECONCILE pass over the SAME drift (e.g. a
@@ -551,7 +642,8 @@ anything else (including absent) `→ UNKNOWN`. `norm.statuses` (rebuilt wholesa
 is the lookup `Normalization.normalize` uses to attach a `(name, category)` pair to every tiled
 status interval and to the issue's own current status.
 
-**Tombstone mirroring.** A raw issue's `deleted_at`/`moved_out_at` (set by the RECONCILE stream)
+**Tombstone mirroring.** A raw issue's `deleted_at`/`moved_out_at` (set by the RECONCILE stream, and
+`moved_out_at` also by the ISSUES stream's local out-of-scope step at the start of every SYNC)
 become the SAME columns on `norm.work_items`, on that issue's next ordinary PROCESS replace — no
 separate code path (`TombstoneKind.DELETED`/`MOVED_OUT`/`NONE`, `jira/JiraProcessStream.kt`'s
 `processOneIssue` reads the raw row's own tombstone columns before calling
@@ -642,9 +734,11 @@ commits its raw-store write and cursor advance but then crashes before its heart
 The counter names in use today (all stream-local, not enumerated anywhere — a new stream is free to
 name its own): `pages` (REFERENCE per-step-or-page, ISSUES per page, RECONCILE per id-sweep page),
 `entities` (REFERENCE, per entity upserted), `issuesUpserted` (ISSUES per page, and RECONCILE's own
-index-gap fetch), `changelogs` (CHANGELOGS, per history inserted), `worklogs` (WORKLOGS, per worklog
+index-gap fetch), `movedOutOfScope` (ISSUES, once per run: rows tombstoned because their project
+left `projectKeys`), `changelogs` (CHANGELOGS, per history inserted), `worklogs` (WORKLOGS, per worklog
 upserted), `worklogsOutOfScope` (WORKLOGS, A1's scope-filter drop count), `tombstoned` (RECONCILE,
-per issue flagged `deleted_at`/`moved_out_at`), `issuesProcessed`/`issuesFailed` (PROCESS, per issue
+per issue flagged `deleted_at`/`moved_out_at`), `indexGapSkipped` (RECONCILE: ids left unfetched because the
+ISSUES stream has not yet covered the scope), `issuesProcessed`/`issuesFailed` (PROCESS, per issue
 in a batch — see "Normalized layer" above), `profileComputed` (PROFILE, always `1` — a single
 recompute pass, not a per-row counter, see "Data profile" below).
 
@@ -667,7 +761,8 @@ source of truth:
   cursors (V9)" above).
 - **`counts`** (`SyncCounts`, `ingest/SyncStatusRoutes.kt`'s `counts` helper, backed by
   `JiraRawStore`) — `rawIssues` (total `raw.jira_issues` rows), `tombstonedDeleted`/
-  `tombstonedMovedOut` (RECONCILE's two tombstone kinds, counted separately), `changelogs`/`worklogs`
+  `tombstonedMovedOut` (the two tombstone kinds, counted separately — `moved_out_at` is set by RECONCILE
+  and by the ISSUES stream's out-of-scope step), `changelogs`/`worklogs`
   (worklogs excludes tombstoned rows — "live" worklogs), `entitiesByKind` (per `JiraEntityKind`,
   `raw.jira_entities` grouped by `kind`), `needsProcessing` (the PROCESS backlog RECONCILE and the
   CHANGELOGS/WORKLOGS streams all flag into).
@@ -708,6 +803,28 @@ from the sync-status columns; `runningJobId` names the connection's RUNNING sync
 diagnostic status view at `…/{id}/status` (see "Sync status endpoint" above), the raw issue
 inspector at `…/{id}/raw-issues/{issueKey}` (see "Raw issue inspector" below) and the data profile
 at `…/{id}/profile` (see "Data profile" below).
+
+**Narrowing a connection's scope.** What an admin edit of `projectKeys`/`backfillFrom` does to data
+already stored (nothing is ever deleted; the raw/norm rows stay until a PURGE):
+
+- **Removing a project from `projectKeys`** — at the start of the next SYNC's ISSUES stream every
+  stored issue of that project is tombstoned locally as moved out (`moved_out_at`, no HTTP call;
+  `JiraRawStore.markOutOfScopeProjects`, "RECONCILE stream" → "Out-of-scope projects" — by project id,
+  skipped with a WARN if a configured key no longer resolves to a live project), and PROCESS mirrors
+  it onto `norm`. RECONCILE never probes those rows. Adding the project back resurrects them through
+  the next SYNC's scope catch-up: the re-added project counts as ADDED and is searched again from
+  `backfillFrom` ("Streams" → "Covered scope and the catch-up clause").
+- **Adding a project to `projectKeys`** — the next SYNC's ISSUES run downloads it from `backfillFrom` in
+  the same query that keeps the other projects incremental; RECONCILE's index-gap phase waits for that
+  run to complete instead of fetching the new project's issues one by one.
+- **Moving `backfillFrom` LATER** — the data already downloaded stays, but RECONCILE's sweep window
+  (`backfillFrom` → now) shrinks with it: stored issues last updated before the new `backfillFrom`
+  are kept and NOT re-checked, so their Jira deletions/moves are not detected (the covered scope
+  shrinks to the new date). Moving it EARLIER widens the window and the next SYNC catches up: the
+  ISSUES stream re-reads the whole retained range from the new date once (bulk, paged; already-stored
+  issues come back unchanged and are cheap, only the missing history is new), and RECONCILE's
+  index-gap phase is skipped until that run completes. Clearing the field on edit resets it to the
+  24-month default, which may therefore re-read as well.
 
 **`infra/db/Jsonb.kt` + `infra/json/CanonicalJson.kt`** (this commit's supporting infra, detailed
 in `.claude/docs/persistence.md` "Data sources (V8)"): the repo-local `jsonb` column binding

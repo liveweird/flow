@@ -12,6 +12,7 @@ import ch.nokillswit.infra.db.nowMillis
 import ch.nokillswit.infra.json.canonicalJson
 import ch.nokillswit.infra.paging.PageRequest
 import ch.nokillswit.infra.paging.applyPaging
+import ch.nokillswit.infra.time.MILLIS_PER_MINUTE
 import io.ktor.util.AttributeKey
 import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.Serializable
@@ -407,7 +408,6 @@ internal fun reconcileDue(lastReconcileAt: Long?, reconcileHourUtc: Int, now: Lo
     return now >= boundary && (lastReconcileAt == null || lastReconcileAt < boundary)
 }
 
-private const val MILLIS_PER_MINUTE = 60_000L
 internal const val MAX_BACKOFF_MILLIS = 6L * 60 * 60 * 1000
 
 /** `interval × 2^failures`, capped at [MAX_BACKOFF_MILLIS] — the shift is bounded so it can never overflow. */

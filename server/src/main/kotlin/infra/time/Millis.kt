@@ -6,3 +6,6 @@ package ch.nokillswit.infra.time
  * come from `metrics/WorkingCalendar.kt`, never from this constant.
  */
 const val MILLIS_PER_DAY = 24L * 60 * 60 * 1000
+
+/** Milliseconds in a minute — for minute-denominated config (intervals, grace periods, relative JQL windows). */
+const val MILLIS_PER_MINUTE = 60_000L

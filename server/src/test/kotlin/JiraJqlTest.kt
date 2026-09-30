@@ -32,12 +32,50 @@ class JiraJqlTest {
     }
 
     @Test
+    fun `incremental with one clause renders byte-identical to the two-argument form`() {
+        assertEquals(
+            "project in (\"ENG\",\"OPS\") AND updated >= \"-15m\" ORDER BY updated ASC",
+            JiraJql.incremental(listOf(JiraJql.Clause(listOf("ENG", "OPS"), 15))),
+        )
+        assertEquals(JiraJql.incremental(listOf("ENG"), 0), JiraJql.incremental(listOf(JiraJql.Clause(listOf("ENG"), 0))))
+    }
+
+    @Test
+    fun `incremental with several clauses ORs parenthesised project-and-window terms`() {
+        assertEquals(
+            "(project in (\"ENG\") AND updated >= \"-70m\") OR (project in (\"OPS\",\"PLT\") AND updated >= \"-525600m\") " +
+                "ORDER BY updated ASC",
+            JiraJql.incremental(
+                listOf(JiraJql.Clause(listOf("ENG"), 70), JiraJql.Clause(listOf("OPS", "PLT"), 525_600)),
+            ),
+        )
+    }
+
+    @Test
+    fun `incremental with clauses rejects no clause, an empty or invalid key list and a negative window`() {
+        assertFailsWith<IllegalArgumentException> { JiraJql.incremental(emptyList<JiraJql.Clause>()) }
+        val valid = JiraJql.Clause(listOf("ENG"), 1)
+        assertFailsWith<IllegalArgumentException> { JiraJql.incremental(listOf(JiraJql.Clause(emptyList(), 1), valid)) }
+        assertFailsWith<IllegalArgumentException> { JiraJql.incremental(listOf(valid, JiraJql.Clause(listOf("bad"), 1))) }
+        assertFailsWith<IllegalArgumentException> { JiraJql.incremental(listOf(valid, JiraJql.Clause(listOf("OPS"), -1))) }
+    }
+
+    @Test
     fun `incremental rejects a negative minute window`() {
         assertFailsWith<IllegalArgumentException> { JiraJql.incremental(listOf("ENG"), -1) }
     }
 
     @Test
-    fun `reconcile orders by id ascending with no date bound`() {
-        assertEquals("project in (\"ENG\") ORDER BY id ASC", JiraJql.reconcile(listOf("ENG")))
+    fun `reconcile adds a relative updated bound and orders by id ascending`() {
+        assertEquals(
+            "project in (\"ENG\",\"OPS\") AND updated >= \"-525600m\" ORDER BY id ASC",
+            JiraJql.reconcile(listOf("ENG", "OPS"), 525_600),
+        )
+        assertEquals("project in (\"ENG\") AND updated >= \"-0m\" ORDER BY id ASC", JiraJql.reconcile(listOf("ENG"), 0))
+    }
+
+    @Test
+    fun `reconcile rejects a negative minute window`() {
+        assertFailsWith<IllegalArgumentException> { JiraJql.reconcile(listOf("ENG"), -1) }
     }
 }

@@ -1,5 +1,6 @@
 package ch.nokillswit.jira
 
+import ch.nokillswit.infra.time.MILLIS_PER_MINUTE
 import java.time.Instant
 import java.time.OffsetDateTime
 import java.time.format.DateTimeFormatter
@@ -42,3 +43,26 @@ fun parseJiraInstant(text: String): Instant = OffsetDateTime.parse(text, JIRA_IN
 
 /** Convenience for the overwhelmingly common `parseJiraInstant(text).toEpochMilli()` call shape. */
 fun parseJiraInstantEpochMillis(text: String): Long = parseJiraInstant(text).toEpochMilli()
+
+/**
+ * A connection's `backfillFrom` (`yyyy-MM-dd`, `source_connections.backfill_from`) as epoch millis —
+ * UTC midnight of that day. The ONE conversion shared by the ISSUES stream's first-run window and
+ * the RECONCILE stream's sweep window (`JiraConnector.runSync`/`runReconcile`), so both name the
+ * same instant.
+ */
+fun backfillFromEpochMillis(backfillFrom: String): Long =
+    java.time.LocalDate.parse(backfillFrom).atStartOfDay(java.time.ZoneOffset.UTC).toInstant().toEpochMilli()
+
+/**
+ * Minutes between two epoch-millis instants, rounded UP (never under-covers a partial minute) and
+ * floored at zero — the `N` of a relative `updated >= "-Nm"` JQL bound.
+ */
+internal fun minutesBetween(fromMillis: Long, toMillis: Long): Long {
+    val millis = toMillis - fromMillis
+    if (millis <= 0) return 0
+    return (millis + MILLIS_PER_MINUTE - 1) / MILLIS_PER_MINUTE
+}
+
+/** Whole minutes between two epoch-millis instants, rounded DOWN and floored at zero (a window that must not start before [fromMillis]). */
+internal fun wholeMinutesBetween(fromMillis: Long, toMillis: Long): Long =
+    if (toMillis <= fromMillis) 0 else (toMillis - fromMillis) / MILLIS_PER_MINUTE

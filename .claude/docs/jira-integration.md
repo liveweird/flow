@@ -97,10 +97,20 @@ not a placeholder.
 - `incremental(projectKeys, sinceMinutes)` — the ISSUES stream's own query:
   `<scope> AND updated >= "-Nm" ORDER BY updated ASC` (a TZ-free RELATIVE bound — Jira's absolute
   JQL dates are TZ-sensitive, a spike-identified risk this sidesteps entirely).
-- `reconcile(projectKeys)` — `<scope> ORDER BY id ASC`; the RECONCILE stream's own id-sweep query
-  (`jira/JiraReconcileStream.kt`, V12, see `.claude/docs/ingestion.md` "RECONCILE stream") — paged
-  via `search/jql` with `fields=id` (only the id, never the full document; the sweep only needs to
-  know WHICH issues Jira still reports in scope).
+- `incremental(clauses: List<Clause>)` — the same query when projects need different windows (a
+  scope catch-up, `.claude/docs/ingestion.md` "Covered scope and the catch-up clause"):
+  `(<scope A> AND updated >= "-Na") OR (<scope B> AND updated >= "-Nb") ORDER BY updated ASC`, one
+  parenthesised term per `Clause(projectKeys, sinceMinutes)`. A single clause renders exactly as the
+  two-argument form (no parentheses), pinned by `JiraJqlTest`.
+- `reconcile(projectKeys, sinceMinutes)` — `<scope> AND updated >= "-Nm" ORDER BY id ASC`; the
+  RECONCILE stream's own id-sweep query (`jira/JiraReconcileStream.kt`, V12, see
+  `.claude/docs/ingestion.md` "RECONCILE stream") — paged via `search/jql` with `fields=id` (only
+  the id, never the full document; the sweep only needs to know WHICH issues Jira still reports in
+  scope). The same relative bound as `incremental`, with `N` = WHOLE minutes (rounded down, so the
+  sweep never starts before `backfillFrom`) from the connection's `backfillFrom` to the pass start:
+  the sweep covers exactly the window the ISSUES stream's first run fetched, so it never lists (and
+  the index-gap path never fetches one by one) issues older than anything Flow ingested. The text is
+  computed once per pass and kept in the RECONCILE cursor — Jira ties a page token to its query.
 
 Two more `jira.*` config keys are consumed for the first time by this stream (both already declared
 in `application.yaml` since an earlier commit, unread until now): `jira.pageSize` (default 100,
@@ -221,7 +231,7 @@ Landed with the RECONCILE stream (plan §7/§12 item 7, plan commit 7, V12 — s
 `.claude/docs/ingestion.md` "RECONCILE stream" for the full behavior):
 
 - **`GET /rest/api/3/search/jql` with `fields=id`** (`JiraClient.searchJql`, the same method the
-  ISSUES stream uses, `jql = JiraJql.reconcile(projectKeys)`) — the daily id-sweep, paged at 5000
+  ISSUES stream uses, `jql = JiraJql.reconcile(projectKeys, sinceMinutes)`) — the daily id-sweep, paged at 5000
   ids per page. Asking for `fields=id` only (never `fields=null`, unlike the ISSUES stream) is
   deliberate: the sweep only needs to know WHICH issue ids Jira still reports in scope, not their
   content.
@@ -278,7 +288,11 @@ never hold the `jira.maxConcurrentRequests` `Semaphore` permit indefinitely.
 - `JiraTimeTest` — `parseJiraInstant`/`parseJiraInstantEpochMillis` against every accepted shape
   (`+0000`, `+02:00`, `-0500`, `Z`, with and without fractional seconds) and the malformed-value
   `DateTimeParseException`.
-- `JiraJqlTest` — `JiraJql`'s scope/incremental/reconcile builders.
+- `JiraJqlTest` — `JiraJql`'s scope/incremental/reconcile builders (incl. the multi-clause incremental and the windowed reconcile text).
+- `JiraScopeCatchUpTest` — the ISSUES stream's scope catch-up (first run, added/re-added project, earlier/later `backfillFrom`, legacy cursor, resume vs. a changed scope) and RECONCILE's index-gap guard, over a capturing fake `JiraClient`.
+- `JiraReconcileWindowTest` — the windowed RECONCILE sweep over a scripted fake `JiraClient` (the sent JQL, which
+  rows are probed, resume with a stored/legacy cursor) and `JiraRawStore.markOutOfScopeProjects` (locally
+  tombstoned, idempotent, resurrected by a re-upsert; called at the start of the ISSUES stream).
 - `OutboundGuardTest` — the allow-list, every blocked address range (injected resolver), the
   stub-host-only-in-dev rule, a boot test pinning production's `jira.stubBaseUrl` refusal, and a
   set of production-wiring integration tests (`buildGuardedJiraHttpClient`, the SAME builder

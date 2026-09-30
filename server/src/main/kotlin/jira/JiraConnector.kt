@@ -115,13 +115,12 @@ class JiraConnector(
         val client = newClient(stored.siteUrl, stored.email, stored.apiToken, stored.authScheme)
         // [resolveCloudId] must run before any other gateway call (jira/JiraClient.kt's contract).
         deps.dataSources.persistCloudId(claim.connectionId, client.resolveCloudId())
-        val backfillFromMillis = java.time.LocalDate.parse(stored.backfillFrom)
-            .atStartOfDay(java.time.ZoneOffset.UTC).toInstant().toEpochMilli()
+        val backfillFromMillis = backfillFromEpochMillis(stored.backfillFrom)
         val streamContext = StreamContext(claim.connectionId, claim.id, deps.database, deps.cursors, context.heartbeat, now)
         val streams: List<Stream> = listOf(
             JiraReferenceStream(client, deps.rawStore, stored.projectKeys),
             JiraIssuesStream(
-                client, deps.rawStore, stored.projectKeys, backfillFromMillis,
+                client, deps.rawStore, stored.projectKeys, backfillFromMillis, stored.backfillFrom,
                 deps.incrementalOverlapMinutes, deps.issuesPageSize,
             ),
             JiraChangelogStream(client, deps.rawStore, deps.changelogBulkSize),
@@ -149,7 +148,7 @@ class JiraConnector(
         deps.dataSources.persistCloudId(claim.connectionId, client.resolveCloudId())
         val streamContext = StreamContext(claim.connectionId, claim.id, deps.database, deps.cursors, context.heartbeat, now)
         val streams: List<Stream> = listOf(
-            JiraReconcileStream(client, deps.rawStore, stored.projectKeys),
+            JiraReconcileStream(client, deps.rawStore, stored.projectKeys, backfillFromEpochMillis(stored.backfillFrom)),
             JiraProcessStream(deps.rawStore, deps.workItems),
         )
         streams.forEach { stream ->
