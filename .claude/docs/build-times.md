@@ -361,7 +361,9 @@ evidence and recorded here as a dated entry (finding + fix, or "measured, intend
 8. **Test-harness side effects (partly answered 2026-09-30 — see 11).** `IngestWorkerTest`'s ticks are measured and fenced (`withOnlyConnections`); the effect of other classes' enabled-connection leftovers elsewhere is still unmeasured. `NormalizationPipelineTest.clonedConnection` and
    `IngestWorkerTest` create ENABLED connections, so any config change anywhere enqueues a DERIVE that a
    worker in another class runs with the real clock (`IngestWorkerTest` saw 40 derives; ~30
-   empty-connection derives spend 2-6 s each in `dim_date` upsert row-lock contention). The effect on
+   empty-connection derives spend 2-6 s each in `dim_date` upsert row-lock contention — ADDRESSED: `dim_date` is now
+   ensured in its own short transaction (`MetricsStore.ensureDimDate`), and derives instead serialize from
+   `analyzeDerivedTables` to their commit, on the ANALYZE lock of the shared tables). The effect on
    wall time is unmeasured.
 9. **`images` is one 2m25s step** (`docker compose build`), +30 % since 09-26 with a cold layer cache
    each run. Is the layer cache being used at all (is there a `cache-from`)? Not investigated before

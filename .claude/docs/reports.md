@@ -952,7 +952,8 @@ EpicProgressReport {
   (A23) -- while EV and AC still count. `hasPvCurve` adds that the window holds a working day, so PV is actually spread (a weekend-only
   window is in the horizon but has no curve). `series[].pvOriginal` is the epic's FIRST baseline redrawn: the working days come from
   `DeriveKernels.pvCurve` under the calendar DERIVE used -- `metrics.dim_date.is_working_day` where `dim_date` covers the whole
-  window (so a calendar or holiday edited since, on a connection not yet re-derived, does not move it), else the current settings
+  window (the table is global; a DERIVE at the current settings revision rewrites every row that differs, so `dim_date` carries the current
+  calendar once any DERIVE of ANY connection at that revision has run — a calendar edited since moves `pvOriginal` only then), else the current settings
   calendar (a superseded baseline's window outside the range DERIVE keeps stamped) -- and each day's cumulative value is rounded
   exactly like the stored increments (`ROUND(budget * i / n, 2)`, the last day the budget), so an epic with ONE baseline has
   `pvOriginal == pv` on every day (also for a budget that does not divide) and a re-planned one shows the gap. It is `null` where that

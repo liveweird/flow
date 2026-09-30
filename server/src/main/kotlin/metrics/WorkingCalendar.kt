@@ -60,11 +60,14 @@ class WorkingCalendar(
     /** One `metrics.dim_date` row — `day` is the ISO date string the table stores (`VARCHAR(10)`, the `backfill_from` precedent). */
     data class DimDateRow(val day: String, val dayStartMs: Long, val dayEndMs: Long, val isWorkingDay: Boolean)
 
-    /** Every calendar day from [dayOf] of [fromMs] to [dayOf] of [toMs], inclusive — `MetricsDeriver`'s `dim_date` upsert range. */
+    /** Every calendar day from [dayOf] of [fromMs] to [dayOf] of [toMs], inclusive — `MetricsStore.ensureDimDate`'s wanted-row range. */
     fun dimDateRows(fromMs: Long, toMs: Long): List<DimDateRow> {
         if (toMs < fromMs) return emptyList()
-        val fromDay = dayOf(fromMs)
-        val toDay = dayOf(toMs)
+        return dimDateRows(dayOf(fromMs), dayOf(toMs))
+    }
+
+    /** Every calendar day from [fromDay] to [toDay], inclusive (empty when [toDay] precedes [fromDay]). */
+    fun dimDateRows(fromDay: LocalDate, toDay: LocalDate): List<DimDateRow> {
         val rows = mutableListOf<DimDateRow>()
         var day = fromDay
         while (!day.isAfter(toDay)) {

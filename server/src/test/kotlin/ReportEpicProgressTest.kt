@@ -693,7 +693,7 @@ class ReportEpicProgressTest {
                     day, start.toInstant().toEpochMilli(), start.plusDays(1).toInstant().toEpochMilli(), day != "2026-02-03",
                 )
             }
-            store.upsertDimDate(stamped, configRevision = originalRevision)
+            DerivedStubFixture.stampDimDate(stamped, configRevision = originalRevision)
             fun plan(issueId: Long, start: String, due: String, budget: Double) = FactEpicPlanRow(
                 issueId, 1, EpicPlanBaseline(noonUtc("2026-01-01"), utcMidnight(start), utcMidnight(due), budget, "OWN", null),
             )
@@ -746,7 +746,7 @@ class ReportEpicProgressTest {
                     store.deleteDims(connId)
                     store.deleteFactEpicPlan(connId)
                 }
-                store.upsertDimDate(originalStamps, configRevision = originalRevision)
+                DerivedStubFixture.stampDimDate(originalStamps, configRevision = originalRevision)
                 deleteFlowRows(connId)
                 deleteDeriveRuns(connId)
             }

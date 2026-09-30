@@ -72,6 +72,22 @@ private fun readIngestConfig(config: ApplicationConfig): IngestConfig {
     return IngestConfig(tick, slots, lease, retention, grace, configuredWorkerId.ifBlank { defaultWorkerId() })
 }
 
+/**
+ * A running DERIVE holds TWO pooled connections at once — its own big transaction plus the short
+ * `MetricsStore.ensureDimDate` transaction opened from inside it — so `workerSlots` concurrent derives
+ * can pin `2 × workerSlots` connections. At exactly that many the derives still fit, but nothing is left
+ * for requests, job heartbeats or the claim scan, so the pool must be strictly larger. Fail-closed at
+ * boot, only for a role that runs the worker (`.claude/docs/persistence.md` "Connection pool").
+ */
+private fun requirePoolFitsWorkerSlots(config: ApplicationConfig, workerSlots: Int) {
+    val poolMaxSize = requireConfigInt(config, "postgres.pool.maxSize", min = 1, max = 1000)
+    check(poolMaxSize > 2 * workerSlots) {
+        "postgres.pool.maxSize ($poolMaxSize) must be greater than 2 x ingest.workerSlots ($workerSlots): a running DERIVE " +
+            "holds two pooled connections at once (its transaction plus the dim_date ensure), leaving no headroom for " +
+            "requests and heartbeats"
+    }
+}
+
 private fun defaultWorkerId(): String {
     val host = runCatching { InetAddress.getLocalHost().hostName }.getOrDefault("worker")
     return "$host-${UUID.randomUUID().toString().take(8)}"
@@ -93,6 +109,7 @@ private fun defaultWorkerId(): String {
 fun Application.configureIngestWorker() {
     val config = readIngestConfig(environment.config)
     if (!runsWorker()) return
+    requirePoolFitsWorkerSlots(environment.config, config.workerSlots)
 
     monitor.subscribe(ApplicationStarted) { app ->
         val connectors = app.attributes.getOrNull(IngestConnectorOverrideKey)

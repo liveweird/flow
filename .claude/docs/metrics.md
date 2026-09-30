@@ -175,9 +175,10 @@ revision newer than the config it actually derived under — review round 1), pr
 `derive_runs` rows (`MetricsStore.pruneDeriveRuns`, the `SyncJobsService.prune` shape, run on
 `ingest.jobRetentionDays`, always keeping each connection's newest `SUCCEEDED` run — its DERIVE clock for the
 snapshot reports), then — in ONE transaction — mark every OTHER `RUNNING` `derive_runs` row of this connection `FAILED` (`error_detail` "abandoned: worker lost its lease", `finished_at` = this run's clock: the job queue allows one DERIVE per connection, so such a row belongs to a worker SIGKILLed or lease-lost mid-DERIVE that can never finish it, and the prune only deletes terminal rows) and insert this run's own `RUNNING` row, then run the WHOLE rebuild inside
-ONE `suspendTransaction`: delete every rebuildable `metrics.*` row for the connection, upsert
-`dim_date` over `[min(created_at) − 1y, now + 2y]`, insert `dim_domain` (small, config-derived,
-inserted once), then three ordered passes over the connection's LIVE `norm.work_items` rows.
+ONE `suspendTransaction`: ensure `dim_date` over `[min(created_at) − 1y, now + 2y]` (`MetricsStore.ensureDimDate` —
+NOT part of that transaction, see "`dim_date` is global" below), delete every rebuildable `metrics.*` row for the
+connection, insert `dim_domain` (small, config-derived, inserted once), then three ordered passes over the
+connection's LIVE `norm.work_items` rows.
 
 **Memory (review round 2b).** Earlier drafts loaded every work item's FULL `custom_fields` object
 plus every issue's status/field intervals, field changes and worklogs for the WHOLE connection at
@@ -220,7 +221,7 @@ over unchanged input writes byte-for-byte identical rows regardless of batch bou
 final content depends only on each item's own data, never on which batch it landed in
 (`MetricsDerivationTest`'s reprocess-digest test, `.claude/docs/testing.md`'s pattern).
 
-**`ANALYZE` before the aggregates.** After the facts, bridges and the widened `dim_date` are written and before the WIP step, `MetricsStore.analyzeDerivedTables` runs one `ANALYZE` over the 16 tables the WIP/flow SQL reads (`ANALYZED_TABLES`: `dim_date`, `dim_domain`/`dim_task`/`dim_epic`/`dim_sprint`, the `task_*`/`item_estimate`/`item_stage` bridges, `fact_task_delivery`/`fact_sprint`/`fact_sprint_scope`/`fact_worklog`/`fact_epic_plan`). The rebuild is one transaction, so autovacuum can neither see the new rows nor run in time; without fresh statistics the `INSERT … SELECT`s plan against stale or default `rows=1` estimates (nested loops). `ANALYZE` is legal in a transaction block (unlike `VACUUM`) and counts the transaction's own inserts as live rows and its own deletes as dead. Deliberately not analyzed: `agg_daily_*` (written, not read), `team_membership` (config) and `norm.*` (PROCESS already committed those rows, so autovacuum analyzes them). Its `SHARE UPDATE EXCLUSIVE` locks are held to commit but are never contended between DERIVEs — those are already serialized by the global `dim_date` upsert (overlapping `[now−1y, now+2y]` ranges, row locks held to commit); the locks conflict only with VACUUM/ANALYZE/autovacuum and DDL (autovacuum on these tables is skipped or cancelled while a derive holds them; an anti-wraparound vacuum would make the derive wait — rare). `MetricsAnalyzeTest` pins that a DERIVE advances `last_analyze` on every listed table and that the list covers every table the two steps' SQL mentions.
+**`ANALYZE` before the aggregates.** After the facts, bridges and the widened `dim_date` are written and before the WIP step, `MetricsStore.analyzeDerivedTables` runs one `ANALYZE` over the 16 tables the WIP/flow SQL reads (`ANALYZED_TABLES`: `dim_date`, `dim_domain`/`dim_task`/`dim_epic`/`dim_sprint`, the `task_*`/`item_estimate`/`item_stage` bridges, `fact_task_delivery`/`fact_sprint`/`fact_sprint_scope`/`fact_worklog`/`fact_epic_plan`). The rebuild is one transaction, so autovacuum can neither see the new rows nor run in time; without fresh statistics the `INSERT … SELECT`s plan against stale or default `rows=1` estimates (nested loops). `ANALYZE` is legal in a transaction block (unlike `VACUUM`) and counts the transaction's own inserts as live rows and its own deletes as dead. Deliberately not analyzed: `agg_daily_*` (written, not read), `team_membership` (config) and `norm.*` (PROCESS already committed those rows, so autovacuum analyzes them). Its `SHARE UPDATE EXCLUSIVE` locks are held to commit and conflict with themselves, so **two DERIVEs serialize from this statement to their commit**: the second's ANALYZE waits for the first's commit (no deadlock — every DERIVE ANALYZEs the same tables in the same order). Only the fact-building phase before it overlaps between connections (the old global `dim_date` row locks are gone — `ensureDimDate` commits in its own transaction). The ANALYZE must not be made skippable (`SKIP_LOCKED` would leave stale statistics — it has to see this transaction's uncommitted rows). The locks also conflict with VACUUM/autovacuum and DDL (autovacuum on these tables is skipped or cancelled while a derive holds them; an anti-wraparound vacuum would make the derive wait — rare). `MetricsAnalyzeTest` pins that a DERIVE advances `last_analyze` on every listed table and that the list covers every table the two steps' SQL mentions.
 
 **Failure and cancellation.** A thrown exception (including a genuine coroutine
 `CancellationException`, itself an `Exception` subtype) is caught once: `markRunFailed` stamps the
@@ -239,8 +240,8 @@ Every derived number is a pure function of `norm.*` plus ONE configuration revis
 `.claude/docs/testing.md`). `DerivedStubFixture.metricsDigest(connId)` MD5-hashes every derived
 table — the dimensions, every bridge, both accumulating facts, the sprint/worklog/epic-plan facts,
 `agg_daily_wip`/`agg_daily_flow` (plus, opt-in via `includeDimDate`, the `dim_date` days the
-connection's WIP aggregate spans — `dim_date` is global and upserted by every DERIVE with the
-then-current revision, so only `MetricsDigestTest` hashes it) — in a deterministic order (the primary key, else every hashed column). Left out on purpose: `derive_runs`
+connection's WIP aggregate spans — `dim_date` is global and any DERIVE by ANY connection may rewrite a row (stamping
+the then-current revision) after a calendar change, so only `MetricsDigestTest` hashes it) — in a deterministic order (the primary key, else every hashed column). Left out on purpose: `derive_runs`
 (run bookkeeping), the surrogate `id` of the bridge/`fact_epic_plan` tables (a fresh
 `autoIncrement()` per DERIVE) and `fact_sprint_snapshot.snapshot_at`/`reconstructed` (write-time
 bookkeeping of an append-only row; the frozen figures themselves ARE hashed, though that slice is
@@ -262,6 +263,37 @@ configured zone; `isWorkingDay(day)` checks the configured weekend-day set and h
 (`wd(a,b) + wd(b,c) = wd(a,c)`); `dimDateRows(from, to)` emits one `DimDateRow` per calendar day in
 range, each carrying its own UTC-millis day boundaries and working-day flag — `metrics.dim_date`'s
 own row shape (`.claude/docs/persistence.md`).
+
+**`dim_date` is global, so it is ensured outside the DERIVE transaction.** Every connection's DERIVE needs the
+same calendar rows, and a write inside a DERIVE's one big transaction would hold its row locks until that commit:
+two DERIVEs with different ranges could deadlock (`40P01`) and, with `workerSlots=2`, would at best serialize for their whole run (they still serialize from the `ANALYZE` to the commit, see "`ANALYZE` before the aggregates"; the deadlock is gone).
+`MetricsStore.ensureDimDate(calendar, range, configRevision)` therefore runs in its OWN short
+`inTopLevelSuspendTransaction` (a separate pooled connection that commits before returning, even when called from
+inside the derive's `suspendTransaction`; the derive's later statements see the rows — `READ COMMITTED`, nothing in
+the repo sets another level). `MetricsDeriver` calls it twice: with the initial range up front, and (`widenDimDate`)
+with the full widened range once the facts exist; the two READS that decide the widened range
+(`earliestFactEventMs`, `currentEpicPlanWindows`) stay in the derive's transaction. The transaction's first
+statement is `pg_advisory_xact_lock(DIM_DATE_LOCK_KEY)` (one named constant, "FlowDate" as a `bigint`), so concurrent
+ensures queue for milliseconds instead of taking row locks in different orders. It reads every stored row, takes
+the span = the union of the stored `[min day, max day]` and the requested range (gaps between disjoint ranges are
+filled), recomputes every day in it with the calendar and upserts ONLY rows that are missing or whose
+`day_start_ms`/`day_end_ms`/`is_working_day` differ — so a time-zone, weekend or holiday change rewrites EVERY stored
+row (not just the run's range: a stale row past the range used to keep the old zone's bounds and let range joins
+double-match), and an unchanged calendar writes nothing (steady state: one full-table read of typically a few thousand rows, up to ~20k with the 50-year floor and epic windows, plus
+the advisory lock, no row locks). `dim_date.config_revision` is the revision the row's CURRENT content was written
+under, stamped on written rows only (it no longer advances on every DERIVE). No table references `dim_date(day)` by
+foreign key, so the write needs no lock compatibility with the DERIVE's own inserts. **A stale caller only inserts:**
+under the advisory lock `ensureDimDate` reads the CURRENT global revision (`metrics.settings.config_revision`); a caller
+whose revision is lower (a DERIVE that started before a settings change) inserts MISSING rows only and never updates
+one, so it cannot roll the table back under a newer run — including across an A→B→A change, where per-row stamps could
+not tell. Only a caller at the current revision rewrites differing rows. Accepted edge case: a settings change landing
+DURING a derive can leave that stale run itself reading the newer calendar's rows (or rows of two calendars) —
+`bumpRevision` has already enqueued a re-DERIVE of every enabled connection, which corrects it. A stale run's inserted
+days lie outside every current-revision run's span (inside it they already exist), and the next current-revision run
+rewrites them if they differ, so the stale run does not corrupt anyone else's figures.
+`DimDateContentionTest` pins the lock-free derive (a foreign transaction holding every row lock does not block it),
+the whole-table rewrite, the zero-write steady state, the stale-caller-only-inserts rule (incl. A→B→A), that the ensure commits
+separately from the caller's transaction, and the advisory-lock queueing.
 
 ## Kernel definitions (`metrics/DeriveKernels.kt`)
 
@@ -804,8 +836,8 @@ statement (`pvTeamFlowSql`, `pvEpicDomainFlowSql`, `evTeamFlowSql`, `evEpicDomai
   `fact_worklog.started_at`, `dim_sprint.start_at`, `fact_task_delivery.done_at` and item creation
   (one year of slack below, floored at 50 years before `now`), and every in-horizon epic window (one
   day of slack each side, up to its due date beyond the default `now + 2y`). The rule is the pure
-  `DeriveKernels.dimDateRange` (unit-tested in `DeriveKernelsTest`); only days outside the initial
-  range are upserted. Events older than the 50-year floor are still dropped.
+  `DeriveKernels.dimDateRange` (unit-tested in `DeriveKernelsTest`); the write is `ensureDimDate` over the full
+  range (only missing or changed rows are written). Events older than the 50-year floor are still dropped.
 - **EV, TEAM (A20):** each `fact_sprint_scope` row with `done_in_sprint` in a team-mapped sprint counts
   `estimate_at_done_md` (null → 0) on the day of its task's `fact_task_delivery.done_at`; scope_id =
   the sprint's team. Per team the rows total `fact_sprint.delivered_md`. A task done inside two teams'

@@ -58,7 +58,9 @@ in-network consumers use `postgres:5432`). There is one persistence stack:
   1..600) and `maxIdleTimeSeconds` (`POSTGRES_POOL_MAX_IDLE_SECONDS`, default 600, 1..86400). Every
   pooled connection carries `application_name = flow` (`postgres.pool.applicationName`, test-only
   override), so operators count this instance's backends with
-  `SELECT count(*) FROM pg_stat_activity WHERE application_name = 'flow'`. Size it as
+  `SELECT count(*) FROM pg_stat_activity WHERE application_name = 'flow'`. A role that runs the worker
+  (`worker`/`all`) refuses to boot unless `maxSize > 2 × ingest.workerSlots` (`configureIngestWorker`): a running DERIVE
+  holds two pooled connections at once (its transaction plus `MetricsStore.ensureDimDate`'s own). Size it as
   `maxSize × replicas + 1` (Flyway's short-lived JDBC connection, `infra/db/Flyway.kt`) well under
   the server's `max_connections`. A caller that waits past the acquire deadline fails with the
   pool's timeout exception, which `plugins/ErrorHandling.kt`'s catch-all renders as a logged
@@ -519,8 +521,12 @@ writers). Interval storage mirrors `metrics.team_membership`'s own precedent (V1
 for it). Every table is `connection_id`-scoped and rebuilt WHOLESALE per DERIVE run — delete then
 insert, this commit's `MetricsStore.kt` splits each pair into a `deleteX`/`insertX` method so
 `MetricsDeriver.kt` can delete ONCE up front and insert BATCH BY BATCH (`.claude/docs/metrics.md`
-"The DERIVE run algorithm") — EXCEPT `dim_date` (global, upserted `ON CONFLICT (day) DO UPDATE`)
-and `fact_sprint_snapshot` (append-only, see below).
+"The DERIVE run algorithm") — EXCEPT `dim_date` (global, reconciled by `MetricsStore.ensureDimDate`:
+its own committed `inTopLevelSuspendTransaction` under the advisory lock `DIM_DATE_LOCK_KEY`, writing only rows that
+are missing or differ from the calendar — `.claude/docs/metrics.md` "Calendar math")
+and `fact_sprint_snapshot` (append-only, see below). **`DIM_DATE_LOCK_KEY` (`MetricsStore.kt`, the ASCII bytes of
+"FlowDate") is the repo's only PostgreSQL advisory lock** and `ensureDimDate` the only
+`inTopLevelSuspendTransaction` caller (a write that commits while its caller's transaction is still open); no other code may take that key.
 
 **The first trigger in this repo.** `fact_sprint_snapshot` is immutable once written (invariant 11,
 "a `fact_sprint_snapshot` row never changes once written") — enforced not in application code but by

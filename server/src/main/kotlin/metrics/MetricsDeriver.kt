@@ -167,7 +167,7 @@ class MetricsDeriver(
         val workItems = workItemStore.workItemsForDerivation(connectionId).map { trimCustomFields(it, relevantFieldIds) }
         val createdMin = workItems.minOfOrNull { it.createdAt }
         val initialRange = DeriveKernels.dimDateRange(now, createdMin, emptyList())
-        metricsStore.upsertDimDate(calendar.dimDateRows(initialRange.fromMs, initialRange.toMs), configRevision)
+        metricsStore.ensureDimDate(calendar, initialRange, configRevision)
 
         metricsStore.deleteDims(connectionId)
         metricsStore.deleteBridges(connectionId)
@@ -195,7 +195,7 @@ class MetricsDeriver(
         val sprintOutcome = runSprintStep(connectionId, workItems, context, config, derivedById, graceMs, configRevision, sprintFieldId)
         val worklogCount = runWorklogStep(connectionId, workItems, context, derivedById, configRevision)
         val epicPlanCount = runEpicPlanStep(connectionId, workItems, context, derivedById, factEpicsByIssueId, configRevision)
-        widenDimDate(connectionId, calendar, initialRange, createdMin, now, configRevision)
+        widenDimDate(connectionId, calendar, createdMin, now, configRevision)
         // Planner statistics for the tables rebuilt in THIS transaction — the WIP/flow INSERT..SELECTs below
         // otherwise plan against stale rows=1 estimates (autovacuum never sees uncommitted rows). ANALYZE is
         // legal in a transaction block (VACUUM is not) and counts this transaction's own rows.
@@ -221,25 +221,16 @@ class MetricsDeriver(
      * must also reach the earliest worklog start, sprint start and done time
      * ([MetricsStore.earliestFactEventMs], floored at 50 years back) and every epic window inside the
      * PV horizon ([MetricsStore.currentEpicPlanWindows]) — the pure rule is [DeriveKernels.dimDateRange].
-     * Only the days OUTSIDE [initial] are upserted; `dim_date` is global and idempotent.
+     * The two READS stay in the caller's transaction (the facts are not committed yet); the write is
+     * [MetricsStore.ensureDimDate] over the FULL range — its own short, serialized, committed
+     * transaction that writes only the missing or changed rows, so this DERIVE holds no `dim_date`
+     * lock and a repeat call over a settled table writes nothing.
      */
-    private suspend fun widenDimDate(
-        connectionId: UInt,
-        calendar: WorkingCalendar,
-        initial: DimDateRange,
-        createdMin: Long?,
-        now: Long,
-        configRevision: Long,
-    ) {
+    private suspend fun widenDimDate(connectionId: UInt, calendar: WorkingCalendar, createdMin: Long?, now: Long, configRevision: Long) {
         val factMin = metricsStore.earliestFactEventMs(connectionId)
         val earliest = listOfNotNull(createdMin, factMin).minOrNull()
         val range = DeriveKernels.dimDateRange(now, earliest, metricsStore.currentEpicPlanWindows(connectionId))
-        if (range.fromMs < initial.fromMs) {
-            metricsStore.upsertDimDate(calendar.dimDateRows(range.fromMs, initial.fromMs), configRevision)
-        }
-        if (range.toMs > initial.toMs) {
-            metricsStore.upsertDimDate(calendar.dimDateRows(initial.toMs, range.toMs), configRevision)
-        }
+        metricsStore.ensureDimDate(calendar, range, configRevision)
     }
 
     private suspend fun markRunSucceeded(runId: Int, counts: DeriveRowCounts, finishedAt: Long) {

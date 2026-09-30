@@ -54,6 +54,20 @@ class RoleTest {
     }
 
     @Test
+    fun `a role that runs the worker refuses a pool no larger than twice its worker slots`() = testApplication {
+        // A running DERIVE holds two pooled connections (its transaction + the dim_date ensure).
+        configureApp("app.role" to "worker", "ingest.workerSlots" to "2", "postgres.pool.maxSize" to "4")
+        assertStartupFails("postgres.pool.maxSize (4) must be greater than 2 x ingest.workerSlots (2)") { startApplication() }
+    }
+
+    @Test
+    fun `a web role does not check the pool against the worker slots`() = testApplication {
+        configureApp("app.role" to "web", "ingest.workerSlots" to "2", "postgres.pool.maxSize" to "4")
+        startApplication()
+        assertEquals(HttpStatusCode.OK, jsonClient().get("/api/v1/health").status)
+    }
+
+    @Test
     fun `web role serves the API but runs no worker`() = testApplication {
         configureApp("app.role" to "web")
         var servesApi: Boolean? = null
