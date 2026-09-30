@@ -353,7 +353,10 @@ class NormalizationPipelineTest {
 
         JiraProcessStream(store, items).run(context)
 
-        assertEquals(0L, context.progressSnapshot()["issuesFailed"] ?: 0L, "a long sprint list must not fail the write (varchar(500) length check)")
+        assertEquals(
+            0L, context.progressSnapshot()["issuesFailed"] ?: 0L,
+            "a long sprint list must not fail the write (varchar(500) length check)",
+        )
         assertTrue(
             issueId !in store.issuesToProcess(connId, PROCESSING_VERSION, limit = 10),
             "the issue must not stay flagged for the next PROCESS pass",
@@ -435,6 +438,35 @@ class NormalizationPipelineTest {
         assertNull(items.workItemRow(connId, poisoned))
         assertEquals(mapOf("issuesProcessed" to 0L, "issuesFailed" to 1L), context.progressSnapshot())
     }
+
+    @Test
+    fun `a value too long for a sized column alone on its page is a bad row - counted, left for next pass, run succeeds`() =
+        runBlocking {
+            val connId = clonedConnection(SyncedStubFixture.connectionId(), processed = true)
+            val store = rawStore()
+            val items = workItems()
+            val poisoned = middleIssueId(connId)
+            // `fields.resolution.name` maps straight into `norm.work_items.resolution` (varchar(100)). Exposed checks the
+            // length CLIENT-side (an IllegalArgumentException before any SQL), so no SQLSTATE class 22 ever reaches the
+            // classifier — `isDataError` must still recognise it, or a page of one ends the whole job FAILED on every run.
+            val tooLong = "R".repeat(150)
+            rawSql(
+                "UPDATE raw.jira_issues SET payload = jsonb_set(payload, '{fields,resolution}', '{\"name\": \"$tooLong\"}'::jsonb) " +
+                    "WHERE connection_id = $connId AND issue_id = $poisoned",
+            )
+            // Flag ONLY that issue: a page of one, so the page error and the per-issue fallback's failure are the same kind.
+            rawSql("UPDATE raw.jira_issues SET needs_processing = false WHERE connection_id = $connId")
+            rawSql("UPDATE raw.jira_issues SET needs_processing = true WHERE connection_id = $connId AND issue_id = $poisoned")
+            val context = SyncedStubFixture.freshContext(connId)
+
+            JiraProcessStream(store, items).run(context)
+
+            assertEquals(
+                listOf(poisoned), store.issuesToProcess(connId, PROCESSING_VERSION, limit = 10),
+                "the over-long row stays flagged for the next pass",
+            )
+            assertEquals(mapOf("issuesProcessed" to 0L, "issuesFailed" to 1L), context.progressSnapshot())
+        }
 
     @Test
     fun `PROCESS rethrows when every issue of a page fails with a non-data database error - the job must fail`() =

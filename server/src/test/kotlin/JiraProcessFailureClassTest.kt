@@ -5,10 +5,15 @@ import io.r2dbc.spi.R2dbcBadGrammarException
 import io.r2dbc.spi.R2dbcDataIntegrityViolationException
 import io.r2dbc.spi.R2dbcNonTransientResourceException
 import io.r2dbc.spi.R2dbcTimeoutException
+import org.jetbrains.exposed.v1.core.VarCharColumnType
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 
-/** `jira/JiraProcessStream.kt`'s bad-row classifier (SQLSTATE class 22/23 anywhere in the cause chain) in isolation. */
+/**
+ * `jira/JiraProcessStream.kt`'s bad-row classifier (SQLSTATE class 22/23, or Exposed's varchar length
+ * check, anywhere in the cause chain) in isolation.
+ */
 class JiraProcessFailureClassTest {
     @Test
     fun `data exceptions and integrity violations are bad rows, including behind wrappers`() {
@@ -16,6 +21,15 @@ class JiraProcessFailureClassTest {
         assertEquals(true, R2dbcBadGrammarException("value too long", "22001").isDataError())
         val wrapped = IllegalStateException("wrapped", RuntimeException("deeper", R2dbcDataIntegrityViolationException("x", "23502")))
         assertEquals(true, wrapped.isDataError())
+    }
+
+    @Test
+    fun `Exposed's client-side varchar length rejection is a bad row - only that IllegalArgumentException`() {
+        // Real Exposed, not a hand-typed message: a value over the column's length throws before any SQL is sent.
+        val tooLong = assertFailsWith<IllegalArgumentException> { VarCharColumnType(3).validateValueBeforeUpdate("abcd") }
+        assertEquals(true, tooLong.isDataError())
+        assertEquals(true, RuntimeException("wrapped", tooLong).isDataError())
+        assertEquals(false, IllegalArgumentException("something else").isDataError())
     }
 
     @Test
