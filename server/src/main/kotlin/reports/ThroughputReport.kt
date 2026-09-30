@@ -1,6 +1,6 @@
 package ch.nokillswit.reports
 
-import ch.nokillswit.metrics.MetricsStore
+import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.metrics.WorkingCalendar
 import java.math.BigDecimal
 import java.time.DayOfWeek
@@ -133,7 +133,7 @@ suspend fun ReportService.throughput(
 
 private suspend fun fetchDoneTasks(filter: ReportFilter, connectionIds: List<UInt>, window: Pair<Long, Long>): List<DoneTask> {
     if (connectionIds.isEmpty()) return emptyList()
-    val t = MetricsStore.FactTaskDelivery
+    val t = MetricsTables.FactTaskDelivery
     val predicate = taskFactSlice(filter, connectionIds) and
         t.doneAt.isNotNull() and (t.doneAt greaterEq window.first) and (t.doneAt less window.second)
     return t.select(t.doneAt, t.estimateAtDoneMd, t.creditTeamId, t.assigneeAccountIdAtDone).where { predicate }.toList().map {
@@ -197,7 +197,7 @@ private fun deliveredDrift(live: ThroughputSnapshot, frozen: ThroughputSnapshot?
  */
 private suspend fun userSprints(sprintRows: List<SprintRow>, accountId: String): List<ThroughputSprint> {
     if (sprintRows.isEmpty()) return emptyList()
-    val s = MetricsStore.FactSprintScope
+    val s = MetricsTables.FactSprintScope
     val rows = s.select(s.connectionId, s.sprintId, s.estimateAtDoneMd)
         .where {
             (s.connectionId inList sprintRows.map { it.connectionId }.distinct()) and

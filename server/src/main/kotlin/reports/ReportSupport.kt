@@ -3,7 +3,7 @@ package ch.nokillswit.reports
 import ch.nokillswit.infra.db.active
 import ch.nokillswit.ingest.DataSourceService
 import ch.nokillswit.metrics.MetricsSettingsResponse
-import ch.nokillswit.metrics.MetricsStore
+import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.norm.WorkItemStore
 import ch.nokillswit.teams.TeamService
 import io.ktor.server.plugins.BadRequestException
@@ -104,12 +104,12 @@ internal suspend fun requireActiveTeam(teamId: UInt) {
 
 internal suspend fun latestDerivedAt(connectionIds: List<UInt>): Long? {
     if (connectionIds.isEmpty()) return null
-    return MetricsStore.DeriveRuns.select(MetricsStore.DeriveRuns.finishedAt)
+    return MetricsTables.DeriveRuns.select(MetricsTables.DeriveRuns.finishedAt)
         .where {
-            (MetricsStore.DeriveRuns.status eq DERIVE_RUN_SUCCEEDED) and
-                (MetricsStore.DeriveRuns.connectionId inList connectionIds.map { it.toInt() })
+            (MetricsTables.DeriveRuns.status eq DERIVE_RUN_SUCCEEDED) and
+                (MetricsTables.DeriveRuns.connectionId inList connectionIds.map { it.toInt() })
         }
-        .toList().mapNotNull { it[MetricsStore.DeriveRuns.finishedAt] }.maxOrNull()
+        .toList().mapNotNull { it[MetricsTables.DeriveRuns.finishedAt] }.maxOrNull()
 }
 
 /** Team names by id — an empty [ids] costs no query. */
@@ -129,57 +129,57 @@ internal suspend fun accountDisplayNames(accountIds: Collection<String>): Map<St
         .toList().associate { it[WorkItemStore.People.accountId] to it[WorkItemStore.People.displayName] }
 }
 
-private fun sprintJoinQuery() = MetricsStore.FactSprint.join(
-    MetricsStore.DimSprint,
+private fun sprintJoinQuery() = MetricsTables.FactSprint.join(
+    MetricsTables.DimSprint,
     JoinType.INNER,
-    onColumn = MetricsStore.FactSprint.sprintId,
-    otherColumn = MetricsStore.DimSprint.sprintId,
-    additionalConstraint = { MetricsStore.FactSprint.connectionId eq MetricsStore.DimSprint.connectionId },
+    onColumn = MetricsTables.FactSprint.sprintId,
+    otherColumn = MetricsTables.DimSprint.sprintId,
+    additionalConstraint = { MetricsTables.FactSprint.connectionId eq MetricsTables.DimSprint.connectionId },
 ).select(
-    MetricsStore.FactSprint.connectionId, MetricsStore.FactSprint.sprintId, MetricsStore.DimSprint.name,
-    MetricsStore.DimSprint.startAt,
-    MetricsStore.FactSprint.teamId, MetricsStore.FactSprint.completeAt,
-    MetricsStore.FactSprint.committedMd, MetricsStore.FactSprint.committedItems,
-    MetricsStore.FactSprint.finalMd, MetricsStore.FactSprint.finalItems,
-    MetricsStore.FactSprint.deliveredMd, MetricsStore.FactSprint.deliveredItems,
-    MetricsStore.FactSprint.addedMd, MetricsStore.FactSprint.addedItems,
-    MetricsStore.FactSprint.removedMd, MetricsStore.FactSprint.removedItems,
-    MetricsStore.FactSprint.carriedOverMd, MetricsStore.FactSprint.carriedOverItems,
-    MetricsStore.FactSprint.droppedMd, MetricsStore.FactSprint.droppedItems,
+    MetricsTables.FactSprint.connectionId, MetricsTables.FactSprint.sprintId, MetricsTables.DimSprint.name,
+    MetricsTables.DimSprint.startAt,
+    MetricsTables.FactSprint.teamId, MetricsTables.FactSprint.completeAt,
+    MetricsTables.FactSprint.committedMd, MetricsTables.FactSprint.committedItems,
+    MetricsTables.FactSprint.finalMd, MetricsTables.FactSprint.finalItems,
+    MetricsTables.FactSprint.deliveredMd, MetricsTables.FactSprint.deliveredItems,
+    MetricsTables.FactSprint.addedMd, MetricsTables.FactSprint.addedItems,
+    MetricsTables.FactSprint.removedMd, MetricsTables.FactSprint.removedItems,
+    MetricsTables.FactSprint.carriedOverMd, MetricsTables.FactSprint.carriedOverItems,
+    MetricsTables.FactSprint.droppedMd, MetricsTables.FactSprint.droppedItems,
 )
 
 private fun ResultRow.toSprintRow() = SprintRow(
-    connectionId = this[MetricsStore.FactSprint.connectionId].value,
-    sprintId = this[MetricsStore.FactSprint.sprintId],
-    name = this[MetricsStore.DimSprint.name],
-    teamId = this[MetricsStore.FactSprint.teamId]!!.value,
-    startAt = this[MetricsStore.DimSprint.startAt],
-    completedAt = this[MetricsStore.FactSprint.completeAt],
+    connectionId = this[MetricsTables.FactSprint.connectionId].value,
+    sprintId = this[MetricsTables.FactSprint.sprintId],
+    name = this[MetricsTables.DimSprint.name],
+    teamId = this[MetricsTables.FactSprint.teamId]!!.value,
+    startAt = this[MetricsTables.DimSprint.startAt],
+    completedAt = this[MetricsTables.FactSprint.completeAt],
     live = VelocitySnapshot(
-        initialMd = this[MetricsStore.FactSprint.committedMd].toDouble(),
-        initialItems = this[MetricsStore.FactSprint.committedItems],
-        finalMd = this[MetricsStore.FactSprint.finalMd].toDouble(),
-        finalItems = this[MetricsStore.FactSprint.finalItems],
+        initialMd = this[MetricsTables.FactSprint.committedMd].toDouble(),
+        initialItems = this[MetricsTables.FactSprint.committedItems],
+        finalMd = this[MetricsTables.FactSprint.finalMd].toDouble(),
+        finalItems = this[MetricsTables.FactSprint.finalItems],
     ),
     delivered = ThroughputSnapshot(
-        deliveredMd = this[MetricsStore.FactSprint.deliveredMd].toDouble(),
-        deliveredItems = this[MetricsStore.FactSprint.deliveredItems],
+        deliveredMd = this[MetricsTables.FactSprint.deliveredMd].toDouble(),
+        deliveredItems = this[MetricsTables.FactSprint.deliveredItems],
     ),
     full = SprintFigures(
-        committedMd = this[MetricsStore.FactSprint.committedMd].toDouble(),
-        committedItems = this[MetricsStore.FactSprint.committedItems],
-        addedMd = this[MetricsStore.FactSprint.addedMd].toDouble(),
-        addedItems = this[MetricsStore.FactSprint.addedItems],
-        removedMd = this[MetricsStore.FactSprint.removedMd].toDouble(),
-        removedItems = this[MetricsStore.FactSprint.removedItems],
-        finalMd = this[MetricsStore.FactSprint.finalMd].toDouble(),
-        finalItems = this[MetricsStore.FactSprint.finalItems],
-        deliveredMd = this[MetricsStore.FactSprint.deliveredMd].toDouble(),
-        deliveredItems = this[MetricsStore.FactSprint.deliveredItems],
-        carriedOverMd = this[MetricsStore.FactSprint.carriedOverMd].toDouble(),
-        carriedOverItems = this[MetricsStore.FactSprint.carriedOverItems],
-        droppedMd = this[MetricsStore.FactSprint.droppedMd].toDouble(),
-        droppedItems = this[MetricsStore.FactSprint.droppedItems],
+        committedMd = this[MetricsTables.FactSprint.committedMd].toDouble(),
+        committedItems = this[MetricsTables.FactSprint.committedItems],
+        addedMd = this[MetricsTables.FactSprint.addedMd].toDouble(),
+        addedItems = this[MetricsTables.FactSprint.addedItems],
+        removedMd = this[MetricsTables.FactSprint.removedMd].toDouble(),
+        removedItems = this[MetricsTables.FactSprint.removedItems],
+        finalMd = this[MetricsTables.FactSprint.finalMd].toDouble(),
+        finalItems = this[MetricsTables.FactSprint.finalItems],
+        deliveredMd = this[MetricsTables.FactSprint.deliveredMd].toDouble(),
+        deliveredItems = this[MetricsTables.FactSprint.deliveredItems],
+        carriedOverMd = this[MetricsTables.FactSprint.carriedOverMd].toDouble(),
+        carriedOverItems = this[MetricsTables.FactSprint.carriedOverItems],
+        droppedMd = this[MetricsTables.FactSprint.droppedMd].toDouble(),
+        droppedItems = this[MetricsTables.FactSprint.droppedItems],
     ),
 )
 
@@ -193,32 +193,32 @@ internal suspend fun resolveSprintRows(period: ReportPeriod, connectionIds: List
 }
 
 private suspend fun sprintRowsInRange(connectionIds: List<UInt>, narrowTeamId: UInt?, fromMs: Long, toMs: Long): List<SprintRow> {
-    var predicate: Op<Boolean> = (MetricsStore.FactSprint.connectionId inList connectionIds) and
-        MetricsStore.FactSprint.teamId.isNotNull() and
-        (MetricsStore.FactSprint.completeAt greaterEq fromMs) and
-        (MetricsStore.FactSprint.completeAt less toMs) // toMs is exclusive: the day after `to` starts
-    narrowTeamId?.let { predicate = predicate and (MetricsStore.FactSprint.teamId eq it) }
+    var predicate: Op<Boolean> = (MetricsTables.FactSprint.connectionId inList connectionIds) and
+        MetricsTables.FactSprint.teamId.isNotNull() and
+        (MetricsTables.FactSprint.completeAt greaterEq fromMs) and
+        (MetricsTables.FactSprint.completeAt less toMs) // toMs is exclusive: the day after `to` starts
+    narrowTeamId?.let { predicate = predicate and (MetricsTables.FactSprint.teamId eq it) }
     return sprintJoinQuery().where { predicate }.toList().map { it.toSprintRow() }
 }
 
 private suspend fun sprintRowsLastN(connectionIds: List<UInt>, narrowTeamId: UInt?, count: Int): List<SprintRow> {
-    var predicate: Op<Boolean> = (MetricsStore.FactSprint.connectionId inList connectionIds) and
-        MetricsStore.FactSprint.teamId.isNotNull() and MetricsStore.FactSprint.completeAt.isNotNull()
-    narrowTeamId?.let { predicate = predicate and (MetricsStore.FactSprint.teamId eq it) }
+    var predicate: Op<Boolean> = (MetricsTables.FactSprint.connectionId inList connectionIds) and
+        MetricsTables.FactSprint.teamId.isNotNull() and MetricsTables.FactSprint.completeAt.isNotNull()
+    narrowTeamId?.let { predicate = predicate and (MetricsTables.FactSprint.teamId eq it) }
     val rows = sprintJoinQuery().where { predicate }
-        .orderBy(MetricsStore.FactSprint.teamId to SortOrder.ASC, MetricsStore.FactSprint.completeAt to SortOrder.DESC)
+        .orderBy(MetricsTables.FactSprint.teamId to SortOrder.ASC, MetricsTables.FactSprint.completeAt to SortOrder.DESC)
         .toList().map { it.toSprintRow() }
     return rows.groupBy { it.teamId }.values.flatMap { it.take(count) }
 }
 
 private suspend fun sprintRowsForId(connectionIds: List<UInt>, narrowTeamId: UInt?, sprintId: Long): List<SprintRow> {
-    val exists = MetricsStore.DimSprint.select(MetricsStore.DimSprint.sprintId)
-        .where { (MetricsStore.DimSprint.connectionId inList connectionIds) and (MetricsStore.DimSprint.sprintId eq sprintId) }
+    val exists = MetricsTables.DimSprint.select(MetricsTables.DimSprint.sprintId)
+        .where { (MetricsTables.DimSprint.connectionId inList connectionIds) and (MetricsTables.DimSprint.sprintId eq sprintId) }
         .toList().isNotEmpty()
     if (!exists) throw BadRequestException("Unknown sprintId: $sprintId")
-    var predicate: Op<Boolean> = (MetricsStore.FactSprint.connectionId inList connectionIds) and
-        MetricsStore.FactSprint.teamId.isNotNull() and (MetricsStore.FactSprint.sprintId eq sprintId)
-    narrowTeamId?.let { predicate = predicate and (MetricsStore.FactSprint.teamId eq it) }
+    var predicate: Op<Boolean> = (MetricsTables.FactSprint.connectionId inList connectionIds) and
+        MetricsTables.FactSprint.teamId.isNotNull() and (MetricsTables.FactSprint.sprintId eq sprintId)
+    narrowTeamId?.let { predicate = predicate and (MetricsTables.FactSprint.teamId eq it) }
     return sprintJoinQuery().where { predicate }.toList().map { it.toSprintRow() }
 }
 
@@ -226,41 +226,41 @@ internal suspend fun fetchSnapshots(sprintRows: List<SprintRow>): List<SnapshotR
     if (sprintRows.isEmpty()) return emptyList()
     val connectionIds = sprintRows.map { it.connectionId }.distinct()
     val sprintIds = sprintRows.map { it.sprintId }.distinct()
-    return MetricsStore.FactSprintSnapshot.selectAll()
+    return MetricsTables.FactSprintSnapshot.selectAll()
         .where {
-            (MetricsStore.FactSprintSnapshot.connectionId inList connectionIds) and
-                (MetricsStore.FactSprintSnapshot.sprintId inList sprintIds)
+            (MetricsTables.FactSprintSnapshot.connectionId inList connectionIds) and
+                (MetricsTables.FactSprintSnapshot.sprintId inList sprintIds)
         }
         .toList()
         .map {
             SnapshotRow(
-                connectionId = it[MetricsStore.FactSprintSnapshot.connectionId].value,
-                sprintId = it[MetricsStore.FactSprintSnapshot.sprintId],
+                connectionId = it[MetricsTables.FactSprintSnapshot.connectionId].value,
+                sprintId = it[MetricsTables.FactSprintSnapshot.sprintId],
                 figures = VelocitySnapshot(
-                    initialMd = it[MetricsStore.FactSprintSnapshot.committedMd].toDouble(),
-                    initialItems = it[MetricsStore.FactSprintSnapshot.committedItems],
-                    finalMd = it[MetricsStore.FactSprintSnapshot.finalMd].toDouble(),
-                    finalItems = it[MetricsStore.FactSprintSnapshot.finalItems],
+                    initialMd = it[MetricsTables.FactSprintSnapshot.committedMd].toDouble(),
+                    initialItems = it[MetricsTables.FactSprintSnapshot.committedItems],
+                    finalMd = it[MetricsTables.FactSprintSnapshot.finalMd].toDouble(),
+                    finalItems = it[MetricsTables.FactSprintSnapshot.finalItems],
                 ),
                 delivered = ThroughputSnapshot(
-                    deliveredMd = it[MetricsStore.FactSprintSnapshot.deliveredMd].toDouble(),
-                    deliveredItems = it[MetricsStore.FactSprintSnapshot.deliveredItems],
+                    deliveredMd = it[MetricsTables.FactSprintSnapshot.deliveredMd].toDouble(),
+                    deliveredItems = it[MetricsTables.FactSprintSnapshot.deliveredItems],
                 ),
                 full = SprintFigures(
-                    committedMd = it[MetricsStore.FactSprintSnapshot.committedMd].toDouble(),
-                    committedItems = it[MetricsStore.FactSprintSnapshot.committedItems],
-                    addedMd = it[MetricsStore.FactSprintSnapshot.addedMd].toDouble(),
-                    addedItems = it[MetricsStore.FactSprintSnapshot.addedItems],
-                    removedMd = it[MetricsStore.FactSprintSnapshot.removedMd].toDouble(),
-                    removedItems = it[MetricsStore.FactSprintSnapshot.removedItems],
-                    finalMd = it[MetricsStore.FactSprintSnapshot.finalMd].toDouble(),
-                    finalItems = it[MetricsStore.FactSprintSnapshot.finalItems],
-                    deliveredMd = it[MetricsStore.FactSprintSnapshot.deliveredMd].toDouble(),
-                    deliveredItems = it[MetricsStore.FactSprintSnapshot.deliveredItems],
-                    carriedOverMd = it[MetricsStore.FactSprintSnapshot.carriedOverMd].toDouble(),
-                    carriedOverItems = it[MetricsStore.FactSprintSnapshot.carriedOverItems],
-                    droppedMd = it[MetricsStore.FactSprintSnapshot.droppedMd].toDouble(),
-                    droppedItems = it[MetricsStore.FactSprintSnapshot.droppedItems],
+                    committedMd = it[MetricsTables.FactSprintSnapshot.committedMd].toDouble(),
+                    committedItems = it[MetricsTables.FactSprintSnapshot.committedItems],
+                    addedMd = it[MetricsTables.FactSprintSnapshot.addedMd].toDouble(),
+                    addedItems = it[MetricsTables.FactSprintSnapshot.addedItems],
+                    removedMd = it[MetricsTables.FactSprintSnapshot.removedMd].toDouble(),
+                    removedItems = it[MetricsTables.FactSprintSnapshot.removedItems],
+                    finalMd = it[MetricsTables.FactSprintSnapshot.finalMd].toDouble(),
+                    finalItems = it[MetricsTables.FactSprintSnapshot.finalItems],
+                    deliveredMd = it[MetricsTables.FactSprintSnapshot.deliveredMd].toDouble(),
+                    deliveredItems = it[MetricsTables.FactSprintSnapshot.deliveredItems],
+                    carriedOverMd = it[MetricsTables.FactSprintSnapshot.carriedOverMd].toDouble(),
+                    carriedOverItems = it[MetricsTables.FactSprintSnapshot.carriedOverItems],
+                    droppedMd = it[MetricsTables.FactSprintSnapshot.droppedMd].toDouble(),
+                    droppedItems = it[MetricsTables.FactSprintSnapshot.droppedItems],
                 ),
             )
         }
@@ -324,7 +324,7 @@ internal suspend fun ReportService.resolveReportScope(filter: ReportFilter, nowM
  * falling back to its own, A21), `activityType` and `workCategory` (`UNCATEGORIZED` = none) slices.
  */
 internal fun taskFactSlice(filter: ReportFilter, connectionIds: List<UInt>, openAttribution: Boolean = false): Op<Boolean> {
-    val t = MetricsStore.FactTaskDelivery
+    val t = MetricsTables.FactTaskDelivery
     var predicate: Op<Boolean> = (t.connectionId inList connectionIds) and (t.isSubtask eq false)
     filter.teamId?.let { team ->
         val unassigned = team == UNASSIGNED_TEAM_ID
@@ -362,7 +362,7 @@ internal fun taskFactSlice(filter: ReportFilter, connectionIds: List<UInt>, open
  * the domain per `domainView` (TASK: the task's; EPIC: the epic's, else the task's — A21), `activityType`, `workCategory`.
  */
 internal fun worklogSlice(filter: ReportFilter, connectionIds: List<UInt>, window: Pair<Long, Long>): Op<Boolean> {
-    val w = MetricsStore.FactWorklog
+    val w = MetricsTables.FactWorklog
     var predicate: Op<Boolean> = (w.connectionId inList connectionIds) and
         (w.startedAt greaterEq window.first) and (w.startedAt less window.second)
     filter.teamId?.let { team ->
@@ -390,7 +390,7 @@ internal fun worklogSlice(filter: ReportFilter, connectionIds: List<UInt>, windo
  * USER-level read is answered empty by the report itself.
  */
 internal fun epicFactSlice(filter: ReportFilter, connectionIds: List<UInt>): Op<Boolean> {
-    val e = MetricsStore.FactEpicDelivery
+    val e = MetricsTables.FactEpicDelivery
     var predicate: Op<Boolean> = e.connectionId inList connectionIds
     filter.teamId?.let { team ->
         predicate = predicate and if (team == UNASSIGNED_TEAM_ID) e.ownerTeamId.isNull() else (e.ownerTeamId eq team)

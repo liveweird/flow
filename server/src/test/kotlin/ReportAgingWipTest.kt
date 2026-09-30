@@ -3,6 +3,7 @@ package ch.nokillswit
 import ch.nokillswit.metrics.DimEpicRow
 import ch.nokillswit.metrics.ItemBlockedRow
 import ch.nokillswit.metrics.MetricsStore
+import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.metrics.TeamMembershipService
 import ch.nokillswit.reports.AgingWipReport
 import ch.nokillswit.reports.DomainView
@@ -69,19 +70,19 @@ class ReportAgingWipTest {
         val connId = DerivedStubFixture.connectionId()
         val client = seededClient("reports-aging-fixture")
         val facts = suspendTransaction(sharedDatabaseForTests()) {
-            val t = MetricsStore.FactTaskDelivery
-            val e = MetricsStore.FactEpicDelivery
-            val d = MetricsStore.DimEpic
+            val t = MetricsTables.FactTaskDelivery
+            val e = MetricsTables.FactEpicDelivery
+            val d = MetricsTables.DimEpic
             val inProgressEpics = d.selectAll().where { (d.connectionId eq connId) and (d.currentStage eq "IN_PROGRESS") }.toList()
                 .map { it[d.issueId] }.toSet()
             Triple(
                 t.selectAll().where { (t.connectionId eq connId) and (t.isSubtask eq false) }.toList(),
                 e.selectAll().where { e.connectionId eq connId }.toList().filter { it[e.issueId] in inProgressEpics },
-                MetricsStore.DeriveRuns.selectAll().toList().size,
+                MetricsTables.DeriveRuns.selectAll().toList().size,
             )
         }
-        val t = MetricsStore.FactTaskDelivery
-        val e = MetricsStore.FactEpicDelivery
+        val t = MetricsTables.FactTaskDelivery
+        val e = MetricsTables.FactEpicDelivery
         val openTasks = facts.first.count { it[t.doneAt] == null && it[t.startedAt] != null && it[t.currentStage] == "IN_PROGRESS" }
         val openEpics = facts.second.count { it[e.doneAt] == null && it[e.startedAt] != null }
         assertTrue(openTasks > 0 && openEpics >= 0, "the fixture must carry in-progress tasks")
@@ -90,7 +91,7 @@ class ReportAgingWipTest {
         // `blocked` = an item_blocked row covering the connection's derive clock (the deriver closes open spells AT it).
         val clock = DerivedStubFixture.PINNED_NOW
         val blockedIds = suspendTransaction(sharedDatabaseForTests()) {
-            val b = MetricsStore.ItemBlocked
+            val b = MetricsTables.ItemBlocked
             b.selectAll().where { b.connectionId eq connId }.toList()
                 .filter { it[b.validFrom] <= clock && (it[b.validTo]?.let { to -> to >= clock } ?: true) }.map { it[b.issueId] }.toSet()
         }
@@ -240,7 +241,7 @@ class ReportAgingWipTest {
                 store.deleteFactTaskDelivery(connId)
                 store.deleteFactEpicDelivery(connId)
                 store.deleteDims(connId)
-                MetricsStore.ItemBlocked.deleteWhere { MetricsStore.ItemBlocked.connectionId eq connId }
+                MetricsTables.ItemBlocked.deleteWhere { MetricsTables.ItemBlocked.connectionId eq connId }
             }
             deleteDeriveRuns(connId)
             cleanUpTeams(listOf(teamX, teamY))

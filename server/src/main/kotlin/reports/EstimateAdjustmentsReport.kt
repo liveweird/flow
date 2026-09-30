@@ -1,6 +1,6 @@
 package ch.nokillswit.reports
 
-import ch.nokillswit.metrics.MetricsStore
+import ch.nokillswit.metrics.MetricsTables
 import java.math.BigDecimal
 import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.Serializable
@@ -129,7 +129,7 @@ suspend fun ReportService.estimateAdjustments(filter: ReportFilter, nowMs: Long)
 
 private suspend fun fetchAdjustmentTasks(filter: ReportFilter, connectionIds: List<UInt>, window: Pair<Long, Long>): List<AdjustmentItem> {
     if (connectionIds.isEmpty()) return emptyList()
-    val t = MetricsStore.FactTaskDelivery
+    val t = MetricsTables.FactTaskDelivery
     val predicate = taskFactSlice(filter, connectionIds, openAttribution = true) and (
         (t.startedAt.isNotNull() and (t.startedAt greaterEq window.first) and (t.startedAt less window.second)) or
             (t.doneAt.isNotNull() and (t.doneAt greaterEq window.first) and (t.doneAt less window.second))
@@ -154,7 +154,7 @@ private suspend fun fetchAdjustmentTasks(filter: ReportFilter, connectionIds: Li
 
 private suspend fun fetchAdjustmentEpics(filter: ReportFilter, connectionIds: List<UInt>, window: Pair<Long, Long>): List<AdjustmentItem> {
     if (connectionIds.isEmpty()) return emptyList()
-    val e = MetricsStore.FactEpicDelivery
+    val e = MetricsTables.FactEpicDelivery
     val predicate = epicFactSlice(filter, connectionIds) and (
         (e.startedAt.isNotNull() and (e.startedAt greaterEq window.first) and (e.startedAt less window.second)) or
             (e.doneAt.isNotNull() and (e.doneAt greaterEq window.first) and (e.doneAt less window.second))

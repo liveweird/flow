@@ -5,6 +5,7 @@ import ch.nokillswit.metrics.DimSprintRow
 import ch.nokillswit.metrics.FactWorklogRow
 import ch.nokillswit.metrics.FactSprintRow
 import ch.nokillswit.metrics.MetricsStore
+import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.metrics.SprintTotals
 import ch.nokillswit.reports.ResolvedSprintGroup
 import ch.nokillswit.reports.CostMatrixReport
@@ -48,7 +49,7 @@ private data class Wl(
 }
 
 private suspend fun readWorklogs(connId: UInt, bounds: Pair<Long, Long>): List<Wl> = suspendTransaction(sharedDatabaseForTests()) {
-    val w = MetricsStore.FactWorklog
+    val w = MetricsTables.FactWorklog
     w.selectAll().where { w.connectionId eq connId }.toList()
         .map {
             Wl(

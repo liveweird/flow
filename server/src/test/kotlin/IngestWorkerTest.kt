@@ -25,6 +25,7 @@ import ch.nokillswit.ingest.defaultBackfillFrom
 import ch.nokillswit.metrics.MetricsConfigService
 import ch.nokillswit.metrics.MetricsDeriver
 import ch.nokillswit.metrics.MetricsStore
+import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.metrics.TeamMembershipService
 import ch.nokillswit.norm.WorkItemStore
 import kotlinx.coroutines.CompletableDeferred
@@ -425,7 +426,7 @@ class IngestWorkerTest {
         flags = emptyList(),
     )
 
-    /** A raw `metrics.fact_sprint_snapshot` row for [connId] — the Exposed table object (`MetricsStore.FactSprintSnapshot`)
+    /** A raw `metrics.fact_sprint_snapshot` row for [connId] — the Exposed table object (`MetricsTables.FactSprintSnapshot`)
      * only declares its PK columns (commit 7 has no writer for this table yet), so every other NOT NULL column is filled
      * via a literal `exec` insert instead. */
     private suspend fun insertRawSnapshotRow(connId: UInt, sprintId: Long) {
@@ -441,7 +442,7 @@ class IngestWorkerTest {
     }
 
     private suspend fun countSnapshotRows(connId: UInt): Long = suspendTransaction(sharedDatabaseForTests()) {
-        MetricsStore.FactSprintSnapshot.selectAll().where { MetricsStore.FactSprintSnapshot.connectionId eq connId }.count()
+        MetricsTables.FactSprintSnapshot.selectAll().where { MetricsTables.FactSprintSnapshot.connectionId eq connId }.count()
     }
 
     @Test
@@ -457,7 +458,7 @@ class IngestWorkerTest {
         }
         insertRawSnapshotRow(connId, sprintId = 999L)
         val factCountBefore = suspendTransaction(sharedDatabaseForTests()) {
-            MetricsStore.FactTaskDelivery.selectAll().where { MetricsStore.FactTaskDelivery.connectionId eq connId }.count()
+            MetricsTables.FactTaskDelivery.selectAll().where { MetricsTables.FactTaskDelivery.connectionId eq connId }.count()
         }
         assertEquals(1L, factCountBefore, "fixture must seed exactly one fact_task_delivery row")
         assertEquals(1L, countSnapshotRows(connId), "fixture must seed exactly one fact_sprint_snapshot row")
@@ -474,7 +475,7 @@ class IngestWorkerTest {
 
         assertEquals(SyncJobStatus.SUCCEEDED, jobs.read(connId, jobId)?.status)
         val factCountAfter = suspendTransaction(sharedDatabaseForTests()) {
-            MetricsStore.FactTaskDelivery.selectAll().where { MetricsStore.FactTaskDelivery.connectionId eq connId }.count()
+            MetricsTables.FactTaskDelivery.selectAll().where { MetricsTables.FactTaskDelivery.connectionId eq connId }.count()
         }
         assertEquals(0L, factCountAfter, "PURGE must drain the derived metrics star (review round 1: MetricsStore.purgeAll had no caller)")
         assertEquals(0L, countSnapshotRows(connId), "PURGE must drain fact_sprint_snapshot rows too, via the allow-delete bypass")

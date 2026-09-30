@@ -3,7 +3,7 @@ package ch.nokillswit.reports
 import ch.nokillswit.infra.db.active
 import ch.nokillswit.metrics.DeriveKernels
 import ch.nokillswit.metrics.EpicPlanBaseline
-import ch.nokillswit.metrics.MetricsStore
+import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.metrics.WorkingCalendar
 import ch.nokillswit.teams.TeamService
 import io.ktor.server.plugins.BadRequestException
@@ -295,7 +295,7 @@ private suspend fun resolveTarget(target: ProgressTarget, connectionIds: List<UI
 }
 
 private suspend fun domainName(domainKey: String, connectionIds: List<UInt>): String {
-    val d = MetricsStore.DimDomain
+    val d = MetricsTables.DimDomain
     val names = d.select(d.name)
         .where { (d.connectionId inList connectionIds) and (d.domainKey eq domainKey) }
         .orderBy(d.connectionId to SortOrder.ASC)
@@ -304,7 +304,7 @@ private suspend fun domainName(domainKey: String, connectionIds: List<UInt>): St
 }
 
 private suspend fun epicRefOf(issueKey: String, connectionIds: List<UInt>): ResolvedEpic {
-    val e = MetricsStore.DimEpic
+    val e = MetricsTables.DimEpic
     val rows = e.select(e.connectionId, e.issueId, e.summary, e.startAt, e.dueAt)
         .where { (e.connectionId inList connectionIds) and (e.issueKey eq issueKey) }
         .orderBy(e.connectionId to SortOrder.ASC)
@@ -356,7 +356,7 @@ private suspend fun progressOf(ctx: ProgressContext, resolved: ResolvedTarget, n
  * a sprint sum would count an item in overlapping sprints twice), a team its own TEAM scope (`0` = UNASSIGNED), a domain/epic theirs.
  */
 private fun aggPredicate(resolved: ResolvedTarget, connectionIds: List<UInt>): Op<Boolean> {
-    val f = MetricsStore.AggDailyFlow
+    val f = MetricsTables.AggDailyFlow
     return when (val target = resolved.target) {
         ProgressTarget.WholeUnit -> (f.connectionId inList connectionIds) and (f.scopeKind eq SCOPE_KIND_DOMAIN)
         is ProgressTarget.Team -> {
@@ -377,7 +377,7 @@ private fun aggPredicate(resolved: ResolvedTarget, connectionIds: List<UInt>): O
 
 /** Every day's summed INCREMENT of [predicate]'s rows up to [lastDay] (inclusive, ISO), oldest first — from the beginning of time. */
 private suspend fun fetchIncrements(predicate: Op<Boolean>, lastDay: String): List<DayIncrement> {
-    val f = MetricsStore.AggDailyFlow
+    val f = MetricsTables.AggDailyFlow
     val pv = f.pvMd.sum()
     val ev = f.evMd.sum()
     val ac = f.acMd.sum()
@@ -456,7 +456,7 @@ private fun PlanRow.inHorizon(nowMs: Long): Boolean = DeriveKernels.inPvHorizon(
 private fun differs(a: BigDecimal?, b: BigDecimal?): Boolean = if (a == null || b == null) a !== b else a.compareTo(b) != 0
 
 private suspend fun planRowsOf(epic: ResolvedEpic): List<PlanRow> {
-    val p = MetricsStore.FactEpicPlan
+    val p = MetricsTables.FactEpicPlan
     return p.select(p.baselinedAt, p.startAt, p.dueAt, p.budgetMd, p.budgetSource, p.supersededAt)
         .where { (p.connectionId eq epic.connectionId) and (p.issueId eq epic.issueId) }
         .orderBy(p.baselineSeq to SortOrder.ASC)
@@ -466,7 +466,7 @@ private suspend fun planRowsOf(epic: ResolvedEpic): List<PlanRow> {
 
 /** With no current baseline the epic's budget is what its delivery fact says: the own estimate, else the child sum (D4). */
 private suspend fun deliveredBudget(epic: ResolvedEpic): Pair<BigDecimal?, String?> {
-    val e = MetricsStore.FactEpicDelivery
+    val e = MetricsTables.FactEpicDelivery
     val row = e.select(e.budgetSource, e.ownEstimateCurrentMd, e.childSumEstimateMd)
         .where { (e.connectionId eq epic.connectionId) and (e.issueId eq epic.issueId) }
         .toList().firstOrNull() ?: return null to null
@@ -503,7 +503,7 @@ private suspend fun curveOf(plan: PlanRow, ctx: ProgressContext): TreeMap<LocalD
 private suspend fun deriveTimeCalendar(plan: PlanRow, ctx: ProgressContext): WorkingCalendar {
     val first = Instant.ofEpochMilli(plan.startAt!!).atZone(ZoneOffset.UTC).toLocalDate()
     val last = Instant.ofEpochMilli(plan.dueAt!!).atZone(ZoneOffset.UTC).toLocalDate()
-    val d = MetricsStore.DimDate
+    val d = MetricsTables.DimDate
     val stamped = d.select(d.day, d.isWorkingDay).where { (d.day greaterEq first.toString()) and (d.day lessEq last.toString()) }
         .toList().associate { it[d.day] to it[d.isWorkingDay] }
     val windowDays = ChronoUnit.DAYS.between(first, last) + 1
@@ -521,8 +521,8 @@ private suspend fun deriveTimeCalendar(plan: PlanRow, ctx: ProgressContext): Wor
  */
 private suspend fun domainRows(ctx: ProgressContext, domain: String): List<EpicProgressRow> {
     val connectionIds = ctx.scope.connectionIds
-    val d = MetricsStore.DimEpic
-    val f = MetricsStore.AggDailyFlow
+    val d = MetricsTables.DimEpic
+    val f = MetricsTables.AggDailyFlow
     val pv = f.pvMd.sum()
     val ev = f.evMd.sum()
     val ac = f.acMd.sum()
@@ -541,7 +541,7 @@ private suspend fun domainRows(ctx: ProgressContext, domain: String): List<EpicP
         .groupBy(d.connectionId, d.issueId, d.issueKey, d.summary)
         .toList()
     if (epics.isEmpty()) return emptyList()
-    val p = MetricsStore.FactEpicPlan
+    val p = MetricsTables.FactEpicPlan
     val withBaseline = p.join(d, JoinType.INNER, onColumn = p.connectionId, otherColumn = d.connectionId, additionalConstraint = {
         p.issueId eq d.issueId
     }).select(p.connectionId, p.issueId)
@@ -566,7 +566,7 @@ private const val SCOPE_ID_LENGTH = 60
  */
 private suspend fun unitRows(ctx: ProgressContext): List<EpicProgressRow> {
     val connectionIds = ctx.scope.connectionIds
-    val f = MetricsStore.AggDailyFlow
+    val f = MetricsTables.AggDailyFlow
     val pv = f.pvMd.sum()
     val ev = f.evMd.sum()
     val ac = f.acMd.sum()
@@ -584,7 +584,7 @@ private suspend fun unitRows(ctx: ProgressContext): List<EpicProgressRow> {
 }
 
 private suspend fun domainUnitRows(connectionIds: List<UInt>, sums: Map<Pair<String, String>, Evm>): List<EpicProgressRow> {
-    val d = MetricsStore.DimDomain
+    val d = MetricsTables.DimDomain
     val names = d.select(d.domainKey, d.name)
         .where { d.connectionId inList connectionIds }
         .orderBy(d.connectionId to SortOrder.DESC) // the lowest connection id's name wins, as everywhere
@@ -617,7 +617,7 @@ private suspend fun teamUnitRows(sums: Map<Pair<String, String>, Evm>): List<Epi
  */
 private suspend fun foreignWorkShare(connectionIds: List<UInt>, teamId: UInt, throughMs: Long): Double? {
     if (connectionIds.isEmpty()) return null
-    val w = MetricsStore.FactWorklog
+    val w = MetricsTables.FactWorklog
     val author: Op<Boolean> = if (teamId == UNASSIGNED_TEAM_ID) w.authorTeamId.isNull() else w.authorTeamId eq teamId
     val logged = (w.connectionId inList connectionIds) and author and (w.startedAt less throughMs)
     val md = w.md.sum()

@@ -4,7 +4,7 @@ import ch.nokillswit.ingest.SyncJobsService
 import ch.nokillswit.metrics.FactEpicDeliveryRow
 import ch.nokillswit.metrics.FactTaskDeliveryRow
 import ch.nokillswit.metrics.MetricsConfigService
-import ch.nokillswit.metrics.MetricsStore
+import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.reports.Distribution
 import java.math.BigDecimal
 import java.time.LocalDate
@@ -114,7 +114,7 @@ internal data class TaskFact(
 )
 
 internal suspend fun readTaskFacts(connId: UInt): List<TaskFact> = suspendTransaction(sharedDatabaseForTests()) {
-    val t = MetricsStore.FactTaskDelivery
+    val t = MetricsTables.FactTaskDelivery
     t.selectAll().where { (t.connectionId eq connId) and (t.isSubtask eq false) }.toList().map {
         TaskFact(
             issueId = it[t.issueId],
@@ -155,7 +155,7 @@ internal data class EpicFact(
 )
 
 internal suspend fun readEpicFacts(connId: UInt): List<EpicFact> = suspendTransaction(sharedDatabaseForTests()) {
-    val e = MetricsStore.FactEpicDelivery
+    val e = MetricsTables.FactEpicDelivery
     e.selectAll().where { e.connectionId eq connId }.toList().map {
         EpicFact(
             issueId = it[e.issueId],

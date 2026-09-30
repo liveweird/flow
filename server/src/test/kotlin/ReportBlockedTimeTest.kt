@@ -1,6 +1,7 @@
 package ch.nokillswit
 
 import ch.nokillswit.metrics.MetricsStore
+import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.reports.BlockedTimeReport
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
@@ -33,8 +34,8 @@ private data class DoneFact(
 }
 
 private suspend fun readDoneFacts(connId: UInt): List<DoneFact> = suspendTransaction(sharedDatabaseForTests()) {
-    val t = MetricsStore.FactTaskDelivery
-    val e = MetricsStore.FactEpicDelivery
+    val t = MetricsTables.FactTaskDelivery
+    val e = MetricsTables.FactEpicDelivery
     val tasks = t.selectAll().where { (t.connectionId eq connId) and (t.isSubtask eq false) }.toList().filter { it[t.doneAt] != null }.map {
         DoneFact(
             "TASK", it[t.issueId], it[t.doneAt]!!, it[t.creditTeamId]?.value, it[t.assigneeAccountIdAtDone],

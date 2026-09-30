@@ -3,6 +3,7 @@ package ch.nokillswit
 import ch.nokillswit.metrics.DIM_DATE_LOCK_KEY
 import ch.nokillswit.metrics.DimDateRange
 import ch.nokillswit.metrics.MetricsStore
+import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.metrics.WorkingCalendar
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -47,9 +48,9 @@ class DimDateContentionTest {
     }
 
     private suspend fun latestRunStatus(connId: UInt): String? = suspendTransaction(sharedDatabaseForTests()) {
-        MetricsStore.DeriveRuns.selectAll().where { MetricsStore.DeriveRuns.connectionId eq connId.toInt() }
-            .orderBy(MetricsStore.DeriveRuns.id to SortOrder.DESC).limit(1).toList().singleOrNull()
-            ?.get(MetricsStore.DeriveRuns.status)
+        MetricsTables.DeriveRuns.selectAll().where { MetricsTables.DeriveRuns.connectionId eq connId.toInt() }
+            .orderBy(MetricsTables.DeriveRuns.id to SortOrder.DESC).limit(1).toList().singleOrNull()
+            ?.get(MetricsTables.DeriveRuns.status)
     }
 
     private fun jdbc(): java.sql.Connection =
@@ -135,7 +136,7 @@ class DimDateContentionTest {
     }
 
     private suspend fun dimDateDays(): List<WorkingCalendar.DimDateRow> = suspendTransaction(sharedDatabaseForTests()) {
-        val dd = MetricsStore.DimDate
+        val dd = MetricsTables.DimDate
         dd.selectAll().orderBy(dd.day to SortOrder.ASC).toList()
             .map { WorkingCalendar.DimDateRow(it[dd.day], it[dd.dayStartMs], it[dd.dayEndMs], it[dd.isWorkingDay]) }
     }
@@ -144,7 +145,7 @@ class DimDateContentionTest {
     private data class Stamped(val row: WorkingCalendar.DimDateRow, val revision: Long)
 
     private suspend fun snapshotDimDate(): List<Stamped> = suspendTransaction(sharedDatabaseForTests()) {
-        val dd = MetricsStore.DimDate
+        val dd = MetricsTables.DimDate
         dd.selectAll().orderBy(dd.day to SortOrder.ASC).toList().map {
             Stamped(WorkingCalendar.DimDateRow(it[dd.day], it[dd.dayStartMs], it[dd.dayEndMs], it[dd.isWorkingDay]), it[dd.configRevision])
         }
@@ -157,7 +158,7 @@ class DimDateContentionTest {
      * re-inserting the snapshot, so every row the test added (inside or outside the span) is gone too.
      */
     private suspend fun restoreDimDate(snapshot: List<Stamped>) {
-        val dd = MetricsStore.DimDate
+        val dd = MetricsTables.DimDate
         suspendTransaction(sharedDatabaseForTests()) {
             dd.deleteAll()
             if (snapshot.isNotEmpty()) {
@@ -280,7 +281,7 @@ class DimDateContentionTest {
         val range = DimDateRange(calendar.dayBoundsMs(from).first, calendar.dayBoundsMs(firstStored.minusDays(1)).first)
         try {
             suspendTransaction(sharedDatabaseForTests()) {
-                MetricsStore.DimDate.selectAll().limit(1).toList() // the caller's transaction holds its own connection now
+                MetricsTables.DimDate.selectAll().limit(1).toList() // the caller's transaction holds its own connection now
                 assertEquals(THREE_DAYS.toInt(), store.ensureDimDate(calendar, range, settings.configRevision))
                 // Still inside the caller's transaction: a separate session must already see the rows, and the
                 // advisory lock must already be released.

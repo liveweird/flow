@@ -1,6 +1,6 @@
 package ch.nokillswit
 
-import ch.nokillswit.metrics.MetricsStore
+import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.reports.VelocityReport
 import io.ktor.client.call.body
 import io.ktor.client.request.get
@@ -55,9 +55,9 @@ private val reportVelocityGolden: VelocityGoldenSprint by lazy {
 class ReportVelocityTest {
 
     private suspend fun floTeamId(connectionId: UInt, sprintId: Long): UInt = suspendTransaction(sharedDatabaseForTests()) {
-        MetricsStore.FactSprint.selectAll()
-            .where { (MetricsStore.FactSprint.connectionId eq connectionId) and (MetricsStore.FactSprint.sprintId eq sprintId) }
-            .toList().single()[MetricsStore.FactSprint.teamId]!!.value
+        MetricsTables.FactSprint.selectAll()
+            .where { (MetricsTables.FactSprint.connectionId eq connectionId) and (MetricsTables.FactSprint.sprintId eq sprintId) }
+            .toList().single()[MetricsTables.FactSprint.teamId]!!.value
     }
 
     @Test
@@ -141,23 +141,23 @@ class ReportVelocityTest {
         val client = seededClient("reports-velocity-open-sprint")
 
         val open = suspendTransaction(sharedDatabaseForTests()) {
-            MetricsStore.FactSprint.selectAll()
+            MetricsTables.FactSprint.selectAll()
                 .where {
-                    (MetricsStore.FactSprint.connectionId eq connId) and (MetricsStore.FactSprint.teamId eq floTeamId) and
-                        MetricsStore.FactSprint.completeAt.isNull()
+                    (MetricsTables.FactSprint.connectionId eq connId) and (MetricsTables.FactSprint.teamId eq floTeamId) and
+                        MetricsTables.FactSprint.completeAt.isNull()
                 }
                 .toList()
         }
         assertTrue(open.isNotEmpty(), "the stub fixture must carry an active/future FLO sprint")
         for (row in open) {
-            val response = client.get("/api/v1/reports/velocity?connectionId=$connId&sprintId=${row[MetricsStore.FactSprint.sprintId]}")
+            val response = client.get("/api/v1/reports/velocity?connectionId=$connId&sprintId=${row[MetricsTables.FactSprint.sprintId]}")
             assertEquals(HttpStatusCode.OK, response.status)
             val sprint = response.body<VelocityReport>().sprints.single()
             assertEquals(null, sprint.completedAt)
             assertEquals(null, sprint.snapshot)
             assertTrue(!sprint.drift)
-            assertEquals(row[MetricsStore.FactSprint.committedMd].toDouble(), sprint.initialMd, ABS_TOLERANCE)
-            assertEquals(row[MetricsStore.FactSprint.finalItems], sprint.finalItems)
+            assertEquals(row[MetricsTables.FactSprint.committedMd].toDouble(), sprint.initialMd, ABS_TOLERANCE)
+            assertEquals(row[MetricsTables.FactSprint.finalItems], sprint.finalItems)
         }
     }
 

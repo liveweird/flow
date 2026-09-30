@@ -149,10 +149,10 @@ place:
 - `reports/WipReport.kt` (v0.3.0 M5 commit 15, `GET /api/v1/reports/wip`) reads `norm/WorkItemStore.Statuses`
   (status names for `by=STATUS`), `norm/WorkItemStore.BoardColumns` (the mapped board's columns for `by=COLUMN`, read
   at query time so a board edit shows up without a re-derive) and `metrics/MetricsConfigService.BoardTeamMap` (which
-  board a team owns) directly, inside its own transaction — read-only, and `metrics/MetricsStore.AggDailyWip` for the
-  series itself. `reports/BacklogReport.kt` (`GET /api/v1/reports/backlog`) reads `metrics/MetricsStore.AggDailyFlow`
-  (the backlog trend) and `metrics/MetricsStore.FactSprint` (the mean `delivered_md` behind the backlog in sprints)
-  the same way. `reports/SnapshotSupport.kt`, shared by both, reads `metrics/MetricsStore.DeriveRuns` (the per-connection
+  board a team owns) directly, inside its own transaction — read-only, and `metrics/MetricsTables.AggDailyWip` for the
+  series itself. `reports/BacklogReport.kt` (`GET /api/v1/reports/backlog`) reads `metrics/MetricsTables.AggDailyFlow`
+  (the backlog trend) and `metrics/MetricsTables.FactSprint` (the mean `delivered_md` behind the backlog in sprints)
+  the same way. `reports/SnapshotSupport.kt`, shared by both, reads `metrics/MetricsTables.DeriveRuns` (the per-connection
   newest successful run, via SQL `max()`) for the last-derived-day cut-off.
 - `reports/AgingWipReport.kt` and `reports/BlockedTimeReport.kt` (v0.3.0 M5 commit 15 part b, `GET /api/v1/reports/aging-wip`
   and `/blocked-time`) read `norm/WorkItemStore.WorkItems` (issue key and summary, via the shared `workItemLabels`) and
@@ -163,7 +163,7 @@ place:
   `AggDailyFlow` (the per-day PV/EV/AC increments), `DimDate`, `DimEpic`, `DimDomain`, `FactEpicPlan`, `FactEpicDelivery` (the budget
   fallback) and `FactWorklog` (the team foreign-work share), plus `teams/TeamService.Teams` (team names and the active-team
   list of the unit drill) -- all read-only, inside the report's own transaction.
-- `reports/CostMatrixReport.kt` (v0.3.0 M5 commit 17b, `GET /api/v1/reports/cost-matrix`) reads `metrics/MetricsStore.FactWorklog`
+- `reports/CostMatrixReport.kt` (v0.3.0 M5 commit 17b, `GET /api/v1/reports/cost-matrix`) reads `metrics/MetricsTables.FactWorklog`
   (grouped sums of `md`) and `DimDomain` (column names), plus `teams/TeamService.Teams`/`norm/WorkItemStore.People` through
   `orgGroups` (team names, author display names) -- all read-only, inside the report's own transaction.
 
@@ -521,7 +521,7 @@ and every `metrics.*` star table: `dim_date`/`dim_domain`/`dim_task`/`dim_epic`/
 writers). Interval storage mirrors `metrics.team_membership`'s own precedent (V15): half-open
 `valid_from BIGINT NOT NULL, valid_to BIGINT NULL` pairs, no `tstzrange` (no r2dbc-postgresql codec
 for it). Every table is `connection_id`-scoped and rebuilt WHOLESALE per DERIVE run — delete then
-insert, this commit's `MetricsStore.kt` splits each pair into a `deleteX`/`insertX` method so
+insert, `MetricsStore.kt` (the table objects live in `MetricsTables.kt`, the row shapes in `MetricsRows.kt`) splits each pair into a `deleteX`/`insertX` method so
 `MetricsDeriver.kt` can delete ONCE up front and insert BATCH BY BATCH (`.claude/docs/metrics.md`
 "The DERIVE run algorithm") — EXCEPT `dim_date` (global, reconciled by `MetricsStore.ensureDimDate`:
 its own committed `inTopLevelSuspendTransaction` under the advisory lock `DIM_DATE_LOCK_KEY`, writing only rows that

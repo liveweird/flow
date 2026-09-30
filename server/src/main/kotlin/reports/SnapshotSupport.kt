@@ -1,6 +1,6 @@
 package ch.nokillswit.reports
 
-import ch.nokillswit.metrics.MetricsStore
+import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.metrics.WorkingCalendar
 import io.ktor.server.plugins.BadRequestException
 import java.time.LocalDate
@@ -73,7 +73,7 @@ internal fun snapshotScopeOf(filter: ReportFilter): SnapshotScope {
 
 /** `agg_daily_wip` rows of [scope]; [Unassigned][SnapshotScope.Unassigned] is UNASSIGNED on the task side and UNOWNED on the epic side. */
 internal fun wipScopePredicate(scope: SnapshotScope): Op<Boolean> {
-    val w = MetricsStore.AggDailyWip
+    val w = MetricsTables.AggDailyWip
     return when (scope) {
         SnapshotScope.AllTeams -> w.scopeKind eq SCOPE_KIND_TEAM
         is SnapshotScope.Team -> (w.scopeKind eq SCOPE_KIND_TEAM) and (w.scopeId eq scope.teamId.toString())
@@ -87,7 +87,7 @@ internal fun wipScopePredicate(scope: SnapshotScope): Op<Boolean> {
 
 /** `agg_daily_flow` rows of [scope] — the backlog side, where the TEAM scope is the OWNER team, so `teamId=0` is UNOWNED. */
 internal fun flowScopePredicate(scope: SnapshotScope): Op<Boolean> {
-    val f = MetricsStore.AggDailyFlow
+    val f = MetricsTables.AggDailyFlow
     return when (scope) {
         SnapshotScope.AllTeams -> f.scopeKind eq SCOPE_KIND_TEAM
         is SnapshotScope.Team -> (f.scopeKind eq SCOPE_KIND_TEAM) and (f.scopeId eq scope.teamId.toString())
@@ -123,7 +123,7 @@ internal suspend fun derivedCoverage(connectionIds: List<UInt>, calendar: Workin
  */
 internal suspend fun deriveClocks(connectionIds: List<UInt>): Map<UInt, Long> {
     if (connectionIds.isEmpty()) return emptyMap()
-    val runs = MetricsStore.DeriveRuns
+    val runs = MetricsTables.DeriveRuns
     val newestStart = runs.startedAt.max()
     return runs.select(runs.connectionId, newestStart)
         .where { (runs.status eq DERIVE_RUN_SUCCEEDED) and (runs.connectionId inList connectionIds.map { it.toInt() }) }

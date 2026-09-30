@@ -3,6 +3,7 @@ package ch.nokillswit
 import ch.nokillswit.metrics.FactTaskDeliveryRow
 import ch.nokillswit.metrics.MetricsConfigService
 import ch.nokillswit.metrics.MetricsStore
+import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.reports.ThroughputReport
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
@@ -72,7 +73,7 @@ class ReportThroughputTest {
     }
 
     private suspend fun doneTasks(connId: UInt): List<DoneTask> = suspendTransaction(sharedDatabaseForTests()) {
-        val t = MetricsStore.FactTaskDelivery
+        val t = MetricsTables.FactTaskDelivery
         t.selectAll().where { (t.connectionId eq connId) and (t.isSubtask eq false) and t.doneAt.isNotNull() }.toList().map {
             DoneTask(
                 doneAt = it[t.doneAt]!!,
@@ -110,17 +111,17 @@ class ReportThroughputTest {
     )
 
     private suspend fun flowSprints(connId: UInt, teamId: UInt): List<SprintFacts> = suspendTransaction(sharedDatabaseForTests()) {
-        val starts = MetricsStore.DimSprint.selectAll().where { MetricsStore.DimSprint.connectionId eq connId }.toList()
-            .associate { it[MetricsStore.DimSprint.sprintId] to it[MetricsStore.DimSprint.startAt] }
-        MetricsStore.FactSprint.selectAll()
-            .where { (MetricsStore.FactSprint.connectionId eq connId) and (MetricsStore.FactSprint.teamId eq teamId) }
+        val starts = MetricsTables.DimSprint.selectAll().where { MetricsTables.DimSprint.connectionId eq connId }.toList()
+            .associate { it[MetricsTables.DimSprint.sprintId] to it[MetricsTables.DimSprint.startAt] }
+        MetricsTables.FactSprint.selectAll()
+            .where { (MetricsTables.FactSprint.connectionId eq connId) and (MetricsTables.FactSprint.teamId eq teamId) }
             .toList().map {
                 SprintFacts(
-                    sprintId = it[MetricsStore.FactSprint.sprintId],
-                    startAt = starts[it[MetricsStore.FactSprint.sprintId]],
-                    completeAt = it[MetricsStore.FactSprint.completeAt],
-                    deliveredMd = it[MetricsStore.FactSprint.deliveredMd].toDouble(),
-                    deliveredItems = it[MetricsStore.FactSprint.deliveredItems],
+                    sprintId = it[MetricsTables.FactSprint.sprintId],
+                    startAt = starts[it[MetricsTables.FactSprint.sprintId]],
+                    completeAt = it[MetricsTables.FactSprint.completeAt],
+                    deliveredMd = it[MetricsTables.FactSprint.deliveredMd].toDouble(),
+                    deliveredItems = it[MetricsTables.FactSprint.deliveredItems],
                 )
             }
     }
@@ -147,9 +148,9 @@ class ReportThroughputTest {
     )
 
     private suspend fun floTeamId(connId: UInt, sprintId: Long): UInt = suspendTransaction(sharedDatabaseForTests()) {
-        MetricsStore.FactSprint.selectAll()
-            .where { (MetricsStore.FactSprint.connectionId eq connId) and (MetricsStore.FactSprint.sprintId eq sprintId) }
-            .toList().single()[MetricsStore.FactSprint.teamId]!!.value
+        MetricsTables.FactSprint.selectAll()
+            .where { (MetricsTables.FactSprint.connectionId eq connId) and (MetricsTables.FactSprint.sprintId eq sprintId) }
+            .toList().single()[MetricsTables.FactSprint.teamId]!!.value
     }
 
     @Test
@@ -168,12 +169,12 @@ class ReportThroughputTest {
         assertEquals(golden.deliveredMd, sprint.snapshot!!.deliveredMd)
 
         val fromFact = suspendTransaction(sharedDatabaseForTests()) {
-            MetricsStore.FactSprint.selectAll()
-                .where { (MetricsStore.FactSprint.connectionId eq connId) and (MetricsStore.FactSprint.sprintId eq golden.sprintId) }
+            MetricsTables.FactSprint.selectAll()
+                .where { (MetricsTables.FactSprint.connectionId eq connId) and (MetricsTables.FactSprint.sprintId eq golden.sprintId) }
                 .toList().single()
         }
-        assertEquals(fromFact[MetricsStore.FactSprint.deliveredMd].toDouble(), sprint.deliveredMd)
-        assertEquals(fromFact[MetricsStore.FactSprint.deliveredItems], sprint.deliveredItems)
+        assertEquals(fromFact[MetricsTables.FactSprint.deliveredMd].toDouble(), sprint.deliveredMd)
+        assertEquals(fromFact[MetricsTables.FactSprint.deliveredItems], sprint.deliveredItems)
 
         // A from/to period lists the same sprint, the whole sprint or nothing (anchor: complete_at).
         val ranged = client.throughput("connectionId=$connId&from=2025-09-01&to=2026-03-06")
@@ -210,10 +211,10 @@ class ReportThroughputTest {
         val client = seededClient("reports-throughput-window")
 
         val (start, complete) = suspendTransaction(sharedDatabaseForTests()) {
-            val row = MetricsStore.DimSprint.selectAll()
-                .where { (MetricsStore.DimSprint.connectionId eq connId) and (MetricsStore.DimSprint.sprintId eq golden.sprintId) }
+            val row = MetricsTables.DimSprint.selectAll()
+                .where { (MetricsTables.DimSprint.connectionId eq connId) and (MetricsTables.DimSprint.sprintId eq golden.sprintId) }
                 .toList().single()
-            row[MetricsStore.DimSprint.startAt]!! to row[MetricsStore.DimSprint.completeAt]!!
+            row[MetricsTables.DimSprint.startAt]!! to row[MetricsTables.DimSprint.completeAt]!!
         }
         val expected = all.filter { it.doneAt >= start && it.doneAt <= complete }
         val body = client.throughput("connectionId=$connId&sprintId=${golden.sprintId}")
@@ -410,7 +411,7 @@ class ReportThroughputTest {
 
         val team = client.throughput("$sprintQuery&teamId=$floTeamId").bySprint.single()
         val scope = suspendTransaction(sharedDatabaseForTests()) {
-            val s = MetricsStore.FactSprintScope
+            val s = MetricsTables.FactSprintScope
             s.selectAll().where { (s.connectionId eq connId) and (s.sprintId eq golden.sprintId) and (s.doneInSprint eq true) }.toList()
                 .map { it[s.assigneeAtCommitment] to (it[s.estimateAtDoneMd] ?: BigDecimal.ZERO) }
         }

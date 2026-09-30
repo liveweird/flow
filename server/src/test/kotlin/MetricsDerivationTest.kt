@@ -12,6 +12,7 @@ import ch.nokillswit.metrics.MetricsConfigService
 import ch.nokillswit.metrics.MetricsDeriver
 import ch.nokillswit.metrics.MetricsSprintCapacity
 import ch.nokillswit.metrics.MetricsStore
+import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.metrics.TeamMembershipCreateRequest
 import ch.nokillswit.metrics.TeamMembershipResponse
 import ch.nokillswit.metrics.TeamMembershipService
@@ -186,7 +187,7 @@ class MetricsDerivationTest {
         val connId = DerivedStubFixture.connectionId()
 
         val factRows = suspendTransaction(sharedDatabaseForTests()) {
-            MetricsStore.FactTaskDelivery.selectAll().where { MetricsStore.FactTaskDelivery.connectionId eq connId }.toList()
+            MetricsTables.FactTaskDelivery.selectAll().where { MetricsTables.FactTaskDelivery.connectionId eq connId }.toList()
         }
         assertTrue(factRows.isNotEmpty(), "fact_task_delivery must be non-empty after deriving a real processed connection")
 
@@ -196,9 +197,9 @@ class MetricsDerivationTest {
         // CURRENT stage being DONE, never on whether the item was ever started); done_at is set only
         // while the current stage is DONE, unconditionally.
         factRows.forEach { row ->
-            val startedAt = row[MetricsStore.FactTaskDelivery.startedAt]
-            val doneAt = row[MetricsStore.FactTaskDelivery.doneAt]
-            val currentStage = row[MetricsStore.FactTaskDelivery.currentStage]
+            val startedAt = row[MetricsTables.FactTaskDelivery.startedAt]
+            val doneAt = row[MetricsTables.FactTaskDelivery.doneAt]
+            val currentStage = row[MetricsTables.FactTaskDelivery.currentStage]
             if (doneAt != null) {
                 if (startedAt != null) {
                     assertTrue(startedAt <= doneAt, "done_at requires a started_at no later than it, when both are set")
@@ -214,19 +215,19 @@ class MetricsDerivationTest {
         // share one `validFrom` — the surrogate `id` preserves each issue's own insertion order
         // (`MetricsDeriver.compose` appends one issue's stage rows contiguously before the next).
         val stageRows = suspendTransaction(sharedDatabaseForTests()) {
-            MetricsStore.ItemStage.selectAll().where { MetricsStore.ItemStage.connectionId eq connId }
-                .orderBy(MetricsStore.ItemStage.issueId to SortOrder.ASC, MetricsStore.ItemStage.id to SortOrder.ASC)
+            MetricsTables.ItemStage.selectAll().where { MetricsTables.ItemStage.connectionId eq connId }
+                .orderBy(MetricsTables.ItemStage.issueId to SortOrder.ASC, MetricsTables.ItemStage.id to SortOrder.ASC)
                 .toList()
         }
         assertTrue(stageRows.isNotEmpty(), "metrics.item_stage must be non-empty after DERIVE")
-        val byIssue = stageRows.groupBy { it[MetricsStore.ItemStage.issueId] }
+        val byIssue = stageRows.groupBy { it[MetricsTables.ItemStage.issueId] }
         byIssue.forEach { (issueId, rows) ->
-            val openCount = rows.count { it[MetricsStore.ItemStage.validTo] == null }
+            val openCount = rows.count { it[MetricsTables.ItemStage.validTo] == null }
             assertEquals(1, openCount, "issue $issueId must have exactly one open item_stage interval")
             rows.zipWithNext().forEach { (a, b) ->
                 assertEquals(
-                    a[MetricsStore.ItemStage.validTo],
-                    b[MetricsStore.ItemStage.validFrom],
+                    a[MetricsTables.ItemStage.validTo],
+                    b[MetricsTables.ItemStage.validFrom],
                     "issue $issueId's item_stage intervals must tile contiguously",
                 )
             }
@@ -241,42 +242,45 @@ class MetricsDerivationTest {
         val epicIssueId = golden.issueId.toLong()
 
         val dimRow = suspendTransaction(sharedDatabaseForTests()) {
-            MetricsStore.DimEpic.selectAll()
-                .where { (MetricsStore.DimEpic.connectionId eq connId) and (MetricsStore.DimEpic.issueId eq epicIssueId) }
+            MetricsTables.DimEpic.selectAll()
+                .where { (MetricsTables.DimEpic.connectionId eq connId) and (MetricsTables.DimEpic.issueId eq epicIssueId) }
                 .toList()
                 .single()
         }
-        assertEquals(golden.issueKey, dimRow[MetricsStore.DimEpic.issueKey], "sample-data/jira/expected.json golden.epic.issueKey")
+        assertEquals(golden.issueKey, dimRow[MetricsTables.DimEpic.issueKey], "sample-data/jira/expected.json golden.epic.issueKey")
         assertEquals(
             isoDateEpochMillis(golden.startDate),
-            dimRow[MetricsStore.DimEpic.startAt],
+            dimRow[MetricsTables.DimEpic.startAt],
             "sample-data/jira/expected.json golden.epic.startDate (the epic's own configured start-date field)",
         )
         assertEquals(
             isoDateEpochMillis(golden.dueDate),
-            dimRow[MetricsStore.DimEpic.dueAt],
+            dimRow[MetricsTables.DimEpic.dueAt],
             "sample-data/jira/expected.json golden.epic.dueDate (duedate)",
         )
 
         val factRow = suspendTransaction(sharedDatabaseForTests()) {
-            MetricsStore.FactEpicDelivery.selectAll()
-                .where { (MetricsStore.FactEpicDelivery.connectionId eq connId) and (MetricsStore.FactEpicDelivery.issueId eq epicIssueId) }
+            MetricsTables.FactEpicDelivery.selectAll()
+                .where {
+                    (MetricsTables.FactEpicDelivery.connectionId eq connId) and
+                        (MetricsTables.FactEpicDelivery.issueId eq epicIssueId)
+                }
                 .toList()
                 .single()
         }
         assertEquals(
             golden.budgetMd,
-            factRow[MetricsStore.FactEpicDelivery.ownEstimateCurrentMd]?.toDouble(),
+            factRow[MetricsTables.FactEpicDelivery.ownEstimateCurrentMd]?.toDouble(),
             "sample-data/jira/expected.json golden.epic.budgetMd (D4: the epic's own current estimate)",
         )
         assertEquals(
             "OWN",
-            factRow[MetricsStore.FactEpicDelivery.budgetSource],
+            factRow[MetricsTables.FactEpicDelivery.budgetSource],
             "an epic carrying its own estimate never falls back to the CHILDREN budget source",
         )
         assertEquals(
             golden.childSumMd,
-            factRow[MetricsStore.FactEpicDelivery.childSumEstimateMd].toDouble(),
+            factRow[MetricsTables.FactEpicDelivery.childSumEstimateMd].toDouble(),
             "sample-data/jira/expected.json golden.epic.childSumMd",
         )
 
@@ -287,11 +291,11 @@ class MetricsDerivationTest {
         // would double the fixture's own count; `dim_task.is_subtask` is the same flag `DimTaskRow`
         // was built from, so filtering on it reproduces the generator's direct-children figure.
         val childCount = suspendTransaction(sharedDatabaseForTests()) {
-            MetricsStore.DimTask.selectAll()
+            MetricsTables.DimTask.selectAll()
                 .where {
-                    (MetricsStore.DimTask.connectionId eq connId) and
-                        (MetricsStore.DimTask.epicId eq epicIssueId) and
-                        (MetricsStore.DimTask.isSubtask eq false)
+                    (MetricsTables.DimTask.connectionId eq connId) and
+                        (MetricsTables.DimTask.epicId eq epicIssueId) and
+                        (MetricsTables.DimTask.isSubtask eq false)
                 }
                 .count()
         }
@@ -306,9 +310,9 @@ class MetricsDerivationTest {
         val epicIssueId = golden.issueId.toLong()
 
         val planRows = suspendTransaction(sharedDatabaseForTests()) {
-            MetricsStore.FactEpicPlan.selectAll()
-                .where { (MetricsStore.FactEpicPlan.connectionId eq connId) and (MetricsStore.FactEpicPlan.issueId eq epicIssueId) }
-                .orderBy(MetricsStore.FactEpicPlan.baselineSeq to SortOrder.ASC)
+            MetricsTables.FactEpicPlan.selectAll()
+                .where { (MetricsTables.FactEpicPlan.connectionId eq connId) and (MetricsTables.FactEpicPlan.issueId eq epicIssueId) }
+                .orderBy(MetricsTables.FactEpicPlan.baselineSeq to SortOrder.ASC)
                 .toList()
         }
         assertTrue(planRows.isNotEmpty(), "the golden epic must carry at least one fact_epic_plan baseline")
@@ -316,23 +320,23 @@ class MetricsDerivationTest {
         // Whether the epic's dates changed mid-history (~25% of epics do, `generate.mjs`) or not,
         // its own story-point estimate never changes — only the CURRENT (unsuperseded) baseline is
         // guaranteed to carry `expected.json`'s own current start/due/budget values.
-        val current = planRows.single { it[MetricsStore.FactEpicPlan.supersededAt] == null }
+        val current = planRows.single { it[MetricsTables.FactEpicPlan.supersededAt] == null }
         assertEquals(
             isoDateEpochMillis(golden.startDate),
-            current[MetricsStore.FactEpicPlan.startAt],
+            current[MetricsTables.FactEpicPlan.startAt],
             "sample-data/jira/expected.json golden.epic.startDate (the CURRENT baseline)",
         )
         assertEquals(
             isoDateEpochMillis(golden.dueDate),
-            current[MetricsStore.FactEpicPlan.dueAt],
+            current[MetricsTables.FactEpicPlan.dueAt],
             "sample-data/jira/expected.json golden.epic.dueDate (the CURRENT baseline)",
         )
         assertEquals(
             golden.budgetMd,
-            current[MetricsStore.FactEpicPlan.budgetMd]?.toDouble(),
+            current[MetricsTables.FactEpicPlan.budgetMd]?.toDouble(),
             "sample-data/jira/expected.json golden.epic.budgetMd",
         )
-        assertEquals("OWN", current[MetricsStore.FactEpicPlan.budgetSource], "the golden epic always carries its own estimate")
+        assertEquals("OWN", current[MetricsTables.FactEpicPlan.budgetSource], "the golden epic always carries its own estimate")
 
         // Reconstructs the SAME calendar `DerivedStubFixture` derived under (Europe/Warsaw, the V15
         // seed default, only hoursPerDay is overridden there) and re-runs the ALREADY-unit-tested
@@ -340,11 +344,11 @@ class MetricsDerivationTest {
         // correctly into a real PV curve, not a re-proof of the kernel's own math (DeriveKernelsTest).
         val calendar = WorkingCalendar(ZoneId.of("Europe/Warsaw"), setOf(6, 7), emptySet())
         val baseline = ch.nokillswit.metrics.EpicPlanBaseline(
-            baselinedAtMs = current[MetricsStore.FactEpicPlan.baselinedAt],
-            startAtMs = current[MetricsStore.FactEpicPlan.startAt]!!,
-            dueAtMs = current[MetricsStore.FactEpicPlan.dueAt]!!,
-            budgetMd = current[MetricsStore.FactEpicPlan.budgetMd]!!.toDouble(),
-            budgetSource = current[MetricsStore.FactEpicPlan.budgetSource],
+            baselinedAtMs = current[MetricsTables.FactEpicPlan.baselinedAt],
+            startAtMs = current[MetricsTables.FactEpicPlan.startAt]!!,
+            dueAtMs = current[MetricsTables.FactEpicPlan.dueAt]!!,
+            budgetMd = current[MetricsTables.FactEpicPlan.budgetMd]!!.toDouble(),
+            budgetSource = current[MetricsTables.FactEpicPlan.budgetSource],
             supersededAtMs = null,
         )
         val curve = DeriveKernels.pvCurve(baseline, calendar)
@@ -357,12 +361,12 @@ class MetricsDerivationTest {
         val connId = DerivedStubFixture.connectionId()
 
         val rows = suspendTransaction(sharedDatabaseForTests()) {
-            MetricsStore.TaskEpic.selectAll().where { MetricsStore.TaskEpic.connectionId eq connId }
-                .orderBy(MetricsStore.TaskEpic.issueId to SortOrder.ASC, MetricsStore.TaskEpic.id to SortOrder.ASC)
+            MetricsTables.TaskEpic.selectAll().where { MetricsTables.TaskEpic.connectionId eq connId }
+                .orderBy(MetricsTables.TaskEpic.issueId to SortOrder.ASC, MetricsTables.TaskEpic.id to SortOrder.ASC)
                 .toList()
         }
         assertTrue(rows.isNotEmpty(), "metrics.task_epic must be non-empty after DERIVE")
-        val byIssue = rows.groupBy { it[MetricsStore.TaskEpic.issueId] }
+        val byIssue = rows.groupBy { it[MetricsTables.TaskEpic.issueId] }
         // Review round 2a fix: `task_epic` is now built from the PARENT field's REAL history, not a
         // single open row carrying only the current epic — the sample dataset carries at least one
         // genuine epic reassignment (`sample-data/jira/generate.mjs`'s own `{ field: "Parent", ... }`
@@ -373,12 +377,12 @@ class MetricsDerivationTest {
             "at least one task must carry real epic-reassignment history (more than one task_epic row)",
         )
         byIssue.forEach { (issueId, taskRows) ->
-            val openCount = taskRows.count { it[MetricsStore.TaskEpic.validTo] == null }
+            val openCount = taskRows.count { it[MetricsTables.TaskEpic.validTo] == null }
             assertEquals(1, openCount, "issue $issueId must have exactly one OPEN task_epic interval")
             taskRows.zipWithNext().forEach { (a, b) ->
-                val aFrom = a[MetricsStore.TaskEpic.validFrom]
-                val aTo = a[MetricsStore.TaskEpic.validTo] ?: Long.MAX_VALUE
-                val bFrom = b[MetricsStore.TaskEpic.validFrom]
+                val aFrom = a[MetricsTables.TaskEpic.validFrom]
+                val aTo = a[MetricsTables.TaskEpic.validTo] ?: Long.MAX_VALUE
+                val bFrom = b[MetricsTables.TaskEpic.validFrom]
                 assertTrue(aTo <= bFrom, "issue $issueId's task_epic intervals must never overlap (aTo=$aTo, bFrom=$bFrom, aFrom=$aFrom)")
             }
         }
@@ -389,21 +393,21 @@ class MetricsDerivationTest {
         val connId = DerivedStubFixture.connectionId()
 
         val rows = suspendTransaction(sharedDatabaseForTests()) {
-            MetricsStore.TaskAssignee.selectAll().where { MetricsStore.TaskAssignee.connectionId eq connId }
-                .orderBy(MetricsStore.TaskAssignee.issueId to SortOrder.ASC, MetricsStore.TaskAssignee.id to SortOrder.ASC)
+            MetricsTables.TaskAssignee.selectAll().where { MetricsTables.TaskAssignee.connectionId eq connId }
+                .orderBy(MetricsTables.TaskAssignee.issueId to SortOrder.ASC, MetricsTables.TaskAssignee.id to SortOrder.ASC)
                 .toList()
         }
         assertTrue(rows.isNotEmpty(), "metrics.task_assignee must be non-empty after DERIVE")
-        val byIssue = rows.groupBy { it[MetricsStore.TaskAssignee.issueId] }
+        val byIssue = rows.groupBy { it[MetricsTables.TaskAssignee.issueId] }
         // Review round 2a fix: built from `norm`'s own ASSIGNEE field intervals rather than a single
         // current-value row — real reassignment history over ~1,200 issues is expected.
         assertTrue(byIssue.values.any { it.size > 1 }, "at least one task must show real assignee-reassignment history")
         byIssue.forEach { (issueId, taskRows) ->
-            val openCount = taskRows.count { it[MetricsStore.TaskAssignee.validTo] == null }
+            val openCount = taskRows.count { it[MetricsTables.TaskAssignee.validTo] == null }
             assertEquals(1, openCount, "issue $issueId must have exactly one OPEN task_assignee interval")
             taskRows.zipWithNext().forEach { (a, b) ->
-                val aTo = a[MetricsStore.TaskAssignee.validTo] ?: Long.MAX_VALUE
-                val bFrom = b[MetricsStore.TaskAssignee.validFrom]
+                val aTo = a[MetricsTables.TaskAssignee.validTo] ?: Long.MAX_VALUE
+                val bFrom = b[MetricsTables.TaskAssignee.validFrom]
                 assertTrue(aTo <= bFrom, "issue $issueId's task_assignee intervals must never overlap")
             }
         }
@@ -411,8 +415,8 @@ class MetricsDerivationTest {
         // task_epic/task_domain/task_assignee are TASK-only bridges (review round 2a: "skip epics
         // for task_* bridges") — an epic issue id must never appear as the issueId of a task_assignee row.
         val epicIds = suspendTransaction(sharedDatabaseForTests()) {
-            MetricsStore.DimEpic.selectAll().where { MetricsStore.DimEpic.connectionId eq connId }
-                .toList().map { it[MetricsStore.DimEpic.issueId] }.toSet()
+            MetricsTables.DimEpic.selectAll().where { MetricsTables.DimEpic.connectionId eq connId }
+                .toList().map { it[MetricsTables.DimEpic.issueId] }.toSet()
         }
         assertTrue(byIssue.keys.none { it in epicIds }, "no epic issue id may appear in task_assignee")
     }
@@ -459,16 +463,16 @@ class MetricsDerivationTest {
         val deriver = MetricsDeriver(workItems(), config, teamMembership(config), metricsStore(), sharedDatabaseForTests())
 
         suspend fun insertRunning(conn: UInt): Int = suspendTransaction(sharedDatabaseForTests()) {
-            MetricsStore.DeriveRuns.insert {
-                it[MetricsStore.DeriveRuns.connectionId] = conn.toInt()
-                it[MetricsStore.DeriveRuns.configRevision] = 1L
-                it[MetricsStore.DeriveRuns.processingVersion] = 1
-                it[MetricsStore.DeriveRuns.startedAt] = PINNED_NOW - 60_000
-                it[MetricsStore.DeriveRuns.status] = "RUNNING"
-            }[MetricsStore.DeriveRuns.id]
+            MetricsTables.DeriveRuns.insert {
+                it[MetricsTables.DeriveRuns.connectionId] = conn.toInt()
+                it[MetricsTables.DeriveRuns.configRevision] = 1L
+                it[MetricsTables.DeriveRuns.processingVersion] = 1
+                it[MetricsTables.DeriveRuns.startedAt] = PINNED_NOW - 60_000
+                it[MetricsTables.DeriveRuns.status] = "RUNNING"
+            }[MetricsTables.DeriveRuns.id]
         }
         suspend fun runRow(id: Int): ResultRow = suspendTransaction(sharedDatabaseForTests()) {
-            MetricsStore.DeriveRuns.selectAll().where { MetricsStore.DeriveRuns.id eq id }.toList().single()
+            MetricsTables.DeriveRuns.selectAll().where { MetricsTables.DeriveRuns.id eq id }.toList().single()
         }
         val orphan = insertRunning(connId)
         val otherConnRunning = insertRunning(otherConnId)
@@ -485,20 +489,20 @@ class MetricsDerivationTest {
             deriver.derive(SyncJobRunContext(claim, clock = { PINNED_NOW }) { _, _ -> true })
 
             val orphanRow = runRow(orphan)
-            assertEquals("FAILED", orphanRow[MetricsStore.DeriveRuns.status])
-            assertEquals("abandoned: worker lost its lease", orphanRow[MetricsStore.DeriveRuns.errorDetail])
-            assertEquals(PINNED_NOW, orphanRow[MetricsStore.DeriveRuns.finishedAt])
-            assertEquals("RUNNING", runRow(otherConnRunning)[MetricsStore.DeriveRuns.status], "another connection's run is never touched")
+            assertEquals("FAILED", orphanRow[MetricsTables.DeriveRuns.status])
+            assertEquals("abandoned: worker lost its lease", orphanRow[MetricsTables.DeriveRuns.errorDetail])
+            assertEquals(PINNED_NOW, orphanRow[MetricsTables.DeriveRuns.finishedAt])
+            assertEquals("RUNNING", runRow(otherConnRunning)[MetricsTables.DeriveRuns.status], "another connection's run is never touched")
 
             val rows = suspendTransaction(sharedDatabaseForTests()) {
-                MetricsStore.DeriveRuns.selectAll().where { MetricsStore.DeriveRuns.connectionId eq connId.toInt() }.toList()
+                MetricsTables.DeriveRuns.selectAll().where { MetricsTables.DeriveRuns.connectionId eq connId.toInt() }.toList()
             }
-            val fresh = rows.single { it[MetricsStore.DeriveRuns.id] != orphan }
-            assertEquals("SUCCEEDED", fresh[MetricsStore.DeriveRuns.status], "the new run itself is not swept up")
-            assertNull(fresh[MetricsStore.DeriveRuns.errorDetail])
+            val fresh = rows.single { it[MetricsTables.DeriveRuns.id] != orphan }
+            assertEquals("SUCCEEDED", fresh[MetricsTables.DeriveRuns.status], "the new run itself is not swept up")
+            assertNull(fresh[MetricsTables.DeriveRuns.errorDetail])
         } finally {
             suspendTransaction(sharedDatabaseForTests()) {
-                MetricsStore.DeriveRuns.deleteWhere { MetricsStore.DeriveRuns.id eq otherConnRunning }
+                MetricsTables.DeriveRuns.deleteWhere { MetricsTables.DeriveRuns.id eq otherConnRunning }
             }
         }
     }
@@ -571,17 +575,17 @@ class MetricsDerivationTest {
         deriver.derive(SyncJobRunContext(claim, clock = { PINNED_NOW }) { _, _ -> true })
 
         val factRow = suspendTransaction(sharedDatabaseForTests()) {
-            MetricsStore.FactTaskDelivery.selectAll()
-                .where { (MetricsStore.FactTaskDelivery.connectionId eq connId) and (MetricsStore.FactTaskDelivery.issueId eq 900_001L) }
+            MetricsTables.FactTaskDelivery.selectAll()
+                .where { (MetricsTables.FactTaskDelivery.connectionId eq connId) and (MetricsTables.FactTaskDelivery.issueId eq 900_001L) }
                 .toList()
                 .single()
         }
         assertEquals(
             "UNMAPPED",
-            factRow[MetricsStore.FactTaskDelivery.currentStage],
+            factRow[MetricsTables.FactTaskDelivery.currentStage],
             "a status carrying no configured stage must flag the task's own stage UNMAPPED, never guessed",
         )
-        val flags = Json.parseToJsonElement(factRow[MetricsStore.FactTaskDelivery.flags]).jsonArray
+        val flags = Json.parseToJsonElement(factRow[MetricsTables.FactTaskDelivery.flags]).jsonArray
         assertTrue(
             flags.any { it.jsonPrimitive.content == "UNMAPPED_STATUS" },
             "an UNMAPPED current stage must carry the UNMAPPED_STATUS flag",
@@ -589,16 +593,16 @@ class MetricsDerivationTest {
         // The domain-model rule (`.claude/docs/domain-model.md` "an unmapped status is flagged,
         // never guessed"): UNMAPPED counts as neither IN_PROGRESS nor DONE, so an item that has
         // ONLY ever sat in an unmapped status is never started and never done.
-        assertNull(factRow[MetricsStore.FactTaskDelivery.startedAt], "an UNMAPPED-only status history must never be treated as started")
-        assertNull(factRow[MetricsStore.FactTaskDelivery.doneAt], "an UNMAPPED-only status history must never be treated as done")
+        assertNull(factRow[MetricsTables.FactTaskDelivery.startedAt], "an UNMAPPED-only status history must never be treated as started")
+        assertNull(factRow[MetricsTables.FactTaskDelivery.doneAt], "an UNMAPPED-only status history must never be treated as done")
 
         val stageRows = suspendTransaction(sharedDatabaseForTests()) {
-            MetricsStore.ItemStage.selectAll()
-                .where { (MetricsStore.ItemStage.connectionId eq connId) and (MetricsStore.ItemStage.issueId eq 900_001L) }
+            MetricsTables.ItemStage.selectAll()
+                .where { (MetricsTables.ItemStage.connectionId eq connId) and (MetricsTables.ItemStage.issueId eq 900_001L) }
                 .toList()
         }
         assertEquals(1, stageRows.size)
-        assertEquals("UNMAPPED", stageRows.single()[MetricsStore.ItemStage.stage])
+        assertEquals("UNMAPPED", stageRows.single()[MetricsTables.ItemStage.stage])
     }
 
     /** Maps the FLO project's own board (id 1, `sample-data/README.md`) to a fresh team, via ONE
@@ -641,43 +645,49 @@ class MetricsDerivationTest {
         val sprintId = golden.sprintId
 
         val factRow = suspendTransaction(sharedDatabaseForTests()) {
-            MetricsStore.FactSprint.selectAll()
-                .where { (MetricsStore.FactSprint.connectionId eq connId) and (MetricsStore.FactSprint.sprintId eq sprintId) }
+            MetricsTables.FactSprint.selectAll()
+                .where { (MetricsTables.FactSprint.connectionId eq connId) and (MetricsTables.FactSprint.sprintId eq sprintId) }
                 .toList().single()
         }
-        assertEquals(golden.committedMd, factRow[MetricsStore.FactSprint.committedMd].toDouble(), "expected.json golden.sprint.committedMd")
-        assertEquals(golden.committedItems, factRow[MetricsStore.FactSprint.committedItems])
-        assertEquals(golden.addedMd, factRow[MetricsStore.FactSprint.addedMd].toDouble(), "expected.json golden.sprint.addedMd")
-        assertEquals(golden.addedItems, factRow[MetricsStore.FactSprint.addedItems])
-        assertEquals(golden.removedMd, factRow[MetricsStore.FactSprint.removedMd].toDouble(), "expected.json golden.sprint.removedMd")
-        assertEquals(golden.removedItems, factRow[MetricsStore.FactSprint.removedItems])
-        assertEquals(golden.finalMd, factRow[MetricsStore.FactSprint.finalMd].toDouble(), "expected.json golden.sprint.finalMd")
-        assertEquals(golden.finalItems, factRow[MetricsStore.FactSprint.finalItems])
-        assertEquals(golden.deliveredMd, factRow[MetricsStore.FactSprint.deliveredMd].toDouble(), "expected.json golden.sprint.deliveredMd")
-        assertEquals(golden.deliveredItems, factRow[MetricsStore.FactSprint.deliveredItems])
+        assertEquals(
+            golden.committedMd, factRow[MetricsTables.FactSprint.committedMd].toDouble(),
+            "expected.json golden.sprint.committedMd",
+        )
+        assertEquals(golden.committedItems, factRow[MetricsTables.FactSprint.committedItems])
+        assertEquals(golden.addedMd, factRow[MetricsTables.FactSprint.addedMd].toDouble(), "expected.json golden.sprint.addedMd")
+        assertEquals(golden.addedItems, factRow[MetricsTables.FactSprint.addedItems])
+        assertEquals(golden.removedMd, factRow[MetricsTables.FactSprint.removedMd].toDouble(), "expected.json golden.sprint.removedMd")
+        assertEquals(golden.removedItems, factRow[MetricsTables.FactSprint.removedItems])
+        assertEquals(golden.finalMd, factRow[MetricsTables.FactSprint.finalMd].toDouble(), "expected.json golden.sprint.finalMd")
+        assertEquals(golden.finalItems, factRow[MetricsTables.FactSprint.finalItems])
+        assertEquals(
+            golden.deliveredMd, factRow[MetricsTables.FactSprint.deliveredMd].toDouble(),
+            "expected.json golden.sprint.deliveredMd",
+        )
+        assertEquals(golden.deliveredItems, factRow[MetricsTables.FactSprint.deliveredItems])
         assertEquals(
             golden.carriedOverMd,
-            factRow[MetricsStore.FactSprint.carriedOverMd].toDouble(),
+            factRow[MetricsTables.FactSprint.carriedOverMd].toDouble(),
             "expected.json golden.sprint.carriedOverMd",
         )
-        assertEquals(golden.carriedOverItems, factRow[MetricsStore.FactSprint.carriedOverItems])
-        assertEquals(golden.droppedMd, factRow[MetricsStore.FactSprint.droppedMd].toDouble(), "expected.json golden.sprint.droppedMd")
-        assertEquals(golden.droppedItems, factRow[MetricsStore.FactSprint.droppedItems])
+        assertEquals(golden.carriedOverItems, factRow[MetricsTables.FactSprint.carriedOverItems])
+        assertEquals(golden.droppedMd, factRow[MetricsTables.FactSprint.droppedMd].toDouble(), "expected.json golden.sprint.droppedMd")
+        assertEquals(golden.droppedItems, factRow[MetricsTables.FactSprint.droppedItems])
 
         suspend fun issueKeysFor(predicate: Op<Boolean>): Set<String> = suspendTransaction(sharedDatabaseForTests()) {
-            MetricsStore.FactSprintScope.join(
-                MetricsStore.FactTaskDelivery,
+            MetricsTables.FactSprintScope.join(
+                MetricsTables.FactTaskDelivery,
                 JoinType.INNER,
-                onColumn = MetricsStore.FactSprintScope.issueId,
-                otherColumn = MetricsStore.FactTaskDelivery.issueId,
-                additionalConstraint = { MetricsStore.FactSprintScope.connectionId eq MetricsStore.FactTaskDelivery.connectionId },
+                onColumn = MetricsTables.FactSprintScope.issueId,
+                otherColumn = MetricsTables.FactTaskDelivery.issueId,
+                additionalConstraint = { MetricsTables.FactSprintScope.connectionId eq MetricsTables.FactTaskDelivery.connectionId },
             )
-                .select(MetricsStore.FactTaskDelivery.issueKey)
+                .select(MetricsTables.FactTaskDelivery.issueKey)
                 .where {
-                    (MetricsStore.FactSprintScope.connectionId eq connId) and
-                        (MetricsStore.FactSprintScope.sprintId eq sprintId) and predicate
+                    (MetricsTables.FactSprintScope.connectionId eq connId) and
+                        (MetricsTables.FactSprintScope.sprintId eq sprintId) and predicate
                 }
-                .toList().map { it[MetricsStore.FactTaskDelivery.issueKey] }.toSet()
+                .toList().map { it[MetricsTables.FactTaskDelivery.issueKey] }.toSet()
         }
 
         fun failureMessage(bucket: String, expected: List<String>, actual: Set<String>): String {
@@ -687,27 +697,27 @@ class MetricsDerivationTest {
         }
 
         val committedKeys = issueKeysFor(
-            (MetricsStore.FactSprintScope.committed eq true) and (MetricsStore.FactSprintScope.inScopeAtClose eq true),
+            (MetricsTables.FactSprintScope.committed eq true) and (MetricsTables.FactSprintScope.inScopeAtClose eq true),
         )
         assertEquals(
             golden.committedIssueKeys.toSet(), committedKeys,
             failureMessage("committed", golden.committedIssueKeys, committedKeys),
         )
-        val addedKeys = issueKeysFor(MetricsStore.FactSprintScope.addedAt.isNotNull())
+        val addedKeys = issueKeysFor(MetricsTables.FactSprintScope.addedAt.isNotNull())
         assertEquals(golden.addedIssueKeys.toSet(), addedKeys, failureMessage("added", golden.addedIssueKeys, addedKeys))
-        val removedKeys = issueKeysFor(MetricsStore.FactSprintScope.removedAt.isNotNull())
+        val removedKeys = issueKeysFor(MetricsTables.FactSprintScope.removedAt.isNotNull())
         assertEquals(golden.removedIssueKeys.toSet(), removedKeys, failureMessage("removed", golden.removedIssueKeys, removedKeys))
-        val deliveredKeys = issueKeysFor(MetricsStore.FactSprintScope.doneInSprint eq true)
+        val deliveredKeys = issueKeysFor(MetricsTables.FactSprintScope.doneInSprint eq true)
         assertEquals(
             golden.deliveredIssueKeys.toSet(), deliveredKeys,
             failureMessage("delivered", golden.deliveredIssueKeys, deliveredKeys),
         )
-        val carriedKeys = issueKeysFor(MetricsStore.FactSprintScope.carriedOver eq true)
+        val carriedKeys = issueKeysFor(MetricsTables.FactSprintScope.carriedOver eq true)
         assertEquals(
             golden.carriedOverIssueKeys.toSet(), carriedKeys,
             failureMessage("carriedOver", golden.carriedOverIssueKeys, carriedKeys),
         )
-        val droppedKeys = issueKeysFor(MetricsStore.FactSprintScope.dropped eq true)
+        val droppedKeys = issueKeysFor(MetricsTables.FactSprintScope.dropped eq true)
         assertEquals(golden.droppedIssueKeys.toSet(), droppedKeys, failureMessage("dropped", golden.droppedIssueKeys, droppedKeys))
     }
 
@@ -716,33 +726,35 @@ class MetricsDerivationTest {
         val connId = DerivedStubFixture.connectionId()
 
         val (factRows, scopeSums) = suspendTransaction(sharedDatabaseForTests()) {
-            val facts = MetricsStore.FactSprint.selectAll().where { MetricsStore.FactSprint.connectionId eq connId }
-                .toList().associateBy { it[MetricsStore.FactSprint.sprintId] }
-            val scopeRows = MetricsStore.FactSprintScope.selectAll().where { MetricsStore.FactSprintScope.connectionId eq connId }.toList()
+            val facts = MetricsTables.FactSprint.selectAll().where { MetricsTables.FactSprint.connectionId eq connId }
+                .toList().associateBy { it[MetricsTables.FactSprint.sprintId] }
+            val scopeRows = MetricsTables.FactSprintScope.selectAll()
+                .where { MetricsTables.FactSprintScope.connectionId eq connId }
+                .toList()
             facts to scopeRows
         }
         assertTrue(factRows.isNotEmpty(), "fact_sprint must be non-empty after DERIVE")
 
-        val bySprint = scopeSums.groupBy { it[MetricsStore.FactSprintScope.sprintId] }
+        val bySprint = scopeSums.groupBy { it[MetricsTables.FactSprintScope.sprintId] }
         factRows.forEach { (sprintId, row) ->
             val scopeForSprint = bySprint[sprintId].orEmpty()
             val committedMdSum = scopeForSprint
-                .filter { it[MetricsStore.FactSprintScope.committed] && it[MetricsStore.FactSprintScope.inScopeAtClose] }
-                .sumOf { it[MetricsStore.FactSprintScope.estimateAtCommitmentMd]?.toDouble() ?: 0.0 }
+                .filter { it[MetricsTables.FactSprintScope.committed] && it[MetricsTables.FactSprintScope.inScopeAtClose] }
+                .sumOf { it[MetricsTables.FactSprintScope.estimateAtCommitmentMd]?.toDouble() ?: 0.0 }
             assertEquals(
-                row[MetricsStore.FactSprint.committedMd].toDouble(), committedMdSum,
+                row[MetricsTables.FactSprint.committedMd].toDouble(), committedMdSum,
                 "sprint $sprintId: fact_sprint.committed_md must equal Σ fact_sprint_scope",
             )
-            val finalMdSum = scopeForSprint.filter { it[MetricsStore.FactSprintScope.inScopeAtClose] }
-                .sumOf { it[MetricsStore.FactSprintScope.estimateAtCloseMd]?.toDouble() ?: 0.0 }
+            val finalMdSum = scopeForSprint.filter { it[MetricsTables.FactSprintScope.inScopeAtClose] }
+                .sumOf { it[MetricsTables.FactSprintScope.estimateAtCloseMd]?.toDouble() ?: 0.0 }
             assertEquals(
-                row[MetricsStore.FactSprint.finalMd].toDouble(), finalMdSum,
+                row[MetricsTables.FactSprint.finalMd].toDouble(), finalMdSum,
                 "sprint $sprintId: fact_sprint.final_md must equal Σ fact_sprint_scope",
             )
-            val deliveredMdSum = scopeForSprint.filter { it[MetricsStore.FactSprintScope.doneInSprint] }
-                .sumOf { it[MetricsStore.FactSprintScope.estimateAtDoneMd]?.toDouble() ?: 0.0 }
+            val deliveredMdSum = scopeForSprint.filter { it[MetricsTables.FactSprintScope.doneInSprint] }
+                .sumOf { it[MetricsTables.FactSprintScope.estimateAtDoneMd]?.toDouble() ?: 0.0 }
             assertEquals(
-                row[MetricsStore.FactSprint.deliveredMd].toDouble(), deliveredMdSum,
+                row[MetricsTables.FactSprint.deliveredMd].toDouble(), deliveredMdSum,
                 "sprint $sprintId: fact_sprint.delivered_md must equal Σ fact_sprint_scope",
             )
         }
@@ -754,7 +766,7 @@ class MetricsDerivationTest {
             val connId = DerivedStubFixture.connectionId()
 
             val factRows = suspendTransaction(sharedDatabaseForTests()) {
-                MetricsStore.FactSprint.selectAll().where { MetricsStore.FactSprint.connectionId eq connId }.toList()
+                MetricsTables.FactSprint.selectAll().where { MetricsTables.FactSprint.connectionId eq connId }.toList()
             }
             assertTrue(factRows.isNotEmpty(), "fact_sprint must be non-empty after DERIVE")
 
@@ -772,13 +784,13 @@ class MetricsDerivationTest {
             // equals final MD up to BigDecimal storage rounding only.
             val mdTolerance = 0.01
             factRows.forEach { row ->
-                val sprintId = row[MetricsStore.FactSprint.sprintId]
-                val committedItems = row[MetricsStore.FactSprint.committedItems]
-                val addedItems = row[MetricsStore.FactSprint.addedItems]
-                val finalItems = row[MetricsStore.FactSprint.finalItems]
-                val deliveredItems = row[MetricsStore.FactSprint.deliveredItems]
-                val carriedOverItems = row[MetricsStore.FactSprint.carriedOverItems]
-                val droppedItems = row[MetricsStore.FactSprint.droppedItems]
+                val sprintId = row[MetricsTables.FactSprint.sprintId]
+                val committedItems = row[MetricsTables.FactSprint.committedItems]
+                val addedItems = row[MetricsTables.FactSprint.addedItems]
+                val finalItems = row[MetricsTables.FactSprint.finalItems]
+                val deliveredItems = row[MetricsTables.FactSprint.deliveredItems]
+                val carriedOverItems = row[MetricsTables.FactSprint.carriedOverItems]
+                val droppedItems = row[MetricsTables.FactSprint.droppedItems]
                 assertEquals(
                     finalItems, committedItems + addedItems,
                     "sprint $sprintId: committed + added items must equal final items (A17)",
@@ -788,10 +800,10 @@ class MetricsDerivationTest {
                     "sprint $sprintId: delivered + carried + dropped items must equal final items (A17)",
                 )
 
-                val finalMd = row[MetricsStore.FactSprint.finalMd].toDouble()
-                val deliveredMd = row[MetricsStore.FactSprint.deliveredMd].toDouble()
-                val carriedOverMd = row[MetricsStore.FactSprint.carriedOverMd].toDouble()
-                val droppedMd = row[MetricsStore.FactSprint.droppedMd].toDouble()
+                val finalMd = row[MetricsTables.FactSprint.finalMd].toDouble()
+                val deliveredMd = row[MetricsTables.FactSprint.deliveredMd].toDouble()
+                val carriedOverMd = row[MetricsTables.FactSprint.carriedOverMd].toDouble()
+                val droppedMd = row[MetricsTables.FactSprint.droppedMd].toDouble()
                 assertTrue(
                     kotlin.math.abs(finalMd - (deliveredMd + carriedOverMd + droppedMd)) <= mdTolerance,
                     "sprint $sprintId: delivered + carried + dropped MD ($deliveredMd + $carriedOverMd + $droppedMd) " +
@@ -811,20 +823,20 @@ class MetricsDerivationTest {
             deriver(config).derive(SyncJobRunContext(deriveClaim(12u, connId), clock = { PINNED_NOW }) { _, _ -> true })
 
             val snapshotRow = suspendTransaction(sharedDatabaseForTests()) {
-                MetricsStore.FactSprintSnapshot.selectAll()
+                MetricsTables.FactSprintSnapshot.selectAll()
                     .where {
-                        (MetricsStore.FactSprintSnapshot.connectionId eq connId) and
-                            (MetricsStore.FactSprintSnapshot.sprintId eq sprintId)
+                        (MetricsTables.FactSprintSnapshot.connectionId eq connId) and
+                            (MetricsTables.FactSprintSnapshot.sprintId eq sprintId)
                     }
                     .toList().singleOrNull()
             }
             requireNotNull(snapshotRow) { "no snapshot row for the closed, team-mapped golden sprint" }
             assertTrue(
-                snapshotRow[MetricsStore.FactSprintSnapshot.reconstructed],
+                snapshotRow[MetricsTables.FactSprintSnapshot.reconstructed],
                 "the connection's very first DERIVE run has no earlier successful run to have processed this sprint live",
             )
             assertTrue(
-                Json.parseToJsonElement(snapshotRow[MetricsStore.FactSprintSnapshot.scope]).jsonArray.isNotEmpty(),
+                Json.parseToJsonElement(snapshotRow[MetricsTables.FactSprintSnapshot.scope]).jsonArray.isNotEmpty(),
                 "the frozen scope JSON must carry the sprint's own scope rows",
             )
 
@@ -832,8 +844,9 @@ class MetricsDerivationTest {
             // never silently succeed.
             val updateAttempt = runCatching {
                 suspendTransaction(sharedDatabaseForTests()) {
-                    MetricsStore.FactSprintSnapshot.update({
-                        (MetricsStore.FactSprintSnapshot.connectionId eq connId) and (MetricsStore.FactSprintSnapshot.sprintId eq sprintId)
+                    MetricsTables.FactSprintSnapshot.update({
+                        (MetricsTables.FactSprintSnapshot.connectionId eq connId) and
+                            (MetricsTables.FactSprintSnapshot.sprintId eq sprintId)
                     }) {
                         it[committedMd] = java.math.BigDecimal.valueOf(999)
                     }
@@ -844,17 +857,17 @@ class MetricsDerivationTest {
             // A second DERIVE must not touch the existing snapshot row at all — same count, same digest.
             deriver(config).derive(SyncJobRunContext(deriveClaim(13u, connId), clock = { PINNED_NOW }) { _, _ -> true })
             val snapshotRowsAfterSecondDerive = suspendTransaction(sharedDatabaseForTests()) {
-                MetricsStore.FactSprintSnapshot.selectAll()
+                MetricsTables.FactSprintSnapshot.selectAll()
                     .where {
-                        (MetricsStore.FactSprintSnapshot.connectionId eq connId) and
-                            (MetricsStore.FactSprintSnapshot.sprintId eq sprintId)
+                        (MetricsTables.FactSprintSnapshot.connectionId eq connId) and
+                            (MetricsTables.FactSprintSnapshot.sprintId eq sprintId)
                     }
                     .toList()
             }
             assertEquals(1, snapshotRowsAfterSecondDerive.size, "a second DERIVE must never insert a second snapshot for the same sprint")
             assertEquals(
-                snapshotRow[MetricsStore.FactSprintSnapshot.committedMd],
-                snapshotRowsAfterSecondDerive.single()[MetricsStore.FactSprintSnapshot.committedMd],
+                snapshotRow[MetricsTables.FactSprintSnapshot.committedMd],
+                snapshotRowsAfterSecondDerive.single()[MetricsTables.FactSprintSnapshot.committedMd],
                 "the surviving snapshot row's own figures must be byte-for-byte unchanged by the second DERIVE",
             )
         }
@@ -871,19 +884,19 @@ class MetricsDerivationTest {
 
         val sprintId = metricsDerivationGoldenSprint.sprintId
         val committedKeys = suspendTransaction(sharedDatabaseForTests()) {
-            MetricsStore.FactSprintScope.join(
-                MetricsStore.FactTaskDelivery,
+            MetricsTables.FactSprintScope.join(
+                MetricsTables.FactTaskDelivery,
                 JoinType.INNER,
-                onColumn = MetricsStore.FactSprintScope.issueId,
-                otherColumn = MetricsStore.FactTaskDelivery.issueId,
-                additionalConstraint = { MetricsStore.FactSprintScope.connectionId eq MetricsStore.FactTaskDelivery.connectionId },
+                onColumn = MetricsTables.FactSprintScope.issueId,
+                otherColumn = MetricsTables.FactTaskDelivery.issueId,
+                additionalConstraint = { MetricsTables.FactSprintScope.connectionId eq MetricsTables.FactTaskDelivery.connectionId },
             )
-                .select(MetricsStore.FactTaskDelivery.issueKey)
+                .select(MetricsTables.FactTaskDelivery.issueKey)
                 .where {
-                    (MetricsStore.FactSprintScope.connectionId eq connId) and (MetricsStore.FactSprintScope.sprintId eq sprintId) and
-                        (MetricsStore.FactSprintScope.committed eq true) and (MetricsStore.FactSprintScope.inScopeAtClose eq true)
+                    (MetricsTables.FactSprintScope.connectionId eq connId) and (MetricsTables.FactSprintScope.sprintId eq sprintId) and
+                        (MetricsTables.FactSprintScope.committed eq true) and (MetricsTables.FactSprintScope.inScopeAtClose eq true)
                 }
-                .toList().map { it[MetricsStore.FactTaskDelivery.issueKey] }.toSet()
+                .toList().map { it[MetricsTables.FactTaskDelivery.issueKey] }.toSet()
         }
         assertEquals(
             metricsDerivationGoldenSprint.committedIssueKeys.toSet(), committedKeys,
@@ -911,18 +924,18 @@ class MetricsDerivationTest {
             deriver(config).derive(SyncJobRunContext(deriveClaim(51u, connId), clock = { PINNED_NOW }) { _, _ -> true })
 
             val sprintRows = suspendTransaction(sharedDatabaseForTests()) {
-                MetricsStore.DimSprint.selectAll().where { MetricsStore.DimSprint.connectionId eq connId }.toList()
+                MetricsTables.DimSprint.selectAll().where { MetricsTables.DimSprint.connectionId eq connId }.toList()
             }
             assertTrue(sprintRows.isEmpty(), "the whole sprint step must be skipped, never fabricating dim_sprint/fact_sprint rows")
             val scopeRows = suspendTransaction(sharedDatabaseForTests()) {
-                MetricsStore.FactSprintScope.selectAll().where { MetricsStore.FactSprintScope.connectionId eq connId }.toList()
+                MetricsTables.FactSprintScope.selectAll().where { MetricsTables.FactSprintScope.connectionId eq connId }.toList()
             }
             assertTrue(scopeRows.isEmpty(), "no fact_sprint_scope row may be fabricated without a resolved Sprint field")
 
             val runCounts = suspendTransaction(sharedDatabaseForTests()) {
-                MetricsStore.DeriveRuns.selectAll().where { MetricsStore.DeriveRuns.connectionId eq connId.toInt() }
-                    .orderBy(MetricsStore.DeriveRuns.id to SortOrder.DESC)
-                    .toList().first()[MetricsStore.DeriveRuns.rowCounts]
+                MetricsTables.DeriveRuns.selectAll().where { MetricsTables.DeriveRuns.connectionId eq connId.toInt() }
+                    .orderBy(MetricsTables.DeriveRuns.id to SortOrder.DESC)
+                    .toList().first()[MetricsTables.DeriveRuns.rowCounts]
             }
             assertNotNull(runCounts, "derive_runs.row_counts must be recorded")
             assertTrue(
@@ -975,15 +988,15 @@ class MetricsDerivationTest {
             val expectedDefaultCapacity = 2 * expectedWorkingDays
 
             val dimRowDefault = suspendTransaction(sharedDatabaseForTests()) {
-                MetricsStore.DimSprint.selectAll()
-                    .where { (MetricsStore.DimSprint.connectionId eq connId) and (MetricsStore.DimSprint.sprintId eq sprintId) }
+                MetricsTables.DimSprint.selectAll()
+                    .where { (MetricsTables.DimSprint.connectionId eq connId) and (MetricsTables.DimSprint.sprintId eq sprintId) }
                     .toList().single()
             }
-            assertEquals("DEFAULT", dimRowDefault[MetricsStore.DimSprint.capacitySource])
+            assertEquals("DEFAULT", dimRowDefault[MetricsTables.DimSprint.capacitySource])
             assertTrue(
-                abs(expectedDefaultCapacity - dimRowDefault[MetricsStore.DimSprint.capacityMd]!!.toDouble()) < CAPACITY_TOLERANCE,
+                abs(expectedDefaultCapacity - dimRowDefault[MetricsTables.DimSprint.capacityMd]!!.toDouble()) < CAPACITY_TOLERANCE,
                 "default capacity must be Sigma members x working days over the sprint window " +
-                    "(expected $expectedDefaultCapacity, got ${dimRowDefault[MetricsStore.DimSprint.capacityMd]})",
+                    "(expected $expectedDefaultCapacity, got ${dimRowDefault[MetricsTables.DimSprint.capacityMd]})",
             )
 
             // An admin now configures an explicit override for this one sprint.
@@ -1004,21 +1017,21 @@ class MetricsDerivationTest {
             deriver(config).derive(SyncJobRunContext(deriveClaim(21u, connId), clock = { PINNED_NOW }) { _, _ -> true })
 
             val dimRowConfigured = suspendTransaction(sharedDatabaseForTests()) {
-                MetricsStore.DimSprint.selectAll()
-                    .where { (MetricsStore.DimSprint.connectionId eq connId) and (MetricsStore.DimSprint.sprintId eq sprintId) }
+                MetricsTables.DimSprint.selectAll()
+                    .where { (MetricsTables.DimSprint.connectionId eq connId) and (MetricsTables.DimSprint.sprintId eq sprintId) }
                     .toList().single()
             }
             val factRowConfigured = suspendTransaction(sharedDatabaseForTests()) {
-                MetricsStore.FactSprint.selectAll()
-                    .where { (MetricsStore.FactSprint.connectionId eq connId) and (MetricsStore.FactSprint.sprintId eq sprintId) }
+                MetricsTables.FactSprint.selectAll()
+                    .where { (MetricsTables.FactSprint.connectionId eq connId) and (MetricsTables.FactSprint.sprintId eq sprintId) }
                     .toList().single()
             }
-            assertEquals("CONFIGURED", dimRowConfigured[MetricsStore.DimSprint.capacitySource])
-            assertEquals(CONFIGURED_CAPACITY_MD, dimRowConfigured[MetricsStore.DimSprint.capacityMd]!!.toDouble())
-            assertEquals(CONFIGURED_CAPACITY_MD, factRowConfigured[MetricsStore.FactSprint.capacityMd]!!.toDouble())
-            val expectedLoad = factRowConfigured[MetricsStore.FactSprint.committedMd].toDouble() / CONFIGURED_CAPACITY_MD
+            assertEquals("CONFIGURED", dimRowConfigured[MetricsTables.DimSprint.capacitySource])
+            assertEquals(CONFIGURED_CAPACITY_MD, dimRowConfigured[MetricsTables.DimSprint.capacityMd]!!.toDouble())
+            assertEquals(CONFIGURED_CAPACITY_MD, factRowConfigured[MetricsTables.FactSprint.capacityMd]!!.toDouble())
+            val expectedLoad = factRowConfigured[MetricsTables.FactSprint.committedMd].toDouble() / CONFIGURED_CAPACITY_MD
             assertTrue(
-                abs(expectedLoad - factRowConfigured[MetricsStore.FactSprint.load]!!.toDouble()) < CAPACITY_TOLERANCE,
+                abs(expectedLoad - factRowConfigured[MetricsTables.FactSprint.load]!!.toDouble()) < CAPACITY_TOLERANCE,
                 "load must equal committed / capacity",
             )
         } finally {
@@ -1035,36 +1048,36 @@ class MetricsDerivationTest {
             deriver(config).derive(SyncJobRunContext(deriveClaim(30u, connId), clock = { PINNED_NOW }) { _, _ -> true })
 
             val doneOpsRows = suspendTransaction(sharedDatabaseForTests()) {
-                MetricsStore.FactTaskDelivery.selectAll()
+                MetricsTables.FactTaskDelivery.selectAll()
                     .where {
-                        (MetricsStore.FactTaskDelivery.connectionId eq connId) and
-                            (MetricsStore.FactTaskDelivery.domainKey eq "OPS") and
-                            (MetricsStore.FactTaskDelivery.doneAt.isNotNull())
+                        (MetricsTables.FactTaskDelivery.connectionId eq connId) and
+                            (MetricsTables.FactTaskDelivery.domainKey eq "OPS") and
+                            (MetricsTables.FactTaskDelivery.doneAt.isNotNull())
                     }
                     .toList()
             }
             assertTrue(doneOpsRows.isNotEmpty(), "the OPS (Kanban) project must have at least one DONE task")
             doneOpsRows.forEach { row ->
                 assertNull(
-                    row[MetricsStore.FactTaskDelivery.sprintIdAtDone],
+                    row[MetricsTables.FactTaskDelivery.sprintIdAtDone],
                     "OPS is a Kanban project (no sprints) — sprint_id_at_done must always be NULL",
                 )
                 // Before any team membership is configured, every assignee is in no team, so the
                 // fallback credit is null too (the "0/UNASSIGNED" case).
                 assertNull(
-                    row[MetricsStore.FactTaskDelivery.creditTeamId],
+                    row[MetricsTables.FactTaskDelivery.creditTeamId],
                     "with no configured team membership, credit_team_id must be null (assignee in no team)",
                 )
             }
 
-            val withAssignee = doneOpsRows.filter { it[MetricsStore.FactTaskDelivery.assigneeAccountIdAtDone] != null }
+            val withAssignee = doneOpsRows.filter { it[MetricsTables.FactTaskDelivery.assigneeAccountIdAtDone] != null }
             assertTrue(withAssignee.size >= 2, "need at least two distinctly-assigned DONE OPS tasks to prove the fallback")
             val target = withAssignee.first()
-            val targetAccountId = target[MetricsStore.FactTaskDelivery.assigneeAccountIdAtDone]!!
-            val untouched = withAssignee.first { it[MetricsStore.FactTaskDelivery.assigneeAccountIdAtDone] != targetAccountId }
+            val targetAccountId = target[MetricsTables.FactTaskDelivery.assigneeAccountIdAtDone]!!
+            val untouched = withAssignee.first { it[MetricsTables.FactTaskDelivery.assigneeAccountIdAtDone] != targetAccountId }
 
             val teamId = TestTeams.seed(uniqueEmail("ops-credit-team"))
-            val doneAt = target[MetricsStore.FactTaskDelivery.doneAt]!!
+            val doneAt = target[MetricsTables.FactTaskDelivery.doneAt]!!
             val membershipService = teamMembership(config)
             val membership = membershipService.create(teamId, TeamMembershipCreateRequest(targetAccountId, doneAt - THIRTY_DAYS_MS, null))
             // `targetAccountId` is a REAL stub account id (an actual assignee in the sample dataset), not a
@@ -1076,27 +1089,27 @@ class MetricsDerivationTest {
                 deriver(config).derive(SyncJobRunContext(deriveClaim(31u, connId), clock = { PINNED_NOW }) { _, _ -> true })
 
                 suspend fun reread(issueId: Long): ResultRow = suspendTransaction(sharedDatabaseForTests()) {
-                    MetricsStore.FactTaskDelivery.selectAll()
+                    MetricsTables.FactTaskDelivery.selectAll()
                         .where {
-                            (MetricsStore.FactTaskDelivery.connectionId eq connId) and (MetricsStore.FactTaskDelivery.issueId eq issueId)
+                            (MetricsTables.FactTaskDelivery.connectionId eq connId) and (MetricsTables.FactTaskDelivery.issueId eq issueId)
                         }
                         .toList().single()
                 }
 
-                val targetAfter = reread(target[MetricsStore.FactTaskDelivery.issueId])
+                val targetAfter = reread(target[MetricsTables.FactTaskDelivery.issueId])
                 assertNull(
-                    targetAfter[MetricsStore.FactTaskDelivery.sprintIdAtDone],
+                    targetAfter[MetricsTables.FactTaskDelivery.sprintIdAtDone],
                     "OPS still has no sprints — sprint_id_at_done stays NULL even once the assignee has a team",
                 )
                 assertEquals(
                     teamId,
-                    targetAfter[MetricsStore.FactTaskDelivery.creditTeamId]?.value,
+                    targetAfter[MetricsTables.FactTaskDelivery.creditTeamId]?.value,
                     "credit_team_id must fall back to the assignee's own team at done, once one exists",
                 )
 
-                val untouchedAfter = reread(untouched[MetricsStore.FactTaskDelivery.issueId])
+                val untouchedAfter = reread(untouched[MetricsTables.FactTaskDelivery.issueId])
                 assertNull(
-                    untouchedAfter[MetricsStore.FactTaskDelivery.creditTeamId],
+                    untouchedAfter[MetricsTables.FactTaskDelivery.creditTeamId],
                     "an assignee still in no team keeps a null (0/UNASSIGNED) credit_team_id",
                 )
             } finally {
@@ -1115,15 +1128,15 @@ class MetricsDerivationTest {
             deriver(config).derive(SyncJobRunContext(deriveClaim(40u, connId), clock = { PINNED_NOW }) { _, _ -> true })
 
             val goldenSnapshotBefore = suspendTransaction(sharedDatabaseForTests()) {
-                MetricsStore.FactSprintSnapshot.selectAll()
+                MetricsTables.FactSprintSnapshot.selectAll()
                     .where {
-                        (MetricsStore.FactSprintSnapshot.connectionId eq connId) and
-                            (MetricsStore.FactSprintSnapshot.sprintId eq goldenSprintId)
+                        (MetricsTables.FactSprintSnapshot.connectionId eq connId) and
+                            (MetricsTables.FactSprintSnapshot.sprintId eq goldenSprintId)
                     }
                     .toList().single()
             }
             assertTrue(
-                goldenSnapshotBefore[MetricsStore.FactSprintSnapshot.reconstructed],
+                goldenSnapshotBefore[MetricsTables.FactSprintSnapshot.reconstructed],
                 "every stub sprint closed before this connection's first successful derive must be reconstructed",
             )
 
@@ -1142,45 +1155,45 @@ class MetricsDerivationTest {
             deriver(config).derive(SyncJobRunContext(deriveClaim(41u, connId), clock = { PINNED_NOW }) { _, _ -> true })
 
             val newlyClosedSnapshot = suspendTransaction(sharedDatabaseForTests()) {
-                MetricsStore.FactSprintSnapshot.selectAll()
+                MetricsTables.FactSprintSnapshot.selectAll()
                     .where {
-                        (MetricsStore.FactSprintSnapshot.connectionId eq connId) and
-                            (MetricsStore.FactSprintSnapshot.sprintId eq notYetClosed.sprintId)
+                        (MetricsTables.FactSprintSnapshot.connectionId eq connId) and
+                            (MetricsTables.FactSprintSnapshot.sprintId eq notYetClosed.sprintId)
                     }
                     .toList().single()
             }
             // `teamId` (the FLO board mapping `mapFloBoardToTeam` set up) is what makes this sprint
             // eligible for a snapshot at all — `closedAndMapped` in `MetricsDeriver.kt`'s sprint step.
-            assertEquals(teamId, newlyClosedSnapshot[MetricsStore.FactSprintSnapshot.teamId]?.value)
+            assertEquals(teamId, newlyClosedSnapshot[MetricsTables.FactSprintSnapshot.teamId]?.value)
             assertTrue(
-                !newlyClosedSnapshot[MetricsStore.FactSprintSnapshot.reconstructed],
+                !newlyClosedSnapshot[MetricsTables.FactSprintSnapshot.reconstructed],
                 "a sprint closed AFTER the connection's first successful derive must not be reconstructed",
             )
 
             val goldenSnapshotAfter = suspendTransaction(sharedDatabaseForTests()) {
-                MetricsStore.FactSprintSnapshot.selectAll()
+                MetricsTables.FactSprintSnapshot.selectAll()
                     .where {
-                        (MetricsStore.FactSprintSnapshot.connectionId eq connId) and
-                            (MetricsStore.FactSprintSnapshot.sprintId eq goldenSprintId)
+                        (MetricsTables.FactSprintSnapshot.connectionId eq connId) and
+                            (MetricsTables.FactSprintSnapshot.sprintId eq goldenSprintId)
                     }
                     .toList().single()
             }
             assertEquals(
-                goldenSnapshotBefore[MetricsStore.FactSprintSnapshot.committedMd],
-                goldenSnapshotAfter[MetricsStore.FactSprintSnapshot.committedMd],
+                goldenSnapshotBefore[MetricsTables.FactSprintSnapshot.committedMd],
+                goldenSnapshotAfter[MetricsTables.FactSprintSnapshot.committedMd],
                 "an already-existing snapshot must never be touched by a later DERIVE",
             )
             assertEquals(
-                goldenSnapshotBefore[MetricsStore.FactSprintSnapshot.scope],
-                goldenSnapshotAfter[MetricsStore.FactSprintSnapshot.scope],
+                goldenSnapshotBefore[MetricsTables.FactSprintSnapshot.scope],
+                goldenSnapshotAfter[MetricsTables.FactSprintSnapshot.scope],
             )
             assertEquals(
-                goldenSnapshotBefore[MetricsStore.FactSprintSnapshot.reconstructed],
-                goldenSnapshotAfter[MetricsStore.FactSprintSnapshot.reconstructed],
+                goldenSnapshotBefore[MetricsTables.FactSprintSnapshot.reconstructed],
+                goldenSnapshotAfter[MetricsTables.FactSprintSnapshot.reconstructed],
             )
             assertEquals(
-                goldenSnapshotBefore[MetricsStore.FactSprintSnapshot.snapshotAt],
-                goldenSnapshotAfter[MetricsStore.FactSprintSnapshot.snapshotAt],
+                goldenSnapshotBefore[MetricsTables.FactSprintSnapshot.snapshotAt],
+                goldenSnapshotAfter[MetricsTables.FactSprintSnapshot.snapshotAt],
             )
         }
 
@@ -1190,7 +1203,7 @@ class MetricsDerivationTest {
             val connId = DerivedStubFixture.connectionId()
 
             val factWorklogRows = suspendTransaction(sharedDatabaseForTests()) {
-                MetricsStore.FactWorklog.selectAll().where { MetricsStore.FactWorklog.connectionId eq connId }.toList()
+                MetricsTables.FactWorklog.selectAll().where { MetricsTables.FactWorklog.connectionId eq connId }.toList()
             }
             assertTrue(factWorklogRows.isNotEmpty(), "fact_worklog must be non-empty for a connection with worklogs")
 
@@ -1209,21 +1222,21 @@ class MetricsDerivationTest {
             // md = seconds / 3600 / hoursPerDay, under the hoursPerDay pinned for the derive above.
             val hoursPerDay = HOURS_PER_DAY
             factWorklogRows.forEach { row ->
-                val worklog = worklogsByIssue.getValue(row[MetricsStore.FactWorklog.issueId])
-                    .single { it.worklogId == row[MetricsStore.FactWorklog.worklogId] }
+                val worklog = worklogsByIssue.getValue(row[MetricsTables.FactWorklog.issueId])
+                    .single { it.worklogId == row[MetricsTables.FactWorklog.worklogId] }
                 val expectedMd = worklog.timeSpentSeconds / 3600.0 / hoursPerDay
                 assertTrue(
-                    abs(expectedMd - row[MetricsStore.FactWorklog.md].toDouble()) < CAPACITY_TOLERANCE,
+                    abs(expectedMd - row[MetricsTables.FactWorklog.md].toDouble()) < CAPACITY_TOLERANCE,
                     "md must be seconds / 3600 / hoursPerDay",
                 )
                 // late_ms: created - started, clamped to >= 0, null only when created is unknown
                 // (the generator always sets created here, so every row is checked).
                 val expectedLateMs = worklog.createdAt?.let { maxOf(0L, it - worklog.startedAt) }
-                assertEquals(expectedLateMs, row[MetricsStore.FactWorklog.lateMs], "late_ms must equal max(0, created - started)")
-                assertTrue((row[MetricsStore.FactWorklog.lateMs] ?: 0) >= 0, "late_ms must never be negative")
+                assertEquals(expectedLateMs, row[MetricsTables.FactWorklog.lateMs], "late_ms must equal max(0, created - started)")
+                assertTrue((row[MetricsTables.FactWorklog.lateMs] ?: 0) >= 0, "late_ms must never be negative")
             }
             assertTrue(
-                factWorklogRows.any { (it[MetricsStore.FactWorklog.lateMs] ?: 0) > 0 },
+                factWorklogRows.any { (it[MetricsTables.FactWorklog.lateMs] ?: 0) > 0 },
                 "the generator's worklog created/updated skew must produce at least one late-logged worklog",
             )
             Unit
@@ -1249,9 +1262,9 @@ class MetricsDerivationTest {
         val epicsOwnMd = epicIssueIds.sumOf { epicId -> secondsFor(epicId) / 3600.0 / HOURS_PER_DAY }
 
         val factWorklogMdSum = suspendTransaction(sharedDatabaseForTests()) {
-            MetricsStore.FactWorklog.selectAll().where { MetricsStore.FactWorklog.connectionId eq connId }
+            MetricsTables.FactWorklog.selectAll().where { MetricsTables.FactWorklog.connectionId eq connId }
                 .toList()
-                .sumOf { it[MetricsStore.FactWorklog.md].toDouble() }
+                .sumOf { it[MetricsTables.FactWorklog.md].toDouble() }
         }
 
         assertTrue(
@@ -1267,16 +1280,16 @@ class MetricsDerivationTest {
     fun `fact_task_delivery - active plus wait equals cycle, both within 0 and cycle, for every DONE task (A18)`() = runBlocking {
         val connId = DerivedStubFixture.connectionId()
         val rows = suspendTransaction(sharedDatabaseForTests()) {
-            MetricsStore.FactTaskDelivery.selectAll()
-                .where { (MetricsStore.FactTaskDelivery.connectionId eq connId) and MetricsStore.FactTaskDelivery.doneAt.isNotNull() }
+            MetricsTables.FactTaskDelivery.selectAll()
+                .where { (MetricsTables.FactTaskDelivery.connectionId eq connId) and MetricsTables.FactTaskDelivery.doneAt.isNotNull() }
                 .toList()
         }
         assertTrue(rows.isNotEmpty(), "the golden connection must have at least one DONE task")
         rows.forEach { row ->
-            val cycleMs = row[MetricsStore.FactTaskDelivery.cycleMs]!!
-            val activeMs = row[MetricsStore.FactTaskDelivery.activeMs]
-            val waitMs = row[MetricsStore.FactTaskDelivery.waitMs]
-            val issueId = row[MetricsStore.FactTaskDelivery.issueId]
+            val cycleMs = row[MetricsTables.FactTaskDelivery.cycleMs]!!
+            val activeMs = row[MetricsTables.FactTaskDelivery.activeMs]
+            val waitMs = row[MetricsTables.FactTaskDelivery.waitMs]
+            val issueId = row[MetricsTables.FactTaskDelivery.issueId]
             assertEquals(cycleMs, activeMs + waitMs, "active + wait must equal cycle for issue $issueId")
             assertTrue(activeMs in 0..cycleMs, "active must stay within [0, cycle]")
             assertTrue(waitMs >= 0, "wait must never be negative")
@@ -1306,21 +1319,21 @@ class MetricsDerivationTest {
                 // spuriously disagree wherever the golden dataset's own task_sprint bridge leaves a
                 // task's open membership interval pointing at an already-closed sprint (a task added
                 // to a sprint and never moved to a later one once that sprint itself closed).
-                val sprintTeamById = MetricsStore.DimSprint.selectAll().where { MetricsStore.DimSprint.connectionId eq connId }
+                val sprintTeamById = MetricsTables.DimSprint.selectAll().where { MetricsTables.DimSprint.connectionId eq connId }
                     .toList().associate {
-                        val closed = it[MetricsStore.DimSprint.state].equals("closed", ignoreCase = true) ||
-                            (it[MetricsStore.DimSprint.completeAt] != null && it[MetricsStore.DimSprint.completeAt]!! <= now)
-                        it[MetricsStore.DimSprint.sprintId] to (it[MetricsStore.DimSprint.teamId]?.value.takeIf { !closed })
+                        val closed = it[MetricsTables.DimSprint.state].equals("closed", ignoreCase = true) ||
+                            (it[MetricsTables.DimSprint.completeAt] != null && it[MetricsTables.DimSprint.completeAt]!! <= now)
+                        it[MetricsTables.DimSprint.sprintId] to (it[MetricsTables.DimSprint.teamId]?.value.takeIf { !closed })
                     }
-                val assigneeRowsByIssue = MetricsStore.TaskAssignee.selectAll()
-                    .where { MetricsStore.TaskAssignee.connectionId eq connId }
-                    .orderBy(MetricsStore.TaskAssignee.validFrom to SortOrder.ASC)
+                val assigneeRowsByIssue = MetricsTables.TaskAssignee.selectAll()
+                    .where { MetricsTables.TaskAssignee.connectionId eq connId }
+                    .orderBy(MetricsTables.TaskAssignee.validFrom to SortOrder.ASC)
                     .toList()
-                    .groupBy({ it[MetricsStore.TaskAssignee.issueId] }) {
+                    .groupBy({ it[MetricsTables.TaskAssignee.issueId] }) {
                         BridgeInterval(
-                            it[MetricsStore.TaskAssignee.accountId],
-                            it[MetricsStore.TaskAssignee.validFrom],
-                            it[MetricsStore.TaskAssignee.validTo],
+                            it[MetricsTables.TaskAssignee.accountId],
+                            it[MetricsTables.TaskAssignee.validFrom],
+                            it[MetricsTables.TaskAssignee.validTo],
                         )
                     }
                 val membership = TeamMembershipService.TeamMembership
@@ -1334,13 +1347,16 @@ class MetricsDerivationTest {
                 // Level-0 only (D2): a sub-task carries no `task_sprint` bridge row of its own
                 // (`.claude/docs/metrics.md` "Sprint scope, facts and snapshots") and would otherwise
                 // spuriously disagree with this independent, bridge-only re-derivation.
-                val rows = MetricsStore.FactTaskDelivery.selectAll()
-                    .where { (MetricsStore.FactTaskDelivery.connectionId eq connId) and (MetricsStore.FactTaskDelivery.isSubtask eq false) }
+                val rows = MetricsTables.FactTaskDelivery.selectAll()
+                    .where {
+                        (MetricsTables.FactTaskDelivery.connectionId eq connId) and
+                            (MetricsTables.FactTaskDelivery.isSubtask eq false)
+                    }
                     .toList()
                 assertTrue(rows.isNotEmpty())
                 var checkedWithTeam = 0
                 rows.forEach { row ->
-                    val issueId = row[MetricsStore.FactTaskDelivery.issueId]
+                    val issueId = row[MetricsTables.FactTaskDelivery.issueId]
                     // "Current" is the bridge interval CONTAINING the DERIVE run's own clock
                     // (`valueAt`'s predicate, `metrics/MetricsDeriver.kt`) — NOT simply "the row
                     // with `valid_to IS NULL`": the sample dataset's own day2/incremental data
@@ -1352,7 +1368,7 @@ class MetricsDerivationTest {
                     val expectedAssignee = valueAtBridge(assigneeRowsByIssue[issueId].orEmpty(), now)
                     assertEquals(
                         expectedAssignee,
-                        row[MetricsStore.FactTaskDelivery.currentAssigneeAccountId],
+                        row[MetricsTables.FactTaskDelivery.currentAssigneeAccountId],
                         "current_assignee_account_id must equal the task_assignee interval containing now for issue $issueId",
                     )
                     val sprintTeam = valueAtBridge(sprintRowsByIssue[issueId].orEmpty(), now)?.let { sprintTeamById[it] }
@@ -1361,7 +1377,7 @@ class MetricsDerivationTest {
                     }
                     assertEquals(
                         expectedTeam,
-                        row[MetricsStore.FactTaskDelivery.currentTeamId]?.value,
+                        row[MetricsTables.FactTaskDelivery.currentTeamId]?.value,
                         "current_team_id must equal D5 evaluated now for issue $issueId",
                     )
                     if (expectedTeam != null) checkedWithTeam++
@@ -1375,22 +1391,22 @@ class MetricsDerivationTest {
     fun `fact_worklog - task_domain_key is never null (invariant 6 strengthened, commit 9d)`() = runBlocking {
         val connId = DerivedStubFixture.connectionId()
         val rows = suspendTransaction(sharedDatabaseForTests()) {
-            MetricsStore.FactWorklog.selectAll().where { MetricsStore.FactWorklog.connectionId eq connId }.toList()
+            MetricsTables.FactWorklog.selectAll().where { MetricsTables.FactWorklog.connectionId eq connId }.toList()
         }
         assertTrue(rows.isNotEmpty())
         assertTrue(
-            rows.none { it[MetricsStore.FactWorklog.taskDomainKey] == null },
+            rows.none { it[MetricsTables.FactWorklog.taskDomainKey] == null },
             "every worklog must carry a domain — an epic-logged one gets the epic's own domain, never null",
         )
         // Where a worklog IS logged directly on an epic (epic_id == issue_id, by construction),
         // its task_domain_key must equal its own epic_domain_key.
-        val epicLoggedRows = rows.filter { it[MetricsStore.FactWorklog.epicId] == it[MetricsStore.FactWorklog.issueId] }
+        val epicLoggedRows = rows.filter { it[MetricsTables.FactWorklog.epicId] == it[MetricsTables.FactWorklog.issueId] }
         assertTrue(
             epicLoggedRows.isNotEmpty(),
             "at least one epic-logged worklog must exist in the fixture, or the assertion above proves nothing (review round 2c fix)",
         )
         epicLoggedRows.forEach { row ->
-            assertEquals(row[MetricsStore.FactWorklog.epicDomainKey], row[MetricsStore.FactWorklog.taskDomainKey])
+            assertEquals(row[MetricsTables.FactWorklog.epicDomainKey], row[MetricsTables.FactWorklog.taskDomainKey])
         }
     }
 
@@ -1428,42 +1444,42 @@ class MetricsDerivationTest {
                     .groupBy({ it[membership.accountId] }) {
                         BridgeInterval(it[membership.teamId].value, it[membership.validFrom], it[membership.validTo])
                     }
-                val ownerTeamByDomain = MetricsStore.DimDomain.selectAll().where { MetricsStore.DimDomain.connectionId eq connId }
-                    .toList().associate { it[MetricsStore.DimDomain.domainKey] to it[MetricsStore.DimDomain.ownerTeamId]?.value }
+                val ownerTeamByDomain = MetricsTables.DimDomain.selectAll().where { MetricsTables.DimDomain.connectionId eq connId }
+                    .toList().associate { it[MetricsTables.DimDomain.domainKey] to it[MetricsTables.DimDomain.ownerTeamId]?.value }
 
-                val rows = MetricsStore.FactWorklog.selectAll().where { MetricsStore.FactWorklog.connectionId eq connId }.toList()
+                val rows = MetricsTables.FactWorklog.selectAll().where { MetricsTables.FactWorklog.connectionId eq connId }.toList()
                 assertTrue(rows.isNotEmpty())
                 var checkedEpicLogged = 0
                 rows.forEach { row ->
-                    val worklogId = row[MetricsStore.FactWorklog.worklogId]
-                    val issueId = row[MetricsStore.FactWorklog.issueId]
-                    val startedAt = row[MetricsStore.FactWorklog.startedAt]
+                    val worklogId = row[MetricsTables.FactWorklog.worklogId]
+                    val issueId = row[MetricsTables.FactWorklog.issueId]
+                    val startedAt = row[MetricsTables.FactWorklog.startedAt]
                     val expectedAssigneeAccountId = valueAtBridge(assigneeRowsByIssue[issueId].orEmpty(), startedAt)
                     val expectedAssigneeTeamId = expectedAssigneeAccountId
                         ?.let { accountId -> valueAtBridge(membershipRowsByAccount[accountId].orEmpty(), startedAt) }
                     assertEquals(
                         expectedAssigneeAccountId,
-                        row[MetricsStore.FactWorklog.assigneeAccountIdAtStarted],
+                        row[MetricsTables.FactWorklog.assigneeAccountIdAtStarted],
                         "assignee_account_id_at_started must equal the task_assignee interval containing started_at for worklog $worklogId",
                     )
                     assertEquals(
                         expectedAssigneeTeamId,
-                        row[MetricsStore.FactWorklog.assigneeTeamIdAtStarted]?.value,
+                        row[MetricsTables.FactWorklog.assigneeTeamIdAtStarted]?.value,
                         "assignee_team_id_at_started must equal the assignee's own team_membership at started_at for worklog $worklogId",
                     )
 
-                    val authorTeamId = row[MetricsStore.FactWorklog.authorTeamId]?.value
+                    val authorTeamId = row[MetricsTables.FactWorklog.authorTeamId]?.value
                     // A worklog logged directly on an epic has epic_id == its own issue_id, by construction.
-                    val isEpicLogged = row[MetricsStore.FactWorklog.epicId] == issueId
+                    val isEpicLogged = row[MetricsTables.FactWorklog.epicId] == issueId
                     val expectedForeignWork = if (isEpicLogged) {
                         checkedEpicLogged++
                         // A22: epic-logged foreign work compares the author against the epic's OWN
                         // domain's owner team (persisted on dim_domain by this same DERIVE run) —
                         // never the epic's assignee's team.
-                        val ownerTeamId = row[MetricsStore.FactWorklog.epicDomainKey]?.let { ownerTeamByDomain[it] }
+                        val ownerTeamId = row[MetricsTables.FactWorklog.epicDomainKey]?.let { ownerTeamByDomain[it] }
                         authorTeamId != null && ownerTeamId != null && authorTeamId != ownerTeamId
                     } else {
-                        val sprintTeamId = row[MetricsStore.FactWorklog.sprintTeamIdAtStarted]?.value
+                        val sprintTeamId = row[MetricsTables.FactWorklog.sprintTeamIdAtStarted]?.value
                         when {
                             authorTeamId == null -> false
                             sprintTeamId != null -> authorTeamId != sprintTeamId
@@ -1472,7 +1488,7 @@ class MetricsDerivationTest {
                     }
                     assertEquals(
                         expectedForeignWork,
-                        row[MetricsStore.FactWorklog.foreignWork],
+                        row[MetricsTables.FactWorklog.foreignWork],
                         "foreign_work must match A21/A22's rule for worklog $worklogId",
                     )
                 }
@@ -1493,22 +1509,22 @@ class MetricsDerivationTest {
                 .where { (boardTeamMap.connectionId eq connId) and (boardTeamMap.boardId eq FLO_BOARD_ID) }
                 .toList().single()[boardTeamMap.teamId].value
 
-            val floEpicRows = MetricsStore.FactEpicDelivery
+            val floEpicRows = MetricsTables.FactEpicDelivery
                 .join(
-                    MetricsStore.DimEpic,
+                    MetricsTables.DimEpic,
                     JoinType.INNER,
-                    onColumn = MetricsStore.FactEpicDelivery.issueId,
-                    otherColumn = MetricsStore.DimEpic.issueId,
-                    additionalConstraint = { MetricsStore.DimEpic.connectionId eq MetricsStore.FactEpicDelivery.connectionId },
+                    onColumn = MetricsTables.FactEpicDelivery.issueId,
+                    otherColumn = MetricsTables.DimEpic.issueId,
+                    additionalConstraint = { MetricsTables.DimEpic.connectionId eq MetricsTables.FactEpicDelivery.connectionId },
                 )
-                .select(MetricsStore.FactEpicDelivery.issueId, MetricsStore.FactEpicDelivery.ownerTeamId)
-                .where { (MetricsStore.FactEpicDelivery.connectionId eq connId) and (MetricsStore.DimEpic.domainKey eq "FLO") }
+                .select(MetricsTables.FactEpicDelivery.issueId, MetricsTables.FactEpicDelivery.ownerTeamId)
+                .where { (MetricsTables.FactEpicDelivery.connectionId eq connId) and (MetricsTables.DimEpic.domainKey eq "FLO") }
                 .toList()
             assertTrue(floEpicRows.isNotEmpty(), "the FLO project must carry at least one epic")
             floEpicRows.forEach { row ->
                 assertEquals(
                     floTeamId,
-                    row[MetricsStore.FactEpicDelivery.ownerTeamId]?.value,
+                    row[MetricsTables.FactEpicDelivery.ownerTeamId]?.value,
                     "a FLO epic's owner_team_id must equal the FLO board's own configured team",
                 )
             }
@@ -1600,34 +1616,34 @@ class MetricsDerivationTest {
             deriver(config).derive(SyncJobRunContext(deriveClaim(90u, connId), clock = { PINNED_NOW }) { _, _ -> true })
 
             val domainRows = suspendTransaction(sharedDatabaseForTests()) {
-                MetricsStore.DimDomain.selectAll().where { MetricsStore.DimDomain.connectionId eq connId }
-                    .toList().associateBy { it[MetricsStore.DimDomain.domainKey] }
+                MetricsTables.DimDomain.selectAll().where { MetricsTables.DimDomain.connectionId eq connId }
+                    .toList().associateBy { it[MetricsTables.DimDomain.domainKey] }
             }
             assertEquals(
                 teamOverride,
-                domainRows.getValue("OWNERA")[MetricsStore.DimDomain.ownerTeamId]?.value,
+                domainRows.getValue("OWNERA")[MetricsTables.DimDomain.ownerTeamId]?.value,
                 "a directly-configured owner must OVERRIDE project A's own mapped board's team",
             )
             assertNull(
-                domainRows.getValue("OWNERB")[MetricsStore.DimDomain.ownerTeamId]?.value,
+                domainRows.getValue("OWNERB")[MetricsTables.DimDomain.ownerTeamId]?.value,
                 "two boards on one domain mapped to two DIFFERENT teams, with no configured owner, must resolve to NO owner",
             )
             assertNull(
-                domainRows.getValue("OWNERC")[MetricsStore.DimDomain.ownerTeamId]?.value,
+                domainRows.getValue("OWNERC")[MetricsTables.DimDomain.ownerTeamId]?.value,
                 "a soft-deleted configured owner team must resolve to NO owner (A22), with no board fallback available either",
             )
 
             val epicsInA = suspendTransaction(sharedDatabaseForTests()) {
-                MetricsStore.FactEpicDelivery
+                MetricsTables.FactEpicDelivery
                     .join(
-                        MetricsStore.DimEpic,
+                        MetricsTables.DimEpic,
                         JoinType.INNER,
-                        onColumn = MetricsStore.FactEpicDelivery.issueId,
-                        otherColumn = MetricsStore.DimEpic.issueId,
-                        additionalConstraint = { MetricsStore.DimEpic.connectionId eq MetricsStore.FactEpicDelivery.connectionId },
+                        onColumn = MetricsTables.FactEpicDelivery.issueId,
+                        otherColumn = MetricsTables.DimEpic.issueId,
+                        additionalConstraint = { MetricsTables.DimEpic.connectionId eq MetricsTables.FactEpicDelivery.connectionId },
                     )
-                    .select(MetricsStore.FactEpicDelivery.ownerTeamId)
-                    .where { (MetricsStore.FactEpicDelivery.connectionId eq connId) and (MetricsStore.DimEpic.domainKey eq "OWNERA") }
+                    .select(MetricsTables.FactEpicDelivery.ownerTeamId)
+                    .where { (MetricsTables.FactEpicDelivery.connectionId eq connId) and (MetricsTables.DimEpic.domainKey eq "OWNERA") }
                     .toList()
             }
             assertTrue(
@@ -1637,7 +1653,7 @@ class MetricsDerivationTest {
             epicsInA.forEach { row ->
                 assertEquals(
                     teamOverride,
-                    row[MetricsStore.FactEpicDelivery.ownerTeamId]?.value,
+                    row[MetricsTables.FactEpicDelivery.ownerTeamId]?.value,
                     "fact_epic_delivery.owner_team_id must equal dim_domain's own resolved owner for the SAME domain",
                 )
             }
@@ -1650,17 +1666,17 @@ class MetricsDerivationTest {
         deriver(config).derive(SyncJobRunContext(deriveClaim(70u, connId), clock = { PINNED_NOW }) { _, _ -> true })
 
         val target = suspendTransaction(sharedDatabaseForTests()) {
-            MetricsStore.FactTaskDelivery.selectAll()
+            MetricsTables.FactTaskDelivery.selectAll()
                 .where {
-                    (MetricsStore.FactTaskDelivery.connectionId eq connId) and
-                        (MetricsStore.FactTaskDelivery.domainKey eq "OPS") and
-                        MetricsStore.FactTaskDelivery.doneAt.isNotNull()
+                    (MetricsTables.FactTaskDelivery.connectionId eq connId) and
+                        (MetricsTables.FactTaskDelivery.domainKey eq "OPS") and
+                        MetricsTables.FactTaskDelivery.doneAt.isNotNull()
                 }
                 .toList().first()
         }
-        val issueId = target[MetricsStore.FactTaskDelivery.issueId]
-        val doneAt = target[MetricsStore.FactTaskDelivery.doneAt]!!
-        val originalKey = target[MetricsStore.FactTaskDelivery.issueKey]
+        val issueId = target[MetricsTables.FactTaskDelivery.issueId]
+        val doneAt = target[MetricsTables.FactTaskDelivery.doneAt]!!
+        val originalKey = target[MetricsTables.FactTaskDelivery.issueKey]
         val newKey = "FLO-" + (900_000_000L + issueId)
 
         // The sample dataset has no real cross-project move to exercise this on — simulate one: a
@@ -1688,16 +1704,19 @@ class MetricsDerivationTest {
         deriver(config).derive(SyncJobRunContext(deriveClaim(71u, connId), clock = { PINNED_NOW }) { _, _ -> true })
 
         val after = suspendTransaction(sharedDatabaseForTests()) {
-            MetricsStore.FactTaskDelivery.selectAll()
-                .where { (MetricsStore.FactTaskDelivery.connectionId eq connId) and (MetricsStore.FactTaskDelivery.issueId eq issueId) }
+            MetricsTables.FactTaskDelivery.selectAll()
+                .where { (MetricsTables.FactTaskDelivery.connectionId eq connId) and (MetricsTables.FactTaskDelivery.issueId eq issueId) }
                 .toList().single()
         }
         assertEquals(
             "OPS",
-            after[MetricsStore.FactTaskDelivery.domainKey],
+            after[MetricsTables.FactTaskDelivery.domainKey],
             "a task moved to a new project AFTER its own done_at must keep its done-time domain (A21, as-was)",
         )
-        assertEquals(newKey, after[MetricsStore.FactTaskDelivery.issueKey], "the row's own issueKey still tracks the CURRENT (moved) value")
+        assertEquals(
+            newKey, after[MetricsTables.FactTaskDelivery.issueKey],
+            "the row's own issueKey still tracks the CURRENT (moved) value",
+        )
     }
 
     @Test
@@ -1708,17 +1727,17 @@ class MetricsDerivationTest {
             deriver(config).derive(SyncJobRunContext(deriveClaim(80u, connId), clock = { PINNED_NOW }) { _, _ -> true })
 
             val target = suspendTransaction(sharedDatabaseForTests()) {
-                MetricsStore.FactTaskDelivery.selectAll()
+                MetricsTables.FactTaskDelivery.selectAll()
                     .where {
-                        (MetricsStore.FactTaskDelivery.connectionId eq connId) and MetricsStore.FactTaskDelivery.doneAt.isNotNull() and
-                            (MetricsStore.FactTaskDelivery.isSubtask eq false)
+                        (MetricsTables.FactTaskDelivery.connectionId eq connId) and MetricsTables.FactTaskDelivery.doneAt.isNotNull() and
+                            (MetricsTables.FactTaskDelivery.isSubtask eq false)
                     }
                     .toList().first()
             }
-            val issueId = target[MetricsStore.FactTaskDelivery.issueId]
-            val createdAt = target[MetricsStore.FactTaskDelivery.createdAt]
-            val doneAt = target[MetricsStore.FactTaskDelivery.doneAt]!!
-            val taskDomainKey = target[MetricsStore.FactTaskDelivery.domainKey]
+            val issueId = target[MetricsTables.FactTaskDelivery.issueId]
+            val createdAt = target[MetricsTables.FactTaskDelivery.createdAt]
+            val doneAt = target[MetricsTables.FactTaskDelivery.doneAt]!!
+            val taskDomainKey = target[MetricsTables.FactTaskDelivery.domainKey]
             val epicIssueId = metricsDerivationGoldenEpic.issueId.toLong()
             val epicChangedAt = doneAt + THIRTY_DAYS_MS
 
@@ -1760,32 +1779,35 @@ class MetricsDerivationTest {
             deriver(config).derive(SyncJobRunContext(deriveClaim(81u, connId), clock = { PINNED_NOW }) { _, _ -> true })
 
             val after = suspendTransaction(sharedDatabaseForTests()) {
-                MetricsStore.FactTaskDelivery.selectAll()
-                    .where { (MetricsStore.FactTaskDelivery.connectionId eq connId) and (MetricsStore.FactTaskDelivery.issueId eq issueId) }
+                MetricsTables.FactTaskDelivery.selectAll()
+                    .where {
+                        (MetricsTables.FactTaskDelivery.connectionId eq connId) and
+                            (MetricsTables.FactTaskDelivery.issueId eq issueId)
+                    }
                     .toList().single()
             }
             assertNull(
-                after[MetricsStore.FactTaskDelivery.epicId],
+                after[MetricsTables.FactTaskDelivery.epicId],
                 "the covering task_epic interval at done_at genuinely has no epic — the fix must NOT fall back to the current epic",
             )
-            assertNull(after[MetricsStore.FactTaskDelivery.epicDomainKey], "no epic at done_at means no epic domain either")
+            assertNull(after[MetricsTables.FactTaskDelivery.epicDomainKey], "no epic at done_at means no epic domain either")
             assertEquals(
                 false,
-                after[MetricsStore.FactTaskDelivery.crossDomain],
+                after[MetricsTables.FactTaskDelivery.crossDomain],
                 "cross_domain requires a non-null epic_domain_key — never true with no epic",
             )
             // The task's own domain is untouched by this simulation (only PARENT history changed).
-            assertEquals(taskDomainKey, after[MetricsStore.FactTaskDelivery.domainKey])
+            assertEquals(taskDomainKey, after[MetricsTables.FactTaskDelivery.domainKey])
             // And the CURRENT epic (read via dim_task.epic_id, the one-indirection "now" view) IS the
             // golden epic — proving the as-was fix is genuinely about `done_at`, not a plumbing miss.
             val dimTask = suspendTransaction(sharedDatabaseForTests()) {
-                MetricsStore.DimTask.selectAll()
-                    .where { (MetricsStore.DimTask.connectionId eq connId) and (MetricsStore.DimTask.issueId eq issueId) }
+                MetricsTables.DimTask.selectAll()
+                    .where { (MetricsTables.DimTask.connectionId eq connId) and (MetricsTables.DimTask.issueId eq issueId) }
                     .toList().single()
             }
             assertEquals(
                 epicIssueId,
-                dimTask[MetricsStore.DimTask.epicId],
+                dimTask[MetricsTables.DimTask.epicId],
                 "dim_task.epic_id is the CURRENT epic, unaffected by the as-was fix",
             )
         }
@@ -1852,19 +1874,22 @@ class MetricsDerivationTest {
             deriver(config).derive(SyncJobRunContext(deriveClaim(95u, connId), clock = { PINNED_NOW }) { _, _ -> true })
 
             val after = suspendTransaction(sharedDatabaseForTests()) {
-                MetricsStore.FactTaskDelivery.selectAll()
-                    .where { (MetricsStore.FactTaskDelivery.connectionId eq connId) and (MetricsStore.FactTaskDelivery.issueId eq issueId) }
+                MetricsTables.FactTaskDelivery.selectAll()
+                    .where {
+                        (MetricsTables.FactTaskDelivery.connectionId eq connId) and
+                            (MetricsTables.FactTaskDelivery.issueId eq issueId)
+                    }
                     .toList().single()
             }
             assertEquals(
                 assigneeAccountId,
-                after[MetricsStore.FactTaskDelivery.currentAssigneeAccountId],
+                after[MetricsTables.FactTaskDelivery.currentAssigneeAccountId],
                 "current_assignee_account_id must reflect the open task_assignee interval",
             )
             assertTrue(sprintTeamId != teamAssignee, "the two teams must genuinely differ for this test to prove anything")
             assertEquals(
                 teamAssignee,
-                after[MetricsStore.FactTaskDelivery.currentTeamId]?.value,
+                after[MetricsTables.FactTaskDelivery.currentTeamId]?.value,
                 "a CLOSED current sprint must never resolve current_team_id — it must fall back to the assignee's own team (A22)",
             )
         } finally {
@@ -1947,18 +1972,18 @@ class MetricsDerivationTest {
                 deriver(config).derive(SyncJobRunContext(deriveClaim(96u, connId), clock = { PINNED_NOW }) { _, _ -> true })
 
                 val row = suspendTransaction(sharedDatabaseForTests()) {
-                    MetricsStore.FactWorklog.selectAll()
-                        .where { (MetricsStore.FactWorklog.connectionId eq connId) and (MetricsStore.FactWorklog.worklogId eq worklogId) }
+                    MetricsTables.FactWorklog.selectAll()
+                        .where { (MetricsTables.FactWorklog.connectionId eq connId) and (MetricsTables.FactWorklog.worklogId eq worklogId) }
                         .toList().single()
                 }
                 assertNull(
-                    row[MetricsStore.FactWorklog.sprintTeamIdAtStarted],
+                    row[MetricsTables.FactWorklog.sprintTeamIdAtStarted],
                     "OPS carries no sprint — sprint_team_id_at_started must be null",
                 )
-                assertEquals(teamAssignee, row[MetricsStore.FactWorklog.assigneeTeamIdAtStarted]?.value)
-                assertEquals(teamAuthor, row[MetricsStore.FactWorklog.authorTeamId]?.value)
+                assertEquals(teamAssignee, row[MetricsTables.FactWorklog.assigneeTeamIdAtStarted]?.value)
+                assertEquals(teamAuthor, row[MetricsTables.FactWorklog.authorTeamId]?.value)
                 assertTrue(
-                    row[MetricsStore.FactWorklog.foreignWork],
+                    row[MetricsTables.FactWorklog.foreignWork],
                     "author team != assignee team, no sprint team known at started_at -> foreign_work must be true (A21)",
                 )
             } finally {
@@ -1970,12 +1995,12 @@ class MetricsDerivationTest {
     /** Every DISTINCT day carrying a TEAM/TASK `agg_daily_wip` row for [connId], ascending — the
      * population [sampleWipDays] samples from. */
     private suspend fun allWipDays(connId: UInt): List<String> = suspendTransaction(sharedDatabaseForTests()) {
-        MetricsStore.AggDailyWip.select(MetricsStore.AggDailyWip.day)
+        MetricsTables.AggDailyWip.select(MetricsTables.AggDailyWip.day)
             .where {
-                (MetricsStore.AggDailyWip.connectionId eq connId) and (MetricsStore.AggDailyWip.scopeKind eq "TEAM") and
-                    (MetricsStore.AggDailyWip.itemKind eq "TASK")
+                (MetricsTables.AggDailyWip.connectionId eq connId) and (MetricsTables.AggDailyWip.scopeKind eq "TEAM") and
+                    (MetricsTables.AggDailyWip.itemKind eq "TASK")
             }
-            .toList().map { it[MetricsStore.AggDailyWip.day] }.distinct().sorted()
+            .toList().map { it[MetricsTables.AggDailyWip.day] }.distinct().sorted()
     }
 
     /** [SAMPLED_WIP_DAY_COUNT] evenly-spaced days across [connId]'s own WIP range (first, last, and
@@ -1987,18 +2012,18 @@ class MetricsDerivationTest {
     }
 
     private suspend fun dimDateDayEndMs(days: List<String>): Map<String, Long> = suspendTransaction(sharedDatabaseForTests()) {
-        MetricsStore.DimDate.selectAll().where { MetricsStore.DimDate.day inList days }
-            .toList().associate { it[MetricsStore.DimDate.day] to it[MetricsStore.DimDate.dayEndMs] }
+        MetricsTables.DimDate.selectAll().where { MetricsTables.DimDate.day inList days }
+            .toList().associate { it[MetricsTables.DimDate.day] to it[MetricsTables.DimDate.dayEndMs] }
     }
 
     /** Σ `item_count` grouped by `stage`, for one `(scopeKind, day)` slice of TASK rows — the shared
      * "does this scope partition the per-stage count" read both [sampleWipDays]-driven tests use. */
     private suspend fun wipStageCounts(connId: UInt, scopeKind: String, day: String): Map<String, Int> =
         suspendTransaction(sharedDatabaseForTests()) {
-            MetricsStore.AggDailyWip.selectAll().where {
-                (MetricsStore.AggDailyWip.connectionId eq connId) and (MetricsStore.AggDailyWip.scopeKind eq scopeKind) and
-                    (MetricsStore.AggDailyWip.itemKind eq "TASK") and (MetricsStore.AggDailyWip.day eq day)
-            }.toList().groupBy({ it[MetricsStore.AggDailyWip.stage] }) { it[MetricsStore.AggDailyWip.itemCount] }
+            MetricsTables.AggDailyWip.selectAll().where {
+                (MetricsTables.AggDailyWip.connectionId eq connId) and (MetricsTables.AggDailyWip.scopeKind eq scopeKind) and
+                    (MetricsTables.AggDailyWip.itemKind eq "TASK") and (MetricsTables.AggDailyWip.day eq day)
+            }.toList().groupBy({ it[MetricsTables.AggDailyWip.stage] }) { it[MetricsTables.AggDailyWip.itemCount] }
                 .mapValues { (_, counts) -> counts.sum() }
         }
 
@@ -2011,13 +2036,13 @@ class MetricsDerivationTest {
             val dayEndMsByDay = dimDateDayEndMs(days)
 
             suspendTransaction(sharedDatabaseForTests()) {
-                val taskIds = MetricsStore.DimTask.selectAll()
-                    .where { (MetricsStore.DimTask.connectionId eq connId) and (MetricsStore.DimTask.isSubtask eq false) }
-                    .toList().map { it[MetricsStore.DimTask.issueId] }
-                val stageRowsByIssue = MetricsStore.ItemStage.selectAll().where { MetricsStore.ItemStage.connectionId eq connId }
-                    .toList().groupBy({ it[MetricsStore.ItemStage.issueId] }) {
+                val taskIds = MetricsTables.DimTask.selectAll()
+                    .where { (MetricsTables.DimTask.connectionId eq connId) and (MetricsTables.DimTask.isSubtask eq false) }
+                    .toList().map { it[MetricsTables.DimTask.issueId] }
+                val stageRowsByIssue = MetricsTables.ItemStage.selectAll().where { MetricsTables.ItemStage.connectionId eq connId }
+                    .toList().groupBy({ it[MetricsTables.ItemStage.issueId] }) {
                         BridgeInterval(
-                            it[MetricsStore.ItemStage.stage], it[MetricsStore.ItemStage.validFrom], it[MetricsStore.ItemStage.validTo],
+                            it[MetricsTables.ItemStage.stage], it[MetricsTables.ItemStage.validFrom], it[MetricsTables.ItemStage.validTo],
                         )
                     }
 
@@ -2042,13 +2067,13 @@ class MetricsDerivationTest {
             val dayEndMs = dimDateDayEndMs(listOf(day)).getValue(day)
 
             suspendTransaction(sharedDatabaseForTests()) {
-                val taskIds = MetricsStore.DimTask.selectAll()
-                    .where { (MetricsStore.DimTask.connectionId eq connId) and (MetricsStore.DimTask.isSubtask eq false) }
-                    .toList().map { it[MetricsStore.DimTask.issueId] }
-                val stageRowsByIssue = MetricsStore.ItemStage.selectAll().where { MetricsStore.ItemStage.connectionId eq connId }
-                    .toList().groupBy({ it[MetricsStore.ItemStage.issueId] }) {
+                val taskIds = MetricsTables.DimTask.selectAll()
+                    .where { (MetricsTables.DimTask.connectionId eq connId) and (MetricsTables.DimTask.isSubtask eq false) }
+                    .toList().map { it[MetricsTables.DimTask.issueId] }
+                val stageRowsByIssue = MetricsTables.ItemStage.selectAll().where { MetricsTables.ItemStage.connectionId eq connId }
+                    .toList().groupBy({ it[MetricsTables.ItemStage.issueId] }) {
                         BridgeInterval(
-                            it[MetricsStore.ItemStage.stage], it[MetricsStore.ItemStage.validFrom], it[MetricsStore.ItemStage.validTo],
+                            it[MetricsTables.ItemStage.stage], it[MetricsTables.ItemStage.validFrom], it[MetricsTables.ItemStage.validTo],
                         )
                     }
                 val coveredTaskIds = taskIds.filter { valueAtDayEnd(stageRowsByIssue[it].orEmpty(), dayEndMs) != null }
@@ -2059,19 +2084,19 @@ class MetricsDerivationTest {
                     .mapValues { (_, intervals) ->
                         intervals.sortedBy { it.seq }.map { BridgeInterval(it.valueId?.toLongOrNull(), it.fromAtMs, it.toAtMs) }
                     }
-                val sprintTeamAndCloseById = MetricsStore.DimSprint.selectAll().where { MetricsStore.DimSprint.connectionId eq connId }
+                val sprintTeamAndCloseById = MetricsTables.DimSprint.selectAll().where { MetricsTables.DimSprint.connectionId eq connId }
                     .toList().associate { row ->
-                        val team = row[MetricsStore.DimSprint.teamId]?.value
-                        row[MetricsStore.DimSprint.sprintId] to (team to row[MetricsStore.DimSprint.completeAt])
+                        val team = row[MetricsTables.DimSprint.teamId]?.value
+                        row[MetricsTables.DimSprint.sprintId] to (team to row[MetricsTables.DimSprint.completeAt])
                     }
-                val assigneeRowsByIssue = MetricsStore.TaskAssignee.selectAll()
-                    .where { MetricsStore.TaskAssignee.connectionId eq connId }
-                    .orderBy(MetricsStore.TaskAssignee.validFrom to SortOrder.ASC)
+                val assigneeRowsByIssue = MetricsTables.TaskAssignee.selectAll()
+                    .where { MetricsTables.TaskAssignee.connectionId eq connId }
+                    .orderBy(MetricsTables.TaskAssignee.validFrom to SortOrder.ASC)
                     .toList()
-                    .groupBy({ it[MetricsStore.TaskAssignee.issueId] }) {
+                    .groupBy({ it[MetricsTables.TaskAssignee.issueId] }) {
                         BridgeInterval(
-                            it[MetricsStore.TaskAssignee.accountId], it[MetricsStore.TaskAssignee.validFrom],
-                            it[MetricsStore.TaskAssignee.validTo],
+                            it[MetricsTables.TaskAssignee.accountId], it[MetricsTables.TaskAssignee.validFrom],
+                            it[MetricsTables.TaskAssignee.validTo],
                         )
                     }
                 val membership = TeamMembershipService.TeamMembership
@@ -2097,10 +2122,10 @@ class MetricsDerivationTest {
                     (sprintTeam ?: fallbackTeam)?.toString() ?: "UNASSIGNED"
                 }.groupingBy { it }.eachCount()
 
-                val actual = MetricsStore.AggDailyWip.selectAll().where {
-                    (MetricsStore.AggDailyWip.connectionId eq connId) and (MetricsStore.AggDailyWip.scopeKind eq "TEAM") and
-                        (MetricsStore.AggDailyWip.itemKind eq "TASK") and (MetricsStore.AggDailyWip.day eq day)
-                }.toList().groupBy({ it[MetricsStore.AggDailyWip.scopeId] }) { it[MetricsStore.AggDailyWip.itemCount] }
+                val actual = MetricsTables.AggDailyWip.selectAll().where {
+                    (MetricsTables.AggDailyWip.connectionId eq connId) and (MetricsTables.AggDailyWip.scopeKind eq "TEAM") and
+                        (MetricsTables.AggDailyWip.itemKind eq "TASK") and (MetricsTables.AggDailyWip.day eq day)
+                }.toList().groupBy({ it[MetricsTables.AggDailyWip.scopeId] }) { it[MetricsTables.AggDailyWip.itemCount] }
                     .mapValues { (_, counts) -> counts.sum() }
 
                 assertEquals(expected, actual, "the TEAM split on $day must match D5-as-was evaluated at that day's own end instant")
@@ -2113,44 +2138,44 @@ class MetricsDerivationTest {
         runBlocking {
             val connId = DerivedStubFixture.connectionId()
             suspendTransaction(sharedDatabaseForTests()) {
-                val lastDay = MetricsStore.AggDailyWip.select(MetricsStore.AggDailyWip.day)
+                val lastDay = MetricsTables.AggDailyWip.select(MetricsTables.AggDailyWip.day)
                     .where {
-                        (MetricsStore.AggDailyWip.connectionId eq connId) and (MetricsStore.AggDailyWip.scopeKind eq "TEAM") and
-                            (MetricsStore.AggDailyWip.itemKind eq "TASK")
+                        (MetricsTables.AggDailyWip.connectionId eq connId) and (MetricsTables.AggDailyWip.scopeKind eq "TEAM") and
+                            (MetricsTables.AggDailyWip.itemKind eq "TASK")
                     }
-                    .toList().map { it[MetricsStore.AggDailyWip.day] }.max()
-                val dayEndMs = MetricsStore.DimDate.selectAll().where { MetricsStore.DimDate.day eq lastDay }
-                    .toList().single()[MetricsStore.DimDate.dayEndMs]
+                    .toList().map { it[MetricsTables.AggDailyWip.day] }.max()
+                val dayEndMs = MetricsTables.DimDate.selectAll().where { MetricsTables.DimDate.day eq lastDay }
+                    .toList().single()[MetricsTables.DimDate.dayEndMs]
 
-                val stageRowsByIssue = MetricsStore.ItemStage.selectAll().where { MetricsStore.ItemStage.connectionId eq connId }
-                    .toList().groupBy({ it[MetricsStore.ItemStage.issueId] }) {
+                val stageRowsByIssue = MetricsTables.ItemStage.selectAll().where { MetricsTables.ItemStage.connectionId eq connId }
+                    .toList().groupBy({ it[MetricsTables.ItemStage.issueId] }) {
                         BridgeInterval(
-                            it[MetricsStore.ItemStage.stage], it[MetricsStore.ItemStage.validFrom], it[MetricsStore.ItemStage.validTo],
+                            it[MetricsTables.ItemStage.stage], it[MetricsTables.ItemStage.validFrom], it[MetricsTables.ItemStage.validTo],
                         )
                     }
-                val allTaskRows = MetricsStore.DimTask.selectAll().where { MetricsStore.DimTask.connectionId eq connId }.toList()
-                val nonSubtaskIds = allTaskRows.filterNot { it[MetricsStore.DimTask.isSubtask] }.map { it[MetricsStore.DimTask.issueId] }
-                val subtaskIds = allTaskRows.filter { it[MetricsStore.DimTask.isSubtask] }.map { it[MetricsStore.DimTask.issueId] }
+                val allTaskRows = MetricsTables.DimTask.selectAll().where { MetricsTables.DimTask.connectionId eq connId }.toList()
+                val nonSubtaskIds = allTaskRows.filterNot { it[MetricsTables.DimTask.isSubtask] }.map { it[MetricsTables.DimTask.issueId] }
+                val subtaskIds = allTaskRows.filter { it[MetricsTables.DimTask.isSubtask] }.map { it[MetricsTables.DimTask.issueId] }
                 fun coveredCount(ids: List<Long>) = ids.count { valueAtDayEnd(stageRowsByIssue[it].orEmpty(), dayEndMs) != null }
                 val nonSubtaskCovered = coveredCount(nonSubtaskIds)
                 assertTrue(coveredCount(subtaskIds) > 0, "the fixture must have covered sub-tasks on $lastDay, else this proves nothing")
 
-                val actualTotal = MetricsStore.AggDailyWip.selectAll().where {
-                    (MetricsStore.AggDailyWip.connectionId eq connId) and (MetricsStore.AggDailyWip.scopeKind eq "TEAM") and
-                        (MetricsStore.AggDailyWip.itemKind eq "TASK") and (MetricsStore.AggDailyWip.day eq lastDay)
-                }.toList().sumOf { it[MetricsStore.AggDailyWip.itemCount] }
+                val actualTotal = MetricsTables.AggDailyWip.selectAll().where {
+                    (MetricsTables.AggDailyWip.connectionId eq connId) and (MetricsTables.AggDailyWip.scopeKind eq "TEAM") and
+                        (MetricsTables.AggDailyWip.itemKind eq "TASK") and (MetricsTables.AggDailyWip.day eq lastDay)
+                }.toList().sumOf { it[MetricsTables.AggDailyWip.itemCount] }
                 assertEquals(nonSubtaskCovered, actualTotal, "TEAM's TASK total on $lastDay must equal the non-subtask covering count")
 
                 // A day with no WIP has no rows: a day whose own end predates the connection's earliest
                 // created_at (item_stage's own first interval always starts at created_at).
-                val minCreatedAt = MetricsStore.ItemStage.selectAll().where { MetricsStore.ItemStage.connectionId eq connId }
-                    .toList().minOf { it[MetricsStore.ItemStage.validFrom] }
-                val emptyDay = MetricsStore.DimDate.selectAll().where { MetricsStore.DimDate.dayEndMs lessEq minCreatedAt }
-                    .orderBy(MetricsStore.DimDate.day to SortOrder.DESC).limit(1).toList().singleOrNull()
-                    ?.get(MetricsStore.DimDate.day)
+                val minCreatedAt = MetricsTables.ItemStage.selectAll().where { MetricsTables.ItemStage.connectionId eq connId }
+                    .toList().minOf { it[MetricsTables.ItemStage.validFrom] }
+                val emptyDay = MetricsTables.DimDate.selectAll().where { MetricsTables.DimDate.dayEndMs lessEq minCreatedAt }
+                    .orderBy(MetricsTables.DimDate.day to SortOrder.DESC).limit(1).toList().singleOrNull()
+                    ?.get(MetricsTables.DimDate.day)
                 assertNotNull(emptyDay, "dim_date must carry at least one day before the connection's earliest creation")
-                val emptyDayRowCount = MetricsStore.AggDailyWip.selectAll()
-                    .where { (MetricsStore.AggDailyWip.connectionId eq connId) and (MetricsStore.AggDailyWip.day eq emptyDay) }
+                val emptyDayRowCount = MetricsTables.AggDailyWip.selectAll()
+                    .where { (MetricsTables.AggDailyWip.connectionId eq connId) and (MetricsTables.AggDailyWip.day eq emptyDay) }
                     .count()
                 assertEquals(0L, emptyDayRowCount, "a day before the connection's history began must carry no agg_daily_wip rows")
 
@@ -2167,7 +2192,7 @@ class MetricsDerivationTest {
     fun `agg_daily_flow - throughput sums per scope equal the level-0 done tasks of fact_task_delivery`() = runBlocking {
         val connId = DerivedStubFixture.connectionId()
         suspendTransaction(sharedDatabaseForTests()) {
-            val f = MetricsStore.FactTaskDelivery
+            val f = MetricsTables.FactTaskDelivery
             val done = f.selectAll()
                 .where { (f.connectionId eq connId) and (f.isSubtask eq false) and f.doneAt.isNotNull() }
                 .toList()
@@ -2176,7 +2201,7 @@ class MetricsDerivationTest {
                 acc + (row[f.estimateAtDoneMd] ?: java.math.BigDecimal.ZERO)
             }
 
-            val flow = MetricsStore.AggDailyFlow
+            val flow = MetricsTables.AggDailyFlow
             val flowRows = flow.selectAll().where { flow.connectionId eq connId }.toList()
             fun sums(kind: String): Pair<Int, java.math.BigDecimal> {
                 val rows = flowRows.filter { it[flow.scopeKind] == kind }
@@ -2204,9 +2229,9 @@ class MetricsDerivationTest {
                 .map { it[flow.day] }.distinct().sorted()
             assertTrue(domainFlowDays.size >= 3, "the fixture needs at least three days with DOMAIN throughput to sample")
             val sampledDays = listOf(domainFlowDays.first(), domainFlowDays[domainFlowDays.size / 2], domainFlowDays.last())
-            val bounds = MetricsStore.DimDate.selectAll().where { MetricsStore.DimDate.day inList sampledDays }
+            val bounds = MetricsTables.DimDate.selectAll().where { MetricsTables.DimDate.day inList sampledDays }
                 .toList().associate {
-                    it[MetricsStore.DimDate.day] to (it[MetricsStore.DimDate.dayStartMs] to it[MetricsStore.DimDate.dayEndMs])
+                    it[MetricsTables.DimDate.day] to (it[MetricsTables.DimDate.dayStartMs] to it[MetricsTables.DimDate.dayEndMs])
                 }
             sampledDays.forEach { day ->
                 val (startMs, endMs) = bounds.getValue(day)
@@ -2228,52 +2253,56 @@ class MetricsDerivationTest {
         val dayEndMsByDay = dimDateDayEndMs(days)
 
         suspendTransaction(sharedDatabaseForTests()) {
-            val tasks = MetricsStore.DimTask.selectAll()
-                .where { (MetricsStore.DimTask.connectionId eq connId) and (MetricsStore.DimTask.isSubtask eq false) }
+            val tasks = MetricsTables.DimTask.selectAll()
+                .where { (MetricsTables.DimTask.connectionId eq connId) and (MetricsTables.DimTask.isSubtask eq false) }
                 .toList()
-            val stage = MetricsStore.ItemStage.selectAll().where { MetricsStore.ItemStage.connectionId eq connId }
-                .toList().groupBy({ it[MetricsStore.ItemStage.issueId] }) {
+            val stage = MetricsTables.ItemStage.selectAll().where { MetricsTables.ItemStage.connectionId eq connId }
+                .toList().groupBy({ it[MetricsTables.ItemStage.issueId] }) {
                     BridgeInterval(
-                        it[MetricsStore.ItemStage.stage], it[MetricsStore.ItemStage.validFrom], it[MetricsStore.ItemStage.validTo],
+                        it[MetricsTables.ItemStage.stage], it[MetricsTables.ItemStage.validFrom], it[MetricsTables.ItemStage.validTo],
                     )
                 }
-            val estimate = MetricsStore.ItemEstimate.selectAll().where { MetricsStore.ItemEstimate.connectionId eq connId }
-                .toList().groupBy({ it[MetricsStore.ItemEstimate.issueId] }) {
+            val estimate = MetricsTables.ItemEstimate.selectAll().where { MetricsTables.ItemEstimate.connectionId eq connId }
+                .toList().groupBy({ it[MetricsTables.ItemEstimate.issueId] }) {
                     BridgeInterval(
-                        it[MetricsStore.ItemEstimate.estimateMd], it[MetricsStore.ItemEstimate.validFrom],
-                        it[MetricsStore.ItemEstimate.validTo],
+                        it[MetricsTables.ItemEstimate.estimateMd], it[MetricsTables.ItemEstimate.validFrom],
+                        it[MetricsTables.ItemEstimate.validTo],
                     )
                 }
-            val taskDomain = MetricsStore.TaskDomain.selectAll().where { MetricsStore.TaskDomain.connectionId eq connId }
-                .toList().groupBy({ it[MetricsStore.TaskDomain.issueId] }) {
+            val taskDomain = MetricsTables.TaskDomain.selectAll().where { MetricsTables.TaskDomain.connectionId eq connId }
+                .toList().groupBy({ it[MetricsTables.TaskDomain.issueId] }) {
                     BridgeInterval(
-                        it[MetricsStore.TaskDomain.domainKey], it[MetricsStore.TaskDomain.validFrom],
-                        it[MetricsStore.TaskDomain.validTo],
+                        it[MetricsTables.TaskDomain.domainKey], it[MetricsTables.TaskDomain.validFrom],
+                        it[MetricsTables.TaskDomain.validTo],
                     )
                 }
-            val taskEpic = MetricsStore.TaskEpic.selectAll().where { MetricsStore.TaskEpic.connectionId eq connId }
-                .toList().groupBy({ it[MetricsStore.TaskEpic.issueId] }) {
-                    BridgeInterval(it[MetricsStore.TaskEpic.epicId], it[MetricsStore.TaskEpic.validFrom], it[MetricsStore.TaskEpic.validTo])
-                }
-            val taskSprint = MetricsStore.TaskSprint.selectAll().where { MetricsStore.TaskSprint.connectionId eq connId }
-                .toList().groupBy({ it[MetricsStore.TaskSprint.issueId] }) {
+            val taskEpic = MetricsTables.TaskEpic.selectAll().where { MetricsTables.TaskEpic.connectionId eq connId }
+                .toList().groupBy({ it[MetricsTables.TaskEpic.issueId] }) {
                     BridgeInterval(
-                        it[MetricsStore.TaskSprint.sprintId], it[MetricsStore.TaskSprint.validFrom],
-                        it[MetricsStore.TaskSprint.validTo],
+                        it[MetricsTables.TaskEpic.epicId],
+                        it[MetricsTables.TaskEpic.validFrom],
+                        it[MetricsTables.TaskEpic.validTo],
                     )
                 }
-            val sprintStart = MetricsStore.DimSprint.selectAll().where { MetricsStore.DimSprint.connectionId eq connId }
-                .toList().associate { it[MetricsStore.DimSprint.sprintId] to it[MetricsStore.DimSprint.startAt] }
-            val ownerByDomain = MetricsStore.DimDomain.selectAll().where { MetricsStore.DimDomain.connectionId eq connId }
-                .toList().associate { it[MetricsStore.DimDomain.domainKey] to it[MetricsStore.DimDomain.ownerTeamId]?.value }
+            val taskSprint = MetricsTables.TaskSprint.selectAll().where { MetricsTables.TaskSprint.connectionId eq connId }
+                .toList().groupBy({ it[MetricsTables.TaskSprint.issueId] }) {
+                    BridgeInterval(
+                        it[MetricsTables.TaskSprint.sprintId], it[MetricsTables.TaskSprint.validFrom],
+                        it[MetricsTables.TaskSprint.validTo],
+                    )
+                }
+            val sprintStart = MetricsTables.DimSprint.selectAll().where { MetricsTables.DimSprint.connectionId eq connId }
+                .toList().associate { it[MetricsTables.DimSprint.sprintId] to it[MetricsTables.DimSprint.startAt] }
+            val ownerByDomain = MetricsTables.DimDomain.selectAll().where { MetricsTables.DimDomain.connectionId eq connId }
+                .toList().associate { it[MetricsTables.DimDomain.domainKey] to it[MetricsTables.DimDomain.ownerTeamId]?.value }
 
-            val flow = MetricsStore.AggDailyFlow
+            val flow = MetricsTables.AggDailyFlow
             var nonVacuous = false
             days.forEach { day ->
                 val dayEndMs = dayEndMsByDay.getValue(day)
                 // (domain, epic, md) of every task in the estimated backlog at this day's end (D9).
                 val backlog = tasks.mapNotNull { task ->
-                    val issueId = task[MetricsStore.DimTask.issueId]
+                    val issueId = task[MetricsTables.DimTask.issueId]
                     if (valueAtDayEnd(stage[issueId].orEmpty(), dayEndMs) != "NOT_STARTED") return@mapNotNull null
                     val md = valueAtDayEnd(estimate[issueId].orEmpty(), dayEndMs)
                     if (md == null || md.signum() <= 0) return@mapNotNull null
@@ -2282,7 +2311,7 @@ class MetricsDerivationTest {
                             sprintStart[row.value]?.let { it < dayEndMs } == true
                     }
                     if (inStartedSprint) return@mapNotNull null
-                    val domain = valueAtDayEnd(taskDomain[issueId].orEmpty(), dayEndMs) ?: task[MetricsStore.DimTask.domainKey]
+                    val domain = valueAtDayEnd(taskDomain[issueId].orEmpty(), dayEndMs) ?: task[MetricsTables.DimTask.domainKey]
                     Triple(domain, valueAtDayEnd(taskEpic[issueId].orEmpty(), dayEndMs), md)
                 }
                 if (backlog.isNotEmpty()) nonVacuous = true
@@ -2325,8 +2354,8 @@ class MetricsDerivationTest {
     fun `agg_daily_flow - invariant 9 estimated backlog never exceeds NOT_STARTED WIP for the same domain and day`() = runBlocking {
         val connId = DerivedStubFixture.connectionId()
         suspendTransaction(sharedDatabaseForTests()) {
-            val flow = MetricsStore.AggDailyFlow
-            val wip = MetricsStore.AggDailyWip
+            val flow = MetricsTables.AggDailyFlow
+            val wip = MetricsTables.AggDailyWip
             val backlogRows = flow.selectAll().where {
                 (flow.connectionId eq connId) and (flow.scopeKind eq "DOMAIN") and (flow.backlogItems greater 0)
             }.toList()
@@ -2351,7 +2380,7 @@ class MetricsDerivationTest {
     private data class FlowKey(val kind: String, val scopeId: String, val day: String)
 
     private suspend fun flowRowsByKey(connId: UInt): Map<FlowKey, ResultRow> = suspendTransaction(sharedDatabaseForTests()) {
-        val flow = MetricsStore.AggDailyFlow
+        val flow = MetricsTables.AggDailyFlow
         flow.selectAll().where { flow.connectionId eq connId }.toList()
             .associateBy { FlowKey(it[flow.scopeKind], it[flow.scopeId], it[flow.day]) }
     }
@@ -2363,12 +2392,12 @@ class MetricsDerivationTest {
         val connId = DerivedStubFixture.connectionId()
         val rows = flowRowsByKey(connId).filterKeys { it.kind == "TEAM" }
         suspendTransaction(sharedDatabaseForTests()) {
-            val ds = MetricsStore.DimSprint
-            val fs = MetricsStore.FactSprint
+            val ds = MetricsTables.DimSprint
+            val fs = MetricsTables.FactSprint
             val dimBySprint = ds.selectAll().where { ds.connectionId eq connId }.toList().associateBy { it[ds.sprintId] }
             val sprints = fs.selectAll().where { fs.connectionId eq connId }.toList()
             fun teamOf(row: ResultRow) = dimBySprint.getValue(row[fs.sprintId])[ds.teamId]?.value?.toString()
-            val flow = MetricsStore.AggDailyFlow
+            val flow = MetricsTables.AggDailyFlow
             fun total(team: String, column: org.jetbrains.exposed.v1.core.Column<java.math.BigDecimal>) =
                 rows.filterKeys { it.scopeId == team }.values.fold(java.math.BigDecimal.ZERO) { acc, row -> acc + row[column] }
 
@@ -2389,11 +2418,11 @@ class MetricsDerivationTest {
             assertTrue(bothPositive > 0, "at least one team must carry both PV and EV, else this proves nothing")
             // Per-day placement: on sampled days, each team's PV is the committed MD of its sprints STARTING that day and
             // its EV the done_in_sprint MD of tasks whose done_at falls on that day (dim_date [start, end) bounds).
-            val scopeRows = MetricsStore.FactSprintScope.selectAll().where { MetricsStore.FactSprintScope.connectionId eq connId }
-                .toList().filter { it[MetricsStore.FactSprintScope.doneInSprint] }
-            val doneAtByIssue = MetricsStore.FactTaskDelivery.selectAll()
-                .where { (MetricsStore.FactTaskDelivery.connectionId eq connId) and MetricsStore.FactTaskDelivery.doneAt.isNotNull() }
-                .toList().associate { it[MetricsStore.FactTaskDelivery.issueId] to it[MetricsStore.FactTaskDelivery.doneAt]!! }
+            val scopeRows = MetricsTables.FactSprintScope.selectAll().where { MetricsTables.FactSprintScope.connectionId eq connId }
+                .toList().filter { it[MetricsTables.FactSprintScope.doneInSprint] }
+            val doneAtByIssue = MetricsTables.FactTaskDelivery.selectAll()
+                .where { (MetricsTables.FactTaskDelivery.connectionId eq connId) and MetricsTables.FactTaskDelivery.doneAt.isNotNull() }
+                .toList().associate { it[MetricsTables.FactTaskDelivery.issueId] to it[MetricsTables.FactTaskDelivery.doneAt]!! }
             fun sampledDays(column: org.jetbrains.exposed.v1.core.Column<java.math.BigDecimal>): List<String> {
                 val days = rows.filter { it.value[column].signum() != 0 }.keys.map { it.day }.distinct().sorted()
                 assertTrue(days.size >= 3, "the fixture needs at least three days with team ${column.name} to sample")
@@ -2401,9 +2430,9 @@ class MetricsDerivationTest {
             }
             val pvDays = sampledDays(flow.pvMd)
             val evDays = sampledDays(flow.evMd)
-            val dayBounds = MetricsStore.DimDate.selectAll().where { MetricsStore.DimDate.day inList (pvDays + evDays) }.toList()
+            val dayBounds = MetricsTables.DimDate.selectAll().where { MetricsTables.DimDate.day inList (pvDays + evDays) }.toList()
                 .associate {
-                    it[MetricsStore.DimDate.day] to (it[MetricsStore.DimDate.dayStartMs] to it[MetricsStore.DimDate.dayEndMs])
+                    it[MetricsTables.DimDate.day] to (it[MetricsTables.DimDate.dayStartMs] to it[MetricsTables.DimDate.dayEndMs])
                 }
             pvDays.forEach { day ->
                 val (startMs, endMs) = dayBounds.getValue(day)
@@ -2420,11 +2449,11 @@ class MetricsDerivationTest {
             evDays.forEach { day ->
                 val (startMs, endMs) = dayBounds.getValue(day)
                 val expected = scopeRows.filter { row ->
-                    dimBySprint.getValue(row[MetricsStore.FactSprintScope.sprintId])[ds.teamId] != null &&
-                        doneAtByIssue[row[MetricsStore.FactSprintScope.issueId]]?.let { it in startMs until endMs } == true
-                }.groupBy { dimBySprint.getValue(it[MetricsStore.FactSprintScope.sprintId])[ds.teamId]!!.value.toString() }
+                    dimBySprint.getValue(row[MetricsTables.FactSprintScope.sprintId])[ds.teamId] != null &&
+                        doneAtByIssue[row[MetricsTables.FactSprintScope.issueId]]?.let { it in startMs until endMs } == true
+                }.groupBy { dimBySprint.getValue(it[MetricsTables.FactSprintScope.sprintId])[ds.teamId]!!.value.toString() }
                     .mapValues { (_, v) ->
-                        v.fold(java.math.BigDecimal.ZERO) { a, b -> a + bd(b[MetricsStore.FactSprintScope.estimateAtDoneMd]) }
+                        v.fold(java.math.BigDecimal.ZERO) { a, b -> a + bd(b[MetricsTables.FactSprintScope.estimateAtDoneMd]) }
                     }
                     .filterValues { it.signum() != 0 }
                 val actual = rows.filter { it.key.day == day && it.value[flow.evMd].signum() != 0 }
@@ -2447,14 +2476,14 @@ class MetricsDerivationTest {
         val flowRows = flowRowsByKey(connId)
         val calendar = WorkingCalendar(ZoneId.of("Europe/Warsaw"), setOf(6, 7), emptySet())
         suspendTransaction(sharedDatabaseForTests()) {
-            val plan = MetricsStore.FactEpicPlan
-            val flow = MetricsStore.AggDailyFlow
+            val plan = MetricsTables.FactEpicPlan
+            val flow = MetricsTables.AggDailyFlow
             // The oracle iterates the SAME set the PV SQL reads (A23): current baselines with start, due and budget all
             // set AND both dates inside the PV horizon (an out-of-horizon epic gets no PV at all, never a clamped curve).
             val current = plan.selectAll().where { (plan.connectionId eq connId) and plan.supersededAt.isNull() }.toList()
                 .filter { it[plan.startAt] != null && it[plan.dueAt] != null && it[plan.budgetMd] != null }
                 .filter { DeriveKernels.inPvHorizon(it[plan.startAt]!!, it[plan.dueAt]!!, DerivedStubFixture.PINNED_NOW) }
-            val dimDates = MetricsStore.DimDate.selectAll().toList().map { it[MetricsStore.DimDate.day] }.toSet()
+            val dimDates = MetricsTables.DimDate.selectAll().toList().map { it[MetricsTables.DimDate.day] }.toSet()
             var withCurve = 0
             current.forEach { row ->
                 val epicId = row[plan.issueId].toString()
@@ -2505,17 +2534,17 @@ class MetricsDerivationTest {
             val connId = DerivedStubFixture.connectionId()
             val flowRows = flowRowsByKey(connId)
             suspendTransaction(sharedDatabaseForTests()) {
-                val flow = MetricsStore.AggDailyFlow
-                val epicDomainByDimEpic = MetricsStore.DimEpic.selectAll().where { MetricsStore.DimEpic.connectionId eq connId }
-                    .toList().associate { it[MetricsStore.DimEpic.issueId].toString() to it[MetricsStore.DimEpic.domainKey] }
-                val ft = MetricsStore.FactTaskDelivery
-                val wl = MetricsStore.FactWorklog
+                val flow = MetricsTables.AggDailyFlow
+                val epicDomainByDimEpic = MetricsTables.DimEpic.selectAll().where { MetricsTables.DimEpic.connectionId eq connId }
+                    .toList().associate { it[MetricsTables.DimEpic.issueId].toString() to it[MetricsTables.DimEpic.domainKey] }
+                val ft = MetricsTables.FactTaskDelivery
+                val wl = MetricsTables.FactWorklog
                 val doneTasks = ft.selectAll()
                     .where { (ft.connectionId eq connId) and (ft.isSubtask eq false) and ft.doneAt.isNotNull() and ft.epicId.isNotNull() }
                     .toList()
                 val worklogs = wl.selectAll().where { wl.connectionId eq connId }.toList()
-                val dayBounds = MetricsStore.DimDate.selectAll().toList()
-                    .map { Triple(it[MetricsStore.DimDate.day], it[MetricsStore.DimDate.dayStartMs], it[MetricsStore.DimDate.dayEndMs]) }
+                val dayBounds = MetricsTables.DimDate.selectAll().toList()
+                    .map { Triple(it[MetricsTables.DimDate.day], it[MetricsTables.DimDate.dayStartMs], it[MetricsTables.DimDate.dayEndMs]) }
                 fun dayOf(ts: Long) = dayBounds.firstOrNull { ts >= it.second && ts < it.third }?.first
                     ?: error("timestamp $ts falls on no dim_date day — an event would be dropped from agg_daily_flow")
 
@@ -2583,9 +2612,9 @@ class MetricsDerivationTest {
                 acByTeamDay.forEach { (key, want) -> assertEquals(0, want.compareTo(flowTeamAc.getValue(key)), "TEAM AC $key") }
                 // No worklog is dropped: every fact_worklog row matches a dim_date day (the join the AC SQL performs).
                 val matchedWorklogs = wl.join(
-                    MetricsStore.DimDate, JoinType.INNER,
+                    MetricsTables.DimDate, JoinType.INNER,
                     additionalConstraint = {
-                        (MetricsStore.DimDate.dayStartMs lessEq wl.startedAt) and (wl.startedAt less MetricsStore.DimDate.dayEndMs)
+                        (MetricsTables.DimDate.dayStartMs lessEq wl.startedAt) and (wl.startedAt less MetricsTables.DimDate.dayEndMs)
                     },
                 ).selectAll().where { wl.connectionId eq connId }.count()
                 assertEquals(worklogs.size.toLong(), matchedWorklogs, "every worklog must land on a dim_date day (none dropped from AC)")
@@ -2614,7 +2643,7 @@ class MetricsDerivationTest {
         val epicIssueId = metricsDerivationGoldenEpic.issueId.toLong()
         val dueDay = "2031-06-30" // a Monday, inside the 10-year PV horizon, beyond PINNED_NOW + 2 years
         val lastDayBefore = suspendTransaction(sharedDatabaseForTests()) {
-            MetricsStore.DimDate.selectAll().orderBy(MetricsStore.DimDate.day to SortOrder.DESC).limit(1).toList().single()[MetricsStore.DimDate.day]
+            MetricsTables.DimDate.selectAll().orderBy(MetricsTables.DimDate.day to SortOrder.DESC).limit(1).toList().single()[MetricsTables.DimDate.day]
         }
         assertTrue(lastDayBefore < dueDay, "the initial dim_date range must end before the widened epic's due day")
         suspendTransaction(sharedDatabaseForTests()) {
@@ -2627,12 +2656,12 @@ class MetricsDerivationTest {
             DerivedStubFixture.withPinnedSettings(config) { DerivedStubFixture.derivePinned(connId, config) }
 
             val dimDays = suspendTransaction(sharedDatabaseForTests()) {
-                MetricsStore.DimDate.selectAll().where { MetricsStore.DimDate.day greater lastDayBefore }.toList()
-                    .map { it[MetricsStore.DimDate.day] }.toSet()
+                MetricsTables.DimDate.selectAll().where { MetricsTables.DimDate.day greater lastDayBefore }.toList()
+                    .map { it[MetricsTables.DimDate.day] }.toSet()
             }
             assertTrue(dueDay in dimDays && "2031-07-01" in dimDays, "dim_date must reach the due day plus one day of slack")
 
-            val flow = MetricsStore.AggDailyFlow
+            val flow = MetricsTables.AggDailyFlow
             val pv = suspendTransaction(sharedDatabaseForTests()) {
                 flow.selectAll().where {
                     (flow.connectionId eq connId) and (flow.scopeKind eq "EPIC") and (flow.scopeId eq epicIssueId.toString()) and
@@ -2640,20 +2669,20 @@ class MetricsDerivationTest {
                 }.toList().associate { it[flow.day] to it[flow.pvMd] }
             }
             val budget = suspendTransaction(sharedDatabaseForTests()) {
-                val plan = MetricsStore.FactEpicPlan
+                val plan = MetricsTables.FactEpicPlan
                 plan.selectAll().where { (plan.connectionId eq connId) and (plan.issueId eq epicIssueId) and plan.supersededAt.isNull() }
                     .toList().single()
             }
-            assertEquals(isoDateEpochMillis(dueDay), budget[MetricsStore.FactEpicPlan.dueAt], "the widened due date is the current one")
+            assertEquals(isoDateEpochMillis(dueDay), budget[MetricsTables.FactEpicPlan.dueAt], "the widened due date is the current one")
             assertTrue(dueDay in pv, "the epic's PV must reach its (widened) due day")
             val total = pv.values.fold(java.math.BigDecimal.ZERO) { a, b -> a + b }.toDouble()
             assertTrue(
-                abs(total - budget[MetricsStore.FactEpicPlan.budgetMd]!!.toDouble()) <= PV_CUMULATIVE_TOLERANCE,
+                abs(total - budget[MetricsTables.FactEpicPlan.budgetMd]!!.toDouble()) <= PV_CUMULATIVE_TOLERANCE,
                 "the epic's PV must total its budget ($total)",
             )
         } finally {
             suspendTransaction(sharedDatabaseForTests()) {
-                MetricsStore.DimDate.deleteWhere { MetricsStore.DimDate.day greater lastDayBefore }
+                MetricsTables.DimDate.deleteWhere { MetricsTables.DimDate.day greater lastDayBefore }
             }
         }
     }

@@ -1,7 +1,7 @@
 package ch.nokillswit
 
 import ch.nokillswit.jira.JiraProcessStream
-import ch.nokillswit.metrics.MetricsStore
+import ch.nokillswit.metrics.MetricsTables
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.core.and
@@ -30,7 +30,7 @@ import kotlin.test.assertTrue
  */
 class MetricsDigestTest {
     private suspend fun snapshotRowCount(connId: UInt): Int = suspendTransaction(sharedDatabaseForTests()) {
-        MetricsStore.FactSprintSnapshot.selectAll().where { MetricsStore.FactSprintSnapshot.connectionId eq connId }.toList().size
+        MetricsTables.FactSprintSnapshot.selectAll().where { MetricsTables.FactSprintSnapshot.connectionId eq connId }.toList().size
     }
 
     /** A private, disabled, FLO-board-mapped processed clone — the same setup `DerivedStubFixture` derives. */
@@ -107,7 +107,7 @@ class MetricsDigestTest {
         val baseline = DerivedStubFixture.metricsDigest(connId)
 
         // A 0.0001 nudge (the column's own scale) on ONE task's fact value.
-        val fact = MetricsStore.FactTaskDelivery
+        val fact = MetricsTables.FactTaskDelivery
         val (issueId, original) = suspendTransaction(sharedDatabaseForTests()) {
             val row = fact.selectAll().where { fact.connectionId eq connId }.toList().first()
             row[fact.issueId] to row[fact.blockedWorkingDays]
@@ -121,7 +121,7 @@ class MetricsDigestTest {
         assertEquals(baseline, DerivedStubFixture.metricsDigest(connId), "restoring the value must restore the digest")
 
         // One row of a surrogate-id bridge table (no natural key — its whole row is the sort key).
-        val bridge = MetricsStore.TaskSprint
+        val bridge = MetricsTables.TaskSprint
         val deleted = suspendTransaction(sharedDatabaseForTests()) {
             val row = bridge.selectAll().where { bridge.connectionId eq connId }.toList().first()
             bridge.deleteWhere { (bridge.connectionId eq connId) and (bridge.id eq row[bridge.id]) }

@@ -1,6 +1,6 @@
 package ch.nokillswit.reports
 
-import ch.nokillswit.metrics.MetricsStore
+import ch.nokillswit.metrics.MetricsTables
 import java.math.BigDecimal
 import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.Serializable
@@ -159,7 +159,7 @@ suspend fun ReportService.epicEstimationAccuracy(filter: ReportFilter, nowMs: Lo
 
 private suspend fun fetchAccuracyEpics(filter: ReportFilter, connectionIds: List<UInt>, window: Pair<Long, Long>): List<AccuracyEpic> {
     if (connectionIds.isEmpty()) return emptyList()
-    val e = MetricsStore.FactEpicDelivery
+    val e = MetricsTables.FactEpicDelivery
     val predicate = epicFactSlice(filter, connectionIds) and
         e.doneAt.isNotNull() and (e.doneAt greaterEq window.first) and (e.doneAt less window.second)
     return e.select(
@@ -182,7 +182,7 @@ private suspend fun fetchAccuracyEpics(filter: ReportFilter, connectionIds: List
 
 private suspend fun epicRows(epics: List<AccuracyEpic>): List<EpicAccuracyRow> {
     if (epics.isEmpty()) return emptyList()
-    val d = MetricsStore.DimEpic
+    val d = MetricsTables.DimEpic
     val dims = d.select(d.connectionId, d.issueId, d.issueKey, d.summary)
         .where {
             (d.connectionId inList epics.map { it.connectionId }.distinct()) and (d.issueId inList epics.map { it.issueId }.distinct())

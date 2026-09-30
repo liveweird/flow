@@ -3,7 +3,7 @@ package ch.nokillswit.reports
 import ch.nokillswit.infra.db.active
 import ch.nokillswit.ingest.DataSourceService
 import ch.nokillswit.metrics.MetricsConfigService
-import ch.nokillswit.metrics.MetricsStore
+import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.metrics.TeamMembershipService
 import ch.nokillswit.norm.WorkItemStore
 import ch.nokillswit.teams.TeamService
@@ -52,10 +52,10 @@ class ReportService(
         val sprintsByTeam = if (teamIds.isEmpty()) {
             emptyMap()
         } else {
-            MetricsStore.DimSprint.selectAll()
-                .where { MetricsStore.DimSprint.teamId inList teamIds }
+            MetricsTables.DimSprint.selectAll()
+                .where { MetricsTables.DimSprint.teamId inList teamIds }
                 .toList()
-                .groupBy { it[MetricsStore.DimSprint.teamId]!!.value }
+                .groupBy { it[MetricsTables.DimSprint.teamId]!!.value }
         }
 
         // D1's CURRENT membership, one DB round trip per team (TeamMembershipService's own read) —
@@ -84,27 +84,27 @@ class ReportService(
             ReportFilterTeam(id, row[TeamService.Teams.name], sprints, members)
         }
 
-        val domains = MetricsStore.DimDomain.select(MetricsStore.DimDomain.domainKey, MetricsStore.DimDomain.name)
+        val domains = MetricsTables.DimDomain.select(MetricsTables.DimDomain.domainKey, MetricsTables.DimDomain.name)
             .withDistinct()
-            .orderBy(MetricsStore.DimDomain.domainKey)
+            .orderBy(MetricsTables.DimDomain.domainKey)
             .toList()
-            .distinctBy { it[MetricsStore.DimDomain.domainKey] }
-            .map { ReportFilterDomain(it[MetricsStore.DimDomain.domainKey], it[MetricsStore.DimDomain.name]) }
+            .distinctBy { it[MetricsTables.DimDomain.domainKey] }
+            .map { ReportFilterDomain(it[MetricsTables.DimDomain.domainKey], it[MetricsTables.DimDomain.name]) }
 
-        val activityTypes = MetricsStore.DimTask.select(MetricsStore.DimTask.activityType)
+        val activityTypes = MetricsTables.DimTask.select(MetricsTables.DimTask.activityType)
             .withDistinct()
             .toList()
-            .map { it[MetricsStore.DimTask.activityType] }
+            .map { it[MetricsTables.DimTask.activityType] }
             .distinct().sorted()
 
-        val taskWorkCategories = MetricsStore.DimTask.select(MetricsStore.DimTask.workCategory)
-            .where { MetricsStore.DimTask.workCategory.isNotNull() }
+        val taskWorkCategories = MetricsTables.DimTask.select(MetricsTables.DimTask.workCategory)
+            .where { MetricsTables.DimTask.workCategory.isNotNull() }
             .withDistinct()
-            .toList().mapNotNull { it[MetricsStore.DimTask.workCategory] }
-        val epicWorkCategories = MetricsStore.DimEpic.select(MetricsStore.DimEpic.workCategory)
-            .where { MetricsStore.DimEpic.workCategory.isNotNull() }
+            .toList().mapNotNull { it[MetricsTables.DimTask.workCategory] }
+        val epicWorkCategories = MetricsTables.DimEpic.select(MetricsTables.DimEpic.workCategory)
+            .where { MetricsTables.DimEpic.workCategory.isNotNull() }
             .withDistinct()
-            .toList().mapNotNull { it[MetricsStore.DimEpic.workCategory] }
+            .toList().mapNotNull { it[MetricsTables.DimEpic.workCategory] }
         val workCategories = (taskWorkCategories + epicWorkCategories).distinct().sorted()
 
         // Active only — NOT `enabled` too: a connection an admin has paused from syncing still owns
@@ -115,10 +115,10 @@ class ReportService(
             .toList()
             .map { ReportFilterConnection(it[DataSourceService.Connections.id].value, it[DataSourceService.Connections.name]) }
 
-        val derivedAt = MetricsStore.DeriveRuns.select(MetricsStore.DeriveRuns.finishedAt)
-            .where { MetricsStore.DeriveRuns.status eq DERIVE_RUN_SUCCEEDED }
+        val derivedAt = MetricsTables.DeriveRuns.select(MetricsTables.DeriveRuns.finishedAt)
+            .where { MetricsTables.DeriveRuns.status eq DERIVE_RUN_SUCCEEDED }
             .toList()
-            .mapNotNull { it[MetricsStore.DeriveRuns.finishedAt] }
+            .mapNotNull { it[MetricsTables.DeriveRuns.finishedAt] }
             .maxOrNull()
 
         ReportFilters(
@@ -135,10 +135,10 @@ class ReportService(
     }
 
     private fun ResultRow.toSprint(): ReportFilterSprint = ReportFilterSprint(
-        sprintId = this[MetricsStore.DimSprint.sprintId],
-        name = this[MetricsStore.DimSprint.name],
-        state = this[MetricsStore.DimSprint.state],
-        startAt = this[MetricsStore.DimSprint.startAt],
-        completeAt = this[MetricsStore.DimSprint.completeAt],
+        sprintId = this[MetricsTables.DimSprint.sprintId],
+        name = this[MetricsTables.DimSprint.name],
+        state = this[MetricsTables.DimSprint.state],
+        startAt = this[MetricsTables.DimSprint.startAt],
+        completeAt = this[MetricsTables.DimSprint.completeAt],
     )
 }

@@ -1,7 +1,7 @@
 package ch.nokillswit.reports
 
 import ch.nokillswit.metrics.DeriveKernels
-import ch.nokillswit.metrics.MetricsStore
+import ch.nokillswit.metrics.MetricsTables
 import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -73,7 +73,7 @@ internal suspend fun fetchDqEpics(
     nowMs: Long,
 ): List<DqEpic> {
     if (connectionIds.isEmpty() || filter.level == ReportLevel.USER) return emptyList()
-    val e = MetricsStore.FactEpicDelivery
+    val e = MetricsTables.FactEpicDelivery
     val period = if (window == null) {
         e.doneAt.isNull()
     } else {
@@ -84,7 +84,7 @@ internal suspend fun fetchDqEpics(
         e.connectionId, e.issueId, e.ownerTeamId, e.domainKey, e.doneAt, e.budgetSource, e.driftFlags,
     ).where { predicate }.toList()
     if (facts.isEmpty()) return emptyList()
-    val d = MetricsStore.DimEpic
+    val d = MetricsTables.DimEpic
     val dims = d.select(d.connectionId, d.issueId, d.issueKey, d.summary, d.startAt, d.dueAt)
         .where {
             (d.connectionId inList facts.map { it[e.connectionId].value }.distinct()) and

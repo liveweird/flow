@@ -1,7 +1,7 @@
 package ch.nokillswit.reports
 
 import ch.nokillswit.infra.db.nowMillis
-import ch.nokillswit.metrics.MetricsStore
+import ch.nokillswit.metrics.MetricsTables
 import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.Serializable
 import org.jetbrains.exposed.v1.core.Op
@@ -118,23 +118,23 @@ private suspend fun fetchScopeContributions(sprintRows: List<SprintRow>, account
     if (sprintRows.isEmpty()) return emptyList()
     val connectionIds = sprintRows.map { it.connectionId }.distinct()
     val sprintIds = sprintRows.map { it.sprintId }.distinct()
-    var predicate: Op<Boolean> = (MetricsStore.FactSprintScope.connectionId inList connectionIds) and
-        (MetricsStore.FactSprintScope.sprintId inList sprintIds)
-    accountId?.let { predicate = predicate and (MetricsStore.FactSprintScope.assigneeAtCommitment eq it) }
+    var predicate: Op<Boolean> = (MetricsTables.FactSprintScope.connectionId inList connectionIds) and
+        (MetricsTables.FactSprintScope.sprintId inList sprintIds)
+    accountId?.let { predicate = predicate and (MetricsTables.FactSprintScope.assigneeAtCommitment eq it) }
     // connection IN (...) AND sprint IN (...) is a cross product: keep exactly the (connection, sprint) pairs
     // in scope, since two connections to one Jira site share sprint ids.
     val inScope = sprintRows.map { it.connectionId to it.sprintId }.toSet()
-    return MetricsStore.FactSprintScope.selectAll().where { predicate }.toList().filter {
-        (it[MetricsStore.FactSprintScope.connectionId].value to it[MetricsStore.FactSprintScope.sprintId]) in inScope
+    return MetricsTables.FactSprintScope.selectAll().where { predicate }.toList().filter {
+        (it[MetricsTables.FactSprintScope.connectionId].value to it[MetricsTables.FactSprintScope.sprintId]) in inScope
     }.map {
         ScopeContribution(
-            connectionId = it[MetricsStore.FactSprintScope.connectionId].value,
-            sprintId = it[MetricsStore.FactSprintScope.sprintId],
-            accountId = it[MetricsStore.FactSprintScope.assigneeAtCommitment],
-            committed = it[MetricsStore.FactSprintScope.committed],
-            inScopeAtClose = it[MetricsStore.FactSprintScope.inScopeAtClose],
-            commitMd = it[MetricsStore.FactSprintScope.estimateAtCommitmentMd]?.toDouble(),
-            closeMd = it[MetricsStore.FactSprintScope.estimateAtCloseMd]?.toDouble(),
+            connectionId = it[MetricsTables.FactSprintScope.connectionId].value,
+            sprintId = it[MetricsTables.FactSprintScope.sprintId],
+            accountId = it[MetricsTables.FactSprintScope.assigneeAtCommitment],
+            committed = it[MetricsTables.FactSprintScope.committed],
+            inScopeAtClose = it[MetricsTables.FactSprintScope.inScopeAtClose],
+            commitMd = it[MetricsTables.FactSprintScope.estimateAtCommitmentMd]?.toDouble(),
+            closeMd = it[MetricsTables.FactSprintScope.estimateAtCloseMd]?.toDouble(),
         )
     }
 }

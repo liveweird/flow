@@ -258,7 +258,8 @@ ch.nokillswit
 ├── metrics/            v0.3.0 metrics configuration + the DERIVE job (`.claude/docs/metrics.md`):
 │                       config/memberships/Jira-users services + routes, MetricsSettings,
 │                       DataSourceMetricsConfig, WorkingCalendar, MetricsDeriver + Derive*Step/
-│                       Kernels/Model/TaskRows files, MetricsStore (V15–V17 `metrics.*`)
+│                       Kernels/Model/TaskRows files, MetricsStore (the batch writers) + MetricsTables (the Exposed
+│                       table objects, `MetricsTables.DimDate` …) + MetricsRows (the row shapes) (V15–V17 `metrics.*`)
 └── reports/            the reports API (`.claude/docs/reports.md`): shared filter/`meta`/
                         `Distribution` machinery (ReportSupport, SnapshotSupport, DataQuality*)
                         + one `<Name>Report.kt` per report

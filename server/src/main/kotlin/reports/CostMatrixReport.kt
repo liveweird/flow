@@ -1,7 +1,7 @@
 package ch.nokillswit.reports
 
 import ch.nokillswit.infra.db.active
-import ch.nokillswit.metrics.MetricsStore
+import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.teams.TeamService
 import java.math.BigDecimal
 import kotlinx.coroutines.flow.toList
@@ -64,7 +64,7 @@ private fun Iterable<CostAggregate>.exact(): BigDecimal = fold(BigDecimal.ZERO) 
 private fun ratio(part: BigDecimal, whole: BigDecimal): Double? = if (whole.signum() == 0) null else part.toDouble() / whole.toDouble()
 
 private suspend fun fetchCostAggregates(filter: ReportFilter, connectionIds: List<UInt>, window: Pair<Long, Long>): List<CostAggregate> {
-    val w = MetricsStore.FactWorklog
+    val w = MetricsTables.FactWorklog
     val md = w.md.sum()
     return w.select(w.authorTeamId, w.authorAccountId, w.taskDomainKey, w.epicDomainKey, w.foreignWork, md)
         .where { worklogSlice(filter, connectionIds, window) }
@@ -80,7 +80,7 @@ private suspend fun fetchCostAggregates(filter: ReportFilter, connectionIds: Lis
 
 /** Domain display names (the lowest connection id's name wins for a key seen on several). */
 private suspend fun domainNames(connectionIds: List<UInt>): Map<String, String> {
-    val d = MetricsStore.DimDomain
+    val d = MetricsTables.DimDomain
     return d.select(d.domainKey, d.name).where { d.connectionId inList connectionIds }
         .orderBy(d.connectionId to SortOrder.DESC)
         .toList().associate { it[d.domainKey] to it[d.name] }

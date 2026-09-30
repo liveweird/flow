@@ -105,21 +105,21 @@ class MetricsDeriver(
             // OTHER RUNNING row for this connection belongs to a worker that died mid-DERIVE (SIGKILL,
             // lost lease) and can never finish — nothing else would ever mark it terminal, and
             // `pruneDeriveRuns` only deletes SUCCEEDED/FAILED rows. Same transaction as our own insert.
-            MetricsStore.DeriveRuns.update({
-                (MetricsStore.DeriveRuns.connectionId eq connectionId.toInt()) and (MetricsStore.DeriveRuns.status eq "RUNNING")
+            MetricsTables.DeriveRuns.update({
+                (MetricsTables.DeriveRuns.connectionId eq connectionId.toInt()) and (MetricsTables.DeriveRuns.status eq "RUNNING")
             }) {
                 it[status] = "FAILED"
-                it[MetricsStore.DeriveRuns.finishedAt] = now
+                it[MetricsTables.DeriveRuns.finishedAt] = now
                 it[errorDetail] = ABANDONED_RUN_DETAIL
             }
-            MetricsStore.DeriveRuns.insert {
-                it[MetricsStore.DeriveRuns.connectionId] = connectionId.toInt()
-                it[MetricsStore.DeriveRuns.jobId] = jobId.toInt()
-                it[MetricsStore.DeriveRuns.configRevision] = settings.configRevision
-                it[MetricsStore.DeriveRuns.processingVersion] = PROCESSING_VERSION
-                it[MetricsStore.DeriveRuns.startedAt] = now
-                it[MetricsStore.DeriveRuns.status] = "RUNNING"
-            }[MetricsStore.DeriveRuns.id]
+            MetricsTables.DeriveRuns.insert {
+                it[MetricsTables.DeriveRuns.connectionId] = connectionId.toInt()
+                it[MetricsTables.DeriveRuns.jobId] = jobId.toInt()
+                it[MetricsTables.DeriveRuns.configRevision] = settings.configRevision
+                it[MetricsTables.DeriveRuns.processingVersion] = PROCESSING_VERSION
+                it[MetricsTables.DeriveRuns.startedAt] = now
+                it[MetricsTables.DeriveRuns.status] = "RUNNING"
+            }[MetricsTables.DeriveRuns.id]
         }
 
         try {
@@ -246,9 +246,9 @@ class MetricsDeriver(
         suspendTransaction(database) {
             // Only while still RUNNING: a newer DERIVE of the same connection may already have swept this run
             // FAILED as abandoned (a lease-expired zombie) — its late write must not overwrite that.
-            MetricsStore.DeriveRuns.update({ (MetricsStore.DeriveRuns.id eq runId) and (MetricsStore.DeriveRuns.status eq "RUNNING") }) {
+            MetricsTables.DeriveRuns.update({ (MetricsTables.DeriveRuns.id eq runId) and (MetricsTables.DeriveRuns.status eq "RUNNING") }) {
                 it[status] = "SUCCEEDED"
-                it[MetricsStore.DeriveRuns.finishedAt] = finishedAt
+                it[MetricsTables.DeriveRuns.finishedAt] = finishedAt
                 it[rowCounts] = countsJson
             }
         }
@@ -258,9 +258,9 @@ class MetricsDeriver(
         suspendTransaction(database) {
             // Only while still RUNNING: a newer DERIVE of the same connection may already have swept this run
             // FAILED as abandoned (a lease-expired zombie) — its late write must not overwrite that.
-            MetricsStore.DeriveRuns.update({ (MetricsStore.DeriveRuns.id eq runId) and (MetricsStore.DeriveRuns.status eq "RUNNING") }) {
+            MetricsTables.DeriveRuns.update({ (MetricsTables.DeriveRuns.id eq runId) and (MetricsTables.DeriveRuns.status eq "RUNNING") }) {
                 it[status] = "FAILED"
-                it[MetricsStore.DeriveRuns.finishedAt] = finishedAt
+                it[MetricsTables.DeriveRuns.finishedAt] = finishedAt
                 it[errorDetail] = failure.message?.take(MAX_ERROR_DETAIL_LENGTH)
             }
         }
