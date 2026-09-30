@@ -7,7 +7,7 @@ metadata:
   namespace: flow
 spec:
   replicas: 1
-  # Never overlap old password writers with the credential-revision-aware server (V20).
+  # Never overlap old password writers with the credential-revision-aware server (V7).
   # This single-instance deployment accepts brief downtime during application upgrades.
   strategy:
     type: Recreate
@@ -19,6 +19,8 @@ spec:
       labels:
         io.kompose.service: app
     spec:
+      # The app never calls the Kubernetes API — do not mount a ServiceAccount token into the pod.
+      automountServiceAccountToken: false
       # The image runs as uid 10001 (Dockerfile), the root filesystem is read-only (the JVM
       # only needs a writable /tmp), no privilege escalation.
       securityContext:

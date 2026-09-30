@@ -93,7 +93,7 @@ than the minimum sample size show counts only, with a note").
 own choice, documented in the file itself.** The plan allows either a
 `percentile_cont`/`width_bucket` SQL fragment over a whitelisted column, or a pure Kotlin fallback;
 commit 10a builds the reports FOUNDATION only, with no report query yet to attach a SQL fragment
-to (velocity/throughput/estimation/etc. land in later commits -- plan section 10). The Kotlin path also
+to (the per-report queries, added in later commits, are pure-Kotlin consumers of it too -- plan section 10). The Kotlin path also
 means `Distribution`'s own math is testable with zero database (`DistributionTest`). It mirrors
 PostgreSQL's exact conventions so a later SQL-backed report never disagrees with this one over the
 same input: `p50`/`p90`/`p95` use `percentile_cont`'s own linear-interpolation-between-closest-ranks
@@ -211,7 +211,7 @@ VelocityReport {
     (`committed AND in_scope_at_close`) sums `estimate_at_commitment_md`, final
     (`in_scope_at_close`) sums `estimate_at_close_md`, the SAME removed-row rule
     `DeriveKernels.sprintTotals` applies to the team total itself (`.claude/docs/metrics.md`
-    "Sprint scope, facts and snapshots (D13)"), so `Σ groups == the team total` (both buckets, both
+    "Sprint scope, facts and snapshots"), so `Σ groups == the team total` (both buckets, both
     MD and items; up to 0.01 MD per sprint of rounding when estimates have more than two decimals --
     see "Rounding" under Report 6). A `null` `accountId`/`label` group is the unassigned-at-commitment
     bucket, listed last -- never a stored sentinel, the `credit_team_id` convention.

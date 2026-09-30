@@ -715,7 +715,7 @@ class MetricsDerivationTest {
             // dropped MD are all read at the SAME `sprintCloseAt` instant — a re-estimate between
             // entry and close makes the committed+added MD sum genuinely diverge from final MD (not a
             // rounding artifact — confirmed against the real fixture, `.claude/docs/metrics.md`
-            // "Sprint scope, facts and snapshots (D13)"); delivered/carried/dropped, by contrast, all
+            // "Sprint scope, facts and snapshots"); delivered/carried/dropped, by contrast, all
             // read the identical `estimateAtCloseMd` value over an exact partition, so their MD sum
             // equals final MD up to BigDecimal storage rounding only.
             val mdTolerance = 0.01

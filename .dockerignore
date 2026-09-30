@@ -1,8 +1,20 @@
 # Build outputs — rebuilt inside the image
 **/build/
 .gradle/
-web/node_modules/
+**/.kotlin/
 web/dist/
+web/coverage/
+e2e/playwright-report/
+e2e/test-results/
+
+# Installed dependencies (every stage runs its own `npm ci` / Gradle resolve). Recursive so a nested
+# workspace can never leak a host-built node_modules (native binaries) into a COPY.
+**/node_modules/
+
+# Agent/tooling state: skills, docs, settings and — in a primary checkout — every git worktree
+# under .claude/worktrees/ (each with its own node_modules/build). Measured on the primary
+# checkout: the context transfer fell from 3.84 GB to 17.7 MB. No Dockerfile stage reads .claude/.
+.claude/
 
 # The synthetic Jira dataset + WireMock stub: a dev/test fixture (mounted straight into the
 # jira-stub compose service, read by server tests via Testcontainers), never copied into the app
@@ -14,4 +26,3 @@ sample-data/
 **/.idea/
 **/*.iml
 server/h2.mv.db
-e2e/node_modules/

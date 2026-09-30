@@ -26,12 +26,12 @@ const sans =
   "'Inter Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
 
 // Design language (the Lettuce/Toadie "clean enterprise SaaS" posture): the brand blue is
-// the interactive accent — primary CTAs, the active nav item, focus — and NOTHING else: links
+// the interactive accent — primary CTAs, the active nav item, focus, the in-progress status —
+// and NOTHING else: links
 // are dark text with a hover underline, chips and badges are light tints, icon controls are
 // neutral gray. One colour at one intensity for one job, so the few blue elements on a
 // screen are the ones that matter. Semantic colours never impersonate the brand: red =
-// blocking error, orange = waived finding, teal = success, yellow = in flight (a PROPOSED
-// version, a PUT/PATCH method badge — the one non-verdict token). The canvas is a quiet near-white
+// blocking error, orange = soft finding, teal = success. The canvas is a quiet near-white
 // (dark: dark-8) that lets white surfaces lift on a soft, diffuse shadow scale. Don't
 // reintroduce stock-green success states (blue itself IS the brand now, so it is never a
 // stand-in for "just another action" the way it was forbidden under the violet brand). A

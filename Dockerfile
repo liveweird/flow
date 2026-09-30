@@ -69,7 +69,7 @@ EXPOSE 8084
 # In production mode (the image default, KTOR_DEVELOPMENT=false above) a plain-HTTP request gets
 # a 301 to https://..., which curl -f treats as success — the check would prove nothing but that
 # the redirect itself answers. X-Forwarded-Proto: https marks the request already-secure, the same
-# header every k8s probe sends (k8s/app-deployment.yaml), so curl gets a real 200 instead of a
+# header every k8s probe sends (k8s/web-deployment.yaml), so curl gets a real 200 instead of a
 # redirect it can't distinguish from success. Ktor only trusts this header when HTTP_BEHIND_PROXY
 # is also set (plugins/Http.kt's XForwardedHeaders); every deployment that ships this image in
 # production mode (k8s) also sets it, so the header makes the check meaningful there. A

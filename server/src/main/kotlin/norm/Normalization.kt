@@ -13,7 +13,7 @@ import kotlinx.serialization.Serializable
  * Bump on ANY change to the tiling/write-shape rules below — `raw.jira_issues.processing_version
  * IS DISTINCT FROM` this reprocesses every issue automatically (plan §8).
  *
- * `2` (v0.3.0 M1 commit 2, V14, `.claude/docs/domain-model.md` "Gaps in `norm` today"): PARENT
+ * `2` (v0.3.0 M1 commit 2, V14, `.claude/docs/domain-model.md` "Gaps in `norm`"): PARENT
  * tiling, every `customfield_*` current value captured into `custom_fields`, `hierarchyLevel`/
  * `dueAt` current values, `field_id` on every `work_item_field_changes` row, worklog
  * `created`/`updated` timestamps, sprint `completeDate` — every existing issue reprocesses

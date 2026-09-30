@@ -21,6 +21,8 @@ spec:
       labels:
         io.kompose.service: worker
     spec:
+      # The app never calls the Kubernetes API — do not mount a ServiceAccount token into the pod.
+      automountServiceAccountToken: false
       # The image runs as uid 10001 (Dockerfile), the root filesystem is read-only (the JVM
       # only needs a writable /tmp), no privilege escalation.
       securityContext:

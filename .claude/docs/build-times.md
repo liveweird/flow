@@ -17,8 +17,13 @@ workspaces, so knip and eslint never see it). Budgets live in ONE place, `script
 node scripts/timings/ci-times.mjs --limit 20            # last 20 successful runs per workflow (ci, e2e)
 node scripts/timings/ci-times.mjs --branch master       # the trunk only (PR noise excluded)
 node scripts/timings/ci-times.mjs --steps web           # + the slowest steps of that job's latest run
+node scripts/timings/ci-times.mjs --workflows e2e --steps e2e   # the nightly's per-step rows (build / start / specs)
 node scripts/timings/ci-times.mjs --tsv                 # raw rows: created, sha, event, branch, job, seconds
 ```
+
+`--steps JOB` also shows each step's target/alarm and an `over target`/`OVER ALARM` flag when the step has a
+row under `ci-steps` in `budgets.json` (keys `<job>/<step name>`, the names the workflow gives its steps; today
+the nightly `e2e` job's five steps).
 
 Per job: latest, median of the last 5, median of the 5 before, min/max, the budget, and flags —
 `TREND +N%` (recent median more than 25 % above the previous one and, once the median is 60 s or more, by at least 10 s too — below that the rule is relative-only),
@@ -67,8 +72,14 @@ miss is a question to answer, not a number to adjust. CI runners are public-repo
 | CI `web` | 1.5 min | 3 min | cached `npm ci`, lint, knip, vitest, vite build of a small SPA; was 1m15s |
 | CI `e2e-static` | 30 s | 1 min | cached `npm ci` + eslint + knip + tsc over a handful of specs; runs ~15 s today |
 | CI `gradle-vulnerability-scan` | 1 min | 2 min | resolve the lockfiles + one trivy run over a few thousand lines |
-| CI `images` | 2.5 min | 4 min | multi-stage docker build (gradle installDist + vite build) on a cold layer cache |
+| CI `images` | 2.5 min | 4 min | multi-stage docker build (gradle installDist + vite build) with the BuildKit layer cache (`.github/compose-buildx-cache.yaml`), then a Trivy scan of the image. Cache and scan landed together (2026-09-30) with no runs behind them: expect the scan to add ~30-60 s, decide after two master runs whether the target moves |
+| CI `k8s-static` | 20 s | 45 s | one checkout, a pinned kubeconform download, validation of ~11 small objects twice (raw + rendered) |
 | CI `e2e` (nightly) | 7 min | 15 min | PROVISIONAL: image build + compose up + Playwright over a tiny stack; revisit with more data |
+| CI `e2e` step: `Install e2e deps` | 15 s | 45 s | `npm ci` of the e2e workspace with the npm cache |
+| CI `e2e` step: `Install Playwright browser` | 30 s | 1.5 min | `install-deps` (apt) with the browser cached by Playwright version; ~1 min on a cold cache |
+| CI `e2e` step: `Build images` | 2 min | 4 min | PROVISIONAL: compose build with the BuildKit layer cache; measured locally 2m08s cold, 1m32s warm with one changed source file |
+| CI `e2e` step: `Start the stack` | 45 s | 2 min | PROVISIONAL: `docker compose up -d --wait` — postgres + app (JVM boot, Flyway) healthy |
+| CI `e2e` step: `Run E2E` | 4 min | 9 min | PROVISIONAL: the Playwright specs alone (the old combined step, build and start-up included, took 7m06s of the 7m48s job on 09-29) |
 | local `server-build` (`./gradlew cleanTest build`) | 3 min | 6 min | 18 cores; compile, detekt, all tests, Kover, alignment |
 | local `server-test` | 2 min | 5 min | ~800 tests against ONE shared Postgres container |
 | local `web-gates` | 1.5 min | 3 min | lint:api + check:api + lint + knip + coverage tests + build |
