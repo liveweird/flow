@@ -3366,7 +3366,7 @@ components:
       required: [derivedAt, configRevision, from, to, level, domainView, resolvedSprints, minSampleSize]
       properties:
         derivedAt: { type: integer, format: int64, nullable: true, description: "Epoch millis; null before any connection has ever completed a DERIVE." }
-        configRevision: { type: integer, format: int64, minimum: 1 }
+        configRevision: { type: integer, format: int64, minimum: 1, nullable: true, description: "The config revision the served figures were DERIVED under: the oldest `config_revision` among the newest SUCCEEDED DERIVE runs of the connections the report read (not the live `metrics.settings.config_revision`, which runs ahead of the data between a configuration change and its DERIVE); null before any connection has completed a DERIVE." }
         from: { type: string, format: date, nullable: true, description: "ISO date; null for a lastSprints/sprintId-selected period." }
         to: { type: string, format: date, nullable: true, description: "ISO date; null for a lastSprints/sprintId-selected period." }
         level: { type: string, enum: [UNIT, TEAM, USER] }
@@ -3434,7 +3434,7 @@ components:
           type: array
           items: { $ref: '#/components/schemas/ReportFilterConnection' }
         derivedAt: { type: integer, format: int64, nullable: true }
-        configRevision: { type: integer, format: int64, minimum: 1 }
+        configRevision: { type: integer, format: int64, minimum: 1, nullable: true, description: "The config revision the served figures were DERIVED under: the oldest `config_revision` among the newest SUCCEEDED DERIVE runs of the connections the report read (not the live `metrics.settings.config_revision`, which runs ahead of the data between a configuration change and its DERIVE); null before any connection has completed a DERIVE." }
         minSampleSize: { type: integer, minimum: 1 }
         timeZone: { type: string, description: "The configured IANA time zone (`metrics.settings.time_zone`) that `from`/`to` are read in — a client renders report dates and computes period presets in it." }
 

@@ -16,16 +16,18 @@ data class ResolvedSprintGroup(val teamId: UInt, val sprintIds: List<Long>)
  * The `meta` block every report response carries beside its own body (plan §7): [derivedAt] is the
  * latest SUCCEEDED `derive_runs.finished_at` across the connection(s) the report actually read (all
  * enabled connections, or just [ReportFilter.connectionId] when the caller narrowed to one) — `null`
- * before any connection has ever completed a DERIVE. [configRevision] mirrors the shared
- * `metrics.settings.config_revision` every DERIVE stamps its rows with (invariant 12: "every live
- * number is reproducible from `norm` + one configuration revision"). [minSampleSize] is carried
+ * before any connection has ever completed a DERIVE. [configRevision] is the `config_revision` the served
+ * figures were DERIVED under (invariant 12: "every live number is reproducible from `norm` + one
+ * configuration revision") — the oldest of the scoped connections' newest SUCCEEDED runs, see [DeriveStamp];
+ * `null` with [derivedAt] before any DERIVE. It is NOT the live `metrics.settings.config_revision`, which
+ * runs ahead of the data between a configuration change and its DERIVE. [minSampleSize] is carried
  * alongside so a client never has to make its own separate `/reports/filters` round trip just to
  * label a [Distribution]'s `hidden` state.
  */
 @Serializable
 data class ReportMeta(
     val derivedAt: Long?,
-    val configRevision: Long,
+    val configRevision: Long?,
     val from: String?,
     val to: String?,
     val level: ReportLevel,
@@ -43,7 +45,7 @@ data class ReportMeta(
  */
 fun ReportFilter.toMeta(
     derivedAt: Long?,
-    configRevision: Long,
+    configRevision: Long?,
     minSampleSize: Int,
     resolvedSprints: List<ResolvedSprintGroup> = emptyList(),
 ): ReportMeta {

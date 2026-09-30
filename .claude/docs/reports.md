@@ -114,11 +114,17 @@ Every report response carries a `meta` block beside its own body:
 `{derivedAt, configRevision, from, to, level, domainView, resolvedSprints[{teamId, sprintIds}],
 minSampleSize}`. `derivedAt` is the latest SUCCEEDED `metrics.derive_runs.finished_at` across the
 connection(s) the report actually read (`null` before any connection has ever completed a DERIVE);
-`configRevision` is the LIVE `metrics.settings.config_revision` at read time, NOT the revision the
-data was derived under (every DERIVE stamps its rows with the revision it ran under, invariant 12 --
-`.claude/docs/domain-model.md` -- but the response does not carry that one; after a configuration
-change and before its DERIVE finishes, `configRevision` is ahead of the data. `derivedAt` is the
-honest freshness signal). `from`/`to` are populated only for a
+`configRevision` is the revision the served figures were DERIVED under
+(every DERIVE stamps its rows with the revision it ran under, invariant 12 -- `.claude/docs/domain-model.md`),
+read off `metrics.derive_runs.config_revision`, NEVER the live `metrics.settings.config_revision`: between a
+configuration change and its DERIVE the live revision is ahead of the data, and `meta` keeps saying what the data
+reflects. Per connection it is the newest SUCCEEDED run's revision (`startedAt`, then `id`); with several
+connections in scope (a unit-wide report with no `connectionId`) it is the OLDEST of those -- the oldest
+configuration any served figure reflects, the same "oldest connection wins" rule `derivedCoverage` applies to the
+snapshot reports' DERIVE clock (`derivedAt` stays the latest finish). A connection that never derived
+successfully serves no figures and contributes to neither; `configRevision` is `null` (like `derivedAt`) before any
+connection in scope has a successful run. `reports/ReportSupport.kt`'s `deriveStamp` computes both.
+`from`/`to` are populated only for a
 `from`/`to`-selected period; a `lastSprints`/`sprintId` period instead describes itself entirely
 through `resolvedSprints`. `ReportFilter.toMeta(...)` assembles the DTO from an already-resolved
 filter plus the figures a report's own service computes -- pure, no DB access of its own.
@@ -138,7 +144,7 @@ ReportFilters {
   workCategories: [string]
   connections: [{ id, name }]
   derivedAt: epoch millis | null
-  configRevision: integer
+  configRevision: integer | null   // the derived revision, as in `meta` (oldest across the active connections)
   minSampleSize: integer
   timeZone: string   // IANA, metrics.settings.time_zone
 }
@@ -162,7 +168,7 @@ ReportFilters {
   `from`/`to` are read in. The SPA renders every report date and computes its period presets, "today" and
   the date-picker maximum in this zone (never UTC, never the browser's), so a preset chosen at 00:30
   local on the 1st means the same day the server resolves.
-- **`derivedAt`/`configRevision`/`minSampleSize`** -- the SAME figures every report's own `meta`
+- **`derivedAt`/`configRevision`/`minSampleSize`** -- the SAME figures every unit-wide report's own `meta`
   block carries, so a client can label a still-warming-up connection ("no data derived yet")
   without a second round trip.
 
