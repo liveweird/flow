@@ -8,10 +8,10 @@ detekt = "1.23.8"
 # passed the full Docker-backed suite twice on 2026-09-20 (including the R2DBC
 # concurrency regressions); keep future upgrades gated on the same forced full-suite run.
 exposed = "1.5.0"
-flyway = "13.7.0"
+flyway = "13.8.0"
 kotlin = "2.4.20"
 kover = "0.9.9"
-logback = "1.6.3"
+logback = "1.6.4"
 opentelemetry = "1.65.0"
 # Netty alignment (2026-09-04, Lettuce): Ktor's engine ships Netty 4.2 while r2dbc-postgresql 1.1.2
 # asks for reactor-netty 1.1.22 (built on 4.1.112) — Gradle lifted the shared modules to 4.2 and left
