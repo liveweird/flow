@@ -2,7 +2,8 @@
 // the Delivery and Estimation reports over a synced-and-derived Jira-stub connection and finds the
 // golden FLO sprint's figures (`sample-data/jira/expected.json` `golden.sprint`) exactly; batch 2
 // adds the Flow metrics group (WIP, aging, blocked time, epic progress), Data quality, the Cost
-// matrix, Home's unit overview and Velocity's last-N-sprints and member drill. The
+// matrix, Home's unit overview and Velocity's last-N-sprints and member drill; the checkup's A15
+// closes the last four pages (epic accuracy, estimate adjustments, reported time, estimated backlog). The
 // admin side is API-seeded (a synced stub connection, a team, the FLO board mapped to it — the
 // same shape the server's `DerivedStubFixture` uses) so the journeys stay fast; the sync + DERIVE
 // wait is a bounded poll of the report API, never a sleep. Owns: its own Jira-stub data source
@@ -19,6 +20,7 @@ import {
   configureMetricsViaApi,
   expect,
   login,
+  stubDayOffset,
   syncStubDataSourceViaApi,
   test,
   uniqueText,
@@ -46,12 +48,12 @@ interface GoldenSprint {
 interface GoldenEpic {
   issueKey: string;
   budgetMd: number;
+  childSumMd: number;
   startDate: string;
   dueDate: string;
 }
 
 const EXPECTED = JSON.parse(readFileSync(new URL("../../sample-data/jira/expected.json", import.meta.url), "utf8")) as {
-  referenceDate: string;
   golden: { sprint: GoldenSprint; epic: GoldenEpic };
 };
 const GOLDEN = EXPECTED.golden.sprint;
@@ -62,8 +64,14 @@ const GOLDEN_EPIC = EXPECTED.golden.epic;
  * a fixed window around it keeps them independent of today (the default "last 90 days" would slide
  * off the sample data), passed as `from`/`to` in the URL — the filter IS the URL.
  */
-const dayOffset = (days: number) => new Date(Date.parse(EXPECTED.referenceDate) + days * 86_400_000).toISOString().slice(0, 10);
+const dayOffset = stubDayOffset;
 const WINDOW = `from=${dayOffset(-184)}&to=${dayOffset(7)}`;
+/**
+ * The stub's epics all FINISHED in autumn 2025, before `WINDOW` opens, so the epic reports (which
+ * read epics finished — or started — in the period) read a year-long window instead; the snapshot
+ * reports keep `WINDOW`.
+ */
+const EPIC_WINDOW = `from=${dayOffset(-365)}&to=${dayOffset(7)}`;
 
 /** Man-days the way the SPA writes them (at most two decimals, no trailing zeros). */
 const md = (value: number) => String(Math.round(value * 100) / 100);
@@ -75,6 +83,7 @@ let api: APIRequestContext | undefined;
 let dataSourceId: number | undefined;
 let teamId = 0;
 let teamName = "";
+let memberName = "";
 let userId: number | undefined;
 let membershipId: number | undefined;
 let reader = { email: "", password: "" };
@@ -121,9 +130,46 @@ const goldenRow = (page: Page): Locator => page.getByRole("row", { name: new Reg
  * connection (an unnarrowed unit-level report would also count the other specs' synced
  * connections) and to the stub's fixed window. `extra` adds the team or scope under test.
  */
-async function openReport(page: Page, path: string, extra = ""): Promise<void> {
+async function openReport(page: Page, path: string, extra = "", window = WINDOW): Promise<void> {
   await login(page, reader.email, reader.password);
-  await page.goto(`${path}?connectionId=${dataSourceId}&${WINDOW}${extra}`);
+  await page.goto(`${path}?connectionId=${dataSourceId}&${window}${extra}`);
+}
+
+/** Choose `option` in the filter bar's searchable dropdown called `label` (typing narrows the list, the click picks). */
+async function pickFilter(page: Page, label: string, option: string): Promise<void> {
+  const select = page.getByRole("combobox", { name: label, exact: true });
+  await select.click();
+  await select.fill(option);
+  await page.getByRole("option", { name: option, exact: true }).click();
+}
+
+/** Empty a filter dropdown through its clear button (Mantine hides that button from the accessibility tree, so it is found by its label). */
+async function clearFilter(page: Page, label: string): Promise<void> {
+  await page.getByLabel(`Clear ${label}`, { exact: true }).click();
+}
+
+/**
+ * Every distribution's accounting ends in a dimmed "n + reason + … = population" line; each must
+ * add up (the server's per-view partition), and `lines` of them are on the page.
+ */
+async function expectAccountingToReconcile(page: Page, lines: number): Promise<void> {
+  const equations = page.getByText(/^\d+( \+ \d+)+ = \d+$/);
+  await expect(equations).toHaveCount(lines);
+  for (const text of await equations.allInnerTexts()) {
+    const [terms, total] = text.split(" = ");
+    expect(terms.split(" + ").map(Number).reduce((sum, term) => sum + term, 0), text).toBe(Number(total));
+  }
+}
+
+/** The population the first accounting list states: "Of N finished in this period:". */
+async function finishedInPeriod(page: Page): Promise<number> {
+  const text = await page.getByText(/^Of \d+ finished in this period:$/).first().innerText();
+  return Number(/\d+/.exec(text)?.[0]);
+}
+
+/** One figure of an adjustments block (Started, Changed after start, …): the value under its label. */
+async function blockFigure(block: Locator, label: string): Promise<string> {
+  return (await block.getByText(label, { exact: true }).locator("xpath=following-sibling::*[1]").innerText()).trim();
 }
 
 // The populated counterpart of the accessibility sweep, which scans these pages in whatever
@@ -253,6 +299,185 @@ async function readCostMatrix(page: Page): Promise<void> {
   await expect(authors.getByRole("row", { name: /^Show Sample User \d+ / }).first()).toBeVisible();
 }
 
+/** The epic-accuracy journey: empty default window, both views, the golden epic's ratio, then domain → team → member. */
+async function readEpicAccuracy(page: Page): Promise<void> {
+  // The default window holds no finished epic: the empty state, not a block of zeros.
+  await openReport(page, "/reports/epic-estimation-accuracy");
+  await expect(page.getByRole("heading", { level: 2, name: "Epic estimation accuracy", exact: true })).toBeVisible();
+  await expect(page.getByText("No data in this period")).toBeVisible();
+  const epics = page.getByRole("table", { name: "Finished epics", exact: true });
+  await expect(epics).toHaveCount(0);
+
+  // The year-long window holds the stub's finished epics: both views, each a distribution with its accounting.
+  await page.goto(`/reports/epic-estimation-accuracy?connectionId=${dataSourceId}&${EPIC_WINDOW}`);
+  await expect(page.getByRole("heading", { name: "Against the own estimate at start", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Against the own estimate at done", exact: true })).toBeVisible();
+  await expect(page.getByText("Median (p50)", { exact: true })).toHaveCount(2);
+  await expect(page.getByRole("heading", { name: "Left out of this distribution" })).toHaveCount(2);
+  await expectAccountingToReconcile(page, 2);
+  await expect(page.getByText(/^Derived .* · configuration revision \d+$/)).toBeVisible();
+
+  // One row per finished epic, as many as the accounting's population.
+  const golden = epics.getByRole("row", { name: new RegExp(`^${GOLDEN_EPIC.issueKey}\\b`) });
+  await expect(golden).toBeVisible();
+  expect((await epics.getByRole("row").count()) - 1, "a row per finished epic").toBe(await finishedInPeriod(page));
+
+  // The golden epic: the ratio is actual ÷ its OWN estimate — never the sum of its children's.
+  const cells = golden.getByRole("cell");
+  await expect(cells.nth(1)).toHaveText(/^\d{4}-\d{2}-\d{2}$/);
+  await expect(cells.nth(2)).toHaveText(md(GOLDEN_EPIC.budgetMd));
+  await expect(cells.nth(3)).toHaveText(md(GOLDEN_EPIC.budgetMd));
+  await expect(cells.nth(4)).toHaveText(md(GOLDEN_EPIC.childSumMd));
+  const actual = Number(await cells.nth(5).innerText());
+  const ratio = Number(await cells.nth(6).innerText());
+  expect(actual).toBeGreaterThan(0);
+  expect(Math.abs(ratio - actual / GOLDEN_EPIC.budgetMd), "ratio = actual ÷ own estimate").toBeLessThan(0.006);
+  expect(Math.abs(ratio - actual / GOLDEN_EPIC.childSumMd), "not actual ÷ child sum").toBeGreaterThan(0.05);
+
+  // The domain narrows the epics: GTM's only, the golden FLO epic gone; clearing it brings it back.
+  await pickFilter(page, "Domain", "GTM");
+  await expect(page).toHaveURL(/domain=GTM/);
+  await expect(epics.getByRole("row", { name: /^GTM-\d+/ }).first()).toBeVisible();
+  await expect(epics.getByRole("row", { name: /^(FLO|OPS|PLT)-\d+/ })).toHaveCount(0);
+  await clearFilter(page, "Domain");
+  await expect(golden).toBeVisible();
+
+  // The team level: the By team row is the way in; the team's few epics fall below the minimum sample.
+  await page.getByRole("table", { name: "By team", exact: true }).getByRole("link", { name: `Show ${teamName}`, exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`teamId=${teamId}`));
+  await expect(golden).toBeVisible();
+  await expect(epics.getByRole("row", { name: /^(GTM|OPS|PLT)-\d+/ })).toHaveCount(0);
+  await expect(page.getByRole("note").filter({ hasText: /^Only \d+ items in this selection/ })).toHaveCount(2);
+  await expect(page.getByText("Median (p50)", { exact: true })).toHaveCount(0);
+
+  // A single person has no epics of their own: one note, no table.
+  await pickFilter(page, "Member", memberName);
+  await expect(page).toHaveURL(/accountId=/);
+  await expect(page.getByRole("note").filter({ hasText: "Epics aren't attributed to individual people" })).toBeVisible();
+  await expect(epics).toHaveCount(0);
+}
+
+/** The estimate-adjustments journey: tasks and epics blocks, the activity-type filter, then team → member. */
+async function readEstimateAdjustments(page: Page): Promise<void> {
+  await openReport(page, "/reports/estimate-adjustments", "", EPIC_WINDOW);
+  await expect(page.getByRole("heading", { level: 2, name: "Estimate adjustments", exact: true })).toBeVisible();
+  await expect(page.getByText("The domain view applies to tasks; epics always read their own space.")).toBeVisible();
+
+  // Tasks and epics each read started / changed after start / estimated late / share changed.
+  const tasks = page.getByRole("group", { name: "Tasks", exact: true });
+  const epics = page.getByRole("group", { name: "Epics", exact: true });
+  for (const block of [tasks, epics]) {
+    const started = Number(await blockFigure(block, "Started"));
+    const changed = Number(await blockFigure(block, "Changed after start"));
+    const late = Number(await blockFigure(block, "Estimated late"));
+    expect(started, "work started in the window").toBeGreaterThan(0);
+    expect(changed).toBeLessThanOrEqual(started);
+    expect(late, "estimated late is counted within changed after start").toBeLessThanOrEqual(changed);
+    expect(await blockFigure(block, "Share changed")).toMatch(/^\d+(\.\d+)?%$/);
+  }
+  // Each kind's change distribution (start → done) and its accounting.
+  await expect(page.getByRole("heading", { name: "Change from start to done", exact: true })).toHaveCount(2);
+  await expect(page.getByText("Median (p50)", { exact: true })).toHaveCount(2);
+  await expectAccountingToReconcile(page, 2);
+
+  // The activity type narrows the TASKS (epics carry none): fewer tasks started, the filter in the URL.
+  const allTasks = Number(await blockFigure(tasks, "Started"));
+  await pickFilter(page, "Activity type", "Bug");
+  await expect(page).toHaveURL(/activityType=Bug/);
+  await expect.poll(async () => Number(await blockFigure(tasks, "Started"))).toBeLessThan(allTasks);
+  await clearFilter(page, "Activity type");
+  await expect.poll(async () => Number(await blockFigure(tasks, "Started"))).toBe(allTasks);
+
+  // Down the org drill: the team row, then its members; a single person has no epic figures.
+  await page.getByRole("table", { name: "By team", exact: true }).getByRole("link", { name: `Show ${teamName}`, exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`teamId=${teamId}`));
+  await expect(page.getByRole("heading", { level: 3, name: "By member", exact: true })).toBeVisible();
+  await pickFilter(page, "Member", memberName);
+  await expect(page).toHaveURL(/accountId=/);
+  await expect(page.getByRole("note").filter({ hasText: "Epics aren't attributed to individual people" })).toBeVisible();
+  await expect(epics).toHaveCount(0);
+  await expect(tasks).toBeVisible();
+}
+
+/** The reported-time journey: the Estimation tab hop, both distributions, the domain and domain-view controls, the team drill. */
+async function readReportedTime(page: Page): Promise<void> {
+  // Reached through the Estimation tabs: the route is `reported-time-ratio`, the tab "Reported time".
+  await openReport(page, "/reports/epic-estimation-accuracy");
+  await page.getByRole("tab", { name: "Reported time", exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`/reports/reported-time-ratio\\?.*connectionId=${dataSourceId}`));
+  await expect(page.getByRole("heading", { level: 2, name: "Reported time", exact: true })).toBeVisible();
+
+  // Two measures, two distributions, each with its OWN accounting (the partitions differ).
+  await expect(page.getByRole("heading", { name: "Reported time ÷ cycle time", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Flow efficiency", exact: true })).toBeVisible();
+  await expect(page.getByText("Median (p50)", { exact: true })).toHaveCount(2);
+  await expect(page.getByRole("heading", { name: "Left out of this distribution" })).toHaveCount(2);
+  await expectAccountingToReconcile(page, 2);
+  await expect(page.getByText(/^Very short cycles give very large ratios/)).toBeVisible();
+  await expect(page.getByRole("table", { name: /^Histogram, as a table — Reported time ÷ cycle time$/ })).toBeVisible();
+
+  // The domain narrows what finished: fewer items in the population, the filter in the URL.
+  const all = await finishedInPeriod(page);
+  await pickFilter(page, "Domain", "FLO");
+  await expect(page).toHaveURL(/domain=FLO/);
+  await expect.poll(() => finishedInPeriod(page)).toBeLessThan(all);
+  await clearFilter(page, "Domain");
+  await expect.poll(() => finishedInPeriod(page)).toBe(all);
+
+  // The domain view (delivered in / earned in) is a report-specific control that travels in the URL.
+  await page.getByRole("radiogroup", { name: "Domain view" }).getByText("Earned in", { exact: true }).click();
+  await expect(page).toHaveURL(/domainView=EPIC/);
+  await expect(page.getByRole("heading", { name: "Flow efficiency", exact: true })).toBeVisible();
+
+  // The team row is the way in; its members follow.
+  await page.getByRole("table", { name: "By team", exact: true }).getByRole("link", { name: `Show ${teamName}`, exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`teamId=${teamId}`));
+  await expect(page.getByRole("heading", { level: 3, name: "By member", exact: true })).toBeVisible();
+  expect(await finishedInPeriod(page), "the team's finished work is part of the unit's").toBeLessThan(all);
+}
+
+/** The estimated-backlog journey: a team's tiles and trend, the unit's pace note, a domain's empty pace, team replacing domain. */
+async function readEstimatedBacklog(page: Page): Promise<void> {
+  // The team's backlog: its board is mapped, so the pace of its closed sprints turns man-days into sprints.
+  await openReport(page, "/reports/backlog", `&teamId=${teamId}`);
+  await expect(page.getByRole("heading", { level: 2, name: "Estimated backlog", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 3, name: `Backlog on ${dayOffset(7)}`, exact: true })).toBeVisible();
+  const tile = (label: string) => page.getByRole("group", { name: label, exact: true });
+  const teamMd = (await tile("Backlog (MD)").locator("p").nth(1).innerText()).trim();
+  const teamItems = (await tile("Items").locator("p").nth(1).innerText()).trim();
+  expect(Number(teamMd)).toBeGreaterThan(0);
+  expect(teamItems).toMatch(/^[1-9]\d*$/);
+  await expect(tile("Backlog in sprints")).toContainText(/≈ [\d.]+ sprints? ahead/);
+  await expect(tile("Backlog in sprints")).toContainText(/Recent pace: [\d.]+ MD delivered per sprint, the mean of \d+ closed sprints?/);
+
+  // The trend: the chart, and its text alternative — the newest day first, equal to today's tiles.
+  await expect(page.getByRole("group", { name: "Chart: estimated backlog in man-days by day" })).toBeVisible();
+  await page.getByRole("button", { name: "Show daily figures" }).click();
+  const daily = page.getByRole("table", { name: "Backlog by day, as a table" });
+  const newest = daily.getByRole("row").nth(1).getByRole("cell");
+  await expect(newest.nth(0)).toHaveText(dayOffset(7));
+  await expect(newest.nth(1)).toHaveText(teamMd);
+  await expect(newest.nth(2)).toHaveText(teamItems);
+  expect(await daily.getByRole("row").count(), "header + one row per day of the window").toBeGreaterThan(100);
+
+  // The unit: the whole backlog (the unowned part too), its pace the SUM of the teams' — and it says so.
+  await clearFilter(page, "Team");
+  await expect(page).not.toHaveURL(/teamId=/);
+  await expect(tile("Backlog in sprints")).toContainText("At unit level the pace is the sum of each team's own mean");
+  await expect.poll(async () => Number((await tile("Backlog (MD)").locator("p").nth(1).innerText()).trim())).toBeGreaterThan(Number(teamMd));
+
+  // A domain has no velocity of its own: the sprints tile says why it is empty instead of inventing a pace.
+  await pickFilter(page, "Domain", "FLO");
+  await expect(page).toHaveURL(/domain=FLO/);
+  await expect(tile("Backlog in sprints")).toContainText("this selection has no velocity of its own");
+  await expect(tile("Backlog in sprints").locator("p").nth(1)).toHaveText("—");
+
+  // There is no team × domain split: picking a team replaces the domain.
+  await pickFilter(page, "Team", teamName);
+  await expect(page).toHaveURL(new RegExp(`teamId=${teamId}`));
+  await expect(page).not.toHaveURL(/domain=/);
+}
+
 test.describe("reports, read by a regular user", () => {
   test.beforeAll(async () => {
     // A full stub sync (~1,200 issues) plus the derivation that follows it: the two waits below
@@ -264,7 +489,7 @@ test.describe("reports, read by a regular user", () => {
     teamName = uniqueText("e2e-reports-team");
     ({ teamId } = await configureMetricsViaApi(adminApi, dataSourceId, teamName));
     // A stub person on the team's roster, so the cost matrix has a real author-team row to drill into.
-    ({ membershipId } = await addStubMemberViaApi(adminApi, teamId));
+    ({ membershipId, displayName: memberName } = await addStubMemberViaApi(adminApi, teamId));
 
     const name = uniqueText("e2e-reports-reader");
     reader = { email: `${name.toLowerCase()}@flow.local`, password: "e2e-only-password" };
@@ -518,6 +743,22 @@ test.describe("reports, read by a regular user", () => {
     await overview.getByRole("link", { name: "Velocity and throughput", exact: true }).click();
     await expect(page).toHaveURL(/\/reports\/velocity\?.*lastSprints=1/);
     await expect(page.getByRole("heading", { level: 2, name: "Velocity", exact: true })).toBeVisible();
+  });
+
+  test("the user reads epic estimation accuracy against each epic's own estimate", async ({ page }) => {
+    await readEpicAccuracy(page);
+  });
+
+  test("the user reads how estimates were adjusted", async ({ page }) => {
+    await readEstimateAdjustments(page);
+  });
+
+  test("the user reads reported time beside flow efficiency", async ({ page }) => {
+    await readReportedTime(page);
+  });
+
+  test("the user reads the estimated backlog and what it means in sprints", async ({ page }) => {
+    await readEstimatedBacklog(page);
   });
 
   test("the populated flow, epic and cost pages have no WCAG A/AA violations", async ({ page }) => {

@@ -49,8 +49,9 @@ from Lettuce, that any new or edited spec must satisfy:
 - Each spec's scenario file declares its **Owns** line (exclusive server-side state; "nothing —
   read-only" when applicable). Today: `auth`, `changelog` and `shell` (device-local
   localStorage only) are read-only; `accessibility` owns one API-seeded fixture team
-  (`e2e-axe-team-*`); `users` owns its throwaway accounts; `teams` owns its throwaway teams
-  (unique `e2e-team-*` names) and users; `i18n` owns its throwaway user (and ONLY that user's
+  (`e2e-axe-team-*`) and one synced Jira-stub connection (`e2e-axe-ds-*`) with the team its FLO
+  board is mapped to (`e2e-axe-data-team-*`), all deleted through the API; `users` owns its
+  throwaway accounts; `teams` owns its throwaway teams (unique `e2e-team-*` names) and users; `i18n` owns its throwaway user (and ONLY that user's
   language — **seeded accounts must stay English**: every login applies the stored language to
   that session's UI, so a Polish seed admin would flip parallel specs mid-run); `password-reset`
   owns its throwaway account (its reset requests use unique per-run emails against the
@@ -100,11 +101,14 @@ the same commit** — this list is the coverage map, the scenario file is the de
 
 - [`accessibility.spec.ts`](scenarios/accessibility.md) — axe WCAG A/AA smoke: login + the
   authenticated list/form pages (`/`, `/teams`, `/users`, `/users/new`, `/feature-flags`,
-  `/data-sources`, `/metrics-settings`, `/reports/{velocity,wip,epic-progress,data-quality,cost-matrix}`,
-  `/change-password`, `/changelog`), the detail pages of an API-seeded fixture
-  team (its roster page, the admin's own edit-user and user-features pages), `/reset-password`,
-  the not-found page, and a registry editor modal scoped to its dialog; `color-contrast` included
-  (the theme's tokens are AA-tested in `web/src/theme.test.ts`).
+  `/data-sources`, `/metrics-settings`, all fifteen `/reports/*` routes, `/change-password`,
+  `/changelog`), the detail pages of an API-seeded fixture team (its roster page, the admin's own
+  edit-user and user-features pages), `/reset-password`, the not-found page, and a registry editor
+  modal scoped to its dialog; then, over its own API-seeded, synced-and-derived Jira-stub connection,
+  every report with derived data behind it plus the data-source details, data profile, raw issue
+  inspector and metrics-configuration pages — and a DARK-scheme pass (`colorScheme: "dark"`, the
+  `auto` default following it) over the login screen, the list/form/report pages and the data-backed
+  set; `color-contrast` included (the theme's tokens are AA-tested in `web/src/theme.test.ts`).
 - [`auth.spec.ts`](scenarios/auth.md) — login / logout / invalid credentials / guarded deep link with query and hash;
   explicit sign-out from a non-home protected page returns the next sign-in to Home,
   including while server revocation is delayed.
@@ -146,7 +150,12 @@ the same commit** — this list is the coverage map, the scenario file is the de
   `awaitDerivedSprint`/`awaitDerivedTeamCost`, plus one API-seeded stub person on the team's roster,
   removed before the team): the golden FLO sprint's figures in Velocity, Throughput (regrouped by
   month — URL and table follow) and Sprint consistency; Cycle time and Task estimation accuracy
-  show their distributions (or the minimum-sample notice) with their accounting. Batch 2 (M5): the
+  show their distributions (or the minimum-sample notice) with their accounting; Epic estimation
+  accuracy (the empty window, both views, the golden epic's ratio against its OWN estimate, then
+  domain → team → member), Estimate adjustments (tasks and epics blocks, the activity-type filter,
+  team → member), Reported time beside flow efficiency (reached through the Estimation tab; domain and
+  domain-view controls, the team drill) and the Estimated backlog (a team's tiles and trend, the unit's
+  pace note, a domain's empty pace, a team replacing the domain). Batch 2 (M5): the
   last three sprints and the team → member drill on Velocity; WIP by stage/status (URL and table
   follow), Aging WIP and Blocked time; Epic progress drilled unit → FLO domain → the golden epic
   (`golden.epic`'s budget and dates, the daily table); Data quality (tiles equal their cards, a
@@ -191,8 +200,9 @@ on the real form driver.
 - **The authz matrix** — covered by the server tests (`GuardsTest`, `AnonymousAccessTest`); E2E
   asserts only user-visible consequences.
 - **Dark-mode rendering** — the palette is theme-owned (`web/src/theme.ts`); `shell.spec.ts`
-  asserts the color-scheme attribute switches and persists, but no e2e asserts rendered colors,
-  and there is no visual-regression suite.
+  asserts the color-scheme attribute switches and persists, and `accessibility.spec.ts` scans the
+  page sets in the dark scheme (contrast), but no e2e asserts rendered colors, and there is no
+  visual-regression suite.
 - **Responsive / cross-browser / visual automation** — the suite deliberately runs a single
   **Desktop Chrome (chromium) project** only, with no mobile project or screenshot comparison;
   layout relies on Mantine semantics plus the role/label-based locators every spec uses.

@@ -1,6 +1,7 @@
 import AxeBuilder from "@axe-core/playwright";
 import { type APIRequestContext, expect, type Page, request as playwrightRequest, test } from "@playwright/test";
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { BASE_URL } from "../playwright.config";
 
 export { expect, test };
@@ -148,6 +149,19 @@ export async function apiAsAdmin(): Promise<{ api: APIRequestContext; userId: nu
   await anonymous.dispose();
   const api = await playwrightRequest.newContext({ baseURL: BASE_URL, extraHTTPHeaders: { Authorization: `Bearer ${token}` } });
   return { api, userId };
+}
+
+/**
+ * The stub dataset's "now" (`sample-data/jira/expected.json`'s `referenceDate`): its data ends there,
+ * so a period written as an offset from it never slides off the data the way "the last 90 days" does.
+ */
+const STUB_REFERENCE_MS = Date.parse(
+  (JSON.parse(readFileSync(new URL("../../sample-data/jira/expected.json", import.meta.url), "utf8")) as { referenceDate: string }).referenceDate,
+);
+
+/** The calendar day (`YYYY-MM-DD`) `days` days from the stub's reference date. */
+export function stubDayOffset(days: number): string {
+  return new Date(STUB_REFERENCE_MS + days * 86_400_000).toISOString().slice(0, 10);
 }
 
 /** The Jira-stub connection settings every spec that syncs it uses (the compose `jira-stub`, `sample-data/jira/expected.json`'s `connection`). */
