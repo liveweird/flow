@@ -76,6 +76,9 @@ describe("ReportSprintConsistency page", () => {
     expect(charts[0].getAttribute("data-labels")).toBe("Beta · Beta 1|Alpha · Alpha 2");
     expect(screen.getByText("Final scope = delivered + carried over + dropped, so each bar's height is the sprint's final scope.")).toBeInTheDocument();
 
+    // The ten-column table scrolls sideways on a normal screen: its scroller is a focusable, named region (axe: scrollable-region-focusable).
+    expect(screen.getByRole("region", { name: "Sprints and their figures" })).toHaveAttribute("tabindex", "0");
+
     const table = screen.getByRole("heading", { name: "All figures" }).closest("div[class*=Paper]") as HTMLElement;
     const row = within(table).getByRole("row", { name: /Alpha 2/ });
     for (const cell of ["2026-09-10", "20 (8)", "4.5 (2)", "1 (1)", "24.5 (10)", "18 (7)", "4 (2)", "2.5 (1)"]) {
