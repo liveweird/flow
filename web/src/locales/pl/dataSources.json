@@ -89,6 +89,7 @@
   },
   "testConnection": "Testuj połączenie",
   "test": {
+    "tableAria": "Wyniki testu połączenia",
     "column": {
       "endpoint": "Punkt końcowy",
       "required": "Wymagane",
@@ -114,6 +115,7 @@
     "currentStream": "Bieżący strumień",
     "progressCounter": "Licznik",
     "progressValue": "Wartość",
+    "progressTableAria": "Liczniki postępu zadania",
     "cursors": "Kursory",
     "noCursors": "Brak kursorów — to połączenie jeszcze się nie synchronizowało.",
     "cursor": {

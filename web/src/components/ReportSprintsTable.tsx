@@ -35,7 +35,7 @@ export default function ReportSprintsTable<S extends SprintIdentity & { drift: b
   const { t } = useTranslation();
   return (
     <Table.ScrollContainer minWidth={minWidth}>
-      <Table>
+      <Table aria-label={t("reports.sprints.tableAria")}>
         <Table.Thead>
           <Table.Tr>
             <Table.Th>{t("reports.sprints.sprint")}</Table.Th>

@@ -266,7 +266,7 @@ export default function FeatureFlags() {
         </Alert>
       )}
 
-      <Table>
+      <Table aria-label={t("users.featureFlags.title")}>
         <Table.Thead>
           <Table.Tr>
             <SortHeader

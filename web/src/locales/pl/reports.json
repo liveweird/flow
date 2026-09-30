@@ -119,7 +119,8 @@
     "completed": "Zakończony",
     "open": "Otwarty",
     "drift": "Od zakończenia",
-    "driftBadge": "Rozbieżność"
+    "driftBadge": "Rozbieżność",
+    "tableAria": "Sprinty i ich wartości"
   },
   "throughput": {
     "title": "Przepustowość",

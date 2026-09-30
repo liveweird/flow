@@ -121,7 +121,7 @@ export default function Users() {
 
       {isError && <ErrorAlert error={error} title={t("users.loadFailed")} />}
 
-      <Table>
+      <Table aria-label={t("users.title")}>
         <Table.Thead>
           <Table.Tr>
             <SortHeader

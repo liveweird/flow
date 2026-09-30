@@ -19,7 +19,7 @@ export default function CursorTable({ cursors }: { cursors: SyncCursorSummary[] 
     );
   }
   return (
-    <Table>
+    <Table aria-label={t("dataSources.details.cursors")}>
       <Table.Thead>
         <Table.Tr>
           <Table.Th>{t("dataSources.details.cursor.stream")}</Table.Th>

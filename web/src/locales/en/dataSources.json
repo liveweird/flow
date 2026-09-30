@@ -89,6 +89,7 @@
   },
   "testConnection": "Test connection",
   "test": {
+    "tableAria": "Connection test results",
     "column": {
       "endpoint": "Endpoint",
       "required": "Required",
@@ -114,6 +115,7 @@
     "currentStream": "Current stream",
     "progressCounter": "Counter",
     "progressValue": "Value",
+    "progressTableAria": "Job progress counters",
     "cursors": "Cursors",
     "noCursors": "No cursors yet — this connection hasn't synced.",
     "cursor": {
