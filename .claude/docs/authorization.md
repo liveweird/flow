@@ -249,7 +249,12 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
   `TooManyRequestsException` (handled calls are marked and skipped) — and a sibling
   `status(MethodNotAllowed)` handler gives routing's bodiless wrong-method 405 a problem body too
   (no `Allow` header — Ktor doesn't surface the allowed-method set; test with the default client,
-  the conformance plugin would rightly flag the out-of-spec operation). A pre-routing intercept in
+  the conformance plugin would rightly flag the out-of-spec operation). The SPA fallback
+  (`plugins/Routing.kt`, only when `web.staticDir` is set) never answers under `/api` (or `/api`
+  itself): an interceptor on its route node throws `NotFoundException`, so an unknown API path is
+  the standard 404 problem body, never index.html (a wrong method on a declared `/api` path is then a 404 too, not
+  405 — the 405 handler answers only when no `staticDir` is served) (`ServerTest` covers it WITH a `staticDir`,
+  through the default client — the conformance plugin would flag the undeclared path). A pre-routing intercept in
   `configureErrorHandling` additionally 400s any `/api/` path with a negative-integer segment
   (kotlinx decodes `UInt` via `toInt().toUInt()`, so `/users/-1` would WRAP to 4294967295 and flow
   into the normal lookup instead of failing as the spec's `minimum: 0` promises). The JWT

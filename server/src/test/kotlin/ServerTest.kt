@@ -76,6 +76,38 @@ class ServerTest {
     }
 
     @Test
+    fun `unknown api paths answer 404 problem+json even with the SPA catch-all, which still serves everything else`() = testApplication {
+        val staticDir = Files.createTempDirectory("server-test-api-404")
+        try {
+            staticDir.resolve("index.html").writeText("<html>spa</html>")
+            staticDir.resolve("app.js").writeText("console.log(1)")
+            configureApp("web.staticDir" to staticDir.toString())
+            startApplication()
+            // The default client on purpose: an undeclared /api/ path would be flagged by the OpenAPI
+            // conformance plugin that jsonClient() installs — the 404 is exactly what is under test.
+            listOf("/api/v1/nope", "/api/nope", "/api/v1/users/1/nope", "/api/", "/api").forEach { path ->
+                val response = client.get(path)
+                assertEquals(HttpStatusCode.NotFound, response.status, "GET $path")
+                assertTrue(
+                    response.headers["Content-Type"]?.startsWith("application/problem+json") == true,
+                    "problem+json on $path, was ${response.headers["Content-Type"]}",
+                )
+                assertTrue("spa" !in response.bodyAsText(), "no index.html body on $path")
+            }
+            assertEquals(HttpStatusCode.NotFound, client.post("/api/v1/nope").status, "any method")
+            // A look-alike is not the API namespace; the SPA and its assets are unaffected.
+            assertEquals("<html>spa</html>", client.get("/").bodyAsText())
+            assertEquals("<html>spa</html>", client.get("/some/spa/route").bodyAsText())
+            assertEquals("<html>spa</html>", client.get("/apix").bodyAsText())
+            assertEquals("console.log(1)", client.get("/app.js").bodyAsText())
+            // A declared route still wins over the tail-card.
+            assertEquals(HttpStatusCode.OK, client.get("/api/v1/health").status)
+        } finally {
+            staticDir.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
     fun `swagger UI is excluded from the strict CSP but still hardened`() = testApplication {
         usePostgresTestcontainer()
         val response = client.get("/openapi")

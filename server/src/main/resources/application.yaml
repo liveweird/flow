@@ -265,6 +265,10 @@ postgres:
   r2dbcUrl: "$POSTGRES_R2DBC_URL:r2dbc:postgresql://localhost:5435/flow"
   user: "$POSTGRES_USER:flow"
   password: "$POSTGRES_PASSWORD:flow"
+  # How many times Flyway retries its connection at boot (doubling 1, 2, 4, 8, 8… s waits — 10 is
+  # ~63 s) before failing, so a cold start with Postgres not yet accepting connections waits instead
+  # of crash-looping (infra/db/Flyway.kt). 0 = fail fast.
+  connectRetries: "$POSTGRES_CONNECT_RETRIES:10"
   # Bounded R2DBC connection pool (infra/db/Database.kt, `.claude/docs/persistence.md`
   # "Connection pool") — a plain r2dbc:postgresql:// connect opens one PostgreSQL backend
   # per suspendTransaction with nothing capping how many run at once. Sizing assumes a
