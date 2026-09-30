@@ -26,7 +26,6 @@ import java.security.MessageDigest
 import java.sql.DriverManager
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.jetbrains.exposed.v1.core.AutoIncColumnType
@@ -54,18 +53,8 @@ object SyncedStubFixture {
     val IN_SCOPE_PROJECT_KEYS = listOf("FLO", "PLT", "GTM", "OPS")
     const val BACKFILL_FROM = "2025-09-01"
 
-    private val migrated = AtomicBoolean(false)
-
-    /** Idempotent — every test file driving `JiraConnector`/a stream directly needs this before touching the DB. */
-    fun ensureMigrated() {
-        if (migrated.compareAndSet(false, true)) {
-            org.flywaydb.core.Flyway.configure()
-                .dataSource(PostgresTestSupport.jdbcUrl, PostgresTestSupport.user, PostgresTestSupport.password)
-                .locations("classpath:db/migration")
-                .load()
-                .migrate()
-        }
-    }
+    /** Idempotent — delegates to [PostgresTestSupport], whose container init migrates (class-order robust under forks). */
+    fun ensureMigrated() = PostgresTestSupport.ensureMigrated()
 
     fun unique(prefix: String) = "$prefix-${UUID.randomUUID().toString().substring(0, 8)}"
 

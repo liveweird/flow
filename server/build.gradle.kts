@@ -200,6 +200,11 @@ tasks.withType<Test> {
 // fails the task, but only when the WHOLE suite ran (a `--tests` filter legitimately leaves most of the
 // spec unexercised). The directory is cleared first so a previous run's per-fork files never leak in.
 tasks.test {
+    // Parallel JVM forks (`-Pforks=2` in CI; default 1 = the classic single fork). Every fork is its own JVM, so it
+    // gets its OWN Testcontainers Postgres and its own `object` fixture singletons — all the shared-database
+    // hazards (withSoloAdmins, restoreSeedAccounts, metrics settings, dim_date, worker claims) stay intra-fork.
+    // `forkEvery` is deliberately NOT set (one JVM per fork for the whole run). Measured in build-times.md WHY 5.
+    maxParallelForks = (findProperty("forks") as String?)?.toInt() ?: 1
     val reportDir = layout.buildDirectory.dir("reports/openapi-conformance")
     val gapsFile = layout.buildDirectory.file("reports/openapi-conformance/gaps.txt")
     doFirst {

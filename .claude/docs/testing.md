@@ -4,13 +4,28 @@ Backend tests live flat in `server/src/test/kotlin/` (kotlin.test + `io.ktor.ser
 and override the `postgres.*` config keys via `MapApplicationConfig` to point at a Testcontainers
 `PostgreSQLContainer("postgres:18.6-alpine@sha256:77f58511…")` (the same digest `docker-compose.yaml` and
 `k8s/postgres-deployment.yaml` pin — `PostgresImagePinTest`) started lazily by `PostgresTestSupport` and **shared
-across the whole suite** (test-side direct database access, `sharedDatabaseForTests()`, goes through a small
+across the whole suite within a JVM fork** (one container per fork — "Parallel forks" below) (test-side direct database access, `sharedDatabaseForTests()`, goes through a small
 r2dbc-pool built by production's own `connectPooledDatabase` — an unpooled connect paid ~4 ms of backend
 setup per transaction, `.claude/docs/build-times.md` WHY 10). Running tests requires a working Docker daemon (Docker Desktop,
 OrbStack, etc. — with OrbStack and no `/var/run/docker.sock`, export
 `DOCKER_HOST=unix://$HOME/.orbstack/run/docker.sock`). The container runs **all** Flyway
 migrations, so the V3 seed admin (`admin@flow.local`) is present — tests scope their assertions
 with unique prefixes/filters (`uniqueEmail("marker")`) rather than asserting absolute counts.
+
+**Parallel forks (`-Pforks=N`).** `server/build.gradle.kts` sets `maxParallelForks` from the `forks` Gradle
+property (default 1 = one JVM; CI runs `-Pforks=2`; `forkEvery` is deliberately unset). Each fork is its own
+JVM, so it starts its OWN Testcontainers Postgres (`PostgresTestSupport` is a per-JVM `object`) and holds its own
+fixture singletons (`SyncedStubFixture`, `DerivedStubFixture`) — every "shared suite" rule in this doc
+(`withSoloAdmins`, `restoreSeedAccounts`, the metrics settings row, `dim_date`, worker claims, the fixtures'
+tripwires) therefore holds per fork, never across forks; a test must never assume another class ran before it
+on the same JVM, or that a class ran at all in this one. Gradle hands whole CLASSES to forks in whatever order it
+likes, so **class order is not a contract**: any class may be the first thing a fork runs. The one rule that
+follows: the container is migrated by `PostgresTestSupport` itself the moment it starts (a `Flyway.migrate()`
+in its lazy init, the same call as `infra/db/Flyway.kt`), so a fixture or raw-JDBC helper never needs its own
+"has Flyway run yet?" guard (`PostgresTestSupport.ensureMigrated()` is the explicit spelling; `MetricsDigestTest`
+run alone is the pin). Per-fork fixed cost is the container, Flyway, one ~25 s stub SYNC and one DERIVE — the
+measured gain and the point where more forks stop paying are in `build-times.md` WHY 5. The OpenAPI gate below
+merges the forks' coverage.
 
 **The `TestEnvironment.kt` harness** — use it instead of hand-rolling setup:
 
@@ -56,7 +71,9 @@ data class's generated constructor and serializer — noise no test can exercise
 lives in a wire shape (services, validators and a DTO's companion object stay measured). The
 floors sit just below current actuals — the convention is to **re-measure and raise** them as
 coverage improves, never to lower them for new code: `check` runs only `koverVerify`, so run
-`./gradlew :server:koverXmlReport` for fresh actuals. Frontend vitest enforces thresholds in
+`./gradlew :server:koverXmlReport` for fresh actuals. every fork's Kover agent writes into the one shared `test.ic` (if CI ever flakes on Kover, fall back to `-Pforks=1`), so
+`-Pforks=2` measures the same code as the single fork (2026-09-30: line 98.19 % vs 98.23 %, branch 80.19 % vs
+80.23 % — the ±0.04 is timing-dependent coverage, not a loss; `koverVerify` passes either way). Frontend vitest enforces thresholds in
 `web/vite.config.ts` (`test.coverage.thresholds`, same re-measure convention — the current
 actuals are noted in a comment beside them); run `cd web && npm run test:coverage`.
 
