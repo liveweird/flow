@@ -50,7 +50,7 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 
 ## Engineering follow-ups
 
-- **CI duration — open.** The 2026-09-28 `SyncedStubFixture` work (three pipeline classes, one shared SYNC per fork) cut the local server test run from 10.7 min to 2m54s, but the suite has grown again with v0.3.0 (DERIVE, the reports); the `server` CI job was far over its budget before PR #33 (ANALYZE, SQL clones; the master `server` job measured 15m08s) — re-measure. Measurements, budgets, causes and the open WHY questions live in `.claude/docs/build-times.md` (`node scripts/timings/ci-times.mjs --branch master` for the current numbers). Rule already in force: a test that runs a full sync does it outside `testApplication` (its `runTest` timeout ends in `UncompletedCoroutinesError`).
+- **CI duration — tracked, now within budget.** The `server` CI job fell from ~30 min (one timeout) to 7–8 min on 2026-09-30 (#33 ANALYZE, #36 PROCESS batching, #40 pooled test DB, #44 slow small tests, #51 two parallel forks); the `web` job to ~1–2 min (#37); the CI timeout is 25 min. Local: `scripts/gates.sh`. Budgets, history and the open WHY questions live in `.claude/docs/build-times.md`; check `node scripts/timings/ci-times.mjs --branch master` at every milestone — a trend jump gets an investigation, never a raised budget. Rule already in force: a test that runs a full sync does it outside `testApplication` (its `runTest` timeout ends in `UncompletedCoroutinesError`).
 - **Review test gaps** (from the commit 4 security review; the fixes themselves landed):
   - The connection-release test does not fail with the old `client.request()` code in this Ktor/OkHttp version. A blocking interceptor could force the leak window open.
   - `DirectSocketFactory` and `fastFallback(false)` have no isolated tests.
@@ -63,6 +63,31 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 - **D6 — de-Jira the `Connector` seam: not before the GitLab connector (YAGNI).** `ingest/Connector.kt` `testConnection(siteUrl, email, apiToken, projectKeys, authScheme)`, `JiraConnectorKey` in `DataSourceRoutes.kt` and `DataSourceRequest.jira` are Jira-shaped. Generalising them is speculative until a second connector exists; revisit with GitLab.
 - **Shutdown audit lines are lost.** `sync_job.released` (the worker's lease release on a graceful stop) is missing from the log on graceful restarts — seen live on two of them; the DB release does happen. Suspected cause: the OpenTelemetry console-exporter flush racing the Ktor stop hook.
 - **r2dbc-pool acquire timeout reports at 2× the setting.** The pool reports an acquire timeout after twice `postgres.pool.maxAcquireTimeSeconds`, not once. Find out why (per-attempt timeout plus a retry?) and fix it or document it in `.claude/docs/persistence.md`.
+
+## Checkup 2026-09-30 — what is left (record: `.claude/docs/audit-status.md`)
+
+The checkup fixed tiers A–D in PRs #31–#53. Still open (item ids as in the report,
+`~/.claude/plans/flow-checkup-2026-09-30.md`):
+
+- **A15 — e2e coverage:** the four report pages with no e2e touch (epic estimation accuracy, estimate adjustments,
+  reported time, estimated backlog), the axe sweep over every report page and the data-source detail/profile/inspect/
+  metrics-config pages, plus a dark-scheme pass.
+- **C8 — soft-delete helpers:** `TeamService`'s hand-rolled `markedAsDeleted eq` filters → `UserService.Users.active()`;
+  add `SoftDeletable.deleted()` to `infra/db/SoftDelete.kt` for `DataSourceService`.
+- **D2–D5 — server structure:** split `metrics/MetricsStore.kt` (tables / rows / store), `MetricsConfigService.kt`
+  (settings / per-connection config / options / owner resolution) and `reports/EpicProgressReport.kt` (entry /
+  targets / EVM math / rows); break the `ingest` ↔ `metrics` import cycle with a `JobHandler` registry. Each is a pure
+  move pinned by the digest, golden and route tests.
+- **Build-time WHYs still open** (`build-times.md`): WHY 3 — the DERIVE JVM passes (~1.6 s per derive of the stub);
+  WHY 9 — the `images` job at ~4 min despite the layer cache; Kover's ~10 % test overhead.
+- **B7 — the always-loaded instruction budget:** a compact `conventions.md` REPLACING part of `testing.md` (move the
+  fixture narrative to an on-demand `test-fixtures.md`) and CLAUDE.md's per-file package tree — not an addition.
+- **Small:** the five redundant private `ensureMigrated()` copies in tests (use `PostgresTestSupport.ensureMigrated()`);
+  a test pinning that a class's first DB touch finds a migrated schema; `-Pforks` input validation.
+- **The user's decisions:** A1 — protect `master` (required checks: `server`, `web`, `e2e-static`,
+  `gradle-vulnerability-scan`, `k8s-static`; no bypass); A13 — a TLS-terminating Ingress + ClusterIP Service vs a
+  documented local-only overlay (behind today's bare LoadBalancer `X-Forwarded-For` is client-supplied); the sprint
+  `value_text` overflow above; Dependabot #45–#48 (held under the dependency rule).
 
 ## Security and operations
 
