@@ -43,7 +43,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   - Seed memberships from the Team field (D1).
   - Cache validators for the report endpoints.
   - Report `meta.configRevision` should be the revision of the last successful DERIVE, not the live one.
-  - Round each item's estimate before summing in `DeriveKernels.sprintTotals`, so `fact_sprint` and the per-user report groups agree exactly (today Σ groups can differ from the team by 0.01 MD per sprint when estimates have more than two decimals).
   - Report 7: an `epics` block (cycle time from `fact_epic_delivery`, owner team) — deferred from 12b.
   - Estimated backlog uses the OWN estimate only. A parent estimated through its sub-tasks (`estimate_source = SUBTASKS`) is missing from the backlog (A23). The fix is a composite-estimate bridge.
 

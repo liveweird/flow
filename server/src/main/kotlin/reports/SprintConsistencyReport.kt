@@ -5,6 +5,7 @@ import ch.nokillswit.metrics.DeriveKernels
 import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.metrics.SprintScopeItem
 import ch.nokillswit.metrics.SprintTotals
+import ch.nokillswit.metrics.sumMd
 import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.Serializable
 import org.jetbrains.exposed.v1.core.Op
@@ -105,13 +106,13 @@ internal fun SprintTotals.toFigures() = SprintFigures(
 )
 
 private fun SprintFigures.sum(other: SprintFigures) = SprintFigures(
-    committedMd + other.committedMd, committedItems + other.committedItems,
-    addedMd + other.addedMd, addedItems + other.addedItems,
-    removedMd + other.removedMd, removedItems + other.removedItems,
-    finalMd + other.finalMd, finalItems + other.finalItems,
-    deliveredMd + other.deliveredMd, deliveredItems + other.deliveredItems,
-    carriedOverMd + other.carriedOverMd, carriedOverItems + other.carriedOverItems,
-    droppedMd + other.droppedMd, droppedItems + other.droppedItems,
+    sumMd(listOf(committedMd, other.committedMd)), committedItems + other.committedItems,
+    sumMd(listOf(addedMd, other.addedMd)), addedItems + other.addedItems,
+    sumMd(listOf(removedMd, other.removedMd)), removedItems + other.removedItems,
+    sumMd(listOf(finalMd, other.finalMd)), finalItems + other.finalItems,
+    sumMd(listOf(deliveredMd, other.deliveredMd)), deliveredItems + other.deliveredItems,
+    sumMd(listOf(carriedOverMd, other.carriedOverMd)), carriedOverItems + other.carriedOverItems,
+    sumMd(listOf(droppedMd, other.droppedMd)), droppedItems + other.droppedItems,
 )
 
 private val NO_FIGURES = SprintFigures(0.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, 0)

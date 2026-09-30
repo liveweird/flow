@@ -2,6 +2,7 @@ package ch.nokillswit.reports
 
 import ch.nokillswit.infra.db.active
 import ch.nokillswit.ingest.DataSourceService
+import ch.nokillswit.metrics.MD_SCALE
 import ch.nokillswit.metrics.MetricsSettingsResponse
 import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.norm.WorkItemStore
@@ -33,9 +34,6 @@ import org.jetbrains.exposed.v1.r2dbc.selectAll
  * window and the `fact_task_delivery`/`fact_epic_delivery` slice predicates. Every function is
  * `internal` and runs inside the CALLER's `suspendTransaction`.
  */
-
-/** Decimal places of every man-day figure a report emits. */
-internal const val MD_SCALE = 2
 
 /**
  * A man-day figure rounded half-up for the wire. A total is ALWAYS the rounded EXACT sum, never the sum of rounded
