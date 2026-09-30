@@ -490,7 +490,7 @@ dataset, not just `Tiling`'s in-memory guarantees.
 **Field intervals** (`Tiling.fieldIntervals`, the same four-invariant construction rule minus the
 status-specific anomaly checks) tile four fields into `norm.work_item_field_intervals`
 (`TrackedField`): **ASSIGNEE**, **SPRINT** (`value_id` is the LAST id of a possibly multi-valued
-carry-over set; `value_text` is Jira's own comma-joined `toString`, never recomputed from ids),
+carry-over set; `value_text` is Jira's own comma-joined `toString`, never recomputed from ids — a `TEXT` column since V18, the name list being unbounded),
 **FLAGGED** (a boolean carried as the string `"true"`/`"false"` in `value_id`, `value_text` always
 null) and **PARENT** (v0.3.0 M1 commit 2, V14 — tiles exactly like ASSIGNEE: `value_id` is the
 parent issue id, `value_text` its key, `null` = unparented). A null `value_id` (unassigned,
@@ -582,7 +582,9 @@ the failing issue ids and the first failure's message are logged (`log.warn`), n
 the fallback) ends the run normally — `issuesFailed` counts the rest and the next PROCESS pass retries
 them. If EVERY issue of the page fails in the fallback too, the failures decide: when at least one is
 a BAD-ROW error (a PostgreSQL data exception, SQLSTATE class `22`, or integrity violation, class
-`23`, found by walking the cause chain — `isDataError`) the run still ends normally, so a single
+`23`, or Exposed's CLIENT-side `varchar(n)` length check — an `IllegalArgumentException` whose message
+starts "Value can't be stored to database column because exceeds length", thrown before any SQL is
+sent, so it carries no SQLSTATE; all found by walking the cause chain — `isDataError`) the run still ends normally, so a single
 permanently unwritable row alone on its page (however many issues the page holds) only counts
 `issuesFailed` and is retried by the next pass; when NONE is a data error (a connection loss, a
 timeout — an outage, not a row) the original database error is RETHROWN, the job fails, and a

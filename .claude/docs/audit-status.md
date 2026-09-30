@@ -67,10 +67,10 @@ web ~3 min to ~1-2 min (latest 1m09s, in budget); `images` 4m00s is over its ala
 - **B7** `conventions.md` as a replacement, not an addition: split `testing.md` into
   `testing.md` + `test-fixtures.md`, shrink CLAUDE.md's package tree; always-loaded target
   about 35 KB (was 51 KB).
-- **Follow-ups** (the first two are not in BACKLOG yet, the third is): r2dbc-pool reports the acquire timeout at 2x the configured
+- **Follow-ups** (the first two are in BACKLOG, the third is fixed): r2dbc-pool reports the acquire timeout at 2x the configured
   `postgres.pool.maxAcquireTimeSeconds`; shutdown audit lines lost to an OTel flush race;
   `norm.work_item_field_intervals.value_text VARCHAR(500)` overflows for an issue with many sprints
-  (already in BACKLOG); fixtures depend on class order when Flyway has not yet run (belongs with D1).
+  (fixed after the checkup: V18 widens it to `TEXT`); fixtures depend on class order when Flyway has not yet run (belongs with D1).
 - Not doing: D6 (de-Jira the `Connector` seam) waits for the GitLab connector (BACKLOG).
 
 ## Decisions made on the user's behalf
@@ -96,7 +96,7 @@ No implementation scheduled until the user decides:
   in production mode, and `X-Forwarded-For` is client-spoofable behind it (per-IP rate limits key on
   it). Options: an Ingress that overwrites the header + `ClusterIP`, or a documented
   `k8s/local-overlay` with `KTOR_DEVELOPMENT=true` / `HTTP_BEHIND_PROXY=false`.
-- The sprint `value_text` fix (widen to `TEXT` in a new migration, or store sprint ids).
+- ~~The sprint `value_text` fix~~ — decided and done after the checkup: V18 widens the column to `TEXT`.
 - Dependabot PRs [#12](https://github.com/liveweird/flow/pull/12),
   [#45](https://github.com/liveweird/flow/pull/45), [#46](https://github.com/liveweird/flow/pull/46),
   [#47](https://github.com/liveweird/flow/pull/47), [#48](https://github.com/liveweird/flow/pull/48):

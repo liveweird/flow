@@ -169,7 +169,7 @@ class WorkItemStore(private val database: R2dbcDatabase) {
         val field = varchar("field", 20)
         val seq = integer("seq")
         val valueId = varchar("value_id", 200).nullable()
-        val valueText = varchar("value_text", 500).nullable()
+        val valueText = text("value_text").nullable()
         val fromAt = long("from_at")
         val toAt = long("to_at").nullable()
         override val primaryKey = PrimaryKey(id)

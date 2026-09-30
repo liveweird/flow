@@ -19,15 +19,29 @@ private const val PROCESS_BATCH_SIZE = 50
 private class IssueFailure(val issueId: Long, val error: Exception)
 
 /**
- * True when [this] (or any cause) is a PostgreSQL data exception (SQLSTATE class 22 — value too long,
- * NUL, out of range …) or integrity violation (class 23 — PK/unique/FK/NOT NULL/CHECK): the ROW is
- * bad, retrying the same row cannot succeed, so it must not be mistaken for an outage.
+ * Exposed's own text for a value longer than its `varchar(n)` column. Exposed enforces the length
+ * CLIENT-side (`VarCharColumnType.validateValueBeforeUpdate` throws an [IllegalArgumentException]
+ * before any SQL is sent), so such a row never produces a PostgreSQL SQLSTATE. The message is
+ * Exposed's, not ours: `JiraProcessFailureClassTest` (against real Exposed) and `NormalizationPipelineTest`'s
+ * over-long-resolution test pin it, so an Exposed upgrade that rewords it goes red instead of silently
+ * reclassifying bad rows as outages.
+ */
+private const val EXPOSED_VARCHAR_TOO_LONG = "Value can't be stored to database column because exceeds length"
+
+/**
+ * True when [this] (or any cause) is a bad ROW: a PostgreSQL data exception (SQLSTATE class 22 — value
+ * too long, NUL, out of range …), an integrity violation (class 23 — PK/unique/FK/NOT NULL/CHECK), or
+ * Exposed's client-side `varchar(n)` length rejection (an [IllegalArgumentException] whose message
+ * starts with [EXPOSED_VARCHAR_TOO_LONG] — deliberately NOT every [IllegalArgumentException], which
+ * would mask programming errors as bad rows). Retrying the same row cannot succeed, so it must not be
+ * mistaken for an outage.
  */
 internal fun Throwable.isDataError(): Boolean {
     var cur: Throwable? = this
     while (cur != null) {
         val state = (cur as? R2dbcException)?.sqlState
         if (state != null && (state.startsWith("22") || state.startsWith("23"))) return true
+        if (cur is IllegalArgumentException && cur.message?.startsWith(EXPOSED_VARCHAR_TOO_LONG) == true) return true
         cur = cur.cause
     }
     return false
@@ -57,9 +71,9 @@ private val log = LoggerFactory.getLogger(JiraProcessStream::class.java)
  * read locks its raw rows `FOR UPDATE` until commit, and so does the per-issue fallback's read (a
  * concurrent re-flag waits, never lost). If the page failed in the database AND every issue then
  * failed on its own, and NONE of those failures is a bad-row error ([isDataError]: SQLSTATE class 22
- * or 23), the page error is rethrown: the job fails (a SYNC is rescheduled with backoff; a
- * REPROCESS/RECONCILE needs a manual re-run) instead of ending SUCCEEDED over stale `norm` — that
- * pattern is an outage, not a row. A bad row alone on its page ends the run normally
+ * or 23, or Exposed's client-side column-length check), the page error is rethrown: the job fails (a SYNC is
+ * rescheduled with backoff; a REPROCESS/RECONCILE needs a manual re-run) instead of ending SUCCEEDED over
+ * stale `norm` — that pattern is an outage, not a row. A bad row alone on its page ends the run normally
  * (`issuesFailed`, retried by the next PROCESS pass).
  */
 class JiraProcessStream(
