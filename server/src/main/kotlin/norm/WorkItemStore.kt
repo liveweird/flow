@@ -511,19 +511,6 @@ class WorkItemStore(private val database: R2dbcDatabase) {
         WorkItems.selectAll().where { WorkItems.connectionId eq connectionId }.count()
     }
 
-    suspend fun countStatusIntervals(connectionId: UInt): Long = suspendTransaction(database) {
-        StatusIntervals.selectAll().where { StatusIntervals.connectionId eq connectionId }.count()
-    }
-
-    suspend fun countFieldIntervals(connectionId: UInt, field: TrackedField? = null): Long = suspendTransaction(database) {
-        val predicate = if (field != null) {
-            (FieldIntervals.connectionId eq connectionId) and (FieldIntervals.field eq field.name)
-        } else {
-            FieldIntervals.connectionId eq connectionId
-        }
-        FieldIntervals.selectAll().where { predicate }.count()
-    }
-
     suspend fun countWorklogs(connectionId: UInt): Long = suspendTransaction(database) {
         Worklogs.selectAll().where { Worklogs.connectionId eq connectionId }.count()
     }

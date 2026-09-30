@@ -1,5 +1,6 @@
 package ch.nokillswit.reports
 
+import ch.nokillswit.infra.db.nowMillis
 import ch.nokillswit.metrics.MetricsStore
 import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.Serializable
@@ -83,23 +84,10 @@ private fun velocityDrift(live: VelocitySnapshot, snapshot: VelocitySnapshot?): 
  * own contribution (`groups` stays empty). `teamId = 0` (UNASSIGNED) is always empty.
  */
 suspend fun ReportService.velocity(filter: ReportFilter): VelocityReport = suspendTransaction(database) {
-    val settings = metricsConfig.read()
-    val connectionIds = resolveConnectionScope(filter.connectionId)
-    val derivedAt = latestDerivedAt(connectionIds)
-
-    if (filter.teamId == UNASSIGNED_TEAM_ID) {
-        return@suspendTransaction VelocityReport(
-            filter.toMeta(derivedAt, settings.configRevision, settings.minSampleSize),
-            emptyList(),
-            emptyList(),
-        )
-    }
-    filter.teamId?.let { requireActiveTeam(it) }
-    val narrowTeamId = filter.teamId.takeIf { filter.level != ReportLevel.UNIT }
-
-    val sprintRows = resolveSprintRows(filter.period, connectionIds, narrowTeamId)
-    val resolvedSprints = resolvedSprintGroups(filter.period, sprintRows)
-    val meta = filter.toMeta(derivedAt, settings.configRevision, settings.minSampleSize, resolvedSprints)
+    // A sprint-anchored report reads no time window, so `nowMs` only feeds the scope's unused `window`.
+    val scope = resolveReportScope(filter, nowMillis())
+    val sprintRows = scope.sprintRows
+    val meta = scope.meta
 
     if (filter.level == ReportLevel.USER) {
         val accountId = requireNotNull(filter.accountId) { "USER level always carries an accountId (ReportFilter's own invariant)" }
@@ -152,42 +140,33 @@ private suspend fun fetchScopeContributions(sprintRows: List<SprintRow>, account
 }
 
 /** Σ final MD/items per team, straight off `fact_sprint` (UNIT-level groups). */
-private suspend fun teamGroups(sprintRows: List<SprintRow>): List<VelocityGroup> {
-    val byTeam = sprintRows.groupBy { it.teamId }
-    if (byTeam.isEmpty()) return emptyList()
-    val names = teamNames(byTeam.keys)
-    return byTeam.map { (teamId, rows) ->
+private suspend fun teamGroups(sprintRows: List<SprintRow>): List<VelocityGroup> =
+    orgGroups(ReportLevel.UNIT, sprintRows, { it.teamId }, { null }).map { (key, rows) ->
         VelocityGroup(
-            teamId = teamId,
-            label = names[teamId] ?: teamId.toString(),
+            teamId = key.teamId,
+            label = key.label,
             initialMd = rows.sumOf { it.live.initialMd },
             initialItems = rows.sumOf { it.live.initialItems },
             finalMd = rows.sumOf { it.live.finalMd },
             finalItems = rows.sumOf { it.live.finalItems },
         )
-    }.sortedBy { it.label }
-}
+    }
 
 /**
  * Σ committed(∧inScopeAtClose)/final MD per `assignee_at_commitment` — the removed-row rule, so Σ
- * users == the team total (TEAM-level groups).
+ * users == the team total (TEAM-level groups); the unassigned (null) group last, as sprint consistency.
  */
-private suspend fun userGroups(contributions: List<ScopeContribution>): List<VelocityGroup> {
-    if (contributions.isEmpty()) return emptyList()
-    val byAccount = contributions.groupBy { it.accountId }
-    val accountIds = byAccount.keys.filterNotNull()
-    val displayNames = accountDisplayNames(accountIds)
-    return byAccount.map { (accountId, rows) ->
+private suspend fun userGroups(contributions: List<ScopeContribution>): List<VelocityGroup> =
+    orgGroups(ReportLevel.TEAM, contributions, { null }, { it.accountId }).map { (key, rows) ->
         VelocityGroup(
-            accountId = accountId,
-            label = accountId?.let { displayNames[it] ?: it },
+            accountId = key.accountId,
+            label = key.label,
             initialMd = rows.filter { it.committed && it.inScopeAtClose }.sumOf { it.commitMd ?: 0.0 },
             initialItems = rows.count { it.committed && it.inScopeAtClose },
             finalMd = rows.filter { it.inScopeAtClose }.sumOf { it.closeMd ?: 0.0 },
             finalItems = rows.count { it.inScopeAtClose },
         )
-    }.sortedWith(compareBy(nullsLast()) { it.label }) // the unassigned (null) group last, as sprint consistency
-}
+    }
 
 /**
  * The USER level's own `sprints` — one row per sprint, narrowed to [contributions]' one account

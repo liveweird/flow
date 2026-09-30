@@ -857,32 +857,6 @@ class MetricsStore(private val database: R2dbcDatabase) {
         }
     }
 
-    /**
-     * Wholesale-rebuilds every bridge this commit populates (`task_epic`/`task_domain`/
-     * `task_assignee`/`task_sprint`/`item_estimate`/`item_stage`/`item_blocked`) in ONE call — kept
-     * for a caller with every row in memory already; `MetricsDeriver.kt`'s own batched write calls
-     * [deleteBridges] plus the per-table insert methods above directly instead.
-     */
-    suspend fun replaceBridges(
-        connectionId: UInt,
-        taskEpic: List<TaskEpicRow>,
-        taskDomain: List<TaskDomainRow>,
-        taskAssignee: List<TaskAssigneeRow>,
-        taskSprint: List<TaskSprintRow>,
-        itemEstimate: List<ItemEstimateRow>,
-        itemStage: List<ItemStageRow>,
-        itemBlocked: List<ItemBlockedRow>,
-    ) {
-        deleteBridges(connectionId)
-        insertTaskEpic(connectionId, taskEpic)
-        insertTaskDomain(connectionId, taskDomain)
-        insertTaskAssignee(connectionId, taskAssignee)
-        insertTaskSprint(connectionId, taskSprint)
-        insertItemEstimate(connectionId, itemEstimate)
-        insertItemStage(connectionId, itemStage)
-        insertItemBlocked(connectionId, itemBlocked)
-    }
-
     suspend fun deleteFactTaskDelivery(connectionId: UInt) {
         FactTaskDelivery.deleteWhere { FactTaskDelivery.connectionId eq connectionId }
     }

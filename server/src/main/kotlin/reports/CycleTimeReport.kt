@@ -1,6 +1,7 @@
 package ch.nokillswit.reports
 
 import ch.nokillswit.metrics.MetricsStore
+import ch.nokillswit.metrics.WorkingCalendar
 import java.math.BigDecimal
 import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.Serializable
@@ -110,7 +111,7 @@ suspend fun ReportService.cycleTime(filter: ReportFilter, bucket: ThroughputBuck
     suspendTransaction(database) {
         val scope = resolveReportScope(filter, nowMs)
         val minSample = scope.settings.minSampleSize
-        val zone = zoneOf(scope.settings.timeZone)
+        val zone = WorkingCalendar.zoneOf(scope.settings.timeZone)
         val window = scope.window
         val tasks = window?.let { fetchDoneCycleTasks(filter, scope.connectionIds, it) }.orEmpty()
         val (elapsed, working, excluded) = cycleDistributions(tasks, minSample)

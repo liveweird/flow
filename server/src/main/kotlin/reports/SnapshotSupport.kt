@@ -1,11 +1,9 @@
 package ch.nokillswit.reports
 
-import ch.nokillswit.metrics.MetricsSettingsResponse
 import ch.nokillswit.metrics.MetricsStore
 import ch.nokillswit.metrics.WorkingCalendar
 import io.ktor.server.plugins.BadRequestException
 import java.time.LocalDate
-import java.time.ZoneId
 import kotlinx.coroutines.flow.toList
 import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.and
@@ -101,13 +99,6 @@ internal fun flowScopePredicate(scope: SnapshotScope): Op<Boolean> {
 /** `agg_daily_wip.item_kind` values. */
 internal const val WIP_KIND_TASK = "TASK"
 internal const val WIP_KIND_EPIC = "EPIC"
-
-/** The configured working calendar (`metrics.settings` zone, weekend days and holidays) — the one builder every report shares. */
-internal fun workingCalendarOf(settings: MetricsSettingsResponse): WorkingCalendar {
-    val zone: ZoneId = zoneOf(settings.timeZone)
-    val holidays = settings.holidays.mapNotNull { runCatching { LocalDate.parse(it) }.getOrNull() }.toSet()
-    return WorkingCalendar(zone, settings.weekendDays.toSet(), holidays)
-}
 
 /**
  * How far the daily aggregates reach for a set of connections: [day] is the OLDEST, over the connections that have

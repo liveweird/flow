@@ -82,6 +82,7 @@ class ReportVelocityTest {
         assertTrue(!goldenSprint.drift, "the fixture's snapshots are reconstructed from the same data — drift must be false")
 
         val floGroup = body.groups.single { it.teamId == floTeamId }
+        assertLabelThenIdOrder("UNIT", body.groups.map { GroupIdentity(it.label, it.teamId, it.accountId) })
         assertEquals(floSprints.sumOf { it.finalMd }, floGroup.finalMd, ABS_TOLERANCE)
         assertEquals(floSprints.sumOf { it.finalItems }, floGroup.finalItems)
     }
@@ -129,6 +130,7 @@ class ReportVelocityTest {
         assertEquals(sprint.initialMd, body.groups.sumOf { it.initialMd }, ABS_TOLERANCE, "Sigma users initial must equal the team")
         assertEquals(sprint.initialItems, body.groups.sumOf { it.initialItems })
         assertTrue(body.groups.isNotEmpty(), "expected at least one assignee-at-commitment group")
+        assertLabelThenIdOrder("TEAM", body.groups.map { GroupIdentity(it.label, it.teamId, it.accountId) })
     }
 
     @Test
