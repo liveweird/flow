@@ -13,6 +13,7 @@ import {
   reportQuery,
   serializeReportFilter,
   wipColumnAvailable,
+  withFilterKey,
   withPeriod,
   type ReportFilterState,
 } from "./reportFilter";
@@ -213,5 +214,20 @@ describe("dropDomainWithTeam and normalizeWipFilter", () => {
     // The team wins over the domain, which leaves the columns valid.
     expect(normalizeWipFilter({ by: "COLUMN", teamId: 1, domain: "FLO" })).toEqual({ by: "COLUMN", teamId: 1 });
     expect(normalizeWipFilter({ by: "STATUS", itemKind: "EPIC" })).toEqual({ by: "STATUS", itemKind: "EPIC" });
+  });
+});
+
+describe("withFilterKey", () => {
+  test("a value sets the key without touching the others or the input", () => {
+    const filter: ReportFilterState = { teamId: 3 };
+    expect(withFilterKey(filter, "domain", "PAY")).toEqual({ teamId: 3, domain: "PAY" });
+    expect(filter).toEqual({ teamId: 3 });
+  });
+
+  test("null and undefined drop the key", () => {
+    const filter: ReportFilterState = { teamId: 3, domain: "PAY" };
+    expect(withFilterKey(filter, "domain", null)).toEqual({ teamId: 3 });
+    expect(withFilterKey(filter, "domain", undefined as unknown as null)).toEqual({ teamId: 3 });
+    expect("domain" in withFilterKey(filter, "domain", null)).toBe(false);
   });
 });

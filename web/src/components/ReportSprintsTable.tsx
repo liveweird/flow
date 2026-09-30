@@ -1,16 +1,12 @@
-import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Badge, Group, Table, Text } from "@mantine/core";
 import type { ReportFilters } from "../api/reports";
 import { formatDate } from "../utils/formatDate";
 import { teamLabel } from "../utils/reportFormat";
 import { sortSprints, type SprintIdentity } from "../utils/reportSprints";
+import ColumnTable, { type ColumnDef } from "./ColumnTable";
 
-export interface SprintColumn<S> {
-  key: string;
-  header: string;
-  render: (sprint: S) => ReactNode;
-}
+export type SprintColumn<S> = ColumnDef<S>;
 
 /**
  * The per-sprint table beside a sprint chart (the chart's table view): sprint, team, completion
@@ -33,52 +29,43 @@ export default function ReportSprintsTable<S extends SprintIdentity & { drift: b
   minWidth?: number;
 }) {
   const { t } = useTranslation();
+  const columnsWithIdentity: ColumnDef<S>[] = [
+    { key: "sprint", header: t("reports.sprints.sprint"), render: (sprint) => sprint.name },
+    { key: "team", header: t("reports.sprints.team"), render: (sprint) => teamLabel(sprint.teamId, filters.teams) },
+    {
+      key: "completed",
+      header: t("reports.sprints.completed"),
+      render: (sprint) => formatDate(sprint.completedAt, t("reports.sprints.open"), filters.timeZone),
+    },
+    ...columns.map((column) => ({ ...column, align: "right" as const })),
+    {
+      key: "drift",
+      header: t("reports.sprints.drift"),
+      render: (sprint) => {
+        const detail = sprint.drift ? driftDetail(sprint) : null;
+        return (
+          detail !== null && (
+            <Group gap="xs" wrap="nowrap">
+              <Badge color="orange" variant="light">
+                {t("reports.sprints.driftBadge")}
+              </Badge>
+              <Text size="xs" c="dimmed">
+                {detail}
+              </Text>
+            </Group>
+          )
+        );
+      },
+    },
+  ];
   return (
     <Table.ScrollContainer minWidth={minWidth}>
-      <Table aria-label={t("reports.sprints.tableAria")}>
-        <Table.Thead>
-          <Table.Tr>
-            <Table.Th>{t("reports.sprints.sprint")}</Table.Th>
-            <Table.Th>{t("reports.sprints.team")}</Table.Th>
-            <Table.Th>{t("reports.sprints.completed")}</Table.Th>
-            {columns.map((column) => (
-              <Table.Th key={column.key} ta="right">
-                {column.header}
-              </Table.Th>
-            ))}
-            <Table.Th>{t("reports.sprints.drift")}</Table.Th>
-          </Table.Tr>
-        </Table.Thead>
-        <Table.Tbody>
-          {sortSprints(sprints).map((sprint) => {
-            const detail = sprint.drift ? driftDetail(sprint) : null;
-            return (
-              <Table.Tr key={`${sprint.teamId}:${sprint.sprintId}`}>
-                <Table.Td>{sprint.name}</Table.Td>
-                <Table.Td>{teamLabel(sprint.teamId, filters.teams)}</Table.Td>
-                <Table.Td>{formatDate(sprint.completedAt, t("reports.sprints.open"), filters.timeZone)}</Table.Td>
-                {columns.map((column) => (
-                  <Table.Td key={column.key} ta="right">
-                    {column.render(sprint)}
-                  </Table.Td>
-                ))}
-                <Table.Td>
-                  {detail !== null && (
-                    <Group gap="xs" wrap="nowrap">
-                      <Badge color="orange" variant="light">
-                        {t("reports.sprints.driftBadge")}
-                      </Badge>
-                      <Text size="xs" c="dimmed">
-                        {detail}
-                      </Text>
-                    </Group>
-                  )}
-                </Table.Td>
-              </Table.Tr>
-            );
-          })}
-        </Table.Tbody>
-      </Table>
+      <ColumnTable
+        aria-label={t("reports.sprints.tableAria")}
+        columns={columnsWithIdentity}
+        rows={sortSprints(sprints)}
+        rowKey={(sprint) => `${sprint.teamId}:${sprint.sprintId}`}
+      />
     </Table.ScrollContainer>
   );
 }
