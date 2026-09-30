@@ -197,6 +197,47 @@ export function reportQuery(filter: ReportFilterState): string {
 }
 
 /**
+ * Which optional controls a report offers — the bar shows a control ONLY where the report uses
+ * it (velocity ignores domain/activity/category, so it passes none). `domainView` is
+ * the report's own default view (D3), its presence turns the "delivered in / earned in" toggle on.
+ */
+export interface ReportControls {
+  domainView?: DomainView;
+  domain?: boolean;
+  activityType?: boolean;
+  workCategory?: boolean;
+  /** The week/month resolution of a bucketed series (throughput). */
+  bucket?: boolean;
+  /** What the WIP report keys its counts by (stage, status, board column). */
+  wipBy?: boolean;
+  /** Which items the WIP report counts (tasks, epics, both). */
+  itemKind?: boolean;
+  /**
+   * The report's aggregate has no team × domain split (the server answers `400` for both together),
+   * so the last of the two controls touched wins: picking a team clears the domain and vice versa.
+   */
+  domainExcludesTeam?: boolean;
+  /** The report is "as of now" and ignores the period (aging WIP): no period control at all. */
+  noPeriod?: boolean;
+  /** The report has no user level (epic progress answers `400` to `accountId`): no member control. */
+  noMember?: boolean;
+  /** Narrow to one Jira connection (data quality); shown only when there is more than one to choose from. */
+  connection?: boolean;
+}
+
+/** The filter with ONE key set — or dropped for `null`/`undefined` (a cleared control). */
+export function withFilterKey<K extends keyof ReportFilterState>(
+  filter: ReportFilterState,
+  key: K,
+  value: ReportFilterState[K] | null,
+): ReportFilterState {
+  const next = { ...filter };
+  if (value === null || value === undefined) delete next[key];
+  else next[key] = value;
+  return next;
+}
+
+/**
  * True when the WIP report can be keyed by board column: one team's board — never the whole unit,
  * the UNASSIGNED bucket (`teamId=0`) or a domain slice (the server answers `400` for each).
  */

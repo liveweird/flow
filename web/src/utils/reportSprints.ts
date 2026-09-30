@@ -1,4 +1,5 @@
-import type { ReportFilters } from "../api/reports";
+import type { ReportFilters, ReportFilterTeam } from "../api/reports";
+import type { ReportFilterState } from "./reportFilter";
 import { teamLabel } from "./reportFormat";
 
 /** The identity every sprint row of every sprint-shaped report carries. */
@@ -29,4 +30,19 @@ export function labelledSprints<S extends SprintIdentity>(
     sprint,
     label: multiTeam ? `${teamLabel(sprint.teamId, filters.teams)} · ${sprint.name}` : sprint.name,
   }));
+}
+
+/**
+ * The sprints the picker offers, newest first (completion, else start): the picked team's — or,
+ * for a sprint link without a team, the team that lists that sprint.
+ */
+export function pickerSprints(teams: ReadonlyArray<ReportFilterTeam>, filter: ReportFilterState) {
+  const team =
+    teams.find((candidate) => candidate.id === filter.teamId) ??
+    (filter.sprintId === undefined
+      ? undefined
+      : teams.find((candidate) => candidate.sprints.some((sprint) => sprint.sprintId === filter.sprintId)));
+  return [...(team?.sprints ?? [])].sort(
+    (a, b) => (b.completeAt ?? b.startAt ?? 0) - (a.completeAt ?? a.startAt ?? 0) || b.sprintId - a.sprintId,
+  );
 }

@@ -1,9 +1,9 @@
-import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { Anchor, Stack, Table, Text, Title } from "@mantine/core";
+import { Anchor, Stack, Text, Title } from "@mantine/core";
 import { Link as RouterLink, useLocation, useSearchParams } from "react-router-dom";
 import type { ReportFilters } from "../api/reports";
 import { applyReportFilter, parseReportFilter } from "../utils/reportFilter";
+import ColumnTable, { type ColumnDef } from "./ColumnTable";
 
 /** The identity every report's `groups` row carries (a team at UNIT level, a member at TEAM level). */
 export interface GroupIdentity {
@@ -12,11 +12,7 @@ export interface GroupIdentity {
   label?: string | null;
 }
 
-export interface GroupColumn<G> {
-  key: string;
-  header: string;
-  render: (group: G) => ReactNode;
-}
+export type GroupColumn<G> = ColumnDef<G>;
 
 /**
  * The next org level of a report: one row per team (UNIT) or member (TEAM). The row NAME is the
@@ -62,54 +58,46 @@ export default function ReportGroupsTable<G extends GroupIdentity>({
 
   const title = unit ? t("reports.groups.byTeam") : t("reports.groups.byMember");
 
+  const columnsWithIdentity: ColumnDef<G>[] = [
+    {
+      key: "name",
+      header: unit ? t("reports.groups.team") : t("reports.groups.member"),
+      render: (group) => {
+        const name = displayName(group);
+        const search = narrowed(group);
+        if (search === null) {
+          return (
+            <Text size="sm" c="dimmed">
+              {name ?? t("reports.groups.unassigned")}
+            </Text>
+          );
+        }
+        return (
+          <Anchor
+            component={RouterLink}
+            to={{ pathname, search }}
+            size="sm"
+            aria-label={t("reports.groups.drillAria", { name: name ?? String(group.teamId ?? group.accountId) })}
+          >
+            {name ?? String(group.teamId ?? group.accountId)}
+          </Anchor>
+        );
+      },
+    },
+    ...columns.map((column) => ({ ...column, align: "right" as const })),
+  ];
+
   return (
     <Stack gap="xs">
       <Title order={3} size="h4">
         {title}
       </Title>
-      <Table aria-label={title}>
-        <Table.Thead>
-          <Table.Tr>
-            <Table.Th>{unit ? t("reports.groups.team") : t("reports.groups.member")}</Table.Th>
-            {columns.map((column) => (
-              <Table.Th key={column.key} ta="right">
-                {column.header}
-              </Table.Th>
-            ))}
-          </Table.Tr>
-        </Table.Thead>
-        <Table.Tbody>
-          {groups.map((group) => {
-            const name = displayName(group);
-            const search = narrowed(group);
-            return (
-              <Table.Tr key={`${group.teamId ?? "-"}:${group.accountId ?? "-"}:${group.label ?? "-"}`}>
-                <Table.Td>
-                  {search === null ? (
-                    <Text size="sm" c="dimmed">
-                      {name ?? t("reports.groups.unassigned")}
-                    </Text>
-                  ) : (
-                    <Anchor
-                      component={RouterLink}
-                      to={{ pathname, search }}
-                      size="sm"
-                      aria-label={t("reports.groups.drillAria", { name: name ?? String(group.teamId ?? group.accountId) })}
-                    >
-                      {name ?? String(group.teamId ?? group.accountId)}
-                    </Anchor>
-                  )}
-                </Table.Td>
-                {columns.map((column) => (
-                  <Table.Td key={column.key} ta="right">
-                    {column.render(group)}
-                  </Table.Td>
-                ))}
-              </Table.Tr>
-            );
-          })}
-        </Table.Tbody>
-      </Table>
+      <ColumnTable
+        aria-label={title}
+        columns={columnsWithIdentity}
+        rows={groups}
+        rowKey={(group) => `${group.teamId ?? "-"}:${group.accountId ?? "-"}:${group.label ?? "-"}`}
+      />
     </Stack>
   );
 }
