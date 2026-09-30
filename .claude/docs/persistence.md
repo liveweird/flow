@@ -346,7 +346,11 @@ the tiling invariants and stream mechanics — this section is the schema/persis
   (`TrackedField`, Kotlin-enum-whitelisted, not CHECK-constrained), unique on
   `(connection_id, issue_id, field, seq)`. SPRINT's `value_id` is the LAST sprint id of a
   (possibly multi-valued) carry-over set; `value_text` is the comma-joined sprint names Jira's own
-  changelog `toString` already carries — never recomputed from ids.
+  changelog `toString` already carries — never recomputed from ids. `value_text` is `TEXT` since V18
+  (V13 created it `VARCHAR(500)`): the sprint name list is unbounded Jira text, and an issue carried
+  through ~15+ sprints overflowed 500 chars — Exposed's client-side varchar length check threw before
+  any SQL ran, failing its PROCESS write forever
+  (`NormalizationPipelineTest` "PROCESS stores a sprint name list longer than 500 characters in full").
   `idx_norm_work_item_field_intervals_issue` (`connection_id, issue_id, field`) backs the same kind
   of per-issue/per-field replay.
 - **`norm.work_item_field_changes`** — every tracked changelog item kept VERBATIM (never tiled):
@@ -603,7 +607,7 @@ migration — the persistence.md cross-feature list above is unchanged.
 
 `MigrationChecksumTest` gains V17's pin.
 
-Current migrations are `V1`–`V17`:
+Current migrations are `V1`–`V18`:
 
 - `V1__init` — the `users` table: `name` (≤50), `email` (≤254), `password_hash`, `role` with
   `CHECK ("role" IN ('ADMIN', 'USER'))` (single-column role storage; the wire shape stays a
@@ -663,6 +667,11 @@ Current migrations are `V1`–`V17`:
   `current_assignee_account_id`, `fact_worklog.assignee_account_id_at_started`/
   `assignee_team_id_at_started`, `fact_epic_delivery.owner_team_id`, `dim_domain.owner_team_id` —
   additive columns backing A18/A19/A21/A22's derivation corrections.
+- `V18__widen_field_interval_value_text` — `norm.work_item_field_intervals.value_text` `VARCHAR(500)` →
+  `TEXT` (see "The normalized layer (V13)" above): SPRINT's comma-joined name list is unbounded Jira
+  text. A varchar→text change is binary-coercible (catalog-only, no table rewrite), V13's bytes stay
+  immutable, no data migration, no reader changes (`WorkItemStore.FieldIntervals.valueText` is now
+  `text(...)`); `MigrationChecksumTest` pins it.
 
 The `users`/`teams` tables follow Toadie's dialect (`SERIAL`/`INTEGER` ids, epoch-millis `BIGINT`
 timestamps, `marked_as_deleted` + partial unique indexes over active rows) and its idioms: a

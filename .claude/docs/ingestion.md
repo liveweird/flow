@@ -490,7 +490,7 @@ dataset, not just `Tiling`'s in-memory guarantees.
 **Field intervals** (`Tiling.fieldIntervals`, the same four-invariant construction rule minus the
 status-specific anomaly checks) tile four fields into `norm.work_item_field_intervals`
 (`TrackedField`): **ASSIGNEE**, **SPRINT** (`value_id` is the LAST id of a possibly multi-valued
-carry-over set; `value_text` is Jira's own comma-joined `toString`, never recomputed from ids),
+carry-over set; `value_text` is Jira's own comma-joined `toString`, never recomputed from ids — a `TEXT` column since V18, the name list being unbounded),
 **FLAGGED** (a boolean carried as the string `"true"`/`"false"` in `value_id`, `value_text` always
 null) and **PARENT** (v0.3.0 M1 commit 2, V14 — tiles exactly like ASSIGNEE: `value_id` is the
 parent issue id, `value_text` its key, `null` = unparented). A null `value_id` (unassigned,

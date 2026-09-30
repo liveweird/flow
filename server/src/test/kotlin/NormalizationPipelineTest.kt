@@ -14,6 +14,9 @@ import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -308,6 +311,55 @@ class NormalizationPipelineTest {
             "only the failed issue stays flagged for the next PROCESS pass",
         )
         assertEquals(mapOf("issuesProcessed" to total - 1, "issuesFailed" to 1L), context.progressSnapshot())
+    }
+
+    @Test
+    fun `PROCESS stores a sprint name list longer than 500 characters in full`() = runBlocking {
+        // A processed clone (created DISABLED by the helper) — only PROCESS runs, over the rewritten raw row.
+        val connId = clonedConnection(SyncedStubFixture.connectionId(), processed = true)
+        val store = rawStore()
+        val items = workItems()
+        // One history carrying a Sprint item, taken from the stub's own raw changelog payloads.
+        val (issueId, historyId, payload) = suspendTransaction(sharedDatabaseForTests()) {
+            JiraRawStore.Changelogs.selectAll().where { JiraRawStore.Changelogs.connectionId eq connId }
+                .orderBy(JiraRawStore.Changelogs.historyId).toList()
+                .first { row ->
+                    Json.parseToJsonElement(row[JiraRawStore.Changelogs.payload]).jsonObject.getValue("items").jsonArray
+                        .any { it.jsonObject["field"]?.jsonPrimitive?.contentOrNull == "Sprint" }
+                }
+                .let {
+                    Triple(it[JiraRawStore.Changelogs.issueId], it[JiraRawStore.Changelogs.historyId], it[JiraRawStore.Changelogs.payload])
+                }
+        }
+        // ~20 ordinary sprint names, comma-joined exactly as Jira's changelog `toString` carries them (> 500 chars).
+        val longSprintText = (1..20).joinToString(", ") { "Platform Team Sprint $it - Checkout and Payments" }
+        assertTrue(longSprintText.length > 600, "the planted text must overflow the old VARCHAR(500)")
+        val history = Json.parseToJsonElement(payload).jsonObject
+        val rewrittenItems = history.getValue("items").jsonArray.map { item ->
+            if (item.jsonObject["field"]?.jsonPrimitive?.contentOrNull == "Sprint") {
+                JsonObject(item.jsonObject + ("toString" to JsonPrimitive(longSprintText)))
+            } else {
+                item
+            }
+        }
+        val rewritten = JsonObject(history + ("items" to JsonArray(rewrittenItems)))
+        rawSql(
+            "UPDATE raw.jira_changelogs SET payload = '${rewritten.toString().replace("'", "''")}'::jsonb " +
+                "WHERE connection_id = $connId AND history_id = $historyId",
+        )
+        // Flag ONLY this issue (a page of one): cheap, and before V18 the failed write failed the whole run.
+        rawSql("UPDATE raw.jira_issues SET needs_processing = true WHERE connection_id = $connId AND issue_id = $issueId")
+        val context = SyncedStubFixture.freshContext(connId)
+
+        JiraProcessStream(store, items).run(context)
+
+        assertEquals(0L, context.progressSnapshot()["issuesFailed"] ?: 0L, "a long sprint list must not fail the write (varchar(500) length check)")
+        assertTrue(
+            issueId !in store.issuesToProcess(connId, PROCESSING_VERSION, limit = 10),
+            "the issue must not stay flagged for the next PROCESS pass",
+        )
+        val sprintValueTexts = items.fieldIntervalsForIssue(connId, issueId).filter { it.field == TrackedField.SPRINT }.map { it.valueText }
+        assertTrue(longSprintText in sprintValueTexts, "the SPRINT interval must carry the full text, got $sprintValueTexts")
     }
 
     /**
