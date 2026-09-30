@@ -31,7 +31,7 @@ function percent(value: number): string {
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <Stack gap="xs">
-      <Title order={4}>{title}</Title>
+      <Title order={3} size="h4">{title}</Title>
       {children}
     </Stack>
   );
@@ -44,7 +44,7 @@ function ProjectsSection({ projects }: { projects: ProjectProfile[] }) {
   );
   if (rows.length === 0) return <NoData />;
   return (
-    <Table>
+    <Table aria-label={t("dataSources.profile.section.projects")}>
       <Table.Thead>
         <Table.Tr>
           <Table.Th>{t("dataSources.profile.column.project")}</Table.Th>
@@ -75,7 +75,7 @@ function WorkflowsSection({ workflows }: { workflows: WorkflowProfile[] }) {
           <Text fw={500} size="sm">
             {workflow.projectKey} · {workflow.issueType}
           </Text>
-          <Table>
+          <Table aria-label={`${workflow.projectKey} · ${workflow.issueType}`}>
             <Table.Thead>
               <Table.Tr>
                 <Table.Th>{t("dataSources.profile.column.status")}</Table.Th>
@@ -106,7 +106,7 @@ function BoardsSection({ boards }: { boards: BoardProfile[] }) {
   const { t } = useTranslation();
   if (boards.length === 0) return <NoData />;
   return (
-    <Table>
+    <Table aria-label={t("dataSources.profile.section.boards")}>
       <Table.Thead>
         <Table.Tr>
           <Table.Th>{t("dataSources.profile.column.board")}</Table.Th>
@@ -135,7 +135,7 @@ function CustomFieldsSection({ customFields }: { customFields: CustomFieldProfil
   const { t } = useTranslation();
   if (customFields.length === 0) return <NoData />;
   return (
-    <Table>
+    <Table aria-label={t("dataSources.profile.section.customFields")}>
       <Table.Thead>
         <Table.Tr>
           <Table.Th>{t("dataSources.profile.column.field")}</Table.Th>
@@ -170,9 +170,9 @@ function NoData() {
 }
 
 /** The scalar-metrics tables (range/estimates/worklogs/reopens/sprints/people) — label/value rows. */
-function MetricsTable({ rows }: { rows: [string, ReactNode][] }) {
+function MetricsTable({ label, rows }: { label: string; rows: [string, ReactNode][] }) {
   return (
-    <Table>
+    <Table aria-label={label}>
       <Table.Tbody>
         {rows.map(([label, value]) => (
           <Table.Tr key={label}>
@@ -203,7 +203,7 @@ function ProfileBody({ profile }: { profile: DataProfile }) {
 
       {profile.range && (
         <Section title={t("dataSources.profile.section.range")}>
-          <MetricsTable
+          <MetricsTable label={t("dataSources.profile.section.range")}
             rows={[
               [t("dataSources.profile.range.earliestCreated"), formatEpochMillis(profile.range.earliestCreatedAt, t)],
               [t("dataSources.profile.range.latestUpdated"), formatEpochMillis(profile.range.latestUpdatedAt, t)],
@@ -229,7 +229,7 @@ function ProfileBody({ profile }: { profile: DataProfile }) {
       </Section>
 
       <Section title={t("dataSources.profile.section.estimates")}>
-        <MetricsTable
+        <MetricsTable label={t("dataSources.profile.section.estimates")}
           rows={[
             [t("dataSources.profile.estimates.totalIssues"), profile.estimates.totalIssues],
             [
@@ -245,7 +245,7 @@ function ProfileBody({ profile }: { profile: DataProfile }) {
       </Section>
 
       <Section title={t("dataSources.profile.section.worklogs")}>
-        <MetricsTable
+        <MetricsTable label={t("dataSources.profile.section.worklogs")}
           rows={[
             [t("dataSources.profile.worklogs.count"), profile.worklogs.count],
             [t("dataSources.profile.worklogs.totalHours"), profile.worklogs.totalHours],
@@ -259,7 +259,7 @@ function ProfileBody({ profile }: { profile: DataProfile }) {
       </Section>
 
       <Section title={t("dataSources.profile.section.reopens")}>
-        <MetricsTable
+        <MetricsTable label={t("dataSources.profile.section.reopens")}
           rows={[
             [t("dataSources.profile.reopens.count"), profile.reopens.count],
             [t("dataSources.profile.reopens.totalIssues"), profile.reopens.totalIssues],
@@ -269,7 +269,7 @@ function ProfileBody({ profile }: { profile: DataProfile }) {
       </Section>
 
       <Section title={t("dataSources.profile.section.sprints")}>
-        <MetricsTable
+        <MetricsTable label={t("dataSources.profile.section.sprints")}
           rows={[
             [t("dataSources.profile.sprints.count"), profile.sprints.count],
             [
@@ -286,7 +286,7 @@ function ProfileBody({ profile }: { profile: DataProfile }) {
       </Section>
 
       <Section title={t("dataSources.profile.section.people")}>
-        <MetricsTable
+        <MetricsTable label={t("dataSources.profile.section.people")}
           rows={[
             [t("dataSources.profile.people.activeAssignees"), profile.people.activeAssignees],
             [t("dataSources.profile.people.unassignedPercent"), percent(profile.people.unassignedPercent)],
@@ -298,7 +298,7 @@ function ProfileBody({ profile }: { profile: DataProfile }) {
         {anomalyEntries.length === 0 ? (
           <NoData />
         ) : (
-          <MetricsTable rows={anomalyEntries.map(([code, count]) => [code, count])} />
+          <MetricsTable label={t("dataSources.profile.section.anomalies")} rows={anomalyEntries.map(([code, count]) => [code, count])} />
         )}
       </Section>
     </Stack>

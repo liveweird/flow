@@ -98,7 +98,7 @@ export default function ReportEpicAccuracy() {
               empty={false}
             >
               <Table.ScrollContainer minWidth={900}>
-                <Table>
+                <Table aria-label={t("reports.epicAccuracy.epicsTitle")}>
                   <Table.Thead>
                     <Table.Tr>
                       <Table.Th>{t("reports.epicAccuracy.column.epic")}</Table.Th>

@@ -55,7 +55,20 @@ export default defineConfig({
     globals: true,
     environment: 'happy-dom',
     setupFiles: ['./src/test/setup.ts'],
-    css: true,
+    // No CSS is processed under happy-dom (it lays nothing out; the Mantine `env="test"` rule
+    // already bypasses CSS-dependent visibility) — EXCEPT src/index.css, which theme.test.ts reads
+    // `?raw` to pin its first-paint hexes to the canvas tokens. Measured in build-times.md (WHY 6).
+    css: { include: [/src[\\/]index\.css/] },
+    // Worker threads instead of forked processes: a cheaper spawn — measured -6 % wall and -30 % sys
+    // time on the CI-shaped 3-worker run (build-times.md, WHY 6).
+    pool: 'threads',
+    // One worker runs many files with NO per-file fresh worker (each isolated file paid ~275 ms of
+    // worker start + the Mantine/i18n setup import). What keeps that safe: `src/test/setup.ts`
+    // clears the module registry before every file (so a file's own `vi.mock`s apply), tests await
+    // lazy chart chunks instead of assuming a warm registry, and the suite is proven green under
+    // `--sequence.shuffle`. A new test that leaks state across files fails there — fix the leak
+    // (reset it in `afterEach`), never flip this back.
+    isolate: false,
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html'],

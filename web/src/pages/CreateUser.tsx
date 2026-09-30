@@ -13,6 +13,7 @@ import { EMPTY_USER_FORM, rolesOf, userFormValidation, type UserFormValues } fro
 import { saveErrorMessage } from "../utils/saveError";
 import PageHeader from "../components/PageHeader";
 import { FORM_MAX_WIDTH } from "../utils/layout";
+import { usersPath } from "../utils/userLinks";
 
 export default function CreateUser() {
   const { t } = useTranslation();
@@ -61,7 +62,7 @@ export default function CreateUser() {
 
   function closeConfirmation() {
     setCreated(null); // the plaintext is dropped here, for good
-    navigate("/users", { replace: true });
+    navigate(usersPath, { replace: true });
   }
 
   // A client-side mail draft for handing the credentials over (no mail infra involved);
@@ -80,7 +81,7 @@ export default function CreateUser() {
 
   return (
     <Stack gap="md">
-      <PageHeader title={t("users.createUser")} backTo={{ to: "/users", label: t("users.title") }} />
+      <PageHeader title={t("users.createUser")} backTo={{ to: usersPath, label: t("users.title") }} />
       <Paper withBorder p="xl" maw={FORM_MAX_WIDTH}>
         <form onSubmit={form.onSubmit(onSubmit)} noValidate>
           <Stack>
@@ -92,7 +93,7 @@ export default function CreateUser() {
               </Alert>
             )}
             <Group justify="flex-end" gap="sm">
-              <Button component={RouterLink} to="/users" variant="default">
+              <Button component={RouterLink} to={usersPath} variant="default">
                 {t("common.action.cancel")}
               </Button>
               <Button type="submit" loading={submitting}>

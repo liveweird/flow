@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Modal, Select, Stack, TextInput } from "@mantine/core";
+import { Loader, Modal, Select, Stack, TextInput } from "@mantine/core";
 import { useForm } from "@mantine/form";
 import { useDebouncedValue } from "@mantine/hooks";
 import { useQuery } from "@tanstack/react-query";
@@ -9,6 +9,7 @@ import { isValidIsoDate, isoDateToEpochMillis } from "../utils/isoDate";
 import { saveErrorMessage } from "../utils/saveError";
 import { showSuccessToast } from "../utils/toast";
 import RegistryEditorActions from "./RegistryEditorActions";
+import ErrorAlert from "./ErrorAlert";
 
 type JiraMemberFormValues = {
   accountId: string | null;
@@ -41,6 +42,7 @@ export default function JiraMemberModal({
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [debounced] = useDebouncedValue(search.trim(), 300);
+  const settling = search.trim() !== debounced;
 
   const people = useQuery({
     queryKey: ["jira-users", "picker", "SITE", debounced],
@@ -107,18 +109,28 @@ export default function JiraMemberModal({
             searchable
             searchValue={search}
             onSearchChange={setSearch}
-            nothingFoundMessage={t("metrics.teamMembers.noMatchingPeople")}
+            // "No matching people" states a COMPLETED search for the CURRENT term: never while the
+            // query is pending (options are empty), while the typed term is still inside the
+            // debounce window (`settling`), or after a failed load (the Alert says so).
+            nothingFoundMessage={
+              people.isLoading || people.isError || settling ? undefined : t("metrics.teamMembers.noMatchingPeople")
+            }
+            aria-busy={people.isLoading}
+            rightSection={
+              people.isLoading ? <Loader size="xs" role="status" aria-label={t("metrics.teamMembers.loadingPeople")} /> : undefined
+            }
             {...form.getInputProps("accountId")}
           />
+          {people.isError && <ErrorAlert error={people.error} />}
           <TextInput
             label={t("metrics.teamMembers.field.validFrom")}
-            placeholder="YYYY-MM-DD"
+            placeholder={t("common.dateFormatHint")}
             {...form.getInputProps("validFrom")}
           />
           <TextInput
             label={t("metrics.teamMembers.field.validTo")}
             description={t("metrics.teamMembers.field.validToHint")}
-            placeholder="YYYY-MM-DD"
+            placeholder={t("common.dateFormatHint")}
             {...form.getInputProps("validTo")}
           />
           <RegistryEditorActions error={error} submitting={submitting} isEdit={false} onClose={onClose} gap="sm" />

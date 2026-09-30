@@ -33,8 +33,9 @@ in-network consumers use `postgres:5432`). There is one persistence stack:
 - **Applies when:** touching `infra/db/Database.kt`'s connect call, the `postgres.pool.*`
   configuration, or reasoning about how many PostgreSQL backends one Flow instance can hold.
 - **Requirement:** Exposed connects through ONE bounded `io.r2dbc:r2dbc-pool` `ConnectionPool`
-  (ported from Lettuce) wrapping the plain PostgreSQL R2DBC factory — never a raw
-  `r2dbc:postgresql://` connect, which opens one backend per `suspendTransaction` with nothing
+  (ported from Lettuce) wrapping the plain PostgreSQL R2DBC factory, built by the one shared
+  `connectPooledDatabase` (the test harness's direct `sharedDatabaseForTests()` uses it too, with a
+  small pool of its own) — never a raw `r2dbc:postgresql://` connect, which opens one backend per `suspendTransaction` with nothing
   capping concurrency (measured in Lettuce, v3.16.1, against its compose stack: 120 parallel
   requests against one endpoint took ALL 100 backends of PostgreSQL's default `max_connections`
   taken, 6 × `500` "sorry, too many clients already" and 7 × `401` — the JWT validation's
@@ -111,6 +112,11 @@ place:
   trying to lock the SAME row) — and queries `norm/WorkItemStore.People` directly (an unknown Jira
   account id is `400` — the client-supplied-FK idiom `TeamService.requireActiveUsers` already uses
   for Flow user ids), all inside its own transactions.
+- `norm/WorkItemStore` reads `ingest/DataSourceService.Connections` directly: every `norm.*` table
+  carries a `connection_id` FK to it, and `listPeople`, `distinctAssigneeAccountIds` and
+  `distinctWorklogAuthorAccountIds` inner-join it under `Connections.active()`, so people, assignees
+  and worklog authors of a soft-deleted connection never surface — read-only, inside its own
+  transaction.
 - `metrics/MetricsConfigService.referenceData` (v0.3.0 M1 commit 4) reads `teams/TeamService.Teams`
   (active teams) to validate `boards[].teamId` on the metrics-config PUT, inside its own transaction.
 - `metrics/MetricsDeriver.activeTeamIds` (v0.3.0 M3 commit 9d) reads `teams/TeamService.Teams`
@@ -119,15 +125,25 @@ place:
 - `reports/ReportService.filters` (v0.3.0 M4 commit 10a, `GET /api/v1/reports/filters`) reads
   `teams/TeamService.Teams` (active teams), `norm/WorkItemStore.People` (display names for a
   team's current D1 Jira members) and `ingest/DataSourceService.Connections` (id+name for active
-  connections — never `settings`/the encrypted API token) directly, all inside its own
-  transaction — a read-only reference-data assembly, never a write.
+  connections — never `settings`/the encrypted API token) directly, plus the `metrics` tables
+  `DimSprint`, `DimDomain`, `DimEpic`, `DimTask` (the filter option lists) and `DeriveRuns` (the
+  `derivedAt` clock), all inside its own transaction — a read-only reference-data assembly, never
+  a write.
 - `reports/ReportSupport.kt` (v0.3.0 M4 commits 10b/10c/10d/12, shared by `reports/VelocityReport.kt`,
   `reports/ThroughputReport.kt`, `reports/SprintConsistencyReport.kt` and the estimation reports
   `reports/TaskAccuracyReport.kt`/`EpicAccuracyReport.kt`/`EstimateAdjustmentsReport.kt`) reads
   `ingest/DataSourceService.Connections` (the active-connection
   scope and the `connectionId` existence check), `teams/TeamService.Teams` (the `teamId` existence
-  check and team names) and `norm/WorkItemStore.People` (assignee display names) directly, inside
+  check and team names) and `norm/WorkItemStore.People` (assignee display names) directly, plus
+  the `metrics` tables `FactSprint`, `FactSprintSnapshot`, `FactTaskDelivery`, `FactEpicDelivery`,
+  `DimSprint` and `DeriveRuns` (the shared sprint/task/epic slices every report builds on), inside
   the calling report's own transaction — read-only.
+- The per-report readers of the `metrics` star (all read-only, inside the report's own
+  transaction, through `ReportSupport`'s shared slices): `reports/CycleTimeReport.kt`,
+  `ReportedTimeRatioReport.kt`, `TaskAccuracyReport.kt` and `EstimateAdjustmentsReport.kt` read
+  `FactTaskDelivery`; `EstimateAdjustmentsReport.kt` also reads `FactEpicDelivery`;
+  `EpicAccuracyReport.kt` reads `FactEpicDelivery` and `DimEpic`; `VelocityReport.kt`, `ThroughputReport.kt` and
+  `SprintConsistencyReport.kt` read `FactSprintScope` (`ThroughputReport` also `FactTaskDelivery`).
 - `reports/WipReport.kt` (v0.3.0 M5 commit 15, `GET /api/v1/reports/wip`) reads `norm/WorkItemStore.Statuses`
   (status names for `by=STATUS`), `norm/WorkItemStore.BoardColumns` (the mapped board's columns for `by=COLUMN`, read
   at query time so a board edit shows up without a re-derive) and `metrics/MetricsConfigService.BoardTeamMap` (which
@@ -142,7 +158,7 @@ place:
   `metrics` tables `FactTaskDelivery`, `FactEpicDelivery`, `DimEpic` and `ItemBlocked` -- all read-only, inside the report's
   own transaction.
 - `reports/EpicProgressReport.kt` (v0.3.0 M5 commit 15c, `GET /api/v1/reports/epic-progress`) reads the `metrics` tables
-  `AggDailyFlow` (the per-day PV/EV/AC increments), `DimEpic`, `DimDomain`, `FactEpicPlan`, `FactEpicDelivery` (the budget
+  `AggDailyFlow` (the per-day PV/EV/AC increments), `DimDate`, `DimEpic`, `DimDomain`, `FactEpicPlan`, `FactEpicDelivery` (the budget
   fallback) and `FactWorklog` (the team foreign-work share), plus `teams/TeamService.Teams` (team names and the active-team
   list of the unit drill) -- all read-only, inside the report's own transaction.
 - `reports/CostMatrixReport.kt` (v0.3.0 M5 commit 17b, `GET /api/v1/reports/cost-matrix`) reads `metrics/MetricsStore.FactWorklog`
@@ -318,8 +334,8 @@ the tiling invariants and stream mechanics — this section is the schema/persis
   `moved_out_at` mirror `raw.jira_issues`' own tombstones. `processed_at`/`processing_version` are
   this row's own bookkeeping, separate from `raw.jira_issues.processed_at`/`processing_version` (the
   raw row's own processing pointer) — both move together, written in the SAME transaction
-  (`WorkItemStore.replaceWorkItem` + `JiraRawStore.markProcessed`, inside
-  `JiraProcessStream`'s `context.transaction { }`).
+  (`WorkItemStore.replaceWorkItems` + `JiraRawStore.markProcessedBatch`, inside
+  `JiraProcessStream`'s per-page `context.transaction { }`).
 - **`norm.work_item_status_intervals`** — one row per tiled status interval, PK-less surrogate
   `id SERIAL`, unique on `(connection_id, issue_id, seq)`. The first interval (`seq = 1`) always
   starts at `work_items.created_at` with `source = 'CREATED'`; every later one is `'CHANGE'`.
@@ -348,12 +364,19 @@ the tiling invariants and stream mechanics — this section is the schema/persis
   `raw.jira_entities` set every time it runs. `norm.board_columns.status_ids` is a JSONB array of
   status ids rather than a join table, since it is only ever read whole.
 
-**Per-issue REPLACE semantics.** `WorkItemStore.replaceWorkItem` is one transaction per issue
-(plan §8 step 5): delete `norm.work_item_status_intervals`/`_field_intervals`/`_field_changes`/
-`_worklogs` for that `(connection_id, issue_id)`, insert the freshly tiled rows, then upsert
-`norm.work_items` (insert if no existing row, update otherwise) — all inside the SAME transaction
-`JiraProcessStream` also uses for `JiraRawStore.markProcessed`, so a crash mid-issue never leaves a
-half-written normalized row or a raw row pointing at rows that were never written.
+**REPLACE semantics (per page).** `WorkItemStore.replaceWorkItems` is one transaction per PAGE of up
+to 50 issues (plan §8 step 5; `replaceWorkItem` is the one-issue call of the same code — the fallback
+path and the fixtures): delete `norm.work_item_status_intervals`/`_field_intervals`/`_field_changes`/
+`_worklogs` for the page's `(connection_id, issue_id IN (…))`, insert the freshly tiled rows (one
+`batchInsert` per table, `shouldReturnGeneratedValues = false` — nothing reads the serial ids back;
+`work_item_field_changes.seq` stays 1-based PER ISSUE), then `batchUpsert` `norm.work_items` on its
+PK (`ON CONFLICT (connection_id, issue_id) DO UPDATE` — every non-key column is written either way,
+the same row the old select-then-insert/update produced) — all inside the SAME transaction
+`JiraProcessStream` also uses for `JiraRawStore.markProcessedBatch`, so a crash mid-page never leaves
+a half-written normalized row or a raw row pointing at rows that were never written. A DB error in
+the page write aborts the whole page transaction; `JiraProcessStream` then retries the page issue by
+issue (each in its own transaction, via `replaceWorkItem`/`markProcessed`), so one bad row never
+blocks its page (ingestion.md "PROCESS batching, failure isolation and progress").
 
 **`PROCESSING_VERSION`** (`norm/Normalization.kt`, currently `2` — bumped from `1` by V14, "The
 normalized layer gaps (V14)" below) — bump it on ANY change to the tiling/write-shape rules.
@@ -374,8 +397,8 @@ intervals, worklogs, then work items, in that order, before clearing the referen
 
 ### The normalized layer gaps (V14)
 
-`V14__norm_phase3_gaps.sql` (v0.3.0 M1 commit 2, `.claude/docs/domain-model.md` "Gaps in `norm`
-today") is purely additive — no existing V1–V13 file changes, no data migration, every new column
+`V14__norm_phase3_gaps.sql` (v0.3.0 M1 commit 2, `.claude/docs/domain-model.md` "Gaps in `norm`")
+is purely additive — no existing V1–V13 file changes, no data migration, every new column
 is nullable except one — and pairs with `PROCESSING_VERSION` bumping `1` → `2`
 (`norm/Normalization.kt`), so every already-processed issue reprocesses automatically on the next
 PROCESS pass and backfills these columns without any migration-time `UPDATE`.
@@ -801,6 +824,6 @@ stream. The streams themselves (and the cursor shapes they define) land in plan 
 
 Nothing remains on the persistence list today — the `metrics` schema's derived star landed at V16
 (above); its sprint (commit 8), worklog and epic-plan (commit 9/9b) WRITERS have landed
-(`.claude/docs/metrics.md` "Sprint scope, facts and snapshots (D13)"/"Worklog cost facts
-(fact_worklog)"/"Epic plans and PV"); `agg_daily_wip`'s writer landed with commit 9f
-(`metrics/DeriveWipStep.kt`); only `agg_daily_flow`'s writer is still outstanding.
+(`.claude/docs/metrics.md` "Sprint scope, facts and snapshots"/"Worklog cost facts"/"Epic plans
+and PV"); the `agg_daily_wip` and `agg_daily_flow` writers landed with commit 9f
+(`metrics/DeriveWipStep.kt`, `metrics/DeriveFlowStep.kt`).

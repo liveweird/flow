@@ -1,6 +1,7 @@
 package ch.nokillswit.reports
 
 import ch.nokillswit.metrics.MetricsStore
+import ch.nokillswit.metrics.WorkingCalendar
 import java.math.BigDecimal
 import java.time.DayOfWeek
 import java.time.Instant
@@ -110,7 +111,7 @@ suspend fun ReportService.throughput(
 ): ThroughputReport = suspendTransaction(database) {
     // teamId=0: no sprint ever carries "no team", so the sprint view (and any sprint-relative window) is empty.
     val scope = resolveReportScope(filter, nowMs)
-    val zone = zoneOf(scope.settings.timeZone)
+    val zone = WorkingCalendar.zoneOf(scope.settings.timeZone)
     val connectionIds = scope.connectionIds
     val sprintRows = scope.sprintRows
 
@@ -154,33 +155,21 @@ private fun bucketRows(tasks: List<DoneTask>, window: Pair<Long, Long>, zone: Zo
     }
 }
 
-private suspend fun teamThroughputGroups(tasks: List<DoneTask>): List<ThroughputGroup> {
-    val byTeam = tasks.groupBy { it.creditTeamId }
-    val names = teamNames(byTeam.keys.filterNotNull())
-    return byTeam.map { (teamId, rows) ->
-        ThroughputGroup(
-            teamId = teamId,
-            accountId = null,
-            label = teamId?.let { names[it] ?: it.toString() },
-            deliveredMd = rows.fold(BigDecimal.ZERO) { acc, row -> acc + row.md }.toDouble(),
-            deliveredItems = rows.size,
-        )
-    }.sortedWith(compareBy(nullsLast()) { it.label })
-}
+private fun List<DoneTask>.deliveredMd(): Double = fold(BigDecimal.ZERO) { acc, row -> acc + row.md }.toDouble()
 
-private suspend fun userThroughputGroups(tasks: List<DoneTask>): List<ThroughputGroup> {
-    val byAccount = tasks.groupBy { it.accountId }
-    val displayNames = accountDisplayNames(byAccount.keys.filterNotNull())
-    return byAccount.map { (accountId, rows) ->
+private suspend fun teamThroughputGroups(tasks: List<DoneTask>): List<ThroughputGroup> =
+    orgGroups(ReportLevel.UNIT, tasks, { it.creditTeamId }, { null }).map { (key, rows) ->
         ThroughputGroup(
-            teamId = null,
-            accountId = accountId,
-            label = accountId?.let { displayNames[it] ?: it },
-            deliveredMd = rows.fold(BigDecimal.ZERO) { acc, row -> acc + row.md }.toDouble(),
-            deliveredItems = rows.size,
+            teamId = key.teamId, accountId = null, label = key.label, deliveredMd = rows.deliveredMd(), deliveredItems = rows.size,
         )
-    }.sortedWith(compareBy(nullsLast()) { it.label })
-}
+    }
+
+private suspend fun userThroughputGroups(tasks: List<DoneTask>): List<ThroughputGroup> =
+    orgGroups(ReportLevel.TEAM, tasks, { null }, { it.accountId }).map { (key, rows) ->
+        ThroughputGroup(
+            teamId = null, accountId = key.accountId, label = key.label, deliveredMd = rows.deliveredMd(), deliveredItems = rows.size,
+        )
+    }
 
 /** UNIT/TEAM sprint view: the whole-team figures off `fact_sprint`, beside the frozen snapshot and the drift flag. */
 private suspend fun teamSprints(sprintRows: List<SprintRow>): List<ThroughputSprint> {

@@ -159,7 +159,7 @@ export default function DataSourceEditorModal({
           <TextInput
             label={t("dataSources.field.backfillFrom")}
             description={t("dataSources.field.backfillFromHint")}
-            placeholder="YYYY-MM-DD"
+            placeholder={t("common.dateFormatHint")}
             {...form.getInputProps("backfillFrom")}
           />
           <NumberInput

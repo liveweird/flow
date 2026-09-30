@@ -1,14 +1,14 @@
 import type { ReactNode } from "react";
 import type { Icon } from "@tabler/icons-react";
-import { Alert, Table } from "@mantine/core";
-import { useTranslation } from "react-i18next";
+import { Table } from "@mantine/core";
 import EmptyState from "./EmptyState";
 import PaginationBar from "./PaginationBar";
 import TableLoadingRow from "./TableLoadingRow";
-import { loadErrorMessage } from "../utils/saveError";
+import ErrorAlert from "./ErrorAlert";
 
 /** Common load/error/empty/pagination shell for the small registry tables. */
 export default function RegistryListTable({
+  label,
   errorTitle,
   error,
   isError,
@@ -26,6 +26,8 @@ export default function RegistryListTable({
   onPageChange,
   onPageSizeChange,
 }: {
+  /** The table's accessible name — the same words as the page or section heading above it. */
+  label: string;
   errorTitle: string;
   error: unknown;
   isError: boolean;
@@ -43,16 +45,10 @@ export default function RegistryListTable({
   onPageChange: (page: number) => void;
   onPageSizeChange: (size: number) => void;
 }) {
-  const { t } = useTranslation();
-
   return (
     <>
-      {isError && (
-        <Alert color="red" variant="light" title={errorTitle}>
-          {loadErrorMessage(error, t)}
-        </Alert>
-      )}
-      <Table>
+      {isError && <ErrorAlert error={error} title={errorTitle} />}
+      <Table aria-label={label}>
         <Table.Thead>{header}</Table.Thead>
         <Table.Tbody>
           {isLoading && !hasData ? (

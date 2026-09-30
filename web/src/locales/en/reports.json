@@ -53,13 +53,6 @@
     "domainView": "Domain view",
     "deliveredIn": "Delivered in",
     "earnedIn": "Earned in",
-    "breakdown": "Break down by",
-    "breakdownOption": {
-      "NONE": "None",
-      "DOMAIN": "Domain",
-      "ACTIVITY_TYPE": "Activity type",
-      "WORK_CATEGORY": "Work category"
-    },
     "bucket": "Group by",
     "bucketOption": {
       "WEEK": "Week",
@@ -115,7 +108,8 @@
     "completed": "Completed",
     "open": "Open",
     "drift": "Since completion",
-    "driftBadge": "Drift"
+    "driftBadge": "Drift",
+    "tableAria": "Sprints and their figures"
   },
   "throughput": {
     "title": "Throughput",

@@ -1,6 +1,8 @@
 package ch.nokillswit.reports
 
+import ch.nokillswit.infra.time.MILLIS_PER_DAY
 import ch.nokillswit.metrics.MetricsStore
+import ch.nokillswit.metrics.WorkingCalendar
 import java.math.BigDecimal
 import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.Serializable
@@ -12,7 +14,7 @@ import org.jetbrains.exposed.v1.r2dbc.select
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 
 /** Milliseconds in the day `elapsedDays` is measured in (wall-clock days, weekends included). */
-private const val MS_PER_DAY = 86_400_000.0
+private val MS_PER_DAY = MILLIS_PER_DAY.toDouble()
 
 /**
  * DONE level-0 tasks a cycle-time read could not measure: [neverStarted] (no `started_at`, so no cycle —
@@ -110,7 +112,7 @@ suspend fun ReportService.cycleTime(filter: ReportFilter, bucket: ThroughputBuck
     suspendTransaction(database) {
         val scope = resolveReportScope(filter, nowMs)
         val minSample = scope.settings.minSampleSize
-        val zone = zoneOf(scope.settings.timeZone)
+        val zone = WorkingCalendar.zoneOf(scope.settings.timeZone)
         val window = scope.window
         val tasks = window?.let { fetchDoneCycleTasks(filter, scope.connectionIds, it) }.orEmpty()
         val (elapsed, working, excluded) = cycleDistributions(tasks, minSample)

@@ -16,7 +16,6 @@ describe("normalizeCostMatrixFilter", () => {
         workCategory: "Maintenance",
         connectionId: 2,
         epicId: "FLO-33",
-        breakdown: "DOMAIN",
         bucket: "WEEK",
         by: "STATUS",
         itemKind: "EPIC",

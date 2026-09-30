@@ -11,6 +11,7 @@
     "showPassword": "Pokaż hasło",
     "hidePassword": "Ukryj hasło"
   },
+  "dateFormatHint": "RRRR-MM-DD",
   "field": {
     "email": "E-mail",
     "name": "Nazwa",

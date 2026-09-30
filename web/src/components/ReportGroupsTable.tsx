@@ -60,12 +60,14 @@ export default function ReportGroupsTable<G extends GroupIdentity>({
     );
   };
 
+  const title = unit ? t("reports.groups.byTeam") : t("reports.groups.byMember");
+
   return (
     <Stack gap="xs">
       <Title order={3} size="h4">
-        {unit ? t("reports.groups.byTeam") : t("reports.groups.byMember")}
+        {title}
       </Title>
-      <Table>
+      <Table aria-label={title}>
         <Table.Thead>
           <Table.Tr>
             <Table.Th>{unit ? t("reports.groups.team") : t("reports.groups.member")}</Table.Th>

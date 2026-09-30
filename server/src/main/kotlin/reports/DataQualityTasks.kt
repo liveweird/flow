@@ -1,5 +1,6 @@
 package ch.nokillswit.reports
 
+import ch.nokillswit.infra.time.MILLIS_PER_DAY
 import ch.nokillswit.metrics.MetricsStore
 import ch.nokillswit.metrics.TeamMembershipService
 import ch.nokillswit.metrics.WorkingCalendar
@@ -33,8 +34,7 @@ import org.jetbrains.exposed.v1.r2dbc.select
  * grouped rows and the JSON shapes live in `DataQualityAssembly.kt`; every function runs inside the caller's `suspendTransaction`.
  */
 
-internal const val DQ_MS_PER_DAY = 86_400_000L
-private const val DQ_WEEK_MS = 7 * DQ_MS_PER_DAY
+private const val DQ_WEEK_MS = 7 * MILLIS_PER_DAY
 
 /** The precision `fact_task_delivery`'s estimate columns carry; a sum over them never needs more integer digits than this. */
 private const val ESTIMATE_SUM_PRECISION = 14
@@ -209,31 +209,6 @@ internal data class DqWorklog(
     val lateMs: Long?,
 )
 
-/**
- * The `fact_worklog` rows of the period: `started_at` in [window], the author's team (`teamId=0` = no team) and account, and
- * the domain per `domainView` (TASK: the task's; EPIC: the epic's, else the task's — A21), `activityType`, `workCategory`.
- */
-internal fun worklogSlice(filter: ReportFilter, connectionIds: List<UInt>, window: Pair<Long, Long>): Op<Boolean> {
-    val w = MetricsStore.FactWorklog
-    var predicate: Op<Boolean> = (w.connectionId inList connectionIds) and
-        (w.startedAt greaterEq window.first) and (w.startedAt less window.second)
-    filter.teamId?.let { team ->
-        predicate = predicate and if (team == UNASSIGNED_TEAM_ID) w.authorTeamId.isNull() else (w.authorTeamId eq team)
-    }
-    filter.accountId?.let { predicate = predicate and (w.authorAccountId eq it) }
-    filter.domain?.let { domain ->
-        predicate = predicate and when (filter.domainView) {
-            DomainView.TASK -> w.taskDomainKey eq domain
-            DomainView.EPIC -> (w.epicDomainKey eq domain) or (w.epicDomainKey.isNull() and (w.taskDomainKey eq domain))
-        }
-    }
-    filter.activityType?.let { predicate = predicate and (w.activityType eq it) }
-    filter.workCategory?.let { category ->
-        predicate = predicate and if (category == UNCATEGORIZED) w.workCategory.isNull() else (w.workCategory eq category)
-    }
-    return predicate
-}
-
 /** One `GROUP BY` row of the worklog counting: an author's team and account, with the counts and MD of their worklogs. */
 internal class WorklogAgg(
     val team: UInt?,
@@ -257,7 +232,7 @@ internal suspend fun fetchWorklogAggs(scope: WorklogScope): List<WorklogAgg> {
     val size = Count(w.worklogId)
     val md = Sum(w.md, w.md.columnType)
     val measurable = Count(w.lateMs)
-    val over1 = Count(Case().When(w.lateMs greater DQ_MS_PER_DAY, intLiteral(1)))
+    val over1 = Count(Case().When(w.lateMs greater MILLIS_PER_DAY, intLiteral(1)))
     val over7 = Count(Case().When(w.lateMs greater DQ_WEEK_MS, intLiteral(1)))
     return w.select(w.authorTeamId, w.authorAccountId, size, md, measurable, over1, over7)
         .where { slice }.groupBy(w.authorTeamId, w.authorAccountId).toList().map {

@@ -1,19 +1,15 @@
 import type { CostMatrixReport, ReportFilters, ReportMeta } from "../api/reports";
-import { applyReportFilter, parseReportFilter, type ReportFilterState } from "./reportFilter";
+import { applyReportFilter, dropReportSpecific, parseReportFilter, type ReportFilterState } from "./reportFilter";
+import { costMatrixPath, reportSpecificKeep } from "./reportLinks";
 
 /**
  * Makes a filter the cost matrix can answer, and says what its page can show. The report reads the
  * domain view (default EPIC), a domain, an activity type, a work category and a connection, and the page
- * has a control for each; it also accepts `breakdown` (and changes nothing), while `bucket`, `by`,
- * `itemKind` and `epicId` are other reports' own params. Every one the page cannot show or clear is
- * dropped off the request AND the URL.
+ * has a control for each, while `bucket`, `by`, `itemKind` and `epicId` are other reports' own params. Every one
+ * the page cannot show or clear is dropped off the request AND the URL.
  */
 export function normalizeCostMatrixFilter(filter: ReportFilterState): ReportFilterState {
-  const next = { ...filter };
-  for (const key of ["breakdown", "bucket", "by", "itemKind", "epicId"] as const) {
-    delete next[key];
-  }
-  return next;
+  return dropReportSpecific(filter, reportSpecificKeep(costMatrixPath));
 }
 
 /** True for a `lastSprints`/`sprintId` period: the server resolves sprints and sends no `from`/`to`. */

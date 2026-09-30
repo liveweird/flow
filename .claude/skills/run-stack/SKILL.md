@@ -89,9 +89,12 @@ every sibling stack can run side by side on one machine; host ports bind to 127.
   launcher script appends `$JAVA_OPTS` after the baked `$DEFAULT_JVM_OPTS` on one `java` command
   line, checked in `server/build/install/server/bin/server`, and the JVM honours the last `-Xmx`
   flag), with requests/limits bumped to 384Mi/768Mi (from the web Deployment's 320Mi/512Mi) to
-  match. For throwaway plain-HTTP local-cluster testing, flip `KTOR_DEVELOPMENT` to `"true"` in
-  both files. **Teardown:** retain database data by scaling the deployments to zero, or delete the
-  deployments, services and PVC-holding resources explicitly. **Secrets:** both deployments
+  match. `k8s/network-policies.yaml` (default-deny + the few allowed flows) is applied with the rest and
+  OrbStack's cluster enforces it: a dev-only Jira stub on a private address (`JIRA_STUB_BASE_URL`) or an
+  in-cluster SMTP relay is blocked until you add an egress policy for it (`.claude/docs/security.md`,
+  "Kubernetes pod and network hardening"). For throwaway plain-HTTP local-cluster testing, flip
+  `KTOR_DEVELOPMENT` to `"true"` in both files. **Teardown:** retain database data by scaling the deployments to zero, or delete the
+  deployments, services, network policies and PVC-holding resources explicitly. **Secrets:** both deployments
   consume the `flow-secrets` Secret via `secretKeyRef` (`JWT_SECRET`,
   `POSTGRES_USER`/`POSTGRES_PASSWORD`, `DATA_ENCRYPTION_KEY`, `ADMIN_INITIAL_PASSWORD`, optional
   `SMTP_USER`/`SMTP_PASSWORD`); `k8s/secret.yaml` is a placeholder **template** — applying it
@@ -108,8 +111,9 @@ Temurin image includes them. Every external base uses an exact tag and reviewed 
 manifest digest. The `app` Compose service points the `POSTGRES_*` env vars at the `postgres`
 service host (`postgres:5432` in-network) and waits on its healthcheck. Compose and
 Testcontainers share PostgreSQL 18.6's reviewed digest; Mailpit is pinned to the security-fixed
-1.31.2 image. `.dockerignore` keeps build outputs / `node_modules` (web, e2e) out of the build
-context; `.git` is **included** on purpose — the SPA build stage reads the commit sha/timestamp
+1.31.2 image. `.dockerignore` keeps build outputs, every `node_modules`, `.claude/` (in a primary
+checkout that includes each git worktree under `.claude/worktrees/`: the context is ~18 MB instead of ~3.8 GB),
+coverage/Playwright output and `.kotlin/` out of the build context; `.git` is **included** on purpose — the SPA build stage reads the commit sha/timestamp
 from it for the version stamp (see "Build version stamp" in `web/CLAUDE.md`). Note the volume
 mount: postgres 18+ images keep data in a versioned subdir of `/var/lib/postgresql`, so the
 compose volume mounts that path (the pre-18 `/var/lib/postgresql/data` path makes the container

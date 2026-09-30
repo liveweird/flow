@@ -29,9 +29,9 @@ enum class TilingAnomaly { STATUS_CHANGE_BEFORE_CREATED, STATUS_CHAIN_BROKEN, ST
 
 /**
  * The field kinds `norm.work_item_field_intervals`/`_field_changes` track by their own interval
- * table (plan §4). `PARENT` (v0.3.0 M1 commit 2, `.claude/docs/domain-model.md` "Gaps in `norm`
- * today") tiles the same way ASSIGNEE does — `value_id` is the parent issue id, `value_text` its
- * key, `null` meaning unparented.
+ * table (plan §4). `PARENT` (v0.3.0 M1 commit 2, `.claude/docs/domain-model.md` "Gaps in `norm`")
+ * tiles the same way ASSIGNEE does — `value_id` is the parent issue id, `value_text` its key,
+ * `null` meaning unparented.
  */
 @Serializable
 enum class TrackedField { ASSIGNEE, SPRINT, FLAGGED, PARENT }

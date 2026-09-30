@@ -1,0 +1,123 @@
+# Network isolation for the `flow` namespace: everything is denied by default and only the flows
+# the three pods need are opened. Enforced only when the cluster's CNI implements NetworkPolicy:
+# OrbStack's local cluster does (verified: allowed flows pass, everything else is dropped), as do
+# Calico and Cilium; on a CNI that does not (e.g. plain flannel) the objects are accepted and simply
+# inert — never a reason to skip them. Cluster assumptions (DNS labels, SMTP ports, IPv6) are listed in
+# .claude/docs/security.md, "Kubernetes pod and network hardening".
+#
+# Traffic this namespace needs (and nothing else):
+#   client/ingress -> app:8084            (allowed below — SOURCE STILL OPEN, see that policy)
+#   app, worker    -> postgres:5432       (allow-postgres-from-app-and-worker + the egress twin)
+#   app, worker    -> cluster DNS :53     (allow-app-worker-egress)
+#   app, worker    -> public internet     (443 Jira Cloud/Atlassian gateway, 587/465/25 SMTP)
+#   kubelet probes -> every pod           (the node's own traffic is always allowed by Kubernetes)
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: flow
+spec:
+  # Selects every pod in the namespace: with no rules listed, ingress AND egress are denied.
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-postgres-from-app-and-worker
+  namespace: flow
+spec:
+  podSelector:
+    matchLabels:
+      io.kompose.service: postgres
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: io.kompose.service
+                operator: In
+                values: [app, worker]
+      ports:
+        - protocol: TCP
+          port: 5432
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-app-ingress
+  namespace: flow
+spec:
+  podSelector:
+    matchLabels:
+      io.kompose.service: app
+  policyTypes: [Ingress]
+  ingress:
+    # OPEN DECISION (checkup A13): the source is not restricted yet because the front door is not
+    # decided — the reference still exposes `app` through a LoadBalancer Service (OrbStack), whose
+    # traffic arrives from an address outside the cluster. When an Ingress controller becomes the
+    # entry point, replace this rule's (absent) `from` with that controller's namespace/pod
+    # selector so only it can reach :8084. Until then the port is the restriction.
+    - ports:
+        - protocol: TCP
+          port: 8084
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-app-worker-egress
+  namespace: flow
+spec:
+  podSelector:
+    matchExpressions:
+      - key: io.kompose.service
+        operator: In
+        values: [app, worker]
+  policyTypes: [Egress]
+  egress:
+    # The database.
+    - to:
+        - podSelector:
+            matchLabels:
+              io.kompose.service: postgres
+      ports:
+        - protocol: TCP
+          port: 5432
+    # Cluster DNS (CoreDNS carries the k8s-app=kube-dns label under the kube-system namespace).
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # The Jira Cloud gateway (443) and an SMTP relay (587 STARTTLS, 465 implicit TLS, 25) on the
+    # public internet — the only server-initiated calls the app makes (`infra/outbound` guard:
+    # Jira host allow-list; mail transport). Private and link-local ranges are excluded so a
+    # compromised pod cannot reach cluster-internal services, other namespaces or the cloud
+    # metadata endpoint (169.254.169.254). An in-cluster or private SMTP relay, or the dev-only
+    # Jira stub (`JIRA_STUB_BASE_URL`), needs its own additional policy.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.0.0/16
+              - 100.64.0.0/10
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 587
+        - protocol: TCP
+          port: 465
+        - protocol: TCP
+          port: 25

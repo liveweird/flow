@@ -28,13 +28,13 @@ function SelectHarness({ onPicked }: { onPicked: (value: string) => void }) {
       ],
     },
   ];
-  return <MappingTable idColumnLabel="Id" fieldColumnLabels={["Value"]} rows={rows} />;
+  return <MappingTable label="Mapping" idColumnLabel="Id" fieldColumnLabels={["Value"]} rows={rows} />;
 }
 
 function TextHarness() {
   const [value, setValue] = useState("");
   const rows: MappingRow[] = [{ id: "a", label: "Row A", fields: [{ type: "text", ariaLabel: "Text for Row A", value, onChange: setValue }] }];
-  return <MappingTable idColumnLabel="Id" fieldColumnLabels={["Value"]} rows={rows} />;
+  return <MappingTable label="Mapping" idColumnLabel="Id" fieldColumnLabels={["Value"]} rows={rows} />;
 }
 
 function CheckboxHarness({ onToggled }: { onToggled: (checked: boolean) => void }) {
@@ -56,13 +56,18 @@ function CheckboxHarness({ onToggled }: { onToggled: (checked: boolean) => void 
       ],
     },
   ];
-  return <MappingTable idColumnLabel="Id" fieldColumnLabels={["Blocked"]} rows={rows} />;
+  return <MappingTable label="Mapping" idColumnLabel="Id" fieldColumnLabels={["Blocked"]} rows={rows} />;
 }
 
 describe("MappingTable", () => {
   test("renders an empty message when there are no rows", () => {
-    renderWithProviders(<MappingTable idColumnLabel="Id" fieldColumnLabels={["Value"]} rows={[]} emptyMessage="Nothing here" />);
+    renderWithProviders(<MappingTable label="Mapping" idColumnLabel="Id" fieldColumnLabels={["Value"]} rows={[]} emptyMessage="Nothing here" />);
     expect(screen.getByText("Nothing here")).toBeInTheDocument();
+  });
+
+  test("the table carries its accessible name", () => {
+    renderWithProviders(<MappingTable label="Statuses" idColumnLabel="Id" fieldColumnLabels={["Value"]} rows={[{ id: "1", label: "A", fields: [] }]} />);
+    expect(screen.getByRole("table", { name: "Statuses" })).toBeInTheDocument();
   });
 
   test("renders a select column and calls onChange with the picked option", async () => {
@@ -106,7 +111,7 @@ describe("MappingTable", () => {
         fields: [{ type: "text", ariaLabel: "Text for Row A", value: "", onChange: vi.fn(), error: "Conflict!" }],
       },
     ];
-    renderWithProviders(<MappingTable idColumnLabel="Id" fieldColumnLabels={["Value"]} rows={rows} />);
+    renderWithProviders(<MappingTable label="Mapping" idColumnLabel="Id" fieldColumnLabels={["Value"]} rows={rows} />);
 
     expect(screen.getByText("Conflict!")).toBeInTheDocument();
   });

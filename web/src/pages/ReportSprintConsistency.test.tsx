@@ -60,7 +60,12 @@ describe("ReportSprintConsistency page", () => {
     renderPage();
 
     expect(await screen.findByRole("heading", { level: 2, name: "Sprint consistency" })).toBeInTheDocument();
-    const charts = await screen.findAllByTestId("bar-chart");
+    // The three charts are separate lazy chunks: wait for all of them, not the first to land.
+    const charts = await waitFor(() => {
+      const found = screen.getAllByTestId("bar-chart");
+      expect(found).toHaveLength(3);
+      return found;
+    });
     expect(charts.map((c) => c.getAttribute("data-series"))).toEqual([
       "committedMd,deliveredMd",
       "carriedOverMd,deliveredMd,droppedMd",

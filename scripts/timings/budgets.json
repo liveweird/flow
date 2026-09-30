@@ -15,8 +15,17 @@
       "gradle-vulnerability-scan": { "target": 60, "alarm": 120, "why": "resolve lockfiles + one trivy run on a few thousand lines of lockfile" },
       "web": { "target": 90, "alarm": 180, "why": "npm ci (cached) + lint + knip + vitest + vite build of a small SPA" },
       "e2e-static": { "target": 30, "alarm": 60, "why": "npm ci (cached) + eslint + knip + tsc over a handful of specs" },
-      "images": { "target": 150, "alarm": 240, "why": "multi-stage docker build: gradle installDist + vite build, layer cache cold on a runner" },
+      "images": { "target": 150, "alarm": 240, "why": "multi-stage docker build: gradle installDist + vite build, layer cache cold on a runner; since the buildx layer cache and the Trivy image scan landed this is re-measured, not assumed (build-times.md)" },
+      "k8s-static": { "target": 20, "alarm": 45, "why": "one checkout + a kubeconform download + validation of ~11 small objects, twice (raw and rendered)" },
       "e2e": { "target": 420, "alarm": 900, "why": "PROVISIONAL (nightly): images build + compose up + Playwright over a tiny stack; revisit with the first real data" }
+    },
+    "ci-steps": {
+      "_readme": "Per-step budgets, keyed '<job>/<step name>' exactly as the workflow names the step; ci-times.mjs --steps <job> shows them beside each step's time. Same rules as above: a breach is a WHY entry, never a silent raise.",
+      "e2e/Install e2e deps": { "target": 15, "alarm": 45, "why": "npm ci of the e2e workspace with the npm cache" },
+      "e2e/Install Playwright browser": { "target": 30, "alarm": 90, "why": "install-deps (apt) with the browser cached; ~60 s on a cold cache when chromium is downloaded" },
+      "e2e/Build images": { "target": 120, "alarm": 240, "why": "PROVISIONAL: compose build of the app image with the BuildKit layer cache (measured locally: 2m08s cold, 1m32s with a warm cache and one changed source file); the Gradle installDist layer is uncached whenever a source file changes" },
+      "e2e/Start the stack": { "target": 45, "alarm": 120, "why": "PROVISIONAL: postgres + app (JVM boot + Flyway) healthy under `up --wait`; the app's healthcheck start_period is 30 s" },
+      "e2e/Run E2E": { "target": 240, "alarm": 540, "why": "PROVISIONAL: the Playwright specs alone against a running stack (4 workers); local e2e-playwright target is 300 s on 18 cores, revisit with the first split runs" }
     },
     "local": {
       "server-build": { "target": 180, "alarm": 360, "why": "./gradlew cleanTest build on 18 cores: compile, detekt, all tests, Kover, alignment" },

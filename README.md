@@ -98,8 +98,11 @@ budget at that scale; the recipe, the measured timings and where the time goes a
 
 ## Running on Kubernetes (local)
 
-The app uses a single replica with `Recreate` updates: the old pod stops before the new one
-starts, so upgrades briefly interrupt service.
+Three Deployments, each a single replica with `Recreate` updates (the old pod stops before the
+new one starts, so an upgrade briefly interrupts it): `postgres`, `app` (`FLOW_ROLE=web` — the
+HTTP API and the SPA) and `worker` (`FLOW_ROLE=worker` — the ingestion/DERIVE worker; it serves
+only the health probes and is never selected by the Service). Both application pods run the same
+image, migrate on boot and run in production mode (`KTOR_DEVELOPMENT=false`).
 
 With a local cluster that shares the Docker image store (e.g. OrbStack):
 
@@ -114,6 +117,35 @@ kubectl create namespace flow
 The helper renders the deployment image with the selected build tag and excludes the Secret
 template. Use a new tag for each rebuild; do not apply `k8s/` directly, since the checked-in image
 name is a placeholder. Existing installations already have the namespace and Secret.
+
+The manifests are hardened: no ServiceAccount token in any pod, non-root/seccomp/`drop: [ALL]` on the
+app, worker and postgres containers, and `k8s/network-policies.yaml` — default-deny plus only
+app/worker → postgres:5432, DNS and public egress on 443 (Jira) / 587, 465, 25 (SMTP), and 8084 into
+the app. NetworkPolicy is enforced only by a CNI that implements it (OrbStack's cluster does). Details
+in `.claude/docs/security.md` ("Kubernetes pod and network hardening"). CI validates every manifest and
+the `apply-local.sh` render with `kubeconform` (`k8s-static` job).
+
+**Known gap: no ingress is shipped.** `app` is exposed through a bare `type: LoadBalancer`
+Service, but the `app` Deployment is configured as if a TLS-terminating proxy sat in front
+(`HTTP_BEHIND_PROXY=true`, `HTTP_PROXY_HOPS=1`). Today that means:
+
+- Plain HTTP through the LoadBalancer (e.g. `http://localhost:8084`) is answered with a `301` to
+  `https://…` — production mode redirects every request that does not arrive as HTTPS. The pods'
+  own probes send `X-Forwarded-Proto: https`, which is why they still pass.
+- `X-Forwarded-For` and `X-Forwarded-Proto` are client-supplied here: a bare LoadBalancer neither
+  terminates TLS nor strips them, so the per-IP rate-limit buckets key on a value the caller
+  controls, and a caller can send `X-Forwarded-Proto: https` to skip the redirect (unverified on
+  OrbStack: how its LoadBalancer treats these headers has not been checked).
+- For throwaway local testing over plain HTTP, edit `k8s/web-deployment.yaml` yourself —
+  `apply-local.sh` only substitutes the image tag — setting `KTOR_DEVELOPMENT` to `"true"` (and
+  `HTTP_BEHIND_PROXY` to `"false"`), and never commit or apply that in a shared or production
+  cluster. Development mode is a different posture, not just "HTTP allowed": it also tolerates
+  the burned demo credentials, exposes `/openapi` and the Swagger UI, lifts the login per-IP
+  bucket from 10/min to 1000/min when it is left blank, and permits `jira.stubBaseUrl`.
+
+Whether the reference deployment gains a TLS-terminating Ingress (with a `ClusterIP` Service) or a
+documented local-only overlay is still to be decided; until then treat this manifest set as a local
+reference, not a production recipe.
 
 ## Local development
 

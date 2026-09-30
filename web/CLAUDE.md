@@ -89,7 +89,10 @@ inventing new ones.
   forms. The one spinner is `components/LoadingBlock.tsx` (`TableLoadingRow` wraps it);
   `components/EditPageLoadState.tsx` is the edit pages' shared load-failure triage (centered
   loader, else a back-to-list alert); `EmptyState` takes the Tabler icon COMPONENT and sizes it
-  itself.
+  itself. **One heading outline everywhere**: the `PageHeader` title is the h2, a page's cards/sections are h3
+  (`<Title order={3} size="h4">` keeps the look), their inner blocks h4; and every `Table` has an accessible
+  name (`aria-label` — the words of the heading above it, or a `<area>.tableAria` key). Page tests pin the
+  outline with `test/headings.ts`'s `headingOutline()`.
 
 ## The typed API layer (`src/api/`)
 
@@ -170,7 +173,8 @@ scratch, use `npm install --legacy-peer-deps`.
   "Failed to fetch") — map statuses to i18n keys via the shared mappers in `utils/saveError.ts`:
   `saveErrorMessage(err, t, keys)` for mutations (per-status keys + a `failed` fallback) and
   `loadErrorMessage(err, t)` for list loads. Errors render inline as `color="red" variant="light"`
-  Alerts — never as toasts.
+  Alerts — never as toasts. A failed QUERY renders through `components/ErrorAlert.tsx`
+  (`error`, optional `title`), never an inline `<Alert>{loadErrorMessage(…)}</Alert>`.
 - The `@mantine/notifications` host is mounted in `main.tsx` (top-center, autoClose 2500, limit 3
   — deliberately not in App, so unit tests never mount it). **Success toasts only, with fixed
   vocabulary only** (`showSuccessToast(t("<area>.toast.*"))` in `utils/toast.tsx` — teal, never
@@ -196,8 +200,9 @@ Every list page composes the same ported Lettuce blocks — copy `pages/Users.ts
   a `color="red" variant="light"` Alert with `loadErrorMessage` ABOVE the table on error;
   `PaginationBar` below.
 - **The colour vocabulary is app-wide, not per-page**: red = hard/blocking (validation errors,
-  destructive confirm buttons, a failed row), orange = a soft finding a later checks pipeline will
-  save through a waiver, teal = success, gray = neutral state. A new status colour goes through
+  destructive confirm buttons, a failed row), orange = a soft finding (a drift badge, a data-quality
+  `Found: N`, an unmapped stage, a tiling anomaly), teal = success, gray = neutral state, blue = in
+  progress (the one status use of blue: a RUNNING job badge, the WIP in-progress band). A new status colour goes through
   that vocabulary, not a page-local pick.
 - **Delete**: `useDeleteConfirm` + `ConfirmDeleteModal` — the hook owns modal state and the
   success toast, the page owns cache refresh. For mutations while a list remains mounted, use
@@ -228,7 +233,7 @@ Jira domain model) compose
 `RegistryListTable` for the common load/error/empty/pagination states. Each page owns its query
 key and parameters, extra filters, columns, row actions and mutation refresh prefixes. Their
 editors (e.g. `components/TeamEditorModal.tsx`) share the `RegistryMetadataFields` (name +
-description, with `utils/charCount.ts`'s "123 / 4000" counter) and `RegistryEditorActions`
+description, with `utils/charCount.tsx`'s "123 / 4000" counter) and `RegistryEditorActions`
 (save-error alert + cancel/submit footer) components; form rules
 (`utils/formRules.ts`'s shared `nameRule`/`descriptionRule`), submit/conflict handling and any
 parent/target fields stay local. Keep each registry's field limits explicit and mirrored from the
@@ -384,7 +389,10 @@ team membership landed in M2 commit 5, and the per-connection `metrics-config` p
   ADMIN-only mutations: "Add Jira member" opens `components/JiraMemberModal.tsx` (a searchable
   person `Select` over `GET /api/v1/jira-users?scope=SITE` — the whole site directory, since a
   brand-new member may not yet be UNIT-relevant — plus a required valid-from and optional valid-to
-  date; the exclusion-constraint `409` renders inline in the modal, never a toast), a per-row "End
+  date; the directory query shows a labelled `Loader` (`role="status"`) and `aria-busy` while pending and
+  an inline red `Alert` (`loadErrorMessage`) on failure — "No matching people" only states a completed
+  search for the current term, never during the debounce window or a pending/failed load; the
+  exclusion-constraint `409` renders inline in the modal, never a toast), a per-row "End
   membership" (only on the open-ended row — direct PUT setting `validTo` to today's UTC midnight,
   the `startOfTodayEpochMillis` helper) and Delete (`ConfirmDeleteModal`, the `useDeleteConfirm`
   precedent). **Dates are plain `YYYY-MM-DD` `TextInput`s** (`utils/isoDate.ts`'s
@@ -424,7 +432,7 @@ team membership landed in M2 commit 5, and the per-connection `metrics-config` p
 The v0.3.0 report pages (`.claude/docs/reports.md` is the API; every report is any-authenticated,
 D12 — routes sit under `RequireAuth`, never `RequireAdmin`). Fifteen pages carry the sixteen reports
 (report 13, the backlog in sprints, rides the Estimated backlog page): the shell (Reports nav
-section, `ReportTabs`), the filter bar, the shared blocks and the three tab groups — Delivery
+section, `ReportTabs` — real router links with `role="tab"`, so middle-click opens a report in a new tab), the filter bar, the shared blocks and the three tab groups — Delivery
 (Velocity, Throughput, Sprint consistency, Cycle time; `DELIVERY_TABS`), Estimation (Task accuracy,
 Epic accuracy, Adjustments, Reported time; `ESTIMATION_TABS`) and Flow metrics (WIP, Estimated
 backlog, Aging WIP, Blocked time, Epic progress; `FLOW_TABS`) — plus the Data quality and Cost
@@ -438,13 +446,13 @@ completed · the report's figures · the orange drift badge with the frozen figu
 
 - **The URL is the filter** (`utils/reportFilter.ts`, `hooks/useReportFilter.ts`): `from`/`to`,
   `lastSprints`, `sprintId`, `teamId`, `accountId`, `domainView`, `domain`, `activityType`,
-  `workCategory`, `breakdown`, `bucket`, `connectionId` — deep-linkable, parsed forgivingly (an invalid or
+  `workCategory`, `bucket`, `connectionId` — deep-linkable, parsed forgivingly (an invalid or
   conflicting param is DROPPED, never sent; the period is exclusive with precedence `sprintId` >
   `lastSprints` > dates), serialized in one canonical key order (that string is also the page query
   key). Params this module does not own survive `applyReportFilter`; switching report tabs
   (`reportHref`) drops the report-specific params (`domainView`, `domain`, `activityType`,
-  `workCategory`, `breakdown`, `bucket`) the target report has no control for, so a filter the user
-  cannot see or clear never follows them (`REPORT_SPECIFIC_PARAMS` in `utils/reportLinks.ts`; `epicId` is one of them, kept only by epic progress). Presets are stored as
+  `workCategory`, `bucket`) the target report has no control for, so a filter the user
+  cannot see or clear never follows them (`REPORT_SPECIFIC_PARAMS` in `utils/reportLinks.ts`; `epicId` is one of them, kept only by epic progress; a page's normalizer drops the rest through `dropReportSpecific(filter, reportSpecificKeep(path))`, so the table stays the one source). A team id the reference data no longer lists prints `#<id>` through `teamLabel` (`utils/reportFormat.ts`). Presets are stored as
   absolute `from`/`to` dates (calendar days in the configured zone) and recognised again by
   `activePeriodChoice`. **The last team is remembered** (`useStoredState`, `reports.teamId`): a report
   opened with NO filter params at all (a bare nav click) starts on it and the URL is rewritten
@@ -452,9 +460,9 @@ completed · the report's figures · the orange drift badge with the frozen figu
   link stays unit-level). Only the Team control touches the memory (picking stores, clearing clears).
 - **`components/ReportFilterBar.tsx`** is a controlled component (`filters`, `filter`, `onChange`);
   optional controls (domain view "delivered in / earned in", domain, activity type, work category,
-  breakdown, and the week/month `bucket` `SegmentedControl`) render ONLY where the report passes them
+  and the week/month `bucket` `SegmentedControl`) render ONLY where the report passes them
   in `controls` — velocity and sprint consistency pass none, throughput passes domain view, domain,
-  activity type, work category and bucket (not breakdown, which it ignores). Every report is also a
+  activity type, work category and bucket. Every report is also a
   command-palette entry (`REPORT_PALETTE_LEAVES`, palette-only: the sidebar carries one Delivery leaf).
 - **Distributions** (`components/DistributionPanel.tsx`): a `Distribution` renders as a percentile
   strip (median p50, p90, p95, mean, item count), a lazy `DistributionHistogram` (single blue series,
@@ -534,7 +542,7 @@ completed · the report's figures · the orange drift badge with the frozen figu
   The URL carries at most ONE scope — `epicId` (an epic's issue key, a report-specific managed param that only this
   report keeps), `domain` or `teamId` (`0` = UNASSIGNED) — and `normalizeEpicProgressFilter` (`utils/epicProgressReport.ts`,
   the `useReportPage` normalize hook) makes a pasted link answerable: epic over domain over team, and `domainView`,
-  `accountId`, `activityType`, `workCategory` (each a `400`) plus the ignored `breakdown`/`bucket`/`by`/`itemKind`
+  `accountId`, `activityType`, `workCategory` (each a `400`) plus the ignored `bucket`/`by`/`itemKind`
   dropped — off the request and off the URL. The bar passes `domain` + `domainExcludesTeam` + `noMember` (no user
   level) and the page routes its changes through `applyBarChange`, so the LAST scope touched wins, epic included.
   Levels are drilled by the row NAME links (`scopedSearch` re-scopes the same report, the period travelling along); a
@@ -559,7 +567,7 @@ completed · the report's figures · the orange drift badge with the frozen figu
   (`DataQualityConfig`), the overview tiles (`DataQualitySummary`, each a link that scrolls to and focuses its card — no hash in the URL)
   first and the groups table last. A clean finding keeps its card (users see it was checked). The bar offers period, team/member, domain,
   domain view and — only with more than one connection — `connection` (`ReportControls.connection`); `normalizeDataQualityFilter` drops
-  every param the page has no control for (activity type, work category, breakdown, bucket, by, item kind, epic) off the request AND the
+  every param the page has no control for (activity type, work category, bucket, by, item kind, epic) off the request AND the
   URL. What the API returns is rendered as is: a real team sees no domains/authors without a team (the card says a team's view lists none),
   the connection-level findings say the team filter does not narrow them, USER level says epic and sprint findings are not read for one
   person, and a work-category field nobody configured is "Not measured", not clean. Configuration findings are admin-actionable: the
@@ -584,7 +592,7 @@ completed · the report's figures · the orange drift badge with the frozen figu
   (its drill is a `400`), and UNASSIGNED is not linked under a sprint-relative period (`meta.from === null` — a team-less drill resolves no
   sprint and answers empty). A sprint-relative period says so: the unit's team rows read the union envelope, a team drill only its own
   sprints. The bar offers period, team/member, domain, domain view, activity type, work category and (with more than one) connection;
-  `normalizeCostMatrixFilter` drops `breakdown`, `bucket`, `by`, `itemKind` and `epicId` off the request and the URL.
+  `normalizeCostMatrixFilter` drops `bucket`, `by`, `itemKind` and `epicId` off the request and the URL.
 - **Home overview** (`pages/Home.tsx`, plan amendment A9; `utils/homeOverview.ts` is its pure logic). The landing page is
   the WHOLE unit at a glance — never the remembered team, the page description says so — as four tiles over UNIT-level
   report endpoints, **five requests and no aggregator** (`["home", <report>]` keys, staleTime 60 s; the budget is pinned by
@@ -657,7 +665,7 @@ are English (THE default and fallback everywhere) and Polish. All user-facing st
   `tsc`/`npm run build`. Fields holding a key are typed `ParseKeys` (from `i18next`), never
   `string` (the `NavLeaf` `label` pattern in `utils/navigation.ts`); functions taking a translator
   take `TFunction`, never a hand-written `(key: string) => string`.
-- **`common.*` is the shared source**: actions, field labels, shared vocabulary. Reuse it instead
+- **`common.*` is the shared source**: actions, field labels, shared vocabulary (`common.dateFormatHint` is the date-input placeholder: `YYYY-MM-DD` in EN, `RRRR-MM-DD` in PL). Reuse it instead
   of duplicating; build Mantine `Select` option labels from `t()` at render so they translate.
 - **Keep key parity vs EN for every shipped language** — a shipped bundle is all-or-nothing: every
   English key must exist in each `locales/<lang>/` (language-specific plural variants are
@@ -695,13 +703,15 @@ are English (THE default and fallback everywhere) and Polish. All user-facing st
 - The brand is the 10-stop **`flow` blue tuple** with `primaryShade: { light: 8, dark: 9 }` —
   Mantine's own shade 7/8 pair falls just short of 4.5:1 for white text on this hue, so the
   primary shades sit one step deeper than a stock Mantine blue — and `autoContrast: true`.
-  **Restrained**: blue marks only primary CTAs, the active nav item (a light tint + a 3px accent
-  bar) and focus. Everything else is neutral BY THEME DEFAULT — `Anchor` is text-coloured with a
+  **Restrained** — in UI chrome and status badges (chart series colours are
+  `utils/chartColors.ts`'s): blue marks only primary CTAs, the active nav item (a light tint + a
+  3px accent bar), focus and the in-progress status (see the colour vocabulary). Everything else
+  is neutral BY THEME DEFAULT — `Anchor` is text-coloured with a
   hover underline, `Chip` is `variant="light"`, `Badge` is `variant="light"`, `ActionIcon` is
   `variant="subtle" color="gray"` (destructive ones pass `color="red"`), `Menu` is bottom-end in a
   portal, tables are `verticalSpacing="xs"` (≈40px rows). Pages never pass those props back. Teal
-  stays the SUCCESS colour, red the BLOCKING one, orange the WAIVED-finding one (reserved for the
-  checks pipeline the Jira domain model will add); the ADMIN role badge is
+  stays the SUCCESS colour, red the BLOCKING one, orange the soft-finding one (drift, anomalies,
+  data-quality findings); the ADMIN role badge is
   `variant="outline" color="gray"`. **Never reintroduce stock-green success states** (blue itself
   IS the brand now, so unlike a violet-branded sibling it is never forbidden as "just another
   action").

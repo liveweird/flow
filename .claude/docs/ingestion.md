@@ -299,7 +299,7 @@ propagate — a bound against a pathologically misbehaving upstream, not an expe
 `context.heartbeat()`'s `LeaseLostException` propagate uncaught after every committed
 page/step/transaction/batch — none of them catches it, matching `StreamContext`'s contract
 (`.claude/docs/ingestion.md` "Lease and heartbeat" above): the job stops exactly where its last
-committed cursor (or, for PROCESS, its last committed issue) left it, safe to reclaim and resume by
+committed cursor (or, for PROCESS, its last committed page) left it, safe to reclaim and resume by
 any worker — every issue PROCESS hasn't yet reached is still `needs_processing = true` (or still
 `processing_version`-stale), so the next PROCESS pass simply claims it again. PROFILE's single
 `heartbeat()` call comes AFTER `updateProfile` already committed the recomputed profile, so a lease
@@ -524,7 +524,7 @@ point"/"flagged" substring match). The legacy Epic Link field (`gh-epic-link`,
 PARENT tiling's fallback above.
 
 **Custom-field current-value capture and `hierarchyLevel` (v0.3.0 M1 commit 2, V14,
-`.claude/docs/domain-model.md` "Gaps in `norm` today").** `JiraNormalizer.normalizeIssue` collects
+`.claude/docs/domain-model.md` "Gaps in `norm`").** `JiraNormalizer.normalizeIssue` collects
 EVERY non-null `customfield_*` key on the issue's current `fields` — never filtered by which ones
 are "known" — canonicalizes the resulting object (`infra/json/CanonicalJson.kt`) and stores it
 verbatim as `norm.work_items.custom_fields`; the metrics layer picks the configured fields at
@@ -554,16 +554,45 @@ scheduled SYNC — `NormalizationPipelineTest`'s "RECONCILE's tombstone is mirro
 work_items in the same job" proves this against the `jira-day2` scenario's deleted/moved issue ids.
 
 **PROCESS batching, failure isolation and progress.** `issuesToProcess` claims stale raw issues
-(`needs_processing`, or a stale `processing_version`) ascending issue id, batches of 50
-(`PROCESS_BATCH_SIZE`). Each issue gets its OWN `context.transaction { }` — a deliberate reading of
-"one tx per batch, per-issue failure isolated": PostgreSQL aborts an entire transaction on the
-FIRST failing statement, so sharing one transaction across a whole batch would make one issue's
-failure roll back every OTHER issue already written in that same batch, the opposite of
-"isolated". A failing issue is simply left `needs_processing = true` for the next PROCESS pass to
-retry — never rethrown, never aborting the rest of the batch; the first failure's message is
-logged (`log.warn`), not threaded through `sync_jobs.progress`. `context.heartbeat()` and the
-batch's own `issuesProcessed`/`issuesFailed` counters are flushed once PER BATCH (not per issue) —
-the plan's literal heartbeat/progress cadence, even though the transaction granularity is per-issue.
+(`needs_processing`, or a stale `processing_version`) ascending issue id, pages of 50
+(`PROCESS_BATCH_SIZE`), keyset-paged (`afterIssueId` = the previous page's last id): every stale
+issue is visited ONCE per run, so an issue that fails stays flagged for the NEXT PROCESS pass
+instead of being re-claimed by the same loop forever (before the keyset, a permanently failing issue
+made `run` spin). **One transaction per PAGE** (`context.transaction { }`): the page is read in three
+queries (`issuesForProcessing`, `changelogPayloadsForIssues`, `worklogPayloadsForIssues` — all
+`issue_id IN (…)`), each issue is normalized in memory (pure), then ONE
+`WorkItemStore.replaceWorkItems` (a delete and an insert batch per `norm` table plus one
+`ON CONFLICT (connection_id, issue_id) DO UPDATE` batch for `work_items`) and ONE
+`JiraRawStore.markProcessedBatch` write the whole page. Plan §8 says "one tx per batch, per-issue
+failure isolated" and PostgreSQL aborts a transaction on its FIRST failing statement, so isolation
+is kept two ways: an issue that fails NORMALIZATION is skipped in memory (no statement ran — the
+transaction stays valid, the other issues of the page land) and a DB error in the page write makes
+the page fall back to the old per-issue path — each issue in its OWN `context.transaction { }`
+(`processOneIssueSafely`, the shape `jira/JiraChangelogStream.kt`'s fallback uses too). Either way a
+failing issue is simply left `needs_processing = true` — never rethrown, never aborting the rest;
+the failing issue ids and the first failure's message are logged (`log.warn`), not threaded through
+`sync_jobs.progress`. **Outcomes of a page-level DB error:** a PARTIAL failure (some issues land in
+the fallback) ends the run normally — `issuesFailed` counts the rest and the next PROCESS pass retries
+them. If EVERY issue of the page fails in the fallback too, the failures decide: when at least one is
+a BAD-ROW error (a PostgreSQL data exception, SQLSTATE class `22`, or integrity violation, class
+`23`, found by walking the cause chain — `isDataError`) the run still ends normally, so a single
+permanently unwritable row alone on its page (however many issues the page holds) only counts
+`issuesFailed` and is retried by the next pass; when NONE is a data error (a connection loss, a
+timeout — an outage, not a row) the original database error is RETHROWN, the job fails, and a
+transient outage cannot end SUCCEEDED and chain a DERIVE over stale `norm`. A failed SYNC is
+rescheduled with backoff; a failed REPROCESS/RECONCILE needs a manual re-run. **Locking:** the page's
+raw issue read — and the per-issue fallback's — is `FOR UPDATE` (the page's ordered by `issue_id`),
+held until the transaction commits (~50 rows, ~30 ms), so a concurrent re-flag of an issue (a changed payload
+from ISSUES) waits and lands after the commit instead of being overwritten by the page's
+`needs_processing = false`; the mark stamps `processed_hash` with the sha256 that was READ (a per-row
+`CASE`), not the column's value at update time. **Memory:** a page holds its 50 issues' payloads,
+changelogs and worklogs at once — bounded by the data, fine at this scale (a few MB per page).
+`context.heartbeat()` and the `issuesProcessed`/`issuesFailed` counters are flushed once PER PAGE.
+Why not per issue: measured on the stub (`.claude/docs/build-times.md` "PROCESS"), one issue cost
+~13 statement round trips (three reads, four deletes, four inserts, a select, an upsert, a mark)
+plus a transaction each — 14 ms per issue against the unpooled test database, 5-6 ms pooled; a page
+costs ~13 round trips in total, and the 1,200-issue stub processes in ~2.5-3 s.
+`NormalizationPipelineTest` pins both failure shapes and the one-issue page.
 
 **Worklog timestamps and sprint completion (v0.3.0 M1 commit 2, V14).**
 `norm.work_item_worklogs` gains `created_at`/`updated_at` (`raw.jira_worklogs.payload` already

@@ -1,6 +1,7 @@
 package ch.nokillswit.metrics
 
 import ch.nokillswit.infra.db.active
+import ch.nokillswit.infra.time.MILLIS_PER_DAY
 import ch.nokillswit.ingest.SyncJobRunContext
 import ch.nokillswit.norm.PROCESSING_VERSION
 import ch.nokillswit.norm.SprintRef
@@ -8,8 +9,6 @@ import ch.nokillswit.norm.TrackedField
 import ch.nokillswit.norm.WorkItemStore
 import ch.nokillswit.teams.TeamService
 import io.ktor.util.AttributeKey
-import java.time.LocalDate
-import java.time.ZoneId
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.withContext
@@ -29,7 +28,6 @@ val MetricsDeriverKey = AttributeKey<MetricsDeriver>("MetricsDeriver")
  * `DeriveSprintStep.kt`/`DeriveEpicPlanStep.kt`) — an epic is level 1, never "type name = Epic". */
 internal const val EPIC_HIERARCHY_LEVEL = 1
 private const val MAX_ERROR_DETAIL_LENGTH = 1000
-private const val MILLIS_PER_DAY = 24L * 60 * 60 * 1000
 
 /** `MetricsDeriver`'s own default (v0.3.0 M3 review round 2b) — mirrors `application.yaml`'s `ingest.jobRetentionDays` default. */
 internal const val DEFAULT_JOB_RETENTION_DAYS = 90L
@@ -95,9 +93,7 @@ class MetricsDeriver(
         val (settings, config) = suspendTransaction(database) {
             metricsConfig.read() to metricsConfig.effectiveConfig(connectionId)
         }
-        val zone = runCatching { ZoneId.of(settings.timeZone) }.getOrDefault(ZoneId.of("UTC"))
-        val holidays = settings.holidays.mapNotNull { runCatching { LocalDate.parse(it) }.getOrNull() }.toSet()
-        val calendar = WorkingCalendar(zone, settings.weekendDays.toSet(), holidays)
+        val calendar = WorkingCalendar.of(settings)
 
         // Hard-deletes old terminal derive_runs rows on every DERIVE (review round 2b) — the
         // `SyncJobsService.prune` shape, `.claude/docs/persistence.md` "Soft delete (convention)".
@@ -516,7 +512,7 @@ class MetricsDeriver(
 
     /**
      * The worklog step (v0.3.0 M3 commit 9, `.claude/docs/domain-model.md` "Cross-team time"/D3,
-     * `.claude/docs/metrics.md` "Worklog cost facts (fact_worklog)"): one `fact_worklog` row per
+     * `.claude/docs/metrics.md` "Worklog cost facts"): one `fact_worklog` row per
      * `norm.work_item_worklogs` row, carrying the author's team AND the task's domain/epic, BOTH
      * as-of the worklog's own `started_at` — never the item's current/done-time values. Batches over
      * only the items that actually carry a worklog, re-reading each batch's PARENT/`issuekey`/SPRINT

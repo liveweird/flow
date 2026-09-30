@@ -1,11 +1,11 @@
 package ch.nokillswit.metrics
 
 import ch.nokillswit.infra.db.jsonb
+import ch.nokillswit.infra.json.stringArrayJson
 import ch.nokillswit.ingest.DataSourceService
 import ch.nokillswit.teams.TeamService
 import io.ktor.util.AttributeKey
 import kotlinx.coroutines.flow.toList
-import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -36,8 +36,6 @@ internal val ANALYZED_TABLES: List<String> = listOf(
     "metrics.item_estimate", "metrics.item_stage",
     "metrics.fact_task_delivery", "metrics.fact_sprint", "metrics.fact_sprint_scope", "metrics.fact_worklog", "metrics.fact_epic_plan",
 )
-
-private fun stringArrayJson(values: List<String>): String = buildJsonArray { values.forEach { add(JsonPrimitive(it)) } }.toString()
 
 /** `metrics.fact_sprint_snapshot.scope` — the sprint's own [SprintScopeItem] rows, frozen as JSON (D13). */
 private fun sprintScopeItemsJson(items: List<SprintScopeItem>): String = buildJsonArray {
@@ -205,7 +203,7 @@ data class FactSprintScopeRow(val sprintId: Long, val item: SprintScopeItem)
 
 /**
  * One `metrics.fact_worklog` row (v0.3.0 M3 commit 9, `.claude/docs/domain-model.md` "Cross-team
- * time"/D3, `.claude/docs/metrics.md` "Worklog cost facts (fact_worklog)") — the author's team AND
+ * time"/D3, `.claude/docs/metrics.md` "Worklog cost facts") — the author's team AND
  * the task's domain/epic, both as-of `startedAt`, so cost can be sliced by who spent it and what it
  * was spent on at once.
  */
@@ -855,32 +853,6 @@ class MetricsStore(private val database: R2dbcDatabase) {
             this[ItemBlocked.validFrom] = it.fromAtMs
             this[ItemBlocked.validTo] = it.toAtMs
         }
-    }
-
-    /**
-     * Wholesale-rebuilds every bridge this commit populates (`task_epic`/`task_domain`/
-     * `task_assignee`/`task_sprint`/`item_estimate`/`item_stage`/`item_blocked`) in ONE call — kept
-     * for a caller with every row in memory already; `MetricsDeriver.kt`'s own batched write calls
-     * [deleteBridges] plus the per-table insert methods above directly instead.
-     */
-    suspend fun replaceBridges(
-        connectionId: UInt,
-        taskEpic: List<TaskEpicRow>,
-        taskDomain: List<TaskDomainRow>,
-        taskAssignee: List<TaskAssigneeRow>,
-        taskSprint: List<TaskSprintRow>,
-        itemEstimate: List<ItemEstimateRow>,
-        itemStage: List<ItemStageRow>,
-        itemBlocked: List<ItemBlockedRow>,
-    ) {
-        deleteBridges(connectionId)
-        insertTaskEpic(connectionId, taskEpic)
-        insertTaskDomain(connectionId, taskDomain)
-        insertTaskAssignee(connectionId, taskAssignee)
-        insertTaskSprint(connectionId, taskSprint)
-        insertItemEstimate(connectionId, itemEstimate)
-        insertItemStage(connectionId, itemStage)
-        insertItemBlocked(connectionId, itemBlocked)
     }
 
     suspend fun deleteFactTaskDelivery(connectionId: UInt) {

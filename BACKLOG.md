@@ -28,7 +28,7 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   - M3, the derivation (PR #26): the V16/V17 star, DERIVE, the facts, `agg_daily_wip`/`agg_daily_flow`, the invariant-12 digest, and the scale-20 perf check (DERIVE 136 s cold on 24k issues);
   - M4, the reports API (PR #27) and the report pages 1–8, the estimation batch and the reports e2e (PR #28);
   - M5 (PR #29): reports 9–16 (WIP and backlog, aging WIP and blocked time, epic progress, data quality, cost matrix) with their pages, the Home unit overview, the batch-2 e2e, the docs sweep and the v0.3.0 changelog.
-- **Release:** the version is bumped to 0.3.0 in the changelog; no tag or GitHub release until the user asks (`.claude/docs/app-releases.md`). The first deploy reprocesses the whole tenant (`PROCESSING_VERSION = 2`) and DERIVE follows — minutes on the worker, once.
+- **Release:** v0.3.0 is tagged and released on GitHub (2026-09-29; process in `.claude/docs/app-releases.md`). The first deploy reprocesses the whole tenant (`PROCESSING_VERSION = 2`) and DERIVE follows — minutes on the worker, once.
 - **Next:**
   - the real-Jira first sync and the adjustments it brings (A10) — see the section above;
   - a compact always-loaded `conventions.md` (step 2 of the instruction-size work: `CLAUDE.md` plus the always-loaded docs still exceed the budget).
@@ -50,16 +50,7 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 
 ## Engineering follow-ups
 
-- **CI duration — resolved (2026-09-28).** `NormalizationPipelineTest` (14 tests, was 421s),
-  `JiraSyncPipelineTest` (9 tests, was 138s) and `DataProfileTest` (was 30s) each drove a complete
-  stub-driven SYNC from scratch per test, though most only read the result — 87% of the ~10.7 min
-  local server test run. `SyncedStubFixture` (`.claude/docs/testing.md` "Shared synced fixture")
-  now runs that backfill once per JVM fork; read-only tests share its one connection, and tests
-  whose subject is REPROCESS/RECONCILE/a raw-row simulation clone its raw rows
-  (`SyncedStubFixture.cloneRawData`) instead of re-syncing. Measured before/after (local,
-  `./gradlew :server:test`): the three classes together 589s → ~117s (76.9s + 8.8s + 30.6s), full
-  `:server:test` 10.7 min → 2m54s. Rule already in force: a test that runs a full sync does it
-  outside `testApplication` (its `runTest` timeout ends in `UncompletedCoroutinesError`).
+- **CI duration — open.** The 2026-09-28 `SyncedStubFixture` work (three pipeline classes, one shared SYNC per fork) cut the local server test run from 10.7 min to 2m54s, but the suite has grown again with v0.3.0 (DERIVE, the reports); the `server` CI job was far over its budget before PR #33 (ANALYZE, SQL clones; the master `server` job measured 15m08s) — re-measure. Measurements, budgets, causes and the open WHY questions live in `.claude/docs/build-times.md` (`node scripts/timings/ci-times.mjs --branch master` for the current numbers). Rule already in force: a test that runs a full sync does it outside `testApplication` (its `runTest` timeout ends in `UncompletedCoroutinesError`).
 - **Review test gaps** (from the commit 4 security review; the fixes themselves landed):
   - The connection-release test does not fail with the old `client.request()` code in this Ktor/OkHttp version. A blocking interceptor could force the leak window open.
   - `DirectSocketFactory` and `fastFallback(false)` have no isolated tests.
@@ -67,7 +58,9 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 - **Details page: the sync-jobs history doesn't auto-refresh.** Only the summary above it (connection, current job, counts) refetches every 5 s while a job is open, so a history row keeps saying Running until a reload. Refresh the history query on the same condition. (Found by the v0.2.0 e2e journey.)
 - **`dim_date` deadlock risk between two connections' DERIVEs (pre-existing).** Both upsert the global `dim_date` inside their one transaction; if A's `widenDimDate` reaches below B's range start while B holds rows A needs (and vice versa), Postgres raises 40P01 — one derive ends FAILED and is retried. Take `dim_date` out of the per-derive transaction or pre-extend it.
 - **`workerSlots=2` gives DERIVE no real parallelism.** Two derives serialize on the `dim_date` row locks held to commit; consider taking `dim_date` out of the per-derive transaction or pre-extending it (same fix as above).
+- **`norm.work_item_field_intervals.value_text` overflows for an issue with many sprints (pre-existing, found by the PROCESS-batching review; NOT fixed there).** The column is `VARCHAR(500)` (V13) and the SPRINT interval's `value_text` is the comma-joined sprint names Jira's changelog `toString` carries, never truncated (`norm/Tiling.kt`/`Normalization.kt`). An issue carried through roughly 15+ sprints with ordinary names exceeds 500 chars and its write fails with SQLSTATE `22001` (value too long) — the issue stays `needs_processing = true` (`issuesFailed`) on every PROCESS pass. Repro: a raw issue whose Sprint changelog item has a `toString` of ~600 chars, then PROCESS (the same shape as `NormalizationPipelineTest`'s planted-failure tests). Options: (a) a new migration widening the column to `TEXT` (V13 stays immutable; same table, checksum pin in `MigrationChecksumTest`; widening a varchar to TEXT changes no reader, but grep the DERIVE SQL for `value_text` before relying on that) — simplest; (b) store sprint IDs and resolve names from `norm.sprints` at read time — smaller rows and no free text, but every reader of `value_text` changes and a name history is lost. Prefer (a) unless the sprint text is meant to go.
 - **Two connections to one Jira site are allowed** (different project scopes). Confirm this is the wanted behaviour once real usage exists.
+- **D6 — de-Jira the `Connector` seam: not before the GitLab connector (YAGNI).** `ingest/Connector.kt` `testConnection(siteUrl, email, apiToken, projectKeys, authScheme)`, `JiraConnectorKey` in `DataSourceRoutes.kt` and `DataSourceRequest.jira` are Jira-shaped. Generalising them is speculative until a second connector exists; revisit with GitLab.
 
 ## Security and operations
 

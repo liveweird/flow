@@ -17,8 +17,8 @@ import ReportTabs from "../components/ReportTabs";
 import { useReportPage } from "../hooks/useReportPage";
 import { backlogRows, roundSprints, sprintsGap } from "../utils/backlogReport";
 import { formatMd } from "../utils/reportFormat";
-import { dropDomainWithTeam } from "../utils/reportFilter";
-import { FLOW_TABS } from "../utils/reportLinks";
+import { dropDomainWithTeam, dropReportSpecific, type ReportFilterState } from "../utils/reportFilter";
+import { backlogPath, FLOW_TABS, reportSpecificKeep } from "../utils/reportLinks";
 
 // The trend chart (and with it recharts) rides its own lazy chunk.
 const BacklogTrendChart = lazy(() => import("../components/BacklogTrendChart"));
@@ -63,10 +63,13 @@ function SprintsTile({ report }: { report: BacklogReport }) {
   );
 }
 
+/** Off the request and the URL: params the page has no control for, then the team-over-domain rule. */
+const normalizeBacklogFilter = (filter: ReportFilterState) => dropDomainWithTeam(dropReportSpecific(filter, reportSpecificKeep(backlogPath)));
+
 /** Reports 10 and 13 — the estimated backlog over time, and how many sprints of delivery it amounts to. */
 export default function ReportBacklog() {
   const { t } = useTranslation();
-  const { filtersQuery, filters, filter, setFilter, query } = useReportPage("backlog", getBacklogReport, dropDomainWithTeam);
+  const { filtersQuery, filters, filter, setFilter, query } = useReportPage("backlog", getBacklogReport, normalizeBacklogFilter);
   const report = query.data;
   const rows = report ? backlogRows(report.trend) : [];
 

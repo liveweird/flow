@@ -23,7 +23,8 @@ the normal checks; never auto-merge a breaking migration to clear an alert.
 Dependabot does not cover every declaration here. At each monthly maintenance pass, inspect the
 exact JDK pin in `mise.toml`, Ktor's imported catalog in `settings.gradle.kts`, and the runtime
 versions actually used by cached images and local tools. Compare official release metadata, not
-just open PRs.
+just open PRs. The CI toolchain pins (`.nvmrc`, the `java-version` in `ci.yml`, the wrapper checksum,
+the kubeconform version/sha) are in that same manual list — see "CI toolchain pins and scans".
 
 **The PostgreSQL image is pinned in THREE places that must move together:** `docker-compose.yaml`,
 `k8s/postgres-deployment.yaml` and `PostgresTestSupport.IMAGE`
@@ -114,6 +115,44 @@ every configuration CI and the Docker build resolve, and how to review the gener
 runs `--dependency-verification strict`, and diffs it (with the lockfiles) after the build; the
 Docker build's `server` stage copies the whole `gradle/` directory, so it picks up the file
 automatically once it exists.
+
+## CI toolchain pins and scans (checkup A11, 2026-09-30)
+
+`.github/workflows/ci.yml` and `e2e.yml` run on the toolchain the repo was verified on, and scan what
+ships. Dependabot covers none of the pins in the first three rows — bump them by hand, together.
+
+| Pin / gate | Where | Bump rule |
+|---|---|---|
+| JDK `21.0.12` (`actions/setup-java` `java-version`, both Gradle jobs) | `ci.yml` | the exact patch of `mise.toml`'s `java` and the Dockerfile's `eclipse-temurin:21.0.12_8` tags — one PR moves all three. `node scripts/check-toolchain-pins.mjs` (an `e2e-static` step) fails the build with one line per mismatch if the JDK or node pins diverge |
+| Node `24.21.0` (`node-version-file: .nvmrc`, web/e2e-static/e2e jobs) | `.nvmrc` | mirrors `mise.toml`'s `node` and the Dockerfile's `node:24.21.0-alpine` (guarded by the same script); `.nvmrc` holds the bare version, no `v` |
+| Gradle `distributionSha256Sum` | `gradle/wrapper/gradle-wrapper.properties` | the wrapper validates the downloaded distribution against it (CI, local, and the Docker build's `./gradlew --version`). On a Gradle bump take the value from `https://services.gradle.org/distributions/gradle-<version>-bin.zip.sha256` (the `bin` type the URL uses), confirm it against a `shasum -a 256` of the downloaded zip, and change URL and checksum in the same commit |
+| `npm audit --omit=dev --audit-level=high` | `ci.yml` `web` | runtime dependencies only (a dev-tool advisory never reaches the bundle). The LAST step of the job, so an overnight advisory cannot hide the real gate results |
+| `npm audit --audit-level=high` | `ci.yml` `e2e-static` | every e2e dependency is a dev tool, so the whole tree. Also the last step |
+| `trivy image` (HIGH/CRITICAL, `--ignore-unfixed`, exit 1) | `ci.yml` `images` (master only) | the same digest-pinned `trivy:0.74.0` as the Gradle lockfile scan; run against the compose-built `flow-app`. A red step is a fixable OS-package or JAR advisory: refresh the base-image digests (see "Runtime and image verification") or the dependency. It cannot be waived per-CVE without a `.trivyignore` with a dated justification — there is none |
+| `kubeconform v0.8.0` (`-strict`, Kubernetes 1.33.0) | `ci.yml` `k8s-static` | the tarball is pinned by sha256 in the workflow (`CHECKSUMS` file of the release); bump version and sha together. Kubernetes version follows the local OrbStack cluster |
+| `docker/setup-buildx-action`, `actions/cache` | `ci.yml` `images`, `e2e.yml` | SHA-pinned like every action; Dependabot's `github-actions` ecosystem updates them |
+| BuildKit `moby/buildkit:v0.33.0@sha256:6c2fa84a…` (`driver-opts: image=…` on both `setup-buildx-action` uses) | `ci.yml`, `e2e.yml` | the builder image is otherwise pulled floating. Not Dependabot-covered: at a bump take the current stable tag and re-derive the index digest (`docker buildx imagetools inspect moby/buildkit:<tag> --raw \| sha256sum`), and change both workflows together |
+| `kubeconform -schema-location` (`yannh/kubernetes-json-schema@8df8a883…`) | `ci.yml` `k8s-static` (`KUBECONFORM_SCHEMAS`) | the schema repo is pinned to a commit so an upstream schema change cannot redden the job; move it with the kubeconform version |
+
+The npm audits are a moving gate: a newly published advisory can turn an unrelated PR red. That is the
+point — fix the dependency, or (if it is a false positive for how the package is used) record a
+justified, dated exception here and adapt the audit step in the same PR (`npm audit` has no built-in
+allow-list); never lower `--audit-level` to get green. Measured state on 2026-09-30: `npm audit` reports 0 vulnerabilities in
+`web` (full and `--omit=dev`) and in `e2e`; the locally built image scans clean (no fixable
+HIGH/CRITICAL) — those are the baselines the gates started from.
+
+**Image build cache.** The `images` job and the nightly `e2e` job build the app image through
+`docker compose -f docker-compose.yaml -f .github/compose-buildx-cache.yaml build` on a `docker-container`
+BuildKit builder (`docker/setup-buildx-action`), with a `type=local` layer cache persisted by
+`actions/cache` (the `type=gha` backend needs runtime tokens a `run:` step does not receive). The cache key
+hashes the dependency-shaped inputs (Dockerfile, all seven Gradle lockfiles, the Gradle build scripts,
+`gradle.properties`, the version catalog, `verification-metadata.xml`, the wrapper properties,
+`web/package.json` + `package-lock.json`), so it is rewritten only when one of them changes and
+both workflows restore each other's entry. Measured locally: a cold build 2m08s, a rebuild with the warm
+cache and one changed server source file 1m32s; the cache is ~1 GB (`mode=max`) and the Gradle
+`installDist` layer is rebuilt whenever a source file changes (dependency download and compile share one
+layer), so the runner-side gain is modest until that layer is split or given a BuildKit cache mount — see
+`.claude/docs/build-times.md` WHY 9.
 
 ## Buildscript advisory follow-up (2026-09-26)
 

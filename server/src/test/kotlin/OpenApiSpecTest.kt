@@ -92,6 +92,29 @@ class OpenApiSpecTest {
     }
 
     @Test
+    fun `every operation that takes a body declares the cross-cutting 413`() {
+        // `413` is the global body ceiling (`RequestBodyLimit`): every body operation can answer it, so every one declares
+        // it; the coverage gate exempts it (CROSS_CUTTING_STATUSES), so no per-operation test is owed.
+        val violations = OpenApiSpec.parsed.paths.flatMap { (path, item) ->
+            item.readOperationsMap().mapNotNull { (method, op) ->
+                if (op.requestBody != null && "413" !in op.responses.keys) "$method $path takes a body but declares no 413" else null
+            }
+        }
+        assertEquals(emptyList(), violations)
+    }
+
+    @Test
+    fun `the report period parameters and meta carry their date format and sprint id minimum`() {
+        val components = OpenApiSpec.parsed.components
+        assertEquals("date", components.parameters["ReportFrom"]!!.schema.format)
+        assertEquals("date", components.parameters["ReportTo"]!!.schema.format)
+        assertEquals(1, components.parameters["ReportSprintId"]!!.schema.minimum.toInt())
+        val meta = components.schemas["ReportMeta"]!!.properties
+        assertEquals("date", meta["from"]!!.format)
+        assertEquals("date", meta["to"]!!.format)
+    }
+
+    @Test
     fun `spec path templates are unambiguous for coverage resolution`() {
         // Every concrete path derivable from one template must not match another template of the
         // same shape — guard the most-literal-first resolution in OpenApiCoverage by asserting no

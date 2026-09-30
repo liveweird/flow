@@ -478,8 +478,6 @@ class ReportEpicProgressTest {
             assertEquals(listOf(3.0 + 1.0, 6.0 + 2.0, 9.0 + 3.0, 12.0 + 4.0, 15.0 + 5.0), domain.series.map { it.pv })
             assertEquals(listOf(2.0, 6.0, 11.0, 17.0, 17.0), domain.series.map { it.ev })
             assertTrue(domain.series.all { it.pvOriginal == null }, "pvOriginal is an EPIC-level figure")
-            val sliced = client.epicProgress("$base&domain=AAA&breakdown=WORK_CATEGORY")
-            assertEquals(domain, sliced, "breakdown is accepted and changes nothing")
 
             // TEAM: sprint PV/EV, author AC. teamId=0 is the author-less bucket.
             val team = client.epicProgress("$base&teamId=$teamT")

@@ -1,8 +1,15 @@
 import "@testing-library/jest-dom/vitest";
-import { afterEach } from "vitest";
+import { afterEach, vi } from "vitest";
 import { cleanup } from "@testing-library/react";
 import { DEFAULT_THEME } from "@mantine/core";
-import i18n from "../i18n";
+
+// The suite runs with `isolate: false` (one module registry shared by every file a worker runs).
+// `vi.mock` only affects modules imported AFTER it, so a source module a previous file left in the
+// registry would keep that file's mocked (or real) dependencies — clear the registry before each
+// file so its own mocks apply. Third-party packages are externalised (Node's own cache, not
+// touched), so the reset costs a re-transform of `src/`, not a re-import of Mantine.
+vi.resetModules();
+const { default: i18n } = await import("../i18n");
 
 // Deterministic English in tests (the global i18n instance is shared by every test, including the
 // many that render with their own inline providers — no per-test I18nextProvider needed).

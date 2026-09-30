@@ -68,8 +68,7 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     non-admin's malformed body stays 403). A create's unknown/deleted member id is `400` (a
     client-supplied FK), a single add's unknown user `404`, an existing member `409`; a
     case-insensitive name clash with an active team `409` (the V6 partial index).
-    `TeamService.activeTeamIdsOf(userId)` is the lookup a future ownership guard would run inside
-    its own transaction. Mutations audit `team.created/updated/deleted` and
+    Mutations audit `team.created/updated/deleted` and
     `team.member_added/member_removed`. Tests: `TeamTest`.
   - `PUT /api/v1/users/{id}/features` → ADMIN only; **self allowed** (an admin adjusting their own
     flags is a feature, and the users routes are never gated, so a fully self-disabled admin can

@@ -946,7 +946,6 @@ export interface paths {
          *     selects UNASSIGNED credit for the period view and yields no sprints) and `groups` becomes one per
          *     assignee at done; `teamId` AND `accountId` narrow to USER level (`groups` empty; `bySprint` is
          *     that account's deliveries by assignee at commitment). Σ `groups` equals Σ `byBucket`.
-         *     `breakdown` is accepted by the shared parser but does not change this report.
          */
         get: operations["getReportThroughput"];
         put?: never;
@@ -1014,7 +1013,7 @@ export interface paths {
          *     credit) and `groups` becomes one per assignee at done (null `accountId` = unassigned); `teamId` AND
          *     `accountId` narrow to USER (`groups` empty). Each group carries its own distributions and exclusion
          *     counts. For `lastSprints`/`sprintId` the period is the resolved sprints' overall envelope, as in
-         *     throughput. `breakdown` is accepted by the shared parser but does not change this report.
+         *     throughput.
          */
         get: operations["getReportTaskEstimationAccuracy"];
         put?: never;
@@ -1048,7 +1047,7 @@ export interface paths {
          *     matched); `ratio`/`ratioAtDone` are null for an excluded epic. Levels: UNIT (default) — `groups` one
          *     per owner team; TEAM narrows to that owner team and has no groups (epics carry no user); USER
          *     (`teamId` AND `accountId`) is always empty. Sprint-relative periods use the resolved sprints'
-         *     envelope, as in throughput. `breakdown` is accepted but does not change this report.
+         *     envelope, as in throughput.
          */
         get: operations["getReportEpicEstimationAccuracy"];
         put?: never;
@@ -1084,7 +1083,6 @@ export interface paths {
          *     UNASSIGNED tasks / UNOWNED epics); TEAM narrows to that team, `groups` one per assignee at done
          *     (tasks only, `epics` null); USER narrows tasks to that account, `epics` is empty and `groups` empty
          *     (epics carry no user). Sprint-relative periods use the resolved sprints' envelope, as in throughput.
-         *     `breakdown` is accepted but does not change this report.
          */
         get: operations["getReportEstimateAdjustments"];
         put?: never;
@@ -1118,7 +1116,7 @@ export interface paths {
          *     `groups` one per credit team (`teamId` null = UNASSIGNED); `teamId` narrows to TEAM (`teamId=0` = the
          *     UNASSIGNED credit) and `groups` becomes one per assignee at done; `teamId` AND `accountId` narrow to
          *     USER (`groups` empty). Sprint-relative periods use the resolved sprints' envelope, as in throughput.
-         *     Epics are not part of this report. `breakdown` is accepted but does not change it.
+         *     Epics are not part of this report.
          */
         get: operations["getReportCycleTime"];
         put?: never;
@@ -1157,9 +1155,8 @@ export interface paths {
          *     the last derived day is cut off there rather than read as zero — the OLDEST, over the connections in scope
          *     that have derived, of each one's last successful DERIVE day, so a lagging connection's missing days are not
          *     zeros. No successful DERIVE for any connection in scope gives an empty `series` with a `note` ("Not derived
-         *     yet"); connections that never derived are ignored for the cut-off but named in the `note`. `breakdown` is
-         *     accepted and changes nothing; `domainView` is accepted but the report always reads the task's own domain, so
-         *     `meta.domainView` is always TASK.
+         *     yet"); connections that never derived are ignored for the cut-off but named in the `note`. `domainView` is
+         *     accepted but the report always reads the task's own domain, so `meta.domainView` is always TASK.
          */
         get: operations["getReportWip"];
         put?: never;
@@ -1198,9 +1195,8 @@ export interface paths {
          *     is cut off there rather than read as zero — the OLDEST, over the connections in scope that have derived, of
          *     each one's last successful DERIVE day, so a lagging connection's missing days are not zeros. No successful
          *     DERIVE for any connection in scope gives an empty `trend` with a `note` ("Not derived yet"); connections
-         *     that never derived are ignored for the cut-off but named in the `note`. `breakdown` is accepted and changes
-         *     nothing; `domainView` is accepted but the report always reads the task's own domain, so `meta.domainView` is
-         *     always TASK.
+         *     that never derived are ignored for the cut-off but named in the `note`. `domainView` is accepted but the report always reads
+         *     the task's own domain, so `meta.domainView` is always TASK.
          */
         get: operations["getReportBacklog"];
         put?: never;
@@ -1263,7 +1259,7 @@ export interface paths {
          *     population`. Both distributions are hidden below `minSampleSize`. `topItems` lists the 20 most-blocked items.
          *     Levels: UNIT `groups` per team (tasks and epics), TEAM per assignee at done (tasks only — epics have no user,
          *     so Σ groups is the tasks' total there), USER none and no epics. Sprint-relative periods use the resolved
-         *     sprints' envelope. `breakdown` is accepted and changes nothing.
+         *     sprints' envelope.
          */
         get: operations["getReportBlockedTime"];
         put?: never;
@@ -1294,7 +1290,7 @@ export interface paths {
          *     one of them, for a blank `epicId`, for `accountId` (no user-level EVM), for an explicit `domainView=TASK` (EVM is always the EPIC
          *     view, D3), for `activityType` / `workCategory` (not stored per day), and for an unknown epic, domain, team,
          *     sprint or connection (never 404); an `epicId` that exists in several connections in scope is ambiguous — narrow
-         *     with `connectionId`. `breakdown` is accepted and changes nothing.
+         *     with `connectionId`.
          *     `asOf` is read at the last day of the period, but never later than today or than the last derived day (the
          *     oldest, over the connections in scope that have derived, of each one's last successful DERIVE day, so EV and AC
          *     are never compared with a plan they have not caught up with). `asOf.day` names it; SV = EV − PV, SPI = EV ÷ PV
@@ -1347,7 +1343,7 @@ export interface paths {
          *     USER none and no epics or sprint findings. The configuration-level findings (`unmappedStatuses`, `unmappedBoards`,
          *     `snapshotDrift`, `deriveWarnings`) are not narrowed by the team; `domain` narrows `domainsWithoutOwner`. A real
          *     `teamId` sees no `domainsWithoutOwner` and no `authorsWithoutTeam` (they belong to no team); `teamId=0` sees them.
-         *     `domainView` (default TASK) picks the domain a task/worklog is sliced by; `breakdown` is accepted and changes nothing.
+         *     `domainView` (default TASK) picks the domain a task/worklog is sliced by.
          */
         get: operations["getReportDataQuality"];
         put?: never;
@@ -1381,8 +1377,7 @@ export interface paths {
          *     from the task's sprint team at `started_at`, else from its assignee's team; an epic-logged worklog compares with the
          *     epic's domain owner team, A22; an unknown side is never foreign), null when nothing was logged. `400` for the shared
          *     parser's errors (`accountId` without `teamId`, `from` after `to`, a repeated key ...) and an unknown or inactive team,
-         *     connection or sprint (never 404); an unknown `domain` is a valid slice that answers empty. `breakdown` is accepted
-         *     and changes nothing.
+         *     connection or sprint (never 404); an unknown `domain` is a valid slice that answers empty.
          */
         get: operations["getReportCostMatrix"];
         put?: never;
@@ -1417,7 +1412,6 @@ export interface paths {
          *     `zeroCycle` = `cycle_ms` of 0, so `flowEfficiency.n + neverStarted + zeroCycle = population`); worklogs play
          *     no part, so a task with none is still measured. Reported time ratios can be dominated by very short
          *     cycles, a real outlier that is never dropped: the mean, p95 and histogram reflect it.
-         *     `breakdown` is accepted but does not change this report.
          */
         get: operations["getReportReportedTimeRatio"];
         put?: never;
@@ -2351,9 +2345,15 @@ export interface components {
             derivedAt: number | null;
             /** Format: int64 */
             configRevision: number;
-            /** @description ISO date; null for a lastSprints/sprintId-selected period. */
+            /**
+             * Format: date
+             * @description ISO date; null for a lastSprints/sprintId-selected period.
+             */
             from: string | null;
-            /** @description ISO date; null for a lastSprints/sprintId-selected period. */
+            /**
+             * Format: date
+             * @description ISO date; null for a lastSprints/sprintId-selected period.
+             */
             to: string | null;
             /** @enum {string} */
             level: "UNIT" | "TEAM" | "USER";
@@ -3590,7 +3590,7 @@ export interface components {
                 "application/problem+json": components["schemas"]["ProblemDetail"];
             };
         };
-        /** @description Request body exceeds the global 10 MiB ceiling — a memory-DoS backstop shared by every endpoint (declared here on the largest-bodied operation; field-level maxLength rules reject oversized values far earlier on ordinary payloads). */
+        /** @description Request body exceeds the global 10 MiB ceiling — a memory-DoS backstop shared by every endpoint, so declared on every operation that takes a body (field-level maxLength rules reject oversized values far earlier on ordinary payloads). Cross-cutting for the coverage gate: pinned once by `PayloadValidationTest`, never once per operation. */
         PayloadTooLarge: {
             headers: {
                 [name: string]: unknown;
@@ -3648,8 +3648,6 @@ export interface components {
         ReportWorkCategory: string;
         /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
         ReportConnectionId: number;
-        /** @description Replaces the org drill inside a report's own `groups` with a slice by this dimension instead. */
-        ReportBreakdown: "NONE" | "DOMAIN" | "ACTIVITY_TYPE" | "WORK_CATEGORY";
         /** @description The time resolution of a report's bucketed series; weeks start Monday, buckets in the configured zone. */
         ReportBucket: "WEEK" | "MONTH";
         /** @description What the WIP report keys its counts by; COLUMN needs a `teamId` with a mapped board. */
@@ -3740,6 +3738,7 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            413: components["responses"]["PayloadTooLarge"];
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalServerError"];
@@ -3778,6 +3777,7 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            413: components["responses"]["PayloadTooLarge"];
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalServerError"];
@@ -3807,6 +3807,7 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            413: components["responses"]["PayloadTooLarge"];
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalServerError"];
@@ -3833,6 +3834,7 @@ export interface operations {
                 content?: never;
             };
             401: components["responses"]["Unauthorized"];
+            413: components["responses"]["PayloadTooLarge"];
             415: components["responses"]["UnsupportedMediaType"];
             500: components["responses"]["InternalServerError"];
         };
@@ -3858,6 +3860,7 @@ export interface operations {
                 content?: never;
             };
             400: components["responses"]["BadRequest"];
+            413: components["responses"]["PayloadTooLarge"];
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalServerError"];
@@ -4010,6 +4013,7 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+            413: components["responses"]["PayloadTooLarge"];
             415: components["responses"]["UnsupportedMediaType"];
             500: components["responses"]["InternalServerError"];
         };
@@ -4082,6 +4086,7 @@ export interface operations {
                 };
             };
             404: components["responses"]["NotFound"];
+            413: components["responses"]["PayloadTooLarge"];
             415: components["responses"]["UnsupportedMediaType"];
             500: components["responses"]["InternalServerError"];
         };
@@ -4120,6 +4125,7 @@ export interface operations {
                 };
             };
             404: components["responses"]["NotFound"];
+            413: components["responses"]["PayloadTooLarge"];
             415: components["responses"]["UnsupportedMediaType"];
             500: components["responses"]["InternalServerError"];
         };
@@ -4166,6 +4172,7 @@ export interface operations {
                 };
             };
             404: components["responses"]["NotFound"];
+            413: components["responses"]["PayloadTooLarge"];
             415: components["responses"]["UnsupportedMediaType"];
             500: components["responses"]["InternalServerError"];
         };
@@ -4292,6 +4299,7 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+            413: components["responses"]["PayloadTooLarge"];
             415: components["responses"]["UnsupportedMediaType"];
             500: components["responses"]["InternalServerError"];
         };
@@ -4431,6 +4439,7 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+            413: components["responses"]["PayloadTooLarge"];
             415: components["responses"]["UnsupportedMediaType"];
             500: components["responses"]["InternalServerError"];
         };
@@ -4463,6 +4472,7 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+            413: components["responses"]["PayloadTooLarge"];
             415: components["responses"]["UnsupportedMediaType"];
             500: components["responses"]["InternalServerError"];
         };
@@ -4675,6 +4685,7 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+            413: components["responses"]["PayloadTooLarge"];
             415: components["responses"]["UnsupportedMediaType"];
             500: components["responses"]["InternalServerError"];
         };
@@ -4773,6 +4784,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            413: components["responses"]["PayloadTooLarge"];
             415: components["responses"]["UnsupportedMediaType"];
             500: components["responses"]["InternalServerError"];
         };
@@ -4971,6 +4983,7 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+            413: components["responses"]["PayloadTooLarge"];
             415: components["responses"]["UnsupportedMediaType"];
             500: components["responses"]["InternalServerError"];
         };
@@ -5801,6 +5814,7 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            413: components["responses"]["PayloadTooLarge"];
             415: components["responses"]["UnsupportedMediaType"];
             500: components["responses"]["InternalServerError"];
         };

@@ -5,6 +5,7 @@ import ch.nokillswit.auth.LoginResponse
 import ch.nokillswit.auth.hashPassword
 import ch.nokillswit.infra.db.SEED_ADMIN_EMAIL
 import ch.nokillswit.infra.db.SEED_PASSWORD_HASH
+import ch.nokillswit.infra.db.connectPooledDatabase
 import ch.nokillswit.metrics.asRequest
 import ch.nokillswit.users.User
 import ch.nokillswit.users.UserRole
@@ -27,6 +28,7 @@ import io.ktor.server.config.ApplicationConfig
 import io.ktor.server.config.MapApplicationConfig
 import io.ktor.server.config.mergeWith
 import io.ktor.server.testing.ApplicationTestBuilder
+import io.r2dbc.spi.ConnectionFactoryOptions
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.toList
 import org.jetbrains.exposed.v1.core.*
@@ -34,6 +36,7 @@ import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
 import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.r2dbc.update
+import java.time.Duration
 
 /**
  * Points the app at the shared Testcontainers Postgres (with CSRF off) WITHOUT starting it —
@@ -224,12 +227,26 @@ internal fun newTokenBlocklistService(clock: () -> Long): ch.nokillswit.auth.Tok
 /** The shared test database — for fixtures that construct a service by hand (the encryption tests). */
 fun sharedDatabaseForTests(): R2dbcDatabase = sharedTestDatabase
 
+/**
+ * POOLED like production (`connectPooledDatabase`, `.claude/docs/build-times.md` WHY 10): an unpooled
+ * connect opened a fresh PostgreSQL backend per `suspendTransaction`. Small — the suite's test-side
+ * calls are sequential, and a test holding a transaction open while another test-side call runs
+ * needs a second connection; 8 leaves headroom and the acquire timeout turns a real deadlock into
+ * a failure in seconds. Never disposed: the JVM exit (and the container's shutdown hook) ends it.
+ */
 private val sharedTestDatabase: R2dbcDatabase by lazy {
-    R2dbcDatabase.connect(
-        url = PostgresTestSupport.r2dbcUrl,
-        user = PostgresTestSupport.user,
-        password = PostgresTestSupport.password,
-    )
+    val options = ConnectionFactoryOptions.parse(PostgresTestSupport.r2dbcUrl)
+        .mutate()
+        .option(ConnectionFactoryOptions.USER, PostgresTestSupport.user)
+        .option(ConnectionFactoryOptions.PASSWORD, PostgresTestSupport.password)
+        .build()
+    connectPooledDatabase(
+        options,
+        maxSize = 10, // headroom over SyncJobQueueTest's 8 concurrent claimers
+        initialSize = 1,
+        maxAcquireTime = Duration.ofSeconds(30),
+        maxIdleTime = Duration.ofMinutes(10),
+    ).first
 }
 
 object TestUsers {

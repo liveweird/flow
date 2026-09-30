@@ -4,7 +4,9 @@ Backend tests live flat in `server/src/test/kotlin/` (kotlin.test + `io.ktor.ser
 and override the `postgres.*` config keys via `MapApplicationConfig` to point at a Testcontainers
 `PostgreSQLContainer("postgres:18.6-alpine@sha256:77f58511…")` (the same digest `docker-compose.yaml` and
 `k8s/postgres-deployment.yaml` pin — `PostgresImagePinTest`) started lazily by `PostgresTestSupport` and **shared
-across the whole suite**. Running tests requires a working Docker daemon (Docker Desktop,
+across the whole suite** (test-side direct database access, `sharedDatabaseForTests()`, goes through a small
+r2dbc-pool built by production's own `connectPooledDatabase` — an unpooled connect paid ~4 ms of backend
+setup per transaction, `.claude/docs/build-times.md` WHY 10). Running tests requires a working Docker daemon (Docker Desktop,
 OrbStack, etc. — with OrbStack and no `/var/run/docker.sock`, export
 `DOCKER_HOST=unix://$HOME/.orbstack/run/docker.sock`). The container runs **all** Flyway
 migrations, so the V3 seed admin (`admin@flow.local`) is present — tests scope their assertions
@@ -87,6 +89,16 @@ holds the fetch-stubbing helpers. The shared setup also forces the reduced-motio
 makes every Mantine test provider honor it: `Transition` invokes its animation hook even with
 `env="test"`, so synchronous reduced-motion transitions prevent callbacks from outliving happy-dom
 teardown. Other media queries retain their normal behavior; the application theme is unchanged.
+
+**The suite runs with `isolate: false`** (`web/vite.config.ts` — a worker reuses its module registry and
+globals across files; the measured gain is in `build-times.md`, WHY 6). Vitest already scopes `vi.mock`
+registrations per test file; what carries over is the EVALUATED `src/` modules, so `setup.ts` calls
+`vi.resetModules()` before every file (npm packages stay cached) and each file's own mocks apply. Tests must not assume anything an earlier test left
+behind — await lazy chart chunks (`findBy…`/`waitFor`, never a synchronous `getBy…` right after the first
+data assertion), reset module-level state in `afterEach`, and unstub globals/timers a test installed. The
+proof is `cd web && npx vitest run --sequence.shuffle` (run it a few times after adding a test); a test
+that only passes in file order is the bug, not the config.
+
 `locales/parity.test.ts` enforces EN↔PL key parity for every shipped language (auto-discovers
 language folders; also pins folders == `SUPPORTED_LANGUAGES`).
 
@@ -230,7 +242,9 @@ under a file lock into the ONE `coverage.md` + `gaps.txt` (`OpenApiCoverageMerge
 leaves the complete union), and the `test` task clears the directory first so stale per-fork files
 never leak in; a whole-suite run that leaves NO `gaps.txt` fails the gate too. A new operation
 therefore lands with a test per declared status, or with its status list trimmed to what the
-route can actually answer (`CoverageGapsTest` pins the cross-cutting statuses). Tests that use
+route can actually answer (`CoverageGapsTest` pins the cross-cutting statuses). `413` is declared on EVERY operation that takes a request body
+(`OpenApiSpecTest` pins it) but is never a per-operation test — the one `PayloadValidationTest` case covers the shared
+limit. Tests that use
 `testApplication`'s default `client` bypass the plugin — prefer `jsonClient()`.
 
 **Schemathesis (optional manual fuzz pass, not in CI).** Property-based fuzzing of the running
