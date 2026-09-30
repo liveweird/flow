@@ -19,7 +19,6 @@ import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.r2dbc.update
 import java.util.UUID
-import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -30,28 +29,12 @@ import kotlin.test.assertNull
  * `upsertIssue`/`upsertEntity`, resurrection of a tombstoned row, and the REFERENCE pass's
  * end-of-pass tombstone sweep.
  */
-private val migrated = AtomicBoolean(false)
-
-// See IngestWorkerTest.kt's identical note: this suite constructs services directly against
-// sharedDatabaseForTests() without booting a testApplication, so nothing else in this JVM fork is
-// guaranteed to have run Flyway first (Gradle test forking, `--tests` filtering).
-private fun ensureMigrated() {
-    if (migrated.compareAndSet(false, true)) {
-        org.flywaydb.core.Flyway.configure()
-            .dataSource(PostgresTestSupport.jdbcUrl, PostgresTestSupport.user, PostgresTestSupport.password)
-            .locations("classpath:db/migration")
-            .load()
-            .migrate()
-    }
-}
-
 class JiraRawStoreTest {
     private fun unique(prefix: String) = "$prefix-${UUID.randomUUID().toString().substring(0, 8)}"
 
     private fun rawStore() = JiraRawStore(sharedDatabaseForTests())
 
     private suspend fun createConnection(): UInt {
-        ensureMigrated()
         val ds = DataSourceService(sharedDatabaseForTests(), FieldCipher(DEV_DATA_ENCRYPTION_KEY))
         return ds.create(
             DataSourceRequest(

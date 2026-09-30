@@ -204,7 +204,16 @@ tasks.test {
     // gets its OWN Testcontainers Postgres and its own `object` fixture singletons — all the shared-database
     // hazards (withSoloAdmins, restoreSeedAccounts, metrics settings, dim_date, worker claims) stay intra-fork.
     // `forkEvery` is deliberately NOT set (one JVM per fork for the whole run). Measured in build-times.md WHY 5.
-    maxParallelForks = (findProperty("forks") as String?)?.toInt() ?: 1
+    // `-Pforks` must be an integer 1..8 (more forks only add a container + stub SYNC each, WHY 5); anything else
+    // fails any build that configures the test task, instead of a NumberFormatException or an unbounded fan-out.
+    maxParallelForks = (findProperty("forks") as String?).let { raw ->
+        if (raw == null) {
+            1
+        } else {
+            raw.trim().toIntOrNull()?.takeIf { it in 1..8 }
+                ?: throw GradleException("-Pforks must be an integer from 1 to 8, got '$raw'")
+        }
+    }
     val reportDir = layout.buildDirectory.dir("reports/openapi-conformance")
     val gapsFile = layout.buildDirectory.file("reports/openapi-conformance/gaps.txt")
     doFirst {

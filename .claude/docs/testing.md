@@ -13,7 +13,7 @@ migrations, so the V3 seed admin (`admin@flow.local`) is present — tests scope
 with unique prefixes/filters (`uniqueEmail("marker")`) rather than asserting absolute counts.
 
 **Parallel forks (`-Pforks=N`).** `server/build.gradle.kts` sets `maxParallelForks` from the `forks` Gradle
-property (default 1 = one JVM; CI runs `-Pforks=2`; `forkEvery` is deliberately unset). Each fork is its own
+property (an integer 1..8, anything else fails any build that runs the `test` task; default 1 = one JVM; CI runs `-Pforks=2`; `forkEvery` is deliberately unset). Each fork is its own
 JVM, so it starts its OWN Testcontainers Postgres (`PostgresTestSupport` is a per-JVM `object`) and holds its own
 fixture singletons (`SyncedStubFixture`, `DerivedStubFixture`) — every "shared suite" rule in this doc
 (`withSoloAdmins`, `restoreSeedAccounts`, the metrics settings row, `dim_date`, worker claims, the fixtures'

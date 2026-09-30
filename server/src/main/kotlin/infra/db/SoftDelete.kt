@@ -17,6 +17,9 @@ interface SoftDeletable {
 /** The rows that still exist, in the business sense. */
 fun SoftDeletable.active(): Op<Boolean> = markedAsDeleted eq false
 
+/** The rows that were soft-deleted (the purge sweep's candidates). */
+fun SoftDeletable.deleted(): Op<Boolean> = markedAsDeleted eq true
+
 /** The wall clock every write stamps (`created_at`/`updated_at`, epoch millis) — one name to grep for. */
 fun nowMillis(): Long = System.currentTimeMillis()
 

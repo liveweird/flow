@@ -257,7 +257,7 @@ evidence and recorded here as a dated entry (finding + fix, or "measured, intend
    class -15 %. `koverVerify` is a `check` gate, so it stays on in CI; a local-dev switch is cheap.
    Open: is the floor worth 10 % of every CI run, or can coverage be measured on a schedule?
 5. **CI 4 vCPU vs local 18 cores — ANSWERED 2026-09-30 (`perf/parallel-forks`, checkup D1).** The suite now
-   runs in parallel JVM forks: `server/build.gradle.kts` reads `-Pforks=N` into `maxParallelForks` (default 1),
+   runs in parallel JVM forks: `server/build.gradle.kts` reads `-Pforks=N` into `maxParallelForks` (default 1; validated as an integer 1..8, else any build that runs the `test` task fails),
    CI passes `-Pforks=2`. What made it possible (the three blockers the old entry listed): (1) the OpenAPI gate
    is fork-safe since #42 (each fork writes `exercised-<pid>-<uuid>.txt`, the last one to exit re-merges them
    into ONE `coverage.md`/`gaps.txt`); (2) **class order was not robust** — `MetricsDigestTest` first in a JVM

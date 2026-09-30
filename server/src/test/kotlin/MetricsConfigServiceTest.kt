@@ -28,7 +28,6 @@ import ch.nokillswit.norm.TombstoneKind
 import ch.nokillswit.norm.WorkItemFacts
 import ch.nokillswit.norm.WorkItemStore
 import java.util.UUID
-import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlin.test.Test
@@ -52,17 +51,6 @@ class MetricsConfigServiceTest {
     private fun metricsConfig(dataSources: DataSourceService, jobs: SyncJobsService = syncJobs()) =
         MetricsConfigService(sharedDatabaseForTests(), workItems(), dataSources, jobs)
     private fun pagingAll() = PageRequest(page = 1, pageSize = 100, sort = emptyList())
-
-    private val migrated = AtomicBoolean(false)
-    private fun ensureMigrated() {
-        if (migrated.compareAndSet(false, true)) {
-            org.flywaydb.core.Flyway.configure()
-                .dataSource(PostgresTestSupport.jdbcUrl, PostgresTestSupport.user, PostgresTestSupport.password)
-                .locations("classpath:db/migration")
-                .load()
-                .migrate()
-        }
-    }
 
     private suspend fun createConnection(dataSources: DataSourceService): UInt = dataSources.create(
         DataSourceRequest(
@@ -140,7 +128,6 @@ class MetricsConfigServiceTest {
 
     @Test
     fun `defaults exclude UNKNOWN-category statuses, and fields stay null with no profile at all`() = runBlocking {
-        ensureMigrated()
         val ds = dataSources()
         val connId = createConnection(ds)
         seedStatuses(connId)
@@ -157,7 +144,6 @@ class MetricsConfigServiceTest {
 
     @Test
     fun `a profile without a STORY_POINTS-detected field leaves the estimate roles null`() = runBlocking {
-        ensureMigrated()
         val ds = dataSources()
         val connId = createConnection(ds)
         seedStatuses(connId)
@@ -171,7 +157,6 @@ class MetricsConfigServiceTest {
 
     @Test
     fun `a profile with a Target start field, but no Start date field, is the epicStart fallback`() = runBlocking {
-        ensureMigrated()
         val ds = dataSources()
         val connId = createConnection(ds)
         seedStatuses(connId)
@@ -187,7 +172,6 @@ class MetricsConfigServiceTest {
 
     @Test
     fun `a Start date field always wins over a Target start field`() = runBlocking {
-        ensureMigrated()
         val ds = dataSources()
         val connId = createConnection(ds)
         seedStatuses(connId)
@@ -208,7 +192,6 @@ class MetricsConfigServiceTest {
 
     @Test
     fun `distinctCustomFieldValues itself is UNCAPPED - a single multi-valued field with 250 options`() = runBlocking {
-        ensureMigrated()
         val ds = dataSources()
         val connId = createConnection(ds)
         seedStatuses(connId)
@@ -221,7 +204,6 @@ class MetricsConfigServiceTest {
 
     @Test
     fun `the options endpoint caps workCategoryValues at 200 and reports truncated`() = runBlocking {
-        ensureMigrated()
         val ds = dataSources()
         val connId = createConnection(ds)
         seedStatuses(connId)
@@ -235,7 +217,6 @@ class MetricsConfigServiceTest {
 
     @Test
     fun `a work category value beyond the options display cap is still accepted on PUT`() = runBlocking {
-        ensureMigrated()
         val ds = dataSources()
         val connId = createConnection(ds)
         seedStatuses(connId)
@@ -255,7 +236,6 @@ class MetricsConfigServiceTest {
 
     @Test
     fun `a field with 200 or fewer values is never marked truncated`() = runBlocking {
-        ensureMigrated()
         val ds = dataSources()
         val connId = createConnection(ds)
         seedStatuses(connId)
@@ -269,7 +249,6 @@ class MetricsConfigServiceTest {
 
     @Test
     fun `bumpRevision enqueues a DERIVE job for every enabled active connection`() = runBlocking {
-        ensureMigrated()
         val ds = dataSources()
         val jobs = syncJobs()
         val config = metricsConfig(ds, jobs)
@@ -286,7 +265,6 @@ class MetricsConfigServiceTest {
 
     @Test
     fun `a second bumpRevision while one DERIVE job is still PENDING coalesces rather than duplicating`() = runBlocking {
-        ensureMigrated()
         val ds = dataSources()
         val jobs = syncJobs()
         val config = metricsConfig(ds, jobs)
@@ -300,7 +278,6 @@ class MetricsConfigServiceTest {
     }
     @Test
     fun `a real settings change enqueues DERIVE for an enabled connection and an identical re-PUT does not`() = runBlocking {
-        ensureMigrated()
         val ds = dataSources()
         val jobs = syncJobs()
         val config = metricsConfig(ds, jobs)
