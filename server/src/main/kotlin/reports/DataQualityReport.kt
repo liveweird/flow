@@ -1,5 +1,6 @@
 package ch.nokillswit.reports
 
+import ch.nokillswit.metrics.WorkingCalendar
 import kotlinx.serialization.Serializable
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 
@@ -154,7 +155,7 @@ data class DataQualityReport(
  */
 suspend fun ReportService.dataQuality(filter: ReportFilter, nowMs: Long): DataQualityReport = suspendTransaction(database) {
     val scope = resolveReportScope(filter, nowMs)
-    val calendar = workingCalendarOf(scope.settings)
+    val calendar = WorkingCalendar.of(scope.settings)
     val connectionIds = scope.connectionIds
     val mappings = readConnectionMappings(connectionIds)
     val clocks = deriveClocks(connectionIds)

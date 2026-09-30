@@ -33,8 +33,9 @@ in-network consumers use `postgres:5432`). There is one persistence stack:
 - **Applies when:** touching `infra/db/Database.kt`'s connect call, the `postgres.pool.*`
   configuration, or reasoning about how many PostgreSQL backends one Flow instance can hold.
 - **Requirement:** Exposed connects through ONE bounded `io.r2dbc:r2dbc-pool` `ConnectionPool`
-  (ported from Lettuce) wrapping the plain PostgreSQL R2DBC factory — never a raw
-  `r2dbc:postgresql://` connect, which opens one backend per `suspendTransaction` with nothing
+  (ported from Lettuce) wrapping the plain PostgreSQL R2DBC factory, built by the one shared
+  `connectPooledDatabase` (the test harness's direct `sharedDatabaseForTests()` uses it too, with a
+  small pool of its own) — never a raw `r2dbc:postgresql://` connect, which opens one backend per `suspendTransaction` with nothing
   capping concurrency (measured in Lettuce, v3.16.1, against its compose stack: 120 parallel
   requests against one endpoint took ALL 100 backends of PostgreSQL's default `max_connections`
   taken, 6 × `500` "sorry, too many clients already" and 7 × `401` — the JWT validation's

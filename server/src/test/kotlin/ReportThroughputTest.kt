@@ -238,12 +238,14 @@ class ReportThroughputTest {
         val floGroup = unit.groups.single { it.teamId == floTeamId }
         assertTrue(floGroup.deliveredItems > 0)
         assertTrue(unit.groups.all { it.accountId == null }, "UNIT groups are teams")
+        assertLabelThenIdOrder("UNIT", unit.groups.map { GroupIdentity(it.label, it.teamId, it.accountId) })
 
         val team = client.throughput("$range&teamId=$floTeamId")
         assertEquals(floGroup.deliveredItems, team.byBucket.sumOf { it.deliveredItems }, "TEAM narrows to the credit team")
         assertEquals(team.byBucket.sumOf { it.deliveredMd }, team.groups.sumOf { it.deliveredMd }, ABS_TOLERANCE, "TEAM Σ groups MD")
         assertEquals(team.byBucket.sumOf { it.deliveredItems }, team.groups.sumOf { it.deliveredItems }, "TEAM Σ groups items")
         assertTrue(team.bySprint.all { it.teamId == floTeamId })
+        assertLabelThenIdOrder("TEAM", team.groups.map { GroupIdentity(it.label, it.teamId, it.accountId) })
 
         // USER level: the one account's own period view, no groups.
         val account = team.groups.mapNotNull { it.accountId }.first()

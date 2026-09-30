@@ -209,31 +209,6 @@ internal data class DqWorklog(
     val lateMs: Long?,
 )
 
-/**
- * The `fact_worklog` rows of the period: `started_at` in [window], the author's team (`teamId=0` = no team) and account, and
- * the domain per `domainView` (TASK: the task's; EPIC: the epic's, else the task's — A21), `activityType`, `workCategory`.
- */
-internal fun worklogSlice(filter: ReportFilter, connectionIds: List<UInt>, window: Pair<Long, Long>): Op<Boolean> {
-    val w = MetricsStore.FactWorklog
-    var predicate: Op<Boolean> = (w.connectionId inList connectionIds) and
-        (w.startedAt greaterEq window.first) and (w.startedAt less window.second)
-    filter.teamId?.let { team ->
-        predicate = predicate and if (team == UNASSIGNED_TEAM_ID) w.authorTeamId.isNull() else (w.authorTeamId eq team)
-    }
-    filter.accountId?.let { predicate = predicate and (w.authorAccountId eq it) }
-    filter.domain?.let { domain ->
-        predicate = predicate and when (filter.domainView) {
-            DomainView.TASK -> w.taskDomainKey eq domain
-            DomainView.EPIC -> (w.epicDomainKey eq domain) or (w.epicDomainKey.isNull() and (w.taskDomainKey eq domain))
-        }
-    }
-    filter.activityType?.let { predicate = predicate and (w.activityType eq it) }
-    filter.workCategory?.let { category ->
-        predicate = predicate and if (category == UNCATEGORIZED) w.workCategory.isNull() else (w.workCategory eq category)
-    }
-    return predicate
-}
-
 /** One `GROUP BY` row of the worklog counting: an author's team and account, with the counts and MD of their worklogs. */
 internal class WorklogAgg(
     val team: UInt?,

@@ -3,7 +3,9 @@
 Backend tests live flat in `server/src/test/kotlin/` (kotlin.test + `io.ktor.server.testing.testApplication`)
 and override the `postgres.*` config keys via `MapApplicationConfig` to point at a Testcontainers
 `PostgreSQLContainer` (`postgres:18.6-alpine`, digest-pinned in `PostgresTestSupport`) started lazily by `PostgresTestSupport` and **shared
-across the whole suite**. Running tests requires a working Docker daemon (Docker Desktop,
+across the whole suite** (test-side direct database access, `sharedDatabaseForTests()`, goes through a small
+r2dbc-pool built by production's own `connectPooledDatabase` — an unpooled connect paid ~4 ms of backend
+setup per transaction, `.claude/docs/build-times.md` WHY 10). Running tests requires a working Docker daemon (Docker Desktop,
 OrbStack, etc. — with OrbStack and no `/var/run/docker.sock`, export
 `DOCKER_HOST=unix://$HOME/.orbstack/run/docker.sock`). The container runs **all** Flyway
 migrations, so the V3 seed admin (`admin@flow.local`) is present — tests scope their assertions

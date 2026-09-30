@@ -168,6 +168,7 @@ class ReportSprintConsistencyTest {
         }
         // UNIT groups sum every figure per team, so Σ groups == Σ sprints for all fourteen.
         assertFigures(body.sprints.map { it.figures() }.total(), body.groups.map { it.figures() }.total(), "UNIT groups")
+        assertLabelThenIdOrder("UNIT", body.groups.map { GroupIdentity(it.label, it.teamId, it.accountId) })
     }
 
     @Test
@@ -182,6 +183,7 @@ class ReportSprintConsistencyTest {
         assertTrue(body.sprints.all { it.teamId == floTeamId }, "TEAM level narrows to the one team's sprints")
         assertTrue(body.groups.isNotEmpty(), "expected at least one assignee-at-commitment group")
         assertFigures(body.sprints.map { it.figures() }.total(), body.groups.map { it.figures() }.total(), "Σ users vs team")
+        assertLabelThenIdOrder("TEAM", body.groups.map { GroupIdentity(it.label, it.teamId, it.accountId) })
     }
 
     @Test

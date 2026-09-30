@@ -89,16 +89,33 @@ private fun Application.connectPooled(): R2dbcDatabase {
         .option(ConnectionFactoryOptions.PASSWORD, config.property("postgres.password").getString())
         .option(PostgresqlConnectionFactoryProvider.APPLICATION_NAME, bounds.applicationName)
         .build()
+    val (database, pool) = connectPooledDatabase(options, bounds)
+    monitor.subscribe(ApplicationStopped) { pool.dispose() }
+    return database
+}
+
+/**
+ * The pool construction itself, shared by [connectPooled] (production and every `testApplication`)
+ * and the test harness's own direct-access database (`sharedDatabaseForTests()`, which had been an
+ * UNPOOLED connect paying a fresh PostgreSQL backend, ~4 ms, per transaction). The caller owns
+ * disposing the returned [ConnectionPool].
+ */
+internal fun connectPooledDatabase(
+    options: ConnectionFactoryOptions,
+    maxSize: Int,
+    initialSize: Int,
+    maxAcquireTime: Duration,
+    maxIdleTime: Duration,
+): Pair<R2dbcDatabase, ConnectionPool> {
     val rawFactory = ConnectionFactories.get(options)
     val pool = ConnectionPool(
         ConnectionPoolConfiguration.builder(rawFactory)
-            .maxSize(bounds.maxSize)
-            .initialSize(bounds.initialSize)
-            .maxAcquireTime(Duration.ofSeconds(bounds.maxAcquireTimeSeconds))
-            .maxIdleTime(Duration.ofSeconds(bounds.maxIdleTimeSeconds))
+            .maxSize(maxSize)
+            .initialSize(initialSize)
+            .maxAcquireTime(maxAcquireTime)
+            .maxIdleTime(maxIdleTime)
             .build(),
     )
-    monitor.subscribe(ApplicationStopped) { pool.dispose() }
     val databaseConfig = R2dbcDatabaseConfig.Builder().apply {
         connectionFactoryOptions = options
         // ONE attempt per suspendTransaction: Exposed's default of three retries any
@@ -107,8 +124,16 @@ private fun Application.connectPooled(): R2dbcDatabase {
         // when the pool is already full. Flow has no path relying on Exposed's retry.
         defaultMaxAttempts = 1
     }
-    return R2dbcDatabase.connect(connectionFactory = pool, databaseConfig = databaseConfig)
+    return R2dbcDatabase.connect(connectionFactory = pool, databaseConfig = databaseConfig) to pool
 }
+
+private fun connectPooledDatabase(options: ConnectionFactoryOptions, bounds: PoolBounds) = connectPooledDatabase(
+    options,
+    maxSize = bounds.maxSize,
+    initialSize = bounds.initialSize,
+    maxAcquireTime = Duration.ofSeconds(bounds.maxAcquireTimeSeconds),
+    maxIdleTime = Duration.ofSeconds(bounds.maxIdleTimeSeconds),
+)
 
 /**
  * The DI composition root: connects the one R2DBC database (through the bounded pool above) and

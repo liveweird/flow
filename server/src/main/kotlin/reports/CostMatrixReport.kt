@@ -6,15 +6,9 @@ import ch.nokillswit.teams.TeamService
 import java.math.BigDecimal
 import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.Serializable
-import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and
-import org.jetbrains.exposed.v1.core.eq
-import org.jetbrains.exposed.v1.core.greaterEq
 import org.jetbrains.exposed.v1.core.inList
-import org.jetbrains.exposed.v1.core.isNull
-import org.jetbrains.exposed.v1.core.less
-import org.jetbrains.exposed.v1.core.or
 import org.jetbrains.exposed.v1.core.sum
 import org.jetbrains.exposed.v1.r2dbc.select
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
@@ -69,33 +63,11 @@ private fun Iterable<CostAggregate>.exact(): BigDecimal = fold(BigDecimal.ZERO) 
 
 private fun ratio(part: BigDecimal, whole: BigDecimal): Double? = if (whole.signum() == 0) null else part.toDouble() / whole.toDouble()
 
-/** The `fact_worklog` predicate: the period window, the org level (as-was author team/author) and the slices. */
-private fun costSlice(filter: ReportFilter, connectionIds: List<UInt>, window: Pair<Long, Long>): Op<Boolean> {
-    val w = MetricsStore.FactWorklog
-    var predicate: Op<Boolean> = (w.connectionId inList connectionIds) and
-        (w.startedAt greaterEq window.first) and (w.startedAt less window.second)
-    filter.teamId?.let { team ->
-        predicate = predicate and if (team == UNASSIGNED_TEAM_ID) w.authorTeamId.isNull() else (w.authorTeamId eq team)
-    }
-    filter.accountId?.let { predicate = predicate and (w.authorAccountId eq it) }
-    filter.domain?.let { domain ->
-        predicate = predicate and when (filter.domainView) {
-            DomainView.TASK -> w.taskDomainKey eq domain
-            DomainView.EPIC -> (w.epicDomainKey eq domain) or (w.epicDomainKey.isNull() and (w.taskDomainKey eq domain))
-        }
-    }
-    filter.activityType?.let { predicate = predicate and (w.activityType eq it) }
-    filter.workCategory?.let { category ->
-        predicate = predicate and if (category == UNCATEGORIZED) w.workCategory.isNull() else (w.workCategory eq category)
-    }
-    return predicate
-}
-
 private suspend fun fetchCostAggregates(filter: ReportFilter, connectionIds: List<UInt>, window: Pair<Long, Long>): List<CostAggregate> {
     val w = MetricsStore.FactWorklog
     val md = w.md.sum()
     return w.select(w.authorTeamId, w.authorAccountId, w.taskDomainKey, w.epicDomainKey, w.foreignWork, md)
-        .where { costSlice(filter, connectionIds, window) }
+        .where { worklogSlice(filter, connectionIds, window) }
         .groupBy(w.authorTeamId, w.authorAccountId, w.taskDomainKey, w.epicDomainKey, w.foreignWork)
         .toList()
         .map {

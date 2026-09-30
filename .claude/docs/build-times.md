@@ -296,13 +296,33 @@ evidence and recorded here as a dated entry (finding + fix, or "measured, intend
    wall time is unmeasured.
 9. **`images` is one 2m25s step** (`docker compose build`), +30 % since 09-26 with a cold layer cache
    each run. Is the layer cache being used at all (is there a `cache-from`)? Not investigated.
-10. **The shared test database is unpooled.** `sharedTestDatabase` (`TestEnvironment.kt`) opens a
-   fresh PostgreSQL backend per `suspendTransaction` (~4.2 ms measured; a pooled connection answers a
-   first statement in ~0.25 ms). Every test-side service call, fixture clone and read helper pays it;
-   the suite runs thousands of transactions. Not changed by the PROCESS fix (it is a test-wide
-   harness change: pool size vs tests that hold a transaction open while another call runs,
-   `ConnectionPoolTest`'s expectations). Worth measuring: a pooled `sharedTestDatabase` (`maxSize` 20
-   like production) and a full-suite run.
+10. **The shared test database was unpooled — ANSWERED 2026-09-30 (`perf/pooled-test-db`).**
+   `sharedTestDatabase` (`TestEnvironment.kt`) opened a fresh PostgreSQL backend per
+   `suspendTransaction` (~4.2 ms; a pooled connection answers a first statement in ~0.25 ms) for every
+   test-side service call, fixture clone and read helper. It is now pooled through the SAME
+   construction as production (`connectPooledDatabase` in `infra/db/Database.kt`, extracted from
+   `connectPooled`, so `defaultMaxAttempts = 1` and the r2dbc-pool wiring cannot drift): `maxSize` 10,
+   `initialSize` 1, acquire timeout 30 s, idle 10 min. Test-side calls are sequential, so 8 is
+   headroom, and a genuine nested-transaction deadlock now fails in 30 s instead of hanging. No test
+   needed adjusting: nothing in the suite uses session-level `SET`, `LISTEN`, advisory locks or temp
+   tables (only transaction-scoped state), `ConnectionPoolTest` measures the APP's own pool (unchanged),
+   and `SyncedStubFixture`'s plain-JDBC clone path is separate and left as is.
+   Measured (local, 18 cores, `./gradlew cleanTest :server:test`, 791 tests, `gaps.txt` empty, no
+   failures), interleaved because other worktrees share the machine — load average is the machine's
+   1-minute figure at the start of each run:
+
+   | Run | Load at start | Suite span (= sum of class times) | `MetricsDerivationTest` | `NormalizationPipelineTest` | `MetricsDigestTest` | `IngestWorkerTest` | `DataProfileTest` |
+   |---|---|---|---|---|---|---|---|
+   | before #1 (unpooled) | 4.2 | 6m00s | 1m44s | 51s | 32s | 28s | 22s |
+   | after #1 (pooled) | 12.6 | 4m49s | 1m33s | 23s | 26s | 21s | 18s |
+   | before #2 (unpooled) | 5.8 | 4m57s | 1m17s | 42s | 28s | 26s | 21s |
+   | after #2 (pooled) | 5.1 | **3m50s** | 1m08s | 18s | 25s | 18s | 11s |
+
+   The clean comparison is #2: **4m57s -> 3m50s (-23 %)**; run #1 of the unpooled variant ran under a
+   load that inflated it (a 6m00s outlier — the same code took 4m57s at low load), so read the
+   before/after from the low-load pair. The gain concentrates where test-side transactions are
+   numerous (`NormalizationPipelineTest` -57 %, `DataProfileTest` -48 %); `MetricsDerivationTest` and
+   `MetricsDigestTest` are DERIVE-bound (question 3) and move ~10 %.
 
 **What the suite is made of (local, pre-fix run, 782 tests, 12m30s of class time):**
 `MetricsDerivationTest` 5m55s (47 %), `MetricsDigestTest` 2m00s (16 %), `NormalizationPipelineTest`

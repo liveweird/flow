@@ -220,7 +220,7 @@ suspend fun ReportService.epicProgress(filter: ReportFilter, epicKey: String?, n
     suspendTransaction(database) {
         val target = progressTargetOf(filter, epicKey)
         val scope = resolveReportScope(filter, nowMs)
-        val calendar = workingCalendarOf(scope.settings)
+        val calendar = WorkingCalendar.of(scope.settings)
         val coverage = derivedCoverage(scope.connectionIds, calendar)
         val notes = snapshotNotes(scope, filter, coverage).toMutableList()
         val coveredThrough = coverage.day
@@ -508,7 +508,7 @@ private suspend fun deriveTimeCalendar(plan: PlanRow, ctx: ProgressContext): Wor
     val windowDays = ChronoUnit.DAYS.between(first, last) + 1
     if (stamped.size.toLong() != windowDays) return ctx.calendar
     val nonWorking = stamped.filterValues { !it }.keys.map { LocalDate.parse(it) }.toSet()
-    return WorkingCalendar(zoneOf(ctx.scope.settings.timeZone), emptySet(), nonWorking)
+    return WorkingCalendar(WorkingCalendar.zoneOf(ctx.scope.settings.timeZone), emptySet(), nonWorking)
 }
 
 // ---- the drill tables --------------------------------------------------------------------------
