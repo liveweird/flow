@@ -2,7 +2,8 @@
 
 Backend tests live flat in `server/src/test/kotlin/` (kotlin.test + `io.ktor.server.testing.testApplication`)
 and override the `postgres.*` config keys via `MapApplicationConfig` to point at a Testcontainers
-`PostgreSQLContainer("postgres:18-alpine")` started lazily by `PostgresTestSupport` and **shared
+`PostgreSQLContainer("postgres:18.6-alpine@sha256:77f58511…")` (the same digest `docker-compose.yaml` and
+`k8s/postgres-deployment.yaml` pin — `PostgresImagePinTest`) started lazily by `PostgresTestSupport` and **shared
 across the whole suite**. Running tests requires a working Docker daemon (Docker Desktop,
 OrbStack, etc. — with OrbStack and no `/var/run/docker.sock`, export
 `DOCKER_HOST=unix://$HOME/.orbstack/run/docker.sock`). The container runs **all** Flyway
@@ -222,7 +223,12 @@ sibling `gaps.txt` lists every declared (operation, status) pair the suite never
 the cross-cutting statuses a shared plugin answers for every route alike and one test pins each
 (`400` malformed id/body, `401`, `413`, `415`, `429`) and `500`/`default`, which the public API
 offers no honest way to force — and `server/build.gradle.kts` fails the `test` task on a
-non-empty file whenever the WHOLE suite ran (a `--tests` filter skips the gate). A new operation
+non-empty file whenever the WHOLE suite ran (a `--tests` filter skips the gate). The gate is
+**fork-safe**: each test JVM writes its own `exercised-<pid>-<uuid>.txt` and re-merges every fork's file
+under a file lock into the ONE `coverage.md` + `gaps.txt` (`OpenApiCoverageMerge`, pinned by
+`OpenApiCoverageMergeTest` — a pair exercised by ANY fork is covered, so the last fork to exit
+leaves the complete union), and the `test` task clears the directory first so stale per-fork files
+never leak in; a whole-suite run that leaves NO `gaps.txt` fails the gate too. A new operation
 therefore lands with a test per declared status, or with its status list trimmed to what the
 route can actually answer (`CoverageGapsTest` pins the cross-cutting statuses). Tests that use
 `testApplication`'s default `client` bypass the plugin — prefer `jsonClient()`.

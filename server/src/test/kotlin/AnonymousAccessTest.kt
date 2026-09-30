@@ -98,7 +98,7 @@ class AnonymousAccessTest {
         /** `{id}`-style template segments; every id becomes `1` — authentication runs before any lookup. */
         val PATH_PARAMETER = Regex("\\{[^}]+}")
 
-        /** The secured surface after the Flow port (15 paths / 16 operations) — a shrink is worth a look. */
-        const val MIN_SECURED_OPERATIONS = 16
+        /** The secured surface (56 operations at v0.3.0, of 62 declared) less a small margin — a shrink is worth a look. */
+        const val MIN_SECURED_OPERATIONS = 52
     }
 }

@@ -194,7 +194,10 @@ fun sanitizedJiraConnectionRequest(jira: JiraConnectionRequest): JiraConnectionR
     projectKeys = jira.projectKeys.map { sanitizeSingleLine(it, "Project key") }.distinct(),
 )
 
-/** The data-source rules — enforced by the route; the service takes an already-validated request and does not re-check. */
+/**
+ * The data-source rules — enforced by the route AND re-checked by the service (the `validateTeam` idiom);
+ * both take an already-sanitized request.
+ */
 fun validateDataSource(request: DataSourceRequest, apiTokenRequired: Boolean) {
     if (request.name.isBlank() || request.name.length > MAX_DATA_SOURCE_NAME_LENGTH) {
         throw BadRequestException("Name must be 1-$MAX_DATA_SOURCE_NAME_LENGTH characters")

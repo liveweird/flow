@@ -22,15 +22,18 @@ import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
+import io.ktor.server.plugins.BadRequestException
 import io.ktor.server.testing.testApplication
 import java.util.UUID
 import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.r2dbc.update
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
@@ -371,5 +374,24 @@ class DataSourceRoutesTest {
         val read = admin.get("/api/v1/data-sources/${created.id}")
         assertEquals(HttpStatusCode.OK, read.status, "an unknown settings key must not 500 a rolling-deploy read")
         assertEquals(created.jira.siteUrl, read.body<DataSourceResponse>().jira.siteUrl)
+    }
+
+    @Test
+    fun `the service re-validates - a direct create or update with an invalid request is a BadRequestException`() = testApplication {
+        usePostgresTestcontainer()
+        val service = DataSourceService(sharedDatabaseForTests(), FieldCipher(DEV_DATA_ENCRYPTION_KEY))
+        runBlocking {
+            val valid = request(unique("svc-valid"), backfillFrom = "2025-01-01")
+            assertFailsWith<BadRequestException> { service.create(valid.copy(syncIntervalMinutes = 0)) }
+            assertFailsWith<BadRequestException> { service.create(valid.copy(jira = jira(projectKeys = emptyList()))) }
+            assertFailsWith<BadRequestException> { service.create(valid.copy(jira = jira(apiToken = null))) }
+
+            val id = service.create(valid)
+            assertFailsWith<BadRequestException> { service.update(id, valid.copy(reconcileHourUtc = 99)) }
+            assertFailsWith<BadRequestException> { service.update(id, valid.copy(name = " ")) }
+            // apiToken stays optional on update (null keeps the stored secret) — the route's own rule.
+            val siteUrl = assertNotNull(service.read(id)).jira.siteUrl
+            assertNotNull(service.update(id, valid.copy(jira = valid.jira.copy(siteUrl = siteUrl, apiToken = null))))
+        }
     }
 }

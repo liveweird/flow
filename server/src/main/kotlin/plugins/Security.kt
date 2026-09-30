@@ -3,6 +3,7 @@ package ch.nokillswit.plugins
 import ch.nokillswit.auth.TOKEN_TYPE_ACCESS
 import ch.nokillswit.auth.TokenBlocklistServiceKey
 import ch.nokillswit.infra.catchingFailures
+import ch.nokillswit.infra.config.requireConfigLong
 import com.auth0.jwt.JWT
 import com.auth0.jwt.algorithms.Algorithm
 import io.ktor.http.HttpStatusCode
@@ -31,6 +32,9 @@ private val BlocklistFailureKey = AttributeKey<Throwable>("BlocklistFailure")
 
 val JwtConfigKey = AttributeKey<JwtConfig>("JwtConfig")
 
+/** Upper bound (one year) for either token lifetime — far above any sane setting, far below the *1000 overflow. */
+private const val MAX_TOKEN_LIFETIME_SECONDS = 365L * 24 * 3600
+
 fun Application.configureSecurity() {
     // Fail closed like the sibling gates (http.exposeOpenApi, http.behindProxy): a missing or
     // blank property means the documented default — OFF — never an accidental install.
@@ -53,8 +57,14 @@ fun Application.configureSecurity() {
         issuer = environment.config.property("jwt.issuer").getString(),
         audience = environment.config.property("jwt.audience").getString(),
         realm = environment.config.property("jwt.realm").getString(),
-        accessExpiresInSeconds = environment.config.property("jwt.accessExpiresInSeconds").getString().toLong(),
-        refreshExpiresInSeconds = environment.config.property("jwt.refreshExpiresInSeconds").getString().toLong(),
+        // Boot-validated (requireConfigLong): a non-numeric value, 0/negative (tokens born expired) or one
+        // near Long.MAX_VALUE (overflows the millis arithmetic into an already-past expiry) refuses startup.
+        accessExpiresInSeconds = requireConfigLong(
+            environment.config, "jwt.accessExpiresInSeconds", min = 1, max = MAX_TOKEN_LIFETIME_SECONDS,
+        ),
+        refreshExpiresInSeconds = requireConfigLong(
+            environment.config, "jwt.refreshExpiresInSeconds", min = 1, max = MAX_TOKEN_LIFETIME_SECONDS,
+        ),
     )
     // Production uses a private 32-byte key encoded as 64 hex characters (the documented
     // `openssl rand -hex 32` format). The structural check cannot prove entropy; operators

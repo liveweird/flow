@@ -72,11 +72,13 @@ kover {
                 // exclusion above, after trimming the suite down to the generic foundation —
                 // re-measure with `:server:koverXmlReport` and RAISE, never lower).
                 // 2026-09-28, v0.3.0 M1 (norm gaps + metrics config): actual 97.20% → floor 96.
-                minBound(96)
+                // 2026-09-30, v0.3.0 + checkup tier A: actual 98.02% → floor 97.
+                minBound(97)
                 // Branch-coverage floor (actual 77.20%, 2026-09-26; 76.19% at v0.3.0 M1, 2026-09-28 —
                 // the phase-2 normalizer's defensive branches dominate what's left). NOTE: `check`
                 // runs only koverVerify — run `:server:koverXmlReport` for fresh actuals.
-                minBound(75, coverageUnits = kotlinx.kover.gradle.plugin.dsl.CoverageUnit.BRANCH)
+                // 2026-09-30, v0.3.0 + checkup tier A: actual 79.82% → floor 79.
+                minBound(79, coverageUnits = kotlinx.kover.gradle.plugin.dsl.CoverageUnit.BRANCH)
             }
         }
     }
@@ -186,21 +188,33 @@ dependencies {
 // OpenApiConformance.kt). `-Dopenapi.conformance=warn|off` relaxes it for drift triage.
 tasks.withType<Test> {
     systemProperty("openapi.conformance", System.getProperty("openapi.conformance", "fail"))
+    // The repo root, so tests that read repo files (PostgresImagePinTest) do not depend on the test cwd.
+    systemProperty("repo.root", rootDir.absolutePath)
 }
 
-// The OpenAPI COVERAGE gate: OpenApiCoverage (test JVM shutdown hook) writes every declared
-// (operation, status) pair the suite never exercised to gaps.txt — minus the statuses shared plugins
-// produce for every route alike (400/401/413/415/429, pinned once each) and the unforceable 500/default.
-// A non-empty file fails the task, but only when the WHOLE suite ran (a `--tests` filter legitimately
-// leaves most of the spec unexercised).
+// The OpenAPI COVERAGE gate: each test JVM's OpenApiCoverage shutdown hook writes its own
+// `exercised-<pid>-<uuid>.txt` and re-merges every fork's file into ONE coverage.md + gaps.txt
+// (OpenApiCoverageMerge — a pair exercised by ANY fork is covered, so it is fork-safe). gaps.txt lists every
+// declared (operation, status) pair no fork exercised — minus the statuses shared plugins produce for every
+// route alike (400/401/413/415/429, pinned once each) and the unforceable 500/default. A non-empty file
+// fails the task, but only when the WHOLE suite ran (a `--tests` filter legitimately leaves most of the
+// spec unexercised). The directory is cleared first so a previous run's per-fork files never leak in.
 tasks.test {
+    val reportDir = layout.buildDirectory.dir("reports/openapi-conformance")
     val gapsFile = layout.buildDirectory.file("reports/openapi-conformance/gaps.txt")
+    doFirst {
+        reportDir.get().asFile.let { dir -> dir.deleteRecursively(); dir.mkdirs() }
+    }
     // `--tests` lands in the start parameter's task arguments (the filter's command-line patterns are
     // internal API); a filtered run is not the whole suite, so the gate stays quiet.
     val filtered = gradle.startParameter.taskRequests.any { request -> "--tests" in request.args }
     doLast {
         if (filtered || filter.includePatterns.isNotEmpty()) return@doLast
-        val gaps = gapsFile.get().asFile.takeIf { it.exists() }?.readLines()?.filter { it.isNotBlank() } ?: emptyList()
+        // A whole-suite run that produced NO gaps file means no fork published its coverage (the shutdown hook
+        // broke, or nothing exercised the API) — that must fail, never pass as "no gaps".
+        val file = gapsFile.get().asFile
+        check(file.exists()) { "OpenAPI coverage gate: ${file.path} is missing — no test fork published its coverage" }
+        val gaps = file.readLines().filter { it.isNotBlank() }
         check(gaps.isEmpty()) {
             "OpenAPI coverage gate: ${gaps.size} declared (operation, status) pair(s) were never exercised by the suite — " +
                 "add a test per declared status, or trim the spec to what the route can answer:\n  " + gaps.joinToString("\n  ")

@@ -4,10 +4,13 @@ import org.testcontainers.postgresql.PostgreSQLContainer
 import org.testcontainers.utility.DockerImageName
 
 object PostgresTestSupport {
+    /** Tag + digest — must equal `docker-compose.yaml`'s image (pinned by `PostgresImagePinTest`). */
+    const val IMAGE = "postgres:18.6-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873"
+
     private val container: PostgreSQLContainer by lazy {
         PostgreSQLContainer(
             DockerImageName
-                .parse("postgres:18.6-alpine@sha256:6c538e7206ea40ff740ef27883529390a690b6ead6ba96b44c67a9f7c638e8fd")
+                .parse(IMAGE)
                 .asCompatibleSubstituteFor("postgres"),
         ).apply {
             withDatabaseName("flow_test")

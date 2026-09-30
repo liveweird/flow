@@ -12,6 +12,7 @@ import java.util.UUID
 import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
@@ -26,9 +27,17 @@ class BootstrapTest {
     fun `ADMIN_INITIAL_PASSWORD rotates the seed admin so changeme stops working`() = testApplication {
         val newPassword = "rotated-${UUID.randomUUID()}"
         configureApp("bootstrap.adminInitialPassword" to newPassword)
-        withSeedRestored {
+        withSeedRestored { withAuditCapture { capture ->
             startApplication()
             val client = jsonClient()
+            val rotation = capture.events.singleOrNull { it.message == "bootstrap.admin_password_rotated" }
+            assertNotNull(rotation, "the rotation must leave an audit event")
+            assertTrue(rotation.hasKeyValue("userId", TestUsers.service.findWithIdByEmail(SEED_ADMIN_EMAIL)?.first?.toLong()))
+            assertTrue(rotation.hasKeyValue("email", SEED_ADMIN_EMAIL))
+            assertTrue(
+                rotation.keyValuePairs.none { newPassword in it.value.toString() || SEED_PASSWORD_HASH in it.value.toString() },
+                "the audit event must never carry the password or a hash",
+            )
             assertEquals(
                 1L,
                 TestUsers.service.findWithIdByEmail(SEED_ADMIN_EMAIL)?.second?.credentialRevision,
@@ -41,7 +50,7 @@ class BootstrapTest {
             val withNew = client.login(SEED_ADMIN_EMAIL, newPassword)
             assertEquals(HttpStatusCode.OK, withNew.status)
             assertTrue(withNew.body<LoginResponse>().token.isNotBlank())
-        }
+        } }
     }
 
     @Test

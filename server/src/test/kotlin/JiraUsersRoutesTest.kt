@@ -147,6 +147,23 @@ class JiraUsersRoutesTest {
     }
 
     @Test
+    fun `a non-admin gets 403 before any 400 - a bogus or repeated scope, or a bad page, never reaches validation`() = testApplication {
+        usePostgresTestcontainer()
+        val user = seededClient("jirausers403first")
+        // The guard reads the RAW scope: anything that is not plainly UNIT is ADMIN-gated first.
+        assertEquals(HttpStatusCode.Forbidden, user.get("/api/v1/jira-users?scope=bogus").status)
+        assertEquals(HttpStatusCode.Forbidden, user.get("/api/v1/jira-users?scope=site").status)
+        assertEquals(HttpStatusCode.Forbidden, user.get("/api/v1/jira-users?scope=UNIT&scope=SITE").status)
+        assertEquals(HttpStatusCode.Forbidden, user.get("/api/v1/jira-users?scope=SITE&pageSize=0").status)
+        // The default scope stays any-authenticated, and its own 400s are unchanged.
+        assertEquals(HttpStatusCode.OK, user.get("/api/v1/jira-users?scope=UNIT").status)
+        assertEquals(HttpStatusCode.BadRequest, user.get("/api/v1/jira-users?pageSize=0").status)
+        // An ADMIN still sees the enum's own 400 for a bogus value.
+        val admin = seededClient("jirausers403firstadmin", UserRole.ADMIN)
+        assertEquals(HttpStatusCode.BadRequest, admin.get("/api/v1/jira-users?scope=bogus").status)
+    }
+
+    @Test
     fun `default UNIT scope excludes a merely-known account, SITE scope includes it`() = testApplication {
         usePostgresTestcontainer()
         val admin = seededClient("jirausersunit", UserRole.ADMIN)

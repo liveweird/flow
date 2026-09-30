@@ -56,6 +56,9 @@ import java.util.Base64
  */
 internal const val MAX_DURATION_SECONDS = 30L * 24 * 3600
 
+/** Ceiling for the in-memory throttle/challenge stores' `maxTracked` capacities — bounds the memory an operator can commit. */
+internal const val MAX_TRACKED_IDENTITIES = 1_000_000
+
 @Serializable
 data class LoginRequest(val email: String, val password: String)
 
@@ -174,11 +177,14 @@ fun Application.configureAuthRoutes() {
     // Boot-validated through the shared requireConfigInt/requireConfigLong (Lettuce's ranges,
     // ported) below: a malformed or out-of-range value is a config error, not a runtime concern —
     // e.g. LOGIN_LOCKOUT_THRESHOLD=0 would lock out every account on its first attempt.
-    // codeTtlSeconds itself stays an ad-hoc read (not Lettuce's requireConfigLong-enforced
-    // min = 1): Flow's in-memory MfaChallenges (unlike Lettuce's DB-backed table) has no
-    // back-dating hook for `MfaLoginTest`'s "an expired challenge answers the same uniform 401"
-    // case, which mints a deliberately born-expired challenge via codeTtlSeconds=0.
-    val mfaTtlSeconds = environment.config.property("security.mfa.codeTtlSeconds").getString().toLong()
+    // codeTtlSeconds is validated with min = 0 ONLY in development mode (not Lettuce's min = 1): Flow's
+    // in-memory MfaChallenges (unlike Lettuce's DB-backed table) has no back-dating hook for
+    // `MfaLoginTest`'s "an expired challenge answers the same uniform 401" case, which mints a
+    // deliberately born-expired challenge via codeTtlSeconds=0. Outside development a zero TTL would
+    // silently make every MFA login fail, so it refuses startup. The upper bound guards the *1000 overflow.
+    val mfaTtlSeconds = requireConfigLong(
+        environment.config, "security.mfa.codeTtlSeconds", min = if (developmentMode) 0 else 1, max = MAX_DURATION_SECONDS,
+    )
     val deps = AuthDeps(
         jwtConfig = jwtConfig,
         userService = attributes[UserServiceKey],
@@ -194,7 +200,7 @@ fun Application.configureAuthRoutes() {
             lockoutMillis = requireConfigLong(
                 environment.config, "security.lockout.durationSeconds", min = 1, max = MAX_DURATION_SECONDS,
             ) * 1000,
-            maxTracked = environment.config.property("security.lockout.maxTracked").getString().toInt(),
+            maxTracked = requireConfigInt(environment.config, "security.lockout.maxTracked", min = 1, max = MAX_TRACKED_IDENTITIES),
         ),
         // Self-service password reset: one request per submitted email per interval, uniformly
         // whether or not the account exists (the 429 carries no enumeration signal).
@@ -202,7 +208,7 @@ fun Application.configureAuthRoutes() {
             minIntervalMillis = requireConfigLong(
                 environment.config, "security.passwordReset.minIntervalSeconds", min = 1, max = MAX_DURATION_SECONDS,
             ) * 1000,
-            maxTracked = environment.config.property("security.passwordReset.maxTracked").getString().toInt(),
+            maxTracked = requireConfigInt(environment.config, "security.passwordReset.maxTracked", min = 1, max = MAX_TRACKED_IDENTITIES),
         ),
         mailer = mailer(),
         mailAppUrl = mailAppUrl(),
@@ -211,7 +217,7 @@ fun Application.configureAuthRoutes() {
         mfaChallenges = MfaChallenges(
             ttlMillis = mfaTtlSeconds * 1000,
             maxAttempts = requireConfigInt(environment.config, "security.mfa.maxAttempts", min = 1, max = 100),
-            maxTracked = environment.config.property("security.mfa.maxTracked").getString().toInt(),
+            maxTracked = requireConfigInt(environment.config, "security.mfa.maxTracked", min = 1, max = MAX_TRACKED_IDENTITIES),
         ),
         mfaTtlMinutes = (mfaTtlSeconds + 59) / 60,
         refreshVerifier = JWT.require(Algorithm.HMAC256(jwtConfig.secret))
