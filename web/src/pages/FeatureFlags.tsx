@@ -21,6 +21,7 @@ import { listUsers, updateUserFeatures, type UserPage } from "../api/users";
 import { showSuccessToast } from "../utils/toast";
 import { loadErrorMessage, saveErrorMessage } from "../utils/saveError";
 import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
+import { userFeaturesPath } from "../utils/userLinks";
 import PageHeader from "../components/PageHeader";
 
 const SORT_FIELDS = ["id", "name", "email"] as const;
@@ -302,7 +303,7 @@ export default function FeatureFlags() {
                       same rows). */}
                   <Anchor
                     component={RouterLink}
-                    to={`/users/${u.id}/features`}
+                    to={userFeaturesPath(u.id)}
                     size="sm"
                     fw={500}
                     aria-label={t("users.featuresAria", { name: u.name })}

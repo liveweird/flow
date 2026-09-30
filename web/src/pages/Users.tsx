@@ -23,6 +23,7 @@ import { isString, useStoredState } from "../hooks/useStoredState";
 import { loadErrorMessage, saveErrorMessage } from "../utils/saveError";
 import PageHeader from "../components/PageHeader";
 import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
+import { editUserPath, newUserPath, userFeaturesPath } from "../utils/userLinks";
 
 const SORT_FIELDS = ["name", "email"] as const;
 type SortField = (typeof SORT_FIELDS)[number];
@@ -83,7 +84,7 @@ export default function Users() {
         title={t("users.title")}
         actions={
           <>
-            <Button component={RouterLink} to="/users/new" leftSection={<IconPlus size={16} />}>
+            <Button component={RouterLink} to={newUserPath} leftSection={<IconPlus size={16} />}>
               {t("users.createUser")}
             </Button>
           </>
@@ -182,7 +183,7 @@ export default function Users() {
                     <RowActionsMenu label={t("common.table.operationsAria", { name: user.name })}>
                       <Menu.Item
                         component={RouterLink}
-                        to={`/users/${user.id}/edit`}
+                        to={editUserPath(user.id)}
                         leftSection={<IconPencil size={14} />}
                         aria-label={t("common.action.editAria", { name: user.name })}
                       >
@@ -190,7 +191,7 @@ export default function Users() {
                       </Menu.Item>
                       <Menu.Item
                         component={RouterLink}
-                        to={`/users/${user.id}/features`}
+                        to={userFeaturesPath(user.id)}
                         leftSection={<IconToggleLeft size={14} />}
                         aria-label={t("users.featuresAria", { name: user.name })}
                       >
