@@ -165,6 +165,10 @@ class JiraRawStore(private val database: R2dbcDatabase) {
                 it[needsProcessing] = true
                 it[deletedAt] = null
                 it[movedOutAt] = null
+                // A resurrected issue was skipped by the incremental worklog feed while tombstoned (and that feed's
+                // cursor moved on), so the per-issue worklog backfill must run for it again. The changelog needs no
+                // reset: `changed_at = now` already makes it stale against `changelog_synced_at`.
+                if (tombstoned) it[worklogsSyncedAt] = null
             }
             if (tombstoned) RawUpsertOutcome.RESURRECTED else RawUpsertOutcome.CHANGED
         }

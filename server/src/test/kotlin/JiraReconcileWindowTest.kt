@@ -42,7 +42,7 @@ private val PASS_CLOCK = Instant.parse("2026-06-01T12:00:00Z").toEpochMilli()
 private val IN_SCOPE = listOf("FLO")
 
 /** A [JiraClient] whose every call fails — a subclass overrides only what its scenario needs. */
-private abstract class UnsupportedJiraClient : JiraClient {
+internal abstract class UnsupportedJiraClient : JiraClient {
     private fun unsupported(): Nothing = throw UnsupportedOperationException("not scripted")
     override suspend fun resolveCloudId(): String = unsupported()
     override suspend fun myself(): JsonObject = unsupported()
@@ -440,7 +440,7 @@ class JiraReconcileWindowTest {
         seed(connId, 2, "OLD", "2026-01-10T10:00:00Z")
         val ctx = context(connId)
 
-        JiraIssuesStream(EmptySearchJiraClient(), store, IN_SCOPE, backfillFromEpochMillis(BACKFILL_FROM), 10, 100).run(ctx)
+        JiraIssuesStream(EmptySearchJiraClient(), store, IN_SCOPE, backfillFromEpochMillis(BACKFILL_FROM), BACKFILL_FROM, 10, 100).run(ctx)
 
         assertNotNull(row(connId, 2)[JiraRawStore.Issues.movedOutAt], "the removed project's row is moved out by the ISSUES stream itself")
         assertNull(row(connId, 1)[JiraRawStore.Issues.movedOutAt])

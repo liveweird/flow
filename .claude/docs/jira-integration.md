@@ -97,6 +97,11 @@ not a placeholder.
 - `incremental(projectKeys, sinceMinutes)` — the ISSUES stream's own query:
   `<scope> AND updated >= "-Nm" ORDER BY updated ASC` (a TZ-free RELATIVE bound — Jira's absolute
   JQL dates are TZ-sensitive, a spike-identified risk this sidesteps entirely).
+- `incremental(clauses: List<Clause>)` — the same query when projects need different windows (a
+  scope catch-up, `.claude/docs/ingestion.md` "Covered scope and the catch-up clause"):
+  `(<scope A> AND updated >= "-Na") OR (<scope B> AND updated >= "-Nb") ORDER BY updated ASC`, one
+  parenthesised term per `Clause(projectKeys, sinceMinutes)`. A single clause renders exactly as the
+  two-argument form (no parentheses), pinned by `JiraJqlTest`.
 - `reconcile(projectKeys, sinceMinutes)` — `<scope> AND updated >= "-Nm" ORDER BY id ASC`; the
   RECONCILE stream's own id-sweep query (`jira/JiraReconcileStream.kt`, V12, see
   `.claude/docs/ingestion.md` "RECONCILE stream") — paged via `search/jql` with `fields=id` (only
@@ -283,7 +288,8 @@ never hold the `jira.maxConcurrentRequests` `Semaphore` permit indefinitely.
 - `JiraTimeTest` — `parseJiraInstant`/`parseJiraInstantEpochMillis` against every accepted shape
   (`+0000`, `+02:00`, `-0500`, `Z`, with and without fractional seconds) and the malformed-value
   `DateTimeParseException`.
-- `JiraJqlTest` — `JiraJql`'s scope/incremental/reconcile builders (incl. the windowed reconcile text).
+- `JiraJqlTest` — `JiraJql`'s scope/incremental/reconcile builders (incl. the multi-clause incremental and the windowed reconcile text).
+- `JiraScopeCatchUpTest` — the ISSUES stream's scope catch-up (first run, added/re-added project, earlier/later `backfillFrom`, legacy cursor, resume vs. a changed scope) and RECONCILE's index-gap guard, over a capturing fake `JiraClient`.
 - `JiraReconcileWindowTest` — the windowed RECONCILE sweep over a scripted fake `JiraClient` (the sent JQL, which
   rows are probed, resume with a stored/legacy cursor) and `JiraRawStore.markOutOfScopeProjects` (locally
   tombstoned, idempotent, resurrected by a re-upsert; called at the start of the ISSUES stream).

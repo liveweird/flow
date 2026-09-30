@@ -46,7 +46,7 @@ class StreamContext(
 
     /**
      * Bumps a named progress counter (e.g. `pages`, `issuesUpserted`, `entities`, `changelogs`,
-     * `worklogs`, `worklogsOutOfScope`, `tombstoned`, `movedOutOfScope`).
+     * `worklogs`, `worklogsOutOfScope`, `tombstoned`, `movedOutOfScope`, `indexGapSkipped`).
      */
     fun incrementProgress(key: String, by: Long = 1) {
         progress[key] = (progress[key] ?: 0L) + by

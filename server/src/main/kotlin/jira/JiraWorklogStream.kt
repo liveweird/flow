@@ -28,8 +28,10 @@ private const val BACKFILL_BATCH_SIZE = 100
  * back to `backfillFrom`, which would sweep every OTHER unit's time tracking into Flow (A1's
  * rationale, `.claude/docs/ingestion.md`).
  *
- * **Backfill.** Issues with `worklogs_synced_at IS NULL` (not tombstoned) — first ingested OR newly
- * back in scope — go through `GET /issue/{id}/worklog` (`startAt`-paged), one issue per
+ * **Backfill.** Issues with `worklogs_synced_at IS NULL` (not deleted) — first ingested OR resurrected
+ * (`JiraRawStore.upsertIssue` clears the stamp when it un-tombstones a row: the incremental feed below
+ * skips tombstoned issues and moves on, so a returning issue's worklogs must be re-read) — go through
+ * `GET /issue/{id}/worklog` (`startAt`-paged), one issue per
  * transaction+heartbeat, same shape as [JiraChangelogStream]'s per-issue fallback.
  *
  * **Incremental.** `updatedSince`/`deletedSince` (persisted in [WorklogsCursor]) start at THIS run's

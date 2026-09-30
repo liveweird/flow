@@ -120,7 +120,7 @@ class JiraConnector(
         val streams: List<Stream> = listOf(
             JiraReferenceStream(client, deps.rawStore, stored.projectKeys),
             JiraIssuesStream(
-                client, deps.rawStore, stored.projectKeys, backfillFromMillis,
+                client, deps.rawStore, stored.projectKeys, backfillFromMillis, stored.backfillFrom,
                 deps.incrementalOverlapMinutes, deps.issuesPageSize,
             ),
             JiraChangelogStream(client, deps.rawStore, deps.changelogBulkSize),

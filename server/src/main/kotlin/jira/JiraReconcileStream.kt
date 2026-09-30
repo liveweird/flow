@@ -61,7 +61,9 @@ private val log = LoggerFactory.getLogger(JiraReconcileStream::class.java)
  *   a key/project refresh). Either way `needs_processing` is flagged — every tombstone flags the issue
  *   for processing (plan §7). Rows last updated before `backfillFrom` are kept but never re-checked.
  * - An id the sweep saw but `raw.jira_issues` never stored (an index gap — a missed ISSUES page,
- *   say) is fetched in full and upserted, the same write the ISSUES stream itself uses.
+ *   say) is fetched in full and upserted, the same write the ISSUES stream itself uses. Skipped (counted
+ *   as `indexGapSkipped`) while the ISSUES cursor has no completed run covering the current scope — then
+ *   the ids are simply the part of the scope the ISSUES stream has yet to bulk-download ([coversScope]).
  *
  * The scratch table is scoped per (connection, job) so a resumed pass (same job id, after a lease
  * loss/reclaim) re-inserts idempotently rather than duplicating (`JiraRawStore.insertReconcileSeen`'s
@@ -109,20 +111,51 @@ class JiraReconcileStream(
 
         val projectIds = rawStore.resolveProjectIds(context.connectionId, projectKeys)
         if (projectIds == null) {
-            log.warn(
-                "reconcile for connection {}: a configured project key does not resolve to a live PROJECT entity " +
-                    "(renamed, mistyped or deleted project) — candidates are not restricted by project",
-                context.connectionId,
-            )
+            if (rawStore.entityRowsByKind(context.connectionId, JiraEntityKind.PROJECT.name).isEmpty()) {
+                log.info(
+                    "reconcile for connection {}: no PROJECT reference entities yet (no SYNC has completed) — the scope is not " +
+                        "resolved yet, candidates are not restricted by project",
+                    context.connectionId,
+                )
+            } else {
+                log.warn(
+                    "reconcile for connection {}: a configured project key does not resolve to a live PROJECT entity " +
+                        "(renamed, mistyped or deleted project) — candidates are not restricted by project",
+                    context.connectionId,
+                )
+            }
         }
         rawStore.issuesMissingFromSeen(context.connectionId, context.jobId, projectIds, checkNotNull(state.windowStartMillis))
             .forEach { candidate -> reconcileMissing(context, candidate, projectIds) }
-        rawStore.seenButUnknownIds(context.connectionId, context.jobId).forEach { issueId -> reconcileIndexGap(context, issueId) }
+        reconcileIndexGaps(context)
 
         context.transaction {
             rawStore.clearReconcileSeen(context.connectionId)
             context.clearCursor(name)
         }
+    }
+
+    /**
+     * The index-gap phase: fetch every id the sweep saw but `raw.jira_issues` never stored — unless the
+     * ISSUES stream has not yet completed a run covering the current scope (a first backfill or a scope
+     * catch-up is pending, [coversScope]). Then the "gap" is just the part of the scope ISSUES has yet to
+     * download in bulk, and fetching it one `GET /issue/{id}` at a time would be the slow way to do the
+     * ISSUES stream's job: the phase is skipped (counted as `indexGapSkipped`) and the next RECONCILE after
+     * that run completes handles any real gap.
+     */
+    private suspend fun reconcileIndexGaps(context: StreamContext) {
+        val issuesCursor = context.cursor(ISSUES_STREAM_NAME)?.cursor?.let(::decodeIssuesCursor)
+        val unknownIds = rawStore.seenButUnknownIds(context.connectionId, context.jobId)
+        if (!issuesCursor.coversScope(projectKeys, backfillFromEpochMillis)) {
+            log.info(
+                "reconcile for connection {}: index-gap phase skipped ({} unknown ids) — the ISSUES stream has not completed " +
+                    "a run covering the current scope yet",
+                context.connectionId, unknownIds.size,
+            )
+            if (unknownIds.isNotEmpty()) context.incrementProgress("indexGapSkipped", unknownIds.size.toLong())
+            return
+        }
+        unknownIds.forEach { issueId -> reconcileIndexGap(context, issueId) }
     }
 
     /** A raw issue the sweep never saw: Jira either deleted it (404) or moved it out of scope (a different project). */

@@ -24,10 +24,29 @@ object JiraJql {
         return "project in (" + projectKeys.joinToString(",") { "\"$it\"" } + ")"
     }
 
-    /** The incremental ISSUES stream query: scope AND a relative `updated` bound, oldest first. */
-    fun incremental(projectKeys: List<String>, sinceMinutes: Long): String {
+    /** One projects-plus-window term of a multi-clause incremental query: [projectKeys] updated within the last [sinceMinutes]. */
+    data class Clause(val projectKeys: List<String>, val sinceMinutes: Long)
+
+    private fun clauseText(projectKeys: List<String>, sinceMinutes: Long): String {
         require(sinceMinutes >= 0) { "sinceMinutes must not be negative" }
-        return "${scope(projectKeys)} AND updated >= \"-${sinceMinutes}m\" ORDER BY updated ASC"
+        return "${scope(projectKeys)} AND updated >= \"-${sinceMinutes}m\""
+    }
+
+    /** The incremental ISSUES stream query: scope AND a relative `updated` bound, oldest first. */
+    fun incremental(projectKeys: List<String>, sinceMinutes: Long): String =
+        "${clauseText(projectKeys, sinceMinutes)} ORDER BY updated ASC"
+
+    /**
+     * The incremental ISSUES query when different projects need different windows (a scope catch-up:
+     * the added projects reach back to `backfillFrom`, the retained ones only to the watermark):
+     * `(<scope A> AND updated >= "-Na") OR (<scope B> AND updated >= "-Nb") ORDER BY updated ASC`. A
+     * single clause is rendered EXACTLY as the two-argument [incremental] (no parentheses), so an
+     * unchanged scope sends today's query text.
+     */
+    fun incremental(clauses: List<Clause>): String {
+        require(clauses.isNotEmpty()) { "clauses must not be empty" }
+        if (clauses.size == 1) return incremental(clauses.single().projectKeys, clauses.single().sinceMinutes)
+        return clauses.joinToString(" OR ", postfix = " ORDER BY updated ASC") { "(${clauseText(it.projectKeys, it.sinceMinutes)})" }
     }
 
     /**
