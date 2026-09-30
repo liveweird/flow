@@ -333,8 +333,8 @@ the tiling invariants and stream mechanics — this section is the schema/persis
   `moved_out_at` mirror `raw.jira_issues`' own tombstones. `processed_at`/`processing_version` are
   this row's own bookkeeping, separate from `raw.jira_issues.processed_at`/`processing_version` (the
   raw row's own processing pointer) — both move together, written in the SAME transaction
-  (`WorkItemStore.replaceWorkItem` + `JiraRawStore.markProcessed`, inside
-  `JiraProcessStream`'s `context.transaction { }`).
+  (`WorkItemStore.replaceWorkItems` + `JiraRawStore.markProcessedBatch`, inside
+  `JiraProcessStream`'s per-page `context.transaction { }`).
 - **`norm.work_item_status_intervals`** — one row per tiled status interval, PK-less surrogate
   `id SERIAL`, unique on `(connection_id, issue_id, seq)`. The first interval (`seq = 1`) always
   starts at `work_items.created_at` with `source = 'CREATED'`; every later one is `'CHANGE'`.
@@ -363,12 +363,19 @@ the tiling invariants and stream mechanics — this section is the schema/persis
   `raw.jira_entities` set every time it runs. `norm.board_columns.status_ids` is a JSONB array of
   status ids rather than a join table, since it is only ever read whole.
 
-**Per-issue REPLACE semantics.** `WorkItemStore.replaceWorkItem` is one transaction per issue
-(plan §8 step 5): delete `norm.work_item_status_intervals`/`_field_intervals`/`_field_changes`/
-`_worklogs` for that `(connection_id, issue_id)`, insert the freshly tiled rows, then upsert
-`norm.work_items` (insert if no existing row, update otherwise) — all inside the SAME transaction
-`JiraProcessStream` also uses for `JiraRawStore.markProcessed`, so a crash mid-issue never leaves a
-half-written normalized row or a raw row pointing at rows that were never written.
+**REPLACE semantics (per page).** `WorkItemStore.replaceWorkItems` is one transaction per PAGE of up
+to 50 issues (plan §8 step 5; `replaceWorkItem` is the one-issue call of the same code — the fallback
+path and the fixtures): delete `norm.work_item_status_intervals`/`_field_intervals`/`_field_changes`/
+`_worklogs` for the page's `(connection_id, issue_id IN (…))`, insert the freshly tiled rows (one
+`batchInsert` per table, `shouldReturnGeneratedValues = false` — nothing reads the serial ids back;
+`work_item_field_changes.seq` stays 1-based PER ISSUE), then `batchUpsert` `norm.work_items` on its
+PK (`ON CONFLICT (connection_id, issue_id) DO UPDATE` — every non-key column is written either way,
+the same row the old select-then-insert/update produced) — all inside the SAME transaction
+`JiraProcessStream` also uses for `JiraRawStore.markProcessedBatch`, so a crash mid-page never leaves
+a half-written normalized row or a raw row pointing at rows that were never written. A DB error in
+the page write aborts the whole page transaction; `JiraProcessStream` then retries the page issue by
+issue (each in its own transaction, via `replaceWorkItem`/`markProcessed`), so one bad row never
+blocks its page (ingestion.md "PROCESS batching, failure isolation and progress").
 
 **`PROCESSING_VERSION`** (`norm/Normalization.kt`, currently `2` — bumped from `1` by V14, "The
 normalized layer gaps (V14)" below) — bump it on ANY change to the tiling/write-shape rules.

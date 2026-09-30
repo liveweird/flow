@@ -18,15 +18,20 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import org.jetbrains.exposed.v1.core.Column
+import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.isNotNull
+import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.r2dbc.update
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFails
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /** `customfield_10030` (`sample-data/README.md` "Phase 3 (v0.3.0) additions") — the Work category select field, on every epic. */
@@ -82,6 +87,11 @@ private val expectedNormFixture: ExpectedFixtureNorm by lazy {
  * plausibility bounds against it instead of exact equality.
  */
 class NormalizationPipelineTest {
+    private companion object {
+        const val PROCESS_LOGGER = "ch.nokillswit.jira.JiraProcessStream"
+        const val FALLBACK_LOG_LINE = "retrying one by one"
+    }
+
     private fun rawStore() = SyncedStubFixture.rawStore()
     private fun workItems() = SyncedStubFixture.workItems()
 
@@ -207,7 +217,7 @@ class NormalizationPipelineTest {
         val store = rawStore()
         val items = workItems()
         val context = SyncedStubFixture.freshContext(connId)
-        val digestBefore = normalizedDigest(items, connId)
+        val digestBefore = normalizedDigest(connId)
 
         // The clone reproduces the shared connection's own POST-process raw state (needs_processing
         // = false), so — exactly like a real REPROCESS job (`JiraConnector.runReprocess`) — every
@@ -223,9 +233,214 @@ class NormalizationPipelineTest {
             store.issuesToProcess(connId, currentProcessingVersion = PROCESSING_VERSION, limit = 1),
             "the PROCESS pass must have actually reprocessed (and cleared) every flagged issue",
         )
-        val digestAfter = normalizedDigest(items, connId)
+        val digestAfter = normalizedDigest(connId)
 
         assertEquals(digestBefore, digestAfter, "a REPROCESS must rebuild byte-for-byte identical normalized rows")
+
+        // The page-batched write's two per-issue promises, over 24 multi-issue pages: `field_changes.seq`
+        // restarts at 1 for EVERY issue (never a page-wide counter) and stays contiguous, and each raw
+        // row's `processed_hash` is the sha256 of the payload that was read.
+        val seqsByIssue = suspendTransaction(sharedDatabaseForTests()) {
+            WorkItemStore.FieldChanges.selectAll().where { WorkItemStore.FieldChanges.connectionId eq connId }.toList()
+        }.groupBy({ it[WorkItemStore.FieldChanges.issueId] }, { it[WorkItemStore.FieldChanges.seq] })
+        assertTrue(seqsByIssue.size > 1, "the sweep needs several issues with field changes")
+        seqsByIssue.forEach { (issueId, seqs) ->
+            assertEquals((1..seqs.size).toList(), seqs.sorted(), "issue $issueId's field_changes seq must be 1..n")
+        }
+        val rawRows = suspendTransaction(sharedDatabaseForTests()) {
+            JiraRawStore.Issues.selectAll().where { JiraRawStore.Issues.connectionId eq connId }.toList()
+        }
+        assertTrue(
+            rawRows.all {
+                it[JiraRawStore.Issues.processedHash] == it[JiraRawStore.Issues.sha256] &&
+                    it[JiraRawStore.Issues.processingVersion] == PROCESSING_VERSION && !it[JiraRawStore.Issues.needsProcessing]
+            },
+            "every reprocessed raw row must carry processed_hash == sha256, the current version and needs_processing = false",
+        )
+    }
+
+    /** Runs raw [sql] against the shared database (test fixtures corrupting/flagging raw rows the API never would). */
+    private suspend fun rawSql(sql: String) {
+        suspendTransaction(sharedDatabaseForTests()) { exec(sql) }
+    }
+
+    /** One issue id from the MIDDLE of [connId]'s claim order — so its page has issues both before and after it. */
+    private suspend fun middleIssueId(connId: UInt): Long = suspendTransaction(sharedDatabaseForTests()) {
+        val ids = JiraRawStore.Issues.selectAll().where { JiraRawStore.Issues.connectionId eq connId }
+            .toList().map { it[JiraRawStore.Issues.issueId] }.sorted()
+        ids[ids.size / 2]
+    }
+
+    @Test
+    fun `PROCESS isolates an issue that cannot be normalized - the page still lands and the run terminates`() = runBlocking {
+        val connId = clonedConnection(SyncedStubFixture.connectionId())
+        val store = rawStore()
+        val items = workItems()
+        assertTrue(store.markAllNeedsProcessing(connId) > 1)
+        val total = store.countIssues(connId)
+        val poisoned = middleIssueId(connId)
+        // A payload the normalizer cannot parse (no `fields`): fails in memory, before any write.
+        rawSql(
+            "UPDATE raw.jira_issues SET payload = '{\"id\": \"$poisoned\"}'::jsonb " +
+                "WHERE connection_id = $connId AND issue_id = $poisoned",
+        )
+        val context = SyncedStubFixture.freshContext(connId)
+
+        val logs = LogCapture(PROCESS_LOGGER)
+        try {
+            JiraProcessStream(store, items).run(context)
+        } finally {
+            logs.detach()
+        }
+
+        assertTrue(
+            logs.events.none { it.formattedMessage.contains(FALLBACK_LOG_LINE) },
+            "a normalization failure must be isolated on the FAST path — the page must not fall back to per-issue transactions",
+        )
+        assertTrue(
+            logs.events.any { it.formattedMessage.contains("issue id(s) [$poisoned]") },
+            "the failed issue's id must be named in the log",
+        )
+        assertEquals(total - 1, items.countWorkItems(connId), "every other issue must be normalized")
+        assertNull(items.workItemRow(connId, poisoned), "the unnormalizable issue writes nothing")
+        assertEquals(
+            listOf(poisoned), store.issuesToProcess(connId, PROCESSING_VERSION, limit = 10),
+            "only the failed issue stays flagged for the next PROCESS pass",
+        )
+        assertEquals(mapOf("issuesProcessed" to total - 1, "issuesFailed" to 1L), context.progressSnapshot())
+    }
+
+    /**
+     * Plants a REAL PostgreSQL error for one issue's page write: a `norm.work_item_worklogs` row with the
+     * SAME `(connection_id, worklog_id)` primary key as one of that issue's raw worklogs, filed under an
+     * issue OUTSIDE every page (`-1`) — the page's batched worklog insert violates the PK, while the
+     * issue's own child-row delete never touches the planted row. Returns the issue that owns the worklog.
+     */
+    private suspend fun plantWorklogPkConflict(connId: UInt): Long {
+        val (issueId, worklogId) = suspendTransaction(sharedDatabaseForTests()) {
+            JiraRawStore.Worklogs.selectAll()
+                .where { (JiraRawStore.Worklogs.connectionId eq connId) and JiraRawStore.Worklogs.deletedAt.isNull() }
+                .toList().first().let { it[JiraRawStore.Worklogs.issueId] to it[JiraRawStore.Worklogs.worklogId] }
+        }
+        rawSql(
+            "INSERT INTO norm.work_item_worklogs (connection_id, worklog_id, issue_id, started_at, time_spent_seconds) " +
+                "VALUES ($connId, $worklogId, -1, 0, 60)",
+        )
+        return issueId
+    }
+
+    @Test
+    fun `PROCESS falls back to per-issue transactions when a page's batched write fails`() = runBlocking {
+        val connId = clonedConnection(SyncedStubFixture.connectionId())
+        val store = rawStore()
+        val items = workItems()
+        assertTrue(store.markAllNeedsProcessing(connId) > 1)
+        val total = store.countIssues(connId)
+        // The planted PK conflict fails the page's batched worklog insert in PostgreSQL, aborting the
+        // whole page transaction — the fallback must land the page's other issues; only the conflicting
+        // issue fails, alone, in its own transaction.
+        val poisoned = plantWorklogPkConflict(connId)
+        val context = SyncedStubFixture.freshContext(connId)
+
+        val logs = LogCapture(PROCESS_LOGGER)
+        try {
+            JiraProcessStream(store, items).run(context)
+        } finally {
+            logs.detach()
+        }
+
+        assertTrue(
+            logs.events.any { it.formattedMessage.contains(FALLBACK_LOG_LINE) },
+            "the page must have fallen back to per-issue transactions",
+        )
+        assertTrue(
+            logs.events.any { it.formattedMessage.contains("issue id(s) [$poisoned]") },
+            "the failing issue's id must be named in the log",
+        )
+        assertEquals(total - 1, items.countWorkItems(connId), "the page's other issues must still be written")
+        assertNull(items.workItemRow(connId, poisoned), "the failing issue's own transaction rolls back")
+        assertEquals(listOf(poisoned), store.issuesToProcess(connId, PROCESSING_VERSION, limit = 10))
+        assertEquals(mapOf("issuesProcessed" to total - 1, "issuesFailed" to 1L), context.progressSnapshot())
+    }
+
+    @Test
+    fun `a bad row alone on its page (an integrity violation) is counted and left for the next pass - the run succeeds`() = runBlocking {
+        val connId = clonedConnection(SyncedStubFixture.connectionId())
+        val store = rawStore()
+        val items = workItems()
+        val poisoned = plantWorklogPkConflict(connId)
+        // Flag ONLY the conflicting issue: its page is a page of one, so the fallback fails it too (SQLSTATE 23505).
+        rawSql("UPDATE raw.jira_issues SET needs_processing = false WHERE connection_id = $connId")
+        rawSql("UPDATE raw.jira_issues SET needs_processing = true WHERE connection_id = $connId AND issue_id = $poisoned")
+        val context = SyncedStubFixture.freshContext(connId)
+
+        JiraProcessStream(store, items).run(context)
+
+        assertEquals(
+            listOf(poisoned), store.issuesToProcess(connId, PROCESSING_VERSION, limit = 10),
+            "the bad row stays flagged for the next pass",
+        )
+        assertNull(items.workItemRow(connId, poisoned))
+        assertEquals(mapOf("issuesProcessed" to 0L, "issuesFailed" to 1L), context.progressSnapshot())
+    }
+
+    @Test
+    fun `PROCESS rethrows when every issue of a page fails with a non-data database error - the job must fail`() =
+        runBlocking {
+            val connId = clonedConnection(SyncedStubFixture.connectionId())
+            val store = rawStore()
+            val items = workItems()
+            rawSql("UPDATE raw.jira_issues SET needs_processing = false WHERE connection_id = $connId")
+            val flagged = middleIssueId(connId)
+            rawSql("UPDATE raw.jira_issues SET needs_processing = true WHERE connection_id = $connId AND issue_id = $flagged")
+            // A trigger scoped to THIS connection raises a REAL PostgreSQL error outside classes 22/23
+            // (55000, object_not_in_prerequisite_state — what an outage-shaped failure looks like to the
+            // classifier) on every `norm.work_items` insert; dropped again in `finally`.
+            val trigger = "trg_process_outage_$connId"
+            rawSql(
+                "CREATE OR REPLACE FUNCTION public.fn_process_outage_$connId() RETURNS trigger LANGUAGE plpgsql AS " +
+                    "\$\$ BEGIN IF NEW.connection_id = $connId THEN RAISE EXCEPTION 'simulated outage' USING ERRCODE = '55000'; END IF; " +
+                    "RETURN NEW; END \$\$",
+            )
+            rawSql(
+                "CREATE TRIGGER $trigger BEFORE INSERT ON norm.work_items FOR EACH ROW " +
+                    "EXECUTE FUNCTION public.fn_process_outage_$connId()",
+            )
+            val context = SyncedStubFixture.freshContext(connId)
+
+            try {
+                assertFails { JiraProcessStream(store, items).run(context) }
+            } finally {
+                rawSql("DROP TRIGGER IF EXISTS $trigger ON norm.work_items")
+                rawSql("DROP FUNCTION IF EXISTS public.fn_process_outage_$connId()")
+            }
+
+            assertEquals(
+                listOf(flagged), store.issuesToProcess(connId, PROCESSING_VERSION, limit = 10),
+                "the issue stays flagged for the retry",
+            )
+            assertNull(items.workItemRow(connId, flagged))
+            assertEquals(emptyMap(), context.progressSnapshot(), "no progress is claimed for a page that ended the run")
+        }
+
+    @Test
+    fun `a PROCESS page of a single issue rebuilds exactly that issue and leaves every other row untouched`() = runBlocking {
+        val connId = clonedConnection(SyncedStubFixture.connectionId(), processed = true)
+        val store = rawStore()
+        val items = workItems()
+        val last = suspendTransaction(sharedDatabaseForTests()) {
+            JiraRawStore.Issues.selectAll().where { JiraRawStore.Issues.connectionId eq connId }
+                .toList().maxOf { it[JiraRawStore.Issues.issueId] }
+        }
+        val digestBefore = normalizedDigest(connId)
+        rawSql("UPDATE raw.jira_issues SET needs_processing = true WHERE connection_id = $connId AND issue_id = $last")
+        val context = SyncedStubFixture.freshContext(connId)
+
+        JiraProcessStream(store, items).run(context)
+
+        assertEquals(mapOf("issuesProcessed" to 1L), context.progressSnapshot())
+        assertEquals(0L, store.countNeedsProcessing(connId))
+        assertEquals(digestBefore, normalizedDigest(connId), "the one-issue page must reproduce the same normalized rows")
     }
 
     @Test
@@ -502,38 +717,44 @@ class NormalizationPipelineTest {
     }
 
     /**
-     * MD5 over every persisted status interval, field interval (all four `TrackedField` kinds,
-     * PARENT included — v0.3.0 M1 commit 2 review fix widens this beyond status intervals alone)
-     * and field-change row, ordered deterministically — the REPROCESS idempotence proof needs to
-     * cover every table `replaceWorkItem` rewrites, not just `norm.work_item_status_intervals`.
+     * MD5 over EVERY column (bar the surrogate serial `id` and the run's own `processed_at`) of every
+     * persisted `norm` row a PROCESS pass rewrites — work items, status intervals, field intervals (all
+     * four `TrackedField` kinds, PARENT included), field changes and worklogs — ordered
+     * deterministically. The REPROCESS idempotence proof therefore pins each table the page-batched
+     * REPLACE writes (a `batchUpsert` for `work_items`, one `batchInsert` per child table), column by
+     * column, not just a hand-picked subset.
      */
-    private suspend fun normalizedDigest(items: WorkItemStore, connId: UInt): String {
+    private suspend fun normalizedDigest(connId: UInt): String {
         val digest = MessageDigest.getInstance("MD5")
-        items.statusIntervalsByIssue(connId).toSortedMap().forEach { (issueId, intervals) ->
-            intervals.forEach { interval ->
-                val line = "S|$issueId|${interval.seq}|${interval.statusId}|${interval.fromAtMs}|${interval.toAtMs}|${interval.source}\n"
-                digest.update(line.toByteArray())
-            }
+        fun hash(tag: String, columns: List<Column<*>>, rows: List<ResultRow>) = rows.forEach { row ->
+            digest.update((tag + "|" + columns.joinToString("|") { column -> "${row[column]}" } + "\n").toByteArray())
         }
-        TrackedField.entries.forEach { field ->
-            items.fieldIntervalsByIssue(connId, field).toSortedMap().forEach { (issueId, intervals) ->
-                intervals.forEach { interval ->
-                    val line = "F|$field|$issueId|${interval.seq}|${interval.valueId}|${interval.valueText}|" +
-                        "${interval.fromAtMs}|${interval.toAtMs}\n"
-                    digest.update(line.toByteArray())
-                }
-            }
-        }
-        val fieldChangeRows = suspendTransaction(sharedDatabaseForTests()) {
+        val db = sharedDatabaseForTests()
+        val workItemRows = suspendTransaction(db) {
+            WorkItemStore.WorkItems.selectAll().where { WorkItemStore.WorkItems.connectionId eq connId }.toList()
+        }.sortedBy { it[WorkItemStore.WorkItems.issueId] }
+        hash("W", WorkItemStore.WorkItems.columns.filter { it != WorkItemStore.WorkItems.processedAt }, workItemRows)
+        val statusRows = suspendTransaction(db) {
+            WorkItemStore.StatusIntervals.selectAll().where { WorkItemStore.StatusIntervals.connectionId eq connId }.toList()
+        }.sortedWith(compareBy({ it[WorkItemStore.StatusIntervals.issueId] }, { it[WorkItemStore.StatusIntervals.seq] }))
+        hash("S", WorkItemStore.StatusIntervals.columns.filter { it != WorkItemStore.StatusIntervals.id }, statusRows)
+        val fieldRows = suspendTransaction(db) {
+            WorkItemStore.FieldIntervals.selectAll().where { WorkItemStore.FieldIntervals.connectionId eq connId }.toList()
+        }.sortedWith(
+            compareBy(
+                { it[WorkItemStore.FieldIntervals.issueId] }, { it[WorkItemStore.FieldIntervals.field] },
+                { it[WorkItemStore.FieldIntervals.seq] },
+            ),
+        )
+        hash("F", WorkItemStore.FieldIntervals.columns.filter { it != WorkItemStore.FieldIntervals.id }, fieldRows)
+        val changeRows = suspendTransaction(db) {
             WorkItemStore.FieldChanges.selectAll().where { WorkItemStore.FieldChanges.connectionId eq connId }.toList()
         }.sortedWith(compareBy({ it[WorkItemStore.FieldChanges.issueId] }, { it[WorkItemStore.FieldChanges.seq] }))
-        fieldChangeRows.forEach { row ->
-            val line = "C|${row[WorkItemStore.FieldChanges.issueId]}|${row[WorkItemStore.FieldChanges.seq]}|" +
-                "${row[WorkItemStore.FieldChanges.fieldId]}|${row[WorkItemStore.FieldChanges.field]}|" +
-                "${row[WorkItemStore.FieldChanges.changedAt]}|${row[WorkItemStore.FieldChanges.fromValue]}|" +
-                "${row[WorkItemStore.FieldChanges.toValue]}\n"
-            digest.update(line.toByteArray())
-        }
+        hash("C", WorkItemStore.FieldChanges.columns.filter { it != WorkItemStore.FieldChanges.id }, changeRows)
+        val worklogRows = suspendTransaction(db) {
+            WorkItemStore.Worklogs.selectAll().where { WorkItemStore.Worklogs.connectionId eq connId }.toList()
+        }.sortedBy { it[WorkItemStore.Worklogs.worklogId] }
+        hash("L", WorkItemStore.Worklogs.columns, worklogRows)
         return digest.digest().joinToString("") { "%02x".format(it) }
     }
 
