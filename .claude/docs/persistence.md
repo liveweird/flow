@@ -111,6 +111,11 @@ place:
   trying to lock the SAME row) — and queries `norm/WorkItemStore.People` directly (an unknown Jira
   account id is `400` — the client-supplied-FK idiom `TeamService.requireActiveUsers` already uses
   for Flow user ids), all inside its own transactions.
+- `norm/WorkItemStore` reads `ingest/DataSourceService.Connections` directly: every `norm.*` table
+  carries a `connection_id` FK to it, and `listPeople`, `distinctAssigneeAccountIds` and
+  `distinctWorklogAuthorAccountIds` inner-join it under `Connections.active()`, so people, assignees
+  and worklog authors of a soft-deleted connection never surface — read-only, inside its own
+  transaction.
 - `metrics/MetricsConfigService.referenceData` (v0.3.0 M1 commit 4) reads `teams/TeamService.Teams`
   (active teams) to validate `boards[].teamId` on the metrics-config PUT, inside its own transaction.
 - `metrics/MetricsDeriver.activeTeamIds` (v0.3.0 M3 commit 9d) reads `teams/TeamService.Teams`
@@ -119,15 +124,25 @@ place:
 - `reports/ReportService.filters` (v0.3.0 M4 commit 10a, `GET /api/v1/reports/filters`) reads
   `teams/TeamService.Teams` (active teams), `norm/WorkItemStore.People` (display names for a
   team's current D1 Jira members) and `ingest/DataSourceService.Connections` (id+name for active
-  connections — never `settings`/the encrypted API token) directly, all inside its own
-  transaction — a read-only reference-data assembly, never a write.
+  connections — never `settings`/the encrypted API token) directly, plus the `metrics` tables
+  `DimSprint`, `DimDomain`, `DimEpic`, `DimTask` (the filter option lists) and `DeriveRuns` (the
+  `derivedAt` clock), all inside its own transaction — a read-only reference-data assembly, never
+  a write.
 - `reports/ReportSupport.kt` (v0.3.0 M4 commits 10b/10c/10d/12, shared by `reports/VelocityReport.kt`,
   `reports/ThroughputReport.kt`, `reports/SprintConsistencyReport.kt` and the estimation reports
   `reports/TaskAccuracyReport.kt`/`EpicAccuracyReport.kt`/`EstimateAdjustmentsReport.kt`) reads
   `ingest/DataSourceService.Connections` (the active-connection
   scope and the `connectionId` existence check), `teams/TeamService.Teams` (the `teamId` existence
-  check and team names) and `norm/WorkItemStore.People` (assignee display names) directly, inside
+  check and team names) and `norm/WorkItemStore.People` (assignee display names) directly, plus
+  the `metrics` tables `FactSprint`, `FactSprintSnapshot`, `FactTaskDelivery`, `FactEpicDelivery`,
+  `DimSprint` and `DeriveRuns` (the shared sprint/task/epic slices every report builds on), inside
   the calling report's own transaction — read-only.
+- The per-report readers of the `metrics` star (all read-only, inside the report's own
+  transaction, through `ReportSupport`'s shared slices): `reports/CycleTimeReport.kt`,
+  `ReportedTimeRatioReport.kt`, `TaskAccuracyReport.kt` and `EstimateAdjustmentsReport.kt` read
+  `FactTaskDelivery`; `EstimateAdjustmentsReport.kt` also reads `FactEpicDelivery`;
+  `EpicAccuracyReport.kt` reads `FactEpicDelivery` and `DimEpic`; `VelocityReport.kt`, `ThroughputReport.kt` and
+  `SprintConsistencyReport.kt` read `FactSprintScope` (`ThroughputReport` also `FactTaskDelivery`).
 - `reports/WipReport.kt` (v0.3.0 M5 commit 15, `GET /api/v1/reports/wip`) reads `norm/WorkItemStore.Statuses`
   (status names for `by=STATUS`), `norm/WorkItemStore.BoardColumns` (the mapped board's columns for `by=COLUMN`, read
   at query time so a board edit shows up without a re-derive) and `metrics/MetricsConfigService.BoardTeamMap` (which
@@ -142,7 +157,7 @@ place:
   `metrics` tables `FactTaskDelivery`, `FactEpicDelivery`, `DimEpic` and `ItemBlocked` -- all read-only, inside the report's
   own transaction.
 - `reports/EpicProgressReport.kt` (v0.3.0 M5 commit 15c, `GET /api/v1/reports/epic-progress`) reads the `metrics` tables
-  `AggDailyFlow` (the per-day PV/EV/AC increments), `DimEpic`, `DimDomain`, `FactEpicPlan`, `FactEpicDelivery` (the budget
+  `AggDailyFlow` (the per-day PV/EV/AC increments), `DimDate`, `DimEpic`, `DimDomain`, `FactEpicPlan`, `FactEpicDelivery` (the budget
   fallback) and `FactWorklog` (the team foreign-work share), plus `teams/TeamService.Teams` (team names and the active-team
   list of the unit drill) -- all read-only, inside the report's own transaction.
 - `reports/CostMatrixReport.kt` (v0.3.0 M5 commit 17b, `GET /api/v1/reports/cost-matrix`) reads `metrics/MetricsStore.FactWorklog`
@@ -381,8 +396,8 @@ intervals, worklogs, then work items, in that order, before clearing the referen
 
 ### The normalized layer gaps (V14)
 
-`V14__norm_phase3_gaps.sql` (v0.3.0 M1 commit 2, `.claude/docs/domain-model.md` "Gaps in `norm`
-today") is purely additive — no existing V1–V13 file changes, no data migration, every new column
+`V14__norm_phase3_gaps.sql` (v0.3.0 M1 commit 2, `.claude/docs/domain-model.md` "Gaps in `norm`")
+is purely additive — no existing V1–V13 file changes, no data migration, every new column
 is nullable except one — and pairs with `PROCESSING_VERSION` bumping `1` → `2`
 (`norm/Normalization.kt`), so every already-processed issue reprocesses automatically on the next
 PROCESS pass and backfills these columns without any migration-time `UPDATE`.
@@ -808,6 +823,6 @@ stream. The streams themselves (and the cursor shapes they define) land in plan 
 
 Nothing remains on the persistence list today — the `metrics` schema's derived star landed at V16
 (above); its sprint (commit 8), worklog and epic-plan (commit 9/9b) WRITERS have landed
-(`.claude/docs/metrics.md` "Sprint scope, facts and snapshots (D13)"/"Worklog cost facts
-(fact_worklog)"/"Epic plans and PV"); `agg_daily_wip`'s writer landed with commit 9f
-(`metrics/DeriveWipStep.kt`); only `agg_daily_flow`'s writer is still outstanding.
+(`.claude/docs/metrics.md` "Sprint scope, facts and snapshots"/"Worklog cost facts"/"Epic plans
+and PV"); the `agg_daily_wip` and `agg_daily_flow` writers landed with commit 9f
+(`metrics/DeriveWipStep.kt`, `metrics/DeriveFlowStep.kt`).

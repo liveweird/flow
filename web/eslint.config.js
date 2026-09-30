@@ -36,7 +36,7 @@ export default defineConfig([
       // JSX conditional chains (`cond ? … : cond2 ? … : …`) are idiomatic React rendering.
       'sonarjs/no-nested-conditional': 'off',
       // Page/table components are single functions by React architecture (the SPA sibling
-      // of the backend's *Routes.kt registrars) — backstop above today's max (38).
+      // of the backend's *Routes.kt registrars) — backstop above today's max (25, re-measured 2026-09-30).
       'sonarjs/cognitive-complexity': ['error', 40],
       // The link builders' `${base}${x ? `?x=${…}` : ''}` shape (utils/*Links.ts) is the
       // documented URL-assembly idiom.
@@ -51,7 +51,7 @@ export default defineConfig([
       // the Ktor server (HSTS + HTTPS redirect there).
       'sonarjs/no-clear-text-protocols': 'off',
       // Core size/complexity backstops — generous by design (React components are single
-      // functions; these only catch future monsters, today's max: 627 lines / cc 44).
+      // functions; these only catch future monsters, today's max: 324 lines (a test) / cc 45, re-measured 2026-09-30).
       complexity: ['error', 50],
       'max-lines-per-function': ['error', { max: 360, skipBlankLines: true, skipComments: true }],
       'max-depth': ['error', 5],

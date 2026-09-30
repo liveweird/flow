@@ -6,7 +6,7 @@ import io.ktor.server.response.*
 
 // Strict Content-Security-Policy for the SPA + JSON API (production single-origin serving).
 // - script-src 'self': the built SPA bundle is external/hashed; index.html has no inline app scripts.
-// - style-src 'unsafe-inline': REQUIRED by Mantine (emotion CSS-in-JS) + the app's inline style={{}} usage.
+// - style-src 'unsafe-inline': REQUIRED by Mantine's inline style props + the app's inline style={{}} usage.
 // - img-src 'self' data:: local assets + data URIs; remote images in user markdown won't load (acceptable).
 // - connect-src 'self': the API is same-origin and the SPA opens no WebSocket.
 private const val APP_CSP =

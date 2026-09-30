@@ -205,7 +205,7 @@ data class FactSprintScopeRow(val sprintId: Long, val item: SprintScopeItem)
 
 /**
  * One `metrics.fact_worklog` row (v0.3.0 M3 commit 9, `.claude/docs/domain-model.md` "Cross-team
- * time"/D3, `.claude/docs/metrics.md` "Worklog cost facts (fact_worklog)") — the author's team AND
+ * time"/D3, `.claude/docs/metrics.md` "Worklog cost facts") — the author's team AND
  * the task's domain/epic, both as-of `startedAt`, so cost can be sliced by who spent it and what it
  * was spent on at once.
  */

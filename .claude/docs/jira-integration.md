@@ -84,8 +84,8 @@ failing HTTP status.
 `jira/JiraIssuesStream.kt` (v0.2.0 plan §7, plan commit 6) pages `GET /rest/api/3/search/jql` with
 `fields = null` — the `fields` query parameter is omitted entirely rather than sent empty, matching
 Jira's OWN default of returning every field on the issue document (the stub mirrors this: a request
-with no `fields` param gets the full document, `sample-data/README.md`). Normalization (arriving
-plan commit 8) needs both every system field and every discovered custom field
+with no `fields` param gets the full document, `sample-data/README.md`). Normalization
+(`JiraNormalizer.kt`) needs both every system field and every discovered custom field
 (`schema.custom`-tagged, e.g. Sprint/Story Points/Flagged/Team), and Jira offers no cheaper "all
 system + all discovered custom" shape than asking for everything — so `fields=null` is intentional,
 not a placeholder.

@@ -38,7 +38,7 @@ private const val ASSIGNEE_FIELD_ID = "assignee"
 
 /**
  * The `parent` field's changelog spelling (v0.3.0 M1 commit 2, `.claude/docs/domain-model.md`
- * "Gaps in `norm` today"): the sample stub uses the system field id `parent` (Jira Cloud's current
+ * "Gaps in `norm`"): the sample stub uses the system field id `parent` (Jira Cloud's current
  * shape, replacing Epic Link) — [PARENT_FIELD_NAMES] and [JiraFieldIds.epicLinkFieldId] are
  * defensive fallbacks for a real tenant still on the older Epic Link field or a differently-cased
  * changelog `field` display name; confirm all three against the real tenant
@@ -447,7 +447,7 @@ object JiraNormalizer {
 
     /**
      * Every FILLED `customfield_*` current value on [fields], canonicalized and keyed by field id
-     * (v0.3.0 M1 commit 2, `.claude/docs/domain-model.md` "Gaps in `norm` today") — never filtered
+     * (v0.3.0 M1 commit 2, `.claude/docs/domain-model.md` "Gaps in `norm`") — never filtered
      * by WHICH field, only by whether it carries anything: a literal JSON `null` and an empty
      * array/object/string are dropped (Jira represents "no value" as any of the three, depending on
      * the field's own schema type) so that "the key is present" reliably means "the value is

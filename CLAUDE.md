@@ -108,14 +108,12 @@ the secret-creation command.
 
 ## Architecture
 
-Flow is, today, the generic developer-tool foundation left once Covenant's contract-catalog domain
-is stripped from its scaffold: **JWT auth** with a sliding refresh pair and a server-side
-revocation blocklist, opt-in **email MFA**, self-service password reset, per-account lockout and
-per-IP rate limits, **ADMIN-managed users** with per-user **feature flags**, a synced per-user
-UI/email **language** (EN/PL), flat **teams** (an ADMIN-curated registry with rosters — the
-ownership unit the metrics layer points at), and the React shell (nav model, command
-palette, theme, changelog). Every feature landed in the shape of the feature template below; the
-next one does too.
+Flow is Covenant's stripped scaffold plus Jira ingestion (v0.2.0) and metrics/reports (v0.3.0).
+The foundation: **JWT auth** with a sliding refresh pair and a server-side revocation blocklist,
+opt-in **email MFA**, self-service password reset, per-account lockout and per-IP rate limits,
+**ADMIN-managed users** with per-user **feature flags**, a synced per-user UI/email **language**
+(EN/PL), flat **teams** (the ownership unit the metrics layer points at), and the React shell
+(nav model, palette, theme, changelog). Every feature follows the feature template below.
 
 Multi-module Gradle build (Kotlin DSL) defined in `settings.gradle.kts` with two Kotlin modules
 plus two standalone npm workspaces (Gradle never touches them):
@@ -126,11 +124,10 @@ plus two standalone npm workspaces (Gradle never touches them):
 - **`web/`** — Vite + React + TypeScript SPA that consumes the server's HTTP API.
 - **`e2e/`** — Playwright blackbox suite against the compose stack.
 
-Group is `ch.nokillswit`, version `1.0.0-SNAPSHOT` (set in root `build.gradle.kts`) — inherited
-from the donor scaffold; renaming it is out of scope until it actually matters. Dependency
-versions are centralized in `gradle/libs.versions.toml` (every pin carries its rationale); Ktor
-itself comes from a separate version catalog (`ktorLibs`) loaded from `io.ktor:ktor-version-catalog`
-in `settings.gradle.kts`.
+Group is `ch.nokillswit`, version `1.0.0-SNAPSHOT` (root `build.gradle.kts`) — inherited from the
+donor scaffold; renaming is out of scope. Dependency versions are centralized in
+`gradle/libs.versions.toml` (every pin carries its rationale); Ktor itself comes from a separate
+version catalog (`ktorLibs`) loaded from `io.ktor:ktor-version-catalog` in `settings.gradle.kts`.
 
 Resolved Gradle dependencies use strict locking and SHA-256 verification, including artifact
 metadata. Normal builds enforce the committed state; intentional updates follow
@@ -142,12 +139,12 @@ metadata. Normal builds enforce the committed state; intentional updates follow
 application is wired declaratively in `server/src/main/resources/application.yaml` under
 `ktor.application.modules` — each entry is a fully-qualified extension function on `Application`
 (e.g. `ch.nokillswit.plugins.HttpKt.configureHttp`). **Module order is load-bearing**: plugins →
-infra (Mail → Crypto → Flyway → Database → Bootstrap → Health; Database is the composition root
-that publishes every service into `Application.attributes` via `AttributeKey`s) → feature route
-modules → `RoutingKt.configureRouting` strictly last (the SPA catch-all). To add a cross-cutting
-concern, create a `configureXxx()` extension under `plugins/` and register it in
-`application.yaml`; do not call it from `main.kt`. There is no DI framework — services travel via
-`attributes`.
+infra (Mail → Crypto → Flyway → Database → Bootstrap → Health) → Jira → Metrics → IngestWorker →
+feature route modules → `RoutingKt.configureRouting` strictly last (the SPA catch-all).
+`configureDatabase` (most services), `configureJira`, `configureMetrics` and the reports routes
+each publish their own services into `Application.attributes` via `AttributeKey`s. To add a cross-cutting concern, create a `configureXxx()` extension under
+`plugins/` and register it in `application.yaml`; do not call it from `main.kt`. There is no DI
+framework — services travel via `attributes`.
 
 ### Bootstrap model — the role switch
 
@@ -155,17 +152,17 @@ concern, create a `configureXxx()` extension under `plugins/` and register it in
 `plugins/Role.kt` and published as `AppRole { WEB, WORKER, ALL }` on `Application.attributes`; an
 unrecognized value fails startup in every mode. `web` serves the HTTP API (feature routes plus the
 SPA/static catch-all); `worker` serves only the health/ready probes — its one HTTP surface — and
-runs the ingestion worker (incl. the metrics `DERIVE` job); `all` (dev, `docker compose`, the test
-suite) does both in one process. Every feature `configureXRoutes()` and `RoutingKt.configureRouting`
-early-return via `Application.servesApi()`; `Application.runsWorker()` is the WORKER|ALL
-counterpart. `configureHealth` always registers, and Flyway/Bootstrap always run, regardless of
-role. See `.claude/docs/ingestion.md` "Roles" for the operator-facing writeup.
+runs the ingestion worker (incl. the metrics `DERIVE` job); `all` (the default: dev, `docker
+compose`) does both in one process — the test suite defaults to `web` (`TestEnvironment.kt`).
+Every feature `configureXRoutes()` and `RoutingKt.configureRouting` early-return via
+`Application.servesApi()`; `Application.runsWorker()` is the WORKER|ALL counterpart.
+`configureHealth` always registers, and Flyway/Bootstrap always run, regardless of role. See `.claude/docs/ingestion.md` "Roles" for the operator-facing writeup.
 
 ### Package layout
 
 Source files sit flat under `server/src/main/kotlin/<area>/` but declare `package ch.nokillswit.<area>`
-(no `ch/nokillswit` directory nesting — a deliberate idiom, protected by the `InvalidPackageDeclaration`
-detekt override).
+(no `ch/nokillswit` directory nesting — a deliberate idiom, the `InvalidPackageDeclaration` detekt
+override).
 
 ```
 ch.nokillswit
@@ -175,27 +172,25 @@ ch.nokillswit
 │                       ErrorHandling (RFC 7807), OpenTelemetry, AutoHeadResponse, Resources,
 │                       Routing (SPA catch-all — early-returns unless `servesApi()`)
 │                       + Health (the public /api/v1/health and /api/v1/ready probes, after Database
-│                       — ALWAYS registered, regardless of role)
-│                       + RateLimits (every per-IP bucket and its name — login, refresh,
-│                       password-reset, MFA)
+│                       — ALWAYS registered) + RateLimits (every per-IP bucket and its name)
 │                       + Role (the FLOW_ROLE switch — AppRole/servesApi()/runsWorker(),
-│                       registered early, before the infra/feature modules)
+│                       registered early)
 ├── infra/mail/         outbound email (Lettuce's, ported): Mailer/SmtpMailer/LogMailer +
 │                       LocalizedText/PasswordEmail (the recipient-language content layer) +
 │                       configureMail — MAIL_TRANSPORT log/smtp/disabled, the log-transport
-│                       production refusal (fail-closed), null mailer = email features 503.
-│                       Consumers: self-service password reset and email MFA
+│                       production refusal (fail-closed), null mailer = email features 503
 ├── infra/crypto/       Lettuce's encryption at rest, ported:
 │                       FieldCipher (AES-256-GCM `enc:v1:` envelopes, a fresh nonce per value,
 │                       current + rotation key), Reencrypt.kt (the boot backfill body),
 │                       configureCrypto (DATA_ENCRYPTION_KEY, the burned-key fail-closed check),
 │                       EncryptedAtRest (the boot backfill registry in `infra/db/Bootstrap.kt`'s
-│                       `encryptedAtRestServices()` — the Jira API token,
-│                       `ingest/DataSourceService`, is its first and only consumer)
+│                       `encryptedAtRestServices()` — the Jira API token in
+│                       `ingest/DataSourceService` is its only consumer)
 ├── infra/db/           Flyway bootstrap + the R2DBC connection/composition root + the seed
 │                       bootstrap (admin rotation, prod fail-closed, `Bootstrap.kt`) +
 │                       SoftDelete.kt (the SoftDeletable table trait — ONE active() predicate,
-│                       nowMillis(), lockActiveForUpdate)
+│                       nowMillis(), lockActiveForUpdate) + Sql.kt (`containsNormalized`) +
+│                       Jsonb.kt (the repo-local `jsonb` column type)
 ├── infra/paging/       the shared list-endpoint machinery (PageRequest/parsePaging/applyPaging/
 │                       PageResponse + the strict query-param readers) — Lettuce's, ported verbatim
 ├── infra/validation/   cross-feature input helpers (sanitizeSingleLine — trim + control-char 400)
@@ -214,8 +209,8 @@ ch.nokillswit
 │                       /refresh, /logout + the self-service POST /api/v1/password-reset (uniform
 │                       acceptance/throttling, async send-before-store, PasswordResetThrottle) +
 │                       token minting + password hashing/generation + LoginThrottle + the
-│                       revoked-token blocklist; login/reset/MFA in-memory state has strict
-│                       configurable capacities and audited 429 saturation paths
+│                       revoked-token blocklist; in-memory login/reset/MFA state is
+│                       capacity-bounded with audited 429 saturation
 ├── users/              the user domain: ADMIN-only management CRUD (/api/v1/users list/create
 │                       + {id} get/put/delete with the self-delete 403 and last-admin 409
 │                       protections) + PUT /api/v1/users/{id}/password + the per-user feature
@@ -226,13 +221,13 @@ ch.nokillswit
 ├── teams/              flat teams (V6): Team.kt (DTOs + sanitizers + validateTeam*),
 │                       TeamService.kt (Teams + the TeamMembers hard-delete join; paged list with
 │                       name/memberId filters and active-member counts; roster read joining
-│                       users; create with an initial roster; addMember/removeMember;
-│                       activeTeamIdsOf), TeamRoutes.kt — GET /api/v1/teams (+ {id}) any
-│                       authenticated, POST/PUT/DELETE + the members pair ADMIN only
+│                       users; create with an initial roster; addMember/removeMember),
+│                       TeamRoutes.kt — GET /api/v1/teams (+ {id}) any authenticated,
+│                       POST/PUT/DELETE + the members pair ADMIN only
 ├── ingest/             v0.2.0 Jira ingestion (`.claude/docs/ingestion.md`): DataSource.kt/
 │                       DataSourceService.kt/DataSourceRoutes.kt — the generic connector registry
 │                       (V8, ADMIN-only CRUD, the first `EncryptedAtRest` consumer) + Connector.kt
-│                       (the per-kind interface every connector, e.g. `jira/`, implements —
+│                       (the per-kind interface every connector implements —
 │                       `testConnection`/`run`/`purgeSteps`) + SyncJob.kt/SyncJobs.kt/
 │                       SyncJobRoutes.kt (V9 `sync_jobs` — the job queue and its ADMIN-only
 │                       enqueue/list/cancel API) + SyncCursors.kt (V9 `sync_cursors` — the
@@ -246,8 +241,9 @@ ch.nokillswit
 ├── jira/               the Jira Cloud connector (`.claude/docs/jira-integration.md`): Jira.kt
 │                       (configureJira, the guarded HttpClient, the stub-URL production refusal),
 │                       JiraHttp.kt/JiraClient.kt/JiraModels.kt (backoff, bounded reads, typed
-│                       endpoints), JiraJql.kt, JiraConnector.kt (testConnection + the per-kind
-│                       stream order), JiraRawStore.kt (V10–V12 `raw.jira_*`), the streams
+│                       endpoints), JiraJql.kt, JiraTime.kt, JiraConnector.kt
+│                       (testConnection + the per-kind stream order), JiraRawStore.kt (V10–V12
+│                       `raw.jira_*`), the streams
 │                       (JiraReferenceStream/IssuesStream/ChangelogStream/WorklogStream/
 │                       ReconcileStream/ProcessStream/ProfileStream), JiraNormalizer.kt (raw →
 │                       the neutral shape) and JiraProfile.kt (the data-profile aggregates)
@@ -256,10 +252,12 @@ ch.nokillswit
 │                       (PROCESSING_VERSION, the glue), WorkItemStore.kt (per-page REPLACE (per-issue scope),
 │                       reference-row rebuilds, purge)
 ├── metrics/            v0.3.0 metrics configuration + the DERIVE job (`.claude/docs/metrics.md`):
-│                       config/memberships services + routes, MetricsDeriver + Derive*Step files,
-│                       MetricsStore (V15–V17 `metrics.*`)
+│                       config/memberships/Jira-users services + routes, MetricsSettings,
+│                       DataSourceMetricsConfig, WorkingCalendar, MetricsDeriver + Derive*Step/
+│                       Kernels/Model/TaskRows files, MetricsStore (V15–V17 `metrics.*`)
 └── reports/            the reports API (`.claude/docs/reports.md`): shared filter/`meta`/
-                        `Distribution` machinery + one `<Name>Report.kt` per report
+                        `Distribution` machinery (ReportSupport, SnapshotSupport, DataQuality*)
+                        + one `<Name>Report.kt` per report
 ```
 
 **Feature template — copy `teams/` (a small ADMIN-curated registry with a roster)**: it is the
@@ -276,8 +274,7 @@ soft-delete via `marked_as_deleted` + partial unique indexes, list = count + row
 predicate), a `V<n>__description.sql` migration (+ its checksum pin in `MigrationChecksumTest`),
 spec paths in `openapi/documentation.yaml`, `cd web && npm run gen:api` (same commit), lazy pages +
 `NAV_SECTIONS` entries (`web/src/utils/navigation.ts`), and an e2e spec + scenario doc +
-coverage-map line. Fuller shapes (sub-collections, a checks pipeline) live in `ingest/`, `metrics/`
-and `reports/`; Covenant's `contracts/` package is the reference for what is not yet ported.
+coverage-map line. Fuller shapes (sub-collections, pipelines) live in `ingest/`, `metrics/`, `reports/`.
 
 ### The OpenAPI contract
 

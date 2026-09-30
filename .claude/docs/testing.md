@@ -2,7 +2,7 @@
 
 Backend tests live flat in `server/src/test/kotlin/` (kotlin.test + `io.ktor.server.testing.testApplication`)
 and override the `postgres.*` config keys via `MapApplicationConfig` to point at a Testcontainers
-`PostgreSQLContainer("postgres:18-alpine")` started lazily by `PostgresTestSupport` and **shared
+`PostgreSQLContainer` (`postgres:18.6-alpine`, digest-pinned in `PostgresTestSupport`) started lazily by `PostgresTestSupport` and **shared
 across the whole suite**. Running tests requires a working Docker daemon (Docker Desktop,
 OrbStack, etc. — with OrbStack and no `/var/run/docker.sock`, export
 `DOCKER_HOST=unix://$HOME/.orbstack/run/docker.sock`). The container runs **all** Flyway
