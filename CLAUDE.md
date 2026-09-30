@@ -87,7 +87,8 @@ the mise shim on `PATH`), point it explicitly: `JAVA_HOME=$(mise where java) ./g
   coverage gate, strict Gradle dependency verification (`--dependency-verification strict`) plus a
   lock/verification-metadata drift check, and a HIGH/CRITICAL Gradle lockfile vulnerability scan,
   web — incl. the API-contract gate (`lint:api` + `check:api`), e2e statics —
-  lint/knip/typecheck/scenario parity/setup — an image build on `master`); the blackbox Playwright
+  lint/knip/typecheck/scenario parity/setup, `npm audit` (high+) on both npm workspaces, `k8s-static` (kubeconform over
+  `k8s/`), and on `master` an image build plus a Trivy scan of it); the blackbox Playwright
   suite (`e2e.yml`) runs nightly and on demand. Dependabot (`.github/dependabot.yml`) checks every
   workspace, Actions and container manifests weekly; `.claude/docs/dependencies.md` describes
   grouping, compatibility pins and runtime verification, and

@@ -4,8 +4,9 @@ name: ci
 # server (detekt + Testcontainers tests + Kover + OpenAPI coverage + dependency alignment +
 # strict Gradle dependency verification), web
 # (the spec → schema.ts drift check, lint, knip, tests with coverage floors, build), and the
-# Docker-free e2e statics (lint, knip, typecheck, spec↔scenario parity). The blackbox Playwright
-# suite runs nightly and on demand (e2e.yml).
+# Docker-free e2e statics (lint, knip, typecheck, spec↔scenario parity), the Kubernetes manifest
+# validation (`k8s-static`), an `npm audit` of both npm workspaces, and — on master — an image build
+# plus a Trivy scan of it. The blackbox Playwright suite runs nightly and on demand (e2e.yml).
 on:
   push:
     branches: [master]
@@ -63,7 +64,9 @@ jobs:
       - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
           distribution: temurin
-          java-version: 21
+          # The exact patch of mise.toml's pin (and the Dockerfile's eclipse-temurin tag), so CI compiles
+          # and tests on the JDK the repo was verified on; bump the three together.
+          java-version: 21.0.12
           cache: gradle
       - name: Check lockfiles and verification metadata are present
         run: |
@@ -100,7 +103,9 @@ jobs:
       - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
           distribution: temurin
-          java-version: 21
+          # The exact patch of mise.toml's pin (and the Dockerfile's eclipse-temurin tag), so CI compiles
+          # and tests on the JDK the repo was verified on; bump the three together.
+          java-version: 21.0.12
           cache: gradle
       - run: ./gradlew :verifySettingsPluginAudit --no-daemon
       - name: Scan Gradle lockfiles
@@ -149,7 +154,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 24
+          # .nvmrc mirrors mise.toml's node pin (and the Dockerfile's node tag); bump them together.
+          node-version-file: .nvmrc
           cache: npm
           cache-dependency-path: web/package-lock.json
       # --legacy-peer-deps per web/README.md (openapi-typescript declares TS ^5, the repo uses TS 6).
@@ -169,6 +175,13 @@ jobs:
           # The runner's checkout is a detached HEAD; stamp the build from the event instead of
           # the vite config's `git status` dirty check (see web/CLAUDE.md "Build version stamp").
           GIT_SHA: ${{ github.sha }}
+      # Last on purpose: an advisory published overnight must not hide a PR's real gate results
+      # (lint, tests, build). Runtime dependencies only: a dev-tool advisory (eslint, vitest, ...) never
+      # ships in the bundle. `--audit-level=high` ignores low/moderate. A red step here is a real
+      # advisory in the shipped SPA — fix it or document a justified exception in
+      # .claude/docs/dependencies.md.
+      - name: Audit runtime dependencies (high+)
+        run: npm audit --omit=dev --audit-level=high
 
   e2e-static:
     # The Docker-free e2e gates: eslint+sonarjs and knip (the web sibling), typecheck
@@ -183,7 +196,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 24
+          # .nvmrc mirrors mise.toml's node pin (and the Dockerfile's node tag); bump them together.
+          node-version-file: .nvmrc
           cache: npm
           cache-dependency-path: e2e/package-lock.json
       - run: npm ci
@@ -192,16 +206,94 @@ jobs:
       - run: npm run typecheck
       - run: npm run check:scenarios
       - run: npm run test:setup
+      # Repo-level, not e2e-specific: it lives here because this is the cheapest job that already has the
+      # pinned node. Fails with one line per mismatch (.claude/docs/dependencies.md "CI toolchain pins").
+      - name: Toolchain pins agree (mise.toml, .nvmrc, ci.yml, Dockerfile)
+        working-directory: ${{ github.workspace }}
+        run: node scripts/check-toolchain-pins.mjs
+      # Last on purpose (see the web job): an overnight advisory must not hide the real gates. Everything
+      # in e2e/ is a dev tool (Playwright and its lint stack), so the full tree is audited.
+      - name: Audit dependencies (high+)
+        run: npm audit --audit-level=high
+
+  k8s-static:
+    # The Docker-free Kubernetes gate: the manifests must stay schema-valid (strict — an unknown or
+    # misspelled field, e.g. in a securityContext, fails) and so must what k8s/apply-local.sh renders.
+    # kubeconform, not `kubectl apply --dry-run=client`: even client-side dry-run needs a reachable API
+    # server for discovery, which a runner does not have. The binary is pinned by version and sha256.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      # The schema repo pinned to a commit, not `master` — a schema change upstream must not redden the job.
+      KUBECONFORM_SCHEMAS: 'https://raw.githubusercontent.com/yannh/kubernetes-json-schema/8df8a883b68a24a104b4a9e43c1288090ae60b3b/{{.NormalizedKubernetesVersion}}-standalone{{.StrictSuffix}}/{{.ResourceKind}}{{.KindSuffix}}.json'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install kubeconform v0.8.0 (checksum-verified)
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/kubeconform.tgz" \
+            https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-linux-amd64.tar.gz
+          echo "9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883  $RUNNER_TEMP/kubeconform.tgz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/kubeconform.tgz" -C "$RUNNER_TEMP" kubeconform
+      - name: Validate the manifests
+        run: '"$RUNNER_TEMP/kubeconform" -strict -summary -kubernetes-version 1.33.0 -schema-location "$KUBECONFORM_SCHEMAS" k8s/*.yaml'
+      - name: Validate what apply-local.sh renders
+        run: |
+          # A stand-in kubectl: the Secret "exists", and `apply -f <dir>` records the rendered directory.
+          mkdir -p "$RUNNER_TEMP/bin" "$RUNNER_TEMP/rendered"
+          printf '#!/bin/sh\n[ "$1" = apply ] && cp "$3"/*.yaml "$RENDER_OUT"/\nexit 0\n' > "$RUNNER_TEMP/bin/kubectl"
+          chmod +x "$RUNNER_TEMP/bin/kubectl"
+          PATH="$RUNNER_TEMP/bin:$PATH" RENDER_OUT="$RUNNER_TEMP/rendered" sh k8s/apply-local.sh ci-check
+          "$RUNNER_TEMP/kubeconform" -strict -summary -kubernetes-version 1.33.0 -schema-location "$KUBECONFORM_SCHEMAS" "$RUNNER_TEMP"/rendered/*.yaml
+          test "$(grep -h 'image: flow-app:ci-check' "$RUNNER_TEMP"/rendered/*.yaml | wc -l)" -eq 2
+          if grep -q 'local-build' "$RUNNER_TEMP"/rendered/*.yaml; then echo "unrendered image placeholder" >&2; exit 1; fi
 
   images:
-    # Dockerfile drift guard on the default branch: the image must still build. Push-only —
-    # the multi-stage build is the slowest job here.
+    # Dockerfile drift guard on the default branch: the image must still build — and, built, must carry
+    # no fixable HIGH/CRITICAL vulnerability (the base-image digests are pinned, so this is where a
+    # stale digest or an unpatched OS package surfaces). Push-only — the multi-stage build is the
+    # slowest job here.
     if: github.event_name == 'push'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    env:
+      # The image compose builds is `<project>-app`; pin the project so the scan below can name it.
+      COMPOSE_PROJECT_NAME: flow
+      BUILDX_CACHE_DIR: /tmp/buildx-cache
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # The SPA build stage reads the commit sha and time from .git.
           fetch-depth: 0
-      - run: docker compose build
+          # The Docker build context includes .git: no checkout token may be stored in its config.
+          persist-credentials: false
+      # A docker-container BuildKit builder is what can export a layer cache; the plain docker driver cannot.
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          # Pinned BuildKit (tag + multi-platform index digest, derived via `docker buildx imagetools
+          # inspect moby/buildkit:v0.33.0`): the builder image is otherwise pulled floating.
+          driver-opts: image=moby/buildkit:v0.33.0@sha256:6c2fa84a6b61ccd72899dde4239f8d5717f05f9a8ca6f3cad185fb1a95a94de3
+      # Keyed on the inputs of the slow, dependency-shaped layers (the npm and Gradle-wrapper layers and
+      # the base images): the cache is rewritten only when one of them changes, not on every commit.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: /tmp/buildx-cache
+          key: buildx-flow-${{ hashFiles('Dockerfile', 'gradle.lockfile', 'settings-gradle.lockfile', 'buildscript-gradle.lockfile', 'core/gradle.lockfile', 'core/buildscript-gradle.lockfile', 'server/gradle.lockfile', 'server/buildscript-gradle.lockfile', 'gradle.properties', 'settings.gradle.kts', 'build.gradle.kts', 'core/build.gradle.kts', 'server/build.gradle.kts', 'gradle/libs.versions.toml', 'gradle/verification-metadata.xml', 'gradle/wrapper/gradle-wrapper.properties', 'web/package.json', 'web/package-lock.json') }}
+          restore-keys: buildx-flow-
+      - name: Build images (BuildKit, layer cache)
+        run: |
+          mkdir -p "$BUILDX_CACHE_DIR"
+          docker compose -f docker-compose.yaml -f .github/compose-buildx-cache.yaml build
+          # The export wrote a complete new cache beside the old one; swap so unused blobs never pile up.
+          rm -rf "$BUILDX_CACHE_DIR"
+          mv "$BUILDX_CACHE_DIR-new" "$BUILDX_CACHE_DIR"
+      # HIGH/CRITICAL with a published fix fail the job; unfixed ones are reported nowhere on purpose
+      # (nothing to act on). The digest-pinned scanner is the one the Gradle lockfile scan uses.
+      - name: Scan the app image for vulnerabilities (HIGH/CRITICAL, fixable)
+        run: |
+          mkdir -p "$RUNNER_TEMP/trivy-cache"
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$RUNNER_TEMP/trivy-cache:/cache" \
+            ghcr.io/aquasecurity/trivy:0.74.0@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969 \
+            image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
+            --cache-dir /cache --no-progress flow-app

@@ -211,12 +211,24 @@ async function stepsReport(all) {
     .sort((a, b) => b.seconds - a.seconds)
     .slice(0, 12);
   const total = seconds(job.startedAt, job.completedAt);
+  // Step budgets live under `ci-steps` in budgets.json, keyed "<job>/<step name>" (steps without a row show "-").
+  const flag = (b, seconds) => (!b ? "" : seconds > b.alarm ? "OVER ALARM" : seconds > b.target ? "over target" : "");
   return [
     `slowest steps of ${opts.steps}, run #${found.run.number} ${found.run.headSha.slice(0, 7)} (job ${fmtDur(total)})`,
     table(
-      ["step", "time", "share"],
-      steps.map((s) => [s.name, fmtDur(s.seconds), `${Math.round((s.seconds / total) * 100)}%`]),
-      ["l", "r", "r"],
+      ["step", "time", "share", "target", "alarm", "flag"],
+      steps.map((s) => {
+        const b = budgetFor("ci-steps", `${opts.steps}/${s.name}`);
+        return [
+          s.name,
+          fmtDur(s.seconds),
+          `${Math.round((s.seconds / total) * 100)}%`,
+          b ? fmtDur(b.target) : "-",
+          b ? fmtDur(b.alarm) : "-",
+          flag(b, s.seconds),
+        ];
+      }),
+      ["l", "r", "r", "r", "r", "l"],
     ),
   ].join("\n");
 }

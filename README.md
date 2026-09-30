@@ -118,6 +118,13 @@ The helper renders the deployment image with the selected build tag and excludes
 template. Use a new tag for each rebuild; do not apply `k8s/` directly, since the checked-in image
 name is a placeholder. Existing installations already have the namespace and Secret.
 
+The manifests are hardened: no ServiceAccount token in any pod, non-root/seccomp/`drop: [ALL]` on the
+app, worker and postgres containers, and `k8s/network-policies.yaml` — default-deny plus only
+app/worker → postgres:5432, DNS and public egress on 443 (Jira) / 587, 465, 25 (SMTP), and 8084 into
+the app. NetworkPolicy is enforced only by a CNI that implements it (OrbStack's cluster does). Details
+in `.claude/docs/security.md` ("Kubernetes pod and network hardening"). CI validates every manifest and
+the `apply-local.sh` render with `kubeconform` (`k8s-static` job).
+
 **Known gap: no ingress is shipped.** `app` is exposed through a bare `type: LoadBalancer`
 Service, but the `app` Deployment is configured as if a TLS-terminating proxy sat in front
 (`HTTP_BEHIND_PROXY=true`, `HTTP_PROXY_HOPS=1`). Today that means:
