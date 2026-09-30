@@ -17,6 +17,8 @@ npm test                      # reuses or starts the stack, runs specs, leaves t
 - `global-setup.ts` starts `docker compose up -d --build` and waits for `:8084` — **unless a stack
   is already running there**, which it reuses (fast local iteration: keep `docker compose up` or a
   local `WEB_STATIC_DIR=… ./gradlew :server:run` going and just run `npm test`).
+  The nightly `e2e.yml` builds the image and starts the stack in their own workflow steps first (so the
+  time is attributable per step, `.claude/docs/build-times.md`), and setup then just reuses it.
   Setup never tears down services or volumes, including after a failed start or test run. Tests
   clean up only the records they own; existing demo data stays intact.
 - Docker is needed only when starting the default stack. `E2E_BASE_URL` can target an already

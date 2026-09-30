@@ -17,6 +17,22 @@ spec:
       labels:
         io.kompose.service: postgres
     spec:
+      # No pod ever calls the Kubernetes API — do not mount a ServiceAccount token into it.
+      automountServiceAccountToken: false
+      # Runs as the image's own `postgres` user (uid/gid 70 in the alpine image; 999 in the Debian
+      # one) instead of starting as root and dropping privileges: the entrypoint's chown/gosu
+      # step is skipped for a non-root start, which is fine because the PVC's data directory is
+      # already owned by that user (a root start chowns it) and `fsGroup` makes a fresh volume
+      # group-writable on drivers that honour it (local-path volumes are world-writable already).
+      # Keep the uid in step with the image variant when the postgres tag or base changes.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 70
+        runAsGroup: 70
+        fsGroup: 70
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - env:
             - name: POSTGRES_DB
@@ -62,6 +78,12 @@ spec:
               memory: "256Mi"
             limits:
               memory: "1Gi"
+          # No readOnlyRootFilesystem: postgres writes its socket/lock files under
+          # /var/run/postgresql and temp files under /tmp of the container filesystem.
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
           volumeMounts:
             # postgres 18+ images keep data in a versioned subdir of /var/lib/postgresql;
             # mounting the pre-18 /var/lib/postgresql/data path breaks the container.

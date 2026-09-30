@@ -299,6 +299,49 @@ probe fails and the pod crash-loops (Lettuce's v3.6.1 incident, reproduced in pr
 `startupProbe` (30 x 5s = ~150s) covers JVM boot + Flyway migrations before the liveness clock
 starts, so a slow first boot cannot trigger a restart.
 
+**Kubernetes pod and network hardening** (`k8s/*.yaml`, checkup A13, validated by ci.yml's `k8s-static`
+job — `kubeconform -strict` over the raw manifests and over what `k8s/apply-local.sh` renders):
+
+- **Pods.** All three (`app`, `worker`, `postgres`) set `automountServiceAccountToken: false` — nothing
+  calls the Kubernetes API, so no token is mounted. `app`/`worker`: uid 10001, `runAsNonRoot`, seccomp
+  `RuntimeDefault`, read-only root filesystem (only `/tmp`), no privilege escalation, `drop: [ALL]`.
+  `postgres` runs the same way minus the read-only root filesystem: `runAsNonRoot` as the alpine image's
+  own `postgres` user (**uid/gid 70** — 999 in the Debian image, so change `runAsUser`/`runAsGroup`/
+  `fsGroup` together with the image variant), `fsGroup: 70` with `fsGroupChangePolicy: OnRootMismatch`,
+  seccomp `RuntimeDefault`, `allowPrivilegeEscalation: false`, `drop: [ALL]` (a non-root start needs no
+  capability: the entrypoint's chown/gosu step only runs as root). `readOnlyRootFilesystem` stays off for
+  postgres — it writes its socket/lock files under `/var/run/postgresql` and temp files under `/tmp`.
+  Verified on OrbStack (local-path storage): a fresh init as uid 70, a restart on the same data, and an
+  in-place upgrade of a volume first initialised by the old root-start manifest all come up with the
+  data intact (the data directory is already `postgres`-owned after a root start).
+- **`k8s/network-policies.yaml`.** `default-deny-all` (ingress AND egress for every pod in `flow`), then:
+  `postgres` accepts 5432 only from `app`/`worker`; `app` accepts 8084 (see the open decision below);
+  `app` and `worker` may egress to `postgres:5432`, to cluster DNS (kube-system `k8s-app=kube-dns`, 53
+  UDP/TCP) and to public addresses on 443 (the Jira Cloud gateway), 587/465/25 (SMTP) — RFC 1918,
+  link-local (cloud metadata `169.254.169.254`) and CGNAT ranges excluded, so a compromised pod cannot
+  reach other namespaces or cluster services. The `worker` accepts nothing from the network (kubelet
+  probes come from the node, which Kubernetes always allows). Things that need their own extra policy:
+  an in-cluster/private SMTP relay, an OTLP collector (`OTEL_*_EXPORTER=otlp`; the default is console),
+  the dev-only Jira stub (`JIRA_STUB_BASE_URL` — a private address). **Cluster assumptions:** DNS is
+  matched as pods labelled `k8s-app: kube-dns` in the `kube-system` namespace (stock CoreDNS); a
+  NodeLocal DNSCache (link-local resolver address) or OpenShift (`openshift-dns` namespace, different
+  labels) needs the DNS rule adjusted, or every lookup times out; SMTP submission on port 2525 and any
+  IPv6 destination are not covered (the `ipBlock` is IPv4 only) and need their own rule. Enforcement needs a CNI that
+  implements NetworkPolicy (OrbStack's local cluster does: verified — app→postgres and app→:443 allowed;
+  app→:80, app→private ranges, a stranger pod's DNS/egress, and any outside caller of `worker:8084`/
+  `postgres:5432` blocked). A CNI that does not enforce leaves the objects inert, which is harmless. New
+  pods take a few seconds to be programmed, so a very fast first connection can fail once — the
+  `startupProbe` window absorbs it.
+- **Still open — the front door (decision pending).** `k8s/app-service.yaml` is an OrbStack
+  `LoadBalancer` and the manifests default to the production posture (`KTOR_DEVELOPMENT=false`,
+  `HTTP_BEHIND_PROXY=true`), which assumes a TLS-terminating proxy that sets and overwrites
+  `X-Forwarded-For`/`-Proto`. The reference ships no Ingress: over the bare LB, a plain-HTTP request gets
+  the production HTTPS redirect and `X-Forwarded-*` is client-controlled. Either (a) add a TLS Ingress +
+  `type: ClusterIP`, or (b) keep the LB and document a local overlay with `KTOR_DEVELOPMENT=true` /
+  `HTTP_BEHIND_PROXY=false`. Whichever is chosen must also tighten `allow-app-ingress`, whose `from` is
+  deliberately absent today (the 8084 port is its only restriction), to the ingress controller's
+  namespace.
+
 **Log hygiene.** `infra/db/Flyway.kt`'s startup log line renders the operator-supplied JDBC URL
 through `jdbcUrlForLogging()` — `host:port/db` only, no userinfo or query string — so a
 `jdbc:postgresql://host/db?user=...&password=...` form never lands a credential in the log

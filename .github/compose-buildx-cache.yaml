@@ -1,0 +1,13 @@
+# CI-only override, layered on docker-compose.yaml (`docker compose -f docker-compose.yaml -f
+# .github/compose-buildx-cache.yaml build`): a BuildKit layer cache in a local directory that the
+# workflow persists with actions/cache (the `type=gha` backend needs runtime tokens a `run:` step
+# does not receive, so the directory + actions/cache pair is the one that needs no extra action).
+# Reads the previous cache, writes a complete new one beside it (the workflow then swaps the
+# directories, so unused blobs never pile up). Used by ci.yml `images` and e2e.yml.
+services:
+  app:
+    build:
+      cache_from:
+        - type=local,src=${BUILDX_CACHE_DIR:?set BUILDX_CACHE_DIR}
+      cache_to:
+        - type=local,dest=${BUILDX_CACHE_DIR}-new,mode=max
