@@ -2,7 +2,7 @@ package ch.nokillswit.reports
 
 import ch.nokillswit.infra.db.nowMillis
 import ch.nokillswit.metrics.DeriveKernels
-import ch.nokillswit.metrics.MetricsStore
+import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.metrics.SprintScopeItem
 import ch.nokillswit.metrics.SprintTotals
 import kotlinx.coroutines.flow.toList
@@ -197,7 +197,7 @@ suspend fun ReportService.sprintConsistency(filter: ReportFilter): SprintConsist
 /** [accountId] `null` fetches every user's own rows (TEAM-level groups); non-null narrows to one (USER level). */
 private suspend fun fetchScopeEntries(sprintRows: List<SprintRow>, accountId: String?): List<ScopeEntry> {
     if (sprintRows.isEmpty()) return emptyList()
-    val s = MetricsStore.FactSprintScope
+    val s = MetricsTables.FactSprintScope
     var predicate: Op<Boolean> = (s.connectionId inList sprintRows.map { it.connectionId }.distinct()) and
         (s.sprintId inList sprintRows.map { it.sprintId }.distinct())
     accountId?.let { predicate = predicate and (s.assigneeAtCommitment eq it) }

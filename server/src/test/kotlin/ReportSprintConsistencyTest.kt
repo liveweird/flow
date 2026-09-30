@@ -5,6 +5,7 @@ import ch.nokillswit.metrics.DimSprintRow
 import ch.nokillswit.metrics.FactSprintRow
 import ch.nokillswit.metrics.FactSprintScopeRow
 import ch.nokillswit.metrics.MetricsStore
+import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.metrics.SprintScopeItem
 import ch.nokillswit.reports.SprintConsistencyGroup
 import ch.nokillswit.reports.SprintConsistencyReport
@@ -115,9 +116,9 @@ private fun assertFigures(expected: SprintFigures, actual: SprintFigures, what: 
 class ReportSprintConsistencyTest {
 
     private suspend fun floTeamId(connectionId: UInt, sprintId: Long): UInt = suspendTransaction(sharedDatabaseForTests()) {
-        MetricsStore.FactSprint.selectAll()
-            .where { (MetricsStore.FactSprint.connectionId eq connectionId) and (MetricsStore.FactSprint.sprintId eq sprintId) }
-            .toList().single()[MetricsStore.FactSprint.teamId]!!.value
+        MetricsTables.FactSprint.selectAll()
+            .where { (MetricsTables.FactSprint.connectionId eq connectionId) and (MetricsTables.FactSprint.sprintId eq sprintId) }
+            .toList().single()[MetricsTables.FactSprint.teamId]!!.value
     }
 
     private suspend fun HttpClient.consistency(query: String): SprintConsistencyReport {
@@ -360,22 +361,22 @@ class ReportSprintConsistencyTest {
         val client = seededClient("reports-consistency-open-sprint")
 
         val open = suspendTransaction(sharedDatabaseForTests()) {
-            MetricsStore.FactSprint.selectAll()
+            MetricsTables.FactSprint.selectAll()
                 .where {
-                    (MetricsStore.FactSprint.connectionId eq connId) and (MetricsStore.FactSprint.teamId eq floTeamId) and
-                        MetricsStore.FactSprint.completeAt.isNull()
+                    (MetricsTables.FactSprint.connectionId eq connId) and (MetricsTables.FactSprint.teamId eq floTeamId) and
+                        MetricsTables.FactSprint.completeAt.isNull()
                 }
                 .toList()
         }
         assertTrue(open.isNotEmpty(), "the stub fixture must carry an active/future FLO sprint")
         for (row in open) {
-            val sprint = client.consistency("connectionId=$connId&sprintId=${row[MetricsStore.FactSprint.sprintId]}").sprints.single()
+            val sprint = client.consistency("connectionId=$connId&sprintId=${row[MetricsTables.FactSprint.sprintId]}").sprints.single()
             assertNull(sprint.completedAt)
             assertNull(sprint.snapshot)
             assertTrue(!sprint.drift)
-            assertEquals(row[MetricsStore.FactSprint.committedMd].toDouble(), sprint.committedMd, MD_TOLERANCE)
-            assertEquals(row[MetricsStore.FactSprint.finalItems], sprint.finalItems)
-            assertEquals(row[MetricsStore.FactSprint.addedItems], sprint.addedItems)
+            assertEquals(row[MetricsTables.FactSprint.committedMd].toDouble(), sprint.committedMd, MD_TOLERANCE)
+            assertEquals(row[MetricsTables.FactSprint.finalItems], sprint.finalItems)
+            assertEquals(row[MetricsTables.FactSprint.addedItems], sprint.addedItems)
         }
     }
 

@@ -1,7 +1,7 @@
 package ch.nokillswit.reports
 
 import ch.nokillswit.infra.time.MILLIS_PER_DAY
-import ch.nokillswit.metrics.MetricsStore
+import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.metrics.TeamMembershipService
 import ch.nokillswit.metrics.WorkingCalendar
 import java.math.BigDecimal
@@ -56,7 +56,7 @@ internal enum class TaskFindingKind(val doneOnly: Boolean) {
 
     /** [workCategoryConnections]: only tasks of connections with a work-category field can lack a category. */
     fun predicate(workCategoryConnections: Set<UInt>): Op<Boolean> {
-        val t = MetricsStore.FactTaskDelivery
+        val t = MetricsTables.FactTaskDelivery
         return when (this) {
             WITHOUT_WORKLOGS -> t.hasWorklogs eq false
             NO_ESTIMATE -> t.estimateSource eq "NONE"
@@ -83,7 +83,7 @@ internal class TaskScope(
     val window: Pair<Long, Long>?,
     val workCategoryConnections: Set<UInt>,
 ) {
-    private val t = MetricsStore.FactTaskDelivery
+    private val t = MetricsTables.FactTaskDelivery
 
     /** Level-0 tasks with `done_at` in the period — the D5 credit team and the assignee at done. */
     val doneTasks: Op<Boolean>? = window?.let {
@@ -120,7 +120,7 @@ internal suspend fun fetchTaskAggs(scope: TaskScope): List<TaskAgg> {
 }
 
 private suspend fun aggregateTasks(scope: TaskScope, population: Op<Boolean>, done: Boolean): List<TaskAgg> {
-    val t = MetricsStore.FactTaskDelivery
+    val t = MetricsTables.FactTaskDelivery
     val team = if (done) t.creditTeamId else t.currentTeamId
     val account = if (done) t.assigneeAccountIdAtDone else t.currentAssigneeAccountId
     val estimate = if (done) t.estimateAtDoneMd else t.estimateCurrentMd
@@ -155,7 +155,7 @@ internal data class DqTask(
  * connection and issue id). A done-only kind reads the DONE population alone.
  */
 internal suspend fun fetchTaskItems(scope: TaskScope, kind: TaskFindingKind): List<DqTask> {
-    val t = MetricsStore.FactTaskDelivery
+    val t = MetricsTables.FactTaskDelivery
     val population = when {
         scope.doneTasks == null -> if (kind.doneOnly) return emptyList() else scope.openTasks
         kind.doneOnly -> scope.doneTasks
@@ -189,7 +189,7 @@ internal suspend fun fetchTaskItems(scope: TaskScope, kind: TaskFindingKind): Li
 internal suspend fun fetchDoneInTeamlessSprints(scope: TaskScope): Map<Pair<UInt, Long>, Int> {
     val done = scope.doneTasks ?: return emptyMap()
     if (scope.connectionIds.isEmpty()) return emptyMap()
-    val t = MetricsStore.FactTaskDelivery
+    val t = MetricsTables.FactTaskDelivery
     val size = Count(t.issueId)
     return t.select(t.connectionId, t.sprintIdAtDone, size)
         .where { done and t.sprintIdAtDone.isNotNull() and t.sprintTeamIdAtDone.isNull() }
@@ -228,7 +228,7 @@ internal class WorklogScope(val filter: ReportFilter, val connectionIds: List<UI
 
 internal suspend fun fetchWorklogAggs(scope: WorklogScope): List<WorklogAgg> {
     val slice = scope.predicate ?: return emptyList()
-    val w = MetricsStore.FactWorklog
+    val w = MetricsTables.FactWorklog
     val size = Count(w.worklogId)
     val md = Sum(w.md, w.md.columnType)
     val measurable = Count(w.lateMs)
@@ -247,14 +247,14 @@ internal suspend fun fetchWorklogAggs(scope: WorklogScope): List<WorklogAgg> {
 /** `late_ms` of every measurable worklog of the period — one numeric column, the input of the lateness `Distribution`. */
 internal suspend fun fetchLatenessMs(scope: WorklogScope): List<Long> {
     val slice = scope.predicate ?: return emptyList()
-    val w = MetricsStore.FactWorklog
+    val w = MetricsTables.FactWorklog
     return w.select(w.lateMs).where { slice and w.lateMs.isNotNull() }.toList().map { it[w.lateMs]!! }
 }
 
 /** The [DATA_QUALITY_MAX_ITEMS] latest-logged worklogs (`late_ms > 0`), latest first. */
 internal suspend fun fetchWorstWorklogs(scope: WorklogScope): List<DqWorklog> {
     val slice = scope.predicate ?: return emptyList()
-    val w = MetricsStore.FactWorklog
+    val w = MetricsTables.FactWorklog
     return w.select(w.connectionId, w.issueId, w.worklogId, w.authorAccountId, w.authorTeamId, w.startedAt, w.lateMs)
         .where { slice and (w.lateMs greater 0L) }
         .orderBy(w.lateMs to SortOrder.DESC, w.startedAt to SortOrder.DESC, w.worklogId to SortOrder.ASC)

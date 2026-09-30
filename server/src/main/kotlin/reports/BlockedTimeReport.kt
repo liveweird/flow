@@ -1,6 +1,6 @@
 package ch.nokillswit.reports
 
-import ch.nokillswit.metrics.MetricsStore
+import ch.nokillswit.metrics.MetricsTables
 import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.Serializable
 import org.jetbrains.exposed.v1.core.and
@@ -145,7 +145,7 @@ suspend fun ReportService.blockedTime(filter: ReportFilter, itemKind: BlockedIte
 
 private suspend fun fetchDoneTasks(filter: ReportFilter, connectionIds: List<UInt>, window: Pair<Long, Long>): List<DoneItem> {
     if (connectionIds.isEmpty()) return emptyList()
-    val t = MetricsStore.FactTaskDelivery
+    val t = MetricsTables.FactTaskDelivery
     val predicate = taskFactSlice(filter, connectionIds) and t.doneAt.isNotNull() and
         (t.doneAt greaterEq window.first) and (t.doneAt less window.second)
     return t.select(
@@ -161,7 +161,7 @@ private suspend fun fetchDoneTasks(filter: ReportFilter, connectionIds: List<UIn
 /** DONE epics by owner team; none at USER level (epics have no user). */
 private suspend fun fetchDoneEpics(filter: ReportFilter, connectionIds: List<UInt>, window: Pair<Long, Long>): List<DoneItem> {
     if (connectionIds.isEmpty() || filter.level == ReportLevel.USER) return emptyList()
-    val e = MetricsStore.FactEpicDelivery
+    val e = MetricsTables.FactEpicDelivery
     val predicate = epicFactSlice(filter, connectionIds) and e.doneAt.isNotNull() and
         (e.doneAt greaterEq window.first) and (e.doneAt less window.second)
     return e.select(e.connectionId, e.issueId, e.doneAt, e.ownerTeamId, e.blockedWorkingDays, e.cycleWorkingDays)

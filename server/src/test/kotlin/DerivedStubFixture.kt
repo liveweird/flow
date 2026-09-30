@@ -6,10 +6,13 @@ import ch.nokillswit.ingest.SyncJobKind
 import ch.nokillswit.ingest.SyncJobRunContext
 import ch.nokillswit.ingest.SyncJobsService
 import ch.nokillswit.metrics.DataSourceMetricsConfigRequest
+import ch.nokillswit.metrics.DomainOwnerResolver
 import ch.nokillswit.metrics.MetricsBoardTeamMapping
 import ch.nokillswit.metrics.MetricsConfigService
 import ch.nokillswit.metrics.MetricsDeriver
+import ch.nokillswit.metrics.MetricsSettingsService
 import ch.nokillswit.metrics.MetricsStore
+import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.metrics.TeamMembershipService
 import ch.nokillswit.metrics.WorkingCalendar
 import java.security.MessageDigest
@@ -60,19 +63,30 @@ object DerivedStubFixture {
 
     private lateinit var baselineDigest: String
 
-    fun metricsConfig() = MetricsConfigService(
+    fun metricsSettings() = MetricsSettingsService(
         sharedDatabaseForTests(),
-        SyncedStubFixture.workItems(),
         SyncedStubFixture.dataSources(),
         SyncJobsService(sharedDatabaseForTests(), 3),
     )
 
-    private fun teamMembership(config: MetricsConfigService) = TeamMembershipService(sharedDatabaseForTests(), config)
+    private fun domainOwners() = DomainOwnerResolver(sharedDatabaseForTests(), SyncedStubFixture.workItems())
 
-    private fun deriver(config: MetricsConfigService) = MetricsDeriver(
+    fun metricsConfig() = MetricsConfigService(
+        sharedDatabaseForTests(),
         SyncedStubFixture.workItems(),
-        config,
-        teamMembership(config),
+        SyncedStubFixture.dataSources(),
+        metricsSettings(),
+        domainOwners(),
+    )
+
+    private fun teamMembership(settings: MetricsSettingsService) = TeamMembershipService(sharedDatabaseForTests(), settings)
+
+    private fun deriver() = MetricsDeriver(
+        SyncedStubFixture.workItems(),
+        metricsSettings(),
+        metricsConfig(),
+        domainOwners(),
+        teamMembership(metricsSettings()),
         MetricsStore(sharedDatabaseForTests()),
         sharedDatabaseForTests(),
     )
@@ -119,13 +133,13 @@ object DerivedStubFixture {
      * `metrics.settings.config_revision` twice per call, and every derived row is stamped with the
      * revision, so two derives that must compare equal share ONE wrapper.
      */
-    suspend fun derivePinned(connId: UInt, config: MetricsConfigService, jobId: UInt = 1u) {
-        deriver(config).derive(SyncJobRunContext(deriveClaim(connId, jobId), clock = { PINNED_NOW }) { _, _ -> true })
+    suspend fun derivePinned(connId: UInt, jobId: UInt = 1u) {
+        deriver().derive(SyncJobRunContext(deriveClaim(connId, jobId), clock = { PINNED_NOW }) { _, _ -> true })
     }
 
     /** [withMetricsSettings] with the fixture's pinned `hoursPerDay = 8.0`. */
-    suspend fun <T> withPinnedSettings(config: MetricsConfigService, block: suspend () -> T): T =
-        withMetricsSettings(config, { it.copy(hoursPerDay = HOURS_PER_DAY) }, block)
+    suspend fun <T> withPinnedSettings(settings: MetricsSettingsService, block: suspend () -> T): T =
+        withMetricsSettings(settings, { it.copy(hoursPerDay = HOURS_PER_DAY) }, block)
 
     /**
      * Runs the cheap processed clone + FLO-board mapping + one pinned DERIVE exactly once per JVM
@@ -141,9 +155,8 @@ object DerivedStubFixture {
             val connId = SyncedStubFixture.createConnection(namePrefix = "jira-derived-fixture", enabled = false)
             SyncedStubFixture.cloneProcessedData(sourceConnId, connId)
 
-            val config = metricsConfig()
-            mapFloBoardToNewTeam(connId, config, "flo-derived-team")
-            withPinnedSettings(config) { derivePinned(connId, config) }
+            mapFloBoardToNewTeam(connId, metricsConfig(), "flo-derived-team")
+            withPinnedSettings(metricsSettings()) { derivePinned(connId) }
 
             baselineDigest = metricsDigest(connId)
             derivedConnectionId = connId
@@ -159,12 +172,12 @@ object DerivedStubFixture {
      */
     suspend fun stampDimDate(rows: List<WorkingCalendar.DimDateRow>, configRevision: Long) {
         suspendTransaction(sharedDatabaseForTests()) {
-            MetricsStore.DimDate.batchUpsert(rows, MetricsStore.DimDate.day) { row ->
-                this[MetricsStore.DimDate.day] = row.day
-                this[MetricsStore.DimDate.dayStartMs] = row.dayStartMs
-                this[MetricsStore.DimDate.dayEndMs] = row.dayEndMs
-                this[MetricsStore.DimDate.isWorkingDay] = row.isWorkingDay
-                this[MetricsStore.DimDate.configRevision] = configRevision
+            MetricsTables.DimDate.batchUpsert(rows, MetricsTables.DimDate.day) { row ->
+                this[MetricsTables.DimDate.day] = row.day
+                this[MetricsTables.DimDate.dayStartMs] = row.dayStartMs
+                this[MetricsTables.DimDate.dayEndMs] = row.dayEndMs
+                this[MetricsTables.DimDate.isWorkingDay] = row.isWorkingDay
+                this[MetricsTables.DimDate.configRevision] = configRevision
             }
         }
     }
@@ -193,63 +206,63 @@ object DerivedStubFixture {
         val digest = MessageDigest.getInstance("MD5")
         suspendTransaction(sharedDatabaseForTests()) {
             digest.hashRows(
-                MetricsStore.FactTaskDelivery.selectAll().where { MetricsStore.FactTaskDelivery.connectionId eq connId }
-                    .orderBy(MetricsStore.FactTaskDelivery.issueId to SortOrder.ASC)
+                MetricsTables.FactTaskDelivery.selectAll().where { MetricsTables.FactTaskDelivery.connectionId eq connId }
+                    .orderBy(MetricsTables.FactTaskDelivery.issueId to SortOrder.ASC)
                     .toList(),
-                MetricsStore.FactTaskDelivery.columns,
+                MetricsTables.FactTaskDelivery.columns,
             )
             digest.hashRows(
-                MetricsStore.TaskEpic.selectAll().where { MetricsStore.TaskEpic.connectionId eq connId }
+                MetricsTables.TaskEpic.selectAll().where { MetricsTables.TaskEpic.connectionId eq connId }
                     .orderBy(
                         // A total order: zero-length intervals tie on (issue, valid_from), and a
                         // tie's physical row order is not stable across runs.
-                        MetricsStore.TaskEpic.issueId to SortOrder.ASC,
-                        MetricsStore.TaskEpic.validFrom to SortOrder.ASC,
-                        MetricsStore.TaskEpic.validTo to SortOrder.ASC_NULLS_LAST,
-                        MetricsStore.TaskEpic.epicId to SortOrder.ASC_NULLS_LAST,
+                        MetricsTables.TaskEpic.issueId to SortOrder.ASC,
+                        MetricsTables.TaskEpic.validFrom to SortOrder.ASC,
+                        MetricsTables.TaskEpic.validTo to SortOrder.ASC_NULLS_LAST,
+                        MetricsTables.TaskEpic.epicId to SortOrder.ASC_NULLS_LAST,
                     )
                     .toList(),
                 listOf(
-                    MetricsStore.TaskEpic.issueId,
-                    MetricsStore.TaskEpic.epicId,
-                    MetricsStore.TaskEpic.validFrom,
-                    MetricsStore.TaskEpic.validTo,
+                    MetricsTables.TaskEpic.issueId,
+                    MetricsTables.TaskEpic.epicId,
+                    MetricsTables.TaskEpic.validFrom,
+                    MetricsTables.TaskEpic.validTo,
                 ),
             )
             digest.hashRows(
-                MetricsStore.TaskDomain.selectAll().where { MetricsStore.TaskDomain.connectionId eq connId }
+                MetricsTables.TaskDomain.selectAll().where { MetricsTables.TaskDomain.connectionId eq connId }
                     .orderBy(
                         // A total order: zero-length intervals tie on (issue, valid_from), and a
                         // tie's physical row order is not stable across runs.
-                        MetricsStore.TaskDomain.issueId to SortOrder.ASC,
-                        MetricsStore.TaskDomain.validFrom to SortOrder.ASC,
-                        MetricsStore.TaskDomain.validTo to SortOrder.ASC_NULLS_LAST,
-                        MetricsStore.TaskDomain.domainKey to SortOrder.ASC_NULLS_LAST,
+                        MetricsTables.TaskDomain.issueId to SortOrder.ASC,
+                        MetricsTables.TaskDomain.validFrom to SortOrder.ASC,
+                        MetricsTables.TaskDomain.validTo to SortOrder.ASC_NULLS_LAST,
+                        MetricsTables.TaskDomain.domainKey to SortOrder.ASC_NULLS_LAST,
                     )
                     .toList(),
                 listOf(
-                    MetricsStore.TaskDomain.issueId,
-                    MetricsStore.TaskDomain.domainKey,
-                    MetricsStore.TaskDomain.validFrom,
-                    MetricsStore.TaskDomain.validTo,
+                    MetricsTables.TaskDomain.issueId,
+                    MetricsTables.TaskDomain.domainKey,
+                    MetricsTables.TaskDomain.validFrom,
+                    MetricsTables.TaskDomain.validTo,
                 ),
             )
             digest.hashRows(
-                MetricsStore.TaskAssignee.selectAll().where { MetricsStore.TaskAssignee.connectionId eq connId }
+                MetricsTables.TaskAssignee.selectAll().where { MetricsTables.TaskAssignee.connectionId eq connId }
                     .orderBy(
                         // A total order: zero-length intervals tie on (issue, valid_from), and a
                         // tie's physical row order is not stable across runs.
-                        MetricsStore.TaskAssignee.issueId to SortOrder.ASC,
-                        MetricsStore.TaskAssignee.validFrom to SortOrder.ASC,
-                        MetricsStore.TaskAssignee.validTo to SortOrder.ASC_NULLS_LAST,
-                        MetricsStore.TaskAssignee.accountId to SortOrder.ASC_NULLS_LAST,
+                        MetricsTables.TaskAssignee.issueId to SortOrder.ASC,
+                        MetricsTables.TaskAssignee.validFrom to SortOrder.ASC,
+                        MetricsTables.TaskAssignee.validTo to SortOrder.ASC_NULLS_LAST,
+                        MetricsTables.TaskAssignee.accountId to SortOrder.ASC_NULLS_LAST,
                     )
                     .toList(),
                 listOf(
-                    MetricsStore.TaskAssignee.issueId,
-                    MetricsStore.TaskAssignee.accountId,
-                    MetricsStore.TaskAssignee.validFrom,
-                    MetricsStore.TaskAssignee.validTo,
+                    MetricsTables.TaskAssignee.issueId,
+                    MetricsTables.TaskAssignee.accountId,
+                    MetricsTables.TaskAssignee.validFrom,
+                    MetricsTables.TaskAssignee.validTo,
                 ),
             )
         }
@@ -287,30 +300,30 @@ object DerivedStubFixture {
     suspend fun metricsDigest(connId: UInt, includeDimDate: Boolean = false): String {
         val digest = MessageDigest.getInstance("MD5")
         val specs = listOf(
-            DigestSpec(MetricsStore.DimDomain, MetricsStore.DimDomain.connectionId eq connId),
-            DigestSpec(MetricsStore.DimTask, MetricsStore.DimTask.connectionId eq connId),
-            DigestSpec(MetricsStore.DimEpic, MetricsStore.DimEpic.connectionId eq connId),
-            DigestSpec(MetricsStore.DimSprint, MetricsStore.DimSprint.connectionId eq connId),
-            DigestSpec(MetricsStore.TaskEpic, MetricsStore.TaskEpic.connectionId eq connId),
-            DigestSpec(MetricsStore.TaskDomain, MetricsStore.TaskDomain.connectionId eq connId),
-            DigestSpec(MetricsStore.TaskAssignee, MetricsStore.TaskAssignee.connectionId eq connId),
-            DigestSpec(MetricsStore.TaskSprint, MetricsStore.TaskSprint.connectionId eq connId),
-            DigestSpec(MetricsStore.ItemEstimate, MetricsStore.ItemEstimate.connectionId eq connId),
-            DigestSpec(MetricsStore.ItemStage, MetricsStore.ItemStage.connectionId eq connId),
-            DigestSpec(MetricsStore.ItemBlocked, MetricsStore.ItemBlocked.connectionId eq connId),
-            DigestSpec(MetricsStore.FactTaskDelivery, MetricsStore.FactTaskDelivery.connectionId eq connId),
-            DigestSpec(MetricsStore.FactEpicDelivery, MetricsStore.FactEpicDelivery.connectionId eq connId),
-            DigestSpec(MetricsStore.FactSprintScope, MetricsStore.FactSprintScope.connectionId eq connId),
-            DigestSpec(MetricsStore.FactSprint, MetricsStore.FactSprint.connectionId eq connId),
+            DigestSpec(MetricsTables.DimDomain, MetricsTables.DimDomain.connectionId eq connId),
+            DigestSpec(MetricsTables.DimTask, MetricsTables.DimTask.connectionId eq connId),
+            DigestSpec(MetricsTables.DimEpic, MetricsTables.DimEpic.connectionId eq connId),
+            DigestSpec(MetricsTables.DimSprint, MetricsTables.DimSprint.connectionId eq connId),
+            DigestSpec(MetricsTables.TaskEpic, MetricsTables.TaskEpic.connectionId eq connId),
+            DigestSpec(MetricsTables.TaskDomain, MetricsTables.TaskDomain.connectionId eq connId),
+            DigestSpec(MetricsTables.TaskAssignee, MetricsTables.TaskAssignee.connectionId eq connId),
+            DigestSpec(MetricsTables.TaskSprint, MetricsTables.TaskSprint.connectionId eq connId),
+            DigestSpec(MetricsTables.ItemEstimate, MetricsTables.ItemEstimate.connectionId eq connId),
+            DigestSpec(MetricsTables.ItemStage, MetricsTables.ItemStage.connectionId eq connId),
+            DigestSpec(MetricsTables.ItemBlocked, MetricsTables.ItemBlocked.connectionId eq connId),
+            DigestSpec(MetricsTables.FactTaskDelivery, MetricsTables.FactTaskDelivery.connectionId eq connId),
+            DigestSpec(MetricsTables.FactEpicDelivery, MetricsTables.FactEpicDelivery.connectionId eq connId),
+            DigestSpec(MetricsTables.FactSprintScope, MetricsTables.FactSprintScope.connectionId eq connId),
+            DigestSpec(MetricsTables.FactSprint, MetricsTables.FactSprint.connectionId eq connId),
             DigestSpec(
-                MetricsStore.FactSprintSnapshot,
-                MetricsStore.FactSprintSnapshot.connectionId eq connId,
-                setOf(MetricsStore.FactSprintSnapshot.snapshotAt, MetricsStore.FactSprintSnapshot.reconstructed),
+                MetricsTables.FactSprintSnapshot,
+                MetricsTables.FactSprintSnapshot.connectionId eq connId,
+                setOf(MetricsTables.FactSprintSnapshot.snapshotAt, MetricsTables.FactSprintSnapshot.reconstructed),
             ),
-            DigestSpec(MetricsStore.FactWorklog, MetricsStore.FactWorklog.connectionId eq connId),
-            DigestSpec(MetricsStore.FactEpicPlan, MetricsStore.FactEpicPlan.connectionId eq connId),
-            DigestSpec(MetricsStore.AggDailyWip, MetricsStore.AggDailyWip.connectionId eq connId),
-            DigestSpec(MetricsStore.AggDailyFlow, MetricsStore.AggDailyFlow.connectionId eq connId),
+            DigestSpec(MetricsTables.FactWorklog, MetricsTables.FactWorklog.connectionId eq connId),
+            DigestSpec(MetricsTables.FactEpicPlan, MetricsTables.FactEpicPlan.connectionId eq connId),
+            DigestSpec(MetricsTables.AggDailyWip, MetricsTables.AggDailyWip.connectionId eq connId),
+            DigestSpec(MetricsTables.AggDailyFlow, MetricsTables.AggDailyFlow.connectionId eq connId),
         )
         suspendTransaction(sharedDatabaseForTests()) {
             for (spec in specs) {
@@ -318,16 +331,16 @@ object DerivedStubFixture {
             }
             // Opt-in (see the KDoc): hash only the days this connection's own WIP aggregate spans,
             // so another connection's wider range can never leak into this connection's digest.
-            val wipDays = if (!includeDimDate) emptyList() else MetricsStore.AggDailyWip.selectAll()
-                .where { MetricsStore.AggDailyWip.connectionId eq connId }
-                .toList().map { it[MetricsStore.AggDailyWip.day] }
+            val wipDays = if (!includeDimDate) emptyList() else MetricsTables.AggDailyWip.selectAll()
+                .where { MetricsTables.AggDailyWip.connectionId eq connId }
+                .toList().map { it[MetricsTables.AggDailyWip.day] }
             if (wipDays.isNotEmpty()) {
                 val firstDay = wipDays.min()
                 val lastDay = wipDays.max()
                 digest.hashTable(
-                    MetricsStore.DimDate,
-                    MetricsStore.DimDate.selectAll()
-                        .where { (MetricsStore.DimDate.day greaterEq firstDay) and (MetricsStore.DimDate.day lessEq lastDay) },
+                    MetricsTables.DimDate,
+                    MetricsTables.DimDate.selectAll()
+                        .where { (MetricsTables.DimDate.day greaterEq firstDay) and (MetricsTables.DimDate.day lessEq lastDay) },
                     emptySet(),
                 )
             }

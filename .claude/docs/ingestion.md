@@ -78,7 +78,10 @@ claiming orders by `priority` then `requestedAt`, so a manual request preempts t
 ## The DERIVE job kind (v0.3.0 M3 commit 7)
 
 `DERIVE` (`metrics/MetricsDeriver.kt`'s `derive()`, dispatched by `IngestWorker.runJob` BEFORE the
-connector registry — `.claude/docs/metrics.md` "The DERIVE run algorithm" has the write-side detail)
+connector registry, through the `JobHandler` that `metrics/MetricsJobHandlers.kt` registers on
+`ingest/JobHandlers.kt`'s `JobHandlerRegistry` — `ingest/` never imports `metrics/` (checkup D5); a
+DERIVE claim with no registered handler FAILS the job rather than succeeding silently;
+`.claude/docs/metrics.md` "The DERIVE run algorithm" has the write-side detail)
 is connector-agnostic: it reads `norm.*` plus the connection's effective metrics configuration and
 writes `metrics.*`, never touching Jira, so it runs the same way whichever connector kind the
 connection is. **Chaining** (`IngestWorker.onSucceeded`, `.claude/docs/domain-model.md`'s plan §2
@@ -87,8 +90,9 @@ for its OWN connection (`SyncJobsService.enqueueScheduled`, coalesced by `uq_syn
 if one is already open); a `DERIVE` run itself enqueues nothing UNLESS the shared
 `metrics.settings.config_revision` moved WHILE it was running (a config PUT that coalesced into the
 already-open job rather than getting its own — review round 1 fix, `derive()`'s return value is the
-revision the run actually used, compared against `metricsConfig.currentRevision()` in `onSucceeded`).
-`MetricsConfigService.bumpRevision` — every global-settings PUT, team-membership mutation, and
+revision the run actually used, the handler's return value, compared in `onSucceeded` against the registry's
+`ConfigRevisionSource` — `MetricsSettingsService.currentRevision`).
+`MetricsSettingsService.bumpRevision` — every global-settings PUT, team-membership mutation, and
 per-connection metrics-config PUT — separately enqueues a `DERIVE` for EVERY enabled, active
 connection (not just the one edited), since a configuration change must reach every connection's
 derived numbers.
@@ -98,7 +102,8 @@ PROFILE) and a RECONCILE job's (`reconcile` → PROCESS) are unchanged — `DERI
 their OWN steps, it is a SEPARATE job kind chained AFTER the whole job succeeds (above). A `DERIVE`
 job runs the ONE `derive` stream. **PURGE**, updated: after the connector's own `purgeSteps` and the
 generic per-connection `metrics.*` config drain (`MetricsConfigService.purgeConnectionConfig`,
-already documented above), a THIRD generic step drains the derived star and `derive_runs`
+already documented above; both drains are `PurgeStep`s registered by `registerMetricsHandlers` and run
+by the worker in registration order), a THIRD generic step drains the derived star and `derive_runs`
 (`MetricsStore.purgeAll`, `.claude/docs/persistence.md` "The `metrics` schema — the derived star
 (V16)") — snapshot rows through the `SET LOCAL metrics.allow_snapshot_delete = 'on'` bypass.
 
@@ -185,7 +190,8 @@ intervals/changes/worklogs/reference rows (V13, plan §0 A3, see "Normalized lay
 order — `source_connections.profile`/`profile_at` are left untouched by PURGE (the connection's last
 computed profile stays visible until it either resyncs or is deleted outright). **A generic,
 connector-agnostic PURGE step runs AFTER the connector's own `purgeSteps`** (v0.3.0 M1 commit 4,
-`ingest/IngestWorker.kt`'s `runJob`, gated on `claim.kind == PURGE`):
+`ingest/IngestWorker.kt`'s `runJob`, gated on `claim.kind == PURGE`, running the `PurgeStep`s
+`metrics/` registered in `ingest/JobHandlers.kt`'s registry):
 `MetricsConfigService.purgeConnectionConfig` drains this connection's eight per-connection
 `metrics.*` configuration tables (V15, `.claude/docs/persistence.md` "The `metrics` schema —
 configuration (V15)", `.claude/docs/metrics.md` "PURGE and the metrics config") — small tables,

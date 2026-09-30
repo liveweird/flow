@@ -199,16 +199,16 @@ suspend fun withSeedRestored(block: suspend () -> Unit) {
  * bumps `config_revision` — harmless, every revision-sensitive test reads the revision it needs.
  */
 suspend fun <T> withMetricsSettings(
-    config: ch.nokillswit.metrics.MetricsConfigService,
+    settings: ch.nokillswit.metrics.MetricsSettingsService,
     transform: (ch.nokillswit.metrics.MetricsSettingsRequest) -> ch.nokillswit.metrics.MetricsSettingsRequest,
     block: suspend () -> T,
 ): T {
-    val original = config.read().asRequest()
-    config.replace(transform(original), byUserId = 1u)
+    val original = settings.read().asRequest()
+    settings.replace(transform(original), byUserId = 1u)
     return try {
         block()
     } finally {
-        config.replace(original, byUserId = 1u)
+        settings.replace(original, byUserId = 1u)
     }
 }
 

@@ -1,6 +1,6 @@
 package ch.nokillswit.reports
 
-import ch.nokillswit.metrics.MetricsStore
+import ch.nokillswit.metrics.MetricsTables
 import java.math.BigDecimal
 import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.Serializable
@@ -128,7 +128,7 @@ suspend fun ReportService.taskEstimationAccuracy(filter: ReportFilter, nowMs: Lo
 
 private suspend fun fetchAccuracyTasks(filter: ReportFilter, connectionIds: List<UInt>, window: Pair<Long, Long>): List<AccuracyTask> {
     if (connectionIds.isEmpty()) return emptyList()
-    val t = MetricsStore.FactTaskDelivery
+    val t = MetricsTables.FactTaskDelivery
     val predicate = taskFactSlice(filter, connectionIds) and
         t.doneAt.isNotNull() and (t.doneAt greaterEq window.first) and (t.doneAt less window.second)
     return t.select(

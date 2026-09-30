@@ -7,6 +7,7 @@ import ch.nokillswit.metrics.FactWorklogRow
 import ch.nokillswit.metrics.MetricsConfigService
 import ch.nokillswit.metrics.MetricsSprintCapacity
 import ch.nokillswit.metrics.MetricsStore
+import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.metrics.TeamMembershipService
 import ch.nokillswit.metrics.asRequest
 import ch.nokillswit.norm.WorkItemStore
@@ -55,12 +56,12 @@ private class FixtureRows(
 )
 
 private suspend fun readFixtureRows(connId: UInt): FixtureRows = suspendTransaction(sharedDatabaseForTests()) {
-    val t = MetricsStore.FactTaskDelivery
-    val d = MetricsStore.DimEpic
+    val t = MetricsTables.FactTaskDelivery
+    val d = MetricsTables.DimEpic
     FixtureRows(
         tasks = t.selectAll().where { (t.connectionId eq connId) and (t.isSubtask eq false) }.toList(),
-        worklogs = MetricsStore.FactWorklog.selectAll().where { MetricsStore.FactWorklog.connectionId eq connId }.toList(),
-        epics = MetricsStore.FactEpicDelivery.selectAll().where { MetricsStore.FactEpicDelivery.connectionId eq connId }.toList(),
+        worklogs = MetricsTables.FactWorklog.selectAll().where { MetricsTables.FactWorklog.connectionId eq connId }.toList(),
+        epics = MetricsTables.FactEpicDelivery.selectAll().where { MetricsTables.FactEpicDelivery.connectionId eq connId }.toList(),
         epicDims = d.selectAll().where { d.connectionId eq connId }.toList().associateBy { it[d.issueId] },
     )
 }
@@ -90,10 +91,10 @@ class ReportDataQualityTest {
         val bounds: Pair<Long, Long>,
         val body: DataQualityReport,
     ) {
-        private val t = MetricsStore.FactTaskDelivery
+        private val t = MetricsTables.FactTaskDelivery
         val done: List<ResultRow> = rows.tasks.filter { (it[t.doneAt] ?: -1L) in bounds.first until bounds.second }
         val open: List<ResultRow> = rows.tasks.filter { it[t.doneAt] == null && it[t.startedAt] != null }
-        private val e = MetricsStore.FactEpicDelivery
+        private val e = MetricsTables.FactEpicDelivery
         val epics: List<ResultRow> = rows.epics.filter { it[e.doneAt] == null || it[e.doneAt]!! in bounds.first until bounds.second }
     }
 
@@ -110,7 +111,7 @@ class ReportDataQualityTest {
         fixture: FixtureRead,
         pick: (ResultRow) -> Boolean,
     ) {
-        val t = MetricsStore.FactTaskDelivery
+        val t = MetricsTables.FactTaskDelivery
         val d = fixture.done.filter(pick)
         val o = fixture.open.filter(pick)
         fun estimate(row: ResultRow) = (if (row[t.doneAt] == null) row[t.estimateCurrentMd] else row[t.estimateAtDoneMd])?.toDouble() ?: 0.0
@@ -128,7 +129,7 @@ class ReportDataQualityTest {
         val fixture = readFixture("dq-fixture-tasks")
         val body = fixture.body
         val done = fixture.done
-        val t = MetricsStore.FactTaskDelivery
+        val t = MetricsTables.FactTaskDelivery
 
         assertEquals(done.size, body.populations.doneTasks)
         assertEquals(fixture.open.size, body.populations.openStartedTasks)
@@ -167,9 +168,9 @@ class ReportDataQualityTest {
         val fixture = readFixture("dq-fixture-rest")
         val body = fixture.body
         val rows = fixture.rows
-        val w = MetricsStore.FactWorklog
-        val e = MetricsStore.FactEpicDelivery
-        val d = MetricsStore.DimEpic
+        val w = MetricsTables.FactWorklog
+        val e = MetricsTables.FactEpicDelivery
+        val d = MetricsTables.DimEpic
 
         // Late logging (worklog created vs started): the generator delays ~20% of worklogs by 1..5 days.
         val late = rows.worklogs.mapNotNull { it[w.lateMs] }
@@ -217,9 +218,10 @@ class ReportDataQualityTest {
 
         // Domains without an owner: FLO's board is mapped, so its domain has an owner; the others have none.
         val domains = suspendTransaction(sharedDatabaseForTests()) {
-            MetricsStore.DimDomain.selectAll().where { MetricsStore.DimDomain.connectionId eq fixture.connId }.toList()
+            MetricsTables.DimDomain.selectAll().where { MetricsTables.DimDomain.connectionId eq fixture.connId }.toList()
         }
-        val unowned = domains.filter { it[MetricsStore.DimDomain.ownerTeamId] == null }.map { it[MetricsStore.DimDomain.domainKey] }.toSet()
+        val unowned = domains.filter { it[MetricsTables.DimDomain.ownerTeamId] == null }
+            .map { it[MetricsTables.DimDomain.domainKey] }.toSet()
         assertTrue(unowned.isNotEmpty() && unowned.size < domains.size)
         assertEquals(unowned, body.domainsWithoutOwner.items.map { it.domainKey }.toSet())
         for (item in body.domainsWithoutOwner.items) {
@@ -234,7 +236,7 @@ class ReportDataQualityTest {
 
     /** Unmapped boards: the fixture maps only the FLO board, so the other in-scope boards are the finding. */
     private suspend fun assertUnmappedBoards(fixture: FixtureRead) {
-        val t = MetricsStore.FactTaskDelivery
+        val t = MetricsTables.FactTaskDelivery
         val body = fixture.body
         val mapped = suspendTransaction(sharedDatabaseForTests()) {
             MetricsConfigService.BoardTeamMap.selectAll().where { MetricsConfigService.BoardTeamMap.connectionId eq fixture.connId }
@@ -265,9 +267,9 @@ class ReportDataQualityTest {
         val fixture = readFixture("dq-groups-unit")
         val unit = fixture.body
         val rows = fixture.rows
-        val t = MetricsStore.FactTaskDelivery
-        val w = MetricsStore.FactWorklog
-        val e = MetricsStore.FactEpicDelivery
+        val t = MetricsTables.FactTaskDelivery
+        val w = MetricsTables.FactWorklog
+        val e = MetricsTables.FactEpicDelivery
         val teams = (
             fixture.done.map { it[t.creditTeamId]?.value } + fixture.open.map { it[t.currentTeamId]?.value } +
                 fixture.epics.map { it[e.ownerTeamId]?.value } + rows.worklogs.map { it[w.authorTeamId]?.value }
@@ -311,9 +313,9 @@ class ReportDataQualityTest {
             val client = fixture.client
             val connId = fixture.connId
             val rows = fixture.rows
-            val t = MetricsStore.FactTaskDelivery
-            val w = MetricsStore.FactWorklog
-            val e = MetricsStore.FactEpicDelivery
+            val t = MetricsTables.FactTaskDelivery
+            val w = MetricsTables.FactWorklog
+            val e = MetricsTables.FactEpicDelivery
             val done = fixture.done
             val open = fixture.open
 
@@ -380,8 +382,8 @@ class ReportDataQualityTest {
 
     /** Every `(sprintId, field)` whose live value differs from its `fact_sprint_snapshot` twin — the test's own comparison. */
     private suspend fun expectedDrift(connId: UInt): Map<Pair<Long, String>, ExpectedDrift> {
-        val l = MetricsStore.FactSprint
-        val f = MetricsStore.FactSprintSnapshot
+        val l = MetricsTables.FactSprint
+        val f = MetricsTables.FactSprintSnapshot
         val md = 0.005
         val figures: List<Triple<String, Double, Pair<Column<out Number?>, Column<out Number?>>>> = listOf(
             Triple("committedMd", md, l.committedMd to f.committedMd), Triple("committedItems", 0.0, l.committedItems to f.committedItems),
@@ -430,11 +432,12 @@ class ReportDataQualityTest {
     @Test
     fun `snapshot drift and an unmapped status appear after a config change and a re-derive, and not before`() {
         val config = DerivedStubFixture.metricsConfig()
-        val snapshot = MetricsStore.FactSprintSnapshot
-        val live = MetricsStore.FactSprint
+        val metricsSettings = DerivedStubFixture.metricsSettings()
+        val snapshot = MetricsTables.FactSprintSnapshot
+        val live = MetricsTables.FactSprint
         val connId = runBlocking {
             val id = derivedClone()
-            DerivedStubFixture.withPinnedSettings(config) { DerivedStubFixture.derivePinned(id, config, jobId = 1u) }
+            DerivedStubFixture.withPinnedSettings(metricsSettings) { DerivedStubFixture.derivePinned(id, jobId = 1u) }
             id
         }
         try {
@@ -469,7 +472,7 @@ class ReportDataQualityTest {
                     sprintCapacities = listOf(MetricsSprintCapacity(sprintId, 77.0)),
                 ),
             )
-            DerivedStubFixture.withPinnedSettings(config) { DerivedStubFixture.derivePinned(connId, config, jobId = 2u) }
+            DerivedStubFixture.withPinnedSettings(metricsSettings) { DerivedStubFixture.derivePinned(connId, jobId = 2u) }
             waiting
         }
 
@@ -486,7 +489,7 @@ class ReportDataQualityTest {
             assertTrue(onlyCapacity, "a capacity change moves capacity and load only")
 
             // The unmapped status: the items that ever sat in "Waiting" and those sitting in it now, from the stage intervals.
-            val i = MetricsStore.ItemStage
+            val i = MetricsTables.ItemStage
             val tiled = suspendTransaction(sharedDatabaseForTests()) {
                 i.selectAll().where { (i.connectionId eq connId) and (i.stage eq "UNMAPPED") }.toList()
             }
@@ -532,14 +535,14 @@ class ReportDataQualityTest {
 
     private suspend fun insertDeriveRun(connId: UInt, startedAt: Long, rowCounts: String?): Int =
         suspendTransaction(sharedDatabaseForTests()) {
-            MetricsStore.DeriveRuns.insert {
-                it[MetricsStore.DeriveRuns.connectionId] = connId.toInt()
+            MetricsTables.DeriveRuns.insert {
+                it[MetricsTables.DeriveRuns.connectionId] = connId.toInt()
                 it[configRevision] = 1L
                 it[processingVersion] = 1
-                it[MetricsStore.DeriveRuns.startedAt] = startedAt
+                it[MetricsTables.DeriveRuns.startedAt] = startedAt
                 it[status] = "SUCCEEDED"
-                it[MetricsStore.DeriveRuns.rowCounts] = rowCounts
-            }[MetricsStore.DeriveRuns.id]
+                it[MetricsTables.DeriveRuns.rowCounts] = rowCounts
+            }[MetricsTables.DeriveRuns.id]
         }
 
     @Test
@@ -756,7 +759,7 @@ class ReportDataQualityTest {
             wl(5, a9, null, "2026-01-08", 3 * DAY_MS, 2.0), wl(6, a1, teamX, "2026-01-09", null, 1.0),
             wl(7, a1, teamX, "2025-12-20", DAY_MS, 9.0), // before the period
         )
-        val settingsConfig = DerivedStubFixture.metricsConfig()
+        val settingsConfig = DerivedStubFixture.metricsSettings()
         val settings = settingsConfig.read()
         val weekend = settings.weekendDays.toSet()
         val holidays = settings.holidays.map { LocalDate.parse(it) }.toSet()
@@ -962,10 +965,10 @@ class ReportDataQualityTest {
             val other = SyncedStubFixture.createConnection(namePrefix = "dq-roster-other", enabled = false)
             try {
                 insertMembership(account, team, startOfDay(zone, "2025-12-01"))
-                val config = DerivedStubFixture.metricsConfig()
-                val settings = config.read()
+                val metricsSettings = DerivedStubFixture.metricsSettings()
+                val settings = metricsSettings.read()
                 val client = seededClient("dq-roster")
-                val body = withMetricsSettings(config, { it.copy(hoursPerDay = 8.0) }) {
+                val body = withMetricsSettings(metricsSettings, { it.copy(hoursPerDay = 8.0) }) {
                     client.dq("from=2026-01-01&to=2026-01-31")
                 }
                 val silent = body.groups.single { it.teamId == team }
@@ -1144,7 +1147,7 @@ class ReportDataQualityTest {
             assertFalse(no.missing.workCategoryConfigured)
             assertEquals(0, no.missing.noWorkCategory.total, "the same task on a connection without the field is not a finding")
             // Both connections in scope (every connection): only the configured ones' categoryless tasks count.
-            val t = MetricsStore.FactTaskDelivery
+            val t = MetricsTables.FactTaskDelivery
             val bounds = windowBounds(reportZone(), "2026-01-01", "2026-01-31")
             val expected = suspendTransaction(sharedDatabaseForTests()) {
                 val configuredIds = MetricsConfigService.FieldConfig.selectAll()

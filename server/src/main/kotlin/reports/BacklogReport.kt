@@ -1,6 +1,6 @@
 package ch.nokillswit.reports
 
-import ch.nokillswit.metrics.MetricsStore
+import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.metrics.WorkingCalendar
 import java.math.BigDecimal
 import kotlinx.coroutines.flow.toList
@@ -104,7 +104,7 @@ private suspend fun fetchBacklog(
     lastDay: String,
 ): Map<String, BacklogDay> {
     if (connectionIds.isEmpty()) return emptyMap()
-    val f = MetricsStore.AggDailyFlow
+    val f = MetricsTables.AggDailyFlow
     val items = f.backlogItems.sum()
     val md = f.backlogMd.sum()
     return f.select(f.day, items, md)
@@ -124,7 +124,7 @@ private suspend fun fetchBacklog(
  */
 private suspend fun meanDelivered(scope: SnapshotScope, connectionIds: List<UInt>, window: Int, asOfEndMs: Long): Pair<Double?, Int> {
     if (scope is SnapshotScope.Domain || scope is SnapshotScope.Unassigned || connectionIds.isEmpty()) return null to 0
-    val s = MetricsStore.FactSprint
+    val s = MetricsTables.FactSprint
     var predicate = (s.connectionId inList connectionIds) and s.teamId.isNotNull() and
         s.completeAt.isNotNull() and (s.completeAt less asOfEndMs)
     if (scope is SnapshotScope.Team) predicate = predicate and (s.teamId eq scope.teamId)

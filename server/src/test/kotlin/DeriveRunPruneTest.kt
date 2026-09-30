@@ -1,6 +1,7 @@
 package ch.nokillswit
 
 import ch.nokillswit.metrics.MetricsStore
+import ch.nokillswit.metrics.MetricsTables
 import io.ktor.server.testing.testApplication
 import kotlinx.coroutines.flow.toList
 import org.jetbrains.exposed.v1.core.eq
@@ -51,18 +52,18 @@ class DeriveRunPruneTest {
 
     private suspend fun insertRun(connId: UInt, startedAt: Long, status: String): Int =
         suspendTransaction(sharedDatabaseForTests()) {
-            MetricsStore.DeriveRuns.insert {
+            MetricsTables.DeriveRuns.insert {
                 it[connectionId] = connId.toInt()
                 it[configRevision] = 1L
                 it[processingVersion] = 1
                 it[this.startedAt] = startedAt
                 it[finishedAt] = startedAt + 500
                 it[this.status] = status
-            }[MetricsStore.DeriveRuns.id]
+            }[MetricsTables.DeriveRuns.id]
         }
 
     private suspend fun runIds(connId: UInt): Set<Int> = suspendTransaction(sharedDatabaseForTests()) {
-        MetricsStore.DeriveRuns.selectAll().where { MetricsStore.DeriveRuns.connectionId eq connId.toInt() }
-            .toList().map { it[MetricsStore.DeriveRuns.id] }.toSet()
+        MetricsTables.DeriveRuns.selectAll().where { MetricsTables.DeriveRuns.connectionId eq connId.toInt() }
+            .toList().map { it[MetricsTables.DeriveRuns.id] }.toSet()
     }
 }

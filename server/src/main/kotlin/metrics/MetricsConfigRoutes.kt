@@ -39,6 +39,8 @@ fun Application.configureMetricsConfigRoutes() {
 
     val dataSources = attributes[DataSourceServiceKey]
     val metricsConfig = attributes[MetricsConfigServiceKey]
+    val metricsSettings = attributes[MetricsSettingsServiceKey]
+    val metricsConfigOptions = attributes[MetricsConfigOptionsKey]
 
     routing {
         authenticate {
@@ -59,7 +61,7 @@ fun Application.configureMetricsConfigRoutes() {
                         "metrics_config.updated",
                         "byUserId" to caller.userId.toLong(),
                         "dataSourceId" to route.id.toLong(),
-                        "configRevision" to metricsConfig.currentRevision(),
+                        "configRevision" to metricsSettings.currentRevision(),
                     )
                 }
                 call.respond(HttpStatusCode.NoContent)
@@ -70,7 +72,7 @@ fun Application.configureMetricsConfigRoutes() {
                 val connectionId = route.parent.id
                 dataSources.read(connectionId).orNotFound("Data source")
                 val workCategoryField = call.request.queryParameters.optionalString("workCategoryField")
-                call.respond(HttpStatusCode.OK, metricsConfig.options(connectionId, workCategoryField))
+                call.respond(HttpStatusCode.OK, metricsConfigOptions.options(connectionId, workCategoryField))
             }
         }
     }

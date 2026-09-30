@@ -1,6 +1,6 @@
 package ch.nokillswit
 
-import ch.nokillswit.metrics.MetricsStore
+import ch.nokillswit.metrics.MetricsTables
 import java.math.BigDecimal
 import java.time.Instant
 import java.time.LocalDate
@@ -35,14 +35,14 @@ internal data class WipRow(
 internal data class FlowBacklogRow(val scopeKind: String, val scopeId: String, val day: String, val items: Int, val md: BigDecimal)
 
 internal suspend fun readWipRows(connId: UInt): List<WipRow> = suspendTransaction(sharedDatabaseForTests()) {
-    val w = MetricsStore.AggDailyWip
+    val w = MetricsTables.AggDailyWip
     w.selectAll().where { w.connectionId eq connId }.toList().map {
         WipRow(it[w.scopeKind], it[w.scopeId], it[w.day], it[w.itemKind], it[w.statusId], it[w.stage], it[w.itemCount])
     }
 }
 
 internal suspend fun readFlowBacklogRows(connId: UInt): List<FlowBacklogRow> = suspendTransaction(sharedDatabaseForTests()) {
-    val f = MetricsStore.AggDailyFlow
+    val f = MetricsTables.AggDailyFlow
     f.selectAll().where { f.connectionId eq connId }.toList().map {
         FlowBacklogRow(it[f.scopeKind], it[f.scopeId], it[f.day], it[f.backlogItems], it[f.backlogMd])
     }
@@ -53,8 +53,8 @@ internal data class ClosedSprint(val sprintId: Long, val teamId: UInt, val start
 
 /** Every closed team-mapped sprint of [connId], oldest completion first. */
 internal suspend fun readClosedSprints(connId: UInt): List<ClosedSprint> = suspendTransaction(sharedDatabaseForTests()) {
-    val s = MetricsStore.FactSprint
-    val d = MetricsStore.DimSprint
+    val s = MetricsTables.FactSprint
+    val d = MetricsTables.DimSprint
     val starts = d.selectAll().where { d.connectionId eq connId }.toList().associate { it[d.sprintId] to it[d.startAt] }
     s.selectAll().where { s.connectionId eq connId }.toList()
         .filter { it[s.teamId] != null && it[s.completeAt] != null }
@@ -72,55 +72,55 @@ internal fun isoDays(from: String, to: String): List<String> =
 internal fun dayOfInstant(atMs: Long, zone: ZoneId): String = Instant.ofEpochMilli(atMs).atZone(zone).toLocalDate().toString()
 
 internal suspend fun insertWipRows(connId: UInt, rows: List<WipRow>) = suspendTransaction(sharedDatabaseForTests()) {
-    MetricsStore.AggDailyWip.batchInsert(rows) {
-        this[MetricsStore.AggDailyWip.connectionId] = connId
-        this[MetricsStore.AggDailyWip.scopeKind] = it.scopeKind
-        this[MetricsStore.AggDailyWip.scopeId] = it.scopeId
-        this[MetricsStore.AggDailyWip.day] = it.day
-        this[MetricsStore.AggDailyWip.itemKind] = it.itemKind
-        this[MetricsStore.AggDailyWip.statusId] = it.statusId
-        this[MetricsStore.AggDailyWip.stage] = it.stage
-        this[MetricsStore.AggDailyWip.itemCount] = it.count
-        this[MetricsStore.AggDailyWip.configRevision] = 1L
+    MetricsTables.AggDailyWip.batchInsert(rows) {
+        this[MetricsTables.AggDailyWip.connectionId] = connId
+        this[MetricsTables.AggDailyWip.scopeKind] = it.scopeKind
+        this[MetricsTables.AggDailyWip.scopeId] = it.scopeId
+        this[MetricsTables.AggDailyWip.day] = it.day
+        this[MetricsTables.AggDailyWip.itemKind] = it.itemKind
+        this[MetricsTables.AggDailyWip.statusId] = it.statusId
+        this[MetricsTables.AggDailyWip.stage] = it.stage
+        this[MetricsTables.AggDailyWip.itemCount] = it.count
+        this[MetricsTables.AggDailyWip.configRevision] = 1L
     }
 }
 
 internal suspend fun deleteWipRows(connId: UInt) = suspendTransaction(sharedDatabaseForTests()) {
-    MetricsStore.AggDailyWip.deleteWhere { MetricsStore.AggDailyWip.connectionId eq connId }
+    MetricsTables.AggDailyWip.deleteWhere { MetricsTables.AggDailyWip.connectionId eq connId }
 }
 
 internal suspend fun insertFlowBacklogRows(connId: UInt, rows: List<FlowBacklogRow>) = suspendTransaction(sharedDatabaseForTests()) {
-    MetricsStore.AggDailyFlow.batchInsert(rows) {
-        this[MetricsStore.AggDailyFlow.connectionId] = connId
-        this[MetricsStore.AggDailyFlow.scopeKind] = it.scopeKind
-        this[MetricsStore.AggDailyFlow.scopeId] = it.scopeId
-        this[MetricsStore.AggDailyFlow.day] = it.day
-        this[MetricsStore.AggDailyFlow.backlogItems] = it.items
-        this[MetricsStore.AggDailyFlow.backlogMd] = it.md
-        this[MetricsStore.AggDailyFlow.configRevision] = 1L
+    MetricsTables.AggDailyFlow.batchInsert(rows) {
+        this[MetricsTables.AggDailyFlow.connectionId] = connId
+        this[MetricsTables.AggDailyFlow.scopeKind] = it.scopeKind
+        this[MetricsTables.AggDailyFlow.scopeId] = it.scopeId
+        this[MetricsTables.AggDailyFlow.day] = it.day
+        this[MetricsTables.AggDailyFlow.backlogItems] = it.items
+        this[MetricsTables.AggDailyFlow.backlogMd] = it.md
+        this[MetricsTables.AggDailyFlow.configRevision] = 1L
     }
 }
 
 internal suspend fun deleteFlowRows(connId: UInt) = suspendTransaction(sharedDatabaseForTests()) {
-    MetricsStore.AggDailyFlow.deleteWhere { MetricsStore.AggDailyFlow.connectionId eq connId }
+    MetricsTables.AggDailyFlow.deleteWhere { MetricsTables.AggDailyFlow.connectionId eq connId }
 }
 
 /** A hand-built closed sprint: only what the backlog-in-sprints mean reads — its team, completion and `delivered_md`. */
 internal data class HandSprint(val sprintId: Long, val teamId: UInt, val completeAt: Long?, val deliveredMd: Double)
 
 internal suspend fun insertHandSprints(connId: UInt, sprints: List<HandSprint>) = suspendTransaction(sharedDatabaseForTests()) {
-    MetricsStore.FactSprint.batchInsert(sprints) {
-        this[MetricsStore.FactSprint.connectionId] = connId
-        this[MetricsStore.FactSprint.sprintId] = it.sprintId
-        this[MetricsStore.FactSprint.teamId] = it.teamId
-        this[MetricsStore.FactSprint.completeAt] = it.completeAt
-        this[MetricsStore.FactSprint.deliveredMd] = BigDecimal.valueOf(it.deliveredMd)
-        this[MetricsStore.FactSprint.configRevision] = 1L
+    MetricsTables.FactSprint.batchInsert(sprints) {
+        this[MetricsTables.FactSprint.connectionId] = connId
+        this[MetricsTables.FactSprint.sprintId] = it.sprintId
+        this[MetricsTables.FactSprint.teamId] = it.teamId
+        this[MetricsTables.FactSprint.completeAt] = it.completeAt
+        this[MetricsTables.FactSprint.deliveredMd] = BigDecimal.valueOf(it.deliveredMd)
+        this[MetricsTables.FactSprint.configRevision] = 1L
     }
 }
 
 internal suspend fun deleteFactSprints(connId: UInt) = suspendTransaction(sharedDatabaseForTests()) {
-    MetricsStore.FactSprint.deleteWhere { MetricsStore.FactSprint.connectionId eq connId }
+    MetricsTables.FactSprint.deleteWhere { MetricsTables.FactSprint.connectionId eq connId }
 }
 
 /**
@@ -129,15 +129,15 @@ internal suspend fun deleteFactSprints(connId: UInt) = suspendTransaction(shared
  * hard-deletes finished rows older than the retention window) can never remove a run dated in the past.
  */
 internal suspend fun insertSucceededDerive(connId: UInt, startedAt: Long) = suspendTransaction(sharedDatabaseForTests()) {
-    MetricsStore.DeriveRuns.insert {
-        it[MetricsStore.DeriveRuns.connectionId] = connId.toInt()
-        it[MetricsStore.DeriveRuns.configRevision] = 1L
-        it[MetricsStore.DeriveRuns.processingVersion] = 1
-        it[MetricsStore.DeriveRuns.startedAt] = startedAt
-        it[MetricsStore.DeriveRuns.status] = "SUCCEEDED"
+    MetricsTables.DeriveRuns.insert {
+        it[MetricsTables.DeriveRuns.connectionId] = connId.toInt()
+        it[MetricsTables.DeriveRuns.configRevision] = 1L
+        it[MetricsTables.DeriveRuns.processingVersion] = 1
+        it[MetricsTables.DeriveRuns.startedAt] = startedAt
+        it[MetricsTables.DeriveRuns.status] = "SUCCEEDED"
     }
 }
 
 internal suspend fun deleteDeriveRuns(connId: UInt) = suspendTransaction(sharedDatabaseForTests()) {
-    MetricsStore.DeriveRuns.deleteWhere { MetricsStore.DeriveRuns.connectionId eq connId.toInt() }
+    MetricsTables.DeriveRuns.deleteWhere { MetricsTables.DeriveRuns.connectionId eq connId.toInt() }
 }

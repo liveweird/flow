@@ -1,7 +1,7 @@
 package ch.nokillswit.reports
 
 import ch.nokillswit.metrics.MetricsConfigService
-import ch.nokillswit.metrics.MetricsStore
+import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.metrics.WorkingCalendar
 import ch.nokillswit.norm.WorkItemStore
 import io.ktor.server.plugins.BadRequestException
@@ -109,7 +109,7 @@ private suspend fun fetchWipCells(
     lastDay: String,
 ): List<WipCell> {
     if (connectionIds.isEmpty()) return emptyList()
-    val w = MetricsStore.AggDailyWip
+    val w = MetricsTables.AggDailyWip
     val total = w.itemCount.sum()
     return w.select(w.day, w.statusId, w.stage, total)
         .where {

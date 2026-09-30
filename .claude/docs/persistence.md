@@ -102,7 +102,7 @@ place:
 - `TeamService` joins `UserService.Users` for the roster's display fields and the active-member
   counts, and checks member ids against active users inside the create/add transaction.
 - `TeamService.delete` (v0.3.0 M1 commit 3) WRITES `metrics/TeamMembershipService.TeamMembership`
-  and `metrics/MetricsConfigService.Settings` directly, in the SAME transaction as the team's own
+  and `metrics/MetricsSettingsService.Settings` directly, in the SAME transaction as the team's own
   soft delete: it closes/removes the team's D1 Jira-user memberships and bumps the shared
   `config_revision` — see "The `metrics` schema — configuration (V15)" below for why (a deleted
   team must never strand an account behind an `EXCLUDE`-guarded open membership it can no longer
@@ -149,21 +149,21 @@ place:
 - `reports/WipReport.kt` (v0.3.0 M5 commit 15, `GET /api/v1/reports/wip`) reads `norm/WorkItemStore.Statuses`
   (status names for `by=STATUS`), `norm/WorkItemStore.BoardColumns` (the mapped board's columns for `by=COLUMN`, read
   at query time so a board edit shows up without a re-derive) and `metrics/MetricsConfigService.BoardTeamMap` (which
-  board a team owns) directly, inside its own transaction — read-only, and `metrics/MetricsStore.AggDailyWip` for the
-  series itself. `reports/BacklogReport.kt` (`GET /api/v1/reports/backlog`) reads `metrics/MetricsStore.AggDailyFlow`
-  (the backlog trend) and `metrics/MetricsStore.FactSprint` (the mean `delivered_md` behind the backlog in sprints)
-  the same way. `reports/SnapshotSupport.kt`, shared by both, reads `metrics/MetricsStore.DeriveRuns` (the per-connection
+  board a team owns) directly, inside its own transaction — read-only, and `metrics/MetricsTables.AggDailyWip` for the
+  series itself. `reports/BacklogReport.kt` (`GET /api/v1/reports/backlog`) reads `metrics/MetricsTables.AggDailyFlow`
+  (the backlog trend) and `metrics/MetricsTables.FactSprint` (the mean `delivered_md` behind the backlog in sprints)
+  the same way. `reports/SnapshotSupport.kt`, shared by both, reads `metrics/MetricsTables.DeriveRuns` (the per-connection
   newest successful run, via SQL `max()`) for the last-derived-day cut-off.
 - `reports/AgingWipReport.kt` and `reports/BlockedTimeReport.kt` (v0.3.0 M5 commit 15 part b, `GET /api/v1/reports/aging-wip`
   and `/blocked-time`) read `norm/WorkItemStore.WorkItems` (issue key and summary, via the shared `workItemLabels`) and
   `norm/WorkItemStore.People`/`teams/TeamService.Teams` (through `orgGroups`/`accountDisplayNames`) directly, plus the
   `metrics` tables `FactTaskDelivery`, `FactEpicDelivery`, `DimEpic` and `ItemBlocked` -- all read-only, inside the report's
   own transaction.
-- `reports/EpicProgressReport.kt` (v0.3.0 M5 commit 15c, `GET /api/v1/reports/epic-progress`) reads the `metrics` tables
+- `reports/EpicProgressReport.kt` + `EpicProgressTargets.kt`/`EpicProgressEvm.kt`/`EpicProgressRows.kt` (v0.3.0 M5 commit 15c, `GET /api/v1/reports/epic-progress`) reads the `metrics` tables
   `AggDailyFlow` (the per-day PV/EV/AC increments), `DimDate`, `DimEpic`, `DimDomain`, `FactEpicPlan`, `FactEpicDelivery` (the budget
   fallback) and `FactWorklog` (the team foreign-work share), plus `teams/TeamService.Teams` (team names and the active-team
   list of the unit drill) -- all read-only, inside the report's own transaction.
-- `reports/CostMatrixReport.kt` (v0.3.0 M5 commit 17b, `GET /api/v1/reports/cost-matrix`) reads `metrics/MetricsStore.FactWorklog`
+- `reports/CostMatrixReport.kt` (v0.3.0 M5 commit 17b, `GET /api/v1/reports/cost-matrix`) reads `metrics/MetricsTables.FactWorklog`
   (grouped sums of `md`) and `DimDomain` (column names), plus `teams/TeamService.Teams`/`norm/WorkItemStore.People` through
   `orgGroups` (team names, author display names) -- all read-only, inside the report's own transaction.
 
@@ -465,12 +465,13 @@ ONE GiST index — `btree_gist` is what makes `=` available inside a GiST index 
 
 - **`metrics.settings`** — the ONE global configuration singleton (`id = 1` CHECK, seeded by the
   migration with every column at its documented default), read/written by
-  `metrics/MetricsConfigService.kt`. `time_zone` defaults to `'Europe/Warsaw'`, not UTC (main-session
+  `metrics/MetricsSettingsService.kt` (the table object `MetricsSettingsService.Settings` lives there; the eight
+  per-connection config tables stay nested in `MetricsConfigService`). `time_zone` defaults to `'Europe/Warsaw'`, not UTC (main-session
   amendment A4 — the unit is Polish; an admin can change it). `hours_per_day` is a manual setting in
   v0.3.0 (A5) — reading Jira's own time-tracking configuration is deferred to `BACKLOG.md`.
   `config_revision` is the ONE revision the whole metrics layer is built against: bumped inside
   EVERY config mutation's own transaction — this row's own PUT, `metrics/TeamMembershipService.kt`'s
-  create/update/delete (nested into the SAME transaction via `MetricsConfigService.bumpRevision`,
+  create/update/delete (nested into the SAME transaction via `MetricsSettingsService.bumpRevision`,
   since both live in the `metrics` package — not a cross-feature read), and, from a later commit on,
   every per-connection config PUT.
 - **`metrics.status_stage_map`/`field_config`/`domain_map`/`board_team_map`/`team_sprint_capacity`/
@@ -521,7 +522,7 @@ and every `metrics.*` star table: `dim_date`/`dim_domain`/`dim_task`/`dim_epic`/
 writers). Interval storage mirrors `metrics.team_membership`'s own precedent (V15): half-open
 `valid_from BIGINT NOT NULL, valid_to BIGINT NULL` pairs, no `tstzrange` (no r2dbc-postgresql codec
 for it). Every table is `connection_id`-scoped and rebuilt WHOLESALE per DERIVE run — delete then
-insert, this commit's `MetricsStore.kt` splits each pair into a `deleteX`/`insertX` method so
+insert, `MetricsStore.kt` (the table objects live in `MetricsTables.kt`, the row shapes in `MetricsRows.kt`) splits each pair into a `deleteX`/`insertX` method so
 `MetricsDeriver.kt` can delete ONCE up front and insert BATCH BY BATCH (`.claude/docs/metrics.md`
 "The DERIVE run algorithm") — EXCEPT `dim_date` (global, reconciled by `MetricsStore.ensureDimDate`:
 its own committed `inTopLevelSuspendTransaction` under the advisory lock `DIM_DATE_LOCK_KEY`, writing only rows that
@@ -564,7 +565,7 @@ already rebuilt WHOLESALE by every DERIVE run, unlike `norm.*`'s per-issue REPLA
   `ownerTeamByDomain` (renamed from `ownerTeamByProject` — it resolves per DOMAIN key, since several
   project rows may share one, not per project; see "Owner team" in `.claude/docs/metrics.md`'s
   "Derivation corrections" for the full agreement/fallback algorithm and the A22 soft-deleted-team
-  exclusion) via `MetricsConfigService.resolveOwnerTeamByDomain` (the one shared implementation,
+  exclusion) via `DomainOwnerResolver.resolveOwnerTeamByDomain` (the one shared implementation,
   v0.3.0 M3 commit 9e). This column landed nullable and unwritable through the API in V17/commit
   9d; commit 9e added `domains[].ownerTeamId` to the per-connection metrics-config request/response
   DTO and the OpenAPI spec (`.claude/docs/metrics.md` "Domain owner team") — `MetricsConfigService

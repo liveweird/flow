@@ -6,6 +6,7 @@ import ch.nokillswit.metrics.EpicPlanBaseline
 import ch.nokillswit.metrics.FactEpicPlanRow
 import ch.nokillswit.metrics.FactWorklogRow
 import ch.nokillswit.metrics.MetricsStore
+import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.metrics.WorkingCalendar
 import ch.nokillswit.reports.EpicProgressKind
 import ch.nokillswit.reports.EpicProgressLevel
@@ -62,14 +63,14 @@ private fun List<FlowEvmRow>.totalsThrough(day: String, match: (FlowEvmRow) -> B
 }
 
 private suspend fun readFlowEvmRows(connId: UInt): List<FlowEvmRow> = suspendTransaction(sharedDatabaseForTests()) {
-    val f = MetricsStore.AggDailyFlow
+    val f = MetricsTables.AggDailyFlow
     f.selectAll().where { f.connectionId eq connId }.toList().map {
         FlowEvmRow(it[f.scopeKind], it[f.scopeId], it[f.day], it[f.pvMd], it[f.evMd], it[f.acMd])
     }
 }
 
 private suspend fun insertFlowEvmRows(connId: UInt, rows: List<FlowEvmRow>) = suspendTransaction(sharedDatabaseForTests()) {
-    val f = MetricsStore.AggDailyFlow
+    val f = MetricsTables.AggDailyFlow
     f.batchInsert(rows) {
         this[f.connectionId] = connId
         this[f.scopeKind] = it.scopeKind
@@ -216,7 +217,7 @@ class ReportEpicProgressTest {
         assertEquals(domainBody.rows.map { it.key }, domainBody.rows.map { it.key }.sortedBy { it }, "rows are ordered by key")
         for (row in domainBody.rows) {
             val issueId = suspendTransaction(sharedDatabaseForTests()) {
-                val e = MetricsStore.DimEpic
+                val e = MetricsTables.DimEpic
                 e.selectAll().where { (e.connectionId eq connId) and (e.issueKey eq row.key!!) }.toList().single()[e.issueId]
             }
             val expected = rows.totalsThrough(to) { it.scopeKind == "EPIC" && it.scopeId == issueId.toString() }
@@ -262,7 +263,7 @@ class ReportEpicProgressTest {
         assertEquals(golden.budgetMd, body.series.last().pv, EPS, "and stays there")
 
         val plans = suspendTransaction(sharedDatabaseForTests()) {
-            val p = MetricsStore.FactEpicPlan
+            val p = MetricsTables.FactEpicPlan
             p.selectAll().where { (p.connectionId eq connId) and (p.issueId eq golden.issueId.toLong()) }.toList()
                 .sortedBy { it[p.baselineSeq] }
                 .map { listOf(it[p.startAt], it[p.dueAt], it[p.budgetMd]?.toDouble(), it[p.supersededAt], it[p.baselinedAt]) }
@@ -680,7 +681,7 @@ class ReportEpicProgressTest {
             insertSucceededDerive(connId, noonUtc("2026-06-01"))
             val store = MetricsStore(sharedDatabaseForTests())
             val stampDays = listOf("2026-02-02", "2026-02-03", "2026-02-04")
-            val dd = MetricsStore.DimDate
+            val dd = MetricsTables.DimDate
             val originals = suspendTransaction(sharedDatabaseForTests()) { dd.selectAll().where { dd.day inList stampDays }.toList() }
             val originalRevision = originals.first()[dd.configRevision]
             val originalStamps = originals.map {

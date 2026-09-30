@@ -1,6 +1,7 @@
 package ch.nokillswit
 
 import ch.nokillswit.metrics.MetricsStore
+import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.reports.BlockedTimeReport
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
@@ -33,8 +34,8 @@ private data class DoneFact(
 }
 
 private suspend fun readDoneFacts(connId: UInt): List<DoneFact> = suspendTransaction(sharedDatabaseForTests()) {
-    val t = MetricsStore.FactTaskDelivery
-    val e = MetricsStore.FactEpicDelivery
+    val t = MetricsTables.FactTaskDelivery
+    val e = MetricsTables.FactEpicDelivery
     val tasks = t.selectAll().where { (t.connectionId eq connId) and (t.isSubtask eq false) }.toList().filter { it[t.doneAt] != null }.map {
         DoneFact(
             "TASK", it[t.issueId], it[t.doneAt]!!, it[t.creditTeamId]?.value, it[t.assigneeAccountIdAtDone],
@@ -173,8 +174,8 @@ class ReportBlockedTimeTest {
         try {
             val client = seededClient("reports-blocked-hand-built")
             val query = "connectionId=$connId&from=2026-01-01&to=2026-01-31"
-            val config = DerivedStubFixture.metricsConfig()
-            suspend fun get(q: String) = withMetricsSettings(config, { it.copy(minSampleSize = 2) }) { client.blocked(q) }
+            val metricsSettings = DerivedStubFixture.metricsSettings()
+            suspend fun get(q: String) = withMetricsSettings(metricsSettings, { it.copy(minSampleSize = 2) }) { client.blocked(q) }
 
             val body = get(query)
             assertEquals("TASK", body.itemKind.name)

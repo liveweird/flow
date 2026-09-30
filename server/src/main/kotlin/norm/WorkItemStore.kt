@@ -799,7 +799,7 @@ class WorkItemStore(private val database: R2dbcDatabase) {
      * field could be ANY custom field the admin picks, not necessarily a `select`. Returns the FULL
      * set, uncapped: `work_category_map` id validation must never reject a legitimate value just
      * because it fell outside the OPTIONS endpoint's own display cap
-     * (`MetricsConfigService.options`, [MAX_DISTINCT_FIELD_VALUES]) — the config table itself has
+     * (`MetricsConfigOptions.options`, [MAX_DISTINCT_FIELD_VALUES]) — the config table itself has
      * no such limit.
      */
     suspend fun distinctCustomFieldValues(connectionId: UInt, fieldId: String): List<Pair<String, String?>> =

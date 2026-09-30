@@ -1,6 +1,6 @@
 package ch.nokillswit.reports
 
-import ch.nokillswit.metrics.MetricsStore
+import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.metrics.WorkingCalendar
 import ch.nokillswit.norm.WorkItemStore
 import kotlinx.coroutines.flow.toList
@@ -88,7 +88,7 @@ internal suspend fun workItemLabels(items: Collection<Pair<UInt, Long>>): Map<Pa
     val labels = w.select(w.connectionId, w.issueId, w.issueKey, w.summary)
         .where { (w.connectionId inList connectionIds) and (w.issueId inList issueIds) }
         .toList().associate { (it[w.connectionId].value to it[w.issueId]) to (it[w.issueKey] to it[w.summary]) }
-    val d = MetricsStore.DimEpic
+    val d = MetricsTables.DimEpic
     val epics = d.select(d.connectionId, d.issueId, d.issueKey, d.summary)
         .where { (d.connectionId inList connectionIds) and (d.issueId inList issueIds) }
         .toList().associate { (it[d.connectionId].value to it[d.issueId]) to (it[d.issueKey] to it[d.summary]) }
@@ -172,7 +172,7 @@ private fun bandOf(age: Double, thresholds: List<Pair<Int, Double>>): String? {
 private suspend fun fetchDoneCycles(filter: ReportFilter, connectionIds: List<UInt>, limit: Int, tasks: Boolean): List<Double> {
     if (connectionIds.isEmpty()) return emptyList()
     if (tasks) {
-        val t = MetricsStore.FactTaskDelivery
+        val t = MetricsTables.FactTaskDelivery
         // Thresholds belong to the team, not the user: an `accountId` narrows the listed items only.
         val predicate = taskFactSlice(filter.copy(accountId = null), connectionIds) and
             t.doneAt.isNotNull() and t.cycleWorkingDays.isNotNull()
@@ -180,7 +180,7 @@ private suspend fun fetchDoneCycles(filter: ReportFilter, connectionIds: List<UI
             .orderBy(t.doneAt to SortOrder.DESC, t.issueId to SortOrder.DESC).limit(limit)
             .toList().map { it[t.cycleWorkingDays]!!.toDouble() }
     }
-    val e = MetricsStore.FactEpicDelivery
+    val e = MetricsTables.FactEpicDelivery
     val predicate = epicFactSlice(filter, connectionIds) and e.doneAt.isNotNull() and e.cycleWorkingDays.isNotNull()
     return e.select(e.cycleWorkingDays).where { predicate }
         .orderBy(e.doneAt to SortOrder.DESC, e.issueId to SortOrder.DESC).limit(limit)
@@ -190,7 +190,7 @@ private suspend fun fetchDoneCycles(filter: ReportFilter, connectionIds: List<UI
 /** Open level-0 tasks in an IN_PROGRESS stage (A25: attributed to the CURRENT team and assignee). */
 private suspend fun fetchOpenTasks(filter: ReportFilter, connectionIds: List<UInt>): List<OpenItem> {
     if (connectionIds.isEmpty()) return emptyList()
-    val t = MetricsStore.FactTaskDelivery
+    val t = MetricsTables.FactTaskDelivery
     val predicate = taskFactSlice(filter, connectionIds, openAttribution = true) and t.doneAt.isNull() and
         t.startedAt.isNotNull() and (t.currentStage eq STAGE_IN_PROGRESS)
     return t.select(t.connectionId, t.issueId, t.currentTeamId, t.currentAssigneeAccountId, t.startedAt)
@@ -203,11 +203,11 @@ private suspend fun fetchOpenTasks(filter: ReportFilter, connectionIds: List<UIn
 /** Open epics whose own stage is IN_PROGRESS, attributed to the owner team; epics carry no user, so a user-level read has none. */
 private suspend fun fetchOpenEpics(filter: ReportFilter, connectionIds: List<UInt>): List<OpenItem> {
     if (connectionIds.isEmpty() || filter.accountId != null) return emptyList()
-    val e = MetricsStore.FactEpicDelivery
+    val e = MetricsTables.FactEpicDelivery
     val predicate = epicFactSlice(filter, connectionIds) and e.doneAt.isNull() and e.startedAt.isNotNull()
     val candidates = e.select(e.connectionId, e.issueId, e.ownerTeamId, e.startedAt).where { predicate }.toList()
     if (candidates.isEmpty()) return emptyList()
-    val d = MetricsStore.DimEpic
+    val d = MetricsTables.DimEpic
     val inProgress = d.select(d.connectionId, d.issueId)
         .where {
             (d.connectionId inList candidates.map { it[e.connectionId].value }.distinct()) and
@@ -229,7 +229,7 @@ private suspend fun openBlocked(items: List<OpenItem>): Set<Pair<UInt, Long>> {
     if (items.isEmpty()) return emptySet()
     val clocks = deriveClocks(items.map { it.connectionId }.distinct())
     if (clocks.isEmpty()) return emptySet()
-    val b = MetricsStore.ItemBlocked
+    val b = MetricsTables.ItemBlocked
     return b.select(b.connectionId, b.issueId, b.validFrom, b.validTo)
         .where {
             (b.connectionId inList clocks.keys.toList()) and (b.issueId inList items.map { it.issueId }.distinct()) and

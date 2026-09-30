@@ -2,7 +2,7 @@ package ch.nokillswit.reports
 
 import ch.nokillswit.ingest.DataSourceService
 import ch.nokillswit.metrics.MetricsConfigService
-import ch.nokillswit.metrics.MetricsStore
+import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.norm.StatusCategory
 import ch.nokillswit.norm.WorkItemStore
 import kotlinx.coroutines.flow.toList
@@ -181,7 +181,7 @@ private const val WARNING_SPRINT_FIELD_UNRESOLVED = "sprintFieldUnresolved"
 internal suspend fun fetchUnownedDomains(filter: ReportFilter, connectionIds: List<UInt>): List<UnownedDomain> {
     val teamScoped = filter.teamId != null && filter.teamId != UNASSIGNED_TEAM_ID
     if (connectionIds.isEmpty() || teamScoped) return emptyList()
-    val d = MetricsStore.DimDomain
+    val d = MetricsTables.DimDomain
     val domains = d.select(d.connectionId, d.domainKey, d.name, d.projectKeys)
         .where {
             var predicate = (d.connectionId inList connectionIds) and d.ownerTeamId.isNull()
@@ -189,7 +189,7 @@ internal suspend fun fetchUnownedDomains(filter: ReportFilter, connectionIds: Li
             predicate
         }.toList()
     if (domains.isEmpty()) return emptyList()
-    val e = MetricsStore.DimEpic
+    val e = MetricsTables.DimEpic
     val size = Count(e.issueId)
     val domainConnections = domains.map { it[d.connectionId].value }.distinct()
     val epics = e.select(e.connectionId, e.domainKey, size).where { e.connectionId inList domainConnections }
@@ -214,7 +214,7 @@ internal suspend fun fetchUnmappedStatuses(connectionIds: List<UInt>, mappings: 
     val s = WorkItemStore.Statuses
     val statuses = s.select(s.connectionId, s.statusId, s.name, s.category).where { s.connectionId inList connectionIds }.toList()
         .associateBy { it[s.connectionId].value to it[s.statusId] }
-    val i = MetricsStore.ItemStage
+    val i = MetricsTables.ItemStage
     val ever = Count(i.issueId, distinct = true)
     val tiled = i.select(i.connectionId, i.statusId, ever)
         .where { (i.connectionId inList connectionIds) and (i.stage eq STAGE_UNMAPPED) }.groupBy(i.connectionId, i.statusId).toList()
@@ -270,8 +270,8 @@ private const val MD_TOLERANCE = SPRINT_DRIFT_TOLERANCE_MD
 private const val ITEMS_TOLERANCE = 0.0
 private const val LOAD_TOLERANCE = 0.0005
 
-private val LIVE = MetricsStore.FactSprint
-private val FROZEN = MetricsStore.FactSprintSnapshot
+private val LIVE = MetricsTables.FactSprint
+private val FROZEN = MetricsTables.FactSprintSnapshot
 
 private val SPRINT_FIGURES: List<SprintFigure> = listOf(
     SprintFigure("committedMd", MD_TOLERANCE, LIVE.committedMd, FROZEN.committedMd),
@@ -303,8 +303,8 @@ internal suspend fun fetchSnapshotDrift(sprints: List<SprintRow>): List<Snapshot
     if (closed.isEmpty()) return emptyList()
     val connectionIds = closed.map { it.connectionId }.distinct()
     val sprintIds = closed.map { it.sprintId }.distinct()
-    val live = MetricsStore.FactSprint
-    val frozen = MetricsStore.FactSprintSnapshot
+    val live = MetricsTables.FactSprint
+    val frozen = MetricsTables.FactSprintSnapshot
     val liveRows = live.selectAll().where { (live.connectionId inList connectionIds) and (live.sprintId inList sprintIds) }.toList()
         .associateBy { it[live.connectionId].value to it[live.sprintId] }
     val frozenRows = frozen.selectAll().where { (frozen.connectionId inList connectionIds) and (frozen.sprintId inList sprintIds) }
@@ -330,7 +330,7 @@ private fun driftOf(sprint: SprintRow, figure: SprintFigure, liveRow: ResultRow,
         connectionId = sprint.connectionId, sprintId = sprint.sprintId, name = sprint.name, teamId = sprint.teamId,
         completeAt = sprint.completedAt, field = figure.name, live = live, frozen = frozen,
         delta = if (live != null && frozen != null) live - frozen else null,
-        reconstructed = frozenRow[MetricsStore.FactSprintSnapshot.reconstructed],
+        reconstructed = frozenRow[MetricsTables.FactSprintSnapshot.reconstructed],
     )
 }
 
@@ -342,7 +342,7 @@ private fun driftOf(sprint: SprintRow, figure: SprintFigure, liveRow: ResultRow,
  */
 internal suspend fun fetchDeriveWarnings(deriveClocks: Map<UInt, Long>): List<DeriveWarning> {
     if (deriveClocks.isEmpty()) return emptyList()
-    val r = MetricsStore.DeriveRuns
+    val r = MetricsTables.DeriveRuns
     val newest = deriveClocks.map { (connectionId, startedAt) -> (r.connectionId eq connectionId.toInt()) and (r.startedAt eq startedAt) }
         .reduce { a, b -> a or b }
     val flagged = r.select(r.id, r.connectionId, r.startedAt, r.rowCounts).where { (r.status eq DERIVE_RUN_SUCCEEDED) and newest }

@@ -1,6 +1,7 @@
 package ch.nokillswit
 
 import ch.nokillswit.metrics.MetricsStore
+import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.reports.CycleTimeReport
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
@@ -170,7 +171,7 @@ class ReportCycleTimeTest {
         assertTrue(sprintIds.isNotEmpty())
         assertNull(body.meta.from)
         val bounds = suspendTransaction(sharedDatabaseForTests()) {
-            val d = MetricsStore.DimSprint
+            val d = MetricsTables.DimSprint
             val rows = d.selectAll().where { (d.connectionId eq connId) and (d.sprintId inList sprintIds) }.toList()
             rows.minOf { it[d.startAt] ?: it[d.completeAt]!! } to rows.maxOf { it[d.completeAt]!! } + 1
         }

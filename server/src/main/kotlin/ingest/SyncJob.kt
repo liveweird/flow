@@ -12,8 +12,8 @@ import kotlinx.serialization.json.JsonObject
 /**
  * `DERIVE` (v0.3.0 M3 commit 7, `.claude/docs/ingestion.md` "The DERIVE job kind") is a
  * connector-agnostic job — it reads `norm`/the metrics config and writes `metrics.*`, never
- * touching Jira. `ingest/IngestWorker.kt` dispatches it to `metrics/MetricsDeriver.kt` BEFORE
- * consulting the connector registry.
+ * touching Jira. `ingest/IngestWorker.kt` dispatches it through `ingest/JobHandlers.kt`'s registry (the
+ * handler `metrics/MetricsJobHandlers.kt` registers) BEFORE consulting the connector registry.
  */
 enum class SyncJobKind { SYNC, RECONCILE, REPROCESS, PURGE, DERIVE }
 

@@ -46,7 +46,7 @@ data class TeamMembershipUpdateOutcome(val response: TeamMembershipResponse, val
  */
 class TeamMembershipService(
     private val database: R2dbcDatabase,
-    private val metricsConfig: MetricsConfigService,
+    private val metricsSettings: MetricsSettingsService,
 ) {
     object TeamMembership : UIntIdTable("metrics.team_membership") {
         val accountId = varchar("account_id", MAX_ACCOUNT_ID_LENGTH)
@@ -72,7 +72,7 @@ class TeamMembershipService(
      * 500). An overlapping `[validFrom, validTo)` for the SAME account id raises SQLSTATE 23P01 at
      * the database (the EXCLUDE constraint, invariant 1) — propagated uncaught to
      * `plugins/ErrorHandling.kt`'s central 409 mapping. Bumps the shared config revision in the
-     * SAME transaction (nested — `MetricsConfigService.bumpRevision` reuses this connection).
+     * SAME transaction (nested — `MetricsSettingsService.bumpRevision` reuses this connection).
      */
     suspend fun create(teamId: UInt, request: TeamMembershipCreateRequest): TeamMembershipResponse = suspendTransaction(database) {
         validateTeamMembershipCreate(request) // re-checked service-side so direct callers stay guarded
@@ -87,7 +87,7 @@ class TeamMembershipService(
             it[createdAt] = stamp
             it[updatedAt] = stamp
         }[TeamMembership.id].value
-        metricsConfig.bumpRevision()
+        metricsSettings.bumpRevision()
         readRow(teamId, id).orVanished("Team membership", id)
     }
 
@@ -109,7 +109,7 @@ class TeamMembershipService(
                 it[validTo] = request.validTo
                 it[updatedAt] = nowMillis()
             }
-            metricsConfig.bumpRevision()
+            metricsSettings.bumpRevision()
             val updated = readRow(teamId, membershipId).orVanished("Team membership", membershipId)
             TeamMembershipUpdateOutcome(updated, changed = true)
         }
@@ -123,7 +123,7 @@ class TeamMembershipService(
         val existing = readRow(teamId, membershipId) ?: return@suspendTransaction null
         val removed = TeamMembership.deleteWhere { (TeamMembership.id eq membershipId) and (TeamMembership.teamId eq teamId) }
         if (removed == 0) return@suspendTransaction null
-        metricsConfig.bumpRevision()
+        metricsSettings.bumpRevision()
         existing
     }
 

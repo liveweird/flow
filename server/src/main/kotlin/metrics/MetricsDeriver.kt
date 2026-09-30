@@ -9,7 +9,6 @@ import ch.nokillswit.norm.SprintRef
 import ch.nokillswit.norm.TrackedField
 import ch.nokillswit.norm.WorkItemStore
 import ch.nokillswit.teams.TeamService
-import io.ktor.util.AttributeKey
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.withContext
@@ -23,8 +22,6 @@ import org.jetbrains.exposed.v1.r2dbc.insert
 import org.jetbrains.exposed.v1.r2dbc.select
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.r2dbc.update
-
-val MetricsDeriverKey = AttributeKey<MetricsDeriver>("MetricsDeriver")
 
 /** Shared across every `Derive*.kt` file (`DeriveModel.kt`/`DeriveTaskRows.kt`/`DeriveWorklogStep.kt`/
  * `DeriveSprintStep.kt`/`DeriveEpicPlanStep.kt`) — an epic is level 1, never "type name = Epic". */
@@ -68,7 +65,9 @@ internal const val ISSUE_KEY_FIELD_ID = "issuekey"
  */
 class MetricsDeriver(
     private val workItemStore: WorkItemStore,
+    private val metricsSettings: MetricsSettingsService,
     private val metricsConfig: MetricsConfigService,
+    private val domainOwners: DomainOwnerResolver,
     private val teamMembership: TeamMembershipService,
     private val metricsStore: MetricsStore,
     private val database: R2dbcDatabase,
@@ -92,7 +91,7 @@ class MetricsDeriver(
         val jobId = context.claim.id
         val now = context.clock()
         val (settings, config) = suspendTransaction(database) {
-            metricsConfig.read() to metricsConfig.effectiveConfig(connectionId)
+            metricsSettings.read() to metricsConfig.effectiveConfig(connectionId)
         }
         val calendar = WorkingCalendar.of(settings)
 
@@ -105,21 +104,21 @@ class MetricsDeriver(
             // OTHER RUNNING row for this connection belongs to a worker that died mid-DERIVE (SIGKILL,
             // lost lease) and can never finish — nothing else would ever mark it terminal, and
             // `pruneDeriveRuns` only deletes SUCCEEDED/FAILED rows. Same transaction as our own insert.
-            MetricsStore.DeriveRuns.update({
-                (MetricsStore.DeriveRuns.connectionId eq connectionId.toInt()) and (MetricsStore.DeriveRuns.status eq "RUNNING")
+            MetricsTables.DeriveRuns.update({
+                (MetricsTables.DeriveRuns.connectionId eq connectionId.toInt()) and (MetricsTables.DeriveRuns.status eq "RUNNING")
             }) {
                 it[status] = "FAILED"
-                it[MetricsStore.DeriveRuns.finishedAt] = now
+                it[MetricsTables.DeriveRuns.finishedAt] = now
                 it[errorDetail] = ABANDONED_RUN_DETAIL
             }
-            MetricsStore.DeriveRuns.insert {
-                it[MetricsStore.DeriveRuns.connectionId] = connectionId.toInt()
-                it[MetricsStore.DeriveRuns.jobId] = jobId.toInt()
-                it[MetricsStore.DeriveRuns.configRevision] = settings.configRevision
-                it[MetricsStore.DeriveRuns.processingVersion] = PROCESSING_VERSION
-                it[MetricsStore.DeriveRuns.startedAt] = now
-                it[MetricsStore.DeriveRuns.status] = "RUNNING"
-            }[MetricsStore.DeriveRuns.id]
+            MetricsTables.DeriveRuns.insert {
+                it[MetricsTables.DeriveRuns.connectionId] = connectionId.toInt()
+                it[MetricsTables.DeriveRuns.jobId] = jobId.toInt()
+                it[MetricsTables.DeriveRuns.configRevision] = settings.configRevision
+                it[MetricsTables.DeriveRuns.processingVersion] = PROCESSING_VERSION
+                it[MetricsTables.DeriveRuns.startedAt] = now
+                it[MetricsTables.DeriveRuns.status] = "RUNNING"
+            }[MetricsTables.DeriveRuns.id]
         }
 
         try {
@@ -246,9 +245,9 @@ class MetricsDeriver(
         suspendTransaction(database) {
             // Only while still RUNNING: a newer DERIVE of the same connection may already have swept this run
             // FAILED as abandoned (a lease-expired zombie) — its late write must not overwrite that.
-            MetricsStore.DeriveRuns.update({ (MetricsStore.DeriveRuns.id eq runId) and (MetricsStore.DeriveRuns.status eq "RUNNING") }) {
+            MetricsTables.DeriveRuns.update({ (MetricsTables.DeriveRuns.id eq runId) and (MetricsTables.DeriveRuns.status eq "RUNNING") }) {
                 it[status] = "SUCCEEDED"
-                it[MetricsStore.DeriveRuns.finishedAt] = finishedAt
+                it[MetricsTables.DeriveRuns.finishedAt] = finishedAt
                 it[rowCounts] = countsJson
             }
         }
@@ -258,9 +257,9 @@ class MetricsDeriver(
         suspendTransaction(database) {
             // Only while still RUNNING: a newer DERIVE of the same connection may already have swept this run
             // FAILED as abandoned (a lease-expired zombie) — its late write must not overwrite that.
-            MetricsStore.DeriveRuns.update({ (MetricsStore.DeriveRuns.id eq runId) and (MetricsStore.DeriveRuns.status eq "RUNNING") }) {
+            MetricsTables.DeriveRuns.update({ (MetricsTables.DeriveRuns.id eq runId) and (MetricsTables.DeriveRuns.status eq "RUNNING") }) {
                 it[status] = "FAILED"
-                it[MetricsStore.DeriveRuns.finishedAt] = finishedAt
+                it[MetricsTables.DeriveRuns.finishedAt] = finishedAt
                 it[errorDetail] = failure.message?.take(MAX_ERROR_DETAIL_LENGTH)
             }
         }
@@ -346,7 +345,7 @@ class MetricsDeriver(
     /**
      * A19/A22 (`.claude/docs/domain-model.md` "Amendments", `.claude/docs/metrics.md`): each
      * configured DOMAIN's (not project's — several project rows may share one `domainKey`) owner
-     * team, resolved via the ONE shared implementation, `MetricsConfigService
+     * team, resolved via the ONE shared implementation, `DomainOwnerResolver
      * .resolveOwnerTeamByDomain` (moved there in v0.3.0 M3 commit 9e so the metrics-config GET's
      * own owner-default filling never duplicates this algorithm) — see that function's own doc for
      * the agreement/fallback rules. [configuredOwners] is read UNFILTERED by team activity: a
@@ -359,11 +358,11 @@ class MetricsDeriver(
         boardTeamByBoardId: Map<Long, UInt>,
         activeTeamIds: Set<UInt>,
     ): Map<String, UInt> {
-        val configuredOwners = metricsConfig.domainOwnerTeamIds(connectionId)
+        val configuredOwners = domainOwners.domainOwnerTeamIds(connectionId)
         val boardsByProject = workItemStore.allBoardRefs(connectionId).filter { it.projectKey != null }
             .groupBy({ it.projectKey!! }, { it.boardId })
         val projectKeysByDomain = config.domains.groupBy({ it.domainKey }, { it.projectKey })
-        return metricsConfig.resolveOwnerTeamByDomain(
+        return domainOwners.resolveOwnerTeamByDomain(
             projectKeysByDomain, configuredOwners, boardsByProject, boardTeamByBoardId, activeTeamIds,
         )
     }

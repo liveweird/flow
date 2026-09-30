@@ -3,6 +3,7 @@ package ch.nokillswit
 import ch.nokillswit.metrics.DimEpicRow
 import ch.nokillswit.metrics.ItemBlockedRow
 import ch.nokillswit.metrics.MetricsStore
+import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.metrics.TeamMembershipService
 import ch.nokillswit.reports.AgingWipReport
 import ch.nokillswit.reports.DomainView
@@ -59,8 +60,8 @@ class ReportAgingWipTest {
     )
 
     private fun service(): ReportService {
-        val config = DerivedStubFixture.metricsConfig()
-        return ReportService(sharedDatabaseForTests(), config, TeamMembershipService(sharedDatabaseForTests(), config))
+        val metricsSettings = DerivedStubFixture.metricsSettings()
+        return ReportService(sharedDatabaseForTests(), metricsSettings, TeamMembershipService(sharedDatabaseForTests(), metricsSettings))
     }
 
     @Test
@@ -69,19 +70,19 @@ class ReportAgingWipTest {
         val connId = DerivedStubFixture.connectionId()
         val client = seededClient("reports-aging-fixture")
         val facts = suspendTransaction(sharedDatabaseForTests()) {
-            val t = MetricsStore.FactTaskDelivery
-            val e = MetricsStore.FactEpicDelivery
-            val d = MetricsStore.DimEpic
+            val t = MetricsTables.FactTaskDelivery
+            val e = MetricsTables.FactEpicDelivery
+            val d = MetricsTables.DimEpic
             val inProgressEpics = d.selectAll().where { (d.connectionId eq connId) and (d.currentStage eq "IN_PROGRESS") }.toList()
                 .map { it[d.issueId] }.toSet()
             Triple(
                 t.selectAll().where { (t.connectionId eq connId) and (t.isSubtask eq false) }.toList(),
                 e.selectAll().where { e.connectionId eq connId }.toList().filter { it[e.issueId] in inProgressEpics },
-                MetricsStore.DeriveRuns.selectAll().toList().size,
+                MetricsTables.DeriveRuns.selectAll().toList().size,
             )
         }
-        val t = MetricsStore.FactTaskDelivery
-        val e = MetricsStore.FactEpicDelivery
+        val t = MetricsTables.FactTaskDelivery
+        val e = MetricsTables.FactEpicDelivery
         val openTasks = facts.first.count { it[t.doneAt] == null && it[t.startedAt] != null && it[t.currentStage] == "IN_PROGRESS" }
         val openEpics = facts.second.count { it[e.doneAt] == null && it[e.startedAt] != null }
         assertTrue(openTasks > 0 && openEpics >= 0, "the fixture must carry in-progress tasks")
@@ -90,7 +91,7 @@ class ReportAgingWipTest {
         // `blocked` = an item_blocked row covering the connection's derive clock (the deriver closes open spells AT it).
         val clock = DerivedStubFixture.PINNED_NOW
         val blockedIds = suspendTransaction(sharedDatabaseForTests()) {
-            val b = MetricsStore.ItemBlocked
+            val b = MetricsTables.ItemBlocked
             b.selectAll().where { b.connectionId eq connId }.toList()
                 .filter { it[b.validFrom] <= clock && (it[b.validTo]?.let { to -> to >= clock } ?: true) }.map { it[b.issueId] }.toSet()
         }
@@ -114,7 +115,7 @@ class ReportAgingWipTest {
         assertTrue(body.items.all { it.issueKey.isNotBlank() && it.issueKey.any { c -> c == '-' } }, "keys come from norm.work_items")
 
         // Thresholds: the configured percentiles of the LAST N done tasks' cycle working days, from the raw rows.
-        val settings = suspendTransaction(sharedDatabaseForTests()) { DerivedStubFixture.metricsConfig().read() }
+        val settings = suspendTransaction(sharedDatabaseForTests()) { DerivedStubFixture.metricsSettings().read() }
         val done = facts.first.filter { it[t.doneAt] != null && it[t.cycleWorkingDays] != null }
             .sortedByDescending { it[t.doneAt] }.take(settings.agingWindowItems).map { it[t.cycleWorkingDays]!!.toDouble() }.sorted()
         assertEquals(done.size.toLong(), body.thresholds.n)
@@ -182,8 +183,8 @@ class ReportAgingWipTest {
             )
         }
         try {
-            val config = DerivedStubFixture.metricsConfig()
-            val body = withMetricsSettings(config, { it.copy(agingWindowItems = 5, minSampleSize = 2) }) {
+            val metricsSettings = DerivedStubFixture.metricsSettings()
+            val body = withMetricsSettings(metricsSettings, { it.copy(agingWindowItems = 5, minSampleSize = 2) }) {
                 service().agingWip(filter(connId, teamX), now)
             }
             // Keys fall back to the issue id: hand-built issues have no norm.work_items rows.
@@ -216,21 +217,21 @@ class ReportAgingWipTest {
             assertEquals(false, body.itemsTruncated)
 
             // Hidden thresholds (minimum sample size above n) leave every task without a band.
-            val hidden = withMetricsSettings(config, { it.copy(agingWindowItems = 5, minSampleSize = 6) }) {
+            val hidden = withMetricsSettings(metricsSettings, { it.copy(agingWindowItems = 5, minSampleSize = 6) }) {
                 service().agingWip(filter(connId, teamX), now)
             }
             assertTrue(hidden.thresholds.hidden && hidden.thresholds.percentiles.all { it.workingDays == null })
             assertTrue(hidden.items.all { it.band == null })
 
             // USER level narrows the listed tasks to that assignee (epics have no user) but keeps the team's thresholds.
-            val user = withMetricsSettings(config, { it.copy(agingWindowItems = 5, minSampleSize = 2) }) {
+            val user = withMetricsSettings(metricsSettings, { it.copy(agingWindowItems = 5, minSampleSize = 2) }) {
                 service().agingWip(filter(connId, teamX, "acc-1"), now)
             }
             assertEquals(listOf("11"), user.items.map { it.issueKey })
             assertEquals(5, user.thresholds.n)
             assertEquals("WITHIN", user.items.single().band)
             // UNIT level lists team Y's task too.
-            val unit = withMetricsSettings(config, { it.copy(agingWindowItems = 5, minSampleSize = 2) }) {
+            val unit = withMetricsSettings(metricsSettings, { it.copy(agingWindowItems = 5, minSampleSize = 2) }) {
                 service().agingWip(filter(connId), now)
             }
             assertTrue(unit.items.any { it.issueKey == "21" && it.teamId == teamY })
@@ -240,7 +241,7 @@ class ReportAgingWipTest {
                 store.deleteFactTaskDelivery(connId)
                 store.deleteFactEpicDelivery(connId)
                 store.deleteDims(connId)
-                MetricsStore.ItemBlocked.deleteWhere { MetricsStore.ItemBlocked.connectionId eq connId }
+                MetricsTables.ItemBlocked.deleteWhere { MetricsTables.ItemBlocked.connectionId eq connId }
             }
             deleteDeriveRuns(connId)
             cleanUpTeams(listOf(teamX, teamY))
