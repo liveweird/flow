@@ -4,14 +4,6 @@ import ch.nokillswit.audit.audit
 import ch.nokillswit.infra.config.requireConfigInt
 import ch.nokillswit.infra.config.requireConfigLong
 import ch.nokillswit.infra.time.MILLIS_PER_DAY
-import ch.nokillswit.metrics.MetricsConfigService
-import ch.nokillswit.metrics.MetricsConfigServiceKey
-import ch.nokillswit.metrics.MetricsDeriver
-import ch.nokillswit.metrics.MetricsDeriverKey
-import ch.nokillswit.metrics.MetricsSettingsService
-import ch.nokillswit.metrics.MetricsSettingsServiceKey
-import ch.nokillswit.metrics.MetricsStore
-import ch.nokillswit.metrics.MetricsStoreKey
 import ch.nokillswit.plugins.runsWorker
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationStarted
@@ -118,13 +110,17 @@ fun Application.configureIngestWorker() {
             ?: app.attributes.getOrNull(ConnectorRegistryKey)
             ?: emptyMap()
         val clock = app.attributes.getOrNull(IngestClockKey) ?: System::currentTimeMillis
+        val handlers = app.jobHandlerRegistry()
+        // Fail closed at boot, as the direct attribute reads this registry replaced did: a worker whose
+        // DERIVE handler and revision source were never registered (configureMetrics missing from the module
+        // list) would fail every DERIVE and, worse, run PURGE without its metrics drains.
+        check(handlers.handlerFor(SyncJobKind.DERIVE) != null && handlers.configRevisionSource != null) {
+            "configureIngestWorker: no DERIVE handler / config revision source registered — configureMetrics must run first"
+        }
         val worker = IngestWorker(
             syncJobs = app.attributes[SyncJobsServiceKey],
             dataSources = app.attributes[DataSourceServiceKey],
-            metricsConfig = app.attributes[MetricsConfigServiceKey],
-            metricsSettings = app.attributes[MetricsSettingsServiceKey],
-            metricsStore = app.attributes[MetricsStoreKey],
-            deriver = app.attributes[MetricsDeriverKey],
+            handlers = handlers,
             connectors = connectors,
             config = config,
             clock = clock,
@@ -165,10 +161,7 @@ class JobCancelRequestedException(jobId: UInt) : Exception("Cancel requested for
 class IngestWorker(
     private val syncJobs: SyncJobsService,
     private val dataSources: DataSourceService,
-    private val metricsConfig: MetricsConfigService,
-    private val metricsSettings: MetricsSettingsService,
-    private val metricsStore: MetricsStore,
-    private val deriver: MetricsDeriver,
+    private val handlers: JobHandlerRegistry,
     private val connectors: Map<DataSourceKind, Connector>,
     private val config: IngestConfig,
     private val clock: () -> Long,
@@ -251,25 +244,28 @@ class IngestWorker(
                 }
                 // DERIVE (v0.3.0 M3 commit 7, `.claude/docs/ingestion.md` "The DERIVE job kind") is
                 // connector-agnostic — dispatched here BEFORE the connector registry, so it runs
-                // regardless of which connector kind the connection is. `derive()` returns the
-                // `metrics.settings.config_revision` it read at its own start — `onSucceeded` below
-                // compares it against the CURRENT revision, so a config change that landed WHILE this
-                // run was in flight (and so coalesced into it rather than getting its own job, see
-                // `uq_sync_jobs_open_per_kind`) is never silently lost (review round 1 fix).
+                // regardless of which connector kind the connection is. Its handler (registered by
+                // `metrics/MetricsJobHandlers.kt` through `JobHandlers.kt`, checkup D5 — `ingest/` never
+                // imports `metrics/`) returns the `metrics.settings.config_revision` it read at its own
+                // start — `onSucceeded` below compares it against the CURRENT revision, so a config
+                // change that landed WHILE this run was in flight (and so coalesced into it rather than
+                // getting its own job, see `uq_sync_jobs_open_per_kind`) is never silently lost (review
+                // round 1 fix). A DERIVE job with no registered handler is an error, never a silent success.
                 if (claim.kind == SyncJobKind.DERIVE) {
-                    deriveRevisionUsed = deriver.derive(context)
+                    val handler = handlers.handlerFor(SyncJobKind.DERIVE)
+                        ?: error("No handler registered for job kind DERIVE (sync job ${claim.id})")
+                    deriveRevisionUsed = handler.run(context)
                 } else {
                     connectors[claim.connectorKind]?.run(context)
                 }
-                // The generic, connector-agnostic PURGE step (v0.3.0 M1 commit 4,
-                // `.claude/docs/ingestion.md` "PURGE"): runs AFTER the connector's own
-                // `purgeSteps` (which drain its `raw.*`/`norm.*` rows) — every per-connection
-                // `metrics.*` config row AND every derived `metrics.*` star row is connector-agnostic,
-                // so both are drained here rather than inside `JiraConnector.purgeSteps` (review
-                // round 1 fix: `MetricsStore.purgeAll` had no caller until now).
+                // The generic, connector-agnostic PURGE steps (v0.3.0 M1 commit 4,
+                // `.claude/docs/ingestion.md` "PURGE"): run AFTER the connector's own `purgeSteps`
+                // (which drain its `raw.*`/`norm.*` rows), in registration order — `metrics/` registers
+                // the per-connection `metrics.*` config drain, then the derived-star drain
+                // (`MetricsStore.purgeAll`), so both are drained here rather than inside
+                // `JiraConnector.purgeSteps` (review round 1 fix).
                 if (claim.kind == SyncJobKind.PURGE) {
-                    metricsConfig.purgeConnectionConfig(claim.connectionId)
-                    metricsStore.purgeAll(claim.connectionId)
+                    handlers.purgeSteps().forEach { it.purge(claim.connectionId) }
                 }
                 ticker.cancel()
             }
@@ -319,7 +315,10 @@ class IngestWorker(
         // OLD configuration. Compare the revision it recorded against the CURRENT one and enqueue a
         // fresh DERIVE if it is now stale (review round 1 fix) — coalescing again is harmless once
         // this run's own row is terminal.
-        if (claim.kind == SyncJobKind.DERIVE && deriveRevisionUsed != null && metricsSettings.currentRevision() > deriveRevisionUsed) {
+        val revisionSource = handlers.configRevisionSource
+        if (claim.kind == SyncJobKind.DERIVE && deriveRevisionUsed != null && revisionSource != null &&
+            revisionSource.currentRevision() > deriveRevisionUsed
+        ) {
             dataSources.read(claim.connectionId)?.let { connection ->
                 syncJobs.enqueueScheduled(claim.connectionId, SyncJobKind.DERIVE, connection.configRevision, clock())
             }

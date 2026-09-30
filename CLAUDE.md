@@ -238,6 +238,9 @@ ch.nokillswit
 │                       per-stream resumable cursor store) + IngestWorker.kt (the `FLOW_ROLE=worker`
 │                       scheduler: enqueues due jobs, claims with a lease/heartbeat under
 │                       `FOR UPDATE SKIP LOCKED`, runs each claim's connector, releases on shutdown)
+│                       + JobHandlers.kt (`JobHandlerRegistry` on `attributes`: the DERIVE handler,
+│                       the extra PURGE steps and the config-revision source other packages plug
+│                       in — `ingest/` never imports `metrics/`, checkup D5)
 │                       + Stream.kt (the `Stream`/`StreamContext` contract every stream implements)
 │                       + SyncStatus.kt/SyncStatusRoutes.kt (GET …/{id}/status), RawIssueInspection
 │                       .kt/RawIssueInspectorRoutes.kt (GET …/{id}/raw-issues/{issueKey}),
@@ -263,6 +266,8 @@ ch.nokillswit
 │                       DataSourceMetricsConfig, WorkingCalendar, MetricsDeriver + Derive*Step/
 │                       Kernels/Model/TaskRows files, MetricsStore (the batch writers) + MetricsTables (the Exposed
 │                       table objects, `MetricsTables.DimDate` …) + MetricsRows (the row shapes) (V15–V17 `metrics.*`)
+│                       + MetricsJobHandlers.kt (`registerMetricsHandlers`: how `configureMetrics` plugs DERIVE and the
+│                       metrics PURGE drains into `ingest/JobHandlers.kt`'s registry)
 └── reports/            the reports API (`.claude/docs/reports.md`): shared filter/`meta`/
                         `Distribution` machinery (ReportSupport, SnapshotSupport, DataQuality*)
                         + one `<Name>Report.kt` per report

@@ -9,7 +9,6 @@ import ch.nokillswit.norm.SprintRef
 import ch.nokillswit.norm.TrackedField
 import ch.nokillswit.norm.WorkItemStore
 import ch.nokillswit.teams.TeamService
-import io.ktor.util.AttributeKey
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.withContext
@@ -23,8 +22,6 @@ import org.jetbrains.exposed.v1.r2dbc.insert
 import org.jetbrains.exposed.v1.r2dbc.select
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.r2dbc.update
-
-val MetricsDeriverKey = AttributeKey<MetricsDeriver>("MetricsDeriver")
 
 /** Shared across every `Derive*.kt` file (`DeriveModel.kt`/`DeriveTaskRows.kt`/`DeriveWorklogStep.kt`/
  * `DeriveSprintStep.kt`/`DeriveEpicPlanStep.kt`) — an epic is level 1, never "type name = Epic". */

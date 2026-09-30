@@ -23,7 +23,6 @@ import ch.nokillswit.metrics.MetricsTables.TaskAssignee
 import ch.nokillswit.metrics.MetricsTables.TaskDomain
 import ch.nokillswit.metrics.MetricsTables.TaskEpic
 import ch.nokillswit.metrics.MetricsTables.TaskSprint
-import io.ktor.util.AttributeKey
 import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
@@ -39,8 +38,6 @@ import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.inTopLevelSuspendTransaction
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import java.time.LocalDate
-
-val MetricsStoreKey = AttributeKey<MetricsStore>("MetricsStore")
 
 /**
  * The ONE PostgreSQL advisory-lock key of [MetricsStore.ensureDimDate] — the ASCII bytes of

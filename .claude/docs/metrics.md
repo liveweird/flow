@@ -161,8 +161,10 @@ has no such limit — only the OPTIONS listing is capped).
 
 A soft-deleted connection's PURGE job (`.claude/docs/ingestion.md` "Job orders") drains its
 per-connection `metrics.*` config rows through a GENERIC, connector-agnostic worker step —
-`MetricsConfigService.purgeConnectionConfig`, called from `ingest/IngestWorker.kt`'s `runJob` right
-after the connector's own `purgeSteps` finish. This is deliberately NOT wired into
+`MetricsConfigService.purgeConnectionConfig`, registered as a `PurgeStep` by
+`metrics/MetricsJobHandlers.kt` and run by `ingest/IngestWorker.kt`'s `runJob` (through
+`ingest/JobHandlers.kt`'s registry — `ingest/` never imports `metrics/`) right after the connector's
+own `purgeSteps` finish. This is deliberately NOT wired into
 `JiraConnector.purgeSteps`: the eight tables it drains hold no Jira-specific shape at all (a future
 GitLab connector's connection would purge through the exact same call), so the cleanup lives beside
 the OTHER connector-agnostic PURGE work the worker itself already owns, not duplicated per

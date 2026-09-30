@@ -13,6 +13,7 @@ import ch.nokillswit.ingest.IngestConnectorOverrideKey
 import ch.nokillswit.ingest.IngestWorker
 import ch.nokillswit.ingest.JiraAuthScheme
 import ch.nokillswit.ingest.JiraConnectionRequest
+import ch.nokillswit.ingest.JobHandlerRegistry
 import ch.nokillswit.ingest.SyncJobClaim
 import ch.nokillswit.ingest.SyncJobKind
 import ch.nokillswit.ingest.SyncJobListFilter
@@ -29,6 +30,7 @@ import ch.nokillswit.metrics.MetricsSettingsService
 import ch.nokillswit.metrics.MetricsStore
 import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.metrics.TeamMembershipService
+import ch.nokillswit.metrics.registerMetricsHandlers
 import ch.nokillswit.norm.WorkItemStore
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.awaitCancellation
@@ -87,6 +89,18 @@ class IngestWorkerTest {
 
     /** The PURGE step's OTHER generic dependency (round 1 review: `MetricsStore.purgeAll` had no caller) — a fresh, stateless instance. */
     private fun metricsStore() = MetricsStore(sharedDatabaseForTests())
+
+    /**
+     * The job-handler registry the worker dispatches through (checkup D5): the REAL metrics wiring
+     * (`registerMetricsHandlers` — the same call `configureMetrics` makes) over fresh, stateless services.
+     */
+    private fun handlers(
+        dataSources: DataSourceService,
+        config: MetricsConfigService = metricsConfig(dataSources),
+        store: MetricsStore = metricsStore(),
+    ) = JobHandlerRegistry().apply {
+        registerMetricsHandlers(deriver(dataSources), config, metricsSettings(dataSources), store)
+    }
 
     /** The DERIVE job's dependency (v0.3.0 M3 commit 7) — a fresh instance per test, it is stateless. */
     private fun deriver(dataSources: DataSourceService) = MetricsDeriver(
@@ -250,10 +264,7 @@ class IngestWorkerTest {
         val worker = IngestWorker(
             jobs,
             ds,
-            metricsConfig(ds),
-            metricsSettings(ds),
-            metricsStore(),
-            deriver(ds),
+            handlers(ds),
             mapOf(DataSourceKind.JIRA_CLOUD to connector),
             testConfig(workerSlots = 5),
             fixedEarlyMorningClock(),
@@ -304,10 +315,7 @@ class IngestWorkerTest {
         val worker = IngestWorker(
             jobs,
             ds,
-            metricsConfig(ds),
-            metricsSettings(ds),
-            metricsStore(),
-            deriver(ds),
+            handlers(ds),
             mapOf(DataSourceKind.JIRA_CLOUD to connector),
             testConfig(workerSlots = 500),
             fixedEarlyMorningClock(),
@@ -332,10 +340,7 @@ class IngestWorkerTest {
         val worker = IngestWorker(
             jobs,
             ds,
-            metricsConfig(ds),
-            metricsSettings(ds),
-            metricsStore(),
-            deriver(ds),
+            handlers(ds),
             mapOf(DataSourceKind.JIRA_CLOUD to connector),
             testConfig(workerSlots = 500),
             fixedEarlyMorningClock(),
@@ -381,7 +386,7 @@ class IngestWorkerTest {
         val config = testConfig(workerSlots = 500)
         val connector = FakeConnector { } // succeeds trivially — the connector's own purgeSteps are empty here
         val worker = IngestWorker(
-            jobs, ds, metrics, metricsSettings(ds), metricsStore(), deriver(ds),
+            jobs, ds, handlers(ds, metrics),
             mapOf(DataSourceKind.JIRA_CLOUD to connector), config, System::currentTimeMillis,
         )
 
@@ -480,7 +485,7 @@ class IngestWorkerTest {
         val config = testConfig(workerSlots = 500)
         val connector = FakeConnector { }
         val worker = IngestWorker(
-            jobs, ds, metrics, metricsSettings(ds), store, deriver(ds),
+            jobs, ds, handlers(ds, metrics, store),
             mapOf(DataSourceKind.JIRA_CLOUD to connector), config, System::currentTimeMillis,
         )
 
@@ -533,7 +538,7 @@ class IngestWorkerTest {
         val metrics = metricsConfig(ds)
         val connId = createConnection(ds)
         val worker = IngestWorker(
-            jobs, ds, metrics, metricsSettings(ds), metricsStore(), deriver(ds),
+            jobs, ds, handlers(ds, metrics),
             mapOf(DataSourceKind.JIRA_CLOUD to FakeConnector { }), testConfig(), System::currentTimeMillis,
         )
 
@@ -560,7 +565,7 @@ class IngestWorkerTest {
         val metrics = metricsConfig(ds)
         val connId = createConnection(ds)
         val worker = IngestWorker(
-            jobs, ds, metrics, metricsSettings(ds), metricsStore(), deriver(ds),
+            jobs, ds, handlers(ds, metrics),
             mapOf(DataSourceKind.JIRA_CLOUD to FakeConnector { }), testConfig(), System::currentTimeMillis,
         )
 
@@ -574,13 +579,29 @@ class IngestWorkerTest {
     }
 
     @Test
+    fun `a DERIVE job with no registered handler FAILS instead of silently succeeding`() = runBlocking {
+        val ds = dataSources()
+        val jobs = syncJobs()
+        val connId = createConnection(ds)
+        val worker = IngestWorker(
+            jobs, ds, JobHandlerRegistry(),
+            mapOf(DataSourceKind.JIRA_CLOUD to FakeConnector { }), testConfig(), System::currentTimeMillis,
+        )
+
+        val jobId = jobs.requestJob(connId, SyncJobKind.DERIVE, requestedByUserId = 1u, configRevision = 1L).jobId
+        worker.runJob(claimFor(jobId, connId, SyncJobKind.DERIVE))
+
+        assertEquals(SyncJobStatus.FAILED, jobs.read(connId, jobId)?.status, "a missing DERIVE handler is a wiring error, not a success")
+    }
+
+    @Test
     fun `onSucceeded chains a DERIVE after a successful RECONCILE`() = runBlocking {
         val ds = dataSources()
         val jobs = syncJobs()
         val metrics = metricsConfig(ds)
         val connId = createConnection(ds)
         val worker = IngestWorker(
-            jobs, ds, metrics, metricsSettings(ds), metricsStore(), deriver(ds),
+            jobs, ds, handlers(ds, metrics),
             mapOf(DataSourceKind.JIRA_CLOUD to FakeConnector { }), testConfig(), System::currentTimeMillis,
         )
         val reconcileJobId = jobs.requestJob(connId, SyncJobKind.RECONCILE, requestedByUserId = 1u, configRevision = 1L).jobId
@@ -598,7 +619,7 @@ class IngestWorkerTest {
         val metrics = metricsConfig(ds)
         val connId = createConnection(ds)
         val worker = IngestWorker(
-            jobs, ds, metrics, metricsSettings(ds), metricsStore(), deriver(ds),
+            jobs, ds, handlers(ds, metrics),
             mapOf(DataSourceKind.JIRA_CLOUD to FakeConnector { }), testConfig(), System::currentTimeMillis,
         )
         val reprocessJobId = jobs.requestJob(connId, SyncJobKind.REPROCESS, requestedByUserId = 1u, configRevision = 1L).jobId
@@ -621,7 +642,7 @@ class IngestWorkerTest {
         val config = testConfig(workerSlots = 500)
         val connector = FakeConnector { error("simulated connector purge failure") }
         val worker = IngestWorker(
-            jobs, ds, metrics, metricsSettings(ds), metricsStore(), deriver(ds),
+            jobs, ds, handlers(ds, metrics),
             mapOf(DataSourceKind.JIRA_CLOUD to connector), config, System::currentTimeMillis,
         )
 
@@ -667,10 +688,7 @@ class IngestWorkerTest {
         val worker = IngestWorker(
             jobs,
             ds,
-            metricsConfig(ds),
-            metricsSettings(ds),
-            metricsStore(),
-            deriver(ds),
+            handlers(ds),
             mapOf(DataSourceKind.JIRA_CLOUD to connector),
             config,
             System::currentTimeMillis,
