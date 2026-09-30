@@ -573,12 +573,16 @@ failing issue is simply left `needs_processing = true` — never rethrown, never
 the failing issue ids and the first failure's message are logged (`log.warn`), not threaded through
 `sync_jobs.progress`. **Outcomes of a page-level DB error:** a PARTIAL failure (some issues land in
 the fallback) ends the run normally — `issuesFailed` counts the rest and the next PROCESS pass retries
-them; but if EVERY issue of the page fails in the fallback too, the original database error is
-RETHROWN, so the job fails and retries (a transient outage must not end SUCCEEDED and chain a DERIVE
-over stale `norm`). Consequently a page consisting of a single, permanently unwritable issue (the
-last page of a run) also fails the job until the row is fixed — deliberate: it cannot be told apart
-from an outage. **Locking:** the page's raw issue read is `FOR UPDATE` ordered by `issue_id`, held
-until the page commits (~50 rows, ~30 ms), so a concurrent re-flag of an issue (a changed payload
+them. If EVERY issue of the page fails in the fallback too, the failures decide: when at least one is
+a BAD-ROW error (a PostgreSQL data exception, SQLSTATE class `22`, or integrity violation, class
+`23`, found by walking the cause chain — `isDataError`) the run still ends normally, so a single
+permanently unwritable row alone on its page (however many issues the page holds) only counts
+`issuesFailed` and is retried by the next pass; when NONE is a data error (a connection loss, a
+timeout — an outage, not a row) the original database error is RETHROWN, the job fails, and a
+transient outage cannot end SUCCEEDED and chain a DERIVE over stale `norm`. A failed SYNC is
+rescheduled with backoff; a failed REPROCESS/RECONCILE needs a manual re-run. **Locking:** the page's
+raw issue read — and the per-issue fallback's — is `FOR UPDATE` (the page's ordered by `issue_id`),
+held until the transaction commits (~50 rows, ~30 ms), so a concurrent re-flag of an issue (a changed payload
 from ISSUES) waits and lands after the commit instead of being overwritten by the page's
 `needs_processing = false`; the mark stamps `processed_hash` with the sha256 that was READ (a per-row
 `CASE`), not the column's value at update time. **Memory:** a page holds its 50 issues' payloads,

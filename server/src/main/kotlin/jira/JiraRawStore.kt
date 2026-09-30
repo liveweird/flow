@@ -522,8 +522,10 @@ class JiraRawStore(private val database: R2dbcDatabase) {
         val movedOutAt: Long?,
     )
 
+    /** One issue for PROCESS's per-issue fallback — `FOR UPDATE` like [issuesForProcessing] (same lock-until-commit reasoning). */
     suspend fun issueForProcessing(connectionId: UInt, issueId: Long): RawIssueForProcessing? = suspendTransaction(database) {
         Issues.selectAll().where { (Issues.connectionId eq connectionId) and (Issues.issueId eq issueId) }
+            .forUpdate()
             .toList().singleOrNull()?.let {
                 RawIssueForProcessing(issueId, it[Issues.payload], it[Issues.sha256], it[Issues.deletedAt], it[Issues.movedOutAt])
             }

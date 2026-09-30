@@ -9,6 +9,7 @@ import ch.nokillswit.norm.PROCESSING_VERSION
 import ch.nokillswit.norm.StatusCategory
 import ch.nokillswit.norm.TombstoneKind
 import ch.nokillswit.norm.WorkItemStore
+import io.r2dbc.spi.R2dbcException
 import org.slf4j.LoggerFactory
 
 /** `raw.jira_issues`'s own claim-scan batch size (v0.2.0 plan §8) — the PROCESS step's page size. */
@@ -16,6 +17,21 @@ private const val PROCESS_BATCH_SIZE = 50
 
 /** One issue that failed PROCESS on its own — the id is what the log line names. */
 private class IssueFailure(val issueId: Long, val error: Exception)
+
+/**
+ * True when [this] (or any cause) is a PostgreSQL data exception (SQLSTATE class 22 — value too long,
+ * NUL, out of range …) or integrity violation (class 23 — PK/unique/FK/NOT NULL/CHECK): the ROW is
+ * bad, retrying the same row cannot succeed, so it must not be mistaken for an outage.
+ */
+internal fun Throwable.isDataError(): Boolean {
+    var cur: Throwable? = this
+    while (cur != null) {
+        val state = (cur as? R2dbcException)?.sqlState
+        if (state != null && (state.startsWith("22") || state.startsWith("23"))) return true
+        cur = cur.cause
+    }
+    return false
+}
 
 private val log = LoggerFactory.getLogger(JiraProcessStream::class.java)
 
@@ -38,9 +54,13 @@ private val log = LoggerFactory.getLogger(JiraProcessStream::class.java)
  * fast path is the common one; measured, per-issue transactions cost ~13 statement round trips PER
  * ISSUE (`.claude/docs/build-times.md` "PROCESS"). [StreamContext.heartbeat] and the
  * `issuesProcessed`/`issuesFailed` progress counters are flushed ONCE per page either way. The page
- * read locks its raw rows `FOR UPDATE` until commit (a concurrent re-flag waits, never lost). If the
- * page failed in the database AND every issue then failed on its own, the error is rethrown so the
- * job fails and retries instead of ending SUCCEEDED over stale `norm`.
+ * read locks its raw rows `FOR UPDATE` until commit, and so does the per-issue fallback's read (a
+ * concurrent re-flag waits, never lost). If the page failed in the database AND every issue then
+ * failed on its own, and NONE of those failures is a bad-row error ([isDataError]: SQLSTATE class 22
+ * or 23), the page error is rethrown: the job fails (a SYNC is rescheduled with backoff; a
+ * REPROCESS/RECONCILE needs a manual re-run) instead of ending SUCCEEDED over stale `norm` — that
+ * pattern is an outage, not a row. A bad row alone on its page ends the run normally
+ * (`issuesFailed`, retried by the next PROCESS pass).
  */
 class JiraProcessStream(
     private val rawStore: JiraRawStore,
@@ -94,11 +114,12 @@ class JiraProcessStream(
         val failures = pageFailures ?: batchIds.mapNotNull { issueId ->
             processOneIssueSafely(context, connectionId, issueId, fieldIds, statusLookup, issueTypeHierarchy)
         }
-        // A page-level DB error where EVERY issue then failed on its own too is an outage, not a bad
-        // row: end the job (it fails and retries) rather than finish SUCCEEDED and chain a DERIVE on
-        // stale `norm`. A PARTIAL failure keeps the isolated-issue outcome (`issuesFailed`, retried by
-        // the next PROCESS pass).
-        pageError?.let { if (failures.size == batchIds.size) throw it }
+        // A page-level DB error where EVERY issue then failed on its own too — and none of the failures
+        // is a data/integrity error (a bad ROW) — looks like an outage: end the job (it fails and is
+        // retried by the scheduler/operator) rather than finish SUCCEEDED and chain a DERIVE on stale
+        // `norm`. A PARTIAL failure, or an all-bad-rows page, keeps the isolated-issue outcome
+        // (`issuesFailed`, retried by the next PROCESS pass).
+        pageError?.let { error -> if (failures.size == batchIds.size && failures.none { it.error.isDataError() }) throw error }
         context.incrementProgress("issuesProcessed", (batchIds.size - failures.size).toLong())
         if (failures.isNotEmpty()) context.incrementProgress("issuesFailed", failures.size.toLong())
         // `StreamContext.progress` is counters-only (Long) — the failures' detail is logged rather
