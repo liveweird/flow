@@ -2,6 +2,7 @@ package ch.nokillswit.reports
 
 import ch.nokillswit.metrics.DeriveKernels
 import ch.nokillswit.metrics.EpicPlanBaseline
+import ch.nokillswit.metrics.MD_SCALE
 import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.metrics.WorkingCalendar
 import java.math.BigDecimal

@@ -217,8 +217,7 @@ VelocityReport {
     (`in_scope_at_close`) sums `estimate_at_close_md`, the SAME removed-row rule
     `DeriveKernels.sprintTotals` applies to the team total itself (`.claude/docs/metrics.md`
     "Sprint scope, facts and snapshots"), so `Σ groups == the team total` (both buckets, both
-    MD and items; up to 0.01 MD per sprint of rounding when estimates have more than two decimals --
-    see "Rounding" under Report 6). A `null` `accountId`/`label` group is the unassigned-at-commitment
+    MD and items, exactly -- see "Rounding" under Report 6). A `null` `accountId`/`label` group is the unassigned-at-commitment
     bucket, listed last -- never a stored sentinel, the `credit_team_id` convention.
   - **USER** (`teamId` AND `accountId`) -- `sprints` itself narrows to that ONE account's own
     contribution per sprint (the SAME committed/final predicates as the TEAM-level groups, applied
@@ -369,7 +368,7 @@ SprintConsistencyReport {
     close; added = `added_at` set; removed = `removed_at` set; final = in scope at close; delivered =
     `done_in_sprint`; carried over / dropped by their flags; each on the estimate column
     `sprintTotals` uses for it), never a re-implementation, so Σ groups == the team figures for every
-    bucket (MD up to the rounding note below), and items exactly. A removed row is attributed to the user
+    bucket and in items, exactly (MD: see the rounding note below). A removed row is attributed to the user
     assigned at commitment, an added one to the user assigned at entry; the unassigned (null) group
     sorts last, as in velocity. The scope rows fetched are exactly the in-scope (connection, sprint)
     pairs -- never the cross product of the connection and sprint id lists, since two connections to
@@ -379,11 +378,11 @@ SprintConsistencyReport {
     (velocity's documented narrowing: a per-user frozen figure would mean parsing the snapshot's
     JSONB scope), `groups` is empty. The unassigned bucket has no USER-level query -- it is the
     remainder Σ named users + unassigned == team.
-- **Rounding.** `fact_sprint` stores `round2(Σ unrounded)` per sprint while the per-user groups are
-  computed over `fact_sprint_scope` rows whose estimates are stored to two decimals, so Σ groups == team up
-  to 0.01 MD per sprint of rounding when estimates have more than two decimals (both here and in
-  velocity); items always match exactly. `BACKLOG.md` tracks rounding per item before summing in
-  `sprintTotals`.
+- **Rounding.** Every MD figure of a sprint is `Σ round2(item)`: `DeriveKernels.sprintTotals` rounds each
+  item's estimate half-up to two decimals (`sumMd`, `metrics/DeriveKernels.kt`) BEFORE the exact sum, which is
+  exactly what `fact_sprint_scope` stores per item, and the per-user groups here and in velocity re-sum the
+  stored rows with the same `sumMd` -- so Σ groups == the team figure to the cent (items likewise), whatever
+  decimals the estimates carry.
 - **Not in this report.** Capacity and load (also under measures.md's Report 6 heading) are not part of
   this endpoint's shape; they stay on `dim_sprint`/`fact_sprint` for a later reader.
 
