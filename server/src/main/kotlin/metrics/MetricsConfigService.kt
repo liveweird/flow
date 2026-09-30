@@ -3,6 +3,8 @@ package ch.nokillswit.metrics
 import ch.nokillswit.infra.db.active
 import ch.nokillswit.infra.db.jsonb
 import ch.nokillswit.infra.db.nowMillis
+import ch.nokillswit.infra.json.parseStringArray
+import ch.nokillswit.infra.json.stringArrayJson
 import ch.nokillswit.ingest.DataProfileSections
 import ch.nokillswit.ingest.DataSourceService
 import ch.nokillswit.ingest.SyncJobKind
@@ -62,8 +64,6 @@ private const val SETTINGS_ID = 1
 
 private fun intArrayJson(values: List<Int>): String = buildJsonArray { values.forEach { add(JsonPrimitive(it)) } }.toString()
 private fun parseIntArray(json: String): List<Int> = Json.parseToJsonElement(json).jsonArray.map { it.jsonPrimitive.int }
-private fun stringArrayJson(values: List<String>): String = buildJsonArray { values.forEach { add(JsonPrimitive(it)) } }.toString()
-private fun parseStringArray(json: String): List<String> = Json.parseToJsonElement(json).jsonArray.map { it.jsonPrimitive.content }
 
 /**
  * The ONE global configuration revision (v0.3.0 M1 commit 3, `.claude/docs/domain-model.md`

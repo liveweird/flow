@@ -350,8 +350,6 @@ class ReportCostMatrixTest {
             // A connection slice: another connection sees none of these rows.
             val other = client.cost("connectionId=${DerivedStubFixture.connectionId()}&from=2026-01-01&to=2026-01-31")
             assertTrue(other.rows.none { it.teamId in listOf(f.t1, f.t2, f.t3) })
-            // breakdown is accepted and changes nothing.
-            assertEquals(client.cost(f.range).rows, client.cost("${f.range}&breakdown=DOMAIN").rows)
         }
     }
 
@@ -598,7 +596,7 @@ class ReportCostMatrixTest {
             // D12: a plain user reads every level; every optional parameter is accepted.
             for (query in listOf(
                 known, "$known&teamId=$team", "$known&teamId=$team&accountId=nobody", "$known&teamId=0", "$known&domainView=TASK",
-                "$known&breakdown=DOMAIN", "$known&domain=NOPE&activityType=Story&workCategory=UNCATEGORIZED",
+                "$known&domain=NOPE&activityType=Story&workCategory=UNCATEGORIZED",
                 "$known&lastSprints=3", "$known&teamId=0&lastSprints=3",
             )) {
                 assertEquals(HttpStatusCode.OK, client.get("/api/v1/reports/cost-matrix?$query").status, query)

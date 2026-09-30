@@ -3,6 +3,8 @@ package ch.nokillswit.norm
 import ch.nokillswit.infra.db.active
 import ch.nokillswit.infra.db.containsNormalized
 import ch.nokillswit.infra.db.jsonb
+import ch.nokillswit.infra.json.parseStringArray
+import ch.nokillswit.infra.json.stringArrayJson
 import ch.nokillswit.infra.paging.PageRequest
 import ch.nokillswit.ingest.DataSourceService
 import io.ktor.util.AttributeKey
@@ -39,7 +41,6 @@ internal const val MAX_DISTINCT_FIELD_VALUES = 200
 /** Published by `jira/Jira.kt`'s `configureJira` — the raw issue inspector and the data profile step both read it back. */
 val WorkItemStoreKey = AttributeKey<WorkItemStore>("WorkItemStore")
 
-private fun stringArrayJson(values: List<String>): String = buildJsonArray { values.forEach { add(JsonPrimitive(it)) } }.toString()
 private fun longArrayJson(values: List<Long>): String = buildJsonArray { values.forEach { add(JsonPrimitive(it)) } }.toString()
 private fun anomaliesJson(values: List<TilingAnomaly>): String =
     buildJsonArray { values.forEach { add(JsonPrimitive(it.name)) } }.toString()
@@ -47,9 +48,6 @@ private fun anomaliesJson(values: List<TilingAnomaly>): String =
 /** The inverse of [anomaliesJson] — the raw issue inspector's/data profile's own read path. */
 private fun parseAnomalies(json: String): List<TilingAnomaly> =
     Json.parseToJsonElement(json).jsonArray.map { TilingAnomaly.valueOf(it.jsonPrimitive.content) }
-
-/** The inverse of [stringArrayJson]. */
-private fun parseStringArray(json: String): List<String> = Json.parseToJsonElement(json).jsonArray.map { it.jsonPrimitive.content }
 
 /** The inverse of `longArrayJson` (`norm.work_items.current_sprint_ids`) — `WorkItemStore.workItemsForDerivation`'s own reader. */
 private fun parseLongArray(json: String): List<Long> = Json.parseToJsonElement(json).jsonArray.map { it.jsonPrimitive.long }

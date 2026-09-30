@@ -1,6 +1,7 @@
 package ch.nokillswit.metrics
 
 import ch.nokillswit.infra.db.active
+import ch.nokillswit.infra.time.MILLIS_PER_DAY
 import ch.nokillswit.ingest.SyncJobRunContext
 import ch.nokillswit.norm.PROCESSING_VERSION
 import ch.nokillswit.norm.SprintRef
@@ -27,7 +28,6 @@ val MetricsDeriverKey = AttributeKey<MetricsDeriver>("MetricsDeriver")
  * `DeriveSprintStep.kt`/`DeriveEpicPlanStep.kt`) — an epic is level 1, never "type name = Epic". */
 internal const val EPIC_HIERARCHY_LEVEL = 1
 private const val MAX_ERROR_DETAIL_LENGTH = 1000
-private const val MILLIS_PER_DAY = 24L * 60 * 60 * 1000
 
 /** `MetricsDeriver`'s own default (v0.3.0 M3 review round 2b) — mirrors `application.yaml`'s `ingest.jobRetentionDays` default. */
 internal const val DEFAULT_JOB_RETENTION_DAYS = 90L

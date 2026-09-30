@@ -5,9 +5,9 @@ import { formatMd, formatSignedMd, teamLabel } from "./reportFormat";
 
 /**
  * Makes a filter the data quality report can answer, and says what its page can show. The report
- * accepts `breakdown` (and changes nothing), and reads an activity type or work category, but the page
- * has no control for those two — so, like every param the page cannot show or clear, all of them (and
- * the other reports' own `bucket`, `by`, `itemKind`, `epicId`) are dropped off the request AND the URL.
+ * reads an activity type or work category, but the page has no control for those two — so, like
+ * every param the page cannot show or clear, both of them (and the other reports' own `bucket`,
+ * `by`, `itemKind`, `epicId`) are dropped off the request AND the URL.
  */
 export function normalizeDataQualityFilter(filter: ReportFilterState): ReportFilterState {
   return dropReportSpecific(filter, reportSpecificKeep(dataQualityPath));

@@ -15,7 +15,6 @@ describe("normalizeDataQualityFilter", () => {
         connectionId: 2,
         activityType: "Bug",
         workCategory: "Maintenance",
-        breakdown: "DOMAIN",
         bucket: "WEEK",
         by: "STATUS",
         itemKind: "EPIC",

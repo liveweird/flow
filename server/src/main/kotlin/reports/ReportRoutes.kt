@@ -218,7 +218,7 @@ private fun Route.qualityEpicAndCostRoutes(reportService: ReportService, metrics
         reportService.epicProgress(filter, epicId, nowMs)
     }
     // The cost matrix (report 16) is a worklog-cost measure — PV/EV/AC-shaped, so it defaults to the EPIC domain view (D3); an
-    // explicit `domainView=TASK` switches the columns to the task's own domain. `breakdown` is parsed and changes nothing.
+    // explicit `domainView=TASK` switches the columns to the task's own domain.
     reportGet<ReportCostMatrixRoute>(metricsConfig, DomainView.EPIC) { filter, _, nowMs -> reportService.costMatrix(filter, nowMs) }
 }
 

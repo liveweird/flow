@@ -1,11 +1,11 @@
 package ch.nokillswit.metrics
 
 import ch.nokillswit.infra.db.jsonb
+import ch.nokillswit.infra.json.stringArrayJson
 import ch.nokillswit.ingest.DataSourceService
 import ch.nokillswit.teams.TeamService
 import io.ktor.util.AttributeKey
 import kotlinx.coroutines.flow.toList
-import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -36,8 +36,6 @@ internal val ANALYZED_TABLES: List<String> = listOf(
     "metrics.item_estimate", "metrics.item_stage",
     "metrics.fact_task_delivery", "metrics.fact_sprint", "metrics.fact_sprint_scope", "metrics.fact_worklog", "metrics.fact_epic_plan",
 )
-
-private fun stringArrayJson(values: List<String>): String = buildJsonArray { values.forEach { add(JsonPrimitive(it)) } }.toString()
 
 /** `metrics.fact_sprint_snapshot.scope` — the sprint's own [SprintScopeItem] rows, frozen as JSON (D13). */
 private fun sprintScopeItemsJson(items: List<SprintScopeItem>): String = buildJsonArray {

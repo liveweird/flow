@@ -9,7 +9,6 @@ import { isoDateToEpochMillis, epochMillisToIsoDate, isValidIsoDate } from "./is
  */
 
 export type DomainView = "TASK" | "EPIC";
-export type Breakdown = "NONE" | "DOMAIN" | "ACTIVITY_TYPE" | "WORK_CATEGORY";
 
 export type Bucket = "WEEK" | "MONTH";
 export const BUCKETS: readonly Bucket[] = ["WEEK", "MONTH"];
@@ -23,7 +22,6 @@ export type WipItemKind = "TASK" | "EPIC" | "BOTH";
 export const WIP_ITEM_KINDS: readonly WipItemKind[] = ["TASK", "EPIC", "BOTH"];
 
 const DOMAIN_VIEWS: readonly DomainView[] = ["TASK", "EPIC"];
-export const BREAKDOWNS: readonly Breakdown[] = ["NONE", "DOMAIN", "ACTIVITY_TYPE", "WORK_CATEGORY"];
 
 export interface ReportFilterState {
   /** Period — exactly one of `sprintId`, `lastSprints`, `from`/`to` (precedence in that order). */
@@ -40,7 +38,6 @@ export interface ReportFilterState {
   epicId?: string;
   activityType?: string;
   workCategory?: string;
-  breakdown?: Breakdown;
   /** Time resolution of a bucketed series (throughput); the server defaults to WEEK. */
   bucket?: Bucket;
   /** What the WIP report keys its counts by. */
@@ -63,7 +60,6 @@ const MANAGED_KEYS = [
   "epicId",
   "activityType",
   "workCategory",
-  "breakdown",
   "bucket",
   "by",
   "itemKind",
@@ -77,7 +73,6 @@ export const REPORT_SPECIFIC_KEYS = [
   "epicId",
   "activityType",
   "workCategory",
-  "breakdown",
   "bucket",
   "by",
   "itemKind",
@@ -169,8 +164,6 @@ export function parseReportFilter(params: URLSearchParams): ReportFilterState {
   if (activityType !== undefined) filter.activityType = activityType;
   const workCategory = parseText(params.get("workCategory"));
   if (workCategory !== undefined) filter.workCategory = workCategory;
-  const breakdown = parseEnum(params.get("breakdown"), BREAKDOWNS);
-  if (breakdown !== undefined) filter.breakdown = breakdown;
   const bucket = parseEnum(params.get("bucket"), BUCKETS);
   if (bucket !== undefined) filter.bucket = bucket;
   const by = parseEnum(params.get("by"), WIP_BYS);

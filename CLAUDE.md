@@ -198,7 +198,9 @@ ch.nokillswit
 ├── infra/outbound/     OutboundGuard.kt — the SSRF guard for every server-initiated call (Toadie's
 │                       address-range check + the Jira host allow-list, GuardedDns, the no-proxy/
 │                       no-redirect OkHttp client; `.claude/docs/security.md` "Outbound HTTP calls")
-├── infra/json/         CanonicalJson.kt — key-sorted canonical JSON + sha256 for stored payloads
+├── infra/json/         CanonicalJson.kt — key-sorted canonical JSON + sha256 for stored payloads;
+│                       JsonArrays.kt — the shared string-array codec for array columns
+├── infra/time/         Millis.kt — MILLIS_PER_DAY, the one fixed-24h-day constant
 ├── infra/config/       requireConfigInt/requireConfigLong — boot-validated numeric config (Lettuce's)
 ├── infra/Failures.kt   catchingFailures — run a block, keep the failure without swallowing
 │                       cancellation (the blocklist-outage 500 path in plugins/Security.kt)

@@ -8,7 +8,6 @@ import type { ReportFilters, ReportFilterTeam } from "../api/reports";
 import { todayIsoDate } from "../utils/isoDate";
 import {
   activePeriodChoice,
-  BREAKDOWNS,
   BUCKETS,
   DATE_PRESETS,
   LAST_SPRINT_COUNTS,
@@ -17,7 +16,6 @@ import {
   WIP_ITEM_KINDS,
   wipColumnAvailable,
   withPeriod,
-  type Breakdown,
   type Bucket,
   type DomainView,
   type PeriodChoice,
@@ -28,7 +26,7 @@ import {
 
 /**
  * Which optional controls a report offers — the bar shows a control ONLY where the report uses
- * it (velocity ignores domain/activity/category/breakdown, so it passes none). `domainView` is
+ * it (velocity ignores domain/activity/category, so it passes none). `domainView` is
  * the report's own default view (D3), its presence turns the "delivered in / earned in" toggle on.
  */
 export interface ReportControls {
@@ -36,7 +34,6 @@ export interface ReportControls {
   domain?: boolean;
   activityType?: boolean;
   workCategory?: boolean;
-  breakdown?: boolean;
   /** The week/month resolution of a bucketed series (throughput). */
   bucket?: boolean;
   /** What the WIP report keys its counts by (stage, status, board column). */
@@ -312,7 +309,6 @@ export default function ReportFilterBar({
           )}
         </Group>
         {(controls.domainView !== undefined ||
-          controls.breakdown ||
           controls.bucket ||
           controls.wipBy ||
           controls.itemKind) && (
@@ -379,19 +375,6 @@ export default function ReportFilterBar({
                   data={WIP_ITEM_KINDS.map((value) => ({ value, label: t(`reports.filters.itemKindOption.${value}`) }))}
                   value={filter.itemKind ?? "TASK"}
                   onChange={(value) => setKey("itemKind", value as WipItemKind)}
-                />
-              </Box>
-            )}
-            {controls.breakdown && (
-              <Box>
-                <Text size="sm" fw={500} mb={4} id="report-breakdown">
-                  {t("reports.filters.breakdown")}
-                </Text>
-                <SegmentedControl
-                  aria-labelledby="report-breakdown"
-                  data={BREAKDOWNS.map((value) => ({ value, label: t(`reports.filters.breakdownOption.${value}`) }))}
-                  value={filter.breakdown ?? "NONE"}
-                  onChange={(value) => setKey("breakdown", value as Breakdown)}
                 />
               </Box>
             )}

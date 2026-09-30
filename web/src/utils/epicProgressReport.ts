@@ -13,8 +13,8 @@ export interface EpicScope {
 /**
  * Makes a filter the epic progress report can answer out of one it cannot. The report is always
  * the EPIC view (`domainView=TASK` is a `400`), has no user level (`accountId` is a `400`) and no
- * per-day activity type or work category (both `400`); the ignored `breakdown`/`bucket`/`by`/
- * `itemKind` are dropped too, since the page has no control for them. And the scope is ONE of
+ * per-day activity type or work category (both `400`); the ignored `bucket`/`by`/`itemKind`
+ * are dropped too, since the page has no control for them. And the scope is ONE of
  * epic, domain or team: a pasted link with several keeps the most specific (epic, then domain,
  * then team) — the URL is rewritten to it, so a dropped scope cannot come back on its own.
  */

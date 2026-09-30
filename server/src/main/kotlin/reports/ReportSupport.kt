@@ -8,6 +8,7 @@ import ch.nokillswit.norm.WorkItemStore
 import ch.nokillswit.teams.TeamService
 import io.ktor.server.plugins.BadRequestException
 import java.math.BigDecimal
+import java.math.RoundingMode
 import kotlinx.coroutines.flow.toList
 import org.jetbrains.exposed.v1.core.JoinType
 import org.jetbrains.exposed.v1.core.Op
@@ -32,6 +33,15 @@ import org.jetbrains.exposed.v1.r2dbc.selectAll
  * window and the `fact_task_delivery`/`fact_epic_delivery` slice predicates. Every function is
  * `internal` and runs inside the CALLER's `suspendTransaction`.
  */
+
+/** Decimal places of every man-day figure a report emits. */
+internal const val MD_SCALE = 2
+
+/**
+ * A man-day figure rounded half-up for the wire. A total is ALWAYS the rounded EXACT sum, never the sum of rounded
+ * cells (`.claude/docs/reports.md` "Report 16").
+ */
+internal fun BigDecimal.md(): Double = setScale(MD_SCALE, RoundingMode.HALF_UP).toDouble()
 
 /**
  * `teamId=0` — the UNASSIGNED sentinel (`.claude/docs/reports.md`'s shared filter). A sprint
