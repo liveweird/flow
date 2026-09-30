@@ -196,8 +196,9 @@ Every list page composes the same ported Lettuce blocks — copy `pages/Users.ts
   a `color="red" variant="light"` Alert with `loadErrorMessage` ABOVE the table on error;
   `PaginationBar` below.
 - **The colour vocabulary is app-wide, not per-page**: red = hard/blocking (validation errors,
-  destructive confirm buttons, a failed row), orange = a soft finding a later checks pipeline will
-  save through a waiver, teal = success, gray = neutral state. A new status colour goes through
+  destructive confirm buttons, a failed row), orange = a soft finding (a drift badge, a data-quality
+  `Found: N`, an unmapped stage, a tiling anomaly), teal = success, gray = neutral state, blue = in
+  progress (the one status use of blue: a RUNNING job badge, the WIP in-progress band). A new status colour goes through
   that vocabulary, not a page-local pick.
 - **Delete**: `useDeleteConfirm` + `ConfirmDeleteModal` — the hook owns modal state and the
   success toast, the page owns cache refresh. For mutations while a list remains mounted, use
@@ -228,7 +229,7 @@ Jira domain model) compose
 `RegistryListTable` for the common load/error/empty/pagination states. Each page owns its query
 key and parameters, extra filters, columns, row actions and mutation refresh prefixes. Their
 editors (e.g. `components/TeamEditorModal.tsx`) share the `RegistryMetadataFields` (name +
-description, with `utils/charCount.ts`'s "123 / 4000" counter) and `RegistryEditorActions`
+description, with `utils/charCount.tsx`'s "123 / 4000" counter) and `RegistryEditorActions`
 (save-error alert + cancel/submit footer) components; form rules
 (`utils/formRules.ts`'s shared `nameRule`/`descriptionRule`), submit/conflict handling and any
 parent/target fields stay local. Keep each registry's field limits explicit and mirrored from the
@@ -695,13 +696,15 @@ are English (THE default and fallback everywhere) and Polish. All user-facing st
 - The brand is the 10-stop **`flow` blue tuple** with `primaryShade: { light: 8, dark: 9 }` —
   Mantine's own shade 7/8 pair falls just short of 4.5:1 for white text on this hue, so the
   primary shades sit one step deeper than a stock Mantine blue — and `autoContrast: true`.
-  **Restrained**: blue marks only primary CTAs, the active nav item (a light tint + a 3px accent
-  bar) and focus. Everything else is neutral BY THEME DEFAULT — `Anchor` is text-coloured with a
+  **Restrained** — in UI chrome and status badges (chart series colours are
+  `utils/chartColors.ts`'s): blue marks only primary CTAs, the active nav item (a light tint + a
+  3px accent bar), focus and the in-progress status (see the colour vocabulary). Everything else
+  is neutral BY THEME DEFAULT — `Anchor` is text-coloured with a
   hover underline, `Chip` is `variant="light"`, `Badge` is `variant="light"`, `ActionIcon` is
   `variant="subtle" color="gray"` (destructive ones pass `color="red"`), `Menu` is bottom-end in a
   portal, tables are `verticalSpacing="xs"` (≈40px rows). Pages never pass those props back. Teal
-  stays the SUCCESS colour, red the BLOCKING one, orange the WAIVED-finding one (reserved for the
-  checks pipeline the Jira domain model will add); the ADMIN role badge is
+  stays the SUCCESS colour, red the BLOCKING one, orange the soft-finding one (drift, anomalies,
+  data-quality findings); the ADMIN role badge is
   `variant="outline" color="gray"`. **Never reintroduce stock-green success states** (blue itself
   IS the brand now, so unlike a violet-branded sibling it is never forbidden as "just another
   action").

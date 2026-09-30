@@ -7,7 +7,7 @@ metadata:
   namespace: flow
 spec:
   replicas: 1
-  # Never overlap old password writers with the credential-revision-aware server (V20).
+  # Never overlap old password writers with the credential-revision-aware server (V7).
   # This single-instance deployment accepts brief downtime during application upgrades.
   strategy:
     type: Recreate
