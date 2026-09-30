@@ -36,13 +36,11 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   - The Jira member picker resolves names from the first 100 unit people. Page through, or look up by account id.
   - "End membership" uses UTC; consider the configured zone.
   - `epic_domain_key` uses the epic's current domain, not as-of (no epic-domain history exists).
-  - Pin the case of a soft-deleted configured owner on a domain that also has a mapped board (the code resolves it to none, per A22; there is no test yet).
   - Velocity: the per-user snapshot figures are always null (reading the snapshot's scope JSON is not built).
   - Read `hoursPerDay` from Jira's time-tracking configuration (A5).
   - A per-domain status→stage override UI.
   - Seed memberships from the Team field (D1).
   - Cache validators for the report endpoints.
-  - Report `meta.configRevision` should be the revision of the last successful DERIVE, not the live one.
   - Report 7: an `epics` block (cycle time from `fact_epic_delivery`, owner team) — deferred from 12b.
   - Estimated backlog uses the OWN estimate only. A parent estimated through its sub-tasks (`estimate_source = SUBTASKS`) is missing from the backlog (A23). The fix is a composite-estimate bridge.
 

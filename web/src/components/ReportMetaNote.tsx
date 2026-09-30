@@ -10,7 +10,7 @@ export default function ReportMetaNote({ meta, timeZone }: { meta: ReportMeta; t
     <Text size="xs" c="dimmed">
       {meta.derivedAt === null
         ? t("reports.meta.notDerived")
-        : t("reports.meta.derived", { date: formatDate(meta.derivedAt, "—", timeZone), revision: meta.configRevision })}
+        : t("reports.meta.derived", { date: formatDate(meta.derivedAt, "—", timeZone), revision: meta.configRevision ?? "—" })}
     </Text>
   );
 }

@@ -2343,8 +2343,11 @@ export interface components {
              * @description Epoch millis; null before any connection has ever completed a DERIVE.
              */
             derivedAt: number | null;
-            /** Format: int64 */
-            configRevision: number;
+            /**
+             * Format: int64
+             * @description The config revision the served figures were DERIVED under: the oldest `config_revision` among the newest SUCCEEDED DERIVE runs of the connections the report read (not the live `metrics.settings.config_revision`, which runs ahead of the data between a configuration change and its DERIVE); null before any connection has completed a DERIVE.
+             */
+            configRevision: number | null;
             /**
              * Format: date
              * @description ISO date; null for a lastSprints/sprintId-selected period.
@@ -2400,8 +2403,11 @@ export interface components {
             connections: components["schemas"]["ReportFilterConnection"][];
             /** Format: int64 */
             derivedAt: number | null;
-            /** Format: int64 */
-            configRevision: number;
+            /**
+             * Format: int64
+             * @description The config revision the served figures were DERIVED under: the oldest `config_revision` among the newest SUCCEEDED DERIVE runs of the connections the report read (not the live `metrics.settings.config_revision`, which runs ahead of the data between a configuration change and its DERIVE); null before any connection has completed a DERIVE.
+             */
+            configRevision: number | null;
             minSampleSize: number;
             /** @description The configured IANA time zone (`metrics.settings.time_zone`) that `from`/`to` are read in — a client renders report dates and computes period presets in it. */
             timeZone: string;

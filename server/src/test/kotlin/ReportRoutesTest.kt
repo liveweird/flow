@@ -7,6 +7,7 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.testApplication
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
@@ -36,7 +37,8 @@ class ReportRoutesTest {
             "the derived fixture's own connection should be listed (active, even if disabled)",
         )
         assertTrue(body.derivedAt != null, "a SUCCEEDED derive_runs row exists — derivedAt must not be null")
-        assertTrue(body.configRevision >= 1L)
+        val revision = assertNotNull(body.configRevision, "a derived connection stamps the filters with its run's revision")
+        assertTrue(revision >= 1L, "a derived connection stamps the filters with its run's revision")
         assertTrue(body.minSampleSize >= 1)
         // The configured zone the SPA renders dates in — must be a real IANA id (ZoneId.of throws otherwise).
         assertTrue(body.timeZone.isNotBlank())
