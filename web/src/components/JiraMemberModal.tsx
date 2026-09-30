@@ -124,13 +124,13 @@ export default function JiraMemberModal({
           {people.isError && <ErrorAlert error={people.error} />}
           <TextInput
             label={t("metrics.teamMembers.field.validFrom")}
-            placeholder="YYYY-MM-DD"
+            placeholder={t("common.dateFormatHint")}
             {...form.getInputProps("validFrom")}
           />
           <TextInput
             label={t("metrics.teamMembers.field.validTo")}
             description={t("metrics.teamMembers.field.validToHint")}
-            placeholder="YYYY-MM-DD"
+            placeholder={t("common.dateFormatHint")}
             {...form.getInputProps("validTo")}
           />
           <RegistryEditorActions error={error} submitting={submitting} isEdit={false} onClose={onClose} gap="sm" />

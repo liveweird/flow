@@ -662,7 +662,7 @@ are English (THE default and fallback everywhere) and Polish. All user-facing st
   `tsc`/`npm run build`. Fields holding a key are typed `ParseKeys` (from `i18next`), never
   `string` (the `NavLeaf` `label` pattern in `utils/navigation.ts`); functions taking a translator
   take `TFunction`, never a hand-written `(key: string) => string`.
-- **`common.*` is the shared source**: actions, field labels, shared vocabulary. Reuse it instead
+- **`common.*` is the shared source**: actions, field labels, shared vocabulary (`common.dateFormatHint` is the date-input placeholder: `YYYY-MM-DD` in EN, `RRRR-MM-DD` in PL). Reuse it instead
   of duplicating; build Mantine `Select` option labels from `t()` at render so they translate.
 - **Keep key parity vs EN for every shipped language** — a shipped bundle is all-or-nothing: every
   English key must exist in each `locales/<lang>/` (language-specific plural variants are

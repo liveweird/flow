@@ -112,7 +112,7 @@ export default function MetricsSettings() {
               <TagsInput
                 label={t("metrics.settings.field.holidays")}
                 description={t("metrics.settings.field.holidaysHint")}
-                placeholder="YYYY-MM-DD"
+                placeholder={t("common.dateFormatHint")}
                 {...form.getInputProps("holidays")}
               />
               <NumberInput
