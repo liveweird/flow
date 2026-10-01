@@ -1,5 +1,6 @@
 package ch.nokillswit.metrics
 
+import ch.nokillswit.infra.db.insertRows
 import ch.nokillswit.infra.json.stringArrayJson
 import ch.nokillswit.metrics.MetricsTables.AggDailyFlow
 import ch.nokillswit.metrics.MetricsTables.AggDailyWip
@@ -29,7 +30,6 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.jetbrains.exposed.v1.core.*
 import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
-import org.jetbrains.exposed.v1.r2dbc.batchInsert
 import org.jetbrains.exposed.v1.r2dbc.batchUpsert
 import org.jetbrains.exposed.v1.r2dbc.deleteWhere
 import org.jetbrains.exposed.v1.r2dbc.insert
@@ -203,7 +203,7 @@ class MetricsStore(private val database: R2dbcDatabase) {
 
     suspend fun insertDomains(connectionId: UInt, domains: List<DimDomainRow>, configRevision: Long) {
         if (domains.isEmpty()) return
-        DimDomain.batchInsert(domains) {
+        DimDomain.insertRows(domains) {
             this[DimDomain.connectionId] = connectionId
             this[DimDomain.domainKey] = it.domainKey
             this[DimDomain.name] = it.name
@@ -216,7 +216,7 @@ class MetricsStore(private val database: R2dbcDatabase) {
     /** One batch's worth of `dim_task` rows — call per batch, AFTER [deleteDims] ran once for the connection. */
     suspend fun insertTasks(connectionId: UInt, tasks: List<DimTaskRow>, configRevision: Long) {
         if (tasks.isEmpty()) return
-        DimTask.batchInsert(tasks) {
+        DimTask.insertRows(tasks) {
             this[DimTask.connectionId] = connectionId
             this[DimTask.issueId] = it.issueId
             this[DimTask.issueKey] = it.issueKey
@@ -235,7 +235,7 @@ class MetricsStore(private val database: R2dbcDatabase) {
     /** One batch's worth of `dim_epic` rows — call per batch, AFTER [deleteDims] ran once for the connection. */
     suspend fun insertEpics(connectionId: UInt, epics: List<DimEpicRow>, configRevision: Long) {
         if (epics.isEmpty()) return
-        DimEpic.batchInsert(epics) {
+        DimEpic.insertRows(epics) {
             this[DimEpic.connectionId] = connectionId
             this[DimEpic.issueId] = it.issueId
             this[DimEpic.issueKey] = it.issueKey
@@ -281,7 +281,7 @@ class MetricsStore(private val database: R2dbcDatabase) {
 
     suspend fun insertTaskEpic(connectionId: UInt, rows: List<TaskEpicRow>) {
         if (rows.isEmpty()) return
-        TaskEpic.batchInsert(rows) {
+        TaskEpic.insertRows(rows) {
             this[TaskEpic.connectionId] = connectionId
             this[TaskEpic.issueId] = it.issueId
             this[TaskEpic.epicId] = it.epicId
@@ -292,7 +292,7 @@ class MetricsStore(private val database: R2dbcDatabase) {
 
     suspend fun insertTaskDomain(connectionId: UInt, rows: List<TaskDomainRow>) {
         if (rows.isEmpty()) return
-        TaskDomain.batchInsert(rows) {
+        TaskDomain.insertRows(rows) {
             this[TaskDomain.connectionId] = connectionId
             this[TaskDomain.issueId] = it.issueId
             this[TaskDomain.domainKey] = it.domainKey
@@ -303,7 +303,7 @@ class MetricsStore(private val database: R2dbcDatabase) {
 
     suspend fun insertTaskAssignee(connectionId: UInt, rows: List<TaskAssigneeRow>) {
         if (rows.isEmpty()) return
-        TaskAssignee.batchInsert(rows) {
+        TaskAssignee.insertRows(rows) {
             this[TaskAssignee.connectionId] = connectionId
             this[TaskAssignee.issueId] = it.issueId
             this[TaskAssignee.accountId] = it.accountId
@@ -314,7 +314,7 @@ class MetricsStore(private val database: R2dbcDatabase) {
 
     suspend fun insertTaskSprint(connectionId: UInt, rows: List<TaskSprintRow>) {
         if (rows.isEmpty()) return
-        TaskSprint.batchInsert(rows) {
+        TaskSprint.insertRows(rows) {
             this[TaskSprint.connectionId] = connectionId
             this[TaskSprint.issueId] = it.issueId
             this[TaskSprint.sprintId] = it.sprintId
@@ -325,7 +325,7 @@ class MetricsStore(private val database: R2dbcDatabase) {
 
     suspend fun insertItemEstimate(connectionId: UInt, rows: List<ItemEstimateRow>) {
         if (rows.isEmpty()) return
-        ItemEstimate.batchInsert(rows) {
+        ItemEstimate.insertRows(rows) {
             this[ItemEstimate.connectionId] = connectionId
             this[ItemEstimate.issueId] = it.issueId
             this[ItemEstimate.estimateMd] = it.estimateMd?.toBigDecimal()
@@ -336,7 +336,7 @@ class MetricsStore(private val database: R2dbcDatabase) {
 
     suspend fun insertItemStage(connectionId: UInt, rows: List<ItemStageRow>) {
         if (rows.isEmpty()) return
-        ItemStage.batchInsert(rows) {
+        ItemStage.insertRows(rows) {
             this[ItemStage.connectionId] = connectionId
             this[ItemStage.issueId] = it.issueId
             this[ItemStage.stage] = it.stage
@@ -348,7 +348,7 @@ class MetricsStore(private val database: R2dbcDatabase) {
 
     suspend fun insertItemBlocked(connectionId: UInt, rows: List<ItemBlockedRow>) {
         if (rows.isEmpty()) return
-        ItemBlocked.batchInsert(rows) {
+        ItemBlocked.insertRows(rows) {
             this[ItemBlocked.connectionId] = connectionId
             this[ItemBlocked.issueId] = it.issueId
             this[ItemBlocked.reason] = it.reason
@@ -364,7 +364,7 @@ class MetricsStore(private val database: R2dbcDatabase) {
     /** One batch's worth of `fact_task_delivery` rows — call per batch, AFTER [deleteFactTaskDelivery] ran once. */
     suspend fun insertFactTaskDelivery(connectionId: UInt, rows: List<FactTaskDeliveryRow>, configRevision: Long) {
         if (rows.isEmpty()) return
-        FactTaskDelivery.batchInsert(rows) {
+        FactTaskDelivery.insertRows(rows) {
             this[FactTaskDelivery.connectionId] = connectionId
             this[FactTaskDelivery.issueId] = it.issueId
             this[FactTaskDelivery.issueKey] = it.issueKey
@@ -422,7 +422,7 @@ class MetricsStore(private val database: R2dbcDatabase) {
     /** One batch's worth of `fact_epic_delivery` rows — call per batch, AFTER [deleteFactEpicDelivery] ran once. */
     suspend fun insertFactEpicDelivery(connectionId: UInt, rows: List<FactEpicDeliveryRow>, configRevision: Long) {
         if (rows.isEmpty()) return
-        FactEpicDelivery.batchInsert(rows) {
+        FactEpicDelivery.insertRows(rows) {
             this[FactEpicDelivery.connectionId] = connectionId
             this[FactEpicDelivery.issueId] = it.issueId
             this[FactEpicDelivery.startedAt] = it.startedAt
@@ -464,7 +464,7 @@ class MetricsStore(private val database: R2dbcDatabase) {
 
     suspend fun insertDimSprints(connectionId: UInt, rows: List<DimSprintRow>, configRevision: Long) {
         if (rows.isEmpty()) return
-        DimSprint.batchInsert(rows) {
+        DimSprint.insertRows(rows) {
             this[DimSprint.connectionId] = connectionId
             this[DimSprint.sprintId] = it.sprintId
             this[DimSprint.boardId] = it.boardId
@@ -483,7 +483,7 @@ class MetricsStore(private val database: R2dbcDatabase) {
     /** One batch's worth of `fact_sprint_scope` rows — call per batch, AFTER [deleteSprintFacts] ran once for the connection. */
     suspend fun insertFactSprintScope(connectionId: UInt, rows: List<FactSprintScopeRow>, configRevision: Long) {
         if (rows.isEmpty()) return
-        FactSprintScope.batchInsert(rows) { (sprintId, item) ->
+        FactSprintScope.insertRows(rows) { (sprintId, item) ->
             this[FactSprintScope.connectionId] = connectionId
             this[FactSprintScope.sprintId] = sprintId
             this[FactSprintScope.issueId] = item.issueId
@@ -504,7 +504,7 @@ class MetricsStore(private val database: R2dbcDatabase) {
 
     suspend fun insertFactSprint(connectionId: UInt, rows: List<FactSprintRow>, configRevision: Long) {
         if (rows.isEmpty()) return
-        FactSprint.batchInsert(rows) {
+        FactSprint.insertRows(rows) {
             this[FactSprint.connectionId] = connectionId
             this[FactSprint.sprintId] = it.sprintId
             this[FactSprint.teamId] = it.teamId
@@ -600,7 +600,7 @@ class MetricsStore(private val database: R2dbcDatabase) {
     /** One batch's worth of `fact_worklog` rows (v0.3.0 M3 commit 9) — call per batch, AFTER [deleteFactWorklog] ran once. */
     suspend fun insertFactWorklog(connectionId: UInt, rows: List<FactWorklogRow>, configRevision: Long) {
         if (rows.isEmpty()) return
-        FactWorklog.batchInsert(rows) {
+        FactWorklog.insertRows(rows) {
             this[FactWorklog.connectionId] = connectionId
             this[FactWorklog.worklogId] = it.worklogId
             this[FactWorklog.issueId] = it.issueId
@@ -631,7 +631,7 @@ class MetricsStore(private val database: R2dbcDatabase) {
     /** One batch's worth of `fact_epic_plan` rows (v0.3.0 M3 commit 9b) — call per batch, AFTER [deleteFactEpicPlan] ran once. */
     suspend fun insertFactEpicPlan(connectionId: UInt, rows: List<FactEpicPlanRow>, configRevision: Long) {
         if (rows.isEmpty()) return
-        FactEpicPlan.batchInsert(rows) {
+        FactEpicPlan.insertRows(rows) {
             this[FactEpicPlan.connectionId] = connectionId
             this[FactEpicPlan.issueId] = it.issueId
             this[FactEpicPlan.baselineSeq] = it.baselineSeq

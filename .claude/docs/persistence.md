@@ -58,7 +58,11 @@ in-network consumers use `postgres:5432`). There is one persistence stack:
   1..600) and `maxIdleTimeSeconds` (`POSTGRES_POOL_MAX_IDLE_SECONDS`, default 600, 1..86400). Every
   pooled connection carries `application_name = flow` (`postgres.pool.applicationName`, test-only
   override), so operators count this instance's backends with
-  `SELECT count(*) FROM pg_stat_activity WHERE application_name = 'flow'`. A role that runs the worker
+  `SELECT count(*) FROM pg_stat_activity WHERE application_name = 'flow'`. The driver's per-connection
+  prepared-statement cache is bounded (`PREPARED_STATEMENT_CACHE_QUERIES` = 256 in `Database.kt`, applied in
+  `connectPooledDatabase`, so the test pool has it too; r2dbc-postgresql's default is unbounded and every cached text stays a
+  named server-side statement for the connection's life) — it matters because `MultiRowInsert.kt`'s SQL text varies with the row count
+  (quantized to a handful of sizes per table). A role that runs the worker
   (`worker`/`all`) refuses to boot unless `maxSize > 2 × ingest.workerSlots` (`configureIngestWorker`): a running DERIVE
   holds two pooled connections at once (its transaction plus `MetricsStore.ensureDimDate`'s own). Size it as
   `maxSize × replicas + 1` (Flyway's short-lived JDBC connection, `infra/db/Flyway.kt`) well under
@@ -527,7 +531,9 @@ insert, `MetricsStore.kt` (the table objects live in `MetricsTables.kt`, the row
 "The DERIVE run algorithm") — EXCEPT `dim_date` (global, reconciled by `MetricsStore.ensureDimDate`:
 its own committed `inTopLevelSuspendTransaction` under the advisory lock `DIM_DATE_LOCK_KEY`, writing only rows that
 are missing or differ from the calendar — `.claude/docs/metrics.md` "Calendar math")
-and `fact_sprint_snapshot` (append-only, see below). **`DIM_DATE_LOCK_KEY` (`MetricsStore.kt`, the ASCII bytes of
+and `fact_sprint_snapshot` (append-only, see below). **The `insertX` methods write through `infra/db/MultiRowInsert.kt`'s `insertRows`**
+(`batchInsert`'s call shape, one multi-row `INSERT … VALUES` per chunk): `exposed-r2dbc`'s `batchInsert` executes every row as its own bound
+statement (~0.16-0.19 ms a row, 10x the multi-row cost — `.claude/docs/build-times.md` WHY 3). **`DIM_DATE_LOCK_KEY` (`MetricsStore.kt`, the ASCII bytes of
 "FlowDate") is the repo's only PostgreSQL advisory lock** and `ensureDimDate` the only
 `inTopLevelSuspendTransaction` caller (a write that commits while its caller's transaction is still open); no other code may take that key.
 
