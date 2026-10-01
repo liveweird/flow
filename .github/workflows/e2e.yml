@@ -74,8 +74,9 @@ jobs:
           # inspect moby/buildkit:v0.33.0`): the builder image is otherwise pulled floating.
           driver-opts: image=moby/buildkit:v0.33.0@sha256:6c2fa84a6b61ccd72899dde4239f8d5717f05f9a8ca6f3cad185fb1a95a94de3
 
-      # Same key as ci.yml's `images` job: the inputs of the slow, dependency-shaped layers, so the two
-      # workflows restore each other's cache and it is rewritten only when a dependency layer changes.
+      # Keyed on the inputs of the slow, dependency-shaped layers, so the cache is rewritten only when a
+      # dependency layer changes. (ci.yml's `images` job used to share this entry; it dropped the cache on
+      # 2026-10-01 — it cost more than it saved there, `.claude/docs/build-times.md` WHY 9.)
       - name: Cache the image build layers
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
