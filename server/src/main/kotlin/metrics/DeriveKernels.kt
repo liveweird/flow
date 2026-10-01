@@ -4,6 +4,8 @@ import ch.nokillswit.infra.time.MILLIS_PER_DAY
 import ch.nokillswit.norm.FieldChangeRow
 import ch.nokillswit.norm.NormalizedFieldInterval
 import ch.nokillswit.norm.NormalizedStatusInterval
+import java.math.BigDecimal
+import java.math.RoundingMode
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
@@ -150,6 +152,22 @@ internal const val DIM_DATE_FLOOR_YEARS = 50L
  * `agg_daily_flow` rows every DERIVE run.
  */
 const val PV_HORIZON_YEARS = 10L
+
+/** Decimal places of every man-day figure: the stored `NUMERIC(_, 2)` scale and the scale every report emits. */
+internal const val MD_SCALE = 2
+
+/**
+ * Σ of [values] in man-days, each value rounded half-up to [MD_SCALE] BEFORE it is summed (`null` counts as `0`), the sum
+ * exact (BigDecimal, no float drift). The ONE rule for a sprint's MD figure: [DeriveKernels.sprintTotals] (`fact_sprint`)
+ * applies it to the per-item estimates, and the readers that re-sum stored figures (Velocity's and Sprint consistency's
+ * per-user and per-team groups) apply it to values that are already two-decimal, so Σ groups equals the team figure to the
+ * cent. A plain Double sum of those figures would drift in the last bits (12.34 + 5.67 = 18.009999999999998), so the
+ * readers use this too. The per-item rounding matches what the database stores (`NUMERIC(_, 2)`, half away from zero =
+ * half-up for the non-negative estimates here), pinned against Postgres by `MetricsDerivationTest`.
+ */
+internal fun sumMd(values: Iterable<Double?>): Double = values
+    .fold(BigDecimal.ZERO) { acc, v -> if (v == null) acc else acc + v.toBigDecimal().setScale(MD_SCALE, RoundingMode.HALF_UP) }
+    .toDouble()
 
 /** The inclusive `[fromMs, toMs]` span [DeriveKernels.dimDateRange] says `metrics.dim_date` must cover. */
 data class DimDateRange(val fromMs: Long, val toMs: Long)
@@ -600,10 +618,12 @@ object DeriveKernels {
      * `sample-data/jira/generate.mjs`'s own reference `computeSprintScope` counts a removed item
      * ONLY in its own removed bucket, never also in committed/final — so the committed bucket here
      * additionally requires `inScopeAtClose` (true for every non-removed row, `false` only for the
-     * REMOVED shape), matching that reference exactly.
+     * REMOVED shape), matching that reference exactly. **Each item's MD is rounded to [MD_SCALE] BEFORE
+     * summing** ([sumMd]) — the scope rows persist the per-item rounded value, so this is what makes
+     * Σ `fact_sprint_scope` (and every per-user report group) equal `fact_sprint` exactly.
      */
     fun sprintTotals(items: List<SprintScopeItem>): SprintTotals {
-        fun md(pred: (SprintScopeItem) -> Boolean, value: (SprintScopeItem) -> Double?) = items.filter(pred).sumOf { value(it) ?: 0.0 }
+        fun md(pred: (SprintScopeItem) -> Boolean, value: (SprintScopeItem) -> Double?) = sumMd(items.filter(pred).map(value))
         fun count(pred: (SprintScopeItem) -> Boolean) = items.count(pred)
         return SprintTotals(
             committedMd = md({ it.committed && it.inScopeAtClose }) { it.estimateAtCommitmentMd },

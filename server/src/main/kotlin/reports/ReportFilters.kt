@@ -46,7 +46,8 @@ data class ReportFilters(
     val workCategories: List<String>,
     val connections: List<ReportFilterConnection>,
     val derivedAt: Long?,
-    val configRevision: Long,
+    /** The revision the served figures were derived under (the oldest connection's, see [DeriveStamp]); `null` before any DERIVE. */
+    val configRevision: Long?,
     val minSampleSize: Int,
     /** `metrics.settings.time_zone` (IANA) — the zone `from`/`to` are read in, so a client renders and defaults dates in it. */
     val timeZone: String,

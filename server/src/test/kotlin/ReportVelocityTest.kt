@@ -7,6 +7,7 @@ import io.ktor.client.request.get
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.testApplication
 import java.io.File
+import java.math.BigDecimal
 import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -123,11 +124,20 @@ class ReportVelocityTest {
 
         val teamTotal = body.sprints.single().finalMd
         val teamTotalItems = body.sprints.single().finalItems
-        assertEquals(teamTotal, body.groups.sumOf { it.finalMd }, ABS_TOLERANCE, "Sigma users must equal the team total")
+        // EXACT (no tolerance): every MD figure is a whole-cent value and the groups round each item before summing
+        // (`sumMd`), so Σ users is the team figure to the cent, whatever decimals the estimates carry.
+        fun exactSum(values: List<Double>) = values.fold(BigDecimal.ZERO) { acc, v -> acc + v.toBigDecimal() }
+        assertEquals(
+            0, exactSum(listOf(teamTotal)).compareTo(exactSum(body.groups.map { it.finalMd })),
+            "Sigma users must equal the team total",
+        )
         assertEquals(teamTotalItems, body.groups.sumOf { it.finalItems })
         // The committed (initial) bucket too, in MD and items — the same removed-row rule as the team.
         val sprint = body.sprints.single()
-        assertEquals(sprint.initialMd, body.groups.sumOf { it.initialMd }, ABS_TOLERANCE, "Sigma users initial must equal the team")
+        assertEquals(
+            0, exactSum(listOf(sprint.initialMd)).compareTo(exactSum(body.groups.map { it.initialMd })),
+            "Sigma users initial must equal the team",
+        )
         assertEquals(sprint.initialItems, body.groups.sumOf { it.initialItems })
         assertTrue(body.groups.isNotEmpty(), "expected at least one assignee-at-commitment group")
         assertLabelThenIdOrder("TEAM", body.groups.map { GroupIdentity(it.label, it.teamId, it.accountId) })

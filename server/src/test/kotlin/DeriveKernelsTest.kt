@@ -11,6 +11,8 @@ import ch.nokillswit.norm.NormalizedFieldInterval
 import ch.nokillswit.norm.NormalizedStatusInterval
 import ch.nokillswit.norm.StatusCategory
 import ch.nokillswit.norm.TrackedField
+import java.math.BigDecimal
+import java.math.RoundingMode
 import java.time.LocalDate
 import java.time.ZoneId
 import kotlin.test.Test
@@ -726,6 +728,43 @@ class DeriveKernelsTest {
         // lands in the dropped bucket too — carried-over/dropped are no longer committed-only.
         assertEquals(1, totals.droppedItems)
         assertEquals(0, totals.deliveredItems)
+    }
+
+    @Test
+    fun `sprintTotals rounds each item's MD before summing, so the team total equals the sum of its per-user groups to the cent`() {
+        fun scope(id: Long, estimateMd: Double) = DeriveKernels.sprintScope(
+            issueId = id, sprintStartAtMs = sprintStart, sprintCloseAtMs = sprintClose, graceMs = 0,
+            membershipIntervals = listOf(membership(sprintStart - 1000, null)),
+            estimateTimeline = listOf(estimate(0, estimateMd)),
+            assigneeIntervals = emptyList(),
+            doneAtMs = null, inLaterSprintOfTeam = true,
+        )!!
+        // Three items whose unrounded sum is exactly 1.000 but whose stored (2-decimal) values sum to 0.99 —
+        // the old sum-then-round team total (1.00) disagreed with the Σ of the per-item stored values by 0.01.
+        val userA = listOf(scope(1L, 0.333), scope(2L, 0.333))
+        val userB = listOf(scope(3L, 0.334))
+        val team = DeriveKernels.sprintTotals(userA + userB)
+        val groups = listOf(DeriveKernels.sprintTotals(userA), DeriveKernels.sprintTotals(userB))
+
+        // What `fact_sprint_scope` stores per item (NUMERIC(8, 2), half-up), summed exactly.
+        fun stored(md: Double) = md.toBigDecimal().setScale(2, RoundingMode.HALF_UP)
+        val storedSum = (userA + userB).fold(BigDecimal.ZERO) { acc, row -> acc + stored(row.estimateAtCloseMd!!) }
+        assertEquals(BigDecimal("0.99"), storedSum)
+        assertEquals(0.99, team.finalMd)
+        assertEquals(0.99, team.committedMd)
+        assertEquals(0.99, team.carriedOverMd)
+        assertEquals(team.finalMd, groups.fold(BigDecimal.ZERO) { acc, g -> acc + g.finalMd.toBigDecimal() }.toDouble())
+        assertEquals(team.committedMd, groups.fold(BigDecimal.ZERO) { acc, g -> acc + g.committedMd.toBigDecimal() }.toDouble())
+        // Idempotent: rebuilding the items from their stored scale-2 values (what the reports re-sum) gives the same total.
+        val reread = (userA + userB).map {
+            it.copy(
+                estimateAtCommitmentMd = stored(it.estimateAtCommitmentMd!!).toDouble(),
+                estimateAtCloseMd = stored(it.estimateAtCloseMd!!).toDouble(),
+            )
+        }
+        val rereadTotals = DeriveKernels.sprintTotals(reread)
+        assertEquals(team.finalMd, rereadTotals.finalMd)
+        assertEquals(team.committedMd, rereadTotals.committedMd)
     }
 
     @Test

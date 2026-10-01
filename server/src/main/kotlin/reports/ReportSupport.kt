@@ -2,6 +2,7 @@ package ch.nokillswit.reports
 
 import ch.nokillswit.infra.db.active
 import ch.nokillswit.ingest.DataSourceService
+import ch.nokillswit.metrics.MD_SCALE
 import ch.nokillswit.metrics.MetricsSettingsResponse
 import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.norm.WorkItemStore
@@ -33,9 +34,6 @@ import org.jetbrains.exposed.v1.r2dbc.selectAll
  * window and the `fact_task_delivery`/`fact_epic_delivery` slice predicates. Every function is
  * `internal` and runs inside the CALLER's `suspendTransaction`.
  */
-
-/** Decimal places of every man-day figure a report emits. */
-internal const val MD_SCALE = 2
 
 /**
  * A man-day figure rounded half-up for the wire. A total is ALWAYS the rounded EXACT sum, never the sum of rounded
@@ -102,14 +100,29 @@ internal suspend fun requireActiveTeam(teamId: UInt) {
     if (!exists) throw BadRequestException("Unknown or inactive teamId: $teamId")
 }
 
-internal suspend fun latestDerivedAt(connectionIds: List<UInt>): Long? {
-    if (connectionIds.isEmpty()) return null
-    return MetricsTables.DeriveRuns.select(MetricsTables.DeriveRuns.finishedAt)
-        .where {
-            (MetricsTables.DeriveRuns.status eq DERIVE_RUN_SUCCEEDED) and
-                (MetricsTables.DeriveRuns.connectionId inList connectionIds.map { it.toInt() })
-        }
-        .toList().mapNotNull { it[MetricsTables.DeriveRuns.finishedAt] }.maxOrNull()
+/**
+ * What a report's `meta` says about the DERIVE behind its figures: [derivedAt] is the latest SUCCEEDED
+ * `finished_at` across the scoped connections; [configRevision] is the OLDEST `config_revision` among the
+ * connections' newest SUCCEEDED runs — the oldest configuration any served figure was derived under (the
+ * same "oldest connection wins" rule [derivedCoverage] applies to the DERIVE clock), NOT the live
+ * `metrics.settings.config_revision`, which runs ahead of the data between a config change and its DERIVE.
+ * Connections that never derived successfully serve no figures and contribute to neither. Both are `null`
+ * when no connection in scope has a successful run ("not derived yet").
+ */
+internal data class DeriveStamp(val derivedAt: Long?, val configRevision: Long?)
+
+internal suspend fun deriveStamp(connectionIds: List<UInt>): DeriveStamp {
+    if (connectionIds.isEmpty()) return DeriveStamp(null, null)
+    val runs = MetricsTables.DeriveRuns
+    val succeeded = runs.select(runs.id, runs.connectionId, runs.startedAt, runs.finishedAt, runs.configRevision)
+        .where { (runs.status eq DERIVE_RUN_SUCCEEDED) and (runs.connectionId inList connectionIds.map { it.toInt() }) }
+        .toList()
+    val newestPerConnection = succeeded.groupBy { it[runs.connectionId] }
+        .values.map { rows -> rows.maxWith(compareBy({ it[runs.startedAt] }, { it[runs.id] })) }
+    return DeriveStamp(
+        derivedAt = succeeded.mapNotNull { it[runs.finishedAt] }.maxOrNull(),
+        configRevision = newestPerConnection.minOfOrNull { it[runs.configRevision] },
+    )
 }
 
 /** Team names by id — an empty [ids] costs no query. */
@@ -305,12 +318,12 @@ internal data class ReportScope(
 internal suspend fun ReportService.resolveReportScope(filter: ReportFilter, nowMs: Long): ReportScope {
     val settings = metricsSettings.read()
     val connectionIds = resolveConnectionScope(filter.connectionId)
-    val derivedAt = latestDerivedAt(connectionIds)
+    val stamp = deriveStamp(connectionIds)
     val unassigned = filter.teamId == UNASSIGNED_TEAM_ID
     if (!unassigned) filter.teamId?.let { requireActiveTeam(it) }
     val narrowTeamId = filter.teamId.takeIf { filter.level != ReportLevel.UNIT && !unassigned }
     val sprintRows = if (unassigned) emptyList() else resolveSprintRows(filter.period, connectionIds, narrowTeamId)
-    val meta = filter.toMeta(derivedAt, settings.configRevision, settings.minSampleSize, resolvedSprintGroups(filter.period, sprintRows))
+    val meta = filter.toMeta(stamp.derivedAt, stamp.configRevision, settings.minSampleSize, resolvedSprintGroups(filter.period, sprintRows))
     return ReportScope(settings, connectionIds, meta, sprintRows, periodWindow(filter.period, sprintRows, nowMs))
 }
 
