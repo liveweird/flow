@@ -83,7 +83,11 @@ floors sit just below current actuals — the convention is to **re-measure and 
 coverage improves, never to lower them for new code: `check` runs only `koverVerify`, so run
 `./gradlew :server:koverXmlReport` for fresh actuals. Every fork's Kover agent writes into the one shared `test.ic` (if CI ever flakes on Kover, fall back to `-Pforks=1`), so
 `-Pforks=2` measures the same code as the single fork (2026-09-30: line 98.19 % vs 98.23 %, branch 80.19 % vs
-80.23 % — the ±0.04 is timing-dependent coverage, not a loss; `koverVerify` passes either way). Frontend vitest enforces thresholds in
+80.23 % — the ±0.04 is timing-dependent coverage, not a loss; `koverVerify` passes either way). **Kover costs ~11-14 % of the test wall and ~20 % of its CPU**
+(2026-10-01, `build-times.md` WHY 4) and stays on everywhere `check` runs — the floors are a gate. There is **no
+Gradle property to switch it off** (none was added); for a timing run or a tight dev loop over `:server:test` alone, temporarily add
+`kover { currentProject { instrumentation { disabledForTestTasks.add("test") } } }` to `server/build.gradle.kts` and never commit
+it (no `test.ic` is written, so `koverVerify` would have nothing to check). Frontend vitest enforces thresholds in
 `web/vite.config.ts` (`test.coverage.thresholds`, same re-measure convention — the current
 actuals are noted in a comment beside them); run `cd web && npm run test:coverage`.
 

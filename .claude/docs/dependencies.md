@@ -130,8 +130,8 @@ ships. Dependabot covers none of the pins in the first three rows — bump them 
 | `npm audit --audit-level=high` | `ci.yml` `e2e-static` | every e2e dependency is a dev tool, so the whole tree. Also the last step |
 | `trivy image` (HIGH/CRITICAL, `--ignore-unfixed`, exit 1) | `ci.yml` `images` (master only) | the same digest-pinned `trivy:0.74.0` as the Gradle lockfile scan; run against the compose-built `flow-app`. A red step is a fixable OS-package or JAR advisory: refresh the base-image digests (see "Runtime and image verification") or the dependency. It cannot be waived per-CVE without a `.trivyignore` with a dated justification — there is none |
 | `kubeconform v0.8.0` (`-strict`, Kubernetes 1.33.0) | `ci.yml` `k8s-static` | the tarball is pinned by sha256 in the workflow (`CHECKSUMS` file of the release); bump version and sha together. Kubernetes version follows the local OrbStack cluster |
-| `docker/setup-buildx-action`, `actions/cache` | `ci.yml` `images`, `e2e.yml` | SHA-pinned like every action; Dependabot's `github-actions` ecosystem updates them |
-| BuildKit `moby/buildkit:v0.33.0@sha256:6c2fa84a…` (`driver-opts: image=…` on both `setup-buildx-action` uses) | `ci.yml`, `e2e.yml` | the builder image is otherwise pulled floating. Not Dependabot-covered: at a bump take the current stable tag and re-derive the index digest (`docker buildx imagetools inspect moby/buildkit:<tag> --raw \| sha256sum`), and change both workflows together |
+| `docker/setup-buildx-action`, `actions/cache` | `e2e.yml` (the `images` job dropped both on 2026-10-01 — WHY 9) | SHA-pinned like every action; Dependabot's `github-actions` ecosystem updates them |
+| BuildKit `moby/buildkit:v0.33.0@sha256:6c2fa84a…` (`driver-opts: image=…` on the `setup-buildx-action` use) | `e2e.yml` | the builder image is otherwise pulled floating. Not Dependabot-covered: at a bump take the current stable tag and re-derive the index digest (`docker buildx imagetools inspect moby/buildkit:<tag> --raw \| sha256sum`) |
 | `kubeconform -schema-location` (`yannh/kubernetes-json-schema@8df8a883…`) | `ci.yml` `k8s-static` (`KUBECONFORM_SCHEMAS`) | the schema repo is pinned to a commit so an upstream schema change cannot redden the job; move it with the kubeconform version |
 
 The npm audits are a moving gate: a newly published advisory can turn an unrelated PR red. That is the
@@ -141,18 +141,19 @@ allow-list); never lower `--audit-level` to get green. Measured state on 2026-09
 `web` (full and `--omit=dev`) and in `e2e`; the locally built image scans clean (no fixable
 HIGH/CRITICAL) — those are the baselines the gates started from.
 
-**Image build cache.** The `images` job and the nightly `e2e` job build the app image through
+**Image build cache.** Only the nightly `e2e` job builds the app image through
 `docker compose -f docker-compose.yaml -f .github/compose-buildx-cache.yaml build` on a `docker-container`
 BuildKit builder (`docker/setup-buildx-action`), with a `type=local` layer cache persisted by
 `actions/cache` (the `type=gha` backend needs runtime tokens a `run:` step does not receive). The cache key
 hashes the dependency-shaped inputs (Dockerfile, all seven Gradle lockfiles, the Gradle build scripts,
 `gradle.properties`, the version catalog, `verification-metadata.xml`, the wrapper properties,
-`web/package.json` + `package-lock.json`), so it is rewritten only when one of them changes and
-both workflows restore each other's entry. Measured locally: a cold build 2m08s, a rebuild with the warm
-cache and one changed server source file 1m32s; the cache is ~1 GB (`mode=max`) and the Gradle
-`installDist` layer is rebuilt whenever a source file changes (dependency download and compile share one
-layer), so the runner-side gain is modest until that layer is split or given a BuildKit cache mount — see
-`.claude/docs/build-times.md` WHY 9.
+`web/package.json` + `package-lock.json`), so it is rewritten only when one of them changes. Measured locally:
+a cold build 2m08s, a rebuild with the warm cache and one changed server source file 1m32s; the cache is
+~1 GB (`mode=max`) and the Gradle `installDist` layer is rebuilt whenever a source file changes (dependency
+download and compile share one layer), so the gain is modest. **The `ci.yml` `images` job no longer uses it
+(2026-10-01):** on the 4-vCPU runner the restore, import, export (discarded on every key hit), teardown and
+image load cost ~60 s against ~10 s saved — a plain `docker compose build` measured 133 s against 170 s + 20 s
+with the cache, `.claude/docs/build-times.md` WHY 9. The nightly keeps it until WHY 7's data says otherwise.
 
 ## Buildscript advisory follow-up (2026-09-26)
 

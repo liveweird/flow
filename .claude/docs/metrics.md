@@ -184,6 +184,12 @@ NOT part of that transaction, see "`dim_date` is global" below), delete every re
 connection, insert `dim_domain` (small, config-derived, inserted once), then three ordered passes over the
 connection's LIVE `norm.work_items` rows.
 
+**Writes are multi-row `INSERT … VALUES`.** Every `MetricsStore.insertX` goes through `infra/db/MultiRowInsert.kt`'s `insertRows`
+(the `batchInsert` call shape, one statement per chunk of at most 32,000 bind parameters; chunk sizes are quantized — the table's maximum or a power of two — so a table has only a handful of SQL texts, see `build-times.md` WHY 3): `exposed-r2dbc`'s own `batchInsert` executes every row
+as a separate bound statement, ~0.16-0.19 ms a row however small, which was ~2.3 s of the ~3.3 s a stub DERIVE took (15,000 rows — WHY 3 in
+`.claude/docs/build-times.md`); the stub DERIVE is now ~1.2 s (pass 1 0.12 s, pass 2 0.19 s, sprint 0.08 s, worklog 0.06 s, the WIP
+`INSERT … SELECT` 0.5 s). The persisted rows are identical: a whole-derive A/B over all 20 `metrics.*` tables (WHY 3) is the evidence; `MultiRowInsertTest` pins the helper itself against `batchInsert` on three of the tables (plain, jsonb/nullable-reference and client-default columns).
+
 **Memory (review round 2b).** Earlier drafts loaded every work item's FULL `custom_fields` object
 plus every issue's status/field intervals, field changes and worklogs for the WHOLE connection at
 once. The fix has two parts:

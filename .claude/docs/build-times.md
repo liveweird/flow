@@ -79,7 +79,7 @@ miss is a question to answer, not a number to adjust. CI runners are public-repo
 | CI `web` | 1.5 min | 3 min | cached `npm ci`, lint, knip, vitest, vite build of a small SPA; was 1m15s |
 | CI `e2e-static` | 30 s | 1 min | cached `npm ci` + eslint + knip + tsc over a handful of specs; runs ~15 s today |
 | CI `gradle-vulnerability-scan` | 1 min | 2 min | resolve the lockfiles + one trivy run over a few thousand lines |
-| CI `images` | 2.5 min | 4 min | multi-stage docker build (gradle installDist + vite build) with the BuildKit layer cache (`.github/compose-buildx-cache.yaml`), then a Trivy scan of the image. Cache and scan landed together (2026-09-30) with no runs behind them: expect the scan to add ~30-60 s, decide after two master runs whether the target moves |
+| CI `images` | 2.5 min | 4 min | multi-stage docker build (gradle installDist + vite build) as a plain `docker compose build` — no layer cache (it cost more than it saved, WHY 9) — then a Trivy scan of the image. Measured 4m05s with the cache (2026-09-30), ~3 min expected without (133 s build median + ~45 s scan): the target is missed by the floor of the job (Gradle in Docker ~113 s + Trivy DB download ~25 s), documented, not raised |
 | CI `k8s-static` | 20 s | 45 s | one checkout, a pinned kubeconform download, validation of ~11 small objects twice (raw + rendered) |
 | CI `e2e` (nightly) | 7 min | 15 min | PROVISIONAL: image build + compose up + Playwright over a tiny stack; revisit with more data |
 | CI `e2e` step: `Install e2e deps` | 15 s | 45 s | `npm ci` of the e2e workspace with the npm cache |
@@ -101,7 +101,7 @@ below, never a failing check.
 |---|---|---|---|
 | `stub-clone` (`cloneProcessedData`) | 0.5 s | 1.5 s | an `INSERT … SELECT` of the same 14 tables measured 220 ms; the Exposed clone takes 3.6 s |
 | `stub-process` (PROCESS, 1,200 issues) | 3 s | 8 s | ~2.5 ms per issue is generous for a page-batched read plus a handful of batched writes; measured 2.4-3.2 s after the page batching (2026-09-30), was 16-19 s at 13.5-15 ms per issue |
-| `stub-derive` (one DERIVE of the stub) | 1 s | 3 s | 1,200 items, ~1,300 days; measured 2.5-2.9 s WITH the statistics fix, 7-26 s without |
+| `stub-derive` (one DERIVE of the stub) | 1 s | 3 s | 1,200 items, ~1,300 days; measured 1.17-1.75 s with `insertRows` (2026-10-01, WHY 3; 2.9-3.7 s with `batchInsert`), 7-26 s before the statistics fix; of the rest the WIP `INSERT … SELECT` is 0.5-0.75 s |
 | `derive-perf` (scale-20, ~24k issues, `docker-compose.perf.yaml`) | 20 s | 180 s | 20x the stub at 1 s; the ceiling is the v0.3.0 plan budget (< 3 min); measured 82 s |
 
 ## History so far
@@ -151,7 +151,7 @@ runner-variance warning above in mind — two cancelled master runs (#91, #93) s
 counted. The `web` job: **3m15s (master, before #37) → 1m55s (first master run with #37: vitest `isolate: false`,
 CSS/threads — WHY 6) → 1m23s (#40's push) → 1m09s** (#41's PR run), inside its 1m30s target. Still over
 target: `server` (10m01s vs 5 min) and `images` (4m06s: the BuildKit cache and the Trivy scan landed together in
-#35 — WHY 9 needs a fresh look, below).
+#35 — answered 2026-10-01, WHY 9 below: the cache was the regression and is gone).
 
 **WHY 5 (CI 4 vCPU vs local 18 cores) — status 2026-09-30: pending.** Checkup A2 made parallel test forks
 possible; checkup D1 is the change that ENABLES them (`maxParallelForks` above 1) and has not landed. Until it does
@@ -240,6 +240,74 @@ stub, a clone of the synced raw rows, `needs_processing` on every issue; instrum
   Still over the 3 min local target — the rest is DERIVE (question 3) and the unpooled harness
   database (question 10).
 
+**Cause found: DERIVE's "JVM passes" were `batchInsert`'s per-row cost, not JVM compute (2026-10-01,
+`perf/why-3-9`).** Measured with a temporary harness (local, 18 cores, the 1,200-issue stub, a disabled
+clone derived nine times in one JVM under the pinned clock; lap timers around `runDerivation`'s steps and
+around every `metricsStore.insert*`/`workItemStore.*` read, plus a JFR recording of derives 4-9; all
+instrumentation removed):
+
+| Step of one stub DERIVE (steady state, derives 4-9) | Before, ms | After, ms |
+|---|---|---|
+| read + trim work items, contexts, deletes | ~40 | ~40 |
+| pass 1 (`item_stage`/`item_blocked`/`item_estimate`) | 717-945 | 118-155 |
+| pass 2 (tasks + four bridges + `fact_task_delivery`) | 987-1,244 | 189-294 |
+| sprint step / worklog step | 326-458 / 185-238 | 76-126 / 63-82 |
+| WIP `INSERT … SELECT` + flow + `ANALYZE` | 510-720 + 90 + 17 | 508-765 + 100 + 18 |
+| **whole derive** | **2.9-3.7 s** | **1.17-1.75 s** |
+
+- **The time was round trips, not compute.** Inside the steps, the `insert*` calls alone added up to
+  2.3-2.7 s; reads (`fieldIntervalsByIssue` 39 calls, `statusIntervalsByIssue`, `worklogsByIssue`) 0.1 s; the
+  pure Kotlin kernels (`deriveItem`, `buildTaskRow`, …) were below the timers' noise. Every
+  `batchInsert` cost **0.16-0.21 ms per row regardless of the table** (`item_stage` 3,603 rows 680 ms =
+  0.19 ms/row; `task_assignee` 2,361 rows 384 ms; `fact_task_delivery` 1,186 rows 247 ms; `dim_task` 193 ms;
+  `fact_worklog` 201 ms; ... ~15,000 rows in all). JFR agrees: six recorded derives took 20 s of wall
+  time and produced 378 execution samples at a 5 ms period (1.9 s, ~9 % of the wall) — the threads were
+  waiting on the database, and the hottest Java frames were r2dbc-postgresql/netty/reactor plumbing, not
+  Flow code. It is the same ~0.15 ms/row Exposed batch cost the PROCESS entry above found.
+- **Isolated and tried** (3,600 `item_stage` rows in chunks of 200, one transaction, 5 runs, ms): `batchInsert`
+  as written 620-640 (first run 1,036); `batchInsert(shouldReturnGeneratedValues = false)` 490-690 (no help —
+  the cost is the per-row execution, not the `RETURNING`); ONE multi-row `INSERT … VALUES (…), (…)` per chunk
+  **54-62**; the database's own cost for the same rows with `generate_series` (GiST + btree indexes and the
+  `connection_id` FK check included) **35-39**.
+- **Fix: `infra/db/MultiRowInsert.kt`'s `insertRows`** — `batchInsert`'s call shape (`table.insertRows(rows) {
+  this[Col] = … }`), one multi-row `VALUES` statement per chunk of at most 32,000 bind parameters (the wire
+  protocol's limit is 65,535), every value still bound and converted by its column's own type (the
+  `EntityID` reference columns bind through the referenced id column; client-side `default(…)` columns are
+  filled like `batchInsert` does; rows must set the same columns, all of this table's, and the table must have
+  no sequence-backed `autoIncrement("seq")`; Exposed's client-side `varchar` length check is not run, an overflow
+  fails server-side with SQLSTATE 22001). **Statement texts are quantized** (review finding): the SQL text
+  depends on the row count and every distinct text is a named server-side prepared statement that
+  r2dbc-postgresql caches per connection — unbounded by default — so a chunk is the table's maximum rows per
+  statement or a power of two (`chunkSizes`: 13 rows -> 8 + 4 + 1; at most ~14 distinct texts per table, pinned
+  by `MultiRowInsertTest`), and `connectPooledDatabase` bounds the driver cache
+  (`PREPARED_STATEMENT_CACHE_QUERIES` = 256, `persistence.md` "Connection pool"). Measured on one pooled
+  connection with `pg_prepared_statements` (scratch test, removed): 0 statements before, **128 after the first
+  stub DERIVE and still 128 after the ninth** — flat, not growing per derive; the stub DERIVE after the change
+  took 1.15-1.41 s steady (1.65 s the first, 9 derives), unchanged by the quantization. All `MetricsStore.insertX` methods use it
+  (`batchUpsert` for `dim_date` is unchanged: a cold-start-only ~150-250 ms). 3,600 rows: 73-93 ms.
+  **Byte-identical output is established two ways.** `MultiRowInsertTest` writes the same rows through
+  `batchInsert` and `insertRows` into two connections and compares the stored rows (two chunks, NULLs, jsonb,
+  a nullable reference, an unset default column). And a one-off A/B over the whole derive (temporary test,
+  removed): for every one of the 20 `metrics.*` tables a SQL MD5 over the rows minus `id`, `connection_id`,
+  `config_revision`, `snapshot_at`/`reconstructed` and the team-id columns (those vary per fixture) plus
+  the row count was **identical before and after** (e.g. `item_stage=3603:cf3bb42b…`,
+  `fact_task_delivery=1186:b7a9b66b…`, `agg_daily_wip=13202:1db61cc1…`); the existing
+  `MetricsDigestTest`/`DerivedStubFixtureTest`/`SyncedStubFixtureTest`/`MetricsDerivationTest` pass unchanged.
+- **Suite effect** (one run each, local, shared machine — read the per-class rows, not the totals): `MetricsDerivationTest`
+  65-89 s -> 29 s, `MetricsDigestTest` 25-33 s -> 12 s, `DerivedStubFixtureTest` 3.9-4.4 s -> 2.5 s; the whole gated
+  `cleanTest build -Pforks=2` (872 tests, `gaps.txt` empty, detekt and `koverVerify` green) took 1m55s against 2m23s
+  on 09-30 with 822 tests.
+- **What is left of a stub DERIVE (~1.2-1.5 s):** the WIP `INSERT … SELECT` 0.5-0.75 s (13,200 rows; database
+  side — the two correlated sub-selects, `metrics.md` "Performance"), the flow step 0.1 s, passes 1 + 2 +
+  sprint + worklog ~0.4 s together (batched reads + multi-row writes, no single item over 0.2 s), 40 ms of
+  setup. `stub-derive` is back inside its 3 s ceiling and within ~20-50 % of its 1 s target; the remainder is
+  the WIP statement, not the JVM. At scale 20 (24,000 issues, ~300,000 bridge/fact rows) the per-row figures
+  (0.17 ms before, ~0.02 ms after) project the ~51 s "JVM side" recorded in `metrics.md` "Performance" to
+  roughly 6-10 s including reads — projected, NOT re-measured at scale.
+- **Follow-up, not done here (scope):** PROCESS (`WorkItemStore.replaceWorkItems`: `batchInsert` per table,
+  ~2.1 s of its 2.4-3.2 s per pass is the same per-row cost) can use `insertRows` the same way — a separate
+  change with its own digest pins (`NormalizationPipelineTest`).
+
 Open questions — each is "why does this take this long for a tiny dataset?", to be answered with
 evidence and recorded here as a dated entry (finding + fix, or "measured, intended because …"):
 
@@ -249,13 +317,38 @@ evidence and recorded here as a dated entry (finding + fix, or "measured, intend
    status-interval digest. Why do we round-trip 1,200 items through the JVM to copy them? Target
    `stub-clone` 0.5 s. Estimated -54 s locally.
 2. **PROCESS was 13.5 ms per issue — ANSWERED 2026-09-30, see "Cause found: PROCESS" above.**
-3. **DERIVE's JVM passes.** Even with ANALYZE ~70 % of a DERIVE is JVM-side batched loops: pass 1 +
-   pass 2 ~1.6 s and the sprint + worklog steps ~0.5 s for 1,200 items (the `dim_date` upsert alone is
-   ~150 ms for 1,281 days). Why does computing facts for 1,200 rows cost 1.6 s? Target `stub-derive` 1 s
-   (2.5-2.9 s today).
-4. **Kover costs ~10 %.** Instrumentation off: suite 369 → 334 s (-9.5 %), the `MetricsDerivationTest`
-   class -15 %. `koverVerify` is a `check` gate, so it stays on in CI; a local-dev switch is cheap.
-   Open: is the floor worth 10 % of every CI run, or can coverage be measured on a schedule?
+3. **DERIVE's JVM passes — ANSWERED 2026-10-01, see "Cause found: DERIVE's JVM passes" above.** They were
+   Exposed `batchInsert`'s ~0.17 ms per row (~15,000 rows = 2.3-2.7 s of a 2.9-3.7 s derive), not compute;
+   `insertRows` (one multi-row `INSERT` per chunk) brought a stub DERIVE to 1.17-1.75 s, identical rows. What
+   remains is the database-side WIP statement (0.5-0.75 s).
+4. **Kover costs ~10 % — ANSWERED 2026-10-01 (`perf/why-3-9`): confirmed at 11-14 % of the test wall and ~20 % of the CPU; it stays on.**
+   Measured locally (18 cores, but the machine is shared with other worktrees — load average 5-20 while these ran, so
+   wall figures swing +-15 % between identical runs: four interleaved full suites, 872 tests, `cleanTest :server:test
+   -Pforks=2`, gave 162 / 145 s and 127 / 128 s for instrumented / not; the class-time sums 264 / 251 s and 213 / 225 s —
+   no conclusion can be drawn from those). The CPU time is what load cannot distort: two instrumented/not pairs with
+   `/usr/bin/time -p ./gradlew --no-daemon cleanTest :server:test -Pforks=2` (the test JVMs are descendants, so their
+   user+sys is included):
+
+   | Pair | Instrumented: wall, user + sys | Not instrumented: wall, user + sys | Saved |
+   |---|---|---|---|
+   | 1 | 139.7 s, 241.2 + 26.0 = 267.1 s CPU | 124.0 s, 186.6 + 24.5 = 211.1 s CPU | wall -11.2 %, CPU -21.0 % |
+   | 2 | 112.1 s, 207.0 + 21.4 = 228.4 s CPU | 95.9 s, 163.2 + 19.9 = 183.1 s CPU | wall -14.4 %, CPU -19.8 % |
+
+   So the ~10 % of WHY 4's first measurement (369 -> 334 s, -9.5 %) holds: 11-14 % of the wall on a machine with spare
+   cores, ~20 % of the CPU — and a 4-vCPU runner running two forks, two Postgres containers and the agent is
+   CPU-bound, so its wall follows the CPU figure more than the local one (expect up to ~15-20 % of the `test` task,
+   i.e. a few tens of seconds of the `server` job). Not measured here: `koverVerify`/`koverXmlReport` themselves
+   (they ride `check` after the tests).
+   **Is there a local switch? No.** `server/build.gradle.kts` has no `-PnoKover`-style property and none was added
+   (nothing under `*.kts`, `gradle.properties`, `scripts/` or the workflows mentions one); the plugin
+   (`org.jetbrains.kotlinx.kover` 0.9.9) instruments every `Test` task while it is applied. The measurement above used a
+   temporary, uncommitted `kover { currentProject { instrumentation { disabledForTestTasks.add("test") } } }` block
+   (no `test.ic` is written then, so `koverVerify` has nothing to verify — use it only for `:server:test`
+   timing or a dev loop, never `build`); `testing.md` "Coverage gates" records it. **Decision: Kover stays on in CI
+   and in `check`.** The line/branch floors are a `check` gate and `koverVerify` needs `test.ic`; measuring coverage on a
+   schedule instead would let a coverage drop merge green and surface a night later, and the price is ~11-14 % of a
+   job that is not the critical-path problem (the `server` job's time is dominated by the suite itself, WHY 5) — measured,
+   intended. Revisit only if a 4-vCPU CI run shows the instrumented test task costing more than ~1 min over a clean one.
 5. **CI 4 vCPU vs local 18 cores — ANSWERED 2026-09-30 (`perf/parallel-forks`, checkup D1).** The suite now
    runs in parallel JVM forks: `server/build.gradle.kts` reads `-Pforks=N` into `maxParallelForks` (default 1; validated as an integer 1..8, else any build that runs the `test` task fails),
    CI passes `-Pforks=2`. What made it possible (the three blockers the old entry listed): (1) the OpenAPI gate
@@ -365,11 +458,41 @@ evidence and recorded here as a dated entry (finding + fix, or "measured, intend
    ensured in its own short transaction (`MetricsStore.ensureDimDate`), and derives instead serialize from
    `analyzeDerivedTables` to their commit, on the ANALYZE lock of the shared tables). The effect on
    wall time is unmeasured.
-9. **`images` is one 2m25s step** (`docker compose build`), +30 % since 09-26 with a cold layer cache
-   each run. Is the layer cache being used at all (is there a `cache-from`)? Not investigated before
-   2026-09-30; #35 then added the BuildKit layer cache (`.github/compose-buildx-cache.yaml`) AND a Trivy scan
-   of the image in one change. Latest master figure 4m06s (median of 5, TREND +76 %, over the 4-min alarm):
-   is the cache hit (`--steps images`), and how long is the scan? Still open.
+9. **`images` at ~4 min — ANSWERED 2026-10-01 (`perf/why-3-9`): the BuildKit layer cache made it SLOWER; removed.**
+   Sources: `ci-times.mjs --branch master --steps images`, `gh run view <id> --json jobs` for every master push
+   that ran `images` (22 successful runs), and the full log of run #119 (`f2f0b65`).
+
+   | Variant | Runs | Build step | Extra steps | Job |
+   |---|---|---|---|---|
+   | plain `docker compose build` (docker driver, no cache, no scan), 09-27 → 09-30 | 15 (#45-#81) | 105-142 s, **median 133 s** | none | 109-146 s |
+   | BuildKit `docker-container` builder + `actions/cache` layer cache + Trivy (09-30) | 7 (#84-#119) | 151-179 s, **median 170 s** | buildx setup 5-10 s, cache restore 6-11 s, Trivy 39-51 s (86 s once), buildx teardown 8-13 s | 240-268 s, median 248 s |
+
+   Inside the 163 s build step of run #119: cache import from the restored directory ~19 s; the Gradle
+   `installDist` RUN **113 s** (~50 s before its first task runs — daemon fork, plugin and dependency
+   resolution and download; `compileKotlin` ~46 s cold; it shares the 4 vCPUs with the 23 s web `tsc` +
+   `vite build` that runs beside it); runtime stage ~2 s; image export + `docker load` ~8.5 s (a
+   `docker-container` builder cannot hand the image to the daemon for free); **cache export 14.6 s — thrown
+   away on every exact key hit**, because `actions/cache` saves only on a miss (its post step ran twice in
+   seven runs). What `CACHED` saved: `apk add git`, `npm ci` (both in the web stage, which runs parallel to
+   Gradle — off the critical path), the `./gradlew --version` Gradle-distribution download (~10 s) and the
+   runtime `apt-get` layer. The expensive layer — resolve + compile — sits after `COPY server/src`, so it is
+   rebuilt on every commit and NO layer cache can hold it. Net: ~10 s saved on the critical path against
+   ~11 (restore) + ~19 (import) + ~15 (export) + ~10 (teardown) + ~8 (load) ≈ 60 s spent, which is exactly the
+   +35 s build and +20 s steps the table shows.
+   **Trivy** (39-51 s): image pull ~2 s, vulnerability DB download ~5 s, Java DB download ~20 s, the scan itself
+   under a second. Measured locally the two databases are 1.4 GB each uncompressed; persisting them with
+   `actions/cache` costs a restore of that size per run against a ~25 s download — not worth it, left as is.
+   **Fix (`ci.yml` `images`):** back to a plain `docker compose build` on the runner's Docker — no
+   `setup-buildx-action`, no `actions/cache`, no `compose-buildx-cache.yaml`; the scan step is unchanged, so the
+   job still builds the shipped Dockerfile and scans the resulting `flow-app`. Expected ~133 s build + ~45 s scan
+   + a few seconds of checkout ≈ **3 min** (was 4m05s). The 2.5-min target is still missed by ~30 s and the floor
+   is what the job proves: the Gradle build inside Docker (~113 s, dependency resolution + Kotlin compile of the
+   server) plus the Trivy databases (~25 s of download); neither can go away without weakening it (building
+   `installDist` on the runner would stop testing the Dockerfile). Budgets are unchanged. **Not changed:** the
+   nightly `e2e.yml` keeps its cache (one sample of its `Build images` step with it: 153 s + 11 s setup + 26 s
+   teardown; the old combined step gives no comparable split) — re-check it with WHY 7's data. **Verify** with
+   `ci-times.mjs --branch master --steps images` after the first master run on this change; the job is not on
+   the run's critical path (`server` is ~9 min), so this is cost, not latency.
 10. **The shared test database was unpooled — ANSWERED 2026-09-30 (`perf/pooled-test-db`).**
    `sharedTestDatabase` (`TestEnvironment.kt`) opened a fresh PostgreSQL backend per
    `suspendTransaction` (~4.2 ms; a pooled connection answers a first statement in ~0.25 ms) for every

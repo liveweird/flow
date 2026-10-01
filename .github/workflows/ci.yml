@@ -254,13 +254,22 @@ jobs:
     # no fixable HIGH/CRITICAL vulnerability (the base-image digests are pinned, so this is where a
     # stale digest or an unpatched OS package surfaces). Push-only — the multi-stage build is the
     # slowest job here.
+    #
+    # A plain `docker compose build` on the runner's own Docker, deliberately WITHOUT a BuildKit layer cache
+    # (WHY 9, `.claude/docs/build-times.md`): the one expensive layer is the Gradle `installDist` RUN
+    # (dependency resolution + Kotlin compile, ~113 s) and it depends on the sources, so it is rebuilt on
+    # every commit and no cache can hold it. The cache that was here (a `docker-container` builder plus an
+    # `actions/cache` directory, 2026-09-30) cost more than it saved: restore ~10 s, import ~19 s, export
+    # ~15 s thrown away on every hit, builder teardown ~10 s and an image tarball export/load ~8 s, against
+    # ~10 s of saved Gradle-distribution download (the npm layer runs parallel to the Gradle stage, off the
+    # critical path). Measured on master: 15 cache-less runs 105-142 s (median 133 s), 7 cached runs
+    # 151-179 s for the build step alone (median 170 s) + ~20 s of restore and teardown.
     if: github.event_name == 'push'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
       # The image compose builds is `<project>-app`; pin the project so the scan below can name it.
       COMPOSE_PROJECT_NAME: flow
-      BUILDX_CACHE_DIR: /tmp/buildx-cache
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -268,26 +277,8 @@ jobs:
           fetch-depth: 0
           # The Docker build context includes .git: no checkout token may be stored in its config.
           persist-credentials: false
-      # A docker-container BuildKit builder is what can export a layer cache; the plain docker driver cannot.
-      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-        with:
-          # Pinned BuildKit (tag + multi-platform index digest, derived via `docker buildx imagetools
-          # inspect moby/buildkit:v0.33.0`): the builder image is otherwise pulled floating.
-          driver-opts: image=moby/buildkit:v0.33.0@sha256:6c2fa84a6b61ccd72899dde4239f8d5717f05f9a8ca6f3cad185fb1a95a94de3
-      # Keyed on the inputs of the slow, dependency-shaped layers (the npm and Gradle-wrapper layers and
-      # the base images): the cache is rewritten only when one of them changes, not on every commit.
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: /tmp/buildx-cache
-          key: buildx-flow-${{ hashFiles('Dockerfile', 'gradle.lockfile', 'settings-gradle.lockfile', 'buildscript-gradle.lockfile', 'core/gradle.lockfile', 'core/buildscript-gradle.lockfile', 'server/gradle.lockfile', 'server/buildscript-gradle.lockfile', 'gradle.properties', 'settings.gradle.kts', 'build.gradle.kts', 'core/build.gradle.kts', 'server/build.gradle.kts', 'gradle/libs.versions.toml', 'gradle/verification-metadata.xml', 'gradle/wrapper/gradle-wrapper.properties', 'web/package.json', 'web/package-lock.json') }}
-          restore-keys: buildx-flow-
-      - name: Build images (BuildKit, layer cache)
-        run: |
-          mkdir -p "$BUILDX_CACHE_DIR"
-          docker compose -f docker-compose.yaml -f .github/compose-buildx-cache.yaml build
-          # The export wrote a complete new cache beside the old one; swap so unused blobs never pile up.
-          rm -rf "$BUILDX_CACHE_DIR"
-          mv "$BUILDX_CACHE_DIR-new" "$BUILDX_CACHE_DIR"
+      - name: Build images
+        run: docker compose build
       # HIGH/CRITICAL with a published fix fail the job; unfixed ones are reported nowhere on purpose
       # (nothing to act on). The digest-pinned scanner is the one the Gradle lockfile scan uses.
       - name: Scan the app image for vulnerabilities (HIGH/CRITICAL, fixable)

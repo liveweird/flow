@@ -76,8 +76,9 @@ The checkup fixed tiers A–D in PRs #31–#53. Still open (item ids as in the r
   (settings / per-connection config / options / owner resolution) and `reports/EpicProgressReport.kt` (entry /
   targets / EVM math / rows); break the `ingest` ↔ `metrics` import cycle with a `JobHandler` registry. Each is a pure
   move pinned by the digest, golden and route tests.
-- **Build-time WHYs still open** (`build-times.md`): WHY 3 — the DERIVE JVM passes (~1.6 s per derive of the stub);
-  WHY 9 — the `images` job at ~4 min despite the layer cache; Kover's ~10 % test overhead.
+- **Build-time follow-ups** (`build-times.md`): WHY 3/4/9 are answered (2026-10-01); what is left is PROCESS on
+  `infra/db/MultiRowInsert.kt`'s `insertRows` (the same per-row `batchInsert` cost, ~2.1 s of a 2.4-3.2 s pass), the
+  nightly `e2e` image-build cache (WHY 7's data decides), and re-checking `images` after its first master run.
 - **B7 — the always-loaded instruction budget:** a compact `conventions.md` REPLACING part of `testing.md` (move the
   fixture narrative to an on-demand `test-fixtures.md`) and CLAUDE.md's per-file package tree — not an addition.
 - **Small:** the five redundant private `ensureMigrated()` copies in tests (use `PostgresTestSupport.ensureMigrated()`);

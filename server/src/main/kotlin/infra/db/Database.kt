@@ -95,6 +95,15 @@ private fun Application.connectPooled(): R2dbcDatabase {
 }
 
 /**
+ * Distinct SQL texts each pooled connection keeps as a cached, named server-side prepared statement
+ * (r2dbc-postgresql's `preparedStatementCacheQueries`; the driver's default, -1, is unbounded and never
+ * closes one). Flow's statements are a few hundred fixed texts (Exposed's own plus the quantized multi-row
+ * inserts of `MultiRowInsert.kt`); 256 keeps the hot ones and lets an LRU eviction close the rest, so a
+ * long-lived connection's backend memory stays bounded.
+ */
+internal const val PREPARED_STATEMENT_CACHE_QUERIES = 256
+
+/**
  * The pool construction itself, shared by [connectPooled] (production and every `testApplication`)
  * and the test harness's own direct-access database (`sharedDatabaseForTests()`, which had been an
  * UNPOOLED connect paying a fresh PostgreSQL backend, ~4 ms, per transaction). The caller owns
@@ -107,7 +116,16 @@ internal fun connectPooledDatabase(
     maxAcquireTime: Duration,
     maxIdleTime: Duration,
 ): Pair<R2dbcDatabase, ConnectionPool> {
-    val rawFactory = ConnectionFactories.get(options)
+    // Bound the driver's prepared-statement cache (its default is unbounded, and every cached text stays a
+    // named server-side statement for the connection's life): see PREPARED_STATEMENT_CACHE_QUERIES.
+    val cached = if (options.hasOption(PostgresqlConnectionFactoryProvider.PREPARED_STATEMENT_CACHE_QUERIES)) {
+        options
+    } else {
+        options.mutate()
+            .option(PostgresqlConnectionFactoryProvider.PREPARED_STATEMENT_CACHE_QUERIES, PREPARED_STATEMENT_CACHE_QUERIES)
+            .build()
+    }
+    val rawFactory = ConnectionFactories.get(cached)
     val pool = ConnectionPool(
         ConnectionPoolConfiguration.builder(rawFactory)
             .maxSize(maxSize)

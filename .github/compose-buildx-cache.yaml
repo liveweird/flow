@@ -3,7 +3,8 @@
 # workflow persists with actions/cache (the `type=gha` backend needs runtime tokens a `run:` step
 # does not receive, so the directory + actions/cache pair is the one that needs no extra action).
 # Reads the previous cache, writes a complete new one beside it (the workflow then swaps the
-# directories, so unused blobs never pile up). Used by ci.yml `images` and e2e.yml.
+# directories, so unused blobs never pile up). Used by e2e.yml only: the ci.yml `images` job dropped the cache
+# on 2026-10-01 because it cost more than it saved (build-times.md WHY 9).
 services:
   app:
     build:

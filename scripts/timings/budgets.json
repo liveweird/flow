@@ -15,7 +15,7 @@
       "gradle-vulnerability-scan": { "target": 60, "alarm": 120, "why": "resolve lockfiles + one trivy run on a few thousand lines of lockfile" },
       "web": { "target": 90, "alarm": 180, "why": "npm ci (cached) + lint + knip + vitest + vite build of a small SPA" },
       "e2e-static": { "target": 30, "alarm": 60, "why": "npm ci (cached) + eslint + knip + tsc over a handful of specs" },
-      "images": { "target": 150, "alarm": 240, "why": "multi-stage docker build: gradle installDist + vite build, layer cache cold on a runner; since the buildx layer cache and the Trivy image scan landed this is re-measured, not assumed (build-times.md)" },
+      "images": { "target": 150, "alarm": 240, "why": "multi-stage docker build (gradle installDist + vite build) as a plain compose build — the buildx layer cache was removed, it cost more than it saved — plus the Trivy image scan; ~3 min expected, the floor is Gradle in Docker (~113 s) + the Trivy databases (WHY 9, build-times.md)" },
       "k8s-static": { "target": 20, "alarm": 45, "why": "one checkout + a kubeconform download + validation of ~11 small objects, twice (raw and rendered)" },
       "e2e": { "target": 420, "alarm": 900, "why": "PROVISIONAL (nightly): images build + compose up + Playwright over a tiny stack; revisit with the first real data" }
     },
