@@ -10,11 +10,12 @@ type FetchMock = ReturnType<typeof vi.fn>;
 const NOTHING_FOUND = "No matching people";
 const LOADER = "Loading people…";
 
-function renderModal(options: { timeZone?: string | null; exclude?: string[] } = {}) {
+function renderModal(options: { timeZone?: string | null; exclude?: string[]; zoneError?: { error: unknown; retry: () => void } } = {}) {
   return renderWithProviders(
     <JiraMemberModal
       teamId={5}
       timeZone={options.timeZone === undefined ? "Europe/Warsaw" : options.timeZone}
+      zoneError={options.zoneError ?? null}
       excludeAccountIds={new Set(options.exclude ?? [])}
       onClose={() => {}}
       onCreated={async () => {}}
@@ -242,11 +243,24 @@ describe("JiraMemberModal — server-side search", () => {
     expect(screen.queryByText(/Showing the first/)).not.toBeInTheDocument();
   });
 
-  test("submit waits for the metrics zone", async () => {
+  test("submit waits for the metrics zone — silently while it loads", async () => {
     serveDirectory();
     renderModal({ timeZone: null });
 
     expect(await screen.findByRole("button", { name: "Create" })).toBeDisabled();
+    expect(screen.queryByText(/time zone could not be loaded/)).not.toBeInTheDocument();
+  });
+
+  test("a failed zone load says why Create is dead and offers Retry", async () => {
+    serveDirectory();
+    const retry = vi.fn();
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    renderModal({ timeZone: null, zoneError: { error: new TypeError("Failed to fetch"), retry } });
+
+    expect(await screen.findByText(/time zone could not be loaded.*Network error/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    expect(retry).toHaveBeenCalledTimes(1);
   });
 
   test("a failed search shows the inline alert and a retry term clears it", async () => {

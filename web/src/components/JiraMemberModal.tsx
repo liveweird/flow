@@ -10,6 +10,7 @@ import { saveErrorMessage } from "../utils/saveError";
 import { showSuccessToast } from "../utils/toast";
 import RegistryEditorActions from "./RegistryEditorActions";
 import ErrorAlert from "./ErrorAlert";
+import ZoneUnavailableAlert from "./ZoneUnavailableAlert";
 
 type JiraMemberFormValues = {
   accountId: string | null;
@@ -31,6 +32,7 @@ const EMPTY_FORM: JiraMemberFormValues = { accountId: null, validFrom: "", valid
 export default function JiraMemberModal({
   teamId,
   timeZone,
+  zoneError,
   excludeAccountIds,
   onClose,
   onCreated,
@@ -38,6 +40,8 @@ export default function JiraMemberModal({
   teamId: number;
   /** The configured metrics zone the picked days are read in; `null` while it loads (submit waits). */
   timeZone: string | null;
+  /** Set when the zone FAILED to load (rather than is still loading): shown with a Retry. */
+  zoneError: { error: unknown; retry: () => void } | null;
   /** Accounts already CURRENTLY on this team — excluded from the picker. */
   excludeAccountIds: Set<string>;
   onClose: () => void;
@@ -162,6 +166,7 @@ export default function JiraMemberModal({
             placeholder={t("common.dateFormatHint")}
             {...form.getInputProps("validTo")}
           />
+          {timeZone === null && zoneError !== null && <ZoneUnavailableAlert error={zoneError.error} onRetry={zoneError.retry} />}
           <RegistryEditorActions error={error} submitting={submitting} isEdit={false} onClose={onClose} gap="sm" submitDisabled={timeZone === null} />
         </Stack>
       </form>

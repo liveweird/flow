@@ -2,9 +2,8 @@
  * `YYYY-MM-DD` ISO-date helpers shared by the metrics settings form (holidays), the reports (days
  * in the configured zone) and D1's dated Jira-user team membership (valid-from/valid-to, which are
  * calendar days in that same zone). The plain conversions are UTC; the `…InZone` ones take the
- * configured IANA zone. Both are deterministic across test/CI locales — the
- * `utils/dataSourceState.ts` `formatEpochMillis` convention: never `toLocaleString()`/the browser's
- * local time zone.
+ * configured IANA zone. Neither reads the browser's local time zone, so results are the same in every
+ * test/CI locale (the `utils/dataSourceState.ts` `formatEpochMillis` convention: never `toLocaleString()`).
  */
 
 const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;

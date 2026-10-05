@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert, Badge, Button, Group, Menu, Stack, Table, Text } from "@mantine/core";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -23,6 +23,7 @@ import RowActionsMenu from "./RowActionsMenu";
 import ScrollRegion from "./ScrollRegion";
 import { useDeleteConfirm } from "../hooks/useDeleteConfirm";
 import ErrorAlert from "./ErrorAlert";
+import ZoneUnavailableAlert from "./ZoneUnavailableAlert";
 
 /** `now ∈ [validFrom, validTo)` — `validTo == null` means open-ended (always current from `validFrom` on). */
 function isCurrent(row: TeamMembershipResponse, nowMillis: number): boolean {
@@ -60,13 +61,8 @@ export default function TeamJiraMembers({ teamId }: { teamId: number }) {
   });
   const namesByAccountId = new Map((directory.data?.people ?? []).map((person) => [person.accountId, person.displayName]));
 
-  // A newly added SITE person may not be UNIT-relevant until this row exists, so adding also
-  // refreshes the directory the names are read from.
   async function refresh() {
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["team-jira-memberships", teamId] }),
-      queryClient.invalidateQueries({ queryKey: ["jira-users", "directory"] }),
-    ]);
+    await queryClient.invalidateQueries({ queryKey: ["team-jira-memberships", teamId] });
   }
 
   // Membership dates are calendar days in the CONFIGURED metrics zone (the zone the server's
@@ -76,6 +72,8 @@ export default function TeamJiraMembers({ teamId }: { teamId: number }) {
   // ADMIN-only settings); the dates read in UTC until it loads, and the mutating actions wait.
   const filters = useQuery({ queryKey: ["reports", "filters"], queryFn: getReportFilters, staleTime: 60_000 });
   const zone = filters.data?.timeZone;
+  const zoneFailed = zone == null && filters.isError;
+  const zoneAlertId = useId();
 
   const endMembership = useMutation({
     mutationFn: (args: { row: TeamMembershipResponse; timeZone: string }) =>
@@ -132,7 +130,7 @@ export default function TeamJiraMembers({ teamId }: { teamId: number }) {
           </Button>
         )}
       </Group>
-      {filters.isError && <ErrorAlert error={filters.error} />}
+      {zoneFailed && <ZoneUnavailableAlert id={zoneAlertId} error={filters.error} onRetry={() => void filters.refetch()} />}
       {directory.isError && <ErrorAlert error={directory.error} />}
       {directory.data?.truncated && (
         <Alert color="gray" variant="light">
@@ -187,6 +185,7 @@ export default function TeamJiraMembers({ teamId }: { teamId: number }) {
                             <Menu.Item
                               leftSection={<IconCalendarOff size={14} />}
                               disabled={zone == null}
+                              aria-describedby={zoneFailed ? zoneAlertId : undefined}
                               onClick={() => {
                                 if (zone == null) return;
                                 setActionError(null);
@@ -214,10 +213,15 @@ export default function TeamJiraMembers({ teamId }: { teamId: number }) {
         <JiraMemberModal
           teamId={teamId}
           timeZone={zone ?? null}
+          zoneError={zoneFailed ? { error: filters.error, retry: () => void filters.refetch() } : null}
           excludeAccountIds={currentAccountIds}
           onClose={() => setAdding(false)}
           onCreated={async () => {
             setAdding(false);
+            // A newly added SITE person may not be UNIT-relevant until this row exists, so the
+            // directory the names come from is refreshed too — in the background: the table
+            // refresh below never waits for the whole directory walk.
+            void queryClient.invalidateQueries({ queryKey: ["jira-users", "directory"] });
             await refresh();
           }}
         />

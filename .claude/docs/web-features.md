@@ -138,7 +138,14 @@ team membership landed in M2 commit 5, and the per-connection `metrics-config` p
   semantics unchanged), and "End membership" cuts at the zone's today. The zone is read from
   `GET /reports/filters` (`["reports","filters"]`, any authenticated user — the settings endpoint is
   ADMIN-only and the table is read by everyone); the table reads in UTC until it loads, the End item and
-  the form's submit are disabled until then, and a failed load shows the inline load error.
+  the form's submit are disabled until then. While it is merely loading that is all; when it FAILED, a
+  `ZoneUnavailableAlert` (cause + Retry, `filters.refetch()`) appears above the table and inside the add
+  form, and the disabled End item points at it with `aria-describedby`. Adding a member also invalidates
+  `["jira-users","directory"]` in the background (End/Delete refresh only the memberships).
+  **Rows saved before days moved to the zone hold UTC-midnight instants**: in a zone behind UTC they now
+  display a day earlier, and an old UTC-midnight `validTo` can overlap a new zone-midnight `validFrom` by
+  the zone's offset (a `409`) — correct it by editing the old row. Changing the settings time zone later
+  re-renders every stored instant in the new zone (the instants themselves do not move).
   **Dates are plain `YYYY-MM-DD` `TextInput`s** (`utils/isoDate.ts`'s
   `isValidIsoDate`/`isoDateToEpochMillisInZone`/`epochMillisToIsoDateInZone`; never `toLocaleString()`) — the
   `dataSourceState.ts` `formatEpochMillis` convention — no `@mantine/dates` dependency in this

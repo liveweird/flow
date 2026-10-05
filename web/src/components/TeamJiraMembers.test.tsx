@@ -168,6 +168,9 @@ describe("TeamJiraMembers", () => {
     const body = JSON.parse((findCall(mockFetch, "PUT", "/api/v1/teams/5/jira-memberships/10")![1] as RequestInit).body as string);
     // Warsaw midnight (CEST, +2) on the 16th — not the UTC midnight of the 15th or the 16th.
     expect(body).toEqual({ validFrom: Date.UTC(2024, 0, 1), validTo: Date.UTC(2026, 5, 15, 22) });
+    // Ending only refreshes the memberships — the directory walk is not re-run (nor waited for).
+    await waitFor(() => expect(mockFetch.mock.calls.filter(([u]) => u === "/api/v1/teams/5/jira-memberships")).toHaveLength(2));
+    expect(unitDirectoryCalls(mockFetch)).toBe(1);
   });
 
   test("End membership stays disabled until the metrics zone is known, and nothing is sent", async () => {
@@ -189,10 +192,13 @@ describe("TeamJiraMembers", () => {
     expect(findCall(mockFetch, "PUT", "/api/v1/teams/5/jira-memberships/10")).toBeUndefined();
   });
 
-  test("a failed zone load shows the load error and keeps End membership disabled", async () => {
+  test("a failed zone load says why End is disabled and Retry recovers", async () => {
+    let filtersFail = true;
     mockFetch.mockImplementation((url: string, init?: RequestInit) => {
       const method = init?.method ?? "GET";
-      if (method === "GET" && url === "/api/v1/reports/filters") return Promise.resolve(jsonResponse(500, { title: "Boom", status: 500 }));
+      if (method === "GET" && url === "/api/v1/reports/filters") {
+        return Promise.resolve(filtersFail ? jsonResponse(500, { title: "Boom", status: 500 }) : jsonResponse(200, { timeZone: "Europe/Warsaw", teams: [] }));
+      }
       if (method === "GET" && url === "/api/v1/teams/5/jira-memberships") return Promise.resolve(jsonResponse(200, MEMBERSHIPS));
       if (method === "GET" && url.startsWith("/api/v1/jira-users")) return Promise.resolve(jsonResponse(200, DIRECTORY));
       return Promise.resolve(jsonResponse(404, { title: "Not Found", status: 404 }));
@@ -200,9 +206,27 @@ describe("TeamJiraMembers", () => {
     const user = userEvent.setup();
     renderWithProviders(<TeamJiraMembers teamId={5} />);
 
-    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    const alert = await screen.findByText(/time zone could not be loaded/);
+    expect(alert).toHaveTextContent("Load failed (500)");
     await user.click(screen.getByRole("button", { name: "Operations for Alice Admin" }));
-    expect(await screen.findByRole("menuitem", { name: /end membership/i })).toBeDisabled();
+    const item = await screen.findByRole("menuitem", { name: /end membership/i });
+    expect(item).toBeDisabled();
+    // The disabled item points at the explanation.
+    expect(document.getElementById(item.getAttribute("aria-describedby") ?? "")).toHaveTextContent(/time zone could not be loaded/);
+    await user.keyboard("{Escape}");
+
+    // The same hint sits inside the add form, whose Create stays disabled.
+    await user.click(screen.getByRole("button", { name: /add jira member/i }));
+    const modal = await screen.findByRole("dialog");
+    expect(modal).toHaveTextContent(/time zone could not be loaded/);
+    expect(await screen.findByRole("button", { name: "Create" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    filtersFail = false;
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(screen.queryByText(/time zone could not be loaded/)).not.toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "Operations for Alice Admin" }));
+    expect(await screen.findByRole("menuitem", { name: /end membership/i })).toBeEnabled();
   });
 
   test("membership dates render as days in the configured zone: a Warsaw end on Nov 1 shows 2026-11-01", async () => {

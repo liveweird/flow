@@ -27,21 +27,20 @@ describe("isoDateToEpochMillis / epochMillisToIsoDate", () => {
   });
 });
 
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 describe("todayIsoDate", () => {
   test("is the UTC date under a fixed clock", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2024-06-15T13:45:00Z"));
     expect(todayIsoDate()).toBe("2024-06-15");
-    vi.useRealTimers();
   });
 });
 
 describe("startOfTodayEpochMillis / startOfDayEpochMillisInZone", () => {
   const at = (iso: string) => Date.parse(iso);
-
-  afterEach(() => {
-    vi.useRealTimers();
-  });
 
   function startOfToday(nowIso: string, timeZone: string): string {
     vi.useFakeTimers();
@@ -93,7 +92,6 @@ describe("zone-aware dates", () => {
     expect(todayIsoDate("Europe/Warsaw")).toBe("2026-11-01");
     // A zone behind UTC keeps the previous day.
     expect(todayIsoDate("America/New_York")).toBe("2026-10-31");
-    vi.useRealTimers();
   });
 
   test("epochMillisToIsoDateInZone handles the DST change day", () => {

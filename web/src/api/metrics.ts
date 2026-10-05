@@ -101,13 +101,30 @@ type JiraUserListQuery = {
   scope?: JiraUserScope;
 };
 
+/**
+ * A caller's signal REPLACES the transport's default 30 s deadline (`{ signal: timeoutSignal(), ...init }`
+ * in `sendWithToken`), so the two are combined here: `AbortSignal.any` where the runtime has it, else
+ * one local controller aborted by whichever fires first — the deadline is never dropped.
+ */
+export function withDeadline(signal?: AbortSignal): AbortSignal | undefined {
+  const deadline = timeoutSignal();
+  if (!signal) return deadline;
+  if (!deadline) return signal;
+  if (typeof AbortSignal.any === "function") return AbortSignal.any([signal, deadline]);
+  const controller = new AbortController();
+  for (const source of [signal, deadline]) {
+    if (source.aborted) {
+      controller.abort(source.reason);
+      break;
+    }
+    source.addEventListener("abort", () => controller.abort(source.reason), { once: true });
+  }
+  return controller.signal;
+}
+
 export async function listJiraUsers(q: JiraUserListQuery, signal?: AbortSignal): Promise<JiraUserPage> {
   const params = buildQuery({ page: q.page, pageSize: q.pageSize, sort: q.sort, q: q.q, teamId: q.teamId, scope: q.scope });
-  // A caller's signal replaces the transport's default deadline (`{ signal: timeoutSignal(), ...init }`),
-  // so the two are combined where the runtime can (`AbortSignal.any`).
-  const deadline = timeoutSignal();
-  const combined = signal && deadline && typeof AbortSignal.any === "function" ? AbortSignal.any([signal, deadline]) : (signal ?? deadline);
-  return jsonRequest<JiraUserPage>(`/api/v1/jira-users?${params}`, { signal: combined });
+  return jsonRequest<JiraUserPage>(`/api/v1/jira-users?${params}`, { signal: withDeadline(signal) });
 }
 
 /** The server's maximum `pageSize` (API-LIST-001) and the page cap that bounds a walk of a whole directory. */
