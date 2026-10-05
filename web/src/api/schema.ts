@@ -1395,6 +1395,85 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/reports/deep-dive/sprints": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Report 17 — the deep dive's sprint picker (the sprints of a domain)
+         * @description Any authenticated user (D12), read-only — `.claude/docs/reports.md` "Report 17". The sprints in which at least one level-0
+         *     task of `domain` (the task's OWN domain, as the report's sprint mode selects) was `in_scope_at_close` (A17), each with
+         *     `taskCount`, the number of those tasks. `domain` is required: a missing or unknown one (no such domain on an active
+         *     connection in scope) is `400`. Active connections only; `connectionId` narrows to one.
+         *
+         *     - Sortable fields: `id` (the Jira sprint id), `name`, `startAt`, `completeAt`. Default sort is `-id` (the most recent sprints
+         *       first); `id` ascending is appended as the tiebreaker when `id` is not already sorted on, then the connection id.
+         *     - `q` — case- and accent-insensitive substring over the sprint name.
+         */
+        get: operations["listReportDeepDiveSprints"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/deep-dive/epics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Report 17 — the deep dive's epic picker
+         * @description Any authenticated user (D12), read-only — `.claude/docs/reports.md` "Report 17". Every epic (`metrics.dim_epic`) of an active
+         *     connection in scope, optionally narrowed to the epic's own `domain` (an unknown domain answers an empty page). `connectionId`
+         *     narrows to one connection.
+         *
+         *     - Sortable fields: `id` (the epic's issue id), `key`, `summary`, `domain`. Default sort is `key` ascending; `id` ascending is
+         *       appended as the tiebreaker, then the connection id.
+         *     - `q` — case- and accent-insensitive substring over the key and the summary.
+         */
+        get: operations["listReportDeepDiveEpics"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/deep-dive/epics/{epicKey}/tasks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Report 17 — the deep dive's handpick list (one epic's level-0 tasks)
+         * @description Any authenticated user (D12), read-only — `.claude/docs/reports.md` "Report 17". The level-0 tasks under the epic
+         *     (`fact_task_delivery.epic_id`, the report's own epic attribution; sub-tasks are never rows). An unknown epic key, or a key
+         *     present in several connections in scope without `connectionId`, is `400` (never `404`).
+         *
+         *     - Sortable fields: `id` (the task's issue id), `key`, `summary`. Default sort is `key` ascending; `id` ascending is appended
+         *       as the tiebreaker.
+         *     - `q` — case- and accent-insensitive substring over the key and the summary.
+         */
+        get: operations["listReportDeepDiveEpicTasks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/reports/reported-time-ratio": {
         parameters: {
             query?: never;
@@ -3506,6 +3585,92 @@ export interface components {
              */
             foreignShare: number | null;
         };
+        DeepDiveSprintOption: {
+            /**
+             * Format: int64
+             * @description The Jira sprint id (unique within a connection).
+             */
+            id: number;
+            /** Format: int32 */
+            connectionId: number;
+            name: string;
+            /** @description The sprint state as stored (`future`, `active` or `closed`). */
+            state: string;
+            /**
+             * Format: int64
+             * @description Epoch millis.
+             */
+            startAt: number | null;
+            /**
+             * Format: int64
+             * @description Epoch millis of the planned end.
+             */
+            endAt: number | null;
+            /**
+             * Format: int64
+             * @description Epoch millis; null while the sprint is not closed.
+             */
+            completeAt: number | null;
+            /**
+             * Format: int32
+             * @description The domain's level-0 tasks `in_scope_at_close` in this sprint.
+             */
+            taskCount: number;
+        };
+        DeepDiveEpicOption: {
+            /**
+             * Format: int64
+             * @description The epic's Jira issue id (unique within a connection).
+             */
+            id: number;
+            /** Format: int32 */
+            connectionId: number;
+            key: string;
+            summary: string | null;
+            /** @description The epic's own domain key; null when it maps to none. */
+            domain: string | null;
+        };
+        DeepDiveTaskOption: {
+            /**
+             * Format: int64
+             * @description The task's Jira issue id (unique within a connection).
+             */
+            id: number;
+            /** Format: int32 */
+            connectionId: number;
+            key: string;
+            summary: string | null;
+        };
+        DeepDiveSprintPage: {
+            items: components["schemas"]["DeepDiveSprintOption"][];
+            page: number;
+            pageSize: number;
+            /**
+             * Format: int64
+             * @description Row count after filters, before pagination.
+             */
+            total: number;
+        };
+        DeepDiveEpicPage: {
+            items: components["schemas"]["DeepDiveEpicOption"][];
+            page: number;
+            pageSize: number;
+            /**
+             * Format: int64
+             * @description Row count after filters, before pagination.
+             */
+            total: number;
+        };
+        DeepDiveTaskPage: {
+            items: components["schemas"]["DeepDiveTaskOption"][];
+            page: number;
+            pageSize: number;
+            /**
+             * Format: int64
+             * @description Row count after filters, before pagination.
+             */
+            total: number;
+        };
         /** @description DONE level-0 tasks a reported-time-ratio read could not turn into a ratio, each in ONE bucket (`noWorklogs` first, incl. `actual_md` of 0.00; then `neverStarted`; then `zeroCycle`). `ratio.n + noWorklogs + neverStarted + zeroCycle = population`. */
         ReportedTimeExcluded: {
             population: number;
@@ -3673,6 +3838,8 @@ export interface components {
         ReportDomainView: "TASK" | "EPIC";
         /** @description Restricts to one domain key. */
         ReportDomain: string;
+        /** @description The domain key (required; a missing or unknown one is `400`). */
+        ReportDomainRequired: string;
         /** @description Restricts to one activity type (a standard Jira issue type name). */
         ReportActivityType: string;
         /** @description Restricts to one work category, or the literal `UNCATEGORIZED`. */
@@ -5745,6 +5912,130 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CostMatrixReport"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    listReportDeepDiveSprints: {
+        parameters: {
+            query: {
+                /** @description The domain key (required; a missing or unknown one is `400`). */
+                domain: components["parameters"]["ReportDomainRequired"];
+                /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
+                connectionId?: components["parameters"]["ReportConnectionId"];
+                /** @description Free-text substring filter (case- and accent-insensitive) — API-LIST-005. */
+                q?: components["parameters"]["Q"];
+                /** @description 1-based page index. Defaults to 1. */
+                page?: components["parameters"]["Page"];
+                /** @description Rows per page. Defaults to 20, maximum 100. */
+                pageSize?: components["parameters"]["PageSize"];
+                /**
+                 * @description Sort spec. Format: `field` (ascending) or `-field` (descending). Multiple fields are
+                 *     comma-separated, leftmost wins: `sort=-updatedAt,name`. The endpoint declares its
+                 *     sortable-field whitelist; unknown fields are rejected with `400`. `id` ascending is
+                 *     always appended as a deterministic tiebreaker.
+                 */
+                sort?: components["parameters"]["Sort"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of the domain's sprints */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeepDiveSprintPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    listReportDeepDiveEpics: {
+        parameters: {
+            query?: {
+                /** @description Restricts to one domain key. */
+                domain?: components["parameters"]["ReportDomain"];
+                /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
+                connectionId?: components["parameters"]["ReportConnectionId"];
+                /** @description Free-text substring filter (case- and accent-insensitive) — API-LIST-005. */
+                q?: components["parameters"]["Q"];
+                /** @description 1-based page index. Defaults to 1. */
+                page?: components["parameters"]["Page"];
+                /** @description Rows per page. Defaults to 20, maximum 100. */
+                pageSize?: components["parameters"]["PageSize"];
+                /**
+                 * @description Sort spec. Format: `field` (ascending) or `-field` (descending). Multiple fields are
+                 *     comma-separated, leftmost wins: `sort=-updatedAt,name`. The endpoint declares its
+                 *     sortable-field whitelist; unknown fields are rejected with `400`. `id` ascending is
+                 *     always appended as a deterministic tiebreaker.
+                 */
+                sort?: components["parameters"]["Sort"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of epics */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeepDiveEpicPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    listReportDeepDiveEpicTasks: {
+        parameters: {
+            query?: {
+                /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
+                connectionId?: components["parameters"]["ReportConnectionId"];
+                /** @description Free-text substring filter (case- and accent-insensitive) — API-LIST-005. */
+                q?: components["parameters"]["Q"];
+                /** @description 1-based page index. Defaults to 1. */
+                page?: components["parameters"]["Page"];
+                /** @description Rows per page. Defaults to 20, maximum 100. */
+                pageSize?: components["parameters"]["PageSize"];
+                /**
+                 * @description Sort spec. Format: `field` (ascending) or `-field` (descending). Multiple fields are
+                 *     comma-separated, leftmost wins: `sort=-updatedAt,name`. The endpoint declares its
+                 *     sortable-field whitelist; unknown fields are rejected with `400`. `id` ascending is
+                 *     always appended as a deterministic tiebreaker.
+                 */
+                sort?: components["parameters"]["Sort"];
+            };
+            header?: never;
+            path: {
+                /** @description The epic's issue key. */
+                epicKey: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of the epic's tasks */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeepDiveTaskPage"];
                 };
             };
             400: components["responses"]["BadRequest"];

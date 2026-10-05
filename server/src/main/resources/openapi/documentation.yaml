@@ -1944,6 +1944,105 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/reports/deep-dive/sprints:
+    get:
+      tags: [reports]
+      operationId: listReportDeepDiveSprints
+      summary: Report 17 — the deep dive's sprint picker (the sprints of a domain)
+      description: |
+        Any authenticated user (D12), read-only — `.claude/docs/reports.md` "Report 17". The sprints in which at least one level-0
+        task of `domain` (the task's OWN domain, as the report's sprint mode selects) was `in_scope_at_close` (A17), each with
+        `taskCount`, the number of those tasks. `domain` is required: a missing or unknown one (no such domain on an active
+        connection in scope) is `400`. Active connections only; `connectionId` narrows to one.
+
+        - Sortable fields: `id` (the Jira sprint id), `name`, `startAt`, `completeAt`. Default sort is `-id` (the most recent sprints
+          first); `id` ascending is appended as the tiebreaker when `id` is not already sorted on, then the connection id.
+        - `q` — case- and accent-insensitive substring over the sprint name.
+      parameters:
+        - { $ref: '#/components/parameters/ReportDomainRequired' }
+        - { $ref: '#/components/parameters/ReportConnectionId' }
+        - { $ref: '#/components/parameters/Q' }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/PageSize' }
+        - { $ref: '#/components/parameters/Sort' }
+      responses:
+        '200':
+          description: One page of the domain's sprints
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeepDiveSprintPage'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/reports/deep-dive/epics:
+    get:
+      tags: [reports]
+      operationId: listReportDeepDiveEpics
+      summary: Report 17 — the deep dive's epic picker
+      description: |
+        Any authenticated user (D12), read-only — `.claude/docs/reports.md` "Report 17". Every epic (`metrics.dim_epic`) of an active
+        connection in scope, optionally narrowed to the epic's own `domain` (an unknown domain answers an empty page). `connectionId`
+        narrows to one connection.
+
+        - Sortable fields: `id` (the epic's issue id), `key`, `summary`, `domain`. Default sort is `key` ascending; `id` ascending is
+          appended as the tiebreaker, then the connection id.
+        - `q` — case- and accent-insensitive substring over the key and the summary.
+      parameters:
+        - { $ref: '#/components/parameters/ReportDomain' }
+        - { $ref: '#/components/parameters/ReportConnectionId' }
+        - { $ref: '#/components/parameters/Q' }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/PageSize' }
+        - { $ref: '#/components/parameters/Sort' }
+      responses:
+        '200':
+          description: One page of epics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeepDiveEpicPage'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/reports/deep-dive/epics/{epicKey}/tasks:
+    get:
+      tags: [reports]
+      operationId: listReportDeepDiveEpicTasks
+      summary: Report 17 — the deep dive's handpick list (one epic's level-0 tasks)
+      description: |
+        Any authenticated user (D12), read-only — `.claude/docs/reports.md` "Report 17". The level-0 tasks under the epic
+        (`fact_task_delivery.epic_id`, the report's own epic attribution; sub-tasks are never rows). An unknown epic key, or a key
+        present in several connections in scope without `connectionId`, is `400` (never `404`).
+
+        - Sortable fields: `id` (the task's issue id), `key`, `summary`. Default sort is `key` ascending; `id` ascending is appended
+          as the tiebreaker.
+        - `q` — case- and accent-insensitive substring over the key and the summary.
+      parameters:
+        - name: epicKey
+          in: path
+          required: true
+          schema:
+            type: string
+            # A Jira issue key; one that does not match simply names no epic (`400`).
+            pattern: '^[A-Z][A-Z0-9_]{1,9}-[0-9]{1,10}$'
+            maxLength: 20
+          description: The epic's issue key.
+        - { $ref: '#/components/parameters/ReportConnectionId' }
+        - { $ref: '#/components/parameters/Q' }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/PageSize' }
+        - { $ref: '#/components/parameters/Sort' }
+      responses:
+        '200':
+          description: One page of the epic's tasks
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeepDiveTaskPage'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/reports/reported-time-ratio:
     get:
       tags: [reports]
@@ -2135,6 +2234,12 @@ components:
       required: false
       schema: { type: string }
       description: Restricts to one domain key.
+    ReportDomainRequired:
+      name: domain
+      in: query
+      required: true
+      schema: { type: string }
+      description: The domain key (required; a missing or unknown one is `400`).
     ReportActivityType:
       name: activityType
       in: query
@@ -4606,6 +4711,86 @@ components:
         totalMd: { type: number, format: double, description: 'The grand total: the rounded EXACT sum of every worklog in scope.' }
         foreignMd: { type: number, format: double }
         foreignShare: { type: number, format: double, nullable: true, description: 'Exact foreign MD ÷ exact MD; null when nothing was logged.' }
+
+    DeepDiveSprintOption:
+      type: object
+      required: [id, connectionId, name, state, startAt, endAt, completeAt, taskCount]
+      properties:
+        id: { type: integer, format: int64, description: The Jira sprint id (unique within a connection). }
+        connectionId: { type: integer, format: int32, minimum: 0 }
+        name: { type: string }
+        state: { type: string, description: 'The sprint state as stored (`future`, `active` or `closed`).' }
+        startAt: { type: integer, format: int64, nullable: true, description: Epoch millis. }
+        endAt: { type: integer, format: int64, nullable: true, description: Epoch millis of the planned end. }
+        completeAt: { type: integer, format: int64, nullable: true, description: Epoch millis; null while the sprint is not closed. }
+        taskCount: { type: integer, format: int32, minimum: 1, description: The domain's level-0 tasks `in_scope_at_close` in this sprint. }
+
+    DeepDiveEpicOption:
+      type: object
+      required: [id, connectionId, key, summary, domain]
+      properties:
+        id: { type: integer, format: int64, description: The epic's Jira issue id (unique within a connection). }
+        connectionId: { type: integer, format: int32, minimum: 0 }
+        key: { type: string }
+        summary: { type: string, nullable: true }
+        domain: { type: string, nullable: true, description: The epic's own domain key; null when it maps to none. }
+
+    DeepDiveTaskOption:
+      type: object
+      required: [id, connectionId, key, summary]
+      properties:
+        id: { type: integer, format: int64, description: The task's Jira issue id (unique within a connection). }
+        connectionId: { type: integer, format: int32, minimum: 0 }
+        key: { type: string }
+        summary: { type: string, nullable: true }
+
+    DeepDiveSprintPage:
+      type: object
+      required: [items, page, pageSize, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeepDiveSprintOption'
+        page: { type: integer, minimum: 1 }
+        pageSize: { type: integer, minimum: 1, maximum: 100 }
+        total:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Row count after filters, before pagination.
+
+    DeepDiveEpicPage:
+      type: object
+      required: [items, page, pageSize, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeepDiveEpicOption'
+        page: { type: integer, minimum: 1 }
+        pageSize: { type: integer, minimum: 1, maximum: 100 }
+        total:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Row count after filters, before pagination.
+
+    DeepDiveTaskPage:
+      type: object
+      required: [items, page, pageSize, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeepDiveTaskOption'
+        page: { type: integer, minimum: 1 }
+        pageSize: { type: integer, minimum: 1, maximum: 100 }
+        total:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Row count after filters, before pagination.
 
     ReportedTimeExcluded:
       type: object

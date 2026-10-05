@@ -1070,7 +1070,7 @@ the TASK/EPIC switch for a cross-domain task, an epic-logged and an epic-less wo
 ## Report 17 -- Deep dive
 
 Status: the contract for the deep-dive work (A29, `.claude/docs/domain-model.md`; per-measure rows in `.claude/docs/measures.md` "Report 17");
-the endpoints land with the next commits. Reports-layer only: it reads facts `DERIVE` already writes (`fact_sprint_scope`,
+the three option lists are implemented (`reports/DeepDiveOptions.kt`), the report endpoint lands with the next commits. Reports-layer only: it reads facts `DERIVE` already writes (`fact_sprint_scope`,
 `fact_task_delivery`, `item_stage`, `fact_worklog`, `fact_epic_plan`, `dim_date`) -- no new `DERIVE` step, no migration. Any signed-in user,
 read-only, no audit (D12), every operation answers `200`/`400`/`401` only.
 
@@ -1090,6 +1090,17 @@ The three option lists are ordinary list endpoints (`.claude/docs/list-endpoints
 whitelist (`400` for an unknown sort field, `id`-asc tiebreaker), `q` through `containsNormalized` (`infra/db/Sql.kt`), the
 `{items, page, pageSize, total}` envelope, count and rows on one predicate in one transaction. `{epicKey}` is an issue key; an unknown
 or inactive epic is `400`, never `404`.
+
+Option list shapes (all take `connectionId`, `q`, `page`, `pageSize`, `sort`; items carry `connectionId` and an `id` that is the Jira id, unique
+within a connection): **sprints** -- `domain` REQUIRED (missing, blank or unknown on an active connection in scope is `400`); the sprints in which
+at least one level-0 task of that domain (the task's OWN domain, as mode (a) selects) was `in_scope_at_close`, each `{id (sprint id), connectionId,
+name, state, startAt, endAt, completeAt, taskCount}` with `taskCount` the number of those tasks; `q` over the name; sort `id|name|startAt|completeAt`,
+default `-id`. A domain absent from `dim_domain` (for example a task's as-was raw project key that the domain map no longer holds) is `400` here while `/epics`
+answers an empty page, consistent with `/reports/filters` never offering such a domain. **epics** -- `dim_epic` rows `{id, connectionId, key, summary?, domain?}`; optional `domain` (an unknown domain is an empty page, not a
+`400`); `q` over key and summary; sort `id|key|summary|domain`, default `key`. **epic tasks** -- the epic's level-0 `fact_task_delivery` rows
+(`epic_id`) `{id, connectionId, key, summary?}`; `q` over key and summary; sort `id|key|summary`, default `key`; the `{epicKey}` lookup reads `dim_epic`
+only. `domain` and `q` are trimmed and checked for control characters (a NUL is `400`, never a database error). The connection id is the final tiebreaker after `id`. No planned dates ride on the epic options: `dim_epic.start_at`/`due_at` are not the
+`fact_epic_plan` baseline the report draws.
 
 ### Selection -- exactly one of three modes, set by the parameters
 
@@ -1175,4 +1186,6 @@ list that `curveOf` now uses, which report 15's tests already pin, and `spreadCu
 daylight-saving day, partial and open in-progress intervals) and `ReportDeepDiveTest` (the shared derived fixture read-only with a plain-user
 client, each figure against an INDEPENDENT query; hand-built rows in a DISABLED connection for carry-over, the estimated-late fallback, a task
 never in a sprint, an epic with no window, an epic-logged worklog, an unknown author, 501 tasks, a range over 1100 days and never-derived;
-every `400`, paging, accented `q` and sort errors on the option lists).
+every `400`). `ReportDeepDiveOptionsTest` (landed with the option lists): the shared derived fixture graded against independent reads of the stored
+facts (sprint counts per domain, the epic list, an epic's tasks, paging/total, sorts, uppercase/accented `q`), every option-list `400`, and hand-built
+rows in a disabled connection for stored diacritics and an epic key present in two connections.

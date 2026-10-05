@@ -171,6 +171,11 @@ place:
   (grouped sums of `md`) and `DimDomain` (column names), plus `teams/TeamService.Teams`/`norm/WorkItemStore.People` through
   `orgGroups` (team names, author display names) -- all read-only, inside the report's own transaction.
 
+- `reports/DeepDiveOptions.kt` (`GET /api/v1/reports/deep-dive/sprints|epics|epics/{epicKey}/tasks`, the deep dive's picker lists) reads
+  `metrics/MetricsTables.FactSprintScope`, `FactTaskDelivery`, `DimSprint`, `DimDomain` and `DimEpic`, plus `norm/WorkItemStore.WorkItems`
+  (task summaries) and `ingest/DataSourceService.Connections` (the active-connection scope, `resolveConnectionScope`) -- all read-only, each
+  list in its own transaction.
+
 - `reports/DataQualityReport.kt` and its helpers (`DataQualityTasks.kt`, `DataQualityEpics.kt`, `DataQualityConfig.kt`,
   `DataQualityAssembly.kt`; v0.3.0 M5 commit 17, `GET /api/v1/reports/data-quality`) read, all read-only inside the report's own
   transaction: `metrics/TeamMembershipService.TeamMembership` (the dated roster behind the member-day denominator),

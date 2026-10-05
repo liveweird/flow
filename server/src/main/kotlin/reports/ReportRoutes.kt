@@ -3,8 +3,12 @@ package ch.nokillswit.reports
 import ch.nokillswit.authz.caller
 import ch.nokillswit.infra.db.R2dbcDatabaseKey
 import ch.nokillswit.infra.db.nowMillis
+import ch.nokillswit.infra.paging.SortField
 import ch.nokillswit.infra.paging.optionalEnum
 import ch.nokillswit.infra.paging.optionalString
+import ch.nokillswit.infra.paging.optionalUInt
+import ch.nokillswit.infra.paging.parsePaging
+import ch.nokillswit.infra.validation.sanitizeSingleLine
 import ch.nokillswit.metrics.MetricsSettingsService
 import ch.nokillswit.metrics.MetricsSettingsServiceKey
 import ch.nokillswit.metrics.TeamMembershipServiceKey
@@ -87,6 +91,18 @@ class ReportEpicProgressRoute
 @Resource("/api/v1/reports/cost-matrix")
 class ReportCostMatrixRoute
 
+@Serializable
+@Resource("/api/v1/reports/deep-dive/sprints")
+class ReportDeepDiveSprintsRoute
+
+@Serializable
+@Resource("/api/v1/reports/deep-dive/epics")
+class ReportDeepDiveEpicsRoute
+
+@Serializable
+@Resource("/api/v1/reports/deep-dive/epics/{epicKey}/tasks")
+class ReportDeepDiveEpicTasksRoute(val epicKey: String)
+
 val ReportServiceKey = AttributeKey<ReportService>("ReportService")
 
 /**
@@ -126,6 +142,7 @@ fun Application.configureReportRoutes() {
             deliveryRoutes(reportService, metricsSettings)
             flowRoutes(reportService, metricsSettings)
             qualityEpicAndCostRoutes(reportService, metricsSettings)
+            deepDiveRoutes(reportService)
         }
     }
 }
@@ -220,6 +237,46 @@ private fun Route.qualityEpicAndCostRoutes(reportService: ReportService, metrics
     // The cost matrix (report 16) is a worklog-cost measure — PV/EV/AC-shaped, so it defaults to the EPIC domain view (D3); an
     // explicit `domainView=TASK` switches the columns to the task's own domain.
     reportGet<ReportCostMatrixRoute>(metricsSettings, DomainView.EPIC) { filter, _, nowMs -> reportService.costMatrix(filter, nowMs) }
+}
+
+/**
+ * An optional free-text/identifier parameter trimmed and checked for control characters (`400`, never a Postgres NUL error): the
+ * deep dive's `domain` and `q`.
+ */
+private fun Parameters.optionalSingleLine(name: String): String? =
+    optionalString(name)?.let { sanitizeSingleLine(it, name) }?.takeIf { it.isNotEmpty() }
+
+/**
+ * The deep dive's (report 17) three picker option lists: ordinary paged list endpoints, any signed-in user (D12), `call.caller()` first
+ * so the guard wins over every `400`; the paging and sort whitelist parse BEFORE the report's own parameters.
+ */
+private fun Route.deepDiveRoutes(reportService: ReportService) {
+    get<ReportDeepDiveSprintsRoute> {
+        call.caller()
+        val paging = call.parsePaging(DEEP_DIVE_SPRINT_SORT_FIELDS, listOf(SortField("id", descending = true)))
+        val params = call.request.queryParameters
+        val domain = params.optionalSingleLine("domain") ?: throw BadRequestException("domain is required")
+        val page = reportService.deepDiveSprints(domain, params.optionalUInt("connectionId"), params.optionalSingleLine("q"), paging)
+        call.respond(HttpStatusCode.OK, page)
+    }
+    get<ReportDeepDiveEpicsRoute> {
+        call.caller()
+        val paging = call.parsePaging(DEEP_DIVE_EPIC_SORT_FIELDS, listOf(SortField("key", descending = false)))
+        val params = call.request.queryParameters
+        val page = reportService.deepDiveEpics(
+            params.optionalSingleLine("domain"), params.optionalUInt("connectionId"), params.optionalSingleLine("q"), paging,
+        )
+        call.respond(HttpStatusCode.OK, page)
+    }
+    get<ReportDeepDiveEpicTasksRoute> { route ->
+        call.caller()
+        val paging = call.parsePaging(DEEP_DIVE_TASK_SORT_FIELDS, listOf(SortField("key", descending = false)))
+        val params = call.request.queryParameters
+        val page = reportService.deepDiveEpicTasks(
+            route.epicKey, params.optionalUInt("connectionId"), params.optionalSingleLine("q"), paging,
+        )
+        call.respond(HttpStatusCode.OK, page)
+    }
 }
 
 /**
