@@ -45,7 +45,27 @@ export const CHART_COLORS = {
   stageInProgress: "flow.6",
   stageDone: "teal.8",
   stageUnmapped: "orange.8",
+  /**
+   * The Deep dive matrix's three layers, stacked semi-transparent in one cell: plan (PV) is the plan blue, execution
+   * the delivery teal and cost (AC) the neutral gray — the same shades as above, so no new hue. Each bar carries a solid
+   * 2px edge in its colour (the 3:1 mark, with a 1px surface-coloured halo above it so a neighbouring fill never sits against
+   * it) and its own width (full, two thirds, one third): colour is never the only cue.
+   * The ◆ done marker wears the delivery teal, the epic's planned window the plan blue (dashed).
+   */
+  deepDivePlan: "flow.6",
+  deepDiveExecution: "teal.8",
+  deepDiveCost: "gray.6",
+  deepDiveDone: "teal.8",
+  deepDiveWindow: "flow.6",
+  /** The non-working-day hatch: a neutral gray line, at least 3:1 against the cell surface in both schemes. */
+  deepDiveHatch: "gray.6",
 } as const;
+
+/**
+ * How much of its hue a Deep dive bar's translucent fill carries (the rest is the cell's own surface). The bar's solid
+ * 2px edge is the 3:1 mark; `chartColors.test.ts` blends this fill over every chart surface and checks the edge against it.
+ */
+export const DEEP_DIVE_FILL_ALPHA = 0.32;
 
 /**
  * The bands of a WIP chart keyed by status or board column — arbitrary names, so they must not wear

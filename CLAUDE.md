@@ -23,7 +23,7 @@ where work waits, not who is busy.
   (`.claude/docs/ingestion.md`).
 - **v0.3.0 (this codebase) — the domain model, metrics, reports.** The model in
   `.claude/docs/domain-model.md`, implemented: metrics configuration, a `DERIVE` job building the
-  `metrics` star from `norm` (`metrics/`), and sixteen reports (`reports/`; fifteen pages); Home is
+  `metrics` star from `norm` (`metrics/`), and seventeen reports (`reports/`; sixteen pages); Home is
   the unit overview. Next: the real-Jira first sync, then `BACKLOG.md`.
 
 Brand: blue (the `flow` colour tuple in `web/src/theme.ts`, `primaryShade: { light: 8, dark: 9 }`);

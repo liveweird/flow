@@ -4,7 +4,7 @@ Vite + React 19 + TypeScript SPA: the shell + auth, user/feature management, MFA
 the changelog, and the flat-teams registry — v0.1.0's foundation — plus, since v0.2.0, the Data
 sources pages (ADMIN-managed Jira Cloud connections, their sync jobs, data profile and raw-issue
 inspector — see `.claude/docs/web-features.md`) and, since v0.3.0, the metrics configuration pages and the
-fifteen report pages (sixteen reports; `pages/Report*.tsx`; `pages/Home.tsx` is the unit overview — see "Home overview" in `.claude/docs/web-features.md`). Routes are lazy. New capability that Covenant, Toadie or
+sixteen report pages (seventeen reports; `pages/Report*.tsx`; `pages/Home.tsx` is the unit overview — see "Home overview" in `.claude/docs/web-features.md`). Routes are lazy. New capability that Covenant, Toadie or
 Lettuce already has? Port their building blocks (see "Not yet ported" at the bottom) rather than
 inventing new ones.
 

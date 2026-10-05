@@ -311,3 +311,262 @@
 .listRow + .listRow {
   border-top: 1px solid light-dark(var(--mantine-color-gray-2), var(--mantine-color-dark-5));
 }
+
+/* ---- The Deep dive matrix (components/DeepDiveMatrix.tsx) -------------------------------------------------
+   The layer colours arrive as custom properties (--dd-pv/-exec/-cost/-done/-window, set from `utils/chartColors.ts`
+   on the grid and the legend). A cell stacks up to three translucent bars from its bottom edge: plan full width,
+   execution two thirds, cost one third — each with a solid 2px top edge (the 3:1 mark) and its own width, so colour is
+   never the only cue. Heights are inline (a share of the cell). */
+.ddTable {
+  width: max-content;
+  min-width: 100%;
+}
+
+/* td only: the header and row-header classes below set their own padding (a th reset here would out-rank them). */
+.table.ddTable td {
+  padding: 0;
+}
+
+/* The item column is a fixed width (the sticky column's scroll margin below is the same number), the header rows a
+   fixed height (--dd-head-rows of them make the sticky header's height the scroll margin on top): a focused cell is
+   scrolled clear of both, never left under the sticky chrome (WCAG 2.4.11). */
+.ddTable {
+  --dd-item-width: 280px;
+  --dd-head-row: 30px;
+}
+
+.ddRowHeader {
+  box-sizing: border-box;
+  width: var(--dd-item-width);
+  min-width: var(--dd-item-width);
+  max-width: var(--dd-item-width);
+  padding: 2px 8px;
+  text-align: left;
+  font-weight: 400;
+  vertical-align: middle;
+}
+
+.ddColHead {
+  box-sizing: border-box;
+  height: var(--dd-head-row);
+  padding: 4px 2px;
+  text-align: center;
+  font-size: var(--mantine-font-size-xs);
+  font-weight: 600;
+  white-space: nowrap;
+  scroll-margin-left: var(--dd-item-width);
+}
+
+.ddCornerHead {
+  width: var(--dd-item-width);
+  min-width: var(--dd-item-width);
+  max-width: var(--dd-item-width);
+  text-align: left;
+  padding-inline: 8px;
+}
+
+/* An open month or week: the control that closes it, with a rule under it joining it to the columns it spans. */
+.ddGroupHead {
+  border-bottom: 1px solid light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4));
+  border-left: 1px solid light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4));
+}
+
+.ddItem {
+  display: block;
+  max-width: calc(var(--dd-item-width) - 40px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--mantine-font-size-sm);
+}
+
+.ddDetail {
+  padding-inline-start: 22px;
+}
+
+/* A header or row name that opens: an unstyled button with a chevron; focus draws the accent ring. */
+.ddToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  font: inherit;
+  color: inherit;
+  white-space: nowrap;
+}
+
+/* The controls inside the sticky chrome scroll clear of it too when focus reaches them (WCAG 2.4.11): a row's toggle under
+   the header rows, a column's toggle beside the sticky item column. */
+.ddRowHeader .ddToggle,
+.ddRowHeader .ddItem {
+  scroll-margin-top: calc(var(--dd-head-row) * var(--dd-head-rows, 1));
+}
+
+.ddColHead .ddToggle {
+  scroll-margin-left: var(--dd-item-width);
+}
+
+.ddToggle:hover {
+  text-decoration: underline;
+}
+
+.ddToggle:focus-visible,
+.ddItem:focus-visible,
+.ddColHead:focus-visible,
+.ddTd:focus-visible {
+  outline: 2px solid var(--flow-accent-ink);
+  outline-offset: -2px;
+}
+
+.ddTd {
+  position: relative;
+  scroll-margin-left: var(--dd-item-width);
+  scroll-margin-top: calc(var(--dd-head-row) * var(--dd-head-rows, 1));
+  border-left: 1px solid light-dark(var(--mantine-color-gray-2), var(--mantine-color-dark-5));
+  border-bottom: 1px solid light-dark(var(--mantine-color-gray-2), var(--mantine-color-dark-5));
+}
+
+.ddCell {
+  position: relative;
+  display: block;
+  height: 40px;
+}
+
+.ddBar {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  display: block;
+  box-sizing: border-box;
+  min-height: 4px;
+  border-top: 2px solid var(--dd-color);
+  background-color: color-mix(in srgb, var(--dd-color) var(--dd-fill, 32%), transparent);
+  /* A 1px halo in the cell's own surface above the edge: bars overlap, and the edge must meet the surface (3:1), never a neighbouring tint. */
+  box-shadow: 0 -1px 0 0 var(--mantine-color-body);
+}
+
+.ddBarPv {
+  --dd-color: var(--dd-pv);
+  width: 100%;
+}
+
+.ddBarExec {
+  --dd-color: var(--dd-exec);
+  width: 66.667%;
+}
+
+.ddBarCost {
+  --dd-color: var(--dd-cost);
+  width: 33.333%;
+}
+
+/* Non-working columns: a diagonal hatch over the cell's own surface, in the neutral gray that clears 3:1 on it in both schemes. */
+.ddHatched {
+  background-image: repeating-linear-gradient(135deg, transparent 0 5px, var(--dd-hatch) 5px 6px);
+}
+
+/* The ◆ of a done task (and a count when several land in one cell), top right, over the bars. */
+.ddDone {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  line-height: 1;
+}
+
+.ddDoneMark {
+  color: var(--dd-done);
+  font-size: 13px;
+  line-height: 1;
+  /* the same 1px surface halo as the bars, so the diamond is told from the fill under it */
+  text-shadow:
+    1px 0 0 var(--mantine-color-body),
+    -1px 0 0 var(--mantine-color-body),
+    0 1px 0 var(--mantine-color-body),
+    0 -1px 0 var(--mantine-color-body);
+}
+
+.ddDoneCount {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--mantine-color-text);
+}
+
+/* The epic's planned window: a dashed outline across the columns it spans, open at an edge where it runs past the range. */
+.ddOutline {
+  --dd-ring-start: 0 0 0 0 transparent;
+  --dd-ring-end: 0 0 0 0 transparent;
+  position: absolute;
+  inset: 0;
+  display: block;
+  box-sizing: border-box;
+  pointer-events: none;
+  border-top: 2px dashed var(--dd-window);
+  border-bottom: 2px dashed var(--dd-window);
+  /* A 1px ring in the cell's surface on both sides of every drawn edge, so the dashes meet the surface (3:1), never a bar's tint. */
+  box-shadow:
+    0 -1px 0 0 var(--mantine-color-body),
+    0 1px 0 0 var(--mantine-color-body),
+    inset 0 1px 0 0 var(--mantine-color-body),
+    inset 0 -1px 0 0 var(--mantine-color-body),
+    var(--dd-ring-start),
+    var(--dd-ring-end);
+}
+
+.ddOutlineStart {
+  --dd-ring-start: -1px 0 0 0 var(--mantine-color-body), inset 1px 0 0 0 var(--mantine-color-body);
+  border-left: 2px dashed var(--dd-window);
+}
+
+.ddOutlineEnd {
+  --dd-ring-end: 1px 0 0 0 var(--mantine-color-body), inset -1px 0 0 0 var(--mantine-color-body);
+  border-right: 2px dashed var(--dd-window);
+}
+
+/* The one shared tooltip: fixed to the viewport (a portal) at Mantine's popover layer, above the sticky header; a card
+   taller than the screen scrolls inside itself. */
+.ddTooltip {
+  position: fixed;
+  z-index: var(--mantine-z-index-popover);
+  max-width: calc(100vw - 16px);
+  max-height: calc(100vh - 16px);
+  overflow: auto;
+}
+
+/* The legend's marks: small cells that reuse the bar/outline/hatch classes above. */
+.ddSwatch {
+  position: relative;
+  display: inline-block;
+  flex: none;
+  width: 28px;
+  height: 18px;
+  border: 1px solid light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4));
+  border-radius: 2px;
+  background-color: var(--mantine-color-body);
+  overflow: hidden;
+  text-align: center;
+  line-height: 16px;
+}
+
+.ddHatchSwatch {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background-image: repeating-linear-gradient(135deg, transparent 0 5px, var(--dd-hatch) 5px 6px);
+}
+
+/* The bucket table's plain cells. */
+.ddPlainCell {
+  padding: 4px 8px;
+  white-space: nowrap;
+  text-align: left;
+  font-weight: 400;
+  font-size: var(--mantine-font-size-sm);
+}
+
+.ddNumber {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}

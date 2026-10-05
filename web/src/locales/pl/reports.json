@@ -908,5 +908,192 @@
       "label": "Skala kolorów",
       "text": "Bardziej intensywna komórka ma więcej osobodni, do {{max}} MD w jednej komórce. Liczba w komórce to wartość; odcień tylko pomaga ją znaleźć."
     }
+  },
+  "deepDive": {
+    "title": "Analiza szczegółowa",
+    "description": "Plan, wykonanie i koszt w osobodniach dla wybranego zbioru pracy: zadania domeny w wybranych sprintach, całe epiki albo ręcznie wybrane zadania jednego epika. Miesiące rozwijasz w tygodnie i dni, epiki w zadania.",
+    "matrixTitle": "Plan, wykonanie i koszt",
+    "range": "Widoczny zakres: od {{from}} do {{to}}.",
+    "layersAria": "Widoczne warstwy",
+    "badSelection": "Nie możemy pokazać tego wyboru",
+    "note": {
+      "rangeClamped": "Wybór obejmuje ponad 1100 dni, więc rysujemy tylko jego ostatnie 1100 dni. Sumy nadal obejmują cały okres życia każdego zadania. Ustaw daty od i do, aby wybrać inny zakres.",
+      "notDerived": "Nie wyliczyliśmy jeszcze nic z tego wyboru, więc nie ma liczb do pokazania. Pojawią się po następnym wyliczeniu danych połączenia."
+    },
+    "explainer": {
+      "title": "Wybierz, w co zajrzeć",
+      "intro": "Wybierz powyżej jeden z trzech sposobów wyboru pracy i naciśnij „Pokaż”. Adres strony zawiera wybór, więc możesz go udostępnić linkiem.",
+      "SPRINTS": "zadania jednej domeny, które były w zakresie w chwili zamknięcia wybranych sprintów (do 52 sprintów).",
+      "EPICS": "wszystkie zadania wybranych epików (do 50 epików, w sumie do 500 zadań).",
+      "TASKS": "dokładnie te zadania jednego epika, które wybierzesz (do 500 zadań)."
+    },
+    "panel": {
+      "title": "Wybór",
+      "modeAria": "Sposób wyboru pracy",
+      "mode": {
+        "SPRINTS": "Sprinty domeny",
+        "EPICS": "Epiki",
+        "TASKS": "Zadania epika"
+      },
+      "pickDomain": "Wybierz domenę",
+      "sprints": "Sprinty",
+      "pickSprints": "Szukaj sprintów",
+      "epics": "Epiki",
+      "pickEpics": "Szukaj epików po kluczu lub streszczeniu",
+      "epic": "Epik",
+      "pickEpic": "Szukaj epika po kluczu lub streszczeniu",
+      "tasks": "Zadania",
+      "pickTasks": "Szukaj zadań po kluczu lub streszczeniu",
+      "from": "Od (opcjonalnie)",
+      "to": "Do (opcjonalnie)",
+      "dateFormat": "Użyj formatu RRRR-MM-DD.",
+      "dateRange": "Początek zakresu nie może przypadać po jego końcu, a zakres może obejmować najwyżej 1100 dni.",
+      "show": "Pokaż",
+      "selectedCount": "Wybrane: {{used}} z {{max}}.",
+      "moreOptions": "Pokazujemy pierwsze {{shown}} z {{total}} wyników; wpisz tekst, aby zawęzić listę.",
+      "nothingFound": "Brak wyników",
+      "searching": "Wyszukiwanie",
+      "needDomain": "Najpierw wybierz domenę.",
+      "needEpic": "Najpierw wybierz epik.",
+      "missing": {
+        "domainAndSprints": "Wybierz domenę i co najmniej jeden sprint.",
+        "sprints": "Wybierz co najmniej jeden sprint.",
+        "epics": "Wybierz co najmniej jeden epik.",
+        "epicAndTasks": "Wybierz epik i co najmniej jedno jego zadanie.",
+        "tasks": "Wybierz co najmniej jedno zadanie.",
+        "dates": "Popraw daty: RRRR-MM-DD, początek nie później niż koniec."
+      }
+    },
+    "limits": {
+      "title": "Ograniczenia danych",
+      "countersAria": "Czego ten wybór nie mógł narysować",
+      "fixedAria": "Zasady, które zawsze obowiązują",
+      "counter": {
+        "neverInSprint": {
+          "label": "Zadania, których nigdy nie było w sprincie",
+          "hint": "Nie mają planu (PV); ich wykonanie i koszt nadal rysujemy."
+        },
+        "noEstimate": {
+          "label": "Zadania bez oszacowania w chwili zobowiązania",
+          "hint": "One też nie mają planu (PV)."
+        },
+        "noWorkingDay": {
+          "label": "Zadania, których sprint nie ma dnia roboczego",
+          "hint": "Ich oszacowanie nie ma dnia roboczego, na którym mogłoby się oprzeć, więc nie rysujemy planu (PV)."
+        },
+        "epicsWithoutWindow": {
+          "label": "Epiki bez zaplanowanego okna",
+          "hint": "Nie mają przerywanego obrysu."
+        },
+        "laterFallback": {
+          "label": "Zadania zaplanowane według późniejszego sprintu",
+          "hint": "Ich plan (PV) bierze oszacowanie z pierwszego późniejszego sprintu, który je ma, a nie z najwcześniejszego."
+        },
+        "epicOwnCostMd": {
+          "label": "Osobodni zalogowane na samych epikach",
+          "hint": "Pokazujemy je w osobnym wierszu epika i nigdy nie rozkładamy ich na jego zadania."
+        }
+      },
+      "fixed": {
+        "asWas": "Domena zadania to ta, którą miało w chwili zakończenia, a dla zadania otwartego – dzisiejsza.",
+        "subTasks": "Podzadania nie mają własnych wierszy: praca zalogowana na podzadaniu liczy się przy zadaniu nadrzędnym.",
+        "execution": "Wykonanie to czas w statusie „w toku” w dni robocze; czasu zablokowania nie odejmujemy.",
+        "worklogDay": "Wpis czasu pracy obejmujący kilka dni trafia na dzień, w którym się zaczął."
+      },
+      "asOf": "Dane na dzień {{day}}, czyli dzień ostatniego wyliczenia."
+    },
+    "matrix": {
+      "gridLabel": "Plan, wykonanie i koszt według epików i czasu",
+      "empty": "Dla tego wyboru nie ma pracy do pokazania.",
+      "noEpic": "(bez epika)",
+      "ownCost": "(na samym epiku)",
+      "itemColumn": "Epik / zadanie",
+      "collapseLabel": "Zwiń rozwinięte kolumny i wiersze",
+      "collapseColumn": "Zwiń {{label}}",
+      "collapseAllColumns": "Zwiń wszystkie kolumny",
+      "collapseAllRows": "Zwiń wszystkie wiersze",
+      "plannedBefore": "Zaplanowany przed zakresem",
+      "plannedAfter": "Zaplanowany po zakresie",
+      "tooLarge": "{{rows}} wierszy na {{columns}} kolumn to {{cells}} komórek, za dużo do narysowania. Zwiń część kolumn lub epików, aby zobaczyć siatkę.",
+      "layer": {
+        "pv": "Plan (PV)",
+        "exec": "Wykonanie",
+        "ev": "Wartość wypracowana (EV)",
+        "cost": "Koszt (AC)"
+      },
+      "tip": {
+        "pv": "Plan (PV): {{value}} MD",
+        "exec": "Wykonanie (dni zadań): {{value}}",
+        "ev": "Wartość wypracowana (EV): {{value}} MD",
+        "done": "Zakończone: {{keys}}",
+        "cost": "Koszt (AC): {{value}} MD",
+        "author": "{{name}}: {{value}} MD",
+        "unknownAuthor": "nieznany autor",
+        "span": "od {{from}} do {{to}}",
+        "nonWorking": "dni wolne",
+        "none": "w tym okresie nic nie ma"
+      },
+      "legend": {
+        "label": "Legenda",
+        "pv": "Plan (PV): niebieski słupek na całą szerokość",
+        "exec": "Wykonanie: turkusowy słupek na dwie trzecie szerokości",
+        "cost": "Koszt (AC): szary słupek na jedną trzecią szerokości",
+        "scale": "Plan i koszt mają wspólną skalę osobodni; wykonanie ma własną, w dniach zadań. Wysokość słupka to jego wartość względem największej widocznej komórki; liczby podaje dymek.",
+        "done": "Zadanie zakończone tego dnia (wartość wypracowana)",
+        "window": "Zaplanowane okno epika (przerywany obrys)",
+        "hatched": "Kreskowane: dni wolne od pracy"
+      },
+      "summary": {
+        "title": "Sumy według epików i zadań",
+        "description": "Liczby stojące za siatką w postaci tabeli: to, co mieści się w pokazanym zakresie, i całe życie każdego epika i zadania, razem z podstawą planu, którą rozkłada wartość planu zadania.",
+        "item": "Epik / zadanie",
+        "pvRange": "Plan w zakresie (MD)",
+        "pvTotal": "Plan w całym życiu (MD)",
+        "execRange": "Wykonanie w zakresie (dni zadań)",
+        "execTotal": "Wykonanie w całym życiu (dni zadań)",
+        "evRange": "Wartość wypracowana w zakresie (MD)",
+        "evTotal": "Wartość wypracowana w całym życiu (MD)",
+        "costRange": "Koszt w zakresie (MD)",
+        "costTotal": "Koszt w całym życiu (MD)",
+        "basis": "Podstawa planu (MD)",
+        "source": "Źródło planu",
+        "reason": "Dlaczego nie ma planu",
+        "totalRow": "Wszystkie zadania",
+        "ownCostRow": "Zalogowane na samych epikach",
+        "planSource": {
+          "EARLIEST": "Najwcześniejszy sprint",
+          "LATER_FALLBACK": "Pierwszy późniejszy sprint",
+          "NONE": "Brak"
+        },
+        "noPlanReason": {
+          "NEVER_IN_SPRINT": "Nigdy w sprincie",
+          "NO_ESTIMATE": "Brak estymaty",
+          "NO_WORKING_DAY": "Brak dnia roboczego w sprincie"
+        },
+        "window": "Zaplanowane okno",
+        "budget": "Budżet (MD)"
+      },
+      "buckets": {
+        "title": "Liczby według widocznych kolumn i wierszy",
+        "itemLayer": "{{item}}: {{layer}}",
+        "show": "Pokaż liczby według widocznych kolumn",
+        "hide": "Ukryj liczby według widocznych kolumn",
+        "tooLarge": "Tabela liczb miałaby {{cells}} komórek, za dużo do narysowania. Zwiń część kolumn lub wierszy."
+      },
+      "expandWeeks": "Rozwiń {{label}} na tygodnie",
+      "expandDays": "Rozwiń {{label}} na dni",
+      "announce": {
+        "weeks": "Pokazano tygodnie okresu {{label}}",
+        "days": "Pokazano dni okresu {{label}}",
+        "collapsed": "Zwinięto {{label}}",
+        "months": "Pokazano miesiące",
+        "rows": "Zwinięto wszystkie wiersze",
+        "rowOpened": "Otwarto {{label}}",
+        "rowClosed": "Zamknięto {{label}}"
+      },
+      "planned": "Zaplanowano od {{from}} do {{to}}",
+      "budget": "Budżet {{value}} MD",
+      "tooLargeNarrow": "{{rows}} wierszy na {{columns}} kolumn to {{cells}} komórek, za dużo do narysowania. Zawęź wybór lub zakres dat."
+    }
   }
 }

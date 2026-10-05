@@ -32,6 +32,7 @@ describe("visibleSections", () => {
         "/reports/wip",
         "/reports/data-quality",
         "/reports/cost-matrix",
+        "/reports/deep-dive",
       ]);
       expect(reports?.items[0].activeFor).toEqual([
         "/reports/velocity",
@@ -56,6 +57,8 @@ describe("visibleSections", () => {
       expect(reports?.items[3].activeFor).toBeUndefined();
       // …and so is the cost matrix.
       expect(reports?.items[4].activeFor).toBeUndefined();
+      // …and the Deep dive, whose selection lives in its own panel and query string.
+      expect(reports?.items[5].activeFor).toBeUndefined();
       expect(reports?.items.some((l) => l.adminOnly)).toBe(false);
     }
   });
@@ -79,9 +82,11 @@ describe("visibleSections", () => {
     // …and Data quality is the sidebar's own leaf, so it has no palette-only twin (it would list twice).
     expect(REPORT_PALETTE_LEAVES.map((l) => l.to)).not.toContain("/reports/data-quality");
     expect(REPORT_PALETTE_LEAVES.map((l) => l.to)).not.toContain("/reports/cost-matrix");
+    expect(REPORT_PALETTE_LEAVES.map((l) => l.to)).not.toContain("/reports/deep-dive");
     const sidebar = visibleSections(true).flatMap((s) => s.items.map((l) => l.to));
     expect(sidebar).toContain("/reports/data-quality");
     expect(sidebar).toContain("/reports/cost-matrix");
+    expect(sidebar).toContain("/reports/deep-dive");
     expect(sidebar).not.toContain("/reports/throughput");
     expect(sidebar).not.toContain("/reports/sprint-consistency");
     expect(sidebar).not.toContain("/reports/epic-estimation-accuracy");
@@ -128,6 +133,7 @@ describe("activeNavPath", () => {
     expect(activeNavPath("/reports/epic-progress", leaves)).toBe("/reports/wip");
     expect(activeNavPath("/reports/data-quality", leaves)).toBe("/reports/data-quality");
     expect(activeNavPath("/reports/cost-matrix", leaves)).toBe("/reports/cost-matrix");
+    expect(activeNavPath("/reports/deep-dive", leaves)).toBe("/reports/deep-dive");
     expect(activeNavPath("/reports/cycle-time", leaves)).toBe("/reports/velocity");
     expect(activeNavPath("/reports/reported-time-ratio", leaves)).toBe("/reports/task-estimation-accuracy");
     // The longest match still wins across leaves.
