@@ -2,8 +2,9 @@
 // ./http, types from ./schema. The query string is the shared report filter's serialization
 // (utils/reportFilter.ts) — one parser server-side, one (de)serializer here.
 
-import { jsonRequest } from "./http";
+import { buildQuery, jsonRequest } from "./http";
 import type { paths } from "./schema";
+import { cleanSearchText, deepDiveQuery, type DeepDiveSelection } from "../utils/deepDiveFilter";
 import { reportQuery, type ReportFilterState } from "../utils/reportFilter";
 
 export type ReportFilters = paths["/api/v1/reports/filters"]["get"]["responses"]["200"]["content"]["application/json"];
@@ -77,6 +78,27 @@ export type CostMatrixReport =
   paths["/api/v1/reports/cost-matrix"]["get"]["responses"]["200"]["content"]["application/json"];
 export type CostMatrixRow = CostMatrixReport["rows"][number];
 
+export type DeepDiveReport = paths["/api/v1/reports/deep-dive"]["get"]["responses"]["200"]["content"]["application/json"];
+export type DeepDiveTask = DeepDiveReport["tasks"][number];
+export type DeepDiveEpic = DeepDiveReport["epics"][number];
+export type DeepDiveSprintPage =
+  paths["/api/v1/reports/deep-dive/sprints"]["get"]["responses"]["200"]["content"]["application/json"];
+export type DeepDiveSprintOption = DeepDiveSprintPage["items"][number];
+export type DeepDiveEpicPage =
+  paths["/api/v1/reports/deep-dive/epics"]["get"]["responses"]["200"]["content"]["application/json"];
+export type DeepDiveEpicOption = DeepDiveEpicPage["items"][number];
+export type DeepDiveTaskPage =
+  paths["/api/v1/reports/deep-dive/epics/{epicKey}/tasks"]["get"]["responses"]["200"]["content"]["application/json"];
+export type DeepDiveTaskOption = DeepDiveTaskPage["items"][number];
+
+/** The paging/search params every Deep dive option list takes (the picker searches the server with a debounced `q`). */
+export interface DeepDiveOptionQuery {
+  q?: string;
+  page?: number;
+  pageSize?: number;
+  connectionId?: number;
+}
+
 export async function getReportFilters(): Promise<ReportFilters> {
   return jsonRequest<ReportFilters>("/api/v1/reports/filters");
 }
@@ -139,4 +161,31 @@ export async function getDataQualityReport(filter: ReportFilterState): Promise<D
 
 export async function getCostMatrixReport(filter: ReportFilterState): Promise<CostMatrixReport> {
   return jsonRequest<CostMatrixReport>(`/api/v1/reports/cost-matrix?${reportQuery(filter)}`);
+}
+
+/** The Deep dive: one request per selection — repeated `sprintId`/`epicId`/`issueId` keys, canonical order. */
+export async function fetchDeepDive(selection: DeepDiveSelection): Promise<DeepDiveReport> {
+  return jsonRequest<DeepDiveReport>(`/api/v1/reports/deep-dive?${deepDiveQuery(selection)}`);
+}
+
+/** `q`/`domain` as the server accepts them: control characters stripped, trimmed, a blank one omitted. */
+function optionParams(query: DeepDiveOptionQuery & { domain?: string }) {
+  return buildQuery({ ...query, q: cleanSearchText(query.q), domain: cleanSearchText(query.domain) });
+}
+
+/** The sprint picker's options for a domain (`domain` is required by the server). */
+export async function fetchDeepDiveSprints(query: DeepDiveOptionQuery & { domain: string }): Promise<DeepDiveSprintPage> {
+  return jsonRequest<DeepDiveSprintPage>(`/api/v1/reports/deep-dive/sprints?${optionParams(query)}`);
+}
+
+/** The epic picker's options, optionally narrowed to a domain. */
+export async function fetchDeepDiveEpics(query: DeepDiveOptionQuery & { domain?: string }): Promise<DeepDiveEpicPage> {
+  return jsonRequest<DeepDiveEpicPage>(`/api/v1/reports/deep-dive/epics?${optionParams(query)}`);
+}
+
+/** The handpick list of ONE epic's level-0 tasks. */
+export async function fetchDeepDiveEpicTasks(epicKey: string, query: DeepDiveOptionQuery): Promise<DeepDiveTaskPage> {
+  return jsonRequest<DeepDiveTaskPage>(
+    `/api/v1/reports/deep-dive/epics/${encodeURIComponent(epicKey)}/tasks?${optionParams(query)}`,
+  );
 }

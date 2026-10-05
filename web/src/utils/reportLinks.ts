@@ -1,4 +1,5 @@
 import type { ParseKeys } from "i18next";
+import { deepDiveQuery, type DeepDiveSelection } from "./deepDiveFilter";
 import { REPORT_SPECIFIC_KEYS, type ReportSpecificKey } from "./reportFilter";
 
 /** The ONE place the reports route family is spelled out — never hand-assemble a report URL. */
@@ -17,6 +18,14 @@ const blockedTimePath = "/reports/blocked-time";
 export const epicProgressPath = "/reports/epic-progress";
 export const dataQualityPath = "/reports/data-quality";
 export const costMatrixPath = "/reports/cost-matrix";
+/** The Deep dive's own route; its selection params are `utils/deepDiveFilter.ts`'s, never `ReportFilterState`'s. */
+export const deepDiveBasePath = "/reports/deep-dive";
+
+/** The Deep dive route carrying a selection in its canonical query (the bare route for an empty/invalid one). */
+export function deepDivePath(selection: DeepDiveSelection = {}): string {
+  const query = deepDiveQuery(selection);
+  return query === "" ? deepDiveBasePath : `${deepDiveBasePath}?${query}`;
+}
 
 export type ReportTabDef = { to: string; label: ParseKeys };
 

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { reportHref } from "./reportLinks";
+import { deepDiveBasePath, deepDivePath, reportHref } from "./reportLinks";
 
 describe("reportHref", () => {
   test("keeps the shared params (period, team, member, connection) on every report", () => {
@@ -84,5 +84,19 @@ describe("reportHref", () => {
     expect(reportHref("/reports/velocity", "")).toBe("/reports/velocity");
     expect(reportHref("/reports/velocity", "?bucket=WEEK")).toBe("/reports/velocity");
     expect(reportHref("/reports/velocity", "utm=x&bucket=WEEK")).toBe("/reports/velocity?utm=x");
+  });
+});
+
+describe("deepDivePath", () => {
+  test("is the bare route for no selection and carries the canonical query for one", () => {
+    expect(deepDiveBasePath).toBe("/reports/deep-dive");
+    expect(deepDivePath()).toBe("/reports/deep-dive");
+    expect(deepDivePath({})).toBe("/reports/deep-dive");
+    expect(deepDivePath({ sprintIds: [5, 4], domain: "FLO" })).toBe("/reports/deep-dive?domain=FLO&sprintId=4&sprintId=5");
+    expect(deepDivePath({ epicIds: ["FLO-10", "FLO-2"], connectionId: 1 })).toBe("/reports/deep-dive?epicId=FLO-2&epicId=FLO-10&connectionId=1");
+  });
+
+  test("an invalid selection is dropped, never written into the link", () => {
+    expect(deepDivePath({ sprintIds: [4] })).toBe("/reports/deep-dive");
   });
 });
