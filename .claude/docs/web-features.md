@@ -387,6 +387,20 @@ completed · the report's figures · the orange drift badge with the frozen figu
   only cue; plan and cost share one man-day scale and execution has its own (the legend says so). **The 25k guard:** more visible cells (rows ×
   columns) than 25,000 — or more figures in the bucket table than that — replaces the grid with a notice asking to collapse or narrow, so the DOM stays
   bounded however large the answer.
+  **The Burn-up tab** (`components/DeepDiveBurnup.tsx`, its lazy chart `DeepDiveBurnupChart.tsx`, the sums in `utils/deepDiveBurnup.ts`): Mantine `Tabs`
+  "Matrix" | "Burn-up" under the selection, ONE fetch for both (the burn-up is client-side over the same answer). The tab lives in the URL as
+  `view=burnup` (`parseDeepDiveView`/`applyDeepDiveView` in `utils/deepDiveFilter.ts`; the matrix, the default, is the param's absence; `view` is a
+  foreign param to the selection functions, so Show and the page query key keep it; a tab hop is a `replace`); the matrix panel stays mounted (its
+  drill state survives a hop), the burn-up renders only while open, and the layer switches live in the matrix panel only. The chart is a `LineChart` of
+  CUMULATIVE PV (`flow.6`), EV (`teal.8`), AC (`gray.6`) per day, one man-day axis, each starting at 0 on `range.from` and counting only what falls in
+  the shown range (a note says so; whole-life totals stay in the matrix summary), so a line's end equals the matrix model's `inRange` total. AC is the
+  tasks' cost plus the epics' own worklogs (EPICS mode; a note says so). EV and AC are actuals and end on `range.asOfDay` (`null` after it, `connectNulls`
+  off; a later entry extends them) while PV runs on, and the as-of day is a labelled dashed `referenceLines` marker. The optional dashed plan-blue **epic
+  budget plan** (a `Switch`, off by default, offered only when some epic has a planned window and a budget) spreads each epic's budget over the working days
+  of its window with report 15's running `ROUND(total * i / n, 2)` rule; a window reaching outside the range keeps its full length (days outside count
+  Monday to Friday — the calendar lists only the range's working days) and the line shows the part inside the range; it covers whole epics, however many
+  tasks are picked. The daily table (newest first, a dash where an actual has ended) sits behind `DailyTableDisclosure`; week/month aggregation is not
+  offered, the x axis thins its ticks instead.
 - **Home overview** (`pages/Home.tsx`, plan amendment A9; `utils/homeOverview.ts` is its pure logic). The landing page is
   the WHOLE unit at a glance — never the remembered team, the page description says so — as four tiles over UNIT-level
   report endpoints, **five requests and no aggregator** (`["home", <report>]` keys, staleTime 60 s; the budget is pinned by

@@ -916,6 +916,34 @@
     "range": "Widoczny zakres: od {{from}} do {{to}}.",
     "layersAria": "Widoczne warstwy",
     "badSelection": "Nie możemy pokazać tego wyboru",
+    "viewAria": "Widok",
+    "tab": {
+      "matrix": "Macierz",
+      "burnup": "Burn-up"
+    },
+    "burnup": {
+      "title": "Burn-up",
+      "description": "Pokazujemy, jak plan (PV), wartość wypracowana (EV) i koszt (AC) narastają dzień po dniu, w osobodniach, dla wyboru widocznego powyżej.",
+      "chartLabel": "Wykres: narastający plan, wartość wypracowana i koszt w osobodniach według dnia",
+      "asOf": "Stan na {{day}}",
+      "budgetSwitch": "Plan budżetu epików (linia przerywana)",
+      "budgetHelp": "Rozkładamy budżet każdego wybranego epika równo na dni robocze jego planowanego okna. Obejmuje cały epik, niezależnie od tego, ile jego zadań wybierzesz.",
+      "noBudget": "Żaden wybrany epik nie ma jednocześnie planowanego okna i budżetu, więc nie ma planu budżetu do dodania.",
+      "series": {
+        "budget": "Plan budżetu epików"
+      },
+      "rangeNote": "Każda linia liczy tylko to, co mieści się w widocznym zakresie, i zaczyna od zera w pierwszym dniu. Sumy z całego okresu życia zadań znajdziesz w tabeli podsumowania macierzy.",
+      "actualsNote": "Wartość wypracowana i koszt kończą się w dniu, na który dane są aktualne; plan biegnie dalej do końca zakresu.",
+      "ownCostNote": "Koszt obejmuje osobodni zapisane na samych epikach.",
+      "empty": "Nie ma czego narysować dla tego wyboru.",
+      "tableLabel": "Wartości narastająco dzień po dniu",
+      "column": {
+        "pv": "Plan (PV, MD)",
+        "ev": "Wartość wypracowana (EV, MD)",
+        "ac": "Koszt (AC, MD)",
+        "budget": "Plan budżetu epików (MD)"
+      }
+    },
     "note": {
       "rangeClamped": "Wybór obejmuje ponad 1100 dni, więc rysujemy tylko jego ostatnie 1100 dni. Sumy nadal obejmują cały okres życia każdego zadania. Ustaw daty od i do, aby wybrać inny zakres.",
       "notDerived": "Nie wyliczyliśmy jeszcze nic z tego wyboru, więc nie ma liczb do pokazania. Pojawią się po następnym wyliczeniu danych połączenia."

@@ -59,6 +59,11 @@ export const CHART_COLORS = {
   deepDiveWindow: "flow.6",
   /** The non-working-day hatch: a neutral gray line, at least 3:1 against the cell surface in both schemes. */
   deepDiveHatch: "gray.6",
+  /**
+   * The Deep dive burn-up: its three lines are the EVM curves' colours (`evm*` above — plan blue, delivery teal, neutral
+   * gray) and the epics' budget plan is a plan too, so the plan blue again, told apart by its dash (the original-plan idiom).
+   */
+  deepDiveBurnupBudget: "flow.6",
 } as const;
 
 /**
