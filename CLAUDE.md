@@ -164,130 +164,31 @@ Every feature `configureXRoutes()` and `RoutingKt.configureRouting` early-return
 
 Source files sit flat under `server/src/main/kotlin/<area>/` but declare `package ch.nokillswit.<area>`
 (no `ch/nokillswit` directory nesting — a deliberate idiom, the `InvalidPackageDeclaration` detekt
-override).
+override). One line per package; `ls` gives the files.
 
-```
-ch.nokillswit
-├── main.kt
-├── plugins/            cross-cutting Ktor wiring (configureXxx that only `install` plugins):
-│                       Http, SecurityHeaders, Monitoring, Serialization, Security (JWT),
-│                       ErrorHandling (RFC 7807), OpenTelemetry, AutoHeadResponse, Resources,
-│                       Routing (SPA catch-all — early-returns unless `servesApi()`)
-│                       + Health (the public /api/v1/health and /api/v1/ready probes, after Database
-│                       — ALWAYS registered) + RateLimits (every per-IP bucket and its name)
-│                       + Role (the FLOW_ROLE switch — AppRole/servesApi()/runsWorker(),
-│                       registered early)
-├── infra/mail/         outbound email (Lettuce's, ported): Mailer/SmtpMailer/LogMailer +
-│                       LocalizedText/PasswordEmail (the recipient-language content layer) +
-│                       configureMail — MAIL_TRANSPORT log/smtp/disabled, the log-transport
-│                       production refusal (fail-closed), null mailer = email features 503
-├── infra/crypto/       Lettuce's encryption at rest, ported:
-│                       FieldCipher (AES-256-GCM `enc:v1:` envelopes, a fresh nonce per value,
-│                       current + rotation key), Reencrypt.kt (the boot backfill body),
-│                       configureCrypto (DATA_ENCRYPTION_KEY, the burned-key fail-closed check),
-│                       EncryptedAtRest (the boot backfill registry in `infra/db/Bootstrap.kt`'s
-│                       `encryptedAtRestServices()` — the Jira API token in
-│                       `ingest/DataSourceService` is its only consumer)
-├── infra/db/           Flyway bootstrap + the R2DBC connection/composition root + the seed
-│                       bootstrap (admin rotation, prod fail-closed, `Bootstrap.kt`) +
-│                       SoftDelete.kt (the SoftDeletable table trait — ONE active() predicate,
-│                       nowMillis(), lockActiveForUpdate) + Sql.kt (`containsNormalized`) +
-│                       Jsonb.kt (the repo-local `jsonb` column type)
-├── infra/paging/       the shared list-endpoint machinery (PageRequest/parsePaging/applyPaging/
-│                       PageResponse + the strict query-param readers) — Lettuce's, ported verbatim
-├── infra/validation/   cross-feature input helpers (sanitizeSingleLine — trim + control-char 400)
-├── infra/outbound/     OutboundGuard.kt — the SSRF guard for every server-initiated call (Toadie's
-│                       address-range check + the Jira host allow-list, GuardedDns, the no-proxy/
-│                       no-redirect OkHttp client; `.claude/docs/security.md` "Outbound HTTP calls")
-├── infra/json/         CanonicalJson.kt — key-sorted canonical JSON + sha256 for stored payloads;
-│                       JsonArrays.kt — the shared string-array codec for array columns
-├── infra/time/         Millis.kt — MILLIS_PER_DAY, the one fixed-24h-day constant
-├── infra/config/       requireConfigInt/requireConfigLong — boot-validated numeric config (Lettuce's)
-├── infra/Failures.kt   catchingFailures — run a block, keep the failure without swallowing
-│                       cancellation (the blocklist-outage 500 path in plugins/Security.kt)
-├── audit/              security audit trail: `audit(event, fields…)` → AUDIT-marked structured logs
-├── authz/              CallerPrincipal + guards (requireAdmin, requireSelfOrAdmin) + typed
-│                       HTTP exceptions (401/403/404/409/429)
-├── auth/               PasswordResetEmail.kt (the async reset worker) + POST /api/v1/login (+
-│                       the email-MFA branch and /login/mfa second step — MfaChallenges/MfaEmail),
-│                       /refresh, /logout + the self-service POST /api/v1/password-reset (uniform
-│                       acceptance/throttling, async send-before-store, PasswordResetThrottle) +
-│                       token minting + password hashing/generation + LoginThrottle + the
-│                       revoked-token blocklist; in-memory login/reset/MFA state is
-│                       capacity-bounded with audited 429 saturation
-├── users/              the user domain: ADMIN-only management CRUD (/api/v1/users list/create
-│                       + {id} get/put/delete with the self-delete 403 and last-admin 409
-│                       protections) + PUT /api/v1/users/{id}/password + the per-user feature
-│                       flags (Feature enum + PUT {id}/features, the V5 disabled-set model; MFA
-│                       is the inverted-default login-scoped flag) + the per-user language (V1:
-│                       PUT {id}/language, self-or-admin — the ONE synced UI+email language;
-│                       Languages.kt is the SUPPORTED_LANGUAGES whitelist) + Validation.kt
-├── teams/              flat teams (V6): Team.kt (DTOs + sanitizers + validateTeam*),
-│                       TeamService.kt (Teams + the TeamMembers hard-delete join; paged list with
-│                       name/memberId filters and active-member counts; roster read joining
-│                       users; create with an initial roster; addMember/removeMember),
-│                       TeamRoutes.kt — GET /api/v1/teams (+ {id}) any authenticated,
-│                       POST/PUT/DELETE + the members pair ADMIN only
-├── ingest/             v0.2.0 Jira ingestion (`.claude/docs/ingestion.md`): DataSource.kt/
-│                       DataSourceService.kt/DataSourceRoutes.kt — the generic connector registry
-│                       (V8, ADMIN-only CRUD, the first `EncryptedAtRest` consumer) + Connector.kt
-│                       (the per-kind interface every connector implements —
-│                       `testConnection`/`run`/`purgeSteps`) + SyncJob.kt/SyncJobs.kt/
-│                       SyncJobRoutes.kt (V9 `sync_jobs` — the job queue and its ADMIN-only
-│                       enqueue/list/cancel API) + SyncCursors.kt (V9 `sync_cursors` — the
-│                       per-stream resumable cursor store) + IngestWorker.kt (the `FLOW_ROLE=worker`
-│                       scheduler: enqueues due jobs, claims with a lease/heartbeat under
-│                       `FOR UPDATE SKIP LOCKED`, runs each claim's connector, releases on shutdown)
-│                       + JobHandlers.kt (`JobHandlerRegistry` on `attributes`: the DERIVE handler,
-│                       the extra PURGE steps and the config-revision source other packages plug
-│                       in — `ingest/` never imports `metrics/`, checkup D5)
-│                       + Stream.kt (the `Stream`/`StreamContext` contract every stream implements)
-│                       + SyncStatus.kt/SyncStatusRoutes.kt (GET …/{id}/status), RawIssueInspection
-│                       .kt/RawIssueInspectorRoutes.kt (GET …/{id}/raw-issues/{issueKey}),
-│                       DataProfile.kt/DataProfileRoutes.kt (GET …/{id}/profile) — read-only views
-├── jira/               the Jira Cloud connector (`.claude/docs/jira-integration.md`): Jira.kt
-│                       (configureJira, the guarded HttpClient, the stub-URL production refusal),
-│                       JiraHttp.kt/JiraClient.kt/JiraModels.kt (backoff, bounded reads, typed
-│                       endpoints), JiraJql.kt, JiraTime.kt, JiraConnector.kt
-│                       (testConnection + the per-kind stream order), JiraRawStore.kt (V10–V12
-│                       `raw.jira_*`), the streams
-│                       (JiraReferenceStream/IssuesStream/ChangelogStream/WorklogStream/
-│                       ReconcileStream/ProcessStream/ProfileStream), JiraNormalizer.kt (raw →
-│                       the neutral shape) and JiraProfile.kt (the data-profile aggregates)
-├── norm/               the connector-agnostic normalized layer (V13 `norm.*`): Tiling.kt (pure
-│                       status/field interval tiling + anomaly flags), Normalization.kt
-│                       (PROCESSING_VERSION, the glue), WorkItemStore.kt (per-page REPLACE (per-issue scope),
-│                       reference-row rebuilds, purge)
-├── metrics/            v0.3.0 metrics configuration + the DERIVE job (`.claude/docs/metrics.md`):
-│                       config/memberships/Jira-users services + routes (the config service is split: MetricsSettingsService — the
-│                       `metrics.settings` singleton + the shared revision bump; MetricsConfigService — the per-connection
-│                       config tables/PUT/PURGE drain; MetricsConfigOptions — the editor's reference data; DomainOwnerResolver
-│                       — the A19/A22 owner-team resolution), MetricsSettings,
-│                       DataSourceMetricsConfig, WorkingCalendar, MetricsDeriver + Derive*Step/
-│                       Kernels/Model/TaskRows files, MetricsStore (the batch writers) + MetricsTables (the Exposed
-│                       table objects, `MetricsTables.DimDate` …) + MetricsRows (the row shapes) (V15–V17 `metrics.*`)
-│                       + MetricsJobHandlers.kt (`registerMetricsHandlers`: how `configureMetrics` plugs DERIVE and the
-│                       metrics PURGE drains into `ingest/JobHandlers.kt`'s registry)
-└── reports/            the reports API (`.claude/docs/reports.md`): shared filter/`meta`/
-                        `Distribution` machinery (ReportSupport, SnapshotSupport, DataQuality*)
-                        + one `<Name>Report.kt` per report
-```
+- `plugins/` — cross-cutting Ktor wiring (`configureXxx` that only `install` plugins; Security = JWT, ErrorHandling = RFC 7807). `Routing` (the SPA catch-all) is registered strictly last and early-returns unless `servesApi()`; `Health` (`/api/v1/health`, `/ready`) is ALWAYS registered, after Database; `Role` (the `FLOW_ROLE` switch: `AppRole`/`servesApi()`/`runsWorker()`) is registered early; `RateLimits` holds every per-IP bucket.
+- `infra/mail/` — outbound email (Lettuce's, ported): `MAIL_TRANSPORT` log/smtp/disabled; the `log` transport is refused in production (fail-closed); a null mailer = email features answer 503.
+- `infra/crypto/` — encryption at rest (Lettuce's, ported): `FieldCipher` (AES-256-GCM `enc:v1:` envelopes, a fresh nonce per value, current + rotation key), `configureCrypto` (`DATA_ENCRYPTION_KEY`; a burned key fails startup closed), `EncryptedAtRest` (the boot-backfill registry; the Jira API token is its only consumer).
+- `infra/db/` — Flyway bootstrap, the R2DBC composition root, the seed bootstrap (admin rotation, prod fail-closed), `SoftDelete.kt` (the `SoftDeletable` table trait: ONE `active()` predicate, `nowMillis()`, `lockActiveForUpdate`), `Sql.kt` (`containsNormalized` — the only substring filter), `Jsonb.kt` (the repo-local `jsonb` column type).
+- `infra/paging/` — the shared list-endpoint machinery (Lettuce's, ported verbatim; `list-endpoints.md`).
+- `infra/validation/` — cross-feature input helpers (`sanitizeSingleLine`: trim + control-char 400).
+- `infra/outbound/` — `OutboundGuard.kt`, the SSRF guard for EVERY server-initiated call (address-range check, the Jira host allow-list, `GuardedDns`, the no-proxy/no-redirect client); see `.claude/docs/security.md` "Outbound HTTP calls".
+- `infra/json/` — `CanonicalJson.kt` (canonical JSON + sha256 for stored payloads), `JsonArrays.kt`.
+- `infra/time/` — `Millis.kt`, `MILLIS_PER_DAY`, the one fixed-24h-day constant.
+- `infra/config/` — `requireConfigInt`/`requireConfigLong`, boot-validated numeric config (Lettuce's).
+- `infra/Failures.kt` — `catchingFailures` (keeps the failure without swallowing cancellation).
+- `audit/` — the security audit trail: `audit(event, fields…)` → AUDIT-marked structured logs.
+- `authz/` — `CallerPrincipal`, the guards (`requireAdmin`, `requireSelfOrAdmin`) and the typed HTTP exceptions (401/403/404/409/429).
+- `auth/` — login (+ the email-MFA second step), refresh, logout, self-service password reset, token minting, password hashing, the revoked-token blocklist; in-memory login/reset/MFA state is capacity-bounded with audited 429 saturation.
+- `users/` — the user domain: ADMIN-only CRUD (self-delete 403, last-admin 409), per-user feature flags (`Feature` enum, the V5 disabled-set model; MFA is the inverted-default login-scoped flag), the ONE synced per-user UI+email language (`Languages.kt` is the `SUPPORTED_LANGUAGES` whitelist).
+- `teams/` — flat teams (V6) and the feature template: GET any authenticated, POST/PUT/DELETE + the members pair ADMIN only.
+- `ingest/` — v0.2.0 Jira ingestion (`.claude/docs/ingestion.md`): the connector registry (`DataSource*`, V8, ADMIN-only), the `Connector`/`Stream` contracts, the `sync_jobs` queue + `IngestWorker` (lease/heartbeat under `FOR UPDATE SKIP LOCKED`), `sync_cursors`, read-only status/raw-issue/profile views. `JobHandlers.kt`'s `JobHandlerRegistry` (on `attributes`) is how other packages plug in the DERIVE handler, extra PURGE steps and the config-revision source — `ingest/` never imports `metrics/` (checkup D5).
+- `jira/` — the Jira Cloud connector (`.claude/docs/jira-integration.md`): the guarded client, `JiraRawStore` (V10–V12 `raw.jira_*`), the streams, `JiraNormalizer` (raw → neutral shape); `Jira.kt` refuses a stub URL in production.
+- `norm/` — the connector-agnostic normalized layer (V13 `norm.*`): `Tiling.kt` (pure status/field interval tiling + anomaly flags), `Normalization.kt` (`PROCESSING_VERSION`), `WorkItemStore.kt` (per-page REPLACE per issue scope, reference rebuilds, purge).
+- `metrics/` — v0.3.0 configuration + the DERIVE job (`.claude/docs/metrics.md`; `V15–V17` `metrics.*`). The config service is split: `MetricsSettingsService` (the `metrics.settings` singleton + the shared revision bump), `MetricsConfigService` (per-connection config tables/PUT/PURGE drain), `MetricsConfigOptions` (the editor's reference data), `DomainOwnerResolver` (A19/A22 owner-team resolution). `MetricsJobHandlers.kt` (`registerMetricsHandlers`) plugs DERIVE/PURGE into the `ingest/` registry.
+- `reports/` — the reports API (`.claude/docs/reports.md`): shared filter/`meta`/`Distribution` machinery (`ReportSupport`, `SnapshotSupport`, `DataQuality*`) + one `<Name>Report.kt` per report.
 
-**Feature template — copy `teams/` (a small ADMIN-curated registry with a roster)**: it is the
-only shape the foundation ships. `<feature>/<Entity>.kt` (request/response DTOs + `toResponse`)
-with the `validateX` free function enforced by route AND service (in the DTO file, or a sibling
-`<Entity>Validation.kt` once the rules outgrow it), `<Entity>Routes.kt` (`@Resource` typed routes
-under `/api/v1/...` + `configureXRoutes()` reading services from `attributes`, `audit(...)` on
-every mutation, authorization BEFORE body decoding so 403 wins over 400 — declarative and flat; past
-~100 lines it delegates to private `Route.xxx(deps)` functions grouped by concern rather than
-splitting into more files, which is exactly what `config/detekt/detekt.yml`'s `LongMethod`
-(threshold 100) and `CyclomaticComplexMethod` (excludes `*Routes.kt`) overrides protect),
-`<Entity>Service.kt` (Exposed `object` table nested inside the service, `suspendTransaction`,
-soft-delete via `marked_as_deleted` + partial unique indexes, list = count + rows on one
-predicate), a `V<n>__description.sql` migration (+ its checksum pin in `MigrationChecksumTest`),
-spec paths in `openapi/documentation.yaml`, `cd web && npm run gen:api` (same commit), lazy pages +
-`NAV_SECTIONS` entries (`web/src/utils/navigation.ts`), and an e2e spec + scenario doc +
-coverage-map line. Fuller shapes (sub-collections, pipelines) live in `ingest/`, `metrics/`, `reports/`.
+**Feature template — copy `teams/`** (a small ADMIN-curated registry with a roster; the only shape the foundation ships). Before adding a feature, route, service, migration or page, read `.claude/docs/conventions.md` in full.
 
 ### The OpenAPI contract
 
@@ -315,6 +216,7 @@ this file disagree, the doc wins.
 
 | Doc | Read before you touch |
 |---|---|
+| `.claude/docs/conventions.md` | adding a feature, route, service, migration or page: the `teams/` feature template (DTO + validator, routes, service, migration + checksum pin, spec paths, `gen:api`, lazy page + nav entry, e2e spec + scenario) |
 | `.claude/docs/persistence.md` | any migration (`db/migration/V*.sql` — applied bytes are immutable, `MigrationChecksumTest`), an Exposed table/`*Service.kt`, soft delete, a cross-feature table read/write (the list there IS the permission), the connection pool, the `raw`/`norm`/`metrics` schemas |
 | `.claude/docs/security.md` | auth/JWT/MFA/password reset, rate limits, headers/CSP, outbound HTTP (the SSRF guard), secrets/encryption at rest, production fail-closed startup checks, payload validation |
 | `.claude/docs/authorization.md` | any route: its guard (ADMIN vs any authenticated), 403-before-400/404 ordering, existence disclosure, the error/`ProblemDetail` mapping |
@@ -325,6 +227,8 @@ this file disagree, the doc wins.
 | `.claude/docs/metrics.md` | `metrics/`: the configuration model, DERIVE, the `metrics` star mechanics, the daily aggregates, performance figures |
 | `.claude/docs/measures.md` | any derived number or report: the per-measure contract (grain, anchor, attribution, estimate snapshot, missing data; `MeasureContractTest` checks its "Pinned by" column) |
 | `.claude/docs/reports.md` | `reports/` or any report page: the reports API (filter parser, `Distribution`, `meta`, D12 posture) and each report's shape, levels and period rules |
+| `.claude/docs/test-fixtures.md` | any server test fixture, the derived/synced stub fixtures, digests, OpenAPI conformance internals, e2e scenario files, Schemathesis |
+| `.claude/docs/web-features.md` | a data-source, metrics-config or report page in `web/` (the per-feature frontend conventions) |
 | `.claude/docs/dependencies.md` | any dependency, image or runtime-pin change (grouping, compatibility pins, acceptance checks) |
 | `.claude/docs/dependency-reproducibility.md` | lockfiles or `gradle/verification-metadata.xml` (the empty-`GRADLE_USER_HOME` rule) |
 | `.claude/docs/app-releases.md` | a version bump, changelog entry, tag or GitHub release |

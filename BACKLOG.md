@@ -30,8 +30,7 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   - M5 (PR #29): reports 9–16 (WIP and backlog, aging WIP and blocked time, epic progress, data quality, cost matrix) with their pages, the Home unit overview, the batch-2 e2e, the docs sweep and the v0.3.0 changelog.
 - **Release:** v0.3.0 is tagged and released on GitHub (2026-09-29; process in `.claude/docs/app-releases.md`). The first deploy reprocesses the whole tenant (`PROCESSING_VERSION = 2`) and DERIVE follows — minutes on the worker, once.
 - **Next:**
-  - the real-Jira first sync and the adjustments it brings (A10) — see the section above;
-  - a compact always-loaded `conventions.md` (step 2 of the instruction-size work: `CLAUDE.md` plus the always-loaded docs still exceed the budget).
+  - the real-Jira first sync and the adjustments it brings (A10) — see the section above.
 - **Small follow-ups (M2–M5):**
   - The Jira member picker resolves names from the first 100 unit people. Page through, or look up by account id.
   - "End membership" uses UTC; consider the configured zone.
@@ -76,8 +75,11 @@ The checkup fixed tiers A–D in PRs #31–#53. Still open (item ids as in the r
 - **Build-time follow-ups** (`build-times.md`): WHY 3/4/9 are answered (2026-10-01); what is left is PROCESS on
   `infra/db/MultiRowInsert.kt`'s `insertRows` (the same per-row `batchInsert` cost, ~2.1 s of a 2.4-3.2 s pass), the
   nightly `e2e` image-build cache (WHY 7's data decides), and re-checking `images` after its first master run.
-- **B7 — the always-loaded instruction budget:** a compact `conventions.md` REPLACING part of `testing.md` (move the
-  fixture narrative to an on-demand `test-fixtures.md`) and CLAUDE.md's per-file package tree — not an addition.
+- **B7 — the always-loaded instruction budget, step 3:** step 2 (2026-10-05) moved the feature template to
+  `conventions.md`, the fixture narrative to `test-fixtures.md` and `web/CLAUDE.md`'s per-feature sections to
+  `web-features.md`, and cut the package tree to one line per package. The always-loaded set is 40.3k chars (from
+  59.0k), against a ~35k target, and `web/CLAUDE.md` is 36.2k (from 72.8k). Next candidates: `CLAUDE.md`'s Commands/CI
+  paragraph and `testing.md`'s harness bullets.
 - **Small:** the five redundant private `ensureMigrated()` copies in tests (use `PostgresTestSupport.ensureMigrated()`);
   a test pinning that a class's first DB touch finds a migrated schema; `-Pforks` input validation.
 - **The user's decisions:** A1 — protect `master` (required checks: `server`, `web`, `e2e-static`,

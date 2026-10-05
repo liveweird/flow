@@ -272,7 +272,7 @@ user, and slices by domain, activity type and work category.
 ## Invariants
 
 The implementation asserts these as SQL sweeps over the persisted rows (the
-`NormalizationPipelineTest` pattern, `.claude/docs/testing.md`):
+`NormalizationPipelineTest` pattern, `.claude/docs/test-fixtures.md`):
 
 1. A user belongs to ≤1 team at any instant (enforced by the exclusion constraint).
 2. A task belongs to ≤1 epic at any instant; an epic to exactly 1 domain at any instant.

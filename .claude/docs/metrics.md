@@ -229,7 +229,7 @@ The whole rebuild — dims, both passes, `dim_domain` — runs inside `derive()`
 transactions (Postgres has no trouble with many statements in one transaction). A second DERIVE
 over unchanged input writes byte-for-byte identical rows regardless of batch boundaries, since
 final content depends only on each item's own data, never on which batch it landed in
-(`MetricsDerivationTest`'s reprocess-digest test, `.claude/docs/testing.md`'s pattern).
+(`MetricsDerivationTest`'s reprocess-digest test, `.claude/docs/test-fixtures.md`'s pattern).
 
 **`ANALYZE` before the aggregates.** After the facts, bridges and the widened `dim_date` are written and before the WIP step, `MetricsStore.analyzeDerivedTables` runs one `ANALYZE` over the 16 tables the WIP/flow SQL reads (`ANALYZED_TABLES`: `dim_date`, `dim_domain`/`dim_task`/`dim_epic`/`dim_sprint`, the `task_*`/`item_estimate`/`item_stage` bridges, `fact_task_delivery`/`fact_sprint`/`fact_sprint_scope`/`fact_worklog`/`fact_epic_plan`). The rebuild is one transaction, so autovacuum can neither see the new rows nor run in time; without fresh statistics the `INSERT … SELECT`s plan against stale or default `rows=1` estimates (nested loops). `ANALYZE` is legal in a transaction block (unlike `VACUUM`) and counts the transaction's own inserts as live rows and its own deletes as dead. Deliberately not analyzed: `agg_daily_*` (written, not read), `team_membership` (config) and `norm.*` (PROCESS already committed those rows, so autovacuum analyzes them). Its `SHARE UPDATE EXCLUSIVE` locks are held to commit and conflict with themselves, so **two DERIVEs serialize from this statement to their commit**: the second's ANALYZE waits for the first's commit (no deadlock — every DERIVE ANALYZEs the same tables in the same order). Only the fact-building phase before it overlaps between connections (the old global `dim_date` row locks are gone — `ensureDimDate` commits in its own transaction). The ANALYZE must not be made skippable (`SKIP_LOCKED` would leave stale statistics — it has to see this transaction's uncommitted rows). The locks also conflict with VACUUM/autovacuum and DDL (autovacuum on these tables is skipped or cancelled while a derive holds them; an anti-wraparound vacuum would make the derive wait — rare). `MetricsAnalyzeTest` pins that a DERIVE advances `last_analyze` on every listed table and that the list covers every table the two steps' SQL mentions.
 
@@ -247,7 +247,7 @@ delete committed, or never started). There is deliberately no `CANCELLED` status
 
 Every derived number is a pure function of `norm.*` plus ONE configuration revision, and
 `MetricsDigestTest` proves it over the persisted rows (the reprocess-digest pattern,
-`.claude/docs/testing.md`). `DerivedStubFixture.metricsDigest(connId)` MD5-hashes every derived
+`.claude/docs/test-fixtures.md`). `DerivedStubFixture.metricsDigest(connId)` MD5-hashes every derived
 table — the dimensions, every bridge, both accumulating facts, the sprint/worklog/epic-plan facts,
 `agg_daily_wip`/`agg_daily_flow` (plus, opt-in via `includeDimDate`, the `dim_date` days the
 connection's WIP aggregate spans — `dim_date` is global and any DERIVE by ANY connection may rewrite a row (stamping
@@ -514,7 +514,7 @@ a connection equals its live-issue worklog count computed straight off
 Σ `fact_worklog.md` equals Σ level-0 tasks' own-plus-sub-tasks' worklog seconds (converted to MD)
 PLUS epics' own worklogs (worklogs logged directly on an epic, which never roll into any task's
 `actual_md`) — computed as an INDEPENDENT re-derivation straight off `norm.work_item_worklogs` +
-the live item set (`.claude/docs/testing.md`'s invariant-sweep pattern), rather than reading back
+the live item set (`.claude/docs/test-fixtures.md`'s invariant-sweep pattern), rather than reading back
 `fact_task_delivery.actual_md`'s own `decimal(10, 2)` column: that column's 2-decimal-place
 rounding accumulates a real (if small) drift across ~1,200 issues, large enough to fail a naive
 byte-for-byte comparison against `fact_worklog.md`'s finer `decimal(8, 4)` — the invariant is about

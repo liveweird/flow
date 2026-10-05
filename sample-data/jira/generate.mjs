@@ -1356,7 +1356,7 @@ for (const issue of issues) {
 // --- Golden fixtures: one FLO sprint (closed) + one FLO epic, computed from the generator's own ---
 // timeline — a SECOND, independent implementation later Kotlin tests (commit 8's MetricsGoldenTest/
 // MetricsDerivationTest) compare derived figures against (the `EXPECTED_STATUS_CATEGORY`/
-// reopens.inScopeCount precedent, `.claude/docs/testing.md` "The invariant SQL sweep"). Every rule
+// reopens.inScopeCount precedent, `.claude/docs/test-fixtures.md` "The invariant SQL sweep"). Every rule
 // below is `.claude/docs/domain-model.md`'s own, not this file's simplification: grace is 0 ("the
 // sprint's scope at start + grace"); 1 SP = 1 MD; `done_at` is recomputed FRESH from the issue's own
 // status events (never reusing `resolvedAtMs`, which was computed as part of building those events
