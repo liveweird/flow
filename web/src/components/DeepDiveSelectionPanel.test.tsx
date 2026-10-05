@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import type { ReportFilters } from "../api/reports";
 import { jsonResponse } from "../test/http";
 import { FILTERS } from "../test/reportFixtures";
-import { renderWithProviders, screen, waitFor } from "../test/render";
+import { act, renderWithProviders, screen, waitFor } from "../test/render";
 import type { DeepDiveSelection } from "../utils/deepDiveFilter";
 import DeepDiveSelectionPanel from "./DeepDiveSelectionPanel";
 
@@ -25,12 +25,17 @@ const TASKS = [
 
 const page = (items: unknown[], total = items.length) => ({ items, page: 1, pageSize: 100, total });
 
-/** Serves the filters and the three option lists; a search for `zzz` finds nothing, and `q` narrows by a substring of the label. */
+/**
+ * Serves the three option lists the way the server does: `q` matches the key OR the summary (or the sprint's name) on its
+ * own — never the joined `KEY summary` label the picker shows — and `zzz` finds nothing.
+ */
 function serve(mockFetch: FetchMock) {
   mockFetch.mockImplementation((url: string) => {
     const q = new URL(url, "http://x").searchParams.get("q")?.toLowerCase();
     const narrowed = <T extends { name?: string; key?: string; summary?: string | null }>(items: T[]) =>
-      items.filter((item) => q === undefined || `${item.name ?? item.key} ${item.summary ?? ""}`.toLowerCase().includes(q));
+      items.filter(
+        (item) => q === undefined || [item.name, item.key, item.summary].some((field) => field?.toLowerCase().includes(q) === true),
+      );
     if (url.startsWith("/api/v1/reports/deep-dive/sprints?")) return Promise.resolve(jsonResponse(200, page(narrowed(SPRINTS))));
     if (url.startsWith("/api/v1/reports/deep-dive/epics/")) return Promise.resolve(jsonResponse(200, page(narrowed(TASKS))));
     if (url.startsWith("/api/v1/reports/deep-dive/epics?")) return Promise.resolve(jsonResponse(200, page(narrowed(EPICS))));
@@ -56,6 +61,9 @@ function renderPanel(options: { selection?: DeepDiveSelection; filters?: ReportF
 }
 
 const showButton = () => screen.getByRole("button", { name: "Show" });
+/** Show stays focusable while blocked: it is `aria-disabled`, never `disabled`. */
+const blocked = () => expect(showButton()).toHaveAttribute("aria-disabled", "true");
+const ready = () => expect(showButton()).toHaveAttribute("aria-disabled", "false");
 /** A control by its label. */
 const field = (label: string) => screen.getByRole("combobox", { name: label });
 const dateField = (label: string) => screen.getByRole("textbox", { name: label });
@@ -82,6 +90,7 @@ describe("DeepDiveSelectionPanel", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
     vi.clearAllMocks();
     localStorage.clear();
@@ -91,31 +100,37 @@ describe("DeepDiveSelectionPanel", () => {
     const user = userEvent.setup();
     renderPanel();
     expect(mode("Sprints of a domain")).toBeChecked();
-    expect(showButton()).toBeDisabled();
+    blocked();
     // No domain, no sprint request: the sprint list is the domain's.
     expect(field("Sprints")).toBeDisabled();
     expect(urlsFor(mockFetch, "/api/v1/reports/deep-dive")).toEqual([]);
 
     await chooseDomain(user);
-    expect(showButton()).toBeDisabled();
+    blocked();
     await pickOption(user, "Sprints", "Sprint 4");
-    expect(showButton()).toBeEnabled();
+    ready();
   });
 
-  test("the sprint search carries the domain and the debounced q, and Show hands over the selection", async () => {
-    const user = userEvent.setup();
+  test("the sprint search carries the domain and waits out the debounce, and Show hands over the selection", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const onShow = renderPanel();
+    const sprintCalls = () => urlsFor(mockFetch, "/api/v1/reports/deep-dive/sprints?");
     await chooseDomain(user);
     await screen.findByText("0 of 52 selected.");
-    await waitFor(() => expect(urlsFor(mockFetch, "/api/v1/reports/deep-dive/sprints?")).toHaveLength(1));
-    expect(queryOf(urlsFor(mockFetch, "/api/v1/reports/deep-dive/sprints?")[0]).get("domain")).toBe("FLO");
-    expect(queryOf(urlsFor(mockFetch, "/api/v1/reports/deep-dive/sprints?")[0]).has("q")).toBe(false);
+    await waitFor(() => expect(sprintCalls()).toHaveLength(1));
+    expect(queryOf(sprintCalls()[0]).get("domain")).toBe("FLO");
+    expect(queryOf(sprintCalls()[0]).has("q")).toBe(false);
 
     await user.type(field("Sprints"), "sprint 5");
-    await waitFor(() => expect(urlsFor(mockFetch, "/api/v1/reports/deep-dive/sprints?").some((url) => queryOf(url).get("q") === "sprint 5")).toBe(true));
-    // One request per settled search, not one per keystroke.
-    expect(urlsFor(mockFetch, "/api/v1/reports/deep-dive/sprints?")).toHaveLength(2);
-    expect(queryOf(urlsFor(mockFetch, "/api/v1/reports/deep-dive/sprints?")[1]).get("domain")).toBe("FLO");
+    // Typing alone asks nothing; the settled text is asked once.
+    expect(sprintCalls()).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(299);
+    expect(sprintCalls()).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(1);
+    await waitFor(() => expect(sprintCalls()).toHaveLength(2));
+    expect(queryOf(sprintCalls()[1]).get("q")).toBe("sprint 5");
+    expect(queryOf(sprintCalls()[1]).get("domain")).toBe("FLO");
 
     await user.click(await screen.findByRole("option", { name: "Sprint 5" }));
     await user.click(showButton());
@@ -134,26 +149,26 @@ describe("DeepDiveSelectionPanel", () => {
     // The pill keeps its NAME (not the id) although the answer to the new search no longer lists it.
     expect(screen.getByText("Sprint 4")).toBeInTheDocument();
     expect(screen.queryByText("41")).not.toBeInTheDocument();
-    expect(showButton()).toBeEnabled();
+    ready();
   });
 
   test("changing the mode clears the picks but keeps the connection and the dates", async () => {
     const user = userEvent.setup();
     renderPanel({ selection: { domain: "FLO", sprintIds: [41], from: "2026-01-05", to: "2026-02-01" }, labels: { "41": "Sprint 4" } });
     expect(screen.getByText("Sprint 4")).toBeInTheDocument();
-    expect(showButton()).toBeEnabled();
+    ready();
 
     await user.click(mode("Epics"));
     expect(screen.queryByText("Sprint 4")).not.toBeInTheDocument();
     expect(screen.getByText("0 of 50 selected.")).toBeInTheDocument();
-    expect(showButton()).toBeDisabled();
+    blocked();
     expect(dateField("From (optional)")).toHaveValue("2026-01-05");
     expect(dateField("To (optional)")).toHaveValue("2026-02-01");
 
     await user.click(mode("Sprints of a domain"));
     expect(screen.queryByText("Sprint 4")).not.toBeInTheDocument();
     expect(field("Domain")).toHaveValue("");
-    expect(showButton()).toBeDisabled();
+    blocked();
   });
 
   test("the epics mode searches the epics with q and shows the picked epic keys in canonical order", async () => {
@@ -176,10 +191,10 @@ describe("DeepDiveSelectionPanel", () => {
 
     await pickOption(user, "Epic", "FLO-1 Onboarding");
     await waitFor(() => expect(urlsFor(mockFetch, "/api/v1/reports/deep-dive/epics/FLO-1/tasks?")).toHaveLength(1));
-    expect(showButton()).toBeDisabled();
+    blocked();
     await pickOption(user, "Tasks", "FLO-11 Sign-up form");
     await pickOption(user, "Tasks", "FLO-12");
-    expect(showButton()).toBeEnabled();
+    ready();
 
     await user.click(showButton());
     expect(onShow).toHaveBeenLastCalledWith({ epicIds: ["FLO-1"], issueIds: ["FLO-11", "FLO-12"] });
@@ -187,7 +202,7 @@ describe("DeepDiveSelectionPanel", () => {
     await user.click(field("Epic"));
     await user.click(await screen.findByRole("option", { name: "FLO-2 Billing" }));
     expect(screen.getByText("0 of 500 selected.")).toBeInTheDocument();
-    expect(showButton()).toBeDisabled();
+    blocked();
     await waitFor(() => expect(urlsFor(mockFetch, "/api/v1/reports/deep-dive/epics/FLO-2/tasks?")).toHaveLength(1));
   });
 
@@ -232,17 +247,17 @@ describe("DeepDiveSelectionPanel", () => {
 
     await user.type(from, "2026-13-01");
     expect(screen.getByText("Use the format YYYY-MM-DD.")).toBeInTheDocument();
-    expect(showButton()).toBeDisabled();
+    blocked();
 
     await user.clear(from);
     await user.type(from, "2026-03-10");
     await user.type(to, "2026-03-01");
     expect(screen.getByText(/The range must start on or before its end/)).toBeInTheDocument();
-    expect(showButton()).toBeDisabled();
+    blocked();
 
     await user.clear(to);
     await user.type(to, "2026-03-31");
-    expect(showButton()).toBeEnabled();
+    ready();
     await user.click(showButton());
     expect(onShow).toHaveBeenCalledExactlyOnceWith({ epicIds: ["FLO-1"], from: "2026-03-10", to: "2026-03-31" });
   });
@@ -269,5 +284,87 @@ describe("DeepDiveSelectionPanel", () => {
     mockFetch.mockImplementation(() => Promise.resolve(jsonResponse(500, { title: "Boom", status: 500 })));
     renderPanel({ selection: { epicIds: ["FLO-1"] } });
     expect(await screen.findByText(/500/)).toBeInTheDocument();
+  });
+  test("a blocked Show stays focusable, says what is missing for the mode, and ignores a click", async () => {
+    const user = userEvent.setup();
+    const onShow = renderPanel();
+    const reason = () => document.getElementById(showButton().getAttribute("aria-describedby") ?? "") as HTMLElement;
+    showButton().focus();
+    expect(showButton()).toHaveFocus();
+    expect(reason()).toHaveTextContent("Pick a domain and at least one sprint.");
+    await user.click(showButton());
+    expect(onShow).not.toHaveBeenCalled();
+
+    await chooseDomain(user);
+    expect(reason()).toHaveTextContent("Pick at least one sprint.");
+    await user.click(mode("Epics"));
+    expect(reason()).toHaveTextContent("Pick at least one epic.");
+    await user.click(mode("Tasks of an epic"));
+    expect(reason()).toHaveTextContent("Pick an epic and at least one of its tasks.");
+    await pickOption(user, "Epic", "FLO-1 Onboarding");
+    expect(reason()).toHaveTextContent("Pick at least one task.");
+    await pickOption(user, "Tasks", "FLO-11 Sign-up form");
+    expect(reason()).toBeEmptyDOMElement();
+    ready();
+  });
+
+  test("a bad date is the reason Show is blocked", async () => {
+    const user = userEvent.setup();
+    renderPanel({ selection: { epicIds: ["FLO-1"] } });
+    await user.type(dateField("From (optional)"), "nope");
+    blocked();
+    expect(document.getElementById(showButton().getAttribute("aria-describedby") ?? "")).toHaveTextContent("Fix the dates");
+  });
+
+  test("a picker that needs something first says what", async () => {
+    const user = userEvent.setup();
+    renderPanel();
+    expect(screen.getByText("0 of 52 selected. Pick a domain first.")).toBeInTheDocument();
+    await user.click(mode("Tasks of an epic"));
+    expect(screen.getByText("0 of 500 selected. Pick an epic first.")).toBeInTheDocument();
+  });
+
+  test("a connection the reference data does not list is not offered back from the link", async () => {
+    const user = userEvent.setup();
+    const onShow = renderPanel({ selection: { epicIds: ["FLO-1"], connectionId: 9 } });
+    await user.click(showButton());
+    expect(onShow).toHaveBeenCalledExactlyOnceWith({ epicIds: ["FLO-1"] });
+  });
+
+  test("a listed connection from the link is kept, and changing the connection keeps the domain", async () => {
+    const user = userEvent.setup();
+    const filters: ReportFilters = { ...FILTERS, connections: [{ id: 1, name: "Stub" }, { id: 2, name: "Other" }] };
+    renderPanel({ filters, selection: { domain: "FLO", sprintIds: [41], connectionId: 2 }, labels: { "41": "Sprint 4" } });
+    expect(field("Connection")).toHaveValue("Other");
+    await user.click(field("Connection"));
+    await user.click(await screen.findByRole("option", { name: "Stub" }));
+    expect(field("Domain")).toHaveValue("Flow");
+    // The picks listed under the old connection are gone.
+    expect(screen.getByText("0 of 52 selected.")).toBeInTheDocument();
+  });
+
+  test("a single-choice epic from a link keeps its name and asks for its list exactly once", async () => {
+    renderPanel({ selection: { epicIds: ["FLO-1"], issueIds: ["FLO-11"] } });
+    await waitFor(() => expect(field("Epic")).toHaveValue("FLO-1 Onboarding"));
+    // Real time, well past three debounce windows: a box that fought its own label would have asked again by now.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    });
+    expect(urlsFor(mockFetch, "/api/v1/reports/deep-dive/epics?")).toHaveLength(1);
+    expect(field("Epic")).toHaveValue("FLO-1 Onboarding");
+  });
+
+  test("searching the epic box by a word of its summary asks the server for that word", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    renderPanel({ selection: { epicIds: ["FLO-1"], issueIds: ["FLO-11"] } });
+    await waitFor(() => expect(field("Epic")).toHaveValue("FLO-1 Onboarding"));
+    await user.clear(field("Epic"));
+    await user.type(field("Epic"), "billing");
+    await vi.advanceTimersByTimeAsync(300);
+    await waitFor(() =>
+      expect(urlsFor(mockFetch, "/api/v1/reports/deep-dive/epics?").some((url) => queryOf(url).get("q") === "billing")).toBe(true),
+    );
+    expect(await screen.findByRole("option", { name: "FLO-2 Billing" })).toBeInTheDocument();
   });
 });

@@ -915,14 +915,14 @@
     "matrixTitle": "Plan, wykonanie i koszt",
     "range": "Widoczny zakres: od {{from}} do {{to}}.",
     "layersAria": "Widoczne warstwy",
-    "badSelection": "Nie da się pokazać tego wyboru",
+    "badSelection": "Nie możemy pokazać tego wyboru",
     "note": {
       "rangeClamped": "Wybór obejmuje ponad 1100 dni, więc rysujemy tylko jego ostatnie 1100 dni. Sumy nadal obejmują cały okres życia każdego zadania. Ustaw daty od i do, aby wybrać inny zakres.",
       "notDerived": "Nie wyliczyliśmy jeszcze nic z tego wyboru, więc nie ma liczb do pokazania. Pojawią się po następnym wyliczeniu danych połączenia."
     },
     "explainer": {
       "title": "Wybierz, w co zajrzeć",
-      "intro": "Wybierz powyżej jeden z trzech sposobów wyboru pracy i naciśnij „Pokaż”. Wybór zapisuje się w adresie strony, więc link go udostępnia.",
+      "intro": "Wybierz powyżej jeden z trzech sposobów wyboru pracy i naciśnij „Pokaż”. Adres strony zawiera wybór, więc możesz go udostępnić linkiem.",
       "SPRINTS": "zadania jednej domeny, które były w zakresie w chwili zamknięcia wybranych sprintów (do 52 sprintów).",
       "EPICS": "wszystkie zadania wybranych epików (do 50 epików, w sumie do 500 zadań).",
       "TASKS": "dokładnie te zadania jednego epika, które wybierzesz (do 500 zadań)."
@@ -949,10 +949,20 @@
       "dateFormat": "Użyj formatu RRRR-MM-DD.",
       "dateRange": "Początek zakresu nie może przypadać po jego końcu, a zakres może obejmować najwyżej 1100 dni.",
       "show": "Pokaż",
-      "selectedCount": "Wybrano {{used}} z {{max}}.",
-      "moreOptions": "Widać pierwsze {{shown}} z {{total}} wyników; wpisz tekst, aby zawęzić listę.",
-      "nothingFound": "Nic nie znaleziono",
-      "searching": "Wyszukiwanie"
+      "selectedCount": "Wybrane: {{used}} z {{max}}.",
+      "moreOptions": "Pokazujemy pierwsze {{shown}} z {{total}} wyników; wpisz tekst, aby zawęzić listę.",
+      "nothingFound": "Brak wyników",
+      "searching": "Wyszukiwanie",
+      "needDomain": "Najpierw wybierz domenę.",
+      "needEpic": "Najpierw wybierz epik.",
+      "missing": {
+        "domainAndSprints": "Wybierz domenę i co najmniej jeden sprint.",
+        "sprints": "Wybierz co najmniej jeden sprint.",
+        "epics": "Wybierz co najmniej jeden epik.",
+        "epicAndTasks": "Wybierz epik i co najmniej jedno jego zadanie.",
+        "tasks": "Wybierz co najmniej jedno zadanie.",
+        "dates": "Popraw daty: RRRR-MM-DD, początek nie później niż koniec."
+      }
     },
     "limits": {
       "title": "Ograniczenia danych",
@@ -961,7 +971,7 @@
       "counter": {
         "neverInSprint": {
           "label": "Zadania, których nigdy nie było w sprincie",
-          "hint": "Nie mają planu (PV); ich wykonanie i koszt nadal widać."
+          "hint": "Nie mają planu (PV); ich wykonanie i koszt nadal rysujemy."
         },
         "noEstimate": {
           "label": "Zadania bez oszacowania w chwili zobowiązania",
@@ -969,7 +979,7 @@
         },
         "noWorkingDay": {
           "label": "Zadania, których sprint nie ma dnia roboczego",
-          "hint": "Ich oszacowanie nie ma na czym się oprzeć, więc nie ma planu (PV) do narysowania."
+          "hint": "Ich oszacowanie nie ma dnia roboczego, na którym mogłoby się oprzeć, więc nie rysujemy planu (PV)."
         },
         "epicsWithoutWindow": {
           "label": "Epiki bez zaplanowanego okna",
@@ -981,7 +991,7 @@
         },
         "epicOwnCostMd": {
           "label": "Osobodni zalogowane na samych epikach",
-          "hint": "Widać je w osobnym wierszu epika; nigdy nie rozkładamy ich na jego zadania."
+          "hint": "Pokazujemy je w osobnym wierszu epika i nigdy nie rozkładamy ich na jego zadania."
         }
       },
       "fixed": {

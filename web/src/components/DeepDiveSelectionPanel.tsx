@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Button, Group, Paper, SegmentedControl, Stack, TextInput, Title } from "@mantine/core";
+import { Button, Group, Paper, SegmentedControl, Stack, Text, TextInput, Title } from "@mantine/core";
 import { fetchDeepDiveEpics, fetchDeepDiveEpicTasks, fetchDeepDiveSprints, type ReportFilters } from "../api/reports";
 import {
   MAX_DEEP_DIVE_EPICS,
@@ -9,7 +9,7 @@ import {
   type DeepDiveMode,
   type DeepDiveSelection,
 } from "../utils/deepDiveFilter";
-import { dateProblem, draftOf, isComplete, isMalformedDate, issueLabel, selectionOf, withMode, type DeepDiveDraft } from "../utils/deepDivePanel";
+import { dateProblem, draftOf, isMalformedDate, issueLabel, missingOf, selectionOf, withMode, type DeepDiveDraft } from "../utils/deepDivePanel";
 import DeepDivePicker, { type PickerPage } from "./DeepDivePicker";
 import ReportFilterSelect from "./ReportFilterSelect";
 
@@ -45,12 +45,19 @@ export default function DeepDiveSelectionPanel({
   onShow: (selection: DeepDiveSelection) => void;
 }) {
   const { t } = useTranslation();
-  const [draft, setDraft] = useState<DeepDiveDraft>(() => draftOf(selection));
+  const [draft, setDraft] = useState<DeepDiveDraft>(() =>
+    draftOf(
+      selection,
+      filters.connections.map((connection) => connection.id),
+    ),
+  );
+  const missingId = useId();
   const update = (changes: Partial<DeepDiveDraft>) => setDraft((prev) => ({ ...prev, ...changes }));
 
   const connectionId = draft.connectionId === null ? undefined : Number(draft.connectionId);
   const problem = dateProblem(draft);
   const epic = draft.epics[0];
+  const missing = missingOf(draft);
 
   const sprintPicker = (
     <>
@@ -76,6 +83,7 @@ export default function DeepDiveSelectionPanel({
         onChange={(sprints) => update({ sprints })}
         max={MAX_DEEP_DIVE_SPRINTS}
         labels={labels}
+        disabledHint={t("reports.deepDive.panel.needDomain")}
       />
     </>
   );
@@ -116,6 +124,7 @@ export default function DeepDiveSelectionPanel({
         onChange={(tasks) => update({ tasks })}
         max={MAX_DEEP_DIVE_ISSUES}
         labels={labels}
+        disabledHint={t("reports.deepDive.panel.needEpic")}
       />
     </>
   );
@@ -144,7 +153,7 @@ export default function DeepDiveSelectionPanel({
               placeholder={t("reports.filters.allConnections")}
               data={filters.connections.map((connection) => ({ value: String(connection.id), label: connection.name }))}
               value={draft.connectionId}
-              onChange={(next) => update({ connectionId: next, domain: null, sprints: [], epics: [], tasks: [] })}
+              onChange={(next) => update({ connectionId: next, sprints: [], epics: [], tasks: [] })}
             />
           )}
           <TextInput
@@ -170,10 +179,19 @@ export default function DeepDiveSelectionPanel({
             w={160}
           />
         </Group>
-        <Group gap="md">
-          <Button disabled={!isComplete(draft)} onClick={() => onShow(selectionOf(draft))}>
+        <Group gap="md" align="center">
+          {/* Focusable while blocked (aria-disabled, activation ignored), so its reason is one Tab away. */}
+          <Button
+            aria-disabled={missing !== null}
+            data-disabled={missing !== null || undefined}
+            aria-describedby={missingId}
+            onClick={() => missing === null && onShow(selectionOf(draft))}
+          >
             {t("reports.deepDive.panel.show")}
           </Button>
+          <Text id={missingId} size="sm" c="dimmed" aria-live="polite">
+            {missing === null ? "" : t(`reports.deepDive.panel.missing.${missing}`)}
+          </Text>
         </Group>
       </Stack>
     </Paper>

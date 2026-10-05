@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
 import { Alert, Group, List, Stack, Switch, Text, Title } from "@mantine/core";
@@ -71,6 +71,17 @@ export default function ReportDeepDive() {
   const selection = useMemo(() => parseDeepDiveSelection(params), [params]);
   const selectionKey = deepDiveQuery(selection);
   const complete = deepDiveMode(selection) !== null;
+
+  // The panel keeps its own draft, so it is reset only when the URL changes from OUTSIDE it (Back/forward, a pasted
+  // or followed link): `shown` is the key its own Show button just wrote, consumed by the change that follows.
+  const [seenKey, setSeenKey] = useState(selectionKey);
+  const [shown, setShown] = useState<string | null>(null);
+  const [panelEpoch, setPanelEpoch] = useState(0);
+  if (seenKey !== selectionKey) {
+    setSeenKey(selectionKey);
+    setShown(null);
+    if (shown !== selectionKey) setPanelEpoch(panelEpoch + 1);
+  }
   const [layers, setLayers] = useStoredState<DeepDiveLayers>("reports.deepDive.layers", ALL_LAYERS, isLayers);
 
   const filtersQuery = useQuery({ queryKey: ["reports", "filters"], queryFn: getReportFilters, staleTime: 60_000 });
@@ -140,11 +151,17 @@ export default function ReportDeepDive() {
       <ReportFiltersStatus query={filtersQuery} />
       {filtersQuery.data && (
         <DeepDiveSelectionPanel
-          key={selectionKey}
+          key={panelEpoch}
           selection={selection}
           filters={filtersQuery.data}
           labels={labels}
-          onShow={(next) => setParams(applyDeepDiveSelection(params, next))}
+          onShow={(next) => {
+            const key = deepDiveQuery(next);
+            // The same selection again is not a new history entry.
+            if (key === selectionKey) return;
+            setShown(key);
+            setParams(applyDeepDiveSelection(params, next));
+          }}
         />
       )}
       {body}

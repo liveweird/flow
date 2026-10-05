@@ -25,8 +25,8 @@ const SHOW_ALL: OptionsFilter = ({ options }) => options;
 /**
  * A searchable single or multiple choice over a server-side option list: the typed text (debounced) goes to the
  * server as `q`, the answer is the option list, and what is already picked stays in the list however the search
- * changes — its label is remembered from the answer it was picked from, else read from `labels` (names a loaded report
- * knows), else the value itself. A multiple choice holds at most `max` values and says how many are used.
+ * changes — its label is the one any answer gave it, else the one in `labels` (names a loaded report knows), else the
+ * value itself. A multiple choice holds at most `max` values and says how many are used.
  */
 export default function DeepDivePicker({
   label,
@@ -38,6 +38,7 @@ export default function DeepDivePicker({
   onChange,
   max,
   labels,
+  disabledHint,
 }: {
   label: string;
   placeholder: string;
@@ -51,34 +52,46 @@ export default function DeepDivePicker({
   max?: number;
   /** Names of values this picker may not have seen (from a loaded report). */
   labels: Readonly<Record<string, string>>;
+  /** Said while the picker is disabled: what to do first. */
+  disabledHint?: string;
 }) {
   const { t } = useTranslation();
   const multiple = max !== undefined;
   const [search, setSearch] = useState("");
-  const [remembered, setRemembered] = useState<Record<string, string>>({});
-
-  // A single choice shows its own label in the search box; that is not a search, so the list is the unfiltered one.
-  const pickedLabel = (v: string) => remembered[v] ?? labels[v] ?? v;
-  const typed = !multiple && value[0] !== undefined && search === pickedLabel(value[0]) ? "" : search.trim();
+  // A single choice shows its own label in the search box, and Mantine writes that label into the box itself — so the
+  // box's text says nothing about whether the viewer is searching. Only the viewer's own keystrokes do (`onInput`);
+  // selecting, clearing or leaving the box ends the search.
+  const [typing, setTyping] = useState(false);
+  const typed = multiple || typing ? search.trim() : "";
   const [debounced] = useDebouncedValue(typed, SEARCH_DEBOUNCE_MS);
   const settling = typed !== debounced;
 
+  // Every option any answer listed, by value: a pick's label does not depend on which answer is on screen.
+  const [known, setKnown] = useState<Record<string, string>>({});
+  const scopeKey = JSON.stringify(scope);
   const query = useQuery({
     queryKey: ["reports", "deep-dive", "options", ...scope, debounced],
-    queryFn: () => load(debounced === "" ? undefined : debounced),
+    queryFn: async () => {
+      const page = await load(debounced === "" ? undefined : debounced);
+      setKnown((prev) => ({ ...prev, ...Object.fromEntries(page.options.map((option) => [option.value, option.label])) }));
+      return page;
+    },
     enabled,
+    // Typing keeps the previous answer on screen while the next one loads — but never one listed under another scope.
+    placeholderData: (previous, previousQuery) =>
+      previousQuery !== undefined && JSON.stringify(previousQuery.queryKey.slice(3, -1)) === scopeKey ? previous : undefined,
   });
 
   const found = new Map<string, string>();
   for (const option of query.data?.options ?? []) if (!found.has(option.value)) found.set(option.value, option.label);
-  const labelOf = (v: string) => remembered[v] ?? found.get(v) ?? labels[v] ?? v;
+  const labelOf = (v: string) => known[v] ?? found.get(v) ?? labels[v] ?? v;
   const data = [
     ...value.map((v) => ({ value: v, label: labelOf(v) })),
     ...[...found].filter(([v]) => !value.includes(v)).map(([v, l]) => ({ value: v, label: l })),
   ];
 
-  const remember = (next: string[]) => {
-    setRemembered((prev) => ({ ...prev, ...Object.fromEntries(next.map((v) => [v, labelOf(v)])) }));
+  const change = (next: string[]) => {
+    setTyping(false);
     onChange(next);
   };
 
@@ -86,8 +99,9 @@ export default function DeepDivePicker({
   const description = [
     multiple ? t("reports.deepDive.panel.selectedCount", { used: value.length, max }) : null,
     truncated ? t("reports.deepDive.panel.moreOptions", { shown: query.data?.options.length, total: query.data?.total }) : null,
+    enabled ? null : disabledHint,
   ]
-    .filter((part) => part !== null)
+    .filter((part) => part !== null && part !== undefined)
     .join(" ");
 
   const common = {
@@ -105,14 +119,21 @@ export default function DeepDivePicker({
     clearable: true,
     clearButtonProps: { "aria-label": t("reports.filters.clearAria", { name: label }) },
     "aria-busy": query.isFetching,
-    rightSection: query.isFetching && enabled ? <Loader size="xs" role="status" aria-label={t("reports.deepDive.panel.searching")} /> : undefined,
+    // Left, so the clear button and the chevron stay where they are while a search runs.
+    leftSection: query.isFetching && enabled ? <Loader size="xs" role="status" aria-label={t("reports.deepDive.panel.searching")} /> : undefined,
     w: 360,
     maw: "100%",
   };
 
   return multiple ? (
-    <MultiSelect {...common} value={value} onChange={remember} maxValues={max} hidePickedOptions />
+    <MultiSelect {...common} value={value} onChange={change} maxValues={max} hidePickedOptions />
   ) : (
-    <Select {...common} value={value[0] ?? null} onChange={(next) => remember(next === null ? [] : [next])} />
+    <Select
+      {...common}
+      value={value[0] ?? null}
+      onChange={(next) => change(next === null ? [] : [next])}
+      onInput={() => setTyping(true)}
+      onBlur={() => setTyping(false)}
+    />
   );
 }

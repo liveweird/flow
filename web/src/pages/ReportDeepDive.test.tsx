@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
-import { Link, Route, Routes, useLocation } from "react-router-dom";
+import { Link, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import type { DeepDiveReport } from "../api/reports";
 import { MONTH_CROSSING, deepDiveEpic, deepDiveReport, deepDiveTask } from "../test/deepDiveFixtures";
 import { headingOutline } from "../test/headings";
 import { jsonResponse } from "../test/http";
 import { FILTERS } from "../test/reportFixtures";
-import { renderWithProviders, screen, waitFor, within } from "../test/render";
+import { act, renderWithProviders, screen, waitFor, within } from "../test/render";
 import ReportDeepDive from "./ReportDeepDive";
 
 type FetchMock = ReturnType<typeof vi.fn>;
@@ -52,7 +52,15 @@ function serve(mockFetch: FetchMock, report: unknown = sampleReport(), status = 
 }
 
 function LocationProbe() {
-  return <output data-testid="search">{useLocation().search}</output>;
+  const navigate = useNavigate();
+  return (
+    <>
+      <output data-testid="search">{useLocation().search}</output>
+      <button type="button" onClick={() => void navigate(-1)}>
+        go back
+      </button>
+    </>
+  );
 }
 
 function renderPage(route = "/reports/deep-dive") {
@@ -102,7 +110,7 @@ describe("ReportDeepDive page", () => {
       "Tasks of an epic: exactly the tasks you pick from one epic (up to 500 tasks).",
     ]);
     // The selection panel is there to make one.
-    expect(await screen.findByRole("button", { name: "Show" })).toBeDisabled();
+    expect(await screen.findByRole("button", { name: "Show" })).toHaveAttribute("aria-disabled", "true");
     expect(reportCalls(mockFetch)).toEqual([]);
   });
 
@@ -258,6 +266,78 @@ describe("ReportDeepDive page", () => {
     expect(await screen.findByRole("grid")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^Collapse (?!all)/i })).not.toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: /^Expand .* into weeks$/ }).length).toBeGreaterThan(0);
+  });
+
+  test("a pasted TASKS link names its tasks and its epic, and the epic list is asked for once, however slow the report", async () => {
+    mockFetch.mockImplementation((url: string) => {
+      if (url === "/api/v1/reports/filters") return Promise.resolve(jsonResponse(200, FILTERS));
+      if (url.startsWith(`${REPORT_PATH}/epics?`)) {
+        const items = [{ id: 1, connectionId: 1, key: "FLO-1", summary: "Onboarding", domain: "FLO" }];
+        return Promise.resolve(jsonResponse(200, { items, page: 1, pageSize: 100, total: 1 }));
+      }
+      if (url.startsWith(`${REPORT_PATH}/`)) return Promise.resolve(jsonResponse(200, { items: [], page: 1, pageSize: 100, total: 0 }));
+      return new Promise(() => {}); // the report never answers
+    });
+    renderPage("/reports/deep-dive?epicId=FLO-1&issueId=FLO-11");
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Epic" })).toHaveValue("FLO-1 Onboarding"));
+    expect(screen.getByText("1 of 500 selected.")).toBeInTheDocument();
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    });
+    const epicCalls = mockFetch.mock.calls.map((c) => c[0] as string).filter((u) => u.startsWith(`${REPORT_PATH}/epics?`));
+    expect(epicCalls).toHaveLength(1);
+    expect(screen.getByRole("combobox", { name: "Epic" })).toHaveValue("FLO-1 Onboarding");
+  });
+
+  test("a pasted TASKS link names its tasks from the answered report", async () => {
+    serve(mockFetch, sampleReport({ mode: "TASKS" }));
+    renderPage("/reports/deep-dive?epicId=FLO-1&issueId=FLO-11");
+    await screen.findByRole("grid");
+    const panel = (await screen.findByRole("heading", { name: "Selection" })).closest("section") as HTMLElement;
+    expect(await within(panel).findByText("FLO-11 Sign-up form")).toBeInTheDocument();
+  });
+
+  test("Back and a followed link reset the panel to the URL", async () => {
+    const user = userEvent.setup();
+    renderPage(LINK_B);
+    await screen.findByRole("grid");
+    expect(screen.getByRole("radio", { name: "Epics" })).toBeChecked();
+    expect(screen.getByText("1 of 50 selected.")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("link", { name: "go to A" }));
+    await waitFor(() => expect(screen.getByRole("radio", { name: "Sprints of a domain" })).toBeChecked());
+    expect(screen.getByText("2 of 52 selected.")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "go back" }));
+    await waitFor(() => expect(screen.getByRole("radio", { name: "Epics" })).toBeChecked());
+    expect(screen.getByText("1 of 50 selected.")).toBeInTheDocument();
+  });
+
+  test("Show does not rebuild the panel: the same controls stay on screen", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("radio", { name: "Epics" }));
+    await user.click(screen.getByRole("combobox", { name: "Epics" }));
+    await user.click(await screen.findByRole("option", { name: "FLO-1 Onboarding" }));
+    const picker = screen.getByRole("combobox", { name: "Epics" });
+    const modeControl = screen.getByRole("radio", { name: "Epics" });
+    await user.click(screen.getByRole("button", { name: "Show" }));
+    expect(search()).toBe("?epicId=FLO-1");
+    await screen.findByRole("grid");
+    // The very same elements: a rebuilt panel would have replaced them.
+    expect(screen.getByRole("combobox", { name: "Epics" })).toBe(picker);
+    expect(screen.getByRole("radio", { name: "Epics" })).toBe(modeControl);
+  });
+
+  test("Show for the selection already on screen adds no history entry", async () => {
+    const user = userEvent.setup();
+    renderPage(LINK_A);
+    await screen.findByRole("grid");
+    await user.click(screen.getByRole("link", { name: "go to B" }));
+    await screen.findByText("1 of 50 selected.");
+    await user.click(screen.getByRole("button", { name: "Show" }));
+    await user.click(screen.getByRole("button", { name: "go back" }));
+    await waitFor(() => expect(search()).toContain("domain=FLO"));
   });
 
   test("a failed report is an inline alert, never a toast", async () => {

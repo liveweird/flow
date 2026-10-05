@@ -155,7 +155,7 @@ team membership landed in M2 commit 5, and the per-connection `metrics-config` p
 ## Reports (`pages/ReportVelocity.tsx`, `components/Report*.tsx`, `utils/reportFilter.ts`)
 
 The v0.3.0 report pages (`.claude/docs/reports.md` is the API; every report is any-authenticated,
-D12 — routes sit under `RequireAuth`, never `RequireAdmin`). Fifteen pages carry the sixteen reports
+D12 — routes sit under `RequireAuth`, never `RequireAdmin`). Sixteen pages carry the seventeen reports
 (report 13, the backlog in sprints, rides the Estimated backlog page): the shell (Reports nav
 section, `ReportTabs` — real router links with `role="tab"`, so middle-click opens a report in a new tab), the filter bar, the shared blocks and the three tab groups — Delivery
 (Velocity, Throughput, Sprint consistency, Cycle time; `DELIVERY_TABS`), Estimation (Task accuracy,
@@ -335,11 +335,19 @@ completed · the report's figures · the orange drift badge with the frozen figu
   **`components/DeepDiveSelectionPanel.tsx`** (draft logic in `utils/deepDivePanel.ts`): a `SegmentedControl` for the modes — Sprints of a domain
   (domain `Select` from the shared filters' domains + sprint pickers, max 52), Epics (max 50), Tasks of an epic (an epic `Select` + task picker, max 500);
   the pickers are `components/DeepDivePicker.tsx`: a searchable `Select`/`MultiSelect` over a server list, the typed text debounced 300 ms into `q`,
-  the combobox's own filter switched off (the server already matched key AND summary), picked values kept in the data (their label remembered from
-  the answer they were picked from, else from the loaded report's names, else the value) so they survive any search, a "N of MAX selected" line, a
-  "showing the first N of M" line when the page (100) was cut, and the picker's own failure inline. The panel holds a DRAFT and only the explicit
-  **Show** button writes it to the URL (a push, so Back works) — typing and picking fire no report request; switching the mode drops every pick
-  (they belong to the old mode) and keeps connection and dates, a new domain/epic/connection drops the picks listed under the old one; the
+  the combobox's own filter switched off (the server already matched key AND summary, each on its own), picked values kept in the data (labelled by
+  any option answer the picker has seen, else by the loaded report's names, else the value) so they survive any search, a "N of MAX selected" line,
+  a "showing the first N of M" line when the page (100) was cut, a hint while the picker waits for a domain or epic, the previous answer kept on screen
+  while the next loads (same scope only), the spinner on the LEFT so the clear button stays, and the picker's own failure inline. **Whether a
+  single-choice box is being searched is decided by the viewer's own keystrokes (`onInput`, ended by selecting, clearing or leaving it), never by
+  comparing its text with the label** — Mantine writes the selected label into the box itself, and a label comparison made it fight that text with a
+  request every debounce window. The panel holds a DRAFT and only the explicit
+  **Show** button writes it to the URL (a push, so Back works; the selection already shown pushes nothing) — typing and picking fire no report
+  request, and Show does NOT rebuild the panel: the page resets it (a new `key`) only when the URL changes from outside (Back/forward, a followed or pasted
+  link), never for the change its own Show made. A blocked Show stays focusable (`aria-disabled`, activation ignored) and its `aria-describedby`
+  live line says what is missing for the mode ("Pick a domain and at least one sprint", …); a link's `connectionId` the reference data does not list is
+  dropped from the draft; switching the mode drops every pick
+  (they belong to the old mode) and keeps connection and dates, a new domain or epic, or another connection, drops the picks listed under the old one (the connection keeps the domain); the
   connection select exists only with more than one active connection; `From`/`To` are optional `YYYY-MM-DD` text inputs (clip) whose malformed or
   reversed/over-1100-day values name the problem and block Show. A `NOT_DERIVED` answer is one gray note and no grid; `RANGE_CLAMPED` an orange note
   above the grid (both translated — the server's English `note` is shown verbatim only for any other kind); under the matrix sit the **data limits**

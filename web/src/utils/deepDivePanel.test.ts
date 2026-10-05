@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { deepDiveEpic, deepDiveReport, deepDiveTask } from "../test/deepDiveFixtures";
-import { dateProblem, draftOf, isComplete, issueLabel, knownLabels, selectionOf, withMode, type DeepDiveDraft } from "./deepDivePanel";
+import { dateProblem, draftOf, isComplete, issueLabel, knownLabels, missingOf, selectionOf, withMode, type DeepDiveDraft } from "./deepDivePanel";
 
 const draft = (partial: Partial<DeepDiveDraft>): DeepDiveDraft => ({
   mode: "SPRINTS",
@@ -72,5 +72,21 @@ describe("deepDivePanel", () => {
     expect(dateProblem({ ...base, from: "2020-01-01", to: "2026-01-01" })).toBe("range");
     expect(isComplete({ ...base, from: "2026-03-02", to: "2026-03-01" })).toBe(false);
     expect(isComplete({ ...base, from: "2026-03-01", to: "2026-03-01" })).toBe(true);
+  });
+
+  test("a link's connection is kept only when the reference data lists it", () => {
+    expect(draftOf({ epicIds: ["A-1"], connectionId: 2 }, [1, 2]).connectionId).toBe("2");
+    expect(draftOf({ epicIds: ["A-1"], connectionId: 9 }, [1, 2]).connectionId).toBeNull();
+    expect(draftOf({ epicIds: ["A-1"], connectionId: 9 }).connectionId).toBe("9");
+  });
+
+  test("the first thing still missing is named per mode, dates last, nothing when complete", () => {
+    expect(missingOf(draft({ mode: "SPRINTS" }))).toBe("domainAndSprints");
+    expect(missingOf(draft({ mode: "SPRINTS", domain: "FLO" }))).toBe("sprints");
+    expect(missingOf(draft({ mode: "EPICS" }))).toBe("epics");
+    expect(missingOf(draft({ mode: "TASKS" }))).toBe("epicAndTasks");
+    expect(missingOf(draft({ mode: "TASKS", epics: ["A-1"] }))).toBe("tasks");
+    expect(missingOf(draft({ mode: "EPICS", epics: ["A-1"], from: "x" }))).toBe("dates");
+    expect(missingOf(draft({ mode: "EPICS", epics: ["A-1"] }))).toBeNull();
   });
 });

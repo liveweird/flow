@@ -927,7 +927,17 @@
       "selectedCount": "{{used}} of {{max}} selected.",
       "moreOptions": "Showing the first {{shown}} of {{total}} matches; type to narrow the list.",
       "nothingFound": "Nothing found",
-      "searching": "Searching"
+      "searching": "Searching",
+      "needDomain": "Pick a domain first.",
+      "needEpic": "Pick an epic first.",
+      "missing": {
+        "domainAndSprints": "Pick a domain and at least one sprint.",
+        "sprints": "Pick at least one sprint.",
+        "epics": "Pick at least one epic.",
+        "epicAndTasks": "Pick an epic and at least one of its tasks.",
+        "tasks": "Pick at least one task.",
+        "dates": "Fix the dates: YYYY-MM-DD, the start not after the end."
+      }
     },
     "limits": {
       "title": "Data limits",

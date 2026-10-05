@@ -36,15 +36,22 @@ export interface DeepDiveDraft {
   to: string;
 }
 
-/** A draft showing what the URL's selection says (Sprints of a domain while nothing valid is selected). */
-export function draftOf(selection: DeepDiveSelection): DeepDiveDraft {
+/**
+ * A draft showing what the URL's selection says (Sprints of a domain while nothing valid is selected). A connection the
+ * reference data does not list (a stale link) is not offered back: `connectionIds` are the ones the picker knows.
+ */
+export function draftOf(selection: DeepDiveSelection, connectionIds?: readonly number[]): DeepDiveDraft {
+  const connection =
+    selection.connectionId !== undefined && (connectionIds === undefined || connectionIds.includes(selection.connectionId))
+      ? String(selection.connectionId)
+      : null;
   return {
     mode: deepDiveMode(selection) ?? "SPRINTS",
     domain: selection.domain ?? null,
     sprints: (selection.sprintIds ?? []).map(String),
     epics: selection.epicIds ?? [],
     tasks: selection.issueIds ?? [],
-    connectionId: selection.connectionId === undefined ? null : String(selection.connectionId),
+    connectionId: connection,
     from: selection.from ?? "",
     to: selection.to ?? "",
   };
@@ -89,4 +96,25 @@ export function dateProblem(draft: DeepDiveDraft): DateProblem {
 /** Whether the draft can be shown: its own mode's picks are all there, within the limits, and the dates are usable. */
 export function isComplete(draft: DeepDiveDraft): boolean {
   return deepDiveMode(selectionOf(draft)) === draft.mode && dateProblem(draft) === null;
+}
+
+export type Missing = "domainAndSprints" | "sprints" | "epics" | "epicAndTasks" | "tasks" | "dates";
+
+/** What stops the draft from being shown, as the first thing the viewer still has to do; `null` when it is complete. */
+export function missingOf(draft: DeepDiveDraft): Missing | null {
+  if (isComplete(draft)) return null;
+  switch (draft.mode) {
+    case "SPRINTS":
+      if (draft.domain === null) return "domainAndSprints";
+      if (draft.sprints.length === 0) return "sprints";
+      break;
+    case "EPICS":
+      if (draft.epics.length === 0) return "epics";
+      break;
+    case "TASKS":
+      if (draft.epics.length === 0) return "epicAndTasks";
+      if (draft.tasks.length === 0) return "tasks";
+      break;
+  }
+  return "dates";
 }
