@@ -6,7 +6,7 @@ reports it serves, its invariants, and how known data imperfections are handled.
 contract the metrics layer and every dashboard are built against. **Status: agreed 2026-09-27
 (D1–D16), validated against the target reports; amended 2026-09-28 (A17–A21, see "Amendments"
 below); implemented in v0.3.0** (the configuration, DERIVE and the star: `.claude/docs/metrics.md`;
-the sixteen reports: `.claude/docs/reports.md`). The per-measure operational contract — each
+the sixteen reports: `.claude/docs/reports.md`; the deep dive, report 17, is A29 below). The per-measure operational contract — each
 report number's grain, time anchor, attribution, estimate snapshot, missing-data rule,
 frozen/live source and the test that pins it — is `.claude/docs/measures.md`.
 
@@ -268,6 +268,7 @@ user, and slices by domain, activity type and work category.
 | 14 | **Data quality** | all facts | per team and domain: worklog coverage (DONE tasks with worklogs; logged hours per member per working day vs `hoursPerDay`), late logging (worklog created vs `started`), tasks without an estimate, epic or work category, epic drift (D11), unmapped statuses, work done outside any sprint, sprint-snapshot drift (D13) |
 | 15 | **Epic progress (EVM)** | `agg_daily_flow` (per-day PV/EV/AC increments, summed at query time), `fact_epic_plan` | PV, EV and AC in man-days as cumulative curves with SV/SPI/CV/CPI as of a day, at epic, domain and team level (A7, A20); superseded baselines redraw the "as originally planned" curve |
 | 16 | **Cost matrix and foreign work** | `fact_worklog` | man-days logged in the period as an author-team × domain matrix, with the foreign-work share beside every row (A8, D3) |
+| 17 | **Deep dive** | `fact_sprint_scope`, `fact_task_delivery`, `item_stage`, `fact_worklog`, `fact_epic_plan` | PV, Execution and AC in man-days on one epic/task × time matrix (daily series; the client drills month → week → day), for a domain's tasks in chosen sprints, chosen epics, or handpicked tasks of one epic; reads the facts directly, with no aggregate (A29) |
 
 ## Invariants
 
@@ -404,6 +405,40 @@ carries the per-measure detail).
   - **Epic-logged worklogs.** For a worklog logged directly on an epic, foreign work compares the
     author's team with the epic's OWNER team (A19), not the epic's assignee's team — epics carry no
     sprint at all, so the sprint-team branch never applies to them either.
+
+- **A29 — Deep dive layers** (report 17, agreed with the user 2026-10-05; A23–A27 are taken and A28 is
+  reserved for the parked backlog item 13). One matrix compares plan, execution and cost for a chosen
+  set of work, as a sparse DAILY series per task and layer in man-days; every higher level (week,
+  month, epic row) is a sum of lower ones, computed by the client. It adds no DERIVE step and no
+  migration — it reads facts that already exist. The three layers:
+  - **Plan (PV), per task.** Tasks have no planned dates of their own (only epics do), so a task's
+    plan is the sprint windows it was in. The sprints that count are those where the task has a
+    `fact_sprint_scope` row with `in_scope_at_close` (committed or added; removed scope is left out,
+    A17). The amount is `estimate_at_commitment_md` of the EARLIEST such sprint; if that one has no
+    estimate, the first LATER such sprint that has one (the row is marked as the fallback). It is
+    spread evenly, with cumulative rounding (the same `ROUND(total * i / n, 2)` rule as the epic PV
+    curve, so Σ = the estimate exactly), over the working days of the UNION of those sprint windows —
+    a window being `dayOf(start_at)` .. `dayOf(complete_at ?: end_at)` in the configured zone, a day
+    in two overlapping windows counted once. A task never in a sprint, or with no estimate at
+    commitment, has no PV and says why.
+  - **Plan, epic row.** An epic row's PV is the Σ of its tasks' PV (never the epic's own budget). The
+    epic's OWN planned window (the current `fact_epic_plan` baseline: start, due, budget) is drawn
+    beside it as a non-additive outline — it never enters any sum.
+  - **Execution, per task.** The per-day fraction of a working day the task spent in an `item_stage`
+    interval whose stage is `IN_PROGRESS` (the unit of cycle time, in task-days); an interval still
+    open is cut at the connection's last DERIVE clock. The EV marker sits on `dayOf(done_at)` and
+    carries `estimate_at_done_md` — D11 and the EV definition are unchanged (an epic's own estimate
+    is never EV).
+  - **Cost (AC).** `fact_worklog.md` on `dayOf(started_at)` (zone as for every period filter), by
+    author. A sub-task's worklogs roll up to its parent task (D2, invariant 7); a worklog logged on
+    the epic itself is shown on a separate "(on the epic)" line, never spread over its tasks.
+
+  **Documented limits** (the page and `reports.md` state them; the response counts them in `quality`):
+  tasks never in a sprint have no PV (OPS-style Kanban work); tasks with no estimate at commitment
+  have none either; epics with no planned window have no outline; epic and domain attribution is as-was
+  at done/now (A21); sub-tasks are not rows; execution is status-based, with blocked time NOT subtracted
+  (flow efficiency, A18, is the measure that does); a multi-day worklog lands on its start day; and
+  every figure is only as fresh as the last DERIVE.
 
 ## Gaps in `norm` (closed in v0.3.0)
 
