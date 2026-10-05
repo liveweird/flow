@@ -883,5 +883,98 @@
       "label": "Colour scale",
       "text": "A more intense cell holds more man-days, up to {{max}} MD in one cell. The number in the cell is the figure; the shade only helps to find it."
     }
+  },
+  "deepDive": {
+    "matrix": {
+      "gridLabel": "Plan, execution and cost by epic and time",
+      "empty": "There is no work to show for this selection.",
+      "noEpic": "(no epic)",
+      "ownCost": "(on the epic)",
+      "itemColumn": "Epic / task",
+      "collapseLabel": "Collapse expanded columns and rows",
+      "collapseColumn": "Collapse {{label}}",
+      "collapseAllColumns": "Collapse all columns",
+      "collapseAllRows": "Collapse all rows",
+      "plannedBefore": "Planned before the range",
+      "plannedAfter": "Planned after the range",
+      "tooLarge": "{{rows}} rows by {{columns}} columns is {{cells}} cells, too many to draw. Collapse some columns or epics to see the grid.",
+      "layer": {
+        "pv": "Plan (PV)",
+        "exec": "Execution",
+        "ev": "Earned value (EV)",
+        "cost": "Cost (AC)"
+      },
+      "tip": {
+        "pv": "Plan (PV): {{value}} MD",
+        "exec": "Execution (task-days): {{value}}",
+        "ev": "Earned value (EV): {{value}} MD",
+        "done": "Done: {{keys}}",
+        "cost": "Cost (AC): {{value}} MD",
+        "author": "{{name}}: {{value}} MD",
+        "unknownAuthor": "unknown author",
+        "span": "{{from}} to {{to}}",
+        "nonWorking": "non-working",
+        "none": "nothing in this period"
+      },
+      "legend": {
+        "label": "Legend",
+        "pv": "Plan (PV): full-width blue bar",
+        "exec": "Execution: two-thirds-width teal bar",
+        "cost": "Cost (AC): one-third-width gray bar",
+        "scale": "Plan and cost share one man-day scale; execution has its own, in task-days. A bar's height is its figure against the largest cell in view; the tooltip holds the numbers.",
+        "done": "A task finished on this day (earned value)",
+        "window": "The epic's planned window (dashed outline)",
+        "hatched": "Hatched: non-working days"
+      },
+      "summary": {
+        "title": "Totals per epic and task",
+        "description": "The figures behind the grid, as a table: what falls in the shown range and the whole life of each epic and task, with the plan each task's plan value spreads.",
+        "item": "Epic / task",
+        "pvRange": "Plan in range (MD)",
+        "pvTotal": "Plan whole life (MD)",
+        "execRange": "Execution in range (task-days)",
+        "execTotal": "Execution whole life (task-days)",
+        "evRange": "Earned value in range (MD)",
+        "evTotal": "Earned value whole life (MD)",
+        "costRange": "Cost in range (MD)",
+        "costTotal": "Cost whole life (MD)",
+        "basis": "Plan basis (MD)",
+        "source": "Plan source",
+        "reason": "Why there is no plan",
+        "totalRow": "All tasks",
+        "ownCostRow": "Logged on the epics themselves",
+        "planSource": {
+          "EARLIEST": "Earliest sprint",
+          "LATER_FALLBACK": "First later sprint",
+          "NONE": "None"
+        },
+        "noPlanReason": {
+          "NEVER_IN_SPRINT": "Never in a sprint",
+          "NO_ESTIMATE": "No estimate",
+          "NO_WORKING_DAY": "No working day in the sprint"
+        },
+        "window": "Planned window",
+        "budget": "Budget (MD)"
+      },
+      "buckets": {
+        "title": "Figures per visible column and row",
+        "itemLayer": "{{item}}: {{layer}}",
+        "show": "Show figures per visible column",
+        "hide": "Hide figures per visible column",
+        "tooLarge": "The table of figures would hold {{cells}} cells, too many to draw. Collapse some columns or rows."
+      },
+      "expandWeeks": "Expand {{label}} into weeks",
+      "expandDays": "Expand {{label}} into days",
+      "announce": {
+        "weeks": "Showing weeks of {{label}}",
+        "days": "Showing days of {{label}}",
+        "collapsed": "Collapsed {{label}}",
+        "months": "Showing months",
+        "rows": "All rows collapsed"
+      },
+      "planned": "Planned {{from}} to {{to}}",
+      "budget": "Budget {{value}} MD",
+      "tooLargeNarrow": "{{rows}} rows by {{columns}} columns is {{cells}} cells, too many to draw. Narrow the selection or the date range."
+    }
   }
 }

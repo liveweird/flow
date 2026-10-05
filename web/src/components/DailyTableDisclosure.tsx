@@ -6,9 +6,18 @@ import { IconChevronDown, IconChevronRight } from "@tabler/icons-react";
 /**
  * A daily series can run to a thousand rows, so its full table sits behind a disclosure button
  * (`aria-expanded`/`aria-controls`) instead of pushing the page down; the body is not rendered
- * while closed. The children are the table itself — scroll and sticky header included.
+ * while closed. The children are the table itself — scroll and sticky header included. The button words
+ * default to the daily-series ones; a table of something else (the Deep dive's visible columns) names itself.
  */
-export default function DailyTableDisclosure({ children }: { children: ReactNode }) {
+export default function DailyTableDisclosure({
+  children,
+  showLabel,
+  hideLabel,
+}: {
+  children: ReactNode;
+  showLabel?: string;
+  hideLabel?: string;
+}) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const bodyId = useId();
@@ -22,7 +31,7 @@ export default function DailyTableDisclosure({ children }: { children: ReactNode
         aria-controls={bodyId}
         onClick={() => setOpen((value) => !value)}
       >
-        {open ? t("reports.daily.hide") : t("reports.daily.show")}
+        {open ? (hideLabel ?? t("reports.daily.hide")) : (showLabel ?? t("reports.daily.show"))}
       </Button>
       <Box id={bodyId} w="100%" hidden={!open}>
         {open && children}
