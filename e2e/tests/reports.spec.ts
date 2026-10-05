@@ -610,6 +610,20 @@ test.describe("reports, read by a regular user", () => {
     await expect(percentilesOrNotice(page).first()).toBeVisible();
     // The golden sprint's team finished work in the window, so the per-period trend has its table.
     await expect(page.getByRole("table", { name: "Trend, as a table" })).toBeVisible();
+
+    // The epics beside the tasks: the stub's epics all finished before the sprint-narrowed window, so a year-long
+    // window reads them — two views of their own, each with its own accounting, next to the tasks' two.
+    await page.goto(`/reports/cycle-time?connectionId=${dataSourceId}&${EPIC_WINDOW}`);
+    await expect(page.getByRole("heading", { level: 3, name: "Epics", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Epics: working days", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Epics: elapsed days", exact: true })).toBeVisible();
+    await expectAccountingToReconcile(page, 4);
+    // Owner team, never a person: the table's team row is the way in, and the narrowed read keeps the block without the table.
+    const owners = page.getByRole("table", { name: "Epics by owner team", exact: true });
+    await owners.getByRole("link", { name: `Show ${teamName}`, exact: true }).click();
+    await expect(page).toHaveURL(new RegExp(`teamId=${teamId}`));
+    await expect(page.getByRole("heading", { name: "Epics: working days", exact: true })).toBeVisible();
+    await expect(owners).toHaveCount(0);
   });
 
   test("the user reads task estimation accuracy", async ({ page }) => {

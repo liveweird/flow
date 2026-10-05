@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Alert, SimpleGrid, Stack, Table, Text } from "@mantine/core";
 import { IconInfoCircle } from "@tabler/icons-react";
 import { getCycleTimeReport, type CycleTimeGroup } from "../api/reports";
+import CycleTimeEpics from "../components/CycleTimeEpics";
 import DistributionWithAccounting from "../components/DistributionWithAccounting";
 import LoadingBlock from "../components/LoadingBlock";
 import PageHeader from "../components/PageHeader";
@@ -27,7 +28,10 @@ const CONTROLS: ReportControls = { domainView: "TASK", domain: true, activityTyp
 
 const MISSING = "—";
 
-/** Report 7 — cycle time: working days (primary) and elapsed days of finished tasks, plus the per-period trend. */
+/**
+ * Report 7 — cycle time: working days (primary) and elapsed days of finished tasks, plus the per-period trend, and the
+ * finished epics beside them (their own cycle, by owner team).
+ */
 export default function ReportCycleTime() {
   const { t } = useTranslation();
   // The report travels with the bucket that produced it (the throughput page's rule): a refetch over
@@ -141,6 +145,15 @@ export default function ReportCycleTime() {
                 {t("reports.groupsCaption.distribution")}
               </Text>
             </Stack>
+          )}
+          {report && (
+            <CycleTimeEpics
+              epics={report.epics}
+              level={report.meta.level}
+              minSampleSize={report.meta.minSampleSize}
+              filters={filters}
+              isRefreshing={query.isPlaceholderData}
+            />
           )}
         </>
       )}

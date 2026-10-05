@@ -119,6 +119,23 @@ export const VELOCITY_TEAM: VelocityReport = {
   ],
 };
 
+/** USER level: one account's own sprint rows — the frozen per-user figures and drift ride along like the team level's. */
+export const VELOCITY_USER: VelocityReport = {
+  meta: { ...META, level: "USER" },
+  sprints: [
+    {
+      ...VELOCITY_UNIT.sprints[0],
+      initialMd: 12,
+      initialItems: 5,
+      finalMd: 14.5,
+      finalItems: 6,
+      snapshot: { initialMd: 12, initialItems: 5, finalMd: 13, finalItems: 6 },
+      drift: true,
+    },
+  ],
+  groups: [],
+};
+
 export const VELOCITY_EMPTY: VelocityReport = { meta: META, sprints: [], groups: [] };
 
 export const THROUGHPUT_UNIT: ThroughputReport = {
@@ -463,6 +480,27 @@ export const CYCLE_TIME: CycleTimeReport = {
     { bucketStart: "2026-09-21", p50: 2.5, p90: 6, n: 7 },
     { bucketStart: "2026-09-28", p50: null, p90: null, n: 0 },
   ],
+  epics: {
+    workingDays: shownDistribution([1, 2, 1, 1, 0], 0, 5, { p50: 9, p90: 21, p95: 24, mean: 11 }),
+    elapsedDays: shownDistribution([1, 1, 2, 1, 0], 0, 7, { p50: 13, p90: 30, p95: 34, mean: 16 }),
+    excluded: { population: 6, neverStarted: 1 },
+    groups: [
+      {
+        teamId: 1,
+        label: "Alpha",
+        workingDays: shownDistribution([1, 1, 1, 0, 0], 0, 5, { p50: 8, p90: 14, p95: 15, mean: 9.5 }),
+        elapsedDays: shownDistribution([1, 1, 1, 0, 0], 0, 7, { p50: 12, p90: 20, p95: 22, mean: 14 }),
+        excluded: { population: 3, neverStarted: 0 },
+      },
+      {
+        teamId: null,
+        label: null,
+        workingDays: hiddenDistribution(2),
+        elapsedDays: hiddenDistribution(2),
+        excluded: { population: 3, neverStarted: 1 },
+      },
+    ],
+  },
   groups: [
     {
       teamId: 1,
@@ -506,6 +544,14 @@ export const CYCLE_TIME_MONTHS: CycleTimeReport = {
   ],
 };
 
+/** The epics block when no epic finished in the period (and the whole block at USER level — epics carry no user). */
+const NO_EPICS: CycleTimeReport["epics"] = {
+  workingDays: hiddenDistribution(0),
+  elapsedDays: hiddenDistribution(0),
+  excluded: { population: 0, neverStarted: 0 },
+  groups: [],
+};
+
 export const CYCLE_TIME_EMPTY: CycleTimeReport = {
   meta: META,
   workingDays: hiddenDistribution(0),
@@ -513,6 +559,25 @@ export const CYCLE_TIME_EMPTY: CycleTimeReport = {
   excluded: { population: 0, neverStarted: 0 },
   trend: [{ bucketStart: "2026-09-07", p50: null, p90: null, n: 0 }],
   groups: [],
+  epics: NO_EPICS,
+};
+
+/** Tasks finished but no epic did: the epics card says so in its own words. */
+export const CYCLE_TIME_NO_EPICS: CycleTimeReport = { ...CYCLE_TIME, epics: NO_EPICS };
+
+/** One person: the tasks narrow to them, the epics block is empty by design (no user on an epic). */
+export const CYCLE_TIME_USER: CycleTimeReport = {
+  ...CYCLE_TIME,
+  meta: { ...META, level: "USER" },
+  groups: [],
+  epics: NO_EPICS,
+};
+
+/** One team: its own epics, no per-user split of them. */
+export const CYCLE_TIME_TEAM: CycleTimeReport = {
+  ...CYCLE_TIME,
+  meta: { ...META, level: "TEAM" },
+  epics: { ...CYCLE_TIME.epics, groups: [] },
 };
 
 export const REPORTED_TIME: ReportedTimeRatioReport = {

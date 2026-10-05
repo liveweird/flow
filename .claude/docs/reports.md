@@ -228,10 +228,14 @@ VelocityReport {
   - **USER** (`teamId` AND `accountId`) -- `sprints` itself narrows to that ONE account's own
     contribution per sprint (the SAME committed/final predicates as the TEAM-level groups, applied
     per sprint instead of summed); `groups` is always empty -- there is nothing further to drill.
-    `snapshot`/`drift` are always `null`/`false` at this level: a per-user FROZEN figure would need
-    parsing `fact_sprint_snapshot.scope`'s JSONB (`.claude/docs/metrics.md`'s own documented "per-user
-    velocity from the snapshot needs no child table" -- a reader this commit does not add), a
-    deliberate, documented scope narrowing rather than a silent guess.
+    `snapshot` is that account's own FROZEN figures, read from the sprint's `fact_sprint_snapshot.scope`
+    JSONB (`.claude/docs/metrics.md`: "per-user velocity from the snapshot needs no child table") with the
+    same predicates, `assignee_at_commitment` attribution and `sumMd` rounding as the live figures; a
+    snapshotted sprint in which the account had no items shows zeros, a sprint with no snapshot (D13)
+    `null`. `drift` is the team level's own comparison. The unassigned bucket's frozen figure has no
+    USER-level query. A malformed scope row is an invariant violation (the DERIVE writer is its only
+    producer) and fails the request with an error naming the connection and sprint. A snapshot frozen
+    before the per-item rounding fix holds `round2(Σ raw)`, so its Σ users may differ by a cent.
   - **`teamId = 0`** (UNASSIGNED) -- always empty (`sprints: []`, `groups: []`): a sprint always
     carries a real team or is excluded from this report entirely (an unmapped-board sprint shows
     only in report 14, per `measures.md`'s Report 1 rows).
@@ -258,7 +262,11 @@ are `internal`, not `private`, precisely so this sibling file can extend it with
 constructor) -- the file the brief's own "past ~120 lines -> a new file" idiom names. Tests:
 `ReportVelocityTest` (`DerivedStubFixture`-based: UNIT-level `finalMd` against `fact_sprint`, the
 golden FLO sprint's `sprintId` period against `expected.json`'s `committedMd`/`finalMd`, TEAM-level
-`Σ groups == team total`, `400` for `from > to` and an unknown `sprintId`; every request runs
+`Σ groups == team total`, the USER level's frozen figures ("USER level frozen figures sum with the
+unassigned bucket to the team snapshot", "USER level snapshot is null for a sprint with no snapshot and
+drift stays false", "USER level frozen figures come from the stored snapshot scope not the live
+rows, per connection", "frozen scope parsing fails loudly on a malformed row and keeps a null estimate
+null"), `400` for `from > to` and an unknown `sprintId`; every request runs
 through a non-admin `seededClient`, proving D12's `200` at the same time).
 
 ## Report 2 -- Throughput
@@ -315,8 +323,8 @@ ThroughputReport {
   credited to it, and `groups` become one per assignee at done (`null` `accountId`/`label` =
   unassigned); USER (`teamId` + `accountId`): the period view narrows to that account, `groups` is
   empty and `bySprint` narrows to that account's deliveries by `assignee_at_commitment`
-  (`done_in_sprint` rows at `estimate_at_done_md`; `snapshot`/`drift` are `null`/`false`, velocity's
-  same narrowing). **Σ `groups` == Σ `byBucket`** (MD and items) at UNIT and TEAM level.
+  (`done_in_sprint` rows at `estimate_at_done_md`; `snapshot`/`drift` are `null`/`false` -- no per-user
+  frozen reader exists for this report yet, BACKLOG; velocity's can be reused). **Σ `groups` == Σ `byBucket`** (MD and items) at UNIT and TEAM level.
 - **Two separate measures.** Never expect Σ `bySprint` == Σ `byBucket` (see the two-views note above).
 
 Code: `reports/ThroughputReport.kt` (DTOs, pure bucket math, the queries) over `reports/
@@ -381,8 +389,8 @@ SprintConsistencyReport {
     one Jira site share sprint ids (velocity's per-user reader does the same).
   - **USER** (`teamId` AND `accountId`) -- `sprints` narrow to that account's rows per sprint (the same
     kernel over its rows; a sprint with none shows zeros); `snapshot` is `null` and `drift` `false`
-    (velocity's documented narrowing: a per-user frozen figure would mean parsing the snapshot's
-    JSONB scope), `groups` is empty. The unassigned bucket has no USER-level query -- it is the
+    (no per-user frozen reader exists for this report yet, BACKLOG; velocity's can be reused),
+    `groups` is empty. The unassigned bucket has no USER-level query -- it is the
     remainder Σ named users + unassigned == team.
 - **Rounding.** Every MD figure of a sprint is `Σ round2(item)`: `DeriveKernels.sprintTotals` rounds each
   item's estimate half-up to two decimals (`sumMd`, `metrics/DeriveKernels.kt`) BEFORE the exact sum, which is
@@ -529,9 +537,9 @@ same preamble and slice as the estimation reports (`resolveReportScope`, `taskFa
 `orgGroups` drill in `ReportSupport.kt`; the fetch `fetchDoneCycleTasks` is shared by both). Population = level-0
 tasks (D2) with `done_at` in the window; team = the D5 **credit** team (`teamId=0` = UNASSIGNED), user = assignee
 at done, domain per `domainView` (default `TASK`, D3), plus `activityType`/`workCategory`; a `lastSprints`/`sprintId`
-period reads the resolved sprints' envelope, as throughput's period view. **Epics are not in these reports**
-(measures.md's Report 7 row mentions "epics by own status", but the model's Report 7 source is `fact_task_delivery`
-alone -- an epic cycle time is not shown).
+period reads the resolved sprints' envelope, as throughput's period view. **Epics are in report 7 only, as its
+separate `epics` block** (from `fact_epic_delivery`, below); report 8 stays tasks-only (the reported-time ratio and flow
+efficiency are task measures).
 
 ### Report 7 -- `GET /api/v1/reports/cycle-time`
 
@@ -540,7 +548,9 @@ CycleTimeReport {
   meta, elapsedDays: Distribution, workingDays: Distribution,     // cycle_ms in days / cycle_working_days
   excluded: { population, neverStarted },
   trend: [{ bucketStart, p50?, p90?, n }],                        // bucket=WEEK|MONTH, default WEEK
-  groups: [{ teamId?, accountId?, label?, elapsedDays, workingDays, excluded }]
+  groups: [{ teamId?, accountId?, label?, elapsedDays, workingDays, excluded }],
+  epics: { elapsedDays, workingDays: Distribution, excluded: { population, neverStarted },   // always present
+           groups: [{ teamId?, label?, elapsedDays, workingDays, excluded }] }               // owner teams, UNIT only
 }
 ```
 
@@ -557,6 +567,16 @@ CycleTimeReport {
 - **Levels**: UNIT `groups` per credit team, TEAM per assignee at done, USER none; each group has its own two
   distributions (hidden below the minimum, `n` always set, so `Σ group n == n`) and `excluded`; groups are ordered by
   label (null last), then team id, then account id.
+- **`epics`** (`reports/CycleTimeEpics.kt`): the same measure over the epics DONE by their OWN status (D11) with `done_at`
+  in the same window, read from `fact_epic_delivery.cycle_ms` / `cycle_working_days` (the same `done_at - started_at` rule;
+  `neverStarted` is again the only exclusion, `workingDays.n == elapsedDays.n == population - neverStarted`). The block is
+  always present. Team = the domain's **owner** team (A19; `teamId=0` = UNOWNED), no user, domain = the epic's own space
+  (`domain`/`workCategory` slice it through `epicFactSlice`; `domainView` has no effect and `activityType` is ignored, as in
+  the estimation reports). **Levels** -- UNIT: `groups` one per owner team (null `teamId` = UNOWNED, label the team name,
+  hidden below the minimum with `n` set, `Σ group n == n`); TEAM: the team's own epics, `groups` empty (epics carry no
+  user); USER: an all-zero block with no groups -- an epic read is never a silently team-wide answer at USER level (the
+  report-4/5 posture; the SPA shows the "not per person" note instead). No trend and no per-epic list (epics are few; the
+  per-epic drill is Report 4's listing). The epics sit beside the task views and never change any task figure.
 
 ### Report 8 -- `GET /api/v1/reports/reported-time-ratio`
 
@@ -584,11 +604,14 @@ ReportedTimeRatioReport { meta, ratio: Distribution,             // actual_md / 
   population`. Note the two `zeroCycle`s differ: the ratio's is zero WORKING days, this one zero ELAPSED time. Groups
   carry both measures; `Σ group n == n` for each.
 
-Code: `reports/CycleTimeReport.kt`, `reports/ReportedTimeRatioReport.kt`. Tests -- one class per endpoint on
+Code: `reports/CycleTimeReport.kt` (+ `reports/CycleTimeEpics.kt`, the `epics` block), `reports/ReportedTimeRatioReport.kt`. Tests -- one class per endpoint on
 `DerivedStubFixture`, with the independent oracle of `ReportEstimationTestSupport.kt`: `ReportCycleTimeTest`
 (distributions, per-group at every level, `teamId=0`, slices, the sprint envelope, and **every trend bucket's p50/p90/n
 against an independent bucketing** -- WEEK and MONTH, zero-filled, hidden per bucket -- plus hand-built rows with
-exact hand-computed numbers incl. a zero-working-day cycle) and `ReportReportedTimeRatioTest` (the partition, groups,
+exact hand-computed numbers incl. a zero-working-day cycle), `ReportCycleTimeEpicsTest` (the `epics` block: the fixture's
+distributions and owner groups against an independent read of `fact_epic_delivery`, TEAM / `teamId=0` / USER, the
+`domain`/`workCategory` slices and the ignored `activityType`, the sprint envelope, and hand-built epics with exact numbers
+incl. the never-started exclusion and a zero-working-day cycle) and `ReportReportedTimeRatioTest` (the partition, groups,
 slices, hand-built bucket precedence and hidden state).
 
 ## Reports 9, 10, 13 -- WIP and the estimated backlog

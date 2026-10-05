@@ -1320,7 +1320,9 @@ paths:
         per-user split (`fact_sprint_scope.assignee_at_commitment`, Σ committed/final MD — the same
         removed-row rule the team total itself follows, so Σ users == the team total); `teamId` AND
         `accountId` together narrow to USER level — `sprints` itself narrows to that one account's
-        own contribution and `groups` is always empty. `teamId=0` (UNASSIGNED) is always empty — a
+        own contribution (its `snapshot` is that account's frozen figures, computed from the sprint's
+        stored snapshot scope by the same rule as the live ones; null when the sprint has no snapshot)
+        and `groups` is always empty. `teamId=0` (UNASSIGNED) is always empty — a
         sprint always carries a real team or is excluded from this report. Velocity carries no
         domain slice, so `domainView` is echoed in `meta` but never changes the result. An active or
         future sprint (`completedAt` null) is reachable only by an explicit `sprintId`: its live figures,
@@ -1585,7 +1587,12 @@ paths:
         `groups` one per credit team (`teamId` null = UNASSIGNED); `teamId` narrows to TEAM (`teamId=0` = the
         UNASSIGNED credit) and `groups` becomes one per assignee at done; `teamId` AND `accountId` narrow to
         USER (`groups` empty). Sprint-relative periods use the resolved sprints' envelope, as in throughput.
-        Epics are not part of this report.
+        `epics` is the same measure over the epics DONE by their own status (D11) in the same window
+        (`fact_epic_delivery.cycle_ms` / `cycle_working_days`, the same `done_at − started_at` rule): team = the
+        domain's OWNER team (A19; `teamId=0` = UNOWNED), no user, domain = the epic's own space (`domain`,
+        `workCategory` slice it; `activityType` is ignored). Its `groups` are one per owner team at UNIT level and
+        empty at TEAM level; at USER level the whole block is an all-zero answer (epics carry no user). `epics` has
+        no trend.
       parameters:
         - { $ref: '#/components/parameters/ReportFrom' }
         - { $ref: '#/components/parameters/ReportTo' }
@@ -3795,8 +3802,8 @@ components:
     CycleTimeExcluded:
       type: object
       description: >-
-        DONE level-0 tasks a cycle-time read could not measure: `neverStarted` (no `started_at`) is the only
-        exclusion. `workingDays.n = population - neverStarted`.
+        DONE level-0 tasks (or, in the `epics` block, DONE epics) a cycle-time read could not measure:
+        `neverStarted` (no `started_at`) is the only exclusion. `workingDays.n = population - neverStarted`.
       required: [population, neverStarted]
       properties:
         population: { type: integer, minimum: 0 }
@@ -3825,9 +3832,36 @@ components:
         elapsedDays: { $ref: '#/components/schemas/Distribution' }
         workingDays: { $ref: '#/components/schemas/Distribution' }
         excluded: { $ref: '#/components/schemas/CycleTimeExcluded' }
+    EpicCycleTimeGroup:
+      type: object
+      description: >-
+        One owner team's epic cycle time (UNIT level only; `teamId` null = UNOWNED, `label` the team name).
+      required: [teamId, label, elapsedDays, workingDays, excluded]
+      properties:
+        teamId: { type: integer, format: int32, minimum: 0, nullable: true }
+        label: { type: string, nullable: true }
+        elapsedDays: { $ref: '#/components/schemas/Distribution' }
+        workingDays: { $ref: '#/components/schemas/Distribution' }
+        excluded: { $ref: '#/components/schemas/CycleTimeExcluded' }
+    EpicCycleTime:
+      type: object
+      description: >-
+        Cycle time of the epics DONE (by their own status, D11) in the period: `elapsedDays` is
+        `fact_epic_delivery.cycle_ms` in wall-clock days, `workingDays` its `cycle_working_days`; both hidden below
+        `minSampleSize`. `excluded.neverStarted` (no `started_at`) is the only exclusion, so
+        `workingDays.n = population − neverStarted`. All zero at USER level (epics carry no user).
+      required: [elapsedDays, workingDays, excluded, groups]
+      properties:
+        elapsedDays: { $ref: '#/components/schemas/Distribution' }
+        workingDays: { $ref: '#/components/schemas/Distribution' }
+        excluded: { $ref: '#/components/schemas/CycleTimeExcluded' }
+        groups:
+          type: array
+          description: One per owner team at UNIT level (`teamId` null = UNOWNED); empty at TEAM and USER level.
+          items: { $ref: '#/components/schemas/EpicCycleTimeGroup' }
     CycleTimeReport:
       type: object
-      required: [meta, elapsedDays, workingDays, excluded, trend, groups]
+      required: [meta, elapsedDays, workingDays, excluded, trend, groups, epics]
       properties:
         meta: { $ref: '#/components/schemas/ReportMeta' }
         elapsedDays:
@@ -3844,6 +3878,7 @@ components:
         groups:
           type: array
           items: { $ref: '#/components/schemas/CycleTimeGroup' }
+        epics: { $ref: '#/components/schemas/EpicCycleTime' }
 
     WipKey:
       type: object

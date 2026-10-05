@@ -281,7 +281,7 @@
   "epicsNotPerPerson": "Epics aren't attributed to individual people, so there are no epic figures for a single person.",
   "cycleTime": {
     "title": "Cycle time",
-    "description": "How long finished tasks took from first start to done — in working days (the primary view, on the configured calendar) and in elapsed calendar days. A reopened task counts its whole span.",
+    "description": "How long finished tasks took from first start to done — in working days (the primary view, on the configured calendar) and in elapsed calendar days. A reopened task counts its whole span. Finished epics follow in their own card, by owner team.",
     "workingTitle": "Working days",
     "workingCaption": "Primary view — days on the configured working calendar.",
     "elapsedTitle": "Elapsed days",
@@ -312,7 +312,17 @@
       "elapsedN": "Elapsed days (items)",
       "elapsedMedian": "Elapsed days (median)"
     },
-    "belowMinimum": "below the minimum sample"
+    "belowMinimum": "below the minimum sample",
+    "epics": {
+      "title": "Epics",
+      "caption": "Epics finished in the period, by the team that owns their domain. An epic's cycle runs from its own first start to its own done, and it is never attributed to a person.",
+      "workingTitle": "Epics: working days",
+      "elapsedTitle": "Epics: elapsed days",
+      "neverStarted": "Epics never started (finished without a start), so no cycle",
+      "byOwnerTeam": "Epics by owner team",
+      "ownerTeam": "Owner team",
+      "none": "No epics finished in this period."
+    }
   },
   "reportedTime": {
     "title": "Reported time",

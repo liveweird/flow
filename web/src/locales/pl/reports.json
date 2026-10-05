@@ -294,7 +294,7 @@
   "epicsNotPerPerson": "Nie przypisujemy epików do pojedynczych osób, więc nie mamy danych o epikach dla jednej osoby.",
   "cycleTime": {
     "title": "Czas cyklu",
-    "description": "Ile trwały zakończone zadania od pierwszego startu do zakończenia — w dniach roboczych (widok podstawowy, wg skonfigurowanego kalendarza) i w dniach kalendarzowych. Zadanie otwarte ponownie liczy się w całości.",
+    "description": "Ile trwały zakończone zadania od pierwszego startu do zakończenia — w dniach roboczych (widok podstawowy, wg skonfigurowanego kalendarza) i w dniach kalendarzowych. Zadanie otwarte ponownie liczy się w całości. Zakończone epiki są w osobnej karcie, według zespołu właściciela.",
     "workingTitle": "Dni robocze",
     "workingCaption": "Widok podstawowy — dni wg skonfigurowanego kalendarza pracy.",
     "elapsedTitle": "Dni kalendarzowe",
@@ -325,7 +325,17 @@
       "elapsedN": "Dni kalendarzowe (pozycje)",
       "elapsedMedian": "Dni kalendarzowe (mediana)"
     },
-    "belowMinimum": "poniżej minimalnej próby"
+    "belowMinimum": "poniżej minimalnej próby",
+    "epics": {
+      "title": "Epiki",
+      "caption": "Epiki zakończone w okresie, według zespołu będącego właścicielem ich domeny. Cykl epiku biegnie od jego pierwszego startu do jego zakończenia i nigdy nie jest przypisywany osobie.",
+      "workingTitle": "Epiki: dni robocze",
+      "elapsedTitle": "Epiki: dni kalendarzowe",
+      "neverStarted": "Epiki nigdy nierozpoczęte (zakończone bez startu), więc bez cyklu",
+      "byOwnerTeam": "Epiki według zespołu właściciela",
+      "ownerTeam": "Zespół właściciela",
+      "none": "Żaden epik nie został zakończony w tym okresie."
+    }
   },
   "reportedTime": {
     "title": "Zalogowany czas",

@@ -87,6 +87,12 @@ finished in autumn 2025, before the six-month window opens.
      "Of N finished in this period" accounting, and each either a percentile strip or the
      counts-only minimum-sample notice.
    - *Expected*: the per-period trend table is present (the team finished work in the window).
+2. They open the same report over a year-long window, which holds the stub's finished epics.
+   - *Expected*: an "Epics" card shows "Epics: working days" and "Epics: elapsed days", each with
+     its own accounting; with the tasks' two, every accounting adds up.
+3. They follow the "Epics by owner team" row of the golden team.
+   - *Expected*: the report narrows to that team, the epics card stays, and the owner table is
+     gone (epics split by owner team, never by person).
 
 ## Scenario: the user reads task estimation accuracy
 

@@ -899,7 +899,9 @@ export interface paths {
          *     per-user split (`fact_sprint_scope.assignee_at_commitment`, Σ committed/final MD — the same
          *     removed-row rule the team total itself follows, so Σ users == the team total); `teamId` AND
          *     `accountId` together narrow to USER level — `sprints` itself narrows to that one account's
-         *     own contribution and `groups` is always empty. `teamId=0` (UNASSIGNED) is always empty — a
+         *     own contribution (its `snapshot` is that account's frozen figures, computed from the sprint's
+         *     stored snapshot scope by the same rule as the live ones; null when the sprint has no snapshot)
+         *     and `groups` is always empty. `teamId=0` (UNASSIGNED) is always empty — a
          *     sprint always carries a real team or is excluded from this report. Velocity carries no
          *     domain slice, so `domainView` is echoed in `meta` but never changes the result. An active or
          *     future sprint (`completedAt` null) is reachable only by an explicit `sprintId`: its live figures,
@@ -1116,7 +1118,12 @@ export interface paths {
          *     `groups` one per credit team (`teamId` null = UNASSIGNED); `teamId` narrows to TEAM (`teamId=0` = the
          *     UNASSIGNED credit) and `groups` becomes one per assignee at done; `teamId` AND `accountId` narrow to
          *     USER (`groups` empty). Sprint-relative periods use the resolved sprints' envelope, as in throughput.
-         *     Epics are not part of this report.
+         *     `epics` is the same measure over the epics DONE by their own status (D11) in the same window
+         *     (`fact_epic_delivery.cycle_ms` / `cycle_working_days`, the same `done_at − started_at` rule): team = the
+         *     domain's OWNER team (A19; `teamId=0` = UNOWNED), no user, domain = the epic's own space (`domain`,
+         *     `workCategory` slice it; `activityType` is ignored). Its `groups` are one per owner team at UNIT level and
+         *     empty at TEAM level; at USER level the whole block is an all-zero answer (epics carry no user). `epics` has
+         *     no trend.
          */
         get: operations["getReportCycleTime"];
         put?: never;
@@ -2711,7 +2718,7 @@ export interface components {
             epics: components["schemas"]["AdjustmentFigures"];
             groups: components["schemas"]["EstimateAdjustmentsGroup"][];
         };
-        /** @description DONE level-0 tasks a cycle-time read could not measure: `neverStarted` (no `started_at`) is the only exclusion. `workingDays.n = population - neverStarted`. */
+        /** @description DONE level-0 tasks (or, in the `epics` block, DONE epics) a cycle-time read could not measure: `neverStarted` (no `started_at`) is the only exclusion. `workingDays.n = population - neverStarted`. */
         CycleTimeExcluded: {
             population: number;
             neverStarted: number;
@@ -2737,6 +2744,23 @@ export interface components {
             workingDays: components["schemas"]["Distribution"];
             excluded: components["schemas"]["CycleTimeExcluded"];
         };
+        /** @description One owner team's epic cycle time (UNIT level only; `teamId` null = UNOWNED, `label` the team name). */
+        EpicCycleTimeGroup: {
+            /** Format: int32 */
+            teamId: number | null;
+            label: string | null;
+            elapsedDays: components["schemas"]["Distribution"];
+            workingDays: components["schemas"]["Distribution"];
+            excluded: components["schemas"]["CycleTimeExcluded"];
+        };
+        /** @description Cycle time of the epics DONE (by their own status, D11) in the period: `elapsedDays` is `fact_epic_delivery.cycle_ms` in wall-clock days, `workingDays` its `cycle_working_days`; both hidden below `minSampleSize`. `excluded.neverStarted` (no `started_at`) is the only exclusion, so `workingDays.n = population − neverStarted`. All zero at USER level (epics carry no user). */
+        EpicCycleTime: {
+            elapsedDays: components["schemas"]["Distribution"];
+            workingDays: components["schemas"]["Distribution"];
+            excluded: components["schemas"]["CycleTimeExcluded"];
+            /** @description One per owner team at UNIT level (`teamId` null = UNOWNED); empty at TEAM and USER level. */
+            groups: components["schemas"]["EpicCycleTimeGroup"][];
+        };
         CycleTimeReport: {
             meta: components["schemas"]["ReportMeta"];
             /** @description `cycle_ms` in wall-clock days per DONE level-0 task. */
@@ -2747,6 +2771,7 @@ export interface components {
             /** @description One bucket per week/month across the whole window, zero-filled, by `done_at`, on working days. */
             trend: components["schemas"]["CycleTimeTrendBucket"][];
             groups: components["schemas"]["CycleTimeGroup"][];
+            epics: components["schemas"]["EpicCycleTime"];
         };
         /** @description One legend entry of a WIP series — the `key` every point's `counts` uses, and its display `label`. */
         WipKey: {
