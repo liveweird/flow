@@ -1395,6 +1395,132 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/reports/deep-dive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Report 17 — the deep dive (plan, execution and cost as daily series per task, in man-days)
+         * @description Any authenticated user (D12), read-only — `.claude/docs/reports.md` "Report 17", A29. Plan (PV), execution and cost (AC) for a chosen
+         *     set of work, as SPARSE DAILY series per task; the client sums days into weeks, months and epic rows. Exactly ONE of three selections
+         *     (the repeated keys are the first `IN` semantics of API-LIST-004 here): **(a)** `domain` and one to 52 `sprintId` — the domain's
+         *     level-0 tasks `in_scope_at_close` (A17) in at least one of those sprints; **(b)** one to 50 `epicId` (issue keys) — every level-0
+         *     task under them; **(c)** ONE `epicId` and one to 500 `issueId` (issue keys) — exactly those tasks of that epic. At most 500 tasks
+         *     in all. One selection reads ONE connection (`connectionId`, else the one the keys resolve to).
+         *
+         *     `range`: mode (a) the envelope of the selected sprints' plan windows; (b) and (c) the envelope of every mark (plan, execution, done
+         *     and cost days, the epics' planned windows and own cost); `from`/`to` clip it (clipped data stays in each task's `totals`; a lone
+         *     bound outside the envelope yields a single empty day). An implied range over 1100 days keeps its last 1100 days and `note` starts
+         *     `RANGE_CLAMPED`; a GIVEN range over 1100 days is `400`. `range.asOfDay` is the day of the selected connection's last DERIVE clock,
+         *     where an open execution interval stops. Every series entry's `d` is a day offset from `range.from`; `nonWorkingDays` are the
+         *     offsets that are not working days.
+         *
+         *     Per task, `pv` spreads `planBasisMd` (the `estimate_at_commitment_md` of the task's earliest sprint, else its first later one —
+         *     `planSource`) evenly, with cumulative rounding, over the working days of the union of the windows of every sprint the task was in
+         *     scope at close in; `noPlanReason` says why a task has none (`NEVER_IN_SPRINT`, `NO_ESTIMATE`, or `NO_WORKING_DAY`, which keeps
+         *     the basis and source with an empty `pv`). `exec` is the fraction of each working day spent IN_PROGRESS (task-days, blocked time not
+         *     subtracted). `done` is the EV marker (`estimate_at_done_md` on the day of `done_at`). `cost` is `fact_worklog.md` on the day of
+         *     `started_at` by author (`a` indexes `authors`; sub-task worklogs roll up to their parent task). `epics[]` carry the epic's CURRENT
+         *     baseline window (`plannedStart`/`plannedDue` offsets, an outline, never summed) and budget, and — mode (b) only — the worklog MD
+         *     logged on the epic itself (`ownCost`); the `(no epic)` row has a null `key`. MD are rounded to 2 decimals.
+         *
+         *     Nothing in scope derived yet answers `200` with empty `tasks`/`epics`/`authors`, `range.asOfDay` null and `note` set — never a
+         *     range of zeros. `400` (never 404): no or mixed selections, `domain` without `sprintId`, `issueId` without exactly one `epicId`, too
+         *     many values, more than 500 tasks, a given range over 1100 days or `from` after `to` (both given), an unknown sprint, epic, issue, domain or
+         *     connection, an issue not under the epic, a key in several connections without `connectionId`, a malformed date or id, a repeated
+         *     scalar parameter, control characters.
+         */
+        get: operations["getReportDeepDive"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/deep-dive/sprints": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Report 17 — the deep dive's sprint picker (the sprints of a domain)
+         * @description Any authenticated user (D12), read-only — `.claude/docs/reports.md` "Report 17". The sprints in which at least one level-0
+         *     task of `domain` (the task's OWN domain, as the report's sprint mode selects) was `in_scope_at_close` (A17), each with
+         *     `taskCount`, the number of those tasks. `domain` is required: a missing or unknown one (no such domain on an active
+         *     connection in scope) is `400`. Active connections only; `connectionId` narrows to one.
+         *
+         *     - Sortable fields: `id` (the Jira sprint id), `name`, `startAt`, `completeAt`. Default sort is `-id` (the most recent sprints
+         *       first); `id` ascending is appended as the tiebreaker when `id` is not already sorted on, then the connection id.
+         *     - `q` — case- and accent-insensitive substring over the sprint name.
+         */
+        get: operations["listReportDeepDiveSprints"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/deep-dive/epics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Report 17 — the deep dive's epic picker
+         * @description Any authenticated user (D12), read-only — `.claude/docs/reports.md` "Report 17". Every epic (`metrics.dim_epic`) of an active
+         *     connection in scope, optionally narrowed to the epic's own `domain` (an unknown domain answers an empty page). `connectionId`
+         *     narrows to one connection.
+         *
+         *     - Sortable fields: `id` (the epic's issue id), `key`, `summary`, `domain`. Default sort is `key` ascending; `id` ascending is
+         *       appended as the tiebreaker, then the connection id.
+         *     - `q` — case- and accent-insensitive substring over the key and the summary.
+         */
+        get: operations["listReportDeepDiveEpics"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/deep-dive/epics/{epicKey}/tasks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Report 17 — the deep dive's handpick list (one epic's level-0 tasks)
+         * @description Any authenticated user (D12), read-only — `.claude/docs/reports.md` "Report 17". The level-0 tasks under the epic
+         *     (`fact_task_delivery.epic_id`, the report's own epic attribution; sub-tasks are never rows). An unknown epic key, or a key
+         *     present in several connections in scope without `connectionId`, is `400` (never `404`).
+         *
+         *     - Sortable fields: `id` (the task's issue id), `key`, `summary`. Default sort is `key` ascending; `id` ascending is appended
+         *       as the tiebreaker.
+         *     - `q` — case- and accent-insensitive substring over the key and the summary.
+         */
+        get: operations["listReportDeepDiveEpicTasks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/reports/reported-time-ratio": {
         parameters: {
             query?: never;
@@ -3506,6 +3632,293 @@ export interface components {
              */
             foreignShare: number | null;
         };
+        DeepDiveRange: {
+            /**
+             * Format: date
+             * @description ISO date; the day every series offset counts from.
+             */
+            from: string;
+            /**
+             * Format: date
+             * @description ISO date, inclusive.
+             */
+            to: string;
+            /**
+             * Format: date
+             * @description The day of the selected connection's last DERIVE clock (where open execution stops); null when nothing derived.
+             */
+            asOfDay: string | null;
+        };
+        /** @description A selected sprint (selection a) with its plan window as day offsets from `range.from`. */
+        DeepDiveSprint: {
+            /** Format: int64 */
+            id: number;
+            name: string;
+            /**
+             * Format: int32
+             * @description Offset of the window start; null when the sprint contributes no day.
+             */
+            startDay: number | null;
+            /**
+             * Format: int32
+             * @description Offset of the window close; null when the sprint contributes no day.
+             */
+            endDay: number | null;
+        };
+        DeepDiveAuthor: {
+            accountId: string;
+            /** @description The Jira display name; the account id for an account the people table does not know. */
+            displayName: string;
+        };
+        DeepDiveMdDay: {
+            /**
+             * Format: int32
+             * @description Day offset from `range.from`.
+             */
+            d: number;
+            /**
+             * Format: double
+             * @description Man-days on that day (2 decimals).
+             */
+            md: number;
+        };
+        DeepDiveExecDay: {
+            /**
+             * Format: int32
+             * @description Day offset from `range.from`.
+             */
+            d: number;
+            /**
+             * Format: double
+             * @description The fraction of a working day spent IN_PROGRESS (task-days, 4 decimals).
+             */
+            td: number;
+        };
+        DeepDiveCostDay: {
+            /**
+             * Format: int32
+             * @description Day offset from `range.from`.
+             */
+            d: number;
+            /**
+             * Format: int32
+             * @description Index into `authors`; null when Jira gave no author.
+             */
+            a: number | null;
+            /**
+             * Format: double
+             * @description The author's man-days logged that day (2 decimals).
+             */
+            md: number;
+        };
+        /** @description The EV marker. */
+        DeepDiveDone: {
+            /**
+             * Format: int32
+             * @description Day offset of `done_at` from `range.from`.
+             */
+            d: number;
+            /**
+             * Format: double
+             * @description `estimate_at_done_md`; 0 when unestimated.
+             */
+            evMd: number;
+        };
+        /** @description Each layer's full sum over ALL days, in or out of `range`. */
+        DeepDiveTotals: {
+            /** Format: double */
+            pvMd: number;
+            /** Format: double */
+            execTaskDays: number;
+            /** Format: double */
+            evMd: number;
+            /** Format: double */
+            costMd: number;
+        };
+        DeepDiveTask: {
+            key: string;
+            summary: string | null;
+            /** @description Null for a task with no epic (the `(no epic)` row). */
+            epicKey: string | null;
+            /**
+             * Format: double
+             * @description The estimate `pv` spreads; null for a task with no estimate. Whenever `noPlanReason` is absent, `pv` sums to it.
+             */
+            planBasisMd: number | null;
+            /**
+             * @description Whether the basis is the earliest sprint's, the first later sprint's FALLBACK, or none.
+             * @enum {string}
+             */
+            planSource: "EARLIEST" | "LATER_FALLBACK" | "NONE";
+            /**
+             * @description Why `pv` is empty; null when the task has a plan.
+             * @enum {string|null}
+             */
+            noPlanReason: "NEVER_IN_SPRINT" | "NO_ESTIMATE" | "NO_WORKING_DAY" | null;
+            pv: components["schemas"]["DeepDiveMdDay"][];
+            exec: components["schemas"]["DeepDiveExecDay"][];
+            /** @description The EV marker; null when the task is not done or its done day is outside `range`. */
+            done: components["schemas"]["DeepDiveDone"] | null;
+            cost: components["schemas"]["DeepDiveCostDay"][];
+            totals: components["schemas"]["DeepDiveTotals"];
+        };
+        /** @description The worklog MD logged on an epic itself (selection b). */
+        DeepDiveOwnCost: {
+            cost: components["schemas"]["DeepDiveCostDay"][];
+            /**
+             * Format: double
+             * @description The whole-life sum, in or out of `range`.
+             */
+            totalMd: number;
+        };
+        /** @description One epic row; the row with a null `key` is the `(no epic)` bucket. */
+        DeepDiveEpic: {
+            key: string | null;
+            summary: string | null;
+            /**
+             * Format: int32
+             * @description Offset of the CURRENT baseline's planned start from `range.from` (an outline, never summed); null without a complete window.
+             */
+            plannedStart: number | null;
+            /**
+             * Format: int32
+             * @description Offset of the planned due day.
+             */
+            plannedDue: number | null;
+            /**
+             * Format: double
+             * @description The current baseline's budget; null without a baseline.
+             */
+            budgetMd: number | null;
+            /** @description The worklog MD logged on the epic itself — selection (b) only, null otherwise or when there is none. */
+            ownCost: components["schemas"]["DeepDiveOwnCost"] | null;
+        };
+        /** @description The limits the page states openly, counted over ALL selected tasks. */
+        DeepDiveQuality: {
+            /** Format: int32 */
+            neverInSprint: number;
+            /** Format: int32 */
+            noEstimate: number;
+            /**
+             * Format: int32
+             * @description Tasks whose estimate has no working day to sit on.
+             */
+            noWorkingDay: number;
+            /** Format: int32 */
+            epicsWithoutWindow: number;
+            /**
+             * Format: int32
+             * @description Tasks whose PV came from the first-later-sprint fallback.
+             */
+            laterFallback: number;
+            /**
+             * Format: double
+             * @description The worklog MD logged on the listed epics themselves (selection b).
+             */
+            epicOwnCostMd: number;
+        };
+        DeepDiveReport: {
+            meta: components["schemas"]["ReportMeta"];
+            /** @enum {string} */
+            mode: "SPRINTS" | "EPICS" | "TASKS";
+            range: components["schemas"]["DeepDiveRange"];
+            nonWorkingDays: number[];
+            /** @description Selection (a) only — the selected sprints, earliest first. */
+            sprints: components["schemas"]["DeepDiveSprint"][];
+            authors: components["schemas"]["DeepDiveAuthor"][];
+            epics: components["schemas"]["DeepDiveEpic"][];
+            /** @description By issue key. */
+            tasks: components["schemas"]["DeepDiveTask"][];
+            quality: components["schemas"]["DeepDiveQuality"];
+            /** @description The not-derived-yet message when nothing in scope has derived; a message starting `RANGE_CLAMPED` when an implied range was cut to its last 1100 days; null otherwise. */
+            note: string | null;
+        };
+        DeepDiveSprintOption: {
+            /**
+             * Format: int64
+             * @description The Jira sprint id (unique within a connection).
+             */
+            id: number;
+            /** Format: int32 */
+            connectionId: number;
+            name: string;
+            /** @description The sprint state as stored (`future`, `active` or `closed`). */
+            state: string;
+            /**
+             * Format: int64
+             * @description Epoch millis.
+             */
+            startAt: number | null;
+            /**
+             * Format: int64
+             * @description Epoch millis of the planned end.
+             */
+            endAt: number | null;
+            /**
+             * Format: int64
+             * @description Epoch millis; null while the sprint is not closed.
+             */
+            completeAt: number | null;
+            /**
+             * Format: int32
+             * @description The domain's level-0 tasks `in_scope_at_close` in this sprint.
+             */
+            taskCount: number;
+        };
+        DeepDiveEpicOption: {
+            /**
+             * Format: int64
+             * @description The epic's Jira issue id (unique within a connection).
+             */
+            id: number;
+            /** Format: int32 */
+            connectionId: number;
+            key: string;
+            summary: string | null;
+            /** @description The epic's own domain key; null when it maps to none. */
+            domain: string | null;
+        };
+        DeepDiveTaskOption: {
+            /**
+             * Format: int64
+             * @description The task's Jira issue id (unique within a connection).
+             */
+            id: number;
+            /** Format: int32 */
+            connectionId: number;
+            key: string;
+            summary: string | null;
+        };
+        DeepDiveSprintPage: {
+            items: components["schemas"]["DeepDiveSprintOption"][];
+            page: number;
+            pageSize: number;
+            /**
+             * Format: int64
+             * @description Row count after filters, before pagination.
+             */
+            total: number;
+        };
+        DeepDiveEpicPage: {
+            items: components["schemas"]["DeepDiveEpicOption"][];
+            page: number;
+            pageSize: number;
+            /**
+             * Format: int64
+             * @description Row count after filters, before pagination.
+             */
+            total: number;
+        };
+        DeepDiveTaskPage: {
+            items: components["schemas"]["DeepDiveTaskOption"][];
+            page: number;
+            pageSize: number;
+            /**
+             * Format: int64
+             * @description Row count after filters, before pagination.
+             */
+            total: number;
+        };
         /** @description DONE level-0 tasks a reported-time-ratio read could not turn into a ratio, each in ONE bucket (`noWorklogs` first, incl. `actual_md` of 0.00; then `neverStarted`; then `zeroCycle`). `ratio.n + noWorklogs + neverStarted + zeroCycle = population`. */
         ReportedTimeExcluded: {
             population: number;
@@ -3673,6 +4086,8 @@ export interface components {
         ReportDomainView: "TASK" | "EPIC";
         /** @description Restricts to one domain key. */
         ReportDomain: string;
+        /** @description The domain key (required; a missing or unknown one is `400`). */
+        ReportDomainRequired: string;
         /** @description Restricts to one activity type (a standard Jira issue type name). */
         ReportActivityType: string;
         /** @description Restricts to one work category, or the literal `UNCATEGORIZED`. */
@@ -5745,6 +6160,168 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CostMatrixReport"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getReportDeepDive: {
+        parameters: {
+            query?: {
+                /** @description The domain key — required with `sprintId` (selection a), refused otherwise. */
+                domain?: string;
+                /** @description Repeated — the Jira sprint ids of selection (a); 1 to 52 distinct. */
+                sprintId?: number[];
+                /** @description Repeated — the epics' issue keys of selection (b), 1 to 50 distinct; exactly one with `issueId` (selection c). */
+                epicId?: string[];
+                /** @description Repeated — the handpicked tasks' issue keys of selection (c), 1 to 500 distinct, all under the one `epicId`. */
+                issueId?: string[];
+                /** @description The ONE connection the selection reads (an active one, else `400`). Without it the keys resolve across every active connection and a key or sprint id present in several is ambiguous (`400`). */
+                connectionId?: number;
+                /** @description ISO date (YYYY-MM-DD), inclusive, in the configured zone: clips the range's start (the envelope's by default). Alone, a `from` after the envelope's end gives a single empty day at `from` (totals unchanged), never a `400`. With `to`, `from` after `to` or a span over 1100 days is `400`. */
+                from?: string;
+                /** @description ISO date (YYYY-MM-DD), inclusive, in the configured zone: clips the range's end (the envelope's by default). Alone, a `to` before the envelope's start gives a single empty day at `to`. When the range is NOT fully given and would span over 1100 days, its last 1100 days are kept (a given bound is honoured, the other end follows it) and `note` says `RANGE_CLAMPED`. */
+                to?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The deep dive report */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeepDiveReport"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    listReportDeepDiveSprints: {
+        parameters: {
+            query: {
+                /** @description The domain key (required; a missing or unknown one is `400`). */
+                domain: components["parameters"]["ReportDomainRequired"];
+                /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
+                connectionId?: components["parameters"]["ReportConnectionId"];
+                /** @description Free-text substring filter (case- and accent-insensitive) — API-LIST-005. */
+                q?: components["parameters"]["Q"];
+                /** @description 1-based page index. Defaults to 1. */
+                page?: components["parameters"]["Page"];
+                /** @description Rows per page. Defaults to 20, maximum 100. */
+                pageSize?: components["parameters"]["PageSize"];
+                /**
+                 * @description Sort spec. Format: `field` (ascending) or `-field` (descending). Multiple fields are
+                 *     comma-separated, leftmost wins: `sort=-updatedAt,name`. The endpoint declares its
+                 *     sortable-field whitelist; unknown fields are rejected with `400`. `id` ascending is
+                 *     always appended as a deterministic tiebreaker.
+                 */
+                sort?: components["parameters"]["Sort"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of the domain's sprints */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeepDiveSprintPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    listReportDeepDiveEpics: {
+        parameters: {
+            query?: {
+                /** @description Restricts to one domain key. */
+                domain?: components["parameters"]["ReportDomain"];
+                /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
+                connectionId?: components["parameters"]["ReportConnectionId"];
+                /** @description Free-text substring filter (case- and accent-insensitive) — API-LIST-005. */
+                q?: components["parameters"]["Q"];
+                /** @description 1-based page index. Defaults to 1. */
+                page?: components["parameters"]["Page"];
+                /** @description Rows per page. Defaults to 20, maximum 100. */
+                pageSize?: components["parameters"]["PageSize"];
+                /**
+                 * @description Sort spec. Format: `field` (ascending) or `-field` (descending). Multiple fields are
+                 *     comma-separated, leftmost wins: `sort=-updatedAt,name`. The endpoint declares its
+                 *     sortable-field whitelist; unknown fields are rejected with `400`. `id` ascending is
+                 *     always appended as a deterministic tiebreaker.
+                 */
+                sort?: components["parameters"]["Sort"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of epics */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeepDiveEpicPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    listReportDeepDiveEpicTasks: {
+        parameters: {
+            query?: {
+                /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
+                connectionId?: components["parameters"]["ReportConnectionId"];
+                /** @description Free-text substring filter (case- and accent-insensitive) — API-LIST-005. */
+                q?: components["parameters"]["Q"];
+                /** @description 1-based page index. Defaults to 1. */
+                page?: components["parameters"]["Page"];
+                /** @description Rows per page. Defaults to 20, maximum 100. */
+                pageSize?: components["parameters"]["PageSize"];
+                /**
+                 * @description Sort spec. Format: `field` (ascending) or `-field` (descending). Multiple fields are
+                 *     comma-separated, leftmost wins: `sort=-updatedAt,name`. The endpoint declares its
+                 *     sortable-field whitelist; unknown fields are rejected with `400`. `id` ascending is
+                 *     always appended as a deterministic tiebreaker.
+                 */
+                sort?: components["parameters"]["Sort"];
+            };
+            header?: never;
+            path: {
+                /** @description The epic's issue key. */
+                epicKey: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of the epic's tasks */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeepDiveTaskPage"];
                 };
             };
             400: components["responses"]["BadRequest"];

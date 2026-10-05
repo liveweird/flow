@@ -50,6 +50,11 @@ breaks uppercase-diacritic input under a C-locale database). The SPA mirrors the
 client-side via the theme-level `foldedOptionsFilter` (`web/src/utils/text.ts`, wired as the
 Select/MultiSelect/TagsInput default filter in `theme.ts`).
 
+**Repeated keys (`IN`).** The first consumer of the `repeatedValues` family is `GET /api/v1/reports/deep-dive` (`reports/DeepDiveSelection.kt`):
+`sprintId` (`repeatedLongs`, 1..52, ids of at least 1), `epicId` (`repeatedStrings`, 1..50) and `issueId` (`repeatedStrings`, 1..500) repeat
+as `?sprintId=1&sprintId=2`, documented in the spec as `type: array` with `style: form`, `explode: true` and `maxItems`; duplicates collapse
+(`distinct()`) and the bound applies to what is left, every other parameter of the endpoint stays strictly single-valued.
+
 **Sub-collections and facets** are not implemented yet — a record's own unbounded sub-collection
 (e.g. a future audit-trail read) should be paged like any other list; reserve the plain `{items}`
 wrapper for genuinely bounded, admin-curated sets. Facet counts (`GET .../facets` alongside a

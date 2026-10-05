@@ -2,11 +2,9 @@ package ch.nokillswit.reports
 
 import ch.nokillswit.metrics.DeriveKernels
 import ch.nokillswit.metrics.EpicPlanBaseline
-import ch.nokillswit.metrics.MD_SCALE
 import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.metrics.WorkingCalendar
 import java.math.BigDecimal
-import java.math.RoundingMode
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
@@ -180,11 +178,8 @@ private suspend fun curveOf(plan: PlanRow, ctx: ProgressContext): TreeMap<LocalD
     val baseline = EpicPlanBaseline(plan.baselinedAt, plan.startAt!!, plan.dueAt!!, budget.toDouble(), plan.budgetSource, plan.supersededAt)
     val curve = DeriveKernels.pvCurve(baseline, deriveTimeCalendar(plan, ctx))
     if (curve.isEmpty()) return null
-    val count = BigDecimal(curve.size)
     val cumulative = TreeMap<LocalDate, BigDecimal>()
-    curve.forEachIndexed { index, point ->
-        cumulative[point.day] = budget.multiply(BigDecimal(index + 1)).divide(count, MD_SCALE, RoundingMode.HALF_UP)
-    }
+    cumulativeSplit(budget, curve.size).forEachIndexed { index, value -> cumulative[curve[index].day] = value }
     return cumulative
 }
 

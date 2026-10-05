@@ -1944,6 +1944,211 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/reports/deep-dive:
+    get:
+      tags: [reports]
+      operationId: getReportDeepDive
+      summary: Report 17 — the deep dive (plan, execution and cost as daily series per task, in man-days)
+      description: |
+        Any authenticated user (D12), read-only — `.claude/docs/reports.md` "Report 17", A29. Plan (PV), execution and cost (AC) for a chosen
+        set of work, as SPARSE DAILY series per task; the client sums days into weeks, months and epic rows. Exactly ONE of three selections
+        (the repeated keys are the first `IN` semantics of API-LIST-004 here): **(a)** `domain` and one to 52 `sprintId` — the domain's
+        level-0 tasks `in_scope_at_close` (A17) in at least one of those sprints; **(b)** one to 50 `epicId` (issue keys) — every level-0
+        task under them; **(c)** ONE `epicId` and one to 500 `issueId` (issue keys) — exactly those tasks of that epic. At most 500 tasks
+        in all. One selection reads ONE connection (`connectionId`, else the one the keys resolve to).
+
+        `range`: mode (a) the envelope of the selected sprints' plan windows; (b) and (c) the envelope of every mark (plan, execution, done
+        and cost days, the epics' planned windows and own cost); `from`/`to` clip it (clipped data stays in each task's `totals`; a lone
+        bound outside the envelope yields a single empty day). An implied range over 1100 days keeps its last 1100 days and `note` starts
+        `RANGE_CLAMPED`; a GIVEN range over 1100 days is `400`. `range.asOfDay` is the day of the selected connection's last DERIVE clock,
+        where an open execution interval stops. Every series entry's `d` is a day offset from `range.from`; `nonWorkingDays` are the
+        offsets that are not working days.
+
+        Per task, `pv` spreads `planBasisMd` (the `estimate_at_commitment_md` of the task's earliest sprint, else its first later one —
+        `planSource`) evenly, with cumulative rounding, over the working days of the union of the windows of every sprint the task was in
+        scope at close in; `noPlanReason` says why a task has none (`NEVER_IN_SPRINT`, `NO_ESTIMATE`, or `NO_WORKING_DAY`, which keeps
+        the basis and source with an empty `pv`). `exec` is the fraction of each working day spent IN_PROGRESS (task-days, blocked time not
+        subtracted). `done` is the EV marker (`estimate_at_done_md` on the day of `done_at`). `cost` is `fact_worklog.md` on the day of
+        `started_at` by author (`a` indexes `authors`; sub-task worklogs roll up to their parent task). `epics[]` carry the epic's CURRENT
+        baseline window (`plannedStart`/`plannedDue` offsets, an outline, never summed) and budget, and — mode (b) only — the worklog MD
+        logged on the epic itself (`ownCost`); the `(no epic)` row has a null `key`. MD are rounded to 2 decimals.
+
+        Nothing in scope derived yet answers `200` with empty `tasks`/`epics`/`authors`, `range.asOfDay` null and `note` set — never a
+        range of zeros. `400` (never 404): no or mixed selections, `domain` without `sprintId`, `issueId` without exactly one `epicId`, too
+        many values, more than 500 tasks, a given range over 1100 days or `from` after `to` (both given), an unknown sprint, epic, issue, domain or
+        connection, an issue not under the epic, a key in several connections without `connectionId`, a malformed date or id, a repeated
+        scalar parameter, control characters.
+      parameters:
+        - name: domain
+          in: query
+          required: false
+          schema: { type: string }
+          description: The domain key — required with `sprintId` (selection a), refused otherwise.
+        - name: sprintId
+          in: query
+          required: false
+          style: form
+          explode: true
+          schema:
+            type: array
+            minItems: 1
+            maxItems: 52
+            items: { type: integer, format: int64, minimum: 1 }
+          description: Repeated — the Jira sprint ids of selection (a); 1 to 52 distinct.
+        - name: epicId
+          in: query
+          required: false
+          style: form
+          explode: true
+          schema:
+            type: array
+            minItems: 1
+            maxItems: 50
+            items: { type: string, maxLength: 20 }
+          description: Repeated — the epics' issue keys of selection (b), 1 to 50 distinct; exactly one with `issueId` (selection c).
+        - name: issueId
+          in: query
+          required: false
+          style: form
+          explode: true
+          schema:
+            type: array
+            minItems: 1
+            maxItems: 500
+            items: { type: string, maxLength: 20 }
+          description: Repeated — the handpicked tasks' issue keys of selection (c), 1 to 500 distinct, all under the one `epicId`.
+        - name: connectionId
+          in: query
+          required: false
+          schema: { type: integer, format: int32, minimum: 0 }
+          description: >-
+            The ONE connection the selection reads (an active one, else `400`). Without it the keys resolve across every active connection
+            and a key or sprint id present in several is ambiguous (`400`).
+        - name: from
+          in: query
+          required: false
+          schema: { type: string, format: date }
+          description: >-
+            ISO date (YYYY-MM-DD), inclusive, in the configured zone: clips the range's start (the envelope's by default). Alone, a `from`
+            after the envelope's end gives a single empty day at `from` (totals unchanged), never a `400`. With `to`, `from` after `to` or a
+            span over 1100 days is `400`.
+        - name: to
+          in: query
+          required: false
+          schema: { type: string, format: date }
+          description: >-
+            ISO date (YYYY-MM-DD), inclusive, in the configured zone: clips the range's end (the envelope's by default). Alone, a `to`
+            before the envelope's start gives a single empty day at `to`. When the range is NOT fully given and would span over 1100 days,
+            its last 1100 days are kept (a given bound is honoured, the other end follows it) and `note` says `RANGE_CLAMPED`.
+      responses:
+        '200':
+          description: The deep dive report
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeepDiveReport'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/reports/deep-dive/sprints:
+    get:
+      tags: [reports]
+      operationId: listReportDeepDiveSprints
+      summary: Report 17 — the deep dive's sprint picker (the sprints of a domain)
+      description: |
+        Any authenticated user (D12), read-only — `.claude/docs/reports.md` "Report 17". The sprints in which at least one level-0
+        task of `domain` (the task's OWN domain, as the report's sprint mode selects) was `in_scope_at_close` (A17), each with
+        `taskCount`, the number of those tasks. `domain` is required: a missing or unknown one (no such domain on an active
+        connection in scope) is `400`. Active connections only; `connectionId` narrows to one.
+
+        - Sortable fields: `id` (the Jira sprint id), `name`, `startAt`, `completeAt`. Default sort is `-id` (the most recent sprints
+          first); `id` ascending is appended as the tiebreaker when `id` is not already sorted on, then the connection id.
+        - `q` — case- and accent-insensitive substring over the sprint name.
+      parameters:
+        - { $ref: '#/components/parameters/ReportDomainRequired' }
+        - { $ref: '#/components/parameters/ReportConnectionId' }
+        - { $ref: '#/components/parameters/Q' }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/PageSize' }
+        - { $ref: '#/components/parameters/Sort' }
+      responses:
+        '200':
+          description: One page of the domain's sprints
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeepDiveSprintPage'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/reports/deep-dive/epics:
+    get:
+      tags: [reports]
+      operationId: listReportDeepDiveEpics
+      summary: Report 17 — the deep dive's epic picker
+      description: |
+        Any authenticated user (D12), read-only — `.claude/docs/reports.md` "Report 17". Every epic (`metrics.dim_epic`) of an active
+        connection in scope, optionally narrowed to the epic's own `domain` (an unknown domain answers an empty page). `connectionId`
+        narrows to one connection.
+
+        - Sortable fields: `id` (the epic's issue id), `key`, `summary`, `domain`. Default sort is `key` ascending; `id` ascending is
+          appended as the tiebreaker, then the connection id.
+        - `q` — case- and accent-insensitive substring over the key and the summary.
+      parameters:
+        - { $ref: '#/components/parameters/ReportDomain' }
+        - { $ref: '#/components/parameters/ReportConnectionId' }
+        - { $ref: '#/components/parameters/Q' }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/PageSize' }
+        - { $ref: '#/components/parameters/Sort' }
+      responses:
+        '200':
+          description: One page of epics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeepDiveEpicPage'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/reports/deep-dive/epics/{epicKey}/tasks:
+    get:
+      tags: [reports]
+      operationId: listReportDeepDiveEpicTasks
+      summary: Report 17 — the deep dive's handpick list (one epic's level-0 tasks)
+      description: |
+        Any authenticated user (D12), read-only — `.claude/docs/reports.md` "Report 17". The level-0 tasks under the epic
+        (`fact_task_delivery.epic_id`, the report's own epic attribution; sub-tasks are never rows). An unknown epic key, or a key
+        present in several connections in scope without `connectionId`, is `400` (never `404`).
+
+        - Sortable fields: `id` (the task's issue id), `key`, `summary`. Default sort is `key` ascending; `id` ascending is appended
+          as the tiebreaker.
+        - `q` — case- and accent-insensitive substring over the key and the summary.
+      parameters:
+        - name: epicKey
+          in: path
+          required: true
+          schema:
+            type: string
+            # A Jira issue key; one that does not match simply names no epic (`400`).
+            pattern: '^[A-Z][A-Z0-9_]{1,9}-[0-9]{1,10}$'
+            maxLength: 20
+          description: The epic's issue key.
+        - { $ref: '#/components/parameters/ReportConnectionId' }
+        - { $ref: '#/components/parameters/Q' }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/PageSize' }
+        - { $ref: '#/components/parameters/Sort' }
+      responses:
+        '200':
+          description: One page of the epic's tasks
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeepDiveTaskPage'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/reports/reported-time-ratio:
     get:
       tags: [reports]
@@ -2135,6 +2340,12 @@ components:
       required: false
       schema: { type: string }
       description: Restricts to one domain key.
+    ReportDomainRequired:
+      name: domain
+      in: query
+      required: true
+      schema: { type: string }
+      description: The domain key (required; a missing or unknown one is `400`).
     ReportActivityType:
       name: activityType
       in: query
@@ -4606,6 +4817,240 @@ components:
         totalMd: { type: number, format: double, description: 'The grand total: the rounded EXACT sum of every worklog in scope.' }
         foreignMd: { type: number, format: double }
         foreignShare: { type: number, format: double, nullable: true, description: 'Exact foreign MD ÷ exact MD; null when nothing was logged.' }
+
+    DeepDiveRange:
+      type: object
+      required: [from, to, asOfDay]
+      properties:
+        from: { type: string, format: date, description: 'ISO date; the day every series offset counts from.' }
+        to: { type: string, format: date, description: 'ISO date, inclusive.' }
+        asOfDay: { type: string, format: date, nullable: true, description: 'The day of the selected connection''s last DERIVE clock (where open execution stops); null when nothing derived.' }
+
+    DeepDiveSprint:
+      type: object
+      description: A selected sprint (selection a) with its plan window as day offsets from `range.from`.
+      required: [id, name, startDay, endDay]
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string }
+        startDay: { type: integer, format: int32, nullable: true, description: 'Offset of the window start; null when the sprint contributes no day.' }
+        endDay: { type: integer, format: int32, nullable: true, description: 'Offset of the window close; null when the sprint contributes no day.' }
+
+    DeepDiveAuthor:
+      type: object
+      required: [accountId, displayName]
+      properties:
+        accountId: { type: string }
+        displayName: { type: string, description: 'The Jira display name; the account id for an account the people table does not know.' }
+
+    DeepDiveMdDay:
+      type: object
+      required: [d, md]
+      properties:
+        d: { type: integer, format: int32, description: Day offset from `range.from`. }
+        md: { type: number, format: double, description: Man-days on that day (2 decimals). }
+
+    DeepDiveExecDay:
+      type: object
+      required: [d, td]
+      properties:
+        d: { type: integer, format: int32, description: Day offset from `range.from`. }
+        td: { type: number, format: double, description: 'The fraction of a working day spent IN_PROGRESS (task-days, 4 decimals).' }
+
+    DeepDiveCostDay:
+      type: object
+      required: [d, a, md]
+      properties:
+        d: { type: integer, format: int32, description: Day offset from `range.from`. }
+        a: { type: integer, format: int32, nullable: true, minimum: 0, description: 'Index into `authors`; null when Jira gave no author.' }
+        md: { type: number, format: double, description: The author's man-days logged that day (2 decimals). }
+
+    DeepDiveDone:
+      type: object
+      description: The EV marker.
+      required: [d, evMd]
+      properties:
+        d: { type: integer, format: int32, description: Day offset of `done_at` from `range.from`. }
+        evMd: { type: number, format: double, description: '`estimate_at_done_md`; 0 when unestimated.' }
+
+    DeepDiveTotals:
+      type: object
+      description: Each layer's full sum over ALL days, in or out of `range`.
+      required: [pvMd, execTaskDays, evMd, costMd]
+      properties:
+        pvMd: { type: number, format: double }
+        execTaskDays: { type: number, format: double }
+        evMd: { type: number, format: double }
+        costMd: { type: number, format: double }
+
+    DeepDiveTask:
+      type: object
+      required: [key, summary, epicKey, planBasisMd, planSource, noPlanReason, pv, exec, done, cost, totals]
+      properties:
+        key: { type: string }
+        summary: { type: string, nullable: true }
+        epicKey: { type: string, nullable: true, description: 'Null for a task with no epic (the `(no epic)` row).' }
+        planBasisMd: { type: number, format: double, nullable: true, description: 'The estimate `pv` spreads; null for a task with no estimate. Whenever `noPlanReason` is absent, `pv` sums to it.' }
+        planSource: { type: string, enum: [EARLIEST, LATER_FALLBACK, NONE], description: 'Whether the basis is the earliest sprint''s, the first later sprint''s FALLBACK, or none.' }
+        noPlanReason: { type: string, enum: [NEVER_IN_SPRINT, NO_ESTIMATE, NO_WORKING_DAY], nullable: true, description: Why `pv` is empty; null when the task has a plan. }
+        pv:
+          type: array
+          items: { $ref: '#/components/schemas/DeepDiveMdDay' }
+        exec:
+          type: array
+          items: { $ref: '#/components/schemas/DeepDiveExecDay' }
+        done:
+          nullable: true
+          description: The EV marker; null when the task is not done or its done day is outside `range`.
+          allOf: [{ $ref: '#/components/schemas/DeepDiveDone' }]
+        cost:
+          type: array
+          items: { $ref: '#/components/schemas/DeepDiveCostDay' }
+        totals: { $ref: '#/components/schemas/DeepDiveTotals' }
+
+    DeepDiveOwnCost:
+      type: object
+      description: The worklog MD logged on an epic itself (selection b).
+      required: [cost, totalMd]
+      properties:
+        cost:
+          type: array
+          items: { $ref: '#/components/schemas/DeepDiveCostDay' }
+        totalMd: { type: number, format: double, description: 'The whole-life sum, in or out of `range`.' }
+
+    DeepDiveEpic:
+      type: object
+      description: One epic row; the row with a null `key` is the `(no epic)` bucket.
+      required: [key, summary, plannedStart, plannedDue, budgetMd, ownCost]
+      properties:
+        key: { type: string, nullable: true }
+        summary: { type: string, nullable: true }
+        plannedStart: { type: integer, format: int32, nullable: true, description: 'Offset of the CURRENT baseline''s planned start from `range.from` (an outline, never summed); null without a complete window.' }
+        plannedDue: { type: integer, format: int32, nullable: true, description: Offset of the planned due day. }
+        budgetMd: { type: number, format: double, nullable: true, description: The current baseline's budget; null without a baseline. }
+        ownCost:
+          nullable: true
+          description: The worklog MD logged on the epic itself — selection (b) only, null otherwise or when there is none.
+          allOf: [{ $ref: '#/components/schemas/DeepDiveOwnCost' }]
+
+    DeepDiveQuality:
+      type: object
+      description: The limits the page states openly, counted over ALL selected tasks.
+      required: [neverInSprint, noEstimate, noWorkingDay, epicsWithoutWindow, laterFallback, epicOwnCostMd]
+      properties:
+        neverInSprint: { type: integer, format: int32, minimum: 0 }
+        noEstimate: { type: integer, format: int32, minimum: 0 }
+        noWorkingDay: { type: integer, format: int32, minimum: 0, description: Tasks whose estimate has no working day to sit on. }
+        epicsWithoutWindow: { type: integer, format: int32, minimum: 0 }
+        laterFallback: { type: integer, format: int32, minimum: 0, description: Tasks whose PV came from the first-later-sprint fallback. }
+        epicOwnCostMd: { type: number, format: double, description: The worklog MD logged on the listed epics themselves (selection b). }
+
+    DeepDiveReport:
+      type: object
+      required: [meta, mode, range, nonWorkingDays, sprints, authors, epics, tasks, quality, note]
+      properties:
+        meta: { $ref: '#/components/schemas/ReportMeta' }
+        mode: { type: string, enum: [SPRINTS, EPICS, TASKS] }
+        range: { $ref: '#/components/schemas/DeepDiveRange' }
+        nonWorkingDays:
+          type: array
+          items: { type: integer, format: int32 }
+        sprints:
+          type: array
+          description: Selection (a) only — the selected sprints, earliest first.
+          items: { $ref: '#/components/schemas/DeepDiveSprint' }
+        authors:
+          type: array
+          items: { $ref: '#/components/schemas/DeepDiveAuthor' }
+        epics:
+          type: array
+          items: { $ref: '#/components/schemas/DeepDiveEpic' }
+        tasks:
+          type: array
+          description: By issue key.
+          items: { $ref: '#/components/schemas/DeepDiveTask' }
+        quality: { $ref: '#/components/schemas/DeepDiveQuality' }
+        note: { type: string, nullable: true, description: 'The not-derived-yet message when nothing in scope has derived; a message starting `RANGE_CLAMPED` when an implied range was cut to its last 1100 days; null otherwise.' }
+
+    DeepDiveSprintOption:
+      type: object
+      required: [id, connectionId, name, state, startAt, endAt, completeAt, taskCount]
+      properties:
+        id: { type: integer, format: int64, description: The Jira sprint id (unique within a connection). }
+        connectionId: { type: integer, format: int32, minimum: 0 }
+        name: { type: string }
+        state: { type: string, description: 'The sprint state as stored (`future`, `active` or `closed`).' }
+        startAt: { type: integer, format: int64, nullable: true, description: Epoch millis. }
+        endAt: { type: integer, format: int64, nullable: true, description: Epoch millis of the planned end. }
+        completeAt: { type: integer, format: int64, nullable: true, description: Epoch millis; null while the sprint is not closed. }
+        taskCount: { type: integer, format: int32, minimum: 1, description: The domain's level-0 tasks `in_scope_at_close` in this sprint. }
+
+    DeepDiveEpicOption:
+      type: object
+      required: [id, connectionId, key, summary, domain]
+      properties:
+        id: { type: integer, format: int64, description: The epic's Jira issue id (unique within a connection). }
+        connectionId: { type: integer, format: int32, minimum: 0 }
+        key: { type: string }
+        summary: { type: string, nullable: true }
+        domain: { type: string, nullable: true, description: The epic's own domain key; null when it maps to none. }
+
+    DeepDiveTaskOption:
+      type: object
+      required: [id, connectionId, key, summary]
+      properties:
+        id: { type: integer, format: int64, description: The task's Jira issue id (unique within a connection). }
+        connectionId: { type: integer, format: int32, minimum: 0 }
+        key: { type: string }
+        summary: { type: string, nullable: true }
+
+    DeepDiveSprintPage:
+      type: object
+      required: [items, page, pageSize, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeepDiveSprintOption'
+        page: { type: integer, minimum: 1 }
+        pageSize: { type: integer, minimum: 1, maximum: 100 }
+        total:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Row count after filters, before pagination.
+
+    DeepDiveEpicPage:
+      type: object
+      required: [items, page, pageSize, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeepDiveEpicOption'
+        page: { type: integer, minimum: 1 }
+        pageSize: { type: integer, minimum: 1, maximum: 100 }
+        total:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Row count after filters, before pagination.
+
+    DeepDiveTaskPage:
+      type: object
+      required: [items, page, pageSize, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeepDiveTaskOption'
+        page: { type: integer, minimum: 1 }
+        pageSize: { type: integer, minimum: 1, maximum: 100 }
+        total:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Row count after filters, before pagination.
 
     ReportedTimeExcluded:
       type: object
