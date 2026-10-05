@@ -86,3 +86,10 @@ export const BAND_CYCLE: ReadonlyArray<string> = ["flow.6", "gray.6", "flow.7", 
 
 /** The final-scope blue: the deeper step in the light scheme, a lighter one in the dark. */
 export const FINAL_COLOR = { light: "flow.8", dark: "flow.4" } as const;
+
+/**
+ * The burn-up's as-of marker (a labelled dashed vertical line): its label is TEXT, so it must clear 4.5:1, which no single
+ * shade does on both schemes — a deep gray on the light surfaces, a light gray on the dark ones (picked per scheme like
+ * `FINAL_COLOR`). Ratios (white / canvas | dark paper / dark canvas): gray.7 8.18 / 7.62 (light); gray.4 9.09 / 11.03 (dark).
+ */
+export const AS_OF_COLOR = { light: "gray.7", dark: "gray.4" } as const;

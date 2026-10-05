@@ -1,8 +1,8 @@
 import "@mantine/charts/styles.css";
 import { LineChart } from "@mantine/charts";
-import { Box } from "@mantine/core";
+import { Box, useComputedColorScheme } from "@mantine/core";
 import { useTranslation } from "react-i18next";
-import { CHART_COLORS } from "../utils/chartColors";
+import { AS_OF_COLOR, CHART_COLORS } from "../utils/chartColors";
 import { formatFigure } from "../utils/deepDiveMatrix";
 
 export interface BurnupChartRow {
@@ -23,6 +23,7 @@ export interface BurnupChartRow {
  */
 export default function DeepDiveBurnupChart({ rows, withBudget, asOfDate }: { rows: BurnupChartRow[]; withBudget: boolean; asOfDate: string | null }) {
   const { t } = useTranslation();
+  const scheme = useComputedColorScheme("light");
   const series = [
     { name: "pv", label: t("reports.deepDive.matrix.layer.pv"), color: CHART_COLORS.deepDivePlan },
     { name: "ev", label: t("reports.deepDive.matrix.layer.ev"), color: CHART_COLORS.deepDiveExecution },
@@ -31,8 +32,20 @@ export default function DeepDiveBurnupChart({ rows, withBudget, asOfDate }: { ro
       ? [{ name: "budget", label: t("reports.deepDive.burnup.series.budget"), color: CHART_COLORS.deepDiveBurnupBudget, strokeDasharray: "6 4" }]
       : []),
   ];
+  // The label hangs off the line on the side with room: in the right half it ends at the line (insideBottomRight), else it starts there.
+  const asOfIndex = rows.findIndex((row) => row.date === asOfDate);
   const referenceLines =
-    asOfDate === null ? [] : [{ x: asOfDate, color: "gray.6", strokeDasharray: "2 4", label: t("reports.deepDive.burnup.asOf", { day: asOfDate }) }];
+    asOfDate === null
+      ? []
+      : [
+          {
+            x: asOfDate,
+            color: AS_OF_COLOR[scheme],
+            strokeDasharray: "2 4",
+            label: t("reports.deepDive.burnup.asOf", { day: asOfDate }),
+            labelPosition: asOfIndex * 2 >= rows.length ? ("insideBottomRight" as const) : ("insideBottomLeft" as const),
+          },
+        ];
   return (
     <Box role="group" aria-label={t("reports.deepDive.burnup.chartLabel")}>
       <LineChart

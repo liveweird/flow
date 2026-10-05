@@ -19,9 +19,9 @@ import { isoDateToEpochMillis } from "./isoDate";
  *    happened yet would read as "nothing got done". PV and the budget plan are plans and run to the end.
  *  - The budget plan: each epic with a planned window and a budget spreads it evenly over the working days of
  *    its window with the report-15 rule (`ROUND(total * i / n, 2)` running, so the pieces sum to the budget
- *    exactly); a window reaching beyond the range keeps its full length, the days outside the range counting
- *    Monday to Friday (the calendar only tells the working days of the range), and the line shows the part that
- *    falls inside the range.
+ *    exactly); a window reaching beyond the range keeps its full length, and the line shows the part that falls
+ *    inside the range. For the days OUTSIDE the shown range this ASSUMES a Monday–Friday week and no holidays:
+ *    the configured weekend and holidays (`nonWorkingDays`) are only known inside the range.
  */
 
 const DAY_MS = 86_400_000;

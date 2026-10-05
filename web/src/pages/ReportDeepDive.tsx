@@ -92,6 +92,7 @@ export default function ReportDeepDive() {
     if (shown !== selectionKey) setPanelEpoch(panelEpoch + 1);
   }
   const [layers, setLayers] = useStoredState<DeepDiveLayers>("reports.deepDive.layers", ALL_LAYERS, isLayers);
+  const [burnupBudget, setBurnupBudget] = useStoredState<boolean>("reports.deepDive.burnupBudget", false, isBoolean);
 
   const filtersQuery = useQuery({ queryKey: ["reports", "filters"], queryFn: getReportFilters, staleTime: 60_000 });
   // The selection is the only input: nothing is requested until it is complete, and a new one is a new key (no kept data —
@@ -161,7 +162,7 @@ export default function ReportDeepDive() {
                 </Stack>
               </Tabs.Panel>
               <Tabs.Panel value="burnup" pt="md">
-                {view === "burnup" && <DeepDiveBurnup key={selectionKey} report={report} />}
+                {view === "burnup" && <DeepDiveBurnup key={selectionKey} report={report} withBudget={burnupBudget} onWithBudgetChange={setBurnupBudget} />}
               </Tabs.Panel>
             </Tabs>
             <DeepDiveLimits report={report} />

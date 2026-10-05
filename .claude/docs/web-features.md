@@ -396,10 +396,12 @@ completed · the report's figures · the orange drift badge with the frozen figu
   the shown range (a note says so; whole-life totals stay in the matrix summary), so a line's end equals the matrix model's `inRange` total. AC is the
   tasks' cost plus the epics' own worklogs (EPICS mode; a note says so). EV and AC are actuals and end on `range.asOfDay` (`null` after it, `connectNulls`
   off; a later entry extends them) while PV runs on, and the as-of day is a labelled dashed `referenceLines` marker. The optional dashed plan-blue **epic
-  budget plan** (a `Switch`, off by default, offered only when some epic has a planned window and a budget) spreads each epic's budget over the working days
-  of its window with report 15's running `ROUND(total * i / n, 2)` rule; a window reaching outside the range keeps its full length (days outside count
-  Monday to Friday — the calendar lists only the range's working days) and the line shows the part inside the range; it covers whole epics, however many
-  tasks are picked. The daily table (newest first, a dash where an actual has ended) sits behind `DailyTableDisclosure`; week/month aggregation is not
+  budget plan** (a `Switch`, off by default and remembered per viewer — page state under `reports.deepDive.burnupBudget`, so it survives a tab hop — offered only when some epic
+  has a planned window and a budget) spreads each epic's budget over the working days of its window with report 15's running `ROUND(total * i / n, 2)`
+  rule; a window reaching outside the range keeps its full length and the line shows the part inside the range — for the days outside the shown range it
+  assumes a Monday–Friday week and no holidays (the configured weekend and holidays are known only inside it); it covers whole epics, however many
+  tasks are picked, and is a separate comparison line, never part of a PV total. The as-of label is text, so it takes `AS_OF_COLOR` (`gray.7` light,
+  `gray.4` dark, ≥ 4.5:1 on each scheme's surfaces) and hangs off its line toward the side with room (`insideBottomRight` in the range's right half). The daily table (newest first, a dash where an actual has ended) sits behind `DailyTableDisclosure`; week/month aggregation is not
   offered, the x axis thins its ticks instead.
 - **Home overview** (`pages/Home.tsx`, plan amendment A9; `utils/homeOverview.ts` is its pure logic). The landing page is
   the WHOLE unit at a glance — never the remembered team, the page description says so — as four tiles over UNIT-level

@@ -427,7 +427,9 @@ carries the per-measure detail).
     the reason `NO_WORKING_DAY`.
   - **Plan, epic row.** An epic row's PV is the Σ of its tasks' PV (never the epic's own budget). The
     epic's OWN planned window (the current `fact_epic_plan` baseline: start, due, budget) is drawn
-    beside it as a non-additive outline — it never enters any sum.
+    beside it as a non-additive outline — it never enters any sum. The one place the selected epics'
+    budgets ARE summed is the Burn-up tab's optional dashed line (the budgets spread over their windows'
+    working days): a separate comparison line beside PV, never part of any PV total.
   - **Execution, per task.** The per-day fraction of a working day the task spent in an `item_stage`
     interval whose stage is `IN_PROGRESS` (the unit of cycle time, in task-days); an interval still
     open is cut at the connection's last DERIVE clock. The EV marker sits on `dayOf(done_at)` and

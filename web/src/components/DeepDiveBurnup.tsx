@@ -1,4 +1,4 @@
-import { lazy, Suspense, useMemo, useState } from "react";
+import { lazy, Suspense, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { Stack, Switch, Table, Text, Title } from "@mantine/core";
 import type { DeepDiveReport } from "../api/reports";
@@ -48,13 +48,21 @@ function BurnupTable({ burnup }: { burnup: BurnupModel }) {
 /**
  * The Deep dive's Burn-up view: how plan (PV), earned value (EV) and cost (AC) add up day by day over the range the matrix
  * shows, from the SAME response (`utils/deepDiveBurnup.ts` does the sums). The epics' budget plan is an optional dashed line
- * (off by default; the switch is offered only when some epic has a planned window and a budget). Its numbers sit in the
+ * (off by default, remembered per viewer; the switch is offered only when some epic has a planned window and a budget). Its numbers sit in the
  * table behind the disclosure.
  */
-export default function DeepDiveBurnup({ report }: { report: DeepDiveReport }) {
+export default function DeepDiveBurnup({
+  report,
+  withBudget,
+  onWithBudgetChange,
+}: {
+  report: DeepDiveReport;
+  /** The budget switch is the page's state (remembered per viewer), so it survives a hop to the matrix and back. */
+  withBudget: boolean;
+  onWithBudgetChange: (next: boolean) => void;
+}) {
   const { t } = useTranslation();
   const burnup = useMemo(() => buildDeepDiveBurnup(report), [report]);
-  const [withBudget, setWithBudget] = useState(false);
   const budgetShown = burnup.hasBudget && withBudget;
   const rows = useMemo(
     () =>
@@ -90,7 +98,7 @@ export default function DeepDiveBurnup({ report }: { report: DeepDiveReport }) {
               label={t("reports.deepDive.burnup.budgetSwitch")}
               description={t("reports.deepDive.burnup.budgetHelp")}
               checked={withBudget}
-              onChange={(event) => setWithBudget(event.currentTarget.checked)}
+              onChange={(event) => onWithBudgetChange(event.currentTarget.checked)}
             />
           ) : (
             <Text size="xs" c="dimmed">

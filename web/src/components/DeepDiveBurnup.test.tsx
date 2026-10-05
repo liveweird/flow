@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { describe, expect, test, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import type { DeepDiveReport } from "../api/reports";
@@ -31,6 +32,12 @@ vi.mock("@mantine/charts", () => ({
   ),
 }));
 
+/** The page owns the budget switch; this stands in for it. */
+function Burnup({ report, budget = false }: { report: DeepDiveReport; budget?: boolean }) {
+  const [withBudget, setWithBudget] = useState(budget);
+  return <DeepDiveBurnup report={report} withBudget={withBudget} onWithBudgetChange={setWithBudget} />;
+}
+
 type Row = { date: string; pv: number; ev: number | null; ac: number | null; budget?: number | null };
 
 // Thu 2026-08-27 (offset 0) … Tue 2026-09-08 (offset 12); offsets 2, 3, 9, 10 are the weekends.
@@ -63,7 +70,7 @@ const seriesOf = (el: HTMLElement) => JSON.parse(el.getAttribute("data-series")!
 
 describe("DeepDiveBurnup", () => {
   test("draws plan blue, earned value teal and cost gray on one man-day axis, with a legend and gaps left as gaps", async () => {
-    renderWithProviders(<DeepDiveBurnup report={report()} />);
+    renderWithProviders(<Burnup report={report()} />);
     const el = await chart();
     expect(screen.getByRole("group", { name: "Chart: cumulative plan, earned value and cost in man-days by day" })).toBeInTheDocument();
     expect(seriesOf(el)).toEqual([
@@ -84,18 +91,30 @@ describe("DeepDiveBurnup", () => {
   });
 
   test("marks the as-of day with a labelled reference line", async () => {
-    renderWithProviders(<DeepDiveBurnup report={report({ range: { from: "2026-08-27", to: "2026-09-08", asOfDay: "2026-08-31" } })} />);
+    renderWithProviders(<Burnup report={report({ range: { from: "2026-08-27", to: "2026-09-08", asOfDay: "2026-08-31" } })} />);
     const el = await chart();
     expect(JSON.parse(el.getAttribute("data-reference-lines")!)).toEqual([
-      { x: "2026-08-31", color: "gray.6", strokeDasharray: "2 4", label: "As of 2026-08-31" },
+      { x: "2026-08-31", color: "gray.7", strokeDasharray: "2 4", label: "As of 2026-08-31", labelPosition: "insideBottomLeft" },
     ]);
     expect(rowsOf(el)[5]).toMatchObject({ date: "2026-09-01", ev: null });
     expect(rowsOf(el)[4]).toMatchObject({ date: "2026-08-31", ev: 1, ac: 1.5 });
     expect(screen.getByText(/Earned value and cost end on the day the data is current for/)).toBeInTheDocument();
   });
 
+  test("the as-of label hangs left of its line in the range's right half, so it never runs past the plot edge", async () => {
+    // 2026-09-06 is offset 10 of 13 (right half); 2026-09-02 is offset 6 (left half).
+    const label = async (asOfDay: string) => {
+      const { unmount } = renderWithProviders(<Burnup report={report({ range: { from: "2026-08-27", to: "2026-09-08", asOfDay } })} />);
+      const lines = JSON.parse((await chart()).getAttribute("data-reference-lines")!) as Array<{ labelPosition: string }>;
+      unmount();
+      return lines[0].labelPosition;
+    };
+    expect(await label("2026-09-06")).toBe("insideBottomRight");
+    expect(await label("2026-09-02")).toBe("insideBottomLeft");
+  });
+
   test("an as-of day outside the range draws no marker and no note about ending actuals", async () => {
-    renderWithProviders(<DeepDiveBurnup report={report({ range: { from: "2026-08-27", to: "2026-09-08", asOfDay: "2026-10-01" } })} />);
+    renderWithProviders(<Burnup report={report({ range: { from: "2026-08-27", to: "2026-09-08", asOfDay: "2026-10-01" } })} />);
     const el = await chart();
     expect(JSON.parse(el.getAttribute("data-reference-lines")!)).toEqual([]);
     expect(rowsOf(el)[12]).toMatchObject({ ev: 1, ac: 1.5 });
@@ -103,7 +122,7 @@ describe("DeepDiveBurnup", () => {
   });
 
   test("states what the lines count and the range, under an h3 of its own", async () => {
-    renderWithProviders(<DeepDiveBurnup report={report()} />);
+    renderWithProviders(<Burnup report={report()} />);
     await chart();
     expect(screen.getByText("Showing 2026-08-27 to 2026-09-08.")).toBeInTheDocument();
     expect(screen.getByText(/Each line counts only what falls inside the range shown and starts at zero/)).toBeInTheDocument();
@@ -112,7 +131,7 @@ describe("DeepDiveBurnup", () => {
 
   test("the epic budget plan is a dashed plan-blue line, off until switched on", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<DeepDiveBurnup report={withBudget()} />);
+    renderWithProviders(<Burnup report={withBudget()} />);
     const toggle = screen.getByRole("switch", { name: /Epic budget plan/ });
     expect(toggle).not.toBeChecked();
     expect(seriesOf(await chart()).map((s) => s.name)).toEqual(["pv", "ev", "ac"]);
@@ -129,8 +148,14 @@ describe("DeepDiveBurnup", () => {
     expect(seriesOf(await chart()).map((s) => s.name)).toEqual(["pv", "ev", "ac"]);
   });
 
+  test("a remembered budget choice starts the line on", async () => {
+    renderWithProviders(<Burnup report={withBudget()} budget />);
+    expect(screen.getByRole("switch", { name: /Epic budget plan/ })).toBeChecked();
+    expect(seriesOf(await chart()).map((s) => s.name)).toEqual(["pv", "ev", "ac", "budget"]);
+  });
+
   test("without an epic budget plan there is no switch, only the reason", async () => {
-    renderWithProviders(<DeepDiveBurnup report={report()} />);
+    renderWithProviders(<Burnup report={report()} />);
     await chart();
     expect(screen.queryByRole("switch")).not.toBeInTheDocument();
     expect(screen.getByText("No selected epic has both a planned window and a budget, so there is no budget plan to add.")).toBeInTheDocument();
@@ -139,7 +164,7 @@ describe("DeepDiveBurnup", () => {
   test("the daily table holds every number, newest day first, a dash where an actual has ended", async () => {
     const user = userEvent.setup();
     renderWithProviders(
-      <DeepDiveBurnup report={withBudget({ range: { from: "2026-08-27", to: "2026-09-08", asOfDay: "2026-08-31" } })} />,
+      <Burnup report={withBudget({ range: { from: "2026-08-27", to: "2026-09-08", asOfDay: "2026-08-31" } })} />,
     );
     await chart();
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
@@ -163,7 +188,7 @@ describe("DeepDiveBurnup", () => {
 
   test("the table has no budget column when there is no budget plan", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<DeepDiveBurnup report={report()} />);
+    renderWithProviders(<Burnup report={report()} />);
     await chart();
     await user.click(screen.getByRole("button", { name: "Show daily figures" }));
     expect(within(screen.getByRole("table")).getAllByRole("columnheader")).toHaveLength(4);
@@ -175,18 +200,18 @@ describe("DeepDiveBurnup", () => {
       authors: [{ accountId: "a1", displayName: "Ann Lee" }],
       epics: [deepDiveEpic("FLO-1", { ownCost: { cost: [{ d: 2, a: 0, md: 0.5 }], totalMd: 0.5 } })],
     });
-    const { unmount } = renderWithProviders(<DeepDiveBurnup report={own} />);
+    const { unmount } = renderWithProviders(<Burnup report={own} />);
     await chart();
     expect(screen.getByText("Cost includes the man-days logged on the epics themselves.")).toBeInTheDocument();
     expect(rowsOf(await chart())[12]).toMatchObject({ ac: 2 });
     unmount();
-    renderWithProviders(<DeepDiveBurnup report={report()} />);
+    renderWithProviders(<Burnup report={report()} />);
     await chart();
     expect(screen.queryByText(/Cost includes the man-days/)).not.toBeInTheDocument();
   });
 
   test("a selection with nothing to plot says so: no chart, no table", () => {
-    renderWithProviders(<DeepDiveBurnup report={report({ tasks: [], epics: [] })} />);
+    renderWithProviders(<Burnup report={report({ tasks: [], epics: [] })} />);
     expect(screen.getByText("There is nothing to plot for this selection.")).toBeInTheDocument();
     expect(screen.queryByTestId("line-chart")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Show daily figures" })).not.toBeInTheDocument();

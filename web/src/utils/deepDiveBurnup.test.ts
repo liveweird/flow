@@ -185,6 +185,16 @@ describe("buildDeepDiveBurnup — the epics' budget plan", () => {
     expect(line(burnup).slice(0, 3)).toEqual([0.03, 0.05, 0.05]);
   });
 
+  test("pins the running ROUND(total * i / n, 2) rule on the examples the server's own kernel tests use (report 15 and the Deep dive PV)", () => {
+    // DeepDiveKernelsTest: 1 MD over 3 days is running 0.33, 0.67, 1.00; 0.10 over 4 is running 0.03, 0.05, 0.08, 0.10 (half-up).
+    // Window offsets 0..4 hold 3 working days (0, 1, 4); offsets 4..7 hold 4 (Mon 08-31 to Thu 09-03).
+    const onWorkingDays = (budgetMd: number) =>
+      [0, 1, 4].map((d) => line(budgets([deepDiveEpic("FLO-1", { plannedStart: 0, plannedDue: 4, budgetMd })]))[d]);
+    expect(onWorkingDays(1)).toEqual([0.33, 0.67, 1]);
+    expect(onWorkingDays(10)).toEqual([3.33, 6.67, 10]);
+    expect(line(budgets([deepDiveEpic("FLO-1", { plannedStart: 4, plannedDue: 7, budgetMd: 0.1 })])).slice(4, 8)).toEqual([0.03, 0.05, 0.08, 0.1]);
+  });
+
   test("a window starting before the range keeps its full length: only the part inside the range is drawn", () => {
     // Offsets -3..4: Mon, Tue, Wed before the range are 3 working days, then 0, 1 and 4: n = 6, 2 MD a day.
     const burnup = budgets([deepDiveEpic("FLO-1", { plannedStart: -3, plannedDue: 4, budgetMd: 12 })]);
