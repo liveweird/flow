@@ -6,6 +6,7 @@
     "delete": "Usuń",
     "edit": "Edytuj",
     "close": "Zamknij",
+    "retry": "Spróbuj ponownie",
     "editAria": "Edytuj {{name}}",
     "deleteAria": "Usuń {{name}}",
     "showPassword": "Pokaż hasło",

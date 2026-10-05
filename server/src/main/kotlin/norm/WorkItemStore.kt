@@ -421,17 +421,20 @@ class WorkItemStore(private val database: R2dbcDatabase) {
      * `MIN`) rather than a connection-scoped read. Excludes soft-deleted connections and inactive
      * `norm.people` rows (a departed user is marked `active = false` on the NEXT REFERENCE pass'
      * wholesale rebuild, never removed outright). [q] filters by [containsNormalized] on the
-     * display name; [accountIds] (when non-null) restricts to that exact set (e.g. a team's
-     * current membership, or the unit-relevant set `JiraUsersRoutes.kt` computes) — an empty set
-     * short-circuits to no rows. `count(DISTINCT)` and the grouped page read run in the SAME
-     * transaction (list-endpoints.md), ordered by the aggregated display name then account id (a
-     * deterministic tiebreaker — never left to whatever order `GROUP BY` happens to return).
+     * display name OR the account id (a picker finds a person by either);
+     * [accountIds] (when non-null) restricts to that exact set (e.g. a team's current membership, or the
+     * unit-relevant set `JiraUsersRoutes.kt` computes) — an empty set short-circuits to no rows.
+     * `count(DISTINCT)` and the grouped page read run in the SAME transaction (list-endpoints.md),
+     * ordered by the aggregated display name then account id
+     * (a deterministic tiebreaker — never left to whatever order `GROUP BY` happens to return).
      */
     suspend fun listPeople(paging: PageRequest, q: String? = null, accountIds: Set<String>? = null): PersonListResult =
         suspendTransaction(database) {
             if (accountIds != null && accountIds.isEmpty()) return@suspendTransaction PersonListResult(emptyList(), 0)
             var predicate: Op<Boolean> = DataSourceService.Connections.active() and (People.active eq true)
-            q?.let { predicate = predicate and People.displayName.containsNormalized(it) }
+            q?.let { term ->
+                predicate = predicate and (People.displayName.containsNormalized(term) or People.accountId.containsNormalized(term))
+            }
             accountIds?.let { ids -> predicate = predicate and (People.accountId inList ids) }
 
             val joined = People.innerJoin(DataSourceService.Connections)

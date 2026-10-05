@@ -842,7 +842,8 @@ export interface paths {
          *     member.
          *
          *     - Sortable fields: `displayName`. Default ascending, `accountId` ascending tiebreaker.
-         *     - Filters: `q` (case- and accent-insensitive substring on display name), `teamId`
+         *     - Filters: `q` (case- and accent-insensitive substring on display name OR account id; control
+         *       characters are a `400`), `teamId`
          *       (that team's CURRENT membership only — combined with `scope` by set intersection).
          */
         get: operations["listJiraUsers"];

@@ -21,12 +21,15 @@ import ch.nokillswit.norm.WorkItemStore
 import ch.nokillswit.norm.WorklogFact
 import ch.nokillswit.users.UserRole
 import io.ktor.client.call.body
+import io.ktor.client.HttpClient
 import io.ktor.client.request.get
+import io.ktor.client.statement.HttpResponse
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.testApplication
 import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -226,6 +229,88 @@ class JiraUsersRoutesTest {
         val page = admin.get("/api/v1/jira-users?q=$marker&pageSize=100&scope=SITE").body<JiraUserPageResponse>()
         assertEquals(2, page.total, "the shared account id must appear ONCE even though two connections know it")
         assertEquals(listOf("$marker Shared Person", "$marker Solo Person"), page.items.map { it.displayName }, "displayName ascending")
+    }
+
+    /** A GET with `q` (and any extra params) appended through the URL builder, so diacritics and control characters are encoded for us. */
+    private suspend fun HttpClient.search(q: String?, vararg extra: Pair<String, String>): HttpResponse = get("/api/v1/jira-users") {
+        url {
+            parameters.append("scope", "SITE")
+            if (q != null) parameters.append("q", q)
+            extra.forEach { (k, v) -> parameters.append(k, v) }
+        }
+    }
+
+    @Test
+    fun `a person beyond the first page is found by q, and paging and total agree with an independent read`() = testApplication {
+        usePostgresTestcontainer()
+        val admin = seededClient("jirauserspaging", UserRole.ADMIN)
+        val marker = unique("Pg")
+        val connectionId = seedConnection()
+        val people = (0 until 120).map {
+            PersonRef("pg-$marker-$it", "$marker Person ${it.toString().padStart(3, '0')}", null, active = true)
+        }
+        workItems().replacePeople(connectionId, people)
+        // The independent expectation: the names sorted by the test itself, never by the server's SQL.
+        val expected = people.map { it.displayName }.sorted()
+        val target = expected.last()
+
+        val first = admin.search(marker, "pageSize" to "100").body<JiraUserPageResponse>()
+        assertEquals(120, first.total)
+        assertEquals(expected.take(100), first.items.map { it.displayName })
+        assertFalse(first.items.any { it.displayName == target }, "the person is beyond the first page of 100")
+
+        val second = admin.search(marker, "pageSize" to "100", "page" to "2").body<JiraUserPageResponse>()
+        assertEquals(120, second.total)
+        assertEquals(expected.drop(100), second.items.map { it.displayName })
+
+        val found = admin.search(target).body<JiraUserPageResponse>()
+        assertEquals(1, found.total)
+        assertEquals(listOf(target), found.items.map { it.displayName })
+
+        val descending = admin.search(marker, "pageSize" to "10", "page" to "3", "sort" to "-displayName").body<JiraUserPageResponse>()
+        assertEquals(120, descending.total)
+        assertEquals(expected.reversed().drop(20).take(10), descending.items.map { it.displayName })
+    }
+
+    @Test
+    fun `q folds case and accents and matches the account id as well as the display name`() = testApplication {
+        usePostgresTestcontainer()
+        val admin = seededClient("jirausersfold", UserRole.ADMIN)
+        val marker = unique("Fd")
+        val connectionId = seedConnection()
+        val accentedId = "acc-${UUID.randomUUID()}"
+        val plainId = "ACC-${UUID.randomUUID()}"
+        workItems().replacePeople(
+            connectionId,
+            listOf(
+                PersonRef(accentedId, "Żółć Ünï $marker", null, active = true),
+                PersonRef(plainId, "Plain Person $marker", null, active = true),
+            ),
+        )
+
+        for (q in listOf("zolc uni $marker", "ZOLC UNI $marker", "ŻÓŁĆ ÜNÏ $marker")) {
+            val page = admin.search(q).body<JiraUserPageResponse>()
+            assertEquals(listOf(accentedId), page.items.map { it.accountId }, "q=$q")
+        }
+        // A pasted account id (any case) finds exactly its own person, though the name has nothing to do with it.
+        val uuidPart = plainId.removePrefix("ACC-")
+        assertEquals(listOf(plainId), admin.search(uuidPart).body<JiraUserPageResponse>().items.map { it.accountId })
+        assertEquals(listOf(plainId), admin.search(plainId.lowercase()).body<JiraUserPageResponse>().items.map { it.accountId })
+        // The LIKE metacharacters in q are literals, not wildcards.
+        assertEquals(0, admin.search("%$marker%").body<JiraUserPageResponse>().total)
+    }
+
+    @Test
+    fun `a bad sort, bad paging, a control character in q or a repeated q is a 400`() = testApplication {
+        usePostgresTestcontainer()
+        val admin = seededClient("jirausersbad", UserRole.ADMIN)
+        assertEquals(HttpStatusCode.BadRequest, admin.search(null, "sort" to "accountId").status)
+        assertEquals(HttpStatusCode.BadRequest, admin.search(null, "pageSize" to "101").status)
+        assertEquals(HttpStatusCode.BadRequest, admin.search(null, "page" to "0").status)
+        assertEquals(HttpStatusCode.BadRequest, admin.search("bad\u0007q").status)
+        assertEquals(HttpStatusCode.BadRequest, admin.search("one", "q" to "two").status)
+        // A blank q is "no filter", not an error.
+        assertEquals(HttpStatusCode.OK, admin.search("   ").status)
     }
 
     @Test

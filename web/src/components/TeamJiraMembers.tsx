@@ -1,17 +1,18 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert, Badge, Button, Group, Menu, Stack, Table, Text } from "@mantine/core";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { IconCalendarOff, IconUserPlus, IconUsersGroup } from "@tabler/icons-react";
 import {
   deleteTeamJiraMembership,
-  listJiraUsers,
+  listAllJiraUsers,
   listTeamJiraMemberships,
   updateTeamJiraMembership,
   type TeamMembershipResponse,
 } from "../api/metrics";
+import { getReportFilters } from "../api/reports";
 import { useAdmin } from "../auth";
-import { epochMillisToIsoDate, nowEpochMillis, startOfTodayEpochMillis } from "../utils/isoDate";
+import { epochMillisToIsoDateInZone, nowEpochMillis, startOfTodayEpochMillis } from "../utils/isoDate";
 import { saveErrorMessage } from "../utils/saveError";
 import { showSuccessToast } from "../utils/toast";
 import ConfirmDeleteModal from "./ConfirmDeleteModal";
@@ -22,8 +23,7 @@ import RowActionsMenu from "./RowActionsMenu";
 import ScrollRegion from "./ScrollRegion";
 import { useDeleteConfirm } from "../hooks/useDeleteConfirm";
 import ErrorAlert from "./ErrorAlert";
-
-const DIRECTORY_PAGE_SIZE = 100;
+import ZoneUnavailableAlert from "./ZoneUnavailableAlert";
 
 /** `now ∈ [validFrom, validTo)` — `validTo == null` means open-ended (always current from `validFrom` on). */
 function isCurrent(row: TeamMembershipResponse, nowMillis: number): boolean {
@@ -49,22 +49,38 @@ export default function TeamJiraMembers({ teamId }: { teamId: number }) {
   });
 
   // Best-effort display-name resolution: every account that ever held a membership row is
-  // UNIT-relevant (JiraUsersRoutes.kt's `everMemberedAccountIds`), so one page of the UNIT
-  // directory covers this team's whole history unless the unit has grown past the page size —
-  // an unresolved account simply falls back to its raw accountId below.
+  // UNIT-relevant (JiraUsersRoutes.kt's `everMemberedAccountIds`), so the UNIT directory, paged
+  // through to its end (`listAllJiraUsers`), covers this team's whole history however large the
+  // unit has grown — an unresolved account simply falls back to its raw accountId below.
+  // The walk is abortable (an unmount cancels it), fresh for a minute, and bounded: past the page
+  // cap the rest of the names are unresolved, which `directoryCut` says out loud.
   const directory = useQuery({
     queryKey: ["jira-users", "directory", "UNIT"],
-    queryFn: () => listJiraUsers({ page: 1, pageSize: DIRECTORY_PAGE_SIZE, sort: "displayName", scope: "UNIT" }),
+    queryFn: ({ signal }) => listAllJiraUsers({ scope: "UNIT" }, signal),
+    staleTime: 60_000,
   });
-  const namesByAccountId = new Map((directory.data?.items ?? []).map((person) => [person.accountId, person.displayName]));
+  const namesByAccountId = new Map((directory.data?.people ?? []).map((person) => [person.accountId, person.displayName]));
 
   async function refresh() {
     await queryClient.invalidateQueries({ queryKey: ["team-jira-memberships", teamId] });
   }
 
+  // Membership dates are calendar days in the CONFIGURED metrics zone (the zone the server's
+  // WorkingCalendar reads days in): the table renders them there, "End membership" cuts at the
+  // zone's start of today and the add form converts its days to zone midnights. The zone comes
+  // from the reports' filter bar (`/reports/filters` — any authenticated user, unlike the
+  // ADMIN-only settings); the dates read in UTC until it loads, and the mutating actions wait.
+  const filters = useQuery({ queryKey: ["reports", "filters"], queryFn: getReportFilters, staleTime: 60_000 });
+  const zone = filters.data?.timeZone;
+  const zoneFailed = zone == null && filters.isError;
+  const zoneAlertId = useId();
+
   const endMembership = useMutation({
-    mutationFn: (row: TeamMembershipResponse) =>
-      updateTeamJiraMembership(teamId, row.id, { validFrom: row.validFrom, validTo: startOfTodayEpochMillis() }),
+    mutationFn: (args: { row: TeamMembershipResponse; timeZone: string }) =>
+      updateTeamJiraMembership(teamId, args.row.id, {
+        validFrom: args.row.validFrom,
+        validTo: startOfTodayEpochMillis(args.timeZone),
+      }),
     onSuccess: async () => {
       showSuccessToast(t("metrics.teamMembers.toast.ended"));
       await refresh();
@@ -100,6 +116,7 @@ export default function TeamJiraMembers({ teamId }: { teamId: number }) {
   }
 
   const rows = memberships.data?.items ?? [];
+  const dayZone = zone ?? "UTC";
 
   return (
     <Stack gap="sm">
@@ -113,6 +130,13 @@ export default function TeamJiraMembers({ teamId }: { teamId: number }) {
           </Button>
         )}
       </Group>
+      {zoneFailed && <ZoneUnavailableAlert id={zoneAlertId} error={filters.error} onRetry={() => void filters.refetch()} />}
+      {directory.isError && <ErrorAlert error={directory.error} />}
+      {directory.data?.truncated && (
+        <Alert color="gray" variant="light">
+          {t("metrics.teamMembers.directoryCut", { shown: directory.data.people.length, total: directory.data.total })}
+        </Alert>
+      )}
       {actionError && (
         <Alert color="red" variant="light" onClose={() => setActionError(null)} withCloseButton>
           {actionError}
@@ -142,10 +166,10 @@ export default function TeamJiraMembers({ teamId }: { teamId: number }) {
                       <Text size="sm">{displayName}</Text>
                     </Table.Td>
                     <Table.Td>
-                      <Text size="sm">{epochMillisToIsoDate(row.validFrom)}</Text>
+                      <Text size="sm">{epochMillisToIsoDateInZone(row.validFrom, dayZone)}</Text>
                     </Table.Td>
                     <Table.Td>
-                      <Text size="sm">{row.validTo == null ? t("metrics.teamMembers.openEnded") : epochMillisToIsoDate(row.validTo)}</Text>
+                      <Text size="sm">{row.validTo == null ? t("metrics.teamMembers.openEnded") : epochMillisToIsoDateInZone(row.validTo, dayZone)}</Text>
                     </Table.Td>
                     <Table.Td>
                       {current && (
@@ -160,9 +184,12 @@ export default function TeamJiraMembers({ teamId }: { teamId: number }) {
                           {row.validTo == null && (
                             <Menu.Item
                               leftSection={<IconCalendarOff size={14} />}
+                              disabled={zone == null}
+                              aria-describedby={zoneFailed ? zoneAlertId : undefined}
                               onClick={() => {
+                                if (zone == null) return;
                                 setActionError(null);
-                                endMembership.mutate(row);
+                                endMembership.mutate({ row, timeZone: zone });
                               }}
                             >
                               {t("metrics.teamMembers.endMembership")}
@@ -185,10 +212,16 @@ export default function TeamJiraMembers({ teamId }: { teamId: number }) {
       {adding && (
         <JiraMemberModal
           teamId={teamId}
+          timeZone={zone ?? null}
+          zoneError={zoneFailed ? { error: filters.error, retry: () => void filters.refetch() } : null}
           excludeAccountIds={currentAccountIds}
           onClose={() => setAdding(false)}
           onCreated={async () => {
             setAdding(false);
+            // A newly added SITE person may not be UNIT-relevant until this row exists, so the
+            // directory the names come from is refreshed too — in the background: the table
+            // refresh below never waits for the whole directory walk.
+            void queryClient.invalidateQueries({ queryKey: ["jira-users", "directory"] });
             await refresh();
           }}
         />
