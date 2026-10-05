@@ -40,7 +40,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   - Seed memberships from the Team field (D1). After the first real sync.
   - Cache validators for the report endpoints.
   - Throughput and Sprint consistency at USER level: the frozen per-user figures are still null (Velocity's `fact_sprint_snapshot.scope` reader can be reused).
-  - Report 7: an `epics` block (cycle time from `fact_epic_delivery`, owner team) — deferred from 12b.
   - **Parked (2026-10-01; the teams do not estimate via sub-tasks):** estimated backlog uses the OWN estimate only, so a parent estimated through its sub-tasks (`estimate_source = SUBTASKS`) is missing from it. The fix is a composite-estimate bridge, and velocity (`sprintScope`) needs the same composite or backlog-in-sprints is overstated. Number the amendment A28 (A23 is taken).
 
 ## Engineering follow-ups

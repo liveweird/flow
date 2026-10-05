@@ -152,7 +152,8 @@ the same commit** — this list is the coverage map, the scenario file is the de
   throwaway team (`helpers.ts`'s `syncStubDataSourceViaApi`/`configureMetricsViaApi`/
   `awaitDerivedSprint`/`awaitDerivedTeamCost`, plus one API-seeded stub person on the team's roster,
   removed before the team): the golden FLO sprint's figures in Velocity, Throughput (regrouped by
-  month — URL and table follow) and Sprint consistency; Cycle time and Task estimation accuracy
+  month — URL and table follow) and Sprint consistency; Cycle time (plus its Epics card over a
+  year-long window, drilled by owner team) and Task estimation accuracy
   show their distributions (or the minimum-sample notice) with their accounting; Epic estimation
   accuracy (the empty window, both views, the golden epic's ratio against its OWN estimate, then
   domain → team → member), Estimate adjustments (tasks and epics blocks, the activity-type filter,

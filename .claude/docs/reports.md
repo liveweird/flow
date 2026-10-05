@@ -537,9 +537,9 @@ same preamble and slice as the estimation reports (`resolveReportScope`, `taskFa
 `orgGroups` drill in `ReportSupport.kt`; the fetch `fetchDoneCycleTasks` is shared by both). Population = level-0
 tasks (D2) with `done_at` in the window; team = the D5 **credit** team (`teamId=0` = UNASSIGNED), user = assignee
 at done, domain per `domainView` (default `TASK`, D3), plus `activityType`/`workCategory`; a `lastSprints`/`sprintId`
-period reads the resolved sprints' envelope, as throughput's period view. **Epics are not in these reports**
-(measures.md's Report 7 row mentions "epics by own status", but the model's Report 7 source is `fact_task_delivery`
-alone -- an epic cycle time is not shown).
+period reads the resolved sprints' envelope, as throughput's period view. **Epics are in report 7 only, as its
+separate `epics` block** (from `fact_epic_delivery`, below); report 8 stays tasks-only (the reported-time ratio and flow
+efficiency are task measures).
 
 ### Report 7 -- `GET /api/v1/reports/cycle-time`
 
@@ -548,7 +548,9 @@ CycleTimeReport {
   meta, elapsedDays: Distribution, workingDays: Distribution,     // cycle_ms in days / cycle_working_days
   excluded: { population, neverStarted },
   trend: [{ bucketStart, p50?, p90?, n }],                        // bucket=WEEK|MONTH, default WEEK
-  groups: [{ teamId?, accountId?, label?, elapsedDays, workingDays, excluded }]
+  groups: [{ teamId?, accountId?, label?, elapsedDays, workingDays, excluded }],
+  epics: { elapsedDays, workingDays: Distribution, excluded: { population, neverStarted },   // always present
+           groups: [{ teamId?, label?, elapsedDays, workingDays, excluded }] }               // owner teams, UNIT only
 }
 ```
 
@@ -565,6 +567,16 @@ CycleTimeReport {
 - **Levels**: UNIT `groups` per credit team, TEAM per assignee at done, USER none; each group has its own two
   distributions (hidden below the minimum, `n` always set, so `Σ group n == n`) and `excluded`; groups are ordered by
   label (null last), then team id, then account id.
+- **`epics`** (`reports/CycleTimeEpics.kt`): the same measure over the epics DONE by their OWN status (D11) with `done_at`
+  in the same window, read from `fact_epic_delivery.cycle_ms` / `cycle_working_days` (the same `done_at - started_at` rule;
+  `neverStarted` is again the only exclusion, `workingDays.n == elapsedDays.n == population - neverStarted`). The block is
+  always present. Team = the domain's **owner** team (A19; `teamId=0` = UNOWNED), no user, domain = the epic's own space
+  (`domain`/`workCategory` slice it through `epicFactSlice`; `domainView` has no effect and `activityType` is ignored, as in
+  the estimation reports). **Levels** -- UNIT: `groups` one per owner team (null `teamId` = UNOWNED, label the team name,
+  hidden below the minimum with `n` set, `Σ group n == n`); TEAM: the team's own epics, `groups` empty (epics carry no
+  user); USER: an all-zero block with no groups -- an epic read is never a silently team-wide answer at USER level (the
+  report-4/5 posture; the SPA shows the "not per person" note instead). No trend and no per-epic list (epics are few; the
+  per-epic drill is Report 4's listing). The epics sit beside the task views and never change any task figure.
 
 ### Report 8 -- `GET /api/v1/reports/reported-time-ratio`
 
@@ -592,11 +604,14 @@ ReportedTimeRatioReport { meta, ratio: Distribution,             // actual_md / 
   population`. Note the two `zeroCycle`s differ: the ratio's is zero WORKING days, this one zero ELAPSED time. Groups
   carry both measures; `Σ group n == n` for each.
 
-Code: `reports/CycleTimeReport.kt`, `reports/ReportedTimeRatioReport.kt`. Tests -- one class per endpoint on
+Code: `reports/CycleTimeReport.kt` (+ `reports/CycleTimeEpics.kt`, the `epics` block), `reports/ReportedTimeRatioReport.kt`. Tests -- one class per endpoint on
 `DerivedStubFixture`, with the independent oracle of `ReportEstimationTestSupport.kt`: `ReportCycleTimeTest`
 (distributions, per-group at every level, `teamId=0`, slices, the sprint envelope, and **every trend bucket's p50/p90/n
 against an independent bucketing** -- WEEK and MONTH, zero-filled, hidden per bucket -- plus hand-built rows with
-exact hand-computed numbers incl. a zero-working-day cycle) and `ReportReportedTimeRatioTest` (the partition, groups,
+exact hand-computed numbers incl. a zero-working-day cycle), `ReportCycleTimeEpicsTest` (the `epics` block: the fixture's
+distributions and owner groups against an independent read of `fact_epic_delivery`, TEAM / `teamId=0` / USER, the
+`domain`/`workCategory` slices and the ignored `activityType`, the sprint envelope, and hand-built epics with exact numbers
+incl. the never-started exclusion and a zero-working-day cycle) and `ReportReportedTimeRatioTest` (the partition, groups,
 slices, hand-built bucket precedence and hidden state).
 
 ## Reports 9, 10, 13 -- WIP and the estimated backlog

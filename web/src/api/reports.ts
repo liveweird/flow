@@ -38,6 +38,8 @@ export type EstimateAdjustmentsGroup = EstimateAdjustmentsReport["groups"][numbe
 export type CycleTimeReport = paths["/api/v1/reports/cycle-time"]["get"]["responses"]["200"]["content"]["application/json"];
 export type CycleTimeTrendBucket = CycleTimeReport["trend"][number];
 export type CycleTimeGroup = CycleTimeReport["groups"][number];
+export type EpicCycleTime = CycleTimeReport["epics"];
+export type EpicCycleTimeGroup = EpicCycleTime["groups"][number];
 export type ReportedTimeRatioReport =
   paths["/api/v1/reports/reported-time-ratio"]["get"]["responses"]["200"]["content"]["application/json"];
 export type ReportedTimeGroup = ReportedTimeRatioReport["groups"][number];

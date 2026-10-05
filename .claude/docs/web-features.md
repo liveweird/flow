@@ -218,7 +218,11 @@ completed · the report's figures · the orange drift badge with the frozen figu
   "the report travels with the bucket that produced it" rule. A bucket below the minimum sample has
   `null` p50/p90: the line BREAKS there (`connectNulls` off — a gap, never a zero) and the trend
   table beside it prints a dash but keeps that bucket's real `n`; if no bucket is plottable a note
-  replaces the empty frame. Reported time explains in its description that the ratio is "how much of
+  replaces the empty frame. Below the task views and their groups table sits `components/CycleTimeEpics.tsx`:
+  the epics finished in the period (the report's `epics` block) as the same two views — working days first —
+  each with its own accounting, then, at UNIT level, an "Epics by owner team" table (`ReportGroupsTable`'s
+  `wording` prop: its own title, "Owner team" header and "No owner team" for a null team; the row name still
+  narrows `teamId`). No finished epic is a one-line note, and USER level is the `EpicsPerPersonNote`. Reported time explains in its description that the ratio is "how much of
   the elapsed working time was logged" (actual MD ÷ cycle working days), distinct from flow
   efficiency (active ÷ cycle time, shown as %, no "no time logged" bucket — so the two panels keep
   separate accountings), and reads the median first (the outlier note: very short cycles dominate

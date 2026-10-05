@@ -65,6 +65,26 @@ describe("ReportGroupsTable", () => {
     expect(screen.queryByRole("link")).not.toBeInTheDocument();
   });
 
+  test("a report can word its UNIT table for other owners than credit teams", () => {
+    renderWithProviders(
+      <>
+        <ReportGroupsTable
+          level="UNIT"
+          filters={FILTERS}
+          groups={[{ teamId: 1, md: 1 }, { teamId: null, md: 2 }]}
+          columns={COLUMNS}
+          wording={{ title: "Epics by owner team", teamHeader: "Owner team", unassigned: "No owner team" }}
+        />
+      </>,
+    );
+    const table = screen.getByRole("table", { name: "Epics by owner team" });
+    expect(screen.getByRole("heading", { name: "Epics by owner team" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Owner team" })).toBeInTheDocument();
+    expect(table).toHaveTextContent("No owner team");
+    expect(screen.queryByText("Unassigned")).not.toBeInTheDocument();
+    expect(screen.getAllByRole("link")).toHaveLength(1);
+  });
+
   test("USER level and an empty list render nothing", () => {
     const { container, rerender } = renderWithProviders(<Table level="USER" groups={[{ teamId: 1, md: 1 }]} />, {
       route: "/reports/velocity?teamId=1&accountId=a",

@@ -14,6 +14,16 @@ export interface GroupIdentity {
 
 export type GroupColumn<G> = ColumnDef<G>;
 
+/** Wording a report overrides when its UNIT rows are not the default credit teams (an epic block's owner teams). */
+export interface GroupsWording {
+  /** The table's heading and accessible name (default: "By team" / "By member"). */
+  title?: string;
+  /** The team column's header (default: "Team"). */
+  teamHeader?: string;
+  /** What a row with no team is called (default: "Unassigned"). */
+  unassigned?: string;
+}
+
 /**
  * The next org level of a report: one row per team (UNIT) or member (TEAM). The row NAME is the
  * way in — a real link to the same report narrowed to that team/member (cmd-click opens a tab),
@@ -25,11 +35,13 @@ export default function ReportGroupsTable<G extends GroupIdentity>({
   filters,
   groups,
   columns,
+  wording,
 }: {
   level: "UNIT" | "TEAM" | "USER";
   filters: ReportFilters;
   groups: ReadonlyArray<G>;
   columns: ReadonlyArray<GroupColumn<G>>;
+  wording?: GroupsWording;
 }) {
   const { t } = useTranslation();
   const { pathname } = useLocation();
@@ -56,19 +68,19 @@ export default function ReportGroupsTable<G extends GroupIdentity>({
     );
   };
 
-  const title = unit ? t("reports.groups.byTeam") : t("reports.groups.byMember");
+  const title = wording?.title ?? (unit ? t("reports.groups.byTeam") : t("reports.groups.byMember"));
 
   const columnsWithIdentity: ColumnDef<G>[] = [
     {
       key: "name",
-      header: unit ? t("reports.groups.team") : t("reports.groups.member"),
+      header: unit ? (wording?.teamHeader ?? t("reports.groups.team")) : t("reports.groups.member"),
       render: (group) => {
         const name = displayName(group);
         const search = narrowed(group);
         if (search === null) {
           return (
             <Text size="sm" c="dimmed">
-              {name ?? t("reports.groups.unassigned")}
+              {name ?? wording?.unassigned ?? t("reports.groups.unassigned")}
             </Text>
           );
         }

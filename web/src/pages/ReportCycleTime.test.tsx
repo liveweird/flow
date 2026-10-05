@@ -3,7 +3,16 @@ import userEvent from "@testing-library/user-event";
 import { Route, Routes } from "react-router-dom";
 import ReportCycleTime from "./ReportCycleTime";
 import { jsonResponse } from "../test/http";
-import { CYCLE_TIME, CYCLE_TIME_ALL_HIDDEN, CYCLE_TIME_EMPTY, CYCLE_TIME_MONTHS, FILTERS } from "../test/reportFixtures";
+import {
+  CYCLE_TIME,
+  CYCLE_TIME_ALL_HIDDEN,
+  CYCLE_TIME_EMPTY,
+  CYCLE_TIME_MONTHS,
+  CYCLE_TIME_NO_EPICS,
+  CYCLE_TIME_TEAM,
+  CYCLE_TIME_USER,
+  FILTERS,
+} from "../test/reportFixtures";
 import { renderWithProviders, screen, waitFor, within } from "../test/render";
 
 // recharts renders nothing under happy-dom (no layout): histograms and the trend are probes.
@@ -72,9 +81,10 @@ describe("ReportCycleTime page", () => {
     expect(working.compareDocumentPosition(elapsed) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.getByText("Primary view — days on the configured working calendar.")).toBeInTheDocument();
 
-    await waitFor(() => expect(screen.getAllByTestId("bar-chart")).toHaveLength(2));
+    // The two task views come first; the epics block below carries two more histograms of its own.
+    await waitFor(() => expect(screen.getAllByTestId("bar-chart")).toHaveLength(4));
     const histograms = screen.getAllByTestId("bar-chart").map((c) => [c.getAttribute("data-counts"), c.getAttribute("data-x-label")]);
-    expect(histograms).toEqual([["3,6,5,3,1", "working days"], ["2,5,6,3,2", "elapsed days"]]);
+    expect(histograms.slice(0, 2)).toEqual([["3,6,5,3,1", "working days"], ["2,5,6,3,2", "elapsed days"]]);
     const strips = screen.getAllByRole("group", { name: "Percentiles" });
     expect(within(strips[0]).getByText("3.5")).toBeInTheDocument();
     expect(within(strips[1]).getByText("5")).toBeInTheDocument();
@@ -140,7 +150,64 @@ describe("ReportCycleTime page", () => {
       ["Unassigned", "3", "2", "—", "2", "—"],
     ]);
     expect(within(groups).getAllByRole("link")).toHaveLength(2);
-    expect(screen.getByText("Groups below the minimum sample show counts only.")).toBeInTheDocument();
+    // One caption under each groups table (the tasks' and the epics').
+    expect(screen.getAllByText("Groups below the minimum sample show counts only.")).toHaveLength(2);
+  });
+
+  test("epics: their own two views with their own accounting, then the owner teams that link in", async () => {
+    serve(mockFetch);
+    renderPage();
+    const card = (await screen.findByRole("heading", { level: 3, name: "Epics" })).closest("div[class*=Paper]") as HTMLElement;
+    expect(within(card).getByText(/Epics finished in the period, by the team that owns their domain/)).toBeInTheDocument();
+    // Working days first, elapsed days beside it, each a distribution of its own epics (never the tasks').
+    const working = within(card).getByRole("heading", { name: "Epics: working days" });
+    const elapsed = within(card).getByRole("heading", { name: "Epics: elapsed days" });
+    expect(working.compareDocumentPosition(elapsed) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const charts = within(card).getAllByTestId("bar-chart").map((c) => [c.getAttribute("data-counts"), c.getAttribute("data-x-label")]);
+    expect(charts).toEqual([["1,2,1,1,0", "working days"], ["1,1,2,1,0", "elapsed days"]]);
+    const strips = within(card).getAllByRole("group", { name: "Percentiles" });
+    expect(within(strips[0]).getByText("9")).toBeInTheDocument();
+    expect(within(strips[1]).getByText("13")).toBeInTheDocument();
+    // Each accounting reconciles: 5 measured + 1 never started = 6 epics.
+    expect(within(card).getAllByText("5 + 1 = 6")).toHaveLength(2);
+    expect(within(card).getAllByText("Of 6 finished in this period:")).toHaveLength(2);
+    expect(within(card).getAllByText(/Epics never started \(finished without a start\), so no cycle/)).toHaveLength(2);
+
+    const table = screen.getByRole("table", { name: "Epics by owner team" });
+    expect(within(table).getByRole("columnheader", { name: "Owner team" })).toBeInTheDocument();
+    const rows = within(table).getAllByRole("row").slice(1).map((r) => within(r).getAllByRole("cell").map((c) => c.textContent));
+    expect(rows).toEqual([
+      ["Alpha", "3", "3", "8", "3", "12"],
+      ["No owner team", "3", "2", "—", "2", "—"],
+    ]);
+    // Alpha narrows the report to its team; the epics without an owner are shown, never linked.
+    expect(within(table).getAllByRole("link")).toHaveLength(1);
+    expect(within(table).getByRole("link", { name: "Show Alpha" })).toHaveAttribute("href", expect.stringContaining("teamId=1"));
+  });
+
+  test("epics: a team's own epics with no owner table; no finished epic is said in its own words", async () => {
+    serve(mockFetch, () => jsonResponse(200, CYCLE_TIME_TEAM));
+    const { unmount } = renderPage("/reports/cycle-time?teamId=1");
+    expect(await screen.findByRole("heading", { name: "Epics: working days" })).toBeInTheDocument();
+    expect(screen.queryByRole("table", { name: "Epics by owner team" })).not.toBeInTheDocument();
+    unmount();
+
+    serve(mockFetch, () => jsonResponse(200, CYCLE_TIME_NO_EPICS));
+    renderPage();
+    expect(await screen.findByText("No epics finished in this period.")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Epics: working days" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("table", { name: "Epics by owner team" })).not.toBeInTheDocument();
+    // The tasks are untouched: their own distributions still render.
+    expect(screen.getByRole("heading", { name: "Working days" })).toBeInTheDocument();
+  });
+
+  test("epics at USER level: one note, never a block of zeros", async () => {
+    serve(mockFetch, () => jsonResponse(200, CYCLE_TIME_USER));
+    renderPage("/reports/cycle-time?teamId=1&accountId=acc-ann");
+    expect(await screen.findByRole("heading", { level: 3, name: "Epics" })).toBeInTheDocument();
+    expect(screen.getByRole("note")).toHaveTextContent("Epics aren't attributed to individual people");
+    expect(screen.queryByRole("heading", { name: "Epics: working days" })).not.toBeInTheDocument();
+    expect(screen.queryByText("No epics finished in this period.")).not.toBeInTheDocument();
   });
 
   test("offers the domain view, domain, activity type, work category and the bucket", async () => {

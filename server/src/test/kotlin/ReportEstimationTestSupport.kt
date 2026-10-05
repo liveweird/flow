@@ -151,6 +151,8 @@ internal data class EpicFact(
     val changes: Int,
     val domainKey: String?,
     val workCategory: String?,
+    val cycleMs: Long?,
+    val cycleWorkingDays: BigDecimal?,
 )
 
 internal suspend fun readEpicFacts(connId: UInt): List<EpicFact> = suspendTransaction(sharedDatabaseForTests()) {
@@ -169,6 +171,8 @@ internal suspend fun readEpicFacts(connId: UInt): List<EpicFact> = suspendTransa
             changes = it[e.estimateChangesAfterStart],
             domainKey = it[e.domainKey],
             workCategory = it[e.workCategory],
+            cycleMs = it[e.cycleMs],
+            cycleWorkingDays = it[e.cycleWorkingDays],
         )
     }
 }
@@ -228,10 +232,13 @@ internal fun handEpic(
     ownerTeamId: UInt? = null,
     domain: String? = "AAA",
     category: String? = null,
+    cycleMs: Long? = null,
+    cycleWorkingDays: Double? = null,
 ) = FactEpicDeliveryRow(
     issueId = issueId, startedAt = startedAt, doneAt = doneAt, ownEstimateAtStartMd = ownStart, ownEstimateAtDoneMd = ownDone,
     ownEstimateCurrentMd = ownCurrent, estimateChangesAfterStart = changes, childSumEstimateMd = childSum,
-    budgetSource = if (ownCurrent != null) "OWN" else "CHILDREN", actualMd = actualMd, cycleMs = null, cycleWorkingDays = null,
-    blockedMs = 0, blockedWorkingDays = 0.0, domainKey = domain, workCategory = category, driftFlags = emptyList(),
+    budgetSource = if (ownCurrent != null) "OWN" else "CHILDREN", actualMd = actualMd,
+    cycleMs = cycleMs, cycleWorkingDays = cycleWorkingDays, blockedMs = 0, blockedWorkingDays = 0.0, domainKey = domain,
+    workCategory = category, driftFlags = emptyList(),
     ownerTeamId = ownerTeamId,
 )

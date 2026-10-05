@@ -14,12 +14,12 @@ import org.jetbrains.exposed.v1.r2dbc.select
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 
 /** Milliseconds in the day `elapsedDays` is measured in (wall-clock days, weekends included). */
-private val MS_PER_DAY = MILLIS_PER_DAY.toDouble()
+internal val MS_PER_DAY = MILLIS_PER_DAY.toDouble()
 
 /**
- * DONE level-0 tasks a cycle-time read could not measure: [neverStarted] (no `started_at`, so no cycle —
- * the ONLY exclusion, `.claude/docs/measures.md` Report 7; a cycle of zero working days is a real value and
- * stays in). So `elapsedDays.n == workingDays.n == population - neverStarted`.
+ * DONE level-0 tasks (or, in the `epics` block, DONE epics) a cycle-time read could not measure: [neverStarted] (no
+ * `started_at`, so no cycle — the ONLY exclusion, `.claude/docs/measures.md` Report 7; a cycle of zero working days is
+ * a real value and stays in). So `elapsedDays.n == workingDays.n == population - neverStarted`.
  */
 @Serializable
 data class CycleTimeExcluded(val population: Int, val neverStarted: Int)
@@ -56,6 +56,8 @@ data class CycleTimeReport(
     /** One bucket per week/month across the whole window (zero-filled), by `done_at`, on working days. */
     val trend: List<CycleTimeTrendBucket>,
     val groups: List<CycleTimeGroup>,
+    /** The epics beside the tasks: DONE epics by `done_at`, cycle from `fact_epic_delivery`, owner team (A19), no user. */
+    val epics: EpicCycleTime,
 )
 
 /** One DONE level-0 task with the columns the two cycle-based reports (7 and 8) read. */
@@ -106,7 +108,8 @@ private fun cycleDistributions(tasks: List<DoneCycleTask>, minSample: Int): Trip
 /**
  * `GET /api/v1/reports/cycle-time` (v0.3.0 M4 commit 12b, Report 7, `.claude/docs/measures.md` "Reports 7, 8"):
  * level-0 DONE tasks by `done_at`, `cycle_ms` (wall-clock days) and `cycle_working_days` as [Distribution]s plus a
- * per-bucket p50/p90 trend on working days. See `.claude/docs/reports.md`.
+ * per-bucket p50/p90 trend on working days, and an `epics` block (DONE epics' cycle by owner team). See
+ * `.claude/docs/reports.md`.
  */
 suspend fun ReportService.cycleTime(filter: ReportFilter, bucket: ThroughputBucket, nowMs: Long): CycleTimeReport =
     suspendTransaction(database) {
@@ -126,6 +129,7 @@ suspend fun ReportService.cycleTime(filter: ReportFilter, bucket: ThroughputBuck
                 val (groupElapsed, groupWorking, groupExcluded) = cycleDistributions(rows, minSample)
                 CycleTimeGroup(key.teamId, key.accountId, key.label, groupElapsed, groupWorking, groupExcluded)
             },
+            epics = epicCycleTime(filter, scope.connectionIds, window, minSample),
         )
     }
 
