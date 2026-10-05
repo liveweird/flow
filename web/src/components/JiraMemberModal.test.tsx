@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
-import { act, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, screen, waitFor } from "@testing-library/react";
 import JiraMemberModal from "./JiraMemberModal";
 import { jsonResponse } from "../test/http";
 import { renderWithProviders } from "../test/render";
@@ -10,9 +10,15 @@ type FetchMock = ReturnType<typeof vi.fn>;
 const NOTHING_FOUND = "No matching people";
 const LOADER = "Loading people…";
 
-function renderModal() {
+function renderModal(options: { timeZone?: string | null; exclude?: string[] } = {}) {
   return renderWithProviders(
-    <JiraMemberModal teamId={5} excludeAccountIds={new Set()} onClose={() => {}} onCreated={async () => {}} />,
+    <JiraMemberModal
+      teamId={5}
+      timeZone={options.timeZone === undefined ? "Europe/Warsaw" : options.timeZone}
+      excludeAccountIds={new Set(options.exclude ?? [])}
+      onClose={() => {}}
+      onCreated={async () => {}}
+    />,
   );
 }
 
@@ -205,8 +211,42 @@ describe("JiraMemberModal — server-side search", () => {
     // The label Mantine put into the box is not a search term: the follow-up request is the plain, unfiltered list…
     await act(() => vi.advanceTimersByTimeAsync(400));
     expect(directoryQs().every((p) => p.get("q") !== "Zed Zulu (acc-150)")).toBe(true);
-    // …and the selection is still shown under its own label although it is not among those 20 rows.
+
+    // …a LATER search really goes out and replaces the options with a set that no longer holds Zed (the answer is empty)…
+    await user.clear(person);
+    await user.type(person, "nobody");
+    await act(() => vi.advanceTimersByTimeAsync(300));
+    await waitFor(() => expect(directoryQs().some((p) => p.get("q") === "nobody")).toBe(true));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Person" })).toHaveAttribute("aria-busy", "false"));
+
+    // …and the selection still shows under its own label once the box loses focus.
+    await user.tab();
     await waitFor(() => expect(screen.getByRole("combobox", { name: "Person" })).toHaveValue("Zed Zulu (acc-150)"));
+  });
+
+  test("the 'showing the first N' count is taken after the exclusion filter, and an all-excluded page never contradicts 'No matching people'", async () => {
+    serveDirectory();
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    renderModal({ exclude: ["acc-000", "acc-001"] });
+
+    // 20 rows came back, 2 are current members: 18 are shown of 150.
+    await screen.findByText(/Showing the first 18 of 150 people/);
+    expect(screen.queryByText(/Showing the first 20 of/)).not.toBeInTheDocument();
+    cleanup();
+
+    renderModal({ exclude: FIRST_PAGE.map((p) => p.accountId) });
+    const person = await screen.findByRole("combobox", { name: "Person" });
+    await waitFor(() => expect(person).toHaveAttribute("aria-busy", "false"));
+    await user.click(person);
+    expect(await screen.findByText(NOTHING_FOUND)).toBeInTheDocument();
+    expect(screen.queryByText(/Showing the first/)).not.toBeInTheDocument();
+  });
+
+  test("submit waits for the metrics zone", async () => {
+    serveDirectory();
+    renderModal({ timeZone: null });
+
+    expect(await screen.findByRole("button", { name: "Create" })).toBeDisabled();
   });
 
   test("a failed search shows the inline alert and a retry term clears it", async () => {

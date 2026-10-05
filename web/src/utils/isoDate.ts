@@ -1,8 +1,10 @@
 /**
- * `YYYY-MM-DD` ISO-date helpers shared by the metrics settings form (holidays) and D1's dated
- * Jira-user team membership (valid-from/valid-to). Every conversion is UTC — the same
- * deterministic-across-test/CI-locales convention `utils/dataSourceState.ts`'s `formatEpochMillis`
- * already uses (`toISOString()`, never `toLocaleString()`/the local time zone).
+ * `YYYY-MM-DD` ISO-date helpers shared by the metrics settings form (holidays), the reports (days
+ * in the configured zone) and D1's dated Jira-user team membership (valid-from/valid-to, which are
+ * calendar days in that same zone). The plain conversions are UTC; the `…InZone` ones take the
+ * configured IANA zone. Both are deterministic across test/CI locales — the
+ * `utils/dataSourceState.ts` `formatEpochMillis` convention: never `toLocaleString()`/the browser's
+ * local time zone.
  */
 
 const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
@@ -44,9 +46,48 @@ export function todayIsoDate(timeZone = "UTC"): string {
   return epochMillisToIsoDateInZone(Date.now(), timeZone);
 }
 
-/** Today's UTC midnight, as epoch millis — "end membership" sets `validTo` to this. */
-export function startOfTodayEpochMillis(): number {
-  return isoDateToEpochMillis(todayIsoDate());
+/**
+ * The first instant of the calendar day containing `epochMillis` in an IANA `timeZone`, as epoch
+ * millis — the zone's midnight, which is NOT a fixed offset from UTC midnight (DST). Found by
+ * bisecting for the first millisecond whose zone date equals the day's: no offset arithmetic, so a
+ * 23/25-hour DST-change day and a zone whose midnight is skipped (the day then starts at the
+ * transition) come out right. 36 hours back always lies on an earlier date, and the zone date is
+ * monotone in between.
+ */
+export function startOfDayEpochMillisInZone(epochMillis: number, timeZone: string): number {
+  const day = epochMillisToIsoDateInZone(epochMillis, timeZone);
+  let before = epochMillis - 36 * 60 * 60 * 1000; // zone date != day
+  let from = epochMillis; // zone date == day
+  while (from - before > 1) {
+    const mid = before + Math.floor((from - before) / 2);
+    if (epochMillisToIsoDateInZone(mid, timeZone) === day) from = mid;
+    else before = mid;
+  }
+  return from;
+}
+
+/**
+ * Today's midnight in `timeZone` (the configured metrics zone — `GET /metrics-settings`'s
+ * `timeZone`, the zone the server's `WorkingCalendar` cuts days in), as epoch millis — "end
+ * membership" sets `validTo` to this.
+ */
+export function startOfTodayEpochMillis(timeZone: string): number {
+  return startOfDayEpochMillisInZone(Date.now(), timeZone);
+}
+
+/**
+ * A `YYYY-MM-DD` calendar day in `timeZone` to the epoch millis of that day's first instant there —
+ * what a day picked in a form means to the server (days are cut in the configured zone). Caller
+ * validates the shape first. Round-trips with [epochMillisToIsoDateInZone].
+ */
+export function isoDateToEpochMillisInZone(value: string, timeZone: string): number {
+  // Noon UTC lands on the target day or a neighbour in any zone (offsets are within ±14 h);
+  // one 24 h step puts it on the target day, then the day's start is found from there.
+  let anchor = isoDateToEpochMillis(value) + 12 * 60 * 60 * 1000;
+  const zoneDay = epochMillisToIsoDateInZone(anchor, timeZone);
+  if (zoneDay > value) anchor -= 24 * 60 * 60 * 1000;
+  else if (zoneDay < value) anchor += 24 * 60 * 60 * 1000;
+  return startOfDayEpochMillisInZone(anchor, timeZone);
 }
 
 /**

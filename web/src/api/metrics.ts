@@ -3,7 +3,7 @@
 // "Configuration"; `authorization.md`'s metrics-settings/jira-memberships/jira-users bullets).
 // Thin endpoint wrappers: transport (authedFetch/ApiError) in ./http, types from ./schema.
 
-import { buildQuery, jsonRequest, voidRequest } from "./http";
+import { buildQuery, jsonRequest, timeoutSignal, voidRequest } from "./http";
 import type { paths } from "./schema";
 
 export type MetricsSettingsResponse =
@@ -101,26 +101,36 @@ type JiraUserListQuery = {
   scope?: JiraUserScope;
 };
 
-export async function listJiraUsers(q: JiraUserListQuery): Promise<JiraUserPage> {
+export async function listJiraUsers(q: JiraUserListQuery, signal?: AbortSignal): Promise<JiraUserPage> {
   const params = buildQuery({ page: q.page, pageSize: q.pageSize, sort: q.sort, q: q.q, teamId: q.teamId, scope: q.scope });
-  return jsonRequest<JiraUserPage>(`/api/v1/jira-users?${params}`);
+  // A caller's signal replaces the transport's default deadline (`{ signal: timeoutSignal(), ...init }`),
+  // so the two are combined where the runtime can (`AbortSignal.any`).
+  const deadline = timeoutSignal();
+  const combined = signal && deadline && typeof AbortSignal.any === "function" ? AbortSignal.any([signal, deadline]) : (signal ?? deadline);
+  return jsonRequest<JiraUserPage>(`/api/v1/jira-users?${params}`, { signal: combined });
 }
 
 /** The server's maximum `pageSize` (API-LIST-001) and the page cap that bounds a walk of a whole directory. */
 const MAX_PAGE_SIZE = 100;
 const MAX_DIRECTORY_PAGES = 50;
 
+/** A whole-directory walk: the accounts read, the server's `total`, and whether the page cap cut it short. */
+export type JiraDirectory = { people: JiraUserPage["items"]; total: number; truncated: boolean };
+
 /**
  * Every account in a directory view, paged through at the server's maximum page size until `total`
- * is reached (bounded by [MAX_DIRECTORY_PAGES], so a runaway directory cannot loop) — for the
- * name-resolution lookups that need EVERY person, not a search result.
+ * is reached (bounded by [MAX_DIRECTORY_PAGES], so a runaway directory cannot loop; `truncated`
+ * says the cap stopped it) — for the name-resolution lookups that need EVERY person, not a search
+ * result. `signal` (React Query's) aborts the in-flight page and ends the walk.
  */
-export async function listAllJiraUsers(query: Pick<JiraUserListQuery, "scope">): Promise<JiraUserPage["items"]> {
+export async function listAllJiraUsers(query: Pick<JiraUserListQuery, "scope">, signal?: AbortSignal): Promise<JiraDirectory> {
   const people: JiraUserPage["items"] = [];
+  let total = 0;
   for (let page = 1; page <= MAX_DIRECTORY_PAGES; page += 1) {
-    const result = await listJiraUsers({ page, pageSize: MAX_PAGE_SIZE, sort: "displayName", scope: query.scope });
+    const result = await listJiraUsers({ page, pageSize: MAX_PAGE_SIZE, sort: "displayName", scope: query.scope }, signal);
     people.push(...result.items);
-    if (result.items.length === 0 || people.length >= result.total) break;
+    total = result.total;
+    if (result.items.length === 0 || people.length >= result.total) return { people, total, truncated: false };
   }
-  return people;
+  return { people, total, truncated: true };
 }

@@ -10,8 +10,9 @@ import {
   updateTeamJiraMembership,
   type TeamMembershipResponse,
 } from "../api/metrics";
+import { getReportFilters } from "../api/reports";
 import { useAdmin } from "../auth";
-import { epochMillisToIsoDate, nowEpochMillis, startOfTodayEpochMillis } from "../utils/isoDate";
+import { epochMillisToIsoDateInZone, nowEpochMillis, startOfTodayEpochMillis } from "../utils/isoDate";
 import { saveErrorMessage } from "../utils/saveError";
 import { showSuccessToast } from "../utils/toast";
 import ConfirmDeleteModal from "./ConfirmDeleteModal";
@@ -50,19 +51,38 @@ export default function TeamJiraMembers({ teamId }: { teamId: number }) {
   // UNIT-relevant (JiraUsersRoutes.kt's `everMemberedAccountIds`), so the UNIT directory, paged
   // through to its end (`listAllJiraUsers`), covers this team's whole history however large the
   // unit has grown — an unresolved account simply falls back to its raw accountId below.
+  // The walk is abortable (an unmount cancels it), fresh for a minute, and bounded: past the page
+  // cap the rest of the names are unresolved, which `directoryCut` says out loud.
   const directory = useQuery({
     queryKey: ["jira-users", "directory", "UNIT"],
-    queryFn: () => listAllJiraUsers({ scope: "UNIT" }),
+    queryFn: ({ signal }) => listAllJiraUsers({ scope: "UNIT" }, signal),
+    staleTime: 60_000,
   });
-  const namesByAccountId = new Map((directory.data ?? []).map((person) => [person.accountId, person.displayName]));
+  const namesByAccountId = new Map((directory.data?.people ?? []).map((person) => [person.accountId, person.displayName]));
 
+  // A newly added SITE person may not be UNIT-relevant until this row exists, so adding also
+  // refreshes the directory the names are read from.
   async function refresh() {
-    await queryClient.invalidateQueries({ queryKey: ["team-jira-memberships", teamId] });
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["team-jira-memberships", teamId] }),
+      queryClient.invalidateQueries({ queryKey: ["jira-users", "directory"] }),
+    ]);
   }
 
+  // Membership dates are calendar days in the CONFIGURED metrics zone (the zone the server's
+  // WorkingCalendar reads days in): the table renders them there, "End membership" cuts at the
+  // zone's start of today and the add form converts its days to zone midnights. The zone comes
+  // from the reports' filter bar (`/reports/filters` — any authenticated user, unlike the
+  // ADMIN-only settings); the dates read in UTC until it loads, and the mutating actions wait.
+  const filters = useQuery({ queryKey: ["reports", "filters"], queryFn: getReportFilters, staleTime: 60_000 });
+  const zone = filters.data?.timeZone;
+
   const endMembership = useMutation({
-    mutationFn: (row: TeamMembershipResponse) =>
-      updateTeamJiraMembership(teamId, row.id, { validFrom: row.validFrom, validTo: startOfTodayEpochMillis() }),
+    mutationFn: (args: { row: TeamMembershipResponse; timeZone: string }) =>
+      updateTeamJiraMembership(teamId, args.row.id, {
+        validFrom: args.row.validFrom,
+        validTo: startOfTodayEpochMillis(args.timeZone),
+      }),
     onSuccess: async () => {
       showSuccessToast(t("metrics.teamMembers.toast.ended"));
       await refresh();
@@ -98,6 +118,7 @@ export default function TeamJiraMembers({ teamId }: { teamId: number }) {
   }
 
   const rows = memberships.data?.items ?? [];
+  const dayZone = zone ?? "UTC";
 
   return (
     <Stack gap="sm">
@@ -111,6 +132,13 @@ export default function TeamJiraMembers({ teamId }: { teamId: number }) {
           </Button>
         )}
       </Group>
+      {filters.isError && <ErrorAlert error={filters.error} />}
+      {directory.isError && <ErrorAlert error={directory.error} />}
+      {directory.data?.truncated && (
+        <Alert color="gray" variant="light">
+          {t("metrics.teamMembers.directoryCut", { shown: directory.data.people.length, total: directory.data.total })}
+        </Alert>
+      )}
       {actionError && (
         <Alert color="red" variant="light" onClose={() => setActionError(null)} withCloseButton>
           {actionError}
@@ -140,10 +168,10 @@ export default function TeamJiraMembers({ teamId }: { teamId: number }) {
                       <Text size="sm">{displayName}</Text>
                     </Table.Td>
                     <Table.Td>
-                      <Text size="sm">{epochMillisToIsoDate(row.validFrom)}</Text>
+                      <Text size="sm">{epochMillisToIsoDateInZone(row.validFrom, dayZone)}</Text>
                     </Table.Td>
                     <Table.Td>
-                      <Text size="sm">{row.validTo == null ? t("metrics.teamMembers.openEnded") : epochMillisToIsoDate(row.validTo)}</Text>
+                      <Text size="sm">{row.validTo == null ? t("metrics.teamMembers.openEnded") : epochMillisToIsoDateInZone(row.validTo, dayZone)}</Text>
                     </Table.Td>
                     <Table.Td>
                       {current && (
@@ -158,9 +186,11 @@ export default function TeamJiraMembers({ teamId }: { teamId: number }) {
                           {row.validTo == null && (
                             <Menu.Item
                               leftSection={<IconCalendarOff size={14} />}
+                              disabled={zone == null}
                               onClick={() => {
+                                if (zone == null) return;
                                 setActionError(null);
-                                endMembership.mutate(row);
+                                endMembership.mutate({ row, timeZone: zone });
                               }}
                             >
                               {t("metrics.teamMembers.endMembership")}
@@ -183,6 +213,7 @@ export default function TeamJiraMembers({ teamId }: { teamId: number }) {
       {adding && (
         <JiraMemberModal
           teamId={teamId}
+          timeZone={zone ?? null}
           excludeAccountIds={currentAccountIds}
           onClose={() => setAdding(false)}
           onCreated={async () => {

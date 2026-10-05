@@ -110,8 +110,11 @@ team membership landed in M2 commit 5, and the per-connection `metrics-config` p
   `PUT/DELETE …/{membershipId}`): any authenticated user reads the table (person name resolved
   against `GET /api/v1/jira-users?scope=UNIT` — every account that ever held a membership row is
   UNIT-relevant, so the directory, paged through at pageSize 100 to its `total` (`api/metrics.ts`'s
-  `listAllJiraUsers`, capped at 50 pages), names this team's whole history however large the unit
-  is; an unresolved account falls back to its raw `accountId`), a "current" badge when `now ∈ [validFrom, validTo)`.
+  `listAllJiraUsers`, capped at 50 pages, `staleTime` 60 s, abortable — React Query's `signal` reaches every
+  page fetch, so an unmount ends the walk), names this team's whole history however large the unit
+  is; an unresolved account falls back to its raw `accountId`; a failed walk renders its load error inline
+  and one the page cap cut short shows a gray `directoryCut` notice; adding a member also invalidates
+  `["jira-users","directory"]` so a newly added SITE person is named at once), a "current" badge when `now ∈ [validFrom, validTo)`.
   ADMIN-only mutations: "Add Jira member" opens `components/JiraMemberModal.tsx` (a searchable
   person `Select` over `GET /api/v1/jira-users?scope=SITE` — the whole site directory, since a
   brand-new member may not yet be UNIT-relevant; **server-side search**: the typed term, debounced
@@ -125,10 +128,19 @@ team membership landed in M2 commit 5, and the per-connection `metrics-config` p
   an inline red `Alert` (`loadErrorMessage`) on failure — "No matching people" only states a completed
   search for the current term, never during the debounce window or a pending/failed load; the
   exclusion-constraint `409` renders inline in the modal, never a toast), a per-row "End
-  membership" (only on the open-ended row — direct PUT setting `validTo` to today's UTC midnight,
-  the `startOfTodayEpochMillis` helper) and Delete (`ConfirmDeleteModal`, the `useDeleteConfirm`
-  precedent). **Dates are plain `YYYY-MM-DD` `TextInput`s** (`utils/isoDate.ts`'s
-  `isValidIsoDate`/`isoDateToEpochMillis`/`epochMillisToIsoDate`, UTC throughout — the
+  membership" (only on the open-ended row — direct PUT setting `validTo` to the start of today in
+  the CONFIGURED metrics zone, `startOfTodayEpochMillis(timeZone)` in `utils/isoDate.ts` — a bisection
+  for the zone's first millisecond of the day, so DST-change days and skipped midnights are right) and
+  Delete (`ConfirmDeleteModal`, the `useDeleteConfirm` precedent). **Membership dates are calendar days
+  in the configured zone** (`metrics.settings.time_zone`, the zone the server cuts days in): the table
+  renders `validFrom`/`validTo` with `epochMillisToIsoDateInZone`, the add form's days convert through
+  `isoDateToEpochMillisInZone` (that day's first instant in the zone — half-open `[validFrom, validTo)`
+  semantics unchanged), and "End membership" cuts at the zone's today. The zone is read from
+  `GET /reports/filters` (`["reports","filters"]`, any authenticated user — the settings endpoint is
+  ADMIN-only and the table is read by everyone); the table reads in UTC until it loads, the End item and
+  the form's submit are disabled until then, and a failed load shows the inline load error.
+  **Dates are plain `YYYY-MM-DD` `TextInput`s** (`utils/isoDate.ts`'s
+  `isValidIsoDate`/`isoDateToEpochMillisInZone`/`epochMillisToIsoDateInZone`; never `toLocaleString()`) — the
   `dataSourceState.ts` `formatEpochMillis` convention — no `@mantine/dates` dependency in this
   commit; it arrives with the Reports period picker, §2.4 of the phase-3 plan).
 - **`pages/DataSourceMetricsConfig.tsx`** (`/data-sources/:id/metrics-config`, under the same

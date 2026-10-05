@@ -56,6 +56,7 @@
     "pickPerson": "Search people by name or account id…",
     "noMatchingPeople": "No matching people",
     "peopleCut": "Showing the first {{shown}} of {{total}} people — type a name or account id to narrow the list",
+    "directoryCut": "Only the first {{shown}} of {{total}} people could be loaded to name the members — the rest show their account id",
     "loadingPeople": "Loading people…",
     "field": {
       "person": "Person",

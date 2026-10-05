@@ -56,6 +56,7 @@
     "pickPerson": "Szukaj osób po nazwie lub identyfikatorze konta…",
     "noMatchingPeople": "Brak pasujących osób",
     "peopleCut": "Pokazano pierwsze {{shown}} z {{total}} osób — wpisz imię, nazwisko lub identyfikator konta, aby zawęzić listę",
+    "directoryCut": "Do nazwania członków wczytano tylko pierwsze {{shown}} z {{total}} osób — pozostałe są pokazane jako identyfikator konta",
     "loadingPeople": "Wczytywanie osób…",
     "field": {
       "person": "Osoba",
