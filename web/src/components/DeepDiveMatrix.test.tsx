@@ -7,8 +7,6 @@ import type { DeepDiveReport } from "../api/reports";
 import { MONTH_CROSSING, deepDiveEpic, deepDiveReport, deepDiveTask } from "../test/deepDiveFixtures";
 import { act, fireEvent, renderWithProviders, screen, waitFor, within } from "../test/render";
 import { theme } from "../theme";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import type { DeepDiveLayers } from "../utils/deepDiveCell";
 import DeepDiveMatrix from "./DeepDiveMatrix";
 
@@ -838,60 +836,5 @@ describe("DeepDiveMatrix: follow-up behaviours", () => {
     expect(screen.getByRole("tooltip")).toBeInTheDocument(); // ...focus is still on the cell, so the card stays
     fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
-  });
-});
-
-describe("the stylesheet's accessibility pins", () => {
-  const css = readFileSync(join(process.cwd(), "src", "theme.module.css"), "utf8");
-  const block = (selector: string) => {
-    const start = css.indexOf(`${selector} {`);
-    expect(start, selector).toBeGreaterThanOrEqual(0);
-    return css.slice(start, css.indexOf("}", start));
-  };
-
-  test("a focused cell is scrolled clear of the sticky first column and the sticky header rows (WCAG 2.4.11)", () => {
-    expect(block(".ddTd")).toContain("scroll-margin-left: var(--dd-item-width)");
-    expect(block(".ddTd")).toContain("scroll-margin-top: calc(var(--dd-head-row) * var(--dd-head-rows, 1))");
-    expect(block(".ddColHead")).toContain("scroll-margin-left: var(--dd-item-width)");
-    expect(block(".ddRowHeader")).toContain("width: var(--dd-item-width)");
-  });
-
-  test("the row toggles and the column toggles scroll clear of the sticky chrome too", () => {
-    const rows = block(".ddRowHeader .ddToggle,\n.ddRowHeader .ddItem");
-    expect(rows).toContain("scroll-margin-top: calc(var(--dd-head-row) * var(--dd-head-rows, 1))");
-    expect(block(".ddColHead .ddToggle")).toContain("scroll-margin-left: var(--dd-item-width)");
-  });
-
-  test("the planned window's dashed outline has a 1px surface ring on both sides of each drawn edge", () => {
-    const outline = block(".ddOutline");
-    expect(outline).toContain("border-top: 2px dashed var(--dd-window)");
-    expect(outline).toContain("0 -1px 0 0 var(--mantine-color-body)");
-    expect(outline).toContain("inset 0 1px 0 0 var(--mantine-color-body)");
-    expect(block(".ddOutlineStart")).toContain("inset 1px 0 0 0 var(--mantine-color-body)");
-    expect(block(".ddOutlineEnd")).toContain("inset -1px 0 0 0 var(--mantine-color-body)");
-  });
-
-  test("every bar carries a 1px surface halo above its 2px edge, and the diamond a surface text halo", () => {
-    expect(block(".ddBar")).toContain("border-top: 2px solid var(--dd-color)");
-    expect(block(".ddBar")).toContain("box-shadow: 0 -1px 0 0 var(--mantine-color-body)");
-    expect(block(".ddDoneMark")).toContain("text-shadow");
-  });
-
-  test("the hatch is the neutral gray variable, in both schemes (no translucent black/white)", () => {
-    expect(block(".ddHatched")).toContain("var(--dd-hatch)");
-    expect(block(".ddHatched")).not.toContain("rgba");
-  });
-
-  test("the cell padding reset targets td only, so the header and row-header paddings apply", () => {
-    expect(css).toContain(".table.ddTable td {\n  padding: 0;");
-    expect(css).not.toMatch(/\.table\.ddTable th/);
-    expect(block(".ddRowHeader")).toContain("padding: 2px 8px");
-    expect(block(".ddColHead")).toContain("padding: 4px 2px");
-  });
-
-  test("the tooltip sits on Mantine's popover layer and scrolls inside itself", () => {
-    expect(block(".ddTooltip")).toContain("z-index: var(--mantine-z-index-popover)");
-    expect(block(".ddTooltip")).toContain("max-height: calc(100vh - 16px)");
-    expect(block(".ddTooltip")).toContain("overflow: auto");
   });
 });

@@ -776,9 +776,8 @@ describe("empty and annotated reports", () => {
     // @ts-expect-error cells are read-only
     expect(() => (EMPTY_CELL.pvMd = 1)).toThrow(TypeError);
     // @ts-expect-error cell arrays are read-only
-    expect(() =>
-      EMPTY_CELL.done.push({ taskKey: "X-1", day: 0, evMd: 1 }),
-    ).toThrow(TypeError);
+    const pushDone = () => EMPTY_CELL.done.push({ taskKey: "X-1", day: 0, evMd: 1 });
+    expect(pushDone).toThrow(TypeError);
     const report = deepDiveReport({ tasks: [deepDiveTask("FLO-1")] });
     expect(
       buildDeepDiveMatrix(report, grainColumns(report, "day")).epics[0].tasks[0]
