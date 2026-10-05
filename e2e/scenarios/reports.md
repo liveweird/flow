@@ -1,4 +1,4 @@
-# Reports (v0.3.0 — the non-admin journey: batch 1 M4 commit 14, batch 2 M5 commit 19, checkup A15)
+# Reports (v0.3.0 + the v0.4.0 Deep dive — the non-admin journey: batch 1 M4 commit 14, batch 2 M5 commit 19, checkup A15)
 
 - **Spec**: [tests/reports.spec.ts](../tests/reports.spec.ts)
 - **Actors**: the seed administrator (`admin@flow.local`), through the API only, to seed and clean
@@ -275,6 +275,37 @@ finished in autumn 2025, before the six-month window opens.
 5. They pick the seeded team.
    - *Expected*: the URL gains the team and loses the domain — there is no team × domain split.
 
+## Scenario: the user dives into the golden sprint and drills an epic to its tasks
+
+1. The user signs in and follows **Deep dive** in the sidebar.
+   - *Expected*: the page loads with no selection in the address and shows the explainer of the three
+     modes ("Pick something to dive into") — nothing has been requested.
+2. In **Sprints of a domain** they pick this spec's connection (when the stack holds more than one, the panel offers a connection picker), the domain FLO
+   and the sprint "FLO Sprint 4", and press **Show**.
+   - *Expected*: the URL is the canonical selection, `?domain=FLO&sprintId=<golden>&connectionId=<this
+     spec's>`; the matrix grid is drawn with the three layer switches on (Plan (PV), Execution, Cost
+     (AC)), a bar of each layer and a done marker (◆) somewhere in it, and the legend beneath.
+3. They open the epic FLO-36 by its row toggle.
+   - *Expected*: the toggle reports itself expanded and the epic's tasks (FLO-52 among them) are rows
+     under it.
+4. They open the month column into weeks.
+   - *Expected*: keyboard focus lands on the first week's header (a button offering that week's days);
+     the month stays as a "Collapse <month>" control above its weeks.
+5. They move keyboard focus onto a FLO-36 cell that holds logged time.
+   - *Expected*: the cell's tooltip opens without the pointer and shows its Plan (PV) and Cost (AC)
+     figures and a list of authors with their man-days ("Sample User N: x MD").
+6. They read the computed styles of the drawn marks (what the unit tests cannot compute).
+   - *Expected*: a matrix cell has non-zero `scroll-margin-left` and `scroll-margin-top` (a focused cell
+     scrolls clear of the sticky item column and header rows); a row toggle has a `scroll-margin-top` and
+     a column toggle a `scroll-margin-left`; a bar has a `box-shadow` (its halo in the surface colour),
+     the ◆ a `text-shadow`, and the epic window outline a `box-shadow` (its ring); the open tooltip has a
+     `max-height` and `overflow: auto`.
+7. They switch the **Execution** layer off.
+   - *Expected*: every execution bar and every done marker is gone; the plan bars are still drawn.
+8. They switch to **Epics**, pick the golden epic FLO-33 and press **Show**.
+   - *Expected*: the URL is `?epicId=<golden epic>&connectionId=<this spec's>`; the epic is a row and
+     its planned window is outlined across the columns it spans.
+
 ## Scenario: the populated flow, epic and cost pages have no WCAG A/AA violations
 
 1. The user opens WIP (the seeded team), Epic progress (the golden epic) and the Cost matrix by
@@ -294,6 +325,10 @@ finished in autumn 2025, before the six-month window opens.
 
 ## Not covered here (and why)
 
+- **The Deep dive's figures and keyboard grid** — the journey asserts structure and the browser-computed
+  styles; the matrix's sums, the grid's arrow-key navigation and the tooltip's hover/Escape rules are
+  pinned by the SPA's component tests and the server's `DeepDive*Test` classes. Tasks of an epic mode
+  (the handpicked list) is likewise a component-test subject.
 - **The figures of the period views** (throughput's weekly/monthly MD, accuracy ratios, cycle-time
   percentiles) — the journey asserts their presence and shape, not their numbers: they depend on
   the whole stub dataset's worklogs and estimates and are pinned exactly, against independent

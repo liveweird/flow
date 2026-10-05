@@ -8,7 +8,7 @@ outlier detection, and input for continuous improvement. The name refers to the 
 (Theory of Constraints, Kanban, Reinertsen's cost-of-delay economics): exposing where work waits,
 not who is busy.
 
-## What's here today (v0.3.0 — the domain model, metrics and reports)
+## What's here today (v0.4.0 — metrics, reports and the Deep dive)
 
 - **Metrics configuration** — ADMIN-managed: global settings (working calendar and time zone,
   hours per day, sample-size and aging-WIP thresholds) and, per Jira connection, the status →
@@ -19,13 +19,16 @@ not who is busy.
   change and rebuilds the analytical `metrics` star (facts in man-days, daily aggregates, frozen
   sprint snapshots) from the normalized layer and the configuration — never from a Jira call.
   See `.claude/docs/metrics.md`.
-- **Sixteen reports** on fifteen pages (the backlog in sprints sits on the estimated-backlog
+- **Seventeen reports** on sixteen pages (the backlog in sprints sits on the estimated-backlog
   page), open to every signed-in user and drilling unit → team → user; period-based reports take
   any calendar period or the last N sprints: velocity, throughput, sprint consistency and cycle
-  time; task and epic estimation accuracy, estimate adjustments and reported ÷ cycle time; WIP,
-  the estimated backlog, aging WIP and blocked time; epic progress (planned value, earned value
-  and actual cost — PV/EV/AC — in man-days); data quality; and the team × domain cost matrix with
-  foreign work. The Home page is the unit overview. See `.claude/docs/reports.md`.
+  time (tasks, and epics by owner team); task and epic estimation accuracy, estimate adjustments
+  and reported ÷ cycle time; WIP, the estimated backlog, aging WIP and blocked time; epic progress
+  (planned value, earned value and actual cost — PV/EV/AC — in man-days); data quality; and the
+  team × domain cost matrix with foreign work. The **Deep dive** lays plan, execution and cost per
+  task and day side by side for work selected by sprints of a domain, by epics or by handpicked
+  tasks of an epic, drilling months → weeks → days and epics → tasks. The Home page is the unit
+  overview. See `.claude/docs/reports.md`.
 - **Jira Cloud ingestion** (v0.2.0) — ADMIN-managed connections (a service account's scoped,
   read-only API token, encrypted at rest), scheduled and on-demand syncs into a raw store with
   resumable cursors, a daily reconcile, a neutral normalized layer (status/field intervals,

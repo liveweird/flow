@@ -18,7 +18,8 @@ failing test re-syncs only this file. The registered template-title exception (s
 1. Before the block, the admin's API session syncs a Jira-stub data source (waiting, bounded,
    for its SYNC job), creates a team, maps the FLO board to it, waits until a DERIVE has
    produced the golden sprint in the team's velocity, and pauses the connection.
-2. The admin signs in and opens `<page>` — each of the fifteen reports by deep link, narrowed to this
+2. The admin signs in and opens `<page>` — each of the sixteen report pages by deep link (the Deep dive with the golden
+   sprint of the FLO domain selected, so its matrix is drawn), narrowed to this
    connection (`connectionId`) and to the year before the stub's reference date through a week
    after it (so the stub's 2025 sprints and epics are inside), with the seeded team on the
    team-scoped ones (velocity, throughput, sprint consistency, cycle time, task accuracy, WIP,

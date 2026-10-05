@@ -81,6 +81,7 @@ const mdItems = (mdValue: number, items: number) => `${md(mdValue)} (${items})`;
 let api: APIRequestContext | undefined;
 // Assigned as each is created, so a failing beforeAll still lets afterAll remove what exists.
 let dataSourceId: number | undefined;
+let dataSourceName = "";
 let teamId = 0;
 let teamName = "";
 let memberName = "";
@@ -482,6 +483,99 @@ async function readEstimatedBacklog(page: Page): Promise<void> {
   await expect(page).not.toHaveURL(/domain=/);
 }
 
+/** Pick `option` in the Deep dive selection panel's searchable dropdown called `label` (a multiple choice stays open, so the list is closed after). */
+async function pickInPanel(page: Page, label: string, option: string | RegExp): Promise<void> {
+  const select = page.getByRole("combobox", { name: label, exact: true });
+  await select.click();
+  await page.getByRole("option", { name: option, exact: typeof option === "string" }).click();
+  await page.keyboard.press("Escape");
+}
+
+/** One computed style property of the first element `locator` finds — what the stylesheet really resolved to in this browser. */
+async function computed(locator: Locator, property: string): Promise<string> {
+  return locator.first().evaluate((element, name) => getComputedStyle(element).getPropertyValue(name), property);
+}
+
+/** A computed length in px, so "non-zero" is a number comparison rather than a string guess. */
+async function computedPx(locator: Locator, property: string): Promise<number> {
+  return Number.parseFloat(await computed(locator, property));
+}
+
+/** The Deep dive journey: pick the golden sprint's domain and sprint, drill an epic, a month and a cell, switch a layer, then an epic's window. */
+async function diveIntoGoldenSprint(page: Page): Promise<void> {
+  await login(page, reader.email, reader.password);
+  await page.getByRole("link", { name: "Deep dive", exact: true }).click();
+  await expect(page.getByRole("heading", { level: 2, name: "Deep dive", exact: true })).toBeVisible();
+  // Nothing is requested before a selection: the explainer of the three modes stands in.
+  await expect(page.getByRole("heading", { level: 3, name: "Pick something to dive into", exact: true })).toBeVisible();
+
+  // Sprints of a domain: this spec's connection (the picker shows only when the stack holds more than one active connection),
+  // the golden sprint's domain, the golden sprint.
+  if (await page.getByRole("combobox", { name: "Connection", exact: true }).count()) await pickFilter(page, "Connection", dataSourceName);
+  await pickFilter(page, "Domain", "FLO");
+  await pickInPanel(page, "Sprints", GOLDEN.name);
+  await page.getByRole("button", { name: "Show", exact: true }).click();
+  // The URL is the selection, in its canonical order.
+  await expect(page).toHaveURL(new RegExp(`/reports/deep-dive\\?domain=FLO&sprintId=${GOLDEN.sprintId}(&connectionId=${dataSourceId})?$`));
+
+  // The matrix: all three layers drawn, the legend naming each, a done marker, and the golden epic's neighbours as rows.
+  const grid = page.getByRole("grid", { name: "Plan, execution and cost by epic and time" });
+  await expect(grid).toBeVisible();
+  const layers = page.getByRole("group", { name: "Layers shown", exact: true });
+  for (const layer of ["Plan (PV)", "Execution", "Cost (AC)"]) await expect(layers.getByRole("switch", { name: layer, exact: true })).toBeChecked();
+  for (const layer of ["pv", "exec", "cost", "done"]) await expect(page.locator(`[data-layer="${layer}"]`).first()).toBeVisible();
+  await expect(page.getByRole("group", { name: "Legend", exact: true })).toBeVisible();
+
+  // An epic opens into its tasks: the toggle says so, and the tasks are rows under it.
+  const epic = grid.getByRole("button", { name: /^FLO-36 /, expanded: false });
+  await epic.click();
+  await expect(grid.getByRole("button", { name: /^FLO-36 /, expanded: true })).toBeVisible();
+  await expect(grid.getByRole("rowheader", { name: /^FLO-52\b/ })).toBeVisible();
+
+  // A month opens into weeks; focus lands on the first week's header.
+  await grid.getByRole("button", { name: /^Expand \d{4}-\d{2} into weeks$/ }).click();
+  const weeks = grid.getByRole("button", { name: /^Expand \d{4}-W\d{2} into days$/ });
+  await expect(weeks.first()).toBeFocused();
+  await expect(grid.getByRole("button", { name: /^Collapse \d{4}-\d{2}$/ })).toHaveAttribute("aria-expanded", "true");
+
+  // A cell holding logged time carries its author: the keyboard focus alone opens the tooltip with the figures.
+  const costCell = grid.getByRole("gridcell", { name: /^FLO-36 .*Cost \(AC\): [\d.]+ MD \(.*Sample User \d+: [\d.]+ MD/ }).first();
+  await costCell.focus();
+  const tooltip = page.getByRole("tooltip");
+  await expect(tooltip).toBeVisible();
+  await expect(tooltip).toContainText(/Plan \(PV\): [\d.]+ MD/);
+  await expect(tooltip).toContainText(/Cost \(AC\): [\d.]+ MD/);
+  await expect(tooltip.getByRole("listitem").filter({ hasText: /^Sample User \d+: [\d.]+ MD$/ }).first()).toBeVisible();
+
+  // What the stylesheet resolved to in a real browser (the unit tests cannot compute styles).
+  // A focused cell and the controls in the sticky chrome scroll clear of the sticky column and header rows.
+  expect(await computedPx(costCell, "scroll-margin-left"), "a cell clears the sticky item column").toBeGreaterThan(0);
+  expect(await computedPx(costCell, "scroll-margin-top"), "a cell clears the sticky header rows").toBeGreaterThan(0);
+  expect(await computedPx(grid.getByRole("button", { name: /^FLO-36 /, expanded: true }), "scroll-margin-top"), "a row toggle clears the header rows").toBeGreaterThan(0);
+  expect(await computedPx(weeks, "scroll-margin-left"), "a column toggle clears the item column").toBeGreaterThan(0);
+  // A bar, the done marker and the window outline each keep a halo in the surface colour so their edges meet the surface.
+  expect(await computed(page.locator('[data-layer="pv"]'), "box-shadow"), "a bar's halo").not.toBe("none");
+  expect(await computed(page.getByText("◆"), "text-shadow"), "the done marker's halo").not.toBe("none");
+  expect(await computed(page.locator("[data-window]"), "box-shadow"), "the window outline's ring").not.toBe("none");
+  // The open card scrolls inside itself when taller than the screen.
+  expect(await computed(tooltip, "max-height"), "the tooltip is height-capped").not.toBe("none");
+  expect(await computed(tooltip, "overflow")).toBe("auto");
+
+  // A layer toggled off takes its bars (and, for execution, the done markers) away; the others stay.
+  await layers.getByRole("switch", { name: "Execution", exact: true }).click();
+  await expect(page.locator('[data-layer="exec"]')).toHaveCount(0);
+  await expect(page.locator('[data-layer="done"]')).toHaveCount(0);
+  await expect(page.locator('[data-layer="pv"]').first()).toBeVisible();
+
+  // Epics mode, one epic: its planned window is outlined across the columns it spans.
+  await page.getByRole("radiogroup", { name: "How to select work" }).getByText("Epics", { exact: true }).click();
+  await pickInPanel(page, "Epics", new RegExp(`^${GOLDEN_EPIC.issueKey} `));
+  await page.getByRole("button", { name: "Show", exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`/reports/deep-dive\\?epicId=${GOLDEN_EPIC.issueKey}(&connectionId=${dataSourceId})?$`));
+  await expect(grid.getByRole("button", { name: new RegExp(`^${GOLDEN_EPIC.issueKey} `), expanded: false })).toBeVisible();
+  await expect(page.locator("[data-window]").first()).toBeVisible();
+}
+
 test.describe("reports, read by a regular user", () => {
   test.beforeAll(async () => {
     // A full stub sync (~1,200 issues) plus the derivation that follows it: the two waits below
@@ -489,7 +583,7 @@ test.describe("reports, read by a regular user", () => {
     test.setTimeout(960_000);
     ({ api } = await apiAsAdmin());
     const adminApi = api;
-    ({ id: dataSourceId } = await syncStubDataSourceViaApi(adminApi, "e2e-reports-ds"));
+    ({ id: dataSourceId, name: dataSourceName } = await syncStubDataSourceViaApi(adminApi, "e2e-reports-ds"));
     teamName = uniqueText("e2e-reports-team");
     ({ teamId } = await configureMetricsViaApi(adminApi, dataSourceId, teamName));
     // A stub person on the team's roster, so the cost matrix has a real author-team row to drill into.
@@ -777,6 +871,10 @@ test.describe("reports, read by a regular user", () => {
 
   test("the user reads the estimated backlog and what it means in sprints", async ({ page }) => {
     await readEstimatedBacklog(page);
+  });
+
+  test("the user dives into the golden sprint and drills an epic to its tasks", async ({ page }) => {
+    await diveIntoGoldenSprint(page);
   });
 
   test("the populated flow, epic and cost pages have no WCAG A/AA violations", async ({ page }) => {
