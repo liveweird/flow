@@ -885,6 +885,88 @@
     }
   },
   "deepDive": {
+    "title": "Deep dive",
+    "description": "Plan, execution and cost in man-days for a chosen set of work: a domain's tasks in the sprints you pick, whole epics, or handpicked tasks of one epic. Drill months into weeks and days, epics into tasks.",
+    "matrixTitle": "Plan, execution and cost",
+    "range": "Showing {{from}} to {{to}}.",
+    "layersAria": "Layers shown",
+    "badSelection": "This selection cannot be shown",
+    "note": {
+      "rangeClamped": "The selection spans more than 1100 days, so only its last 1100 days are drawn. The totals still cover the whole life of each task. Set a from and to date to choose another range.",
+      "notDerived": "Nothing in this selection has been derived yet, so there are no figures to show. They appear after the connection's next derive."
+    },
+    "explainer": {
+      "title": "Pick something to dive into",
+      "intro": "Choose one of three ways to select work above, then press Show. The selection lives in the page address, so a link shares it.",
+      "SPRINTS": "the tasks of one domain that were in scope at the close of the sprints you pick (up to 52 sprints).",
+      "EPICS": "every task under the epics you pick (up to 50 epics, 500 tasks in all).",
+      "TASKS": "exactly the tasks you pick from one epic (up to 500 tasks)."
+    },
+    "panel": {
+      "title": "Selection",
+      "modeAria": "How to select work",
+      "mode": {
+        "SPRINTS": "Sprints of a domain",
+        "EPICS": "Epics",
+        "TASKS": "Tasks of an epic"
+      },
+      "pickDomain": "Pick a domain",
+      "sprints": "Sprints",
+      "pickSprints": "Search sprints",
+      "epics": "Epics",
+      "pickEpics": "Search epics by key or summary",
+      "epic": "Epic",
+      "pickEpic": "Search an epic by key or summary",
+      "tasks": "Tasks",
+      "pickTasks": "Search tasks by key or summary",
+      "from": "From (optional)",
+      "to": "To (optional)",
+      "dateFormat": "Use the format YYYY-MM-DD.",
+      "dateRange": "The range must start on or before its end and span at most 1100 days.",
+      "show": "Show",
+      "selectedCount": "{{used}} of {{max}} selected.",
+      "moreOptions": "Showing the first {{shown}} of {{total}} matches; type to narrow the list.",
+      "nothingFound": "Nothing found",
+      "searching": "Searching"
+    },
+    "limits": {
+      "title": "Data limits",
+      "countersAria": "What this selection could not draw",
+      "fixedAria": "Rules that always apply",
+      "counter": {
+        "neverInSprint": {
+          "label": "Tasks never in a sprint",
+          "hint": "They have no plan (PV); their execution and cost are still drawn."
+        },
+        "noEstimate": {
+          "label": "Tasks with no estimate at commitment",
+          "hint": "They have no plan (PV) either."
+        },
+        "noWorkingDay": {
+          "label": "Tasks whose sprint has no working day",
+          "hint": "Their estimate has no working day to sit on, so there is no plan (PV) to draw."
+        },
+        "epicsWithoutWindow": {
+          "label": "Epics without a planned window",
+          "hint": "They get no dashed outline."
+        },
+        "laterFallback": {
+          "label": "Tasks planned from a later sprint",
+          "hint": "Their plan (PV) uses the estimate from the first later sprint that has one, not the earliest sprint's."
+        },
+        "epicOwnCostMd": {
+          "label": "Man-days logged on the epics themselves",
+          "hint": "Shown on each epic's own line, never spread over its tasks."
+        }
+      },
+      "fixed": {
+        "asWas": "A task's domain is the one it had when it was done, or today's while it is open.",
+        "subTasks": "Sub-tasks are not rows: the work logged on a sub-task counts under its parent task.",
+        "execution": "Execution is time spent in an in-progress status on working days; blocked time is not subtracted.",
+        "worklogDay": "A worklog covering several days lands on the day it started."
+      },
+      "asOf": "Data as of {{day}}, the day of the last derive."
+    },
     "matrix": {
       "gridLabel": "Plan, execution and cost by epic and time",
       "empty": "There is no work to show for this selection.",
@@ -970,7 +1052,9 @@
         "days": "Showing days of {{label}}",
         "collapsed": "Collapsed {{label}}",
         "months": "Showing months",
-        "rows": "All rows collapsed"
+        "rows": "All rows collapsed",
+        "rowOpened": "Opened {{label}}",
+        "rowClosed": "Closed {{label}}"
       },
       "planned": "Planned {{from}} to {{to}}",
       "budget": "Budget {{value}} MD",

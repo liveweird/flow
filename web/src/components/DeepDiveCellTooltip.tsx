@@ -40,8 +40,8 @@ export default function DeepDiveCellTooltip({
   tip: CellTip;
   tipRef: RefObject<HTMLDivElement | null>;
   title: string;
-  /** The date line, already carrying "non-working" for such a column. */
-  span: string;
+  /** The date line, already carrying "non-working" for such a column; `null` for a day column, whose title says it. */
+  span: string | null;
   /** `null` when the cell holds nothing in the layers shown. */
   facts: CellFacts | null;
   tipProps: Pick<HTMLAttributes<HTMLElement>, "onMouseEnter" | "onMouseLeave">;
@@ -77,9 +77,11 @@ export default function DeepDiveCellTooltip({
           <Text size="sm" fw={600}>
             {title}
           </Text>
-          <Text size="xs" c="dimmed">
-            {span}
-          </Text>
+          {span !== null && (
+            <Text size="xs" c="dimmed">
+              {span}
+            </Text>
+          )}
           {lines.map((line) => (
             <Text key={line} size="sm">
               {line}

@@ -123,7 +123,9 @@ function navigate(table: HTMLElement, from: HTMLElement, key: string, ctrl: bool
 type PendingFocus =
   | { kind: "firstChild"; id: string }
   | { kind: "header"; id: string }
-  | { kind: "roving" };
+  | { kind: "roving" }
+  /** An epic toggle: its button survives a normal drill, so focus moves only if the size guard replaced the grid. */
+  | { kind: "guard" };
 
 /** One cached row list per matrix: opening an epic reuses every other row object, so their memoised renders hold. */
 const ROW_CACHES = new WeakMap<MatrixModel, Map<string, GridRow>>();
@@ -159,7 +161,7 @@ interface RowProps {
   scale: LayerScale;
   /** The grid column holding the tab stop when it is in this row, else -1. */
   activeCol: number;
-  onToggle: (rowId: string) => void;
+  onToggle: (rowId: string, label: string, expanding: boolean) => void;
 }
 
 function RowHeader({
@@ -185,7 +187,7 @@ function RowHeader({
         <UnstyledButton
           className={classes.ddToggle}
           aria-expanded={gridRow.expanded}
-          onClick={() => onToggle(gridRow.row.id)}
+          onClick={() => onToggle(gridRow.row.id, label, !gridRow.expanded)}
           {...navigation}
         >
           {gridRow.expanded ? <IconChevronDown size={14} aria-hidden /> : <IconChevronRight size={14} aria-hidden />}
@@ -281,7 +283,7 @@ function HeaderCellView({
     // An open month or week: stays on screen as the control that closes it, spanning the columns it produced.
     return (
       <th
-        scope="colgroup"
+        scope="col"
         role="columnheader"
         colSpan={cell.colSpan}
         className={`${classes.ddColHead} ${classes.ddGroupHead}`}
@@ -356,7 +358,8 @@ export default function DeepDiveMatrix({
   const [openColumns, setOpenColumns] = useState<ReadonlySet<string>>(NO_EXPANSION);
   const [openEpics, setOpenEpics] = useState<ReadonlySet<string>>(NO_EXPANSION);
   const [active, setActive] = useState<GridPos>({ r: 1, c: 0 });
-  const [announcement, setAnnouncement] = useState("");
+  const [announcement, setAnnouncement] = useState({ text: "", n: 0 });
+  const noticeRef = useRef<HTMLDivElement>(null);
   const tableRef = useRef<HTMLTableElement>(null);
   const pendingFocus = useRef<PendingFocus | null>(null);
   const { tip, tipRef, gridProps, tipProps } = useDeepDiveTooltip();
@@ -377,25 +380,41 @@ export default function DeepDiveMatrix({
     [report],
   );
   const header = useMemo(() => headerModel(columns, lineage), [columns, lineage]);
-  const captions = useMemo(() => columns.map((c) => `${c.label}, ${columnCaption(c, t)}`), [columns, t]);
+  // A day column's label IS its date: the caption says it once.
+  const captions = useMemo(
+    () => columns.map((c) => (c.kind === "day" ? columnCaption(c, t) : `${c.label}, ${columnCaption(c, t)}`)),
+    [columns, t],
+  );
 
-  const toggleEpic = useCallback((id: string) => {
-    setOpenEpics((prev) => {
-      const next = new Set(prev);
-      if (!next.delete(id)) next.add(id);
-      return next;
-    });
-  }, []);
+  // Each announcement is a fresh keyed node, so the same words twice in a row are read twice.
+  const announce = useCallback((text: string) => setAnnouncement((prev) => ({ text, n: prev.n + 1 })), []);
+  const toggleEpic = useCallback(
+    (id: string, label: string, expanding: boolean) => {
+      setOpenEpics((prev) => {
+        const next = new Set(prev);
+        if (!next.delete(id)) next.add(id);
+        return next;
+      });
+      // If the drill trips the size guard the grid (and this button) is replaced: focus then goes to the notice.
+      pendingFocus.current = { kind: "guard" };
+      announce(t(expanding ? "reports.deepDive.matrix.announce.rowOpened" : "reports.deepDive.matrix.announce.rowClosed", { label }));
+    },
+    [announce, t],
+  );
   const drill = useCallback(
     (column: TimeColumn, expanding: boolean) => {
       setOpenColumns((prev) => {
         const next = new Set(prev);
         if (expanding) next.add(column.id);
-        else next.delete(column.id);
+        else {
+          // closing a month forgets the weeks opened inside it too
+          next.delete(column.id);
+          for (const child of lineage.values()) if (child.parentId === column.id) next.delete(child.id);
+        }
         return next;
       });
       pendingFocus.current = expanding ? { kind: "firstChild", id: column.id } : { kind: "header", id: column.id };
-      setAnnouncement(
+      announce(
         expanding
           ? t(column.kind === "month" ? "reports.deepDive.matrix.announce.weeks" : "reports.deepDive.matrix.announce.days", {
               label: column.label,
@@ -403,28 +422,43 @@ export default function DeepDiveMatrix({
           : t("reports.deepDive.matrix.announce.collapsed", { label: column.label }),
       );
     },
-    [t],
+    [t, lineage, announce],
   );
   const collapseColumns = () => {
     setOpenColumns(NO_EXPANSION);
     pendingFocus.current = { kind: "roving" };
-    setAnnouncement(t("reports.deepDive.matrix.announce.months"));
+    announce(t("reports.deepDive.matrix.announce.months"));
   };
   const collapseRows = () => {
     setOpenEpics(NO_EXPANSION);
     pendingFocus.current = { kind: "roving" };
-    setAnnouncement(t("reports.deepDive.matrix.announce.rows"));
+    announce(t("reports.deepDive.matrix.announce.rows"));
   };
 
-  // A drill replaces the header control that was pressed, so focus is put back by hand once the grid has rendered.
+  // A drill replaces the header control that was pressed, so focus is put back by hand once the grid has rendered —
+  // or, when the drill tripped the size guard and there is no grid, onto the notice's first button.
   useLayoutEffect(() => {
     const pending = pendingFocus.current;
-    const table = tableRef.current;
-    if (pending === null || table === null) return;
+    if (pending === null) return;
     pendingFocus.current = null;
+    const table = tableRef.current;
+    if (table === null) {
+      noticeRef.current?.querySelector<HTMLElement>("button")?.focus();
+      return;
+    }
+    if (pending.kind === "guard") return;
     let id: string | null = null;
     if (pending.kind === "header") id = pending.id;
-    else if (pending.kind === "firstChild") id = columns.find((c) => c.parentId === pending.id)?.id ?? null;
+    else if (pending.kind === "firstChild") {
+      // the first child in order: a week for a month, the week's first day for a week (even when that child is itself open)
+      const parent = lineage.get(pending.id);
+      id =
+        parent === undefined
+          ? null
+          : parent.kind === "month"
+            ? ([...lineage.values()].find((c) => c.parentId === parent.id)?.id ?? null)
+            : `day:${parent.fromDate}`;
+    }
     const target =
       id === null
         ? table.querySelector<HTMLElement>('[data-grid-pos][tabindex="0"]')
@@ -470,6 +504,22 @@ export default function DeepDiveMatrix({
     );
   }
 
+  const collapseButtons =
+    drilledColumns || drilledRows ? (
+      <Group gap="xs" wrap="wrap" role="group" aria-label={t("reports.deepDive.matrix.collapseLabel")}>
+        {drilledColumns && (
+          <Button variant="subtle" size="compact-xs" onClick={collapseColumns}>
+            {t("reports.deepDive.matrix.collapseAllColumns")}
+          </Button>
+        )}
+        {drilledRows && (
+          <Button variant="subtle" size="compact-xs" onClick={collapseRows}>
+            {t("reports.deepDive.matrix.collapseAllRows")}
+          </Button>
+        )}
+      </Group>
+    ) : null;
+
   const tipRow = tip === null ? undefined : rows[tip.row];
   const tipColumn = tip === null ? undefined : columns[tip.col];
   const tipCell = tipRow?.row.cells[tip?.col ?? 0];
@@ -479,30 +529,22 @@ export default function DeepDiveMatrix({
   return (
     <Stack gap="md">
       <VisuallyHidden role="status" aria-live="polite">
-        {announcement}
+        {announcement.n > 0 && <span key={announcement.n}>{announcement.text}</span>}
       </VisuallyHidden>
-      {(drilledColumns || drilledRows) && (
-        <Group gap="xs" wrap="wrap" role="group" aria-label={t("reports.deepDive.matrix.collapseLabel")}>
-          {drilledColumns && (
-            <Button variant="subtle" size="compact-xs" onClick={collapseColumns}>
-              {t("reports.deepDive.matrix.collapseAllColumns")}
-            </Button>
-          )}
-          {drilledRows && (
-            <Button variant="subtle" size="compact-xs" onClick={collapseRows}>
-              {t("reports.deepDive.matrix.collapseAllRows")}
-            </Button>
-          )}
-        </Group>
-      )}
+      {!tooLarge && collapseButtons}
 
       {tooLarge ? (
-        <Alert color="orange" variant="light">
-          {t(drilledColumns || drilledRows ? "reports.deepDive.matrix.tooLarge" : "reports.deepDive.matrix.tooLargeNarrow", {
-            rows: rows.length,
-            columns: columns.length,
-            cells,
-          })}
+        <Alert ref={noticeRef} role="status" color="orange" variant="light">
+          <Stack gap="xs" align="flex-start">
+            <Text size="sm">
+              {t(drilledColumns || drilledRows ? "reports.deepDive.matrix.tooLarge" : "reports.deepDive.matrix.tooLargeNarrow", {
+                rows: rows.length,
+                columns: columns.length,
+                cells,
+              })}
+            </Text>
+            {collapseButtons}
+          </Stack>
         </Alert>
       ) : (
         <ScrollRegion
@@ -574,8 +616,8 @@ export default function DeepDiveMatrix({
         <DeepDiveCellTooltip
           tip={tip}
           tipRef={tipRef}
-          title={cellTitle(rowLabel(tipRow.row, t), tipColumn.label)}
-          span={columnCaption(tipColumn, t)}
+          title={cellTitle(rowLabel(tipRow.row, t), tipColumn.kind === "day" ? columnCaption(tipColumn, t) : tipColumn.label)}
+          span={tipColumn.kind === "day" ? null : columnCaption(tipColumn, t)}
           facts={cellHasFigures(tipCell, shown) ? cellFacts(tipCell, shown, t) : null}
           tipProps={tipProps}
         />

@@ -323,6 +323,36 @@ completed · the report's figures · the orange drift badge with the frozen figu
   sprint and answers empty). A sprint-relative period says so: the unit's team rows read the union envelope, a team drill only its own
   sprints. The bar offers period, team/member, domain, domain view, activity type, work category and (with more than one) connection;
   `normalizeCostMatrixFilter` drops `bucket`, `by`, `itemKind` and `epicId` off the request and the URL.
+- **Deep dive** (`pages/ReportDeepDive.tsx`, `/reports/deep-dive`, its own single-page nav leaf `appShell.nav.reportsDeepDive` — a group of one like
+  the cost matrix; `.claude/docs/reports.md` "Report 17", A29). **The URL is the selection and nothing else** (`utils/deepDiveFilter.ts`: repeated
+  `sprintId`/`epicId`/`issueId`, `domain`, `connectionId`, `from`/`to`; forgiving parse that keeps ONE mode by precedence, canonical order, sorted
+  values — that string is the page query key); layer switches (`Switch`es for plan, execution, cost) are remembered per viewer
+  (`useStoredState`, `reports.deepDive.layers`, all on by default, a corrupt value falls back), drill state is local to the matrix. **No selection**
+  (or an incomplete one in a pasted link) shows an explainer of the three modes and requests nothing; the report is requested only for a complete
+  selection, with NO kept previous data (a new selection is a loader, never a stale grid) and `DeepDiveMatrix` is keyed by the serialized selection
+  so a cached answer for another selection never inherits an open month. Failures are inline: a `400` prints the server's own `detail` (too many
+  tasks, an unknown epic — admin-grade prose, shown as written) under "This selection cannot be shown", anything else the shared `ErrorAlert`.
+  **`components/DeepDiveSelectionPanel.tsx`** (draft logic in `utils/deepDivePanel.ts`): a `SegmentedControl` for the modes — Sprints of a domain
+  (domain `Select` from the shared filters' domains + sprint pickers, max 52), Epics (max 50), Tasks of an epic (an epic `Select` + task picker, max 500);
+  the pickers are `components/DeepDivePicker.tsx`: a searchable `Select`/`MultiSelect` over a server list, the typed text debounced 300 ms into `q`,
+  the combobox's own filter switched off (the server already matched key AND summary), picked values kept in the data (their label remembered from
+  the answer they were picked from, else from the loaded report's names, else the value) so they survive any search, a "N of MAX selected" line, a
+  "showing the first N of M" line when the page (100) was cut, and the picker's own failure inline. The panel holds a DRAFT and only the explicit
+  **Show** button writes it to the URL (a push, so Back works) — typing and picking fire no report request; switching the mode drops every pick
+  (they belong to the old mode) and keeps connection and dates, a new domain/epic/connection drops the picks listed under the old one; the
+  connection select exists only with more than one active connection; `From`/`To` are optional `YYYY-MM-DD` text inputs (clip) whose malformed or
+  reversed/over-1100-day values name the problem and block Show. A `NOT_DERIVED` answer is one gray note and no grid; `RANGE_CLAMPED` an orange note
+  above the grid (both translated — the server's English `note` is shown verbatim only for any other kind); under the matrix sit the **data limits**
+  (`components/DeepDiveLimits.tsx`: the six `quality` counters, zeros included, each with a one-line why, then the fixed rules — as-was domain,
+  sub-tasks roll up, status-based execution without blocked time, a worklog on its start day — and the freshness day `range.asOfDay`).
+  **The matrix** (`components/DeepDiveMatrix.tsx`, model and sums in `utils/deepDiveMatrix.ts`): a `<table role="grid">` in a `ScrollRegion` with a
+  roving tab stop (arrows, Home/End), drill headers that are buttons with `aria-expanded` (months → ISO weeks → days, epics → tasks), a polite live
+  region for each drill, ONE tooltip on hover or focus (Escape closes it), every cell's `aria-label` carrying its numbers, and the legend, a summary
+  table and the visible figures behind `DailyTableDisclosure` as the text alternative. Contrast and identity: plan (`flow.6`) is a full-width bar,
+  execution (`teal.8`) two-thirds, cost (`gray.6`) one-third, each semi-transparent with a solid 2 px edge that carries the 3:1, so colour is never the
+  only cue; plan and cost share one man-day scale and execution has its own (the legend says so). **The 25k guard:** more visible cells (rows ×
+  columns) than 25,000 — or more figures in the bucket table than that — replaces the grid with a notice asking to collapse or narrow, so the DOM stays
+  bounded however large the answer.
 - **Home overview** (`pages/Home.tsx`, plan amendment A9; `utils/homeOverview.ts` is its pure logic). The landing page is
   the WHOLE unit at a glance — never the remembered team, the page description says so — as four tiles over UNIT-level
   report endpoints, **five requests and no aggregator** (`["home", <report>]` keys, staleTime 60 s; the budget is pinned by

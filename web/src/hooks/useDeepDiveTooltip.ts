@@ -44,6 +44,8 @@ export function useDeepDiveTooltip() {
   const current = useRef<string | null>(null);
   const dismissed = useRef<string | null>(null);
   const anchor = useRef<HTMLElement | null>(null);
+  /** How the open card was opened (a ref beside `tip` so `hideSoon` can read it without re-creating). */
+  const opener = useRef<CellTip["source"] | null>(null);
   const tipRef = useRef<HTMLDivElement | null>(null);
 
   const cancelHide = useCallback(() => {
@@ -58,11 +60,14 @@ export function useDeepDiveTooltip() {
     dismissed.current = null;
     current.current = null;
     anchor.current = null;
+    opener.current = null;
     setTip(null);
   }, [cancelHide, cancelShow]);
   const hideSoon = useCallback(() => {
     cancelHide();
     cancelShow();
+    // A card the keyboard opened belongs to the focused cell: the pointer coming and going never closes it while focus is still there.
+    if (opener.current === "focus" && anchor.current !== null && document.activeElement === anchor.current) return;
     hideTimer.current = window.setTimeout(close, HIDE_DELAY_MS);
   }, [cancelHide, cancelShow, close]);
 
@@ -72,6 +77,7 @@ export function useDeepDiveTooltip() {
     current.current = `${row}:${col}`;
     dismissed.current = null;
     anchor.current = cell;
+    opener.current = source;
     const rect = cell.getBoundingClientRect();
     setTip({ row, col, left: rect.left, top: rect.top, bottom: rect.bottom, source });
   }, []);
@@ -101,6 +107,7 @@ export function useDeepDiveTooltip() {
       cancelShow();
       dismissed.current = tipKey;
       current.current = null;
+      opener.current = null;
       setTip(null);
     };
     const onScroll = (event: Event) => {

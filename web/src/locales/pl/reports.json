@@ -910,6 +910,88 @@
     }
   },
   "deepDive": {
+    "title": "Analiza szczegółowa",
+    "description": "Plan, wykonanie i koszt w osobodniach dla wybranego zbioru pracy: zadania domeny w wybranych sprintach, całe epiki albo ręcznie wybrane zadania jednego epika. Miesiące rozwijasz w tygodnie i dni, epiki w zadania.",
+    "matrixTitle": "Plan, wykonanie i koszt",
+    "range": "Widoczny zakres: od {{from}} do {{to}}.",
+    "layersAria": "Widoczne warstwy",
+    "badSelection": "Nie da się pokazać tego wyboru",
+    "note": {
+      "rangeClamped": "Wybór obejmuje ponad 1100 dni, więc rysujemy tylko jego ostatnie 1100 dni. Sumy nadal obejmują cały okres życia każdego zadania. Ustaw daty od i do, aby wybrać inny zakres.",
+      "notDerived": "Nie wyliczyliśmy jeszcze nic z tego wyboru, więc nie ma liczb do pokazania. Pojawią się po następnym wyliczeniu danych połączenia."
+    },
+    "explainer": {
+      "title": "Wybierz, w co zajrzeć",
+      "intro": "Wybierz powyżej jeden z trzech sposobów wyboru pracy i naciśnij „Pokaż”. Wybór zapisuje się w adresie strony, więc link go udostępnia.",
+      "SPRINTS": "zadania jednej domeny, które były w zakresie w chwili zamknięcia wybranych sprintów (do 52 sprintów).",
+      "EPICS": "wszystkie zadania wybranych epików (do 50 epików, w sumie do 500 zadań).",
+      "TASKS": "dokładnie te zadania jednego epika, które wybierzesz (do 500 zadań)."
+    },
+    "panel": {
+      "title": "Wybór",
+      "modeAria": "Sposób wyboru pracy",
+      "mode": {
+        "SPRINTS": "Sprinty domeny",
+        "EPICS": "Epiki",
+        "TASKS": "Zadania epika"
+      },
+      "pickDomain": "Wybierz domenę",
+      "sprints": "Sprinty",
+      "pickSprints": "Szukaj sprintów",
+      "epics": "Epiki",
+      "pickEpics": "Szukaj epików po kluczu lub streszczeniu",
+      "epic": "Epik",
+      "pickEpic": "Szukaj epika po kluczu lub streszczeniu",
+      "tasks": "Zadania",
+      "pickTasks": "Szukaj zadań po kluczu lub streszczeniu",
+      "from": "Od (opcjonalnie)",
+      "to": "Do (opcjonalnie)",
+      "dateFormat": "Użyj formatu RRRR-MM-DD.",
+      "dateRange": "Początek zakresu nie może przypadać po jego końcu, a zakres może obejmować najwyżej 1100 dni.",
+      "show": "Pokaż",
+      "selectedCount": "Wybrano {{used}} z {{max}}.",
+      "moreOptions": "Widać pierwsze {{shown}} z {{total}} wyników; wpisz tekst, aby zawęzić listę.",
+      "nothingFound": "Nic nie znaleziono",
+      "searching": "Wyszukiwanie"
+    },
+    "limits": {
+      "title": "Ograniczenia danych",
+      "countersAria": "Czego ten wybór nie mógł narysować",
+      "fixedAria": "Zasady, które zawsze obowiązują",
+      "counter": {
+        "neverInSprint": {
+          "label": "Zadania, których nigdy nie było w sprincie",
+          "hint": "Nie mają planu (PV); ich wykonanie i koszt nadal widać."
+        },
+        "noEstimate": {
+          "label": "Zadania bez oszacowania w chwili zobowiązania",
+          "hint": "One też nie mają planu (PV)."
+        },
+        "noWorkingDay": {
+          "label": "Zadania, których sprint nie ma dnia roboczego",
+          "hint": "Ich oszacowanie nie ma na czym się oprzeć, więc nie ma planu (PV) do narysowania."
+        },
+        "epicsWithoutWindow": {
+          "label": "Epiki bez zaplanowanego okna",
+          "hint": "Nie mają przerywanego obrysu."
+        },
+        "laterFallback": {
+          "label": "Zadania zaplanowane według późniejszego sprintu",
+          "hint": "Ich plan (PV) bierze oszacowanie z pierwszego późniejszego sprintu, który je ma, a nie z najwcześniejszego."
+        },
+        "epicOwnCostMd": {
+          "label": "Osobodni zalogowane na samych epikach",
+          "hint": "Widać je w osobnym wierszu epika; nigdy nie rozkładamy ich na jego zadania."
+        }
+      },
+      "fixed": {
+        "asWas": "Domena zadania to ta, którą miało w chwili zakończenia, a dla zadania otwartego – dzisiejsza.",
+        "subTasks": "Podzadania nie mają własnych wierszy: praca zalogowana na podzadaniu liczy się przy zadaniu nadrzędnym.",
+        "execution": "Wykonanie to czas w statusie „w toku” w dni robocze; czasu zablokowania nie odejmujemy.",
+        "worklogDay": "Wpis czasu pracy obejmujący kilka dni trafia na dzień, w którym się zaczął."
+      },
+      "asOf": "Dane na dzień {{day}}, czyli dzień ostatniego wyliczenia."
+    },
     "matrix": {
       "gridLabel": "Plan, wykonanie i koszt według epików i czasu",
       "empty": "Dla tego wyboru nie ma pracy do pokazania.",
@@ -995,7 +1077,9 @@
         "days": "Pokazano dni okresu {{label}}",
         "collapsed": "Zwinięto {{label}}",
         "months": "Pokazano miesiące",
-        "rows": "Zwinięto wszystkie wiersze"
+        "rows": "Zwinięto wszystkie wiersze",
+        "rowOpened": "Otwarto {{label}}",
+        "rowClosed": "Zamknięto {{label}}"
       },
       "planned": "Zaplanowano od {{from}} do {{to}}",
       "budget": "Budżet {{value}} MD",

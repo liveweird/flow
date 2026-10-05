@@ -13,10 +13,11 @@ import {
   IconToggleLeft,
   IconUsers,
   IconUsersGroup,
+  IconZoomScan,
   type Icon,
 } from "@tabler/icons-react";
 import { dataSourcesPath } from "./dataSourceLinks";
-import { costMatrixPath, dataQualityPath, DELIVERY_TABS, ESTIMATION_TABS, FLOW_TABS, taskAccuracyPath, velocityPath, wipPath } from "./reportLinks";
+import { costMatrixPath, dataQualityPath, deepDiveBasePath, DELIVERY_TABS, ESTIMATION_TABS, FLOW_TABS, taskAccuracyPath, velocityPath, wipPath } from "./reportLinks";
 import { teamsPath } from "./teamLinks";
 import { usersPath } from "./userLinks";
 
@@ -82,6 +83,8 @@ const NAV_SECTIONS: ReadonlyArray<NavSection> = [
       { to: dataQualityPath, label: "appShell.nav.reportsDataQuality", icon: IconChecklist },
       // Also a group of one: the cost matrix is a different shape from the flow reports (a matrix, not a series).
       { to: costMatrixPath, label: "appShell.nav.reportsCost", icon: IconCoin },
+      // And the Deep dive: one matrix over a selection the page's own panel makes, so it has no tabs either.
+      { to: deepDiveBasePath, label: "appShell.nav.reportsDeepDive", icon: IconZoomScan },
     ],
   },
   {

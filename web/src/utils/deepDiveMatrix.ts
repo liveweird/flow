@@ -447,7 +447,7 @@ function scaleOf(rows: Iterable<MatrixRow>): LayerScale {
 /** Whether the SELECTED connection has derived (`meta.derivedAt` spans every connection in scope, so it cannot say). */
 const isDerived = (report: DeepDiveReport) => report.range.asOfDay !== null;
 
-function noteOf(report: DeepDiveReport): DeepDiveMatrix["note"] {
+export function noteOf(report: DeepDiveReport): DeepDiveMatrix["note"] {
   if (report.note === null) return null;
   if (report.note.startsWith("RANGE_CLAMPED"))
     return { kind: "RANGE_CLAMPED", text: report.note };

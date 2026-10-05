@@ -52,8 +52,10 @@ describe("chart series colours clear WCAG 1.4.11 (3:1) on every chart surface", 
       return `#${channels.join("")}`;
     };
     const layers = [CHART_COLORS.deepDivePlan, CHART_COLORS.deepDiveExecution, CHART_COLORS.deepDiveCost];
+    // the epic window's dashed outline is drawn over the bars too, ringed in the surface the same way
+    const edges = [...layers, CHART_COLORS.deepDiveWindow];
     let unhaloedWorst = Infinity;
-    for (const edge of layers) {
+    for (const edge of edges) {
       for (const surface of [...LIGHT_SURFACES, ...DARK_SURFACES]) {
         // the halo is the surface itself, so with it the edge is always measured against the surface
         expect(contrast(shade(edge), surface), `${edge} edge on halo ${surface}`).toBeGreaterThanOrEqual(3);

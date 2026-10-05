@@ -71,7 +71,7 @@ const rowOf = (name: RegExp | string) => within(gridOf()).getByRole("rowheader",
 const headerTexts = () => within(gridOf()).getAllByRole("columnheader").map((th) => th.textContent);
 const expandMonth = (label: string) => screen.getByRole("button", { name: `Expand ${label} into weeks` });
 const expandWeek = (label: string) => screen.getByRole("button", { name: `Expand ${label} into days` });
-const alphaCell = (column: string) => within(rowOf(/E-1 Alpha/)).getByRole("gridcell", { name: new RegExp(`^E-1 Alpha, ${column},`) });
+const alphaCell = (column: string) => within(rowOf(/E-1 Alpha/)).getByRole("gridcell", { name: new RegExp(`^E-1 Alpha, ${column}[ ,:]`) });
 const focusOn = (element: HTMLElement) => act(() => element.focus());
 const rect = (left: number, top: number, bottom: number, width = 80) =>
   ({ left, top, bottom, right: left + width, width, height: bottom - top, x: left, y: top, toJSON: () => ({}) }) as DOMRect;
@@ -306,7 +306,7 @@ describe("DeepDiveMatrix: labels and tooltip text", () => {
     expect(within(gridOf()).getByRole("columnheader", { name: "2026-09-04" }).className).not.toContain("ddHatched");
     const saturday = alphaCell("2026-09-05");
     expect(saturday.className).toContain("ddHatched");
-    expect(saturday).toHaveAccessibleName("E-1 Alpha, 2026-09-05, 2026-09-05 (non-working): nothing in this period");
+    expect(saturday).toHaveAccessibleName("E-1 Alpha, 2026-09-05 (non-working): nothing in this period");
     expect(alphaCell("2026-09-04")).not.toHaveAccessibleName(expect.stringContaining("non-working"));
   });
 
@@ -336,8 +336,11 @@ describe("DeepDiveMatrix: labels and tooltip text", () => {
     await user.click(expandMonth("2026-09"));
     await user.click(expandWeek("2026-W36"));
     const saturday = alphaCell("2026-09-05");
-    await compare(saturday, "E-1 Alpha, 2026-09-05, 2026-09-05 (non-working)".length);
-    expect(screen.getByRole("tooltip")).toHaveTextContent("2026-09-05 (non-working)");
+    await compare(saturday, "E-1 Alpha, 2026-09-05 (non-working)".length);
+    const tipText = screen.getByRole("tooltip").textContent ?? "";
+    expect(tipText).toContain("2026-09-05 (non-working)");
+    // a day column's label IS its date: the card says it once, in the title
+    expect(tipText.split("2026-09-05")).toHaveLength(2);
   });
 
   test("the tooltip opens on keyboard focus with the author list and closes on Escape", async () => {
@@ -760,6 +763,84 @@ test("a hover that moves onto another cell does not wait forever: the tooltip ke
   await waitFor(() => expect(screen.getByRole("tooltip")).toHaveTextContent("E-1 Alpha, 2026-09"));
 });
 
+describe("DeepDiveMatrix: follow-up behaviours", () => {
+  test("an open month or week header is a column header (scope col), not a column group", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<DeepDiveMatrix report={sampleReport()} layers={ALL} />);
+    await user.click(expandMonth("2026-09"));
+    expect(screen.getByRole("button", { name: "Collapse 2026-09" }).closest("th")).toHaveAttribute("scope", "col");
+    for (const th of within(gridOf()).getAllByRole("columnheader")) expect(th).toHaveAttribute("scope", "col");
+  });
+
+  test("closing a month also forgets the weeks opened inside it", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<DeepDiveMatrix report={sampleReport()} layers={ALL} />);
+    await user.click(expandMonth("2026-09"));
+    await user.click(expandWeek("2026-W37"));
+    expect(screen.getByRole("button", { name: "Collapse 2026-W37" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Collapse 2026-09" }));
+    await user.click(expandMonth("2026-09"));
+    expect(expandWeek("2026-W37")).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("button", { name: "Collapse 2026-W37" })).not.toBeInTheDocument();
+    expect(expandWeek("2026-W36")).toHaveFocus(); // the first child in order
+  });
+
+  test("opening and closing an epic is announced too, and every announcement is a fresh node so a repeat is read again", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<DeepDiveMatrix report={sampleReport()} layers={ALL} />);
+    const status = screen.getAllByRole("status")[0];
+    await user.click(screen.getByRole("button", { name: "E-1 Alpha" }));
+    expect(status).toHaveTextContent("Opened E-1 Alpha");
+    await user.click(screen.getByRole("button", { name: "Collapse all rows" }));
+    const first = status.firstElementChild;
+    expect(status).toHaveTextContent("All rows collapsed");
+    await user.click(screen.getByRole("button", { name: "E-1 Alpha" }));
+    await user.click(screen.getByRole("button", { name: "E-1 Alpha" }));
+    expect(status).toHaveTextContent("Closed E-1 Alpha");
+    await user.click(screen.getByRole("button", { name: "E-1 Alpha" }));
+    await user.click(screen.getByRole("button", { name: "Collapse all rows" }));
+    expect(status).toHaveTextContent("All rows collapsed");
+    expect(status.firstElementChild).not.toBe(first);
+    expect(first?.isConnected).toBe(false);
+  });
+
+  test("a drill that trips the size guard moves focus into the notice, which announces the true state", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<DeepDiveMatrix report={sampleReport()} layers={ALL} maxCells={12} />);
+    await user.click(screen.getByRole("button", { name: "E-1 Alpha" }));
+    const notice = screen.getByText(/Collapse some columns or epics/).closest('[role="status"]') as HTMLElement;
+    expect(notice).not.toBeNull();
+    expect(within(notice).getByRole("button", { name: "Collapse all rows" })).toHaveFocus();
+    await user.click(within(notice).getByRole("button", { name: "Collapse all rows" }));
+    expect(screen.getByRole("grid")).toBeInTheDocument();
+    assertFocusedIsTabStop();
+  });
+
+  test("a column drill that trips the size guard also lands on the notice", async () => {
+    const user = userEvent.setup();
+    // 5 rows × 2 months = 10 cells fit; 5 × 3 = 15 (month, two weeks) do not
+    renderWithProviders(<DeepDiveMatrix report={sampleReport()} layers={ALL} maxCells={12} />);
+    await user.click(expandMonth("2026-09"));
+    const notice = screen.getByText(/Collapse some columns or epics/).closest('[role="status"]') as HTMLElement;
+    expect(within(notice).getByRole("button", { name: "Collapse all columns" })).toHaveFocus();
+  });
+
+  test("a card the keyboard opened stays while the pointer comes and goes, until focus leaves or Escape", async () => {
+    vi.useFakeTimers();
+    renderWithProviders(<DeepDiveMatrix report={sampleReport()} layers={ALL} />);
+    focusOn(alphaCell("2026-09"));
+    expect(screen.getByRole("tooltip")).toBeInTheDocument();
+    fireEvent.mouseOver(within(rowOf(/E-3 Gamma/)).getAllByRole("gridcell")[0]); // pointer elsewhere...
+    fireEvent.mouseLeave(gridOf());
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+    expect(screen.getByRole("tooltip")).toBeInTheDocument(); // ...focus is still on the cell, so the card stays
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+  });
+});
+
 describe("the stylesheet's accessibility pins", () => {
   const css = readFileSync(join(process.cwd(), "src", "theme.module.css"), "utf8");
   const block = (selector: string) => {
@@ -773,6 +854,21 @@ describe("the stylesheet's accessibility pins", () => {
     expect(block(".ddTd")).toContain("scroll-margin-top: calc(var(--dd-head-row) * var(--dd-head-rows, 1))");
     expect(block(".ddColHead")).toContain("scroll-margin-left: var(--dd-item-width)");
     expect(block(".ddRowHeader")).toContain("width: var(--dd-item-width)");
+  });
+
+  test("the row toggles and the column toggles scroll clear of the sticky chrome too", () => {
+    const rows = block(".ddRowHeader .ddToggle,\n.ddRowHeader .ddItem");
+    expect(rows).toContain("scroll-margin-top: calc(var(--dd-head-row) * var(--dd-head-rows, 1))");
+    expect(block(".ddColHead .ddToggle")).toContain("scroll-margin-left: var(--dd-item-width)");
+  });
+
+  test("the planned window's dashed outline has a 1px surface ring on both sides of each drawn edge", () => {
+    const outline = block(".ddOutline");
+    expect(outline).toContain("border-top: 2px dashed var(--dd-window)");
+    expect(outline).toContain("0 -1px 0 0 var(--mantine-color-body)");
+    expect(outline).toContain("inset 0 1px 0 0 var(--mantine-color-body)");
+    expect(block(".ddOutlineStart")).toContain("inset 1px 0 0 0 var(--mantine-color-body)");
+    expect(block(".ddOutlineEnd")).toContain("inset -1px 0 0 0 var(--mantine-color-body)");
   });
 
   test("every bar carries a 1px surface halo above its 2px edge, and the diamond a surface text halo", () => {

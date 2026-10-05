@@ -15,7 +15,8 @@
     "reportsEstimation": "Szacowanie",
     "reportsFlow": "Metryki przepływu",
     "reportsDataQuality": "Jakość danych",
-    "reportsCost": "Macierz kosztów"
+    "reportsCost": "Macierz kosztów",
+    "reportsDeepDive": "Analiza szczegółowa"
   },
   "section": {
     "overview": "Przegląd",

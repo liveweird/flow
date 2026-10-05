@@ -395,6 +395,17 @@
   white-space: nowrap;
 }
 
+/* The controls inside the sticky chrome scroll clear of it too when focus reaches them (WCAG 2.4.11): a row's toggle under
+   the header rows, a column's toggle beside the sticky item column. */
+.ddRowHeader .ddToggle,
+.ddRowHeader .ddItem {
+  scroll-margin-top: calc(var(--dd-head-row) * var(--dd-head-rows, 1));
+}
+
+.ddColHead .ddToggle {
+  scroll-margin-left: var(--dd-item-width);
+}
+
 .ddToggle:hover {
   text-decoration: underline;
 }
@@ -485,6 +496,8 @@
 
 /* The epic's planned window: a dashed outline across the columns it spans, open at an edge where it runs past the range. */
 .ddOutline {
+  --dd-ring-start: 0 0 0 0 transparent;
+  --dd-ring-end: 0 0 0 0 transparent;
   position: absolute;
   inset: 0;
   display: block;
@@ -492,13 +505,23 @@
   pointer-events: none;
   border-top: 2px dashed var(--dd-window);
   border-bottom: 2px dashed var(--dd-window);
+  /* A 1px ring in the cell's surface on both sides of every drawn edge, so the dashes meet the surface (3:1), never a bar's tint. */
+  box-shadow:
+    0 -1px 0 0 var(--mantine-color-body),
+    0 1px 0 0 var(--mantine-color-body),
+    inset 0 1px 0 0 var(--mantine-color-body),
+    inset 0 -1px 0 0 var(--mantine-color-body),
+    var(--dd-ring-start),
+    var(--dd-ring-end);
 }
 
 .ddOutlineStart {
+  --dd-ring-start: -1px 0 0 0 var(--mantine-color-body), inset 1px 0 0 0 var(--mantine-color-body);
   border-left: 2px dashed var(--dd-window);
 }
 
 .ddOutlineEnd {
+  --dd-ring-end: 1px 0 0 0 var(--mantine-color-body), inset -1px 0 0 0 var(--mantine-color-body);
   border-right: 2px dashed var(--dd-window);
 }
 
