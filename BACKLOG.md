@@ -32,7 +32,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 - **Next:**
   - the real-Jira first sync and the adjustments it brings (A10) — see the section above.
 - **Small follow-ups (M2–M5):**
-  - The Jira member picker resolves names from the first 100 unit people. Page through, or look up by account id.
   - "End membership" uses UTC; consider the configured zone.
   - `epic_domain_key` uses the epic's current domain, not as-of (no epic-domain history exists). After the first real sync.
   - Read `hoursPerDay` from Jira's time-tracking configuration (A5). After the first real sync.

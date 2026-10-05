@@ -53,8 +53,9 @@
     "title": "Członkowie/kinie Jira",
     "addMember": "Dodaj członka/kinię Jira",
     "addTitle": "Dodaj członka/kinię Jira",
-    "pickPerson": "Szukaj osób po nazwie…",
+    "pickPerson": "Szukaj osób po nazwie lub identyfikatorze konta…",
     "noMatchingPeople": "Brak pasujących osób",
+    "peopleCut": "Pokazano pierwsze {{shown}} z {{total}} osób — wpisz imię, nazwisko lub identyfikator konta, aby zawęzić listę",
     "loadingPeople": "Wczytywanie osób…",
     "field": {
       "person": "Osoba",

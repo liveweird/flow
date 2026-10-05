@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Loader, Modal, Select, Stack, TextInput } from "@mantine/core";
+import { Loader, Modal, Select, Stack, Text, TextInput } from "@mantine/core";
 import { useForm } from "@mantine/form";
 import { useDebouncedValue } from "@mantine/hooks";
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { createTeamJiraMembership, listJiraUsers } from "../api/metrics";
 import { isValidIsoDate, isoDateToEpochMillis } from "../utils/isoDate";
 import { saveErrorMessage } from "../utils/saveError";
@@ -17,12 +17,15 @@ type JiraMemberFormValues = {
   validTo: string;
 };
 
+const PICKER_PAGE_SIZE = 20;
+
 const EMPTY_FORM: JiraMemberFormValues = { accountId: null, validFrom: "", validTo: "" };
 
 /**
  * "Add Jira member" (D1's dated team membership, ADMIN only): a searchable person picker over
- * `GET /api/v1/jira-users?scope=SITE` (server-side substring search, debounced — a brand-new team
- * member may not yet be UNIT-relevant) plus a required valid-from date and an optional valid-to
+ * `GET /api/v1/jira-users?scope=SITE` (server-side search by name or account id, debounced — a
+ * brand-new team member may not yet be UNIT-relevant, and the directory is never cut to a fixed
+ * first page: anyone is findable by typing) plus a required valid-from date and an optional valid-to
  * date. An overlapping interval for the picked account is a `409`, shown inline (never a toast).
  */
 export default function JiraMemberModal({
@@ -41,16 +44,27 @@ export default function JiraMemberModal({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const [debounced] = useDebouncedValue(search.trim(), 300);
-  const settling = search.trim() !== debounced;
+  // The picked person, kept apart from the search results: a new term replaces the options, and
+  // the selection must keep its label (Mantine drops a value that is no longer in `data`).
+  const [picked, setPicked] = useState<{ value: string; label: string } | null>(null);
+  // Choosing an option makes Mantine put its label into the search box — that is not a search term.
+  const term = picked !== null && search === picked.label ? "" : search.trim();
+  const [debounced] = useDebouncedValue(term, 300);
+  const settling = term !== debounced;
 
   const people = useQuery({
     queryKey: ["jira-users", "picker", "SITE", debounced],
-    queryFn: () => listJiraUsers({ page: 1, pageSize: 20, sort: "displayName", q: debounced || undefined, scope: "SITE" }),
+    queryFn: () => listJiraUsers({ page: 1, pageSize: PICKER_PAGE_SIZE, sort: "displayName", q: debounced || undefined, scope: "SITE" }),
+    placeholderData: keepPreviousData,
   });
+  // `isPlaceholderData`: the previous term's rows stay on screen while the new term loads.
+  const loading = people.isLoading || people.isPlaceholderData;
   const options = (people.data?.items ?? [])
     .filter((person) => !excludeAccountIds.has(person.accountId))
     .map((person) => ({ value: person.accountId, label: `${person.displayName} (${person.accountId})` }));
+  if (picked !== null && !options.some((option) => option.value === picked.value)) options.unshift(picked);
+  const shown = people.data?.items.length ?? 0;
+  const total = people.data?.total ?? 0;
 
   const form = useForm<JiraMemberFormValues>({
     initialValues: EMPTY_FORM,
@@ -66,6 +80,8 @@ export default function JiraMemberModal({
       },
     },
   });
+
+  const personInput = form.getInputProps("accountId");
 
   async function save(values: JiraMemberFormValues) {
     setError(null);
@@ -113,15 +129,22 @@ export default function JiraMemberModal({
             // query is pending (options are empty), while the typed term is still inside the
             // debounce window (`settling`), or after a failed load (the Alert says so).
             nothingFoundMessage={
-              people.isLoading || people.isError || settling ? undefined : t("metrics.teamMembers.noMatchingPeople")
+              loading || people.isError || settling ? undefined : t("metrics.teamMembers.noMatchingPeople")
             }
-            aria-busy={people.isLoading}
-            rightSection={
-              people.isLoading ? <Loader size="xs" role="status" aria-label={t("metrics.teamMembers.loadingPeople")} /> : undefined
-            }
-            {...form.getInputProps("accountId")}
+            aria-busy={loading}
+            rightSection={loading ? <Loader size="xs" role="status" aria-label={t("metrics.teamMembers.loadingPeople")} /> : undefined}
+            {...personInput}
+            onChange={(value, option) => {
+              personInput.onChange(value);
+              setPicked(option ? { value: option.value, label: option.label } : null);
+            }}
           />
           {people.isError && <ErrorAlert error={people.error} />}
+          {!loading && !settling && total > shown && (
+            <Text size="xs" c="dimmed">
+              {t("metrics.teamMembers.peopleCut", { shown, total })}
+            </Text>
+          )}
           <TextInput
             label={t("metrics.teamMembers.field.validFrom")}
             placeholder={t("common.dateFormatHint")}

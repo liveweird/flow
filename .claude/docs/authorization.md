@@ -193,7 +193,7 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     name, so this is the FIRST place that pairs one with the other. **`scope=SITE`, ADMIN only**
     (`requireAdmin` runs on the RAW `scope` before anything decodes or validates — a non-admin gets a
     uniform `403` for `SITE` and for any spelling that is not plainly `UNIT`, so 403 wins over the enum's
-    400) — the whole site directory, for picking a brand-new team member. `q` substrings the display name;
+    400) — the whole site directory, for picking a brand-new team member. `q` substrings the display name OR the account id (case/accent-insensitive; a control character is a `400` via `sanitizeSingleLine`);
     `teamId` narrows to that team's CURRENT membership, combined with `scope` by set intersection
     (an unknown `teamId` is simply an empty page, not an error — no path id is involved). No
     mutation, so no audit event of its own. Tests: `JiraUsersRoutesTest`.

@@ -108,3 +108,125 @@ describe("JiraMemberModal — the person picker's load states", () => {
     }
   });
 });
+
+describe("JiraMemberModal — server-side search", () => {
+  let mockFetch: FetchMock;
+
+  const FIRST_PAGE = Array.from({ length: 20 }, (_, i) => ({
+    accountId: `acc-${String(i).padStart(3, "0")}`,
+    displayName: `Person ${String(i).padStart(3, "0")}`,
+  }));
+  const BEYOND = { accountId: "acc-150", displayName: "Zed Zulu" };
+
+  /** The directory has 150 people; only a `q` naming (or matching the account id of) Zed finds the one beyond the first page. */
+  function serveDirectory() {
+    mockFetch.mockImplementation((url: string) => {
+      const params = new URL(url, "http://localhost").searchParams;
+      const q = params.get("q")?.toLowerCase();
+      if (q === undefined) return Promise.resolve(jsonResponse(200, { items: FIRST_PAGE, page: 1, pageSize: 20, total: 150 }));
+      const hit = "zed zulu".includes(q) || "acc-150".includes(q);
+      return Promise.resolve(jsonResponse(200, { items: hit ? [BEYOND] : [], page: 1, pageSize: 20, total: hit ? 1 : 0 }));
+    });
+  }
+
+  function directoryQs() {
+    return mockFetch.mock.calls.map(([u]) => new URL(String(u), "http://localhost").searchParams);
+  }
+
+  beforeEach(() => {
+    mockFetch = vi.fn();
+    vi.stubGlobal("fetch", mockFetch);
+    localStorage.setItem("flow.auth.token", "fake-token");
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    localStorage.clear();
+  });
+
+  test("typing is debounced: one request after 300 ms of quiet, carrying q, sorted and scoped", async () => {
+    serveDirectory();
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    renderModal();
+
+    await screen.findByText(/Showing the first 20 of 150 people/);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(directoryQs()[0].has("q")).toBe(false);
+
+    await user.type(screen.getByRole("combobox", { name: "Person" }), "zed");
+    // Well inside the 300 ms window (the fake clock also drifts with real time, so no razor-edge 299/300 split).
+    await act(() => vi.advanceTimersByTimeAsync(150));
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+
+    await act(() => vi.advanceTimersByTimeAsync(300));
+    await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(2));
+    const search = directoryQs()[1];
+    expect(search.get("q")).toBe("zed");
+    expect(search.get("scope")).toBe("SITE");
+    expect(search.get("sort")).toBe("displayName");
+    expect(search.get("pageSize")).toBe("20");
+  });
+
+  test("a person beyond the first page is found by name, or by account id", async () => {
+    serveDirectory();
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    renderModal();
+
+    const person = await screen.findByRole("combobox", { name: "Person" });
+    await screen.findByText(/Showing the first 20 of 150 people/);
+    expect(screen.queryByRole("option", { name: /Zed Zulu/ })).not.toBeInTheDocument();
+
+    await user.type(person, "zed zu");
+    await act(() => vi.advanceTimersByTimeAsync(300));
+    expect(await screen.findByRole("option", { name: "Zed Zulu (acc-150)" })).toBeInTheDocument();
+    // The result is complete for this term: no "showing first" hint.
+    expect(screen.queryByText(/Showing the first/)).not.toBeInTheDocument();
+
+    await user.clear(person);
+    await user.type(person, "acc-150");
+    await act(() => vi.advanceTimersByTimeAsync(300));
+    await waitFor(() => expect(directoryQs().some((p) => p.get("q") === "acc-150")).toBe(true));
+    expect(await screen.findByRole("option", { name: "Zed Zulu (acc-150)" })).toBeInTheDocument();
+  });
+
+  test("the picked person keeps its label while later searches replace the options", async () => {
+    serveDirectory();
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    renderModal();
+
+    const person = await screen.findByRole("combobox", { name: "Person" });
+    await user.type(person, "zed");
+    await act(() => vi.advanceTimersByTimeAsync(300));
+    await user.click(await screen.findByRole("option", { name: "Zed Zulu (acc-150)" }));
+    expect(person).toHaveValue("Zed Zulu (acc-150)");
+
+    // The label Mantine put into the box is not a search term: the follow-up request is the plain, unfiltered list…
+    await act(() => vi.advanceTimersByTimeAsync(400));
+    expect(directoryQs().every((p) => p.get("q") !== "Zed Zulu (acc-150)")).toBe(true);
+    // …and the selection is still shown under its own label although it is not among those 20 rows.
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Person" })).toHaveValue("Zed Zulu (acc-150)"));
+  });
+
+  test("a failed search shows the inline alert and a retry term clears it", async () => {
+    mockFetch
+      .mockResolvedValueOnce(jsonResponse(200, { items: FIRST_PAGE, page: 1, pageSize: 20, total: 150 }))
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockResolvedValue(jsonResponse(200, { items: [BEYOND], page: 1, pageSize: 20, total: 1 }));
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    renderModal();
+
+    const person = await screen.findByRole("combobox", { name: "Person" });
+    await screen.findByText(/Showing the first 20 of 150 people/);
+    await user.type(person, "ze");
+    await act(() => vi.advanceTimersByTimeAsync(300));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Network error");
+    expect(screen.queryByText(NOTHING_FOUND)).not.toBeInTheDocument();
+
+    await user.type(person, "d");
+    await act(() => vi.advanceTimersByTimeAsync(300));
+    expect(await screen.findByRole("option", { name: "Zed Zulu (acc-150)" })).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+});

@@ -53,8 +53,9 @@
     "title": "Jira members",
     "addMember": "Add Jira member",
     "addTitle": "Add a Jira member",
-    "pickPerson": "Search people by name…",
+    "pickPerson": "Search people by name or account id…",
     "noMatchingPeople": "No matching people",
+    "peopleCut": "Showing the first {{shown}} of {{total}} people — type a name or account id to narrow the list",
     "loadingPeople": "Loading people…",
     "field": {
       "person": "Person",

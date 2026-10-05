@@ -109,11 +109,18 @@ team membership landed in M2 commit 5, and the per-connection `metrics-config` p
   roster — D1's dated Jira-user team membership (`GET/POST /api/v1/teams/{id}/jira-memberships`,
   `PUT/DELETE …/{membershipId}`): any authenticated user reads the table (person name resolved
   against `GET /api/v1/jira-users?scope=UNIT` — every account that ever held a membership row is
-  UNIT-relevant, so one page of that directory names this team's whole history; an unresolved
-  account falls back to its raw `accountId`), a "current" badge when `now ∈ [validFrom, validTo)`.
+  UNIT-relevant, so the directory, paged through at pageSize 100 to its `total` (`api/metrics.ts`'s
+  `listAllJiraUsers`, capped at 50 pages), names this team's whole history however large the unit
+  is; an unresolved account falls back to its raw `accountId`), a "current" badge when `now ∈ [validFrom, validTo)`.
   ADMIN-only mutations: "Add Jira member" opens `components/JiraMemberModal.tsx` (a searchable
   person `Select` over `GET /api/v1/jira-users?scope=SITE` — the whole site directory, since a
-  brand-new member may not yet be UNIT-relevant — plus a required valid-from and optional valid-to
+  brand-new member may not yet be UNIT-relevant; **server-side search**: the typed term, debounced
+  300 ms, is the `q` param (display name OR account id, case/accent-insensitive), the query key
+  carries it and `placeholderData: keepPreviousData` keeps the old rows up while the next term loads
+  (`isPlaceholderData` still shows the loader); 20 rows per request, and a "Showing the first N of M
+  people" hint when the answer is cut, so anyone beyond the first page is found by typing; the
+  picked person is held in state and re-added to the options, so its label survives later searches,
+  and the label Mantine writes into the box on selection is never sent as `q` — plus a required valid-from and optional valid-to
   date; the directory query shows a labelled `Loader` (`role="status"`) and `aria-busy` while pending and
   an inline red `Alert` (`loadErrorMessage`) on failure — "No matching people" only states a completed
   search for the current term, never during the debounce window or a pending/failed load; the

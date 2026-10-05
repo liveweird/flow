@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { IconCalendarOff, IconUserPlus, IconUsersGroup } from "@tabler/icons-react";
 import {
   deleteTeamJiraMembership,
-  listJiraUsers,
+  listAllJiraUsers,
   listTeamJiraMemberships,
   updateTeamJiraMembership,
   type TeamMembershipResponse,
@@ -22,8 +22,6 @@ import RowActionsMenu from "./RowActionsMenu";
 import ScrollRegion from "./ScrollRegion";
 import { useDeleteConfirm } from "../hooks/useDeleteConfirm";
 import ErrorAlert from "./ErrorAlert";
-
-const DIRECTORY_PAGE_SIZE = 100;
 
 /** `now ∈ [validFrom, validTo)` — `validTo == null` means open-ended (always current from `validFrom` on). */
 function isCurrent(row: TeamMembershipResponse, nowMillis: number): boolean {
@@ -49,14 +47,14 @@ export default function TeamJiraMembers({ teamId }: { teamId: number }) {
   });
 
   // Best-effort display-name resolution: every account that ever held a membership row is
-  // UNIT-relevant (JiraUsersRoutes.kt's `everMemberedAccountIds`), so one page of the UNIT
-  // directory covers this team's whole history unless the unit has grown past the page size —
-  // an unresolved account simply falls back to its raw accountId below.
+  // UNIT-relevant (JiraUsersRoutes.kt's `everMemberedAccountIds`), so the UNIT directory, paged
+  // through to its end (`listAllJiraUsers`), covers this team's whole history however large the
+  // unit has grown — an unresolved account simply falls back to its raw accountId below.
   const directory = useQuery({
     queryKey: ["jira-users", "directory", "UNIT"],
-    queryFn: () => listJiraUsers({ page: 1, pageSize: DIRECTORY_PAGE_SIZE, sort: "displayName", scope: "UNIT" }),
+    queryFn: () => listAllJiraUsers({ scope: "UNIT" }),
   });
-  const namesByAccountId = new Map((directory.data?.items ?? []).map((person) => [person.accountId, person.displayName]));
+  const namesByAccountId = new Map((directory.data ?? []).map((person) => [person.accountId, person.displayName]));
 
   async function refresh() {
     await queryClient.invalidateQueries({ queryKey: ["team-jira-memberships", teamId] });

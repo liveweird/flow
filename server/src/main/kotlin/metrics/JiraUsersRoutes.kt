@@ -8,6 +8,7 @@ import ch.nokillswit.infra.paging.optionalString
 import ch.nokillswit.infra.paging.optionalUInt
 import ch.nokillswit.infra.paging.parsePaging
 import ch.nokillswit.infra.paging.toPage
+import ch.nokillswit.infra.validation.sanitizeSingleLine
 import ch.nokillswit.norm.WorkItemStore
 import ch.nokillswit.norm.WorkItemStoreKey
 import ch.nokillswit.plugins.servesApi
@@ -40,7 +41,8 @@ private val JIRA_USER_SORT_FIELDS = setOf("displayName")
  *   403 whether or not the query would otherwise succeed) — the WHOLE site directory, for picking
  *   a brand-new team member nobody has touched a work item as yet.
  *
- * `q` substrings the display name (`containsNormalized`); `teamId` further narrows to that team's
+ * `q` substrings the display name OR the account id (`containsNormalized`, so "zolw" finds "Żółw" and a pasted
+ * account id finds its person; control characters are a 400 via `sanitizeSingleLine`); `teamId` further narrows to that team's
  * CURRENT membership ([TeamMembershipService.currentAccountIds]) — combined with the scope
  * restriction by SET INTERSECTION, not replacing it. Paging/sorting/the `count(DISTINCT)` total all
  * happen in SQL, one transaction ([WorkItemStore.listPeople], list-endpoints.md).
@@ -65,7 +67,7 @@ fun Application.configureJiraUsersRoutes() {
                 val scope = params.optionalEnum<JiraUserScope>("scope") ?: JiraUserScope.UNIT
 
                 val paging = call.parsePaging(sortable = JIRA_USER_SORT_FIELDS)
-                val q = params.optionalString("q")
+                val q = params.optionalString("q")?.let { sanitizeSingleLine(it, "q") }
                 val teamId = params.optionalUInt("teamId")
 
                 val scopeIds = if (scope == JiraUserScope.SITE) null else unitRelevantAccountIds(workItems, memberships)

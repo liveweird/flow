@@ -72,6 +72,31 @@ describe("TeamJiraMembers", () => {
     expect(screen.queryByRole("button", { name: /operations for/i })).not.toBeInTheDocument();
   });
 
+  test("names beyond the first directory page are resolved by paging through the whole directory", async () => {
+    const firstPage = Array.from({ length: 100 }, (_, i) => ({ accountId: `bulk-${i}`, displayName: `Bulk ${i}` }));
+    mockFetch.mockImplementation((url: string) => {
+      if (url === "/api/v1/teams/5/jira-memberships") {
+        return Promise.resolve(
+          jsonResponse(200, { items: [{ id: 10, accountId: "late-acc", validFrom: Date.UTC(2024, 0, 1), validTo: null, createdAt: 1, updatedAt: 1 }] }),
+        );
+      }
+      if (url.startsWith("/api/v1/jira-users")) {
+        const params = new URL(url, "http://localhost").searchParams;
+        if (params.get("page") === "2") {
+          return Promise.resolve(jsonResponse(200, { items: [{ accountId: "late-acc", displayName: "Zed Late" }], page: 2, pageSize: 100, total: 101 }));
+        }
+        return Promise.resolve(jsonResponse(200, { items: firstPage, page: 1, pageSize: 100, total: 101 }));
+      }
+      return Promise.resolve(jsonResponse(404, { title: "Not Found", status: 404 }));
+    });
+    renderWithProviders(<TeamJiraMembers teamId={5} />);
+
+    expect(await screen.findByText("Zed Late")).toBeInTheDocument();
+    const pages = mockFetch.mock.calls.map(([u]) => new URL(String(u), "http://localhost")).filter((u) => u.pathname === "/api/v1/jira-users");
+    expect(pages.map((u) => u.searchParams.get("page"))).toEqual(["1", "2"]);
+    expect(pages.every((u) => u.searchParams.get("scope") === "UNIT" && u.searchParams.get("pageSize") === "100")).toBe(true);
+  });
+
   test("an admin adds a Jira member — current members excluded from the picker", async () => {
     serve(mockFetch, { "POST /api/v1/teams/5/jira-memberships": { status: 201, body: { id: 12, accountId: "acc-3", validFrom: 1, validTo: null, createdAt: 1, updatedAt: 1 } } });
     const user = userEvent.setup();
