@@ -509,13 +509,14 @@ async function diveIntoGoldenSprint(page: Page): Promise<void> {
   // Nothing is requested before a selection: the explainer of the three modes stands in.
   await expect(page.getByRole("heading", { level: 3, name: "Pick something to dive into", exact: true })).toBeVisible();
 
-  // Sprints of a domain: this spec's connection (the stack holds several), the golden sprint's domain, the golden sprint.
-  await pickFilter(page, "Connection", dataSourceName);
+  // Sprints of a domain: this spec's connection (the picker shows only when the stack holds more than one active connection),
+  // the golden sprint's domain, the golden sprint.
+  if (await page.getByRole("combobox", { name: "Connection", exact: true }).count()) await pickFilter(page, "Connection", dataSourceName);
   await pickFilter(page, "Domain", "FLO");
   await pickInPanel(page, "Sprints", GOLDEN.name);
   await page.getByRole("button", { name: "Show", exact: true }).click();
   // The URL is the selection, in its canonical order.
-  await expect(page).toHaveURL(new RegExp(`/reports/deep-dive\\?domain=FLO&sprintId=${GOLDEN.sprintId}&connectionId=${dataSourceId}$`));
+  await expect(page).toHaveURL(new RegExp(`/reports/deep-dive\\?domain=FLO&sprintId=${GOLDEN.sprintId}(&connectionId=${dataSourceId})?$`));
 
   // The matrix: all three layers drawn, the legend naming each, a done marker, and the golden epic's neighbours as rows.
   const grid = page.getByRole("grid", { name: "Plan, execution and cost by epic and time" });
@@ -570,7 +571,7 @@ async function diveIntoGoldenSprint(page: Page): Promise<void> {
   await page.getByRole("radiogroup", { name: "How to select work" }).getByText("Epics", { exact: true }).click();
   await pickInPanel(page, "Epics", new RegExp(`^${GOLDEN_EPIC.issueKey} `));
   await page.getByRole("button", { name: "Show", exact: true }).click();
-  await expect(page).toHaveURL(new RegExp(`/reports/deep-dive\\?epicId=${GOLDEN_EPIC.issueKey}&connectionId=${dataSourceId}$`));
+  await expect(page).toHaveURL(new RegExp(`/reports/deep-dive\\?epicId=${GOLDEN_EPIC.issueKey}(&connectionId=${dataSourceId})?$`));
   await expect(grid.getByRole("button", { name: new RegExp(`^${GOLDEN_EPIC.issueKey} `), expanded: false })).toBeVisible();
   await expect(page.locator("[data-window]").first()).toBeVisible();
 }

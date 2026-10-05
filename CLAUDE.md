@@ -112,7 +112,7 @@ the secret-creation command.
 
 ## Architecture
 
-Flow is Covenant's stripped scaffold plus Jira ingestion (v0.2.0) and metrics/reports (v0.3.0).
+Flow is Covenant's stripped scaffold plus Jira ingestion (v0.2.0), metrics/reports (v0.3.0) and the Deep dive (v0.4.0).
 The foundation: **JWT auth** with a sliding refresh pair and a server-side revocation blocklist,
 opt-in **email MFA**, self-service password reset, per-account lockout and per-IP rate limits,
 **ADMIN-managed users** with per-user **feature flags**, a synced per-user UI/email **language**

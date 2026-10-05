@@ -1,4 +1,4 @@
-# Reports (v0.3.0 — the non-admin journey: batch 1 M4 commit 14, batch 2 M5 commit 19, checkup A15)
+# Reports (v0.3.0 + the v0.4.0 Deep dive — the non-admin journey: batch 1 M4 commit 14, batch 2 M5 commit 19, checkup A15)
 
 - **Spec**: [tests/reports.spec.ts](../tests/reports.spec.ts)
 - **Actors**: the seed administrator (`admin@flow.local`), through the API only, to seed and clean
@@ -280,7 +280,7 @@ finished in autumn 2025, before the six-month window opens.
 1. The user signs in and follows **Deep dive** in the sidebar.
    - *Expected*: the page loads with no selection in the address and shows the explainer of the three
      modes ("Pick something to dive into") — nothing has been requested.
-2. In **Sprints of a domain** they pick this spec's connection (the stack holds several), the domain FLO
+2. In **Sprints of a domain** they pick this spec's connection (when the stack holds more than one, the panel offers a connection picker), the domain FLO
    and the sprint "FLO Sprint 4", and press **Show**.
    - *Expected*: the URL is the canonical selection, `?domain=FLO&sprintId=<golden>&connectionId=<this
      spec's>`; the matrix grid is drawn with the three layer switches on (Plan (PV), Execution, Cost
