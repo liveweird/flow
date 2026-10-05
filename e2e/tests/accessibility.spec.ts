@@ -43,6 +43,8 @@ const AUTHED_PAGES: { path: string; heading: string; settled?: (page: Page) => P
   { path: "/metrics-settings", heading: "Metrics settings" },
   // A report is scanned once it settled (title, no spinner, no alert), not the moment its heading paints.
   ...REPORT_PAGES.map(({ path, heading }) => ({ path, heading, settled: reportSettled(heading) })),
+  // The Deep dive without a selection: the panel and the explainer (the matrix is scanned in accessibility-data.spec.ts).
+  { path: "/reports/deep-dive", heading: "Deep dive", settled: reportSettled("Deep dive") },
   { path: "/change-password", heading: "Change password" },
   { path: "/changelog", heading: "Changelog" },
 ];

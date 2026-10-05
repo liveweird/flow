@@ -86,6 +86,16 @@ test.describe("pages over synced data", () => {
       settled: reportSettled(heading),
     })),
     {
+      // The matrix itself: the golden sprint of the FLO domain over this connection, scanned once the grid is drawn
+      // (the page without a selection is only the explainer, scanned by accessibility.spec.ts).
+      name: "/reports/deep-dive with a sprint selection",
+      path: () => `/reports/deep-dive?domain=FLO&sprintId=3003&connectionId=${dataSourceId}`,
+      settled: async (page) => {
+        await reportSettled("Deep dive")(page);
+        await expect(page.getByRole("grid", { name: "Plan, execution and cost by epic and time" })).toBeVisible();
+      },
+    },
+    {
       name: "the data source details page",
       path: () => `/data-sources/${dataSourceId}`,
       settled: async (page) => {
