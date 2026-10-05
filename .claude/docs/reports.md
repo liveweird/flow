@@ -228,10 +228,14 @@ VelocityReport {
   - **USER** (`teamId` AND `accountId`) -- `sprints` itself narrows to that ONE account's own
     contribution per sprint (the SAME committed/final predicates as the TEAM-level groups, applied
     per sprint instead of summed); `groups` is always empty -- there is nothing further to drill.
-    `snapshot`/`drift` are always `null`/`false` at this level: a per-user FROZEN figure would need
-    parsing `fact_sprint_snapshot.scope`'s JSONB (`.claude/docs/metrics.md`'s own documented "per-user
-    velocity from the snapshot needs no child table" -- a reader this commit does not add), a
-    deliberate, documented scope narrowing rather than a silent guess.
+    `snapshot` is that account's own FROZEN figures, read from the sprint's `fact_sprint_snapshot.scope`
+    JSONB (`.claude/docs/metrics.md`: "per-user velocity from the snapshot needs no child table") with the
+    same predicates, `assignee_at_commitment` attribution and `sumMd` rounding as the live figures; a
+    snapshotted sprint in which the account had no items shows zeros, a sprint with no snapshot (D13)
+    `null`. `drift` is the team level's own comparison. The unassigned bucket's frozen figure has no
+    USER-level query. A malformed scope row is an invariant violation (the DERIVE writer is its only
+    producer) and fails the request with an error naming the connection and sprint. A snapshot frozen
+    before the per-item rounding fix holds `round2(Σ raw)`, so its Σ users may differ by a cent.
   - **`teamId = 0`** (UNASSIGNED) -- always empty (`sprints: []`, `groups: []`): a sprint always
     carries a real team or is excluded from this report entirely (an unmapped-board sprint shows
     only in report 14, per `measures.md`'s Report 1 rows).
@@ -258,7 +262,11 @@ are `internal`, not `private`, precisely so this sibling file can extend it with
 constructor) -- the file the brief's own "past ~120 lines -> a new file" idiom names. Tests:
 `ReportVelocityTest` (`DerivedStubFixture`-based: UNIT-level `finalMd` against `fact_sprint`, the
 golden FLO sprint's `sprintId` period against `expected.json`'s `committedMd`/`finalMd`, TEAM-level
-`Σ groups == team total`, `400` for `from > to` and an unknown `sprintId`; every request runs
+`Σ groups == team total`, the USER level's frozen figures ("USER level frozen figures sum with the
+unassigned bucket to the team snapshot", "USER level snapshot is null for a sprint with no snapshot and
+drift stays false", "USER level frozen figures come from the stored snapshot scope not the live
+rows, per connection", "frozen scope parsing fails loudly on a malformed row and keeps a null estimate
+null"), `400` for `from > to` and an unknown `sprintId`; every request runs
 through a non-admin `seededClient`, proving D12's `200` at the same time).
 
 ## Report 2 -- Throughput
@@ -315,8 +323,8 @@ ThroughputReport {
   credited to it, and `groups` become one per assignee at done (`null` `accountId`/`label` =
   unassigned); USER (`teamId` + `accountId`): the period view narrows to that account, `groups` is
   empty and `bySprint` narrows to that account's deliveries by `assignee_at_commitment`
-  (`done_in_sprint` rows at `estimate_at_done_md`; `snapshot`/`drift` are `null`/`false`, velocity's
-  same narrowing). **Σ `groups` == Σ `byBucket`** (MD and items) at UNIT and TEAM level.
+  (`done_in_sprint` rows at `estimate_at_done_md`; `snapshot`/`drift` are `null`/`false` -- no per-user
+  frozen reader exists for this report yet, BACKLOG; velocity's can be reused). **Σ `groups` == Σ `byBucket`** (MD and items) at UNIT and TEAM level.
 - **Two separate measures.** Never expect Σ `bySprint` == Σ `byBucket` (see the two-views note above).
 
 Code: `reports/ThroughputReport.kt` (DTOs, pure bucket math, the queries) over `reports/
@@ -381,8 +389,8 @@ SprintConsistencyReport {
     one Jira site share sprint ids (velocity's per-user reader does the same).
   - **USER** (`teamId` AND `accountId`) -- `sprints` narrow to that account's rows per sprint (the same
     kernel over its rows; a sprint with none shows zeros); `snapshot` is `null` and `drift` `false`
-    (velocity's documented narrowing: a per-user frozen figure would mean parsing the snapshot's
-    JSONB scope), `groups` is empty. The unassigned bucket has no USER-level query -- it is the
+    (no per-user frozen reader exists for this report yet, BACKLOG; velocity's can be reused),
+    `groups` is empty. The unassigned bucket has no USER-level query -- it is the
     remainder Σ named users + unassigned == team.
 - **Rounding.** Every MD figure of a sprint is `Σ round2(item)`: `DeriveKernels.sprintTotals` rounds each
   item's estimate half-up to two decimals (`sumMd`, `metrics/DeriveKernels.kt`) BEFORE the exact sum, which is

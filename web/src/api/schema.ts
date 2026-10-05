@@ -899,7 +899,9 @@ export interface paths {
          *     per-user split (`fact_sprint_scope.assignee_at_commitment`, Σ committed/final MD — the same
          *     removed-row rule the team total itself follows, so Σ users == the team total); `teamId` AND
          *     `accountId` together narrow to USER level — `sprints` itself narrows to that one account's
-         *     own contribution and `groups` is always empty. `teamId=0` (UNASSIGNED) is always empty — a
+         *     own contribution (its `snapshot` is that account's frozen figures, computed from the sprint's
+         *     stored snapshot scope by the same rule as the live ones; null when the sprint has no snapshot)
+         *     and `groups` is always empty. `teamId=0` (UNASSIGNED) is always empty — a
          *     sprint always carries a real team or is excluded from this report. Velocity carries no
          *     domain slice, so `domainView` is echoed in `meta` but never changes the result. An active or
          *     future sprint (`completedAt` null) is reachable only by an explicit `sprintId`: its live figures,

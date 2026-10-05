@@ -2,15 +2,30 @@ package ch.nokillswit
 
 import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.reports.VelocityReport
+import ch.nokillswit.reports.frozenContributionsOf
 import io.ktor.client.call.body
 import io.ktor.client.request.get
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.testApplication
 import java.io.File
 import java.math.BigDecimal
+import java.math.RoundingMode
 import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.isNull
@@ -18,6 +33,9 @@ import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertNotEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /** A minimal local slice of `sample-data/jira/expected.json`'s `golden.sprint` — just what this test needs. */
@@ -169,6 +187,261 @@ class ReportVelocityTest {
             assertEquals(row[MetricsTables.FactSprint.committedMd].toDouble(), sprint.initialMd, ABS_TOLERANCE)
             assertEquals(row[MetricsTables.FactSprint.finalItems], sprint.finalItems)
         }
+    }
+
+    /** One assignee bucket's frozen figures, straight off the stored scope JSON — never the production reader. */
+    private data class FrozenFigures(val initialMd: BigDecimal, val initialItems: Int, val finalMd: BigDecimal, val finalItems: Int)
+
+    private suspend fun frozenScopeFigures(connectionId: UInt, sprintId: Long): Map<String?, FrozenFigures> {
+        val scopeJson = suspendTransaction(sharedDatabaseForTests()) {
+            MetricsTables.FactSprintSnapshot.selectAll()
+                .where {
+                    (MetricsTables.FactSprintSnapshot.connectionId eq connectionId) and
+                        (MetricsTables.FactSprintSnapshot.sprintId eq sprintId)
+                }
+                .toList().single()[MetricsTables.FactSprintSnapshot.scope]
+        }
+        fun md(value: JsonElement): BigDecimal =
+            if (value is JsonNull) BigDecimal.ZERO else BigDecimal((value as JsonPrimitive).content).setScale(2, RoundingMode.HALF_UP)
+        return Json.parseToJsonElement(scopeJson).jsonArray.map { it.jsonObject }
+            .groupBy { it.getValue("assigneeAtCommitment").jsonPrimitive.contentOrNull }
+            .mapValues { (_, items) ->
+                fun flag(item: JsonObject, key: String) = item.getValue(key).jsonPrimitive.boolean
+                val committed = items.filter { flag(it, "committed") && flag(it, "inScopeAtClose") }
+                val final = items.filter { flag(it, "inScopeAtClose") }
+                FrozenFigures(
+                    initialMd = committed.fold(BigDecimal.ZERO) { acc, i -> acc + md(i.getValue("estimateAtCommitmentMd")) },
+                    initialItems = committed.size,
+                    finalMd = final.fold(BigDecimal.ZERO) { acc, i -> acc + md(i.getValue("estimateAtCloseMd")) },
+                    finalItems = final.size,
+                )
+            }
+    }
+
+    @Test
+    fun `USER level frozen figures sum with the unassigned bucket to the team snapshot`() = testApplication {
+        usePostgresTestcontainer()
+        val connId = DerivedStubFixture.connectionId()
+        val golden = reportVelocityGolden
+        val floTeamId = floTeamId(connId, golden.sprintId)
+        val client = seededClient("reports-velocity-user-frozen")
+
+        val team = client.get("/api/v1/reports/velocity?connectionId=$connId&teamId=$floTeamId&sprintId=${golden.sprintId}")
+            .body<VelocityReport>()
+        val teamSnapshot = assertNotNull(team.sprints.single().snapshot, "the golden sprint is closed and team-mapped, so it is frozen")
+        val frozen = frozenScopeFigures(connId, golden.sprintId)
+        val named = team.groups.mapNotNull { it.accountId }
+        assertTrue(named.isNotEmpty(), "expected at least one named assignee-at-commitment group")
+
+        var sumInitialMd = frozen[null]?.initialMd ?: BigDecimal.ZERO
+        var sumFinalMd = frozen[null]?.finalMd ?: BigDecimal.ZERO
+        var sumInitialItems = frozen[null]?.initialItems ?: 0
+        var sumFinalItems = frozen[null]?.finalItems ?: 0
+        for (accountId in named) {
+            val response = client.get(
+                "/api/v1/reports/velocity?connectionId=$connId&teamId=$floTeamId&accountId=$accountId&sprintId=${golden.sprintId}",
+            )
+            assertEquals(HttpStatusCode.OK, response.status)
+            val sprint = response.body<VelocityReport>().sprints.single()
+            val snapshot = assertNotNull(sprint.snapshot, "$accountId: a snapshotted sprint has per-user frozen figures")
+            val expected = frozen.getValue(accountId)
+            assertEquals(0, expected.initialMd.compareTo(BigDecimal.valueOf(snapshot.initialMd)), "$accountId initialMd")
+            assertEquals(expected.initialItems, snapshot.initialItems, "$accountId initialItems")
+            assertEquals(0, expected.finalMd.compareTo(BigDecimal.valueOf(snapshot.finalMd)), "$accountId finalMd")
+            assertEquals(expected.finalItems, snapshot.finalItems, "$accountId finalItems")
+            // The fixture's snapshot is frozen from the very rows the live figures read: no drift.
+            assertEquals(sprint.initialMd, snapshot.initialMd, "$accountId live == frozen initialMd")
+            assertEquals(sprint.finalItems, snapshot.finalItems, "$accountId live == frozen finalItems")
+            assertTrue(!sprint.drift, "$accountId: no drift")
+            sumInitialMd += BigDecimal.valueOf(snapshot.initialMd)
+            sumFinalMd += BigDecimal.valueOf(snapshot.finalMd)
+            sumInitialItems += snapshot.initialItems
+            sumFinalItems += snapshot.finalItems
+        }
+        // The USER level cannot name the unassigned bucket: it joins from the stored JSON. Σ is exact to the cent.
+        assertEquals(0, BigDecimal.valueOf(teamSnapshot.initialMd).compareTo(sumInitialMd), "Sigma users + unassigned initialMd")
+        assertEquals(0, BigDecimal.valueOf(teamSnapshot.finalMd).compareTo(sumFinalMd), "Sigma users + unassigned finalMd")
+        assertEquals(teamSnapshot.initialItems, sumInitialItems)
+        assertEquals(teamSnapshot.finalItems, sumFinalItems)
+    }
+
+    @Test
+    fun `USER level snapshot is null for a sprint with no snapshot and drift stays false`() = testApplication {
+        usePostgresTestcontainer()
+        val connId = DerivedStubFixture.connectionId()
+        val golden = reportVelocityGolden
+        val floTeamId = floTeamId(connId, golden.sprintId)
+        val client = seededClient("reports-velocity-user-no-snapshot")
+
+        val accountId = client.get("/api/v1/reports/velocity?connectionId=$connId&teamId=$floTeamId&sprintId=${golden.sprintId}")
+            .body<VelocityReport>().groups.mapNotNull { it.accountId }.first()
+        val open = suspendTransaction(sharedDatabaseForTests()) {
+            MetricsTables.FactSprint.selectAll()
+                .where {
+                    (MetricsTables.FactSprint.connectionId eq connId) and (MetricsTables.FactSprint.teamId eq floTeamId) and
+                        MetricsTables.FactSprint.completeAt.isNull()
+                }
+                .toList().first()[MetricsTables.FactSprint.sprintId]
+        }
+        val sprint = client.get(
+            "/api/v1/reports/velocity?connectionId=$connId&teamId=$floTeamId&accountId=$accountId&sprintId=$open",
+        ).body<VelocityReport>().sprints.single()
+        assertEquals(null, sprint.snapshot)
+        assertTrue(!sprint.drift)
+    }
+
+    /** One stored-scope item in the writer's shape (`MetricsStore.sprintScopeItemsJson`), built independently of the production parser. */
+    private fun scopeItem(
+        issueId: Long,
+        assignee: String?,
+        committed: Boolean,
+        inScopeAtClose: Boolean,
+        commitMd: Double?,
+        closeMd: Double?,
+    ): JsonObject = buildJsonObject {
+        put("issueId", issueId)
+        put("addedAtMs", null as Long?)
+        put("removedAtMs", null as Long?)
+        put("committed", committed)
+        put("inScopeAtClose", inScopeAtClose)
+        put("estimateAtCommitmentMd", commitMd)
+        put("estimateAtCloseMd", closeMd)
+        put("estimateAtDoneMd", null as Double?)
+        put("assigneeAtCommitment", assignee)
+        put("doneInSprint", false)
+        put("carriedOver", false)
+        put("dropped", false)
+    }
+
+    /** A private, DISABLED, FLO-mapped clone derived once under the pinned clock; returns (connection id, its team id). */
+    private suspend fun derivedDisabledClone(teamPrefix: String): Pair<UInt, UInt> {
+        val connId = SyncedStubFixture.createConnection(namePrefix = "jira-velocity-frozen", enabled = false)
+        SyncedStubFixture.cloneProcessedData(SyncedStubFixture.connectionId(), connId)
+        val teamId = DerivedStubFixture.mapFloBoardToNewTeam(connId, DerivedStubFixture.metricsConfig(), teamPrefix)
+        DerivedStubFixture.withPinnedSettings(DerivedStubFixture.metricsSettings()) { DerivedStubFixture.derivePinned(connId, jobId = 1u) }
+        return connId to teamId
+    }
+
+    /**
+     * Rewrites one snapshot row's `scope` so it DIFFERS from the live `fact_sprint_scope` rows. The immutability trigger forbids
+     * UPDATE/DELETE unless `metrics.allow_snapshot_delete` is SET LOCAL 'on' — the PURGE step's own sanctioned bypass (pinned by
+     * `IngestWorkerTest`); the trigger itself stays enabled, and only this test's private clone is touched.
+     */
+    private suspend fun overwriteSnapshotScope(connectionId: UInt, sprintId: Long, scope: JsonArray) {
+        suspendTransaction(sharedDatabaseForTests()) {
+            exec("SET LOCAL metrics.allow_snapshot_delete = 'on'")
+            exec(
+                "UPDATE metrics.fact_sprint_snapshot SET scope = '$scope'::jsonb " +
+                    "WHERE connection_id = $connectionId AND sprint_id = $sprintId",
+            )
+        }
+        val stored = suspendTransaction(sharedDatabaseForTests()) {
+            MetricsTables.FactSprintSnapshot.selectAll()
+                .where {
+                    (MetricsTables.FactSprintSnapshot.connectionId eq connectionId) and
+                        (MetricsTables.FactSprintSnapshot.sprintId eq sprintId)
+                }
+                .toList().single()[MetricsTables.FactSprintSnapshot.scope]
+        }
+        assertEquals(scope, Json.parseToJsonElement(stored), "the synthetic scope must actually have been stored")
+    }
+
+    @Test
+    fun `USER level frozen figures come from the stored snapshot scope not the live rows, per connection`() = testApplication {
+        usePostgresTestcontainer()
+        val sprintId = reportVelocityGolden.sprintId
+        val (connA, teamA) = derivedDisabledClone("velocity-frozen-team-a")
+        val (connB, teamB) = derivedDisabledClone("velocity-frozen-team-b")
+        val client = seededClient("reports-velocity-user-frozen-synthetic")
+
+        fun userUrl(connId: UInt, teamId: UInt, accountId: String) =
+            "/api/v1/reports/velocity?connectionId=$connId&teamId=$teamId&accountId=$accountId&sprintId=$sprintId"
+        val ann = client.get("/api/v1/reports/velocity?connectionId=$connA&teamId=$teamA&sprintId=$sprintId")
+            .body<VelocityReport>().groups.mapNotNull { it.accountId }.first()
+        val before = client.get(userUrl(connA, teamA, ann)).body<VelocityReport>().sprints.single()
+        assertNotNull(before.snapshot, "the clone's golden sprint is closed and team-mapped, so it is frozen")
+        assertTrue(!before.drift, "before the overwrite the snapshot was frozen from the live rows")
+
+        val other = "synthetic-other-account"
+        // Connection A: [ann] 2.504 -> 2.50 and 2.506 -> 2.51 (committed, in scope), one committed item with NO estimate
+        // (counts as an item, 0 MD), one added item (final only), one removed item (neither bucket); plus an item with a
+        // null assignee and one of `other`, which must not count for `ann`.
+        overwriteSnapshotScope(
+            connA, sprintId,
+            buildJsonArray {
+                add(scopeItem(1, ann, committed = true, inScopeAtClose = true, commitMd = 2.504, closeMd = 3.0))
+                add(scopeItem(2, ann, committed = true, inScopeAtClose = true, commitMd = 2.506, closeMd = 4.126))
+                add(scopeItem(3, ann, committed = true, inScopeAtClose = true, commitMd = null, closeMd = null))
+                add(scopeItem(4, ann, committed = false, inScopeAtClose = true, commitMd = null, closeMd = 1.5))
+                add(scopeItem(5, ann, committed = true, inScopeAtClose = false, commitMd = 9.0, closeMd = 9.0))
+                add(scopeItem(6, null, committed = true, inScopeAtClose = true, commitMd = 100.0, closeMd = 100.0))
+                add(scopeItem(7, other, committed = true, inScopeAtClose = true, commitMd = 50.0, closeMd = 50.0))
+            },
+        )
+        // Connection B shares the SAME sprint id (one Jira site, two connections) but a different snapshot.
+        overwriteSnapshotScope(
+            connB, sprintId,
+            buildJsonArray { add(scopeItem(1, ann, committed = true, inScopeAtClose = true, commitMd = 1.0, closeMd = 1.0)) },
+        )
+
+        val a = client.get(userUrl(connA, teamA, ann)).body<VelocityReport>().sprints.single()
+        val snapshotA = assertNotNull(a.snapshot)
+        // Hand-computed: initial = items 1-3 -> 3 items, 2.50 + 2.51 + 0 = 5.01 MD;
+        // final = items 1-4 -> 4 items, 3.00 + 4.13 + 0 + 1.50 = 8.63 MD.
+        assertEquals(5.01, snapshotA.initialMd, ABS_TOLERANCE)
+        assertEquals(3, snapshotA.initialItems)
+        assertEquals(8.63, snapshotA.finalMd, ABS_TOLERANCE)
+        assertEquals(4, snapshotA.finalItems)
+        assertTrue(a.drift, "the frozen figures differ from the live ones")
+        assertNotEquals(snapshotA.initialMd, a.initialMd, "the live figures still come from fact_sprint_scope, not the snapshot")
+        assertNotEquals(snapshotA.finalMd, a.finalMd)
+
+        val b = client.get(userUrl(connB, teamB, ann)).body<VelocityReport>().sprints.single()
+        val snapshotB = assertNotNull(b.snapshot)
+        assertEquals(1.0, snapshotB.initialMd, ABS_TOLERANCE)
+        assertEquals(1, snapshotB.initialItems)
+        assertEquals(1.0, snapshotB.finalMd, ABS_TOLERANCE)
+        assertEquals(1, snapshotB.finalItems)
+        assertTrue(b.drift)
+
+        // An account with no item in the stored scope has zero frozen figures (not null: the sprint IS frozen).
+        val nobody = assertNotNull(client.get(userUrl(connB, teamB, other)).body<VelocityReport>().sprints.single().snapshot)
+        assertEquals(0.0, nobody.initialMd)
+        assertEquals(0, nobody.initialItems)
+        assertEquals(0.0, nobody.finalMd)
+        assertEquals(0, nobody.finalItems)
+    }
+
+    @Test
+    fun `frozen scope parsing fails loudly on a malformed row and keeps a null estimate null`() {
+        fun parse(json: String) = frozenContributionsOf(json, 7u, 42L)
+        fun item(vararg overrides: Pair<String, String>): String {
+            val base = linkedMapOf(
+                "committed" to "true", "inScopeAtClose" to "true", "estimateAtCommitmentMd" to "1.5",
+                "estimateAtCloseMd" to "2.5", "assigneeAtCommitment" to "\"acc\"",
+            )
+            overrides.forEach { (key, value) -> base[key] = value }
+            return base.entries.joinToString(prefix = "[{", postfix = "}]") { "\"${it.key}\":${it.value}" }
+        }
+        fun message(json: String) = assertFailsWith<IllegalStateException> { parse(json) }.message.orEmpty()
+
+        val ok = parse(item()).single()
+        assertEquals(1.5, ok.commitMd)
+        assertEquals("acc", ok.accountId)
+        val unestimated = parse(item("estimateAtCommitmentMd" to "null", "assigneeAtCommitment" to "null")).single()
+        assertEquals(null, unestimated.commitMd)
+        assertEquals(null, unestimated.accountId)
+
+        val prefix = "fact_sprint_snapshot.scope malformed for connection 7 sprint 42: "
+        assertEquals(prefix + "item 0 is missing key committed", message("""[{"assigneeAtCommitment":null,"inScopeAtClose":true}]"""))
+        assertEquals(prefix + "item 0 key committed is not a boolean", message(item("committed" to "\"yes\"")))
+        assertEquals(prefix + "item 0 key inScopeAtClose is not a boolean", message(item("inScopeAtClose" to "null")))
+        assertEquals(prefix + "item 0 key estimateAtCloseMd is not a number", message(item("estimateAtCloseMd" to "\"abc\"")))
+        assertEquals(prefix + "item 0 key estimateAtCommitmentMd is not a number", message(item("estimateAtCommitmentMd" to "true")))
+        assertEquals(prefix + "item 0 key assigneeAtCommitment is not a string", message(item("assigneeAtCommitment" to "5")))
+        assertEquals(prefix + "item 0 key estimateAtCloseMd is not a scalar", message(item("estimateAtCloseMd" to "[]")))
+        assertEquals(prefix + "item 0 is not an object", message("[1]"))
+        assertEquals(prefix + "not a JSON array", message("{}"))
     }
 
     @Test

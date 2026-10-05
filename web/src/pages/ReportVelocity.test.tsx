@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { Route, Routes } from "react-router-dom";
 import ReportVelocity from "./ReportVelocity";
 import { jsonResponse } from "../test/http";
-import { FILTERS, VELOCITY_EMPTY, VELOCITY_TEAM, VELOCITY_UNIT } from "../test/reportFixtures";
+import { FILTERS, VELOCITY_EMPTY, VELOCITY_TEAM, VELOCITY_UNIT, VELOCITY_USER } from "../test/reportFixtures";
 import { renderWithProviders, screen, waitFor, within } from "../test/render";
 
 // recharts renders nothing under happy-dom (no layout), so the chart is a probe carrying its props.
@@ -85,6 +85,18 @@ describe("ReportVelocity page", () => {
 
     // The page query ran exactly once, after the filters, with an empty (server-default) filter.
     expect(velocityCalls(mockFetch)).toEqual(["/api/v1/reports/velocity?"]);
+  });
+
+  test("at user level the sprint row shows the account's frozen figures and the drift badge", async () => {
+    serve(mockFetch, { velocity: () => jsonResponse(200, VELOCITY_USER) });
+    renderPage("/reports/velocity?teamId=1&accountId=acc-ann");
+    await screen.findByTestId("bar-chart");
+
+    const row = within(screen.getAllByRole("table")[0]).getByRole("row", { name: /Alpha 2/ });
+    expect(within(row).getByText("14.5")).toBeInTheDocument();
+    expect(within(row).getByText("Drift")).toBeInTheDocument();
+    expect(within(row).getByText("Frozen at completion: initial 12 MD, final 13 MD")).toBeInTheDocument();
+    expect(velocityCalls(mockFetch)).toEqual(["/api/v1/reports/velocity?teamId=1&accountId=acc-ann"]);
   });
 
   test("offers no report-specific controls — no bucket, domain view, domain, activity type or category", async () => {

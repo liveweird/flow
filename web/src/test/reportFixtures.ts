@@ -119,6 +119,23 @@ export const VELOCITY_TEAM: VelocityReport = {
   ],
 };
 
+/** USER level: one account's own sprint rows — the frozen per-user figures and drift ride along like the team level's. */
+export const VELOCITY_USER: VelocityReport = {
+  meta: { ...META, level: "USER" },
+  sprints: [
+    {
+      ...VELOCITY_UNIT.sprints[0],
+      initialMd: 12,
+      initialItems: 5,
+      finalMd: 14.5,
+      finalItems: 6,
+      snapshot: { initialMd: 12, initialItems: 5, finalMd: 13, finalItems: 6 },
+      drift: true,
+    },
+  ],
+  groups: [],
+};
+
 export const VELOCITY_EMPTY: VelocityReport = { meta: META, sprints: [], groups: [] };
 
 export const THROUGHPUT_UNIT: ThroughputReport = {
