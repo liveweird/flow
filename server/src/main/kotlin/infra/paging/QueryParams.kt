@@ -36,6 +36,37 @@ fun Parameters.optionalUInt(name: String): UInt? =
 fun Parameters.repeatedValues(name: String): List<String> =
     getAll(name).orEmpty().filter { it.isNotBlank() }
 
+/**
+ * Every non-blank value of [name], trimmed and `distinct()` (first occurrence wins), for a repeated-key param whose contract bounds how
+ * MANY values it takes (the deep dive's `epicId`/`issueId` keys): 400 when fewer than [minCount] or more than [maxCount] distinct
+ * values arrive. Duplicates collapse rather than fail, as in [repeatedEnum]; the bound applies to what is left.
+ */
+fun Parameters.repeatedStrings(name: String, minCount: Int = 0, maxCount: Int): List<String> =
+    boundedCount(name, repeatedValues(name).map { it.trim() }.distinct(), minCount, maxCount)
+
+/**
+ * Every non-blank value of [name] parsed as an id (`Long`, `distinct()`) of at least [minValue] (default 0; pass 1 to refuse a zero id),
+ * bounded to [minCount]..[maxCount] distinct values like [repeatedStrings]; 400 on a value that is not an integer of at least
+ * [minValue]. Empty (when [minCount] is 0) when absent.
+ */
+fun Parameters.repeatedLongs(name: String, minCount: Int = 0, maxCount: Int, minValue: Long = 0): List<Long> =
+    boundedCount(
+        name,
+        repeatedValues(name).map { raw ->
+            raw.trim().toLongOrNull()?.takeIf { it >= minValue } ?: throw BadRequestException("Invalid $name: $raw")
+        }.distinct(),
+        minCount,
+        maxCount,
+    )
+
+private fun <T> boundedCount(name: String, values: List<T>, minCount: Int, maxCount: Int): List<T> {
+    if (values.size > maxCount) throw BadRequestException("Parameter '$name' takes at most $maxCount values")
+    if (values.size < minCount) {
+        throw BadRequestException("Parameter '$name' takes at least $minCount value${if (minCount == 1) "" else "s"}")
+    }
+    return values
+}
+
 /** Parses a non-blank param as a strict boolean; null when absent/blank, 400 unless exactly true/false. */
 fun Parameters.optionalBoolean(name: String): Boolean? =
     optionalString(name)?.let {

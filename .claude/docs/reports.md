@@ -1150,13 +1150,16 @@ DeepDiveReport {
   `done` is the EV marker (`day offset`, `evMd`). Days with nothing are absent. Typical size is about 25k entries (about 400 KB before
   compression) -- the reason aggregation is the client's job.
 - `planBasisMd` is the estimate the task's PV spreads (`estimate_at_commitment_md` of the chosen sprint); `planSource` says whether it is the
-  earliest sprint's or the first-later-sprint FALLBACK, or that there is none; `noPlanReason` names why a task has no PV (never in a sprint, no
-  estimate at commitment). `totals` carries each layer's full sum over ALL days, in or out of `range`.
+  earliest sprint's or the first-later-sprint FALLBACK, or that there is none (only a task with no estimate); `noPlanReason` names why a task
+  has no PV: `NEVER_IN_SPRINT`, `NO_ESTIMATE`, or `NO_WORKING_DAY` (an estimate whose sprint windows hold no working day -- `planBasisMd` and
+  `planSource` stay set, `pv` is empty). Whenever `noPlanReason` is absent, `pv` sums to `planBasisMd`. A sprint with no `start_at` is a
+  one-day window on its close, one with neither `complete_at` nor `end_at` contributes no day, and a sprint window longer than 1100 days is
+  clamped to its first 1100 days (A29). `totals` carries each layer's full sum over ALL days, in or out of `range`.
 - Epic-row figures are not sent: the client sums the tasks of each epic, which makes "an epic row equals the sum of its tasks" true by
   construction; only the epic's own planned window and `ownCost` ride on `epics[]`.
 - MD figures are rounded to 2 decimals; PV is spread with cumulative rounding so a task's PV sums to its estimate exactly (A29).
-- **`quality`** counts what the page states openly as its limits: tasks never in a sprint (no PV), tasks with no estimate at commitment, epics with
-  no planned window, tasks whose PV came from the first-later-sprint fallback, and the worklog MD logged on an epic itself. The fixed
+- **`quality`** counts what the page states openly as its limits: tasks never in a sprint (no PV), tasks with no estimate at commitment, tasks whose estimate has no working day
+  to sit on (`noWorkingDay`), epics with no planned window, tasks whose PV came from the first-later-sprint fallback, and the worklog MD logged on an epic itself. The fixed
   limits that are not data-dependent (as-was attribution A21, sub-tasks not rows, status-based execution with blocked time not subtracted, a
   multi-day worklog on its start day, freshness = the last `DERIVE`) are stated by the page and by A29.
 - **Nothing derived yet** (no connection in scope has a successful `DERIVE`): `200` with empty `tasks`/`epics`/`authors`, `range.asOfDay` null,
@@ -1164,8 +1167,9 @@ DeepDiveReport {
 
 ### Code and tests (planned)
 
-`reports/DeepDiveSelection.kt` (parse and resolve), `DeepDiveKernels.kt` (the pure spreading and execution functions, plus the shared
-`spreadCumulative(total, days)` extracted from `curveOf` in `EpicProgressEvm.kt`, which report 15's tests already pin), `DeepDiveReport.kt` (DTOs and
+`reports/DeepDiveSelection.kt` (parse and resolve), `DeepDiveKernels.kt` (the pure plan, execution and cost kernels, plus the shared
+cumulative-rounding split extracted from `curveOf` in `EpicProgressEvm.kt`: `cumulativeSplit(total, count)` is the running `ROUND(total * i / n, 2)`
+list that `curveOf` now uses, which report 15's tests already pin, and `spreadCumulative(total, days)` is the deep dive's per-day differences over it), `DeepDiveReport.kt` (DTOs and
 `ReportService.deepDive`), `DeepDiveOptions.kt` (the three lists), and a `deepDiveRoutes` registrar in `ReportRoutes.kt`. Tests:
 `DeepDiveKernelsTest` (pure: the cumulative-rounding split, an overlapping sprint day counted once, weekends and holidays skipped, a Warsaw
 daylight-saving day, partial and open in-progress intervals) and `ReportDeepDiveTest` (the shared derived fixture read-only with a plain-user

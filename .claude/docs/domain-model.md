@@ -418,9 +418,13 @@ carries the per-measure detail).
     estimate, the first LATER such sprint that has one (the row is marked as the fallback). It is
     spread evenly, with cumulative rounding (the same `ROUND(total * i / n, 2)` rule as the epic PV
     curve, so Σ = the estimate exactly), over the working days of the UNION of those sprint windows —
-    a window being `dayOf(start_at)` .. `dayOf(complete_at ?: end_at)` in the configured zone, a day
-    in two overlapping windows counted once. A task never in a sprint, or with no estimate at
-    commitment, has no PV and says why.
+    a window being `dayOf(start_at)` .. `dayOf(complete_at ?: end_at)` in the configured zone (a sprint
+    with no `start_at` is a one-day window on its close, as `periodWindow` treats it; one with neither
+    `complete_at` nor `end_at` contributes no day; a window longer than 1100 days is clamped to its
+    first 1100 days, the report's range cap), a day in two overlapping windows counted once. A task
+    never in a sprint, or with no estimate at commitment, has no PV and says why; a task WITH an
+    estimate whose windows hold no working day keeps its basis and its source, has an empty series and
+    the reason `NO_WORKING_DAY`.
   - **Plan, epic row.** An epic row's PV is the Σ of its tasks' PV (never the epic's own budget). The
     epic's OWN planned window (the current `fact_epic_plan` baseline: start, due, budget) is drawn
     beside it as a non-additive outline — it never enters any sum.
