@@ -1069,8 +1069,8 @@ the TASK/EPIC switch for a cross-domain task, an epic-logged and an epic-less wo
 
 ## Report 17 -- Deep dive
 
-Status: the contract for the deep-dive work (A29, `.claude/docs/domain-model.md`; per-measure rows in `.claude/docs/measures.md` "Report 17");
-the three option lists are implemented (`reports/DeepDiveOptions.kt`), the report endpoint lands with the next commits. Reports-layer only: it reads facts `DERIVE` already writes (`fact_sprint_scope`,
+Status: implemented server side (A29, `.claude/docs/domain-model.md`; per-measure rows in `.claude/docs/measures.md` "Report 17"): the report
+(`reports/DeepDiveReport.kt`, `DeepDiveSelection.kt`) and the three option lists (`reports/DeepDiveOptions.kt`); the SPA page is a later commit. Reports-layer only: it reads facts `DERIVE` already writes (`fact_sprint_scope`,
 `fact_task_delivery`, `item_stage`, `fact_worklog`, `fact_epic_plan`, `dim_date`) -- no new `DERIVE` step, no migration. Any signed-in user,
 read-only, no audit (D12), every operation answers `200`/`400`/`401` only.
 
@@ -1123,18 +1123,26 @@ Common optional parameters: `connectionId`, `from`, `to` (ISO dates, inclusive, 
   outside it (a worklog logged after the sprints, a done day later) is cut from the SERIES but still counted in each task's `totals`.
 - Modes (b) and (c): the envelope of every mark that would be drawn -- plan days, execution days, done days, cost days and the epics'
   planned windows.
-- `from`/`to` clip that envelope (clipped data stays in `totals`). `from > to` is `400`; a range over 1100 days (inclusive of both ends) is `400`,
-  whether given or implied by the envelope.
-- Day offsets in the series count from `range.from`. `range.asOfDay` is the last DERIVED day (`derivedCoverage`: the oldest, over the
-  connections in scope, of each one's newest SUCCEEDED `derive_runs.started_at` day); open execution intervals stop at that DERIVE clock
-  (`deriveClocks`).
+- `from`/`to` CLIP that envelope (clipped data stays in `totals`). With BOTH given, `from > to` is `400` and so is a span over 1100 days
+  (inclusive of both ends). A lone bound never fails: one outside the envelope pulls the implied other end onto itself, so the range is a
+  single empty day (totals intact); one inside keeps the envelope's other end.
+- An IMPLIED range (not both bounds given) over 1100 days is not an error: it keeps its LAST 1100 days -- a given `from` or `to` is
+  honoured and the other end follows it; with neither, the days end at the envelope's end -- and `note` says so
+  (`DEEP_DIVE_RANGE_CLAMPED_NOTE`, starting `RANGE_CLAMPED`; totals stay whole-life). The work is bounded the same way: the per-day execution
+  series is computed only over the range (each span is cut to it first), whole-life execution is the sum of `workingDaysBetween` over each
+  span, and the envelope reads a span by its first and last day -- never a day loop over years. With no marks at all the range is the single
+  day `from ?? to ?? today`.
+- Day offsets in the series count from `range.from`. `range.asOfDay` is the day of the SELECTED connection's last DERIVE clock (its newest
+  SUCCEEDED `derive_runs.started_at`, `deriveClocks`) -- the same clock open execution intervals stop at; a selected connection with
+  dimension rows but no successful run reads as not derived. (`meta` is `deriveStamp` over the connections in scope, as everywhere.)
 
 ### `400`s
 
 Checked before any data is read, always `400` and never `404`: no mode or mixed modes (for example `sprintId` with `epicId`); `domain` without
 `sprintId` (mode a); `issueId` without exactly one `epicId`; too many values (more than 52 sprints, 50 epics or 500 issues); a selection that
-resolves to more than 500 tasks; a range over 1100 days; `from` after `to`; an unknown or inactive sprint, epic, issue or connection; an
-issue that is not under the chosen epic; an ambiguous epic key (several connections in scope); a malformed date or id; and on the option lists
+resolves to more than 500 tasks; a GIVEN range (both `from` and `to`) over 1100 days or with `from` after `to`; an unknown or inactive sprint, epic, issue or connection; an
+issue that is not under the chosen epic; an ambiguous epic key or sprint id (several connections in scope); an unknown `domain` (mode a, on a connection that
+has derived); epics, sprints or issues that do not share one connection; a malformed date or id; a repeated scalar parameter; control characters; and on the option lists
 an unknown sort field or a bad page parameter. Nothing in scope derived yet is NOT a `400`: it is the empty answer below.
 
 ### Response
@@ -1143,7 +1151,7 @@ an unknown sort field or a bad page parameter. Nothing in scope derived yet is N
 DeepDiveReport {
   meta: ReportMeta                      // from deriveStamp: derivedAt, configRevision (the derived revision, as everywhere)
   mode: SPRINTS | EPICS | TASKS         // which of the three selections ran
-  range: { from, to, asOfDay? }         // ISO dates; asOfDay = the last derived day (null when nothing derived)
+  range: { from, to, asOfDay? }         // ISO dates; asOfDay = the day of the selected connection's DERIVE clock (null when nothing derived)
   nonWorkingDays: [int]                 // day offsets from range.from that are not working days (the client hatches them)
   sprints: [{ ... }]                    // mode (a): the selected sprints, so the client can label the plan windows
   authors: [{ accountId, displayName }] // names for the cost entries (accountDisplayNames)
@@ -1159,7 +1167,24 @@ DeepDiveReport {
 
 - Every series is SPARSE: `pv[]` and `exec[]` are `(day offset, figure)` entries, `cost[]` adds the author (an index into `authors`),
   `done` is the EV marker (`day offset`, `evMd`). Days with nothing are absent. Typical size is about 25k entries (about 400 KB before
-  compression) -- the reason aggregation is the client's job.
+  compression) -- the reason aggregation is the client's job. The golden sprint (FLO Sprint 4, 23 tasks of its busiest domain, 226 entries)
+  answers in about 12.5 KB.
+- Wire shapes (compact on purpose): `pv[]` entry `{d, md}`, `exec[]` entry `{d, td}` (`td` = task-days, 4 decimals), `cost[]` entry `{d, a, md}`
+  (`a` = index into `authors`, `null` when Jira gave no author), `done` = `{d, evMd}`, every `d` a day offset from `range.from`. The server
+  serializes every property, so an "absent" optional in the shape above is a JSON `null` (`task.summary`, `epicKey`, `planBasisMd`,
+  `noPlanReason`, `done`; `epics[].key`/`summary`/`plannedStart`/`plannedDue`/`budgetMd`/`ownCost`; `range.asOfDay`; `note`). `epics[].plannedStart`/
+  `plannedDue` are day offsets from `range.from` (they may lie outside the range: an outline). `ownCost` = `{cost[], totalMd}` (the clipped series and
+  the whole-life sum) and is non-null in mode EPICS only, and only for an epic with worklogs on itself. `sprints[]` = `{id, name, startDay, endDay}`
+  (the plan window as offsets, `null` for a sprint contributing no day). `totals` = `{pvMd, execTaskDays, evMd, costMd}`, whole-life, rounded
+  from exact sums. `quality` = `{neverInSprint, noEstimate, noWorkingDay, epicsWithoutWindow, laterFallback, epicOwnCostMd}`. `authors` lists the
+  accounts the SENT (range-clipped) cost entries name, by display name; an account the people table does not know is named by its id.
+- Rules the contract above leaves to the implementation: tasks come back in natural key order (`FLO-2` before `FLO-10`); `epics[]` lists the selected
+  epics in request order, then the epics the tasks sit under by key, then the key-less `(no epic)` row when a task has none (a task whose
+  `epic_id` has no `dim_epic` row counts as epic-less); a task's sprints are ordered by their start (else close) day, earliest first; an
+  `epicId`/`sprintId` that resolves in several connections in scope is ambiguous even when another selected key is unambiguous; the working
+  days are the configured calendar (the rule `dim_date.is_working_day` stores); a selection whose only data lie outside every window and
+  has no envelope (no marks) answers the single day `from ?? to ?? today`; `note` is `NOT_DERIVED_NOTE` when nothing derived and the
+  `RANGE_CLAMPED` message when an implied range was cut, else `null`.
 - `planBasisMd` is the estimate the task's PV spreads (`estimate_at_commitment_md` of the chosen sprint); `planSource` says whether it is the
   earliest sprint's or the first-later-sprint FALLBACK, or that there is none (only a task with no estimate); `noPlanReason` names why a task
   has no PV: `NEVER_IN_SPRINT`, `NO_ESTIMATE`, or `NO_WORKING_DAY` (an estimate whose sprint windows hold no working day -- `planBasisMd` and
@@ -1176,16 +1201,21 @@ DeepDiveReport {
 - **Nothing derived yet** (no connection in scope has a successful `DERIVE`): `200` with empty `tasks`/`epics`/`authors`, `range.asOfDay` null,
   `meta.derivedAt` null and `note` = `NOT_DERIVED_NOTE` (`reports/SnapshotSupport.kt`) -- never a range's worth of zeros.
 
-### Code and tests (planned)
+### Code and tests
 
-`reports/DeepDiveSelection.kt` (parse and resolve), `DeepDiveKernels.kt` (the pure plan, execution and cost kernels, plus the shared
+`reports/DeepDiveSelection.kt` (parse and resolve; `parseDeepDive`, `resolveDeepDiveTargets`), `DeepDiveKernels.kt` (the pure plan, execution and cost kernels, plus the shared
 cumulative-rounding split extracted from `curveOf` in `EpicProgressEvm.kt`: `cumulativeSplit(total, count)` is the running `ROUND(total * i / n, 2)`
 list that `curveOf` now uses, which report 15's tests already pin, and `spreadCumulative(total, days)` is the deep dive's per-day differences over it), `DeepDiveReport.kt` (DTOs and
 `ReportService.deepDive`), `DeepDiveOptions.kt` (the three lists), and a `deepDiveRoutes` registrar in `ReportRoutes.kt`. Tests:
 `DeepDiveKernelsTest` (pure: the cumulative-rounding split, an overlapping sprint day counted once, weekends and holidays skipped, a Warsaw
 daylight-saving day, partial and open in-progress intervals) and `ReportDeepDiveTest` (the shared derived fixture read-only with a plain-user
-client, each figure against an INDEPENDENT query; hand-built rows in a DISABLED connection for carry-over, the estimated-late fallback, a task
-never in a sprint, an epic with no window, an epic-logged worklog, an unknown author, 501 tasks, a range over 1100 days and never-derived;
-every `400`). `ReportDeepDiveOptionsTest` (landed with the option lists): the shared derived fixture graded against independent reads of the stored
+client, each figure against an INDEPENDENT read of the stored facts: the mode-a task set, plan basis/source/reason and the day-by-day PV, execution
+per day and in total (`workingDaysBetween`), the EV marker, cost per day and author, per-author sums with names, the epic outline, wide versus narrow
+ranges (in-range plus clipped equals the total) and TASKS narrowing the envelope; hand-built rows in DISABLED connections for carry-over across
+overlapping sprints, the later fallback, a task never in a sprint, no working day, an epic with no window, an epic-logged worklog, an unknown and a
+missing author, 501 tasks (epic and sprint selections), a given range over 1100 days, lone `from`/`to` clips, an implied range over 1100 days clamped (an epic
+window of years; a task in progress since 2020 with whole-life totals), the same issue in two connections keeping each one's figures, an unselected parent's sub-task
+contributing nothing, ambiguity across connections and never-derived; every `400`).
+The kernels' `taskPlan` takes an optional `daysOf` so the report memoizes `planDays` per distinct window set. `ReportDeepDiveOptionsTest` (landed with the option lists): the shared derived fixture graded against independent reads of the stored
 facts (sprint counts per domain, the epic list, an epic's tasks, paging/total, sorts, uppercase/accented `q`), every option-list `400`, and hand-built
 rows in a disabled connection for stored diacritics and an epic key present in two connections.

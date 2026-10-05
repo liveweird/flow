@@ -1395,6 +1395,53 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/reports/deep-dive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Report 17 — the deep dive (plan, execution and cost as daily series per task, in man-days)
+         * @description Any authenticated user (D12), read-only — `.claude/docs/reports.md` "Report 17", A29. Plan (PV), execution and cost (AC) for a chosen
+         *     set of work, as SPARSE DAILY series per task; the client sums days into weeks, months and epic rows. Exactly ONE of three selections
+         *     (the repeated keys are the first `IN` semantics of API-LIST-004 here): **(a)** `domain` and one to 52 `sprintId` — the domain's
+         *     level-0 tasks `in_scope_at_close` (A17) in at least one of those sprints; **(b)** one to 50 `epicId` (issue keys) — every level-0
+         *     task under them; **(c)** ONE `epicId` and one to 500 `issueId` (issue keys) — exactly those tasks of that epic. At most 500 tasks
+         *     in all. One selection reads ONE connection (`connectionId`, else the one the keys resolve to).
+         *
+         *     `range`: mode (a) the envelope of the selected sprints' plan windows; (b) and (c) the envelope of every mark (plan, execution, done
+         *     and cost days, the epics' planned windows and own cost); `from`/`to` clip it (clipped data stays in each task's `totals`; a lone
+         *     bound outside the envelope yields a single empty day). An implied range over 1100 days keeps its last 1100 days and `note` starts
+         *     `RANGE_CLAMPED`; a GIVEN range over 1100 days is `400`. `range.asOfDay` is the day of the selected connection's last DERIVE clock,
+         *     where an open execution interval stops. Every series entry's `d` is a day offset from `range.from`; `nonWorkingDays` are the
+         *     offsets that are not working days.
+         *
+         *     Per task, `pv` spreads `planBasisMd` (the `estimate_at_commitment_md` of the task's earliest sprint, else its first later one —
+         *     `planSource`) evenly, with cumulative rounding, over the working days of the union of the windows of every sprint the task was in
+         *     scope at close in; `noPlanReason` says why a task has none (`NEVER_IN_SPRINT`, `NO_ESTIMATE`, or `NO_WORKING_DAY`, which keeps
+         *     the basis and source with an empty `pv`). `exec` is the fraction of each working day spent IN_PROGRESS (task-days, blocked time not
+         *     subtracted). `done` is the EV marker (`estimate_at_done_md` on the day of `done_at`). `cost` is `fact_worklog.md` on the day of
+         *     `started_at` by author (`a` indexes `authors`; sub-task worklogs roll up to their parent task). `epics[]` carry the epic's CURRENT
+         *     baseline window (`plannedStart`/`plannedDue` offsets, an outline, never summed) and budget, and — mode (b) only — the worklog MD
+         *     logged on the epic itself (`ownCost`); the `(no epic)` row has a null `key`. MD are rounded to 2 decimals.
+         *
+         *     Nothing in scope derived yet answers `200` with empty `tasks`/`epics`/`authors`, `range.asOfDay` null and `note` set — never a
+         *     range of zeros. `400` (never 404): no or mixed selections, `domain` without `sprintId`, `issueId` without exactly one `epicId`, too
+         *     many values, more than 500 tasks, a given range over 1100 days or `from` after `to` (both given), an unknown sprint, epic, issue, domain or
+         *     connection, an issue not under the epic, a key in several connections without `connectionId`, a malformed date or id, a repeated
+         *     scalar parameter, control characters.
+         */
+        get: operations["getReportDeepDive"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/reports/deep-dive/sprints": {
         parameters: {
             query?: never;
@@ -3584,6 +3631,207 @@ export interface components {
              * @description Exact foreign MD ÷ exact MD; null when nothing was logged.
              */
             foreignShare: number | null;
+        };
+        DeepDiveRange: {
+            /**
+             * Format: date
+             * @description ISO date; the day every series offset counts from.
+             */
+            from: string;
+            /**
+             * Format: date
+             * @description ISO date, inclusive.
+             */
+            to: string;
+            /**
+             * Format: date
+             * @description The day of the selected connection's last DERIVE clock (where open execution stops); null when nothing derived.
+             */
+            asOfDay: string | null;
+        };
+        /** @description A selected sprint (selection a) with its plan window as day offsets from `range.from`. */
+        DeepDiveSprint: {
+            /** Format: int64 */
+            id: number;
+            name: string;
+            /**
+             * Format: int32
+             * @description Offset of the window start; null when the sprint contributes no day.
+             */
+            startDay: number | null;
+            /**
+             * Format: int32
+             * @description Offset of the window close; null when the sprint contributes no day.
+             */
+            endDay: number | null;
+        };
+        DeepDiveAuthor: {
+            accountId: string;
+            /** @description The Jira display name; the account id for an account the people table does not know. */
+            displayName: string;
+        };
+        DeepDiveMdDay: {
+            /**
+             * Format: int32
+             * @description Day offset from `range.from`.
+             */
+            d: number;
+            /**
+             * Format: double
+             * @description Man-days on that day (2 decimals).
+             */
+            md: number;
+        };
+        DeepDiveExecDay: {
+            /**
+             * Format: int32
+             * @description Day offset from `range.from`.
+             */
+            d: number;
+            /**
+             * Format: double
+             * @description The fraction of a working day spent IN_PROGRESS (task-days, 4 decimals).
+             */
+            td: number;
+        };
+        DeepDiveCostDay: {
+            /**
+             * Format: int32
+             * @description Day offset from `range.from`.
+             */
+            d: number;
+            /**
+             * Format: int32
+             * @description Index into `authors`; null when Jira gave no author.
+             */
+            a: number | null;
+            /**
+             * Format: double
+             * @description The author's man-days logged that day (2 decimals).
+             */
+            md: number;
+        };
+        /** @description The EV marker. */
+        DeepDiveDone: {
+            /**
+             * Format: int32
+             * @description Day offset of `done_at` from `range.from`.
+             */
+            d: number;
+            /**
+             * Format: double
+             * @description `estimate_at_done_md`; 0 when unestimated.
+             */
+            evMd: number;
+        };
+        /** @description Each layer's full sum over ALL days, in or out of `range`. */
+        DeepDiveTotals: {
+            /** Format: double */
+            pvMd: number;
+            /** Format: double */
+            execTaskDays: number;
+            /** Format: double */
+            evMd: number;
+            /** Format: double */
+            costMd: number;
+        };
+        DeepDiveTask: {
+            key: string;
+            summary: string | null;
+            /** @description Null for a task with no epic (the `(no epic)` row). */
+            epicKey: string | null;
+            /**
+             * Format: double
+             * @description The estimate `pv` spreads; null for a task with no estimate. Whenever `noPlanReason` is absent, `pv` sums to it.
+             */
+            planBasisMd: number | null;
+            /**
+             * @description Whether the basis is the earliest sprint's, the first later sprint's FALLBACK, or none.
+             * @enum {string}
+             */
+            planSource: "EARLIEST" | "LATER_FALLBACK" | "NONE";
+            /**
+             * @description Why `pv` is empty; null when the task has a plan.
+             * @enum {string|null}
+             */
+            noPlanReason: "NEVER_IN_SPRINT" | "NO_ESTIMATE" | "NO_WORKING_DAY" | null;
+            pv: components["schemas"]["DeepDiveMdDay"][];
+            exec: components["schemas"]["DeepDiveExecDay"][];
+            /** @description The EV marker; null when the task is not done or its done day is outside `range`. */
+            done: components["schemas"]["DeepDiveDone"] | null;
+            cost: components["schemas"]["DeepDiveCostDay"][];
+            totals: components["schemas"]["DeepDiveTotals"];
+        };
+        /** @description The worklog MD logged on an epic itself (selection b). */
+        DeepDiveOwnCost: {
+            cost: components["schemas"]["DeepDiveCostDay"][];
+            /**
+             * Format: double
+             * @description The whole-life sum, in or out of `range`.
+             */
+            totalMd: number;
+        };
+        /** @description One epic row; the row with a null `key` is the `(no epic)` bucket. */
+        DeepDiveEpic: {
+            key: string | null;
+            summary: string | null;
+            /**
+             * Format: int32
+             * @description Offset of the CURRENT baseline's planned start from `range.from` (an outline, never summed); null without a complete window.
+             */
+            plannedStart: number | null;
+            /**
+             * Format: int32
+             * @description Offset of the planned due day.
+             */
+            plannedDue: number | null;
+            /**
+             * Format: double
+             * @description The current baseline's budget; null without a baseline.
+             */
+            budgetMd: number | null;
+            /** @description The worklog MD logged on the epic itself — selection (b) only, null otherwise or when there is none. */
+            ownCost: components["schemas"]["DeepDiveOwnCost"] | null;
+        };
+        /** @description The limits the page states openly, counted over ALL selected tasks. */
+        DeepDiveQuality: {
+            /** Format: int32 */
+            neverInSprint: number;
+            /** Format: int32 */
+            noEstimate: number;
+            /**
+             * Format: int32
+             * @description Tasks whose estimate has no working day to sit on.
+             */
+            noWorkingDay: number;
+            /** Format: int32 */
+            epicsWithoutWindow: number;
+            /**
+             * Format: int32
+             * @description Tasks whose PV came from the first-later-sprint fallback.
+             */
+            laterFallback: number;
+            /**
+             * Format: double
+             * @description The worklog MD logged on the listed epics themselves (selection b).
+             */
+            epicOwnCostMd: number;
+        };
+        DeepDiveReport: {
+            meta: components["schemas"]["ReportMeta"];
+            /** @enum {string} */
+            mode: "SPRINTS" | "EPICS" | "TASKS";
+            range: components["schemas"]["DeepDiveRange"];
+            nonWorkingDays: number[];
+            /** @description Selection (a) only — the selected sprints, earliest first. */
+            sprints: components["schemas"]["DeepDiveSprint"][];
+            authors: components["schemas"]["DeepDiveAuthor"][];
+            epics: components["schemas"]["DeepDiveEpic"][];
+            /** @description By issue key. */
+            tasks: components["schemas"]["DeepDiveTask"][];
+            quality: components["schemas"]["DeepDiveQuality"];
+            /** @description The not-derived-yet message when nothing in scope has derived; a message starting `RANGE_CLAMPED` when an implied range was cut to its last 1100 days; null otherwise. */
+            note: string | null;
         };
         DeepDiveSprintOption: {
             /**
@@ -5912,6 +6160,44 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CostMatrixReport"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getReportDeepDive: {
+        parameters: {
+            query?: {
+                /** @description The domain key — required with `sprintId` (selection a), refused otherwise. */
+                domain?: string;
+                /** @description Repeated — the Jira sprint ids of selection (a); 1 to 52 distinct. */
+                sprintId?: number[];
+                /** @description Repeated — the epics' issue keys of selection (b), 1 to 50 distinct; exactly one with `issueId` (selection c). */
+                epicId?: string[];
+                /** @description Repeated — the handpicked tasks' issue keys of selection (c), 1 to 500 distinct, all under the one `epicId`. */
+                issueId?: string[];
+                /** @description The ONE connection the selection reads (an active one, else `400`). Without it the keys resolve across every active connection and a key or sprint id present in several is ambiguous (`400`). */
+                connectionId?: number;
+                /** @description ISO date (YYYY-MM-DD), inclusive, in the configured zone: clips the range's start (the envelope's by default). Alone, a `from` after the envelope's end gives a single empty day at `from` (totals unchanged), never a `400`. With `to`, `from` after `to` or a span over 1100 days is `400`. */
+                from?: string;
+                /** @description ISO date (YYYY-MM-DD), inclusive, in the configured zone: clips the range's end (the envelope's by default). Alone, a `to` before the envelope's start gives a single empty day at `to`. When the range is NOT fully given and would span over 1100 days, its last 1100 days are kept (a given bound is honoured, the other end follows it) and `note` says `RANGE_CLAMPED`. */
+                to?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The deep dive report */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeepDiveReport"];
                 };
             };
             400: components["responses"]["BadRequest"];

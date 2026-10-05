@@ -159,7 +159,7 @@ private fun parseDateRange(fromRaw: String?, toRaw: String?, calendar: WorkingCa
     return ReportPeriod.DateRange(fromDate, toDate, fromMs, toMs)
 }
 
-private fun parseIsoDate(raw: String, paramName: String): LocalDate = try {
+internal fun parseIsoDate(raw: String, paramName: String): LocalDate = try {
     LocalDate.parse(raw)
 } catch (failure: DateTimeParseException) {
     throw BadRequestException("$paramName must be an ISO date (YYYY-MM-DD)")

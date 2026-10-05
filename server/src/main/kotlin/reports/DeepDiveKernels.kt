@@ -129,8 +129,14 @@ internal fun planDays(windows: List<SprintWindow>, calendar: WorkingCalendar): L
  * window is [NoPlanReason.NEVER_IN_SPRINT]; none with an estimate is [NoPlanReason.NO_ESTIMATE] (source NONE); an estimate with no
  * working day in the union keeps its basis and source with an empty series and [NoPlanReason.NO_WORKING_DAY]. A zero estimate is an
  * estimate: it has a basis and an empty series with no reason (sparse series drop zero entries, so a split's zero days are absent too).
+ * [daysOf] defaults to [planDays]; the report layer passes a memoizing one, since it depends only on the window set.
  */
-internal fun taskPlan(windows: List<SprintWindow>, calendar: WorkingCalendar, origin: LocalDate): TaskPlan {
+internal fun taskPlan(
+    windows: List<SprintWindow>,
+    calendar: WorkingCalendar,
+    origin: LocalDate,
+    daysOf: (List<SprintWindow>) -> List<LocalDate> = { planDays(it, calendar) },
+): TaskPlan {
     if (windows.isEmpty()) return TaskPlan.none(NoPlanReason.NEVER_IN_SPRINT)
     val earliest = windows.first().commitmentMd
     val (basis, source) = if (earliest != null) {
@@ -140,7 +146,7 @@ internal fun taskPlan(windows: List<SprintWindow>, calendar: WorkingCalendar, or
         if (later == null) return TaskPlan.none(NoPlanReason.NO_ESTIMATE)
         later to PlanSource.LATER_FALLBACK
     }
-    val days = planDays(windows, calendar)
+    val days = daysOf(windows)
     if (days.isEmpty()) return TaskPlan(basis, source, NoPlanReason.NO_WORKING_DAY, emptyList())
     val pv = spreadCumulative(basis, days)
         .filter { (_, md) -> md.signum() != 0 }

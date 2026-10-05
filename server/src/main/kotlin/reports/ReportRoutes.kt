@@ -92,6 +92,10 @@ class ReportEpicProgressRoute
 class ReportCostMatrixRoute
 
 @Serializable
+@Resource("/api/v1/reports/deep-dive")
+class ReportDeepDiveRoute
+
+@Serializable
 @Resource("/api/v1/reports/deep-dive/sprints")
 class ReportDeepDiveSprintsRoute
 
@@ -243,14 +247,21 @@ private fun Route.qualityEpicAndCostRoutes(reportService: ReportService, metrics
  * An optional free-text/identifier parameter trimmed and checked for control characters (`400`, never a Postgres NUL error): the
  * deep dive's `domain` and `q`.
  */
-private fun Parameters.optionalSingleLine(name: String): String? =
+internal fun Parameters.optionalSingleLine(name: String): String? =
     optionalString(name)?.let { sanitizeSingleLine(it, name) }?.takeIf { it.isNotEmpty() }
 
 /**
- * The deep dive's (report 17) three picker option lists: ordinary paged list endpoints, any signed-in user (D12), `call.caller()` first
- * so the guard wins over every `400`; the paging and sort whitelist parse BEFORE the report's own parameters.
+ * The deep dive (report 17): the report itself and its three picker option lists. Any signed-in user (D12), read-only (no audit),
+ * `call.caller()` first so the guard wins over every `400`. The report parses its own repeated-key selection
+ * ([parseDeepDive], no shared filter); the lists are ordinary paged list endpoints, the paging and sort whitelist parsed BEFORE the
+ * list's own parameters.
  */
 private fun Route.deepDiveRoutes(reportService: ReportService) {
+    get<ReportDeepDiveRoute> {
+        call.caller()
+        val request = call.request.queryParameters.parseDeepDive()
+        call.respond(HttpStatusCode.OK, reportService.deepDive(request, nowMillis()))
+    }
     get<ReportDeepDiveSprintsRoute> {
         call.caller()
         val paging = call.parsePaging(DEEP_DIVE_SPRINT_SORT_FIELDS, listOf(SortField("id", descending = true)))
