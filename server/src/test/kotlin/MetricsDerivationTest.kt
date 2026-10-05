@@ -31,6 +31,7 @@ import ch.nokillswit.norm.TrackedField
 import ch.nokillswit.norm.WorkItemFacts
 import ch.nokillswit.norm.WorkItemStore
 import java.io.File
+import java.math.BigDecimal
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZoneOffset
@@ -39,6 +40,8 @@ import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -757,6 +760,81 @@ class MetricsDerivationTest {
             )
         }
     }
+
+    @Test
+    fun `invariant 8 with sub-cent estimates — fact_sprint is the exact Σ of the stored per-item fact_sprint_scope values`() =
+        runBlocking {
+            val golden = metricsDerivationGoldenSprint
+            val sharedScope = DerivedStubFixture.connectionId().let { sharedId ->
+                suspendTransaction(sharedDatabaseForTests()) {
+                    MetricsTables.FactSprintScope.selectAll()
+                        .where {
+                            (MetricsTables.FactSprintScope.connectionId eq sharedId) and
+                                (MetricsTables.FactSprintScope.sprintId eq golden.sprintId)
+                        }
+                        .toList().map { it[MetricsTables.FactSprintScope.issueId] }
+                }
+            }
+            require(sharedScope.size >= 2) { "the golden sprint must carry at least two scope items" }
+
+            // A private DISABLED processed clone: every scope item of the golden sprint gets the SAME sub-cent estimate
+            // (0.125 MD, what a time-tracking estimate at hoursPerDay 8 yields), its estimate history dropped so the value
+            // holds at commitment and at close alike.
+            val connId = clonedProcessedConnection()
+            val config = metricsConfig()
+            mapFloBoardToTeam(connId, config)
+            val fieldId = requireNotNull(config.effectiveConfig(connId).fields.estimateTask) { "the stub configures an estimate field" }
+            suspendTransaction(sharedDatabaseForTests()) {
+                WorkItemStore.FieldChanges.deleteWhere {
+                    (WorkItemStore.FieldChanges.connectionId eq connId) and
+                        (WorkItemStore.FieldChanges.issueId inList sharedScope) and (WorkItemStore.FieldChanges.fieldId eq fieldId)
+                }
+                val rows = WorkItemStore.WorkItems
+                    .select(WorkItemStore.WorkItems.issueId, WorkItemStore.WorkItems.customFields)
+                    .where { (WorkItemStore.WorkItems.connectionId eq connId) and (WorkItemStore.WorkItems.issueId inList sharedScope) }
+                    .toList()
+                rows.forEach { row ->
+                    val fields = Json.parseToJsonElement(row[WorkItemStore.WorkItems.customFields]).jsonObject
+                    val planted = Json.encodeToString(JsonObject.serializer(), JsonObject(fields + (fieldId to JsonPrimitive(0.125))))
+                    val issueId = row[WorkItemStore.WorkItems.issueId]
+                    WorkItemStore.WorkItems.update({
+                        (WorkItemStore.WorkItems.connectionId eq connId) and (WorkItemStore.WorkItems.issueId eq issueId)
+                    }) { it[customFields] = planted }
+                }
+            }
+            deriver().derive(SyncJobRunContext(deriveClaim(91u, connId), clock = { PINNED_NOW }) { _, _ -> true })
+
+            val (fact, scope) = suspendTransaction(sharedDatabaseForTests()) {
+                MetricsTables.FactSprint.selectAll()
+                    .where { (MetricsTables.FactSprint.connectionId eq connId) and (MetricsTables.FactSprint.sprintId eq golden.sprintId) }
+                    .toList().single() to
+                    MetricsTables.FactSprintScope.selectAll()
+                        .where {
+                            (MetricsTables.FactSprintScope.connectionId eq connId) and
+                                (MetricsTables.FactSprintScope.sprintId eq golden.sprintId)
+                        }
+                        .toList()
+            }
+            fun sum(rows: List<ResultRow>, value: (ResultRow) -> BigDecimal?) =
+                rows.fold(BigDecimal.ZERO) { acc, r -> acc + (value(r) ?: BigDecimal.ZERO) }
+            val committed = scope.filter {
+                it[MetricsTables.FactSprintScope.committed] && it[MetricsTables.FactSprintScope.inScopeAtClose]
+            }
+            val final = scope.filter { it[MetricsTables.FactSprintScope.inScopeAtClose] }
+            assertTrue(final.size >= 2, "at least two in-scope items, or the rounding orders cannot differ")
+            // Postgres stores each planted 0.125 as 0.13 (half away from zero), and `fact_sprint` is the exact Σ of THOSE.
+            final.forEach { assertEquals(0, BigDecimal("0.13").compareTo(it[MetricsTables.FactSprintScope.estimateAtCloseMd])) }
+            assertEquals(
+                0, sum(final) { it[MetricsTables.FactSprintScope.estimateAtCloseMd] }.compareTo(fact[MetricsTables.FactSprint.finalMd]),
+                "fact_sprint.final_md must equal the Σ of the stored per-item values exactly",
+            )
+            assertEquals(0, BigDecimal("0.13").multiply(BigDecimal(final.size)).compareTo(fact[MetricsTables.FactSprint.finalMd]))
+            assertEquals(
+                0, sum(committed) { it[MetricsTables.FactSprintScope.estimateAtCommitmentMd] }
+                    .compareTo(fact[MetricsTables.FactSprint.committedMd]),
+                "fact_sprint.committed_md must equal the Σ of the stored per-item values exactly",
+            )
+        }
 
     @Test
     fun `invariant 8 (A17) — every fact_sprint row partitions as final = delivered + carried + dropped, committed + added = final`() =

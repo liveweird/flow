@@ -400,7 +400,9 @@ or close figure already recorded.
 
 `fact_sprint` (one row per sprint) is the Σ of its own `fact_sprint_scope` rows
 (`DeriveKernels.sprintTotals`, invariant 8 — true BY CONSTRUCTION, since `MetricsDeriver` writes
-exactly this function's output as the `fact_sprint` row) plus `capacity_md`/`capacity_source`/`load`
+exactly this function's output as the `fact_sprint` row; each item's MD is rounded half-up to two decimals
+(`sumMd`) BEFORE the exact sum, matching the two-decimal value `fact_sprint_scope` stores per item, so
+Σ scope rows and every per-user report group equal the team figure to the cent) plus `capacity_md`/`capacity_source`/`load`
 (below); it is always the LIVE recomputation, rebuilt wholesale on every DERIVE.
 
 ### Default sprint capacity (A3)
@@ -428,6 +430,12 @@ DB trigger, `.claude/docs/persistence.md` "The `metrics` schema — the derived 
 actual enforcement, since the invariant must hold even against a hand-run `UPDATE`). A later DERIVE
 never touches an already-snapshotted sprint's row, byte-for-byte — only a NEWLY-closed sprint (one
 that was still open on every earlier DERIVE) gets a snapshot written.
+
+**Rounding, one-off.** A snapshot frozen BEFORE `sprintTotals` rounded each item before summing holds
+`round2(Σ raw)`, while the live `fact_sprint` is now `Σ round2(item)` — up to n × 0.005 MD apart for a
+sprint whose estimates carry more than two decimals (time-tracking estimates), so the drift flag can
+show once for such a pre-upgrade snapshot. No deployment had snapshots when this landed; snapshots
+written since are `Σ round2(item)` like the live row.
 
 **`reconstructed`** = `true` when the sprint's own `complete_at` predates this connection's FIRST
 EVER successful `derive_runs` row (`firstSuccessfulDeriveRunStartedAt`) — i.e. Flow never watched

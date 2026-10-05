@@ -2,6 +2,7 @@ package ch.nokillswit.reports
 
 import ch.nokillswit.infra.db.nowMillis
 import ch.nokillswit.metrics.MetricsTables
+import ch.nokillswit.metrics.sumMd
 import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.Serializable
 import org.jetbrains.exposed.v1.core.Op
@@ -145,9 +146,9 @@ private suspend fun teamGroups(sprintRows: List<SprintRow>): List<VelocityGroup>
         VelocityGroup(
             teamId = key.teamId,
             label = key.label,
-            initialMd = rows.sumOf { it.live.initialMd },
+            initialMd = sumMd(rows.map { it.live.initialMd }),
             initialItems = rows.sumOf { it.live.initialItems },
-            finalMd = rows.sumOf { it.live.finalMd },
+            finalMd = sumMd(rows.map { it.live.finalMd }),
             finalItems = rows.sumOf { it.live.finalItems },
         )
     }
@@ -161,9 +162,9 @@ private suspend fun userGroups(contributions: List<ScopeContribution>): List<Vel
         VelocityGroup(
             accountId = key.accountId,
             label = key.label,
-            initialMd = rows.filter { it.committed && it.inScopeAtClose }.sumOf { it.commitMd ?: 0.0 },
+            initialMd = sumMd(rows.filter { it.committed && it.inScopeAtClose }.map { it.commitMd }),
             initialItems = rows.count { it.committed && it.inScopeAtClose },
-            finalMd = rows.filter { it.inScopeAtClose }.sumOf { it.closeMd ?: 0.0 },
+            finalMd = sumMd(rows.filter { it.inScopeAtClose }.map { it.closeMd }),
             finalItems = rows.count { it.inScopeAtClose },
         )
     }
@@ -182,9 +183,9 @@ private fun buildUserSprints(sprintRows: List<SprintRow>, contributions: List<Sc
         val rows = byKey[row.connectionId to row.sprintId].orEmpty()
         VelocitySprint(
             sprintId = row.sprintId, name = row.name, teamId = row.teamId, completedAt = row.completedAt,
-            initialMd = rows.filter { it.committed && it.inScopeAtClose }.sumOf { it.commitMd ?: 0.0 },
+            initialMd = sumMd(rows.filter { it.committed && it.inScopeAtClose }.map { it.commitMd }),
             initialItems = rows.count { it.committed && it.inScopeAtClose },
-            finalMd = rows.filter { it.inScopeAtClose }.sumOf { it.closeMd ?: 0.0 },
+            finalMd = sumMd(rows.filter { it.inScopeAtClose }.map { it.closeMd }),
             finalItems = rows.count { it.inScopeAtClose },
             snapshot = null,
             drift = false,

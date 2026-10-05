@@ -65,7 +65,11 @@ internal val ANALYZED_TABLES: List<String> = listOf(
     "metrics.fact_task_delivery", "metrics.fact_sprint", "metrics.fact_sprint_scope", "metrics.fact_worklog", "metrics.fact_epic_plan",
 )
 
-/** `metrics.fact_sprint_snapshot.scope` — the sprint's own [SprintScopeItem] rows, frozen as JSON (D13). */
+/**
+ * `metrics.fact_sprint_snapshot.scope` — the sprint's own [SprintScopeItem] rows, frozen as JSON (D13). The per-item MD
+ * values are the raw (unrounded) estimates; the snapshot's frozen totals are [sumMd] of these (each item rounded to two
+ * decimals before summing), exactly as `fact_sprint`'s are.
+ */
 private fun sprintScopeItemsJson(items: List<SprintScopeItem>): String = buildJsonArray {
     items.forEach { item ->
         add(

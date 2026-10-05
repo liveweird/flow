@@ -114,11 +114,17 @@ Every report response carries a `meta` block beside its own body:
 `{derivedAt, configRevision, from, to, level, domainView, resolvedSprints[{teamId, sprintIds}],
 minSampleSize}`. `derivedAt` is the latest SUCCEEDED `metrics.derive_runs.finished_at` across the
 connection(s) the report actually read (`null` before any connection has ever completed a DERIVE);
-`configRevision` is the LIVE `metrics.settings.config_revision` at read time, NOT the revision the
-data was derived under (every DERIVE stamps its rows with the revision it ran under, invariant 12 --
-`.claude/docs/domain-model.md` -- but the response does not carry that one; after a configuration
-change and before its DERIVE finishes, `configRevision` is ahead of the data. `derivedAt` is the
-honest freshness signal). `from`/`to` are populated only for a
+`configRevision` is the revision the served figures were DERIVED under
+(every DERIVE stamps its rows with the revision it ran under, invariant 12 -- `.claude/docs/domain-model.md`),
+read off `metrics.derive_runs.config_revision`, NEVER the live `metrics.settings.config_revision`: between a
+configuration change and its DERIVE the live revision is ahead of the data, and `meta` keeps saying what the data
+reflects. Per connection it is the newest SUCCEEDED run's revision (`startedAt`, then `id`); with several
+connections in scope (a unit-wide report with no `connectionId`) it is the OLDEST of those -- the oldest
+configuration any served figure reflects, the same "oldest connection wins" rule `derivedCoverage` applies to the
+snapshot reports' DERIVE clock (`derivedAt` stays the latest finish). A connection that never derived
+successfully serves no figures and contributes to neither; `configRevision` is `null` (like `derivedAt`) before any
+connection in scope has a successful run. `reports/ReportSupport.kt`'s `deriveStamp` computes both.
+`from`/`to` are populated only for a
 `from`/`to`-selected period; a `lastSprints`/`sprintId` period instead describes itself entirely
 through `resolvedSprints`. `ReportFilter.toMeta(...)` assembles the DTO from an already-resolved
 filter plus the figures a report's own service computes -- pure, no DB access of its own.
@@ -138,7 +144,7 @@ ReportFilters {
   workCategories: [string]
   connections: [{ id, name }]
   derivedAt: epoch millis | null
-  configRevision: integer
+  configRevision: integer | null   // the derived revision, as in `meta` (oldest across the active connections)
   minSampleSize: integer
   timeZone: string   // IANA, metrics.settings.time_zone
 }
@@ -162,7 +168,7 @@ ReportFilters {
   `from`/`to` are read in. The SPA renders every report date and computes its period presets, "today" and
   the date-picker maximum in this zone (never UTC, never the browser's), so a preset chosen at 00:30
   local on the 1st means the same day the server resolves.
-- **`derivedAt`/`configRevision`/`minSampleSize`** -- the SAME figures every report's own `meta`
+- **`derivedAt`/`configRevision`/`minSampleSize`** -- the SAME figures every unit-wide report's own `meta`
   block carries, so a client can label a still-warming-up connection ("no data derived yet")
   without a second round trip.
 
@@ -217,8 +223,7 @@ VelocityReport {
     (`in_scope_at_close`) sums `estimate_at_close_md`, the SAME removed-row rule
     `DeriveKernels.sprintTotals` applies to the team total itself (`.claude/docs/metrics.md`
     "Sprint scope, facts and snapshots"), so `Σ groups == the team total` (both buckets, both
-    MD and items; up to 0.01 MD per sprint of rounding when estimates have more than two decimals --
-    see "Rounding" under Report 6). A `null` `accountId`/`label` group is the unassigned-at-commitment
+    MD and items, exactly -- see "Rounding" under Report 6). A `null` `accountId`/`label` group is the unassigned-at-commitment
     bucket, listed last -- never a stored sentinel, the `credit_team_id` convention.
   - **USER** (`teamId` AND `accountId`) -- `sprints` itself narrows to that ONE account's own
     contribution per sprint (the SAME committed/final predicates as the TEAM-level groups, applied
@@ -369,7 +374,7 @@ SprintConsistencyReport {
     close; added = `added_at` set; removed = `removed_at` set; final = in scope at close; delivered =
     `done_in_sprint`; carried over / dropped by their flags; each on the estimate column
     `sprintTotals` uses for it), never a re-implementation, so Σ groups == the team figures for every
-    bucket (MD up to the rounding note below), and items exactly. A removed row is attributed to the user
+    bucket and in items, exactly (MD: see the rounding note below). A removed row is attributed to the user
     assigned at commitment, an added one to the user assigned at entry; the unassigned (null) group
     sorts last, as in velocity. The scope rows fetched are exactly the in-scope (connection, sprint)
     pairs -- never the cross product of the connection and sprint id lists, since two connections to
@@ -379,11 +384,11 @@ SprintConsistencyReport {
     (velocity's documented narrowing: a per-user frozen figure would mean parsing the snapshot's
     JSONB scope), `groups` is empty. The unassigned bucket has no USER-level query -- it is the
     remainder Σ named users + unassigned == team.
-- **Rounding.** `fact_sprint` stores `round2(Σ unrounded)` per sprint while the per-user groups are
-  computed over `fact_sprint_scope` rows whose estimates are stored to two decimals, so Σ groups == team up
-  to 0.01 MD per sprint of rounding when estimates have more than two decimals (both here and in
-  velocity); items always match exactly. `BACKLOG.md` tracks rounding per item before summing in
-  `sprintTotals`.
+- **Rounding.** Every MD figure of a sprint is `Σ round2(item)`: `DeriveKernels.sprintTotals` rounds each
+  item's estimate half-up to two decimals (`sumMd`, `metrics/DeriveKernels.kt`) BEFORE the exact sum, which is
+  exactly what `fact_sprint_scope` stores per item, and the per-user groups here and in velocity re-sum the
+  stored rows with the same `sumMd` -- so Σ groups == the team figure to the cent (items likewise), whatever
+  decimals the estimates carry.
 - **Not in this report.** Capacity and load (also under measures.md's Report 6 heading) are not part of
   this endpoint's shape; they stay on `dim_sprint`/`fact_sprint` for a later reader.
 

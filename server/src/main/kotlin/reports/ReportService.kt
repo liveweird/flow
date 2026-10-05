@@ -115,11 +115,7 @@ class ReportService(
             .toList()
             .map { ReportFilterConnection(it[DataSourceService.Connections.id].value, it[DataSourceService.Connections.name]) }
 
-        val derivedAt = MetricsTables.DeriveRuns.select(MetricsTables.DeriveRuns.finishedAt)
-            .where { MetricsTables.DeriveRuns.status eq DERIVE_RUN_SUCCEEDED }
-            .toList()
-            .mapNotNull { it[MetricsTables.DeriveRuns.finishedAt] }
-            .maxOrNull()
+        val stamp = deriveStamp(connections.map { it.id })
 
         ReportFilters(
             teams = teams,
@@ -127,8 +123,8 @@ class ReportService(
             activityTypes = activityTypes,
             workCategories = workCategories,
             connections = connections,
-            derivedAt = derivedAt,
-            configRevision = settings.configRevision,
+            derivedAt = stamp.derivedAt,
+            configRevision = stamp.configRevision,
             minSampleSize = settings.minSampleSize,
             timeZone = settings.timeZone,
         )

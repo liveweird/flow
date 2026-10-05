@@ -312,4 +312,39 @@ class MetricsConfigServiceTest {
             assertEquals(1, deriveJobs().size, "an identical re-PUT must not enqueue another DERIVE")
         }
     }
+
+    /**
+     * A22 (`.claude/docs/domain-model.md`): a configured owner on a soft-deleted team resolves to NO owner and never falls
+     * through to the board fallback — even when the domain also has a mapped board on another ACTIVE team. The same board
+     * without a configured owner is the control (the board's team wins), and an ACTIVE configured owner beats that board.
+     */
+    @Test
+    fun `a soft-deleted configured owner resolves to none even when the domain has a mapped board on an active team`() {
+        val resolver = DomainOwnerResolver(sharedDatabaseForTests(), workItems())
+        val deletedOwner = 11u
+        val boardTeam = 22u
+        fun resolve(configured: Map<String, UInt>, activeTeams: Set<UInt>) = resolver.resolveOwnerTeamByDomain(
+            projectKeysByDomain = mapOf("DOM" to listOf("P1")),
+            configuredOwners = configured,
+            boardsByProject = mapOf("P1" to listOf(7L)),
+            boardTeamByBoardId = mapOf(7L to boardTeam),
+            activeTeamIds = activeTeams,
+        )
+
+        assertEquals(
+            emptyMap(),
+            resolve(mapOf("P1" to deletedOwner), activeTeams = setOf(boardTeam)),
+            "the configured owner's team is soft-deleted: none, NOT the board's active team",
+        )
+        assertEquals(
+            mapOf("DOM" to boardTeam),
+            resolve(emptyMap(), activeTeams = setOf(boardTeam)),
+            "control: no configured owner, the board's team",
+        )
+        assertEquals(
+            mapOf("DOM" to deletedOwner),
+            resolve(mapOf("P1" to deletedOwner), activeTeams = setOf(deletedOwner, boardTeam)),
+            "control: an ACTIVE configured owner overrides the board",
+        )
+    }
 }
