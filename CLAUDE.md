@@ -21,10 +21,12 @@ where work waits, not who is busy.
   store with incremental cursors (`raw.*`), a neutral normalized layer above it (`norm.*` — facts
   only, no interpretation), the data profile and the admin pages over all of it
   (`.claude/docs/ingestion.md`).
-- **v0.3.0 (this codebase) — the domain model, metrics, reports.** The model in
+- **v0.3.0 — the domain model, metrics, reports.** The model in
   `.claude/docs/domain-model.md`, implemented: metrics configuration, a `DERIVE` job building the
-  `metrics` star from `norm` (`metrics/`), and seventeen reports (`reports/`; sixteen pages); Home is
-  the unit overview. Next: the real-Jira first sync, then `BACKLOG.md`.
+  `metrics` star from `norm` (`metrics/`), and the reports (`reports/`); Home is the unit overview.
+- **v0.4.0 (this codebase) — the Deep dive.** Report 17 (A29): plan, execution and cost per task
+  and day on a drillable epic/task × time matrix; seventeen reports on sixteen pages. Next: the
+  real-Jira first sync, then `BACKLOG.md`.
 
 Brand: blue (the `flow` colour tuple in `web/src/theme.ts`, `primaryShade: { light: 8, dark: 9 }`);
 the logo is "Rolling" — a stream running round a blue disc and rolling inward into a curl
