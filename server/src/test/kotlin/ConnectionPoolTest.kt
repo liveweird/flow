@@ -116,18 +116,26 @@ class ConnectionPoolTest {
             }
             holderStarted.await()
 
-            // Database.kt pins defaultMaxAttempts = 1, so the 1-second acquire deadline surfaces after
-            // ONE attempt (Exposed's default of three would triple it) — a generous outer bound around
-            // that observed failure, never a sleep (.claude/docs/testing.md).
+            // Database.kt pins defaultMaxAttempts = 1, so Exposed adds no attempts of its own; the pool itself
+            // retries a failed acquire once (r2dbc-pool's acquireRetry = 1, kept on purpose: the same retry
+            // replaces a connection that fails LOCAL validation), so a timed-out acquire surfaces after ~2x
+            // maxAcquireTimeSeconds — .claude/docs/persistence.md "Connection pool". A generous outer bound
+            // around that observed failure, never a sleep (.claude/docs/testing.md).
+            val startedAt = System.nanoTime()
             val failure = withTimeoutOrNull(20_000) {
                 runCatching { suspendTransaction(db) { touchDatabase() } }.exceptionOrNull()
             }
+            val elapsedMillis = (System.nanoTime() - startedAt) / 1_000_000
             assertNotNull(failure, "the second transaction must fail rather than hang past maxAcquireTimeSeconds")
             val chain = generateSequence(failure) { it.cause }.toList()
             assertTrue(
                 chain.any { it is TimeoutException },
                 "expected the pool's acquire-timeout exception in the cause chain, got: ${chain.map { it::class.qualifiedName }}",
             )
+            // Pins the documented behaviour: the retry re-queues the waiter for a second full deadline (>= ~2x of
+            // the 1 s setting), and Exposed's three attempts would push it to ~6 s (> the upper bound).
+            assertTrue(elapsedMillis >= 1_900, "acquire gave up after ${elapsedMillis}ms; expected ~2x the 1000ms setting")
+            assertTrue(elapsedMillis <= 4_000, "acquire took ${elapsedMillis}ms; expected ~2x the 1000ms setting")
 
             gate.complete(Unit)
             holder.join()

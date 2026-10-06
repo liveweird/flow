@@ -55,7 +55,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 - **Two connections to one Jira site are allowed** (different project scopes). Confirm this is the wanted behaviour once real usage exists.
 - **D6 — de-Jira the `Connector` seam: not before the GitLab connector (YAGNI).** `ingest/Connector.kt` `testConnection(siteUrl, email, apiToken, projectKeys, authScheme)`, `JiraConnectorKey` in `DataSourceRoutes.kt` and `DataSourceRequest.jira` are Jira-shaped. Generalising them is speculative until a second connector exists; revisit with GitLab.
 - **Shutdown audit lines are lost.** `sync_job.released` (the worker's lease release on a graceful stop) is missing from the log on graceful restarts — seen live on two of them; the DB release does happen. Suspected cause: the OpenTelemetry console-exporter flush racing the Ktor stop hook.
-- **r2dbc-pool acquire timeout reports at 2× the setting.** The pool reports an acquire timeout after twice `postgres.pool.maxAcquireTimeSeconds`, not once. Find out why (per-attempt timeout plus a retry?) and fix it or document it in `.claude/docs/persistence.md`.
 
 ## Checkup 2026-09-30 — what is left (record: `.claude/docs/audit-status.md`)
 

@@ -66,9 +66,19 @@ in-network consumers use `postgres:5432`). There is one persistence stack:
   (`worker`/`all`) refuses to boot unless `maxSize > 2 × ingest.workerSlots` (`configureIngestWorker`): a running DERIVE
   holds two pooled connections at once (its transaction plus `MetricsStore.ensureDimDate`'s own). Size it as
   `maxSize × replicas + 1` (Flyway's short-lived JDBC connection, `infra/db/Flyway.kt`) well under
-  the server's `max_connections`. A caller that waits past the acquire deadline fails with the
-  pool's timeout exception, which `plugins/ErrorHandling.kt`'s catch-all renders as a logged
-  `500` — deliberately NOT a new declared status, since the OpenAPI conformance gate would need it
+  the server's `max_connections`. `maxAcquireTimeSeconds` is a per-attempt deadline, and the effective
+  bound is about 2× the setting. r2dbc-pool 1.0.2's `ConnectionPool` builds `create()` as
+  `Mono.defer { acquire.flatMap(…).timeout(maxAcquireTime) }.retry(acquireRetry)` and the builder default is
+  `acquireRetry = 1` (read from the bytecode): the timeout is an ordinary error to `retry`, so a timed-out waiter is
+  re-queued at the BACK of the acquire queue for a second full deadline before the failure surfaces. Flow keeps the
+  default on purpose: the same retry is what transparently replaces a connection that fails `LOCAL` validation
+  (`prepareConnection` invalidates it and the outer retry acquires another), so a connection closed from the driver
+  side — a Postgres or pod restart, a FIN/RST on an idle socket — costs no request or worker job, whereas with
+  `acquireRetry(0)` each such stale connection would fail one (a manually enqueued job would be lost). After a
+  Postgres restart the pool therefore heals itself as long as at most one stale connection is handed out per
+  acquire; size `maxAcquireTimeSeconds` knowing a saturated pool fails after twice it (`ConnectionPoolTest` pins the
+  ~2×). A caller that waits past the acquire deadline fails with the pool's timeout
+  exception, which `plugins/ErrorHandling.kt`'s catch-all renders as a logged `500` — deliberately NOT a new declared status, since the OpenAPI conformance gate would need it
   on every operation. The pool is disposed on `ApplicationStopped`, so every `testApplication` the
   suite boots releases its connections. Exposed's
   `R2dbcDatabase.connect(connectionFactory, databaseConfig)` derives the dialect from
@@ -84,7 +94,7 @@ in-network consumers use `postgres:5432`). There is one persistence stack:
   reactor-netty as one release train, and `:server:checkDependencyAlignment` fails when any
   reactor module resolves to a version other than the BOM's. Move the `reactor-bom` catalog line
   together with the `netty` pin (reactor-netty's Netty version tracks the BOM). Covered by
-  `ConnectionPoolTest` (bounded concurrency, a saturated pool's acquire timeout, disposal on
+  `ConnectionPoolTest` (bounded concurrency, a saturated pool's acquire timeout, its ~2× deadline, disposal on
   `ApplicationStopped` and on a later module's failed startup, and the four config range-check
   cases) and `checkDependencyAlignment`'s own Reactor guard.
 - **Exception:** the pool runs r2dbc-pool's defaults for liveness (`ValidationDepth.LOCAL`, no
