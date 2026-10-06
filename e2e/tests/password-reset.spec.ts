@@ -73,6 +73,17 @@ test("a reset email delivers a working new password and kills the old one", asyn
     )
     .toBeTruthy();
 
+  // The worker SENDS before it STORES (send-before-store, security.md), and the store hashes at
+  // bcrypt cost 12 — under load the email can land a few hundred ms before the new password works.
+  // Wait for the store through the API (at most 3 tries, under the 5-failure lockout) before the UI login.
+  await expect
+    .poll(
+      async () =>
+        (await page.request.post("/api/v1/login", { data: { email: user.email, password: newPassword } })).status(),
+      { intervals: [1_000, 2_000], timeout: 4_000 },
+    )
+    .toBe(200);
+
   await login(page, user.email, newPassword!);
   await signOut(page);
 
