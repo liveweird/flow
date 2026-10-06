@@ -2,14 +2,10 @@ package ch.nokillswit.ingest
 
 import ch.nokillswit.infra.db.jsonb
 import ch.nokillswit.infra.paging.PageRequest
-import ch.nokillswit.infra.paging.applyPaging
 import io.ktor.util.AttributeKey
 import kotlinx.coroutines.flow.toList
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
 import org.jetbrains.exposed.v1.core.*
 import org.jetbrains.exposed.v1.core.dao.id.UIntIdTable
-import org.jetbrains.exposed.v1.core.vendors.ForUpdateOption
 import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
 import org.jetbrains.exposed.v1.r2dbc.deleteWhere
 import org.jetbrains.exposed.v1.r2dbc.insertIgnoreAndGetId
@@ -19,27 +15,32 @@ import org.jetbrains.exposed.v1.r2dbc.update
 
 val SyncJobsServiceKey = AttributeKey<SyncJobsService>("SyncJobsService")
 
-private val SORTABLE_COLUMNS: Map<String, Column<*>> = mapOf(
-    "id" to SyncJobsService.Jobs.id,
-    "requestedAt" to SyncJobsService.Jobs.requestedAt,
-)
-
-/** The ONE sortable whitelist — derived from the column map so the two can never drift. */
-val SYNC_JOB_SORT_FIELDS: Set<String> = SORTABLE_COLUMNS.keys
-
-private val SKIP_LOCKED = ForUpdateOption.PostgreSQL.ForUpdate(ForUpdateOption.PostgreSQL.MODE.SKIP_LOCKED)
-
 /**
  * The sync-job queue (v0.2.0 plan §4/§5/§9, V9 `sync_jobs`): both history and command queue,
  * claimed with a lease/heartbeat by `ingest/IngestWorker.kt` (the worker role) and driven by
  * `ingest/SyncJobRoutes.kt` (the web role). [clock] is injectable for tests (the `TokenBlocklistService`
  * idiom, `auth/TokenBlocklistService.kt`).
  */
-class SyncJobsService(
+class SyncJobsService internal constructor(
     private val database: R2dbcDatabase,
     private val defaultMaxAttempts: Int,
-    private val clock: () -> Long = System::currentTimeMillis,
+    private val clock: () -> Long,
+    /**
+     * Test seam (`SyncJobQueueTest`; reachable only through the `internal` constructor, never production wiring): runs
+     * inside [claim]'s transaction right after a connection's claim lock is held and before the "already RUNNING?"
+     * check — how a test holds one claimer there while a second one races it.
+     */
+    afterClaimLock: suspend (connectionId: UInt) -> Unit,
 ) {
+    constructor(
+        database: R2dbcDatabase,
+        defaultMaxAttempts: Int,
+        clock: () -> Long = System::currentTimeMillis,
+    ) : this(database, defaultMaxAttempts, clock, {})
+
+    private val reads = SyncJobReads(database)
+    private val leases = SyncJobLeases(database, clock, afterClaimLock)
+
     object Jobs : UIntIdTable("sync_jobs") {
         val connectionId = reference("connection_id", DataSourceService.Connections)
         val kind = varchar("kind", 20)
@@ -84,71 +85,24 @@ class SyncJobsService(
         SyncJobEnqueueResult(id, coalesced)
     }
 
-    suspend fun list(connectionId: UInt, filter: SyncJobListFilter, paging: PageRequest): SyncJobListResult =
-        suspendTransaction(database) {
-            var predicate: Op<Boolean> = Jobs.connectionId eq connectionId
-            filter.kind?.let { predicate = predicate and (Jobs.kind eq it.name) }
-            filter.status?.let { predicate = predicate and (Jobs.status eq it.name) }
-            val total = Jobs.selectAll().where { predicate }.count()
-            val rows = Jobs.selectAll().where { predicate }.applyPaging(paging, SORTABLE_COLUMNS).toList()
-            SyncJobListResult(rows.map { it.toResponse() }, total)
-        }
+    // The read side — see [SyncJobReads].
 
-    suspend fun read(connectionId: UInt, jobId: UInt): SyncJobResponse? = suspendTransaction(database) {
-        Jobs.selectAll().where { (Jobs.id eq jobId) and (Jobs.connectionId eq connectionId) }
-            .toList().singleOrNull()?.toResponse()
-    }
+    suspend fun list(connectionId: UInt, filter: SyncJobListFilter, paging: PageRequest): SyncJobListResult =
+        reads.list(connectionId, filter, paging)
+
+    suspend fun read(connectionId: UInt, jobId: UInt): SyncJobResponse? = reads.read(connectionId, jobId)
 
     /** The connection's currently RUNNING job id, if any — feeds `DataSourceStatus.runningJobId`. */
-    suspend fun runningJobId(connectionId: UInt): UInt? = suspendTransaction(database) {
-        Jobs.selectAll().where { (Jobs.connectionId eq connectionId) and (Jobs.status eq SyncJobStatus.RUNNING.name) }
-            .limit(1).toList().singleOrNull()?.let { it[Jobs.id].value }
-    }
+    suspend fun runningJobId(connectionId: UInt): UInt? = reads.runningJobId(connectionId)
 
     /** Batch form of [runningJobId] for the list endpoint — one query for the whole page. */
-    suspend fun runningJobIdsByConnection(connectionIds: List<UInt>): Map<UInt, UInt> {
-        if (connectionIds.isEmpty()) return emptyMap()
-        return suspendTransaction(database) {
-            Jobs.selectAll().where { (Jobs.connectionId inList connectionIds) and (Jobs.status eq SyncJobStatus.RUNNING.name) }
-                .toList().associate { it[Jobs.connectionId].value to it[Jobs.id].value }
-        }
-    }
+    suspend fun runningJobIdsByConnection(connectionIds: List<UInt>): Map<UInt, UInt> = reads.runningJobIdsByConnection(connectionIds)
 
-    /**
-     * The connection's open job, in full — `GET …/{id}/status`'s `currentJob`, in ONE query: the RUNNING job if
-     * any, else the PENDING one [claim] would take first (`priority`, `requested_at`, then id — so a manual job
-     * outranks an earlier scheduled one). A client thus sees, and polls, a job that has not been claimed yet,
-     * and a claim landing mid-read can never make both halves miss. `runningJobId` stays RUNNING-only.
-     */
-    suspend fun openJob(connectionId: UInt): SyncJobResponse? = suspendTransaction(database) {
-        val runningFirst = Case().When(Jobs.status eq SyncJobStatus.RUNNING.name, intLiteral(0)).Else(intLiteral(1))
-        Jobs.selectAll()
-            .where {
-                (Jobs.connectionId eq connectionId) and
-                    (Jobs.status inList listOf(SyncJobStatus.RUNNING.name, SyncJobStatus.PENDING.name))
-            }
-            .orderBy(
-                runningFirst to SortOrder.ASC,
-                Jobs.priority to SortOrder.ASC,
-                Jobs.requestedAt to SortOrder.ASC,
-                Jobs.id to SortOrder.ASC,
-            )
-            .limit(1).toList().singleOrNull()?.toResponse()
-    }
+    /** The connection's open job, in full (RUNNING first, else the PENDING one a claim would take) — see [SyncJobReads.openJob]. */
+    suspend fun openJob(connectionId: UInt): SyncJobResponse? = reads.openJob(connectionId)
 
-    /**
-     * `GET …/{id}/status`'s `lastJobs` (v0.2.0 plan §9): the most recently requested job of each
-     * kind ever run against this connection (terminal or not), keyed by [SyncJobKind.name] — a kind
-     * never requested is simply absent from the map.
-     */
-    suspend fun lastJobsByKind(connectionId: UInt): Map<String, SyncJobResponse> = suspendTransaction(database) {
-        SyncJobKind.entries.mapNotNull { kind ->
-            Jobs.selectAll().where { (Jobs.connectionId eq connectionId) and (Jobs.kind eq kind.name) }
-                .orderBy(Jobs.requestedAt to SortOrder.DESC)
-                .limit(1)
-                .toList().singleOrNull()?.let { kind.name to it.toResponse() }
-        }.toMap()
-    }
+    /** `GET …/{id}/status`'s `lastJobs`: the most recently requested job per kind — see [SyncJobReads.lastJobsByKind]. */
+    suspend fun lastJobsByKind(connectionId: UInt): Map<String, SyncJobResponse> = reads.lastJobsByKind(connectionId)
 
     /**
      * `PENDING` → `CANCELLED` immediately; `RUNNING` → `cancel_requested_at` (the worker honours
@@ -223,149 +177,45 @@ class SyncJobsService(
         return existing[Jobs.id].value to true
     }
 
-    /**
-     * Claims one PENDING job, or a RUNNING job whose lease has expired (`FOR UPDATE SKIP LOCKED`,
-     * so concurrent claimers never contend on the same row) — at most one RUNNING job per
-     * connection (checked in Kotlin: the partial unique index only dedupes per KIND). A candidate
-     * past `max_attempts` fails `RETRIES_EXHAUSTED`; a `config_revision` mismatch (the connection
-     * was edited since enqueue) cancels it `CONFIG_CHANGED` — either way the scan continues to the
-     * next candidate rather than returning null.
-     */
-    suspend fun claim(workerId: String, leaseSeconds: Long, now: Long = clock()): SyncJobClaim? = suspendTransaction(database) {
-        val expiredLease = (Jobs.status eq SyncJobStatus.RUNNING.name) and (Jobs.leaseUntil less now)
-        val candidates = Jobs.selectAll()
-            .where { (Jobs.status eq SyncJobStatus.PENDING.name) or expiredLease }
-            .orderBy(Jobs.priority to SortOrder.ASC, Jobs.requestedAt to SortOrder.ASC)
-            .forUpdate(SKIP_LOCKED)
-            .toList()
-        for (row in candidates) {
-            val jobId = row[Jobs.id].value
-            val connId = row[Jobs.connectionId].value
-            val attemptCount = row[Jobs.attempt]
-            val maxAttemptsForRow = row[Jobs.maxAttempts]
-            if (attemptCount >= maxAttemptsForRow) {
-                terminal(jobId, SyncJobStatus.FAILED, "RETRIES_EXHAUSTED", now)
-                continue
-            }
-            val connectionRow = DataSourceService.Connections.selectAll()
-                .where { DataSourceService.Connections.id eq connId }
-                .toList().singleOrNull()
-            val currentConfigRevision = connectionRow?.get(DataSourceService.Connections.configRevision)
-            if (currentConfigRevision != null && currentConfigRevision != row[Jobs.configRevision]) {
-                terminal(jobId, SyncJobStatus.CANCELLED, "CONFIG_CHANGED", now)
-                continue
-            }
-            val alreadyRunning = Jobs.selectAll()
-                .where { (Jobs.connectionId eq connId) and (Jobs.status eq SyncJobStatus.RUNNING.name) and (Jobs.id neq jobId) }
-                .limit(1).toList().isNotEmpty()
-            if (alreadyRunning) continue
-            val syncIntervalMinutes = connectionRow?.get(DataSourceService.Connections.syncIntervalMinutes) ?: 0
-            val connectorKind = connectionRow?.get(DataSourceService.Connections.kind)
-                ?.let { DataSourceKind.valueOf(it) } ?: DataSourceKind.JIRA_CLOUD
-            Jobs.update({ Jobs.id eq jobId }) {
-                it[status] = SyncJobStatus.RUNNING.name
-                it[leaseOwner] = workerId
-                it[leaseUntil] = now + leaseSeconds * 1000
-                it[heartbeatAt] = now
-                it[attempt] = attemptCount + 1
-                if (row[Jobs.startedAt] == null) it[startedAt] = now
-            }
-            return@suspendTransaction SyncJobClaim(
-                id = jobId,
-                connectionId = connId,
-                connectorKind = connectorKind,
-                kind = SyncJobKind.valueOf(row[Jobs.kind]),
-                attempt = attemptCount + 1,
-                maxAttempts = maxAttemptsForRow,
-                syncIntervalMinutes = syncIntervalMinutes,
-            )
-        }
-        null
-    }
+    // The claim/lease path — see [SyncJobLeases] (the claim lock and the write fences are documented there).
 
-    private suspend fun terminal(jobId: UInt, status: SyncJobStatus, errorCode: String, now: Long) {
-        Jobs.update({ Jobs.id eq jobId }) {
-            it[Jobs.status] = status.name
-            it[Jobs.errorCode] = errorCode
-            it[finishedAt] = now
-        }
-    }
+    /** Claims one PENDING (or lease-expired RUNNING) job under the per-connection claim lock — see [SyncJobLeases.claim]. */
+    suspend fun claim(workerId: String, leaseSeconds: Long, now: Long = clock()): SyncJobClaim? =
+        leases.claim(workerId, leaseSeconds, now)
 
-    /**
-     * Extends the lease; `false` means the lease was already lost (reclaimed by another worker, or
-     * the job is no longer RUNNING). [progress]/[currentStream] (v0.2.0 plan §12 item 7,
-     * `ingest/Stream.kt`'s `StreamContext`) are written only when non-null — the ticker's own
-     * lease-only heartbeat (`ingest/IngestWorker.kt`) omits them so it never blanks out the last
-     * value a stream's own heartbeat flushed.
-     */
+    /** Extends the lease, fenced by `(id, lease owner, attempt)` — see [SyncJobLeases.heartbeat]. */
     suspend fun heartbeat(
         jobId: UInt,
         workerId: String,
+        attempt: Int,
         leaseSeconds: Long,
         now: Long = clock(),
         progress: String? = null,
         currentStream: String? = null,
-    ): Boolean =
-        suspendTransaction(database) {
-            Jobs.update({ (Jobs.id eq jobId) and (Jobs.leaseOwner eq workerId) and (Jobs.status eq SyncJobStatus.RUNNING.name) }) {
-                it[heartbeatAt] = now
-                it[leaseUntil] = now + leaseSeconds * 1000
-                if (progress != null) it[Jobs.progress] = progress
-                if (currentStream != null) it[Jobs.currentStream] = currentStream
-            } > 0
-        }
+    ): Boolean = leases.heartbeat(jobId, workerId, attempt, leaseSeconds, now, progress, currentStream)
 
-    suspend fun isCancelRequested(jobId: UInt): Boolean = suspendTransaction(database) {
-        Jobs.selectAll().where { Jobs.id eq jobId }.toList().singleOrNull()?.get(Jobs.cancelRequestedAt) != null
-    }
+    /** The ticker's lease renewal plus the cancel check in one transaction — see [SyncJobLeases.renewLease]. */
+    suspend fun renewLease(
+        jobId: UInt,
+        workerId: String,
+        attempt: Int,
+        leaseSeconds: Long,
+        now: Long = clock(),
+        boundMillis: Long? = null,
+    ): HeartbeatOutcome = leases.renewLease(jobId, workerId, attempt, leaseSeconds, now, boundMillis)
 
-    suspend fun finish(jobId: UInt, now: Long = clock()) {
-        suspendTransaction(database) {
-            Jobs.update({ Jobs.id eq jobId }) {
-                it[status] = SyncJobStatus.SUCCEEDED.name
-                it[finishedAt] = now
-                it[leaseOwner] = null
-                it[leaseUntil] = null
-            }
-        }
-    }
+    /** Fenced terminal write (SUCCEEDED) — see [SyncJobLeases.finish]. */
+    suspend fun finish(jobId: UInt, attempt: Int, now: Long = clock()): Boolean = leases.finish(jobId, attempt, now)
 
-    suspend fun fail(jobId: UInt, errorCode: String, errorDetail: String? = null, now: Long = clock()) {
-        suspendTransaction(database) {
-            Jobs.update({ Jobs.id eq jobId }) {
-                it[status] = SyncJobStatus.FAILED.name
-                it[Jobs.errorCode] = errorCode
-                it[Jobs.errorDetail] = errorDetail
-                it[finishedAt] = now
-                it[leaseOwner] = null
-                it[leaseUntil] = null
-            }
-        }
-    }
+    /** Fenced terminal write (FAILED) — see [SyncJobLeases.fail]. */
+    suspend fun fail(jobId: UInt, attempt: Int, errorCode: String, errorDetail: String? = null, now: Long = clock()): Boolean =
+        leases.fail(jobId, attempt, errorCode, errorDetail, now)
 
-    /** The worker honoured `cancel_requested_at`. */
-    suspend fun markCancelled(jobId: UInt, now: Long = clock()) {
-        suspendTransaction(database) {
-            Jobs.update({ Jobs.id eq jobId }) {
-                it[status] = SyncJobStatus.CANCELLED.name
-                it[finishedAt] = now
-                it[leaseOwner] = null
-                it[leaseUntil] = null
-            }
-        }
-    }
+    /** The worker honoured `cancel_requested_at` — see [SyncJobLeases.markCancelled]. */
+    suspend fun markCancelled(jobId: UInt, attempt: Int, now: Long = clock()): Boolean = leases.markCancelled(jobId, attempt, now)
 
-    /** Shutdown (`ApplicationStopping`): releases a still-RUNNING job back to `PENDING` for reclaim — the attempt count is not reset. */
-    suspend fun release(jobId: UInt) {
-        suspendTransaction(database) {
-            Jobs.update({ Jobs.id eq jobId }) {
-                it[status] = SyncJobStatus.PENDING.name
-                it[leaseOwner] = null
-                it[leaseUntil] = null
-                it[heartbeatAt] = null
-            }
-        }
-    }
+    /** Shutdown: releases a still-RUNNING job back to `PENDING` for reclaim — see [SyncJobLeases.release]. */
+    suspend fun release(jobId: UInt, workerId: String, attempt: Int): Boolean = leases.release(jobId, workerId, attempt)
 
     /**
      * Hard-deletes terminal rows older than `ingest.jobRetentionDays` — the documented
@@ -377,26 +227,4 @@ class SyncJobsService(
                 (Jobs.finishedAt less (now - retentionMillis))
         }
     }
-
-    private fun ResultRow.toResponse() = SyncJobResponse(
-        id = this[Jobs.id].value,
-        connectionId = this[Jobs.connectionId].value,
-        kind = SyncJobKind.valueOf(this[Jobs.kind]),
-        status = SyncJobStatus.valueOf(this[Jobs.status]),
-        priority = this[Jobs.priority],
-        requestedByUserId = this[Jobs.requestedByUserId]?.toUInt(),
-        configRevision = this[Jobs.configRevision],
-        requestedAt = this[Jobs.requestedAt],
-        startedAt = this[Jobs.startedAt],
-        finishedAt = this[Jobs.finishedAt],
-        attempt = this[Jobs.attempt],
-        maxAttempts = this[Jobs.maxAttempts],
-        leaseUntil = this[Jobs.leaseUntil],
-        heartbeatAt = this[Jobs.heartbeatAt],
-        cancelRequestedAt = this[Jobs.cancelRequestedAt],
-        currentStream = this[Jobs.currentStream],
-        progress = this[Jobs.progress]?.let { Json.parseToJsonElement(it) as? JsonObject },
-        errorCode = this[Jobs.errorCode],
-        errorDetail = this[Jobs.errorDetail],
-    )
 }

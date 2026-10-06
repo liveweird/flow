@@ -1,8 +1,9 @@
 import { useTranslation } from "react-i18next";
-import { Table, Text } from "@mantine/core";
+import { Text } from "@mantine/core";
 import type { BlockedTopItem, ReportFilters } from "../api/reports";
 import { formatDate } from "../utils/formatDate";
 import { formatDays, formatPercent, teamLabel } from "../utils/reportFormat";
+import ColumnTable, { type ColumnDef } from "./ColumnTable";
 import ScrollRegion from "./ScrollRegion";
 
 const MISSING = "—";
@@ -21,43 +22,65 @@ export default function BlockedTopItemsTable({
     item.teamId == null
       ? t(item.itemKind === "EPIC" ? "reports.groups.noOwner" : "reports.groups.unassigned")
       : teamLabel(item.teamId, filters.teams);
+  const columns: ColumnDef<BlockedTopItem>[] = [
+    {
+      key: "item",
+      header: t("reports.blockedTime.column.item"),
+      render: (item) => (
+        <>
+          <Text size="sm" fw={600}>
+            {item.issueKey}
+          </Text>
+          {item.summary && (
+            <Text size="xs" c="dimmed" lineClamp={2}>
+              {item.summary}
+            </Text>
+          )}
+        </>
+      ),
+    },
+    ...(showKind
+      ? [
+          {
+            key: "kind",
+            header: t("reports.blockedTime.column.kind"),
+            render: (item: BlockedTopItem) => t(`reports.kind.${item.itemKind}`),
+          },
+        ]
+      : []),
+    { key: "team", header: t("reports.blockedTime.column.team"), render: teamName },
+    {
+      key: "done",
+      header: t("reports.blockedTime.column.done"),
+      render: (item) => formatDate(item.doneAt, MISSING, filters.timeZone),
+    },
+    {
+      key: "blocked",
+      header: t("reports.blockedTime.column.blocked"),
+      render: (item) => formatDays(item.blockedWorkingDays),
+      align: "right",
+    },
+    {
+      key: "cycle",
+      header: t("reports.blockedTime.column.cycle"),
+      render: (item) => (item.cycleWorkingDays == null ? MISSING : formatDays(item.cycleWorkingDays)),
+      align: "right",
+    },
+    {
+      key: "share",
+      header: t("reports.blockedTime.column.share"),
+      render: (item) => (item.share == null ? MISSING : formatPercent(item.share)),
+      align: "right",
+    },
+  ];
   return (
     <ScrollRegion label={t("reports.blockedTime.topTableLabel")} minWidth={640}>
-      <Table aria-label={t("reports.blockedTime.topTableLabel")}>
-        <Table.Thead>
-          <Table.Tr>
-            <Table.Th>{t("reports.blockedTime.column.item")}</Table.Th>
-            {showKind && <Table.Th>{t("reports.blockedTime.column.kind")}</Table.Th>}
-            <Table.Th>{t("reports.blockedTime.column.team")}</Table.Th>
-            <Table.Th>{t("reports.blockedTime.column.done")}</Table.Th>
-            <Table.Th ta="right">{t("reports.blockedTime.column.blocked")}</Table.Th>
-            <Table.Th ta="right">{t("reports.blockedTime.column.cycle")}</Table.Th>
-            <Table.Th ta="right">{t("reports.blockedTime.column.share")}</Table.Th>
-          </Table.Tr>
-        </Table.Thead>
-        <Table.Tbody>
-          {items.map((item) => (
-            <Table.Tr key={`${item.itemKind}:${item.issueKey}`}>
-              <Table.Td>
-                <Text size="sm" fw={600}>
-                  {item.issueKey}
-                </Text>
-                {item.summary && (
-                  <Text size="xs" c="dimmed" lineClamp={2}>
-                    {item.summary}
-                  </Text>
-                )}
-              </Table.Td>
-              {showKind && <Table.Td>{t(`reports.kind.${item.itemKind}`)}</Table.Td>}
-              <Table.Td>{teamName(item)}</Table.Td>
-              <Table.Td>{formatDate(item.doneAt, MISSING, filters.timeZone)}</Table.Td>
-              <Table.Td ta="right">{formatDays(item.blockedWorkingDays)}</Table.Td>
-              <Table.Td ta="right">{item.cycleWorkingDays == null ? MISSING : formatDays(item.cycleWorkingDays)}</Table.Td>
-              <Table.Td ta="right">{item.share == null ? MISSING : formatPercent(item.share)}</Table.Td>
-            </Table.Tr>
-          ))}
-        </Table.Tbody>
-      </Table>
+      <ColumnTable
+        aria-label={t("reports.blockedTime.topTableLabel")}
+        columns={columns}
+        rows={items}
+        rowKey={(item) => `${item.itemKind}:${item.issueKey}`}
+      />
     </ScrollRegion>
   );
 }

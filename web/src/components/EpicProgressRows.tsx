@@ -1,12 +1,13 @@
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { Anchor, Badge, Stack, Table, Text, Title } from "@mantine/core";
+import { Anchor, Badge, Stack, Text, Title } from "@mantine/core";
 import { Link as RouterLink, useSearchParams } from "react-router-dom";
 import type { EpicProgressReport, EpicProgressRow, ReportFilters } from "../api/reports";
 import { scopedSearch, type EpicScope } from "../utils/epicProgressReport";
 import { parseReportFilter } from "../utils/reportFilter";
 import { formatIndex, formatMd, formatSignedMd } from "../utils/reportFormat";
 import { epicProgressPath } from "../utils/reportLinks";
+import ColumnTable, { type ColumnDef } from "./ColumnTable";
 import ScrollRegion from "./ScrollRegion";
 
 /** What travels with a drill from a domain to one of its epics, so the epic page can offer the way back. */
@@ -30,6 +31,22 @@ function FiguresTable({
   nameCell: (row: EpicProgressRow) => ReactNode;
 }) {
   const { t } = useTranslation();
+  const figure = (column: "pv" | "ev" | "ac" | "sv" | "spi" | "cv" | "cpi", render: (row: EpicProgressRow) => ReactNode): ColumnDef<EpicProgressRow> => ({
+    key: column,
+    header: t(`reports.epicProgress.column.${column}`),
+    render,
+    align: "right",
+  });
+  const columns: ColumnDef<EpicProgressRow>[] = [
+    { key: "name", header: firstColumn, render: nameCell },
+    figure("pv", (row) => formatMd(row.pv)),
+    figure("ev", (row) => formatMd(row.ev)),
+    figure("ac", (row) => formatMd(row.ac)),
+    figure("sv", (row) => formatSignedMd(row.sv)),
+    figure("spi", (row) => (row.spi == null ? MISSING : formatIndex(row.spi))),
+    figure("cv", (row) => formatSignedMd(row.cv)),
+    figure("cpi", (row) => (row.cpi == null ? MISSING : formatIndex(row.cpi))),
+  ];
   return (
     <Stack gap="xs">
       <Stack gap={0}>
@@ -46,32 +63,12 @@ function FiguresTable({
         </Text>
       ) : (
         <ScrollRegion label={title} minWidth={640}>
-          <Table aria-label={title}>
-            <Table.Thead>
-              <Table.Tr>
-                <Table.Th>{firstColumn}</Table.Th>
-                {(["pv", "ev", "ac", "sv", "spi", "cv", "cpi"] as const).map((column) => (
-                  <Table.Th key={column} ta="right">
-                    {t(`reports.epicProgress.column.${column}`)}
-                  </Table.Th>
-                ))}
-              </Table.Tr>
-            </Table.Thead>
-            <Table.Tbody>
-              {rows.map((row) => (
-                <Table.Tr key={`${row.kind}:${row.key ?? row.id}`}>
-                  <Table.Td>{nameCell(row)}</Table.Td>
-                  <Table.Td ta="right">{formatMd(row.pv)}</Table.Td>
-                  <Table.Td ta="right">{formatMd(row.ev)}</Table.Td>
-                  <Table.Td ta="right">{formatMd(row.ac)}</Table.Td>
-                  <Table.Td ta="right">{formatSignedMd(row.sv)}</Table.Td>
-                  <Table.Td ta="right">{row.spi == null ? MISSING : formatIndex(row.spi)}</Table.Td>
-                  <Table.Td ta="right">{formatSignedMd(row.cv)}</Table.Td>
-                  <Table.Td ta="right">{row.cpi == null ? MISSING : formatIndex(row.cpi)}</Table.Td>
-                </Table.Tr>
-              ))}
-            </Table.Tbody>
-          </Table>
+          <ColumnTable
+            aria-label={title}
+            columns={columns}
+            rows={rows}
+            rowKey={(row) => `${row.kind}:${row.key ?? row.id}`}
+          />
         </ScrollRegion>
       )}
     </Stack>

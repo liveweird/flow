@@ -1,17 +1,12 @@
 package ch.nokillswit.ingest
 
 import ch.nokillswit.audit.audit
-import ch.nokillswit.infra.config.requireConfigInt
-import ch.nokillswit.infra.config.requireConfigLong
 import ch.nokillswit.infra.time.MILLIS_PER_DAY
 import ch.nokillswit.plugins.runsWorker
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationStarted
 import io.ktor.server.application.ApplicationStopping
-import io.ktor.server.config.ApplicationConfig
 import io.ktor.util.AttributeKey
-import java.net.InetAddress
-import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.cancel
@@ -28,6 +23,8 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import org.slf4j.LoggerFactory
+import kotlin.time.TimeMark
+import kotlin.time.TimeSource
 
 /**
  * Test seam for the connector [IngestWorker] dispatches jobs to — `IngestWorkerTest`'s fake
@@ -45,47 +42,6 @@ val IngestClockKey = AttributeKey<() -> Long>("IngestClock")
 val IngestWorkerStartedKey = AttributeKey<Boolean>("IngestWorkerStarted")
 
 private const val SHUTDOWN_JOIN_TIMEOUT_MS = 5_000L
-private const val MIN_HEARTBEAT_INTERVAL_MS = 1_000L
-
-data class IngestConfig(
-    val schedulerTickSeconds: Long,
-    val workerSlots: Int,
-    val leaseSeconds: Long,
-    val jobRetentionDays: Long,
-    val purgeGraceDays: Long,
-    val workerId: String,
-)
-
-private fun readIngestConfig(config: ApplicationConfig): IngestConfig {
-    val tick = requireConfigLong(config, "ingest.schedulerTickSeconds", min = 5, max = 300)
-    val slots = requireConfigInt(config, "ingest.workerSlots", min = 1, max = 16)
-    val lease = requireConfigLong(config, "ingest.leaseSeconds", min = 30, max = 3600)
-    val retention = requireConfigLong(config, "ingest.jobRetentionDays", min = 1, max = 3650)
-    val grace = requireConfigLong(config, "ingest.purgeGraceDays", min = 0, max = 90)
-    val configuredWorkerId = config.propertyOrNull("ingest.workerId")?.getString()?.trim().orEmpty()
-    return IngestConfig(tick, slots, lease, retention, grace, configuredWorkerId.ifBlank { defaultWorkerId() })
-}
-
-/**
- * A running DERIVE holds TWO pooled connections at once — its own big transaction plus the short
- * `MetricsStore.ensureDimDate` transaction opened from inside it — so `workerSlots` concurrent derives
- * can pin `2 × workerSlots` connections. At exactly that many the derives still fit, but nothing is left
- * for requests, job heartbeats or the claim scan, so the pool must be strictly larger. Fail-closed at
- * boot, only for a role that runs the worker (`.claude/docs/persistence.md` "Connection pool").
- */
-private fun requirePoolFitsWorkerSlots(config: ApplicationConfig, workerSlots: Int) {
-    val poolMaxSize = requireConfigInt(config, "postgres.pool.maxSize", min = 1, max = 1000)
-    check(poolMaxSize > 2 * workerSlots) {
-        "postgres.pool.maxSize ($poolMaxSize) must be greater than 2 x ingest.workerSlots ($workerSlots): a running DERIVE " +
-            "holds two pooled connections at once (its transaction plus the dim_date ensure), leaving no headroom for " +
-            "requests and heartbeats"
-    }
-}
-
-private fun defaultWorkerId(): String {
-    val host = runCatching { InetAddress.getLocalHost().hostName }.getOrDefault("worker")
-    return "$host-${UUID.randomUUID().toString().take(8)}"
-}
 
 /**
  * The `FLOW_ROLE=worker` scheduler (v0.2.0 plan §5, `.claude/docs/ingestion.md` "Worker
@@ -136,6 +92,7 @@ fun Application.configureIngestWorker() {
             // configureDatabase disposes the connection pool on ApplicationStopped.
             val rootJob = scope.coroutineContext[Job]
             scope.cancel()
+            worker.close()
             if (rootJob != null) {
                 runBlocking { withTimeoutOrNull(SHUTDOWN_JOIN_TIMEOUT_MS) { rootJob.join() } }
             }
@@ -155,18 +112,40 @@ class JobCancelRequestedException(jobId: UInt) : Exception("Cancel requested for
 /**
  * Claims and runs sync jobs: a scheduler tick (every [IngestConfig.schedulerTickSeconds]) enqueues
  * due SYNC/RECONCILE/PURGE jobs, then claims up to [IngestConfig.workerSlots] free jobs and runs
- * each under a ticker that heartbeats every `leaseSeconds/3` and honours `cancel_requested_at`.
+ * each under a ticker that heartbeats every `leaseSeconds/3` and honours `cancel_requested_at`
+ * (see [LeaseHeartbeat.heartbeatLoop] for how a failing heartbeat is budgeted against the lease).
  * [clock] is injectable for tests.
  */
-class IngestWorker(
+class IngestWorker internal constructor(
     private val syncJobs: SyncJobsService,
     private val dataSources: DataSourceService,
     private val handlers: JobHandlerRegistry,
     private val connectors: Map<DataSourceKind, Connector>,
     private val config: IngestConfig,
     private val clock: () -> Long,
+    /**
+     * The ticker's lease renewal (heartbeat + cancel check) — a seam `IngestWorkerTest` replaces to make one attempt throw
+     * or hang; reachable only through the `internal` constructor, production always uses [SyncJobsService.renewLease].
+     */
+    private val renewLease: suspend (claim: SyncJobClaim, now: Long, boundMillis: Long) -> HeartbeatOutcome,
+    /** The monotonic source of the lease budget ([LeaseHeartbeat.heartbeatLoop]); `IngestWorkerTest` passes a `TestTimeSource`. */
+    private val timeSource: TimeSource,
 ) {
+    constructor(
+        syncJobs: SyncJobsService,
+        dataSources: DataSourceService,
+        handlers: JobHandlerRegistry,
+        connectors: Map<DataSourceKind, Connector>,
+        config: IngestConfig,
+        clock: () -> Long,
+    ) : this(
+        syncJobs, dataSources, handlers, connectors, config, clock,
+        { claim, now, bound -> syncJobs.renewLease(claim.id, config.workerId, claim.attempt, config.leaseSeconds, now, bound) },
+        TimeSource.Monotonic,
+    )
+
     private val slots = Semaphore(config.workerSlots)
+    private val heartbeat = LeaseHeartbeat(config, clock, timeSource, renewLease)
 
     fun start(scope: CoroutineScope) {
         scope.launch {
@@ -201,6 +180,8 @@ class IngestWorker(
     private suspend fun claimAvailable(scope: CoroutineScope) {
         repeat(config.workerSlots) {
             if (!slots.tryAcquire()) return@repeat
+            // The budget origin: marked just BEFORE the clock() read the claim's lease_until is computed from, so it can only be early.
+            val leaseStart = timeSource.markNow()
             val claim = syncJobs.claim(config.workerId, config.leaseSeconds, clock())
             if (claim == null) {
                 slots.release()
@@ -208,7 +189,7 @@ class IngestWorker(
             }
             scope.launch {
                 try {
-                    runJob(claim)
+                    runJob(claim, leaseStart)
                 } finally {
                     slots.release()
                 }
@@ -216,8 +197,12 @@ class IngestWorker(
         }
     }
 
-    /** `internal` so `IngestWorkerTest` can run a single claimed job deterministically without the tick loop's timing. */
-    internal suspend fun runJob(claim: SyncJobClaim) {
+    /**
+     * `internal` so `IngestWorkerTest` can run a single claimed job deterministically without the tick loop's timing.
+     * [leaseStart] is the budget origin of [LeaseHeartbeat.heartbeatLoop]: the monotonic time taken just before the `clock()` read the
+     * claim's `lease_until` was computed from (the default, for a caller that claimed just before, is "now").
+     */
+    internal suspend fun runJob(claim: SyncJobClaim, leaseStart: TimeMark = timeSource.markNow()) {
         if (claim.kind == SyncJobKind.SYNC) dataSources.recordSyncStarted(claim.connectionId, clock())
         audit(
             "sync_job.started",
@@ -230,17 +215,9 @@ class IngestWorker(
         var deriveRevisionUsed: Long? = null
         try {
             coroutineScope {
-                val ticker = launch {
-                    while (isActive) {
-                        delay(maxOf(MIN_HEARTBEAT_INTERVAL_MS, config.leaseSeconds * 1000 / 3))
-                        if (!syncJobs.heartbeat(claim.id, config.workerId, config.leaseSeconds, clock())) {
-                            throw LeaseLostException(claim.id)
-                        }
-                        if (syncJobs.isCancelRequested(claim.id)) throw JobCancelRequestedException(claim.id)
-                    }
-                }
+                val ticker = launch { heartbeat.heartbeatLoop(claim, leaseStart) }
                 val context = SyncJobRunContext(claim, clock = clock) { progress, currentStream ->
-                    syncJobs.heartbeat(claim.id, config.workerId, config.leaseSeconds, clock(), progress, currentStream)
+                    syncJobs.heartbeat(claim.id, config.workerId, claim.attempt, config.leaseSeconds, clock(), progress, currentStream)
                 }
                 // DERIVE (v0.3.0 M3 commit 7, `.claude/docs/ingestion.md` "The DERIVE job kind") is
                 // connector-agnostic — dispatched here BEFORE the connector registry, so it runs
@@ -272,29 +249,46 @@ class IngestWorker(
             onSucceeded(claim, deriveRevisionUsed)
         } catch (cancelled: CancellationException) {
             withContext(NonCancellable) {
-                syncJobs.release(claim.id)
-                audit(
-                    "sync_job.released",
-                    "jobId" to claim.id.toLong(),
-                    "dataSourceId" to claim.connectionId.toLong(),
-                    "workerId" to config.workerId,
-                )
+                if (syncJobs.release(claim.id, config.workerId, claim.attempt)) {
+                    audit(
+                        "sync_job.released",
+                        "jobId" to claim.id.toLong(),
+                        "dataSourceId" to claim.connectionId.toLong(),
+                        "workerId" to config.workerId,
+                    )
+                } else {
+                    logStale(claim, "release")
+                }
             }
             throw cancelled
         } catch (lost: LeaseLostException) {
             log.warn("Sync job {} lost its lease mid-run: {}", claim.id, lost.message)
         } catch (cancelledJob: JobCancelRequestedException) {
-            syncJobs.markCancelled(claim.id, clock())
+            if (!syncJobs.markCancelled(claim.id, claim.attempt, clock())) logStale(claim, "cancel")
             log.info("Sync job {} cancelled on request: {}", claim.id, cancelledJob.message)
         } catch (e: Exception) {
             onFailed(claim, e)
         }
     }
 
+
+    /** Cancels the renewal attempts still running (shutdown); the job scopes are cancelled by the caller's own scope. */
+    fun close() {
+        heartbeat.close()
+    }
+
+    private fun logStale(claim: SyncJobClaim, write: String) {
+        log.warn("Sync job {} attempt {}: {} matched no row, a newer attempt owns the job (stale run)", claim.id, claim.attempt, write)
+    }
+
     /** `internal` (the `runJob`/`tick` precedent above) so `IngestWorkerTest` can drive the config-revision
      * re-derive check deterministically, without needing to race a real config PUT against a real DERIVE run. */
     internal suspend fun onSucceeded(claim: SyncJobClaim, deriveRevisionUsed: Long? = null) {
-        syncJobs.finish(claim.id, clock())
+        if (!syncJobs.finish(claim.id, claim.attempt, clock())) {
+            // A newer attempt owns the row: this run is stale, so it records nothing — no sync outcome, no chained DERIVE, no audit.
+            logStale(claim, "finish")
+            return
+        }
         when (claim.kind) {
             SyncJobKind.SYNC -> dataSources.recordSyncOutcome(claim.connectionId, succeeded = true, errorCode = null, now = clock())
             SyncJobKind.RECONCILE -> dataSources.recordReconcileSucceeded(claim.connectionId, clock())
@@ -328,7 +322,10 @@ class IngestWorker(
 
     private suspend fun onFailed(claim: SyncJobClaim, cause: Exception) {
         val errorCode = "RUN_FAILED"
-        syncJobs.fail(claim.id, errorCode, cause.message?.take(MAX_ERROR_DETAIL_LENGTH), clock())
+        if (!syncJobs.fail(claim.id, claim.attempt, errorCode, cause.message?.take(MAX_ERROR_DETAIL_LENGTH), clock())) {
+            logStale(claim, "fail")
+            return
+        }
         if (claim.kind == SyncJobKind.SYNC) {
             dataSources.recordSyncOutcome(claim.connectionId, succeeded = false, errorCode = errorCode, now = clock())
         }

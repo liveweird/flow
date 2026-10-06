@@ -320,7 +320,7 @@ object TestUsers {
 }
 
 /** A lease no test clock ever reaches (year ~2286) — how [withOnlyConnections] parks other connections' jobs. */
-private const val PARKED_LEASE_UNTIL = 9_999_999_999_999L
+internal const val PARKED_LEASE_UNTIL = 9_999_999_999_999L
 
 private const val PARKED_LEASE_OWNER = "test-parked"
 

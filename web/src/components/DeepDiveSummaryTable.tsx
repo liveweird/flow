@@ -2,12 +2,8 @@ import { memo } from "react";
 import { useTranslation } from "react-i18next";
 import { Table, Text } from "@mantine/core";
 import { epicWindowDates, rowLabel } from "../utils/deepDiveCell";
-import {
-  type DeepDiveMatrix,
-  type LayerTotals,
-  type MatrixEpic,
-  type MatrixRow,
-} from "../utils/deepDiveMatrix";
+import { type LayerTotals, type MatrixRow } from "../utils/deepDiveAggregate";
+import { type DeepDiveMatrix, type MatrixEpic } from "../utils/deepDiveMatrix";
 import { formatFigure } from "../utils/reportFormat";
 import classes from "../theme.module.css";
 import ScrollRegion from "./ScrollRegion";

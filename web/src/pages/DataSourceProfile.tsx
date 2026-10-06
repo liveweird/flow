@@ -14,6 +14,7 @@ import {
   type ProjectProfile,
   type WorkflowProfile,
 } from "../api/dataSources";
+import ColumnTable, { type ColumnDef } from "../components/ColumnTable";
 import EditPageLoadState from "../components/EditPageLoadState";
 import EmptyState from "../components/EmptyState";
 import PageHeader from "../components/PageHeader";
@@ -43,31 +44,33 @@ function ProjectsSection({ projects }: { projects: ProjectProfile[] }) {
     Object.entries(project.issueCounts).map(([issueType, count]) => ({ project: project.projectKey, issueType, count })),
   );
   if (rows.length === 0) return <NoData />;
+  const columns: ColumnDef<(typeof rows)[number]>[] = [
+    { key: "project", header: t("dataSources.profile.column.project"), render: (row) => row.project },
+    { key: "issueType", header: t("dataSources.profile.column.issueType"), render: (row) => row.issueType },
+    { key: "count", header: t("dataSources.profile.column.count"), render: (row) => row.count },
+  ];
   return (
-    <Table aria-label={t("dataSources.profile.section.projects")}>
-      <Table.Thead>
-        <Table.Tr>
-          <Table.Th>{t("dataSources.profile.column.project")}</Table.Th>
-          <Table.Th>{t("dataSources.profile.column.issueType")}</Table.Th>
-          <Table.Th>{t("dataSources.profile.column.count")}</Table.Th>
-        </Table.Tr>
-      </Table.Thead>
-      <Table.Tbody>
-        {rows.map((row) => (
-          <Table.Tr key={`${row.project}-${row.issueType}`}>
-            <Table.Td>{row.project}</Table.Td>
-            <Table.Td>{row.issueType}</Table.Td>
-            <Table.Td>{row.count}</Table.Td>
-          </Table.Tr>
-        ))}
-      </Table.Tbody>
-    </Table>
+    <ColumnTable
+      aria-label={t("dataSources.profile.section.projects")}
+      columns={columns}
+      rows={rows}
+      rowKey={(row) => `${row.project}-${row.issueType}`}
+    />
   );
 }
 
 function WorkflowsSection({ workflows }: { workflows: WorkflowProfile[] }) {
   const { t } = useTranslation();
   if (workflows.length === 0) return <NoData />;
+  const columns: ColumnDef<WorkflowProfile["observedStatuses"][number]>[] = [
+    { key: "status", header: t("dataSources.profile.column.status"), render: (s) => s.name },
+    {
+      key: "category",
+      header: t("dataSources.profile.column.category"),
+      render: (s) => t(`dataSources.profile.category.${s.category}`),
+    },
+    { key: "transitions", header: t("dataSources.profile.column.transitions"), render: (s) => s.transitionCount },
+  ];
   return (
     <Stack gap="md">
       {workflows.map((workflow) => (
@@ -75,24 +78,12 @@ function WorkflowsSection({ workflows }: { workflows: WorkflowProfile[] }) {
           <Text fw={500} size="sm">
             {workflow.projectKey} · {workflow.issueType}
           </Text>
-          <Table aria-label={`${workflow.projectKey} · ${workflow.issueType}`}>
-            <Table.Thead>
-              <Table.Tr>
-                <Table.Th>{t("dataSources.profile.column.status")}</Table.Th>
-                <Table.Th>{t("dataSources.profile.column.category")}</Table.Th>
-                <Table.Th>{t("dataSources.profile.column.transitions")}</Table.Th>
-              </Table.Tr>
-            </Table.Thead>
-            <Table.Tbody>
-              {workflow.observedStatuses.map((s) => (
-                <Table.Tr key={s.statusId}>
-                  <Table.Td>{s.name}</Table.Td>
-                  <Table.Td>{t(`dataSources.profile.category.${s.category}`)}</Table.Td>
-                  <Table.Td>{s.transitionCount}</Table.Td>
-                </Table.Tr>
-              ))}
-            </Table.Tbody>
-          </Table>
+          <ColumnTable
+            aria-label={`${workflow.projectKey} · ${workflow.issueType}`}
+            columns={columns}
+            rows={workflow.observedStatuses}
+            rowKey={(s) => s.statusId}
+          />
           <Text size="xs" c="dimmed">
             {t("dataSources.profile.referenceWorkflow", { statuses: workflow.referenceStatusNames.join(", ") })}
           </Text>
@@ -105,58 +96,52 @@ function WorkflowsSection({ workflows }: { workflows: WorkflowProfile[] }) {
 function BoardsSection({ boards }: { boards: BoardProfile[] }) {
   const { t } = useTranslation();
   if (boards.length === 0) return <NoData />;
+  const columns: ColumnDef<BoardProfile>[] = [
+    { key: "board", header: t("dataSources.profile.column.board"), render: (board) => board.name },
+    { key: "boardType", header: t("dataSources.profile.column.boardType"), render: (board) => board.boardType },
+    { key: "project", header: t("dataSources.profile.column.project"), render: (board) => board.projectKey ?? "—" },
+    {
+      key: "columns",
+      header: t("dataSources.profile.column.columns"),
+      render: (board) => board.columns.map((c) => `${c.name} (${c.statusNames.join(", ")})`).join("; ") || "—",
+    },
+    {
+      key: "unmapped",
+      header: t("dataSources.profile.column.unmappedStatuses"),
+      render: (board) => board.unmappedStatusNames.join(", ") || "—",
+    },
+  ];
   return (
-    <Table aria-label={t("dataSources.profile.section.boards")}>
-      <Table.Thead>
-        <Table.Tr>
-          <Table.Th>{t("dataSources.profile.column.board")}</Table.Th>
-          <Table.Th>{t("dataSources.profile.column.boardType")}</Table.Th>
-          <Table.Th>{t("dataSources.profile.column.project")}</Table.Th>
-          <Table.Th>{t("dataSources.profile.column.columns")}</Table.Th>
-          <Table.Th>{t("dataSources.profile.column.unmappedStatuses")}</Table.Th>
-        </Table.Tr>
-      </Table.Thead>
-      <Table.Tbody>
-        {boards.map((board) => (
-          <Table.Tr key={board.boardId}>
-            <Table.Td>{board.name}</Table.Td>
-            <Table.Td>{board.boardType}</Table.Td>
-            <Table.Td>{board.projectKey ?? "—"}</Table.Td>
-            <Table.Td>{board.columns.map((c) => `${c.name} (${c.statusNames.join(", ")})`).join("; ") || "—"}</Table.Td>
-            <Table.Td>{board.unmappedStatusNames.join(", ") || "—"}</Table.Td>
-          </Table.Tr>
-        ))}
-      </Table.Tbody>
-    </Table>
+    <ColumnTable
+      aria-label={t("dataSources.profile.section.boards")}
+      columns={columns}
+      rows={boards}
+      rowKey={(board) => String(board.boardId)}
+    />
   );
 }
 
 function CustomFieldsSection({ customFields }: { customFields: CustomFieldProfile[] }) {
   const { t } = useTranslation();
   if (customFields.length === 0) return <NoData />;
+  const columns: ColumnDef<CustomFieldProfile>[] = [
+    { key: "field", header: t("dataSources.profile.column.field"), render: (field) => field.name },
+    { key: "type", header: t("dataSources.profile.column.type"), render: (field) => field.type },
+    {
+      key: "role",
+      header: t("dataSources.profile.column.role"),
+      render: (field) => t(`dataSources.profile.fieldRole.${field.role}`),
+    },
+    { key: "nonNull", header: t("dataSources.profile.column.nonNullCount"), render: (field) => field.nonNullCount },
+    { key: "fill", header: t("dataSources.profile.column.fillPercent"), render: (field) => percent(field.fillPercent) },
+  ];
   return (
-    <Table aria-label={t("dataSources.profile.section.customFields")}>
-      <Table.Thead>
-        <Table.Tr>
-          <Table.Th>{t("dataSources.profile.column.field")}</Table.Th>
-          <Table.Th>{t("dataSources.profile.column.type")}</Table.Th>
-          <Table.Th>{t("dataSources.profile.column.role")}</Table.Th>
-          <Table.Th>{t("dataSources.profile.column.nonNullCount")}</Table.Th>
-          <Table.Th>{t("dataSources.profile.column.fillPercent")}</Table.Th>
-        </Table.Tr>
-      </Table.Thead>
-      <Table.Tbody>
-        {customFields.map((field) => (
-          <Table.Tr key={field.id}>
-            <Table.Td>{field.name}</Table.Td>
-            <Table.Td>{field.type}</Table.Td>
-            <Table.Td>{t(`dataSources.profile.fieldRole.${field.role}`)}</Table.Td>
-            <Table.Td>{field.nonNullCount}</Table.Td>
-            <Table.Td>{percent(field.fillPercent)}</Table.Td>
-          </Table.Tr>
-        ))}
-      </Table.Tbody>
-    </Table>
+    <ColumnTable
+      aria-label={t("dataSources.profile.section.customFields")}
+      columns={columns}
+      rows={customFields}
+      rowKey={(field) => field.id}
+    />
   );
 }
 

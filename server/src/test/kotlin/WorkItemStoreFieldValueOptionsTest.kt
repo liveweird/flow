@@ -6,7 +6,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 
 /**
- * `norm/WorkItemStore.kt`'s `fieldValueOptions` (v0.3.0 M1 commit 4 review fix) — the defensive
+ * `norm/NormPickerReads.kt`'s `fieldValueOptions` (v0.3.0 M1 commit 4 review fix) — the defensive
  * JSON-shape parser `distinctCustomFieldValues` feeds every `custom_fields[fieldId]` value
  * through, since the field could be ANY custom field an admin picks, not necessarily a `select`.
  * `internal` (the `ingest/DataSourceService.kt` `backoffMillis` precedent) makes it directly

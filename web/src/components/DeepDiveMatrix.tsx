@@ -1,10 +1,11 @@
 import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties, FocusEvent, KeyboardEvent } from "react";
+import type { CSSProperties, FocusEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert, Button, Group, Stack, Table, Text, Title, UnstyledButton, VisuallyHidden } from "@mantine/core";
 import { IconChevronDown, IconChevronRight } from "@tabler/icons-react";
 import type { DeepDiveReport } from "../api/reports";
 import { useDeepDiveTooltip } from "../hooks/useDeepDiveTooltip";
+import { rovingProps as roving, useRovingGrid } from "../hooks/useRovingGrid";
 import {
   LAYER_VARS,
   barPercent,
@@ -21,15 +22,9 @@ import {
   type GridRow,
 } from "../utils/deepDiveCell";
 import { headerModel, type HeaderCell } from "../utils/deepDiveHeader";
-import {
-  buildDeepDiveMatrix,
-  expandedColumns,
-  grainColumns,
-  type DeepDiveMatrix as MatrixModel,
-  type LayerScale,
-  type MatrixCell,
-  type TimeColumn,
-} from "../utils/deepDiveMatrix";
+import type { LayerScale, MatrixCell } from "../utils/deepDiveAggregate";
+import { expandedColumns, grainColumns, type TimeColumn } from "../utils/deepDiveCalendar";
+import { buildDeepDiveMatrix, type DeepDiveMatrix as MatrixModel } from "../utils/deepDiveMatrix";
 import classes from "../theme.module.css";
 import DailyTableDisclosure from "./DailyTableDisclosure";
 import DeepDiveBucketTable from "./DeepDiveBucketTable";
@@ -45,79 +40,6 @@ const ITEM_COLUMN_WIDTH = 280;
 const COLUMN_WIDTH = { month: 84, week: 84, day: 52 } as const;
 
 const NO_EXPANSION: ReadonlySet<string> = new Set();
-
-/**
- * The grid's keyboard position. Body rows are 1…n; the header rows above are 0, -1, -2 from the bottom up (so a drill
- * that adds a header row never renumbers the body); column 0 is the item column, time columns are 1…n.
- */
-interface GridPos {
-  r: number;
-  c: number;
-}
-
-interface Bounds {
-  rMin: number;
-  rMax: number;
-  cMax: number;
-}
-
-const parsePos = (element: HTMLElement): { r: number; c0: number; c1: number } | null => {
-  const raw = element.dataset.gridPos;
-  if (raw === undefined) return null;
-  const [r, c0] = raw.split(",").map(Number);
-  return { r, c0, c1: Number(element.dataset.gridEnd ?? c0) };
-};
-
-/** The roving tab stop: every navigable element carries its position (and the last column a spanning header covers), exactly one has `tabIndex` 0. */
-const roving = (r: number, c: number, active: boolean, end: number = c) => ({
-  "data-grid-pos": `${r},${c}`,
-  "data-grid-end": end,
-  tabIndex: active ? 0 : -1,
-});
-
-/** The element at a grid position: an exact body cell, or the header cell of that row that COVERS the column. */
-function cellAt(table: HTMLElement, r: number, c: number): HTMLElement | null {
-  if (r >= 1) return table.querySelector<HTMLElement>(`[data-grid-pos="${r},${c}"]`);
-  for (const element of table.querySelectorAll<HTMLElement>(`thead [data-grid-pos^="${r},"]`)) {
-    const pos = parsePos(element);
-    if (pos !== null && c >= pos.c0 && c <= pos.c1) return element;
-  }
-  return null;
-}
-
-/** Steps from a position until something is there (header rows have holes where a cell spans down) or the grid ends. */
-function scan(table: HTMLElement, r: number, c: number, dr: number, dc: number, b: Bounds): HTMLElement | null {
-  let row = r;
-  let col = c;
-  while (row >= b.rMin && row <= b.rMax && col >= 0 && col <= b.cMax) {
-    const found = cellAt(table, row, col);
-    if (found !== null) return found;
-    row += dr;
-    col += dc;
-  }
-  return null;
-}
-
-function navigate(table: HTMLElement, from: HTMLElement, key: string, ctrl: boolean, b: Bounds): HTMLElement | null {
-  const pos = parsePos(from);
-  if (pos === null) return null;
-  switch (key) {
-    case "ArrowRight":
-      return scan(table, pos.r, pos.c1 + 1, 0, 1, b);
-    case "ArrowLeft":
-      return scan(table, pos.r, pos.c0 - 1, 0, -1, b);
-    case "ArrowDown":
-      return scan(table, pos.r + 1, pos.c0, 1, 0, b);
-    case "ArrowUp":
-      return scan(table, pos.r - 1, pos.c0, -1, 0, b);
-    case "Home":
-      return ctrl ? cellAt(table, b.rMin, 0) : scan(table, pos.r, 0, 0, 1, b);
-    case "End":
-      return ctrl ? cellAt(table, b.rMax, b.cMax) : scan(table, pos.r, b.cMax, 0, -1, b);
-    default:
-      return null;
-  }
-}
 
 /** Where focus goes once a drill has re-rendered the grid (the control that was pressed may be gone). */
 type PendingFocus =
@@ -332,7 +254,7 @@ function HeaderCellView({
  * The Deep dive matrix: epics (drilling into their tasks) down, time (months drilling into ISO weeks, then days)
  * across, and in each cell the shown layers as stacked semi-transparent bars — plan (PV) full width, execution
  * two thirds, cost (AC) one third — with a ◆ on the day a task was done and a dashed outline over an epic's planned
- * window. The model and every sum live in `utils/deepDiveMatrix.ts`; this draws it. Drill state is local: the
+ * window. The model and every sum live in `utils/deepDiveMatrix.ts` (+ `deepDiveCalendar.ts`, `deepDiveAggregate.ts`); this draws it. Drill state is local: the
  * page owns only the layer toggles, so a different `report` (a new selection) should arrive under a new `key`.
  *
  * It is a real `<table role="grid">` in a `ScrollRegion` (sticky header rows and first column — the cost matrix's
@@ -357,10 +279,8 @@ export default function DeepDiveMatrix({
   const { t } = useTranslation();
   const [openColumns, setOpenColumns] = useState<ReadonlySet<string>>(NO_EXPANSION);
   const [openEpics, setOpenEpics] = useState<ReadonlySet<string>>(NO_EXPANSION);
-  const [active, setActive] = useState<GridPos>({ r: 1, c: 0 });
   const [announcement, setAnnouncement] = useState({ text: "", n: 0 });
   const noticeRef = useRef<HTMLDivElement>(null);
-  const tableRef = useRef<HTMLTableElement>(null);
   const pendingFocus = useRef<PendingFocus | null>(null);
   const { tip, tipRef, gridProps, tipProps } = useDeepDiveTooltip();
 
@@ -435,6 +355,22 @@ export default function DeepDiveMatrix({
     announce(t("reports.deepDive.matrix.announce.rows"));
   };
 
+  const headerCells = header.rows.flat();
+  const {
+    ref: tableRef,
+    active: activePos,
+    onKeyDown,
+    onFocus: onGridFocus,
+    tabStop,
+  } = useRovingGrid({
+    bounds: { rMin: header.cornerRow, rMax: rows.length, cMax: columns.length },
+    isValid: (pos) =>
+      pos.r >= 1
+        ? pos.r <= rows.length && pos.c <= columns.length
+        : (pos.r === header.cornerRow && pos.c === 0) || headerCells.some((h) => h.r === pos.r && h.c === pos.c),
+    fallback: { r: rows.length > 0 ? 1 : header.cornerRow, c: 0 },
+  });
+
   // A drill replaces the header control that was pressed, so focus is put back by hand once the grid has rendered —
   // or, when the drill tripped the size guard and there is no grid, onto the notice's first button.
   useLayoutEffect(() => {
@@ -459,20 +395,9 @@ export default function DeepDiveMatrix({
             ? ([...lineage.values()].find((c) => c.parentId === parent.id)?.id ?? null)
             : `day:${parent.fromDate}`;
     }
-    const target =
-      id === null
-        ? table.querySelector<HTMLElement>('[data-grid-pos][tabindex="0"]')
-        : table.querySelector<HTMLElement>(`[data-header-id="${id}"]`);
+    const target = id === null ? tabStop() : table.querySelector<HTMLElement>(`[data-header-id="${id}"]`);
     target?.focus();
   });
-
-  const headerCells = header.rows.flat();
-  const bounds: Bounds = { rMin: header.cornerRow, rMax: rows.length, cMax: columns.length };
-  const isValid = (pos: GridPos) =>
-    pos.r >= 1
-      ? pos.r <= rows.length && pos.c <= columns.length
-      : (pos.r === header.cornerRow && pos.c === 0) || headerCells.some((h) => h.r === pos.r && h.c === pos.c);
-  const activePos: GridPos = isValid(active) ? active : { r: rows.length > 0 ? 1 : header.cornerRow, c: 0 };
 
   const cells = rows.length * columns.length;
   const tooLarge = cells > maxCells;
@@ -480,19 +405,8 @@ export default function DeepDiveMatrix({
   const drilledRows = rows.some((row) => row.expanded);
   const bucketCells = cells * bucketLayers(shown).length;
 
-  const onKeyDown = (event: KeyboardEvent<HTMLTableElement>) => {
-    const from = (event.target as HTMLElement).closest<HTMLElement>("[data-grid-pos]");
-    const table = tableRef.current;
-    if (from === null || table === null || event.altKey || event.metaKey) return;
-    const to = navigate(table, from, event.key, event.ctrlKey, bounds);
-    if (!["ArrowRight", "ArrowLeft", "ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
-    event.preventDefault();
-    to?.focus();
-  };
   const onFocus = (event: FocusEvent<HTMLTableElement>) => {
-    const element = (event.target as HTMLElement).closest<HTMLElement>("[data-grid-pos]");
-    const pos = element === null ? null : parsePos(element);
-    if (pos !== null) setActive((prev) => (prev.r === pos.r && prev.c === pos.c0 ? prev : { r: pos.r, c: pos.c0 }));
+    onGridFocus(event);
     gridProps.onFocus(event);
   };
 

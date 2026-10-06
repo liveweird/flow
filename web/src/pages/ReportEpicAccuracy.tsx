@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
-import { SimpleGrid, Stack, Table, Text } from "@mantine/core";
-import { getEpicEstimationAccuracyReport, type EpicAccuracyGroup } from "../api/reports";
+import { SimpleGrid, Stack, Text } from "@mantine/core";
+import { getEpicEstimationAccuracyReport, type EpicAccuracyGroup, type EpicAccuracyRow } from "../api/reports";
+import ColumnTable, { type ColumnDef } from "../components/ColumnTable";
 import DistributionWithAccounting from "../components/DistributionWithAccounting";
 import EpicsPerPersonNote from "../components/EpicsPerPersonNote";
 import PageHeader from "../components/PageHeader";
@@ -27,6 +28,56 @@ export default function ReportEpicAccuracy() {
   const { t } = useTranslation();
   const { filtersQuery, filters, filter, setFilter, query } = useReportPage("epic-estimation-accuracy", getEpicEstimationAccuracyReport);
   const report = query.data;
+
+  const epicColumns: ColumnDef<EpicAccuracyRow>[] = [
+    {
+      key: "epic",
+      header: t("reports.epicAccuracy.column.epic"),
+      render: (epic) => (
+        <>
+          <Text size="sm" fw={600}>
+            {epic.issueKey}
+          </Text>
+          {epic.summary && (
+            <Text size="xs" c="dimmed">
+              {epic.summary}
+            </Text>
+          )}
+        </>
+      ),
+    },
+    {
+      key: "doneAt",
+      header: t("reports.epicAccuracy.column.doneAt"),
+      render: (epic) => formatDate(epic.doneAt, "—", filters?.timeZone),
+    },
+    {
+      key: "estimateStart",
+      header: t("reports.epicAccuracy.column.estimateStart"),
+      render: (epic) => optional(epic.ownEstimateAtStartMd, formatMd),
+      align: "right",
+    },
+    {
+      key: "estimateDone",
+      header: t("reports.epicAccuracy.column.estimateDone"),
+      render: (epic) => optional(epic.ownEstimateAtDoneMd, formatMd),
+      align: "right",
+    },
+    { key: "childSum", header: t("reports.epicAccuracy.column.childSum"), render: (epic) => formatMd(epic.childSumMd), align: "right" },
+    { key: "actual", header: t("reports.epicAccuracy.column.actual"), render: (epic) => formatMd(epic.actualMd), align: "right" },
+    {
+      key: "ratioStart",
+      header: t("reports.epicAccuracy.column.ratioStart"),
+      render: (epic) => optional(epic.ratio, formatRatio),
+      align: "right",
+    },
+    {
+      key: "ratioDone",
+      header: t("reports.epicAccuracy.column.ratioDone"),
+      render: (epic) => optional(epic.ratioAtDone, formatRatio),
+      align: "right",
+    },
+  ];
 
   const groupColumns: GroupColumn<EpicAccuracyGroup>[] = [
     { key: "population", header: t("reports.epicAccuracy.column.population"), render: (g) => g.excluded.population },
@@ -99,44 +150,13 @@ export default function ReportEpicAccuracy() {
               empty={false}
             >
               <ScrollRegion label={t("reports.epicAccuracy.epicsTitle")} minWidth={900}>
-                <Table aria-label={t("reports.epicAccuracy.epicsTitle")}>
-                  <Table.Thead>
-                    <Table.Tr>
-                      <Table.Th>{t("reports.epicAccuracy.column.epic")}</Table.Th>
-                      <Table.Th>{t("reports.epicAccuracy.column.doneAt")}</Table.Th>
-                      <Table.Th ta="right">{t("reports.epicAccuracy.column.estimateStart")}</Table.Th>
-                      <Table.Th ta="right">{t("reports.epicAccuracy.column.estimateDone")}</Table.Th>
-                      <Table.Th ta="right">{t("reports.epicAccuracy.column.childSum")}</Table.Th>
-                      <Table.Th ta="right">{t("reports.epicAccuracy.column.actual")}</Table.Th>
-                      <Table.Th ta="right">{t("reports.epicAccuracy.column.ratioStart")}</Table.Th>
-                      <Table.Th ta="right">{t("reports.epicAccuracy.column.ratioDone")}</Table.Th>
-                    </Table.Tr>
-                  </Table.Thead>
-                  <Table.Tbody>
-                    {report.epics.map((epic, index) => (
-                      // The list is ordered and fixed per response; key and position together stay unique across connections.
-                      <Table.Tr key={`${epic.issueKey}:${index}`}>
-                        <Table.Td>
-                          <Text size="sm" fw={600}>
-                            {epic.issueKey}
-                          </Text>
-                          {epic.summary && (
-                            <Text size="xs" c="dimmed">
-                              {epic.summary}
-                            </Text>
-                          )}
-                        </Table.Td>
-                        <Table.Td>{formatDate(epic.doneAt, "—", filters.timeZone)}</Table.Td>
-                        <Table.Td ta="right">{optional(epic.ownEstimateAtStartMd, formatMd)}</Table.Td>
-                        <Table.Td ta="right">{optional(epic.ownEstimateAtDoneMd, formatMd)}</Table.Td>
-                        <Table.Td ta="right">{formatMd(epic.childSumMd)}</Table.Td>
-                        <Table.Td ta="right">{formatMd(epic.actualMd)}</Table.Td>
-                        <Table.Td ta="right">{optional(epic.ratio, formatRatio)}</Table.Td>
-                        <Table.Td ta="right">{optional(epic.ratioAtDone, formatRatio)}</Table.Td>
-                      </Table.Tr>
-                    ))}
-                  </Table.Tbody>
-                </Table>
+                <ColumnTable
+                  aria-label={t("reports.epicAccuracy.epicsTitle")}
+                  columns={epicColumns}
+                  rows={report.epics}
+                  // The list is ordered and fixed per response; key and position together stay unique across connections.
+                  rowKey={(epic, index) => `${epic.issueKey}:${index}`}
+                />
               </ScrollRegion>
             </ReportChartCard>
           )}

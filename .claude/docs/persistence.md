@@ -87,7 +87,10 @@ in-network consumers use `postgres:5432`). There is one persistence stack:
   statement, and the skip with its limit.
   A role that runs the worker
   (`worker`/`all`) refuses to boot unless `maxSize > 2 × ingest.workerSlots` (`configureIngestWorker`): a running DERIVE
-  holds two pooled connections at once (its transaction plus `MetricsStore.ensureDimDate`'s own). Size it as
+  holds two pooled connections at once (its transaction plus `MetricsStore.ensureDimDate`'s own); a lease renewal the
+  ticker abandoned at its slack holds one more for up to about a slack (`renewLease` is bounded server-side), at most one per
+  slot at a time — deliberately not in the formula, a stall that eats the headroom makes the next renewal fail and the job stop
+  (`ingestion.md` "Lease and heartbeat"); raise `maxSize` rather than the formula. Size it as
   `maxSize × replicas + 1` (Flyway's short-lived JDBC connection, `infra/db/Flyway.kt`) well under
   the server's `max_connections`. `maxAcquireTimeSeconds` is a per-attempt deadline, and the effective
   bound is about 2× the setting. r2dbc-pool 1.0.2's `ConnectionPool` builds `create()` as
@@ -370,7 +373,7 @@ is a scratch table, not a raw store proper: it holds every issue id the daily RE
 
 ### The normalized layer (V13)
 
-`norm.*` (v0.2.0 plan §0 A3/§4/§8, plan commit 8a, `norm/WorkItemStore.kt`) is the FIRST schema
+`norm.*` (v0.2.0 plan §0 A3/§4/§8, plan commit 8a, `norm/WorkItemStore.kt` — the tables and the one facade, delegating to `norm/WorkItemWriter.kt` (PROCESS write path), `NormReferenceStore.kt`, `NormDerivationReads.kt`, `NormProfileReads.kt`, `NormInspectorReads.kt`, `NormPickerReads.kt` and `NormPurge.kt`, one concern per file; a new `norm` read/write goes in its concern's file plus a one-line delegation on the facade) is the FIRST schema
 outside `raw`/`public` — the connector-agnostic facts every connector's PROCESS step rebuilds a
 work item's rows into, one issue at a time, keyed the same way `raw.jira_issues` is
 `(connection_id, issue_id)`. `norm/Tiling.kt`/`norm/Normalization.kt` build the in-memory shape;
@@ -449,7 +452,7 @@ processing_version mismatch makes an issue eligible for the next PROCESS pass".
 `purgeWorklogsBatch` (500 rows per call, `NORM_PURGE_BATCH_SIZE`, mirroring
 `JIRA_PURGE_BATCH_SIZE`) delete one connection's rows in batches; the small reference tables are
 cleared outright (`purgeReferenceRows`, no batching needed — they are already rebuilt wholesale).
-`WorkItemStore.purgeAll` (an extension function) drains field changes, field intervals, status
+`WorkItemStore.purgeAll` (an extension function in `norm/NormPurge.kt`) drains field changes, field intervals, status
 intervals, worklogs, then work items, in that order, before clearing the reference tables.
 `JiraConnector.purgeSteps` runs `JiraRawStore.purgeAll` (the `raw.*` tables) THEN
 `WorkItemStore.purgeAll` (the `norm.*` tables) as its two connector-owned PURGE steps.
@@ -580,9 +583,12 @@ its own committed `inTopLevelSuspendTransaction` under the advisory lock `DIM_DA
 are missing or differ from the calendar — `.claude/docs/metrics.md` "Calendar math")
 and `fact_sprint_snapshot` (append-only, see below). **The `insertX` methods write through `infra/db/MultiRowInsert.kt`'s `insertRows`**
 (`batchInsert`'s call shape, one multi-row `INSERT … VALUES` per chunk): `exposed-r2dbc`'s `batchInsert` executes every row as its own bound
-statement (~0.16-0.19 ms a row, 10x the multi-row cost — `.claude/docs/build-times.md` WHY 3). **`DIM_DATE_LOCK_KEY` (`MetricsStore.kt`, the ASCII bytes of
-"FlowDate") is the repo's only PostgreSQL advisory lock** and `ensureDimDate` the only
+statement (~0.16-0.19 ms a row, 10x the multi-row cost — `.claude/docs/build-times.md` WHY 3). **The repo has exactly two PostgreSQL advisory locks, both transaction-scoped.** `DIM_DATE_LOCK_KEY` (`MetricsStore.kt`, the ASCII bytes of
+"FlowDate", the single-`bigint` form `pg_advisory_xact_lock(key)`) and `ensureDimDate`, the only
 `inTopLevelSuspendTransaction` caller (a write that commits while its caller's transaction is still open); no other code may take that key.
+The second is `SyncJobsService.claim`'s per-connection try-lock, `pg_try_advisory_xact_lock(CLAIM_LOCK_NAMESPACE, connectionId)`
+(`ingest/SyncJobLeases.kt`, namespace = the ASCII bytes of "SYNC" as an `int`; the two-`int` form is a separate key space from the `bigint` one, so the two cannot
+collide) — `.claude/docs/ingestion.md` "Claiming". A new advisory lock needs its own constant, a line here and a reason a row lock cannot do the job.
 
 **The first trigger in this repo.** `fact_sprint_snapshot` is immutable once written (invariant 11,
 "a `fact_sprint_snapshot` row never changes once written") — enforced not in application code but by

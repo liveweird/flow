@@ -6,6 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { IconFileSearch, IconSearch } from "@tabler/icons-react";
 import { useAdmin } from "../auth";
 import { getRawIssue, type RawIssueInspection } from "../api/dataSources";
+import ColumnTable, { type ColumnDef } from "../components/ColumnTable";
 import EmptyState from "../components/EmptyState";
 import PageHeader from "../components/PageHeader";
 import { dataSourcePath } from "../utils/dataSourceLinks";
@@ -110,6 +111,37 @@ function IntervalsSection({ inspection }: { inspection: RawIssueInspection }) {
   const { t } = useTranslation();
   const statusIntervals = inspection.statusIntervals ?? [];
   const fieldIntervals = inspection.fieldIntervals ?? [];
+  const statusColumns: ColumnDef<(typeof statusIntervals)[number]>[] = [
+    { key: "seq", header: t("dataSources.inspect.column.seq"), render: (interval) => interval.seq },
+    { key: "status", header: t("dataSources.profile.column.status"), render: (interval) => interval.statusName },
+    {
+      key: "category",
+      header: t("dataSources.profile.column.category"),
+      render: (interval) => t(`dataSources.profile.category.${interval.category}`),
+    },
+    {
+      key: "from",
+      header: t("dataSources.inspect.column.from"),
+      render: (interval) => formatEpochMillis(interval.fromAtMs, t),
+    },
+    { key: "to", header: t("dataSources.inspect.column.to"), render: (interval) => formatEpochMillis(interval.toAtMs, t) },
+    { key: "source", header: t("dataSources.inspect.column.source"), render: (interval) => interval.source },
+  ];
+  const fieldColumns: ColumnDef<(typeof fieldIntervals)[number]>[] = [
+    { key: "field", header: t("dataSources.inspect.column.field"), render: (interval) => interval.field },
+    { key: "seq", header: t("dataSources.inspect.column.seq"), render: (interval) => interval.seq },
+    {
+      key: "value",
+      header: t("dataSources.inspect.column.value"),
+      render: (interval) => interval.valueText ?? interval.valueId ?? "—",
+    },
+    {
+      key: "from",
+      header: t("dataSources.inspect.column.from"),
+      render: (interval) => formatEpochMillis(interval.fromAtMs, t),
+    },
+    { key: "to", header: t("dataSources.inspect.column.to"), render: (interval) => formatEpochMillis(interval.toAtMs, t) },
+  ];
   return (
     <Stack gap="md">
       <Stack gap={4}>
@@ -121,30 +153,12 @@ function IntervalsSection({ inspection }: { inspection: RawIssueInspection }) {
             {t("dataSources.inspect.none")}
           </Text>
         ) : (
-          <Table aria-label={t("dataSources.inspect.statusIntervals")}>
-            <Table.Thead>
-              <Table.Tr>
-                <Table.Th>{t("dataSources.inspect.column.seq")}</Table.Th>
-                <Table.Th>{t("dataSources.profile.column.status")}</Table.Th>
-                <Table.Th>{t("dataSources.profile.column.category")}</Table.Th>
-                <Table.Th>{t("dataSources.inspect.column.from")}</Table.Th>
-                <Table.Th>{t("dataSources.inspect.column.to")}</Table.Th>
-                <Table.Th>{t("dataSources.inspect.column.source")}</Table.Th>
-              </Table.Tr>
-            </Table.Thead>
-            <Table.Tbody>
-              {statusIntervals.map((interval) => (
-                <Table.Tr key={interval.seq}>
-                  <Table.Td>{interval.seq}</Table.Td>
-                  <Table.Td>{interval.statusName}</Table.Td>
-                  <Table.Td>{t(`dataSources.profile.category.${interval.category}`)}</Table.Td>
-                  <Table.Td>{formatEpochMillis(interval.fromAtMs, t)}</Table.Td>
-                  <Table.Td>{formatEpochMillis(interval.toAtMs, t)}</Table.Td>
-                  <Table.Td>{interval.source}</Table.Td>
-                </Table.Tr>
-              ))}
-            </Table.Tbody>
-          </Table>
+          <ColumnTable
+            aria-label={t("dataSources.inspect.statusIntervals")}
+            columns={statusColumns}
+            rows={statusIntervals}
+            rowKey={(interval) => String(interval.seq)}
+          />
         )}
       </Stack>
       <Stack gap={4}>
@@ -156,28 +170,12 @@ function IntervalsSection({ inspection }: { inspection: RawIssueInspection }) {
             {t("dataSources.inspect.none")}
           </Text>
         ) : (
-          <Table aria-label={t("dataSources.inspect.fieldIntervals")}>
-            <Table.Thead>
-              <Table.Tr>
-                <Table.Th>{t("dataSources.inspect.column.field")}</Table.Th>
-                <Table.Th>{t("dataSources.inspect.column.seq")}</Table.Th>
-                <Table.Th>{t("dataSources.inspect.column.value")}</Table.Th>
-                <Table.Th>{t("dataSources.inspect.column.from")}</Table.Th>
-                <Table.Th>{t("dataSources.inspect.column.to")}</Table.Th>
-              </Table.Tr>
-            </Table.Thead>
-            <Table.Tbody>
-              {fieldIntervals.map((interval, index) => (
-                <Table.Tr key={`${interval.field}-${interval.seq}-${index}`}>
-                  <Table.Td>{interval.field}</Table.Td>
-                  <Table.Td>{interval.seq}</Table.Td>
-                  <Table.Td>{interval.valueText ?? interval.valueId ?? "—"}</Table.Td>
-                  <Table.Td>{formatEpochMillis(interval.fromAtMs, t)}</Table.Td>
-                  <Table.Td>{formatEpochMillis(interval.toAtMs, t)}</Table.Td>
-                </Table.Tr>
-              ))}
-            </Table.Tbody>
-          </Table>
+          <ColumnTable
+            aria-label={t("dataSources.inspect.fieldIntervals")}
+            columns={fieldColumns}
+            rows={fieldIntervals}
+            rowKey={(interval, index) => `${interval.field}-${interval.seq}-${index}`}
+          />
         )}
       </Stack>
     </Stack>

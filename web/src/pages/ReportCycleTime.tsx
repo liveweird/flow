@@ -1,8 +1,9 @@
 import { lazy, Suspense } from "react";
 import { useTranslation } from "react-i18next";
-import { Alert, SimpleGrid, Stack, Table, Text } from "@mantine/core";
+import { Alert, SimpleGrid, Stack, Text } from "@mantine/core";
 import { IconInfoCircle } from "@tabler/icons-react";
 import { getCycleTimeReport, type CycleTimeGroup } from "../api/reports";
+import ColumnTable, { type ColumnDef } from "../components/ColumnTable";
 import CycleTimeEpics from "../components/CycleTimeEpics";
 import DistributionWithAccounting from "../components/DistributionWithAccounting";
 import LoadingBlock from "../components/LoadingBlock";
@@ -14,7 +15,7 @@ import ReportGroupsTable, { type GroupColumn } from "../components/ReportGroupsT
 import ReportMetaNote from "../components/ReportMetaNote";
 import ReportTabs from "../components/ReportTabs";
 import { useReportPage } from "../hooks/useReportPage";
-import { cycleTrendRows, trendHasPoints } from "../utils/cycleTimeReport";
+import { cycleTrendRows, trendHasPoints, type CycleTrendRow } from "../utils/cycleTimeReport";
 import { formatDays, formatMedian } from "../utils/reportFormat";
 import { DELIVERY_TABS } from "../utils/reportLinks";
 import ScrollRegion from "../components/ScrollRegion";
@@ -42,6 +43,24 @@ export default function ReportCycleTime() {
   }));
   const report = query.data;
   const rows = report ? cycleTrendRows(report.trend, report.bucket) : [];
+
+  const bucket = report?.bucket ?? "WEEK";
+  const trendColumns: ColumnDef<CycleTrendRow>[] = [
+    { key: "bucket", header: t(`reports.cycleTime.column.bucket${bucket}`), render: (row) => row.label },
+    { key: "n", header: t("reports.cycleTime.column.n"), render: (row) => row.n, align: "right" },
+    {
+      key: "p50",
+      header: t("reports.cycleTime.column.p50"),
+      render: (row) => (row.p50 === null ? MISSING : formatDays(row.p50)),
+      align: "right",
+    },
+    {
+      key: "p90",
+      header: t("reports.cycleTime.column.p90"),
+      render: (row) => (row.p90 === null ? MISSING : formatDays(row.p90)),
+      align: "right",
+    },
+  ];
 
   const groupColumns: GroupColumn<CycleTimeGroup>[] = [
     { key: "population", header: t("reports.cycleTime.column.population"), render: (g) => g.excluded.population },
@@ -113,27 +132,14 @@ export default function ReportCycleTime() {
                   </Alert>
                 )}
                 <ScrollRegion label={t("reports.cycleTime.trendTableLabel")} minWidth={320}>
-                  <Table verticalSpacing={4} aria-label={t("reports.cycleTime.trendTableLabel")}>
-                    <Table.Thead>
-                      <Table.Tr>
-                        <Table.Th>{t(`reports.cycleTime.column.bucket${report.bucket}`)}</Table.Th>
-                        <Table.Th ta="right">{t("reports.cycleTime.column.n")}</Table.Th>
-                        <Table.Th ta="right">{t("reports.cycleTime.column.p50")}</Table.Th>
-                        <Table.Th ta="right">{t("reports.cycleTime.column.p90")}</Table.Th>
-                      </Table.Tr>
-                    </Table.Thead>
-                    <Table.Tbody>
-                      {rows.map((row, index) => (
-                        // Buckets are ordered and fixed per response; position is the identity.
-                        <Table.Tr key={index}>
-                          <Table.Td>{row.label}</Table.Td>
-                          <Table.Td ta="right">{row.n}</Table.Td>
-                          <Table.Td ta="right">{row.p50 === null ? MISSING : formatDays(row.p50)}</Table.Td>
-                          <Table.Td ta="right">{row.p90 === null ? MISSING : formatDays(row.p90)}</Table.Td>
-                        </Table.Tr>
-                      ))}
-                    </Table.Tbody>
-                  </Table>
+                  <ColumnTable
+                    verticalSpacing={4}
+                    aria-label={t("reports.cycleTime.trendTableLabel")}
+                    columns={trendColumns}
+                    rows={rows}
+                    // Buckets are ordered and fixed per response; position is the identity.
+                    rowKey={(_row, index) => String(index)}
+                  />
                 </ScrollRegion>
               </Stack>
             </ReportChartCard>

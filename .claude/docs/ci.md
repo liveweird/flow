@@ -10,7 +10,7 @@ Read on demand before changing a CI job, a Dependabot rule or a static-analysis 
   web — incl. the API-contract gate (`lint:api` + `check:api`) and a second, shuffled-order vitest run
   (`npx vitest run --sequence.shuffle`, the `isolate: false` independence proof; `scripts/gates.sh web` mirrors it), e2e statics —
   lint/knip/typecheck/scenario parity/setup, `npm audit` (high+) on both npm workspaces, `k8s-static` (kubeconform over
-  `k8s/`), and on `master` an image build plus a Trivy scan of it); the blackbox Playwright
+  `k8s/`, and the web deployment pinned to one replica), and on `master` an image build plus a Trivy scan of it); the blackbox Playwright
   suite (`e2e.yml`) runs nightly and on demand, and re-scans the image it built with the same Trivy gate. Dependabot (`.github/dependabot.yml`) checks every
   workspace, Actions and container manifests weekly; `.claude/docs/dependencies.md` describes
   grouping, compatibility pins and runtime verification, and

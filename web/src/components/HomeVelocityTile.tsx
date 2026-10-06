@@ -1,10 +1,11 @@
 import { lazy, Suspense } from "react";
 import { useTranslation } from "react-i18next";
-import { Badge, Group, SimpleGrid, Table, Text } from "@mantine/core";
+import { Badge, Group, SimpleGrid, Text } from "@mantine/core";
 import type { SprintConsistencyReport } from "../api/reports";
 import { formatDate } from "../utils/formatDate";
-import { overviewTeamRows } from "../utils/homeOverview";
+import { overviewTeamRows, type OverviewTeamRow } from "../utils/homeOverview";
 import { formatMd } from "../utils/reportFormat";
+import ColumnTable, { type ColumnDef } from "./ColumnTable";
 import HomeTile from "./HomeTile";
 import LoadingBlock from "./LoadingBlock";
 import ScrollRegion from "./ScrollRegion";
@@ -34,6 +35,43 @@ export default function HomeVelocityTile({
 }) {
   const { t } = useTranslation();
   const rows = query.data ? overviewTeamRows(query.data) : [];
+  const columns: ColumnDef<OverviewTeamRow>[] = [
+    { key: "team", header: t("home.velocity.column.team"), render: (row) => row.team },
+    { key: "sprint", header: t("home.velocity.column.sprint"), render: (row) => row.sprint },
+    {
+      key: "closed",
+      header: t("home.velocity.column.closed"),
+      render: (row) => formatDate(row.completedAt, t("reports.sprints.open"), timeZone),
+    },
+    { key: "initial", header: t("home.velocity.column.initial"), render: (row) => formatMd(row.initialMd), align: "right" },
+    { key: "final", header: t("home.velocity.column.final"), render: (row) => formatMd(row.finalMd), align: "right" },
+    {
+      key: "delivered",
+      header: t("home.velocity.column.delivered"),
+      render: (row) => formatMd(row.deliveredMd),
+      align: "right",
+    },
+    {
+      key: "drift",
+      header: t("reports.sprints.drift"),
+      render: (row) =>
+        row.drift &&
+        row.frozen && (
+          <Group gap="xs" wrap="nowrap">
+            <Badge color="orange" variant="light">
+              {t("reports.sprints.driftBadge")}
+            </Badge>
+            <Text size="xs" c="dimmed">
+              {t("reports.sprintConsistency.snapshot", {
+                committed: formatMd(row.frozen.committedMd),
+                final: formatMd(row.frozen.finalMd),
+                delivered: formatMd(row.frozen.deliveredMd),
+              })}
+            </Text>
+          </Group>
+        ),
+    },
+  ];
   return (
     <HomeTile
       title={t("home.velocity.title")}
@@ -53,47 +91,13 @@ export default function HomeVelocityTile({
             <HomeVelocityChart rows={rows} />
           </Suspense>
           <ScrollRegion label={t("home.velocity.tableLabel")} minWidth={520}>
-            <Table verticalSpacing={4} aria-label={t("home.velocity.tableLabel")}>
-              <Table.Thead>
-                <Table.Tr>
-                  <Table.Th>{t("home.velocity.column.team")}</Table.Th>
-                  <Table.Th>{t("home.velocity.column.sprint")}</Table.Th>
-                  <Table.Th>{t("home.velocity.column.closed")}</Table.Th>
-                  <Table.Th ta="right">{t("home.velocity.column.initial")}</Table.Th>
-                  <Table.Th ta="right">{t("home.velocity.column.final")}</Table.Th>
-                  <Table.Th ta="right">{t("home.velocity.column.delivered")}</Table.Th>
-                  <Table.Th>{t("reports.sprints.drift")}</Table.Th>
-                </Table.Tr>
-              </Table.Thead>
-              <Table.Tbody>
-                {rows.map((row) => (
-                  <Table.Tr key={row.key}>
-                    <Table.Td>{row.team}</Table.Td>
-                    <Table.Td>{row.sprint}</Table.Td>
-                    <Table.Td>{formatDate(row.completedAt, t("reports.sprints.open"), timeZone)}</Table.Td>
-                    <Table.Td ta="right">{formatMd(row.initialMd)}</Table.Td>
-                    <Table.Td ta="right">{formatMd(row.finalMd)}</Table.Td>
-                    <Table.Td ta="right">{formatMd(row.deliveredMd)}</Table.Td>
-                    <Table.Td>
-                      {row.drift && row.frozen && (
-                        <Group gap="xs" wrap="nowrap">
-                          <Badge color="orange" variant="light">
-                            {t("reports.sprints.driftBadge")}
-                          </Badge>
-                          <Text size="xs" c="dimmed">
-                            {t("reports.sprintConsistency.snapshot", {
-                              committed: formatMd(row.frozen.committedMd),
-                              final: formatMd(row.frozen.finalMd),
-                              delivered: formatMd(row.frozen.deliveredMd),
-                            })}
-                          </Text>
-                        </Group>
-                      )}
-                    </Table.Td>
-                  </Table.Tr>
-                ))}
-              </Table.Tbody>
-            </Table>
+            <ColumnTable
+              verticalSpacing={4}
+              aria-label={t("home.velocity.tableLabel")}
+              columns={columns}
+              rows={rows}
+              rowKey={(row) => row.key}
+            />
           </ScrollRegion>
         </SimpleGrid>
       )}

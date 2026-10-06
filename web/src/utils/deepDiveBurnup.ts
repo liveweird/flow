@@ -1,5 +1,5 @@
 import type { DeepDiveReport } from "../api/reports";
-import { grainColumns } from "./deepDiveMatrix";
+import { grainColumns } from "./deepDiveCalendar";
 import { DAY_MS, isoDateToEpochMillis } from "./isoDate";
 import { roundScaled } from "./reportFormat";
 

@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
-import { Checkbox, Select, Table, Text, TextInput } from "@mantine/core";
+import { Checkbox, Select, Text, TextInput } from "@mantine/core";
+import ColumnTable, { type ColumnDef } from "./ColumnTable";
 
 /**
  * One editable cell in a `MappingRow` — a `Select` over a fixed option list, a free-text
@@ -44,6 +45,44 @@ export interface MappingRow {
   fields: MappingField[];
 }
 
+/** The editable control of one field cell (nothing for a row that has fewer fields than the table has columns). */
+function FieldControl({ field }: { field: MappingField | undefined }) {
+  if (field === undefined) return null;
+  if (field.type === "select") {
+    return (
+      <Select
+        aria-label={field.ariaLabel}
+        value={field.value || null}
+        onChange={(value) => field.onChange(value ?? "")}
+        data={field.options}
+        placeholder={field.placeholder}
+        clearable={field.clearable ?? true}
+        error={field.error}
+        searchable
+      />
+    );
+  }
+  if (field.type === "text") {
+    return (
+      <TextInput
+        aria-label={field.ariaLabel}
+        value={field.value}
+        onChange={(event) => field.onChange(event.currentTarget.value)}
+        placeholder={field.placeholder}
+        error={field.error}
+        maxLength={field.maxLength}
+      />
+    );
+  }
+  return (
+    <Checkbox
+      aria-label={field.ariaLabel}
+      checked={field.checked}
+      onChange={(event) => field.onChange(event.currentTarget.checked)}
+    />
+  );
+}
+
 /**
  * The one generic id → editable-cell table every metrics-config tab reuses
  * (`.claude/docs/metrics.md`, `pages/DataSourceMetricsConfig.tsx`): a fixed identity column plus
@@ -71,56 +110,13 @@ export default function MappingTable({
       </Text>
     ) : null;
   }
-  return (
-    <Table aria-label={label}>
-      <Table.Thead>
-        <Table.Tr>
-          <Table.Th>{idColumnLabel}</Table.Th>
-          {fieldColumnLabels.map((label) => (
-            <Table.Th key={label}>{label}</Table.Th>
-          ))}
-        </Table.Tr>
-      </Table.Thead>
-      <Table.Tbody>
-        {rows.map((row) => (
-          <Table.Tr key={row.id}>
-            <Table.Td>{row.label}</Table.Td>
-            {row.fields.map((field, index) => (
-              <Table.Td key={`${row.id}-${index}`}>
-                {field.type === "select" && (
-                  <Select
-                    aria-label={field.ariaLabel}
-                    value={field.value || null}
-                    onChange={(value) => field.onChange(value ?? "")}
-                    data={field.options}
-                    placeholder={field.placeholder}
-                    clearable={field.clearable ?? true}
-                    error={field.error}
-                    searchable
-                  />
-                )}
-                {field.type === "text" && (
-                  <TextInput
-                    aria-label={field.ariaLabel}
-                    value={field.value}
-                    onChange={(event) => field.onChange(event.currentTarget.value)}
-                    placeholder={field.placeholder}
-                    error={field.error}
-                    maxLength={field.maxLength}
-                  />
-                )}
-                {field.type === "checkbox" && (
-                  <Checkbox
-                    aria-label={field.ariaLabel}
-                    checked={field.checked}
-                    onChange={(event) => field.onChange(event.currentTarget.checked)}
-                  />
-                )}
-              </Table.Td>
-            ))}
-          </Table.Tr>
-        ))}
-      </Table.Tbody>
-    </Table>
-  );
+  const columns: ColumnDef<MappingRow>[] = [
+    { key: "id", header: idColumnLabel, render: (row) => row.label },
+    ...fieldColumnLabels.map((header, index) => ({
+      key: `field-${index}`,
+      header,
+      render: (row: MappingRow) => <FieldControl field={row.fields[index]} />,
+    })),
+  ];
+  return <ColumnTable aria-label={label} columns={columns} rows={rows} rowKey={(row) => row.id} />;
 }

@@ -102,7 +102,7 @@ in-line).
 `security.lockout.threshold` (default 5, `$LOGIN_LOCKOUT_THRESHOLD`) consecutive failures for one
 submitted email, `/login` answers `429` for `security.lockout.durationSeconds` (default 900,
 `$LOGIN_LOCKOUT_DURATION_SECONDS`) — even with the correct password, and regardless of whether the
-account exists (no enumeration signal). A success resets the counter. The in-memory, per-instance
+account exists (no enumeration signal). A success resets the counter. The in-memory, per-instance (so the web tier runs ONE replica — `ci.yml` `k8s-static` pins it)
 store has a hard `security.lockout.maxTracked` limit (default 10,000,
 `$LOGIN_LOCKOUT_MAX_TRACKED`): expired state is reclaimed through an expiry index, but fresh
 counters and active locks are never evicted to admit a new identity. At capacity, an untracked
