@@ -3,7 +3,7 @@ import { Link as RouterLink } from "react-router-dom";
 import { Alert, Anchor, Button, Group, Select, Stack, Switch, Table, Text } from "@mantine/core";
 import { useDebouncedValue } from "@mantine/hooks";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
-import { IconUsers } from "@tabler/icons-react";
+import { IconInfoCircle, IconUsers } from "@tabler/icons-react";
 import { useTranslation } from "react-i18next";
 import ClearableTextInput from "../components/ClearableTextInput";
 import ConfirmActionModal from "../components/ConfirmActionModal";
@@ -63,6 +63,12 @@ export default function FeatureFlags() {
   const [debouncedName] = useDebouncedValue(nameFilter, 300);
   const [debouncedEmail] = useDebouncedValue(emailFilter, 300);
   const [error, setError] = useState<string | null>(null);
+  // "Nothing to change" is neither a success nor a failure: a neutral inline note, never a toast.
+  // It belongs to the filter it was computed for, so any filter change hides it.
+  const filterKey = JSON.stringify([feature, stateFilter, debouncedName, debouncedEmail]);
+  const [noChangeFor, setNoChangeFor] = useState<string | null>(null);
+  const noChange = noChangeFor === filterKey;
+  const setNoChange = (shown: boolean) => setNoChangeFor(shown ? filterKey : null);
   // The row whose toggle PUT is in flight — its switch disables until the refetch lands.
   const [pendingId, setPendingId] = useState<number | null>(null);
 
@@ -122,7 +128,7 @@ export default function FeatureFlags() {
           ? row.disabledFeatures.filter((f) => f !== feature)
           : [...row.disabledFeatures, feature],
       ),
-    onNothingToDo: () => showSuccessToast(t("users.featureFlags.bulkNoChange")),
+    onNothingToDo: () => setNoChange(true),
     onDone: async (failedRows) => {
       await refreshQueriesAfterMutation(queryClient, ["users"]);
       // A partial failure renders from bulk.failed (names + Retry) below — no toast then.
@@ -145,6 +151,7 @@ export default function FeatureFlags() {
       ? [...row.disabledFeatures, feature]
       : row.disabledFeatures.filter((f) => f !== feature);
     setError(null);
+    setNoChange(false);
     setPendingId(row.id);
     try {
       await updateUserFeatures(row.id, next);
@@ -181,6 +188,7 @@ export default function FeatureFlags() {
                 // Clear the page-level error at the interaction, not inside fetchAll — the
                 // hook's data-fetch callback is not a place for view-state writes.
                 setError(null);
+                setNoChange(false);
                 void bulk.prepare(true);
               }}
             >
@@ -193,6 +201,7 @@ export default function FeatureFlags() {
               disabled={bulk.preparing !== null || total === 0}
               onClick={() => {
                 setError(null);
+                setNoChange(false);
                 void bulk.prepare(false);
               }}
             >
@@ -241,6 +250,11 @@ export default function FeatureFlags() {
       {error && (
         <Alert color="red" variant="light">
           {error}
+        </Alert>
+      )}
+      {noChange && (
+        <Alert color="gray" variant="light" icon={<IconInfoCircle size={16} />} role="note">
+          {t("users.featureFlags.bulkNoChange")}
         </Alert>
       )}
       {bulk.failed && (

@@ -76,7 +76,15 @@ replace PUT), and the ADMIN per-feature screen at `/feature-flags` (`adminOnly` 
 filter + bulk enable/disable over every row matching the current filters behind a count-stating
 confirm — `hooks/useBulkFeatureUpdate.ts` loops the same per-user wholesale PUTs client-side via
 `ConfirmActionModal`). Both queries key under `["users", …]`. Mind the wholesale-replace
-semantics: a PUT whose disabled set omits `MFA` ENABLES it.
+semantics: a PUT whose disabled set omits `MFA` ENABLES it. A bulk run with nothing to change is neither
+success nor failure: it shows the inline gray `role="note"` Alert (`users.featureFlags.bulkNoChange`), never a toast.
+
+### Heading outline guard
+
+`pages/headingOutline.test.tsx` renders every route read from `App.tsx` (via `?raw`, so a new route is covered
+the moment it registers) under an ADMIN session with an empty API and asserts the outline starts at h2 and never
+skips a level going down. A page whose real title needs loaded data passes a static `title` to
+`EditPageLoadState`, so its load/failure state still opens with an h2 (TeamDetails, DataSourceDetails/Profile/MetricsConfig).
 
 ### Adding a language
 

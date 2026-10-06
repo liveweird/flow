@@ -2,6 +2,7 @@
   "brand": "Flow",
   "skipToContent": "Skip to main content",
   "toggleNav": "Show or hide the navigation",
+  "toggleMobileNav": "Toggle navigation",
   "nav": {
     "home": "Home",
     "users": "Users",

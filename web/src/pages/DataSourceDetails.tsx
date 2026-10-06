@@ -262,6 +262,7 @@ export default function DataSourceDetails() {
         message={notFound ? t("dataSources.notFound") : loadErrorMessage(status.error, t)}
         backTo={dataSourcesPath}
         backLabel={t("dataSources.backToDataSources")}
+        title={t("dataSources.title")}
       />
     );
   }

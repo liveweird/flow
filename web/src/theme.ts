@@ -46,6 +46,9 @@ export const theme = createTheme({
   primaryShade: { light: 8, dark: 9 },
   // Pick readable text color on filled brand surfaces automatically.
   autoContrast: true,
+  // Mantine transitions and animations (Modal, Menu, Collapse, Loader…) stand still under the OS
+  // "reduce motion" preference — off by default in Mantine, so it is opted into here (WCAG 2.3.3).
+  respectReducedMotion: true,
   defaultRadius: "md",
   colors: { flow },
   fontFamily: sans,

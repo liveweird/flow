@@ -81,6 +81,24 @@ describe("App shell", () => {
       expect(localStorage.getItem("flow.viewSettings.appShell.navCollapsed")).toBe("true");
     });
 
+    test("the mobile burger has an accessible name and reports whether the drawer is open", async () => {
+      // Mantine hides the burger from `sm` up through a media query happy-dom evaluates against
+      // the window width, so the test runs at a phone width (restored afterwards).
+      const desktopWidth = window.innerWidth;
+      window.innerWidth = 390;
+      try {
+        const user = userEvent.setup();
+        renderApp("/");
+        await screen.findByRole("group", { name: "Overview" });
+        const burger = screen.getByRole("button", { name: "Toggle navigation" });
+        expect(burger).toHaveAttribute("aria-expanded", "false");
+        await user.click(burger);
+        expect(burger).toHaveAttribute("aria-expanded", "true");
+      } finally {
+        window.innerWidth = desktopWidth;
+      }
+    });
+
     test("a fresh render starts collapsed once the choice was persisted", async () => {
       localStorage.setItem("flow.viewSettings.appShell.navCollapsed", "true");
       renderApp("/");

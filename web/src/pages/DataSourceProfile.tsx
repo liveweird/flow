@@ -331,6 +331,7 @@ export default function DataSourceProfile() {
         message={notFound ? t("dataSources.notFound") : loadErrorMessage(profile.error, t)}
         backTo={dataSourcePath(id)}
         backLabel={t("dataSources.details.backToDetails")}
+        title={t("dataSources.profile.title")}
       />
     );
   }
