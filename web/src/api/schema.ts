@@ -148,7 +148,9 @@ export interface paths {
         /**
          * Revoke the bearer token (server-side denylist)
          * @description Revokes the access token carried in the `Authorization` header. If a `refreshToken` is
-         *     supplied in the body, it is revoked too. The body is optional.
+         *     supplied in the body, it is revoked too. The body is optional. The answer also sends
+         *     `Clear-Site-Data: "cache"`, dropping the origin's HTTP cache — the report GETs are
+         *     `private, no-cache`, so their bodies may sit in the browser's disk cache until then.
          */
         post: operations["logout"];
         delete?: never;
@@ -4008,6 +4010,16 @@ export interface components {
                 "application/problem+json": components["schemas"]["ProblemDetail"];
             };
         };
+        /** @description The report's `ETag` is listed in `If-None-Match` (weak comparison): the figures did not change, nothing was computed, and there is no body. (`If-None-Match: *` also answers `304`, but only after the report ran successfully, with its body dropped.) Carries the same `ETag`, `Cache-Control` and `Vary` as the 200 would. */
+        NotModified: {
+            headers: {
+                ETag: components["headers"]["ReportETag"];
+                "Cache-Control": components["headers"]["ReportCacheControl"];
+                Vary: components["headers"]["ReportVary"];
+                [name: string]: unknown;
+            };
+            content?: never;
+        };
         /** @description Resource not found */
         NotFound: {
             headers: {
@@ -4055,6 +4067,8 @@ export interface components {
         };
     };
     parameters: {
+        /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
+        IfNoneMatch: string;
         ResourceId: number;
         /** @description 1-based page index. Defaults to 1. */
         Page: number;
@@ -4105,7 +4119,14 @@ export interface components {
         ReportBlockedItemKind: "TASK" | "EPIC" | "BOTH";
     };
     requestBodies: never;
-    headers: never;
+    headers: {
+        /** @description The weak validator (`W/"…"`) of this report answer: a hash of the request (route and canonical query) and a data stamp read BEFORE the report runs — see `.claude/docs/reports.md` "Cache validators". Send it back as `If-None-Match`. */
+        ReportETag: string;
+        /** @description Always `private, no-cache`: a private cache may store the answer but must revalidate it on every use. */
+        ReportCacheControl: string;
+        /** @description Always includes `Authorization` (only an authenticated request is ever answered). */
+        ReportVary: string;
+    };
     pathItems: never;
 }
 export type $defs = Record<string, never>;
@@ -4276,6 +4297,8 @@ export interface operations {
             /** @description Token revoked */
             204: {
                 headers: {
+                    /** @description Always `"cache"` — asks the browser to clear the origin's HTTP cache. Best-effort; support varies by browser. */
+                    "Clear-Site-Data"?: string;
                     [name: string]: unknown;
                 };
                 content?: never;
@@ -5507,7 +5530,10 @@ export interface operations {
     getReportFilters: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
+                "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -5516,12 +5542,16 @@ export interface operations {
             /** @description The reports reference data */
             200: {
                 headers: {
+                    ETag: components["headers"]["ReportETag"];
+                    "Cache-Control": components["headers"]["ReportCacheControl"];
+                    Vary: components["headers"]["ReportVary"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["ReportFilters"];
                 };
             };
+            304: components["responses"]["NotModified"];
             401: components["responses"]["Unauthorized"];
             500: components["responses"]["InternalServerError"];
         };
@@ -5546,7 +5576,10 @@ export interface operations {
                 /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
                 connectionId?: components["parameters"]["ReportConnectionId"];
             };
-            header?: never;
+            header?: {
+                /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
+                "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -5555,12 +5588,16 @@ export interface operations {
             /** @description The velocity report */
             200: {
                 headers: {
+                    ETag: components["headers"]["ReportETag"];
+                    "Cache-Control": components["headers"]["ReportCacheControl"];
+                    Vary: components["headers"]["ReportVary"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["VelocityReport"];
                 };
             };
+            304: components["responses"]["NotModified"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             500: components["responses"]["InternalServerError"];
@@ -5594,7 +5631,10 @@ export interface operations {
                 /** @description The time resolution of a report's bucketed series; weeks start Monday, buckets in the configured zone. */
                 bucket?: components["parameters"]["ReportBucket"];
             };
-            header?: never;
+            header?: {
+                /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
+                "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -5603,12 +5643,16 @@ export interface operations {
             /** @description The throughput report */
             200: {
                 headers: {
+                    ETag: components["headers"]["ReportETag"];
+                    "Cache-Control": components["headers"]["ReportCacheControl"];
+                    Vary: components["headers"]["ReportVary"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["ThroughputReport"];
                 };
             };
+            304: components["responses"]["NotModified"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             500: components["responses"]["InternalServerError"];
@@ -5634,7 +5678,10 @@ export interface operations {
                 /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
                 connectionId?: components["parameters"]["ReportConnectionId"];
             };
-            header?: never;
+            header?: {
+                /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
+                "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -5643,12 +5690,16 @@ export interface operations {
             /** @description The sprint consistency report */
             200: {
                 headers: {
+                    ETag: components["headers"]["ReportETag"];
+                    "Cache-Control": components["headers"]["ReportCacheControl"];
+                    Vary: components["headers"]["ReportVary"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["SprintConsistencyReport"];
                 };
             };
+            304: components["responses"]["NotModified"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             500: components["responses"]["InternalServerError"];
@@ -5680,7 +5731,10 @@ export interface operations {
                 /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
                 connectionId?: components["parameters"]["ReportConnectionId"];
             };
-            header?: never;
+            header?: {
+                /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
+                "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -5689,12 +5743,16 @@ export interface operations {
             /** @description The task estimation accuracy report */
             200: {
                 headers: {
+                    ETag: components["headers"]["ReportETag"];
+                    "Cache-Control": components["headers"]["ReportCacheControl"];
+                    Vary: components["headers"]["ReportVary"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["TaskEstimationAccuracyReport"];
                 };
             };
+            304: components["responses"]["NotModified"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             500: components["responses"]["InternalServerError"];
@@ -5724,7 +5782,10 @@ export interface operations {
                 /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
                 connectionId?: components["parameters"]["ReportConnectionId"];
             };
-            header?: never;
+            header?: {
+                /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
+                "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -5733,12 +5794,16 @@ export interface operations {
             /** @description The epic estimation accuracy report */
             200: {
                 headers: {
+                    ETag: components["headers"]["ReportETag"];
+                    "Cache-Control": components["headers"]["ReportCacheControl"];
+                    Vary: components["headers"]["ReportVary"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["EpicEstimationAccuracyReport"];
                 };
             };
+            304: components["responses"]["NotModified"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             500: components["responses"]["InternalServerError"];
@@ -5770,7 +5835,10 @@ export interface operations {
                 /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
                 connectionId?: components["parameters"]["ReportConnectionId"];
             };
-            header?: never;
+            header?: {
+                /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
+                "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -5779,12 +5847,16 @@ export interface operations {
             /** @description The estimate adjustments report */
             200: {
                 headers: {
+                    ETag: components["headers"]["ReportETag"];
+                    "Cache-Control": components["headers"]["ReportCacheControl"];
+                    Vary: components["headers"]["ReportVary"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["EstimateAdjustmentsReport"];
                 };
             };
+            304: components["responses"]["NotModified"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             500: components["responses"]["InternalServerError"];
@@ -5818,7 +5890,10 @@ export interface operations {
                 /** @description The time resolution of a report's bucketed series; weeks start Monday, buckets in the configured zone. */
                 bucket?: components["parameters"]["ReportBucket"];
             };
-            header?: never;
+            header?: {
+                /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
+                "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -5827,12 +5902,16 @@ export interface operations {
             /** @description The cycle time report */
             200: {
                 headers: {
+                    ETag: components["headers"]["ReportETag"];
+                    "Cache-Control": components["headers"]["ReportCacheControl"];
+                    Vary: components["headers"]["ReportVary"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["CycleTimeReport"];
                 };
             };
+            304: components["responses"]["NotModified"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             500: components["responses"]["InternalServerError"];
@@ -5868,7 +5947,10 @@ export interface operations {
                 /** @description Which items the WIP report counts — level-0 tasks (default), epics (a different grain), or both added together. */
                 itemKind?: components["parameters"]["ReportWipItemKind"];
             };
-            header?: never;
+            header?: {
+                /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
+                "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -5877,12 +5959,16 @@ export interface operations {
             /** @description The WIP report */
             200: {
                 headers: {
+                    ETag: components["headers"]["ReportETag"];
+                    "Cache-Control": components["headers"]["ReportCacheControl"];
+                    Vary: components["headers"]["ReportVary"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["WipReport"];
                 };
             };
+            304: components["responses"]["NotModified"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             500: components["responses"]["InternalServerError"];
@@ -5914,7 +6000,10 @@ export interface operations {
                 /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
                 connectionId?: components["parameters"]["ReportConnectionId"];
             };
-            header?: never;
+            header?: {
+                /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
+                "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -5923,12 +6012,16 @@ export interface operations {
             /** @description The estimated backlog report */
             200: {
                 headers: {
+                    ETag: components["headers"]["ReportETag"];
+                    "Cache-Control": components["headers"]["ReportCacheControl"];
+                    Vary: components["headers"]["ReportVary"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["BacklogReport"];
                 };
             };
+            304: components["responses"]["NotModified"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             500: components["responses"]["InternalServerError"];
@@ -5960,7 +6053,10 @@ export interface operations {
                 /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
                 connectionId?: components["parameters"]["ReportConnectionId"];
             };
-            header?: never;
+            header?: {
+                /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
+                "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -5969,12 +6065,16 @@ export interface operations {
             /** @description The aging WIP report */
             200: {
                 headers: {
+                    ETag: components["headers"]["ReportETag"];
+                    "Cache-Control": components["headers"]["ReportCacheControl"];
+                    Vary: components["headers"]["ReportVary"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["AgingWipReport"];
                 };
             };
+            304: components["responses"]["NotModified"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             500: components["responses"]["InternalServerError"];
@@ -6008,7 +6108,10 @@ export interface operations {
                 /** @description Which DONE items the blocked-time report counts — level-0 tasks (default), epics (a different grain), or both. */
                 itemKind?: components["parameters"]["ReportBlockedItemKind"];
             };
-            header?: never;
+            header?: {
+                /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
+                "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -6017,12 +6120,16 @@ export interface operations {
             /** @description The blocked time report */
             200: {
                 headers: {
+                    ETag: components["headers"]["ReportETag"];
+                    "Cache-Control": components["headers"]["ReportCacheControl"];
+                    Vary: components["headers"]["ReportVary"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["BlockedTimeReport"];
                 };
             };
+            304: components["responses"]["NotModified"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             500: components["responses"]["InternalServerError"];
@@ -6056,7 +6163,10 @@ export interface operations {
                 /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
                 connectionId?: components["parameters"]["ReportConnectionId"];
             };
-            header?: never;
+            header?: {
+                /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
+                "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -6065,12 +6175,16 @@ export interface operations {
             /** @description The epic progress report */
             200: {
                 headers: {
+                    ETag: components["headers"]["ReportETag"];
+                    "Cache-Control": components["headers"]["ReportCacheControl"];
+                    Vary: components["headers"]["ReportVary"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["EpicProgressReport"];
                 };
             };
+            304: components["responses"]["NotModified"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             500: components["responses"]["InternalServerError"];
@@ -6102,7 +6216,10 @@ export interface operations {
                 /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
                 connectionId?: components["parameters"]["ReportConnectionId"];
             };
-            header?: never;
+            header?: {
+                /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
+                "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -6111,12 +6228,16 @@ export interface operations {
             /** @description The data quality report */
             200: {
                 headers: {
+                    ETag: components["headers"]["ReportETag"];
+                    "Cache-Control": components["headers"]["ReportCacheControl"];
+                    Vary: components["headers"]["ReportVary"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["DataQualityReport"];
                 };
             };
+            304: components["responses"]["NotModified"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             500: components["responses"]["InternalServerError"];
@@ -6148,7 +6269,10 @@ export interface operations {
                 /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
                 connectionId?: components["parameters"]["ReportConnectionId"];
             };
-            header?: never;
+            header?: {
+                /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
+                "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -6157,12 +6281,16 @@ export interface operations {
             /** @description The cost matrix report */
             200: {
                 headers: {
+                    ETag: components["headers"]["ReportETag"];
+                    "Cache-Control": components["headers"]["ReportCacheControl"];
+                    Vary: components["headers"]["ReportVary"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["CostMatrixReport"];
                 };
             };
+            304: components["responses"]["NotModified"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             500: components["responses"]["InternalServerError"];
@@ -6186,7 +6314,10 @@ export interface operations {
                 /** @description ISO date (YYYY-MM-DD), inclusive, in the configured zone: clips the range's end (the envelope's by default). Alone, a `to` before the envelope's start gives a single empty day at `to`. When the range is NOT fully given and would span over 1100 days, its last 1100 days are kept (a given bound is honoured, the other end follows it) and `note` says `RANGE_CLAMPED`. */
                 to?: string;
             };
-            header?: never;
+            header?: {
+                /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
+                "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -6195,12 +6326,16 @@ export interface operations {
             /** @description The deep dive report */
             200: {
                 headers: {
+                    ETag: components["headers"]["ReportETag"];
+                    "Cache-Control": components["headers"]["ReportCacheControl"];
+                    Vary: components["headers"]["ReportVary"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["DeepDiveReport"];
                 };
             };
+            304: components["responses"]["NotModified"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             500: components["responses"]["InternalServerError"];
@@ -6227,7 +6362,10 @@ export interface operations {
                  */
                 sort?: components["parameters"]["Sort"];
             };
-            header?: never;
+            header?: {
+                /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
+                "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -6236,12 +6374,16 @@ export interface operations {
             /** @description One page of the domain's sprints */
             200: {
                 headers: {
+                    ETag: components["headers"]["ReportETag"];
+                    "Cache-Control": components["headers"]["ReportCacheControl"];
+                    Vary: components["headers"]["ReportVary"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["DeepDiveSprintPage"];
                 };
             };
+            304: components["responses"]["NotModified"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             500: components["responses"]["InternalServerError"];
@@ -6268,7 +6410,10 @@ export interface operations {
                  */
                 sort?: components["parameters"]["Sort"];
             };
-            header?: never;
+            header?: {
+                /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
+                "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -6277,12 +6422,16 @@ export interface operations {
             /** @description One page of epics */
             200: {
                 headers: {
+                    ETag: components["headers"]["ReportETag"];
+                    "Cache-Control": components["headers"]["ReportCacheControl"];
+                    Vary: components["headers"]["ReportVary"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["DeepDiveEpicPage"];
                 };
             };
+            304: components["responses"]["NotModified"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             500: components["responses"]["InternalServerError"];
@@ -6307,7 +6456,10 @@ export interface operations {
                  */
                 sort?: components["parameters"]["Sort"];
             };
-            header?: never;
+            header?: {
+                /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
+                "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+            };
             path: {
                 /** @description The epic's issue key. */
                 epicKey: string;
@@ -6319,12 +6471,16 @@ export interface operations {
             /** @description One page of the epic's tasks */
             200: {
                 headers: {
+                    ETag: components["headers"]["ReportETag"];
+                    "Cache-Control": components["headers"]["ReportCacheControl"];
+                    Vary: components["headers"]["ReportVary"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["DeepDiveTaskPage"];
                 };
             };
+            304: components["responses"]["NotModified"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             500: components["responses"]["InternalServerError"];
@@ -6356,7 +6512,10 @@ export interface operations {
                 /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
                 connectionId?: components["parameters"]["ReportConnectionId"];
             };
-            header?: never;
+            header?: {
+                /** @description A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report. Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`. */
+                "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -6365,12 +6524,16 @@ export interface operations {
             /** @description The reported time ratio report */
             200: {
                 headers: {
+                    ETag: components["headers"]["ReportETag"];
+                    "Cache-Control": components["headers"]["ReportCacheControl"];
+                    Vary: components["headers"]["ReportVary"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["ReportedTimeRatioReport"];
                 };
             };
+            304: components["responses"]["NotModified"];
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             500: components["responses"]["InternalServerError"];

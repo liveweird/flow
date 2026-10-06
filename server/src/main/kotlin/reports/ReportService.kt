@@ -1,6 +1,7 @@
 package ch.nokillswit.reports
 
 import ch.nokillswit.infra.db.active
+import ch.nokillswit.infra.db.nowMillis
 import ch.nokillswit.ingest.DataSourceService
 import ch.nokillswit.metrics.MetricsSettingsService
 import ch.nokillswit.metrics.MetricsTables
@@ -40,7 +41,17 @@ class ReportService(
     internal val database: R2dbcDatabase,
     internal val metricsSettings: MetricsSettingsService,
     private val teamMembership: TeamMembershipService,
+    /** What identifies this build in every report ETag ([REPORT_CODE_IDENTITY], once per boot). */
+    internal val codeIdentity: String = REPORT_CODE_IDENTITY,
 ) {
+    /**
+     * The clock every report route reads `now` from — the figures' and the ETag stamp's alike. `var` only so a test can pin it
+     * (the published service sits on `Application.attributes`); nothing in production assigns it.
+     */
+    @Volatile
+    internal var clock: () -> Long = ::nowMillis
+
+
     suspend fun filters(nowMs: Long): ReportFilters = suspendTransaction(database) {
         val settings = metricsSettings.read()
 

@@ -44,6 +44,27 @@ class LogoutTest {
     }
 
     @Test
+    fun `a logout clears the browser cache the report GETs may have filled`() = testApplication {
+        usePostgresTestcontainer()
+        val email = uniqueEmail("logout-csd")
+        TestUsers.seed(email = email, password = "pw")
+        val client = jsonClient()
+        val session = client.login(email, "pw").body<LoginResponse>()
+
+        val logout = client.post("/api/v1/logout") {
+            header(HttpHeaders.Authorization, "Bearer ${session.token}")
+        }
+        assertEquals(HttpStatusCode.NoContent, logout.status)
+        assertEquals("\"cache\"", logout.headers["Clear-Site-Data"], "Clear-Site-Data with the quoted cache directive")
+        // A rejected logout (no valid token) clears nothing.
+        val replay = client.post("/api/v1/logout") {
+            header(HttpHeaders.Authorization, "Bearer ${session.token}")
+        }
+        assertEquals(HttpStatusCode.Unauthorized, replay.status)
+        assertEquals(null, replay.headers["Clear-Site-Data"])
+    }
+
+    @Test
     fun `logout without a token is 401`() = testApplication {
         usePostgresTestcontainer()
         val response = jsonClient().post("/api/v1/logout")

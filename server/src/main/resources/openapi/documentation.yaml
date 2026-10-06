@@ -197,7 +197,9 @@ paths:
       summary: Revoke the bearer token (server-side denylist)
       description: |
         Revokes the access token carried in the `Authorization` header. If a `refreshToken` is
-        supplied in the body, it is revoked too. The body is optional.
+        supplied in the body, it is revoked too. The body is optional. The answer also sends
+        `Clear-Site-Data: "cache"`, dropping the origin's HTTP cache — the report GETs are
+        `private, no-cache`, so their bodies may sit in the browser's disk cache until then.
       requestBody:
         required: false
         content:
@@ -208,6 +210,10 @@ paths:
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '204':
           description: Token revoked
+          headers:
+            Clear-Site-Data:
+              schema: { type: string }
+              description: Always `"cache"` — asks the browser to clear the origin's HTTP cache. Best-effort; support varies by browser.
         '401': { $ref: '#/components/responses/Unauthorized' }
         '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '500': { $ref: '#/components/responses/InternalServerError' }
@@ -1296,13 +1302,20 @@ paths:
         DERIVE run has actually produced, active connections (id+name only — never `settings`/the
         encrypted API token), and the shared `derivedAt`/`configRevision`/`minSampleSize` figures
         every report's own `meta` block also carries. Read-only — no audit event.
+      parameters:
+        - { $ref: '#/components/parameters/IfNoneMatch' }
       responses:
         '200':
           description: The reports reference data
+          headers:
+            ETag: { $ref: '#/components/headers/ReportETag' }
+            Cache-Control: { $ref: '#/components/headers/ReportCacheControl' }
+            Vary: { $ref: '#/components/headers/ReportVary' }
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ReportFilters'
+        '304': { $ref: '#/components/responses/NotModified' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/reports/velocity:
@@ -1337,13 +1350,19 @@ paths:
         - { $ref: '#/components/parameters/ReportAccountId' }
         - { $ref: '#/components/parameters/ReportDomainView' }
         - { $ref: '#/components/parameters/ReportConnectionId' }
+        - { $ref: '#/components/parameters/IfNoneMatch' }
       responses:
         '200':
           description: The velocity report
+          headers:
+            ETag: { $ref: '#/components/headers/ReportETag' }
+            Cache-Control: { $ref: '#/components/headers/ReportCacheControl' }
+            Vary: { $ref: '#/components/headers/ReportVary' }
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/VelocityReport'
+        '304': { $ref: '#/components/responses/NotModified' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '500': { $ref: '#/components/responses/InternalServerError' }
@@ -1389,13 +1408,19 @@ paths:
         - { $ref: '#/components/parameters/ReportWorkCategory' }
         - { $ref: '#/components/parameters/ReportConnectionId' }
         - { $ref: '#/components/parameters/ReportBucket' }
+        - { $ref: '#/components/parameters/IfNoneMatch' }
       responses:
         '200':
           description: The throughput report
+          headers:
+            ETag: { $ref: '#/components/headers/ReportETag' }
+            Cache-Control: { $ref: '#/components/headers/ReportCacheControl' }
+            Vary: { $ref: '#/components/headers/ReportVary' }
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ThroughputReport'
+        '304': { $ref: '#/components/responses/NotModified' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '500': { $ref: '#/components/responses/InternalServerError' }
@@ -1428,13 +1453,19 @@ paths:
         - { $ref: '#/components/parameters/ReportAccountId' }
         - { $ref: '#/components/parameters/ReportDomainView' }
         - { $ref: '#/components/parameters/ReportConnectionId' }
+        - { $ref: '#/components/parameters/IfNoneMatch' }
       responses:
         '200':
           description: The sprint consistency report
+          headers:
+            ETag: { $ref: '#/components/headers/ReportETag' }
+            Cache-Control: { $ref: '#/components/headers/ReportCacheControl' }
+            Vary: { $ref: '#/components/headers/ReportVary' }
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/SprintConsistencyReport'
+        '304': { $ref: '#/components/responses/NotModified' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '500': { $ref: '#/components/responses/InternalServerError' }
@@ -1472,13 +1503,19 @@ paths:
         - { $ref: '#/components/parameters/ReportActivityType' }
         - { $ref: '#/components/parameters/ReportWorkCategory' }
         - { $ref: '#/components/parameters/ReportConnectionId' }
+        - { $ref: '#/components/parameters/IfNoneMatch' }
       responses:
         '200':
           description: The task estimation accuracy report
+          headers:
+            ETag: { $ref: '#/components/headers/ReportETag' }
+            Cache-Control: { $ref: '#/components/headers/ReportCacheControl' }
+            Vary: { $ref: '#/components/headers/ReportVary' }
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/TaskEstimationAccuracyReport'
+        '304': { $ref: '#/components/responses/NotModified' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '500': { $ref: '#/components/responses/InternalServerError' }
@@ -1514,13 +1551,19 @@ paths:
         - { $ref: '#/components/parameters/ReportDomain' }
         - { $ref: '#/components/parameters/ReportWorkCategory' }
         - { $ref: '#/components/parameters/ReportConnectionId' }
+        - { $ref: '#/components/parameters/IfNoneMatch' }
       responses:
         '200':
           description: The epic estimation accuracy report
+          headers:
+            ETag: { $ref: '#/components/headers/ReportETag' }
+            Cache-Control: { $ref: '#/components/headers/ReportCacheControl' }
+            Vary: { $ref: '#/components/headers/ReportVary' }
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/EpicEstimationAccuracyReport'
+        '304': { $ref: '#/components/responses/NotModified' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '500': { $ref: '#/components/responses/InternalServerError' }
@@ -1558,13 +1601,19 @@ paths:
         - { $ref: '#/components/parameters/ReportActivityType' }
         - { $ref: '#/components/parameters/ReportWorkCategory' }
         - { $ref: '#/components/parameters/ReportConnectionId' }
+        - { $ref: '#/components/parameters/IfNoneMatch' }
       responses:
         '200':
           description: The estimate adjustments report
+          headers:
+            ETag: { $ref: '#/components/headers/ReportETag' }
+            Cache-Control: { $ref: '#/components/headers/ReportCacheControl' }
+            Vary: { $ref: '#/components/headers/ReportVary' }
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/EstimateAdjustmentsReport'
+        '304': { $ref: '#/components/responses/NotModified' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '500': { $ref: '#/components/responses/InternalServerError' }
@@ -1607,13 +1656,19 @@ paths:
         - { $ref: '#/components/parameters/ReportWorkCategory' }
         - { $ref: '#/components/parameters/ReportConnectionId' }
         - { $ref: '#/components/parameters/ReportBucket' }
+        - { $ref: '#/components/parameters/IfNoneMatch' }
       responses:
         '200':
           description: The cycle time report
+          headers:
+            ETag: { $ref: '#/components/headers/ReportETag' }
+            Cache-Control: { $ref: '#/components/headers/ReportCacheControl' }
+            Vary: { $ref: '#/components/headers/ReportVary' }
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/CycleTimeReport'
+        '304': { $ref: '#/components/responses/NotModified' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '500': { $ref: '#/components/responses/InternalServerError' }
@@ -1658,13 +1713,19 @@ paths:
         - { $ref: '#/components/parameters/ReportConnectionId' }
         - { $ref: '#/components/parameters/ReportWipBy' }
         - { $ref: '#/components/parameters/ReportWipItemKind' }
+        - { $ref: '#/components/parameters/IfNoneMatch' }
       responses:
         '200':
           description: The WIP report
+          headers:
+            ETag: { $ref: '#/components/headers/ReportETag' }
+            Cache-Control: { $ref: '#/components/headers/ReportCacheControl' }
+            Vary: { $ref: '#/components/headers/ReportVary' }
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/WipReport'
+        '304': { $ref: '#/components/responses/NotModified' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '500': { $ref: '#/components/responses/InternalServerError' }
@@ -1707,13 +1768,19 @@ paths:
         - { $ref: '#/components/parameters/ReportActivityType' }
         - { $ref: '#/components/parameters/ReportWorkCategory' }
         - { $ref: '#/components/parameters/ReportConnectionId' }
+        - { $ref: '#/components/parameters/IfNoneMatch' }
       responses:
         '200':
           description: The estimated backlog report
+          headers:
+            ETag: { $ref: '#/components/headers/ReportETag' }
+            Cache-Control: { $ref: '#/components/headers/ReportCacheControl' }
+            Vary: { $ref: '#/components/headers/ReportVary' }
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/BacklogReport'
+        '304': { $ref: '#/components/responses/NotModified' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '500': { $ref: '#/components/responses/InternalServerError' }
@@ -1748,13 +1815,19 @@ paths:
         - { $ref: '#/components/parameters/ReportActivityType' }
         - { $ref: '#/components/parameters/ReportWorkCategory' }
         - { $ref: '#/components/parameters/ReportConnectionId' }
+        - { $ref: '#/components/parameters/IfNoneMatch' }
       responses:
         '200':
           description: The aging WIP report
+          headers:
+            ETag: { $ref: '#/components/headers/ReportETag' }
+            Cache-Control: { $ref: '#/components/headers/ReportCacheControl' }
+            Vary: { $ref: '#/components/headers/ReportVary' }
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/AgingWipReport'
+        '304': { $ref: '#/components/responses/NotModified' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '500': { $ref: '#/components/responses/InternalServerError' }
@@ -1789,13 +1862,19 @@ paths:
         - { $ref: '#/components/parameters/ReportWorkCategory' }
         - { $ref: '#/components/parameters/ReportConnectionId' }
         - { $ref: '#/components/parameters/ReportBlockedItemKind' }
+        - { $ref: '#/components/parameters/IfNoneMatch' }
       responses:
         '200':
           description: The blocked time report
+          headers:
+            ETag: { $ref: '#/components/headers/ReportETag' }
+            Cache-Control: { $ref: '#/components/headers/ReportCacheControl' }
+            Vary: { $ref: '#/components/headers/ReportVary' }
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/BlockedTimeReport'
+        '304': { $ref: '#/components/responses/NotModified' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '500': { $ref: '#/components/responses/InternalServerError' }
@@ -1847,13 +1926,19 @@ paths:
         - { $ref: '#/components/parameters/ReportActivityType' }
         - { $ref: '#/components/parameters/ReportWorkCategory' }
         - { $ref: '#/components/parameters/ReportConnectionId' }
+        - { $ref: '#/components/parameters/IfNoneMatch' }
       responses:
         '200':
           description: The epic progress report
+          headers:
+            ETag: { $ref: '#/components/headers/ReportETag' }
+            Cache-Control: { $ref: '#/components/headers/ReportCacheControl' }
+            Vary: { $ref: '#/components/headers/ReportVary' }
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/EpicProgressReport'
+        '304': { $ref: '#/components/responses/NotModified' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '500': { $ref: '#/components/responses/InternalServerError' }
@@ -1892,13 +1977,19 @@ paths:
         - { $ref: '#/components/parameters/ReportActivityType' }
         - { $ref: '#/components/parameters/ReportWorkCategory' }
         - { $ref: '#/components/parameters/ReportConnectionId' }
+        - { $ref: '#/components/parameters/IfNoneMatch' }
       responses:
         '200':
           description: The data quality report
+          headers:
+            ETag: { $ref: '#/components/headers/ReportETag' }
+            Cache-Control: { $ref: '#/components/headers/ReportCacheControl' }
+            Vary: { $ref: '#/components/headers/ReportVary' }
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/DataQualityReport'
+        '304': { $ref: '#/components/responses/NotModified' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '500': { $ref: '#/components/responses/InternalServerError' }
@@ -1935,13 +2026,19 @@ paths:
         - { $ref: '#/components/parameters/ReportActivityType' }
         - { $ref: '#/components/parameters/ReportWorkCategory' }
         - { $ref: '#/components/parameters/ReportConnectionId' }
+        - { $ref: '#/components/parameters/IfNoneMatch' }
       responses:
         '200':
           description: The cost matrix report
+          headers:
+            ETag: { $ref: '#/components/headers/ReportETag' }
+            Cache-Control: { $ref: '#/components/headers/ReportCacheControl' }
+            Vary: { $ref: '#/components/headers/ReportVary' }
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/CostMatrixReport'
+        '304': { $ref: '#/components/responses/NotModified' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '500': { $ref: '#/components/responses/InternalServerError' }
@@ -2041,13 +2138,19 @@ paths:
             ISO date (YYYY-MM-DD), inclusive, in the configured zone: clips the range's end (the envelope's by default). Alone, a `to`
             before the envelope's start gives a single empty day at `to`. When the range is NOT fully given and would span over 1100 days,
             its last 1100 days are kept (a given bound is honoured, the other end follows it) and `note` says `RANGE_CLAMPED`.
+        - { $ref: '#/components/parameters/IfNoneMatch' }
       responses:
         '200':
           description: The deep dive report
+          headers:
+            ETag: { $ref: '#/components/headers/ReportETag' }
+            Cache-Control: { $ref: '#/components/headers/ReportCacheControl' }
+            Vary: { $ref: '#/components/headers/ReportVary' }
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/DeepDiveReport'
+        '304': { $ref: '#/components/responses/NotModified' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '500': { $ref: '#/components/responses/InternalServerError' }
@@ -2072,13 +2175,19 @@ paths:
         - { $ref: '#/components/parameters/Page' }
         - { $ref: '#/components/parameters/PageSize' }
         - { $ref: '#/components/parameters/Sort' }
+        - { $ref: '#/components/parameters/IfNoneMatch' }
       responses:
         '200':
           description: One page of the domain's sprints
+          headers:
+            ETag: { $ref: '#/components/headers/ReportETag' }
+            Cache-Control: { $ref: '#/components/headers/ReportCacheControl' }
+            Vary: { $ref: '#/components/headers/ReportVary' }
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/DeepDiveSprintPage'
+        '304': { $ref: '#/components/responses/NotModified' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '500': { $ref: '#/components/responses/InternalServerError' }
@@ -2102,13 +2211,19 @@ paths:
         - { $ref: '#/components/parameters/Page' }
         - { $ref: '#/components/parameters/PageSize' }
         - { $ref: '#/components/parameters/Sort' }
+        - { $ref: '#/components/parameters/IfNoneMatch' }
       responses:
         '200':
           description: One page of epics
+          headers:
+            ETag: { $ref: '#/components/headers/ReportETag' }
+            Cache-Control: { $ref: '#/components/headers/ReportCacheControl' }
+            Vary: { $ref: '#/components/headers/ReportVary' }
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/DeepDiveEpicPage'
+        '304': { $ref: '#/components/responses/NotModified' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '500': { $ref: '#/components/responses/InternalServerError' }
@@ -2140,13 +2255,19 @@ paths:
         - { $ref: '#/components/parameters/Page' }
         - { $ref: '#/components/parameters/PageSize' }
         - { $ref: '#/components/parameters/Sort' }
+        - { $ref: '#/components/parameters/IfNoneMatch' }
       responses:
         '200':
           description: One page of the epic's tasks
+          headers:
+            ETag: { $ref: '#/components/headers/ReportETag' }
+            Cache-Control: { $ref: '#/components/headers/ReportCacheControl' }
+            Vary: { $ref: '#/components/headers/ReportVary' }
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/DeepDiveTaskPage'
+        '304': { $ref: '#/components/responses/NotModified' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '500': { $ref: '#/components/responses/InternalServerError' }
@@ -2183,13 +2304,19 @@ paths:
         - { $ref: '#/components/parameters/ReportActivityType' }
         - { $ref: '#/components/parameters/ReportWorkCategory' }
         - { $ref: '#/components/parameters/ReportConnectionId' }
+        - { $ref: '#/components/parameters/IfNoneMatch' }
       responses:
         '200':
           description: The reported time ratio report
+          headers:
+            ETag: { $ref: '#/components/headers/ReportETag' }
+            Cache-Control: { $ref: '#/components/headers/ReportCacheControl' }
+            Vary: { $ref: '#/components/headers/ReportVary' }
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ReportedTimeRatioReport'
+        '304': { $ref: '#/components/responses/NotModified' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '500': { $ref: '#/components/responses/InternalServerError' }
@@ -2245,6 +2372,14 @@ components:
       bearerFormat: JWT
 
   parameters:
+    IfNoneMatch:
+      name: If-None-Match
+      in: header
+      required: false
+      schema: { type: string }
+      description: >-
+        A previously received report `ETag` (or a list of them, or `*`). A weak match answers `304` without running the report.
+        Evaluated only after authentication and request validation: a malformed request is still `400`, never `304`.
     ResourceId:
       name: id
       in: path
@@ -2389,6 +2524,20 @@ components:
       required: false
       schema: { type: string, enum: [TASK, EPIC, BOTH], default: TASK }
       description: Which DONE items the blocked-time report counts — level-0 tasks (default), epics (a different grain), or both.
+  headers:
+    ReportETag:
+      description: >-
+        The weak validator (`W/"…"`) of this report answer: a hash of the request (route and canonical query) and a data stamp
+        read BEFORE the report runs — see `.claude/docs/reports.md` "Cache validators". Send it back as `If-None-Match`.
+      schema: { type: string }
+    ReportCacheControl:
+      description: >-
+        Always `private, no-cache`: a private cache may store the answer but must revalidate it on every use.
+      schema: { type: string }
+    ReportVary:
+      description: Always includes `Authorization` (only an authenticated request is ever answered).
+      schema: { type: string }
+
   responses:
     UnsupportedMediaType:
       description: Request body must use application/json. A missing body or Content-Type remains a 400.
@@ -2410,6 +2559,15 @@ components:
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/ProblemDetail' }
+    NotModified:
+      description: >-
+        The report's `ETag` is listed in `If-None-Match` (weak comparison): the figures did not change, nothing was computed,
+        and there is no body. (`If-None-Match: *` also answers `304`, but only after the report ran successfully, with its body
+        dropped.) Carries the same `ETag`, `Cache-Control` and `Vary` as the 200 would.
+      headers:
+        ETag: { $ref: '#/components/headers/ReportETag' }
+        Cache-Control: { $ref: '#/components/headers/ReportCacheControl' }
+        Vary: { $ref: '#/components/headers/ReportVary' }
     NotFound:
       description: Resource not found
       content:

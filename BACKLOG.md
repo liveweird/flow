@@ -36,7 +36,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   - Read `hoursPerDay` from Jira's time-tracking configuration (A5). After the first real sync.
   - A per-domain status→stage override UI.
   - Seed memberships from the Team field (D1). After the first real sync.
-  - Cache validators for the report endpoints.
   - **Deep dive: a Burn-up tab.** The same selector; cumulative PV (the A29 task plan), EV (the estimate at done, D11) and AC (worklog MD) over the range on one chart. Optionally the epics' own baseline PV as a dashed line, for comparison with epic progress (report 15). Client-side from the same response, no new endpoint.
   - Throughput and Sprint consistency at USER level: the frozen per-user figures are still null (Velocity's `fact_sprint_snapshot.scope` reader can be reused).
   - **Parked (2026-10-01; the teams do not estimate via sub-tasks):** estimated backlog uses the OWN estimate only, so a parent estimated through its sub-tasks (`estimate_source = SUBTASKS`) is missing from it. The fix is a composite-estimate bridge, and velocity (`sprintScope`) needs the same composite or backlog-in-sprints is overstated. Number the amendment A28 (A23 is taken).

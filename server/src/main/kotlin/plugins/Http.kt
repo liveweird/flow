@@ -40,6 +40,7 @@ fun Application.configureHttp() {
     install(RequestBodyLimit) {
         bodyLimit { MAX_REQUEST_BODY_BYTES }
     }
+    install(ResponseValidators)
     install(CachingHeaders) {
         options { call, outgoingContent ->
             when (outgoingContent.contentType?.withoutParameters()) {
@@ -54,8 +55,16 @@ fun Application.configureHttp() {
                 // API answers (JSON and RFC 7807 problem+json) carry per-user, bearer-authorized data:
                 // `no-store` keeps them out of browser/proxy caches (a shared machine's back button, an
                 // intermediary replaying one user's list to another). Scoped to /api/ so a static JSON
-                // asset the SPA ships (if one ever appears) is not swept up.
-                ContentType.Application.Json, ContentType.Application.ProblemJson ->
+                // asset the SPA ships (if one ever appears) is not swept up. The one exception is a report GET's
+                // revalidated `200` (`private, no-cache` + ETag, written by `ResponseValidators` — `.claude/docs/security.md`
+                // "Caching"); `problem+json` is ALWAYS `no-store`, whatever a route offered before it failed.
+                ContentType.Application.Json ->
+                    if (call.request.path().startsWith("/api/") && !call.isRevalidated()) {
+                        CachingOptions(CacheControl.NoStore(null))
+                    } else {
+                        null
+                    }
+                ContentType.Application.ProblemJson ->
                     if (call.request.path().startsWith("/api/")) CachingOptions(CacheControl.NoStore(null)) else null
                 else -> null
             }

@@ -432,14 +432,14 @@ Admin bypasses are deliberate, documented exceptions — never the default.
 
 ### API-CACHE-001 — Validators on cacheable reads `[both]`
 **SHOULD** send an `ETag` (or `Last-Modified`) on cacheable `GET` responses and honor
-`If-None-Match`/`If-Modified-Since` with `304 Not Modified`. *(Registered gap.)*
+`If-None-Match`/`If-Modified-Since` with `304 Not Modified`. *(Registered gap — closed for the twenty report GETs only, `.claude/docs/reports.md` "Cache validators"; every other GET still has none.)*
 **Check (spectral, hint):** `GET` `200`s declare an `ETag` header. **Check (review):**
 conditional requests yield `304`.
 
 ### API-CACHE-002 — Explicit `Cache-Control` `[llm/manual]`
 **SHOULD** set a deliberate `Cache-Control` on every response class (e.g. `no-store` for
 sensitive/authed data, `max-age` for static assets) rather than relying on defaults.
-*(Registered gap: only CSS is covered today.)*
+*(Registered gap: only CSS and the report GETs' `private, no-cache` are deliberate today; every other `/api/` answer is the blanket `no-store`.)*
 **Check:** responses carry a deliberate `Cache-Control`.
 
 ### API-CACHE-003 — Optimistic concurrency on writes `[llm/manual]`
@@ -674,7 +674,7 @@ prioritized. Reviewers cite these as "registered gap"; the Spectral ruleset carr
 | API-ERR-004 | `X-Request-Id` is read but not echoed or generated | `CallId` config in `plugins/Monitoring.kt`: add `replyToHeader(HttpHeaders.XRequestId)` + `generate { ... }`; declare the header on responses in the spec |
 | API-ERR-007 | Duplicate-style `409`s identify the failing request, not the conflicting resource | All problems carry an occurrence path in `instance`; add a conflicting-resource link where the service knows the row id and API-ERR-006 permits disclosure. The generic 23505 handler cannot safely infer it |
 | API-RATE-001 | No `Retry-After` / `RateLimit-*` headers on `429`s | Set `Retry-After` where the wait is known (login lockout knows its window); add headers to the shared `TooManyRequests` response |
-| API-CACHE-001/002 | No `ETag`/`304`; `Cache-Control` only on CSS | Install `ConditionalHeaders`; extend the `CachingHeaders` config in `plugins/Http.kt` with deliberate per-class policies (`no-store` on API responses) |
+| API-CACHE-001/002 | `ETag`/`304` and a deliberate `private, no-cache` exist for the report GETs only (`reports/ReportValidators.kt`); every other GET has no validator, `Cache-Control` is CSS, the report GETs and the blanket `no-store` on `/api/` JSON | Extend the validator helper to a read whose answer has a cheap version stamp (a table `updated_at`/revision), the way the reports use the derive stamp |
 | API-CACHE-003 | No `If-Match`/`ETag`/`412` conditional writes anywhere; unguarded full-document writes are last-write-wins (see the inventory below) | Add `ETag` + `If-Match` handling to the concurrency-sensitive `PUT`s if contention ever materializes; a `version` column + `409` is the R2DBC-friendly alternative |
 | API-IDEM-001 | No `Idempotency-Key` handling | Domain no-duplicate `409`s cover double-submits today; adopt the header if external/retrying clients appear |
 | API-HTTP-001 | HTTP/1.1 only (Netty defaults; no edge HTTP/2) | Configure HTTP/2 at the TLS-terminating ingress when one exists |
