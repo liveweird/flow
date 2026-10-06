@@ -405,7 +405,7 @@ to 50 issues (plan §8 step 5; `replaceWorkItem` is the one-issue call of the sa
 path and the fixtures): delete `norm.work_item_status_intervals`/`_field_intervals`/`_field_changes`/
 `_worklogs` for the page's `(connection_id, issue_id IN (…))`, insert the freshly tiled rows (one
 `insertRows` call per table — `infra/db/MultiRowInsert.kt`, one multi-row `INSERT … VALUES` per chunk, generated serial ids never returned, `build-times.md` WHY 3 follow-up;
-`work_item_field_changes.seq` stays 1-based PER ISSUE), then `batchUpsert` `norm.work_items` on its
+`work_item_field_changes.seq` stays 1-based PER ISSUE), then `upsertRows` `norm.work_items` (`MultiRowInsert.kt`, one multi-row statement per chunk) on its
 PK (`ON CONFLICT (connection_id, issue_id) DO UPDATE` — every non-key column is written either way,
 the same row the old select-then-insert/update produced) — all inside the SAME transaction
 `JiraProcessStream` also uses for `JiraRawStore.markProcessedBatch`, so a crash mid-page never leaves

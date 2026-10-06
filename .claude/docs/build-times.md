@@ -100,7 +100,7 @@ below, never a failing check.
 | Measure | Target | Ceiling | Reasoning / measured |
 |---|---|---|---|
 | `stub-clone` (`cloneProcessedData`) | 0.5 s | 1.5 s | an `INSERT … SELECT` of the same 14 tables measured 220 ms; the Exposed clone takes 3.6 s |
-| `stub-process` (PROCESS, 1,200 issues) | 3 s | 8 s | ~2.5 ms per issue is generous for a page-batched read plus a handful of batched writes; measured 1.0-1.1 s with `insertRows` (2026-10-06, WHY 3 follow-up), 2.2-2.3 s with `batchInsert` after the page batching (2026-09-30: 2.4-3.2 s), was 16-19 s at 13.5-15 ms per issue |
+| `stub-process` (PROCESS, 1,200 issues) | 3 s | 8 s | ~2.5 ms per issue is generous for a page-batched read plus a handful of batched writes; measured 0.75-0.85 s with `insertRows` + `upsertRows` (2026-10-06), 1.0-1.1 s with `insertRows` alone (WHY 3 follow-up), 2.2-2.3 s with `batchInsert` after the page batching (2026-09-30: 2.4-3.2 s), was 16-19 s at 13.5-15 ms per issue |
 | `stub-derive` (one DERIVE of the stub) | 1 s | 3 s | 1,200 items, ~1,300 days; measured 1.17-1.75 s with `insertRows` (2026-10-01, WHY 3; 2.9-3.7 s with `batchInsert`), 7-26 s before the statistics fix; of the rest the WIP `INSERT … SELECT` is 0.5-0.75 s |
 | `derive-perf` (scale-20, ~24k issues, `docker-compose.perf.yaml`) | 20 s | 180 s | 20x the stub at 1 s; the ceiling is the v0.3.0 plan budget (< 3 min); measured 82 s |
 
@@ -357,6 +357,50 @@ instrumentation removed):
   (page reads, deletes, mark, normalize, the reference rebuild) ~0.3 s. `stub-process` is back inside its 3 s target
   (1.0 s against 3 s). At scale 20 (24,000 issues) the pass projects from ~1 min to ~25-30 s — projected from the
   per-issue figures, NOT measured at scale.
+
+**The `work_items` upsert moved to `upsertRows` (2026-10-06, `perf/work-items-upsert`).** The follow-up #83 recorded: PROCESS's
+last per-row write, Exposed's `batchUpsert` into `norm.work_items`, becomes ONE multi-row `INSERT … ON CONFLICT` per chunk.
+Measured first, same method as #83 (local, shared machine, the 1,200-issue stub: a processed clone, every issue re-flagged,
+`JiraProcessStream.run` nine times in one JVM, the first discarded, medians, a temporary timer around the upsert call —
+removed):
+
+| One stub PROCESS pass | `batchUpsert`, ms | `upsertRows`, ms |
+|---|---|---|
+| `work_items` write | 233-254 (median 240, 27 % of the pass) | 76-88 (median 80) |
+| **whole `JiraProcessStream.run` pass** | **884-932 (median 892)** | **753-855 (median 778 / 774 in two runs), -13 %** |
+
+(The pass reads ~0.9 s here against ~1.0 s in the entry above: the machine was less loaded; compare rows within a column
+pair only.) The upsert was 27 % of the pass, above the 15 % / 100 ms bar for doing it, and the saving (~115 ms per
+stub pass, ~0.16 ms per row gone) is real but modest: what remains of the `work_items` write (~80 ms) is the database
+building 36-column rows with five `jsonb` columns, not round trips. The pass is now ~0.78 s; at scale 20 the
+projection moves from ~25-30 s by ~5 s, projected, NOT measured.
+
+- **Helper:** `infra/db/MultiRowInsert.kt`'s `table.upsertRows(rows, keys = listOf(Col, …)) { this[Col] = … }` beside `insertRows`
+  (they share one private `writeRows`: the same collection, validation, column list, chunking — quantized to a power
+  of two or the table maximum — and the 32,000-parameter cap, so a 36-column table is at most 888 rows per statement).
+  SQL shape per chunk:
+  `INSERT INTO norm.work_items (connection_id, issue_id, …) VALUES (?, ?, …), (?, ?, …) ON CONFLICT (connection_id, issue_id) DO UPDATE SET issue_key = EXCLUDED.issue_key, …`
+  — the `DO UPDATE SET` list is every statement column except the keys (here every column but the PK, exactly what
+  `batchUpsert` updated: no `onUpdateExclude`, no `WHERE`), and the suffix is constant, so a PROCESS page (at most
+  50 issues -> sizes 32/16/8/4/2/1) adds at most six statement texts to the connection's prepared-statement cache (it was one
+  per-row text before); the ~184 worst case above becomes ~190.
+- **Duplicate keys:** one `INSERT … ON CONFLICT DO UPDATE` cannot touch a row twice (`cardinality_violation`), while
+  `batchUpsert`'s sequential executions let the last row win. PROCESS cannot actually produce a repeated `issue_id` in a
+  page (the page is read keyed by the raw table's `(connection_id, issue_id)` primary key), but the helper does not rely on that: it collapses repeated
+  keys to the LAST row before chunking (pinned by `MultiRowInsertTest` "collapses a repeated key to its last row").
+- **Behavioural difference:** like the child tables in #83, an over-long `work_items` varchar (`issue_key` 20, `status_id`
+  50, `assignee_account_id` 100 …) is now PostgreSQL's SQLSTATE 22001 instead of Exposed's client-side
+  `IllegalArgumentException`; `isDataError` classifies both as a bad row, and the existing `NormalizationPipelineTest`
+  case "a value too long for a sized column alone on its page" (a 30-character issue key) passes unchanged (only its comment changed).
+- **Equivalence, four ways:** `MultiRowInsertTest` writes the same 1,000 `work_items` rows through `batchUpsert` and
+  `upsertRows` into two private connections (insert path), then 1,001 rows overlapping 501 of them with every nullable
+  column flipped between NULL and a value (update path, several chunks), and compares every stored column; the REPROCESS
+  digest, `SyncedStubFixtureTest`, `MetricsDigestTest` and `DerivedStubFixtureTest` pass unchanged; the bad-row fallback
+  tests pass unchanged; and the one-off A/B of #83 repeated (a clone of the stub's raw rows, every issue flagged, one pass,
+  the REPROCESS digest function over all 1,200 items): `e9bd350e4fb4c11ddd3aa4296bb4da37` — the same digest as with
+  `batchUpsert`.
+- **What is left of a stub PROCESS pass (~0.78 s):** the four child inserts ~0.42 s, the `work_items` write ~0.08 s, the rest
+  (page reads, deletes, mark, normalize, the reference rebuild) ~0.3 s. Nothing in PROCESS is a per-row round trip any more.
 
 Open questions — each is "why does this take this long for a tiny dataset?", to be answered with
 evidence and recorded here as a dated entry (finding + fix, or "measured, intended because …"):

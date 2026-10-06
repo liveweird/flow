@@ -667,7 +667,7 @@ made `run` spin). **One transaction per PAGE** (`context.transaction { }`): the 
 queries (`issuesForProcessing`, `changelogPayloadsForIssues`, `worklogPayloadsForIssues` — all
 `issue_id IN (…)`), each issue is normalized in memory (pure), then ONE
 `WorkItemStore.replaceWorkItems` (a delete and ONE multi-row `insertRows` per `norm` table plus one
-`ON CONFLICT (connection_id, issue_id) DO UPDATE` batch for `work_items`) and ONE
+`upsertRows` — a multi-row `ON CONFLICT (connection_id, issue_id) DO UPDATE` — for `work_items`) and ONE
 `JiraRawStore.markProcessedBatch` write the whole page. Plan §8 says "one tx per batch, per-issue
 failure isolated" and PostgreSQL aborts a transaction on its FIRST failing statement, so isolation
 is kept two ways: an issue that fails NORMALIZATION is skipped in memory (no statement ran — the
@@ -682,7 +682,7 @@ them. If EVERY issue of the page fails in the fallback too, the failures decide:
 a BAD-ROW error (a PostgreSQL data exception, SQLSTATE class `22`, or integrity violation, class
 `23`, or Exposed's CLIENT-side `varchar(n)` length check — an `IllegalArgumentException` whose message
 starts "Value can't be stored to database column because exceeds length", thrown before any SQL is
-sent, so it carries no SQLSTATE; all found by walking the cause chain — `isDataError`; the four child tables are written by `insertRows`, which skips Exposed's client-side length check, so an over-long child value (e.g. `status_id` 50 on status intervals, `value_id` 200 on field intervals, `field_id` 100 on field changes, `author_account_id` 100 on worklogs) is PostgreSQL's own SQLSTATE 22001 — pinned by `NormalizationPipelineTest`'s "CHILD table column" case) the run still ends normally, so a single
+sent, so it carries no SQLSTATE; all found by walking the cause chain — `isDataError`; the four child tables are written by `insertRows` and `work_items` by `upsertRows`, which skip Exposed's client-side length check, so an over-long child or `work_items` value (e.g. `status_id` 50 on status intervals, `value_id` 200 on field intervals, `field_id` 100 on field changes, `author_account_id` 100 on worklogs) is PostgreSQL's own SQLSTATE 22001 — pinned by `NormalizationPipelineTest`'s "CHILD table column" case) the run still ends normally, so a single
 permanently unwritable row alone on its page (however many issues the page holds) only counts
 `issuesFailed` and is retried by the next pass; when NONE is a data error (a connection loss, a
 timeout — an outage, not a row) the original database error is RETHROWN, the job fails, and a
