@@ -144,7 +144,9 @@ HIGH/CRITICAL) — those are the baselines the gates started from.
 **Image build cache.** Only the nightly `e2e` job builds the app image through
 `docker compose -f docker-compose.yaml -f .github/compose-buildx-cache.yaml build` on a `docker-container`
 BuildKit builder (`docker/setup-buildx-action`), with a `type=local` layer cache persisted by
-`actions/cache` (the `type=gha` backend needs runtime tokens a `run:` step does not receive). The cache key
+`actions/cache` (the `type=gha` backend needs runtime tokens a `run:` step does not receive); on an exact key hit the
+build uses `.github/compose-buildx-cache-readonly.yaml` (import only — `actions/cache` saves only on a miss, so an
+export would be discarded, WHY 7). The cache key
 hashes the dependency-shaped inputs (Dockerfile, all seven Gradle lockfiles, the Gradle build scripts,
 `gradle.properties`, the version catalog, `verification-metadata.xml`, the wrapper properties,
 `web/package.json` + `package-lock.json`), so it is rewritten only when one of them changes. Measured locally:

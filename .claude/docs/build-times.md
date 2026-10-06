@@ -136,7 +136,7 @@ side by side.
 | `images` | 1m50s | 2m16s | 2m14s | 2m20s (latest 2m25s) | +30 %, one step: `docker compose build` |
 | `e2e-static` | 16 s | 16 s | 17 s | 15 s | flat |
 | `gradle-vulnerability-scan` | 42 s | 38 s | 44 s | 42 s | flat (27-90 s = network noise) |
-| `e2e` (nightly, Playwright) | 3m31s (dispatch) | 4m15s | 5m50s | 7m48s | +120 % in 3 days — unexplained, see WHY 7 |
+| `e2e` (nightly, Playwright) | 3m31s (dispatch) | 4m15s | 5m50s | 7m48s | +120 % in 3 days — tests 31 → 44 (→ 134 by 10-01) plus runner noise, see WHY 7 |
 
 ## Trajectory and status, 2026-09-30
 
@@ -587,9 +587,68 @@ evidence and recorded here as a dated entry (finding + fix, or "measured, intend
      `ci-times.mjs --steps web` after the first master run — the `web` job budget (1.5 min) should then
      be met.
 
-7. **The nightly `e2e` grew +120 % in 3 days** (3m31s → 7m48s) with no e2e budget or step breakdown:
-   is it the growing compose image build, the stack start-up, or the Playwright specs (reports batches
-   landed 09-29)? Run `ci-times.mjs --workflows e2e --steps e2e`.
+7. **The nightly `e2e` grew +120 % in 3 days — ANSWERED 2026-10-06 (`ci/e2e-image-cache`): new tests, plus runner noise; the image build is not it.**
+   Sources: `ci-times.mjs --branch master --steps e2e` (9 successful runs 09-27 → 10-05), `gh run view <id> --json jobs`
+   for every run (the step split exists since 09-30), and the Playwright list-reporter log of the 10-05, 10-04 and
+   10-01 runs (per-test durations, parsed per spec file).
+
+   | Night (run) | Tests | Job | `Build images` | `Start the stack` | `Run E2E` (specs; 09-26 → 09-29 includes build + start) |
+   |---|---|---|---|---|---|
+   | 09-26 dispatch | 31 | 3m31s | - | - | 181 s |
+   | 09-27 | 34 | 4m15s | - | - | 209 s |
+   | 09-28 | 38 | 5m50s | - | - | 317 s |
+   | 09-29 | 44 | 7m48s | - | - | 426 s |
+   | 09-30 | 57 | 7m38s | 153 s (cache miss) | 18 s | 203 s |
+   | 10-01 | 134 | 9m37s | 157 s (cache miss) | 22 s | 289 s |
+   | 10-02 | 134 | 8m49s | 56 s (hit) | 18 s | 403 s |
+   | 10-03 | 134 | 9m03s | 57 s (hit) | 20 s | 401 s |
+   | 10-04 | 134 | 7m27s | 64 s (hit) | 21 s | 303 s |
+   | 10-05 | 134 | 8m58s | 57 s (hit) | 19 s | 406 s |
+
+   **Attribution.**
+   - **Tests, not the image.** 31 → 134 tests (x4.3) took the nightly from 3m31s to ~9 min; the build is 57 s on a
+     cache hit and 155 s on a miss (two misses in ten nights: a lockfile changed, which is what the key is for), the
+     stack start-up a flat 18-22 s, the browser install (cached) ~19 s. `Run E2E` is 70-75 % of the job. The jump is
+     the axe sweeps: `accessibility.spec.ts` + `accessibility-data.spec.ts` are ~96 of the 134 tests (every page, light
+     and dark), one `login()` plus a page load plus axe each, ~5-8 s on the runner.
+   - **Runner noise is as large as the growth.** The five nights 10-01 → 10-05 ran the SAME commit (`9f52356`) and
+     `Run E2E` took 289 / 403 / 401 / 303 / 406 s (summed test time, where the log was read: 824 s on 10-01, 849 s on 10-04,
+     1,173 s on 10-05 — every test ~1.4x slower on a slow runner, the same tests). So "8m58s vs 6m44s" is mostly which runner the night drew, not a
+     regression; read the trend with the 09-30 → 10-01 test-count jump in mind.
+   - **The wall is a critical path, not throughput.** Per-spec spans (10-05 / 10-04 / 10-01): `accessibility-data`
+     starts its first test at 117 / 96 / 97 s (the beforeAll stub sync + DERIVE) and then runs its ~38 scans serially in
+     one file: 285 / 203 / 190 s of tests, ending at 403 / 300 / 287 s — which IS the run's end. `accessibility.spec`
+     (348 / 233 / 195 s) and `metrics-config` (185 / 145 / 172 s) finish earlier. Test time / 4 workers is 293 / 212 / 206 s,
+     so ~28 % of the worker-slot time is idle (sync waits and the tail), not CPU-bound Chromium.
+   - Not the cause, checked: the image cache (key stable across the five identical-SHA nights, 4 hits in 4), the
+     `restore-keys` partial hit (only matters on a miss; it works — the miss nights are the Gradle-layer rebuilds), retries
+     (no flaky test in the logs), the start-up.
+
+   **Changes (all keep every check; none raises a budget).**
+   1. `e2e/tests/helpers.ts` `gotoSignInForm`: on a fresh page (about:blank = a fresh browser context, nothing to clear)
+      load `/login` ONCE; the leftover-session path (clear localStorage, reload) is unchanged. Every `login()` used to
+      load the SPA twice. **Expected:** ~0.5-1 s per login on the runner, i.e. ~20-40 s off the `accessibility-data`
+      chain (38 logins in series) and ~15-25 s of wall off the rest. NOT measured (the compose stack was off-limits for
+      this change) — verify, below.
+   2. `e2e.yml` `Build images`: export the layer cache only on a key MISS (`actions/cache` saves only on a miss, so the
+      export on a hit was discarded — WHY 9 measured it at 14.6 s); a hit uses the new read-only override
+      `.github/compose-buildx-cache-readonly.yaml`. **Expected:** `Build images` ~57 s → ~42 s on hit nights; unchanged
+      (~155 s) on a miss.
+   3. `e2e.yml` gains a `workers` input on `workflow_dispatch` (default 4, the nightly always 4) feeding `E2E_WORKERS`:
+      the idle slot time above says 5-6 workers MAY use the sync waits, but a 4 vCPU runner shared with the JVM and
+      Postgres may just slow every test (the `expect` timeout is 10 s) — an experiment to run with data, not a default to flip.
+   **Considered and left out:** (a) a Playwright setup project doing the stub sync once so the axe scans fan out over the
+   workers — project dependencies run in whole-project PHASES (`runner/index.js` `createPhasesTask`), so the data scans
+   would start only after every other spec finished: estimated ~250 s vs ~287 s (-12 %) for a config/ownership/teardown
+   redesign nobody could run here; (b) sharing one `storageState` login per worker — `web/src/api/session.ts` guards
+   against another tab replacing the session (identity key + token-pair compare), so shared contexts risk the refresh
+   rotation; (c) `fullyParallel` on `accessibility.spec.ts` — a simulation over the measured durations moved the wall by
+   -29 / +4 / +37 s (greedy scheduling puts `metrics-config` last), i.e. noise.
+   **Verify** (`workflow_dispatch` of `e2e.yml` on `ci/e2e-image-cache`, at least twice — one run is noise, see the
+   10-01..05 spread): `ci-times.mjs --workflows e2e --steps e2e` for `Build images` (~42 s on the first dispatch that
+   hits master's cache) and `Run E2E`; from `gh run view <id> --log`, the `accessibility-data` span (first test start to
+   last test end, was 190-285 s) and the summed test time per spec — a change is real when the per-test sum drops, not
+   only the wall. A/B the workers with `workers=5` and `workers=6` on two dispatches each against the `4` ones.
 8. **Test-harness side effects (partly answered 2026-09-30 — see 11).** `IngestWorkerTest`'s ticks are measured and fenced (`withOnlyConnections`); the effect of other classes' enabled-connection leftovers elsewhere is still unmeasured. `NormalizationPipelineTest.clonedConnection` and
    `IngestWorkerTest` create ENABLED connections, so any config change anywhere enqueues a DERIVE that a
    worker in another class runs with the real clock (`IngestWorkerTest` saw 40 derives; ~30

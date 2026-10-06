@@ -8,6 +8,12 @@ on:
   schedule:
     - cron: "17 3 * * *"
   workflow_dispatch:
+    inputs:
+      workers:
+        description: "Playwright workers (E2E_WORKERS); the nightly always uses 4 — set another value to A/B the worker count (build-times.md WHY 7)"
+        required: false
+        default: "4"
+        type: string
 
 permissions:
   contents: read
@@ -21,6 +27,8 @@ jobs:
       # later `docker compose` call agree on it whatever the checkout directory is called.
       COMPOSE_PROJECT_NAME: flow
       BUILDX_CACHE_DIR: /tmp/buildx-cache
+      # `inputs` is empty on the nightly (schedule), so the fallback is the config's own default.
+      E2E_WORKERS: ${{ inputs.workers || '4' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -78,19 +86,28 @@ jobs:
       # dependency layer changes. (ci.yml's `images` job used to share this entry; it dropped the cache on
       # 2026-10-01 — it cost more than it saved there, `.claude/docs/build-times.md` WHY 9.)
       - name: Cache the image build layers
+        id: buildx-cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: /tmp/buildx-cache
           key: buildx-flow-${{ hashFiles('Dockerfile', 'gradle.lockfile', 'settings-gradle.lockfile', 'buildscript-gradle.lockfile', 'core/gradle.lockfile', 'core/buildscript-gradle.lockfile', 'server/gradle.lockfile', 'server/buildscript-gradle.lockfile', 'gradle.properties', 'settings.gradle.kts', 'build.gradle.kts', 'core/build.gradle.kts', 'server/build.gradle.kts', 'gradle/libs.versions.toml', 'gradle/verification-metadata.xml', 'gradle/wrapper/gradle-wrapper.properties', 'web/package.json', 'web/package-lock.json') }}
           restore-keys: buildx-flow-
 
+      # actions/cache saves only on a key MISS, so a layer-cache export on a HIT is written and then thrown
+      # away (~15 s, WHY 9): export (and swap) only when the key missed; a hit imports read-only.
       - name: Build images
+        env:
+          CACHE_HIT: ${{ steps.buildx-cache.outputs.cache-hit }}
         run: |
           mkdir -p "$BUILDX_CACHE_DIR"
-          docker compose -f docker-compose.yaml -f .github/compose-buildx-cache.yaml build
-          # The export wrote a complete new cache beside the old one; swap so unused blobs never pile up.
-          rm -rf "$BUILDX_CACHE_DIR"
-          mv "$BUILDX_CACHE_DIR-new" "$BUILDX_CACHE_DIR"
+          if [ "$CACHE_HIT" = "true" ]; then
+            docker compose -f docker-compose.yaml -f .github/compose-buildx-cache-readonly.yaml build
+          else
+            docker compose -f docker-compose.yaml -f .github/compose-buildx-cache.yaml build
+            # The export wrote a complete new cache beside the old one; swap so unused blobs never pile up.
+            rm -rf "$BUILDX_CACHE_DIR"
+            mv "$BUILDX_CACHE_DIR-new" "$BUILDX_CACHE_DIR"
+          fi
 
       # Every service that defines a healthcheck must report healthy — postgres and app declare theirs in
       # docker-compose.yaml, mailpit and wiremock ship one in their images; `--wait` fails the step (with
