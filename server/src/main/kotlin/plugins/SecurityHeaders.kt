@@ -28,8 +28,10 @@ private const val APP_CSP =
 // react-markdown with no raw HTML); these headers contain the blast radius of any future
 // regression and harden against clickjacking / MIME sniffing / referrer leakage.
 fun Application.configureSecurityHeaders() {
-    // Read once at boot, like the route install in Http.kt (the same exposesOpenApi()).
-    val swaggerMounted = exposesOpenApi()
+    // The same two conditions as the route install in Routing.kt (exposesOpenApi() AND servesApi()). Lazy because
+    // the role is published by a LATER module (configureRole), so it is first readable at the first request; the
+    // exemption must never apply where the UI is not actually mounted (a `worker` serves no Swagger UI).
+    val swaggerMounted by lazy { exposesOpenApi() && servesApi() }
     intercept(ApplicationCallPipeline.Plugins) {
         val headers = call.response.headers
         if (headers["X-Content-Type-Options"] == null) { // set once per call

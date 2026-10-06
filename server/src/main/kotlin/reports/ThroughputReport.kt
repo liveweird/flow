@@ -18,7 +18,6 @@ import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.isNotNull
 import org.jetbrains.exposed.v1.core.less
 import org.jetbrains.exposed.v1.r2dbc.select
-import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 
 /** The `bucket` query param: the period view's time resolution. Weeks start Monday; both in the configured zone. */
 @Serializable
@@ -109,7 +108,7 @@ suspend fun ReportService.throughput(
     filter: ReportFilter,
     bucket: ThroughputBucket,
     nowMs: Long,
-): ThroughputReport = suspendTransaction(database) {
+): ThroughputReport = reportTransaction {
     // teamId=0: no sprint ever carries "no team", so the sprint view (and any sprint-relative window) is empty.
     val scope = resolveReportScope(filter, nowMs)
     val zone = WorkingCalendar.zoneOf(scope.settings.timeZone)

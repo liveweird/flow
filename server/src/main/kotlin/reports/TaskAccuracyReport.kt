@@ -9,7 +9,6 @@ import org.jetbrains.exposed.v1.core.greaterEq
 import org.jetbrains.exposed.v1.core.isNotNull
 import org.jetbrains.exposed.v1.core.less
 import org.jetbrains.exposed.v1.r2dbc.select
-import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 
 /**
  * The DONE level-0 tasks a task-accuracy read could NOT turn into a ratio, each in exactly ONE bucket
@@ -101,7 +100,7 @@ private fun accuracyOf(tasks: List<AccuracyTask>): AccuracyResult {
  * the estimate at start (D15) and at done. See `.claude/docs/reports.md`.
  */
 suspend fun ReportService.taskEstimationAccuracy(filter: ReportFilter, nowMs: Long): TaskEstimationAccuracyReport =
-    suspendTransaction(database) {
+    reportTransaction {
         val scope = resolveReportScope(filter, nowMs)
         val minSample = scope.settings.minSampleSize
         val tasks = scope.window?.let { fetchAccuracyTasks(filter, scope.connectionIds, it) }.orEmpty()

@@ -236,6 +236,41 @@ class MetricsAnalyzeTest {
     }
 
     @Test
+    fun `a post-commit ANALYZE over its statement budget is cancelled with a WARN and the run still succeeds`() = runBlocking {
+        val connId = SharedClone.connectionId()
+        val capture = LogCapture("ch.nokillswit.metrics.MetricsDeriver")
+        try {
+            DerivedStubFixture.withPinnedSettings(DerivedStubFixture.metricsSettings()) {
+                val runsBefore = succeededRuns(connId)
+                withItemStageAnalyzeHeld { holder ->
+                    // The LOCK timeout (2 min) can never fire here: only the 1 s statement budget can end the wait.
+                    val rederive = async(Dispatchers.Default) {
+                        DerivedStubFixture.derivePinned(
+                            connId,
+                            SharedClone.nextJobId(),
+                            analyzeLockTimeoutMs = LONG_LOCK_TIMEOUT_MS,
+                            analyzeStatementTimeoutMs = STATEMENT_BUDGET_MS,
+                        )
+                    }
+                    awaitWaiter(holder, rederive) // the post-commit ANALYZE has queued; the lock stays held past the budget
+                    withTimeout(STATEMENT_BUDGET_MS + TIMEOUT_MARGIN_MS) { rederive.await() }
+                    assertTrue(holder.release.isActive, "the foreign lock is STILL held: the budget cancelled the ANALYZE")
+                }
+                assertEquals(runsBefore + 1, succeededRuns(connId), "a cancelled post-commit ANALYZE never fails the run")
+            }
+            assertEquals("SUCCEEDED", latestRunStatus(connId))
+            val warned = capture.events.firstOrNull { it.level == Level.WARN && it.formattedMessage.contains("post-commit ANALYZE") }
+            assertTrue(warned != null, "the cancellation must be logged as a WARN")
+            assertTrue(
+                generateSequence(warned.throwableProxy) { it.cause }.any { "statement timeout" in it.message.orEmpty() },
+                "the WARN carries PostgreSQL's statement-timeout cancellation",
+            )
+        } finally {
+            capture.detach()
+        }
+    }
+
+    @Test
     fun `a first DERIVE ANALYZEs inside its transaction, so a foreign ANALYZE lock holds back its commit`() = runBlocking {
         val connId = preparedClone("analyze-held-first-team")
         DerivedStubFixture.withPinnedSettings(DerivedStubFixture.metricsSettings()) {
@@ -404,6 +439,7 @@ class MetricsAnalyzeTest {
         const val HOLD_WAIT_MS = 1_500L
         const val TIMEOUT_TEST_LOCK_TIMEOUT_MS = 2_000L
         const val LONG_LOCK_TIMEOUT_MS = 120_000L
+        const val STATEMENT_BUDGET_MS = 1_000L
         const val TIMEOUT_MARGIN_MS = 10_000L
         const val BACKSTOP_MS = 120_000L
         const val NANOS_PER_MS = 1_000_000L

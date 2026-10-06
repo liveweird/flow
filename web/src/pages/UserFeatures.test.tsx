@@ -46,6 +46,8 @@ describe("UserFeatures page", () => {
   });
 
   afterEach(() => {
+    // isolate:false — a spy on the shared `notifications` singleton must not outlive its test.
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
     localStorage.clear();
   });

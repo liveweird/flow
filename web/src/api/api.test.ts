@@ -21,7 +21,6 @@ import {
   getUserId,
   isAdmin,
   persistSession,
-  setToken,
 } from "./session";
 import { getDisabledFeatures, hasFeature } from "./session";
 import i18n from "../i18n";
@@ -93,13 +92,6 @@ describe("session", () => {
   test("unknown role names are filtered out", () => {
     localStorage.setItem("flow.auth.roles", JSON.stringify(["ADMIN", "SUPERUSER"]));
     expect(getRoles()).toEqual(["ADMIN"]);
-  });
-
-  test("setToken(null) removes the stored token", () => {
-    setToken("abc");
-    expect(getToken()).toBe("abc");
-    setToken(null);
-    expect(getToken()).toBeNull();
   });
 });
 

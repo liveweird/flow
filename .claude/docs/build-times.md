@@ -431,8 +431,8 @@ the derive really used):
   for CPU); LEGACY (ANALYZE in the transaction for both) 2,864-3,208 ms vs 2,250-2,527 ms (**0.78-0.83**).
   The scale-20 two-connection run is NOT done (BACKLOG).
 - **Bounded wait:** the post-commit ANALYZE runs under `SET LOCAL lock_timeout = 5000` (per table lock,
-  `DEFAULT_ANALYZE_LOCK_TIMEOUT_MS`) and `SET LOCAL statement_timeout = 30000` (the whole statement,
-  `DEFAULT_ANALYZE_STATEMENT_TIMEOUT_MS`; a healthy ANALYZE is 16-90 ms), so a foreign lock (a long manual `VACUUM`,
+  `DEFAULT_ANALYZE_LOCK_TIMEOUT_MS`) and the transaction's `queryTimeout` of 30 s (the whole statement,
+  `DEFAULT_ANALYZE_STATEMENT_TIMEOUT_MS`, rounded up to whole seconds — a `SET LOCAL statement_timeout` would be overwritten by Exposed; a healthy ANALYZE is 16-90 ms), so a foreign lock (a long manual `VACUUM`,
   another ANALYZE) occupies the worker slot for 30 s at most — slot occupancy, not lease safety: the heartbeat is a
   concurrent `leaseSeconds/3` ticker (`statement_timeout` does not cover pool acquire, 30 s by default, so ~60 s worst
   case outside shutdown). A timeout is a WARN and the run stays SUCCEEDED; the WARN can occur when a re-derive's

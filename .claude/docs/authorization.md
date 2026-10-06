@@ -249,9 +249,13 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
   (**the route 404 convention**: read preambles and zero-row mutation results
   `throw NotFoundException("<Resource> not found")` — never a hand-rolled
   `respondProblem(NotFound, …)` + return), unique-violation `23505`→409 and NUL-byte `22021`→400
-  (via the R2DBC/Exposed cause-chain walkers), and a catch-all `Throwable`→500 (logged) through
+  (via the R2DBC/Exposed cause-chain walkers), a query cancelled by its statement timeout `57014`→500 (under
+  `/api/v1/reports/` only, with the "exceeded its time budget — narrow the selection" detail and a WARN without a stack,
+  `reports.md` "Query budget"; anywhere else it is the logged catch-all), and a catch-all `Throwable`→500 (logged) through
   that helper. A `status(TooManyRequests)` handler additionally gives the per-IP `RateLimit`
-  plugin's bodiless 429 a generic problem body — **that handler rewrites any non-StatusPages
+  plugin's bodiless 429 a generic problem body and emits the `rate_limit.exceeded` audit event
+  (bucket/method/path, coalesced to one per bucket per minute with a `suppressed` count —
+  `observability.md`) — **that handler rewrites any non-StatusPages
   429**, which is why caller-specific 429s (the login lockout) must go through
   `TooManyRequestsException` (handled calls are marked and skipped) — and a sibling
   `status(MethodNotAllowed)` handler gives routing's bodiless wrong-method 405 a problem body too

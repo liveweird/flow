@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
   formatDays,
+  formatFigure,
   formatIndex,
   formatMd,
   formatMedian,
@@ -9,6 +10,7 @@ import {
   formatSignedMd,
   formatSignedPercent,
   histogramLabels,
+  roundScaled,
   teamLabel,
 } from "./reportFormat";
 
@@ -94,5 +96,46 @@ describe("reportFormat", () => {
     expect(formatMedian(shown, formatRatio)).toBe("1.1");
     expect(formatMedian({ n: 2, hidden: true, histogram: [] }, formatRatio)).toBe("—");
     expect(formatMedian({ n: 9, hidden: false, p50: null, histogram: [] }, formatRatio)).toBe("—");
+  });
+});
+
+describe("formatFigure", () => {
+  test("rounds only for display, trims trailing zeros and never prints negative zero or exponents", () => {
+    expect(formatFigure(0.1 + 0.2)).toBe("0.3");
+    expect(formatFigure(2)).toBe("2");
+    expect(formatFigure(1.005 * 100)).toBe("100.5");
+    expect(formatFigure(0.3333, 4)).toBe("0.3333");
+    expect(formatFigure(0.004)).toBe("0");
+    expect(formatFigure(-0.001)).toBe("0");
+    expect(formatFigure(12.3456)).toBe("12.35");
+    // Binary sums just below a decimal half still round as the decimal does (no double rounding).
+    expect(formatFigure(0.3509 + 0.1441)).toBe("0.5");
+    expect(formatFigure(0.9279 + 0.5871)).toBe("1.52");
+    expect(formatFigure(-1.515)).toBe("-1.52");
+  });
+});
+
+describe("the one man-day rounding rule", () => {
+  test("formatMd is formatFigure at two decimals, so float noise is cleaned the same everywhere", () => {
+    expect(formatMd(0.3509 + 0.1441)).toBe("0.5");
+    expect(formatMd(0.9279 + 0.5871)).toBe("1.52");
+    expect(formatMd(0.1 + 0.2)).toBe("0.3");
+    expect(formatMd(-0.001)).toBe("0");
+    expect(formatMd(-1.515)).toBe("-1.52");
+  });
+
+  test("formatSignedMd rounds as formatMd does and signs the result", () => {
+    expect(formatSignedMd(0.3509 + 0.1441)).toBe("+0.5");
+    expect(formatSignedMd(-(0.3509 + 0.1441))).toBe("−0.5");
+    expect(formatSignedMd(-1.515)).toBe("−1.52");
+    expect(formatSignedMd(0.004)).toBe("0");
+  });
+
+  test("roundScaled is the whole-number core: noise-cleaned, half away from zero, never negative zero", () => {
+    expect(roundScaled(0.3509 + 0.1441)).toBe(50);
+    expect(roundScaled(12.3456, 1)).toBe(123);
+    expect(roundScaled(-1.515)).toBe(-152);
+    expect(Object.is(roundScaled(-0.001), 0)).toBe(true);
+    expect(roundScaled(0.3333, 4)).toBe(3333);
   });
 });

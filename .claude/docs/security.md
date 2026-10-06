@@ -69,7 +69,11 @@ verbatim in `ServerTest`), `X-Content-Type-Options: nosniff`, `X-Frame-Options: 
 `Referrer-Policy: no-referrer`. Every `/api/` JSON and problem+json answer additionally carries
 `Cache-Control: no-store` (`plugins/Http.kt`'s `CachingHeaders`, pinned by `ServerTest` together
 with the unchanged caching of the SPA's static assets), so per-user data never lands in a browser
-or proxy cache.
+or proxy cache. `text/html` (index.html and every SPA deep link answered with it) carries `Cache-Control: no-cache`
+(revalidate every time, so a deploy's new hashed asset names are never masked by a stale shell), while the content-hashed
+CSS/JS keep `max-age=86400`. The `Server` header is the fixed generic `flow` (`install(DefaultHeaders) { header(Server, …) }`
+in `Http.kt`) — Ktor's default `Server: Ktor/<version>` disclosed the framework and its exact version; pinned in `ServerTest`
+(no `Ktor` in it).
 
 `style-src` carries `'unsafe-inline'` deliberately: Mantine's style props/CSS variables render
 inline `style` attributes and runtime `<style>` tags, and the app uses `style={{}}` itself — a
@@ -191,9 +195,12 @@ admin can always flip the flag back. SPA: the Login card's second step (`PinInpu
 keys). Tests: `MfaChallengesTest` (pure store) + `MfaLoginTest` (route matrix); e2e `mfa.spec.ts`
 drives the emailed code through Mailpit.
 
-**Swagger/OpenAPI gate** (`plugins/Http.kt`): `/openapi` (UI + spec) is served only in development
+**Swagger/OpenAPI gate** (`plugins/Routing.kt`): `/openapi` (UI + spec) is served only in development
 mode, or when `http.exposeOpenApi` (`$HTTP_EXPOSE_OPENAPI`) is explicitly `"true"` — blank follows
-the mode, `"false"` hides it even in dev. Bearer auth cannot protect a browser-loaded UI (page
+the mode, `"false"` hides it even in dev — AND only where the process serves the API: a `worker`-role
+process mounts nothing but its probes (the mount lives in `configureRouting`, not `Http.kt`, because the role
+is published by a later module; `RoleTest` pins the worker 404, and the CSP exemption follows the same
+two conditions). Bearer auth cannot protect a browser-loaded UI (page
 loads carry no `Authorization` header), hence a gate rather than `authenticate {}`.
 
 **Accounts are admin-managed.** There is no self-signup: administrators create accounts at

@@ -1,7 +1,6 @@
 package ch.nokillswit.reports
 
 import kotlinx.serialization.Serializable
-import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 
 /**
  * The DONE level-0 tasks a reported-time-ratio read could NOT turn into a ratio, each in exactly ONE bucket
@@ -80,7 +79,7 @@ private fun flowEfficiencyOf(tasks: List<DoneCycleTask>): Pair<List<Double>, Flo
  * beside it. See `.claude/docs/reports.md`.
  */
 suspend fun ReportService.reportedTimeRatio(filter: ReportFilter, nowMs: Long): ReportedTimeRatioReport =
-    suspendTransaction(database) {
+    reportTransaction {
         val scope = resolveReportScope(filter, nowMs)
         val minSample = scope.settings.minSampleSize
         val tasks = scope.window?.let { fetchDoneCycleTasks(filter, scope.connectionIds, it) }.orEmpty()

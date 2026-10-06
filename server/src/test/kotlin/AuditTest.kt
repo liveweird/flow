@@ -8,9 +8,11 @@ import io.ktor.client.request.post
 import io.ktor.client.request.put
 import io.ktor.client.request.setBody
 import io.ktor.http.ContentType
+import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.server.testing.testApplication
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -110,6 +112,22 @@ class AuditTest {
             val event = capture.awaitEvent { it.message == "login.failure" && it.hasKeyValue("email", email) }
             assertNotNull(event, "expected a login.failure audit event for $email")
             assertTrue(event.hasKeyValue("reason", "wrong_password"))
+        }
+    }
+
+    @Test
+    fun `a denial audit carries the path without the query string`() = testApplication {
+        usePostgresTestcontainer()
+        val client = seededClient("denied-audit")
+        withAuditCapture { capture ->
+            val response = client.post("/api/v1/teams?leak=must-not-be-audited") {
+                contentType(ContentType.Application.Json)
+                setBody("{}")
+            }
+            assertEquals(HttpStatusCode.Forbidden, response.status)
+            val event = capture.awaitEvent { it.message == "authz.denied" && it.hasKeyValue("path", "/api/v1/teams") }
+            assertNotNull(event, "authz.denied carries the bare path (observability.md promises `path`)")
+            assertTrue(event.keyValuePairs.none { "must-not-be-audited" in it.value.toString() })
         }
     }
 }

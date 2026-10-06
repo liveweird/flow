@@ -10,7 +10,6 @@ import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.r2dbc.selectAll
-import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 
 /** The four figures every velocity row carries, live or frozen (`fact_sprint(_snapshot)`/`fact_sprint_scope` alike). */
 @Serializable
@@ -82,7 +81,7 @@ private fun velocityDrift(live: VelocitySnapshot, snapshot: VelocitySnapshot?): 
  * `fact_sprint_scope.assignee_at_commitment`; USER narrows `sprints` itself to that one account's
  * own contribution (`groups` stays empty). `teamId = 0` (UNASSIGNED) is always empty.
  */
-suspend fun ReportService.velocity(filter: ReportFilter): VelocityReport = suspendTransaction(database) {
+suspend fun ReportService.velocity(filter: ReportFilter): VelocityReport = reportTransaction {
     // A sprint-anchored report reads no time window, so `nowMs` only feeds the scope's unused `window`.
     val scope = resolveReportScope(filter, nowMillis())
     val sprintRows = scope.sprintRows
@@ -92,7 +91,7 @@ suspend fun ReportService.velocity(filter: ReportFilter): VelocityReport = suspe
         val accountId = requireNotNull(filter.accountId) { "USER level always carries an accountId (ReportFilter's own invariant)" }
         val contributions = fetchScopeContributions(sprintRows, accountId)
         val frozen = fetchFrozenScopes(sprintRows, accountId, ::frozenContributionsOf) { it.accountId }
-        return@suspendTransaction VelocityReport(meta, buildUserSprints(sprintRows, contributions, frozen), emptyList())
+        return@reportTransaction VelocityReport(meta, buildUserSprints(sprintRows, contributions, frozen), emptyList())
     }
 
     val snapshotByKey = fetchSnapshots(sprintRows).associateBy { it.connectionId to it.sprintId }

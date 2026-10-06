@@ -10,7 +10,6 @@ import org.jetbrains.exposed.v1.core.isNotNull
 import org.jetbrains.exposed.v1.core.less
 import org.jetbrains.exposed.v1.core.or
 import org.jetbrains.exposed.v1.r2dbc.select
-import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 
 /**
  * The DONE items (by `done_at`) that [AdjustmentFigures.changeDistribution] could NOT take, each in ONE
@@ -110,7 +109,7 @@ private fun figuresOf(items: List<AdjustmentItem>, window: Pair<Long, Long>, min
  * period window. See `.claude/docs/reports.md`.
  */
 suspend fun ReportService.estimateAdjustments(filter: ReportFilter, nowMs: Long): EstimateAdjustmentsReport =
-    suspendTransaction(database) {
+    reportTransaction {
         val scope = resolveReportScope(filter, nowMs)
         val minSample = scope.settings.minSampleSize
         val window = scope.window

@@ -44,6 +44,14 @@ class ServerTest {
     }
 
     @Test
+    fun `the Server header does not disclose the framework or its version`() = testApplication {
+        usePostgresTestcontainer()
+        val server = jsonClient().get("/api/v1/health").headers[HttpHeaders.Server]
+        assertEquals("flow", server)
+        assertFalse(server.orEmpty().contains("Ktor", ignoreCase = true), "no framework/version in Server")
+    }
+
+    @Test
     fun `API JSON and problem+json responses are no-store`() = testApplication {
         usePostgresTestcontainer()
         val ok = jsonClient().get("/api/v1/health")
@@ -56,7 +64,7 @@ class ServerTest {
     }
 
     @Test
-    fun `static SPA assets keep their caching - hashed css and js cached a day, index html unchanged`() = testApplication {
+    fun `static SPA assets keep their caching - hashed css and js cached a day, index html always revalidated`() = testApplication {
         val staticDir = Files.createTempDirectory("server-test-static")
         try {
             staticDir.resolve("index.html").writeText("<html>spa</html>")
@@ -69,7 +77,11 @@ class ServerTest {
             assertEquals("max-age=86400", client.get("/app.css").headers[HttpHeaders.CacheControl])
             val index = client.get("/")
             assertEquals(HttpStatusCode.OK, index.status)
-            assertNull(index.headers[HttpHeaders.CacheControl], "index.html stays un-cached-by-header, never no-store or max-age")
+            // The un-hashed entry point must pick up new asset names on deploy: revalidate, never max-age/no-store.
+            assertEquals("no-cache", index.headers[HttpHeaders.CacheControl], "index.html")
+            val deepLink = client.get("/some/spa/route")
+            assertEquals(HttpStatusCode.OK, deepLink.status)
+            assertEquals("no-cache", deepLink.headers[HttpHeaders.CacheControl], "an SPA deep link is answered with index.html")
         } finally {
             staticDir.toFile().deleteRecursively()
         }

@@ -64,18 +64,6 @@ export function getToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
 }
 
-export function setToken(token: string | null): void {
-  if (token === null) {
-    localStorage.removeItem(TOKEN_KEY);
-    localStorage.removeItem(SESSION_IDENTITY_KEY);
-  } else {
-    localStorage.setItem(TOKEN_KEY, token);
-    localStorage.setItem(SESSION_IDENTITY_KEY, newSessionIdentity());
-  }
-  sessionGeneration += 1;
-  notifySessionIdentityChange();
-}
-
 export function getRefreshToken(): string | null {
   return localStorage.getItem(REFRESH_TOKEN_KEY);
 }

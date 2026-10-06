@@ -4,21 +4,19 @@ import type {
   DeepDiveTask,
 } from "../api/reports";
 import { compareIssueKeys } from "./deepDiveFilter";
-import { epochMillisToIsoDate, isoDateToEpochMillis } from "./isoDate";
+import { DAY_MS, epochMillisToIsoDate, isoDateToEpochMillis } from "./isoDate";
 
 /**
  * The Deep dive's matrix model: a `DeepDiveReport` (sparse DAILY series per task and layer, day
  * offsets from `range.from`) turned into time columns × epic/task rows of per-layer cells. All the
  * aggregation is the client's job (the server sends days, so drilling month → week → day never
- * refetches): sums stay in plain numbers and are rounded only for display (`formatFigure`).
+ * refetches): sums stay in plain numbers and are rounded only for display (`formatFigure` in `reportFormat.ts`).
  *
  * Time columns always PARTITION the range's days. A month column expands into ISO weeks CLIPPED to
  * the month (a week crossing a month or year boundary is two columns, one per side) and a week into
  * its days; `expandedColumns` mixes the three grains per an expansion set, `grainColumns` is the
  * uniform case. `buildDeepDiveMatrix` aggregates over any such partition.
  */
-
-const DAY_MS = 86_400_000;
 
 export type DeepDiveGrain = "month" | "week" | "day";
 
@@ -659,17 +657,4 @@ export function buildDeepDiveMatrix(
     note: noteOf(report),
     quality: report.quality,
   };
-}
-
-/**
- * A man-day / task-day figure for display: rounded half-up to `digits` decimals (the only place the
- * exact sums are rounded), trailing zeros dropped, `.` decimal and no grouping so it is locale-stable.
- * The rounding is done on the decimal-scaled value (cleaned of binary noise at 6 places) rather than
- * with `toFixed`, so a sum like 0.3509 + 0.1441 (0.49499999…) still rounds as the decimal 0.495 does.
- */
-export function formatFigure(value: number, digits = 2): string {
-  const scale = 10 ** digits;
-  const rounded =
-    Math.round(Number((Math.abs(value) * scale).toFixed(6))) / scale;
-  return String(value < 0 && rounded > 0 ? -rounded : rounded);
 }

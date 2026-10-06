@@ -8,7 +8,6 @@ import org.jetbrains.exposed.v1.core.greaterEq
 import org.jetbrains.exposed.v1.core.isNotNull
 import org.jetbrains.exposed.v1.core.less
 import org.jetbrains.exposed.v1.r2dbc.select
-import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 
 /** The most items [BlockedTimeReport.topItems] lists. */
 const val BLOCKED_TOP_ITEMS = 20
@@ -93,7 +92,7 @@ private fun excludedOf(items: List<DoneItem>) = BlockedShareExcluded(
  * `.claude/docs/reports.md`.
  */
 suspend fun ReportService.blockedTime(filter: ReportFilter, itemKind: BlockedItemKind, nowMs: Long): BlockedTimeReport =
-    suspendTransaction(database) {
+    reportTransaction {
         val scope = resolveReportScope(filter, nowMs)
         val minSample = scope.settings.minSampleSize
         val window = scope.window

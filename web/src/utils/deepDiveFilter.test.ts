@@ -9,7 +9,6 @@ import {
   compareIssueKeys,
   deepDiveMode,
   deepDiveQuery,
-  hasDeepDiveParams,
   normalizeDeepDiveSelection,
   parseDeepDiveSelection,
   parseDeepDiveView,
@@ -240,7 +239,7 @@ describe("one mode, inferred as the server does", () => {
   });
 });
 
-describe("applyDeepDiveSelection / hasDeepDiveParams", () => {
+describe("applyDeepDiveSelection", () => {
   test("replaces the managed params and leaves foreign ones (and their order) alone", () => {
     const base = new URLSearchParams(
       "foo=1&domain=OLD&sprintId=1&sprintId=2&epicId=X&bar=2&from=2026-01-01",
@@ -262,14 +261,6 @@ describe("applyDeepDiveSelection / hasDeepDiveParams", () => {
         {},
       ).toString(),
     ).toBe("a=b");
-  });
-
-  test("hasDeepDiveParams is true for any managed key, valid or not", () => {
-    expect(hasDeepDiveParams(new URLSearchParams("sprintId=zzz"))).toBe(true);
-    expect(hasDeepDiveParams(new URLSearchParams("to=2026-01-01"))).toBe(true);
-    expect(
-      hasDeepDiveParams(new URLSearchParams("teamId=1&lastSprints=3")),
-    ).toBe(false);
   });
 });
 
@@ -301,7 +292,7 @@ describe("the page view (view=burnup)", () => {
 
   test("view is not a selection param: the selection round-trip and its query ignore and keep it", () => {
     const params = new URLSearchParams("view=burnup&epicId=FLO-2&epicId=FLO-1");
-    expect(hasDeepDiveParams(new URLSearchParams("view=burnup"))).toBe(false);
+    expect(parseDeepDiveSelection(new URLSearchParams("view=burnup"))).toEqual({});
     expect(deepDiveQuery(parseDeepDiveSelection(params))).toBe("epicId=FLO-1&epicId=FLO-2");
     const next = applyDeepDiveSelection(params, { epicIds: ["FLO-3"], connectionId: 2 });
     expect(next.toString()).toBe("view=burnup&epicId=FLO-3&connectionId=2");

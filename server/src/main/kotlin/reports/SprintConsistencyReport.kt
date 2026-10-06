@@ -13,7 +13,6 @@ import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.r2dbc.selectAll
-import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 
 /**
  * The fourteen sprint figures (`fact_sprint` / `fact_sprint_snapshot` / a per-user split of
@@ -162,7 +161,7 @@ private data class ScopeEntry(val connectionId: UInt, val sprintId: Long, val it
  * bucket); USER narrows `sprints` to that account's own rows (`snapshot`/`drift` from the sprint's stored
  * scope JSON, `groups` empty). `teamId = 0` (UNASSIGNED) is always empty. See `.claude/docs/reports.md`.
  */
-suspend fun ReportService.sprintConsistency(filter: ReportFilter): SprintConsistencyReport = suspendTransaction(database) {
+suspend fun ReportService.sprintConsistency(filter: ReportFilter): SprintConsistencyReport = reportTransaction {
     // A sprint-anchored report reads no time window, so `nowMs` only feeds the scope's unused `window`.
     val scope = resolveReportScope(filter, nowMillis())
     // Chronological, so `meta.resolvedSprints` lists each team's sprints in that order too (the scope's meta is unsorted).
