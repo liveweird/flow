@@ -340,10 +340,15 @@ rewrites them if they differ, so the stale run does not corrupt anyone else's fi
 the whole-table rewrite, the zero-write steady state, the stale-caller-only-inserts rule (incl. A→B→A), that the ensure commits
 separately from the caller's transaction, and the advisory-lock queueing.
 
-## Kernel definitions (`metrics/DeriveKernels.kt`)
+## Kernel definitions (`metrics/Derive*Kernels.kt`)
 
 Pure, per-item functions — no DB, the `norm/Tiling.kt` pattern — called once per issue by
 `MetricsDeriver.kt`:
+
+Plain top-level functions in four files, one per concern: `DeriveStageKernels.kt` (stage tiling, started/done,
+blocked intervals, active/wait, epic drift), `DeriveTimelineKernels.kt` (estimate and project-key timelines, estimate
+snapshots), `DeriveSprintKernels.kt` (sprint membership/scope/totals, `sumMd`) and `DeriveEpicPlanKernels.kt` (date
+timelines, PV baselines/curve/horizon, `dimDateRange`); the tests stay in `DeriveKernelsTest`.
 
 - **`stageIntervals`** tiles `norm` status intervals into `item_stage` rows via the configured
   `statusId -> ItemStage` map (the item's own domain's map — every-domain rows overlaid with that domain's overrides, "Per-domain stage overrides" above); an unmapped status becomes `ItemStage.UNMAPPED` (flagged, never
@@ -381,13 +386,13 @@ Pure, per-item functions — no DB, the `norm/Tiling.kt` pattern — called once
 
 `DeriveSprintStep.kt`'s sprint step (`runSprintStep`, `.claude/docs/domain-model.md` "Plan — PV"/
 "Glossary") turns each level-0, non-sub-task task's Sprint-field history
-(`DeriveKernels.sprintMembership`) into `metrics.fact_sprint_scope` rows (one per task × sprint it
+(`sprintMembership`) into `metrics.fact_sprint_scope` rows (one per task × sprint it
 was ever a member of), rolls those up into `metrics.fact_sprint` (one row per sprint), and freezes a
 `metrics.fact_sprint_snapshot` row the first time a closed, team-mapped sprint is seen. Sub-tasks
 and epics never carry independent sprint scope of their own (`sample-data/jira/generate.mjs`'s own
 `sprintItemsOf`).
 
-**Commitment, added, removed, final, delivered, carried-over, dropped** (`DeriveKernels.sprintScope`,
+**Commitment, added, removed, final, delivered, carried-over, dropped** (`sprintScope`,
 one call per task × sprint membership):
 
 - **Committed** = the task entered the sprint at or before `sprintStart + commitmentGrace`
@@ -401,7 +406,7 @@ one call per task × sprint membership):
   at-or-before `sprintCloseAt`; `estimate_at_close_md`/`estimate_at_done_md` stay `null` and
   `in_scope_at_close = false` — a removed row is a terminal bucket of its own, contributing to
   NEITHER committed NOR final NOR delivered/carried-over/dropped (**the removed-row rule**,
-  `DeriveKernels.sprintTotals`'s own doc: "committed alone is not the committed-bucket predicate" —
+  `sprintTotals`'s own doc: "committed alone is not the committed-bucket predicate" —
   the committed TOTAL additionally requires `in_scope_at_close`, since a removed row still carries
   `committed = true` — it WAS committed, before it left).
 - **Final** = in scope at `sprintCloseAt` (committed or added, never removed) —
@@ -427,12 +432,12 @@ one call per task × sprint membership):
   NEITHER `delivered` NOR `carried-over` NOR `dropped`, silently breaking the identity.
 
 **Point-in-time estimates.** Every `fact_sprint_scope` estimate column is a snapshot read off the
-task's own estimate timeline (`DeriveKernels.estimateAt`) at a FIXED instant per bucket — never the
+task's own estimate timeline (`estimateAt`) at a FIXED instant per bucket — never the
 task's current/latest value — so a later re-estimate never rewrites what a sprint's own commitment
 or close figure already recorded.
 
 `fact_sprint` (one row per sprint) is the Σ of its own `fact_sprint_scope` rows
-(`DeriveKernels.sprintTotals`, invariant 8 — true BY CONSTRUCTION, since `MetricsDeriver` writes
+(`sprintTotals`, invariant 8 — true BY CONSTRUCTION, since `MetricsDeriver` writes
 exactly this function's output as the `fact_sprint` row; each item's MD is rounded half-up to two decimals
 (`sumMd`) BEFORE the exact sum, matching the two-decimal value `fact_sprint_scope` stores per item, so
 Σ scope rows and every per-user report group equal the team figure to the cent) plus `capacity_md`/`capacity_source`/`load`
@@ -559,7 +564,7 @@ storage columns agreeing to the last decimal.
 `DeriveEpicPlanStep.kt`'s epic plan step (top-level `runEpicPlanStep`, the sprint/worklog steps' own
 `LargeClass` shape — moved outside the class, delegated to) is the LAST step of `runDerivation`,
 after the worklog step: one `metrics.fact_epic_plan` row per BASELINE
-(`DeriveKernels.EpicPlanBaseline`/`epicPlanBaselines`, `.claude/docs/domain-model.md` "Plan — PV",
+(`EpicPlanBaseline`/`epicPlanBaselines`, `.claude/docs/domain-model.md` "Plan — PV",
 D4, D11) — an epic's own PV plan, re-baselined whenever its start date, due date or budget
 genuinely changes. `baseline_seq` (1-based) is assigned by the writer in the ORDER the kernel
 returns baselines, never by the kernel itself (the `fact_sprint_scope`/`SprintScopeItem`
@@ -592,7 +597,7 @@ precedent — a pure kernel never invents a persistence-only surrogate key).
   child-sum roll-up over TIME would need every child's own estimate history at every past instant,
   which this commit does not build — `budget_source = CHILDREN` is always evaluated against the
   children's CURRENT sum, whichever instant the baseline itself dates to).
-- **The start/due date timelines** (`DeriveKernels.dateFieldTimeline`) mirror `estimateTimeline`'s
+- **The start/due date timelines** (`dateFieldTimeline`) mirror `estimateTimeline`'s
   own shape for a plain Jira date field (`YYYY-MM-DD`, parsed the `jira/JiraNormalizer.kt` `duedate`
   way — epoch millis at start of day UTC) — built from the connection's configured
   `fields.epicStart`/`fields.epicDue` field ids' own changelog history (`WorkItemStore
@@ -601,7 +606,7 @@ precedent — a pure kernel never invents a persistence-only surrogate key).
   `dim_epic`'s own `start_at`/`due_at` columns) as the timeline's own ground truth. The epic's own
   ESTIMATE timeline is never re-read here — pass 1's `ItemDerived.estimateTimeline` is reused
   verbatim, the same way `fact_epic_delivery`'s own snapshots read it.
-- **PV curve (`DeriveKernels.pvCurve`, `WorkingCalendar`-driven, not persisted this commit — read by
+- **PV curve (`pvCurve`, `WorkingCalendar`-driven, not persisted this commit — read by
   reports/aggregates later).** Spreads `budget_md` evenly over the WORKING days in
   `[start_at, due_at]` (inclusive both ends), one cumulative point per working day. `start_at`/
   `due_at` are ZONE-FREE calendar dates (epoch millis at start of day UTC, the `duedate`/
@@ -639,7 +644,7 @@ short of, or simply hadn't yet implemented, the model `.claude/docs/domain-model
 A18/A19/A21 describe. This commit closes all five, backed by the additive V17 columns
 (`.claude/docs/persistence.md` "The `metrics` schema — measure-contract corrections (V17)").
 
-- **Flow efficiency (A18).** `DeriveKernels.activeWaitMs` (pure, `metrics/DeriveKernels.kt`) sums
+- **Flow efficiency (A18).** `activeWaitMs` (pure, `metrics/DeriveStageKernels.kt`) sums
   `IN_PROGRESS`-stage time inside `[started_at, done_at)`, subtracts ONLY the item's blocked time
   that occurred WHILE IN_PROGRESS (`overlapWithInProgressMs` intersects each blocked interval
   against the IN_PROGRESS stage intervals specifically, never the item's whole blocked time
@@ -867,7 +872,7 @@ statement (`pvTeamFlowSql`, `pvEpicDomainFlowSql`, `evTeamFlowSql`, `evEpicDomai
   sprint with a non-null `team_id` and `start_at`; scope_id = team id. Per team the rows total the
   committed MD of its started sprints.
 - **PV, EPIC / DOMAIN:** every epic's CURRENT baseline (`fact_epic_plan.superseded_at IS NULL`, with
-  start, due and budget set) spread over the WORKING days of `[start, due]` — `DeriveKernels.pvCurve`'s
+  start, due and budget set) spread over the WORKING days of `[start, due]` — `pvCurve`'s
   rule exactly: start/due read as UTC dates, the day key is that ISO date, a working day is the
   `dim_date` row with that key and `is_working_day`; no working day → no rows. The increments are
   cumulative-rounded (`round(budget*i/n, 2) - round(budget*(i-1)/n, 2)`), so they sum to the budget
@@ -876,7 +881,7 @@ statement (`pvTeamFlowSql`, `pvEpicDomainFlowSql`, `evTeamFlowSql`, `evEpicDomai
   summed from the same rounded increments, so it equals the sum of its EPIC rows exactly. Superseded
   baselines are not written — the report redraws them from `fact_epic_plan`.
 - **PV horizon (A23).** An epic's current baseline gets a PV curve only if BOTH its start and due lie
-  within `[now - 10 years, now + 10 years]` (UTC dates, `PV_HORIZON_YEARS`, `DeriveKernels.inPvHorizon`);
+  within `[now - 10 years, now + 10 years]` (UTC dates, `PV_HORIZON_YEARS`, `inPvHorizon`);
   outside it the epic is treated like "no dates" — never a clamped or partial curve, so Σ PV = budget
   stays true for every epic that has one. A placeholder date (9999-12-31, 1900-01-01) therefore cannot
   build millions of `dim_date`/`agg_daily_flow` rows on every run. The same filter drives both the PV
@@ -887,7 +892,7 @@ statement (`pvTeamFlowSql`, `pvEpicDomainFlowSql`, `evTeamFlowSql`, `evEpicDomai
   `fact_worklog.started_at`, `dim_sprint.start_at`, `fact_task_delivery.done_at` and item creation
   (one year of slack below, floored at 50 years before `now`), and every in-horizon epic window (one
   day of slack each side, up to its due date beyond the default `now + 2y`). The rule is the pure
-  `DeriveKernels.dimDateRange` (unit-tested in `DeriveKernelsTest`); the write is `ensureDimDate` over the full
+  `dimDateRange` (unit-tested in `DeriveKernelsTest`); the write is `ensureDimDate` over the full
   range (only missing or changed rows are written). Events older than the 50-year floor are still dropped.
 - **EV, TEAM (A20):** each `fact_sprint_scope` row with `done_in_sprint` in a team-mapped sprint counts
   `estimate_at_done_md` (null → 0) on the day of its task's `fact_task_delivery.done_at`; scope_id =

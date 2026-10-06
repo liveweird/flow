@@ -2,9 +2,23 @@ package ch.nokillswit
 
 import ch.nokillswit.metrics.ActiveWait
 import ch.nokillswit.metrics.BlockedInterval
-import ch.nokillswit.metrics.DeriveKernels
 import ch.nokillswit.metrics.ItemStage
 import ch.nokillswit.metrics.StageInterval
+import ch.nokillswit.metrics.activeWaitMs
+import ch.nokillswit.metrics.blockedIntervals
+import ch.nokillswit.metrics.dimDateRange
+import ch.nokillswit.metrics.epicDriftFlags
+import ch.nokillswit.metrics.epicPlanBaselines
+import ch.nokillswit.metrics.estimateAt
+import ch.nokillswit.metrics.estimateSnapshots
+import ch.nokillswit.metrics.estimateTimeline
+import ch.nokillswit.metrics.inPvHorizon
+import ch.nokillswit.metrics.pvCurve
+import ch.nokillswit.metrics.sprintMembership
+import ch.nokillswit.metrics.sprintScope
+import ch.nokillswit.metrics.sprintTotals
+import ch.nokillswit.metrics.stageIntervals
+import ch.nokillswit.metrics.startedDoneAt
 import ch.nokillswit.norm.FieldChangeRow
 import ch.nokillswit.norm.IntervalSource
 import ch.nokillswit.norm.NormalizedFieldInterval
@@ -21,7 +35,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * `metrics/DeriveKernels.kt` (v0.3.0 M3 commit 7, `.claude/docs/domain-model.md` "The three
+ * `metrics/kt` (v0.3.0 M3 commit 7, `.claude/docs/domain-model.md` "The three
  * dimensions"/"Estimate snapshots") — pure, no DB, the `norm/Tiling.kt` pattern.
  */
 class DeriveKernelsTest {
@@ -69,7 +83,7 @@ class DeriveKernelsTest {
         )
         val stageMap = mapOf("1" to ItemStage.NOT_STARTED, "3" to ItemStage.IN_PROGRESS)
 
-        val stages = DeriveKernels.stageIntervals(statusIntervals, stageMap)
+        val stages = stageIntervals(statusIntervals, stageMap)
 
         assertEquals(2, stages.size)
         assertEquals(ItemStage.NOT_STARTED, stages[0].stage)
@@ -81,7 +95,7 @@ class DeriveKernelsTest {
     @Test
     fun `stageIntervals maps a status carrying no configured stage to UNMAPPED`() {
         val statusIntervals = listOf(statusInterval("999", 0, null))
-        val stages = DeriveKernels.stageIntervals(statusIntervals, emptyMap())
+        val stages = stageIntervals(statusIntervals, emptyMap())
         assertEquals(ItemStage.UNMAPPED, stages.single().stage)
     }
 
@@ -90,10 +104,10 @@ class DeriveKernelsTest {
     @Test
     fun `startedDoneAt finds the FIRST entry into IN_PROGRESS and leaves done_at null while not currently DONE`() {
         val stages = listOf(
-            DeriveKernels.stageIntervals(listOf(statusInterval("1", 0, 100)), mapOf("1" to ItemStage.NOT_STARTED)).single(),
+            stageIntervals(listOf(statusInterval("1", 0, 100)), mapOf("1" to ItemStage.NOT_STARTED)).single(),
         )
-        val result = DeriveKernels.startedDoneAt(
-            DeriveKernels.stageIntervals(
+        val result = startedDoneAt(
+            stageIntervals(
                 listOf(statusInterval("1", 0, 100, 1), statusInterval("2", 100, null, 2)),
                 mapOf("1" to ItemStage.NOT_STARTED, "2" to ItemStage.IN_PROGRESS),
             ),
@@ -116,9 +130,9 @@ class DeriveKernelsTest {
             statusInterval("3", 40, 50, 5),
             statusInterval("3", 50, null, 6),
         )
-        val stages = DeriveKernels.stageIntervals(statusIntervals, stageMap)
+        val stages = stageIntervals(statusIntervals, stageMap)
 
-        val result = DeriveKernels.startedDoneAt(stages)
+        val result = startedDoneAt(stages)
 
         assertEquals(10, result.startedAtMs, "the FIRST entry into IN_PROGRESS, not the reopen")
         assertEquals(40, result.doneAtMs, "the start of the trailing DONE run, not the first DONE transition")
@@ -136,14 +150,14 @@ class DeriveKernelsTest {
             statusInterval("2", 0, 10, 1),
             statusInterval("1", 10, null, 2),
         )
-        val result = DeriveKernels.startedDoneAt(DeriveKernels.stageIntervals(statusIntervals, stageMap))
+        val result = startedDoneAt(stageIntervals(statusIntervals, stageMap))
         assertNull(result.doneAtMs)
         assertEquals(1, result.reopenCount)
     }
 
     @Test
     fun `startedDoneAt returns nulls and zero for an item with no stage intervals at all`() {
-        val result = DeriveKernels.startedDoneAt(emptyList())
+        val result = startedDoneAt(emptyList())
         assertNull(result.startedAtMs)
         assertNull(result.doneAtMs)
         assertEquals(0, result.reopenCount)
@@ -161,7 +175,7 @@ class DeriveKernelsTest {
             statusInterval("BLOCKED", 10, 20, 1),
             statusInterval("OPEN", 20, null, 2),
         )
-        val result = DeriveKernels.blockedIntervals(flagged, statusIntervals, setOf("BLOCKED"), windowFromMs = 0, windowToMs = 100)
+        val result = blockedIntervals(flagged, statusIntervals, setOf("BLOCKED"), windowFromMs = 0, windowToMs = 100)
 
         // [5,15) (flagged) and [10,20) (blocked status) overlap and must merge into one [5,20) interval,
         // whose reason must carry the STATUS source through the merge (review round 2b fix — it used
@@ -175,14 +189,14 @@ class DeriveKernelsTest {
     @Test
     fun `blockedIntervals is empty when the item never started`() {
         val flagged = listOf(NormalizedFieldInterval(TrackedField.FLAGGED, 1, "true", null, 0, null))
-        val result = DeriveKernels.blockedIntervals(flagged, emptyList(), emptySet(), windowFromMs = null, windowToMs = 100)
+        val result = blockedIntervals(flagged, emptyList(), emptySet(), windowFromMs = null, windowToMs = 100)
         assertTrue(result.isEmpty())
     }
 
     @Test
     fun `blockedIntervals clips an open-ended blocked span to the window end`() {
         val flagged = listOf(NormalizedFieldInterval(TrackedField.FLAGGED, 1, "true", null, 50, null))
-        val result = DeriveKernels.blockedIntervals(flagged, emptyList(), emptySet(), windowFromMs = 0, windowToMs = 100)
+        val result = blockedIntervals(flagged, emptyList(), emptySet(), windowFromMs = 0, windowToMs = 100)
         assertEquals(50L to 100L, result.single().fromAtMs to result.single().toAtMs)
         assertEquals("FLAGGED", result.single().reason)
     }
@@ -190,7 +204,7 @@ class DeriveKernelsTest {
     @Test
     fun `blockedIntervals reports STATUS for a blocked-status-only span, never defaulting to FLAGGED`() {
         val statusIntervals = listOf(statusInterval("BLOCKED", 10, 30, 1))
-        val result = DeriveKernels.blockedIntervals(emptyList(), statusIntervals, setOf("BLOCKED"), windowFromMs = 0, windowToMs = 100)
+        val result = blockedIntervals(emptyList(), statusIntervals, setOf("BLOCKED"), windowFromMs = 0, windowToMs = 100)
         assertEquals(10L to 30L, result.single().fromAtMs to result.single().toAtMs)
         assertEquals("STATUS", result.single().reason)
     }
@@ -199,7 +213,7 @@ class DeriveKernelsTest {
     fun `blockedIntervals reports FLAGGED for a disjoint flagged-only span (no merge, no status source)`() {
         val flagged = listOf(NormalizedFieldInterval(TrackedField.FLAGGED, 1, "true", null, 5, 15))
         val statusIntervals = listOf(statusInterval("BLOCKED", 40, 50, 1))
-        val result = DeriveKernels.blockedIntervals(flagged, statusIntervals, setOf("BLOCKED"), windowFromMs = 0, windowToMs = 100)
+        val result = blockedIntervals(flagged, statusIntervals, setOf("BLOCKED"), windowFromMs = 0, windowToMs = 100)
         assertEquals(2, result.size, "two disjoint spans must stay separate, never merged")
         assertEquals("FLAGGED", result.first { it.fromAtMs == 5L }.reason)
         assertEquals("STATUS", result.first { it.fromAtMs == 40L }.reason)
@@ -210,8 +224,8 @@ class DeriveKernelsTest {
     @Test
     fun `activeWaitMs is 0,0 when the item never started or is not yet done`() {
         val stages = listOf(StageInterval(ItemStage.IN_PROGRESS, "2", 0, null))
-        assertEquals(ActiveWait(0, 0), DeriveKernels.activeWaitMs(stages, emptyList(), null, null))
-        assertEquals(ActiveWait(0, 0), DeriveKernels.activeWaitMs(stages, emptyList(), 0, null), "started but not done")
+        assertEquals(ActiveWait(0, 0), activeWaitMs(stages, emptyList(), null, null))
+        assertEquals(ActiveWait(0, 0), activeWaitMs(stages, emptyList(), 0, null), "started but not done")
     }
 
     @Test
@@ -221,7 +235,7 @@ class DeriveKernelsTest {
             StageInterval(ItemStage.DONE, "3", 100, null),
         )
         val blocked = listOf(BlockedInterval(20, 40, "STATUS"))
-        val result = DeriveKernels.activeWaitMs(stages, blocked, startedAtMs = 0, doneAtMs = 100)
+        val result = activeWaitMs(stages, blocked, startedAtMs = 0, doneAtMs = 100)
         assertEquals(80, result.activeMs, "100 in-progress minus 20 blocked")
         assertEquals(20, result.waitMs, "cycle 100 - active 80")
     }
@@ -236,7 +250,7 @@ class DeriveKernelsTest {
             StageInterval(ItemStage.DONE, "3", 70, null),
         )
         // started = 0 (the FIRST IN_PROGRESS entry), done = 70 (the start of the trailing DONE run).
-        val result = DeriveKernels.activeWaitMs(stages, emptyList(), startedAtMs = 0, doneAtMs = 70)
+        val result = activeWaitMs(stages, emptyList(), startedAtMs = 0, doneAtMs = 70)
         assertEquals(50, result.activeMs, "30 (first IN_PROGRESS stretch) + 20 (post-reopen IN_PROGRESS stretch)")
         assertEquals(20, result.waitMs, "cycle 70 - active 50")
     }
@@ -255,7 +269,7 @@ class DeriveKernelsTest {
             StageInterval(ItemStage.DONE, "3", 50, null),
         )
         val blockedDuringNotStarted = listOf(BlockedInterval(10, 30, "STATUS"))
-        val resultNotStarted = DeriveKernels.activeWaitMs(notStarted, blockedDuringNotStarted, startedAtMs = 0, doneAtMs = 50)
+        val resultNotStarted = activeWaitMs(notStarted, blockedDuringNotStarted, startedAtMs = 0, doneAtMs = 50)
         assertEquals(30, resultNotStarted.activeMs, "10 + 20 IN_PROGRESS time, untouched — the blocked span never overlapped IN_PROGRESS")
         assertEquals(20, resultNotStarted.waitMs, "cycle 50 - active 30")
 
@@ -268,7 +282,7 @@ class DeriveKernelsTest {
             StageInterval(ItemStage.DONE, "3", 50, null),
         )
         val blockedDuringUnmapped = listOf(BlockedInterval(10, 30, "FLAGGED"))
-        val resultUnmapped = DeriveKernels.activeWaitMs(unmapped, blockedDuringUnmapped, startedAtMs = 0, doneAtMs = 50)
+        val resultUnmapped = activeWaitMs(unmapped, blockedDuringUnmapped, startedAtMs = 0, doneAtMs = 50)
         assertEquals(30, resultUnmapped.activeMs, "blocked-while-UNMAPPED must not subtract from IN_PROGRESS time")
         assertEquals(20, resultUnmapped.waitMs)
     }
@@ -288,7 +302,7 @@ class DeriveKernelsTest {
             StageInterval(ItemStage.DONE, "3", 60, null),
         )
         val blocked = listOf(BlockedInterval(10, 50, "STATUS"))
-        val result = DeriveKernels.activeWaitMs(stages, blocked, startedAtMs = 0, doneAtMs = 60)
+        val result = activeWaitMs(stages, blocked, startedAtMs = 0, doneAtMs = 60)
         assertEquals(20, result.activeMs, "(20 + 20 IN_PROGRESS) - (10 + 10 blocked-while-IN_PROGRESS) = 20, never 0")
         assertEquals(40, result.waitMs, "cycle 60 - active 20")
     }
@@ -301,7 +315,7 @@ class DeriveKernelsTest {
         // INSIDE the one IN_PROGRESS interval and exactly equals it, so active floors at exactly 0.
         val stages = listOf(StageInterval(ItemStage.IN_PROGRESS, "2", 0, 10), StageInterval(ItemStage.DONE, "3", 10, null))
         val blocked = listOf(BlockedInterval(0, 10, "FLAGGED"))
-        val result = DeriveKernels.activeWaitMs(stages, blocked, startedAtMs = 0, doneAtMs = 10)
+        val result = activeWaitMs(stages, blocked, startedAtMs = 0, doneAtMs = 10)
         assertEquals(0, result.activeMs)
         assertEquals(10, result.waitMs, "wait absorbs the whole cycle once active floors at 0")
     }
@@ -309,11 +323,11 @@ class DeriveKernelsTest {
     @Test
     fun `activeWaitMs is 0,0 for an item whose whole history is an UNMAPPED status`() {
         val stageMap = emptyMap<String, ItemStage>() // "unmapped-status" resolves to ItemStage.UNMAPPED
-        val stages = DeriveKernels.stageIntervals(listOf(statusInterval("unmapped-status", 0, null, 1)), stageMap)
-        val startedDone = DeriveKernels.startedDoneAt(stages)
+        val stages = stageIntervals(listOf(statusInterval("unmapped-status", 0, null, 1)), stageMap)
+        val startedDone = startedDoneAt(stages)
         assertNull(startedDone.startedAtMs, "an UNMAPPED-only item is never started")
         assertNull(startedDone.doneAtMs)
-        val result = DeriveKernels.activeWaitMs(stages, emptyList(), startedDone.startedAtMs, startedDone.doneAtMs)
+        val result = activeWaitMs(stages, emptyList(), startedDone.startedAtMs, startedDone.doneAtMs)
         assertEquals(ActiveWait(0, 0), result)
     }
 
@@ -321,21 +335,21 @@ class DeriveKernelsTest {
 
     @Test
     fun `estimateTimeline with no changes uses the current value, and 0 counts as unestimated`() {
-        val zero = DeriveKernels.estimateTimeline(createdAtMs = 0, changes = emptyList(), currentValueMd = 0.0)
+        val zero = estimateTimeline(createdAtMs = 0, changes = emptyList(), currentValueMd = 0.0)
         assertNull(zero.single().estimateMd)
 
-        val five = DeriveKernels.estimateTimeline(createdAtMs = 0, changes = emptyList(), currentValueMd = 5.0)
+        val five = estimateTimeline(createdAtMs = 0, changes = emptyList(), currentValueMd = 5.0)
         assertEquals(5.0, five.single().estimateMd)
     }
 
     @Test
     fun `estimateSnapshots reports estimated-late when the item started with no estimate but has gained one since`() {
-        val timeline = DeriveKernels.estimateTimeline(
+        val timeline = estimateTimeline(
             createdAtMs = 0,
             changes = listOf(fieldChange(atMs = 200, from = null, to = "8")),
             currentValueMd = 8.0,
         )
-        val snapshots = DeriveKernels.estimateSnapshots(timeline, startedAtMs = 100, doneAtMs = null)
+        val snapshots = estimateSnapshots(timeline, startedAtMs = 100, doneAtMs = null)
         assertNull(snapshots.atStartMd)
         assertEquals(8.0, snapshots.currentMd)
         assertTrue(snapshots.estimatedLate)
@@ -344,8 +358,8 @@ class DeriveKernelsTest {
 
     @Test
     fun `estimateSnapshots is not estimated-late when the estimate was already present at start`() {
-        val timeline = DeriveKernels.estimateTimeline(createdAtMs = 0, changes = emptyList(), currentValueMd = 5.0)
-        val snapshots = DeriveKernels.estimateSnapshots(timeline, startedAtMs = 50, doneAtMs = 200)
+        val timeline = estimateTimeline(createdAtMs = 0, changes = emptyList(), currentValueMd = 5.0)
+        val snapshots = estimateSnapshots(timeline, startedAtMs = 50, doneAtMs = 200)
         assertEquals(5.0, snapshots.atStartMd)
         assertEquals(5.0, snapshots.atDoneMd)
         assertEquals(false, snapshots.estimatedLate)
@@ -354,25 +368,25 @@ class DeriveKernelsTest {
 
     @Test
     fun `estimateSnapshots counts a re-estimate to 0 as reverting to unestimated, not a literal zero`() {
-        val timeline = DeriveKernels.estimateTimeline(
+        val timeline = estimateTimeline(
             createdAtMs = 0,
             changes = listOf(fieldChange(atMs = 50, from = "5", to = "0")),
             currentValueMd = 0.0,
         )
         // The re-estimate to 0 lands at t=50, BEFORE start (t=100) — so the item was already
         // unestimated by the time it started, not "estimated at start" with a stale 5.0.
-        val snapshots = DeriveKernels.estimateSnapshots(timeline, startedAtMs = 100, doneAtMs = null)
+        val snapshots = estimateSnapshots(timeline, startedAtMs = 100, doneAtMs = null)
         assertNull(snapshots.atStartMd, "the change to 0 already landed before t=100, so the estimate active at start is unestimated")
         assertNull(snapshots.currentMd)
 
         // Before the re-estimate lands (t=25), the pre-zero value is still active.
-        assertEquals(5.0, DeriveKernels.estimateAt(timeline, atMs = 25))
+        assertEquals(5.0, estimateAt(timeline, atMs = 25))
     }
 
     @Test
     fun `estimateTimeline falls back to fromString-toString when a real Jira number field carries no fromValue-toValue`() {
         // A real Jira Cloud Story Points changelog item: fromValue/toValue are null, only the text pair is set.
-        val timeline = DeriveKernels.estimateTimeline(
+        val timeline = estimateTimeline(
             createdAtMs = 0,
             changes = listOf(textOnlyFieldChange(atMs = 100, from = "3", to = "5")),
             currentValueMd = 5.0,
@@ -383,7 +397,7 @@ class DeriveKernelsTest {
 
     @Test
     fun `estimateTimeline anchors its last point to the current value even when the last changelog toValue disagrees`() {
-        val timeline = DeriveKernels.estimateTimeline(
+        val timeline = estimateTimeline(
             createdAtMs = 0,
             changes = listOf(fieldChange(atMs = 100, from = "3", to = "5")),
             currentValueMd = 8.0, // e.g. edited again without leaving a tracked changelog item
@@ -393,7 +407,7 @@ class DeriveKernelsTest {
 
     @Test
     fun `estimateTimeline clamps a changelog event before creation to createdAtMs`() {
-        val timeline = DeriveKernels.estimateTimeline(
+        val timeline = estimateTimeline(
             createdAtMs = 1_000,
             changes = listOf(fieldChange(atMs = 500, from = null, to = "5")),
             currentValueMd = 5.0,
@@ -405,7 +419,7 @@ class DeriveKernelsTest {
 
     @Test
     fun `sprintMembership opens a membership at creation when there are no changes at all`() {
-        val result = DeriveKernels.sprintMembership(createdAtMs = 0, changes = emptyList(), currentSprintIds = listOf(7L))
+        val result = sprintMembership(createdAtMs = 0, changes = emptyList(), currentSprintIds = listOf(7L))
         assertEquals(listOf(ch.nokillswit.metrics.SprintMembershipInterval(7L, 0, null)), result)
     }
 
@@ -416,7 +430,7 @@ class DeriveKernelsTest {
             fieldChange(atMs = 100, from = "1", to = "1,2", fieldId = null),
             fieldChange(atMs = 200, from = "1,2", to = "2", fieldId = null),
         )
-        val result = DeriveKernels.sprintMembership(createdAtMs = 0, changes = changes, currentSprintIds = listOf(2L))
+        val result = sprintMembership(createdAtMs = 0, changes = changes, currentSprintIds = listOf(2L))
 
         val bySprint = result.associateBy { it.sprintId }
         assertEquals(0, bySprint.getValue(1L).fromAtMs)
@@ -429,7 +443,7 @@ class DeriveKernelsTest {
     fun `sprintMembership never loses a sprint that a task moved directly into without an empty gap`() {
         // A -> B in one changelog event (never empty in between) must still close A and open B.
         val changes = listOf(fieldChange(atMs = 100, from = "10", to = "20", fieldId = null))
-        val result = DeriveKernels.sprintMembership(createdAtMs = 0, changes = changes, currentSprintIds = listOf(20L))
+        val result = sprintMembership(createdAtMs = 0, changes = changes, currentSprintIds = listOf(20L))
         val bySprint = result.associateBy { it.sprintId }
         assertEquals(2, result.size)
         assertEquals(100, bySprint.getValue(10L).toAtMs)
@@ -440,7 +454,7 @@ class DeriveKernelsTest {
     @Test
     fun `sprintMembership clamps a changelog event before creation to createdAtMs`() {
         val changes = listOf(fieldChange(atMs = 50, from = "1", to = "2", fieldId = null))
-        val result = DeriveKernels.sprintMembership(createdAtMs = 1_000, changes = changes, currentSprintIds = listOf(2L))
+        val result = sprintMembership(createdAtMs = 1_000, changes = changes, currentSprintIds = listOf(2L))
         assertTrue(
             result.all { it.fromAtMs >= 1_000 && (it.toAtMs == null || it.toAtMs >= 1_000) },
             "no interval boundary may predate the item's own creation",
@@ -451,21 +465,21 @@ class DeriveKernelsTest {
 
     @Test
     fun `epicDriftFlags flags nothing for an epic with no children at all`() {
-        val flags = DeriveKernels.epicDriftFlags(ItemStage.NOT_STARTED, emptyList(), epicDriftDays = 14, nowMs = 1_000_000)
+        val flags = epicDriftFlags(ItemStage.NOT_STARTED, emptyList(), epicDriftDays = 14, nowMs = 1_000_000)
         assertTrue(flags.isEmpty())
     }
 
     @Test
     fun `epicDriftFlags flags nothing when the epic and its children agree`() {
         val children = listOf(ch.nokillswit.metrics.ChildDeliveryStatus(startedAtMs = 100, doneAtMs = null))
-        val flags = DeriveKernels.epicDriftFlags(ItemStage.IN_PROGRESS, children, epicDriftDays = 14, nowMs = 1_000_000)
+        val flags = epicDriftFlags(ItemStage.IN_PROGRESS, children, epicDriftDays = 14, nowMs = 1_000_000)
         assertTrue(flags.isEmpty())
     }
 
     @Test
     fun `epicDriftFlags flags EPIC_NOT_STARTED_WITH_ACTIVE_CHILDREN when a child has started but the epic never did`() {
         val children = listOf(ch.nokillswit.metrics.ChildDeliveryStatus(startedAtMs = 100, doneAtMs = null))
-        val flags = DeriveKernels.epicDriftFlags(ItemStage.NOT_STARTED, children, epicDriftDays = 14, nowMs = 1_000_000)
+        val flags = epicDriftFlags(ItemStage.NOT_STARTED, children, epicDriftDays = 14, nowMs = 1_000_000)
         assertEquals(listOf(ch.nokillswit.metrics.EpicDriftFlag.EPIC_NOT_STARTED_WITH_ACTIVE_CHILDREN), flags)
     }
 
@@ -476,10 +490,10 @@ class DeriveKernelsTest {
             ch.nokillswit.metrics.ChildDeliveryStatus(startedAtMs = 0, doneAtMs = 1_000),
             ch.nokillswit.metrics.ChildDeliveryStatus(startedAtMs = 0, doneAtMs = 2_000),
         )
-        val justUnder = DeriveKernels.epicDriftFlags(ItemStage.IN_PROGRESS, children, epicDriftDays = 14, nowMs = 2_000 + 14 * dayMs - 1)
+        val justUnder = epicDriftFlags(ItemStage.IN_PROGRESS, children, epicDriftDays = 14, nowMs = 2_000 + 14 * dayMs - 1)
         assertTrue(justUnder.isEmpty(), "not yet past the threshold")
 
-        val atThreshold = DeriveKernels.epicDriftFlags(ItemStage.IN_PROGRESS, children, epicDriftDays = 14, nowMs = 2_000 + 14 * dayMs)
+        val atThreshold = epicDriftFlags(ItemStage.IN_PROGRESS, children, epicDriftDays = 14, nowMs = 2_000 + 14 * dayMs)
         assertEquals(listOf(ch.nokillswit.metrics.EpicDriftFlag.EPIC_OPEN_AFTER_CHILDREN_DONE), atThreshold)
     }
 
@@ -490,7 +504,7 @@ class DeriveKernelsTest {
             ch.nokillswit.metrics.ChildDeliveryStatus(startedAtMs = 0, doneAtMs = 1_000),
             ch.nokillswit.metrics.ChildDeliveryStatus(startedAtMs = 0, doneAtMs = null),
         )
-        val flags = DeriveKernels.epicDriftFlags(ItemStage.IN_PROGRESS, children, epicDriftDays = 14, nowMs = 1_000 + 100 * dayMs)
+        val flags = epicDriftFlags(ItemStage.IN_PROGRESS, children, epicDriftDays = 14, nowMs = 1_000 + 100 * dayMs)
         assertTrue(flags.isEmpty())
     }
 
@@ -500,7 +514,7 @@ class DeriveKernelsTest {
             ch.nokillswit.metrics.ChildDeliveryStatus(startedAtMs = 0, doneAtMs = 1_000),
             ch.nokillswit.metrics.ChildDeliveryStatus(startedAtMs = 0, doneAtMs = null),
         )
-        val flags = DeriveKernels.epicDriftFlags(ItemStage.DONE, children, epicDriftDays = 14, nowMs = 1_000_000)
+        val flags = epicDriftFlags(ItemStage.DONE, children, epicDriftDays = 14, nowMs = 1_000_000)
         assertEquals(listOf(ch.nokillswit.metrics.EpicDriftFlag.EPIC_DONE_WITH_OPEN_CHILDREN), flags)
     }
 
@@ -514,7 +528,7 @@ class DeriveKernelsTest {
             ch.nokillswit.metrics.ChildDeliveryStatus(startedAtMs = null, doneAtMs = null),
             ch.nokillswit.metrics.ChildDeliveryStatus(startedAtMs = 0, doneAtMs = 1_000),
         )
-        val flags = DeriveKernels.epicDriftFlags(ItemStage.DONE, children, epicDriftDays = 14, nowMs = 1_000_000)
+        val flags = epicDriftFlags(ItemStage.DONE, children, epicDriftDays = 14, nowMs = 1_000_000)
         assertEquals(listOf(ch.nokillswit.metrics.EpicDriftFlag.EPIC_DONE_WITH_OPEN_CHILDREN), flags)
     }
 
@@ -530,7 +544,7 @@ class DeriveKernelsTest {
 
     @Test
     fun `sprintScope never returns a row for a task with no membership in this sprint at all`() {
-        val row = DeriveKernels.sprintScope(
+        val row = sprintScope(
             issueId = 1L, sprintStartAtMs = sprintStart, sprintCloseAtMs = sprintClose, graceMs = 0,
             membershipIntervals = emptyList(), estimateTimeline = listOf(estimate(0, 5.0)),
             assigneeIntervals = emptyList(), doneAtMs = null, inLaterSprintOfTeam = false,
@@ -540,7 +554,7 @@ class DeriveKernelsTest {
 
     @Test
     fun `sprintScope marks a task committed when it entered at or before the commitment threshold`() {
-        val row = DeriveKernels.sprintScope(
+        val row = sprintScope(
             issueId = 1L, sprintStartAtMs = sprintStart, sprintCloseAtMs = sprintClose, graceMs = 0,
             membershipIntervals = listOf(membership(sprintStart - 1000, null)),
             estimateTimeline = listOf(estimate(0, 5.0)), assigneeIntervals = emptyList(),
@@ -558,7 +572,7 @@ class DeriveKernelsTest {
     @Test
     fun `sprintScope respects the grace period when deciding committed`() {
         val enteredJustAfterStart = sprintStart + 500
-        val withoutGrace = DeriveKernels.sprintScope(
+        val withoutGrace = sprintScope(
             issueId = 1L, sprintStartAtMs = sprintStart, sprintCloseAtMs = sprintClose, graceMs = 0,
             membershipIntervals = listOf(membership(enteredJustAfterStart, null)),
             estimateTimeline = listOf(estimate(0, 3.0)), assigneeIntervals = emptyList(),
@@ -568,7 +582,7 @@ class DeriveKernelsTest {
         assertTrue(!withoutGrace.committed, "entered after the bare sprint start, no grace granted")
         assertEquals(enteredJustAfterStart, withoutGrace.addedAtMs)
 
-        val withGrace = DeriveKernels.sprintScope(
+        val withGrace = sprintScope(
             issueId = 1L, sprintStartAtMs = sprintStart, sprintCloseAtMs = sprintClose, graceMs = 1000,
             membershipIntervals = listOf(membership(enteredJustAfterStart, null)),
             estimateTimeline = listOf(estimate(0, 3.0)), assigneeIntervals = emptyList(),
@@ -582,7 +596,7 @@ class DeriveKernelsTest {
     @Test
     fun `sprintScope marks added scope for a task that entered after the commitment threshold and stayed to close`() {
         val enteredAt = sprintStart + 5000
-        val row = DeriveKernels.sprintScope(
+        val row = sprintScope(
             issueId = 2L, sprintStartAtMs = sprintStart, sprintCloseAtMs = sprintClose, graceMs = 0,
             membershipIntervals = listOf(membership(enteredAt, null)),
             // `estimateTimeline()` itself collapses a literal 0 to `null` before it ever becomes an
@@ -605,7 +619,7 @@ class DeriveKernelsTest {
     fun `sprintScope attributes a committed row to the assignee at commitment and an added row to the assignee at entry`() {
         // "ann" holds the task until 12_000, "bob" after: the sprint commits at 10_000 (no grace).
         val reassigned = listOf(assigneeInterval("ann", 0, 12_000), assigneeInterval("bob", 12_000, null))
-        val committed = DeriveKernels.sprintScope(
+        val committed = sprintScope(
             issueId = 1L, sprintStartAtMs = sprintStart, sprintCloseAtMs = sprintClose, graceMs = 0,
             membershipIntervals = listOf(membership(sprintStart - 1000, null)),
             estimateTimeline = listOf(estimate(0, 5.0)), assigneeIntervals = reassigned,
@@ -615,7 +629,7 @@ class DeriveKernelsTest {
         assertTrue(committed.committed)
         assertEquals("ann", committed.assigneeAtCommitment, "reassigned to bob after commitment: still ann's at commitment")
 
-        val added = DeriveKernels.sprintScope(
+        val added = sprintScope(
             issueId = 2L, sprintStartAtMs = sprintStart, sprintCloseAtMs = sprintClose, graceMs = 0,
             membershipIntervals = listOf(membership(sprintStart + 5000, null)),
             estimateTimeline = listOf(estimate(0, 3.0)), assigneeIntervals = reassigned,
@@ -628,7 +642,7 @@ class DeriveKernelsTest {
 
     @Test
     fun `sprintScope marks removed scope for a task committed then exited before completion, excluded from every other bucket`() {
-        val row = DeriveKernels.sprintScope(
+        val row = sprintScope(
             issueId = 3L, sprintStartAtMs = sprintStart, sprintCloseAtMs = sprintClose, graceMs = 0,
             membershipIntervals = listOf(membership(sprintStart - 1000, sprintStart + 2000)),
             estimateTimeline = listOf(estimate(0, 8.0)), assigneeIntervals = emptyList(),
@@ -647,7 +661,7 @@ class DeriveKernelsTest {
     @Test
     fun `sprintScope marks delivered scope for a task done inside the sprint window while still a member`() {
         val doneAt = sprintStart + 3000
-        val row = DeriveKernels.sprintScope(
+        val row = sprintScope(
             issueId = 4L, sprintStartAtMs = sprintStart, sprintCloseAtMs = sprintClose, graceMs = 0,
             membershipIntervals = listOf(membership(sprintStart - 1000, null)),
             estimateTimeline = listOf(estimate(0, 3.0), estimate(doneAt, 5.0)),
@@ -666,7 +680,7 @@ class DeriveKernelsTest {
 
     @Test
     fun `sprintScope marks dropped scope for a committed task not done with no later sprint`() {
-        val row = DeriveKernels.sprintScope(
+        val row = sprintScope(
             issueId = 5L, sprintStartAtMs = sprintStart, sprintCloseAtMs = sprintClose, graceMs = 0,
             membershipIntervals = listOf(membership(sprintStart - 1000, null)),
             estimateTimeline = listOf(estimate(0, 2.0)), assigneeIntervals = emptyList(),
@@ -681,7 +695,7 @@ class DeriveKernelsTest {
     @Test
     fun `sprintScope carries over an ADDED task present in a later sprint of the team, and drops it otherwise (A17)`() {
         val enteredAt = sprintStart + 5000
-        val carried = DeriveKernels.sprintScope(
+        val carried = sprintScope(
             issueId = 6L, sprintStartAtMs = sprintStart, sprintCloseAtMs = sprintClose, graceMs = 0,
             membershipIntervals = listOf(membership(enteredAt, null)),
             estimateTimeline = listOf(estimate(0, 4.0)), assigneeIntervals = emptyList(),
@@ -693,7 +707,7 @@ class DeriveKernelsTest {
         assertTrue(carried.carriedOver, "added scope is not exempt from carry-over/dropped — A17")
         assertTrue(!carried.dropped)
 
-        val dropped = DeriveKernels.sprintScope(
+        val dropped = sprintScope(
             issueId = 7L, sprintStartAtMs = sprintStart, sprintCloseAtMs = sprintClose, graceMs = 0,
             membershipIntervals = listOf(membership(enteredAt, null)),
             estimateTimeline = listOf(estimate(0, 4.0)), assigneeIntervals = emptyList(),
@@ -707,25 +721,25 @@ class DeriveKernelsTest {
 
     @Test
     fun `sprintTotals sums exactly the rows it is given — invariant 8 by construction`() {
-        val committedOnly = DeriveKernels.sprintScope(
+        val committedOnly = sprintScope(
             issueId = 1L, sprintStartAtMs = sprintStart, sprintCloseAtMs = sprintClose, graceMs = 0,
             membershipIntervals = listOf(membership(sprintStart - 1000, null)),
             estimateTimeline = listOf(estimate(0, 5.0)), assigneeIntervals = emptyList(),
             doneAtMs = null, inLaterSprintOfTeam = true,
         )!!
-        val added = DeriveKernels.sprintScope(
+        val added = sprintScope(
             issueId = 2L, sprintStartAtMs = sprintStart, sprintCloseAtMs = sprintClose, graceMs = 0,
             membershipIntervals = listOf(membership(sprintStart + 5000, null)),
             estimateTimeline = listOf(estimate(0, 3.0)), assigneeIntervals = emptyList(),
             doneAtMs = null, inLaterSprintOfTeam = false,
         )!!
-        val removed = DeriveKernels.sprintScope(
+        val removed = sprintScope(
             issueId = 3L, sprintStartAtMs = sprintStart, sprintCloseAtMs = sprintClose, graceMs = 0,
             membershipIntervals = listOf(membership(sprintStart - 1000, sprintStart + 2000)),
             estimateTimeline = listOf(estimate(0, 8.0)), assigneeIntervals = emptyList(),
             doneAtMs = null, inLaterSprintOfTeam = false,
         )!!
-        val totals = DeriveKernels.sprintTotals(listOf(committedOnly, added, removed))
+        val totals = sprintTotals(listOf(committedOnly, added, removed))
         // `removed`'s own row also carries `committed = true` (it WAS committed before leaving),
         // but the committed BUCKET excludes it — a removed item is counted ONLY in removedMd,
         // matching `sample-data/jira/generate.mjs`'s own reference `computeSprintScope`.
@@ -746,7 +760,7 @@ class DeriveKernelsTest {
 
     @Test
     fun `sprintTotals rounds each item's MD before summing, so the team total equals the sum of its per-user groups to the cent`() {
-        fun scope(id: Long, estimateMd: Double) = DeriveKernels.sprintScope(
+        fun scope(id: Long, estimateMd: Double) = sprintScope(
             issueId = id, sprintStartAtMs = sprintStart, sprintCloseAtMs = sprintClose, graceMs = 0,
             membershipIntervals = listOf(membership(sprintStart - 1000, null)),
             estimateTimeline = listOf(estimate(0, estimateMd)),
@@ -757,8 +771,8 @@ class DeriveKernelsTest {
         // the old sum-then-round team total (1.00) disagreed with the Σ of the per-item stored values by 0.01.
         val userA = listOf(scope(1L, 0.333), scope(2L, 0.333))
         val userB = listOf(scope(3L, 0.334))
-        val team = DeriveKernels.sprintTotals(userA + userB)
-        val groups = listOf(DeriveKernels.sprintTotals(userA), DeriveKernels.sprintTotals(userB))
+        val team = sprintTotals(userA + userB)
+        val groups = listOf(sprintTotals(userA), sprintTotals(userB))
 
         // What `fact_sprint_scope` stores per item (NUMERIC(8, 2), half-up), summed exactly.
         fun stored(md: Double) = md.toBigDecimal().setScale(2, RoundingMode.HALF_UP)
@@ -776,14 +790,14 @@ class DeriveKernelsTest {
                 estimateAtCloseMd = stored(it.estimateAtCloseMd!!).toDouble(),
             )
         }
-        val rereadTotals = DeriveKernels.sprintTotals(reread)
+        val rereadTotals = sprintTotals(reread)
         assertEquals(team.finalMd, rereadTotals.finalMd)
         assertEquals(team.committedMd, rereadTotals.committedMd)
     }
 
     @Test
     fun `sprintTotals - A17 partition - final equals delivered + carried + dropped, and committed + added equals final`() {
-        fun scope(id: Long, entered: Long, exited: Long?, doneAt: Long?, laterSprint: Boolean) = DeriveKernels.sprintScope(
+        fun scope(id: Long, entered: Long, exited: Long?, doneAt: Long?, laterSprint: Boolean) = sprintScope(
             issueId = id, sprintStartAtMs = sprintStart, sprintCloseAtMs = sprintClose, graceMs = 0,
             membershipIntervals = listOf(membership(entered, exited)),
             estimateTimeline = listOf(estimate(0, 1.0)), assigneeIntervals = emptyList(),
@@ -805,7 +819,7 @@ class DeriveKernelsTest {
             // added, dropped (A17)
             scope(7L, sprintStart + 500, null, null, false),
         )
-        val totals = DeriveKernels.sprintTotals(rows)
+        val totals = sprintTotals(rows)
         assertEquals(totals.committedItems + totals.addedItems, totals.finalItems, "committed + added = final")
         assertEquals(
             totals.deliveredItems + totals.carriedOverItems + totals.droppedItems,
@@ -834,7 +848,7 @@ class DeriveKernelsTest {
 
     @Test
     fun `epicPlanBaselines returns no rows when the epic never has both dates set`() {
-        val startOnly = DeriveKernels.epicPlanBaselines(
+        val startOnly = epicPlanBaselines(
             startTimeline = listOf(datePoint(createdAtMs, "2026-01-05")),
             dueTimeline = listOf(datePoint(createdAtMs, null)),
             ownEstimateTimeline = listOf(estimate(createdAtMs, 10.0)),
@@ -842,7 +856,7 @@ class DeriveKernelsTest {
         )
         assertTrue(startOnly.isEmpty(), "a start date alone, with no due date ever set, must never baseline")
 
-        val neither = DeriveKernels.epicPlanBaselines(
+        val neither = epicPlanBaselines(
             startTimeline = listOf(datePoint(createdAtMs, null)),
             dueTimeline = listOf(datePoint(createdAtMs, null)),
             ownEstimateTimeline = listOf(estimate(createdAtMs, 10.0)),
@@ -854,7 +868,7 @@ class DeriveKernelsTest {
     @Test
     fun `epicPlanBaselines opens a baseline at the LATER of the two dates, whichever field resolves last`() {
         // due already known since creation; start only arrives on day 10 — the baseline must wait for it.
-        val dueFirst = DeriveKernels.epicPlanBaselines(
+        val dueFirst = epicPlanBaselines(
             startTimeline = listOf(datePoint(createdAtMs, null), datePoint(isoMs("2026-01-10"), "2026-01-10")),
             dueTimeline = listOf(datePoint(createdAtMs, "2026-02-01")),
             ownEstimateTimeline = listOf(estimate(createdAtMs, 20.0)),
@@ -864,7 +878,7 @@ class DeriveKernelsTest {
         assertEquals(isoMs("2026-01-10"), dueFirst.single().baselinedAtMs, "baselined_at is the instant the LATER date became set")
 
         // the reverse: start known since creation, due arrives later.
-        val startFirst = DeriveKernels.epicPlanBaselines(
+        val startFirst = epicPlanBaselines(
             startTimeline = listOf(datePoint(createdAtMs, "2026-01-05")),
             dueTimeline = listOf(datePoint(createdAtMs, null), datePoint(isoMs("2026-01-20"), "2026-02-01")),
             ownEstimateTimeline = listOf(estimate(createdAtMs, 20.0)),
@@ -876,7 +890,7 @@ class DeriveKernelsTest {
 
     @Test
     fun `epicPlanBaselines opens a new baseline and supersedes the previous one on a later date change`() {
-        val baselines = DeriveKernels.epicPlanBaselines(
+        val baselines = epicPlanBaselines(
             startTimeline = listOf(datePoint(createdAtMs, "2026-01-05")),
             dueTimeline = listOf(
                 datePoint(createdAtMs, "2026-02-01"),
@@ -894,7 +908,7 @@ class DeriveKernelsTest {
         assertEquals(isoMs("2026-02-15"), second.dueAtMs)
         assertNull(second.supersededAtMs, "the current baseline carries no superseded_at")
         // dates unchanged, so a re-submission of the SAME due date must never open a third baseline.
-        val idempotent = DeriveKernels.epicPlanBaselines(
+        val idempotent = epicPlanBaselines(
             startTimeline = listOf(datePoint(createdAtMs, "2026-01-05")),
             dueTimeline = listOf(
                 datePoint(createdAtMs, "2026-02-01"),
@@ -908,7 +922,7 @@ class DeriveKernelsTest {
 
     @Test
     fun `epicPlanBaselines supersedes the open baseline when a date is later cleared, leaving none current`() {
-        val baselines = DeriveKernels.epicPlanBaselines(
+        val baselines = epicPlanBaselines(
             startTimeline = listOf(datePoint(createdAtMs, "2026-01-05")),
             dueTimeline = listOf(
                 datePoint(createdAtMs, "2026-02-01"),
@@ -925,7 +939,7 @@ class DeriveKernelsTest {
 
     @Test
     fun `epicPlanBaselines opens a genuinely NEW baseline when a cleared date is re-set, even to the same value`() {
-        val baselines = DeriveKernels.epicPlanBaselines(
+        val baselines = epicPlanBaselines(
             startTimeline = listOf(datePoint(createdAtMs, "2026-01-05")),
             dueTimeline = listOf(
                 datePoint(createdAtMs, "2026-02-01"),
@@ -949,7 +963,7 @@ class DeriveKernelsTest {
 
     @Test
     fun `epicPlanBaselines opens a new baseline on a later budget change, keeping the dates`() {
-        val baselines = DeriveKernels.epicPlanBaselines(
+        val baselines = epicPlanBaselines(
             startTimeline = listOf(datePoint(createdAtMs, "2026-01-05")),
             dueTimeline = listOf(datePoint(createdAtMs, "2026-02-01")),
             ownEstimateTimeline = listOf(estimate(createdAtMs, 20.0), estimate(isoMs("2026-01-10"), 30.0)),
@@ -966,7 +980,7 @@ class DeriveKernelsTest {
 
     @Test
     fun `epicPlanBaselines falls back to the CHILDREN sum when the epic never carries its own estimate`() {
-        val baselines = DeriveKernels.epicPlanBaselines(
+        val baselines = epicPlanBaselines(
             startTimeline = listOf(datePoint(createdAtMs, "2026-01-05")),
             dueTimeline = listOf(datePoint(createdAtMs, "2026-02-01")),
             ownEstimateTimeline = listOf(estimate(createdAtMs, null)),
@@ -979,7 +993,7 @@ class DeriveKernelsTest {
 
     @Test
     fun `epicPlanBaselines treats a 0 own estimate as unestimated, falling back to CHILDREN`() {
-        val baselines = DeriveKernels.epicPlanBaselines(
+        val baselines = epicPlanBaselines(
             startTimeline = listOf(datePoint(createdAtMs, "2026-01-05")),
             dueTimeline = listOf(datePoint(createdAtMs, "2026-02-01")),
             ownEstimateTimeline = listOf(estimate(createdAtMs, 0.0)),
@@ -997,7 +1011,7 @@ class DeriveKernelsTest {
             baselinedAtMs = createdAtMs, startAtMs = isoMs("2026-01-05"), dueAtMs = isoMs("2026-01-07"),
             budgetMd = 10.0, budgetSource = "OWN", supersededAtMs = null,
         )
-        val curve = DeriveKernels.pvCurve(baseline, calendar)
+        val curve = pvCurve(baseline, calendar)
         assertEquals(3, curve.size)
         assertEquals(10.0, curve.last().cumulativeMd, "PV at the due date must equal the budget exactly")
     }
@@ -1008,7 +1022,7 @@ class DeriveKernelsTest {
             baselinedAtMs = createdAtMs, startAtMs = isoMs("2026-01-05"), dueAtMs = isoMs("2026-01-16"),
             budgetMd = 37.0, budgetSource = "OWN", supersededAtMs = null,
         )
-        val curve = DeriveKernels.pvCurve(baseline, calendar)
+        val curve = pvCurve(baseline, calendar)
         assertTrue(curve.isNotEmpty())
         curve.zipWithNext().forEach { (a, b) -> assertTrue(b.cumulativeMd >= a.cumulativeMd, "PV must never decrease day over day") }
     }
@@ -1023,7 +1037,7 @@ class DeriveKernelsTest {
             baselinedAtMs = createdAtMs, startAtMs = isoMs("2026-01-05"), dueAtMs = isoMs("2026-01-12"),
             budgetMd = 20.0, budgetSource = "OWN", supersededAtMs = null,
         )
-        val curve = DeriveKernels.pvCurve(baseline, calendarWithHoliday)
+        val curve = pvCurve(baseline, calendarWithHoliday)
         assertEquals(5, curve.size, "Saturday, Sunday and the Thursday holiday must never become their own point")
         assertTrue(curve.none { it.day == holiday || it.day.dayOfWeek.value in mondayToFriday })
         assertEquals(20.0, curve.last().cumulativeMd)
@@ -1035,7 +1049,7 @@ class DeriveKernelsTest {
             baselinedAtMs = createdAtMs, startAtMs = isoMs("2026-01-05"), dueAtMs = isoMs("2026-01-05"),
             budgetMd = 8.0, budgetSource = "OWN", supersededAtMs = null,
         )
-        val curve = DeriveKernels.pvCurve(baseline, calendar)
+        val curve = pvCurve(baseline, calendar)
         assertEquals(1, curve.size)
         assertEquals(8.0, curve.single().cumulativeMd)
         assertEquals(LocalDate.of(2026, 1, 5), curve.single().day)
@@ -1051,7 +1065,7 @@ class DeriveKernelsTest {
             baselinedAtMs = createdAtMs, startAtMs = isoMs("2026-01-05"), dueAtMs = isoMs("2026-01-09"),
             budgetMd = 15.0, budgetSource = "OWN", supersededAtMs = null,
         )
-        val curve = DeriveKernels.pvCurve(baseline, newYork)
+        val curve = pvCurve(baseline, newYork)
         assertEquals(
             5, curve.size,
             "the window must cover exactly the configured Jan 5..9 dates, regardless of the calendar's own zone",
@@ -1067,42 +1081,42 @@ class DeriveKernelsTest {
 
     @Test
     fun `dimDateRange defaults to one year before the earliest fact through two years after now`() {
-        val range = DeriveKernels.dimDateRange(dimNow, isoMs("2025-06-01"), emptyList())
+        val range = dimDateRange(dimNow, isoMs("2025-06-01"), emptyList())
         assertEquals(isoMs("2025-06-01") - year, range.fromMs)
         assertEquals(dimNow + 2 * year, range.toMs)
-        assertEquals(dimNow - year, DeriveKernels.dimDateRange(dimNow, null, emptyList()).fromMs, "no fact at all reads as now")
+        assertEquals(dimNow - year, dimDateRange(dimNow, null, emptyList()).fromMs, "no fact at all reads as now")
     }
 
     @Test
     fun `dimDateRange widens below for an old worklog but never past the 50 year floor`() {
         val old = isoMs("2015-02-03")
-        assertEquals(old - year, DeriveKernels.dimDateRange(dimNow, old, emptyList()).fromMs)
+        assertEquals(old - year, dimDateRange(dimNow, old, emptyList()).fromMs)
         val ancient = isoMs("1900-01-01")
-        assertEquals(dimNow - 50 * year - year, DeriveKernels.dimDateRange(dimNow, ancient, emptyList()).fromMs)
+        assertEquals(dimNow - 50 * year - year, dimDateRange(dimNow, ancient, emptyList()).fromMs)
     }
 
     @Test
     fun `dimDateRange widens above and below for an in-horizon epic with one day of slack, and ignores an out-of-horizon one`() {
         val due = isoMs("2031-01-15")
         val start = isoMs("2018-05-01")
-        val range = DeriveKernels.dimDateRange(dimNow, isoMs("2025-06-01"), listOf(start to due))
+        val range = dimDateRange(dimNow, isoMs("2025-06-01"), listOf(start to due))
         assertEquals(due + day, range.toMs)
         assertEquals(minOf(isoMs("2025-06-01") - year, start - day), range.fromMs)
 
         val placeholder = isoMs("9999-12-31")
         val ancientStart = isoMs("1900-01-01")
-        val ignored = DeriveKernels.dimDateRange(
+        val ignored = dimDateRange(
             dimNow, isoMs("2025-06-01"), listOf(isoMs("2026-01-05") to placeholder, ancientStart to isoMs("2026-01-05")),
         )
-        assertEquals(DeriveKernels.dimDateRange(dimNow, isoMs("2025-06-01"), emptyList()), ignored)
+        assertEquals(dimDateRange(dimNow, isoMs("2025-06-01"), emptyList()), ignored)
     }
 
     @Test
     fun `inPvHorizon needs both dates within ten years of now`() {
-        assertTrue(DeriveKernels.inPvHorizon(isoMs("2026-01-05"), isoMs("2026-06-30"), dimNow))
-        assertTrue(DeriveKernels.inPvHorizon(isoMs("2016-03-05"), isoMs("2036-03-05"), dimNow), "the horizon edges are inclusive dates")
-        assertTrue(!DeriveKernels.inPvHorizon(isoMs("2016-03-04"), isoMs("2026-06-30"), dimNow))
-        assertTrue(!DeriveKernels.inPvHorizon(isoMs("2026-01-05"), isoMs("2036-03-06"), dimNow))
-        assertTrue(!DeriveKernels.inPvHorizon(isoMs("2026-01-05"), isoMs("9999-12-31"), dimNow))
+        assertTrue(inPvHorizon(isoMs("2026-01-05"), isoMs("2026-06-30"), dimNow))
+        assertTrue(inPvHorizon(isoMs("2016-03-05"), isoMs("2036-03-05"), dimNow), "the horizon edges are inclusive dates")
+        assertTrue(!inPvHorizon(isoMs("2016-03-04"), isoMs("2026-06-30"), dimNow))
+        assertTrue(!inPvHorizon(isoMs("2026-01-05"), isoMs("2036-03-06"), dimNow))
+        assertTrue(!inPvHorizon(isoMs("2026-01-05"), isoMs("9999-12-31"), dimNow))
     }
 }

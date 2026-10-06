@@ -6,7 +6,6 @@ import ch.nokillswit.ingest.SyncJobKind
 import ch.nokillswit.ingest.SyncJobRunContext
 import ch.nokillswit.ingest.SyncJobsService
 import ch.nokillswit.metrics.DataSourceMetricsConfigRequest
-import ch.nokillswit.metrics.DeriveKernels
 import ch.nokillswit.metrics.DomainOwnerResolver
 import ch.nokillswit.metrics.MetricsBoardTeamMapping
 import ch.nokillswit.metrics.MetricsConfigService
@@ -19,6 +18,8 @@ import ch.nokillswit.metrics.TeamMembershipCreateRequest
 import ch.nokillswit.metrics.TeamMembershipResponse
 import ch.nokillswit.metrics.TeamMembershipService
 import ch.nokillswit.metrics.WorkingCalendar
+import ch.nokillswit.metrics.inPvHorizon
+import ch.nokillswit.metrics.pvCurve
 import ch.nokillswit.norm.IntervalSource
 import ch.nokillswit.norm.NormalizedIssue
 import ch.nokillswit.norm.NormalizedStatusInterval
@@ -36,6 +37,12 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZoneOffset
 import java.util.UUID
+import kotlin.math.abs
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.Serializable
@@ -64,12 +71,6 @@ import org.jetbrains.exposed.v1.r2dbc.select
 import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.r2dbc.update
-import kotlin.math.abs
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertNotNull
-import kotlin.test.assertNull
-import kotlin.test.assertTrue
 
 @Serializable
 private data class GoldenEpicFixture(
@@ -201,7 +202,7 @@ class MetricsDerivationTest {
 
         // Invariant 4 (review round 1: relaxed to the REAL invariant): started_at <= done_at ONLY
         // when BOTH are set — `startedAt` is null for a legal To Do -> Done issue that never visited
-        // an IN_PROGRESS stage (`DeriveKernels.startedDoneAt`'s own doc: doneAt depends only on the
+        // an IN_PROGRESS stage (`startedDoneAt`'s own doc: doneAt depends only on the
         // CURRENT stage being DONE, never on whether the item was ever started); done_at is set only
         // while the current stage is DONE, unconditionally.
         factRows.forEach { row ->
@@ -359,7 +360,7 @@ class MetricsDerivationTest {
             budgetSource = current[MetricsTables.FactEpicPlan.budgetSource],
             supersededAtMs = null,
         )
-        val curve = DeriveKernels.pvCurve(baseline, calendar)
+        val curve = pvCurve(baseline, calendar)
         assertTrue(curve.isNotEmpty(), "the golden epic's start-due window must contain at least one working day")
         assertEquals(baseline.budgetMd, curve.last().cumulativeMd, "PV at the epic's due date must equal its budget exactly")
     }
@@ -849,7 +850,7 @@ class MetricsDerivationTest {
             // Item counts: `committed + added = final = delivered + carried + dropped` holds EXACTLY,
             // in both items and MD — every row reaching `sprintTotals` sits in the SAME
             // in-scope-at-close set, and `committed`/`added`/`final` are literal partitions of it by
-            // construction (`DeriveKernels.sprintScope`). The MD identity is checked ONLY for
+            // construction (`sprintScope`). The MD identity is checked ONLY for
             // `final = delivered + carried + dropped`, not `committed + added = final`: committed/
             // added MD is read at the task's OWN commit/entry instant, while final/delivered/carried/
             // dropped MD are all read at the SAME `sprintCloseAt` instant — a re-estimate between
@@ -1753,7 +1754,7 @@ class MetricsDerivationTest {
         val newKey = "FLO-" + (900_000_000L + issueId)
 
         // The sample dataset has no real cross-project move to exercise this on — simulate one: a
-        // fake `issuekey` field change AFTER done_at (`DeriveKernels.projectKeyTimeline`'s own
+        // fake `issuekey` field change AFTER done_at (`projectKeyTimeline`'s own
         // source) plus the CURRENT `norm.work_items` row's own issue_key/project_key updated
         // directly, the exact shape a real project move leaves.
         suspendTransaction(sharedDatabaseForTests()) {
@@ -2553,7 +2554,7 @@ class MetricsDerivationTest {
             // set AND both dates inside the PV horizon (an out-of-horizon epic gets no PV at all, never a clamped curve).
             val current = plan.selectAll().where { (plan.connectionId eq connId) and plan.supersededAt.isNull() }.toList()
                 .filter { it[plan.startAt] != null && it[plan.dueAt] != null && it[plan.budgetMd] != null }
-                .filter { DeriveKernels.inPvHorizon(it[plan.startAt]!!, it[plan.dueAt]!!, DerivedStubFixture.PINNED_NOW) }
+                .filter { inPvHorizon(it[plan.startAt]!!, it[plan.dueAt]!!, DerivedStubFixture.PINNED_NOW) }
             val dimDates = MetricsTables.DimDate.selectAll().toList().map { it[MetricsTables.DimDate.day] }.toSet()
             var withCurve = 0
             current.forEach { row ->
@@ -2562,7 +2563,7 @@ class MetricsDerivationTest {
                     baselinedAtMs = row[plan.baselinedAt], startAtMs = row[plan.startAt]!!, dueAtMs = row[plan.dueAt]!!,
                     budgetMd = row[plan.budgetMd]!!.toDouble(), budgetSource = row[plan.budgetSource], supersededAtMs = null,
                 )
-                val curve = DeriveKernels.pvCurve(baseline, calendar)
+                val curve = pvCurve(baseline, calendar)
                 assertTrue(curve.all { it.day.toString() in dimDates }, "dim_date must cover every working day of epic $epicId's window")
                 val actual = flowRows.filterKeys { it.kind == "EPIC" && it.scopeId == epicId }
                     .mapKeys { it.key.day }.mapValues { it.value[flow.pvMd] }.filterValues { it.signum() != 0 }
@@ -2586,7 +2587,7 @@ class MetricsDerivationTest {
             assertTrue(withCurve >= 1, "at least one epic must carry a PV curve, else this proves nothing")
             val epicsWithPv = flowRows.filter { it.key.kind == "EPIC" && it.value[flow.pvMd].signum() != 0 }.keys.map { it.scopeId }.toSet()
             val expectedEpicsWithPv = current.filter {
-                it[plan.budgetMd]!!.signum() != 0 && DeriveKernels.pvCurve(
+                it[plan.budgetMd]!!.signum() != 0 && pvCurve(
                     ch.nokillswit.metrics.EpicPlanBaseline(
                         it[plan.baselinedAt], it[plan.startAt]!!, it[plan.dueAt]!!, it[plan.budgetMd]!!.toDouble(),
                         it[plan.budgetSource], null,

@@ -169,7 +169,7 @@ private suspend fun fetchAdjustmentEpics(filter: ReportFilter, connectionIds: Li
             startedAt = it[e.startedAt],
             doneAt = it[e.doneAt],
             changes = it[e.estimateChangesAfterStart],
-            // The task kernel's own definition (DeriveKernels.estimateSnapshots), which the epic fact does not store as a column.
+            // The task kernel's own definition (estimateSnapshots), which the epic fact does not store as a column.
             estimatedLate = it[e.startedAt] != null && !atStart.isEstimate() && it[e.ownEstimateCurrentMd].isEstimate(),
             atStart = atStart,
             atDone = it[e.ownEstimateAtDoneMd],

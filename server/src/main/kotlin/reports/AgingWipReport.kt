@@ -221,7 +221,7 @@ private suspend fun fetchOpenEpics(filter: ReportFilter, connectionIds: List<UIn
  * The (connection, issue) pairs among [items] that are blocked "right now": an `item_blocked` row covering the connection's
  * DERIVE clock C (its newest successful run's start) — `valid_from <= C AND (valid_to IS NULL OR valid_to >= C)`. The deriver
  * never writes an open row: it closes a still-open Flagged/blocked-status interval AT the derive clock
- * (`DeriveKernels.blockedIntervals`, `windowToMs = doneAtMs ?: now`), so "blocked now" is "blocked as of the last derive".
+ * (`blockedIntervals`, `windowToMs = doneAtMs ?: now`), so "blocked now" is "blocked as of the last derive".
  * A connection that never derived has no rows and no clock: nothing is blocked.
  */
 private suspend fun openBlocked(items: List<OpenItem>): Set<Pair<UInt, Long>> {

@@ -7,7 +7,7 @@ import ch.nokillswit.norm.WorkItemStore
  * keep [MetricsDeriver] under detekt's `LargeClass` threshold — the sprint/worklog steps' own
  * precedent above): D4's PV baselines (`.claude/docs/domain-model.md` "Plan — PV", D4, D11;
  * `.claude/docs/metrics.md` "Epic plans and PV") — one `metrics.fact_epic_plan` row per baseline,
- * `baseline_seq` assigned 1-based in the order [DeriveKernels.epicPlanBaselines] returns them.
+ * `baseline_seq` assigned 1-based in the order [epicPlanBaselines] returns them.
  * Batches over EPIC items only, re-reading each batch's own configured EPIC_START/EPIC_DUE field
  * changes the same way pass 1 reads the estimate field's own changes (the review round 2b memory
  * bound applies here too) — the epic's own estimate timeline is already available from pass 1's
@@ -40,15 +40,15 @@ internal suspend fun runEpicPlanStep(
         val rowsBatch = mutableListOf<FactEpicPlanRow>()
         for (item in batch) {
             val changes = changesByIssue[item.issueId].orEmpty()
-            val startTimeline = DeriveKernels.dateFieldTimeline(
+            val startTimeline = dateFieldTimeline(
                 item.createdAt, changes.filter { it.fieldId == startFieldId }, context.epicDateValue(item, startFieldId),
             )
-            val dueTimeline = DeriveKernels.dateFieldTimeline(
+            val dueTimeline = dateFieldTimeline(
                 item.createdAt, changes.filter { it.fieldId == dueFieldId }, context.epicDateValue(item, dueFieldId),
             )
             val ownEstimateTimeline = derivedById.getValue(item.issueId).estimateTimeline
             val childSumMd = factEpicsByIssueId[item.issueId]?.childSumEstimateMd ?: 0.0
-            val baselines = DeriveKernels.epicPlanBaselines(startTimeline, dueTimeline, ownEstimateTimeline, childSumMd)
+            val baselines = epicPlanBaselines(startTimeline, dueTimeline, ownEstimateTimeline, childSumMd)
             baselines.forEachIndexed { index, baseline -> rowsBatch += FactEpicPlanRow(item.issueId, index + 1, baseline) }
         }
         metricsStore.insertFactEpicPlan(connectionId, rowsBatch, configRevision)

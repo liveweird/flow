@@ -1,8 +1,8 @@
 package ch.nokillswit.reports
 
-import ch.nokillswit.metrics.DeriveKernels
 import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.metrics.WorkingCalendar
+import ch.nokillswit.metrics.sprintTotals
 import java.math.BigDecimal
 import java.time.DayOfWeek
 import java.time.Instant
@@ -194,7 +194,7 @@ private fun deliveredDrift(live: ThroughputSnapshot, frozen: ThroughputSnapshot?
  * USER-level sprint view: each sprint narrowed to the deliveries whose `assignee_at_commitment` is
  * [accountId] (`done_in_sprint` rows at `estimate_at_done_md` — the SAME predicate `fact_sprint`'s
  * own delivered total sums). `snapshot` is that account's FROZEN share, computed by the same kernel
- * ([DeriveKernels.sprintTotals]) over the sprint's stored `fact_sprint_snapshot.scope` ([fetchFrozenScopes]);
+ * ([sprintTotals]) over the sprint's stored `fact_sprint_snapshot.scope` ([fetchFrozenScopes]);
  * `null` for a sprint with no snapshot (D13), and [ThroughputSprint.drift] is the team level's own [deliveredDrift].
  */
 private suspend fun userSprints(sprintRows: List<SprintRow>, accountId: String): List<ThroughputSprint> {
@@ -212,7 +212,7 @@ private suspend fun userSprints(sprintRows: List<SprintRow>, accountId: String):
         val delivered = rows[row.connectionId to row.sprintId].orEmpty()
         val live = ThroughputSnapshot(delivered.fold(BigDecimal.ZERO, BigDecimal::add).toDouble(), delivered.size)
         val snapshot = frozen[row.connectionId to row.sprintId]?.let {
-            DeriveKernels.sprintTotals(it).let { totals -> ThroughputSnapshot(totals.deliveredMd, totals.deliveredItems) }
+            sprintTotals(it).let { totals -> ThroughputSnapshot(totals.deliveredMd, totals.deliveredItems) }
         }
         ThroughputSprint(
             sprintId = row.sprintId, name = row.name, teamId = row.teamId, completedAt = row.completedAt,

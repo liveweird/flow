@@ -23,7 +23,7 @@ internal data class ItemDerived(
     /** The item's OWN configured-estimate-field timeline (review round 2a) — empty when no estimate
      * field is configured for this item's role; kept alongside [ownSnapshots] (rather than discarded
      * once the snapshots are taken) so a SUBTASKS-fallback parent can merge its children's OWN
-     * timelines ([DeriveKernels.mergeEstimateTimelines]) instead of reusing their CURRENT sum at
+     * timelines ([mergeEstimateTimelines]) instead of reusing their CURRENT sum at
      * every past instant. */
     val estimateTimeline: List<EstimatePoint>,
     val ownCategory: String?,

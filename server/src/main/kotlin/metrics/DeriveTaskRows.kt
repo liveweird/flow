@@ -18,14 +18,14 @@ private fun ownEstimateTimeline(
     val fieldId = context.estimateFieldIdFor(item, config) ?: return emptyList()
     val changes = context.estimateChangesByIssueAndField[item.issueId].orEmpty().filter { it.fieldId == fieldId }
     val current = item.customFields[fieldId]?.jsonPrimitive?.doubleOrNull
-    return DeriveKernels.estimateTimeline(item.createdAt, changes, current)
+    return estimateTimeline(item.createdAt, changes, current)
 }
 
 private fun ownEstimateSnapshots(timeline: List<EstimatePoint>, startedAt: Long?, doneAt: Long?): EstimateSnapshots =
     if (timeline.isEmpty()) {
         EstimateSnapshots(null, null, null, false, 0)
     } else {
-        DeriveKernels.estimateSnapshots(timeline, startedAt, doneAt)
+        estimateSnapshots(timeline, startedAt, doneAt)
     }
 
 private fun ownWorkCategory(item: WorkItemStore.DerivationWorkItemRow, context: DeriveContext): String? {
@@ -44,12 +44,12 @@ internal fun deriveItem(
     val statusIntervals = context.statusIntervalsByIssue[item.issueId].orEmpty()
     // The item's domain NOW (`domain_map`, else the project key itself — the same read `buildTaskRow`'s
     // callers use): a per-domain stage override applies to every status interval of the item.
-    val stages = DeriveKernels.stageIntervals(
+    val stages = stageIntervals(
         statusIntervals,
         context.stageMapFor(context.domainByProject[item.projectKey] ?: item.projectKey),
     )
-    val startedDone = DeriveKernels.startedDoneAt(stages)
-    val blocked = DeriveKernels.blockedIntervals(
+    val startedDone = startedDoneAt(stages)
+    val blocked = blockedIntervals(
         context.flaggedIntervalsByIssue[item.issueId].orEmpty(),
         statusIntervals,
         context.blockedStatusIds,
@@ -104,7 +104,7 @@ internal fun buildEpicRow(
     val childSum = childFacts.sumOf { it.estimateCurrentMd ?: 0.0 }
     val ownCurrent = derived.ownSnapshots.currentMd
     val childStatuses = childTasks.map { derivedById.getValue(it.issueId).let { d -> ChildDeliveryStatus(d.started, d.done) } }
-    val driftFlags = DeriveKernels.epicDriftFlags(currentStage, childStatuses, context.epicDriftDays, context.now)
+    val driftFlags = epicDriftFlags(currentStage, childStatuses, context.epicDriftDays, context.now)
     val ownWorklogSeconds = context.worklogSecondsByIssue[item.issueId] ?: 0L
     val actualMd = ownWorklogSeconds / SECONDS_PER_HOUR / context.hoursPerDay + childFacts.sumOf { it.actualMd }
     val fact = FactEpicDeliveryRow(
@@ -133,7 +133,7 @@ internal fun buildEpicRow(
 /**
  * The task's composite estimate (review round 2a fix): OWN wins outright; otherwise SUBTASKS
  * sums its sub-tasks' OWN timelines AS-OF the PARENT's own `startedAt`/`doneAt`
- * ([DeriveKernels.mergeEstimateTimelines]) — never their CURRENT sum reused at both snapshots,
+ * ([mergeEstimateTimelines]) — never their CURRENT sum reused at both snapshots,
  * which silently ignored every subtask estimate change and reported `estimatedLate`/
  * `changesAfterStart` off the (usually estimate-less, hence always-false) parent's OWN timeline
  * instead of the subtasks' actual history.
@@ -156,10 +156,10 @@ private fun taskEstimate(
             derived.ownSnapshots.changesAfterStart,
         )
     }
-    val merged = DeriveKernels.mergeEstimateTimelines(childSubtasks.map { derivedById.getValue(it.issueId).estimateTimeline })
+    val merged = mergeEstimateTimelines(childSubtasks.map { derivedById.getValue(it.issueId).estimateTimeline })
     val current = merged.lastOrNull()?.estimateMd
     if (current == null) return EstimateComposite(null, null, null, "NONE", false, 0)
-    val snapshots = DeriveKernels.estimateSnapshots(merged, startedAt, doneAt)
+    val snapshots = estimateSnapshots(merged, startedAt, doneAt)
     return EstimateComposite(
         snapshots.atStartMd, snapshots.atDoneMd, current, "SUBTASKS", snapshots.estimatedLate, snapshots.changesAfterStart,
     )
@@ -211,8 +211,8 @@ internal fun buildTaskRow(
     // done or not (the aging-WIP report's own team attribution for still-open items).
     val current = currentAttribution(item, context)
 
-    // A18: flow efficiency — active/wait time, 0/0 while not done (`DeriveKernels.activeWaitMs`).
-    val activeWait = DeriveKernels.activeWaitMs(derived.stages, derived.blocked, derived.started, derived.done)
+    // A18: flow efficiency — active/wait time, 0/0 while not done (`activeWaitMs`).
+    val activeWait = activeWaitMs(derived.stages, derived.blocked, derived.started, derived.done)
 
     val fact = FactTaskDeliveryRow(
         issueId = item.issueId,
@@ -336,10 +336,10 @@ internal fun taskEpicHistory(item: WorkItemStore.DerivationWorkItemRow, context:
     }
 }
 
-/** `task_domain`'s effective-dated history (review round 2a fix) — see [DeriveKernels.projectKeyTimeline]. */
+/** `task_domain`'s effective-dated history (review round 2a fix) — see [projectKeyTimeline]. */
 internal fun taskDomainHistory(item: WorkItemStore.DerivationWorkItemRow, context: DeriveContext): List<TaskDomainRow> {
     val issueKeyChanges = context.issueKeyChangesByIssue[item.issueId].orEmpty()
-    val timeline = DeriveKernels.projectKeyTimeline(item.createdAt, issueKeyChanges, item.issueKey)
+    val timeline = projectKeyTimeline(item.createdAt, issueKeyChanges, item.issueKey)
     return timeline.mapIndexed { index, point ->
         val to = timeline.getOrNull(index + 1)?.atMs
         val domainKey = point.projectKey?.let { context.domainByProject[it] ?: it }
