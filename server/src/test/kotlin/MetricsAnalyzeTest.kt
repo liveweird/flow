@@ -37,8 +37,9 @@ import kotlin.test.assertTrue
 /**
  * Regression pins for the `ANALYZE` of DERIVE (`MetricsStore.analyzeDerivedTables`,
  * `.claude/docs/metrics.md` "The DERIVE run algorithm"). DERIVE rebuilds `metrics.*` in ONE transaction;
- * a derive whose predecessor left no statistics that describe the connection's rows (the first one, one after a
- * SUCCEEDED run over zero tasks, one over more than twice the previous task count — `statisticsDescribeRows`)
+ * a derive whose predecessor left no statistics that describe the connection's rows (the first one, or one where any
+ * per-table count — tasks, epics, sprints, worklogs, epic plans, estimates — went from 0 to non-zero or more than
+ * doubled since the previous SUCCEEDED run's `row_counts`, `statisticsDescribeRows`)
  * ANALYZEs inside it (no statistics would mean `rows=1` plans and every re-derive slower, build-times WHY 1); every
  * other derive ANALYZEs after the commit in its own short, time-bounded transaction, so concurrent derives overlap.
  * Deliberately not a timing test of the plans — it pins the statistics a derive leaves behind
