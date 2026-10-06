@@ -1,10 +1,11 @@
 import { lazy, Suspense } from "react";
 import { useTranslation } from "react-i18next";
-import { Alert, Group, Stack, Table, Text, VisuallyHidden } from "@mantine/core";
+import { Alert, Group, Stack, Text, VisuallyHidden } from "@mantine/core";
 import { IconInfoCircle } from "@tabler/icons-react";
 import type { CycleTimeReport } from "../api/reports";
-import { cycleTrendRows, trendHasPoints } from "../utils/cycleTimeReport";
+import { cycleTrendRows, trendHasPoints, type CycleTrendRow } from "../utils/cycleTimeReport";
 import { formatDays } from "../utils/reportFormat";
+import ColumnTable, { type ColumnDef } from "./ColumnTable";
 import HomeTile from "./HomeTile";
 import LoadingBlock from "./LoadingBlock";
 
@@ -41,6 +42,12 @@ export default function HomeCycleTimeTile({
   const { t } = useTranslation();
   const report = query.data;
   const rows = report ? cycleTrendRows(report.trend, "WEEK") : [];
+  const trendColumns: ColumnDef<CycleTrendRow>[] = [
+    { key: "bucket", header: t("reports.cycleTime.column.bucketWEEK"), render: (row) => row.label },
+    { key: "n", header: t("reports.cycleTime.column.n"), render: (row) => row.n },
+    { key: "p50", header: t("reports.cycleTime.column.p50"), render: (row) => (row.p50 === null ? MISSING : formatDays(row.p50)) },
+    { key: "p90", header: t("reports.cycleTime.column.p90"), render: (row) => (row.p90 === null ? MISSING : formatDays(row.p90)) },
+  ];
   return (
     <HomeTile
       title={t("home.cycleTime.title")}
@@ -76,27 +83,13 @@ export default function HomeCycleTimeTile({
                   <CycleTimeTrendChart rows={rows} height={200} />
                 </Suspense>
                 <VisuallyHidden>
-                  <Table aria-label={t("reports.cycleTime.trendTableLabel")}>
-                    <Table.Thead>
-                      <Table.Tr>
-                        <Table.Th>{t("reports.cycleTime.column.bucketWEEK")}</Table.Th>
-                        <Table.Th>{t("reports.cycleTime.column.n")}</Table.Th>
-                        <Table.Th>{t("reports.cycleTime.column.p50")}</Table.Th>
-                        <Table.Th>{t("reports.cycleTime.column.p90")}</Table.Th>
-                      </Table.Tr>
-                    </Table.Thead>
-                    <Table.Tbody>
-                      {rows.map((row, index) => (
-                        // Buckets are ordered and fixed per response; position is the identity.
-                        <Table.Tr key={index}>
-                          <Table.Td>{row.label}</Table.Td>
-                          <Table.Td>{row.n}</Table.Td>
-                          <Table.Td>{row.p50 === null ? MISSING : formatDays(row.p50)}</Table.Td>
-                          <Table.Td>{row.p90 === null ? MISSING : formatDays(row.p90)}</Table.Td>
-                        </Table.Tr>
-                      ))}
-                    </Table.Tbody>
-                  </Table>
+                  <ColumnTable
+                    aria-label={t("reports.cycleTime.trendTableLabel")}
+                    columns={trendColumns}
+                    rows={rows}
+                    // Buckets are ordered and fixed per response; position is the identity.
+                    rowKey={(_row, index) => String(index)}
+                  />
                 </VisuallyHidden>
               </>
             ) : (

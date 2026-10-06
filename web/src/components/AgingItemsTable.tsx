@@ -1,11 +1,12 @@
 import { useTranslation } from "react-i18next";
-import { Anchor, Badge, Stack, Table, Text } from "@mantine/core";
+import { Anchor, Badge, Stack, Text } from "@mantine/core";
 import { Link as RouterLink, useLocation, useSearchParams } from "react-router-dom";
 import type { AgingItem, AgingWipReport, ReportFilters } from "../api/reports";
 import { bandPercentileLabel, bandTone, thresholdsFor } from "../utils/agingReport";
 import { formatDate } from "../utils/formatDate";
 import { formatDays, teamLabel } from "../utils/reportFormat";
 import { applyReportFilter, parseReportFilter } from "../utils/reportFilter";
+import ColumnTable, { type ColumnDef } from "./ColumnTable";
 import ScrollRegion from "./ScrollRegion";
 
 const MISSING = "—";
@@ -78,56 +79,71 @@ export default function AgingItemsTable({
     );
   };
 
+  const columns: ColumnDef<AgingItem>[] = [
+    {
+      key: "item",
+      header: t("reports.agingWip.column.item"),
+      render: (item) => (
+        <>
+          <Text size="sm" fw={600}>
+            {item.issueKey}
+          </Text>
+          {item.summary && (
+            <Text size="xs" c="dimmed" lineClamp={2}>
+              {item.summary}
+            </Text>
+          )}
+        </>
+      ),
+    },
+    ...(showKind
+      ? [
+          {
+            key: "kind",
+            header: t("reports.agingWip.column.kind"),
+            render: (item: AgingItem) => t(`reports.kind.${item.itemKind}`),
+          },
+        ]
+      : []),
+    { key: "team", header: t("reports.agingWip.column.team"), render: teamCell },
+    { key: "assignee", header: t("reports.agingWip.column.assignee"), render: assigneeCell },
+    {
+      key: "started",
+      header: t("reports.agingWip.column.started"),
+      render: (item) => formatDate(item.startedAt, MISSING, filters.timeZone),
+    },
+    {
+      key: "age",
+      header: t("reports.agingWip.column.age"),
+      render: (item) => formatDays(item.ageWorkingDays),
+      align: "right",
+    },
+    {
+      key: "blocked",
+      header: t("reports.agingWip.column.blocked"),
+      render: (item) =>
+        item.blocked ? (
+          <Badge color="red" variant="outline">
+            {t("reports.agingWip.blocked")}
+          </Badge>
+        ) : (
+          <Text size="sm" c="dimmed">
+            {MISSING}
+          </Text>
+        ),
+    },
+    { key: "band", header: t("reports.agingWip.column.band"), render: bandCell },
+  ];
+
   return (
     <Stack gap="xs">
       <ScrollRegion label={t("reports.agingWip.tableLabel")} minWidth={760}>
-        <Table aria-label={t("reports.agingWip.tableLabel")}>
-          <Table.Thead>
-            <Table.Tr>
-              <Table.Th>{t("reports.agingWip.column.item")}</Table.Th>
-              {showKind && <Table.Th>{t("reports.agingWip.column.kind")}</Table.Th>}
-              <Table.Th>{t("reports.agingWip.column.team")}</Table.Th>
-              <Table.Th>{t("reports.agingWip.column.assignee")}</Table.Th>
-              <Table.Th>{t("reports.agingWip.column.started")}</Table.Th>
-              <Table.Th ta="right">{t("reports.agingWip.column.age")}</Table.Th>
-              <Table.Th>{t("reports.agingWip.column.blocked")}</Table.Th>
-              <Table.Th>{t("reports.agingWip.column.band")}</Table.Th>
-            </Table.Tr>
-          </Table.Thead>
-          <Table.Tbody>
-            {report.items.map((item) => (
-              <Table.Tr key={`${item.itemKind}:${item.issueKey}`}>
-                <Table.Td>
-                  <Text size="sm" fw={600}>
-                    {item.issueKey}
-                  </Text>
-                  {item.summary && (
-                    <Text size="xs" c="dimmed" lineClamp={2}>
-                      {item.summary}
-                    </Text>
-                  )}
-                </Table.Td>
-                {showKind && <Table.Td>{t(`reports.kind.${item.itemKind}`)}</Table.Td>}
-                <Table.Td>{teamCell(item)}</Table.Td>
-                <Table.Td>{assigneeCell(item)}</Table.Td>
-                <Table.Td>{formatDate(item.startedAt, MISSING, filters.timeZone)}</Table.Td>
-                <Table.Td ta="right">{formatDays(item.ageWorkingDays)}</Table.Td>
-                <Table.Td>
-                  {item.blocked ? (
-                    <Badge color="red" variant="outline">
-                      {t("reports.agingWip.blocked")}
-                    </Badge>
-                  ) : (
-                    <Text size="sm" c="dimmed">
-                      {MISSING}
-                    </Text>
-                  )}
-                </Table.Td>
-                <Table.Td>{bandCell(item)}</Table.Td>
-              </Table.Tr>
-            ))}
-          </Table.Tbody>
-        </Table>
+        <ColumnTable
+          aria-label={t("reports.agingWip.tableLabel")}
+          columns={columns}
+          rows={report.items}
+          rowKey={(item) => `${item.itemKind}:${item.issueKey}`}
+        />
       </ScrollRegion>
       {report.itemsTruncated && (
         <Text size="xs" c="dimmed">
