@@ -277,11 +277,10 @@ class MetricsDeriver(
      * bounded twice: [analyzeLockTimeoutMs] per table lock (`SET LOCAL lock_timeout`) and [analyzeStatementTimeoutMs] for the whole
      * statement (the transaction's `queryTimeout`, whole seconds, rounded up), so a lock someone else holds — a manual VACUUM,
      * another ANALYZE, a first derive's in-transaction one — occupies the worker slot for that long at most; a timeout is
-     * just another failure to WARN about. The statement timeout does not cover acquiring a pooled connection (the
-     * pool's own acquire timeout, 30 s by default), so the worst case outside shutdown is that plus the statement
-     * bound. Deliberately NOT under
-     * `NonCancellable`: a shutdown must be able to interrupt it, because the worker's bounded join on shutdown has to see
-     * the claim released.
+     * just another failure to WARN about. The statement timeout does not cover acquiring a pooled connection (the pool's own
+     * acquire timeout, 10 s by default, about 20 s with r2dbc-pool's one retry), so the worst case outside shutdown is that
+     * plus the statement bound. Deliberately NOT under `NonCancellable`: a shutdown must be able to interrupt it, because
+     * the worker's bounded join on shutdown has to see the claim released.
      */
     private suspend fun analyzeAfterCommit(connectionId: UInt) {
         catchingFailures({ metricsStore.analyzeDerivedTables(analyzeLockTimeoutMs, analyzeStatementTimeoutMs) }) { failure ->

@@ -158,6 +158,29 @@ export async function apiAsAdmin(): Promise<{ api: APIRequestContext; userId: nu
 }
 
 /**
+ * Teardown through the API for the rows a test created, for a spec's `test.afterEach` — so a failing step leaves nothing
+ * behind (an old e2e connection would keep syncing on every boot of the dev volume). `paths` are deleted IN THE GIVEN ORDER
+ * (children first) through a FRESH admin session (the test's own token may have expired across a long sync wait). EVERY path is
+ * attempted; 204 and 404 pass, since the test body may already have deleted a row through the UI — so callers must register
+ * only paths built from a create response's id (a mistyped path would also answer 404 and go unnoticed). Any other status is
+ * collected and thrown once at the end, listing all of them.
+ */
+export async function deleteViaApi(paths: string[]): Promise<void> {
+  if (paths.length === 0) return;
+  const { api } = await apiAsAdmin();
+  const failures: string[] = [];
+  try {
+    for (const path of paths) {
+      const status = (await api.delete(path)).status();
+      if (status !== 204 && status !== 404) failures.push(`${path} -> ${status}`);
+    }
+  } finally {
+    await api.dispose();
+  }
+  expect(failures, `teardown DELETEs that answered neither 204 nor 404`).toEqual([]);
+}
+
+/**
  * The stub dataset's "now" (`sample-data/jira/expected.json`'s `referenceDate`): its data ends there,
  * so a period written as an offset from it never slides off the data the way "the last 90 days" does.
  */
