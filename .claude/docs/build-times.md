@@ -407,8 +407,8 @@ projection moves from ~25-30 s by ~5 s, projected, NOT measured.
 `SHARE UPDATE EXCLUSIVE` locks (the tables are shared by every connection) lived to the COMMIT and a second
 connection's derive queued on them for the rest of the first's run (~50 % of a stub derive: ANALYZE + WIP + flow +
 commit). The fix moves it AFTER the commit and `markRunSucceeded` for every derive whose predecessor's statistics
-describe its rows (a SUCCEEDED run over > 0 tasks, at most half the current item count; otherwise — first derive, a
-zero-task run, a doubled connection — it stays in the transaction: the WHY 1 failure mode is ABSENT or wrong-sized
+describe its rows (per table: every `row_counts` key — tasks, epics, sprints, worklogs, epic plans, item estimates — is 0 or was > 0
+and at most doubled; otherwise — first derive, an empty table filled by a config change, a doubled connection — it stays in the transaction: the WHY 1 failure mode is ABSENT or wrong-sized
 statistics, not one-derive-old ones). **Step 0 gate (measured before keeping any code):** a temporary harness (removed), local,
 18 cores, shared machine, the 1,200-issue stub, a disabled processed clone derived three times under the pinned
 clock, LEGACY (in-transaction ANALYZE) and NEW (post-commit) interleaved, plus `EXPLAIN (ANALYZE, BUFFERS)` of every
@@ -435,15 +435,16 @@ the derive really used):
   `DEFAULT_ANALYZE_LOCK_TIMEOUT_MS`) and `SET LOCAL statement_timeout = 30000` (the whole statement,
   `DEFAULT_ANALYZE_STATEMENT_TIMEOUT_MS`; a healthy ANALYZE is 16-90 ms), so a foreign lock (a long manual `VACUUM`,
   another ANALYZE) occupies the worker slot for 30 s at most — slot occupancy, not lease safety: the heartbeat is a
-  concurrent `leaseSeconds/3` ticker. A timeout is a WARN and the run stays SUCCEEDED; the WARN is EXPECTED when a
-  re-derive's post-commit ANALYZE overlaps another connection's in-transaction one. The in-transaction ANALYZE has no
-  timeout. It runs under `NonCancellable`.
-- **Test cost:** `MetricsAnalyzeTest` went from 2 tests / 9.6 s (the WHY 3 table's older figure) to 9 tests / ~12 s of its own work (28-29 s run alone,
-  including the one-time ~16 s shared stub sync; three runs, 27.5-29.0 s) — the re-derive tests share one
+  concurrent `leaseSeconds/3` ticker (`statement_timeout` does not cover pool acquire, 30 s by default, so ~60 s worst
+  case outside shutdown). A timeout is a WARN and the run stays SUCCEEDED; the WARN can occur when a re-derive's
+  post-commit ANALYZE overlaps another connection's in-transaction one. The in-transaction ANALYZE has no timeout. The
+  post-commit one is NOT `NonCancellable` (a shutdown must be able to interrupt it).
+- **Test cost:** `MetricsAnalyzeTest` went from 2 tests / 9.6 s (the WHY 3 table's older figure) to 10 tests / ~15 s of its own work (31.5-33.2 s run alone,
+  including the one-time ~16 s shared stub sync; three runs) — the re-derive tests share one
   derived clone, and the two-connection overlap measurement above is opt-in (`FLOW_MEASURE_DERIVE_OVERLAP=1`) and costs the
   suite nothing.
 - **Left as is:** a derive whose predecessor's statistics do not describe its rows (a new connection, one after
-  PURGE or a zero-task run, a doubled connection) still serializes with another such derive from the ANALYZE to its
+  PURGE, an empty table filled by a config change, a doubled connection) still serializes with another such derive from the ANALYZE to its
   commit.
 
 Open questions — each is "why does this take this long for a tiny dataset?", to be answered with

@@ -556,12 +556,12 @@ class MetricsStore(private val database: R2dbcDatabase) {
     }
 
     /**
-     * The `tasks` count of this connection's newest SUCCEEDED `derive_runs` row (`row_counts`; 0 when absent), `null`
-     * before any run succeeded. That row is never pruned ([pruneDeriveRuns]), so it exists for any connection that ever
-     * derived. `MetricsDeriver` compares it with the item count to tell whether the planner statistics still describe
-     * the connection's rows ([statisticsDescribeRows]).
+     * The whole `row_counts` (every integer entry) of this connection's newest SUCCEEDED `derive_runs` row, `null` before
+     * any run succeeded (an empty map when that row recorded none). That row is never pruned ([pruneDeriveRuns]), so it
+     * exists for any connection that ever derived. `MetricsDeriver` compares it, key by key, with the counts it is about
+     * to write to tell whether the planner statistics still describe the connection's rows ([statisticsDescribeRows]).
      */
-    suspend fun newestSucceededRunTaskCount(connectionId: UInt): Int? = suspendTransaction(database) {
+    suspend fun newestSucceededRunRowCounts(connectionId: UInt): Map<String, Int>? = suspendTransaction(database) {
         DeriveRuns.select(DeriveRuns.rowCounts)
             .where { (DeriveRuns.connectionId eq connectionId.toInt()) and (DeriveRuns.status eq "SUCCEEDED") }
             .orderBy(DeriveRuns.startedAt to SortOrder.DESC, DeriveRuns.id to SortOrder.DESC)
@@ -569,8 +569,10 @@ class MetricsStore(private val database: R2dbcDatabase) {
             .toList().singleOrNull()
             ?.let { row ->
                 row[DeriveRuns.rowCounts]?.let { json ->
-                    Json.parseToJsonElement(json).jsonObject["tasks"]?.jsonPrimitive?.intOrNull
-                } ?: 0
+                    Json.parseToJsonElement(json).jsonObject
+                        .mapNotNull { (key, value) -> value.jsonPrimitive.intOrNull?.let { key to it } }
+                        .toMap()
+                } ?: emptyMap()
             }
     }
 
@@ -713,23 +715,24 @@ class MetricsStore(private val database: R2dbcDatabase) {
      * estimates: nested loops over tens of thousands of rows (build-times WHY 1: 7.5 s, then 12.3 s, 18.9 s per derive).
      * Two call sites, one per situation ([statisticsDescribeRows] picks):
      *
-     * - A derive with NO usable statistics (the connection's first, one after a SUCCEEDED run over zero tasks, or one
-     *   over more than twice the previous task count) calls it INSIDE the derive transaction (reusing the caller's
-     *   transaction like [execAggDailyWip]). Unlike `VACUUM`, `ANALYZE` is legal in a transaction block and counts the
-     *   transaction's own inserted rows as live, so the statistics describe the rebuilt state. Its `SHARE UPDATE
-     *   EXCLUSIVE` locks, which conflict with themselves, are held to the commit, so two such derives (rare: a new
+     * - A derive with NO usable statistics (the connection's first, or any analyzed table that was empty last time or is
+     *   now more than twice as big — tasks, epics, sprints, worklogs, epic plans, item estimates) calls it INSIDE the
+     *   derive transaction (reusing the caller's transaction like [execAggDailyWip]). Unlike `VACUUM`, `ANALYZE` is legal
+     *   in a transaction block and counts the transaction's own inserted rows as live, so the statistics describe the
+     *   rebuilt state. Its `SHARE UPDATE EXCLUSIVE`
+     *   locks, which conflict with themselves, are held to the commit, so two such derives (rare: a new
      *   connection, or one after PURGE) serialize from this statement to their commit — the second's ANALYZE waits for
      *   the first's commit (no deadlock: same tables, same order). No timeouts: it must see fresh statistics.
      * - Every OTHER derive calls it AFTER the commit, as a top-level call, so it is its own short transaction, with
      *   `SET LOCAL lock_timeout` ([lockTimeoutMs], per table) and `statement_timeout` ([statementTimeoutMs], the whole
-     *   statement) so a lock another session holds occupies the worker slot for that long at most (the timeout error
-     *   reaches the caller, which WARNs; the data is already committed). Those derives plan on the previous committed
-     *   state's statistics (the same connection's rows: same `connection_id` share, `issue_id` n_distinct,
-     *   validity-range histograms; the row count is rescaled by the actual block count) — the planner's failure mode is
-     *   ABSENT or wrong-sized statistics, not one-derive-old ones — and the post-commit ANALYZE keeps them at most one
-     *   derive old. The lock is held for milliseconds, never for a derive, so concurrent derives overlap fully. One
-     *   expected WARN: it overlaps another connection's in-transaction ANALYZE (that first derive holds the locks to its
-     *   commit) and times out.
+     *   statement; it does not cover acquiring a pooled connection) so a lock another session holds occupies the worker
+     *   slot for that long at most (the timeout error reaches the caller, which WARNs; the data is already committed).
+     *   Those derives plan on the previous committed state's statistics (the same connection's rows: same `connection_id`
+     *   share, `issue_id` n_distinct, validity-range histograms; the row count is rescaled by the actual block count) —
+     *   the planner's failure mode is ABSENT or wrong-sized statistics, not one-derive-old ones — and the post-
+     *   commit ANALYZE keeps them at most one derive old. The lock is held for milliseconds, never for a derive,
+     *   so concurrent derives overlap fully. It can WARN when it overlaps another connection's in-transaction
+     *   ANALYZE (that derive holds the locks to its commit) and times out.
      *
      * Table names are fixed constants (no user input); the timeouts are numbers, not text, and `null` means wait as long
      * as it takes. Never make it skippable (`SKIP_LOCKED`): the in-transaction call has to see the transaction's

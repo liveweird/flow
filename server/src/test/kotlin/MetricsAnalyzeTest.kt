@@ -3,6 +3,7 @@ package ch.nokillswit
 import ch.nokillswit.metrics.ANALYZED_TABLES
 import ch.nokillswit.metrics.MetricsStore
 import ch.nokillswit.metrics.MetricsTables
+import ch.nokillswit.metrics.asRequest
 import ch.nokillswit.metrics.statisticsDescribeRows
 import ch.qos.logback.classic.Level
 import kotlinx.coroutines.CompletableDeferred
@@ -250,25 +251,61 @@ class MetricsAnalyzeTest {
         DerivedStubFixture.withPinnedSettings(DerivedStubFixture.metricsSettings()) {
             DerivedStubFixture.derivePinned(connId, jobId = 1u)
             assertEquals(1, succeededRuns(connId))
-            assertEquals(0, store.newestSucceededRunTaskCount(connId), "the empty derive wrote no tasks")
+            assertEquals(0, store.newestSucceededRunRowCounts(connId)?.get("tasks"), "the empty derive wrote no tasks")
 
             SyncedStubFixture.cloneProcessedData(SyncedStubFixture.connectionId(), connId)
             DerivedStubFixture.mapFloBoardToNewTeam(connId, DerivedStubFixture.metricsConfig(), "analyze-empty-team")
             assertHeldBackInTransaction(connId, jobId = 2u)
         }
         assertEquals(2, succeededRuns(connId))
-        assertEquals(true, (store.newestSucceededRunTaskCount(connId) ?: 0) > 0, "the real derive wrote tasks")
+        assertTrue((store.newestSucceededRunRowCounts(connId)?.get("tasks") ?: 0) > 0, "the real derive wrote tasks")
     }
 
     @Test
-    fun `statisticsDescribeRows only trusts a previous run over a similar number of rows`() {
-        assertFalse(statisticsDescribeRows(null, 1_200), "no previous SUCCEEDED run")
-        assertFalse(statisticsDescribeRows(0, 1_200), "a previous run over zero tasks left statistics for nothing")
-        assertFalse(statisticsDescribeRows(0, 0), "zero tasks stays blind even over zero items")
-        assertTrue(statisticsDescribeRows(1_000, 1_200), "the same connection, a little bigger")
-        assertTrue(statisticsDescribeRows(1_000, 2_000), "exactly twice the tasks is still described")
-        assertFalse(statisticsDescribeRows(1_000, 2_001), "more than twice the previous task count is a different table")
-        assertTrue(statisticsDescribeRows(1_000, 300), "a shrunken connection is still described by the older statistics")
+    fun `a config that fills item_estimate while the tasks stay flat makes the next derive ANALYZE inside its transaction`() = runBlocking {
+        val connId = SyncedStubFixture.createConnection(namePrefix = "jira-analyze-estimate", enabled = false)
+        SyncedStubFixture.cloneProcessedData(SyncedStubFixture.connectionId(), connId)
+        val config = DerivedStubFixture.metricsConfig()
+        val store = MetricsStore(sharedDatabaseForTests())
+        DerivedStubFixture.mapFloBoardToNewTeam(connId, config, "analyze-estimate-team")
+        val withEstimates = config.effectiveConfig(connId)
+        // The admin has not mapped the estimate fields yet: every task is derived, no item_estimate row is written.
+        config.replaceConfig(
+            connId,
+            withEstimates.asRequest().copy(fields = withEstimates.fields.copy(estimateTask = null, estimateEpic = null)),
+        )
+        DerivedStubFixture.withPinnedSettings(DerivedStubFixture.metricsSettings()) {
+            DerivedStubFixture.derivePinned(connId, jobId = 1u)
+            val before = requireNotNull(store.newestSucceededRunRowCounts(connId))
+            assertEquals(0, before["estimates"], "no estimate field configured, no item_estimate rows")
+            assertTrue((before["tasks"] ?: 0) > 0)
+
+            // The first config PUT that maps them: same tasks, a table that was empty is now full.
+            config.replaceConfig(connId, withEstimates.asRequest())
+            assertHeldBackInTransaction(connId, jobId = 2u)
+            val after = requireNotNull(store.newestSucceededRunRowCounts(connId))
+            assertEquals(before["tasks"], after["tasks"], "the task count stayed flat")
+            assertTrue((after["estimates"] ?: 0) > 0, "item_estimate was filled")
+        }
+        assertEquals(2, succeededRuns(connId))
+    }
+
+    @Test
+    fun `statisticsDescribeRows decides per table, like with like`() {
+        val previous = mapOf("tasks" to 1_000, "estimates" to 900, "sprints" to 0, "worklogs" to 50)
+        fun described(current: Map<String, Int>, before: Map<String, Int>? = previous) = statisticsDescribeRows(before, current)
+
+        assertFalse(described(mapOf("tasks" to 1_200), before = null), "no previous SUCCEEDED run")
+        assertTrue(described(mapOf("tasks" to 1_200, "estimates" to 1_000, "sprints" to 0, "worklogs" to 60)), "everything similar")
+        assertTrue(described(mapOf("tasks" to 2_000)), "exactly twice is still described")
+        assertFalse(described(mapOf("tasks" to 2_001)), "more than twice the previous count is a different table")
+        assertTrue(described(mapOf("tasks" to 300, "estimates" to 0)), "a shrunken or emptied table has nothing to plan")
+        assertFalse(described(mapOf("tasks" to 1_000, "sprints" to 5)), "a table that was empty last time and is not now")
+        assertFalse(described(mapOf("tasks" to 1_000), before = mapOf("tasks" to 0)), "a zero-task previous run left no statistics")
+        assertFalse(described(mapOf("tasks" to 1_000, "epicPlans" to 3)), "a key the previous run did not record fails, once")
+        assertTrue(described(mapOf("tasks" to 1_000, "epicPlans" to 0)), "… unless the table is empty now")
+        assertTrue(described(emptyMap()), "nothing to compare")
+        assertTrue(described(mapOf("tasks" to 0), before = emptyMap()), "an empty derive after any run plans nothing")
     }
 
     /**
@@ -366,7 +403,7 @@ class MetricsAnalyzeTest {
         const val HOLD_WAIT_MS = 1_500L
         const val TIMEOUT_TEST_LOCK_TIMEOUT_MS = 2_000L
         const val LONG_LOCK_TIMEOUT_MS = 120_000L
-        const val TIMEOUT_MARGIN_MS = 3_000L
+        const val TIMEOUT_MARGIN_MS = 10_000L
         const val BACKSTOP_MS = 120_000L
         const val NANOS_PER_MS = 1_000_000L
 

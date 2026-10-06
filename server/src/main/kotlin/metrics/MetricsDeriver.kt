@@ -51,19 +51,24 @@ internal const val DEFAULT_ANALYZE_LOCK_TIMEOUT_MS = 5_000L
  */
 internal const val DEFAULT_ANALYZE_STATEMENT_TIMEOUT_MS = 30_000L
 
-/** The previous derive's statistics still describe this one's rows while the item count is at most this multiple of its task count. */
+/** A table's statistics still describe a derive while its row count is at most this multiple of the previous derive's. */
 private const val STATISTICS_GROWTH_FACTOR = 2
 
 /**
- * Whether the planner statistics left by the connection's newest SUCCEEDED derive (it wrote [previousTasks]
- * `fact_task_delivery` rows; null = no such run) still describe a derive over [workItemCount] items — the test that picks
- * the in-transaction ANALYZE (they do NOT: no statistics for these rows, so the WIP/flow `INSERT … SELECT`s would plan
- * at default `rows=1`, build-times WHY 1) or the post-commit one (they do). A SUCCEEDED run over ZERO tasks (a new
- * connection derived before its first SYNC) left statistics for nothing, and a connection that more than doubled since
- * its last derive has statistics for a different table.
+ * Whether the planner statistics the connection's newest SUCCEEDED derive left ([previous] = its `row_counts`; null = no
+ * such run) still describe a derive that is about to write [current] rows (the same keys: `tasks`, `epics`, `sprints`,
+ * `worklogs`, `epicPlans`, `estimates` — each one the row count of tables in `ANALYZED_TABLES`). The test that picks the
+ * in-transaction ANALYZE (they do NOT: some table the WIP/flow `INSERT … SELECT`s join would be planned at default
+ * `rows=1`, build-times WHY 1) or the post-commit one (they do). Decided PER KEY, like with like, because config-dependent
+ * tables move independently of the tasks: an admin's first config PUT mapping the estimate field fills `item_estimate`
+ * (the backlog flow joins it) and mapping the sprint field fills the sprint tables while the task count stays flat. A key
+ * passes when [current] is 0 (nothing to plan) or the previous run wrote more than 0 and [current] is at most
+ * [STATISTICS_GROWTH_FACTOR] times as many; a key the previous run did not record (an older build) fails, once.
  */
-internal fun statisticsDescribeRows(previousTasks: Int?, workItemCount: Int): Boolean =
-    previousTasks != null && previousTasks > 0 && workItemCount <= STATISTICS_GROWTH_FACTOR * previousTasks
+internal fun statisticsDescribeRows(previous: Map<String, Int>?, current: Map<String, Int>): Boolean =
+    previous != null && current.all { (key, now) ->
+        now == 0 || previous[key]?.let { before -> before > 0 && now <= STATISTICS_GROWTH_FACTOR * before } == true
+    }
 
 /**
  * The per-item/per-batch work runs in chunks of this size (v0.3.0 M3 review round 2b, plan §5):
@@ -219,7 +224,7 @@ class MetricsDeriver(
 
         val derivedById = mutableMapOf<Long, ItemDerived>()
         val blockedByIssue = mutableMapOf<Long, Pair<Long, Double>>()
-        runPass1(connectionId, workItems, context, config, derivedById, blockedByIssue)
+        val estimateCount = runPass1(connectionId, workItems, context, config, derivedById, blockedByIssue)
 
         val factTasksByIssueId = mutableMapOf<Long, FactTaskDeliveryRow>()
         val factEpicsByIssueId = mutableMapOf<Long, FactEpicDeliveryRow>()
@@ -231,12 +236,16 @@ class MetricsDeriver(
         val worklogCount = runWorklogStep(connectionId, workItems, context, derivedById, configRevision)
         val epicPlanCount = runEpicPlanStep(connectionId, workItems, context, derivedById, factEpicsByIssueId, configRevision)
         widenDimDate(connectionId, calendar, createdMin, now, configRevision)
-        // Statistics that do not describe this connection's rows (no SUCCEEDED derive yet, or one over zero tasks, or the
-        // connection has more than doubled) would have the WIP/flow INSERT..SELECTs below plan at default rows=1
-        // estimates (autovacuum never sees uncommitted rows), so such a derive ANALYZEs in this transaction (legal in a
-        // transaction block, counts its own rows) and holds the table locks to the commit. Every other derive plans on
-        // the previous committed state's statistics and ANALYZEs after the commit.
-        val analyzeInTransaction = !statisticsDescribeRows(metricsStore.newestSucceededRunTaskCount(connectionId), workItems.size)
+        // Statistics that do not describe this connection's rows (no SUCCEEDED derive yet, or some table that was empty or
+        // is now more than twice as big as last time — `statisticsDescribeRows`) would have the WIP/flow INSERT..SELECTs
+        // below plan at default rows=1 estimates (autovacuum never sees uncommitted rows), so such a derive ANALYZEs in
+        // this transaction (legal in a transaction block, counts its own rows) and holds the table locks to the commit.
+        // Every other derive plans on the previous committed state's statistics and ANALYZEs after the commit.
+        val statisticsRowCounts = mapOf(
+            "tasks" to taskCount, "epics" to epicCount, "sprints" to sprintOutcome.sprintCount, "worklogs" to worklogCount,
+            "epicPlans" to epicPlanCount, "estimates" to estimateCount,
+        )
+        val analyzeInTransaction = !statisticsDescribeRows(metricsStore.newestSucceededRunRowCounts(connectionId), statisticsRowCounts)
         if (analyzeInTransaction) metricsStore.analyzeDerivedTables()
         val wipCount = runWipStep(connectionId, now, configRevision)
         val flowCount = runFlowStep(metricsStore, connectionId, now, configRevision)
@@ -248,6 +257,7 @@ class MetricsDeriver(
             sprintFieldUnresolved = sprintOutcome.fieldUnresolved,
             worklogs = worklogCount,
             epicPlans = epicPlanCount,
+            estimates = estimateCount,
             aggWipRows = wipCount,
             aggFlowRows = flowCount,
         )
@@ -258,17 +268,19 @@ class MetricsDeriver(
     private class Derivation(val counts: DeriveRowCounts, val analyzedInTransaction: Boolean)
 
     /**
-     * The post-commit `ANALYZE` of every derive whose predecessor's statistics still describe its rows, in its OWN short
-     * transaction (this is a top-level call, so [MetricsStore.analyzeDerivedTables] opens one) — the derive's data is
-     * already committed and marked SUCCEEDED, so a failure here is a WARN, never a FAILED run (the next derive plans on
-     * statistics one more derive old). The wait is bounded twice: [analyzeLockTimeoutMs] per table lock and
-     * [analyzeStatementTimeoutMs] for the whole statement (`SET LOCAL`s inside that transaction), so a lock someone else
-     * holds — a manual VACUUM, another ANALYZE, a first derive's in-transaction one — occupies the worker slot for that
-     * long at most; a timeout is just another failure to WARN about. It runs under [NonCancellable] (bounded by those
-     * timeouts): a shutdown in this window must not abandon a committed derive halfway through its statistics — the
-     * cancellation is still observed at the next suspension point.
+     * The post-commit `ANALYZE` of every derive whose predecessor's statistics still describe its rows
+     * ([statisticsDescribeRows]), in its OWN short transaction (this is a top-level call, so
+     * [MetricsStore.analyzeDerivedTables] opens one) — the derive's data is already committed and marked SUCCEEDED, so a
+     * failure here is a WARN, never a FAILED run (the next derive plans on statistics one more derive old). The wait is
+     * bounded twice: [analyzeLockTimeoutMs] per table lock and [analyzeStatementTimeoutMs] for the whole statement
+     * (`SET LOCAL`s inside that transaction), so a lock someone else holds — a manual VACUUM, another ANALYZE, a first
+     * derive's in-transaction one — occupies the worker slot for that long at most; a timeout is just another failure to
+     * WARN about. The statement timeout does not cover acquiring a pooled connection (the pool's own acquire timeout, 30 s
+     * by default), so the worst case outside shutdown is that plus the statement bound. Deliberately NOT under
+     * `NonCancellable`: a shutdown must be able to interrupt it, because the worker's bounded join on shutdown has to see
+     * the claim released.
      */
-    private suspend fun analyzeAfterCommit(connectionId: UInt) = withContext(NonCancellable) {
+    private suspend fun analyzeAfterCommit(connectionId: UInt) {
         catchingFailures({ metricsStore.analyzeDerivedTables(analyzeLockTimeoutMs, analyzeStatementTimeoutMs) }) { failure ->
             log.warn("post-commit ANALYZE of the metrics tables failed for connection {}", connectionId, failure)
         }
@@ -299,6 +311,7 @@ class MetricsDeriver(
             put("sprints", JsonPrimitive(counts.sprints))
             put("worklogs", JsonPrimitive(counts.worklogs))
             put("epicPlans", JsonPrimitive(counts.epicPlans))
+            put("estimates", JsonPrimitive(counts.estimates))
             put("aggWipRows", JsonPrimitive(counts.aggWipRows))
             put("aggFlowRows", JsonPrimitive(counts.aggFlowRows))
             if (counts.sprintFieldUnresolved) put("sprintFieldUnresolved", JsonPrimitive(true))
@@ -437,7 +450,7 @@ class MetricsDeriver(
      * `item_blocked`/`item_estimate` — `.claude/docs/domain-model.md`'s bridges table has no task/epic
      * split for these three), computed for EVERY item in batches of [DERIVE_BATCH_SIZE] — each
      * batch's status/flagged/estimate-field-change intervals are read scoped to that batch's own
-     * issue ids, computed, and inserted before the next batch's own read begins.
+     * issue ids, computed, and inserted before the next batch's own read begins. Returns the `item_estimate` row count.
      */
     private suspend fun runPass1(
         connectionId: UInt,
@@ -446,7 +459,8 @@ class MetricsDeriver(
         config: DataSourceMetricsConfig,
         derivedById: MutableMap<Long, ItemDerived>,
         blockedByIssue: MutableMap<Long, Pair<Long, Double>>,
-    ) {
+    ): Int {
+        var estimateCount = 0
         val estimateFieldIds = listOfNotNull(config.fields.estimateTask, config.fields.estimateEpic).distinct()
         for (batch in workItems.chunked(DERIVE_BATCH_SIZE)) {
             val ids = batch.map { it.issueId }
@@ -471,7 +485,9 @@ class MetricsDeriver(
             metricsStore.insertItemStage(connectionId, itemStageBatch)
             metricsStore.insertItemBlocked(connectionId, itemBlockedBatch)
             metricsStore.insertItemEstimate(connectionId, itemEstimateBatch)
+            estimateCount += itemEstimateBatch.size
         }
+        return estimateCount
     }
 
     /**

@@ -118,6 +118,8 @@ data class DeriveRowCounts(
     val sprintFieldUnresolved: Boolean = false,
     val worklogs: Int = 0,
     val epicPlans: Int = 0,
+    /** `item_estimate` rows (pass 1) — config-dependent (the estimate field roles), so DERIVE's ANALYZE-path choice compares it too. */
+    val estimates: Int = 0,
     val aggWipRows: Int = 0,
     val aggFlowRows: Int = 0,
 )
