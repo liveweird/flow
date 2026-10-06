@@ -57,20 +57,13 @@ web ~3 min to ~1-2 min (latest 1m09s, in budget); `images` 4m00s is over its ala
 
 ## Still open (the next session)
 
-- **A15** e2e for the four uncovered report pages (`epic-estimation-accuracy`,
-  `estimate-adjustments`, `reported-time-ratio`, `backlog`); axe on all 15 report pages, the
-  data-source pages and dark mode.
-- **C8** `UserService.Users.active()` in `TeamService`, `SoftDeletable.deleted()`.
-- **D2-D5** split `MetricsStore.kt`, `MetricsConfigService.kt`, `EpicProgressReport.kt`; break the
-  `ingest` to `metrics` import cycle (`JobHandler` map).
-- **D9 leftovers** DERIVE JVM passes (WHY 3), Kover cost (WHY 4).
-- **B7** `conventions.md` as a replacement, not an addition: split `testing.md` into
-  `testing.md` + `test-fixtures.md`, shrink CLAUDE.md's package tree; always-loaded target
-  about 35 KB (was 51 KB).
-- **Follow-ups** (the first two are in BACKLOG, the third is fixed): r2dbc-pool reports the acquire timeout at 2x the configured
-  `postgres.pool.maxAcquireTimeSeconds`; shutdown audit lines lost to an OTel flush race;
-  `norm.work_item_field_intervals.value_text VARCHAR(500)` overflows for an issue with many sprints
-  (fixed after the checkup: V18 widens it to `TEXT`); fixtures depend on class order when Flyway has not yet run (belongs with D1).
+Done since the checkup (2026-10-01..06): A15 (#61), C8 and the small test/build items (#59), D2-D5 (#60),
+D9 WHY 3 and the Kover cost (#62), B7 step 2 (#68), the class-order fixture dependency (#59, `PostgresTestSupport`
+migrates on start), and the `value_text` overflow (V18). What remains:
+
+- **B7 step 3** — the always-loaded set is 40.3k chars against a ~35k target (BACKLOG).
+- **Follow-ups** (in BACKLOG): r2dbc-pool reports the acquire timeout at 2x the configured
+  `postgres.pool.maxAcquireTimeSeconds`; shutdown audit lines lost to an OTel flush race.
 - Not doing: D6 (de-Jira the `Connector` seam) waits for the GitLab connector (BACKLOG).
 
 ## Decisions made on the user's behalf

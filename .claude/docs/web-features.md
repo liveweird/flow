@@ -58,7 +58,10 @@ endpoint (`requireAdmin` server-side).
   the server owns its shape) and the raw-store counts, plus the paged sync-jobs history
   (`components/SyncJobsTable.tsx` on the `RegistryListTable` shell, kind/status filters, a Cancel
   per still-open row). **Auto-refresh is conditional**: the status query's `refetchInterval` is 5s
-  only while `currentJob` is PENDING/RUNNING, `false` otherwise — never a fixed poll. Header actions
+  only while `currentJob` is PENDING/RUNNING, `false` otherwise — never a fixed poll. The sync-jobs history query
+  polls on the SAME condition (`jobOpen`, derived from the status data) and refetches once more when the open job
+  finishes (a ref-tracked open→idle transition), so its last row shows the terminal state even if the tick that raced
+  the summary read it as Running; `keepPreviousData`/paging are untouched (the interval refetches the current key). Header actions
   Sync now / Reconcile (direct, the toast distinguishes `coalesced`), Reprocess (behind
   `ConfirmActionModal` — it rebuilds every normalized row), Cancel on the open job (direct; a `409`
   means it finished meanwhile and renders inline, never a toast), Edit (the same
