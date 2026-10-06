@@ -195,7 +195,7 @@ hint) shows before you save, so a scope problem surfaces immediately rather than
 sync fails partway through. Save, then open the connection (its name in the list) and click **Sync
 now** to enqueue the first SYNC job. The details page follows it live — the current job's stream and
 progress counters, the per-stream cursors and the raw-store counts refresh every 5 seconds while a
-job is open — and keeps the paged job history, with **Reconcile now**, **Reprocess** and **Cancel running job**
+job is open — and keeps the paged job history, with **Reconcile now**, **Reprocess** and **Cancel job**
 beside it. Once that job reaches **Succeeded**, the **Data profile** page shows the connection's data
 profile: what workflows, boards, custom fields, estimate/worklog coverage and reopen rate this
 tenant's own data actually has. The **Raw issue inspector** looks one issue up by key or id and shows its

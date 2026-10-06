@@ -791,8 +791,9 @@ read-only — a diagnostic view assembled over state every other endpoint alread
 source of truth:
 
 - **`connection`** — the ordinary `DataSourceResponse`, with `status.runningJobId` refreshed to
-  match `currentJob` below (the same field the data-sources list/get responses carry, kept
-  consistent here rather than duplicated).
+  the RUNNING job's id when `currentJob` below is RUNNING (and null when it is PENDING — the same
+  RUNNING-only field the data-sources list/get responses carry, kept consistent here rather than
+  duplicated).
 - **`cursors`** — every persisted `sync_cursors` row (`SyncCursorsService.getAll`), one
   `SyncCursorSummary{stream, watermarkAt, position, lastCompletedAt}` per row. `position` is the
   stream's own raw cursor JSON verbatim, never reparsed (each stream owns its own cursor shape — see
@@ -810,9 +811,11 @@ source of truth:
 - **`lastJobs`** — the most recently REQUESTED job of each `SyncJobKind`, keyed by name
   (`SyncJobsService.lastJobsByKind`) — terminal or not, and a kind never requested is simply absent
   from the map (not present with a null value).
-- **`currentJob`** — the connection's currently RUNNING job in full, if any
-  (`SyncJobsService.runningJob`) — this is where `progress`/`currentStream` above surface to an
-  operator.
+- **`currentJob`** — the connection's open job in full, if any (`SyncJobsService.openJob`): the
+  RUNNING job, else the PENDING one `claim` would take first (`priority`, `requested_at`, then id, in
+  one query — so a manual job outranks an earlier scheduled one; just requested, or released back to
+  the queue), so a client sees and polls a job that has not been claimed yet; null when nothing is open. This is where `progress`/`currentStream` above surface to an operator (a PENDING
+  job has none yet).
 
 ## Data sources
 
@@ -975,7 +978,7 @@ Flow learned about the tenant's own data shape.
    `.claude/docs/jira-integration.md`'s table BEFORE committing to a full sync; a required probe
    failing here means the sync itself would fail the same way.
 3. **Sync now** — enqueues a manual (`priority = 0`) SYNC job; watch it via
-   `GET …/{id}/status` (or the Data sources page) until `currentJob` is gone and the connection's
+   `GET …/{id}/status` (or the Data sources page) until `currentJob` is null and the connection's
    `status.state` reads `CURRENT`.
 4. **Open the profile** (`GET …/{id}/profile`, or the Data sources page's own profile view) once the
    job is `SUCCEEDED`, and look at:

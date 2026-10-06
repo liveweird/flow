@@ -1085,7 +1085,7 @@ paths:
         ADMIN only, read-only (v0.2.0 plan §9). Connection summary, every persisted stream cursor
         (`reference`/`issues`/`changelogs`/`worklogs`/`reconcile` — a completed pass with nothing
         left to resume has no row, so it is simply absent), raw-store row counts, the most recent
-        job of each kind, and the connection's currently RUNNING job, if any.
+        job of each kind, and the connection's open job (RUNNING, else the PENDING one the worker would claim first), if any.
       responses:
         '200':
           description: The sync status
@@ -3012,6 +3012,9 @@ components:
         currentJob:
           allOf: [{ $ref: '#/components/schemas/SyncJobResponse' }]
           nullable: true
+          description: >-
+            The connection's open job — the RUNNING job if any, else the PENDING one the worker would claim first (just
+            requested, or released back to the queue); null when nothing is open. `connection.status.runningJobId` stays RUNNING-only.
 
     NormalizedStatusInterval:
       type: object

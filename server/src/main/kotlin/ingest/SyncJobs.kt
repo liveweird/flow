@@ -114,9 +114,25 @@ class SyncJobsService(
         }
     }
 
-    /** The connection's currently RUNNING job, in full — `GET …/{id}/status`'s `currentJob` (v0.2.0 plan §9). */
-    suspend fun runningJob(connectionId: UInt): SyncJobResponse? = suspendTransaction(database) {
-        Jobs.selectAll().where { (Jobs.connectionId eq connectionId) and (Jobs.status eq SyncJobStatus.RUNNING.name) }
+    /**
+     * The connection's open job, in full — `GET …/{id}/status`'s `currentJob`, in ONE query: the RUNNING job if
+     * any, else the PENDING one [claim] would take first (`priority`, `requested_at`, then id — so a manual job
+     * outranks an earlier scheduled one). A client thus sees, and polls, a job that has not been claimed yet,
+     * and a claim landing mid-read can never make both halves miss. `runningJobId` stays RUNNING-only.
+     */
+    suspend fun openJob(connectionId: UInt): SyncJobResponse? = suspendTransaction(database) {
+        val runningFirst = Case().When(Jobs.status eq SyncJobStatus.RUNNING.name, intLiteral(0)).Else(intLiteral(1))
+        Jobs.selectAll()
+            .where {
+                (Jobs.connectionId eq connectionId) and
+                    (Jobs.status inList listOf(SyncJobStatus.RUNNING.name, SyncJobStatus.PENDING.name))
+            }
+            .orderBy(
+                runningFirst to SortOrder.ASC,
+                Jobs.priority to SortOrder.ASC,
+                Jobs.requestedAt to SortOrder.ASC,
+                Jobs.id to SortOrder.ASC,
+            )
             .limit(1).toList().singleOrNull()?.toResponse()
     }
 
