@@ -105,7 +105,7 @@ the same commit** — this list is the coverage map, the scenario file is the de
   `/data-sources`, `/metrics-settings`, all sixteen `/reports/*` routes (the Deep dive without a selection, so its explainer) — each scanned once settled —
   `/change-password`, `/changelog`), the detail pages of an API-seeded fixture team (its roster page,
   the admin's own edit-user and user-features pages), `/reset-password`, the not-found page, and a
-  registry editor modal scoped to its dialog; the login screen and the list/form/report pages again in
+  registry editor modal scoped to its dialog; the app shell at a mobile width (390x844, the burger present), light and dark; the login screen and the list/form/report pages again in
   the DARK scheme (`colorScheme: "dark"`, which the `auto` default follows); `color-contrast` included
   (the theme's tokens are AA-tested in `web/src/theme.test.ts`).
 - [`accessibility-data.spec.ts`](scenarios/accessibility-data.md) — the same axe scan over its own

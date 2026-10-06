@@ -10,7 +10,6 @@ import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.isNotNull
 import org.jetbrains.exposed.v1.core.less
 import org.jetbrains.exposed.v1.r2dbc.select
-import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 
 /** The most epics [EpicEstimationAccuracyReport.epics] lists (the plan's `≤ 200 rows`); `epicsTruncated` says when more matched. */
 const val EPIC_ACCURACY_MAX_ROWS = 200
@@ -123,7 +122,7 @@ private fun epicAccuracyOf(epics: List<AccuracyEpic>): EpicAccuracyResult {
  * See `.claude/docs/reports.md`.
  */
 suspend fun ReportService.epicEstimationAccuracy(filter: ReportFilter, nowMs: Long): EpicEstimationAccuracyReport =
-    suspendTransaction(database) {
+    reportTransaction {
         val scope = resolveReportScope(filter, nowMs)
         val minSample = scope.settings.minSampleSize
         val window = scope.window.takeIf { filter.level != ReportLevel.USER }

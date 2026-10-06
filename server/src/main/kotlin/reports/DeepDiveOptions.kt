@@ -8,7 +8,6 @@ import ch.nokillswit.infra.paging.toPage
 import ch.nokillswit.infra.validation.sanitizeSingleLine
 import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.norm.WorkItemStore
-import io.ktor.server.plugins.BadRequestException
 import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.Serializable
 import org.jetbrains.exposed.v1.core.Column
@@ -20,7 +19,6 @@ import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.or
 import org.jetbrains.exposed.v1.r2dbc.select
-import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 
 // The three picker option lists of report 17, the Deep dive (`.claude/docs/reports.md` "Report 17"): the sprints of a domain, the epics,
 // and ONE epic's level-0 tasks. Ordinary list endpoints (`.claude/docs/list-endpoints.md`): the shared paging/sort machinery, `q` through
@@ -101,12 +99,9 @@ suspend fun ReportService.deepDiveSprints(
     connectionId: UInt?,
     q: String?,
     paging: PageRequest,
-): DeepDiveSprintPageResponse = suspendTransaction(database) {
+): DeepDiveSprintPageResponse = reportTransaction {
     val connectionIds = resolveConnectionScope(connectionId)
-    val known = MetricsTables.DimDomain.select(MetricsTables.DimDomain.domainKey)
-        .where { (MetricsTables.DimDomain.connectionId inList connectionIds) and (MetricsTables.DimDomain.domainKey eq domain) }
-        .toList().isNotEmpty()
-    if (!known) throw BadRequestException("Unknown domain: $domain")
+    requireDomainName(domain, connectionIds)
 
     val scope = MetricsTables.FactSprintScope
     val task = MetricsTables.FactTaskDelivery
@@ -153,7 +148,7 @@ suspend fun ReportService.deepDiveEpics(
     connectionId: UInt?,
     q: String?,
     paging: PageRequest,
-): DeepDiveEpicPageResponse = suspendTransaction(database) {
+): DeepDiveEpicPageResponse = reportTransaction {
     val connectionIds = resolveConnectionScope(connectionId)
     val epic = MetricsTables.DimEpic
     var predicate: Op<Boolean> = epic.connectionId inList connectionIds
@@ -188,17 +183,12 @@ suspend fun ReportService.deepDiveEpicTasks(
     connectionId: UInt?,
     q: String?,
     paging: PageRequest,
-): DeepDiveTaskPageResponse = suspendTransaction(database) {
+): DeepDiveTaskPageResponse = reportTransaction {
     val key = sanitizeSingleLine(epicKey, "epicKey")
     val connectionIds = resolveConnectionScope(connectionId)
-    val epic = MetricsTables.DimEpic
-    val matches = epic.select(epic.connectionId, epic.issueId)
-        .where { (epic.connectionId inList connectionIds) and (epic.issueKey eq key) }
-        .toList()
-    if (matches.isEmpty()) throw BadRequestException("Unknown epic: $key")
-    if (matches.size > 1) throw BadRequestException("Epic $key exists in several connections; narrow with connectionId")
-    val epicConnectionId = matches.single()[epic.connectionId].value
-    val epicIssueId = matches.single()[epic.issueId]
+    val epic = requireEpicsByKey(listOf(key), connectionIds, name = "epicKey").single()
+    val epicConnectionId = epic.connectionId
+    val epicIssueId = epic.issueId
 
     val task = MetricsTables.FactTaskDelivery
     val item = WorkItemStore.WorkItems

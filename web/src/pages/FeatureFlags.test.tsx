@@ -64,6 +64,8 @@ describe("FeatureFlags page", () => {
   });
 
   afterEach(() => {
+    // isolate:false — a spy on the shared `notifications` singleton must not outlive its test.
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
     localStorage.clear();
   });
@@ -222,7 +224,7 @@ describe("FeatureFlags page", () => {
     );
   });
 
-  test("bulk enable with nothing to do toasts and never opens the modal", async () => {
+  test("bulk enable with nothing to do shows an inline note (no toast) and never opens the modal", async () => {
     // Both rows... Bob is disabled — so make both enabled first: use rows where none affected.
     mockFetch.mockImplementation((url: string, init?: RequestInit) => {
       if ((init?.method ?? "GET") === "PUT") return Promise.resolve(new Response(null, { status: 204 }));
@@ -237,11 +239,8 @@ describe("FeatureFlags page", () => {
 
     await user.click(screen.getByRole("button", { name: "Enable for all matching" }));
 
-    await waitFor(() =>
-      expect(showSpy).toHaveBeenCalledWith(
-        expect.objectContaining({ message: "Every matching user is already in that state" }),
-      ),
-    );
+    expect(await screen.findByRole("note")).toHaveTextContent("Every matching user is already in that state");
+    expect(showSpy).not.toHaveBeenCalled();
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 

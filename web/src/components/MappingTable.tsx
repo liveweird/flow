@@ -26,6 +26,8 @@ export type MappingField =
       onChange: (value: string) => void;
       placeholder?: string;
       error?: string;
+      /** The server's column width for this value (a longer one is a 400), mirrored on the input. */
+      maxLength?: number;
     }
   | {
       type: "checkbox";
@@ -104,6 +106,7 @@ export default function MappingTable({
                     onChange={(event) => field.onChange(event.currentTarget.value)}
                     placeholder={field.placeholder}
                     error={field.error}
+                    maxLength={field.maxLength}
                   />
                 )}
                 {field.type === "checkbox" && (

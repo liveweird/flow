@@ -6,6 +6,9 @@
  * test/CI locale (the `utils/dataSourceState.ts` `formatEpochMillis` convention: never `toLocaleString()`).
  */
 
+/** One fixed 24-hour day in millis — UTC calendar arithmetic only (zone days go through the `…InZone` helpers). */
+export const DAY_MS = 86_400_000;
+
 const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 /** A real calendar date, not just the `YYYY-MM-DD` shape (rejects e.g. `2024-02-30`). */
@@ -25,6 +28,11 @@ export function isoDateToEpochMillis(value: string): number {
 /** Epoch millis to `YYYY-MM-DD`, sliced from the UTC ISO string. */
 export function epochMillisToIsoDate(epochMillis: number): string {
   return new Date(epochMillis).toISOString().slice(0, 10);
+}
+
+/** The `YYYY-MM-DD` date `days` calendar days after `iso` (negative = before), UTC. Caller validates the shape first. */
+export function addDays(iso: string, days: number): string {
+  return epochMillisToIsoDate(isoDateToEpochMillis(iso) + days * DAY_MS);
 }
 
 /**
@@ -84,8 +92,8 @@ export function isoDateToEpochMillisInZone(value: string, timeZone: string): num
   // one 24 h step puts it on the target day, then the day's start is found from there.
   let anchor = isoDateToEpochMillis(value) + 12 * 60 * 60 * 1000;
   const zoneDay = epochMillisToIsoDateInZone(anchor, timeZone);
-  if (zoneDay > value) anchor -= 24 * 60 * 60 * 1000;
-  else if (zoneDay < value) anchor += 24 * 60 * 60 * 1000;
+  if (zoneDay > value) anchor -= DAY_MS;
+  else if (zoneDay < value) anchor += DAY_MS;
   return startOfDayEpochMillisInZone(anchor, timeZone);
 }
 

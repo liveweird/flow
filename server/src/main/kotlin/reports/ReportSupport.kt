@@ -101,6 +101,55 @@ internal suspend fun requireActiveTeam(teamId: UInt) {
 }
 
 /**
+ * The name of the `dim_domain` row [domainKey] resolves to among [connectionIds] (the lowest connection id's when several carry it), or a
+ * `400` — an unknown domain is never an empty page. The ONE "domain exists" check (epic progress, the deep-dive options and selection).
+ */
+internal suspend fun requireDomainName(domainKey: String, connectionIds: Collection<UInt>): String {
+    val d = MetricsTables.DimDomain
+    return d.select(d.name)
+        .where { (d.connectionId inList connectionIds) and (d.domainKey eq domainKey) }
+        .orderBy(d.connectionId to SortOrder.ASC)
+        .toList().map { it[d.name] }
+        .firstOrNull() ?: throw BadRequestException("Unknown domain: $domainKey")
+}
+
+/**
+ * The single connection every one of [requested] was found in, or `400` for an unknown value, an ambiguous one (found in several
+ * connections in scope) or a split selection. [name] is the request parameter the values came from. The ONE ambiguous-key rule.
+ */
+internal fun <T> singleConnection(name: String, requested: List<T>, foundIn: Map<T, List<UInt>>): UInt {
+    for (value in requested) {
+        val connections = foundIn[value].orEmpty().distinct()
+        if (connections.isEmpty()) throw BadRequestException("Unknown or inactive $name: $value")
+        if (connections.size > 1) throw BadRequestException("$name $value exists in several connections; narrow with connectionId")
+    }
+    val connections = requested.map { foundIn.getValue(it).first() }.distinct()
+    if (connections.size > 1) throw BadRequestException("The $name values belong to several connections; narrow with connectionId")
+    return connections.single()
+}
+
+/**
+ * The `dim_epic` rows of [epicKeys] (in that order) in [connectionIds], all in ONE connection ([singleConnection]'s `400`s for an unknown,
+ * ambiguous or split key). [name] is the request parameter the keys came from.
+ */
+internal suspend fun requireEpicsByKey(
+    epicKeys: List<String>,
+    connectionIds: Collection<UInt>,
+    name: String = "epicId",
+): List<ResolvedEpic> {
+    val e = MetricsTables.DimEpic
+    val rows = e.select(e.connectionId, e.issueId, e.issueKey, e.summary, e.startAt, e.dueAt)
+        .where { (e.connectionId inList connectionIds) and (e.issueKey inList epicKeys) }
+        .toList()
+    val byKey = rows.groupBy { it[e.issueKey] }
+    val connectionId = singleConnection(name, epicKeys, byKey.mapValues { (_, found) -> found.map { it[e.connectionId].value } })
+    return epicKeys.map { key ->
+        val row = byKey.getValue(key).first { it[e.connectionId].value == connectionId }
+        ResolvedEpic(connectionId, row[e.issueId], key, row[e.summary], row[e.startAt], row[e.dueAt])
+    }
+}
+
+/**
  * What a report's `meta` says about the DERIVE behind its figures: [derivedAt] is the latest SUCCEEDED
  * `finished_at` across the scoped connections; [configRevision] is the OLDEST `config_revision` among the
  * connections' newest SUCCEEDED runs — the oldest configuration any served figure was derived under (the

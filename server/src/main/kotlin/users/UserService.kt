@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.toList
 import ch.nokillswit.infra.db.SoftDeletable
 import ch.nokillswit.infra.db.active
+import ch.nokillswit.infra.db.nowMillis
 import org.jetbrains.exposed.v1.core.*
 import org.jetbrains.exposed.v1.core.dao.id.UIntIdTable
 import org.jetbrains.exposed.v1.r2dbc.*
@@ -116,7 +117,7 @@ class UserService(private val database: R2dbcDatabase) {
             it[this.passwordHash] = passwordHash
             // The revision increment shares the hash update, so no token can observe a new
             // password with the old credential generation (or vice versa).
-            it[passwordChangedAt] = System.currentTimeMillis()
+            it[passwordChangedAt] = nowMillis()
             it[credentialRevision] = Users.credentialRevision + 1
         }
     }
@@ -258,7 +259,7 @@ class UserService(private val database: R2dbcDatabase) {
         suspendTransaction(database) {
             Users.update({ (Users.email eq email) and (Users.passwordHash eq expectedHash) and Users.active() }) {
                 it[passwordHash] = newHash
-                it[passwordChangedAt] = System.currentTimeMillis()
+                it[passwordChangedAt] = nowMillis()
                 it[credentialRevision] = Users.credentialRevision + 1
             }
         }

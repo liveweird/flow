@@ -43,11 +43,26 @@ it settled — title up, no spinner, no error alert), Change password and the Ch
 1. An anonymous visitor with the dark scheme emulated opens `/login` and waits for the sign-in form.
    - *Expected*: the dark scheme is on `<html>` and the axe scan reports zero violations.
 
+## Scenario: the app shell at a mobile width has no WCAG A/AA violations
+
+1. The browser viewport is 390x844. The admin signs in, opens `/` and waits for the Home heading.
+   - *Expected*: the header's burger is visible with the accessible name "Toggle navigation" (it is
+     the only control that opens the nav drawer at this width), `<html>` carries the light scheme
+     and an axe scan (same tags, `color-contrast` included) reports zero violations.
+
+## Scenario: the app shell at a mobile width has no WCAG A/AA violations in the dark scheme
+
+1. The same at 390x844 with the dark scheme emulated.
+   - *Expected*: the burger is visible by name, `<html>` carries the dark scheme and the axe scan
+     reports zero violations.
+
 ## Not covered here (and why)
 
 - **Interactive journeys mid-flight** (the one-time password reveal, a confirm mid-transition)
   — those need the journey that produces them; covered by their own journey specs where
   reachable through the ordinary flow.
+- **The opened mobile nav drawer** — only the closed shell (header + page) is scanned at the phone
+  width; the drawer's slide-in transition makes contrast measurement racy.
 - **Modals and detail pages in the dark scheme** — the dark pass covers the page sets above, not the
   overlay or the fixture team's detail pages.
 - **Colour tokens themselves** — the ratios are pinned in `web/src/theme.test.ts`; axe here

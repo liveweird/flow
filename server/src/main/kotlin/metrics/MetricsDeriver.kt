@@ -45,9 +45,11 @@ internal const val DEFAULT_ANALYZE_LOCK_TIMEOUT_MS = 5_000L
 
 /**
  * Bounds the WHOLE post-commit `ANALYZE` (16 tables, so up to 16 lock waits of [DEFAULT_ANALYZE_LOCK_TIMEOUT_MS] each
- * otherwise): `statement_timeout` also covers the lock waits. A healthy one is 16-90 ms; the bound exists so a stuck
+ * otherwise): the statement timeout also covers the lock waits. A healthy one is 16-90 ms; the bound exists so a stuck
  * ANALYZE can never hold a worker slot for long (the claim's heartbeat is a concurrent ticker, so this is slot
- * occupancy, not lease safety).
+ * occupancy, not lease safety). Applied as the transaction's Exposed `queryTimeout`, i.e. rounded UP to whole seconds
+ * (`MetricsStore.analyzeDerivedTables` says why it cannot be a `SET LOCAL statement_timeout`); kept in milliseconds
+ * like its lock-timeout sibling, an internal default rather than an operator knob.
  */
 internal const val DEFAULT_ANALYZE_STATEMENT_TIMEOUT_MS = 30_000L
 
@@ -272,13 +274,13 @@ class MetricsDeriver(
      * ([statisticsDescribeRows]), in its OWN short transaction (this is a top-level call, so
      * [MetricsStore.analyzeDerivedTables] opens one) — the derive's data is already committed and marked SUCCEEDED, so a
      * failure here is a WARN, never a FAILED run (the next derive plans on statistics one more derive old). The wait is
-     * bounded twice: [analyzeLockTimeoutMs] per table lock and [analyzeStatementTimeoutMs] for the whole statement
-     * (`SET LOCAL`s inside that transaction), so a lock someone else holds — a manual VACUUM, another ANALYZE, a first
-     * derive's in-transaction one — occupies the worker slot for that long at most; a timeout is just another failure to
-     * WARN about. The statement timeout does not cover acquiring a pooled connection (the pool's own acquire timeout, 10 s
-     * by default, about 20 s with r2dbc-pool's one retry), so the worst case outside shutdown is that plus the statement
-     * bound. Deliberately NOT under `NonCancellable`: a shutdown must be able to interrupt it, because the worker's
-     * bounded join on shutdown has to see the claim released.
+     * bounded twice: [analyzeLockTimeoutMs] per table lock (`SET LOCAL lock_timeout`) and [analyzeStatementTimeoutMs] for the whole
+     * statement (the transaction's `queryTimeout`, whole seconds, rounded up), so a lock someone else holds — a manual VACUUM,
+     * another ANALYZE, a first derive's in-transaction one — occupies the worker slot for that long at most; a timeout is
+     * just another failure to WARN about. The statement timeout does not cover acquiring a pooled connection (the pool's own
+     * acquire timeout, 10 s by default, about 20 s with r2dbc-pool's one retry), so the worst case outside shutdown is that
+     * plus the statement bound. Deliberately NOT under `NonCancellable`: a shutdown must be able to interrupt it, because
+     * the worker's bounded join on shutdown has to see the claim released.
      */
     private suspend fun analyzeAfterCommit(connectionId: UInt) {
         catchingFailures({ metricsStore.analyzeDerivedTables(analyzeLockTimeoutMs, analyzeStatementTimeoutMs) }) { failure ->

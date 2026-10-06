@@ -5,7 +5,49 @@ import io.ktor.server.application.*
 import io.ktor.server.plugins.origin
 import io.ktor.server.plugins.ratelimit.RateLimit
 import io.ktor.server.plugins.ratelimit.RateLimitName
+import io.ktor.util.AttributeKey
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.time.Duration.Companion.seconds
+
+/** The name of the per-IP bucket a call last rode, stamped by its `requestKey`; read by the 429 audit in ErrorHandling.kt. */
+internal val RateLimitBucketKey = AttributeKey<String>("RateLimitBucket")
+
+/**
+ * Coalesces the `rate_limit.exceeded` audit event (checkup 2C15): an unauthenticated flood must not write one audit line
+ * per rejected request. At most ONE event per bucket per [intervalMs]; [admit] returns the number of rejections folded
+ * into the previous window (the event's `suppressed` field) when the caller should emit now, or null when this rejection
+ * is folded into the current window. Keyed by the bucket name ONLY (a handful of fixed names), never by client, so memory
+ * is bounded no matter who floods; thread-safe via [ConcurrentHashMap.compute]'s per-key atomicity.
+ */
+internal class RateLimitAuditThrottle(
+    private val intervalMs: Long = DEFAULT_INTERVAL_MS,
+    private val clock: () -> Long = System::currentTimeMillis,
+) {
+    private class Window(var lastEmitMs: Long, var suppressed: Long)
+
+    private val windows = ConcurrentHashMap<String, Window>()
+
+    fun admit(bucket: String): Long? {
+        var emit: Long? = null
+        windows.compute(bucket) { _, window ->
+            val now = clock()
+            when {
+                window == null -> Window(now, 0).also { emit = 0 }
+                now - window.lastEmitMs >= intervalMs -> window.also {
+                    emit = it.suppressed
+                    it.lastEmitMs = now
+                    it.suppressed = 0
+                }
+                else -> window.also { it.suppressed++ }
+            }
+        }
+        return emit
+    }
+
+    companion object {
+        const val DEFAULT_INTERVAL_MS = 60_000L
+    }
+}
 
 /**
  * Every per-IP token bucket the routes ride, named in one place so a feature module never has to
@@ -72,7 +114,12 @@ fun Application.configureRateLimits() {
         buckets.forEach { (name, limit) ->
             register(RateLimitName(name)) {
                 rateLimiter(limit = limit, refillPeriod = 60.seconds)
-                requestKey { call -> call.request.origin.remoteHost }
+                requestKey { call ->
+                    // The plugin gives its 429 no handle on the bucket, but it computes this key right before
+                    // rejecting, so the name stamped here is the rejecting bucket's (the `rate_limit.exceeded` audit).
+                    call.attributes.put(RateLimitBucketKey, name)
+                    call.request.origin.remoteHost
+                }
             }
         }
     }

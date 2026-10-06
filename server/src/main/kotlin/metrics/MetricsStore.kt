@@ -419,12 +419,6 @@ class MetricsStore(private val database: R2dbcDatabase) {
         }
     }
 
-    /** Wholesale-replace shape (one call), kept for a caller with every row in memory — `IngestWorkerTest`'s own fixture seeding. */
-    suspend fun replaceFactTaskDelivery(connectionId: UInt, rows: List<FactTaskDeliveryRow>, configRevision: Long) {
-        deleteFactTaskDelivery(connectionId)
-        insertFactTaskDelivery(connectionId, rows, configRevision)
-    }
-
     suspend fun deleteFactEpicDelivery(connectionId: UInt) {
         FactEpicDelivery.deleteWhere { FactEpicDelivery.connectionId eq connectionId }
     }
@@ -454,12 +448,6 @@ class MetricsStore(private val database: R2dbcDatabase) {
             this[FactEpicDelivery.ownerTeamId] = it.ownerTeamId
             this[FactEpicDelivery.configRevision] = configRevision
         }
-    }
-
-    /** Wholesale-replace shape (one call), kept for a caller with every row in memory already. */
-    suspend fun replaceFactEpicDelivery(connectionId: UInt, rows: List<FactEpicDeliveryRow>, configRevision: Long) {
-        deleteFactEpicDelivery(connectionId)
-        insertFactEpicDelivery(connectionId, rows, configRevision)
     }
 
     // ---- Sprint step (v0.3.0 M3 commit 8: dim_sprint, fact_sprint_scope, fact_sprint, snapshots) ----
@@ -725,9 +713,11 @@ class MetricsStore(private val database: R2dbcDatabase) {
      *   connection, or one after PURGE) serialize from this statement to their commit — the second's ANALYZE waits for
      *   the first's commit (no deadlock: same tables, same order). No timeouts: it must see fresh statistics.
      * - Every OTHER derive calls it AFTER the commit, as a top-level call, so it is its own short transaction, with
-     *   `SET LOCAL lock_timeout` ([lockTimeoutMs], per table) and `statement_timeout` ([statementTimeoutMs], the whole
-     *   statement; it does not cover acquiring a pooled connection) so a lock another session holds occupies the worker
-     *   slot for that long at most (the timeout error reaches the caller, which WARNs; the data is already committed).
+     *   `SET LOCAL lock_timeout` ([lockTimeoutMs], per table) and the transaction's `queryTimeout` ([statementTimeoutMs]
+     *   rounded UP to whole seconds, the whole statement; it does not cover acquiring a pooled connection — and it is the
+     *   `queryTimeout`, not a `SET LOCAL statement_timeout`, which Exposed overwrites before every statement) so a lock
+     *   another session holds occupies the worker slot for that long at most (the timeout error reaches the caller, which
+     *   WARNs; the data is already committed).
      *   Those derives plan on the previous committed state's statistics (the same connection's rows: same `connection_id`
      *   share, `issue_id` n_distinct, validity-range histograms; the row count is rescaled by the actual block count) —
      *   the planner's failure mode is ABSENT or wrong-sized statistics, not one-derive-old ones — and the post-
@@ -743,7 +733,11 @@ class MetricsStore(private val database: R2dbcDatabase) {
      */
     suspend fun analyzeDerivedTables(lockTimeoutMs: Long? = null, statementTimeoutMs: Long? = null) = suspendTransaction(database) {
         if (lockTimeoutMs != null) exec("SET LOCAL lock_timeout = $lockTimeoutMs")
-        if (statementTimeoutMs != null) exec("SET LOCAL statement_timeout = $statementTimeoutMs")
+        // NOT `SET LOCAL statement_timeout`: Exposed's R2DBC executor re-applies the transaction's `queryTimeout` (whole
+        // seconds, default 0) with `SET statement_timeout` before EVERY statement, which overwrites it (this call used to
+        // have no statement budget at all). So the budget is the `queryTimeout`, rounded UP to a whole second (a sub-second
+        // bound would become 0 = unbounded). `lock_timeout` is not touched by that reset, so its `SET LOCAL` is effective.
+        if (statementTimeoutMs != null) queryTimeout = Math.ceilDiv(statementTimeoutMs, MILLIS_PER_SECOND).toInt()
         exec("ANALYZE ${ANALYZED_TABLES.joinToString(", ")}")
     }
 
@@ -813,3 +807,5 @@ class MetricsStore(private val database: R2dbcDatabase) {
     /** Test/diagnostic reads — `MetricsDerivationTest`'s own invariant sweeps read the table objects above directly via this database. */
     suspend fun <T> query(block: suspend () -> T): T = suspendTransaction(database) { block() }
 }
+
+private const val MILLIS_PER_SECOND = 1_000L

@@ -1,5 +1,6 @@
 package ch.nokillswit.jira
 
+import ch.nokillswit.infra.time.MILLIS_PER_DAY
 import ch.nokillswit.ingest.Stream
 import ch.nokillswit.ingest.StreamContext
 import kotlinx.serialization.Serializable
@@ -34,7 +35,7 @@ internal data class ChangelogsCursor(
  * right response (`.claude/docs/jira-integration.md`).
  */
 private val BULK_UNAVAILABLE_STATUSES = setOf(404, 405, 410, 501)
-private const val BULK_UNAVAILABLE_WINDOW_MILLIS = 24 * 60 * 60 * 1000L
+private const val BULK_UNAVAILABLE_WINDOW_MILLIS = MILLIS_PER_DAY
 
 /**
  * The CHANGELOGS stream (v0.2.0 plan §7): batches of `jira.changelogBulkSize` (default 50 — MUST

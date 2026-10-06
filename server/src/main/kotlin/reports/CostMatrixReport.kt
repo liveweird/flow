@@ -11,7 +11,6 @@ import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.sum
 import org.jetbrains.exposed.v1.r2dbc.select
-import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 
 /**
  * One column of the matrix: a domain ([domain] the domain key, [name] its display name, `null` name when no `dim_domain` row
@@ -102,10 +101,10 @@ private fun emptyCostMatrix(meta: ReportMeta) = CostMatrixReport(meta, emptyList
  * an epic-less task falling back to its own). Sprint-relative periods use the resolved sprints' envelope. See
  * `.claude/docs/reports.md`.
  */
-suspend fun ReportService.costMatrix(filter: ReportFilter, nowMs: Long): CostMatrixReport = suspendTransaction(database) {
+suspend fun ReportService.costMatrix(filter: ReportFilter, nowMs: Long): CostMatrixReport = reportTransaction {
     val scope = resolveReportScope(filter, nowMs)
     val window = scope.window
-    if (window == null || scope.connectionIds.isEmpty()) return@suspendTransaction emptyCostMatrix(scope.meta)
+    if (window == null || scope.connectionIds.isEmpty()) return@reportTransaction emptyCostMatrix(scope.meta)
     val aggregates = fetchCostAggregates(filter, scope.connectionIds, window)
 
     val names = domainNames(scope.connectionIds)

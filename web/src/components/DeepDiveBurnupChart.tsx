@@ -3,7 +3,7 @@ import { LineChart } from "@mantine/charts";
 import { Box, useComputedColorScheme } from "@mantine/core";
 import { useTranslation } from "react-i18next";
 import { AS_OF_COLOR, CHART_COLORS } from "../utils/chartColors";
-import { formatFigure } from "../utils/deepDiveMatrix";
+import { formatFigure } from "../utils/reportFormat";
 
 export interface BurnupChartRow {
   date: string;

@@ -6,6 +6,7 @@ import ch.nokillswit.ingest.SyncJobKind
 import ch.nokillswit.ingest.SyncJobRunContext
 import ch.nokillswit.ingest.SyncJobsService
 import ch.nokillswit.metrics.DEFAULT_ANALYZE_LOCK_TIMEOUT_MS
+import ch.nokillswit.metrics.DEFAULT_ANALYZE_STATEMENT_TIMEOUT_MS
 import ch.nokillswit.metrics.DataSourceMetricsConfigRequest
 import ch.nokillswit.metrics.DomainOwnerResolver
 import ch.nokillswit.metrics.MetricsBoardTeamMapping
@@ -82,7 +83,7 @@ object DerivedStubFixture {
 
     private fun teamMembership(settings: MetricsSettingsService) = TeamMembershipService(sharedDatabaseForTests(), settings)
 
-    private fun deriver(analyzeLockTimeoutMs: Long? = null) = MetricsDeriver(
+    private fun deriver(analyzeLockTimeoutMs: Long? = null, analyzeStatementTimeoutMs: Long? = null) = MetricsDeriver(
         SyncedStubFixture.workItems(),
         metricsSettings(),
         metricsConfig(),
@@ -91,6 +92,7 @@ object DerivedStubFixture {
         MetricsStore(sharedDatabaseForTests()),
         sharedDatabaseForTests(),
         analyzeLockTimeoutMs = analyzeLockTimeoutMs ?: DEFAULT_ANALYZE_LOCK_TIMEOUT_MS,
+        analyzeStatementTimeoutMs = analyzeStatementTimeoutMs ?: DEFAULT_ANALYZE_STATEMENT_TIMEOUT_MS,
     )
 
     private fun deriveClaim(connId: UInt, jobId: UInt) = SyncJobClaim(
@@ -133,11 +135,17 @@ object DerivedStubFixture {
      * ONE DERIVE of [connId] under [PINNED_NOW] — the caller owns the surrounding
      * `withMetricsSettings { }` (`hoursPerDay = 8.0`): wrapping each call separately would bump
      * `metrics.settings.config_revision` twice per call, and every derived row is stamped with the
-     * revision, so two derives that must compare equal share ONE wrapper. [analyzeLockTimeoutMs] overrides the
-     * deriver's post-commit ANALYZE lock timeout (null = production's default).
+     * revision, so two derives that must compare equal share ONE wrapper. [analyzeLockTimeoutMs] and
+     * [analyzeStatementTimeoutMs] override the deriver's post-commit ANALYZE lock/statement timeouts (null = production's default).
      */
-    suspend fun derivePinned(connId: UInt, jobId: UInt = 1u, analyzeLockTimeoutMs: Long? = null) {
-        deriver(analyzeLockTimeoutMs).derive(SyncJobRunContext(deriveClaim(connId, jobId), clock = { PINNED_NOW }) { _, _ -> true })
+    suspend fun derivePinned(
+        connId: UInt,
+        jobId: UInt = 1u,
+        analyzeLockTimeoutMs: Long? = null,
+        analyzeStatementTimeoutMs: Long? = null,
+    ) {
+        val context = SyncJobRunContext(deriveClaim(connId, jobId), clock = { PINNED_NOW }) { _, _ -> true }
+        deriver(analyzeLockTimeoutMs, analyzeStatementTimeoutMs).derive(context)
     }
 
     /** [withMetricsSettings] with the fixture's pinned `hoursPerDay = 8.0`. */

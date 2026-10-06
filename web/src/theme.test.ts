@@ -17,6 +17,12 @@ const WHITE = "#ffffff";
 const FLOW_1 = "#d0ebff";
 const AA = 4.5;
 
+describe("theme motion", () => {
+  it("honors the OS reduced-motion preference (Mantine's default is off)", () => {
+    expect(theme.respectReducedMotion).toBe(true);
+  });
+});
+
 describe("theme colour tokens (WCAG AA)", () => {
   it("light text tokens clear 4.5:1 on white, the canvas, and the surface tint", () => {
     // The surface tint is the FilterPanelBody ground — dimmed labels sit on it.

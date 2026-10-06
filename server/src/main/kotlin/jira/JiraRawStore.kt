@@ -1,6 +1,7 @@
 package ch.nokillswit.jira
 
 import ch.nokillswit.infra.db.jsonb
+import ch.nokillswit.infra.db.nowMillis
 import ch.nokillswit.infra.json.canonicalJson
 import ch.nokillswit.infra.json.sha256Hex
 import ch.nokillswit.infra.time.MILLIS_PER_MINUTE
@@ -405,7 +406,7 @@ class JiraRawStore(private val database: R2dbcDatabase) {
         connectionId: UInt,
         kind: String,
         passStartedAt: Long,
-        now: Long = System.currentTimeMillis(),
+        now: Long = nowMillis(),
     ): Int =
         suspendTransaction(database) {
             Entities.update({
@@ -533,11 +534,6 @@ class JiraRawStore(private val database: R2dbcDatabase) {
     /** Drains every scratch row for [connectionId] (v0.2.0 plan §7): called once a pass's anti-join step completes. */
     suspend fun clearReconcileSeen(connectionId: UInt): Int = suspendTransaction(database) {
         ReconcileSeen.deleteWhere { ReconcileSeen.connectionId eq connectionId }
-    }
-
-    /** Test-only inspection: the scratch table's row count for a connection (`JiraSyncPipelineTest`'s "empty after" assertion). */
-    internal suspend fun countReconcileSeen(connectionId: UInt): Long = suspendTransaction(database) {
-        ReconcileSeen.selectAll().where { ReconcileSeen.connectionId eq connectionId }.count()
     }
 
     /**

@@ -13,7 +13,6 @@ import io.ktor.server.plugins.forwardedheaders.*
 import io.ktor.server.plugins.hsts.*
 import io.ktor.server.plugins.httpsredirect.*
 import io.ktor.server.routing.*
-import io.ktor.server.plugins.swagger.*
 import io.ktor.server.plugins.bodylimit.*
 import io.ktor.server.plugins.mutableOriginConnectionPoint
 import ch.nokillswit.infra.config.requireConfigInt
@@ -28,8 +27,8 @@ const val MAX_REQUEST_BODY_BYTES: Long = 10L * 1024 * 1024
 
 /**
  * Whether Swagger UI + the spec are served: `http.exposeOpenApi` when set, else development mode. ONE
- * definition for both the route install (below) and the CSP exemption (`SecurityHeaders.kt`) — the
- * exemption must never apply where the UI is not actually mounted.
+ * definition for both the route install (`Routing.kt`, which also requires `servesApi()`) and the CSP exemption
+ * (`SecurityHeaders.kt`, same two conditions) — the exemption must never apply where the UI is not actually mounted.
  */
 internal fun Application.exposesOpenApi(): Boolean =
     environment.config.propertyOrNull("http.exposeOpenApi")?.getString()
@@ -45,12 +44,17 @@ fun Application.configureHttp() {
             when (outgoingContent.contentType?.withoutParameters()) {
                 // The SPA's static assets are content-hashed by Vite, so a day-long cache is
                 // safe for both stylesheets and scripts (both JS media types — the served one
-                // depends on the container's mime mapping). index.html stays uncached: it is
-                // the un-hashed entry point that must pick up new asset names on deploy.
+                // depends on the container's mime mapping).
                 ContentType.Text.CSS,
                 ContentType.Text.JavaScript,
                 ContentType.Application.JavaScript,
                 -> CachingOptions(CacheControl.MaxAge(maxAgeSeconds = 24 * 60 * 60))
+                // index.html (and every SPA deep link answered with it) is the un-hashed entry point that must
+                // pick up new asset names on deploy: `no-cache` forbids reusing a stored copy without asking the
+                // server first, so a deploy is never masked by a stale shell. (ConditionalHeaders is not installed, so
+                // the revalidation is a plain re-fetch of this one small file, not a 304.) Without this entry the
+                // header was simply absent and browsers fell back to heuristic caching.
+                ContentType.Text.Html -> CachingOptions(CacheControl.NoCache(null))
                 // API answers (JSON and RFC 7807 problem+json) carry per-user, bearer-authorized data:
                 // `no-store` keeps them out of browser/proxy caches (a shared machine's back button, an
                 // intermediary replaying one user's list to another). Scoped to /api/ so a static JSON
@@ -120,7 +124,11 @@ fun Application.configureHttp() {
         }
     }
     install(Compression)
-    install(DefaultHeaders)
+    // DefaultHeaders' own `Server: Ktor/<version>` would disclose the framework and its exact version to
+    // every client (checkup 2C18); a fixed generic value replaces it. `Date` stays.
+    install(DefaultHeaders) {
+        header(HttpHeaders.Server, "flow")
+    }
     if (!developmentMode) {
         install(HSTS) {
             includeSubDomains = true
@@ -132,16 +140,8 @@ fun Application.configureHttp() {
             permanentRedirect = true
         }
     }
-    // Swagger UI + the full spec are an API roadmap for anyone who can reach the host, so they
-    // are served only in development mode — or when explicitly re-enabled for a trusted
-    // environment via HTTP_EXPOSE_OPENAPI=true. (Bearer-token auth cannot protect a
-    // browser-loaded UI: page loads carry no Authorization header.)
-    if (exposesOpenApi()) {
-        // swaggerUI serves both the UI page and the spec (GET /openapi/documentation.yaml).
-        routing {
-            swaggerUI(path = "openapi")
-        }
-    }
+    // The Swagger UI + spec mount lives in Routing.kt (configureRouting): it must obey `servesApi()`, and the
+    // role is only published later (configureRole), after this module.
 }
 
 /**

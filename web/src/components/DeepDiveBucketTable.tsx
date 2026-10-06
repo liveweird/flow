@@ -2,7 +2,8 @@ import { memo } from "react";
 import { useTranslation } from "react-i18next";
 import { Table } from "@mantine/core";
 import { bucketLayers, rowLabel, type DeepDiveLayers, type GridRow } from "../utils/deepDiveCell";
-import { formatFigure, type MatrixCell, type TimeColumn } from "../utils/deepDiveMatrix";
+import { type MatrixCell, type TimeColumn } from "../utils/deepDiveMatrix";
+import { formatFigure } from "../utils/reportFormat";
 import classes from "../theme.module.css";
 import ScrollRegion from "./ScrollRegion";
 

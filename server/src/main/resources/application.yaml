@@ -178,6 +178,13 @@ http:
   # trusted production environment, "false" to hide them even in development.
   exposeOpenApi: "$HTTP_EXPOSE_OPENAPI:"
 
+reports:
+  # Per-statement time budget for every report read (reports/ReportService.reportTransaction sets it as the
+  # transaction's statement timeout). A statement that outruns it is cancelled by PostgreSQL and answered as a 500
+  # problem, so one pathological selection cannot pin a pooled connection. WHOLE SECONDS (the unit Exposed's
+  # per-statement timeout takes), 1..3600.
+  statementTimeoutSeconds: "$REPORTS_STATEMENT_TIMEOUT_SECONDS:30"
+
 web:
   # When set, the server serves the built React SPA from this directory (static
   # assets + SPA fallback to index.html). Empty in local dev, where Vite serves

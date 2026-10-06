@@ -5,6 +5,7 @@ import ch.nokillswit.authz.TooManyRequestsException
 import ch.nokillswit.authz.UnauthorizedException
 import ch.nokillswit.infra.config.requireConfigInt
 import ch.nokillswit.infra.config.requireConfigLong
+import ch.nokillswit.infra.db.nowMillis
 import ch.nokillswit.infra.mail.mailAppUrl
 import ch.nokillswit.infra.mail.mailer
 import ch.nokillswit.infra.mail.respondMailUnavailable
@@ -462,7 +463,7 @@ private fun Route.logout(deps: AuthDeps) {
     post("/api/v1/logout") {
         val principal = call.principal<JWTPrincipal>()!!
         val jti = principal.payload.id
-        val exp = principal.payload.expiresAt?.time ?: System.currentTimeMillis()
+        val exp = principal.payload.expiresAt?.time ?: nowMillis()
         if (jti != null) {
             blocklist.revoke(jti, exp)
         }
@@ -505,7 +506,7 @@ private fun Route.logout(deps: AuthDeps) {
                 null
             }
             decoded?.id?.let { rjti ->
-                blocklist.revoke(rjti, decoded.expiresAt?.time ?: System.currentTimeMillis())
+                blocklist.revoke(rjti, decoded.expiresAt?.time ?: nowMillis())
             }
         }
         audit(

@@ -133,32 +133,6 @@
   text-align: start;
 }
 
-/* The Hierarchy's tree rows: a hover tint on the row, a hairline guide down each branch
-   (quieter than default-border — the guide is orientation, not a divider). */
-.treeRow {
-  border-radius: var(--mantine-radius-sm);
-}
-
-.treeRow:hover {
-  background-color: light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-6));
-}
-
-.treeBranch {
-  border-left: 1px solid light-dark(var(--mantine-color-gray-2), var(--mantine-color-dark-5));
-}
-
-/* A count riding a filter chip (the Errors severity/source chips): tabular, lighter in weight
-   and NOT part of the chip's accessible name (aria-hidden at the call site). Never dimmed by
-   opacity — the chip's ink is AA-tested at full strength only, and the axe sweep over /errors
-   pins that a faded count fails 4.5:1 (Toadie's 0.7/0.4 opacities were the first casualty). */
-.chipCount {
-  margin-inline-start: 6px;
-  font-variant-numeric: tabular-nums;
-  font-weight: 400;
-}
-
-/* Form sections: a flat block under a small-caps legend on a hairline (v1.20.0) —
-   `Fieldset variant="unstyled"` keeps the fieldset/legend semantics without the frame. */
 /* A report finding's card: the overview tiles focus it, so its title must clear the fixed header
    (the same 80px the form sections use). */
 .reportCard {
@@ -228,6 +202,8 @@
   background-color: var(--mantine-color-body);
 }
 
+/* Form sections: a flat block under a small-caps legend on a hairline (v1.20.0) —
+   `Fieldset variant="unstyled"` keeps the fieldset/legend semantics without the frame. */
 .formSection {
   padding: 0;
   scroll-margin-top: 80px;
@@ -247,69 +223,6 @@
   text-transform: uppercase;
   color: var(--mantine-color-dimmed);
   border-bottom: 1px solid light-dark(var(--mantine-color-gray-2), var(--mantine-color-dark-4));
-}
-
-/* A form's action bar pinned to the bottom of the viewport while the form scrolls (the
-   catalog editor, the dictionary editors): the body surface, a hairline on top, and
-   negative margins so it spans the card edge to edge. */
-.stickyActions {
-  position: sticky;
-  bottom: 0;
-  z-index: 2;
-  margin: 0 calc(-1 * var(--mantine-spacing-lg)) calc(-1 * var(--mantine-spacing-lg));
-  padding: var(--mantine-spacing-sm) var(--mantine-spacing-lg);
-  background-color: var(--mantine-color-body);
-  border-top: 1px solid light-dark(var(--mantine-color-gray-2), var(--mantine-color-dark-4));
-  border-bottom-left-radius: var(--mantine-radius-md);
-  border-bottom-right-radius: var(--mantine-radius-md);
-}
-
-/* The same bar sitting directly on the page (the new-version, import and infer screens):
-   the shell pads by `md`, not `lg`, so the edge-to-edge margins must match it — the `lg`
-   pair overflows the viewport by four pixels and gives the page a horizontal scrollbar. */
-.stickyActionsPage {
-  margin: 0 calc(-1 * var(--mantine-spacing-md)) calc(-1 * var(--mantine-spacing-md));
-}
-
-/* The editor's preview column, and the version page's single side panel (Contents above
-   Findings): sticks under the header, offset from the shell's own vars, and caps its own
-   height so a tall panel scrolls as one instead of running past the viewport. */
-.stickyAside {
-  position: sticky;
-  top: calc(var(--app-shell-header-height, 0px) + var(--mantine-spacing-md));
-  max-height: calc(100vh - var(--app-shell-header-height, 0px) - 2 * var(--mantine-spacing-md));
-  overflow-y: auto;
-}
-
-/* The reader's table of contents inside the version page's side panel, capped so Findings stay
-   reachable below it even when the document declares a long table of contents. */
-.asideToc {
-  max-height: 40vh;
-  overflow-y: auto;
-}
-
-/* A finding's deep link into the reader: the element it lands on wears the accent ring briefly. */
-[data-highlight="true"] {
-  outline: 2px solid var(--flow-accent-ink);
-  outline-offset: 2px;
-  border-radius: var(--mantine-radius-sm);
-}
-
-/* An ordered-list editor's rows (the namespaces/lifecycles dictionaries): one bordered
-   list, hairlines between rows — not a mini-card per row. */
-.listRows {
-  border: 1px solid light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4));
-  border-radius: var(--mantine-radius-md);
-  background-color: var(--mantine-color-body);
-  overflow: hidden;
-}
-
-.listRow {
-  padding: 8px var(--mantine-spacing-sm);
-}
-
-.listRow + .listRow {
-  border-top: 1px solid light-dark(var(--mantine-color-gray-2), var(--mantine-color-dark-5));
 }
 
 /* ---- The Deep dive matrix (components/DeepDiveMatrix.tsx) -------------------------------------------------

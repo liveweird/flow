@@ -187,7 +187,6 @@
       "truncated": "Pokazujemy tylko pierwsze 200 różnych wartości."
     },
     "capacities": {
-      "columnSprint": "Sprint",
       "columnCapacity": "Pojemność (osobodni)",
       "capacityAria": "Pojemność dla {{sprint}}",
       "capacityHint": "Puste pole używa wyliczonej wartości domyślnej (członkowie/kinie × dni robocze).",

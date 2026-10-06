@@ -18,6 +18,7 @@ import ch.nokillswit.metrics.MetricsSettingsResponse
 import ch.nokillswit.metrics.MetricsStage
 import ch.nokillswit.metrics.MetricsStatusStage
 import ch.nokillswit.metrics.MetricsWorkCategoryMapping
+import ch.nokillswit.metrics.MetricsSprintCapacity
 import ch.nokillswit.norm.BoardRef
 import ch.nokillswit.norm.IntervalSource
 import ch.nokillswit.norm.NormalizedIssue
@@ -28,6 +29,7 @@ import ch.nokillswit.norm.StatusRef
 import ch.nokillswit.norm.TombstoneKind
 import ch.nokillswit.norm.WorkItemFacts
 import ch.nokillswit.norm.WorkItemStore
+import ch.nokillswit.plugins.ProblemDetail
 import ch.nokillswit.users.UserRole
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
@@ -280,6 +282,47 @@ class MetricsConfigRoutesTest {
         assertEquals(HttpStatusCode.NoContent, put("  Delivery  "))
         assertEquals(listOf("Delivery"), admin.getConfig(connId).activityTypes.map { it.activityType })
     }
+
+    @Test
+    fun `over-long domain and category strings and an overflowing capacityMd are 400 with a problem body, the limits are accepted`() =
+        testApplication {
+            usePostgresTestcontainer()
+            val admin = seededClient("metricsbounds", UserRole.ADMIN)
+            val connId = runBlocking { createConnection(dataSources()) }
+            val seeded = runBlocking { seedNormFixture(connId, "PLT", "Task") }
+            val url = "/api/v1/data-sources/$connId/metrics-config"
+
+            fun domains(key: String, name: String) =
+                DataSourceMetricsConfigRequest(domains = listOf(MetricsDomainMapping(seeded.projectKey, key, name)))
+            fun categories(category: String) = DataSourceMetricsConfigRequest(
+                fields = MetricsFieldConfig(workCategory = "duedate"),
+                workCategories = listOf(MetricsWorkCategoryMapping("opt-1", null, category)),
+            )
+            fun capacity(md: Double) = DataSourceMetricsConfigRequest(sprintCapacities = listOf(MetricsSprintCapacity(seeded.sprintId, md)))
+
+            suspend fun assertRejected(request: DataSourceMetricsConfigRequest, field: String) {
+                val response = admin.putJson(url, request)
+                assertEquals(HttpStatusCode.BadRequest, response.status, field)
+                assertTrue(response.body<ProblemDetail>().detail!!.contains(field))
+            }
+            assertRejected(domains("k".repeat(51), "n"), "domainKey")
+            assertRejected(domains("   ", "n"), "domainKey")
+            assertRejected(domains("k", "n".repeat(101)), "domainName")
+            assertRejected(categories("c".repeat(101)), "category")
+            assertRejected(capacity(1e7), "capacityMd")
+            assertRejected(capacity(1.005), "capacityMd")
+
+            assertEquals(HttpStatusCode.NoContent, admin.putJson(url, domains("k".repeat(50), "n".repeat(100))).status)
+            assertEquals(HttpStatusCode.NoContent, admin.putJson(url, capacity(999_999.99)).status)
+            assertEquals(999_999.99, admin.getConfig(connId).sprintCapacities.single().capacityMd)
+            // `workCategories` needs a value id the field actually carries (the 150-char test above shows the TEXT ids).
+            runBlocking {
+                suspendTransaction(sharedDatabaseForTests()) {
+                    exec("UPDATE norm.work_items SET custom_fields = jsonb_build_object('duedate', 'opt-1') WHERE connection_id = $connId")
+                }
+            }
+            assertEquals(HttpStatusCode.NoContent, admin.putJson(url, categories("c".repeat(100))).status)
+        }
 
     @Test
     fun `a no-op re-PUT is order-insensitive - every list reversed still bumps nothing and audits nothing`() = testApplication {
