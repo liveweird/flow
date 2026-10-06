@@ -59,10 +59,15 @@ connection instead of syncing its own. The rule going forward:
   needed at all; a clone plus the ONE stream under test — RECONCILE, WORKLOGS — where the prior
   streams' output is a prerequisite, not the subject).
 
-`SyncedStubFixtureTest` is the tripwire: it re-snapshots the shared connection's raw/norm row
+`SyncedStubFixtureTest` is the explicit tripwire: it re-snapshots the shared connection's raw/norm row
 counts and its status-interval digest and compares them against the baseline `SyncedStubFixture`
-captured the moment its own backfill first completed — a read-only test that started mutating the
-shared connection by mistake fails this test, not silently corrupts every other test sharing it.
+captured the moment its own backfill first completed. That test alone proves nothing when it runs
+before the mutator, so the check also rides EVERY consumer (`FixtureTripwire.kt`): each
+`connectionId()` call after the first re-snapshots (~25 ms) and fails the calling test when the
+connection changed — a read-only test that started mutating the shared connection fails the NEXT
+test that asks for it (the message names the previous caller class), whatever the class order.
+After a failure the baseline is re-captured, so one mutation is one red test. `FixtureTripwireTest` pins the class itself (failure, re-capture, the per-class gate, the caller detection). Residual gap: the
+last consumer of a fork is only caught by the explicit tripwire test, if that runs after it.
 Effect: these three classes' combined runtime fell from ~590s (one full sync per test, ~30 of them)
 to under 2 minutes (one full sync, plus a handful of cheap clones and small real-HTTP stream runs).
 
@@ -97,14 +102,16 @@ maps the FLO board (id 1) to one freshly seeded team, and derives ONCE under a p
   `cloneProcessedData` (or, for a read-only test, `DerivedStubFixture` outright) is always cheaper
   and exercises the exact same stored shape a real connection would have after its first sync.
 
-`DerivedStubFixtureTest` is the tripwire, the same role `SyncedStubFixtureTest` plays for
-`SyncedStubFixture`: it re-derives `DerivedStubFixture.metricsDigest` — an MD5 over EVERY derived
+`DerivedStubFixtureTest` is the explicit tripwire, the same role `SyncedStubFixtureTest` plays for
+`SyncedStubFixture` (and `DerivedStubFixture.connectionId()` re-verifies through the same
+`FixtureTripwire` — but its digest costs ~180 ms, so only when the calling TEST CLASS changes; a caller
+that cannot be identified from the stack re-checks every time): it re-derives `DerivedStubFixture.metricsDigest` — an MD5 over EVERY derived
 `metrics.*` table (dimensions, bridges, facts, both daily aggregates — NOT the global `dim_date`,
 which any deriving test under another calendar rewrites, so the tripwire stays class-order independent; ordered by primary key, else
 by every hashed column; the surrogate `id`, `derive_runs` and the snapshot's `snapshot_at`/
 `reconstructed` bookkeeping excluded; the reprocess-digest pattern above, applied to invariant 12)
 — and compares it against the baseline captured the moment the fixture's own DERIVE first
-completed. **The metrics digest joins the reprocess-digest pattern:** `MetricsDigestTest` derives a
+completed. Cost of the per-consumer re-checks (measured 2026-10-06, one full `-Pforks=2` suite): 9 and 11 derived re-checks (~1.6 s, ~2 s) plus 50 and 19 synced ones (~1.3 s, ~0.5 s) in the two forks, no unidentifiable derived caller (97 of 117 derived calls are gated out) — at most ~3 s of a fork's wall time, below the noise of back-to-back full runs. **The metrics digest joins the reprocess-digest pattern:** `MetricsDigestTest` derives a
 private disabled clone twice (same clock, same `config_revision`, both inside ONE
 `withMetricsSettings` block — each wrapper call would bump the revision every derived row carries)
 and asserts identical digests plus an unchanged `fact_sprint_snapshot` row count, then does the same

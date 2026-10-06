@@ -174,6 +174,37 @@ class ProcessReferenceRowsTest {
             assertEquals(0L, SyncedStubFixture.rawStore().countNeedsProcessing(connId))
         }
 
+    /** V19's promise at 600 characters (past every old `varchar` bound): the run lands and the names are stored whole, not just long. */
+    @Test
+    fun `a 600-character sprint name and status name process without failing the run and are stored whole`() = runBlocking<Unit> {
+        val connId = clonedConnectionWithOneFlaggedIssue()
+        val statusName = "S".repeat(600)
+        val sprintName = "X".repeat(600)
+        val flagged = "(SELECT min(issue_id) FROM raw.jira_issues WHERE connection_id = $connId)"
+        assertEquals(
+            1,
+            update(
+                "UPDATE raw.jira_entities SET payload = jsonb_set(payload, '{name}', to_jsonb('$statusName'::text)) " +
+                    "WHERE connection_id = $connId AND kind = 'STATUS' AND payload->>'id' = " +
+                    "(SELECT payload->'fields'->'status'->>'id' FROM raw.jira_issues " +
+                    "WHERE connection_id = $connId AND issue_id = $flagged)",
+            ),
+            "the flagged issue's current status must be a STATUS entity",
+        )
+        plant(connId, "SPRINT", "{name}", sprintName)
+        val context = SyncedStubFixture.freshContext(connId)
+
+        JiraProcessStream(SyncedStubFixture.rawStore(), SyncedStubFixture.workItems()).run(context)
+
+        assertEquals(mapOf("issuesProcessed" to 1L), context.progressSnapshot(), "nothing skipped, the flagged issue landed")
+        assertEquals(0L, SyncedStubFixture.rawStore().countNeedsProcessing(connId))
+        val statuses = "SELECT DISTINCT name FROM norm.statuses WHERE connection_id = $connId AND name = '$statusName'"
+        assertEquals(listOf(statusName), query(statuses))
+        assertEquals(listOf(statusName), query("SELECT status_name FROM norm.work_items WHERE connection_id = $connId"))
+        val sprints = "SELECT DISTINCT name FROM norm.sprints WHERE connection_id = $connId AND name = '$sprintName'"
+        assertEquals(listOf(sprintName), query(sprints))
+    }
+
     @Test
     fun `an issue whose changelog changed a custom field with a 120-character display name processes`() = runBlocking<Unit> {
         val connId = clonedConnectionWithOneFlaggedIssue()

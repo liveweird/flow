@@ -855,11 +855,17 @@ class ReportDeepDiveTest {
             )
             suspendTransaction(sharedDatabaseForTests()) {
                 store.insertDomains(connId, listOf(DimDomainRow("DD1", "Deep dive", emptyList(), null)), 1L)
-                store.insertEpics(connId, epics, 1L)
+                val boundEpics = (1..51).map { DimEpicRow(800L + it, "$tag-E$it", "Bound", "DD1", null, "IN_PROGRESS", null, null) }
+                store.insertEpics(connId, epics + boundEpics, 1L)
                 store.insertFactTaskDelivery(connId, (1..501).map { taskRow(10_000L + it, "$tag-T$it", "DD1", 701) }, 1L)
                 store.insertFactTaskDelivery(connId, (1..500).map { taskRow(20_000L + it, "$tag-U$it", "DD1", 703) }, 1L)
                 // Sprint 1 holds all 501 of the first epic's tasks at close: the sprint selection's own 500-task cap.
-                store.insertDimSprints(connId, listOf(sprintRow(1, "S1", "2026-02-02", "2026-02-06")), 1L)
+                store.insertDimSprints(
+                    connId,
+                    listOf(sprintRow(1, "S1", "2026-02-02", "2026-02-06")) +
+                        (1..53).map { sprintRow(100L + it, "B$it", "2026-02-02", "2026-02-06") },
+                    1L,
+                )
                 store.insertFactSprintScope(connId, (1..501).map { scopeRow(1, 10_000L + it, 1.0) }, 1L)
             }
             val client = seededClient("reports-dd-hand-c")
@@ -868,6 +874,17 @@ class ReportDeepDiveTest {
             client.assertBadRequest("$scope&domain=DD1&sprintId=1")
             val exactly = client.dive("$scope&epicId=$tag-3")
             assertEquals(500, exactly.tasks.size, "exactly 500 tasks is allowed")
+            // The documented bounds are INCLUSIVE: exactly 500 issueIds (the one epic's own 500 tasks), 52 sprintIds and 50 epicIds are
+            // accepted (sparse, valid ids; 53 sprints and 51 epics exist, so only the COUNT can refuse the over-limit requests);
+            // the 501-issueId 400 is below.
+            val atIssueLimit = client.dive(
+                "$scope&epicId=$tag-3&" + (1..500).joinToString("&") { "issueId=$tag-U$it" },
+            )
+            assertEquals(500, atIssueLimit.tasks.size, "exactly 500 issueIds are accepted")
+            client.dive("$scope&domain=DD1&" + (1..52).joinToString("&") { "sprintId=${100 + it}" })
+            client.dive("$scope&" + (1..50).joinToString("&") { "epicId=$tag-E$it" })
+            client.assertBadRequest("$scope&domain=DD1&" + (1..53).joinToString("&") { "sprintId=${100 + it}" })
+            client.assertBadRequest("$scope&" + (1..51).joinToString("&") { "epicId=$tag-E$it" })
             // 501 handpicked issue keys of one epic: too many values.
             client.assertBadRequest("$scope&epicId=$tag-1&" + (1..501).joinToString("&") { "issueId=$tag-T$it" })
 

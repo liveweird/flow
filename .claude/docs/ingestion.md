@@ -79,8 +79,10 @@ claiming orders by `priority` then `requestedAt`, so a manual request preempts t
 
 `DERIVE` (`metrics/MetricsDeriver.kt`'s `derive()`, dispatched by `IngestWorker.runJob` BEFORE the
 connector registry, through the `JobHandler` that `metrics/MetricsJobHandlers.kt` registers on
-`ingest/JobHandlers.kt`'s `JobHandlerRegistry` — `ingest/` never imports `metrics/` (checkup D5); a
-DERIVE claim with no registered handler FAILS the job rather than succeeding silently;
+`ingest/JobHandlers.kt`'s `JobHandlerRegistry` — `ingest/` never imports `metrics/` (checkup D5;
+`PackageBoundaryTest` scans the sources: `ingest`/`norm`/`jira` never reference `metrics` or `reports`,
+`metrics` never references `reports`); a DERIVE claim with no registered handler FAILS the job rather than
+succeeding silently;
 `.claude/docs/metrics.md` "The DERIVE run algorithm" has the write-side detail)
 is connector-agnostic: it reads `norm.*` plus the connection's effective metrics configuration and
 writes `metrics.*`, never touching Jira, so it runs the same way whichever connector kind the

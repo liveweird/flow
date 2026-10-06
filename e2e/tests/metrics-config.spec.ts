@@ -4,12 +4,13 @@
 // Jira-user team membership. Owns: its own edits to the GLOBAL settings singleton — captured via
 // the API before the first test touches the page and restored via the API at the end (see that
 // test's own comment); a throwaway data source + throwaway team per test that needs one (unique
-// `e2e-metrics-*` names), all deleted by the end of their own test; a throwaway regular user in
+// `e2e-metrics-*` names), all deleted by the end of their own test (and by the afterEach below when a step fails first); a throwaway regular user in
 // the third test.
 import {
   apiAsAdmin,
   createUserViaUi,
   deleteUserRow,
+  deleteViaApi,
   expect,
   login,
   openFilters,
@@ -25,6 +26,14 @@ const JIRA_TOKEN = "e2e-fake-api-token";
 const PROJECT_KEYS = ["FLO", "PLT", "GTM", "OPS"];
 /** `sample-data/jira/expected.json` `teams.roster[0]` — deterministic across every stub run. */
 const SAMPLE_PERSON = { displayName: "Sample User 1", accountId: "5f8a1b2c3d4e5f6a7b8c9d01" };
+
+// Server-side rows the running test created, removed LAST-CREATED FIRST (membership, then team, then the connection it
+// was mapped to) by the afterEach below whatever the test's outcome — so a failing step leaves nothing behind (404 = already
+// gone, e.g. the in-body UI delete of the data source or user). Test 1 registers nothing (it restores the settings itself).
+const teardown: string[] = [];
+test.afterEach(async () => {
+  await deleteViaApi(teardown.splice(0).reverse());
+});
 
 test("admin adjusts metrics settings", async ({ page }) => {
   await login(page);
@@ -112,10 +121,11 @@ test("admin configures a data source's metrics", async ({ page }) => {
     await projectKeys.pressSequentially(key);
     await projectKeys.press("Enter");
   }
-  await Promise.all([
+  const [createResponse] = await Promise.all([
     page.waitForResponse((r) => r.url().endsWith("/api/v1/data-sources") && r.request().method() === "POST" && r.ok()),
     dialog.getByRole("button", { name: "Create", exact: true }).click(),
   ]);
+  teardown.push(`/api/v1/data-sources/${(await createResponse.json()).id as number}`);
   await expect(dialog).toHaveCount(0);
 
   await openFilters(page);
@@ -142,6 +152,7 @@ test("admin configures a data source's metrics", async ({ page }) => {
   const createdTeam = await api.post("/api/v1/teams", { data: { name: teamName } });
   expect(createdTeam.ok(), await createdTeam.text()).toBeTruthy();
   const teamId = (await createdTeam.json()).id as number;
+  teardown.push(`/api/v1/teams/${teamId}`);
 
   await page.goto(`/data-sources/${dataSourceId}/metrics-config`);
   await expect(page.getByRole("heading", { name: "Metrics configuration" })).toBeVisible();
@@ -196,9 +207,7 @@ test("admin configures a data source's metrics", async ({ page }) => {
   ]);
   await expect(page.getByText("This team is already mapped to another board").first()).toBeVisible();
 
-  // Cleanup.
-  const removedTeam = await api.delete(`/api/v1/teams/${teamId}`);
-  expect([204, 404], `/api/v1/teams/${teamId} -> ${removedTeam.status()}`).toContain(removedTeam.status());
+  // Cleanup: the team goes in the afterEach; the connection is deleted through the UI (a scenario step).
   await page.goto("/data-sources");
   await openFilters(page);
   await page.getByLabel("Name", { exact: true }).fill(name);
@@ -232,6 +241,7 @@ test("admin adds a dated Jira member to a team; a regular user sees it read-only
   });
   expect(created.ok(), await created.text()).toBeTruthy();
   const dataSourceId = (await created.json()).id as number;
+  teardown.push(`/api/v1/data-sources/${dataSourceId}`);
   const enqueued = await api.post(`/api/v1/data-sources/${dataSourceId}/sync-jobs`, { data: { kind: "SYNC" } });
   expect(enqueued.ok(), await enqueued.text()).toBeTruthy();
   await expect(async () => {
@@ -245,10 +255,15 @@ test("admin adds a dated Jira member to a team; a regular user sees it read-only
   await page.goto("/teams");
   await page.getByRole("button", { name: "New team" }).click();
   await page.getByRole("dialog").getByLabel("Name").fill(teamName);
-  await page.getByRole("dialog").getByRole("button", { name: "Create", exact: true }).click();
+  const [createdTeam] = await Promise.all([
+    page.waitForResponse((r) => r.url().endsWith("/api/v1/teams") && r.request().method() === "POST" && r.ok()),
+    page.getByRole("dialog").getByRole("button", { name: "Create", exact: true }).click(),
+  ]);
+  const teamId = (await createdTeam.json()).id as number;
+  teardown.push(`/api/v1/teams/${teamId}`);
   await expect(page).toHaveURL(/\/teams\/\d+$/);
-  const teamId = Number(/\/teams\/(\d+)$/.exec(page.url())?.[1]);
   const reader = await createUserViaUi(page, "E2E Metrics Reader");
+  teardown.push(`/api/v1/users/${reader.id}`);
 
   await page.goto(`/teams/${teamId}`);
   await expect(page.getByRole("heading", { name: teamName })).toBeVisible();
@@ -286,6 +301,7 @@ test("admin adds a dated Jira member to a team; a regular user sees it read-only
     modal.getByRole("button", { name: "Create", exact: true }).click(),
   ]);
   const membershipId = (await createResponse.json()).id as number;
+  teardown.push(`/api/v1/teams/${teamId}/jira-memberships/${membershipId}`);
   await expect(modal).toHaveCount(0);
   const membershipRow = page.getByRole("row", { name: new RegExp(SAMPLE_PERSON.displayName) });
   await expect(membershipRow).toContainText(firstFrom);
@@ -324,16 +340,10 @@ test("admin adds a dated Jira member to a team; a regular user sees it read-only
   await expect(page.getByRole("button", { name: `Operations for ${SAMPLE_PERSON.displayName}` })).toHaveCount(0);
   await signOut(page);
 
-  // Cleanup as the admin. The membership row is deleted explicitly, BEFORE the team — a team's
-  // own soft-delete does not clear it (see the comment above), and leaving it in place would
-  // permanently occupy this shared stub person's one global membership slot for this date range.
+  // Cleanup as the admin: the reader through the UI (a scenario step); the membership row (BEFORE the team — a team's own
+  // soft-delete does not clear it, see the comment above, and leaving it in place would permanently occupy this shared stub
+  // person's one global membership slot for this date range), the team and the data source in the afterEach.
   await login(page);
   await deleteUserRow(page, reader.name);
-  const removedMembership = await api.delete(`/api/v1/teams/${teamId}/jira-memberships/${membershipId}`);
-  expect([204, 404], `membership ${membershipId} -> ${removedMembership.status()}`).toContain(removedMembership.status());
-  const removedTeam = await api.delete(`/api/v1/teams/${teamId}`);
-  expect([204, 404], `/api/v1/teams/${teamId} -> ${removedTeam.status()}`).toContain(removedTeam.status());
-  const removedDs = await api.delete(`/api/v1/data-sources/${dataSourceId}`);
-  expect([204, 404], `/api/v1/data-sources/${dataSourceId} -> ${removedDs.status()}`).toContain(removedDs.status());
   await api.dispose();
 });

@@ -8,7 +8,8 @@
   end of that same test, so the shared settings a real admin might also be reading are never left
   changed; a throwaway Jira-stub data source per test that needs one (unique `e2e-metrics-ds-*`
   names) and a throwaway team per test that needs one (unique `e2e-metrics-team-*` names), all
-  deleted by the end of their own test; a throwaway user in the third test. The second and third
+  removed by the end of their own test (the cleanup hook deletes them through the API even when a step fails first); a
+  throwaway user in the third test. The second and third
   tests each sync their OWN connection rather than sharing one — see "Not covered here".
 
 ## Scenario: admin adjusts metrics settings
@@ -50,7 +51,8 @@
 6. They map the `Platform board` to the SAME throwaway team and save again.
    - *Expected*: an inline "This team is already mapped to another board" error, on the Platform
      board's Team field specifically (D10: one board per team).
-7. The test deletes the throwaway team and the data source.
+7. The test deletes the data source from its row menu; the cleanup hook removes the throwaway team (and the data
+   source too, had a step failed before this one) through the API.
 
 ## Scenario: admin adds a dated Jira member to a team; a regular user sees it read-only
 
@@ -69,7 +71,8 @@
 5. The user opens the same team.
    - *Expected*: the Jira member row is visible (read-only) with no **Add Jira member** button and
      no per-row operations control.
-6. The admin signs back in and deletes the throwaway user, team and data source.
+6. The admin signs back in and deletes the throwaway user; the cleanup hook removes the membership, team and data
+   source through the API (and the user too, had a step failed before this one).
 
 ## Not covered here (and why)
 
