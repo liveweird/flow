@@ -16,9 +16,12 @@ together. The Gradle bulk group excludes Exposed and the Netty/Reactor/OpenTelem
 their pins need individual compatibility review before integration. Exclusion from a group does
 not ignore an update or exempt it from review.
 
-Dependabot vulnerability alerts and security update PRs are enabled in the GitHub repository
-settings. These are separate from the version-update configuration. Security updates still need
-the normal checks; never auto-merge a breaking migration to clear an alert.
+Dependabot vulnerability alerts and security update PRs are separate GitHub repository settings
+from the version-update configuration, and both are currently **disabled** (checked 2026-10-06:
+`gh api repos/liveweird/flow --jq .security_and_analysis` reports `dependabot_security_updates:
+disabled`, and the `vulnerability-alerts` endpoint answers 404); enabling them is the owner's call.
+Once on, security updates still need the normal checks; never auto-merge a breaking migration to
+clear an alert.
 
 Dependabot does not cover every declaration here. At each monthly maintenance pass, inspect the
 exact JDK pin in `mise.toml`, Ktor's imported catalog in `settings.gradle.kts`, and the runtime

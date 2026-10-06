@@ -120,7 +120,7 @@ rows). Failed and cancelled runs are excluded, so the worst cases (the timeout b
 | 09-28 | v0.3.0 M1/M2 (metrics config + UI); `DerivedStubFixture` (`6a581f7`) cut `MetricsDerivationTest` 324 s → 41 s | 7-10 min |
 | 09-29 | v0.3.0 M3 (DERIVE, aggregates, more re-derive/REPROCESS-digest tests) | ~21 min — the derive-heavy tests cost more than the fixtures saved (see the ANALYZE cause) |
 | 09-29 | M4 (reports + web) | 26-29 min |
-| 09-29 | M5 | 21-30 min; the docs-only PR #30 (`chore/backlog-v0.3.0`, run #69 — before the Markdown-only skip of the server job existed) hit the 30-min `timeout-minutes` (stopped at 30m12s); the timeout became 45 |
+| 09-29 | M5 | 21-30 min; the docs-only PR #30 (`chore/backlog-v0.3.0`, run #69 — before the Markdown-only skip of the server job existed) hit the 30-min `timeout-minutes` (stopped at 30m12s); the timeout became 45 (25 since #51) |
 
 **Runner variance is large.** The same test code measured 17m47s (push to master) and 29m15s (the PR
 run) for M4-web; M5's runs were 29m54s and 21m20s. Read a single run with suspicion, a median of 5
@@ -153,16 +153,15 @@ CSS/threads — WHY 6) → 1m23s (#40's push) → 1m09s** (#41's PR run), inside
 target: `server` (10m01s vs 5 min) and `images` (4m06s: the BuildKit cache and the Trivy scan landed together in
 #35 — answered 2026-10-01, WHY 9 below: the cache was the regression and is gone).
 
-**WHY 5 (CI 4 vCPU vs local 18 cores) — status 2026-09-30: pending.** Checkup A2 made parallel test forks
-possible; checkup D1 is the change that ENABLES them (`maxParallelForks` above 1) and has not landed. Until it does
-the suite stays single-fork and CI keeps its 4-vCPU penalty; the expected gain is still only ~15-25 % on 4 vCPU
-(question 5 has the local -29 % / -33 %, and the fixture duplication that limits it). Re-measure with
-`ci-times.mjs --branch master` on the first master run after D1.
+**WHY 5 (CI 4 vCPU vs local 18 cores) — ANSWERED 2026-09-30.** Checkup D1 landed in #51: CI runs the server suite in two
+parallel forks (`-Pforks=2`), the local default stays one. The measurement (local -28 % at 2 forks; the `server` job
+7-8 min on master afterwards) and the fork-safety work that made it possible are in "Known causes and open WHY
+questions", question 5.
 
-**The 45-minute timeout.** The `server` job's `timeout-minutes: 45` (`.github/workflows/ci.yml`) was raised from 30
-when run #69 hit it; it is a stop-gap, not a budget (the alarm is 10 min). Once D1 lands and the master median sits
-below the alarm for a few runs, bring it down (to ~20 min, at least 2x the alarm) in the same change that
-records the measurement — the same "measurement first" rule as `budgets.json`.
+**The server job timeout is 25 minutes.** `timeout-minutes: 25` (`.github/workflows/ci.yml`): run #69 hit the old 30-min
+limit, it was stop-gapped to 45, and #51 brought it down to 25 together with the two forks (the alarm stays 10 min;
+25 is over 3x the 7-8 min master median). Re-check the margin with `ci-times.mjs --branch master` whenever the suite grows — the same
+"measurement first" rule as `budgets.json`.
 
 ## Known causes and open WHY questions
 

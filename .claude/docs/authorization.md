@@ -110,6 +110,13 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     `users.credential_revision`, which invalidates all outstanding refresh tokens and pending MFA
     challenges (see "Session auto-extension"); already-issued access tokens keep working until
     their ≤15-min expiry (documented bounded window). Covered by `PasswordChangeTest`.
+  - **The same ≤15-min window applies after a user is deleted or demoted.** An access token's `jwt {}`
+    validation (`plugins/Security.kt`) checks only signature/`typ`/`jti` against the blocklist, and
+    `caller()` reads `roles`/`disabledFeatures` off its claims — no per-request user lookup. A
+    soft-deleted user's access token keeps authenticating, and a demoted admin keeps the ADMIN guards
+    open, until the token's expiry (`jwt.accessExpiresInSeconds`, default 900 s); only the
+    refresh (`user_gone`, current roles) re-reads the user, so the session ends at the next refresh.
+    A known, bounded trade-off of stateless access tokens.
 - **Existence disclosure (403 vs 404) — deliberate policy (API-ERR-006)**: two sanctioned idioms,
   and every new resource picks one consciously rather than mixing them. **Guard-before-read**
   (`GET /users/{id}`): a forbidden caller gets a uniform 403 whether or not the id exists — use it

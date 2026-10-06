@@ -35,7 +35,7 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   - `epic_domain_key` uses the epic's current domain, not as-of (no epic-domain history exists). After the first real sync.
   - Read `hoursPerDay` from Jira's time-tracking configuration (A5). After the first real sync.
   - Seed memberships from the Team field (D1). After the first real sync.
-  - Cache validators for the report endpoints.
+  - Cache validators for the report endpoints. Draft PR #75 (ETag/304 + an atomic DERIVE success mark) is open, waiting on the cache-posture sign-off.
   - **Parked (2026-10-01; the teams do not estimate via sub-tasks):** estimated backlog uses the OWN estimate only, so a parent estimated through its sub-tasks (`estimate_source = SUBTASKS`) is missing from it. The fix is a composite-estimate bridge, and velocity (`sprintScope`) needs the same composite or backlog-in-sprints is overstated. Number the amendment A28 (A23 is taken).
 
 ## Engineering follow-ups
@@ -50,7 +50,7 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 ## Checkup 2026-09-30 — what is left (record: `.claude/docs/audit-status.md`)
 
 The checkup fixed tiers A–D in PRs #31–#53; the leftovers (A15, C8, D2–D5 and the small test/build items) landed in
-PRs #59–#61. What remains is the build-time follow-ups, B7 step 3 and the user's own decisions (item ids as in the
+PRs #59–#61. What remains is the build-time follow-ups and the user's own decisions (item ids as in the
 report, `~/.claude/plans/flow-checkup-2026-09-30.md`):
 
 - **Build-time follow-ups** (`build-times.md`): WHY 3/4/9 are answered (2026-10-01); PROCESS's child inserts
@@ -62,8 +62,8 @@ report, `~/.claude/plans/flow-checkup-2026-09-30.md`):
   `web-features.md`, and cut the package tree to one line per package. Step 3 (2026-10-06) moved `CLAUDE.md`'s CI
   paragraph, the full-stack notes, the roadmap history and the donor detail to the new `ci.md` and `product.md`, and
   `testing.md`'s harness bullets, setup/forks narrative, static-analysis detail and frontend-test internals to
-  `test-fixtures.md`/`ci.md` (moved verbatim, one-line rules kept). The always-loaded set is now 35.1k chars (from
-  40.3k, originally 59.0k), on the ~35k target (35.3k after step 4's one table row). Step 4 (2026-10-06) moved `web/CLAUDE.md`'s transport/session
+  `test-fixtures.md`/`ci.md` (moved verbatim, one-line rules kept). The always-loaded set (`wc -c CLAUDE.md .claude/docs/testing.md .claude/docs/list-endpoints.md`) now measures 35,487 bytes
+  (35.3k characters; from 40.3k, originally 59.0k), on the ~35k target. Step 4 (2026-10-06) moved `web/CLAUDE.md`'s transport/session
   internals, the user-management and feature-flag narratives, the add-a-language and language-switcher detail, the
   colour-token and logo internals, the changelog wiring and the "not yet ported" list verbatim to the new
   `web-internals.md` (a one-line rule kept for every never/must/always); `web/CLAUDE.md` is now 29.6k (from 36.2k, originally
@@ -71,7 +71,7 @@ report, `~/.claude/plans/flow-checkup-2026-09-30.md`):
 - **The user's decisions:** A1 — protect `master` (required checks: `server`, `web`, `e2e-static`,
   `gradle-vulnerability-scan`, `k8s-static`; no bypass); A13 — a TLS-terminating Ingress + ClusterIP Service vs a
   documented local-only overlay (behind today's bare LoadBalancer `X-Forwarded-For` is client-supplied); Dependabot
-  #45–#48 (held under the dependency rule).
+  #12, #47 and #64–#67 (held under the dependency rule; #45, #46 and #48 were closed 2026-10-03).
 
 ## Security and operations
 

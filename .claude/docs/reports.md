@@ -1088,8 +1088,10 @@ the TASK/EPIC switch for a cross-domain task, an epic-logged and an epic-less wo
 
 ## Report 17 -- Deep dive
 
-Status: implemented server side (A29, `.claude/docs/domain-model.md`; per-measure rows in `.claude/docs/measures.md` "Report 17"): the report
-(`reports/DeepDiveReport.kt`, `DeepDiveSelection.kt`) and the three option lists (`reports/DeepDiveOptions.kt`); the SPA page is a later commit. Reports-layer only: it reads facts `DERIVE` already writes (`fact_sprint_scope`,
+Status: implemented (A29, `.claude/docs/domain-model.md`; per-measure rows in `.claude/docs/measures.md` "Report 17"): the report
+(`reports/DeepDiveReport.kt`, `DeepDiveSelection.kt`) and the three option lists (`reports/DeepDiveOptions.kt`) on the server, the SPA page
+(`pages/ReportDeepDive.tsx`, #71) with its drillable matrix, and a Burn-up tab (#74: `DeepDiveBurnup*`, pure client-side arithmetic over the SAME
+response, no extra request). Reports-layer only: it reads facts `DERIVE` already writes (`fact_sprint_scope`,
 `fact_task_delivery`, `item_stage`, `fact_worklog`, `fact_epic_plan`, `dim_date`) -- no new `DERIVE` step, no migration. Any signed-in user,
 read-only, no audit (D12), every operation answers `200`/`400`/`401` only.
 

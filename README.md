@@ -49,7 +49,7 @@ Built on the v0.1.0 foundation:
 ## Roadmap
 
 - **Next** — the first sync against a real Jira tenant and the adjustments it brings, then the
-  follow-ups in `BACKLOG.md` (a per-domain stage override UI, seeding memberships from the Team
+  follow-ups in `BACKLOG.md` (seeding memberships from the Team
   field, cache validators for the reports); GitLab as a second connector on the same ingestion
   framework.
 
