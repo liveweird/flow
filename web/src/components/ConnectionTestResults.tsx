@@ -1,7 +1,8 @@
 import type { TFunction } from "i18next";
-import { Badge, Stack, Table, Text } from "@mantine/core";
+import { Badge, Stack, Text } from "@mantine/core";
 import { useTranslation } from "react-i18next";
 import type { ConnectionTestResult, ConnectionTestRow } from "../api/dataSources";
+import ColumnTable, { type ColumnDef } from "./ColumnTable";
 
 /** The detail cell: the upstream status/code, plus the scope a failed row likely needs — never rendered for an ok row. */
 function rowDetail(row: ConnectionTestRow, t: TFunction): string {
@@ -22,45 +23,53 @@ function rowDetail(row: ConnectionTestRow, t: TFunction): string {
  */
 export default function ConnectionTestResults({ result }: { result: ConnectionTestResult }) {
   const { t } = useTranslation();
+  const columns: ColumnDef<ConnectionTestRow>[] = [
+    {
+      key: "endpoint",
+      header: t("dataSources.test.column.endpoint"),
+      render: (row) => (
+        <>
+          <Text size="sm" fw={500}>
+            {row.name}
+          </Text>
+          <Text size="xs" c="dimmed">
+            {row.path}
+          </Text>
+        </>
+      ),
+    },
+    {
+      key: "required",
+      header: t("dataSources.test.column.required"),
+      render: (row) => <Text size="sm">{row.required ? t("dataSources.test.required") : t("dataSources.test.optional")}</Text>,
+    },
+    {
+      key: "result",
+      header: t("dataSources.test.column.result"),
+      render: (row) => (
+        <Badge color={row.ok ? "teal" : "red"} variant="light">
+          {row.ok ? t("dataSources.test.ok") : t("dataSources.test.failed")}
+        </Badge>
+      ),
+    },
+    {
+      key: "detail",
+      header: t("dataSources.test.column.detail"),
+      render: (row) => (
+        <Text size="sm" c="dimmed">
+          {rowDetail(row, t)}
+        </Text>
+      ),
+    },
+  ];
   return (
     <Stack gap="xs">
-      <Table aria-label={t("dataSources.test.tableAria")}>
-        <Table.Thead>
-          <Table.Tr>
-            <Table.Th>{t("dataSources.test.column.endpoint")}</Table.Th>
-            <Table.Th>{t("dataSources.test.column.required")}</Table.Th>
-            <Table.Th>{t("dataSources.test.column.result")}</Table.Th>
-            <Table.Th>{t("dataSources.test.column.detail")}</Table.Th>
-          </Table.Tr>
-        </Table.Thead>
-        <Table.Tbody>
-          {result.rows.map((row) => (
-            <Table.Tr key={row.name}>
-              <Table.Td>
-                <Text size="sm" fw={500}>
-                  {row.name}
-                </Text>
-                <Text size="xs" c="dimmed">
-                  {row.path}
-                </Text>
-              </Table.Td>
-              <Table.Td>
-                <Text size="sm">{row.required ? t("dataSources.test.required") : t("dataSources.test.optional")}</Text>
-              </Table.Td>
-              <Table.Td>
-                <Badge color={row.ok ? "teal" : "red"} variant="light">
-                  {row.ok ? t("dataSources.test.ok") : t("dataSources.test.failed")}
-                </Badge>
-              </Table.Td>
-              <Table.Td>
-                <Text size="sm" c="dimmed">
-                  {rowDetail(row, t)}
-                </Text>
-              </Table.Td>
-            </Table.Tr>
-          ))}
-        </Table.Tbody>
-      </Table>
+      <ColumnTable
+        aria-label={t("dataSources.test.tableAria")}
+        columns={columns}
+        rows={result.rows}
+        rowKey={(row) => row.name}
+      />
       {result.cloudId && (
         <Text size="xs" c="dimmed">
           {t("dataSources.test.cloudId", { cloudId: result.cloudId })}
