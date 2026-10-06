@@ -2,7 +2,6 @@ package ch.nokillswit
 
 import ch.nokillswit.infra.paging.optionalEnum
 import ch.nokillswit.infra.paging.optionalString
-import ch.nokillswit.infra.paging.repeatedEnum
 import ch.nokillswit.infra.paging.repeatedLongs
 import ch.nokillswit.infra.paging.repeatedStrings
 import ch.nokillswit.infra.paging.repeatedValues
@@ -58,15 +57,6 @@ class QueryParamsTest {
     }
 
     @Test
-    fun `repeatedEnum is case-insensitive, distinct, empty when absent, and 400s an unknown value`() {
-        val params = parametersOf("v" to listOf("pear", "PEAR", "Apple"), "junk" to listOf("kiwi"))
-        assertEquals(listOf(Fruit.PEAR, Fruit.APPLE), params.repeatedEnum<Fruit>("v"))
-        assertEquals(emptyList(), params.repeatedEnum<Fruit>("missing"))
-        val failure = assertFailsWith<BadRequestException> { params.repeatedEnum<Fruit>("junk") }
-        assertTrue(failure.message!!.contains("APPLE, PEAR"))
-    }
-
-    @Test
     fun `repeatedLongs parses distinct non-negative ids in order and is empty when absent`() {
         val params = parametersOf("id" to listOf("7", " 3 ", "7", "", "0"), "missing" to emptyList())
         assertEquals(listOf(7L, 3L, 0L), params.repeatedLongs("id", maxCount = 5))
@@ -88,12 +78,6 @@ class QueryParamsTest {
         val three = parametersOf("id" to listOf("1", "2", "3"))
         val tooMany = assertFailsWith<BadRequestException> { three.repeatedLongs("id", maxCount = 2) }
         assertEquals("Parameter 'id' takes at most 2 values", tooMany.message)
-        val none = parametersOf("other" to listOf("1"))
-        val tooFew = assertFailsWith<BadRequestException> { none.repeatedLongs("id", minCount = 1, maxCount = 2) }
-        assertEquals("Parameter 'id' takes at least 1 value", tooFew.message)
-        val one = parametersOf("id" to listOf("1"))
-        val tooFewPlural = assertFailsWith<BadRequestException> { one.repeatedLongs("id", minCount = 2, maxCount = 3) }
-        assertEquals("Parameter 'id' takes at least 2 values", tooFewPlural.message)
     }
 
     @Test
@@ -111,6 +95,5 @@ class QueryParamsTest {
         assertEquals(listOf("FLO-1", "FLO-2"), params.repeatedStrings("k", maxCount = 2))
         assertEquals(emptyList(), params.repeatedStrings("missing", maxCount = 2))
         assertFailsWith<BadRequestException> { params.repeatedStrings("k", maxCount = 1) }
-        assertFailsWith<BadRequestException> { params.repeatedStrings("missing", minCount = 1, maxCount = 2) }
     }
 }

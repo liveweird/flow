@@ -102,17 +102,31 @@ internal fun dayOffset(origin: LocalDate, day: LocalDate): Int = ChronoUnit.DAYS
 internal const val MAX_WINDOW_DAYS = 1100
 
 /**
- * The working days of the UNION of [windows] (A29), ascending: each window `dayOf(start ?: close)`..`dayOf(close)` in [calendar]'s zone
- * with `close = complete ?: end`, inclusive, clamped to its first [MAX_WINDOW_DAYS] days; a window with no close contributes none, and a
+ * A sprint's plan window in [calendar]'s zone, inclusive: `dayOf(start ?: close)`..`dayOf(close)` with `close = complete ?: end`, clamped
+ * to its first [MAX_WINDOW_DAYS] days. `null` when the sprint has no close or the window is empty (a close before its start): it
+ * contributes no day. The ONE statement of the rule: [planDays] walks it, the report's range envelope and sprint marks read it.
+ */
+internal fun sprintWindow(
+    startMs: Long?,
+    completeMs: Long?,
+    endMs: Long?,
+    calendar: WorkingCalendar,
+): Pair<LocalDate, LocalDate>? {
+    val close = completeMs ?: endMs ?: return null
+    val first = calendar.dayOf(startMs ?: close)
+    val last = minOf(calendar.dayOf(close), first.plusDays(MAX_WINDOW_DAYS - 1L))
+    return if (first.isAfter(last)) null else first to last
+}
+
+/**
+ * The working days of the UNION of [windows] (A29), ascending: each window's days are [sprintWindow]'s (the one owner of that rule), and a
  * day in two windows is counted once. Depends only on the windows and the calendar, so the report layer can memoize it per distinct
  * window set.
  */
 internal fun planDays(windows: List<SprintWindow>, calendar: WorkingCalendar): List<LocalDate> {
     val days = TreeSet<LocalDate>()
     for (window in windows) {
-        val close = window.completeAtMs ?: window.endAtMs ?: continue
-        val first = calendar.dayOf(window.startAtMs ?: close)
-        val last = minOf(calendar.dayOf(close), first.plusDays(MAX_WINDOW_DAYS - 1L))
+        val (first, last) = sprintWindow(window.startAtMs, window.completeAtMs, window.endAtMs, calendar) ?: continue
         var day = first
         while (!day.isAfter(last)) {
             if (calendar.isWorkingDay(day)) days += day

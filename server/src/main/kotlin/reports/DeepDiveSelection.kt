@@ -111,7 +111,7 @@ internal suspend fun resolveDeepDiveTargets(request: DeepDiveRequest, connection
     when (val selection = request.selection) {
         is DeepDiveSelection.Sprints -> resolveSprints(selection, connectionIds)
         is DeepDiveSelection.Epics -> {
-            val epics = resolveEpics(selection.epicKeys, connectionIds)
+            val epics = requireEpicsByKey(selection.epicKeys, connectionIds)
             val connectionId = epics.first().connectionId
             DeepDiveTargets(connectionId, selection, epicTaskIds(connectionId, epics.map { it.issueId }), epics)
         }
@@ -124,11 +124,7 @@ private suspend fun resolveSprints(selection: DeepDiveSelection.Sprints, connect
         .where { (s.connectionId inList connectionIds) and (s.sprintId inList selection.sprintIds) }
         .toList().groupBy({ it[s.sprintId] }, { it[s.connectionId].value })
     val connectionId = singleConnection("sprintId", selection.sprintIds, rows)
-    val d = MetricsTables.DimDomain
-    val known = d.select(d.domainKey)
-        .where { (d.connectionId eq connectionId) and (d.domainKey eq selection.domain) }
-        .toList().isNotEmpty()
-    if (!known) throw BadRequestException("Unknown domain: ${selection.domain}")
+    requireDomainName(selection.domain, listOf(connectionId))
 
     val scope = MetricsTables.FactSprintScope
     val task = MetricsTables.FactTaskDelivery
@@ -147,31 +143,6 @@ private suspend fun resolveSprints(selection: DeepDiveSelection.Sprints, connect
     return DeepDiveTargets(connectionId, selection, requireTaskCap(ids), emptyList())
 }
 
-/** The single connection every one of [requested] was found in, or `400` for an unknown value, an ambiguous one or a split selection. */
-private fun <T> singleConnection(name: String, requested: List<T>, foundIn: Map<T, List<UInt>>): UInt {
-    for (value in requested) {
-        val connections = foundIn[value].orEmpty().distinct()
-        if (connections.isEmpty()) throw BadRequestException("Unknown or inactive $name: $value")
-        if (connections.size > 1) throw BadRequestException("$name $value exists in several connections; narrow with connectionId")
-    }
-    val connections = requested.map { foundIn.getValue(it).first() }.distinct()
-    if (connections.size > 1) throw BadRequestException("The $name values belong to several connections; narrow with connectionId")
-    return connections.single()
-}
-
-private suspend fun resolveEpics(epicKeys: List<String>, connectionIds: List<UInt>): List<ResolvedEpic> {
-    val e = MetricsTables.DimEpic
-    val rows = e.select(e.connectionId, e.issueId, e.issueKey, e.summary, e.startAt, e.dueAt)
-        .where { (e.connectionId inList connectionIds) and (e.issueKey inList epicKeys) }
-        .toList()
-    val byKey = rows.groupBy { it[e.issueKey] }
-    val connectionId = singleConnection("epicId", epicKeys, byKey.mapValues { (_, found) -> found.map { it[e.connectionId].value } })
-    return epicKeys.map { key ->
-        val row = byKey.getValue(key).first { it[e.connectionId].value == connectionId }
-        ResolvedEpic(connectionId, row[e.issueId], key, row[e.summary], row[e.startAt], row[e.dueAt])
-    }
-}
-
 private suspend fun epicTaskIds(connectionId: UInt, epicIssueIds: List<Long>): List<Long> {
     val t = MetricsTables.FactTaskDelivery
     val ids = t.select(t.issueId)
@@ -182,7 +153,7 @@ private suspend fun epicTaskIds(connectionId: UInt, epicIssueIds: List<Long>): L
 }
 
 private suspend fun resolveHandpicked(selection: DeepDiveSelection.Tasks, connectionIds: List<UInt>): DeepDiveTargets {
-    val epic = resolveEpics(listOf(selection.epicKey), connectionIds).single()
+    val epic = requireEpicsByKey(listOf(selection.epicKey), connectionIds).single()
     val t = MetricsTables.FactTaskDelivery
     val found = t.select(t.issueId, t.issueKey, t.epicId)
         .where { (t.connectionId eq epic.connectionId) and (t.issueKey inList selection.issueKeys) and (t.isSubtask eq false) }

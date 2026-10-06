@@ -5,7 +5,6 @@ import ch.nokillswit.ingest.DataSourceService
 import ch.nokillswit.metrics.MetricsSettingsService
 import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.metrics.TeamMembershipService
-import ch.nokillswit.norm.WorkItemStore
 import ch.nokillswit.teams.TeamService
 import kotlinx.coroutines.flow.toList
 import org.jetbrains.exposed.v1.core.*
@@ -87,17 +86,7 @@ class ReportService(
         // teams are few and admin-curated, so this stays cheap; a future perf pass could batch it.
         val membersByTeam = teamIds.associateWith { teamMembership.currentAccountIds(it, nowMs) }
         val allAccountIds = membersByTeam.values.flatten().toSet()
-        val displayNameByAccountId = if (allAccountIds.isEmpty()) {
-            emptyMap()
-        } else {
-            WorkItemStore.People.select(WorkItemStore.People.accountId, WorkItemStore.People.displayName)
-                .where { WorkItemStore.People.accountId inList allAccountIds }
-                // One account can appear under several connections: order so the pick is stable
-                // (the lowest connection id's name wins, `associate` keeps the last duplicate).
-                .orderBy(WorkItemStore.People.connectionId to SortOrder.DESC)
-                .toList()
-                .associate { it[WorkItemStore.People.accountId] to it[WorkItemStore.People.displayName] }
-        }
+        val displayNameByAccountId = accountDisplayNames(allAccountIds)
 
         val teams = teamRows.map { row ->
             val id = row[TeamService.Teams.id].value
