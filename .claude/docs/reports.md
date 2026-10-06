@@ -43,7 +43,7 @@ Every `/api/v1/reports/*` operation is **any signed-in user, read-only, no audit
 individuals included"). No `requireAdmin` guard anywhere in this package -- configuration and
 data-source pages stay ADMIN-only, but a report itself never does. Since nothing here mutates
 anything, there is no `audit(...)` call to add -- the observability doc's per-mutation rule simply
-does not apply (`.claude/docs/observability.md`).
+does not apply (`.claude/docs/observability.md`). Every GET also answers through the shared cache validators below.
 
 ## The shared filter parser (`reports/ReportFilter.kt`)
 
@@ -178,6 +178,72 @@ ReportFilters {
 `reports/ReportService.kt`'s `filters()` runs three cross-feature reads inside its own
 transaction, listed in `.claude/docs/persistence.md`'s cross-feature-read rule:
 `teams/TeamService.Teams`, `norm/WorkItemStore.People`, `ingest/DataSourceService.Connections`.
+
+## Cache validators (`reports/ReportValidators.kt`)
+
+All twenty report GETs -- the fifteen reports, `/reports/filters` and the four deep-dive operations (the report and its three option lists) --
+answer through ONE shared path (`reportGetWith`/`reportGet` for the shared-filter reports, `respondRevalidated` for the rest): a **weak `ETag`**
+computed BEFORE the report query runs, and `304 Not Modified` without running it when `If-None-Match` lists it. Content never depends on who asks
+(D12), so no caller identity enters the validator. `ReportValidatorsTest` pins it: its sweep GETs every operation (200 + `ETag`, then `304` with an
+empty body), and fails when the spec gains a `/api/v1/reports/**` path the sweep does not list -- a new report must join the validators.
+
+- **Order of evaluation.** `call.caller()` (`401`) -> every `400` that needs no data (the shared filter parse, a report's own extra parameters,
+  the deep dive's `parseDeepDive`, the option lists' paging/sort/`domain`) -> the data stamp -> `If-None-Match` -> the report. A malformed request
+  is therefore `400` even with a matching tag, and an unauthenticated one never sees a validator. A `400` that depends on DATA (unknown `teamId`,
+  `connectionId`, `sprintId`, epic key, domain) is still raised by the report on a miss; it cannot be hidden behind a `304`, because a validator is
+  only ever issued for a `200` and the stamp holds everything those checks read (teams, active connections, the derived data). The one exception is
+  `If-None-Match: *`: it asks "does a current representation exist", which only the report can answer, so it runs the report first (a `400` wins) and
+  then answers `304` with the body dropped.
+- **The ETag** is `W/"<base64url sha256, 43 chars>"` over, length-prefixed: the code identity (below), the request path, the canonical query (parameters
+  sorted by name, a repeated name's values in request order -- so a reordered query is the same request, unknown parameters count, a cache-buster
+  gets its own validator) and the data stamp. It is WEAK on purpose: the stamp promises the same figures, not the same bytes (a bucketed `now` can move
+  a fractional age inside one validator, and the body may be compressed per `Accept-Encoding`).
+- **The data stamp** (`ReportService.dataStamp`, one read-only transaction, a few small reads): the live `metrics.settings.config_revision` (every
+  settings, per-connection config and team-membership edit bumps it -- the live reads of data quality and WIP are covered by it); the newest
+  SUCCEEDED `derive_runs` row (id, `finished_at`, `config_revision`) of EVERY active connection, whatever the request's `connectionId` -- one
+  `DISTINCT ON (connection_id)` query ordered by the monotonic run id (`newestSucceededRuns`, shared with `deriveStamp`), never the run history. It
+  is the version of the whole `metrics` star and, since every successful SYNC chains a DERIVE, of the `norm` labels the reports join live; the
+  person names (`norm.people`, lowest connection id wins) and `/filters` are read across connections, so a report narrowed to one connection still
+  depends on the others' data -- stamping all of them was the smallest change that keeps that correct (scoping `accountDisplayNames` to the report's
+  connections would change report output). The cost is that another connection's DERIVE also moves a narrowed report's tag. Also: the active connections'
+  ids and names and the active teams' ids, names and `updated_at` (no DERIVE rewrites a team rename or a soft delete, and `requireActiveTeam`/
+  `resolveConnectionScope` read them); and the clock token. The stamp is computed BEFORE the report, so a DERIVE finishing in between can only make
+  the validator older than the body (the next request mismatches and refetches), never newer.
+- **The clock token** is `StampClock.DAY` -- the configured zone's calendar day, because default periods end "today" and the day-granular reads
+  (`asOfDay`, the deep dive's default day) move at local midnight -- except for the three that move continuously with `now`: **aging WIP** (fractional
+  working-day ages), **data quality** (member-days clipped at `now`) and **`/reports/filters`** (the roster "current as of the instant"), which use
+  `StampClock.FIVE_MINUTES`. Everything else follows the derived data only (a daily aggregate or a fact never changes between DERIVEs).
+
+| Operation | Derive stamp | Clock | Beyond the derive stamp it is sensitive to |
+|---|---|---|---|
+| `/filters` | every active connection | 5 min | teams, connections (shown in the response); the roster at `now` |
+| velocity, throughput, sprint-consistency, task/epic-estimation-accuracy, estimate-adjustments, cycle-time, reported-time-ratio, backlog, blocked-time, cost-matrix, epic-progress | every active connection | day | teams (group labels, `teamId` existence), connections (existence), settings revision (calendar, thresholds) |
+| wip | same | day | the same, plus the live board/status reads: covered by the settings revision (board-team map) and the chained DERIVE (`norm` statuses) |
+| aging-wip | same | 5 min | the same (fractional ages at `now`) |
+| data-quality | same | 5 min | the same, plus its live config reads (settings revision) |
+| deep-dive and its three option lists | every active connection | day | teams and connections (existence); the `norm` titles the lists show follow the chained DERIVE |
+
+A change in the `norm` labels (a person's display name, an issue summary) becomes visible to validators when the DERIVE chained after its SYNC
+succeeds, not at the SYNC itself: between the two a client holding the old validator gets `304` for the old labels, the same "figures as of the
+last DERIVE" contract `meta.derivedAt` states.
+
+- **Headers.** The `200` and the `304` both carry `ETag`, `Cache-Control: private, no-cache` (a private cache may keep it but revalidates on every
+  use) and `Vary: Authorization`. The route only OFFERS its tag (`offerValidator`); `plugins/ResponseValidators.kt` writes the three headers
+  onto a call that really ends `200`/`304`, and `plugins/Http.kt`'s blanket `no-store` for `/api/` JSON is skipped for exactly that
+  `application/json` answer -- the one deliberate exception (`.claude/docs/security.md` "Caching"). A `problem+json` response is always `no-store` and
+  never carries a validator, also when the route failed AFTER offering one (a `500`): headers cannot be taken back, so they are never written early.
+  Ktor adds `Content-Length: 0` to the `304`; RFC 9110 tolerates it (a 304 may carry the length of the `200` it stands in for), so it is left. The spec declares the `If-None-Match` parameter, the `ETag`/`Cache-Control`/`Vary`
+  response headers on the `200` and the `304` on all twenty operations.
+- **The code identity** replaces a hand-bumped version constant: a deploy that changes a report's shape or computation while the stored data stays the same
+  must never be answered `304` against the old body, and nobody can be trusted to remember a bump. `REPORT_CODE_IDENTITY` (computed once per boot)
+  is the sha256 of the server's own code artifact -- the jar under `installDist`, so every replica of one image agrees -- or, where the code source
+  is a directory (`:server:run`, the tests), a random id per boot. No manual wire-version constant is kept: every change to a shape or a
+  computation is a code change, hence a new jar. A rebuild that changes the jar bytes without changing behaviour costs one round of revalidation
+  misses, nothing more.
+- **The clock** is `ReportService.clock` (default `nowMillis`), the one `now` the report routes read for the figures and the stamp alike; tests pin
+  it on the published service so a day or five-minute bucket cannot roll mid-test.
+- **The SPA** changes nothing: it never sends `If-None-Match` itself, so a browser that stores and revalidates the answer does so below `fetch` (the
+  script sees a plain `200`); no code path receives a `304`.
 
 ## Wiring
 

@@ -33,6 +33,7 @@ import io.ktor.server.plugins.ratelimit.RateLimitName
 import io.ktor.server.plugins.ratelimit.rateLimit
 import io.ktor.server.request.receive
 import io.ktor.server.request.receiveNullable
+import io.ktor.server.response.header
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.post
@@ -513,6 +514,10 @@ private fun Route.logout(deps: AuthDeps) {
             "userId" to principal.payload.getClaim("userId").asLong(),
             "email" to principal.payload.getClaim("email").asString(),
         )
+        // Drops the origin's HTTP cache: report GETs are `private, no-cache` (revalidated, but their bodies may sit in the
+        // browser's disk cache — `.claude/docs/security.md` "Caching"), and an explicit logout is where they are cleared.
+        // Best-effort: browser support for the `"cache"` directive varies, and an expiry-forced sign-out never reaches here.
+        call.response.header("Clear-Site-Data", "\"cache\"")
         call.respond(HttpStatusCode.NoContent)
     }
 }

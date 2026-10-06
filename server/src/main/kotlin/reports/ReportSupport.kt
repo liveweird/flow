@@ -22,6 +22,7 @@ import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.isNotNull
 import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.core.less
+import org.jetbrains.exposed.v1.core.max
 import org.jetbrains.exposed.v1.core.or
 import org.jetbrains.exposed.v1.r2dbc.select
 import org.jetbrains.exposed.v1.r2dbc.selectAll
@@ -111,18 +112,33 @@ internal suspend fun requireActiveTeam(teamId: UInt) {
  */
 internal data class DeriveStamp(val derivedAt: Long?, val configRevision: Long?)
 
-internal suspend fun deriveStamp(connectionIds: List<UInt>): DeriveStamp {
-    if (connectionIds.isEmpty()) return DeriveStamp(null, null)
+/** One connection's newest SUCCEEDED derive run — the facts the DERIVE stamp and the report ETag are built from. */
+internal data class NewestRun(val connectionId: UInt, val runId: Int, val finishedAt: Long?, val configRevision: Long)
+
+/**
+ * The newest SUCCEEDED `derive_runs` row of each of [connectionIds] (a connection with none is absent): ONE `DISTINCT ON
+ * (connection_id)` query ordered `connection_id, id DESC` — the newest by the monotonic run id, never by the worker-supplied
+ * `started_at`. Shared by [deriveStamp] and the report ETag's data stamp, so neither loads the run history.
+ */
+internal suspend fun newestSucceededRuns(connectionIds: List<UInt>): List<NewestRun> {
+    if (connectionIds.isEmpty()) return emptyList()
     val runs = MetricsTables.DeriveRuns
-    val succeeded = runs.select(runs.id, runs.connectionId, runs.startedAt, runs.finishedAt, runs.configRevision)
+    return runs.select(runs.id, runs.connectionId, runs.finishedAt, runs.configRevision)
         .where { (runs.status eq DERIVE_RUN_SUCCEEDED) and (runs.connectionId inList connectionIds.map { it.toInt() }) }
-        .toList()
-    val newestPerConnection = succeeded.groupBy { it[runs.connectionId] }
-        .values.map { rows -> rows.maxWith(compareBy({ it[runs.startedAt] }, { it[runs.id] })) }
-    return DeriveStamp(
-        derivedAt = succeeded.mapNotNull { it[runs.finishedAt] }.maxOrNull(),
-        configRevision = newestPerConnection.minOfOrNull { it[runs.configRevision] },
-    )
+        .withDistinctOn(runs.connectionId)
+        .orderBy(runs.connectionId to SortOrder.ASC, runs.id to SortOrder.DESC)
+        .toList().map { NewestRun(it[runs.connectionId].toUInt(), it[runs.id], it[runs.finishedAt], it[runs.configRevision]) }
+}
+
+internal suspend fun deriveStamp(connectionIds: List<UInt>): DeriveStamp {
+    val newest = newestSucceededRuns(connectionIds)
+    if (newest.isEmpty()) return DeriveStamp(null, null)
+    val runs = MetricsTables.DeriveRuns
+    val latestFinish = runs.finishedAt.max()
+    val derivedAt = runs.select(latestFinish)
+        .where { (runs.status eq DERIVE_RUN_SUCCEEDED) and (runs.connectionId inList connectionIds.map { it.toInt() }) }
+        .toList().single()[latestFinish]
+    return DeriveStamp(derivedAt = derivedAt, configRevision = newest.minOf { it.configRevision })
 }
 
 /** Team names by id — an empty [ids] costs no query. */

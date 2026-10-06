@@ -178,8 +178,8 @@ global settings (one transaction, so a racing settings write can never let this 
 revision newer than the config it actually derived under — review round 1), prune old
 `derive_runs` rows (`MetricsStore.pruneDeriveRuns`, the `SyncJobsService.prune` shape, run on
 `ingest.jobRetentionDays`, always keeping each connection's newest `SUCCEEDED` run — its DERIVE clock for the
-snapshot reports), then — in ONE transaction — mark every OTHER `RUNNING` `derive_runs` row of this connection `FAILED` (`error_detail` "abandoned: worker lost its lease", `finished_at` = this run's clock: the job queue allows one DERIVE per connection, so such a row belongs to a worker SIGKILLed or lease-lost mid-DERIVE that can never finish it, and the prune only deletes terminal rows) and insert this run's own `RUNNING` row, then run the WHOLE rebuild inside
-ONE `suspendTransaction`: ensure `dim_date` over `[min(created_at) − 1y, now + 2y]` (`MetricsStore.ensureDimDate` —
+snapshot reports), then — in ONE transaction — mark every OTHER `RUNNING` `derive_runs` row of this connection `FAILED` (`error_detail` "abandoned: worker lost its lease", `finished_at` = this run's clock: the job queue allows one DERIVE per connection, so such a row belongs to a worker SIGKILLed or lease-lost mid-DERIVE that can never finish it, and the prune only deletes terminal rows) and insert this run's own `RUNNING` row, then run the WHOLE rebuild — and the run's `SUCCEEDED` stamp (`markRunSucceeded`: status, `finished_at`, `row_counts`) — inside
+ONE `suspendTransaction`, so the data and the run row that vouches for it commit together (`MetricsDeriveAtomicityTest`; `meta.derivedAt`/`configRevision` and the report ETag read that row): ensure `dim_date` over `[min(created_at) − 1y, now + 2y]` (`MetricsStore.ensureDimDate` —
 NOT part of that transaction, see "`dim_date` is global" below), delete every rebuildable `metrics.*` row for the
 connection, insert `dim_domain` (small, config-derived, inserted once), then three ordered passes over the
 connection's LIVE `norm.work_items` rows.

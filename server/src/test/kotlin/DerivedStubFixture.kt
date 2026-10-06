@@ -133,8 +133,11 @@ object DerivedStubFixture {
      * `metrics.settings.config_revision` twice per call, and every derived row is stamped with the
      * revision, so two derives that must compare equal share ONE wrapper.
      */
-    suspend fun derivePinned(connId: UInt, jobId: UInt = 1u) {
-        deriver().derive(SyncJobRunContext(deriveClaim(connId, jobId), clock = { PINNED_NOW }) { _, _ -> true })
+    suspend fun derivePinned(connId: UInt, jobId: UInt = 1u) = deriveWith(connId, jobId) { PINNED_NOW }
+
+    /** [derivePinned] with a caller-supplied job clock — e.g. one that fails on its Nth reading (the DERIVE atomicity test). */
+    suspend fun deriveWith(connId: UInt, jobId: UInt = 1u, clock: () -> Long) {
+        deriver().derive(SyncJobRunContext(deriveClaim(connId, jobId), clock = clock) { _, _ -> true })
     }
 
     /** [withMetricsSettings] with the fixture's pinned `hoursPerDay = 8.0`. */

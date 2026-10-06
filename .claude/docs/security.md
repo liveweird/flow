@@ -71,6 +71,20 @@ verbatim in `ServerTest`), `X-Content-Type-Options: nosniff`, `X-Frame-Options: 
 with the unchanged caching of the SPA's static assets), so per-user data never lands in a browser
 or proxy cache.
 
+**Caching -- a stated trade-off, awaiting the owner's sign-off.** The one deliberate exception to the blanket `no-store` is the `200`/`304` of
+the report GETs (`/api/v1/reports/**`, `reports/ReportValidators.kt`, `.claude/docs/reports.md` "Cache validators"): `Cache-Control: private,
+no-cache` + `Vary: Authorization` + a weak `ETag`. `private` keeps every shared cache (proxy, CDN) out; `no-cache` lets a browser store the answer
+but forces revalidation on every use. It is safe against cross-user serving for the reason reports are open to any signed-in user (D12): the
+content depends only on the query and the derived data, never on the caller -- and authentication runs BEFORE any validator logic, so an
+unauthenticated request is `401` with no validator and a `304` is never a way to probe for data. **What it gives up:** report bodies (person
+names, estimates, worklog figures) may persist in the browser's disk cache between logins on the same profile -- until a logout clears it
+(`POST /api/v1/logout` answers `Clear-Site-Data: "cache"`; best-effort: browser support for that directive varies, and a session that merely
+expires or is revoked never calls logout, so the entries stay until the browser evicts them). The alternative is to keep `no-store` and drop
+browser revalidation (the server-side `304` then only helps a client that sends `If-None-Match` itself, which the SPA does not). Only the
+report GETs are affected, only their `application/json` `200`/`304` (`plugins/ResponseValidators.kt` writes the headers only onto those; a
+`problem+json` response -- including a report's `400`/`500` -- is always `no-store` and carries no validator); every other endpoint, per-user or
+admin, keeps `no-store`.
+
 `style-src` carries `'unsafe-inline'` deliberately: Mantine's style props/CSS variables render
 inline `style` attributes and runtime `<style>` tags, and the app uses `style={{}}` itself — a
 STYLES-only concession; it does not reopen script injection.

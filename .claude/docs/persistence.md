@@ -135,6 +135,10 @@ place:
   `DimSprint`, `DimDomain`, `DimEpic`, `DimTask` (the filter option lists) and `DeriveRuns` (the
   `derivedAt` clock), all inside its own transaction — a read-only reference-data assembly, never
   a write.
+- `reports/ReportValidators.kt` (`ReportService.dataStamp`, the report ETag's data stamp) reads, read-only in one transaction before
+  any report runs, `ingest/DataSourceService.Connections` (active ids and names), `teams/TeamService.Teams` (active ids, names,
+  `updated_at`) and `metrics/MetricsTables.DeriveRuns` (the newest SUCCEEDED run of every active connection, one `DISTINCT ON` query,
+  `ReportSupport.kt`'s `newestSucceededRuns`) — nothing the reports do not already read.
 - `reports/ReportSupport.kt` (v0.3.0 M4 commits 10b/10c/10d/12, shared by `reports/VelocityReport.kt`,
   `reports/ThroughputReport.kt`, `reports/SprintConsistencyReport.kt` and the estimation reports
   `reports/TaskAccuracyReport.kt`/`EpicAccuracyReport.kt`/`EstimateAdjustmentsReport.kt`) reads
