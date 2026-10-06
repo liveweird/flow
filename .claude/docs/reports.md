@@ -54,11 +54,12 @@ connections, so every report read is bounded by a PostgreSQL **statement timeout
 lists) opens its transaction through it, never through a bare `suspendTransaction` (a new report copies the idiom; a bare one
 would run unbudgeted). It sets Exposed's `queryTimeout` on the transaction.
 
-**Why seconds, and not a `SET LOCAL statement_timeout`:** Exposed's R2DBC executor re-applies the transaction's `queryTimeout`
-(default 0, never null) with a session-level `SET statement_timeout` before EVERY statement, which silently undoes a
-`SET LOCAL statement_timeout` (measured; `SET LOCAL work_mem`/`lock_timeout` survive) -- so the budget has to be the
-`queryTimeout`, whose unit is whole seconds. The same per-statement reset is why the value cannot leak: the next Exposed
-statement on that pooled connection (every statement the app runs) starts by resetting it to 0 (`ReportQueryBudgetTest` pins it).
+**Why seconds, and not a `SET LOCAL statement_timeout`:** Exposed's R2DBC executor requests the transaction's `queryTimeout`
+(default 0, never null, whole seconds) from the driver before EVERY statement, and the connection layer
+(`infra/db/StatementTimeoutCache.kt`, `persistence.md` "Statement timeouts") sends it only when it differs from the connection's
+last confirmed value -- so the budget has to be the `queryTimeout`, and nothing else may set the statement timeout. The same
+per-statement request is why the value cannot leak: the next Exposed statement on that pooled connection (every statement the app
+runs) asks for 0, differs from the remembered 30 s and resets it (`ReportQueryBudgetTest` pins it).
 The budget is per STATEMENT, not per request; it does not cover waiting for a pooled connection (`postgres.pool.maxAcquireTimeSeconds`).
 
 **Answer:** a cancelled statement (SQLSTATE `57014`, `plugins/ErrorHandling.kt`'s `respondQueryTimedOut`) is a **500** problem

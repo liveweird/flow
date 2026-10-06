@@ -101,16 +101,17 @@ class ReportQueryBudgetTest {
     }
 
     @Test
-    fun `the report budget does not leak to the pooled connection (Exposed's per-statement reset)`() = testApplication {
+    fun `the report budget does not leak to the pooled connection (the per-statement request of 0)`() = testApplication {
         usePostgresTestcontainer()
         val baseline = suspendTransaction(sharedDatabaseForTests()) { showTimeout() }
         val inside = service(timeoutSeconds = 2).run { reportTransaction { showTimeout() } }
         assertEquals("2s", inside, "the budget applies inside the report transaction")
-        // A canary for Exposed upgrades: the budget is session-level (`SET statement_timeout`) and stays on the pooled
-        // connection after the commit; what stops it leaking is Exposed's own per-statement reset to the transaction's
-        // `queryTimeout` (default 0) before every statement. Every following plain transaction (more than the test
+        // A canary for Exposed/driver upgrades: the budget is session-level (`SET statement_timeout`) and stays on the pooled
+        // connection after the commit; what stops it leaking is that Exposed requests the transaction's `queryTimeout`
+        // (default 0) before every statement and the statement-timeout cache (`infra/db/StatementTimeoutCache.kt`) sends it
+        // whenever it differs from the connection's remembered value. Every following plain transaction (more than the test
         // pool is large, so the report's connection is among them) must therefore see the default, and a statement
-        // longer than the report budget must run to completion. If Exposed ever stops resetting, this goes red.
+        // longer than the report budget must run to completion. If the 0 is ever not sent, this goes red.
         repeat(10) { i ->
             assertEquals(baseline, suspendTransaction(sharedDatabaseForTests()) { showTimeout() }, "plain transaction #$i after a report")
         }
