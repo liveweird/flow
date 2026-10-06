@@ -160,7 +160,8 @@ team membership landed in M2 commit 5, and the per-connection `metrics-config` p
   overrides), then a table with one row per status — the every-domain stage, a stage `Select` whose empty value reads
   "Same as all domains" (= no row; clearing it or the row's remove button deletes the override) and a "Differs"
   badge when the override's stage is not the every-domain one; a domain key renamed on the Domains tab leaves its
-  overrides orphaned, flagged by a red inline `Alert` per orphan, and the server's `400` shows in the page alert
+  overrides orphaned, flagged by a red inline `Alert` per orphan, and so is an override on a status the connection no longer reports (an `Alert`
+  with a Remove button — such an override has no row in the status table and would `400` every save), and the server's `400` shows in the page alert
   — they save with the ONE Save, as `domainStatusStages`), Fields (five `Select`s over the profile-detected custom fields plus
   Jira's own `duedate` system field, labelled with the detected role), Domains (project key →
   domain key/name), Boards → team (an active-teams `Select`; a `409` marks the changed board

@@ -6,6 +6,7 @@ import {
   currentDomainKeys,
   mergeWorkCategoryValues,
   orphanOverrideDomains,
+  orphanOverrideStatuses,
   setDomainKeyForProject,
   setDomainStage,
   setOwnerTeamForDomainGroup,
@@ -303,5 +304,14 @@ describe("per-domain stage overrides", () => {
       { domainKey: "OLD", statusId: "10", stage: "DONE" as const },
     ];
     expect(orphanOverrideDomains(domains, overrides)).toEqual(["OLD"]);
+  });
+
+  test("orphanOverrideStatuses names overrides on statuses the form has no row for", () => {
+    const statuses = buildInitialState(EMPTY_CONFIG, OPTIONS).statuses;
+    const overrides = [
+      { domainKey: "ENG", statusId: "3", stage: "DONE" as const },
+      { domainKey: "ENG", statusId: "gone", stage: "DONE" as const },
+    ];
+    expect(orphanOverrideStatuses(statuses, overrides)).toEqual([{ domainKey: "ENG", statusId: "gone", stage: "DONE" }]);
   });
 });

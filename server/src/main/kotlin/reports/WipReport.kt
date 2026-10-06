@@ -117,6 +117,7 @@ private suspend fun fetchWipCells(
                 (w.day greaterEq firstDay) and (w.day lessEq lastDay)
         }
         .groupBy(w.day, w.statusId, w.stage)
+        .orderBy(w.day to SortOrder.ASC, w.statusId to SortOrder.ASC, w.stage to SortOrder.ASC)
         .toList().map { WipCell(it[w.day], it[w.statusId], it[w.stage], it[total] ?: 0) }
 }
 
@@ -165,12 +166,14 @@ private suspend fun wipKeys(by: WipBy, cells: List<WipCell>, mapping: ColumnMapp
         if (usesNoColumn) columnKeys + WipKey(NO_COLUMN_KEY, NO_COLUMN_KEY) else columnKeys
     }
     WipBy.STATUS -> {
-        val stageOfStatus = LinkedHashMap<String, String>()
-        cells.forEach { stageOfStatus.putIfAbsent(it.statusId, it.stage) }
-        val names = statusNames(stageOfStatus.keys, connectionIds)
-        stageOfStatus.keys
+        // A status can carry two stages in one scope (a per-domain stage override), so rank it by a FIXED rule: its
+        // earliest stage in WIP_STAGES order, whatever order the cells arrive in.
+        val rankOfStatus = cells.groupBy { it.statusId }
+            .mapValues { (_, group) -> group.minOf { WIP_STAGES.indexOf(it.stage) } }
+        val names = statusNames(rankOfStatus.keys, connectionIds)
+        rankOfStatus.keys
             .sortedWith(
-                compareBy<String> { WIP_STAGES.indexOf(stageOfStatus.getValue(it)) }
+                compareBy<String> { rankOfStatus.getValue(it) }
                     .thenBy { names[it] ?: it }
                     .thenBy { it },
             )

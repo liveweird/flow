@@ -139,7 +139,10 @@
         "unmapped": "Niezmapowany",
         "differs": "Różni się",
         "stageAria": "Etap dla {{name}} w domenie {{domain}}",
-        "removeAria": "Usuń nadpisanie dla {{name}} w domenie {{domain}}"
+        "removeAria": "Usuń nadpisanie dla {{name}} w domenie {{domain}}",
+        "orphanStatus": "To połączenie nie zgłasza już statusu {{status}}, więc jego nadpisania w domenie {{domain}} ({{stage}}) nie można zapisać. Usuń je, aby zapisać.",
+        "removeOrphanStatus": "Usuń",
+        "removeOrphanStatusAria": "Usuń nadpisanie dla nieznanego statusu {{status}} w domenie {{domain}}"
       }
     },
     "fields": {

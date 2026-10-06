@@ -24,6 +24,10 @@ API); a marked row becomes binding when its commit fills "Pinned by".
   `estimate_source = SUBTASKS`). An unfiltered sum double counts.
 - **Live rows only:** DERIVE reads `norm.work_items` with `deleted_at IS NULL AND moved_out_at IS
   NULL`.
+- **Stages (WIP, cycle and lead time, flow efficiency, aging, backlog stage):** every stage-dependent row reads
+  `item_stage`, which tiles an item's WHOLE status history through its CURRENT domain's status → stage mapping — the
+  domain's per-domain override, else the every-domain row (`.claude/docs/metrics.md` "Per-domain stage overrides").
+  The domain attribution of the counts themselves stays as-was (A21).
 - **Team codes.**
   - `credit` = `fact_task_delivery.credit_team_id` — D5: the sprint's team at `done_at`, else the
     assignee's team at `done_at` (the fallback also covers a sprint on an unmapped board); null

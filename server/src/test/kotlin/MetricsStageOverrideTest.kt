@@ -7,6 +7,7 @@ import ch.nokillswit.metrics.MetricsConfigService
 import ch.nokillswit.metrics.MetricsDomainStatusStage
 import ch.nokillswit.metrics.MetricsStage
 import ch.nokillswit.metrics.MetricsTables
+import ch.nokillswit.norm.FieldChangeFact
 import ch.nokillswit.norm.IntervalSource
 import ch.nokillswit.norm.NormalizedIssue
 import ch.nokillswit.norm.NormalizedStatusInterval
@@ -16,6 +17,7 @@ import ch.nokillswit.norm.TombstoneKind
 import ch.nokillswit.norm.WorkItemFacts
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
+import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.r2dbc.selectAll
@@ -30,14 +32,28 @@ import kotlin.test.assertTrue
  * The per-domain status → stage override (`metrics.status_stage_map` rows with a non-empty
  * `domain_key`, `.claude/docs/metrics.md` "Per-domain stage overrides"): DERIVE reads an item's stage
  * for a status from its OWN domain's row when there is one, else the every-domain (`''`) row, else
- * `UNMAPPED`. Both tests derive a private DISABLED connection (`.claude/docs/testing.md` "The derived
+ * `UNMAPPED`. All tests derive a private DISABLED connection (`.claude/docs/testing.md` "The derived
  * fixture") — never the shared one.
  */
 class MetricsStageOverrideTest {
     private fun config() = DerivedStubFixture.metricsConfig()
 
-    private suspend fun seedTask(connId: UInt, issueId: Long, issueKey: String, projectKey: String, statusId: String, statusName: String) {
+    /**
+     * One hand-built task. [earlier] are statuses it sat in BEFORE [statusId] (1 s each, in order); [movedFromKey] records an
+     * `issuekey` change (the project move) at the instant it entered [statusId].
+     */
+    private suspend fun seedTask(
+        connId: UInt,
+        issueId: Long,
+        issueKey: String,
+        projectKey: String,
+        statusId: String,
+        statusName: String,
+        earlier: List<Pair<String, String>> = emptyList(),
+        movedFromKey: String? = null,
+    ) {
         val createdAt = PINNED_NOW - 10_000L
+        val currentFrom = createdAt + earlier.size * 1_000L
         val facts = WorkItemFacts(
             issueKey = issueKey,
             projectKey = projectKey,
@@ -69,11 +85,18 @@ class MetricsStageOverrideTest {
             facts = facts,
             currentStatusName = statusName,
             currentStatusCategory = StatusCategory.IN_PROGRESS,
-            statusIntervals = listOf(
-                NormalizedStatusInterval(1, statusId, statusName, StatusCategory.IN_PROGRESS, createdAt, null, IntervalSource.CREATED),
+            statusIntervals = earlier.mapIndexed { index, (id, name) ->
+                val from = createdAt + index * 1_000L
+                val source = if (index == 0) IntervalSource.CREATED else IntervalSource.CHANGE
+                NormalizedStatusInterval(index + 1, id, name, StatusCategory.IN_PROGRESS, from, from + 1_000L, source)
+            } + NormalizedStatusInterval(
+                earlier.size + 1, statusId, statusName, StatusCategory.IN_PROGRESS, currentFrom, null,
+                if (earlier.isEmpty()) IntervalSource.CREATED else IntervalSource.CHANGE,
             ),
             fieldIntervals = emptyList(),
-            fieldChanges = emptyList(),
+            fieldChanges = listOfNotNull(
+                movedFromKey?.let { FieldChangeFact("Key", currentFrom, it, it, issueKey, issueKey, fieldId = "issuekey") },
+            ),
             worklogs = emptyList(),
             currentSprintIds = emptyList(),
             flagged = false,
@@ -141,6 +164,67 @@ class MetricsStageOverrideTest {
             DerivedStubFixture.withPinnedSettings(DerivedStubFixture.metricsSettings()) { DerivedStubFixture.derivePinned(connId, 2u) }
             assertEquals("IN_PROGRESS", stageOf(connId, aInReview), "removing the override restores the every-domain stage")
             assertNull(deliveryOf(connId, aInReview)[MetricsTables.FactTaskDelivery.doneAt])
+        }
+
+    private suspend fun stagesOf(connId: UInt, issueId: Long): List<Pair<String, String>> = suspendTransaction(sharedDatabaseForTests()) {
+        MetricsTables.ItemStage.selectAll()
+            .where { (MetricsTables.ItemStage.connectionId eq connId) and (MetricsTables.ItemStage.issueId eq issueId) }
+            .orderBy(MetricsTables.ItemStage.validFrom to SortOrder.ASC)
+            .toList().map { it[MetricsTables.ItemStage.statusId] to it[MetricsTables.ItemStage.stage] }
+    }
+
+    @Test
+    fun `a task that moved projects reads its whole history through its CURRENT domain, and an unmapped project key is a domain`() =
+        runBlocking {
+            val connId = SyncedStubFixture.createConnection(namePrefix = "jira-stage-override-moved", enabled = false)
+            SyncedStubFixture.workItems().replaceStatuses(
+                connId,
+                listOf(StatusRef("7", "In review", StatusCategory.IN_PROGRESS), StatusRef("8", "Testing", StatusCategory.IN_PROGRESS)),
+            )
+            // The mover lives in BBB now (key BBB-9) but started life in AAA (AAA-9) and sat in "7" before the move.
+            val mover = 910_101L
+            val inA = 910_102L
+            val inB = 910_103L
+            val inC = 910_104L
+            seedTask(connId, mover, "BBB-9", "BBB", "8", "Testing", earlier = listOf("7" to "In review"), movedFromKey = "AAA-9")
+            seedTask(connId, inA, "AAA-1", "AAA", "7", "In review")
+            seedTask(connId, inB, "BBB-1", "BBB", "7", "In review")
+            seedTask(connId, inC, "CCC-1", "CCC", "7", "In review")
+
+            val current = config().effectiveConfig(connId)
+            assertEquals(setOf("AAA", "BBB", "CCC"), current.domains.map { it.domainKey }.toSet())
+            // CCC is left OUT of `domains`: DERIVE reads that project as its own domain, so an override keyed "CCC" is valid.
+            config().replaceConfig(
+                connId,
+                DataSourceMetricsConfigRequest(
+                    statusStages = current.statusStages,
+                    fields = current.fields,
+                    domains = current.domains.filter { it.projectKey != "CCC" },
+                    activityTypes = current.activityTypes,
+                    domainStatusStages = listOf(
+                        MetricsDomainStatusStage("AAA", "7", MetricsStage.DONE),
+                        MetricsDomainStatusStage("BBB", "7", MetricsStage.NOT_STARTED),
+                        MetricsDomainStatusStage("BBB", "8", MetricsStage.DONE),
+                        MetricsDomainStatusStage("CCC", "7", MetricsStage.DONE),
+                    ),
+                ),
+            )
+            DerivedStubFixture.withPinnedSettings(DerivedStubFixture.metricsSettings()) { DerivedStubFixture.derivePinned(connId) }
+
+            // Current-domain rule: BOTH of the mover's intervals read BBB's map — "7" is NOT_STARTED even though AAA maps it to DONE.
+            assertEquals(listOf("7" to "NOT_STARTED", "8" to "DONE"), stagesOf(connId, mover))
+            assertEquals(listOf("7" to "DONE"), stagesOf(connId, inA))
+            assertEquals(listOf("7" to "NOT_STARTED"), stagesOf(connId, inB))
+            assertEquals(listOf("7" to "DONE"), stagesOf(connId, inC), "the unmapped project key CCC is its own domain")
+
+            // Attribution stays as-was: the mover's task_domain history still names AAA, then BBB.
+            val history = suspendTransaction(sharedDatabaseForTests()) {
+                MetricsTables.TaskDomain.selectAll()
+                    .where { (MetricsTables.TaskDomain.connectionId eq connId) and (MetricsTables.TaskDomain.issueId eq mover) }
+                    .orderBy(MetricsTables.TaskDomain.validFrom to SortOrder.ASC)
+                    .toList().map { it[MetricsTables.TaskDomain.domainKey] }
+            }
+            assertEquals(listOf("AAA", "BBB"), history)
         }
 
     @Test

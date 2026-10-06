@@ -165,7 +165,7 @@ data class MetricsConfigReferenceData(
  */
 fun validateDataSourceMetricsConfig(request: DataSourceMetricsConfigRequest, ref: MetricsConfigReferenceData) {
     requireNoDuplicateKeys(request.statusStages.map { it.statusId }, "statusId in statusStages")
-    requireNoDuplicateKeys(request.domainStatusStages.map { "${it.domainKey}/${it.statusId}" }, "domainKey/statusId in domainStatusStages")
+    requireNoDuplicateKeys(request.domainStatusStages.map { it.domainKey to it.statusId }, "(domainKey, statusId) in domainStatusStages")
     requireNoDuplicateKeys(request.domains.map { it.projectKey }, "projectKey in domains")
     requireNoDuplicateKeys(request.boards.map { it.boardId }, "boardId in boards")
     requireNoDuplicateKeys(request.activityTypes.map { it.issueType }, "issueType in activityTypes")

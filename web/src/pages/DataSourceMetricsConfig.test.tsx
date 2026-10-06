@@ -473,6 +473,22 @@ describe("DataSourceMetricsConfig page", () => {
     expect(await screen.findByText("Unknown domain key in domainStatusStages: ENG")).toBeInTheDocument();
   });
 
+  test("an override on a status that left the connection is shown, and saving after removing it succeeds", async () => {
+    serve(mockFetch, {
+      config: { ...baseConfig(true), domainStatusStages: [{ domainKey: "ENG", statusId: "gone", stage: "DONE" }] },
+    });
+    const user = userEvent.setup();
+    renderPage();
+
+    expect(await screen.findByText(/Status gone is no longer reported by this connection/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Remove the override for unknown status gone in domain ENG" }));
+    expect(screen.queryByText(/no longer reported/)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /^save$/i }));
+    await waitFor(() => expect(showSuccessToast).toHaveBeenCalled());
+    expect(putBodyOf().domainStatusStages).toEqual([]);
+  });
+
   test("shows the not-found message when the connection no longer exists", async () => {
     serve(mockFetch, { configErrorStatus: 404, optionsErrorStatus: 404 });
     renderPage();

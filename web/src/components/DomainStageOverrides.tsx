@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ActionIcon, Alert, Badge, Group, Select, Stack, Table, Text, Title, VisuallyHidden } from "@mantine/core";
+import { ActionIcon, Alert, Badge, Button, Group, Select, Stack, Table, Text, Title, VisuallyHidden } from "@mantine/core";
 import { IconX } from "@tabler/icons-react";
 import {
   currentDomainKeys,
   METRICS_STAGES,
   orphanOverrideDomains,
+  orphanOverrideStatuses,
   setDomainStage,
   type DomainRowState,
   type DomainStageRowState,
@@ -35,6 +36,7 @@ export default function DomainStageOverrides({
   const [selected, setSelected] = useState<string | null>(null);
   const domainKeys = currentDomainKeys(domains);
   const orphans = orphanOverrideDomains(domains, overrides);
+  const orphanStatuses = orphanOverrideStatuses(statuses, overrides);
   const allKeys = [...domainKeys, ...orphans];
   const domainKey = selected !== null && allKeys.includes(selected) ? selected : (allKeys[0] ?? null);
 
@@ -62,6 +64,27 @@ export default function DomainStageOverrides({
       {orphans.map((key) => (
         <Alert key={key} color="red" variant="light">
           {t("metrics.config.statuses.overrides.orphanError", { domain: key })}
+        </Alert>
+      ))}
+      {orphanStatuses.map((o) => (
+        <Alert key={`${o.domainKey}/${o.statusId}`} color="red" variant="light">
+          <Group justify="space-between" wrap="nowrap">
+            <Text size="sm">
+              {t("metrics.config.statuses.overrides.orphanStatus", {
+                status: o.statusId,
+                domain: o.domainKey,
+                stage: t(`metrics.config.statuses.stage.${o.stage}`),
+              })}
+            </Text>
+            <Button
+              size="compact-xs"
+              color="red"
+              aria-label={t("metrics.config.statuses.overrides.removeOrphanStatusAria", { status: o.statusId, domain: o.domainKey })}
+              onClick={() => onChange(setDomainStage(overrides, o.domainKey, o.statusId, ""))}
+            >
+              {t("metrics.config.statuses.overrides.removeOrphanStatus")}
+            </Button>
+          </Group>
         </Alert>
       ))}
       {domainKey === null ? (

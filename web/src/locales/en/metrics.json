@@ -139,7 +139,10 @@
         "unmapped": "Unmapped",
         "differs": "Differs",
         "stageAria": "Stage for {{name}} in domain {{domain}}",
-        "removeAria": "Remove the override for {{name}} in domain {{domain}}"
+        "removeAria": "Remove the override for {{name}} in domain {{domain}}",
+        "orphanStatus": "Status {{status}} is no longer reported by this connection, so its override in domain {{domain}} ({{stage}}) cannot be saved. Remove it to save.",
+        "removeOrphanStatus": "Remove",
+        "removeOrphanStatusAria": "Remove the override for unknown status {{status}} in domain {{domain}}"
       }
     },
     "fields": {

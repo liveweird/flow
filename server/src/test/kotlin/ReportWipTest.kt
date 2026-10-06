@@ -129,12 +129,13 @@ class ReportWipTest {
                 .associate { it[WorkItemStore.Statuses.statusId] to it[WorkItemStore.Statuses.name] }
         }
         assertTrue(body.keys.all { it.label == names.getValue(it.key) }, "labels are the norm.statuses names")
-        val stageOf = rows.groupBy { it.statusId }.mapValues { (_, group) -> group.first().stage }
+        // A status can carry several stages in one scope (per-domain overrides): rank it by its EARLIEST stage.
+        val stageOf = rows.groupBy { it.statusId }.mapValues { (_, group) -> group.minBy { STAGES.indexOf(it.stage) }.stage }
         assertEquals(
             body.keys.map { it.key },
             body.keys.map { it.key }
                 .sortedWith(compareBy<String> { STAGES.indexOf(stageOf.getValue(it)) }.thenBy { names.getValue(it) }.thenBy { it }),
-            "keys are ordered by stage, then name",
+            "keys are ordered by earliest stage, then name",
         )
         assertTrue(body.series.sumOf { it.counts.values.sum() } > 0)
     }
@@ -469,6 +470,54 @@ class ReportWipTest {
                 store.replaceStatuses(connId, emptyList())
             }
             cleanUpTeams(listOf(teamX, teamY))
+        }
+    }
+
+    /**
+     * A per-domain stage override lets ONE status carry two stages in a scope. The STATUS legend ranks it by its earliest
+     * stage in `NOT_STARTED, IN_PROGRESS, DONE, UNMAPPED` order, whatever order the cells come back in: "Alpha" is both
+     * IN_PROGRESS and DONE (alphabetically DONE sorts first, so a first-seen rule would rank it 3rd) and must precede
+     * "Beta" (IN_PROGRESS); "Zero" (NOT_STARTED) leads; counts of the two-stage status sum.
+     */
+    @Test
+    fun `a status carrying two stages in one scope is ranked by its earliest stage, deterministically`() = testApplication {
+        usePostgresTestcontainer()
+        val connId = SyncedStubFixture.createConnection(namePrefix = "wip-two-stage", enabled = false)
+        insertSucceededDerive(connId, noonUtc("2026-06-01"))
+        val store = SyncedStubFixture.workItems()
+        val team = TestTeams.seed(SyncedStubFixture.unique("wip-two"))
+        val t = team.toString()
+        val day = "2026-01-05"
+        insertWipRows(
+            connId,
+            listOf(
+                WipRow("TEAM", t, day, "TASK", "b", "IN_PROGRESS", 4),
+                WipRow("TEAM", t, day, "TASK", "a", "DONE", 2),
+                WipRow("TEAM", t, day, "TASK", "a", "IN_PROGRESS", 3),
+                WipRow("TEAM", t, day, "TASK", "z", "NOT_STARTED", 1),
+            ),
+        )
+        suspendTransaction(sharedDatabaseForTests()) {
+            store.replaceStatuses(
+                connId,
+                listOf(
+                    StatusRef("a", "Alpha", StatusCategory.IN_PROGRESS), StatusRef("b", "Beta", StatusCategory.IN_PROGRESS),
+                    StatusRef("z", "Zero", StatusCategory.TODO),
+                ),
+            )
+        }
+        try {
+            val client = seededClient("reports-wip-two-stage")
+            repeat(3) {
+                val body = client.wip("connectionId=$connId&from=$day&to=$day&teamId=$team&by=STATUS")
+                assertEquals(listOf("z", "a", "b"), body.keys.map { it.key })
+                assertEquals(mapOf("z" to 1, "a" to 5, "b" to 4), body.series.single().counts)
+            }
+        } finally {
+            deleteWipRows(connId)
+            deleteDeriveRuns(connId)
+            suspendTransaction(sharedDatabaseForTests()) { store.replaceStatuses(connId, emptyList()) }
+            cleanUpTeams(listOf(team))
         }
     }
 }

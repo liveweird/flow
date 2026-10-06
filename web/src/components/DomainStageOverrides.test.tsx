@@ -98,4 +98,20 @@ describe("DomainStageOverrides", () => {
     await waitFor(() => expect(latest).toEqual([]));
     expect(screen.queryByText(/is no longer a domain/)).not.toBeInTheDocument();
   });
+
+  test("an override whose status is no longer reported is listed with a remove action", async () => {
+    let latest: DomainStageRowState[] = [
+      { domainKey: "ENG", statusId: "999", stage: "DONE" },
+      { domainKey: "ENG", statusId: "3", stage: "DONE" },
+    ];
+    const user = userEvent.setup();
+    renderWithProviders(<Harness initial={latest} onState={(next) => (latest = next)} />);
+
+    expect(await screen.findByText(/Status 999 is no longer reported by this connection.*domain ENG \(Done\)/)).toBeInTheDocument();
+    expect(screen.getByText("Overrides in total: 2")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Remove the override for unknown status 999 in domain ENG" }));
+
+    await waitFor(() => expect(latest).toEqual([{ domainKey: "ENG", statusId: "3", stage: "DONE" }]));
+    expect(screen.queryByText(/no longer reported/)).not.toBeInTheDocument();
+  });
 });

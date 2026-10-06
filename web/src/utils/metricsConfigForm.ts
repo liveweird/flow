@@ -279,3 +279,13 @@ export function orphanOverrideDomains(domains: DomainRowState[], overrides: Doma
   const known = new Set(currentDomainKeys(domains));
   return [...new Set(overrides.map((o) => o.domainKey).filter((key) => !known.has(key)))];
 }
+
+/**
+ * The overrides naming a status the connection no longer reports (it left `norm.statuses` after the override was
+ * saved): the status table has no row for them, so without this they could be neither seen nor removed — and the
+ * server would `400` every save carrying them.
+ */
+export function orphanOverrideStatuses(statuses: StatusRowState[], overrides: DomainStageRowState[]): DomainStageRowState[] {
+  const known = new Set(statuses.map((s) => s.statusId));
+  return overrides.filter((o) => !known.has(o.statusId));
+}

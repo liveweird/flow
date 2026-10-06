@@ -977,9 +977,8 @@ Extra cases, same method: `epic-progress` at EPIC level (`epicId=FLO-10`, wide) 
 The metrics layer is complete for v0.3.0: the configuration, DERIVE, the star and its aggregates,
 and the re-derive/REPROCESS check ("Reproducibility (invariant 12)" above) are all shipped, and the
 scale-20 performance check is recorded above. The report API and pages that read it are documented
-in `.claude/docs/reports.md`; what is deliberately not built yet is listed in `BACKLOG.md` (a
-per-domain status-to-stage override UI, seeding memberships from Jira's Team field, reading
-`hoursPerDay` from Jira's time-tracking configuration).
+in `.claude/docs/reports.md`; what is deliberately not built yet is listed in `BACKLOG.md` (seeding
+memberships from Jira's Team field, reading `hoursPerDay` from Jira's time-tracking configuration).
 
 **Membership history is permanent (by design).** Deleting a team closes its members' open
 memberships at that moment (so they can join another team from then on), but the history before

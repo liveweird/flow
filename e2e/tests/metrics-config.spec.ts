@@ -160,6 +160,7 @@ test("admin configures a data source's metrics", async ({ page }) => {
   await page.getByRole("option", { name: "Done", exact: true }).click();
   await expect(pltToDo).toHaveValue("Done");
   await expect(page.getByText("Overrides in total: 1")).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "Stage for To Do", exact: true })).toHaveValue("Not started");
 
   // Map one board to the throwaway team and save.
   await page.getByRole("tab", { name: "Boards" }).click();
