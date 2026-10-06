@@ -18,7 +18,7 @@ Re-audit them, do not assume the table still holds.
 
 | Dimension | Verdict then | Now |
 | --- | --- | --- |
-| Docs vs code | Mostly (AGENTS/BACKLOG stale) | Drift fixed ([#34](https://github.com/liveweird/flow/pull/34)); the always-loaded budget (B7) is open |
+| Docs vs code | Mostly (AGENTS/BACKLOG stale) | Drift fixed ([#34](https://github.com/liveweird/flow/pull/34)); the always-loaded budget (B7) is met (35.1k, step 3) |
 | DRY / SRP / naming | Mostly | Helpers shared, dead code out ([#39](https://github.com/liveweird/flow/pull/39), [#41](https://github.com/liveweird/flow/pull/41), [#49](https://github.com/liveweird/flow/pull/49)); the big-file splits (D2-D5) are open |
 | Conventions, spec-first API | Mostly | Validators, strict readers, spec consistency ([#41](https://github.com/liveweird/flow/pull/41), [#42](https://github.com/liveweird/flow/pull/42)) |
 | Tests | Mostly (single fork, stale floors) | Floors raised, fork-safe gate ([#42](https://github.com/liveweird/flow/pull/42)); parallel forks in flight |
@@ -63,10 +63,10 @@ open on 2026-10-06 (`gh pr list -R liveweird/flow --state open`):
 ## Still open (the next session)
 
 Done since the checkup (2026-10-01..06): A15 (#61), C8 and the small test/build items (#59), D2-D5 (#60),
-D9 WHY 3 and the Kover cost (#62), B7 step 2 (#68), the class-order fixture dependency (#59, `PostgresTestSupport`
+D9 WHY 3 and the Kover cost (#62), B7 steps 2-3 (#68, step 3 (2026-10-06)), the class-order fixture dependency (#59, `PostgresTestSupport`
 migrates on start), and the `value_text` overflow (V18). What remains:
 
-- **B7 step 3** — the always-loaded set is 40.3k chars against a ~35k target (BACKLOG).
+- **B7** — done: the always-loaded set is 35.1k chars against a ~35k target after step 3 (BACKLOG). Only `web/CLAUDE.md` (36.2k, loaded in `web/` only) could still shrink.
 - **Follow-ups**: shutdown audit lines lost to an OTel flush race (BACKLOG). The r2dbc-pool acquire timeout firing at
   ~2x `postgres.pool.maxAcquireTimeSeconds` is documented by design in `persistence.md` (the retry also recovers stale
   connections).
@@ -78,7 +78,7 @@ Recorded for review; overturn any of them.
 
 - `AGENTS.md` shrank to a pointer at CLAUDE.md (B1): it had drifted because it was a paraphrase.
 - The `breakdown` report parameter was removed (C12): no report read it; it returns with its first consumer.
-- `conventions.md` replaces rather than adds (B7, pending), with `testing.md` split.
+- `conventions.md` replaces rather than adds (B7), with `testing.md` split; step 3 added `ci.md` and `product.md` (moved text, rows in the CLAUDE.md table).
 - `scripts/gates.sh` is the local timing wrapper (A18), not a git hook.
 - WIP and Backlog drop inapplicable params from pasted links.
 - Older amendments (for example the UNIT EVM basis) predate this checkup and were not re-litigated.

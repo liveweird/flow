@@ -1,75 +1,44 @@
 ### Testing
 
-Backend tests live flat in `server/src/test/kotlin/` (kotlin.test + `io.ktor.server.testing.testApplication`)
-and override the `postgres.*` config keys via `MapApplicationConfig` to point at a Testcontainers
-`PostgreSQLContainer("postgres:18.6-alpine@sha256:77f58511…")` (the same digest `docker-compose.yaml` and
-`k8s/postgres-deployment.yaml` pin — `PostgresImagePinTest`) started lazily by `PostgresTestSupport` and **shared
-across the whole suite within a JVM fork** (one container per fork — "Parallel forks" below) (test-side direct database access, `sharedDatabaseForTests()`, goes through a small
-r2dbc-pool built by production's own `connectPooledDatabase` — an unpooled connect paid ~4 ms of backend
-setup per transaction, `.claude/docs/build-times.md` WHY 10). Running tests requires a working Docker daemon (Docker Desktop,
-OrbStack, etc. — with OrbStack and no `/var/run/docker.sock`, export
-`DOCKER_HOST=unix://$HOME/.orbstack/run/docker.sock`). The container runs **all** Flyway
-migrations, so the V3 seed admin (`admin@flow.local`) is present — tests scope their assertions
-with unique prefixes/filters (`uniqueEmail("marker")`) rather than asserting absolute counts.
+Backend tests live flat in `server/src/test/kotlin/` (kotlin.test + `testApplication`) against ONE Testcontainers
+Postgres per JVM fork (`PostgresTestSupport`, started lazily, image pinned by digest — `PostgresImagePinTest`).
+Running them requires a Docker daemon; with OrbStack and no `/var/run/docker.sock`, export
+`DOCKER_HOST=unix://$HOME/.orbstack/run/docker.sock`. The container runs **all** Flyway migrations, so the V3 seed
+admin (`admin@flow.local`) is present — tests scope their assertions with unique prefixes/filters
+(`uniqueEmail("marker")`) rather than asserting absolute counts. Test-side direct database access is
+`sharedDatabaseForTests()`. The setup reference (pool rationale, the full harness): `.claude/docs/test-fixtures.md`
+"Server test setup, forks and the `TestEnvironment.kt` harness".
 
-**Parallel forks (`-Pforks=N`).** `server/build.gradle.kts` sets `maxParallelForks` from the `forks` Gradle
-property (an integer 1..8, anything else fails any build that runs the `test` task; default 1 = one JVM; CI runs `-Pforks=2`; `forkEvery` is deliberately unset). Each fork is its own
-JVM, so it starts its OWN Testcontainers Postgres (`PostgresTestSupport` is a per-JVM `object`) and holds its own
-fixture singletons (`SyncedStubFixture`, `DerivedStubFixture`) — every "shared suite" rule in this doc
-(`withSoloAdmins`, `restoreSeedAccounts`, the metrics settings row, `dim_date`, worker claims, the fixtures'
-tripwires) therefore holds per fork, never across forks; a test must never assume another class ran before it
-on the same JVM, or that a class ran at all in this one. Gradle hands whole CLASSES to forks in whatever order it
-likes, so **class order is not a contract**: any class may be the first thing a fork runs. The one rule that
-follows: the container is migrated by `PostgresTestSupport` itself the moment it starts (a `Flyway.migrate()`
-in its lazy init, the same call as `infra/db/Flyway.kt`), so a fixture or raw-JDBC helper never needs its own
-"has Flyway run yet?" guard (`PostgresTestSupport.ensureMigrated()` is the explicit spelling; `MetricsDigestTest`
-run alone is the pin). The OpenAPI gate below
-merges the forks' coverage (per-fork fixed cost and the point where more forks stop paying: `build-times.md` WHY 5).
+**Parallel forks (`-Pforks=N`).** `maxParallelForks` comes from the `forks` Gradle property (an integer 1..8, anything
+else fails any build that runs the `test` task; default 1; CI runs `-Pforks=2`; `forkEvery` is deliberately unset).
+Each fork is its own JVM with its OWN container and fixture singletons, so every "shared suite" rule in this doc holds
+per fork, never across forks: a test must never assume another class ran before it on the same JVM, or that a class
+ran at all in this one. Class order is not a contract. `PostgresTestSupport` migrates the container itself on start,
+so a fixture or raw-JDBC helper never needs its own "has Flyway run yet?" guard. The OpenAPI gate below merges the
+forks' coverage (cost and gain: `build-times.md` WHY 5).
 
-**The `TestEnvironment.kt` harness** — use it instead of hand-rolling setup:
+**The `TestEnvironment.kt` harness** — use it instead of hand-rolling setup (per-helper reference:
+`.claude/docs/test-fixtures.md`):
 
-- `configureApp(vararg overrides)` points the app at the shared container (with CSRF off)
-  WITHOUT starting it — tests that assert startup behavior (the fail-closed checks) add their
-  overrides and call `startApplication()` themselves; `usePostgresTestcontainer()` is the
-  configure-and-start shorthand.
-- `jsonClient()` / `authedClient(email, password)` — the standard HTTP clients; both go through
-  the shared test-client defaults (JSON + `application/problem+json` negotiation + the
-  `OpenApiConformance` plugin), and `authedClient` logs in and attaches the bearer on every
-  request.
-- `LogCapture(loggerName)` + `hasKeyValue` — a Logback `ListAppender` for asserting the audit
-  trail (`ch.nokillswit.audit`); `awaitEvent` polls for asynchronously produced events. Detach in
-  a finally.
-- `TestUsers.seed(email, password, name, role)` (bcrypt cost 4 for speed; defaults to ADMIN — pass
-  `UserRole.USER` for a non-privileged caller) — every seeded user funnels through
-  `UserService.create`, so they carry the inverted-default MFA-disabled row and log in
-  single-step and `TestUsers.softDelete(id)` (direct table update, bypassing the delete endpoint's
-  guards) and `TestUsers.withSoloAdmins(ids) { }` (temporarily parks every other active admin —
-  the last-admin-protection pin). `seededClient(prefix, role)` is the one-line seed+login
-  fixture.
-- `postJson`/`putJson` (the JSON body ceremony) + `HttpClient.login` (the raw login POST),
-  `withAuditCapture { }` (attach/detach on the audit logger), `withSeedRestored { }` and
-  `assertStartupFails(part) { }` for bootstrap/fail-closed tests — use these instead of re-rolling
-  the blocks they replaced.
-- **Many failed logins → seeded accounts.** A login for an UNKNOWN email pays a discarded cost-12 bcrypt
-  verify (the timing equalizer, ~225 ms locally); a test that needs a dozen failures (rate limit,
-  proxy trust) logs in as freshly seeded accounts (`TestUsers.seed`, cost 4) with a wrong password —
-  the same 401 path at ~1 ms (`.claude/docs/build-times.md` WHY 11); soft-delete them afterwards.
-- **`IngestWorker.tick()` claims from the whole shared queue** (and enqueues due jobs for every enabled
-  connection), so a direct tick runs whatever other classes left pending. Wrap it in
-  `withOnlyConnections(setOf(connId), tickClockMillis) { }` (`TestEnvironment.kt`, beside `withSoloAdmins`):
-  for the duration, every OTHER connection is disabled and every OTHER job the claim scan could take (PENDING,
-  or RUNNING with `lease_until` below the tick's clock) is parked under a far-future lease — set up in one
-  transaction, restored in a `finally`.
-- `TestTeams.seed(name, memberIds)` — a fresh team fixture; beside it, raw-row readers for what
-  the API hides (`TestTeams.rawRows`/`rawMemberIds`, `TestUsers.stampPasswordChangedAt`). Shared
-  suite state (the seed admin) is never mutated destructively — tests mint UNIQUE rows and remove
-  their own.
-- `TestSeedState.restoreSeedAccounts()` — bootstrap/production-mode tests rotate the seed admin's
-  password in the SHARED container; call this afterwards so later tests (and re-runs) see the
-  pristine V3 state. Production-mode boots must also override `"mail.transport" to "disabled"` —
-  the dev-default `log` transport is refused in production (`MailTransportTest`) — and
-  `"security.encryption.key" to strongEncryptionKey()` — the dev-default data-encryption key is
-  burned (`CryptoBootTest`); the checks fire in module order (JWT → mail → crypto → seed
+- App: `configureApp(vararg overrides)` points the app at the shared container (CSRF off) WITHOUT starting it —
+  startup/fail-closed tests call `startApplication()` themselves; `usePostgresTestcontainer()` configures and starts.
+- Clients: `jsonClient()` / `authedClient(email, password)` (the shared defaults, incl. the `OpenApiConformance`
+  plugin); `seededClient(prefix, role)` seeds a user and logs in.
+- Users and teams: `TestUsers.seed(...)` (bcrypt cost 4; ADMIN by default — pass `UserRole.USER` for a
+  non-privileged caller), `TestUsers.softDelete(id)`, `TestUsers.withSoloAdmins(ids) { }` (the last-admin pin),
+  `TestTeams.seed(name, memberIds)`. Shared suite state (the seed admin) is never mutated destructively — tests mint
+  UNIQUE rows and remove their own.
+- Audit and bootstrap: `LogCapture` + `hasKeyValue`/`awaitEvent`, `withAuditCapture { }` (detach in a finally),
+  `postJson`/`putJson`, `HttpClient.login`, `withSeedRestored { }`, `assertStartupFails(part) { }` — use these instead
+  of re-rolling the blocks they replaced.
+- **Many failed logins → seeded accounts.** A login for an UNKNOWN email pays a discarded cost-12 bcrypt verify
+  (~225 ms); a test that needs a dozen failures (rate limit, proxy trust) logs in as freshly seeded accounts with a
+  wrong password (~1 ms, `build-times.md` WHY 11) and soft-deletes them afterwards.
+- **`IngestWorker.tick()` claims from the whole shared queue**, so a direct tick runs whatever other classes left
+  pending — wrap it in `withOnlyConnections(setOf(connId), tickClockMillis) { }`.
+- `TestSeedState.restoreSeedAccounts()` — bootstrap/production-mode tests rotate the seed admin's password in the
+  SHARED container; call it afterwards. Production-mode boots must also override `"mail.transport" to "disabled"` and
+  `"security.encryption.key" to strongEncryptionKey()`; the checks fire in module order (JWT → mail → crypto → seed
   passwords), so a test asserting a later check must satisfy every earlier one.
 
 **Coverage gates.** Backend Kover enforces line- and branch-coverage floors in
@@ -84,43 +53,26 @@ note and the cost figures: `.claude/docs/test-fixtures.md` "Coverage and fork me
 `web/vite.config.ts` (`test.coverage.thresholds`, same re-measure convention — the current
 actuals are noted in a comment beside them); run `cd web && npm run test:coverage`.
 
-**Static analysis (detekt).** `./gradlew detekt` runs detekt over `core` + `server` (plain rule
-sets, no type resolution) and rides `check`, so `build` fails on any finding — the gate is zero
-findings with **no baseline file**. Repo tuning lives in `config/detekt/detekt.yml`, layered on
-the bundled defaults; every override there carries a one-line comment naming the deliberate idiom
-it protects (wildcard Ktor imports, the flat feature-package layout, declarative `*Routes.kt`
-registrars, the validation-throw convention, guard-clause returns). Fix new findings in code
-first; extend the config only for a genuinely deliberate idiom, and prefer a config override over
-`@Suppress` (a per-site `@Suppress` needs a one-line justifying comment). Runs in seconds, no
-Docker — safe to run anytime, unlike the test suite.
+**Static analysis (detekt).** `./gradlew detekt` rides `check`; the gate is zero findings with **no baseline file**.
+Tune only in `config/detekt/detekt.yml`, one commented override per deliberate repo idiom; fix new findings in code
+first, prefer a config override over `@Suppress` (a per-site `@Suppress` needs a one-line justifying comment). Runs in
+seconds, no Docker — safe to run anytime, unlike the test suite.
 
-**Frontend static analysis (sonarjs + knip).** The SPA's counterpart, same
-zero-findings/no-baseline policy: `cd web && npm run lint` carries `eslint-plugin-sonarjs`
-(recommended set) plus core size/complexity backstops tuned generously for React's
-one-function-per-page architecture (`cognitive-complexity` 40, `complexity` 50 — backstops
-against future monsters, not targets); every override in `web/eslint.config.js` carries the idiom
-comment. `cd web && npm run knip` is the dead-code gate (unused files/exports/dependencies; test
-files count as entries, so a flagged export is unused even by tests) — the generated
-`src/api/schema.ts` is excluded (type-checked by `tsc`, not style-linted).
+**Frontend static analysis (sonarjs + knip).** Same zero-findings/no-baseline policy: `cd web && npm run lint`
+(eslint + `eslint-plugin-sonarjs`; every override in `web/eslint.config.js` carries the idiom comment) and
+`cd web && npm run knip` (dead code; test files count as entries). Details: `.claude/docs/ci.md`.
 
-**Frontend tests.** Vitest + happy-dom + Testing Library, **co-located** next to the source
-(`Foo.test.tsx` beside `Foo.tsx`). `src/test/setup.ts` imports `../i18n` and forces `en`, so text
-assertions match the English resources; `src/test/render.tsx` is the shared wrapper and — like
-every file-local `MantineProvider` — must pass **`env="test"`** (since Mantine 9.4 the
-Popover/Combobox dropdown is `display: none` until Floating UI sees a real bounding box, which
-never happens in happy-dom, so Select-option clicks silently fail without it). `src/test/http.ts`
-holds the fetch-stubbing helpers. The shared setup also forces the reduced-motion media query and
-makes every Mantine test provider honor it: `Transition` invokes its animation hook even with
-`env="test"`, so synchronous reduced-motion transitions prevent callbacks from outliving happy-dom
-teardown. Other media queries retain their normal behavior; the application theme is unchanged.
+**Frontend tests.** Vitest + happy-dom + Testing Library, **co-located** (`Foo.test.tsx` beside `Foo.tsx`);
+`src/test/setup.ts` forces `en`, `src/test/render.tsx` is the shared wrapper and `src/test/http.ts` holds the
+fetch-stubbing helpers. Every `MantineProvider` in a test — the shared wrapper and any file-local one — must pass
+**`env="test"`** (otherwise the Popover/Combobox dropdown stays `display: none` in happy-dom and Select-option clicks
+silently fail). Reduced-motion rationale: `.claude/docs/test-fixtures.md` "Frontend test internals".
 
-**The suite runs with `isolate: false`** (`web/vite.config.ts` — a worker reuses its module registry and
-globals across files; the measured gain is in `build-times.md`, WHY 6). Vitest already scopes `vi.mock`
-registrations per test file; what carries over is the EVALUATED `src/` modules, so `setup.ts` calls
-`vi.resetModules()` before every file (npm packages stay cached) and each file's own mocks apply. Tests must not assume anything an earlier test left
-behind — await lazy chart chunks (`findBy…`/`waitFor`, never a synchronous `getBy…` right after the first
-data assertion), reset module-level state in `afterEach`, and unstub globals/timers a test installed. The
-proof is `cd web && npx vitest run --sequence.shuffle` (run it a few times after adding a test); a test
+**The suite runs with `isolate: false`** (`web/vite.config.ts`; the gain: `build-times.md` WHY 6): evaluated `src/`
+modules carry over between files (`setup.ts` calls `vi.resetModules()` before every file). Tests must not assume
+anything an earlier test left behind — await lazy chart chunks (`findBy…`/`waitFor`, never a synchronous `getBy…`
+right after the first data assertion), reset module-level state in `afterEach`, and unstub globals/timers a test
+installed. The proof is `cd web && npx vitest run --sequence.shuffle` (run it a few times after adding a test); a test
 that only passes in file order is the bug, not the config.
 
 `locales/parity.test.ts` enforces EN↔PL key parity for every shipped language (auto-discovers
