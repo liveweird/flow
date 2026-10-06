@@ -64,6 +64,13 @@ class InsertRow {
  * distinct text becomes one named server-side prepared statement that the driver caches per connection,
  * so a chunk is either the table's maximum rows per statement or a power of two — a handful of texts per
  * table, however many rows a batch has.
+ *
+ * **Memory (`build-times.md` WHY 14, `MultiRowInsertRetentionTest`):** every chunk's executed statement is released
+ * as soon as it ran (`clearExecutedStatements`), so a transaction's heap does not grow with the rows it writes.
+ * `clearExecutedStatements()` empties the transaction's WHOLE list — the caller's earlier statements too (DERIVE's
+ * per-batch `inList` SELECTs, ~80 MB at scale 20 if kept) — and resets `openResultRowsCount`. DERIVE's per-batch reads
+ * are therefore bounded only because every batch ends in an `insertRows`: a step that reads per batch but writes via
+ * `batchInsert`/`exec` would bring the linear retention back.
  */
 suspend fun <T : Table, E> T.insertRows(rows: Iterable<E>, body: InsertRow.(E) -> Unit) {
     writeRows("insertRows", rows, body, conflictKeys = null)
@@ -132,6 +139,11 @@ private suspend fun <T : Table, E> T.writeRows(
         }
         sql.append(suffix)
         tx.exec(sql.toString(), arguments)
+        // Exposed keeps every executed statement until the transaction ends (commit or rollback; `closeStatementsAndConnection`
+        // only clears the list, closing nothing, and `executeIn` itself clears it when `!supportsMultipleResultSets`, so this
+        // is a sanctioned operation): a 32,000-parameter statement is ~8 MB of parsed tokens + encoded parameters, and DERIVE
+        // is ONE transaction.
+        tx.clearExecutedStatements()
     }
 }
 
