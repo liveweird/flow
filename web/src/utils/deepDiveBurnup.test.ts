@@ -2,7 +2,8 @@ import { describe, expect, test } from "vitest";
 import type { DeepDiveReport } from "../api/reports";
 import { MONTH_CROSSING, deepDiveEpic, deepDiveReport, deepDiveTask } from "../test/deepDiveFixtures";
 import { buildDeepDiveBurnup, type DeepDiveBurnup } from "./deepDiveBurnup";
-import { buildDeepDiveMatrix, grainColumns } from "./deepDiveMatrix";
+import { grainColumns } from "./deepDiveCalendar";
+import { buildDeepDiveMatrix } from "./deepDiveMatrix";
 
 // MONTH_CROSSING: Thu 2026-08-27 (offset 0) … Tue 2026-09-08 (offset 12), non-working offsets 2, 3, 9, 10.
 const DAYS = 13;

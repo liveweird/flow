@@ -3,7 +3,8 @@ import i18n from "../i18n";
 import { MONTH_CROSSING, deepDiveEpic, deepDiveReport, deepDiveTask } from "../test/deepDiveFixtures";
 import { barPercent, bucketLayers, dayDate, epicPlanText, visibleRows } from "./deepDiveCell";
 import { headerModel } from "./deepDiveHeader";
-import { buildDeepDiveMatrix, expandedColumns, grainColumns } from "./deepDiveMatrix";
+import { expandedColumns, grainColumns } from "./deepDiveCalendar";
+import { buildDeepDiveMatrix } from "./deepDiveMatrix";
 
 const t = i18n.t.bind(i18n);
 

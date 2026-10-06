@@ -365,7 +365,7 @@ completed · the report's figures · the orange drift badge with the frozen figu
   sprints. The bar offers period, team/member, domain, domain view, activity type, work category and (with more than one) connection;
   `normalizeCostMatrixFilter` drops `bucket`, `by`, `itemKind` and `epicId` off the request and the URL.
 - **Deep dive** (`pages/ReportDeepDive.tsx`, `/reports/deep-dive`, its own single-page nav leaf `appShell.nav.reportsDeepDive` — a group of one like
-  the cost matrix; `.claude/docs/reports.md` "Report 17", A29). **The URL is the selection and nothing else** (`utils/deepDiveFilter.ts`: repeated
+  the cost matrix; `.claude/docs/reports.md` "Report 17", A29). **The URL is the selection and nothing else** (`hooks/useDeepDiveUrlState.ts` reads and writes it — the selection, its canonical key, the view, `applySelection` = a history entry, `setView` = `replace` — over `utils/deepDiveFilter.ts`: repeated
   `sprintId`/`epicId`/`issueId`, `domain`, `connectionId`, `from`/`to`; forgiving parse that keeps ONE mode by precedence, canonical order, sorted
   values — that string is the page query key); layer switches (`Switch`es for plan, execution, cost) are remembered per viewer
   (`useStoredState`, `reports.deepDive.layers`, all on by default, a corrupt value falls back), drill state is local to the matrix. **No selection**
@@ -394,8 +394,12 @@ completed · the report's figures · the orange drift badge with the frozen figu
   above the grid (both translated — the server's English `note` is shown verbatim only for any other kind); under the matrix sit the **data limits**
   (`components/DeepDiveLimits.tsx`: the six `quality` counters, zeros included, each with a one-line why, then the fixed rules — as-was domain,
   sub-tasks roll up, status-based execution without blocked time, a worklog on its start day — and the freshness day `range.asOfDay`).
-  **The matrix** (`components/DeepDiveMatrix.tsx`, model and sums in `utils/deepDiveMatrix.ts`): a `<table role="grid">` in a `ScrollRegion` with a
-  roving tab stop (arrows, Home/End), drill headers that are buttons with `aria-expanded` (months → ISO weeks → days, epics → tasks), a polite live
+  **The matrix** (`components/DeepDiveMatrix.tsx`; the model is split by concern — `utils/deepDiveCalendar.ts` the month → ISO week → day column partition
+  (`TimeColumn`, `grainColumns`, `expandedColumns`), `utils/deepDiveAggregate.ts` the cell/row shapes and the per-column sums, `utils/deepDiveNote.ts`
+  the server note's kind (`noteOf`, `isDerived`), `utils/deepDiveMatrix.ts` the epic grouping, planned windows and `buildDeepDiveMatrix`; each with its
+  co-located test): a `<table role="grid">` in a `ScrollRegion` with a
+  roving tab stop (the generic `hooks/useRovingGrid.ts` — positions only, arrows, Home/End, Ctrl for first/last row or column; the matrix feeds it its
+  bounds and marks cells with `rovingProps`), drill headers that are buttons with `aria-expanded` (months → ISO weeks → days, epics → tasks), a polite live
   region for each drill, ONE tooltip on hover or focus (Escape closes it), every cell's `aria-label` carrying its numbers, and the legend, a summary
   table and the visible figures behind `DailyTableDisclosure` as the text alternative. Contrast and identity: plan (`flow.6`) is a full-width bar,
   execution (`teal.8`) two-thirds, cost (`gray.6`) one-third, each semi-transparent with a solid 2 px edge that carries the 3:1, so colour is never the

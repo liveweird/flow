@@ -1,4 +1,4 @@
-import type { TimeColumn } from "./deepDiveMatrix";
+import type { TimeColumn } from "./deepDiveCalendar";
 
 const DEPTH = { month: 0, week: 1, day: 2 } as const;
 
