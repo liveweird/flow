@@ -42,10 +42,11 @@ FROM eclipse-temurin:21.0.12_8-jre-noble@sha256:7739f0ffce786528961eea6bf46d9610
 # Upgrade them from Ubuntu's signed repositories and enforce the security floors; exact
 # revision pins would stop clean rebuilds when Ubuntu supersedes them in the live index.
 RUN apt-get update && apt-get install -y --no-install-recommends --only-upgrade \
-      libexpat1 libsqlite3-0 perl-base \
+      libexpat1 libsqlite3-0 perl-base libssl3t64 \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libexpat1)" ge 2.6.1-2ubuntu0.5 \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libsqlite3-0)" ge 3.45.1-1ubuntu2.8 \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' perl-base)" ge 5.38.2-3.2ubuntu0.6 \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libssl3t64)" ge 3.0.13-0ubuntu3.16 \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=server /src/server/build/install/server/ ./
