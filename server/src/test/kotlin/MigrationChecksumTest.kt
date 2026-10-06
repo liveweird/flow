@@ -38,6 +38,7 @@ class MigrationChecksumTest {
         "V16__create_metrics_star.sql" to -1128653097,
         "V17__metrics_contract_columns.sql" to 1803803927,
         "V18__widen_field_interval_value_text.sql" to -269263430,
+        "V19__widen_reference_name_columns.sql" to 431478997,
     )
 
     @Test

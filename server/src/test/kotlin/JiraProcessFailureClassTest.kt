@@ -1,5 +1,6 @@
 package ch.nokillswit
 
+import ch.nokillswit.jira.isBadValueError
 import ch.nokillswit.jira.isDataError
 import io.r2dbc.spi.R2dbcBadGrammarException
 import io.r2dbc.spi.R2dbcDataIntegrityViolationException
@@ -39,5 +40,19 @@ class JiraProcessFailureClassTest {
         assertEquals(false, R2dbcBadGrammarException("syntax error", "42601").isDataError())
         assertEquals(false, R2dbcNonTransientResourceException("no state").isDataError())
         assertEquals(false, IllegalStateException("not a database error").isDataError())
+    }
+
+    @Test
+    fun `bad values are class 22 and Exposed's length check only - an integrity violation is a data error but not a bad value`() {
+        assertEquals(true, R2dbcBadGrammarException("value too long", "22001").isBadValueError())
+        assertEquals(true, IllegalStateException("wrapped", R2dbcBadGrammarException("nul", "22021")).isBadValueError())
+        val tooLong = assertFailsWith<IllegalArgumentException> { VarCharColumnType(3).validateValueBeforeUpdate("abcd") }
+        assertEquals(true, RuntimeException("wrapped", tooLong).isBadValueError())
+        assertEquals(false, IllegalArgumentException("something else").isBadValueError())
+        assertEquals(false, R2dbcDataIntegrityViolationException("duplicate key", "23505").isBadValueError())
+        assertEquals(false, R2dbcDataIntegrityViolationException("not null", "23502").isBadValueError())
+        assertEquals(false, R2dbcNonTransientResourceException("connection lost", "08006").isBadValueError())
+        assertEquals(false, R2dbcTimeoutException("statement timeout", "57014").isBadValueError())
+        assertEquals(true, R2dbcDataIntegrityViolationException("duplicate key", "23505").isDataError())
     }
 }

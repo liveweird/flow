@@ -116,15 +116,15 @@ class MetricsConfigService(
 
     object ActivityTypeMap : Table("metrics.activity_type_map") {
         val connectionId = reference("connection_id", DataSourceService.Connections)
-        val issueType = varchar("issue_type", 50)
-        val activityType = varchar("activity_type", 50)
+        val issueType = text("issue_type")
+        val activityType = text("activity_type")
         override val primaryKey = PrimaryKey(connectionId, issueType)
     }
 
     object WorkCategoryMap : Table("metrics.work_category_map") {
         val connectionId = reference("connection_id", DataSourceService.Connections)
-        val valueId = varchar("value_id", 100)
-        val valueName = varchar("value_name", 200).nullable()
+        val valueId = text("value_id")
+        val valueName = text("value_name").nullable()
         val category = varchar("category", 100)
         override val primaryKey = PrimaryKey(connectionId, valueId)
     }

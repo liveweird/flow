@@ -395,7 +395,10 @@ the tiling invariants and stream mechanics — this section is the schema/persis
   (`WorkItemStore.replaceStatuses`/`replacePeople`/`replaceBoards`/`replaceSprints`), never
   diffed/upserted row-by-row like `raw.jira_entities`, since PROCESS already reads the full current
   `raw.jira_entities` set every time it runs. `norm.board_columns.status_ids` is a JSONB array of
-  status ids rather than a join table, since it is only ever read whole.
+  status ids rather than a join table, since it is only ever read whole. Names, display names and
+  e-mail are `TEXT` since V19 (Jira free text, no limit worth enforcing); the bounded keys/enums
+  (`status_id`, `account_id`, `board_type`, `project_key`, `state`) stay `VARCHAR` and an overflowing
+  row is skipped and logged by the rebuild (`.claude/docs/ingestion.md` "Reference-row robustness").
 
 **REPLACE semantics (per page).** `WorkItemStore.replaceWorkItems` is one transaction per PAGE of up
 to 50 issues (plan §8 step 5; `replaceWorkItem` is the one-issue call of the same code — the fallback
@@ -643,7 +646,7 @@ migration — the persistence.md cross-feature list above is unchanged.
 
 `MigrationChecksumTest` gains V17's pin.
 
-Current migrations are `V1`–`V18`:
+Current migrations are `V1`–`V19`:
 
 - `V1__init` — the `users` table: `name` (≤50), `email` (≤254), `password_hash`, `role` with
   `CHECK ("role" IN ('ADMIN', 'USER'))` (single-column role storage; the wire shape stays a
@@ -708,6 +711,22 @@ Current migrations are `V1`–`V18`:
   text. A varchar→text change is binary-coercible (catalog-only, no table rewrite), V13's bytes stay
   immutable, no data migration, no reader changes (`WorkItemStore.FieldIntervals.valueText` is now
   `text(...)`); `MigrationChecksumTest` pins it.
+- `V19__widen_reference_name_columns` — every Jira-supplied free-text NAME column `VARCHAR(n)` → `TEXT`:
+  `norm.statuses.name`, `norm.people.display_name`/`email`, `norm.boards.name`, `norm.board_columns.name`,
+  `norm.sprints.name`; the per-issue copies `norm.work_items.issue_type`/`status_name`/`resolution`/`priority` and
+  `norm.work_item_status_intervals.status_name`; the changelog field name
+  `norm.work_item_field_changes.field` (a custom field's DISPLAY name, up to 255 characters); DERIVE's copies
+  `metrics.dim_sprint.name`, `metrics.dim_task.issue_type`/`activity_type`, `metrics.fact_task_delivery.activity_type`,
+  `metrics.fact_worklog.activity_type`; and the metrics config's `metrics.activity_type_map.issue_type`/`activity_type`
+  and `metrics.work_category_map.value_id`/`value_name` (a primitive-valued work-category field's value text IS its id)
+  — 21 columns in all (see "The normalized layer (V13)" above and `.claude/docs/ingestion.md` "Reference-row robustness"): the reference rebuild runs
+  outside PROCESS's per-issue bad-row classifier, so an over-long name used to fail every run. Same
+  binary-coercible, catalog-only change as V18: PostgreSQL rewrites neither the table nor any index — verified
+  on PostgreSQL 18 (`pg_class.relfilenode` of the table, its primary key and a plain btree unchanged across the
+  ALTER); the only indexes on these columns are the primary keys of `activity_type_map` and `work_category_map`,
+  reused as-is. `norm.work_item_field_intervals.field` (an internal tag) stays `VARCHAR(20)`. V13's/V15's/V16's
+  bytes stay immutable, no data migration, no reader changes; `MigrationChecksumTest` pins it and
+  `ProcessReferenceRowsTest` pins the column types (identifiers and keys stay `VARCHAR`).
 
 The `users`/`teams` tables follow Toadie's dialect (`SERIAL`/`INTEGER` ids, epoch-millis `BIGINT`
 timestamps, `marked_as_deleted` + partial unique indexes over active rows) and its idioms: a

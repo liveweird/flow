@@ -447,12 +447,13 @@ class NormalizationPipelineTest {
             val store = rawStore()
             val items = workItems()
             val poisoned = middleIssueId(connId)
-            // `fields.resolution.name` maps straight into `norm.work_items.resolution` (varchar(100)). Exposed checks the
-            // length CLIENT-side (an IllegalArgumentException before any SQL), so no SQLSTATE class 22 ever reaches the
-            // classifier — `isDataError` must still recognise it, or a page of one ends the whole job FAILED on every run.
-            val tooLong = "R".repeat(150)
+            // The issue `key` maps straight into `norm.work_items.issue_key` (varchar(20) — an identifier, so still bounded;
+            // the free-text names became TEXT in V19). Exposed checks the length CLIENT-side (an IllegalArgumentException
+            // before any SQL), so no SQLSTATE class 22 ever reaches the classifier — `isDataError` must still recognise it,
+            // or a page of one ends the whole job FAILED on every run.
+            val tooLong = "K".repeat(30)
             rawSql(
-                "UPDATE raw.jira_issues SET payload = jsonb_set(payload, '{fields,resolution}', '{\"name\": \"$tooLong\"}'::jsonb) " +
+                "UPDATE raw.jira_issues SET payload = jsonb_set(payload, '{key}', to_jsonb('$tooLong'::text)) " +
                     "WHERE connection_id = $connId AND issue_id = $poisoned",
             )
             // Flag ONLY that issue: a page of one, so the page error and the per-issue fallback's failure are the same kind.

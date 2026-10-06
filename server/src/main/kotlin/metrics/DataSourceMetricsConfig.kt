@@ -127,8 +127,13 @@ internal fun DataSourceMetricsConfigRequest.canonicalized(): DataSourceMetricsCo
     sprintCapacities = sprintCapacities.sortedBy { it.sprintId },
 )
 
-/** Trims free-text names (the sanitizer convention — control characters are a 400). */
+/**
+ * Trims free-text names (the sanitizer convention — control characters are a 400): the domain and work-category
+ * display names and the user-entered activity type. A mapping's `issueType`/`valueId` are NOT touched — they are
+ * Jira's own values, matched verbatim against the connection's reference data.
+ */
 fun sanitizedDataSourceMetricsConfig(request: DataSourceMetricsConfigRequest): DataSourceMetricsConfigRequest = request.copy(
+    activityTypes = request.activityTypes.map { it.copy(activityType = sanitizeSingleLine(it.activityType, "activityType")) },
     domains = request.domains.map { it.copy(domainName = sanitizeSingleLine(it.domainName, "domainName")) },
     workCategories = request.workCategories.map {
         it.copy(valueName = it.valueName?.let { name -> sanitizeSingleLine(name, "valueName") })

@@ -23,28 +23,41 @@ private class IssueFailure(val issueId: Long, val error: Exception)
  * CLIENT-side (`VarCharColumnType.validateValueBeforeUpdate` throws an [IllegalArgumentException]
  * before any SQL is sent), so such a row never produces a PostgreSQL SQLSTATE. The message is
  * Exposed's, not ours: `JiraProcessFailureClassTest` (against real Exposed) and `NormalizationPipelineTest`'s
- * over-long-resolution test pin it, so an Exposed upgrade that rewords it goes red instead of silently
+ * over-long-issue-key test pin it, so an Exposed upgrade that rewords it goes red instead of silently
  * reclassifying bad rows as outages.
  */
 private const val EXPOSED_VARCHAR_TOO_LONG = "Value can't be stored to database column because exceeds length"
 
 /**
- * True when [this] (or any cause) is a bad ROW: a PostgreSQL data exception (SQLSTATE class 22 — value
- * too long, NUL, out of range …), an integrity violation (class 23 — PK/unique/FK/NOT NULL/CHECK), or
- * Exposed's client-side `varchar(n)` length rejection (an [IllegalArgumentException] whose message
- * starts with [EXPOSED_VARCHAR_TOO_LONG] — deliberately NOT every [IllegalArgumentException], which
- * would mask programming errors as bad rows). Retrying the same row cannot succeed, so it must not be
- * mistaken for an outage.
+ * True when [this] (or any cause) is a bad VALUE: a PostgreSQL data exception (SQLSTATE class 22 — value too
+ * long, NUL, out of range …) or Exposed's client-side `varchar(n)` length rejection (an [IllegalArgumentException]
+ * whose message starts with [EXPOSED_VARCHAR_TOO_LONG] — deliberately NOT every [IllegalArgumentException], which
+ * would mask programming errors as bad rows). Retrying the same value cannot succeed. This is the narrow class
+ * the wholesale reference rebuild tolerates: an integrity violation there is the writer's own bug.
  */
-internal fun Throwable.isDataError(): Boolean {
+internal fun Throwable.isBadValueError(): Boolean {
     var cur: Throwable? = this
     while (cur != null) {
-        val state = (cur as? R2dbcException)?.sqlState
-        if (state != null && (state.startsWith("22") || state.startsWith("23"))) return true
+        if ((cur as? R2dbcException)?.sqlState?.startsWith("22") == true) return true
         if (cur is IllegalArgumentException && cur.message?.startsWith(EXPOSED_VARCHAR_TOO_LONG) == true) return true
         cur = cur.cause
     }
     return false
+}
+
+/**
+ * True when [this] (or any cause) is a bad ROW: a [bad value][isBadValueError] or an integrity violation
+ * (SQLSTATE class 23 — PK/unique/FK/NOT NULL/CHECK) on a PER-ISSUE write, where another issue's row or stale
+ * `norm` state can legitimately collide. Retrying the same row cannot succeed, so it must not be mistaken for
+ * an outage.
+ */
+internal fun Throwable.isDataError(): Boolean {
+    var cur: Throwable? = this
+    while (cur != null) {
+        if ((cur as? R2dbcException)?.sqlState?.startsWith("23") == true) return true
+        cur = cur.cause
+    }
+    return isBadValueError()
 }
 
 private val log = LoggerFactory.getLogger(JiraProcessStream::class.java)
@@ -88,7 +101,8 @@ class JiraProcessStream(
         val statusLookup = buildStatusLookup(rawStore.entityPayloadsByKind(connectionId, JiraEntityKind.STATUS.name))
         val issueTypeHierarchy =
             JiraNormalizer.issueTypeHierarchy(rawStore.entityPayloadsByKind(connectionId, JiraEntityKind.ISSUE_TYPE.name))
-        rebuildReferenceRows(connectionId)
+        val skippedReferenceRows = rebuildReferenceRows(connectionId)
+        if (skippedReferenceRows > 0) context.incrementProgress("referenceRowsSkipped", skippedReferenceRows.toLong())
 
         // Keyset paging: each stale issue is visited ONCE per run. An issue that fails stays flagged
         // for the NEXT PROCESS pass (plan §8) instead of being re-claimed by this loop forever.
@@ -246,22 +260,43 @@ class JiraProcessStream(
         return Normalization.normalize(input) { statusId -> statusLookup[statusId] ?: (statusId to StatusCategory.UNKNOWN) }
     }
 
-    /** Reference rows, rebuilt WHOLESALE per connection (plan §8) — read fresh from `raw.jira_entities` every PROCESS run. */
-    private suspend fun rebuildReferenceRows(connectionId: UInt) {
+    /**
+     * Reference rows, rebuilt WHOLESALE per connection (plan §8) — read fresh from `raw.jira_entities` every PROCESS run.
+     * Returns how many rows were left out (a table that failed whole counts as ONE). The free-text columns (names,
+     * display names, e-mail) are `TEXT` (V19), so what can still overflow is a bounded KEY/enum value: the store skips
+     * and logs that row ([WorkItemStore.replaceStatuses] and friends), and a table whose rebuild still fails with a bad
+     * VALUE ([isBadValueError]: SQLSTATE class 22 or Exposed's length check) keeps its previous rows — logged — instead
+     * of failing the whole run (these writes sit outside the per-issue bad-row classifier). Anything else ends the run:
+     * a connection loss (an outage), a payload that does not parse (a connector bug) or an INTEGRITY violation (class
+     * 23 — NOT NULL, duplicate keys: the wholesale delete-then-insert rebuild has no legitimate collision, so that is
+     * a writer bug that must be loud, unlike a per-issue row that can collide with stale state).
+     */
+    private suspend fun rebuildReferenceRows(connectionId: UInt): Int {
         val statusPayloads = rawStore.entityPayloadsByKind(connectionId, JiraEntityKind.STATUS.name)
-        workItemStore.replaceStatuses(connectionId, JiraNormalizer.statusRefs(statusPayloads))
         val userPayloads = rawStore.entityPayloadsByKind(connectionId, JiraEntityKind.USER.name)
-        workItemStore.replacePeople(connectionId, JiraNormalizer.peopleRefs(userPayloads))
-        workItemStore.replaceBoards(
-            connectionId,
-            JiraNormalizer.boardRefs(
-                rawStore.entityPayloadsByKind(connectionId, JiraEntityKind.BOARD.name),
-                rawStore.entityPayloadsByKind(connectionId, JiraEntityKind.BOARD_CONFIGURATION.name),
-            ),
-        )
+        val boardPayloads = rawStore.entityPayloadsByKind(connectionId, JiraEntityKind.BOARD.name)
+        val boardConfigPayloads = rawStore.entityPayloadsByKind(connectionId, JiraEntityKind.BOARD_CONFIGURATION.name)
         val sprintPayloads = rawStore.entityPayloadsByKind(connectionId, JiraEntityKind.SPRINT.name)
-        workItemStore.replaceSprints(connectionId, JiraNormalizer.sprintRefs(sprintPayloads))
+        return rebuildReferenceTable("norm.statuses") {
+            workItemStore.replaceStatuses(connectionId, JiraNormalizer.statusRefs(statusPayloads))
+        } + rebuildReferenceTable("norm.people") {
+            workItemStore.replacePeople(connectionId, JiraNormalizer.peopleRefs(userPayloads))
+        } + rebuildReferenceTable("norm.boards") {
+            workItemStore.replaceBoards(connectionId, JiraNormalizer.boardRefs(boardPayloads, boardConfigPayloads))
+        } + rebuildReferenceTable("norm.sprints") {
+            workItemStore.replaceSprints(connectionId, JiraNormalizer.sprintRefs(sprintPayloads))
+        }
     }
+
+    /** One reference table's rebuild: its skipped-row count, or `1` when a bad value kept the previous rows; other failures propagate. */
+    private suspend fun rebuildReferenceTable(table: String, rebuild: suspend () -> Int): Int = catchingFailures(
+        block = { rebuild() },
+        onFailure = { failure ->
+            if (!failure.isBadValueError()) throw failure
+            log.warn("PROCESS: {} rebuild failed on a bad value, keeping the previous rows: {}", table, failure.message, failure)
+            1
+        },
+    )
 
     private fun buildStatusLookup(statusPayloads: List<String>): Map<String, Pair<String, StatusCategory>> =
         JiraNormalizer.statusRefs(statusPayloads).associate { it.statusId to (it.name to it.category) }

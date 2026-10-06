@@ -701,6 +701,40 @@ plus a transaction each — 14 ms per issue against the unpooled test database, 
 costs ~13 round trips in total, and the 1,200-issue stub processes in ~2.5-3 s.
 `NormalizationPipelineTest` pins both failure shapes and the one-issue page.
 
+**Reference-row robustness (V19).** The reference rebuild (statuses, people, boards + columns, sprints) runs
+once per PROCESS run BEFORE the page loop, outside the per-issue bad-row classifier, so an over-long Jira
+value there used to throw Exposed's client-side `varchar(n)` check out of `run()` and fail EVERY PROCESS
+(and so every SYNC chain, and no DERIVE). The rule now has three layers:
+1. Every Jira-supplied free-text NAME column is `TEXT` (V19, the V18 pattern): the reference names, display
+   names and e-mail, `metrics.dim_sprint.name`, AND the per-issue copies of the same names — the status name
+   in `norm.work_items`/`norm.work_item_status_intervals` (filled from the `norm.statuses` lookup, so widening
+   only the reference column would have turned a loud run failure into issues failing quietly), the issue type,
+   resolution and priority names, the changelog field name (`norm.work_item_field_changes.field`: a custom field's
+   DISPLAY name, up to 255 characters), what DERIVE copies the issue type into (`metrics.dim_task.issue_type`, the
+   activity type that defaults to it, `metrics.activity_type_map`) and the work-category option id/label the metrics
+   config stores (`metrics.work_category_map.value_id`/`value_name`; for a primitive-valued field the value text IS
+   the id). The config PUT passes the user-entered activity type through `sanitizeSingleLine` (control characters
+   are a 400) like the other display names; the Jira-sourced `issueType`/`valueId` it matches verbatim. Jira's own limits (a status or issue type
+   name is capped at 60) already exceed some of the old columns (`issue_type` 50).
+2. The bounded identifiers/enums (`status_id` 50, `account_id` 100, `board_type`/`project_key`/`state` 20) are
+   checked by `WorkItemStore.replaceStatuses`/`replacePeople`/`replaceBoards`/`replaceSprints` BEFORE the write —
+   a row whose bounded value overflows is SKIPPED (never truncated: a cut key would join to the wrong thing),
+   logged once per table by `WorkItemStore` (`norm.<table> rebuild skipped N row(s)…`, the first five ids except
+   for people, whose account ids stay out of the log) and returned as a count.
+3. A table whose rebuild still fails with a bad VALUE (`isBadValueError`: SQLSTATE class 22 or Exposed's length
+   check) keeps its previous rows — its transaction rolled back — logged by
+   `JiraProcessStream.rebuildReferenceTable` and counted as ONE skipped row, however many rows the table had.
+   Anything else still ends the run: a connection loss (an outage), a payload that does not parse (a connector
+   bug) and an INTEGRITY violation (class 23: NOT NULL, duplicate key). The last is deliberately NOT tolerated
+   here, unlike on the per-issue path (`isDataError` = bad value OR class 23): a per-issue row can collide with
+   stale state, but the wholesale delete-then-insert rebuild has no legitimate collision, so class 23 there is
+   a writer bug that must be loud.
+
+The run's total lands in the PROCESS progress counter `referenceRowsSkipped` (absent when zero). Per-issue
+columns that are still bounded (`issue_key`/`project_key` 20, `status_id` 50, account ids 100, `rank` 100, …)
+are identifiers, not names: a bad value there is a counted bad row (`issuesFailed`) that stays `needs_processing`.
+`ProcessReferenceRowsTest` pins all of it (clone-based, one flagged issue per run).
+
 **Worklog timestamps and sprint completion (v0.3.0 M1 commit 2, V14).**
 `norm.work_item_worklogs` gains `created_at`/`updated_at` (`raw.jira_worklogs.payload` already
 carried them; only `started_at` was kept here until now) — report 14's late-logging measure needs
@@ -745,7 +779,8 @@ left `projectKeys`), `changelogs` (CHANGELOGS, per history inserted), `worklogs`
 upserted), `worklogsOutOfScope` (WORKLOGS, A1's scope-filter drop count), `tombstoned` (RECONCILE,
 per issue flagged `deleted_at`/`moved_out_at`), `indexGapSkipped` (RECONCILE: ids left unfetched because the
 ISSUES stream has not yet covered the scope), `issuesProcessed`/`issuesFailed` (PROCESS, per issue
-in a batch — see "Normalized layer" above), `profileComputed` (PROFILE, always `1` — a single
+in a batch — see "Normalized layer" above), `referenceRowsSkipped` (PROCESS, once per run: reference rows left out, see
+"Reference-row robustness"), `profileComputed` (PROFILE, always `1` — a single
 recompute pass, not a per-row counter, see "Data profile" below).
 
 ## Sync status endpoint
