@@ -74,6 +74,9 @@ data class SyncJobClaim(
 /** The outcome of [ch.nokillswit.ingest.SyncJobsService.requestCancel]. */
 enum class CancelOutcome { CANCELLED_NOW, CANCEL_REQUESTED, ALREADY_TERMINAL }
 
+/** The outcome of [ch.nokillswit.ingest.SyncJobsService.renewLease]: lease gone, extended, or extended with a cancel pending. */
+enum class HeartbeatOutcome { LOST, RENEWED, CANCEL_REQUESTED }
+
 /**
  * The outcome of [ch.nokillswit.ingest.SyncJobsService.requestJob] — `coalesced` when an open job
  * for the same (connection, kind) already existed.

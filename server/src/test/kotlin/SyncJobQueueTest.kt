@@ -3,8 +3,20 @@ package ch.nokillswit
 import ch.nokillswit.infra.crypto.DEV_DATA_ENCRYPTION_KEY
 import ch.nokillswit.infra.crypto.FieldCipher
 import ch.nokillswit.infra.paging.PageRequest
+import ch.nokillswit.infra.db.connectPooledDatabase
+import io.r2dbc.spi.ConnectionFactoryOptions
+import java.time.Duration
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.withTimeoutOrNull
+import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.r2dbc.R2dbcTransaction
+import org.jetbrains.exposed.v1.r2dbc.selectAll
+import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
+import org.jetbrains.exposed.v1.r2dbc.update
 import ch.nokillswit.ingest.DataSourceRequest
 import ch.nokillswit.ingest.DataSourceService
+import ch.nokillswit.ingest.HeartbeatOutcome
 import ch.nokillswit.ingest.JiraAuthScheme
 import ch.nokillswit.ingest.JiraConnectionRequest
 import ch.nokillswit.ingest.SyncJobKind
@@ -12,13 +24,17 @@ import ch.nokillswit.ingest.SyncJobListFilter
 import ch.nokillswit.ingest.SyncJobStatus
 import ch.nokillswit.ingest.SyncJobsService
 import ch.nokillswit.ingest.defaultBackfillFrom
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import java.util.UUID
+import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFails
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -31,6 +47,12 @@ import kotlin.test.assertTrue
  * ingest worker in the default `all` role and race these tests' own claims); the shared container is
  * already migrated by [PostgresTestSupport] the moment [sharedDatabaseForTests] first touches it.
  */
+/** The clock the racing-claim tests claim (and fence) with; far below every real lease, so only their own rows count. */
+private const val CLAIM_CLOCK_MILLIS = 5_000L
+
+/** Bound on every wait in the racing-claim tests — never an expected duration. */
+private const val CLAIM_RACE_TIMEOUT_MS = 20_000L
+
 class SyncJobQueueTest {
     private fun unique(prefix: String) = "$prefix-${UUID.randomUUID().toString().substring(0, 8)}"
 
@@ -39,10 +61,34 @@ class SyncJobQueueTest {
     private fun syncJobs(maxAttempts: Int = 3, clock: () -> Long = System::currentTimeMillis) =
         SyncJobsService(sharedDatabaseForTests(), maxAttempts, clock)
 
-    private suspend fun createConnection(dataSources: DataSourceService, syncIntervalMinutes: Int = 60): UInt {
+    /** Every connection this test created: [cleanUpOpenJobs] closes whatever its jobs left RUNNING or PENDING in the shared queue. */
+    private val createdConnections = mutableListOf<UInt>()
+
+    @AfterTest
+    fun cleanUpOpenJobs() = runBlocking {
+        val jobs = syncJobs()
+        for (connId in createdConnections) {
+            for (job in jobs.list(connId, SyncJobListFilter(), pagingAll()).items) {
+                when (job.status) {
+                    SyncJobStatus.RUNNING -> jobs.finish(job.id, job.attempt)
+                    SyncJobStatus.PENDING -> jobs.requestCancel(connId, job.id)
+                    else -> Unit
+                }
+            }
+        }
+    }
+
+    /** Claims [connId]'s one job behind the queue fence (the scan is global) and finishes it — asserting both really happened. */
+    private suspend fun SyncJobsService.claimAndFinish(connId: UInt, jobId: UInt, workerId: String, now: Long) {
+        val claim = assertNotNull(withOnlyConnections(setOf(connId), now) { claim(workerId, leaseSeconds = 60, now = now) })
+        assertEquals(jobId, claim.id)
+        assertTrue(finish(claim.id, claim.attempt, now), "the claimed job was RUNNING, so its finish must land")
+    }
+
+    private suspend fun createConnection(dataSources: DataSourceService, syncIntervalMinutes: Int = 60, enabled: Boolean = true): UInt {
         val request = DataSourceRequest(
             name = unique("conn"),
-            enabled = true,
+            enabled = enabled,
             syncIntervalMinutes = syncIntervalMinutes,
             backfillFrom = defaultBackfillFrom(),
             reconcileHourUtc = 3,
@@ -54,7 +100,7 @@ class SyncJobQueueTest {
                 authScheme = JiraAuthScheme.BASIC,
             ),
         )
-        return dataSources.create(request)
+        return dataSources.create(request).also { createdConnections += it }
     }
 
     /**
@@ -76,7 +122,7 @@ class SyncJobQueueTest {
         repeat(500) {
             val claim = claim(workerId, leaseSeconds, now) ?: return null
             if (claim.id == targetJobId) return claim
-            finish(claim.id, now)
+            finish(claim.id, claim.attempt, now)
         }
         error("claimSpecific: did not reach job $targetJobId within 500 attempts")
     }
@@ -97,7 +143,7 @@ class SyncJobQueueTest {
         repeat(500) {
             val claim = claim(workerId, leaseSeconds, now)
             if (claim != null && !(claim.connectionId == connId && claim.id == targetJobId)) {
-                finish(claim.id, now)
+                finish(claim.id, claim.attempt, now)
             }
             val status = list(connId, SyncJobListFilter(), pagingAll()).items.single { it.id == targetJobId }.status
             if (status != SyncJobStatus.PENDING || claim == null) return status
@@ -153,13 +199,170 @@ class SyncJobQueueTest {
         val claim = jobs.claimSpecific("worker-a", leaseSeconds = 10, now = 1000L, targetJobId = jobId)
         assertNotNull(claim)
 
-        assertTrue(jobs.heartbeat(claim.id, "worker-a", leaseSeconds = 10, now = 1005L), "a live lease heartbeats fine")
+        assertTrue(jobs.heartbeat(claim.id, "worker-a", claim.attempt, leaseSeconds = 10, now = 1005L), "a live lease heartbeats fine")
 
         // worker-b reclaims THIS job specifically after expiry.
         assertNotNull(jobs.claimSpecific("worker-b", leaseSeconds = 10, now = 1000L + 11_000L, targetJobId = jobId))
 
         // worker-a's heartbeat now fails: it is no longer the lease owner.
-        assertEquals(false, jobs.heartbeat(claim.id, "worker-a", leaseSeconds = 10, now = 1000L + 12_000L))
+        assertEquals(false, jobs.heartbeat(claim.id, "worker-a", claim.attempt, leaseSeconds = 10, now = 1000L + 12_000L))
+    }
+
+    @Test
+    fun `a stale run's terminal and release writes after a reclaim leave the new run untouched`() = runBlocking {
+        val ds = dataSources()
+        val jobs = syncJobs()
+        val connId = createConnection(ds)
+        jobs.enqueueScheduled(connId, SyncJobKind.SYNC, configRevision = 1L, now = 1000L)
+        val jobId = jobs.list(connId, SyncJobListFilter(), pagingAll()).items.single().id
+        val stale = assertNotNull(jobs.claimSpecific("worker-a", leaseSeconds = 10, now = 1000L, targetJobId = jobId))
+        // The SAME worker id reclaims after expiry (a stale run of the same process): owner matching alone cannot tell the runs apart.
+        val current = assertNotNull(jobs.claimSpecific("worker-a", leaseSeconds = 60, now = 1000L + 11_000L, targetJobId = jobId))
+        assertEquals(2, current.attempt)
+
+        assertEquals(false, jobs.heartbeat(stale.id, "worker-a", stale.attempt, leaseSeconds = 60, now = 1000L + 12_000L))
+        assertEquals(false, jobs.finish(stale.id, stale.attempt, now = 1000L + 12_000L))
+        assertEquals(false, jobs.fail(stale.id, stale.attempt, "RUN_FAILED", "stale", now = 1000L + 12_000L))
+        assertEquals(false, jobs.markCancelled(stale.id, stale.attempt, now = 1000L + 12_000L))
+        assertEquals(false, jobs.release(stale.id, "worker-a", stale.attempt))
+
+        val row = assertNotNull(jobs.read(connId, jobId))
+        assertEquals(SyncJobStatus.RUNNING, row.status, "the new run's row is untouched")
+        assertEquals(2, row.attempt)
+        assertNull(row.errorCode)
+        assertTrue(jobs.finish(current.id, current.attempt, now = 1000L + 13_000L), "the current attempt still finishes its own row")
+    }
+
+    @Test
+    fun `a shutdown release after a committed finish leaves the job SUCCEEDED`() = runBlocking {
+        val ds = dataSources()
+        val jobs = syncJobs()
+        val connId = createConnection(ds)
+        jobs.enqueueScheduled(connId, SyncJobKind.SYNC, configRevision = 1L, now = 1000L)
+        val jobId = jobs.list(connId, SyncJobListFilter(), pagingAll()).items.single().id
+        val claim = assertNotNull(jobs.claimSpecific("worker-a", leaseSeconds = 60, now = 1000L, targetJobId = jobId))
+
+        assertTrue(jobs.finish(claim.id, claim.attempt, now = 1500L))
+        // ApplicationStopping lands between finish and the end of onSucceeded: runJob's cancellation handler releases under NonCancellable.
+        assertEquals(false, jobs.release(claim.id, "worker-a", claim.attempt), "a finished job is never reopened")
+
+        assertEquals(SyncJobStatus.SUCCEEDED, assertNotNull(jobs.read(connId, jobId)).status)
+    }
+
+    @Test
+    fun `a stale finish on a row the claimer closed itself is a no-op`() = runBlocking {
+        val ds = dataSources()
+        val jobs = syncJobs(maxAttempts = 1)
+        val connId = createConnection(ds)
+        jobs.enqueueScheduled(connId, SyncJobKind.SYNC, configRevision = 1L, now = 1000L)
+        val jobId = jobs.list(connId, SyncJobListFilter(), pagingAll()).items.single().id
+        val stale = assertNotNull(jobs.claimSpecific("worker-a", leaseSeconds = 10, now = 1000L, targetJobId = jobId))
+        // The lease expires; a claimer finds the RUNNING row at max_attempts and closes it inline — WITHOUT bumping the attempt.
+        val reclaimClock = 1000L + 11_000L
+        assertNull(withOnlyConnections(setOf(connId), reclaimClock) { jobs.claim("worker-b", leaseSeconds = 10, now = reclaimClock) })
+        assertEquals(SyncJobStatus.FAILED, assertNotNull(jobs.read(connId, jobId)).status)
+
+        assertEquals(false, jobs.finish(stale.id, stale.attempt, now = 1000L + 12_000L), "a stale run cannot finish a claimer-failed row")
+        assertEquals(false, jobs.release(stale.id, "worker-a", stale.attempt), "nor release it to PENDING")
+        assertEquals(false, jobs.fail(stale.id, stale.attempt, "RUN_FAILED", now = 1000L + 12_000L))
+        val row = assertNotNull(jobs.read(connId, jobId))
+        assertEquals(SyncJobStatus.FAILED, row.status)
+        assertEquals("RETRIES_EXHAUSTED", row.errorCode)
+    }
+
+    /**
+     * A renewal cancelled mid-transaction (the worker cancels a renewal that outlived its slack), with the job row's lock held.
+     * exposed-r2dbc 1.5.0 has no `NonCancellable`, so this pins what actually happens: the transaction rolls back and its
+     * pooled connection comes back — otherwise the following heartbeat would block on the row lock and the pool would leak
+     * (a dedicated 2-connection pool makes a leak visible as an acquire timeout). Measured: cancelled BETWEEN statements the
+     * coroutine returns at once (~0.4 s here, the timeout); cancelled DURING a statement the cancellation only lands when that
+     * statement ends (3 s for the `pg_sleep(3)`), which is why `IngestWorker` awaits a renewal from a detached scope instead
+     * of relying on the cancellation to bound it (`IngestWorkerTest`'s "stuck in a statement" case).
+     */
+    @Test
+    fun `a transaction cancelled mid-flight releases its row lock and its pooled connection`() = runBlocking {
+        val ds = dataSources()
+        val jobs = syncJobs()
+        val connId = createConnection(ds)
+        jobs.enqueueScheduled(connId, SyncJobKind.SYNC, configRevision = 1L, now = 1000L)
+        val jobId = jobs.list(connId, SyncJobListFilter(), pagingAll()).items.single().id
+        val claim = assertNotNull(jobs.claimSpecific("worker-a", leaseSeconds = 60, now = 1000L, targetJobId = jobId))
+
+        val options = ConnectionFactoryOptions.parse(PostgresTestSupport.r2dbcUrl).mutate()
+            .option(ConnectionFactoryOptions.USER, PostgresTestSupport.user)
+            .option(ConnectionFactoryOptions.PASSWORD, PostgresTestSupport.password)
+            .build()
+        val (smallDb, pool) = connectPooledDatabase(
+            options,
+            maxSize = 2,
+            initialSize = 1,
+            maxAcquireTime = Duration.ofSeconds(3),
+            maxIdleTime = Duration.ofMinutes(1),
+        )
+        try {
+            val hangs = listOf<suspend R2dbcTransaction.() -> Unit>(
+                { awaitCancellation() }, // cancelled BETWEEN statements, idle in transaction
+                { exec("SELECT pg_sleep(3)") }, // cancelled DURING a statement
+            )
+            for (hang in hangs) {
+                val result = withTimeoutOrNull(400) {
+                    suspendTransaction(smallDb) {
+                        SyncJobsService.Jobs.update({ SyncJobsService.Jobs.id eq jobId }) { it[heartbeatAt] = 1L } // takes the row lock
+                        hang()
+                    }
+                }
+                assertNull(result, "the transaction was cancelled by the timeout")
+                // A leaked transaction would still hold the row lock: this write (another pool) would block until the 5 s guard.
+                assertTrue(withTimeout(5_000) { jobs.heartbeat(claim.id, "worker-a", claim.attempt, leaseSeconds = 60, now = 2000L) })
+            }
+            // Both cancelled transactions returned their connection: the 2-connection pool still serves two at once.
+            withTimeout(10_000) {
+                val both = (1..2).map {
+                    async(Dispatchers.IO) { suspendTransaction(smallDb) { SyncJobsService.Jobs.selectAll().limit(1).toList() } }
+                }
+                both.awaitAll()
+            }
+            Unit
+        } finally {
+            pool.dispose()
+        }
+    }
+
+    @Test
+    fun `a bounded lease renewal ends server-side when the job row is locked`() = runBlocking {
+        val ds = dataSources()
+        val jobs = syncJobs()
+        val connId = createConnection(ds)
+        jobs.enqueueScheduled(connId, SyncJobKind.SYNC, configRevision = 1L, now = 1000L)
+        val jobId = jobs.list(connId, SyncJobListFilter(), pagingAll()).items.single().id
+        val claim = assertNotNull(jobs.claimSpecific("worker-a", leaseSeconds = 60, now = 1000L, targetJobId = jobId))
+
+        val locked = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val holder = async(Dispatchers.IO) {
+            suspendTransaction(sharedDatabaseForTests()) {
+                SyncJobsService.Jobs.update({ SyncJobsService.Jobs.id eq jobId }) { it[heartbeatAt] = 1L } // holds the row lock
+                locked.complete(Unit)
+                release.await()
+            }
+        }
+        try {
+            withTimeout(CLAIM_RACE_TIMEOUT_MS) { locked.await() }
+            val started = System.nanoTime()
+            // 1 s bound: lock_timeout 1000 ms + queryTimeout 1 s — the renewal fails by itself instead of waiting for the holder.
+            assertFails {
+                withTimeout(CLAIM_RACE_TIMEOUT_MS) {
+                    jobs.renewLease(claim.id, "worker-a", claim.attempt, 60, now = 2000L, boundMillis = 1000L)
+                }
+            }
+            val elapsedMillis = (System.nanoTime() - started) / 1_000_000
+            assertTrue(elapsedMillis < 8_000, "the renewal ended server-side long before the holder released, took $elapsedMillis ms")
+        } finally {
+            release.complete(Unit)
+            holder.await()
+        }
+        // The holder rolled back nothing of ours: with the lock gone the same renewal succeeds.
+        assertEquals(HeartbeatOutcome.RENEWED, jobs.renewLease(claim.id, "worker-a", claim.attempt, 60, now = 3000L, boundMillis = 1000L))
     }
 
     @Test
@@ -172,7 +375,7 @@ class SyncJobQueueTest {
         val claim = jobs.claimSpecific("worker-a", leaseSeconds = 60, now = 1000L, targetJobId = jobId)
         assertNotNull(claim)
 
-        jobs.release(claim.id)
+        jobs.release(claim.id, "worker-a", claim.attempt)
 
         val reclaimed = jobs.claimSpecific("worker-b", leaseSeconds = 60, now = 1001L, targetJobId = jobId)
         assertNotNull(reclaimed, "a released job is immediately PENDING again, reclaimable without waiting for lease expiry")
@@ -212,6 +415,98 @@ class SyncJobQueueTest {
         // The RECONCILE job (different kind, same connection) must NOT be claimable while the SYNC job is RUNNING.
         val secondClaim = jobs.claimSpecific("worker-b", leaseSeconds = 60, now = 1000L, targetJobId = reconcileJobId)
         assertNull(secondClaim, "only one RUNNING job per connection, regardless of kind")
+    }
+
+    /**
+     * Two claimers = two worker processes (or slots), modelled as two [SyncJobsService] instances over the one database.
+     * The first is held INSIDE its claim transaction, right after it took the connection's claim lock (the
+     * `afterClaimLock` seam), while the second claims: without the lock the second would read "nothing RUNNING" (the
+     * first has not updated its row yet) and claim the other kind too. Fenced with [withOnlyConnections] so the global
+     * claim scan can only see this test's own connections' jobs.
+     */
+    private suspend fun <T> racingClaimers(
+        connectionIds: Set<UInt>,
+        heldConnection: UInt,
+        block: suspend (
+            first: SyncJobsService,
+            second: SyncJobsService,
+            firstLocked: CompletableDeferred<Unit>,
+            releaseFirst: CompletableDeferred<Unit>,
+        ) -> T,
+    ): T {
+        val firstLocked = CompletableDeferred<Unit>()
+        val releaseFirst = CompletableDeferred<Unit>()
+        val database = sharedDatabaseForTests()
+        val first = SyncJobsService(database, 3, System::currentTimeMillis, afterClaimLock = { connectionId ->
+            if (connectionId == heldConnection) {
+                firstLocked.complete(Unit)
+                releaseFirst.await()
+            }
+        })
+        val second = SyncJobsService(database, 3)
+        return withOnlyConnections(connectionIds, CLAIM_CLOCK_MILLIS) {
+            try {
+                block(first, second, firstLocked, releaseFirst)
+            } finally {
+                releaseFirst.complete(Unit) // never leave the held claim hanging when an assertion fails
+            }
+        }
+    }
+
+    @Test
+    fun `two concurrent claimers on different kinds of one connection - at most one goes RUNNING`() = runBlocking {
+        val ds = dataSources()
+        val connId = createConnection(ds, enabled = false)
+        val setup = syncJobs()
+        setup.enqueueScheduled(connId, SyncJobKind.SYNC, configRevision = 1L, now = 1000L)
+
+        racingClaimers(setOf(connId), heldConnection = connId) { first, second, firstLocked, releaseFirst ->
+            val firstClaim = async(Dispatchers.IO) { first.claim("worker-a", leaseSeconds = 60, now = CLAIM_CLOCK_MILLIS) }
+            withTimeout(CLAIM_RACE_TIMEOUT_MS) { firstLocked.await() }
+            // The first claimer's scan locked only the rows that existed then (the SYNC): this DERIVE is a row it never saw
+            // and does not hold — exactly what a second claimer interleaved with it would pick.
+            setup.enqueueScheduled(connId, SyncJobKind.DERIVE, configRevision = 1L, now = 1001L)
+
+            // The first claimer sits inside its transaction holding the lock: the DERIVE must NOT be claimed under it.
+            assertNull(
+                // withTimeout: a regression to a BLOCKING lock would hang here — it must fail the test instead of the fork
+                withTimeout(CLAIM_RACE_TIMEOUT_MS) { second.claim("worker-b", leaseSeconds = 60, now = CLAIM_CLOCK_MILLIS) },
+                "the DERIVE is skipped: the connection's claim lock is held by the first claimer, whose SYNC is not RUNNING yet",
+            )
+            releaseFirst.complete(Unit)
+
+            val won = assertNotNull(withTimeout(CLAIM_RACE_TIMEOUT_MS) { firstClaim.await() })
+            assertEquals(SyncJobKind.SYNC, won.kind)
+            val running = setup.list(connId, SyncJobListFilter(status = SyncJobStatus.RUNNING), pagingAll()).items
+            assertEquals(listOf(won.id), running.map { it.id }, "exactly one RUNNING job for the connection")
+            // Lock released at commit: the loser still gets nothing, now because the connection has a RUNNING job.
+            assertNull(withTimeout(CLAIM_RACE_TIMEOUT_MS) { second.claim("worker-b", leaseSeconds = 60, now = CLAIM_CLOCK_MILLIS) })
+        }
+    }
+
+    @Test
+    fun `a claim lock held on one connection never blocks a claim on another`() = runBlocking {
+        val ds = dataSources()
+        val heldConn = createConnection(ds, enabled = false)
+        val otherConn = createConnection(ds, enabled = false)
+        val setup = syncJobs()
+        setup.enqueueScheduled(heldConn, SyncJobKind.SYNC, configRevision = 1L, now = 1000L)
+
+        racingClaimers(setOf(heldConn, otherConn), heldConnection = heldConn) { first, second, firstLocked, releaseFirst ->
+            val firstClaim = async(Dispatchers.IO) { first.claim("worker-a", leaseSeconds = 60, now = CLAIM_CLOCK_MILLIS) }
+            withTimeout(CLAIM_RACE_TIMEOUT_MS) { firstLocked.await() }
+            // Enqueued after the first claimer's scan, so its SKIP LOCKED row locks do not cover it (see the test above).
+            setup.enqueueScheduled(otherConn, SyncJobKind.SYNC, configRevision = 1L, now = 1001L)
+
+            val secondClaim = assertNotNull(
+                withTimeout(CLAIM_RACE_TIMEOUT_MS) { second.claim("worker-b", leaseSeconds = 60, now = CLAIM_CLOCK_MILLIS) },
+                "another connection's job is claimed while the first connection's claim is in flight",
+            )
+            assertEquals(otherConn, secondClaim.connectionId)
+            releaseFirst.complete(Unit)
+
+            assertEquals(heldConn, assertNotNull(withTimeout(CLAIM_RACE_TIMEOUT_MS) { firstClaim.await() }).connectionId)
+        }
     }
 
     @Test
@@ -262,11 +557,11 @@ class SyncJobQueueTest {
         val firstClaim = jobs.claimSpecific("worker-a", leaseSeconds = 60, now = 1000L, targetJobId = jobId)
         assertNotNull(firstClaim)
         assertEquals(1, firstClaim.attempt)
-        jobs.release(firstClaim.id)
+        jobs.release(firstClaim.id, "worker-a", firstClaim.attempt)
         val secondClaim = jobs.claimSpecific("worker-a", leaseSeconds = 60, now = 1001L, targetJobId = jobId)
         assertNotNull(secondClaim)
         assertEquals(2, secondClaim.attempt)
-        jobs.release(secondClaim.id)
+        jobs.release(secondClaim.id, "worker-a", secondClaim.attempt)
 
         // A third claim attempt finds attempt(2) >= maxAttempts(2) and fails it instead.
         val status = jobs.drainUntilTerminal(connId, jobId, "worker-a", leaseSeconds = 60, now = 1002L)
@@ -283,13 +578,11 @@ class SyncJobQueueTest {
         val jobs = syncJobs()
         val connId = createConnection(ds)
         val old = jobs.requestJob(connId, SyncJobKind.SYNC, requestedByUserId = 1u, configRevision = 1L).jobId
-        jobs.claim("worker-a", leaseSeconds = 60, now = 1000L)
-        jobs.finish(old, now = 1000L)
+        jobs.claimAndFinish(connId, old, "worker-a", now = 1000L)
 
         val recentConn = createConnection(ds)
         val recent = jobs.requestJob(recentConn, SyncJobKind.SYNC, requestedByUserId = 1u, configRevision = 1L).jobId
-        jobs.claim("worker-b", leaseSeconds = 60, now = 500_000_000L)
-        jobs.finish(recent, now = 500_000_000L)
+        jobs.claimAndFinish(recentConn, recent, "worker-b", now = 500_000_000L)
 
         val openConn = createConnection(ds)
         val open = jobs.requestJob(openConn, SyncJobKind.RECONCILE, requestedByUserId = 1u, configRevision = 1L).jobId

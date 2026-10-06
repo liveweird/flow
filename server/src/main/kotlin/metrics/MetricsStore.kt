@@ -44,9 +44,10 @@ import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import java.time.LocalDate
 
 /**
- * The ONE PostgreSQL advisory-lock key of [MetricsStore.ensureDimDate] — the ASCII bytes of
- * "FlowDate" as a positive `bigint`. `pg_advisory_xact_lock` keys share one namespace per database,
- * so no other code may take this key (`.claude/docs/persistence.md` lists it).
+ * The PostgreSQL advisory-lock key of [MetricsStore.ensureDimDate] — the ASCII bytes of
+ * "FlowDate" as a positive `bigint` (the single-key form `pg_advisory_xact_lock(key)`). The repo's only other advisory
+ * lock is `SyncJobsService.claim`'s per-connection try-lock, in the two-`int` key space, which cannot collide with this
+ * one; no other code may take THIS key (`.claude/docs/persistence.md` lists both).
  */
 internal const val DIM_DATE_LOCK_KEY = 0x466C6F7744617465L
 
