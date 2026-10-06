@@ -22,7 +22,7 @@ class DataSourceStatusResource(val parent: DataSourcesRoute.Id)
 /**
  * `GET /api/v1/data-sources/{id}/status` (v0.2.0 plan §9/§12 item 7): ADMIN only, read-only — a
  * connection summary, every persisted stream cursor, raw-store row counts, the most recent job of
- * each kind, and the connection's open job (RUNNING, else the oldest PENDING), if any. Split out of
+ * each kind, and the connection's open job (RUNNING, else the PENDING one the worker would claim first), if any. Split out of
  * `DataSourceRoutes.kt` like `SyncJobRoutes.kt` — one file per sub-resource.
  */
 fun Application.configureSyncStatusRoutes() {

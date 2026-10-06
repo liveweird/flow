@@ -129,7 +129,7 @@ class SyncStatusRoutesTest {
     }
 
     @Test
-    fun `currentJob is null with no open job, the oldest PENDING one, and RUNNING wins over PENDING`() = testApplication {
+    fun `currentJob is null with no open job, the PENDING one a claim would take first, and RUNNING wins over PENDING`() = testApplication {
         configureApp("app.role" to "web")
         startApplication()
         val admin = seededClient("statusopen", UserRole.ADMIN)
@@ -141,10 +141,12 @@ class SyncStatusRoutesTest {
 
         assertNull(status().currentJob, "nothing requested - no open job")
 
+        // A scheduled DERIVE (priority 10) enqueued EARLIER must not outrank a later manual job (priority 0).
+        jobs.enqueueScheduled(connId, SyncJobKind.DERIVE, created.configRevision, now = 1_000L)
         val sync = jobs.requestJob(connId, SyncJobKind.SYNC, requestedByUserId = 1u, configRevision = created.configRevision)
         val reconcile = jobs.requestJob(connId, SyncJobKind.RECONCILE, requestedByUserId = 1u, configRevision = created.configRevision)
         val pending = status()
-        assertEquals(sync.jobId, pending.currentJob?.id, "two PENDING jobs - the oldest is reported")
+        assertEquals(sync.jobId, pending.currentJob?.id, "the manual job outranks the earlier scheduled DERIVE, as a claim would")
         assertEquals(SyncJobStatus.PENDING, pending.currentJob?.status)
         assertNull(pending.connection.status.runningJobId)
 

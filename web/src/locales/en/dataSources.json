@@ -154,7 +154,7 @@
     "reprocess": "Reprocess",
     "reprocessTitle": "Reprocess this data source?",
     "reprocessBody": "Rebuilds the normalized layer from the raw store for every issue. This can take a while and never touches the raw data or Jira itself.",
-    "cancel": "Cancel running job",
+    "cancel": "Cancel job",
     "cancelConflict": "This job already finished — nothing to cancel.",
     "actionDisabled": "This data source is disabled — enable it first."
   },

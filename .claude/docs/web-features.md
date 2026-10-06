@@ -59,7 +59,7 @@ endpoint (`requireAdmin` server-side).
   (`components/SyncJobsTable.tsx` on the `RegistryListTable` shell, kind/status filters, a Cancel
   per still-open row). **Auto-refresh is conditional**: the status query's `refetchInterval` is 5s
   only while `currentJob` is open, `false` otherwise — never a fixed poll (the server's `currentJob` is the open
-  job — RUNNING, else the oldest PENDING, `SyncJobsService.openJob` — so a just-requested job shows its badge and is
+  job — RUNNING, else the PENDING one the worker would claim first, `SyncJobsService.openJob` — so a just-requested job shows its badge and is
   polled from the first fetch). The sync-jobs history query polls on that condition
   (`jobOpen`) AND while any visible history row is PENDING/RUNNING, so a row that is not the summary's job (a second
   PENDING one) is still followed to Running and on to its terminal state; it also refetches once more when `jobOpen` falls

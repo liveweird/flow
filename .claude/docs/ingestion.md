@@ -812,9 +812,9 @@ source of truth:
   (`SyncJobsService.lastJobsByKind`) — terminal or not, and a kind never requested is simply absent
   from the map (not present with a null value).
 - **`currentJob`** — the connection's open job in full, if any (`SyncJobsService.openJob`): the
-  RUNNING job, else the oldest PENDING one (by `requested_at`, then id — just requested, or released
-  back to the queue), so a client sees and polls a job that has not been claimed yet; null when
-  nothing is open. This is where `progress`/`currentStream` above surface to an operator (a PENDING
+  RUNNING job, else the PENDING one `claim` would take first (`priority`, `requested_at`, then id, in
+  one query — so a manual job outranks an earlier scheduled one; just requested, or released back to
+  the queue), so a client sees and polls a job that has not been claimed yet; null when nothing is open. This is where `progress`/`currentStream` above surface to an operator (a PENDING
   job has none yet).
 
 ## Data sources

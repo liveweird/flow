@@ -202,12 +202,12 @@ describe("DataSourceDetails page", () => {
     expect(body).toEqual({ kind: "REPROCESS" });
   });
 
-  test("Cancel running job posts a cancel and toasts", async () => {
+  test("Cancel job posts a cancel and toasts", async () => {
     serve(mockFetch, { "POST /api/v1/data-sources/1/sync-jobs/5/cancel": { status: 202, body: { ...RUNNING_JOB, cancelRequestedAt: 3 } } });
     const user = userEvent.setup();
     renderPage();
 
-    await user.click(await screen.findByRole("button", { name: "Cancel running job" }));
+    await user.click(await screen.findByRole("button", { name: "Cancel job" }));
     await waitFor(() => expect(findCall(mockFetch, "POST", "/api/v1/data-sources/1/sync-jobs/5/cancel")).toBeDefined());
     expect(showSuccessToast).toHaveBeenCalledWith("Cancellation requested");
   });
@@ -239,7 +239,7 @@ describe("DataSourceDetails page", () => {
     const user = userEvent.setup();
     renderPage();
 
-    await user.click(await screen.findByRole("button", { name: "Cancel running job" }));
+    await user.click(await screen.findByRole("button", { name: "Cancel job" }));
     expect(await screen.findByText("This job already finished — nothing to cancel.")).toBeInTheDocument();
     expect(showSuccessToast).not.toHaveBeenCalled();
   });
@@ -478,7 +478,7 @@ describe("DataSourceDetails page", () => {
     renderPage();
     const currentJob = await screen.findByRole("table", { name: "Current job" });
     expect(within(currentJob).getByText("Pending")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^cancel/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Cancel job" })).toBeInTheDocument();
 
     await vi.advanceTimersByTimeAsync(5000);
     await vi.waitFor(() => expect(statusCalls).toBe(2));

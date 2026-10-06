@@ -704,7 +704,7 @@ export interface paths {
          * @description ADMIN only, read-only (v0.2.0 plan §9). Connection summary, every persisted stream cursor
          *     (`reference`/`issues`/`changelogs`/`worklogs`/`reconcile` — a completed pass with nothing
          *     left to resume has no row, so it is simply absent), raw-store row counts, the most recent
-         *     job of each kind, and the connection's open job (RUNNING, else the oldest PENDING), if any.
+         *     job of each kind, and the connection's open job (RUNNING, else the PENDING one the worker would claim first), if any.
          */
         get: operations["getDataSourceStatus"];
         put?: never;
@@ -2001,7 +2001,7 @@ export interface components {
             lastJobs: {
                 [key: string]: components["schemas"]["SyncJobResponse"];
             };
-            /** @description The connection's open job — the RUNNING job if any, else the oldest PENDING one (just requested, or released back to the queue); null when nothing is open. `connection.status.runningJobId` stays RUNNING-only. */
+            /** @description The connection's open job — the RUNNING job if any, else the PENDING one the worker would claim first (just requested, or released back to the queue); null when nothing is open. `connection.status.runningJobId` stays RUNNING-only. */
             currentJob?: components["schemas"]["SyncJobResponse"] | null;
         };
         NormalizedStatusInterval: {
