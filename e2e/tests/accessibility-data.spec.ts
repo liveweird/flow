@@ -96,6 +96,16 @@ test.describe("pages over synced data", () => {
       },
     },
     {
+      // The Burn-up view of the same selection: its chart, legend and as-of marker, scanned once the series are drawn.
+      name: "/reports/deep-dive with a sprint selection, burn-up view",
+      path: () => `/reports/deep-dive?domain=FLO&sprintId=3003&connectionId=${dataSourceId}&view=burnup`,
+      settled: async (page) => {
+        await reportSettled("Deep dive")(page);
+        await expect(page.getByRole("heading", { level: 3, name: "Burn-up", exact: true })).toBeVisible();
+        await expect(page.getByRole("group", { name: "Chart: cumulative plan, earned value and cost in man-days by day" }).getByText("Cost (AC)", { exact: true })).toBeVisible();
+      },
+    },
+    {
       name: "the data source details page",
       path: () => `/data-sources/${dataSourceId}`,
       settled: async (page) => {

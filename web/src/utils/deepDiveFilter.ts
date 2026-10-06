@@ -226,3 +226,24 @@ export function serializeDeepDiveSelection(
 export function deepDiveQuery(selection: DeepDiveSelection): string {
   return serializeDeepDiveSelection(selection).toString();
 }
+
+/**
+ * The page's second view of the same selection: the matrix (the default, nothing in the URL) or the burn-up
+ * (`view=burnup`). Not part of the selection — `view` is a foreign param to every function above, which keeps it
+ * — so a link shares the tab without changing the query key or the request.
+ */
+export type DeepDiveView = "matrix" | "burnup";
+
+const VIEW_KEY = "view";
+
+export function parseDeepDiveView(params: URLSearchParams): DeepDiveView {
+  return params.get(VIEW_KEY) === "burnup" ? "burnup" : "matrix";
+}
+
+/** `base` (a copy) with the view written: the matrix is the default, so it is the param's absence. */
+export function applyDeepDiveView(base: URLSearchParams, view: DeepDiveView): URLSearchParams {
+  const next = new URLSearchParams(base);
+  if (view === "burnup") next.set(VIEW_KEY, "burnup");
+  else next.delete(VIEW_KEY);
+  return next;
+}

@@ -118,10 +118,21 @@ describe("isoDateToEpochMillisInZone", () => {
     expect(iso("2026-03-30", "Europe/Warsaw")).toBe("2026-03-29T22:00:00.000Z");
   });
 
-  test("round-trips through epochMillisToIsoDateInZone for every day of a DST year in several zones", () => {
+  // Every 2026 DST change of these zones (±1 day) plus a weekly sample of the year: the transitions are where a
+  // conversion can slip, and a whole year per zone (~1.5k bisections) ran past the 5 s timeout under CI coverage.
+  const TRANSITIONS = ["2026-03-08", "2026-03-29", "2026-04-05", "2026-10-04", "2026-10-25", "2026-11-01"];
+  const SAMPLED_DAYS = [
+    ...new Set([
+      ...Array.from({ length: 53 }, (_, week) => new Date(Date.UTC(2026, 0, 1 + week * 7)).toISOString().slice(0, 10)),
+      ...TRANSITIONS.flatMap((day) =>
+        [-1, 0, 1].map((shift) => new Date(Date.parse(`${day}T00:00:00Z`) + shift * 86_400_000).toISOString().slice(0, 10)),
+      ),
+    ]),
+  ].filter((day) => day.startsWith("2026"));
+
+  test("round-trips through epochMillisToIsoDateInZone around every DST change and weekly through a year in several zones", () => {
     for (const zone of ["Europe/Warsaw", "America/Los_Angeles", "Pacific/Kiritimati", "Australia/Lord_Howe"]) {
-      for (let day = 0; day < 366; day += 1) {
-        const date = new Date(Date.UTC(2026, 0, 1 + day)).toISOString().slice(0, 10);
+      for (const date of SAMPLED_DAYS) {
         expect(epochMillisToIsoDateInZone(isoDateToEpochMillisInZone(date, zone), zone)).toBe(date);
       }
     }

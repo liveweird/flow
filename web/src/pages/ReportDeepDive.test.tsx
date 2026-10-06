@@ -9,9 +9,17 @@ import { FILTERS } from "../test/reportFixtures";
 import { act, renderWithProviders, screen, waitFor, within } from "../test/render";
 import ReportDeepDive from "./ReportDeepDive";
 
+// recharts draws nothing under happy-dom; the burn-up chart is asserted through its props.
+vi.mock("@mantine/charts", () => ({
+  LineChart: (props: { data: unknown; series: unknown }) => (
+    <div data-testid="line-chart" data-rows={JSON.stringify(props.data)} data-series={JSON.stringify(props.series)} />
+  ),
+}));
+
 type FetchMock = ReturnType<typeof vi.fn>;
 const REPORT_PATH = "/api/v1/reports/deep-dive";
 const LAYERS_KEY = "flow.viewSettings.reports.deepDive.layers";
+const BUDGET_KEY = "flow.viewSettings.reports.deepDive.burnupBudget";
 
 /** One epic with one task: plan, execution, a done day and cost, over the month-crossing range. */
 function sampleReport(partial: Partial<DeepDiveReport> = {}): DeepDiveReport {
@@ -355,5 +363,157 @@ describe("ReportDeepDive page", () => {
     renderPage(SPRINT_LINK);
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("The selection resolves to more than 500 tasks."));
     expect(screen.getByRole("alert")).toHaveTextContent("This selection cannot be shown");
+  });
+});
+
+describe("ReportDeepDive page — the Matrix | Burn-up tabs", () => {
+  let mockFetch: FetchMock;
+
+  beforeEach(() => {
+    mockFetch = vi.fn();
+    vi.stubGlobal("fetch", mockFetch);
+    localStorage.setItem("flow.auth.token", "fake-token");
+    serve(mockFetch);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+    localStorage.clear();
+  });
+  const BURNUP_LINK = `${SPRINT_LINK}&view=burnup`;
+  const layers = () => screen.queryByRole("group", { name: "Layers shown" });
+
+  test("the matrix is the default tab: nothing in the URL, no burn-up drawn", async () => {
+    renderPage(SPRINT_LINK);
+    expect(await screen.findByRole("grid")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Matrix" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Burn-up" })).toHaveAttribute("aria-selected", "false");
+    expect(screen.getByRole("tablist", { name: "View" })).toBeInTheDocument();
+    expect(screen.queryByTestId("line-chart")).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Burn-up" })).not.toBeInTheDocument();
+    expect(search()).toBe("?sprintId=42&domain=FLO&sprintId=41");
+  });
+
+  test("choosing Burn-up writes view=burnup next to the selection and draws the chart from the answer already fetched", async () => {
+    const user = userEvent.setup();
+    renderPage(SPRINT_LINK);
+    await screen.findByRole("grid");
+    expect(layers()).toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: "Burn-up" }));
+    expect(search()).toBe("?sprintId=42&domain=FLO&sprintId=41&view=burnup");
+    expect(screen.getByRole("tab", { name: "Burn-up" })).toHaveAttribute("aria-selected", "true");
+    const chart = await screen.findByTestId("line-chart");
+    expect(JSON.parse(chart.getAttribute("data-series")!).map((s: { name: string }) => s.name)).toEqual(["pv", "ev", "ac"]);
+    expect(JSON.parse(chart.getAttribute("data-rows")!).at(-1)).toEqual({ date: "2026-09-08", pv: 2, ev: 2, ac: 1.5 });
+    // The layer switches belong to the matrix; the burn-up has its own legend.
+    expect(layers()).not.toBeInTheDocument();
+    // One answer feeds both views: no second request.
+    expect(reportCalls(mockFetch)).toHaveLength(1);
+
+    await user.click(screen.getByRole("tab", { name: "Matrix" }));
+    expect(search()).toBe("?sprintId=42&domain=FLO&sprintId=41");
+    expect(await screen.findByRole("group", { name: "Layers shown" })).toBeInTheDocument();
+    expect(screen.queryByTestId("line-chart")).not.toBeInTheDocument();
+    expect(reportCalls(mockFetch)).toHaveLength(1);
+  });
+
+  test("a link with view=burnup opens the burn-up, with the one outline", async () => {
+    renderPage(BURNUP_LINK);
+    expect(await screen.findByTestId("line-chart")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Burn-up" })).toHaveAttribute("aria-selected", "true");
+    expect(reportCalls(mockFetch)).toEqual([`${REPORT_PATH}?domain=FLO&sprintId=41&sprintId=42`]);
+    expect(headingOutline()).toEqual([
+      [2, "Deep dive"],
+      [3, "Selection"],
+      [3, "Burn-up"],
+      [3, "Data limits"],
+    ]);
+  });
+
+  test("Show for another selection keeps the burn-up open and requests the new answer once", async () => {
+    const user = userEvent.setup();
+    renderPage("/reports/deep-dive?epicId=FLO-1&view=burnup");
+    await screen.findByTestId("line-chart");
+    await user.type(await screen.findByRole("textbox", { name: "From (optional)" }), "2026-08-30");
+    await user.click(screen.getByRole("button", { name: "Show" }));
+    await waitFor(() => expect(reportCalls(mockFetch)).toHaveLength(2));
+    const params = new URLSearchParams(search());
+    expect(params.get("view")).toBe("burnup");
+    expect(params.get("from")).toBe("2026-08-30");
+    expect(reportCalls(mockFetch)[1]).toBe(`${REPORT_PATH}?epicId=FLO-1&from=2026-08-30`);
+    expect(await screen.findByTestId("line-chart")).toBeInTheDocument();
+  });
+
+  test("the budget switch is remembered per viewer and survives a hop to the matrix and back", async () => {
+    const user = userEvent.setup();
+    const epics = [deepDiveEpic("FLO-1", { summary: "Onboarding", plannedStart: 0, plannedDue: 4, budgetMd: 10 })];
+    serve(mockFetch, sampleReport({ epics }));
+    const { unmount } = renderPage(BURNUP_LINK);
+    const toggle = await screen.findByRole("switch", { name: /Epic budget plan/ });
+    expect(toggle).not.toBeChecked();
+    await user.click(toggle);
+    expect(JSON.parse(localStorage.getItem(BUDGET_KEY) ?? "null")).toBe(true);
+
+    await user.click(screen.getByRole("tab", { name: "Matrix" }));
+    await user.click(screen.getByRole("tab", { name: "Burn-up" }));
+    expect(await screen.findByRole("switch", { name: /Epic budget plan/ })).toBeChecked();
+    const series = JSON.parse((await screen.findByTestId("line-chart")).getAttribute("data-series")!) as Array<{ name: string }>;
+    expect(series.map((s) => s.name)).toContain("budget");
+    unmount();
+
+    renderPage(BURNUP_LINK);
+    expect(await screen.findByRole("switch", { name: /Epic budget plan/ })).toBeChecked();
+  });
+
+  test("a corrupt remembered budget choice falls back to off", async () => {
+    localStorage.setItem(BUDGET_KEY, JSON.stringify("yes"));
+    serve(mockFetch, sampleReport({ epics: [deepDiveEpic("FLO-1", { plannedStart: 0, plannedDue: 4, budgetMd: 10 })] }));
+    renderPage(BURNUP_LINK);
+    expect(await screen.findByRole("switch", { name: /Epic budget plan/ })).not.toBeChecked();
+  });
+
+  test("a followed link without view opens the matrix again", async () => {
+    const user = userEvent.setup();
+    renderPage("/reports/deep-dive?epicId=FLO-1&view=burnup");
+    await screen.findByTestId("line-chart");
+    await user.click(screen.getByRole("link", { name: "go to A" }));
+    expect(await screen.findByRole("grid")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Matrix" })).toHaveAttribute("aria-selected", "true");
+    expect(search()).toBe("?sprintId=42&domain=FLO&sprintId=41");
+  });
+
+  test("the tabs are reachable by keyboard: the arrow key moves to the other tab", async () => {
+    const user = userEvent.setup();
+    renderPage(SPRINT_LINK);
+    await screen.findByRole("grid");
+    screen.getByRole("tab", { name: "Matrix" }).focus();
+    await user.keyboard("{ArrowRight}");
+    expect(await screen.findByTestId("line-chart")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Burn-up" })).toHaveFocus();
+    expect(search()).toContain("view=burnup");
+  });
+
+  test("nothing derived yet shows its one note, with no tabs, even for a burn-up link", async () => {
+    serve(
+      mockFetch,
+      deepDiveReport({
+        range: { from: "2026-09-01", to: "2026-09-01", asOfDay: null },
+        meta: { ...sampleReport().meta, derivedAt: null, configRevision: null },
+        note: "Not derived yet: the connection has not completed a DERIVE.",
+      }),
+    );
+    renderPage(BURNUP_LINK);
+    expect(await screen.findByText(/Nothing in this selection has been derived yet/)).toBeInTheDocument();
+    expect(screen.queryByRole("tab")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("line-chart")).not.toBeInTheDocument();
+  });
+
+  test("a selection with no figures says so on the burn-up too", async () => {
+    serve(mockFetch, sampleReport({ tasks: [], epics: [] }));
+    renderPage(BURNUP_LINK);
+    expect(await screen.findByText("There is nothing to plot for this selection.")).toBeInTheDocument();
+    expect(screen.queryByTestId("line-chart")).not.toBeInTheDocument();
   });
 });

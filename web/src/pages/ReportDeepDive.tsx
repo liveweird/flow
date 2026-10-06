@@ -1,11 +1,12 @@
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
-import { Alert, Group, List, Stack, Switch, Text, Title } from "@mantine/core";
+import { Alert, Group, List, Stack, Switch, Tabs, Text, Title } from "@mantine/core";
 import { IconInfoCircle } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
 import { ApiError } from "../api/http";
 import { fetchDeepDive, getReportFilters } from "../api/reports";
+import DeepDiveBurnup from "../components/DeepDiveBurnup";
 import DeepDiveLimits from "../components/DeepDiveLimits";
 import DeepDiveMatrix from "../components/DeepDiveMatrix";
 import DeepDiveSelectionPanel from "../components/DeepDiveSelectionPanel";
@@ -15,7 +16,14 @@ import PageHeader from "../components/PageHeader";
 import ReportFiltersStatus from "../components/ReportFiltersStatus";
 import { isBoolean, useStoredState } from "../hooks/useStoredState";
 import type { DeepDiveLayers } from "../utils/deepDiveCell";
-import { applyDeepDiveSelection, deepDiveMode, deepDiveQuery, parseDeepDiveSelection } from "../utils/deepDiveFilter";
+import {
+  applyDeepDiveSelection,
+  applyDeepDiveView,
+  deepDiveMode,
+  deepDiveQuery,
+  parseDeepDiveSelection,
+  parseDeepDiveView,
+} from "../utils/deepDiveFilter";
 import { noteOf } from "../utils/deepDiveMatrix";
 import { knownLabels } from "../utils/deepDivePanel";
 
@@ -70,6 +78,7 @@ export default function ReportDeepDive() {
   const [params, setParams] = useSearchParams();
   const selection = useMemo(() => parseDeepDiveSelection(params), [params]);
   const selectionKey = deepDiveQuery(selection);
+  const view = parseDeepDiveView(params);
   const complete = deepDiveMode(selection) !== null;
 
   // The panel keeps its own draft, so it is reset only when the URL changes from OUTSIDE it (Back/forward, a pasted
@@ -83,6 +92,7 @@ export default function ReportDeepDive() {
     if (shown !== selectionKey) setPanelEpoch(panelEpoch + 1);
   }
   const [layers, setLayers] = useStoredState<DeepDiveLayers>("reports.deepDive.layers", ALL_LAYERS, isLayers);
+  const [burnupBudget, setBurnupBudget] = useStoredState<boolean>("reports.deepDive.burnupBudget", false, isBoolean);
 
   const filtersQuery = useQuery({ queryKey: ["reports", "filters"], queryFn: getReportFilters, staleTime: 60_000 });
   // The selection is the only input: nothing is requested until it is complete, and a new one is a new key (no kept data —
@@ -119,25 +129,42 @@ export default function ReportDeepDive() {
           </Alert>
         ) : (
           <>
-            <Stack gap="sm" component="section" aria-labelledby="deep-dive-matrix">
-              <Title order={3} size="h4" id="deep-dive-matrix">
-                {t("reports.deepDive.matrixTitle")}
-              </Title>
-              <Text size="xs" c="dimmed">
-                {t("reports.deepDive.range", { from: report.range.from, to: report.range.to })}
-              </Text>
-              <Group gap="lg" role="group" aria-label={t("reports.deepDive.layersAria")}>
-                {LAYER_KEYS.map((key) => (
-                  <Switch
-                    key={key}
-                    label={t(`reports.deepDive.matrix.layer.${key}`)}
-                    checked={layers[key]}
-                    onChange={(event) => setLayers({ ...layers, [key]: event.currentTarget.checked })}
-                  />
-                ))}
-              </Group>
-              <DeepDiveMatrix key={selectionKey} report={report} layers={layers} />
-            </Stack>
+            {/* Both views read the one answer. The matrix panel stays mounted (so its open months and rows survive a hop to the
+                burn-up); the burn-up renders only while it is open, so its chart is never measured in a hidden box. */}
+            <Tabs
+              value={view}
+              keepMounted
+              onChange={(next) => setParams(applyDeepDiveView(params, next === "burnup" ? "burnup" : "matrix"), { replace: true })}
+            >
+              <Tabs.List aria-label={t("reports.deepDive.viewAria")}>
+                <Tabs.Tab value="matrix">{t("reports.deepDive.tab.matrix")}</Tabs.Tab>
+                <Tabs.Tab value="burnup">{t("reports.deepDive.tab.burnup")}</Tabs.Tab>
+              </Tabs.List>
+              <Tabs.Panel value="matrix" pt="md">
+                <Stack gap="sm" component="section" aria-labelledby="deep-dive-matrix">
+                  <Title order={3} size="h4" id="deep-dive-matrix">
+                    {t("reports.deepDive.matrixTitle")}
+                  </Title>
+                  <Text size="xs" c="dimmed">
+                    {t("reports.deepDive.range", { from: report.range.from, to: report.range.to })}
+                  </Text>
+                  <Group gap="lg" role="group" aria-label={t("reports.deepDive.layersAria")}>
+                    {LAYER_KEYS.map((key) => (
+                      <Switch
+                        key={key}
+                        label={t(`reports.deepDive.matrix.layer.${key}`)}
+                        checked={layers[key]}
+                        onChange={(event) => setLayers({ ...layers, [key]: event.currentTarget.checked })}
+                      />
+                    ))}
+                  </Group>
+                  <DeepDiveMatrix key={selectionKey} report={report} layers={layers} />
+                </Stack>
+              </Tabs.Panel>
+              <Tabs.Panel value="burnup" pt="md">
+                {view === "burnup" && <DeepDiveBurnup key={selectionKey} report={report} withBudget={burnupBudget} onWithBudgetChange={setBurnupBudget} />}
+              </Tabs.Panel>
+            </Tabs>
             <DeepDiveLimits report={report} />
           </>
         )}

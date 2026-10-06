@@ -111,7 +111,7 @@ the same commit** — this list is the coverage map, the scenario file is the de
 - [`accessibility-data.spec.ts`](scenarios/accessibility-data.md) — the same axe scan over its own
   API-seeded, synced-and-derived (then paused) Jira-stub connection: every report with derived data
   behind it plus the data-source details, data profile, raw issue inspector and metrics-configuration
-  pages, in the light and the dark scheme, and the Deep dive with the golden sprint selected (its matrix drawn).
+  pages, in the light and the dark scheme, and the Deep dive with the golden sprint selected (its matrix drawn, and its Burn-up view).
 - [`auth.spec.ts`](scenarios/auth.md) — login / logout / invalid credentials / guarded deep link with query and hash;
   explicit sign-out from a non-home protected page returns the next sign-in to Home,
   including while server revocation is delayed.
@@ -167,7 +167,7 @@ the same commit** — this list is the coverage map, the scenario file is the de
   overview's four tiles and a tile link landing on its report with the period in the URL; and an axe
   scan of the populated WIP, Epic progress, Cost matrix, Home and Data quality pages; and the Deep dive (report 17): pick the golden
   sprint's domain and sprint, read the three-layer matrix, drill an epic into its tasks and a month into weeks (focus on the first
-  week), open a cell's tooltip by keyboard focus, switch a layer off, then an epic's planned window in Epics mode — with the computed
+  week), open a cell's tooltip by keyboard focus, switch a layer off, the Burn-up tab (URL, chart legend, the daily table's figures) and back, then an epic's planned window in Epics mode — with the computed
   styles the unit tests cannot see (scroll margins, halos, the tooltip's height cap). Period-bound reads use a fixed window around the
   stub's reference date and narrow to the spec's own connection through the URL.
 - [`teams.spec.ts`](scenarios/teams.md) — the flat-teams registry: create through the modal →

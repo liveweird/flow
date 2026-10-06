@@ -891,6 +891,34 @@
     "range": "Showing {{from}} to {{to}}.",
     "layersAria": "Layers shown",
     "badSelection": "This selection cannot be shown",
+    "viewAria": "View",
+    "tab": {
+      "matrix": "Matrix",
+      "burnup": "Burn-up"
+    },
+    "burnup": {
+      "title": "Burn-up",
+      "description": "How plan (PV), earned value (EV) and cost (AC) add up day by day, in man-days, over the selection shown above.",
+      "chartLabel": "Chart: cumulative plan, earned value and cost in man-days by day",
+      "asOf": "As of {{day}}",
+      "budgetSwitch": "Epic budget plan (dashed line)",
+      "budgetHelp": "The budget of each selected epic, spread evenly over the working days of its planned window. It covers whole epics, however many of their tasks are selected.",
+      "noBudget": "No selected epic has both a planned window and a budget, so there is no budget plan to add.",
+      "series": {
+        "budget": "Epic budget plan"
+      },
+      "rangeNote": "Each line counts only what falls inside the range shown and starts at zero on its first day. The totals over the whole life of the tasks are in the matrix's summary table.",
+      "actualsNote": "Earned value and cost end on the day the data is current for; the plan runs on to the end of the range.",
+      "ownCostNote": "Cost includes the man-days logged on the epics themselves.",
+      "empty": "There is nothing to plot for this selection.",
+      "tableLabel": "Cumulative figures per day",
+      "column": {
+        "pv": "Plan (PV, MD)",
+        "ev": "Earned value (EV, MD)",
+        "ac": "Cost (AC, MD)",
+        "budget": "Epic budget plan (MD)"
+      }
+    },
     "note": {
       "rangeClamped": "The selection spans more than 1100 days, so only its last 1100 days are drawn. The totals still cover the whole life of each task. Set a from and to date to choose another range.",
       "notDerived": "Nothing in this selection has been derived yet, so there are no figures to show. They appear after the connection's next derive."

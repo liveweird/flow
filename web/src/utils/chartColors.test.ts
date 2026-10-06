@@ -3,7 +3,7 @@ import { DEFAULT_THEME, type MantineColorsTuple } from "@mantine/core";
 import { contrast } from "../test/contrast";
 import { theme } from "../theme";
 import { DARK_TOKENS, LIGHT_TOKENS } from "../themeVariables";
-import { BAND_CYCLE, CHART_COLORS, DEEP_DIVE_FILL_ALPHA, FINAL_COLOR } from "./chartColors";
+import { AS_OF_COLOR, BAND_CYCLE, CHART_COLORS, DEEP_DIVE_FILL_ALPHA, FINAL_COLOR } from "./chartColors";
 
 /** "teal.8" → the hex, resolved through the app theme first (the `flow` tuple), then Mantine's defaults. */
 function shade(color: string): string {
@@ -82,6 +82,14 @@ describe("chart series colours clear WCAG 1.4.11 (3:1) on every chart surface", 
     for (const surface of [...LIGHT_SURFACES, ...DARK_SURFACES]) {
       expect(contrast(shade(CHART_COLORS.deepDiveHatch), surface), surface).toBeGreaterThanOrEqual(3);
     }
+  });
+
+  test("the burn-up as-of label is text: it clears 4.5:1 on the surfaces of its own scheme", () => {
+    for (const surface of LIGHT_SURFACES) expect(contrast(shade(AS_OF_COLOR.light), surface), surface).toBeGreaterThanOrEqual(4.5);
+    for (const surface of DARK_SURFACES) expect(contrast(shade(AS_OF_COLOR.dark), surface), surface).toBeGreaterThanOrEqual(4.5);
+    // Neither shade would do on the other scheme, hence the pair.
+    expect(contrast(shade(AS_OF_COLOR.light), DARK_TOKENS.surfaceTint)).toBeLessThan(4.5);
+    expect(contrast(shade(AS_OF_COLOR.dark), "#ffffff")).toBeLessThan(4.5);
   });
 
   test("the documented ratios: flow.6 is 3.56 on white, red.7 is 3.53 on dark paper", () => {

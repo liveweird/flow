@@ -4,6 +4,7 @@ import {
   MAX_DEEP_DIVE_ISSUES,
   MAX_DEEP_DIVE_SPRINTS,
   applyDeepDiveSelection,
+  applyDeepDiveView,
   cleanSearchText,
   compareIssueKeys,
   deepDiveMode,
@@ -11,6 +12,7 @@ import {
   hasDeepDiveParams,
   normalizeDeepDiveSelection,
   parseDeepDiveSelection,
+  parseDeepDiveView,
   serializeDeepDiveSelection,
   type DeepDiveSelection,
 } from "./deepDiveFilter";
@@ -278,5 +280,31 @@ describe("cleanSearchText", () => {
     expect(cleanSearchText("")).toBeUndefined();
     expect(cleanSearchText(undefined)).toBeUndefined();
     expect(cleanSearchText("épic")).toBe("épic");
+  });
+});
+
+describe("the page view (view=burnup)", () => {
+  test("only view=burnup opens the burn-up; anything else is the matrix", () => {
+    expect(parseDeepDiveView(new URLSearchParams("view=burnup"))).toBe("burnup");
+    expect(parseDeepDiveView(new URLSearchParams(""))).toBe("matrix");
+    expect(parseDeepDiveView(new URLSearchParams("view=matrix"))).toBe("matrix");
+    expect(parseDeepDiveView(new URLSearchParams("view=BURNUP"))).toBe("matrix");
+  });
+
+  test("writing it keeps the selection, and the matrix is the absence of the param", () => {
+    const base = new URLSearchParams("epicId=FLO-1&from=2026-01-01");
+    const burnup = applyDeepDiveView(base, "burnup");
+    expect(burnup.toString()).toBe("epicId=FLO-1&from=2026-01-01&view=burnup");
+    expect(applyDeepDiveView(burnup, "matrix").toString()).toBe("epicId=FLO-1&from=2026-01-01");
+    expect(base.has("view")).toBe(false);
+  });
+
+  test("view is not a selection param: the selection round-trip and its query ignore and keep it", () => {
+    const params = new URLSearchParams("view=burnup&epicId=FLO-2&epicId=FLO-1");
+    expect(hasDeepDiveParams(new URLSearchParams("view=burnup"))).toBe(false);
+    expect(deepDiveQuery(parseDeepDiveSelection(params))).toBe("epicId=FLO-1&epicId=FLO-2");
+    const next = applyDeepDiveSelection(params, { epicIds: ["FLO-3"], connectionId: 2 });
+    expect(next.toString()).toBe("view=burnup&epicId=FLO-3&connectionId=2");
+    expect(parseDeepDiveView(next)).toBe("burnup");
   });
 });
