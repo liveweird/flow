@@ -1,9 +1,10 @@
 import { lazy, Suspense, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { Stack, Switch, Table, Text, Title } from "@mantine/core";
+import { Stack, Switch, Text, Title } from "@mantine/core";
 import type { DeepDiveReport } from "../api/reports";
 import { buildDeepDiveBurnup, type DeepDiveBurnup as BurnupModel } from "../utils/deepDiveBurnup";
 import { formatFigure } from "../utils/reportFormat";
+import ColumnTable, { type ColumnDef } from "./ColumnTable";
 import DailyTableDisclosure from "./DailyTableDisclosure";
 import LoadingBlock from "./LoadingBlock";
 import ScrollRegion from "./ScrollRegion";
@@ -17,30 +18,32 @@ const figureOrDash = (value: number | null) => (value === null ? "—" : formatF
 function BurnupTable({ burnup }: { burnup: BurnupModel }) {
   const { t } = useTranslation();
   const label = t("reports.deepDive.burnup.tableLabel");
+  const columns: ColumnDef<BurnupModel["points"][number]>[] = [
+    { key: "day", header: t("reports.daily.day"), render: (point) => point.date },
+    { key: "pv", header: t("reports.deepDive.burnup.column.pv"), render: (point) => formatFigure(point.pv), align: "right" },
+    { key: "ev", header: t("reports.deepDive.burnup.column.ev"), render: (point) => figureOrDash(point.ev), align: "right" },
+    { key: "ac", header: t("reports.deepDive.burnup.column.ac"), render: (point) => figureOrDash(point.ac), align: "right" },
+    ...(burnup.hasBudget
+      ? [
+          {
+            key: "budget",
+            header: t("reports.deepDive.burnup.column.budget"),
+            render: (point: BurnupModel["points"][number]) => figureOrDash(point.budget),
+            align: "right" as const,
+          },
+        ]
+      : []),
+  ];
   return (
     <ScrollRegion label={label} minWidth={400} maxHeight={360}>
-      <Table verticalSpacing={4} stickyHeader aria-label={label}>
-        <Table.Thead>
-          <Table.Tr>
-            <Table.Th>{t("reports.daily.day")}</Table.Th>
-            <Table.Th ta="right">{t("reports.deepDive.burnup.column.pv")}</Table.Th>
-            <Table.Th ta="right">{t("reports.deepDive.burnup.column.ev")}</Table.Th>
-            <Table.Th ta="right">{t("reports.deepDive.burnup.column.ac")}</Table.Th>
-            {burnup.hasBudget && <Table.Th ta="right">{t("reports.deepDive.burnup.column.budget")}</Table.Th>}
-          </Table.Tr>
-        </Table.Thead>
-        <Table.Tbody>
-          {[...burnup.points].reverse().map((point) => (
-            <Table.Tr key={point.date}>
-              <Table.Td>{point.date}</Table.Td>
-              <Table.Td ta="right">{formatFigure(point.pv)}</Table.Td>
-              <Table.Td ta="right">{figureOrDash(point.ev)}</Table.Td>
-              <Table.Td ta="right">{figureOrDash(point.ac)}</Table.Td>
-              {burnup.hasBudget && <Table.Td ta="right">{figureOrDash(point.budget)}</Table.Td>}
-            </Table.Tr>
-          ))}
-        </Table.Tbody>
-      </Table>
+      <ColumnTable
+        verticalSpacing={4}
+        stickyHeader
+        aria-label={label}
+        columns={columns}
+        rows={[...burnup.points].reverse()}
+        rowKey={(point) => point.date}
+      />
     </ScrollRegion>
   );
 }

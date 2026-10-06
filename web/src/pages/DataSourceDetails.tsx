@@ -26,6 +26,7 @@ import {
   type SyncJobResponse,
   type SyncJobStatus,
 } from "../api/dataSources";
+import ColumnTable, { type ColumnDef } from "../components/ColumnTable";
 import ConfirmActionModal from "../components/ConfirmActionModal";
 import CursorTable from "../components/CursorTable";
 import DataSourceEditorModal from "../components/DataSourceEditorModal";
@@ -57,6 +58,18 @@ function isOpen(status: SyncJobStatus | undefined): boolean {
 /** The current job's kind/status/stream plus its progress counters — split out to keep the page under the line cap. */
 function CurrentJobSection({ job }: { job: SyncJobResponse }) {
   const { t } = useTranslation();
+  const progressColumns: ColumnDef<[string, unknown]>[] = [
+    {
+      key: "counter",
+      header: t("dataSources.details.progressCounter"),
+      render: ([key]) => <Text size="sm">{key}</Text>,
+    },
+    {
+      key: "value",
+      header: t("dataSources.details.progressValue"),
+      render: ([, value]) => <Text size="sm">{typeof value === "object" ? JSON.stringify(value) : String(value)}</Text>,
+    },
+  ];
   return (
     <Stack gap="xs">
       <Title order={3} size="h4">{t("dataSources.details.currentJob")}</Title>
@@ -79,26 +92,12 @@ function CurrentJobSection({ job }: { job: SyncJobResponse }) {
         </Table.Tbody>
       </Table>
       {job.progress && Object.keys(job.progress).length > 0 && (
-        <Table aria-label={t("dataSources.details.progressTableAria")}>
-          <Table.Thead>
-            <Table.Tr>
-              <Table.Th>{t("dataSources.details.progressCounter")}</Table.Th>
-              <Table.Th>{t("dataSources.details.progressValue")}</Table.Th>
-            </Table.Tr>
-          </Table.Thead>
-          <Table.Tbody>
-            {Object.entries(job.progress).map(([key, value]) => (
-              <Table.Tr key={key}>
-                <Table.Td>
-                  <Text size="sm">{key}</Text>
-                </Table.Td>
-                <Table.Td>
-                  <Text size="sm">{typeof value === "object" ? JSON.stringify(value) : String(value)}</Text>
-                </Table.Td>
-              </Table.Tr>
-            ))}
-          </Table.Tbody>
-        </Table>
+        <ColumnTable
+          aria-label={t("dataSources.details.progressTableAria")}
+          columns={progressColumns}
+          rows={Object.entries(job.progress)}
+          rowKey={([key]) => key}
+        />
       )}
     </Stack>
   );

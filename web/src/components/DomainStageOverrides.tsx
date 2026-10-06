@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ActionIcon, Alert, Badge, Button, Group, Select, Stack, Table, Text, Title, VisuallyHidden } from "@mantine/core";
+import { ActionIcon, Alert, Badge, Button, Group, Select, Stack, Text, Title, VisuallyHidden } from "@mantine/core";
 import { IconX } from "@tabler/icons-react";
 import {
   currentDomainKeys,
@@ -13,6 +13,7 @@ import {
   type MetricsStage,
   type StatusRowState,
 } from "../utils/metricsConfigForm";
+import ColumnTable, { type ColumnDef } from "./ColumnTable";
 
 /**
  * The "Per-domain overrides" section of the metrics-config Statuses tab (`.claude/docs/metrics.md`
@@ -49,6 +50,55 @@ export default function DomainStageOverrides({
   const stageLabel = (stage: MetricsStage | "") =>
     stage === "" ? t("metrics.config.statuses.overrides.unmapped") : t(`metrics.config.statuses.stage.${stage}`);
   const stageOptions = METRICS_STAGES.map((s) => ({ value: s, label: stageLabel(s) }));
+
+  const columnsFor = (domainKey: string): ColumnDef<StatusRowState>[] => [
+    { key: "status", header: t("metrics.config.statuses.columnStatus"), render: (status) => status.name },
+    {
+      key: "allDomains",
+      header: t("metrics.config.statuses.overrides.columnAllDomains"),
+      render: (status) => <Text size="sm">{stageLabel(status.stage)}</Text>,
+    },
+    {
+      key: "thisDomain",
+      header: t("metrics.config.statuses.overrides.columnThisDomain"),
+      render: (status) => {
+        const override = overrides.find((o) => o.domainKey === domainKey && o.statusId === status.statusId);
+        const differs = override !== undefined && override.stage !== status.stage;
+        return (
+          <Group gap="xs" wrap="nowrap">
+            <Select
+              aria-label={t("metrics.config.statuses.overrides.stageAria", { name: status.name, domain: domainKey })}
+              value={override?.stage ?? null}
+              onChange={(value) =>
+                onChange(setDomainStage(overrides, domainKey, status.statusId, (value ?? "") as MetricsStage | ""))
+              }
+              data={stageOptions}
+              placeholder={t("metrics.config.statuses.overrides.samePlaceholder")}
+              clearable
+            />
+            {differs && <Badge size="sm">{t("metrics.config.statuses.overrides.differs")}</Badge>}
+          </Group>
+        );
+      },
+    },
+    {
+      key: "actions",
+      header: <VisuallyHidden>{t("metrics.config.statuses.overrides.columnActions")}</VisuallyHidden>,
+      render: (status) => {
+        const override = overrides.find((o) => o.domainKey === domainKey && o.statusId === status.statusId);
+        return (
+          override && (
+            <ActionIcon
+              aria-label={t("metrics.config.statuses.overrides.removeAria", { name: status.name, domain: domainKey })}
+              onClick={() => onChange(setDomainStage(overrides, domainKey, status.statusId, ""))}
+            >
+              <IconX size={16} />
+            </ActionIcon>
+          )
+        );
+      },
+    },
+  ];
 
   return (
     <Stack gap="xs" mt="xl" data-testid="domain-stage-overrides">
@@ -101,61 +151,12 @@ export default function DomainStageOverrides({
             allowDeselect={false}
             maw={360}
           />
-          <Table aria-label={t("metrics.config.statuses.overrides.tableLabel", { domain: domainKey })}>
-            <Table.Thead>
-              <Table.Tr>
-                <Table.Th>{t("metrics.config.statuses.columnStatus")}</Table.Th>
-                <Table.Th>{t("metrics.config.statuses.overrides.columnAllDomains")}</Table.Th>
-                <Table.Th>{t("metrics.config.statuses.overrides.columnThisDomain")}</Table.Th>
-                <Table.Th>
-                  <VisuallyHidden>{t("metrics.config.statuses.overrides.columnActions")}</VisuallyHidden>
-                </Table.Th>
-              </Table.Tr>
-            </Table.Thead>
-            <Table.Tbody>
-              {statuses.map((status) => {
-                const override = overrides.find((o) => o.domainKey === domainKey && o.statusId === status.statusId);
-                const differs = override !== undefined && override.stage !== status.stage;
-                return (
-                  <Table.Tr key={status.statusId}>
-                    <Table.Td>{status.name}</Table.Td>
-                    <Table.Td>
-                      <Text size="sm">{stageLabel(status.stage)}</Text>
-                    </Table.Td>
-                    <Table.Td>
-                      <Group gap="xs" wrap="nowrap">
-                        <Select
-                          aria-label={t("metrics.config.statuses.overrides.stageAria", { name: status.name, domain: domainKey })}
-                          value={override?.stage ?? null}
-                          onChange={(value) =>
-                            onChange(setDomainStage(overrides, domainKey, status.statusId, (value ?? "") as MetricsStage | ""))
-                          }
-                          data={stageOptions}
-                          placeholder={t("metrics.config.statuses.overrides.samePlaceholder")}
-                          clearable
-                        />
-                        {differs && (
-                          <Badge size="sm">
-                            {t("metrics.config.statuses.overrides.differs")}
-                          </Badge>
-                        )}
-                      </Group>
-                    </Table.Td>
-                    <Table.Td>
-                      {override && (
-                        <ActionIcon
-                          aria-label={t("metrics.config.statuses.overrides.removeAria", { name: status.name, domain: domainKey })}
-                          onClick={() => onChange(setDomainStage(overrides, domainKey, status.statusId, ""))}
-                        >
-                          <IconX size={16} />
-                        </ActionIcon>
-                      )}
-                    </Table.Td>
-                  </Table.Tr>
-                );
-              })}
-            </Table.Tbody>
-          </Table>
+          <ColumnTable
+            aria-label={t("metrics.config.statuses.overrides.tableLabel", { domain: domainKey })}
+            columns={columnsFor(domainKey)}
+            rows={statuses}
+            rowKey={(status) => status.statusId}
+          />
         </>
       )}
     </Stack>

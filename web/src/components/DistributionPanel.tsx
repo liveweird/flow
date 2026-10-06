@@ -1,8 +1,9 @@
 import { lazy, Suspense } from "react";
 import { useTranslation } from "react-i18next";
-import { Box, Group, Stack, Table, Text, Title } from "@mantine/core";
+import { Box, Group, Stack, Text, Title } from "@mantine/core";
 import type { Distribution } from "../api/reports";
 import { histogramLabels, type ValueFormat } from "../utils/reportFormat";
+import ColumnTable, { type ColumnDef } from "./ColumnTable";
 import LoadingBlock from "./LoadingBlock";
 import MinSampleNotice from "./MinSampleNotice";
 import ScrollRegion from "./ScrollRegion";
@@ -38,6 +39,10 @@ export default function DistributionPanel({
   const show = (value: number | null | undefined) => (value == null ? MISSING : format(value));
   const labels = histogramLabels(distribution.histogram, format);
   const rows = distribution.histogram.map((bucket, index) => ({ label: labels[index], count: bucket.count }));
+  const columns: ColumnDef<(typeof rows)[number]>[] = [
+    { key: "range", header: t("reports.distribution.range"), render: (row) => row.label },
+    { key: "count", header: t("reports.distribution.count"), render: (row) => row.count, align: "right" },
+  ];
   const strip: [string, string][] = [
     [t("reports.distribution.p50"), show(distribution.p50)],
     [t("reports.distribution.p90"), show(distribution.p90)],
@@ -75,23 +80,14 @@ export default function DistributionPanel({
             <DistributionHistogram rows={rows} name={title} xAxisLabel={axisLabel} />
           </Suspense>
           <ScrollRegion label={`${t("reports.distribution.histogramTable")} — ${title}`} minWidth={260}>
-            <Table verticalSpacing={4} aria-label={`${t("reports.distribution.histogramTable")} — ${title}`}>
-              <Table.Thead>
-                <Table.Tr>
-                  <Table.Th>{t("reports.distribution.range")}</Table.Th>
-                  <Table.Th ta="right">{t("reports.distribution.count")}</Table.Th>
-                </Table.Tr>
-              </Table.Thead>
-              <Table.Tbody>
-                {rows.map((row, index) => (
-                  // Keyed by position: ranges are ordered and fixed, and a label is not a guaranteed identity.
-                  <Table.Tr key={index}>
-                    <Table.Td>{row.label}</Table.Td>
-                    <Table.Td ta="right">{row.count}</Table.Td>
-                  </Table.Tr>
-                ))}
-              </Table.Tbody>
-            </Table>
+            <ColumnTable
+              verticalSpacing={4}
+              aria-label={`${t("reports.distribution.histogramTable")} — ${title}`}
+              columns={columns}
+              rows={rows}
+              // Keyed by position: ranges are ordered and fixed, and a label is not a guaranteed identity.
+              rowKey={(_row, index) => String(index)}
+            />
           </ScrollRegion>
         </>
       )}

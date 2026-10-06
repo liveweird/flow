@@ -1,10 +1,11 @@
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
-import { Alert, Badge, Group, SimpleGrid, Stack, Table, Text, Title } from "@mantine/core";
+import { Alert, Badge, Group, SimpleGrid, Stack, Text, Title } from "@mantine/core";
 import { IconInfoCircle } from "@tabler/icons-react";
 import type { EpicProgressEpic } from "../api/reports";
 import { formatDate } from "../utils/formatDate";
 import { formatMd } from "../utils/reportFormat";
+import ColumnTable, { type ColumnDef } from "./ColumnTable";
 import ScrollRegion from "./ScrollRegion";
 
 const MISSING = "—";
@@ -38,6 +39,29 @@ function budgetSourceLabel(source: string | null, t: TFunction): string | null {
 export default function EpicPlanPanel({ epic, timeZone }: { epic: EpicProgressEpic; timeZone: string }) {
   const { t } = useTranslation();
   const source = budgetSourceLabel(epic.budgetSource, t);
+  const baselineColumns: ColumnDef<EpicProgressEpic["baselines"][number]>[] = [
+    {
+      key: "effectiveFrom",
+      header: t("reports.epicProgress.epic.effectiveFrom"),
+      render: (baseline) => formatDate(baseline.effectiveFrom, MISSING, timeZone),
+    },
+    {
+      key: "supersededAt",
+      header: t("reports.epicProgress.epic.supersededAt"),
+      render: (baseline) =>
+        baseline.supersededAt == null
+          ? t("reports.epicProgress.epic.current")
+          : formatDate(baseline.supersededAt, MISSING, timeZone),
+    },
+    { key: "start", header: t("reports.epicProgress.epic.start"), render: (baseline) => formatDate(baseline.startAt) },
+    { key: "due", header: t("reports.epicProgress.epic.due"), render: (baseline) => formatDate(baseline.dueAt) },
+    {
+      key: "budget",
+      header: t("reports.epicProgress.epic.budget"),
+      render: (baseline) => (baseline.budgetMd == null ? MISSING : formatMd(baseline.budgetMd)),
+      align: "right",
+    },
+  ];
   return (
     <Stack gap="md">
       <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="md">
@@ -72,32 +96,12 @@ export default function EpicPlanPanel({ epic, timeZone }: { epic: EpicProgressEp
         <Stack gap="xs">
           <Title order={4}>{t("reports.epicProgress.epic.baselinesTitle")}</Title>
           <ScrollRegion label={t("reports.epicProgress.epic.baselinesLabel")} minWidth={520}>
-            <Table aria-label={t("reports.epicProgress.epic.baselinesLabel")}>
-              <Table.Thead>
-                <Table.Tr>
-                  <Table.Th>{t("reports.epicProgress.epic.effectiveFrom")}</Table.Th>
-                  <Table.Th>{t("reports.epicProgress.epic.supersededAt")}</Table.Th>
-                  <Table.Th>{t("reports.epicProgress.epic.start")}</Table.Th>
-                  <Table.Th>{t("reports.epicProgress.epic.due")}</Table.Th>
-                  <Table.Th ta="right">{t("reports.epicProgress.epic.budget")}</Table.Th>
-                </Table.Tr>
-              </Table.Thead>
-              <Table.Tbody>
-                {epic.baselines.map((baseline) => (
-                  <Table.Tr key={baseline.effectiveFrom}>
-                    <Table.Td>{formatDate(baseline.effectiveFrom, MISSING, timeZone)}</Table.Td>
-                    <Table.Td>
-                      {baseline.supersededAt == null
-                        ? t("reports.epicProgress.epic.current")
-                        : formatDate(baseline.supersededAt, MISSING, timeZone)}
-                    </Table.Td>
-                    <Table.Td>{formatDate(baseline.startAt)}</Table.Td>
-                    <Table.Td>{formatDate(baseline.dueAt)}</Table.Td>
-                    <Table.Td ta="right">{baseline.budgetMd == null ? MISSING : formatMd(baseline.budgetMd)}</Table.Td>
-                  </Table.Tr>
-                ))}
-              </Table.Tbody>
-            </Table>
+            <ColumnTable
+              aria-label={t("reports.epicProgress.epic.baselinesLabel")}
+              columns={baselineColumns}
+              rows={epic.baselines}
+              rowKey={(baseline) => String(baseline.effectiveFrom)}
+            />
           </ScrollRegion>
         </Stack>
       )}
