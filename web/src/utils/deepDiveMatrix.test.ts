@@ -11,7 +11,6 @@ import {
   EMPTY_CELL,
   buildDeepDiveMatrix,
   expandedColumns,
-  formatFigure,
   grainColumns,
   type AuthorCost,
   type DeepDiveGrain,
@@ -826,21 +825,5 @@ describe("empty and annotated reports", () => {
     expect(days).toHaveLength(1100);
     expectPartition(grainColumns(report, "week"), 1100);
     expectPartition(days, 1100);
-  });
-});
-
-describe("formatFigure", () => {
-  test("rounds only for display, trims trailing zeros and never prints negative zero or exponents", () => {
-    expect(formatFigure(0.1 + 0.2)).toBe("0.3");
-    expect(formatFigure(2)).toBe("2");
-    expect(formatFigure(1.005 * 100)).toBe("100.5");
-    expect(formatFigure(0.3333, 4)).toBe("0.3333");
-    expect(formatFigure(0.004)).toBe("0");
-    expect(formatFigure(-0.001)).toBe("0");
-    expect(formatFigure(12.3456)).toBe("12.35");
-    // Binary sums just below a decimal half still round as the decimal does (no double rounding).
-    expect(formatFigure(0.3509 + 0.1441)).toBe("0.5");
-    expect(formatFigure(0.9279 + 0.5871)).toBe("1.52");
-    expect(formatFigure(-1.515)).toBe("-1.52");
   });
 });

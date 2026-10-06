@@ -187,7 +187,6 @@
       "truncated": "Only the first 200 distinct values are shown."
     },
     "capacities": {
-      "columnSprint": "Sprint",
       "columnCapacity": "Capacity (MD)",
       "capacityAria": "Capacity for {{sprint}}",
       "capacityHint": "Blank uses the computed default (members × working days).",
