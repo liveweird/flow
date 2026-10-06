@@ -46,9 +46,12 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   - The connection-release test does not fail with the old `client.request()` code in this Ktor/OkHttp version. A blocking interceptor could force the leak window open.
   - `DirectSocketFactory` and `fastFallback(false)` have no isolated tests.
 - **Data profile: multi-project boards.** A board whose filter spans several projects shows no observed or unmapped statuses, because `BoardRef` carries a single project key. Revisit if real boards span projects.
-- **Details page: the sync-jobs history doesn't auto-refresh.** Only the summary above it (connection, current job, counts) refetches every 5 s while a job is open, so a history row keeps saying Running until a reload. Refresh the history query on the same condition. (Found by the v0.2.0 e2e journey.)
 - **DERIVEs still serialize from ANALYZE to commit.** `dim_date` no longer couples them (it is ensured in its own transaction, so the deadlock is gone and the fact-building phase overlaps), but `analyzeDerivedTables` ANALYZEs 16 tables shared by every connection inside the derive transaction, and `SHARE UPDATE EXCLUSIVE` conflicts with itself: a second derive's ANALYZE waits until the first commits, so `workerSlots=2` gives only partial DERIVE parallelism. The ANALYZE must still see the transaction's own uncommitted rows (a skippable/`SKIP_LOCKED` variant would leave stale statistics — build-times WHY 1 regression); a real fix needs per-connection statistics or committing the facts before the aggregates.
 - **PROCESS reference rows can still fail a whole run on an over-long Jira value.** `rebuildReferenceRows` (`jira/JiraProcessStream.kt`) writes statuses, people, boards and sprints outside the per-issue bad-row classifier, into `varchar(100/200/254)` columns (`norm/WorkItemStore.kt`); a sprint or board name past its limit throws Exposed's client-side length check out of `run()`, so every PROCESS fails. Per-issue columns (`issue_type` 50, `status_name` 100, …) are now counted bad rows but stay `needs_processing` forever. Check the real tenant's longest names at the first sync; widen what can realistically overflow to `TEXT` (the V18 pattern).
+- **Details page: the summary ignores a PENDING job.** The server's `currentJob` is the RUNNING job only, so while a
+  job is PENDING (just requested, or released back to the queue) the summary above the history neither shows it nor
+  polls; the history now follows such a row to its end, but the summary updates only on a reload or an action. Either
+  report the PENDING job as `currentJob` server-side or refresh the summary while a history row is open.
 - **Two connections to one Jira site are allowed** (different project scopes). Confirm this is the wanted behaviour once real usage exists.
 - **D6 — de-Jira the `Connector` seam: not before the GitLab connector (YAGNI).** `ingest/Connector.kt` `testConnection(siteUrl, email, apiToken, projectKeys, authScheme)`, `JiraConnectorKey` in `DataSourceRoutes.kt` and `DataSourceRequest.jira` are Jira-shaped. Generalising them is speculative until a second connector exists; revisit with GitLab.
 - **Shutdown audit lines are lost.** `sync_job.released` (the worker's lease release on a graceful stop) is missing from the log on graceful restarts — seen live on two of them; the DB release does happen. Suspected cause: the OpenTelemetry console-exporter flush racing the Ktor stop hook.
@@ -56,18 +59,10 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 
 ## Checkup 2026-09-30 — what is left (record: `.claude/docs/audit-status.md`)
 
-The checkup fixed tiers A–D in PRs #31–#53. Still open (item ids as in the report,
-`~/.claude/plans/flow-checkup-2026-09-30.md`):
+The checkup fixed tiers A–D in PRs #31–#53; the leftovers (A15, C8, D2–D5 and the small test/build items) landed in
+PRs #59–#61. What remains is the build-time follow-ups, B7 step 3 and the user's own decisions (item ids as in the
+report, `~/.claude/plans/flow-checkup-2026-09-30.md`):
 
-- **A15 — e2e coverage:** the four report pages with no e2e touch (epic estimation accuracy, estimate adjustments,
-  reported time, estimated backlog), the axe sweep over every report page and the data-source detail/profile/inspect/
-  metrics-config pages, plus a dark-scheme pass.
-- **C8 — soft-delete helpers:** `TeamService`'s hand-rolled `markedAsDeleted eq` filters → `UserService.Users.active()`;
-  add `SoftDeletable.deleted()` to `infra/db/SoftDelete.kt` for `DataSourceService`.
-- **D2–D5 — server structure:** split `metrics/MetricsStore.kt` (tables / rows / store), `MetricsConfigService.kt`
-  (settings / per-connection config / options / owner resolution) and `reports/EpicProgressReport.kt` (entry /
-  targets / EVM math / rows); break the `ingest` ↔ `metrics` import cycle with a `JobHandler` registry. Each is a pure
-  move pinned by the digest, golden and route tests.
 - **Build-time follow-ups** (`build-times.md`): WHY 3/4/9 are answered (2026-10-01); what is left is PROCESS on
   `infra/db/MultiRowInsert.kt`'s `insertRows` (the same per-row `batchInsert` cost, ~2.1 s of a 2.4-3.2 s pass), the
   nightly `e2e` image-build cache (WHY 7's data decides), and re-checking `images` after its first master run.
@@ -76,8 +71,6 @@ The checkup fixed tiers A–D in PRs #31–#53. Still open (item ids as in the r
   `web-features.md`, and cut the package tree to one line per package. The always-loaded set is 40.3k chars (from
   59.0k), against a ~35k target, and `web/CLAUDE.md` is 36.2k (from 72.8k). Next candidates: `CLAUDE.md`'s Commands/CI
   paragraph and `testing.md`'s harness bullets.
-- **Small:** the five redundant private `ensureMigrated()` copies in tests (use `PostgresTestSupport.ensureMigrated()`);
-  a test pinning that a class's first DB touch finds a migrated schema; `-Pforks` input validation.
 - **The user's decisions:** A1 — protect `master` (required checks: `server`, `web`, `e2e-static`,
   `gradle-vulnerability-scan`, `k8s-static`; no bypass); A13 — a TLS-terminating Ingress + ClusterIP Service vs a
   documented local-only overlay (behind today's bare LoadBalancer `X-Forwarded-For` is client-supplied); Dependabot

@@ -355,6 +355,112 @@ describe("DataSourceDetails page", () => {
     expect(call).toBe(3);
   });
 
+  test("the sync-jobs history refreshes with the summary: a Running row turns Succeeded without a reload, then polling stops", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    let statusCalls = 0;
+    let jobsCalls = 0;
+    mockFetch.mockImplementation((url: string, init?: RequestInit) => {
+      const method = init?.method ?? "GET";
+      if (method === "GET" && url === "/api/v1/data-sources/1/status") {
+        statusCalls += 1;
+        return Promise.resolve(jsonResponse(200, statusWith(statusCalls < 2 ? RUNNING_JOB : null)));
+      }
+      if (method === "GET" && url.startsWith("/api/v1/data-sources/1/sync-jobs?")) {
+        jobsCalls += 1;
+        const job = jobsCalls < 2 ? RUNNING_JOB : { ...RUNNING_JOB, status: "SUCCEEDED", finishedAt: 3 };
+        return Promise.resolve(jsonResponse(200, { ...JOBS_PAGE, items: [job] }));
+      }
+      return Promise.resolve(jsonResponse(404, { title: "Not Found", status: 404 }));
+    });
+
+    renderPage();
+    const history = await screen.findByRole("table", { name: "Sync jobs" });
+    expect(await within(history).findByText("Running")).toBeInTheDocument();
+
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(await within(history).findByText("Succeeded")).toBeInTheDocument();
+    expect(within(history).queryByText("Running")).not.toBeInTheDocument();
+
+    // Nothing is open any more: neither query polls again.
+    await vi.advanceTimersByTimeAsync(1000);
+    const settledStatus = statusCalls;
+    const settledJobs = jobsCalls;
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(statusCalls).toBe(settledStatus);
+    expect(jobsCalls).toBe(settledJobs);
+  });
+
+  test("one final history refetch when the open job finishes, even if the racing tick still read it as Running", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    let statusCalls = 0;
+    let jobsCalls = 0;
+    let releaseIdleStatus: () => void = () => {};
+    mockFetch.mockImplementation((url: string, init?: RequestInit) => {
+      const method = init?.method ?? "GET";
+      if (method === "GET" && url === "/api/v1/data-sources/1/status") {
+        statusCalls += 1;
+        if (statusCalls < 2) return Promise.resolve(jsonResponse(200, statusWith(RUNNING_JOB)));
+        // The summary's second poll answers "idle" only once the test releases it.
+        return new Promise<Response>((resolve) => {
+          releaseIdleStatus = () => resolve(jsonResponse(200, statusWith(null)));
+        });
+      }
+      if (method === "GET" && url.startsWith("/api/v1/data-sources/1/sync-jobs?")) {
+        jobsCalls += 1;
+        // The history tick that fires beside the summary's poll still reads the job as Running (call 2).
+        const job = jobsCalls < 3 ? RUNNING_JOB : { ...RUNNING_JOB, status: "SUCCEEDED", finishedAt: 3 };
+        return Promise.resolve(jsonResponse(200, { ...JOBS_PAGE, items: [job] }));
+      }
+      return Promise.resolve(jsonResponse(404, { title: "Not Found", status: 404 }));
+    });
+
+    renderPage();
+    const history = await screen.findByRole("table", { name: "Sync jobs" });
+    expect(await within(history).findByText("Running")).toBeInTheDocument();
+
+    await vi.advanceTimersByTimeAsync(5000);
+    await vi.waitFor(() => expect(jobsCalls).toBe(2));
+    expect(within(history).getByText("Running")).toBeInTheDocument();
+
+    // The summary now reports no open job: the history gets one more read and shows the terminal state.
+    releaseIdleStatus();
+    expect(await within(history).findByText("Succeeded")).toBeInTheDocument();
+    expect(jobsCalls).toBe(3);
+
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(jobsCalls).toBe(3);
+  });
+
+  test("a PENDING history row under an idle summary is followed to Running and Succeeded, then polling stops", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    let jobsCalls = 0;
+    mockFetch.mockImplementation((url: string, init?: RequestInit) => {
+      const method = init?.method ?? "GET";
+      if (method === "GET" && url === "/api/v1/data-sources/1/status") return Promise.resolve(jsonResponse(200, statusWith(null)));
+      if (method === "GET" && url.startsWith("/api/v1/data-sources/1/sync-jobs?")) {
+        jobsCalls += 1;
+        const status = jobsCalls < 2 ? "PENDING" : jobsCalls < 3 ? "RUNNING" : "SUCCEEDED";
+        return Promise.resolve(jsonResponse(200, { ...JOBS_PAGE, items: [{ ...RUNNING_JOB, status }] }));
+      }
+      return Promise.resolve(jsonResponse(404, { title: "Not Found", status: 404 }));
+    });
+
+    renderPage();
+    const history = await screen.findByRole("table", { name: "Sync jobs" });
+    expect(await within(history).findByText("Pending")).toBeInTheDocument();
+
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(await within(history).findByText("Running")).toBeInTheDocument();
+
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(await within(history).findByText("Succeeded")).toBeInTheDocument();
+    expect(jobsCalls).toBe(3);
+
+    // No visible row is open any more: the history stops polling.
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(jobsCalls).toBe(3);
+  });
+
   test("a sync-jobs list load failure renders the jobs error alert (the connection summary still loads)", async () => {
     mockFetch.mockImplementation((url: string, init?: RequestInit) => {
       const method = init?.method ?? "GET";

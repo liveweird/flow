@@ -1,7 +1,7 @@
 # Audit status
 
 Flow's first checkup, 2026-09-30, run on `bef0e74` (v0.3.0 + PR #32) and fixed the same night;
-this record is current as of master `0c19481` (PR #49). It is the starting point for the next
+this record is current as of master `53c4d10` (PR #74), 2026-10-06. It is the starting point for the next
 checkup: what was audited, what was fixed, what is still open, what is parked. Use the linked
 docs for current behavior; the findings' original `path:line` evidence is in the PR descriptions.
 
@@ -49,28 +49,26 @@ web ~3 min to ~1-2 min (latest 1m09s, in budget); `images` 4m00s is over its ala
 
 ## In flight
 
-- [#51](https://github.com/liveweird/flow/pull/51) D1: two parallel forks on CI, migrations at
-  container start, CI timeout 25 min. Open at the time of writing; check `gh pr view 51`.
-- Branch `fix/live-check-findings` (no PR yet): an unknown `/api/*` returns `404` `problem+json`
-  instead of the SPA's 200 HTML; a `derive_runs` row left RUNNING after SIGKILL; Flyway connect
-  retries (a cold-start crash-loop had none).
+Nothing from the checkup itself: #51 (parallel forks, D1) and the live-check findings (#53) are merged. Other work
+open on 2026-10-06 (`gh pr list -R liveweird/flow --state open`):
+
+- [#75](https://github.com/liveweird/flow/pull/75) draft: report cache validators (ETag/304) and an atomic DERIVE
+  success mark; waits for the user's cache-posture sign-off.
+- [#76](https://github.com/liveweird/flow/pull/76): per-domain status-to-stage overrides (editor UI and DERIVE).
+- Branch `fix/sync-history-refresh`: the Details page's sync-jobs history auto-refreshes while a job is open.
+- Branch `fix/process-reference-lengths` (in progress): PROCESS reference rows (statuses, people, boards, sprints)
+  that overflow their `varchar` columns no longer fail a whole run (BACKLOG).
+- Dependabot #12, #47, #64-#67 are held under the dependency rule.
 
 ## Still open (the next session)
 
-- **A15** e2e for the four uncovered report pages (`epic-estimation-accuracy`,
-  `estimate-adjustments`, `reported-time-ratio`, `backlog`); axe on all 15 report pages, the
-  data-source pages and dark mode.
-- **C8** `UserService.Users.active()` in `TeamService`, `SoftDeletable.deleted()`.
-- **D2-D5** split `MetricsStore.kt`, `MetricsConfigService.kt`, `EpicProgressReport.kt`; break the
-  `ingest` to `metrics` import cycle (`JobHandler` map).
-- **D9 leftovers** DERIVE JVM passes (WHY 3), Kover cost (WHY 4).
-- **B7** `conventions.md` as a replacement, not an addition: split `testing.md` into
-  `testing.md` + `test-fixtures.md`, shrink CLAUDE.md's package tree; always-loaded target
-  about 35 KB (was 51 KB).
-- **Follow-ups** (the first two are in BACKLOG, the third is fixed): r2dbc-pool reports the acquire timeout at 2x the configured
-  `postgres.pool.maxAcquireTimeSeconds`; shutdown audit lines lost to an OTel flush race;
-  `norm.work_item_field_intervals.value_text VARCHAR(500)` overflows for an issue with many sprints
-  (fixed after the checkup: V18 widens it to `TEXT`); fixtures depend on class order when Flyway has not yet run (belongs with D1).
+Done since the checkup (2026-10-01..06): A15 (#61), C8 and the small test/build items (#59), D2-D5 (#60),
+D9 WHY 3 and the Kover cost (#62), B7 step 2 (#68), the class-order fixture dependency (#59, `PostgresTestSupport`
+migrates on start), and the `value_text` overflow (V18). What remains:
+
+- **B7 step 3** — the always-loaded set is 40.3k chars against a ~35k target (BACKLOG).
+- **Follow-ups** (in BACKLOG): r2dbc-pool reports the acquire timeout at 2x the configured
+  `postgres.pool.maxAcquireTimeSeconds`; shutdown audit lines lost to an OTel flush race.
 - Not doing: D6 (de-Jira the `Connector` seam) waits for the GitLab connector (BACKLOG).
 
 ## Decisions made on the user's behalf
