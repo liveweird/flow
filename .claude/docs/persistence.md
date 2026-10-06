@@ -570,7 +570,7 @@ statement (~0.16-0.19 ms a row, 10x the multi-row cost — `.claude/docs/build-t
 "FlowDate", the single-`bigint` form `pg_advisory_xact_lock(key)`) and `ensureDimDate`, the only
 `inTopLevelSuspendTransaction` caller (a write that commits while its caller's transaction is still open); no other code may take that key.
 The second is `SyncJobsService.claim`'s per-connection try-lock, `pg_try_advisory_xact_lock(CLAIM_LOCK_NAMESPACE, connectionId)`
-(`ingest/SyncJobs.kt`, namespace = the ASCII bytes of "SYNC" as an `int`; the two-`int` form is a separate key space from the `bigint` one, so the two cannot
+(`ingest/SyncJobLeases.kt`, namespace = the ASCII bytes of "SYNC" as an `int`; the two-`int` form is a separate key space from the `bigint` one, so the two cannot
 collide) — `.claude/docs/ingestion.md` "Claiming". A new advisory lock needs its own constant, a line here and a reason a row lock cannot do the job.
 
 **The first trigger in this repo.** `fact_sprint_snapshot` is immutable once written (invariant 11,

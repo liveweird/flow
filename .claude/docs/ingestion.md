@@ -63,7 +63,7 @@ and Kubernetes, and the README's environment-variable table for `FLOW_ROLE`'s de
 
 ## Sync-job queue (V9)
 
-`sync_jobs` (`ingest/SyncJobs.kt`'s `SyncJobsService`, plan §4/§5/§9) is ONE table serving as both
+`sync_jobs` (`ingest/SyncJobs.kt`'s `SyncJobsService` — enqueue/cancel/prune plus a facade over `SyncJobReads.kt` (the read side) and `SyncJobLeases.kt` (claim, lease, fenced writes); plan §4/§5/§9) is ONE table serving as both
 job history and command queue for every connector kind. `ingest/SyncJobRoutes.kt` is the ADMIN-only
 web-role surface (`POST/GET /api/v1/data-sources/{id}/sync-jobs`, `GET .../sync-jobs/{jobId}`,
 `POST .../sync-jobs/{jobId}/cancel`); `ingest/IngestWorker.kt` is the sole claimer, running only
@@ -148,7 +148,7 @@ transaction by the `afterClaimLock` seam).
 
 **Lease and heartbeat.** A claim sets `lease_owner` (the worker's `ingest.workerId`, default
 hostname + a random suffix), `lease_until = now + leaseSeconds * 1000` and `heartbeat_at`, and
-increments `attempt`. `IngestWorker.runJob` runs a ticker coroutine alongside the connector's
+increments `attempt`. `IngestWorker.runJob` runs a ticker coroutine (`ingest/LeaseHeartbeat.kt`) alongside the connector's
 `run()` that renews the lease every `max(1s, leaseSeconds/3)` (`SyncJobsService.renewLease`: the heartbeat UPDATE
 that re-extends `lease_until` plus the `cancel_requested_at` read, in ONE transaction — one pooled connection, one failure
 policy). **Every run-owned write is fenced** — the heartbeat/renewal by `(id, lease_owner, attempt, status = RUNNING)`,
@@ -817,7 +817,7 @@ counter map in memory; `currentStreamName` (set by the job runner — `jira/Jira
 each stream's `run`) names which stream is currently active. Both are flushed onto
 `sync_jobs.progress`/`sync_jobs.current_stream` by `context.heartbeat()` on every call
 (`SyncJobsService.heartbeat`'s `progress`/`currentStream` parameters, written only when non-null —
-the ticker's own lease-only heartbeat in `ingest/IngestWorker.kt` omits them so it never blanks out
+the ticker's own lease-only heartbeat in `ingest/LeaseHeartbeat.kt` omits them so it never blanks out
 the last value a stream's own heartbeat flushed). This is a lightweight, best-effort sync-progress
 signal for the status endpoint below, not itself part of any correctness invariant — a page that
 commits its raw-store write and cursor advance but then crashes before its heartbeat simply leaves
