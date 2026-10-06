@@ -33,7 +33,6 @@ import org.jetbrains.exposed.v1.r2dbc.Query
 import org.jetbrains.exposed.v1.r2dbc.batchUpsert
 import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
-import kotlin.test.assertEquals
 
 /**
  * A suite-wide, derive-once fixture (`.claude/docs/testing.md` "Shared synced fixture" — "The
@@ -62,7 +61,8 @@ object DerivedStubFixture {
     @Volatile
     private var derivedConnectionId: UInt? = null
 
-    private lateinit var baselineDigest: String
+    // The digest is ~180 ms, so connectionId() re-verifies only when the calling TEST CLASS changes (FixtureTripwire).
+    private val tripwire = FixtureTripwire<String>("derived fixture", perCallerClass = true)
 
     fun metricsSettings() = MetricsSettingsService(
         sharedDatabaseForTests(),
@@ -150,6 +150,12 @@ object DerivedStubFixture {
      * double-checked-lock shape as [SyncedStubFixture.connectionId].
      */
     suspend fun connectionId(): UInt {
+        val connId = ensureDerived()
+        tripwire.verify(connId) { metricsDigest(connId) }
+        return connId
+    }
+
+    private suspend fun ensureDerived(): UInt {
         derivedConnectionId?.let { return it }
         return initLock.withLock {
             derivedConnectionId?.let { return@withLock it }
@@ -161,7 +167,7 @@ object DerivedStubFixture {
             mapFloBoardToNewTeam(connId, metricsConfig(), "flo-derived-team")
             withPinnedSettings(metricsSettings()) { derivePinned(connId) }
 
-            baselineDigest = metricsDigest(connId)
+            tripwire.arm(metricsDigest(connId))
             derivedConnectionId = connId
             connId
         }
@@ -187,12 +193,8 @@ object DerivedStubFixture {
 
     /** Guard against accidental mutation of the shared derived connection — driven by `DerivedStubFixtureTest`. */
     suspend fun assertUnchanged() {
-        val connId = connectionId()
-        assertEquals(
-            baselineDigest,
-            metricsDigest(connId),
-            "the shared derived fixture's connection $connId must never be mutated by a read-only test",
-        )
+        val connId = ensureDerived()
+        tripwire.verify(connId, force = true) { metricsDigest(connId) }
     }
 
     /**

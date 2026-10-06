@@ -47,7 +47,8 @@ import kotlin.test.assertEquals
  * never touch this connection — [cloneRawData] copies its raw rows into a fresh connection id, and
  * the test runs only the one stream under test against the clone. [assertUnchanged] (driven by
  * `SyncedStubFixtureTest`) is the tripwire: it re-snapshots this connection and compares it against
- * the baseline captured the moment the backfill first completed.
+ * the baseline captured the moment the backfill first completed — and so does every later
+ * [connectionId] call (the tripwire test alone would prove nothing when it runs first; [FixtureTripwire]).
  */
 object SyncedStubFixture {
     val IN_SCOPE_PROJECT_KEYS = listOf("FLO", "PLT", "GTM", "OPS")
@@ -185,21 +186,30 @@ object SyncedStubFixture {
     @Volatile
     private var syncedConnectionId: UInt? = null
 
-    private lateinit var baseline: Snapshot
+    // A snapshot is ~25 ms, so EVERY connectionId() call re-verifies the connection (FixtureTripwire).
+    private val tripwire = FixtureTripwire<Snapshot>("synced fixture", perCallerClass = false)
 
     /**
      * Runs the full backfill exactly once per JVM fork and returns its connection id — idempotent
      * under concurrent callers (the suite runs its tests sequentially today, but a `by lazy`-style
-     * double-checked lock keeps this correct even if that ever changes).
+     * double-checked lock keeps this correct even if that ever changes). Every call after the
+     * first also re-verifies the connection against the baseline captured when the backfill
+     * completed ([FixtureTripwire]): a consumer that mutated it fails the next test that asks.
      */
     suspend fun connectionId(): UInt {
+        val connId = ensureSynced()
+        tripwire.verify(connId) { snapshot(connId) }
+        return connId
+    }
+
+    private suspend fun ensureSynced(): UInt {
         syncedConnectionId?.let { return it }
         return initLock.withLock {
             syncedConnectionId?.let { return@withLock it }
             ensureMigrated()
             val connId = createConnection(namePrefix = "jira-shared-fixture")
             runConnectorOnce(buildConnector(), connId)
-            baseline = snapshot(connId)
+            tripwire.arm(snapshot(connId))
             syncedConnectionId = connId
             connId
         }
@@ -207,9 +217,8 @@ object SyncedStubFixture {
 
     /** Guard against accidental mutation of the shared connection — driven by `SyncedStubFixtureTest`. */
     suspend fun assertUnchanged() {
-        val connId = connectionId()
-        val current = snapshot(connId)
-        assertEquals(baseline, current, "the shared synced fixture's connection $connId must never be mutated by a read-only test")
+        val connId = ensureSynced()
+        tripwire.verify(connId, force = true) { snapshot(connId) }
     }
 
     internal val RAW_CLONE_TABLES: List<Table> = listOf(
