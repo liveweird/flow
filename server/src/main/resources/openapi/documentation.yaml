@@ -683,7 +683,11 @@ paths:
       tags: [metrics]
       operationId: listTeamJiraMemberships
       summary: List a team's dated Jira-user memberships (D1)
-      description: Any authenticated user (the team-reads posture). Most recent `validFrom` first.
+      description: >-
+        Any authenticated user (the team-reads posture). Most recent `validFrom` first. Deliberately NOT paged
+        (a plain `{items}`, no `page`/`pageSize`/`total`): it returns one row per dated membership interval of this
+        ONE team, an admin-curated roster that grows only by hand-entered intervals (a Jira account never overlaps
+        itself, so rows are bounded by the team's roster times its own membership changes), not by synced data.
       responses:
         '200':
           description: The team's membership rows
@@ -2284,9 +2288,8 @@ components:
       schema: { type: string }
       description: Free-text substring filter (case- and accent-insensitive) — API-LIST-005.
 
-    # The shared report filter parameters (v0.3.0 M4 commit 10a, `reports/ReportFilter.kt`) — not
-    # yet `$ref`'d by any path (this commit only builds `/reports/filters`, which takes none of
-    # them), declared here for the report endpoints landing in later commits (plan §10) to reuse.
+    # The shared report filter parameters (`reports/ReportFilter.kt`), `$ref`'d by the report paths
+    # (each path lists the ones it accepts).
     ReportFrom:
       name: from
       in: query
@@ -3271,7 +3274,7 @@ components:
       required: [domainKey, statusId, stage]
       description: "A per-domain override of the every-domain status → stage mapping: items of this domain read this stage for this status instead."
       properties:
-        domainKey: { type: string, description: "A domain the same request defines (a `domains[].domainKey`, or the project key of an observed project it leaves unmapped); never empty." }
+        domainKey: { type: string, maxLength: 50, description: "A domain the same request defines (a `domains[].domainKey`, or the project key of an observed project it leaves unmapped); never empty." }
         statusId: { type: string }
         stage: { type: string, enum: [NOT_STARTED, IN_PROGRESS, DONE] }
     MetricsFieldConfig:
@@ -3287,8 +3290,8 @@ components:
       required: [projectKey, domainKey, domainName]
       properties:
         projectKey: { type: string }
-        domainKey: { type: string }
-        domainName: { type: string }
+        domainKey: { type: string, maxLength: 50 }
+        domainName: { type: string, maxLength: 100 }
         ownerTeamId:
           type: integer
           format: int32
@@ -3313,13 +3316,13 @@ components:
       properties:
         valueId: { type: string }
         valueName: { type: string, nullable: true }
-        category: { type: string }
+        category: { type: string, maxLength: 100 }
     MetricsSprintCapacity:
       type: object
       required: [sprintId, capacityMd]
       properties:
         sprintId: { type: integer, format: int64 }
-        capacityMd: { type: number, format: double, minimum: 0 }
+        capacityMd: { type: number, format: double, minimum: 0, maximum: 999999.99, description: "Man-days, at most two decimals (`NUMERIC(8, 2)`)." }
     DataSourceMetricsConfig:
       type: object
       required: [configured, statusStages, domainStatusStages, fields, domains, boards, activityTypes, workCategories, blockedStatuses, sprintCapacities]
@@ -3473,7 +3476,8 @@ components:
           description: "ISO weekday numbers, 1 (Monday) .. 7 (Sunday)."
         holidays:
           type: array
-          items: { type: string, description: "ISO date (YYYY-MM-DD)." }
+          maxItems: 366
+          items: { type: string, format: date, description: "ISO date (YYYY-MM-DD)." }
         commitmentGraceMinutes: { type: integer, minimum: 0 }
         minSampleSize: { type: integer, minimum: 1 }
         agingWindowItems: { type: integer, minimum: 1 }
@@ -3505,7 +3509,9 @@ components:
           items: { type: integer, minimum: 1, maximum: 7 }
         holidays:
           type: array
-          items: { type: string }
+          maxItems: 366
+          description: "ISO dates (YYYY-MM-DD); duplicates collapse."
+          items: { type: string, format: date }
         commitmentGraceMinutes: { type: integer, minimum: 0 }
         minSampleSize: { type: integer, minimum: 1 }
         agingWindowItems: { type: integer, minimum: 1 }
@@ -3760,7 +3766,7 @@ components:
       description: One time bucket of the PERIOD view (tasks by `done_at`, priced at done).
       required: [bucketStart, deliveredMd, deliveredItems]
       properties:
-        bucketStart: { type: string, description: "The bucket's first day, ISO date (a Monday for weeks, the 1st for months)." }
+        bucketStart: { type: string, format: date, description: "The bucket's first day, ISO date (a Monday for weeks, the 1st for months)." }
         deliveredMd: { type: number, format: double }
         deliveredItems: { type: integer }
     ThroughputGroup:
@@ -4050,7 +4056,7 @@ components:
         when `n` is below `minSampleSize` (an empty bucket has `n` 0).
       required: [bucketStart, p50, p90, n]
       properties:
-        bucketStart: { type: string, description: "The bucket's first day, ISO date (a Monday for weeks, the 1st for months)." }
+        bucketStart: { type: string, format: date, description: "The bucket's first day, ISO date (a Monday for weeks, the 1st for months)." }
         p50: { type: number, format: double, nullable: true }
         p90: { type: number, format: double, nullable: true }
         n: { type: integer, format: int64, minimum: 0 }
@@ -4128,7 +4134,7 @@ components:
       description: One calendar day of a WIP series; `counts` carries EVERY key of the report's `keys` (zero-filled).
       required: [day, isWorkingDay, counts]
       properties:
-        day: { type: string, description: 'ISO date in the configured zone.' }
+        day: { type: string, format: date, description: 'ISO date in the configured zone.' }
         isWorkingDay: { type: boolean, description: 'Whether the day is a working day of the configured calendar (weekends and holidays are not).' }
         counts:
           type: object
@@ -4173,7 +4179,7 @@ components:
       description: The estimated backlog at the END of one calendar day.
       required: [day, items, md]
       properties:
-        day: { type: string, description: 'ISO date in the configured zone.' }
+        day: { type: string, format: date, description: 'ISO date in the configured zone.' }
         items: { type: integer, minimum: 0 }
         md: { type: number, format: double, minimum: 0, description: "Man-days — the sum of the items' own estimates." }
 
@@ -4182,7 +4188,7 @@ components:
       description: The backlog on the last listed day, and report 13's backlog in sprints.
       required: [items, md, windowSprints, sprintsUsed]
       properties:
-        asOfDay: { type: string, nullable: true, description: "The day the snapshot is read for (the trend's last day); null when the trend is empty." }
+        asOfDay: { type: string, format: date, nullable: true, description: "The day the snapshot is read for (the trend's last day); null when the trend is empty." }
         items: { type: integer, minimum: 0 }
         md: { type: number, format: double, minimum: 0 }
         meanDeliveredMd:
@@ -4340,7 +4346,7 @@ components:
       description: One calendar day of the series (configured zone) — CUMULATIVE values at the end of the day.
       required: [date, pv, ev, ac, pvOriginal]
       properties:
-        date: { type: string, description: 'ISO date (YYYY-MM-DD).' }
+        date: { type: string, format: date, description: 'ISO date (YYYY-MM-DD).' }
         pv: { type: number, format: double, description: Cumulative planned value in man-days. }
         ev: { type: number, format: double, description: Cumulative earned value in man-days. }
         ac: { type: number, format: double, description: Cumulative actual cost in man-days. }
@@ -4351,7 +4357,7 @@ components:
       description: The figures at `day`, man-days at two decimals.
       required: [day, pv, ev, ac, sv, spi, cv, cpi]
       properties:
-        day: { type: string, nullable: true, description: 'ISO date the figures are read at; null when there is nothing to read.' }
+        day: { type: string, format: date, nullable: true, description: 'ISO date the figures are read at; null when there is nothing to read.' }
         pv: { type: number, format: double }
         ev: { type: number, format: double }
         ac: { type: number, format: double }

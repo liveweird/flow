@@ -114,6 +114,30 @@ class OpenApiSpecTest {
         assertEquals("date", meta["to"]!!.format)
     }
 
+    /**
+     * A date-only string must say so: a schema property or parameter named `day`/`date`/`from`/`to`/`holidays`/`bucketStart`
+     * or ending in `Day`/`Date` (`asOfDay`; not every `*Start`: `epicStart` is a field id) and typed `string` carries a
+     * `format` (`date`, or `date-time` where it is one), arrays through their `items`. Enums are exempt. Scoped to the
+     * component schemas and the component parameters, where every such field of this spec lives (a new inline one fails
+     * the review, not this test).
+     */
+    @Test
+    fun `date-like string properties and parameters carry a format`() {
+        val dateLike = Regex("""^(day|date|from|to|holidays|bucketStart)$|(Day|Date)$""")
+        val components = OpenApiSpec.parsed.components
+        fun io.swagger.v3.oas.models.media.Schema<*>.undeclared(): Boolean {
+            val target = if (type == "array") items else this
+            return target != null && target.type == "string" && target.format == null && target.enum.isNullOrEmpty()
+        }
+        val schemaViolations = components.schemas.flatMap { (schema, definition) ->
+            definition.properties.orEmpty().filter { (name, property) -> dateLike.containsMatchIn(name) && property.undeclared() }
+                .keys.map { "schema $schema.$it" }
+        }
+        val parameterViolations = components.parameters.values
+            .filter { dateLike.containsMatchIn(it.name) && it.schema.undeclared() }.map { "parameter ${it.name}" }
+        assertEquals(emptyList(), schemaViolations + parameterViolations, "date-like strings without a `format:` in documentation.yaml")
+    }
+
     @Test
     fun `spec path templates are unambiguous for coverage resolution`() {
         // Every concrete path derivable from one template must not match another template of the

@@ -17,3 +17,11 @@ predicate), a `V<n>__description.sql` migration (+ its checksum pin in `Migratio
 spec paths in `openapi/documentation.yaml`, `cd web && npm run gen:api` (same commit), lazy pages +
 `NAV_SECTIONS` entries (`web/src/utils/navigation.ts`), and an e2e spec + scenario doc +
 coverage-map line. Fuller shapes (sub-collections, pipelines) live in `ingest/`, `metrics/`, `reports/`.
+
+**Two deliberate exceptions to the template.** (1) `metrics/`'s config PUT (`DataSourceMetricsConfig.kt`) validates in the
+service, not in a DTO validator the route also runs: `validateDataSourceMetricsConfig` is pure but needs the connection's
+reference data (`norm`, the stored profile, the active teams), which `MetricsConfigService.replaceConfig` reads in its own
+transaction; the route only sanitizes (trim/control characters) before the service. Its shape bounds (column widths, `capacityMd`)
+sit in the same function. (2) `ingest/` has one route file per sub-resource (`DataSourceRoutes`, `SyncJobRoutes`,
+`SyncStatusRoutes`, `DataProfileRoutes`, `RawIssueInspectorRoutes`) instead of one `<Entity>Routes.kt` — the
+connector registry, the job queue and the read-only views differ in shape and guard.
