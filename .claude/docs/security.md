@@ -255,6 +255,20 @@ primary trust boundary is the scoped, read-only API token (see "Encryption at re
 first consumer that token is). See `.claude/docs/jira-integration.md` for the client/auth/rate-limit
 shape built on top of this guard.
 
+What pins the transport (beyond the allow-list/address tests above): `OutboundTransportTest` runs against a LOCAL
+socket server only. The response/connection release in `jira/JiraHttp.kt` (`prepareRequest {}.execute {}`) is
+pinned with the leak window forced open — the server sends headers plus a first chunk and HOLDS the rest of a
+10 MB body, so a 503 must surface as `UPSTREAM_UNAVAILABLE (503)` and an oversized body as `LIMIT_EXCEEDED`
+(the old `client.request()` buffers the whole body and ends in `TIMEOUT`), and the server must see the client
+close the socket (the deterministic "released, not leaked" signal; `OutboundGuardTest`'s event-listener count
+alone never failed with the old code). A sibling negative control asserts the old `client.request()` pattern DOES
+time out against that server — if it ever stops, the two tests no longer discriminate. `DirectSocketFactory`:
+every self-resolving `createSocket` overload is refused; its socket never consults the JVM `ProxySelector` (a plain
+`Socket()` does — the control), and the guarded client connects to exactly the address `GuardedDns` returned for an
+unresolvable `.invalid` hostname (one resolution, `Proxy.NO_PROXY`, the Host header intact). `fastFallback(false)`
+is a configuration assertion by choice: its effect only shows with several resolved addresses and a slow earlier
+one, which loopback cannot stage without timing races.
+
 **CORS is off by default** (`plugins/Http.kt`): the plugin is installed only when
 `http.corsHosts` (`$CORS_ALLOWED_HOSTS`, comma-separated hosts) is non-empty. Production is
 single-origin (Ktor serves the SPA) and dev goes through the Vite proxy, so no cross-origin caller
