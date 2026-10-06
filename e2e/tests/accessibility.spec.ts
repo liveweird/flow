@@ -1,7 +1,7 @@
 // Axe accessibility smoke: WCAG 2.0/2.1 A+AA scans over the login screen, the authenticated list
 // and form pages (every report route among them), the detail pages of one API-seeded fixture
 // team, and the overlays (a registry editor modal) — where focus traps, aria-modal and labels
-// actually live; the page sets run in the light scheme and again in the dark one. The pages that
+// actually live, and the app shell at a phone width (the burger); the page sets run in the light scheme and again in the dark one. The pages that
 // need a synced data source are `accessibility-data.spec.ts`. Owns: the fixture team (unique
 // `e2e-axe-*` name), created and deleted via the API.
 import type { APIRequestContext, Locator, Page } from "@playwright/test";
@@ -74,6 +74,28 @@ test.describe("dark scheme", () => {
     await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible();
     await expectScheme(page, "dark");
     await scan(page);
+  });
+});
+
+// The app shell at a phone width (390x844): the desktop rail toggle gives way to the burger — the
+// one control that opens the nav drawer — so the shell is scanned with it present, light and dark.
+function registerMobileShellScan(scheme: Scheme): void {
+  const suffix = scheme === "dark" ? " in the dark scheme" : "";
+  test(`the app shell at a mobile width has no WCAG A/AA violations${suffix}`, async ({ page }) => {
+    await login(page);
+    await page.goto("/");
+    await expect(page.getByRole("heading", { name: "Flow" }).first()).toBeVisible();
+    await expect(page.getByRole("button", { name: "Toggle navigation" })).toBeVisible();
+    await expectScheme(page, scheme);
+    await scan(page);
+  });
+}
+test.describe("mobile width", () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+  registerMobileShellScan("light");
+  test.describe("dark scheme", () => {
+    test.use({ colorScheme: "dark" });
+    registerMobileShellScan("dark");
   });
 });
 

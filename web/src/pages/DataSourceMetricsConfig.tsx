@@ -462,6 +462,7 @@ export default function DataSourceMetricsConfig() {
         message={notFound ? t("dataSources.notFound") : t("metrics.config.loadFailedGeneric")}
         backTo={dataSourcePath(id)}
         backLabel={t("dataSources.details.backToDetails")}
+        title={t("metrics.config.title")}
       />
     );
   }

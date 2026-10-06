@@ -71,8 +71,8 @@ if (typeof window !== "undefined") {
         : mediaQueryList(query, false);
 }
 
-// Tests use both the shared themed provider and a bare provider. Make both honor the reduced
-// motion preference without changing the application theme or runtime behavior.
+// Tests use both the shared themed provider (whose app theme already sets the flag) and a bare
+// provider on Mantine's DEFAULT_THEME — this keeps the bare one honoring the preference too.
 DEFAULT_THEME.respectReducedMotion = true;
 
 // happy-dom does not implement the FontFaceSet API. Mantine's autosize Textarea

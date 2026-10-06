@@ -29,7 +29,7 @@ export function useBulkFeatureUpdate<T>(options: {
   fetchAll: () => Promise<T[]>;
   isAffected: (row: T, targetEnabled: boolean) => boolean;
   applyOne: (row: T, targetEnabled: boolean) => Promise<void>;
-  /** The zero-affected short-circuit (toast; the modal never opens). */
+  /** The zero-affected short-circuit (the page shows an inline note; the modal never opens). */
   onNothingToDo: () => void;
   /** After a run or retry: invalidation + the success toast; `failed` names the losers. */
   onDone: (failed: T[], total: number) => Promise<void> | void;

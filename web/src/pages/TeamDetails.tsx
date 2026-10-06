@@ -57,6 +57,7 @@ export default function TeamDetails() {
         message={notFound ? t("teams.notFound") : loadErrorMessage(team.error, t)}
         backTo={teamsPath}
         backLabel={t("teams.backToTeams")}
+        title={t("teams.title")}
       />
     );
   }

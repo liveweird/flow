@@ -124,7 +124,14 @@ function Shell() {
         </a>
         <Group h={48} px="md" justify="space-between" wrap="nowrap">
           <Group gap="sm" wrap="nowrap">
-            <Burger opened={opened} onClick={toggle} hiddenFrom="sm" size="sm" />
+            <Burger
+              opened={opened}
+              onClick={toggle}
+              hiddenFrom="sm"
+              size="sm"
+              aria-label={t("appShell.toggleMobileNav")}
+              aria-expanded={opened}
+            />
             {/* Sits beside the Burger, where the nav it toggles lives. */}
             <Tooltip label={t("appShell.toggleNav")} position="right" withinPortal>
               <ActionIcon
