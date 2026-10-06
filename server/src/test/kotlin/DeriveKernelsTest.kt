@@ -613,6 +613,31 @@ class DeriveKernelsTest {
     }
 
     @Test
+    fun `sprintScope attributes a committed row to the assignee at commitment and an added row to the assignee at entry`() {
+        // "ann" holds the task until 12_000, "bob" after: the sprint commits at 10_000 (no grace).
+        val reassigned = listOf(assigneeInterval("ann", 0, 12_000), assigneeInterval("bob", 12_000, null))
+        val committed = DeriveKernels.sprintScope(
+            issueId = 1L, sprintStartAtMs = sprintStart, sprintCloseAtMs = sprintClose, graceMs = 0,
+            membershipIntervals = listOf(membership(sprintStart - 1000, null)),
+            estimateTimeline = listOf(estimate(0, 5.0)), assigneeIntervals = reassigned,
+            doneAtMs = null, inLaterSprintOfTeam = false,
+        )
+        requireNotNull(committed)
+        assertTrue(committed.committed)
+        assertEquals("ann", committed.assigneeAtCommitment, "reassigned to bob after commitment: still ann's at commitment")
+
+        val added = DeriveKernels.sprintScope(
+            issueId = 2L, sprintStartAtMs = sprintStart, sprintCloseAtMs = sprintClose, graceMs = 0,
+            membershipIntervals = listOf(membership(sprintStart + 5000, null)),
+            estimateTimeline = listOf(estimate(0, 3.0)), assigneeIntervals = reassigned,
+            doneAtMs = null, inLaterSprintOfTeam = false,
+        )
+        requireNotNull(added)
+        assertTrue(!added.committed)
+        assertEquals("bob", added.assigneeAtCommitment, "entered at 15_000, after the reassignment: assignee at ENTRY")
+    }
+
+    @Test
     fun `sprintScope marks removed scope for a task committed then exited before completion, excluded from every other bucket`() {
         val row = DeriveKernels.sprintScope(
             issueId = 3L, sprintStartAtMs = sprintStart, sprintCloseAtMs = sprintClose, graceMs = 0,
