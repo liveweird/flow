@@ -189,6 +189,30 @@ class DataSourceMetricsConfigTest {
     }
 
     @Test
+    fun `capacityMd is bounded by NUMERIC(8,2) - overflow, non-finite and more than two decimals are 400, the limits pass`() {
+        fun capacity(md: Double) = DataSourceMetricsConfigRequest(sprintCapacities = listOf(MetricsSprintCapacity(900L, md)))
+        listOf(1e7, 1_000_000.0, 999_999.995, Double.NaN, Double.POSITIVE_INFINITY, 1.005, 0.001).forEach { md ->
+            assertFailsWith<BadRequestException>("capacityMd $md must be rejected") { validateDataSourceMetricsConfig(capacity(md), ref()) }
+        }
+        listOf(0.0, 0.01, 10.10, 42.0, 999_999.99).forEach { md -> validateDataSourceMetricsConfig(capacity(md), ref()) }
+    }
+
+    @Test
+    fun `domainKey, domainName and category are bounded by their column widths`() {
+        fun domain(key: String, name: String) = DataSourceMetricsConfigRequest(domains = listOf(MetricsDomainMapping("ENG", key, name)))
+        assertFailsWith<BadRequestException> { validateDataSourceMetricsConfig(domain("k".repeat(51), "n"), ref()) }
+        assertFailsWith<BadRequestException> { validateDataSourceMetricsConfig(domain("k", "n".repeat(101)), ref()) }
+        validateDataSourceMetricsConfig(domain("k".repeat(50), "n".repeat(100)), ref())
+
+        fun category(category: String) = DataSourceMetricsConfigRequest(
+            fields = MetricsFieldConfig(workCategory = "customfield_10001"),
+            workCategories = listOf(MetricsWorkCategoryMapping("opt-1", null, category)),
+        )
+        assertFailsWith<BadRequestException> { validateDataSourceMetricsConfig(category("c".repeat(101)), ref()) }
+        validateDataSourceMetricsConfig(category("c".repeat(100)), ref())
+    }
+
+    @Test
     fun `a duplicate statusId within statusStages is 400`() {
         val request = DataSourceMetricsConfigRequest(
             statusStages = listOf(MetricsStatusStage("10001", MetricsStage.NOT_STARTED), MetricsStatusStage("10001", MetricsStage.DONE)),

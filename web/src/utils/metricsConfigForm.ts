@@ -10,6 +10,12 @@ import type {
   MetricsFieldValueOption,
 } from "../api/metrics";
 
+/** The server's bounds on these free-text/numeric inputs (the spec's `maxLength`/`maximum`; a violation is a 400). */
+export const DOMAIN_KEY_MAX_LENGTH = 50;
+export const DOMAIN_NAME_MAX_LENGTH = 100;
+export const CATEGORY_MAX_LENGTH = 100;
+export const CAPACITY_MD_MAX = 999999.99;
+
 export type MetricsStage = "NOT_STARTED" | "IN_PROGRESS" | "DONE";
 export const METRICS_STAGES: MetricsStage[] = ["NOT_STARTED", "IN_PROGRESS", "DONE"];
 

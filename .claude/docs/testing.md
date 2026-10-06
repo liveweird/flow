@@ -110,8 +110,8 @@ Details: `.claude/docs/test-fixtures.md`.
 (`-Dopenapi.conformance=warn|off` is for drift triage only). The spec stays 3.0-compatible (`nullable:`, never
 `type: [..., "null"]`, `OpenApiSpecTest`). The coverage gate fails the `test` task on a non-empty
 `build/reports/openapi-conformance/gaps.txt` (or a missing one) when the WHOLE suite ran, so a new operation lands
-with a test per declared status or with its status list trimmed to what the route can answer; `413` is declared on
-every body-taking operation but covered by the one `PayloadValidationTest` case. Details:
+with a test per declared status, or its list trimmed to what the route can answer — except the cross-cutting
+`400/401/413/415/429/500/default` (`CROSS_CUTTING_STATUSES`; each has one shared test, e.g. `413`: `PayloadValidationTest`). Details:
 `.claude/docs/test-fixtures.md`.
 
 **Schemathesis (optional manual fuzz pass, not in CI).** Never fuzz `/api/v1/logout` (it revokes the bearer

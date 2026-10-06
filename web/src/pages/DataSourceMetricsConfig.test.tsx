@@ -339,9 +339,11 @@ describe("DataSourceMetricsConfig page", () => {
 
     await user.click(screen.getByRole("tab", { name: "Domains" }));
     const domainKeyInput = screen.getByLabelText("Domain key for ENG") as HTMLInputElement;
+    expect(domainKeyInput.maxLength).toBe(50); // the server's column widths, mirrored so an over-long value is never typed
     await user.clear(domainKeyInput);
     await user.type(domainKeyInput, "ENGINEERING");
     const domainNameInput = screen.getByLabelText("Domain name for ENG") as HTMLInputElement;
+    expect(domainNameInput.maxLength).toBe(100);
     await user.clear(domainNameInput);
     await user.type(domainNameInput, "Engineering");
 
@@ -360,6 +362,7 @@ describe("DataSourceMetricsConfig page", () => {
     await user.click(screen.getByRole("tab", { name: "Work categories" }));
     const categoryInput = (await screen.findByLabelText("Category for Bug")) as HTMLInputElement;
     expect(categoryInput.value).toBe("Stored default");
+    expect(categoryInput.maxLength).toBe(100);
     await user.clear(categoryInput);
     await user.type(categoryInput, "Defect");
 
