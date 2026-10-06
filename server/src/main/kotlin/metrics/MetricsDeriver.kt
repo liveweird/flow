@@ -123,12 +123,15 @@ class MetricsDeriver(
 
         try {
             val graceMs = settings.commitmentGraceMinutes * MILLIS_PER_MINUTE
-            val counts = suspendTransaction(database) {
-                runDerivation(
+            // ONE transaction for the rebuild AND the SUCCEEDED stamp: the data and the run row that vouches for it commit
+            // together, so a reader (`meta.derivedAt`/`configRevision`, the report ETag's data stamp) can never see new figures
+            // under the previous run, nor a SUCCEEDED run over figures that were rolled back.
+            suspendTransaction(database) {
+                val counts = runDerivation(
                     connectionId, config, calendar, now, settings.hoursPerDay, settings.epicDriftDays, graceMs, settings.configRevision,
                 )
+                markRunSucceeded(runId, counts, context.clock())
             }
-            markRunSucceeded(runId, counts, context.clock())
             context.heartbeat(null, "derive")
         } catch (failure: Exception) {
             // A genuine coroutine cancellation is an Exception too (`CancellationException`) and
@@ -231,6 +234,7 @@ class MetricsDeriver(
         metricsStore.ensureDimDate(calendar, range, configRevision)
     }
 
+    /** Stamps the run SUCCEEDED — inside [derive]'s rebuild transaction (the caller's), never a transaction of its own. */
     private suspend fun markRunSucceeded(runId: Int, counts: DeriveRowCounts, finishedAt: Long) {
         val countsJson = buildJsonObject {
             put("tasks", JsonPrimitive(counts.tasks))
@@ -242,14 +246,12 @@ class MetricsDeriver(
             put("aggFlowRows", JsonPrimitive(counts.aggFlowRows))
             if (counts.sprintFieldUnresolved) put("sprintFieldUnresolved", JsonPrimitive(true))
         }.toString()
-        suspendTransaction(database) {
-            // Only while still RUNNING: a newer DERIVE of the same connection may already have swept this run
-            // FAILED as abandoned (a lease-expired zombie) — its late write must not overwrite that.
-            MetricsTables.DeriveRuns.update({ (MetricsTables.DeriveRuns.id eq runId) and (MetricsTables.DeriveRuns.status eq "RUNNING") }) {
-                it[status] = "SUCCEEDED"
-                it[MetricsTables.DeriveRuns.finishedAt] = finishedAt
-                it[rowCounts] = countsJson
-            }
+        // Only while still RUNNING: a newer DERIVE of the same connection may already have swept this run
+        // FAILED as abandoned (a lease-expired zombie) — its late write must not overwrite that.
+        MetricsTables.DeriveRuns.update({ (MetricsTables.DeriveRuns.id eq runId) and (MetricsTables.DeriveRuns.status eq "RUNNING") }) {
+            it[status] = "SUCCEEDED"
+            it[MetricsTables.DeriveRuns.finishedAt] = finishedAt
+            it[rowCounts] = countsJson
         }
     }
 
