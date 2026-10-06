@@ -470,4 +470,6 @@ completed · the report's figures · the orange drift badge with the frozen figu
   and date-picker maximum come from `todayIsoDate(filters.timeZone)`, and dates render through
   `utils/formatDate.ts` (`YYYY-MM-DD`, never `toLocaleString`; `formatDate(ms, fallback, timeZone)`
   reads the calendar day in that zone — UTC only where no zone is passed);
-  MD through `utils/reportFormat.ts`'s `formatMd` (≤ 2 decimals).
+  MD through `utils/reportFormat.ts`'s `formatMd` (≤ 2 decimals; the Deep dive's `formatFigure` and the burn-up's whole-hundredths plan share its
+  noise-cleaned `roundScaled` rule — one rounding rule, never a second `Math.round(x * 100) / 100`). The `from`/`to` span cap, text cap and integer
+  parsing the two URL filters share live in `utils/filterPrimitives.ts`; `DAY_MS`/`addDays` in `utils/isoDate.ts`.

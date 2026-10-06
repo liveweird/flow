@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { epochMillisToIsoDate, epochMillisToIsoDateInZone, isoDateToEpochMillis, isoDateToEpochMillisInZone, isValidIsoDate, startOfDayEpochMillisInZone, startOfTodayEpochMillis, todayIsoDate } from "./isoDate";
+import { addDays, DAY_MS, epochMillisToIsoDate, epochMillisToIsoDateInZone, isoDateToEpochMillis, isoDateToEpochMillisInZone, isValidIsoDate, startOfDayEpochMillisInZone, startOfTodayEpochMillis, todayIsoDate } from "./isoDate";
 
 describe("isValidIsoDate", () => {
   test("rejects a malformed shape", () => {
@@ -16,6 +16,20 @@ describe("isValidIsoDate", () => {
   test("accepts a real date, including a leap day", () => {
     expect(isValidIsoDate("2024-02-29")).toBe(true);
     expect(isValidIsoDate("2024-01-01")).toBe(true);
+  });
+});
+
+describe("DAY_MS / addDays", () => {
+  test("DAY_MS is one fixed 24-hour day", () => {
+    expect(DAY_MS).toBe(24 * 60 * 60 * 1000);
+  });
+
+  test("addDays moves across month, year and leap-day boundaries in both directions", () => {
+    expect(addDays("2024-02-28", 1)).toBe("2024-02-29");
+    expect(addDays("2024-02-29", 1)).toBe("2024-03-01");
+    expect(addDays("2025-12-31", 1)).toBe("2026-01-01");
+    expect(addDays("2026-01-01", -1)).toBe("2025-12-31");
+    expect(addDays("2026-09-30", 0)).toBe("2026-09-30");
   });
 });
 

@@ -5,16 +5,37 @@ export function teamLabel(teamId: number, teams: ReadonlyArray<{ id: number; nam
   return teams.find((team) => team.id === teamId)?.name ?? `#${teamId}`;
 }
 
+/**
+ * `value` scaled by `10 ** digits` and rounded half away from zero to a whole number — THE rounding
+ * rule for every man-day / task-day figure (the formatters below, the Deep dive burn-up's plan in
+ * whole hundredths). The rounding is done on the decimal-scaled value cleaned of binary noise at 6
+ * places, not with `toFixed`, so a sum like 0.3509 + 0.1441 (0.49499999…) rounds as the decimal 0.495 does.
+ * Never returns `-0`.
+ */
+export function roundScaled(value: number, digits = 2): number {
+  const rounded = Math.round(Number((Math.abs(value) * 10 ** digits).toFixed(6)));
+  return value < 0 && rounded > 0 ? -rounded : rounded;
+}
+
+/**
+ * A man-day / task-day figure for display: rounded by [roundScaled] to `digits` decimals (the only
+ * place the exact sums are rounded), trailing zeros dropped, `.` decimal and no grouping so it is
+ * locale-stable ("12.5", "8", "0.33"). `formatMd` is this at the default two decimals.
+ */
+export function formatFigure(value: number, digits = 2): string {
+  return String(roundScaled(value, digits) / 10 ** digits);
+}
+
 /** Man-days with at most two decimals and no trailing zeros ("12.5", "8", "0.33"). */
 export function formatMd(value: number): string {
-  return String(Math.round(value * 100) / 100);
+  return formatFigure(value);
 }
 
 /** Man-days with an explicit sign (a true minus): `+3.5`, `−2`, `0` — a variance reads as a direction. */
 export function formatSignedMd(value: number): string {
-  const rounded = Math.round(value * 100) / 100;
-  if (rounded === 0) return "0";
-  return `${rounded > 0 ? "+" : "−"}${Math.abs(rounded)}`;
+  const text = formatFigure(Math.abs(value));
+  if (text === "0") return "0";
+  return `${value > 0 ? "+" : "−"}${text}`;
 }
 
 /** A performance index (SPI, CPI) at exactly two decimals: `1.00`, `0.85`. */

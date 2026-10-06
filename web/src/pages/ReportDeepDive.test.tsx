@@ -102,6 +102,7 @@ describe("ReportDeepDive page", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
     vi.clearAllMocks();
     localStorage.clear();
@@ -286,11 +287,13 @@ describe("ReportDeepDive page", () => {
       if (url.startsWith(`${REPORT_PATH}/`)) return Promise.resolve(jsonResponse(200, { items: [], page: 1, pageSize: 100, total: 0 }));
       return new Promise(() => {}); // the report never answers
     });
+    // Fake clock (afterEach restores it): the debounce timers are virtual, so the wait below costs no real time.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
     renderPage("/reports/deep-dive?epicId=FLO-1&issueId=FLO-11");
     await waitFor(() => expect(screen.getByRole("combobox", { name: "Epic" })).toHaveValue("FLO-1 Onboarding"));
     expect(screen.getByText("1 of 500 selected.")).toBeInTheDocument();
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      await vi.advanceTimersByTimeAsync(1000);
     });
     const epicCalls = mockFetch.mock.calls.map((c) => c[0] as string).filter((u) => u.startsWith(`${REPORT_PATH}/epics?`));
     expect(epicCalls).toHaveLength(1);

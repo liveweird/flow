@@ -1,4 +1,5 @@
-import { isoDateToEpochMillis, isValidIsoDate } from "./isoDate";
+import { isIntegerText, MAX_TEXT, parseBoundedInteger, validRange } from "./filterPrimitives";
+import { isValidIsoDate } from "./isoDate";
 
 /**
  * The Deep dive's selection, (de)serialized to the URL search params — the URL is the selection
@@ -38,9 +39,6 @@ export interface DeepDiveSelection {
 export const MAX_DEEP_DIVE_SPRINTS = 52;
 export const MAX_DEEP_DIVE_EPICS = 50;
 export const MAX_DEEP_DIVE_ISSUES = 500;
-const MAX_SPAN_DAYS = 1100;
-const MAX_TEXT = 200;
-const DAY_MS = 86_400_000;
 
 /** Every param this module owns — anything else in the query string is left alone. Canonical order. */
 const MANAGED_KEYS = [
@@ -52,11 +50,6 @@ const MANAGED_KEYS = [
   "from",
   "to",
 ] as const;
-
-/** True when the query string carries ANY param this module owns (valid or not). */
-export function hasDeepDiveParams(params: URLSearchParams): boolean {
-  return MANAGED_KEYS.some((key) => params.has(key));
-}
 
 /** C0, DEL and C1 control characters — Kotlin's `isISOControl`, which the server answers `400` to. */
 const CONTROL_CHARS = "[\\u0000-\\u001f\\u007f-\\u009f]";
@@ -81,21 +74,11 @@ function cleanText(value: string | null | undefined): string | undefined {
     : undefined;
 }
 
-function cleanInteger(
-  value: number | string | null | undefined,
-  min: number,
-): number | undefined {
-  const text = typeof value === "number" ? String(value) : value;
-  if (text == null || !/^\d{1,15}$/.test(text)) return undefined;
-  const n = Number(text);
-  return n >= min ? n : undefined;
-}
-
 /** `FLO-12` → its project prefix (`FLO-`) and number; `null` for anything not shaped like an issue key. */
 function splitIssueKey(key: string): { prefix: string; n: number } | null {
   const dash = key.lastIndexOf("-");
   const digits = dash < 0 ? "" : key.slice(dash + 1);
-  return /^\d{1,15}$/.test(digits)
+  return isIntegerText(digits)
     ? { prefix: key.slice(0, dash + 1), n: Number(digits) }
     : null;
 }
@@ -120,13 +103,6 @@ function distinct<T>(
 const within = (list: readonly unknown[], max: number) =>
   list.length >= 1 && list.length <= max;
 
-/** A `from`/`to` pair the server would accept: ordered, and no wider than its span cap. */
-function validRange(from: string | undefined, to: string | undefined): boolean {
-  if (from === undefined || to === undefined) return true;
-  const span = (isoDateToEpochMillis(to) - isoDateToEpochMillis(from)) / DAY_MS;
-  return span >= 0 && span + 1 <= MAX_SPAN_DAYS;
-}
-
 function cleanDate(value: string | undefined): string | undefined {
   return value !== undefined && isValidIsoDate(value) ? value : undefined;
 }
@@ -141,7 +117,7 @@ export function normalizeDeepDiveSelection(
   const out: DeepDiveSelection = {};
   const domain = cleanText(selection.domain);
   const sprintIds = distinct(
-    selection.sprintIds?.map((id) => cleanInteger(id, 1)),
+    selection.sprintIds?.map((id) => parseBoundedInteger(id, 1)),
     (a, b) => a - b,
   );
   const epicIds = distinct(selection.epicIds?.map(cleanText), compareIssueKeys);
@@ -159,7 +135,7 @@ export function normalizeDeepDiveSelection(
       out.issueIds = issueIds;
   }
 
-  const connectionId = cleanInteger(selection.connectionId, 1);
+  const connectionId = parseBoundedInteger(selection.connectionId, 1);
   if (connectionId !== undefined) out.connectionId = connectionId;
   const from = cleanDate(selection.from);
   const to = cleanDate(selection.to);
@@ -188,10 +164,10 @@ export function parseDeepDiveSelection(
     domain: params.get("domain") ?? undefined,
     sprintIds: params
       .getAll("sprintId")
-      .flatMap((value) => cleanInteger(value, 1) ?? []),
+      .flatMap((value) => parseBoundedInteger(value, 1) ?? []),
     epicIds: params.getAll("epicId"),
     issueIds: params.getAll("issueId"),
-    connectionId: cleanInteger(params.get("connectionId"), 1),
+    connectionId: parseBoundedInteger(params.get("connectionId"), 1),
     from: params.get("from") ?? undefined,
     to: params.get("to") ?? undefined,
   });

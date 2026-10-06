@@ -344,11 +344,13 @@ describe("DeepDiveSelectionPanel", () => {
   });
 
   test("a single-choice epic from a link keeps its name and asks for its list exactly once", async () => {
+    // Fake clock (afterEach restores it): the debounce timers are virtual, so the wait below costs no real time.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
     renderPanel({ selection: { epicIds: ["FLO-1"], issueIds: ["FLO-11"] } });
     await waitFor(() => expect(field("Epic")).toHaveValue("FLO-1 Onboarding"));
-    // Real time, well past three debounce windows: a box that fought its own label would have asked again by now.
+    // Well past three debounce windows: a box that fought its own label would have asked again by now.
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      await vi.advanceTimersByTimeAsync(1000);
     });
     expect(urlsFor(mockFetch, "/api/v1/reports/deep-dive/epics?")).toHaveLength(1);
     expect(field("Epic")).toHaveValue("FLO-1 Onboarding");

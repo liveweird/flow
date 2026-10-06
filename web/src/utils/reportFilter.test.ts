@@ -5,7 +5,6 @@ import {
   applyReportFilter,
   dropDomainWithTeam,
   dropReportSpecific,
-  filterLevel,
   hasReportFilterParams,
   normalizeWipFilter,
   parseReportFilter,
@@ -105,14 +104,6 @@ describe("parseReportFilter / serializeReportFilter", () => {
   test("applyReportFilter replaces managed keys and keeps unrelated ones", () => {
     const next = applyReportFilter(new URLSearchParams("teamId=1&lastSprints=3&utm=x"), { teamId: 2, bucket: "MONTH" });
     expect(next.toString()).toBe("utm=x&teamId=2&bucket=MONTH");
-  });
-});
-
-describe("filterLevel", () => {
-  test("unit, team and user", () => {
-    expect(filterLevel({})).toBe("UNIT");
-    expect(filterLevel({ teamId: 3 })).toBe("TEAM");
-    expect(filterLevel({ teamId: 3, accountId: "a" })).toBe("USER");
   });
 });
 

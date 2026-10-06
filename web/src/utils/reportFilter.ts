@@ -1,4 +1,5 @@
-import { isoDateToEpochMillis, epochMillisToIsoDate, isValidIsoDate } from "./isoDate";
+import { parseBoundedInteger, MAX_TEXT, validRange } from "./filterPrimitives";
+import { addDays, epochMillisToIsoDate, isValidIsoDate } from "./isoDate";
 
 /**
  * The reports filter, (de)serialized to the URL search params — the URL is the source of truth
@@ -96,16 +97,7 @@ export function hasReportFilterParams(params: URLSearchParams): boolean {
   return MANAGED_KEYS.some((key) => params.has(key));
 }
 
-const MAX_SPAN_DAYS = 1100;
 const MAX_LAST_SPRINTS = 52;
-const MAX_TEXT = 200;
-const DAY_MS = 86_400_000;
-
-function parseInteger(value: string | null, min: number, max = Number.MAX_SAFE_INTEGER): number | undefined {
-  if (value == null || !/^\d{1,15}$/.test(value)) return undefined;
-  const n = Number(value);
-  return n >= min && n <= max ? n : undefined;
-}
 
 function parseText(value: string | null): string | undefined {
   return value != null && value.trim() !== "" && value.length <= MAX_TEXT ? value : undefined;
@@ -119,20 +111,11 @@ function parseEnum<T extends string>(value: string | null, allowed: readonly T[]
   return allowed.includes(value as T) ? (value as T) : undefined;
 }
 
-/** A `from`/`to` pair the server would accept: ordered, and no wider than its span cap. */
-function validRange(from: string | undefined, to: string | undefined): boolean {
-  if (from !== undefined && to !== undefined) {
-    const span = (isoDateToEpochMillis(to) - isoDateToEpochMillis(from)) / DAY_MS;
-    if (span < 0 || span + 1 > MAX_SPAN_DAYS) return false;
-  }
-  return true;
-}
-
 export function parseReportFilter(params: URLSearchParams): ReportFilterState {
   const filter: ReportFilterState = {};
 
-  const sprintId = parseInteger(params.get("sprintId"), 1);
-  const lastSprints = parseInteger(params.get("lastSprints"), 1, MAX_LAST_SPRINTS);
+  const sprintId = parseBoundedInteger(params.get("sprintId"), 1);
+  const lastSprints = parseBoundedInteger(params.get("lastSprints"), 1, MAX_LAST_SPRINTS);
   if (sprintId !== undefined) {
     filter.sprintId = sprintId;
   } else if (lastSprints !== undefined) {
@@ -146,7 +129,7 @@ export function parseReportFilter(params: URLSearchParams): ReportFilterState {
     }
   }
 
-  const teamId = parseInteger(params.get("teamId"), 0);
+  const teamId = parseBoundedInteger(params.get("teamId"), 0);
   if (teamId !== undefined) {
     filter.teamId = teamId;
     // A user-level read always needs the team whose roster it is read in.
@@ -170,7 +153,7 @@ export function parseReportFilter(params: URLSearchParams): ReportFilterState {
   if (by !== undefined) filter.by = by;
   const itemKind = parseEnum(params.get("itemKind"), WIP_ITEM_KINDS);
   if (itemKind !== undefined) filter.itemKind = itemKind;
-  const connectionId = parseInteger(params.get("connectionId"), 1);
+  const connectionId = parseBoundedInteger(params.get("connectionId"), 1);
   if (connectionId !== undefined) filter.connectionId = connectionId;
 
   return filter;
@@ -270,12 +253,6 @@ export function normalizeWipFilter(filter: ReportFilterState): ReportFilterState
   return withoutBy;
 }
 
-/** The drill level a filter selects — the same rule as the server's. */
-export function filterLevel(filter: ReportFilterState): "UNIT" | "TEAM" | "USER" {
-  if (filter.teamId === undefined) return "UNIT";
-  return filter.accountId === undefined ? "TEAM" : "USER";
-}
-
 // ---- the period control -------------------------------------------------------------------
 
 export type DatePreset = "last30" | "last90" | "last365" | "thisMonth" | "lastMonth" | "thisQuarter";
@@ -292,25 +269,21 @@ export const LAST_SPRINT_COUNTS: readonly number[] = [1, 3, 6, 12];
 /** What the period `Select` shows: a preset, a custom range, N sprints, or one sprint. */
 export type PeriodChoice = DatePreset | "custom" | "sprint" | `lastSprints:${number}`;
 
-function shiftDays(iso: string, days: number): string {
-  return epochMillisToIsoDate(isoDateToEpochMillis(iso) + days * DAY_MS);
-}
-
 /** A preset's inclusive `[from, to]` as of `today` (UTC calendar, like every date here). */
 export function presetRange(preset: DatePreset, today: string): { from: string; to: string } {
   const [year, month] = today.split("-").map(Number);
   const first = (y: number, m: number) => epochMillisToIsoDate(Date.UTC(y, m - 1, 1));
   switch (preset) {
     case "last30":
-      return { from: shiftDays(today, -29), to: today };
+      return { from: addDays(today, -29), to: today };
     case "last90":
-      return { from: shiftDays(today, -89), to: today };
+      return { from: addDays(today, -89), to: today };
     case "last365":
-      return { from: shiftDays(today, -364), to: today };
+      return { from: addDays(today, -364), to: today };
     case "thisMonth":
       return { from: first(year, month), to: today };
     case "lastMonth":
-      return { from: first(year, month - 1), to: shiftDays(first(year, month), -1) };
+      return { from: first(year, month - 1), to: addDays(first(year, month), -1) };
     case "thisQuarter":
       return { from: first(year, Math.floor((month - 1) / 3) * 3 + 1), to: today };
   }
