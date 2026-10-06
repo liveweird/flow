@@ -172,6 +172,10 @@ jobs:
       - run: npm run lint
       - run: npm run knip
       - run: npm run test:coverage
+      # The suite runs with isolate:false (web/vite.config.ts), so a test that only passes in file
+      # order is a latent bug; shuffling the order proves independence (.claude/docs/testing.md).
+      - name: Test (shuffled order)
+        run: npx vitest run --sequence.shuffle
       - run: npm run build
         env:
           # The runner's checkout is a detached HEAD; stamp the build from the event instead of

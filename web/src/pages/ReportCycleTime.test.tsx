@@ -163,6 +163,8 @@ describe("ReportCycleTime page", () => {
     const working = within(card).getByRole("heading", { name: "Epics: working days" });
     const elapsed = within(card).getByRole("heading", { name: "Epics: elapsed days" });
     expect(working.compareDocumentPosition(elapsed) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // The chart chunk is lazy: await both histograms before reading them (a synchronous getAll flaked under --sequence.shuffle).
+    await waitFor(() => expect(within(card).getAllByTestId("bar-chart")).toHaveLength(2));
     const charts = within(card).getAllByTestId("bar-chart").map((c) => [c.getAttribute("data-counts"), c.getAttribute("data-x-label")]);
     expect(charts).toEqual([["1,2,1,1,0", "working days"], ["1,1,2,1,0", "elapsed days"]]);
     const strips = within(card).getAllByRole("group", { name: "Percentiles" });

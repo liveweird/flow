@@ -73,12 +73,14 @@ kover {
                 // re-measure with `:server:koverXmlReport` and RAISE, never lower).
                 // 2026-09-28, v0.3.0 M1 (norm gaps + metrics config): actual 97.20% → floor 96.
                 // 2026-09-30, v0.3.0 + checkup tier A: actual 98.02% → floor 97.
-                minBound(97)
+                // 2026-10-06, v0.4.0 + checkup 2: actual 98.68% → floor 98.
+                minBound(98)
                 // Branch-coverage floor (actual 77.20%, 2026-09-26; 76.19% at v0.3.0 M1, 2026-09-28 —
                 // the phase-2 normalizer's defensive branches dominate what's left). NOTE: `check`
                 // runs only koverVerify — run `:server:koverXmlReport` for fresh actuals.
                 // 2026-09-30, v0.3.0 + checkup tier A: actual 79.82% → floor 79.
-                minBound(79, coverageUnits = kotlinx.kover.gradle.plugin.dsl.CoverageUnit.BRANCH)
+                // 2026-10-06, v0.4.0 + checkup 2: actual 82.29% → floor 82.
+                minBound(82, coverageUnits = kotlinx.kover.gradle.plugin.dsl.CoverageUnit.BRANCH)
             }
         }
     }
