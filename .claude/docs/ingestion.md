@@ -47,9 +47,11 @@ run the same image and differ only in `FLOW_ROLE`, secrets/env, resource sizing 
 worker — a larger heap (`JAVA_OPTS=-Xmx512m`, overriding the image's baked `-Xmx256m`: the
 Gradle-generated launcher script assembles `$DEFAULT_JVM_OPTS $JAVA_OPTS $SERVER_OPTS` on one
 `java` command line, and the JVM honours the LAST `-Xmx` flag it sees). The worker runs a single
-replica with `strategy: Recreate`: the sync-job lease (below) makes a second worker instance safe
-— it would only ever reclaim an abandoned lease — but there is nothing for it to parallelize
-beyond `ingest.workerSlots`' in-process concurrency, so it stays a deliberate no-op possibility
+replica with `strategy: Recreate`: the sync-job lease (below) and the claim's per-connection lock
+(see "Claiming") make a second worker instance safe — two claimers never both take a job or two jobs of one
+connection at once, and a second instance only ever reclaims an abandoned (expired) lease; the lease bounds a stale
+run, it does not exclude one (see "Lease and heartbeat") — but there is nothing for it to
+parallelize beyond `ingest.workerSlots`' in-process concurrency, so it stays a deliberate no-op possibility
 rather than something worth running. Set the environment variable:
 
 ```
@@ -117,33 +119,81 @@ already exists, so it reads that row back and reports `coalesced = true` instead
 web route echoes `{job, coalesced}` (`SyncJobActionResult`) on `202 Accepted`.
 
 **Claiming.** `SyncJobsService.claim` selects PENDING rows plus RUNNING rows whose `lease_until`
-has passed, ordered by `(priority, requestedAt)`, under `FOR UPDATE SKIP LOCKED` — concurrent
-claimers (multiple worker replicas, or overlapping ticks) never block on the same candidate row,
-they just skip it. It then scans candidates in Kotlin rather than claiming the first row
+has passed, ordered by `(priority, requestedAt, id)` (a total order, the same as `openJob`'s), under
+`FOR UPDATE SKIP LOCKED` — concurrent claimers (multiple worker replicas, or overlapping ticks) never
+block on the same candidate row, they just skip it. A claimer holds the row locks of EVERY candidate its scan
+returned until its transaction commits, so a second claimer racing the first inside that window can find nothing
+to take and answers `null` for this tick (the next tick retries — a latency of one tick in a window of
+milliseconds, never a lost or doubled job). It then scans candidates in Kotlin rather than claiming the first row
 unconditionally, because two checks can't live in the SQL predicate: a candidate whose `attempt`
 has reached `max_attempts` is failed `RETRIES_EXHAUSTED` and skipped; a candidate whose stored
 `config_revision` no longer matches the connection's current one (edited since enqueue) is
 cancelled `CONFIG_CHANGED` and skipped — both terminal transitions happen inline, and the scan
 continues to the next candidate rather than returning nothing. **One RUNNING job per connection**
-is also enforced here, not by an index: the partial unique index above only dedupes per `kind`, so
-a SYNC and a RECONCILE could otherwise both go RUNNING at once for the same connection; `claim`
-additionally checks no other row is already RUNNING for that `connection_id` before claiming, and
-skips the candidate (leaving it PENDING) if one is.
+(of ANY kind) is also enforced here, not by an index: the partial unique index above only dedupes per
+`kind`, so a SYNC and a RECONCILE (or DERIVE) could otherwise both go RUNNING at once for the same
+connection; `claim` checks no other row is already RUNNING for that `connection_id` before claiming, and
+skips the candidate (leaving it PENDING) if one is. That read alone is a check-then-act race between two
+claimers (two worker PROCESSES — the slots of one process claim sequentially) that hold DIFFERENT candidate rows of one connection — `SKIP
+LOCKED` only separates claimers on the same row — so each claimer first takes a transaction-scoped advisory
+**try-lock** on the connection (`pg_try_advisory_xact_lock(CLAIM_LOCK_NAMESPACE, connection_id)`, `persistence.md`
+lists it), BEFORE the RUNNING read, and holds it until its claim commits: of two racing claimers the second
+cannot get the lock, never reaches the read concurrently, and skips the candidate (it stays PENDING for a later
+tick) instead of waiting, so claims on OTHER connections are never held up — parallel DERIVEs of different
+connections are unaffected. An advisory try-lock cannot deadlock (it never waits) and, touching no table row, cannot
+conflict with the writers of the connection row (`DataSourceService`'s `FOR UPDATE` updates, the config PUTs, soft
+delete) or with the foreign-key share lock every job insert takes on it — which a `FOR UPDATE` on the connection
+row would. `SyncJobQueueTest` pins it with two claimers interleaved deterministically (one held inside its claim
+transaction by the `afterClaimLock` seam).
 
 **Lease and heartbeat.** A claim sets `lease_owner` (the worker's `ingest.workerId`, default
 hostname + a random suffix), `lease_until = now + leaseSeconds * 1000` and `heartbeat_at`, and
 increments `attempt`. `IngestWorker.runJob` runs a ticker coroutine alongside the connector's
-`run()` that heartbeats every `max(1s, leaseSeconds/3)` (`SyncJobsService.heartbeat`, which also
-re-extends `lease_until`) and checks `isCancelRequested`. A heartbeat that affects zero rows (the
-lease was reclaimed by another worker, or the job left RUNNING under it) means the lease is lost:
-the ticker throws `LeaseLostException`, and the run stops without touching cursors or the
-connection's sync-status columns — the job is left RUNNING under whoever now holds the lease, or
-re-claimable once that lease itself expires.
+`run()` that renews the lease every `max(1s, leaseSeconds/3)` (`SyncJobsService.renewLease`: the heartbeat UPDATE
+that re-extends `lease_until` plus the `cancel_requested_at` read, in ONE transaction — one pooled connection, one failure
+policy). **Every run-owned write is fenced** — the heartbeat/renewal by `(id, lease_owner, attempt, status = RUNNING)`,
+`finish`/`fail`/`markCancelled` by `(id, attempt, status = RUNNING)`, `release` by all four. `attempt` increments on every
+claim, so a stale run of the SAME worker (its lease expired, the job was reclaimed, it is still unwinding) matches zero
+rows; `status = RUNNING` additionally stops a stale run from touching a row that was closed WITHOUT a new claim (the claimer's
+inline `RETRIES_EXHAUSTED`/`CONFIG_CHANGED` closes do not bump `attempt`) and a shutdown `release` from reopening a row whose
+`finish` already committed. A fenced-out write returns `false` and changes nothing: the heartbeat answers lost, and for the
+others the worker logs a WARN (a stale `onSucceeded` records no sync outcome, no chained DERIVE and no audit). A renewal that affects
+zero rows (the lease was reclaimed, or the job left RUNNING under it) means the lease is lost: the ticker throws
+`LeaseLostException`, and the run stops without touching cursors or the connection's sync-status columns — the job is left
+RUNNING under whoever now holds the lease, or re-claimable once that lease itself expires.
+
+**A renewal that THROWS or HANGS** (a transient pool-acquire timeout, a dropped connection, a stalled database) is
+not a lost lease, and is tolerated — but only while renewal can still be stopped strictly BEFORE `lease_until`, because past it another
+claimer may take the row. With `L` the lease, `slack = max(500 ms, L/10)` and `E` the monotonic time
+since the START of the last successful renewal (taken before the call, like the `now` the lease is computed from; initially
+the mark taken in `claimAvailable` just before the `clock()` read the claim's `lease_until` comes from): every attempt is bounded by `withTimeoutOrNull(slack)` on the client and, in the database, by
+`lock_timeout` + the transaction's `queryTimeout` of about `slack` (`renewLease`'s `boundMillis`; not a `SET LOCAL statement_timeout`,
+which Exposed overwrites — `persistence.md`) — a timeout is a failure, and the attempt ends at most `slack` after it began — the renewal runs in a detached worker scope and is AWAITED, because a coroutine blocked inside a database
+statement ignores cancellation until the statement ends (exposed-r2dbc 1.5.0, measured: the transaction then rolls back and its
+connection returns, nothing leaks, but only after the stall), so a timeout around the call itself would not return on time; after a failure at `E` the ticker WARNs and retries after `max(1s, interval/2)` only if
+`E + retry + 2 × slack < L`. A tolerated retry starts at `E + retry` and its failure is observed by `E + retry + slack < L − slack`,
+so **renewal stops and the job's cancellation is requested at least `slack` before `lease_until`** (the allowance for the stop itself
+and for clock skew against the reclaimer's wall clock). Otherwise the failure is rethrown at once (the run FAILS `RUN_FAILED`).
+**What this does not promise:** the lease bounds a stale run, it does not exclude it. Cancelling the job scope only REQUESTS the
+body to stop — a body inside a database statement unwinds when that statement returns (its open transaction then rolls back), and
+a frozen worker (a long GC pause, a stopped container) does not unwind at all. Every `sync_jobs` write of such a stale run is a
+no-op through the fences above, but its stream DATA writes are not fenced, so it can overlap a reclaimed run in that window (the
+streams are re-runnable by design — cursors, per-scope replace — but nothing excludes the overlap). Abandoned renewals are not
+added to the pool-size bound (`requirePoolFitsWorkerSlots`): they end server-side within about a slack and are spaced further apart than
+that, so at most one per slot is outstanding; a stall that eats the headroom makes the next renewal fail, which the budget counts —
+the job stops, the fail-closed outcome. Which failure is the fatal
+one depends on how long failures take: at the defaults (300 s lease, 100 s interval, 50 s retry, 30 s slack) the threshold is
+`E < 190 s`, so fast failures (observed at 100 s and 150 s) are tolerated and a third, at 200 s, is fatal, while failures that
+each use the whole slack (observed at 130 s, then 210 s) make the second one fatal. A renewal that returns `LOST` stays fatal at once. Cancellation is
+never swallowed (`catchingFailures`). `IngestWorkerTest` pins the outcomes (one failure tolerated, repeated failures and hung
+attempts fatal before the lease edge, lease-lost fatal at once, a cancel request via the renewal, a stale success writing
+nothing) through the `internal` `renewLease` and `timeSource` seams of `IngestWorker` (a `TestTimeSource` makes the budget arithmetic exact, whatever the CI load); `SyncJobQueueTest` pins the stale-write fence at the
+service. A stream's OWN per-page `context.heartbeat()` is a separate, unbudgeted call: an exception from it fails the run as before.
 
 **Cancel.** `SyncJobsService.requestCancel`: a PENDING job is cancelled immediately
 (`CancelOutcome.CANCELLED_NOW`); a RUNNING job gets `cancel_requested_at` stamped
 (`CancelOutcome.CANCEL_REQUESTED`) for the worker to honour cooperatively — the ticker's
-`isCancelRequested` check throws `JobCancelRequestedException`, which `runJob` catches by calling
+`renewLease` outcome `CANCEL_REQUESTED` makes it throw `JobCancelRequestedException`, which `runJob` catches by calling
 `markCancelled` (status `CANCELLED`, lease cleared); a job already in a terminal status answers
 `CancelOutcome.ALREADY_TERMINAL` (`409` from the route). Soft-deleting a connection
 (`cancelOpenForConnection`) applies the same PENDING→CANCELLED / RUNNING→`cancel_requested_at`

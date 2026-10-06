@@ -8,6 +8,7 @@ import ch.nokillswit.ingest.ConnectionTestResult
 import ch.nokillswit.ingest.DataSourceKind
 import ch.nokillswit.ingest.DataSourceRequest
 import ch.nokillswit.ingest.DataSourceService
+import ch.nokillswit.ingest.HeartbeatOutcome
 import ch.nokillswit.ingest.IngestConfig
 import ch.nokillswit.ingest.IngestConnectorOverrideKey
 import ch.nokillswit.ingest.IngestWorker
@@ -17,6 +18,7 @@ import ch.nokillswit.ingest.JobHandlerRegistry
 import ch.nokillswit.ingest.SyncJobClaim
 import ch.nokillswit.ingest.SyncJobKind
 import ch.nokillswit.ingest.SyncJobListFilter
+import ch.nokillswit.ingest.SyncJobResponse
 import ch.nokillswit.ingest.SyncJobRunContext
 import ch.nokillswit.ingest.SyncJobStatus
 import ch.nokillswit.ingest.SyncJobsService
@@ -36,16 +38,27 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
 import io.ktor.server.testing.testApplication
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
+import kotlin.time.AbstractLongTimeSource
+import kotlin.time.DurationUnit
+import kotlin.time.measureTime
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.r2dbc.insert
 import org.jetbrains.exposed.v1.r2dbc.selectAll
+import org.jetbrains.exposed.v1.r2dbc.update
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
+import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -56,6 +69,18 @@ import kotlin.test.assertTrue
 private const val MAX_TICK_ATTEMPTS = 50
 
 /** The manual clock every worker in this class ticks with (2024-01-01T01:00:00Z) — also what the queue fence compares leases against. */
+/**
+ * A thread-safe virtual monotonic source: the lease-budget tests say how late a failure is observed by [advance]-ing it from
+ * the (IO-thread) renewal, which the ticker then reads after its own timeout — so the arithmetic never depends on real timing.
+ */
+private class VirtualTime : AbstractLongTimeSource(DurationUnit.NANOSECONDS) {
+    private val nanos = AtomicLong()
+    override fun read(): Long = nanos.get()
+    fun advance(by: Duration) {
+        nanos.addAndGet(by.inWholeNanoseconds)
+    }
+}
+
 private val TICK_CLOCK_MILLIS = java.time.Instant.parse("2024-01-01T01:00:00Z").toEpochMilli()
 
 /**
@@ -183,6 +208,9 @@ class IngestWorkerTest {
     private fun syncJobs(maxAttempts: Int = 3, clock: () -> Long = System::currentTimeMillis) =
         SyncJobsService(sharedDatabaseForTests(), maxAttempts, clock)
 
+    /** One worker id per test instance, so a hand-claimed row ([claimFor]) is leased to the worker the test builds. */
+    private val workerId = "test-worker-${unique("id")}"
+
     private fun testConfig(
         leaseSeconds: Long = 300,
         workerSlots: Int = 2,
@@ -193,7 +221,7 @@ class IngestWorkerTest {
         leaseSeconds = leaseSeconds,
         jobRetentionDays = 90,
         purgeGraceDays = purgeGraceDays,
-        workerId = "test-worker-${unique("id")}",
+        workerId = workerId,
     )
 
     /**
@@ -203,6 +231,26 @@ class IngestWorkerTest {
      * with a hand-built claim never need the scheduler to see it.
      */
     private suspend fun createConnection(dataSources: DataSourceService, syncIntervalMinutes: Int = 30, enabled: Boolean = false): UInt =
+        createConnectionRow(dataSources, syncIntervalMinutes, enabled).also { createdConnections += it }
+
+    /** Every connection this test created: [cleanUpOpenJobs] closes whatever its jobs left RUNNING or PENDING in the shared queue. */
+    private val createdConnections = mutableListOf<UInt>()
+
+    @AfterTest
+    fun cleanUpOpenJobs() = runBlocking {
+        val jobs = syncJobs()
+        for (connId in createdConnections) {
+            for (job in jobs.list(connId, SyncJobListFilter(), pagingAll()).items) {
+                when (job.status) {
+                    SyncJobStatus.RUNNING -> jobs.finish(job.id, job.attempt)
+                    SyncJobStatus.PENDING -> jobs.requestCancel(connId, job.id)
+                    else -> Unit
+                }
+            }
+        }
+    }
+
+    private suspend fun createConnectionRow(dataSources: DataSourceService, syncIntervalMinutes: Int, enabled: Boolean): UInt =
         dataSources.create(
             DataSourceRequest(
                 name = unique("conn"),
@@ -355,23 +403,32 @@ class IngestWorkerTest {
     }
 
     /**
-     * A [SyncJobClaim] built directly from a REAL, just-`requestJob`'d row's id (the
-     * `SyncedStubFixture.claimFor`/`JiraSyncPipelineTest.claimFor` shape) — deliberately NOT
-     * `jobs.claim(...)`: this shared test database accumulates other tests'/classes' own
-     * still-PENDING manual jobs across the whole suite run, and a bare `claim()` call can pick up
-     * one of THOSE instead of ours. `finish`/`fail` update by id alone (no status precondition), so
-     * driving `IngestWorker.runJob` against a claim built this way is exactly as real for what these
-     * tests check (the job's terminal status, the generic drain) as going through the queue.
+     * A [SyncJobClaim] for a REAL, just-`requestJob`'d row, which this helper puts into the state a claim would have
+     * (RUNNING, `attempt = 1`, a lease no test clock reaches) — deliberately NOT `jobs.claim(...)`: this shared test database
+     * accumulates other tests'/classes' own still-PENDING manual jobs across the whole suite run, and a bare `claim()` call can
+     * pick up one of THOSE instead of ours. The terminal writes are fenced on `(id, attempt, status = RUNNING)`, so the row
+     * must really be RUNNING for `IngestWorker.runJob`/`onSucceeded` driven by this claim to be exactly as real as going
+     * through the queue for what these tests check (the job's terminal status, the generic drain).
      */
-    private fun claimFor(jobId: UInt, connId: UInt, kind: SyncJobKind) = SyncJobClaim(
-        id = jobId,
-        connectionId = connId,
-        connectorKind = DataSourceKind.JIRA_CLOUD,
-        kind = kind,
-        attempt = 1,
-        maxAttempts = 3,
-        syncIntervalMinutes = 60,
-    )
+    private suspend fun claimFor(jobId: UInt, connId: UInt, kind: SyncJobKind): SyncJobClaim {
+        suspendTransaction(sharedDatabaseForTests()) {
+            SyncJobsService.Jobs.update({ SyncJobsService.Jobs.id eq jobId }) {
+                it[status] = SyncJobStatus.RUNNING.name
+                it[attempt] = 1
+                it[leaseOwner] = workerId
+                it[leaseUntil] = PARKED_LEASE_UNTIL
+            }
+        }
+        return SyncJobClaim(
+            id = jobId,
+            connectionId = connId,
+            connectorKind = DataSourceKind.JIRA_CLOUD,
+            kind = kind,
+            attempt = 1,
+            maxAttempts = 3,
+            syncIntervalMinutes = 60,
+        )
+    }
 
     @Test
     fun `a PURGE job drains all eight metrics config tables, and a second PURGE is a no-op`() = runBlocking {
@@ -672,11 +729,14 @@ class IngestWorkerTest {
         val jobs = syncJobs()
         val connId = createConnection(ds)
         val requested = jobs.requestJob(connId, SyncJobKind.SYNC, requestedByUserId = 1u, configRevision = 1L)
-        val config = testConfig(leaseSeconds = 3)
+        // lease 6 s: the first renewal is due at 2 s; even one that is cut by its 0.6 s slack is retried inside the budget (E < 3.8 s).
+        val config = testConfig(leaseSeconds = 6)
         // The claim's lease_owner MUST match config.workerId — otherwise the worker's own
         // heartbeat() call (keyed on config.workerId) never matches this row and throws
         // LeaseLostException instead of ever reaching the cancel-request check.
-        val claim = jobs.claim(config.workerId, leaseSeconds = 3)
+        // Fenced (testing.md): claim() scans the WHOLE shared queue, and earlier tests in this class leave manual PENDING jobs behind.
+        val claimClock = System.currentTimeMillis()
+        val claim = withOnlyConnections(setOf(connId), claimClock) { jobs.claim(config.workerId, leaseSeconds = 6, now = claimClock) }
         assertNotNull(claim)
         assertEquals(requested.jobId, claim.id)
 
@@ -701,6 +761,140 @@ class IngestWorkerTest {
 
         val job = jobs.read(connId, claim.id)
         assertEquals(SyncJobStatus.CANCELLED, job?.status)
+    }
+
+    /**
+     * Claims a fresh SYNC through a real [SyncJobsService] (so the row is RUNNING under the test worker's id), then runs it
+     * on a worker whose ticker renews the lease through [renewal] — `call` counts the ticker's attempts from 0, `time` is the
+     * VIRTUAL monotonic source the lease budget reads (the renewal advances it to say how late a failure is observed, so the
+     * budget arithmetic never depends on real timing), `real` is the genuine [SyncJobsService.renewLease]. Returns the final
+     * row, the wall time `runJob` took and the number of renewal attempts.
+     *
+     * Lease 3 s: renewal every 1 s, retry 1 s, slack 0.5 s (the floor) — a failure observed at virtual `E` is tolerated only
+     * while `E + 1 s + 2 x 0.5 s < 3 s`, i.e. `E < 1 s`.
+     */
+    private suspend fun runSyncWithRenewal(
+        onRun: suspend () -> Unit,
+        renewal: suspend (call: Int, time: VirtualTime, real: suspend () -> HeartbeatOutcome) -> HeartbeatOutcome,
+    ): RenewalRun {
+        val ds = dataSources()
+        val jobs = syncJobs()
+        val connId = createConnection(ds)
+        val requested = jobs.requestJob(connId, SyncJobKind.SYNC, requestedByUserId = 1u, configRevision = 1L)
+        val config = testConfig(leaseSeconds = 3)
+        val time = VirtualTime()
+        val claim = withOnlyConnections(setOf(connId), TICK_CLOCK_MILLIS) {
+            jobs.claim(config.workerId, leaseSeconds = 3, now = TICK_CLOCK_MILLIS)
+        }
+        assertNotNull(claim)
+        assertEquals(requested.jobId, claim.id)
+        val calls = AtomicInteger()
+        val worker = IngestWorker(
+            jobs, ds, handlers(ds), mapOf(DataSourceKind.JIRA_CLOUD to FakeConnector { onRun() }), config, System::currentTimeMillis,
+            renewLease = { c, now, bound ->
+                renewal(calls.getAndIncrement(), time) {
+                    jobs.renewLease(c.id, config.workerId, c.attempt, config.leaseSeconds, now, bound)
+                }
+            },
+            timeSource = time,
+        )
+        val elapsed = try {
+            measureTime { withTimeout(30_000) { worker.runJob(claim, time.markNow()) } }
+        } finally {
+            worker.close()
+        }
+        return RenewalRun(jobs.read(connId, claim.id), elapsed, calls.get())
+    }
+
+    private class RenewalRun(val job: SyncJobResponse?, val elapsed: Duration, val renewalAttempts: Int)
+
+    @Test
+    fun `one failed heartbeat is tolerated - the long job still SUCCEEDS`() = runBlocking {
+        // Real timeline: the failed renewal at 1 s, its retry at 2 s — the job runs to 3.2 s, over a second past the retry.
+        val run = runSyncWithRenewal(onRun = { delay(3_200) }) { call, time, real ->
+            if (call == 0) {
+                time.advance(400.milliseconds) // observed at E = 0.4 s < 1 s: tolerated
+                error("simulated transient heartbeat failure")
+            }
+            real()
+        }
+        assertEquals(SyncJobStatus.SUCCEEDED, run.job?.status)
+        assertTrue(run.renewalAttempts >= 2, "the failed heartbeat was retried")
+    }
+
+    @Test
+    fun `heartbeats failing until the lease edge stop the job - FAILED instead of running on`() = runBlocking {
+        val run = runSyncWithRenewal(onRun = { awaitCancellation() }) { call, time, _ ->
+            time.advance(if (call == 0) 400.milliseconds else 1_500.milliseconds) // E = 0.4 s tolerated, then E = 1.9 s: past the threshold
+            error("simulated transient heartbeat failure")
+        }
+        assertEquals(SyncJobStatus.FAILED, run.job?.status)
+        assertEquals("RUN_FAILED", run.job?.errorCode)
+        assertEquals(2, run.renewalAttempts)
+    }
+
+    @Test
+    fun `a heartbeat that HANGS is cut by its timeout - the job stops instead of waiting on it`() = runBlocking {
+        val run = runSyncWithRenewal(onRun = { awaitCancellation() }) { _, time, _ ->
+            time.advance(2.seconds) // by the time the 0.5 s timeout cuts it, the budget is spent
+            awaitCancellation()
+        }
+        assertEquals(SyncJobStatus.FAILED, run.job?.status)
+        assertEquals(1, run.renewalAttempts)
+        // Real time: the first renewal is due at 1 s and is cut after 0.5 s; an uncut hang would only end at the 30 s guard.
+        assertTrue(run.elapsed < 3.seconds, "the hung attempt was cut by its timeout, took ${run.elapsed}")
+    }
+
+    @Test
+    fun `a heartbeat stuck inside a database statement does not hold the job past its timeout`() = runBlocking {
+        val run = runSyncWithRenewal(onRun = { awaitCancellation() }) { _, time, _ ->
+            time.advance(2.seconds)
+            // Blocked in the DATABASE (a stalled statement), where cancellation is only honoured once the statement ends (4 s).
+            suspendTransaction(sharedDatabaseForTests()) { exec("SELECT pg_sleep(4)") }
+            HeartbeatOutcome.RENEWED
+        }
+        assertEquals(SyncJobStatus.FAILED, run.job?.status)
+        // Real time: first renewal due at 1 s, abandoned at 1.5 s; waiting for the statement would end the run at >= 5 s.
+        assertTrue(run.elapsed < 3.seconds, "the stalled statement was abandoned at the timeout, took ${run.elapsed}")
+    }
+
+    @Test
+    fun `a heartbeat answering lease-lost is fatal at once - the job is left untouched`() = runBlocking {
+        val run = runSyncWithRenewal(onRun = { awaitCancellation() }) { _, _, _ -> HeartbeatOutcome.LOST }
+        assertEquals(SyncJobStatus.RUNNING, run.job?.status, "lease lost: the run stops without finishing or failing the row")
+        assertEquals(1, run.renewalAttempts)
+    }
+
+    @Test
+    fun `a cancel request seen by the lease renewal stops the job as CANCELLED`() = runBlocking {
+        val run = runSyncWithRenewal(onRun = { awaitCancellation() }) { _, _, _ -> HeartbeatOutcome.CANCEL_REQUESTED }
+        assertEquals(SyncJobStatus.CANCELLED, run.job?.status)
+    }
+
+    @Test
+    fun `a stale run's success write after the job was reclaimed records nothing`() = runBlocking {
+        val ds = dataSources()
+        val jobs = syncJobs()
+        val connId = createConnection(ds)
+        val requested = jobs.requestJob(connId, SyncJobKind.SYNC, requestedByUserId = 1u, configRevision = 1L)
+        val config = testConfig()
+        // attempt 1 is claimed, its lease expires, the SAME worker id reclaims as attempt 2 — then attempt 1 reports success.
+        val stale = withOnlyConnections(setOf(connId), TICK_CLOCK_MILLIS) {
+            jobs.claim(config.workerId, leaseSeconds = 30, now = TICK_CLOCK_MILLIS)
+        }
+        assertNotNull(stale)
+        val current = withOnlyConnections(setOf(connId), TICK_CLOCK_MILLIS + 31_000) {
+            jobs.claim(config.workerId, leaseSeconds = 300, now = TICK_CLOCK_MILLIS + 31_000)
+        }
+        assertNotNull(current)
+        assertEquals(2, current.attempt)
+        val worker = IngestWorker(jobs, ds, handlers(ds), emptyMap(), config, System::currentTimeMillis)
+
+        worker.onSucceeded(stale)
+
+        val row = assertNotNull(jobs.read(connId, requested.jobId))
+        assertEquals(SyncJobStatus.RUNNING, row.status, "the stale success must not finish the new run's row")
+        assertEquals(0, jobs.list(connId, SyncJobListFilter(kind = SyncJobKind.DERIVE), pagingAll()).items.size, "and chains no DERIVE")
     }
 
     @Test
