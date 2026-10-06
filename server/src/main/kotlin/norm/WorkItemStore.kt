@@ -2,6 +2,7 @@ package ch.nokillswit.norm
 
 import ch.nokillswit.infra.db.active
 import ch.nokillswit.infra.db.containsNormalized
+import ch.nokillswit.infra.db.insertRows
 import ch.nokillswit.infra.db.jsonb
 import ch.nokillswit.infra.json.parseStringArray
 import ch.nokillswit.infra.json.stringArrayJson
@@ -283,7 +284,7 @@ class WorkItemStore(private val database: R2dbcDatabase) {
     /**
      * The PROCESS step's REPLACE (plan §8 step 5) for a whole page of issues — delete the page's child
      * rows (ONE `DELETE … issue_id IN (…)` per table), insert every freshly tiled row of the page (ONE
-     * batch per table), upsert `work_items` (ONE `ON CONFLICT (connection_id, issue_id) DO UPDATE`
+     * multi-row `insertRows` per table), upsert `work_items` (ONE `ON CONFLICT (connection_id, issue_id) DO UPDATE`
      * batch), ALL in one transaction. The rows written are byte-for-byte the ones N per-issue calls
      * write (same columns, same per-issue `seq`); only the number of round trips differs — measured
      * ~13 statements per ISSUE became ~13 per PAGE (`.claude/docs/build-times.md`). The caller
@@ -307,7 +308,7 @@ class WorkItemStore(private val database: R2dbcDatabase) {
 
             val statusRows = normalized.flatMap { n -> n.statusIntervals.map { n.issueId to it } }
             if (statusRows.isNotEmpty()) {
-                StatusIntervals.batchInsert(statusRows, shouldReturnGeneratedValues = false) { (issueId, interval) ->
+                StatusIntervals.insertRows(statusRows) { (issueId, interval) ->
                     this[StatusIntervals.connectionId] = connectionId
                     this[StatusIntervals.issueId] = issueId
                     this[StatusIntervals.seq] = interval.seq
@@ -321,7 +322,7 @@ class WorkItemStore(private val database: R2dbcDatabase) {
             }
             val fieldIntervalRows = normalized.flatMap { n -> n.fieldIntervals.map { n.issueId to it } }
             if (fieldIntervalRows.isNotEmpty()) {
-                FieldIntervals.batchInsert(fieldIntervalRows, shouldReturnGeneratedValues = false) { (issueId, interval) ->
+                FieldIntervals.insertRows(fieldIntervalRows) { (issueId, interval) ->
                     this[FieldIntervals.connectionId] = connectionId
                     this[FieldIntervals.issueId] = issueId
                     this[FieldIntervals.field] = interval.field.name
@@ -337,7 +338,7 @@ class WorkItemStore(private val database: R2dbcDatabase) {
                 n.fieldChanges.mapIndexed { index, change -> Triple(n.issueId, index + 1, change) }
             }
             if (fieldChangeRows.isNotEmpty()) {
-                FieldChanges.batchInsert(fieldChangeRows, shouldReturnGeneratedValues = false) { (issueId, seq, change) ->
+                FieldChanges.insertRows(fieldChangeRows) { (issueId, seq, change) ->
                     this[FieldChanges.connectionId] = connectionId
                     this[FieldChanges.issueId] = issueId
                     this[FieldChanges.seq] = seq
@@ -352,7 +353,7 @@ class WorkItemStore(private val database: R2dbcDatabase) {
             }
             val worklogRows = normalized.flatMap { n -> n.worklogs.map { n.issueId to it } }
             if (worklogRows.isNotEmpty()) {
-                Worklogs.batchInsert(worklogRows, shouldReturnGeneratedValues = false) { (issueId, worklog) ->
+                Worklogs.insertRows(worklogRows) { (issueId, worklog) ->
                     this[Worklogs.connectionId] = connectionId
                     this[Worklogs.worklogId] = worklog.worklogId
                     this[Worklogs.issueId] = issueId

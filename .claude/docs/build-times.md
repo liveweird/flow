@@ -100,7 +100,7 @@ below, never a failing check.
 | Measure | Target | Ceiling | Reasoning / measured |
 |---|---|---|---|
 | `stub-clone` (`cloneProcessedData`) | 0.5 s | 1.5 s | an `INSERT … SELECT` of the same 14 tables measured 220 ms; the Exposed clone takes 3.6 s |
-| `stub-process` (PROCESS, 1,200 issues) | 3 s | 8 s | ~2.5 ms per issue is generous for a page-batched read plus a handful of batched writes; measured 2.4-3.2 s after the page batching (2026-09-30), was 16-19 s at 13.5-15 ms per issue |
+| `stub-process` (PROCESS, 1,200 issues) | 3 s | 8 s | ~2.5 ms per issue is generous for a page-batched read plus a handful of batched writes; measured 1.0-1.1 s with `insertRows` (2026-10-06, WHY 3 follow-up), 2.2-2.3 s with `batchInsert` after the page batching (2026-09-30: 2.4-3.2 s), was 16-19 s at 13.5-15 ms per issue |
 | `stub-derive` (one DERIVE of the stub) | 1 s | 3 s | 1,200 items, ~1,300 days; measured 1.17-1.75 s with `insertRows` (2026-10-01, WHY 3; 2.9-3.7 s with `batchInsert`), 7-26 s before the statistics fix; of the rest the WIP `INSERT … SELECT` is 0.5-0.75 s |
 | `derive-perf` (scale-20, ~24k issues, `docker-compose.perf.yaml`) | 20 s | 180 s | 20x the stub at 1 s; the ceiling is the v0.3.0 plan budget (< 3 min); measured 82 s |
 
@@ -306,7 +306,57 @@ instrumentation removed):
   roughly 6-10 s including reads — projected, NOT re-measured at scale.
 - **Follow-up, not done here (scope):** PROCESS (`WorkItemStore.replaceWorkItems`: `batchInsert` per table,
   ~2.1 s of its 2.4-3.2 s per pass is the same per-row cost) can use `insertRows` the same way — a separate
-  change with its own digest pins (`NormalizationPipelineTest`).
+  change with its own digest pins (`NormalizationPipelineTest`). **Done 2026-10-06, see the next entry.**
+
+**Cause found and fixed: PROCESS's four child-table inserts were the same per-row `batchInsert` cost (2026-10-06,
+`perf/process-insert-rows`).** Measured with a temporary per-table timer around `replaceWorkItems`' writes (local,
+18 cores, shared machine, the 1,200-issue stub: a processed clone, every issue re-flagged `needs_processing`,
+`JiraProcessStream.run` eight times in one JVM, medians; instrumentation and scratch test removed):
+
+| One stub PROCESS pass | Before (`batchInsert`), ms | After (`insertRows`), ms |
+|---|---|---|
+| field intervals | 760 | 150 |
+| field changes | 545 | 130 |
+| status intervals | 392 | 98 |
+| worklogs | 123 | 46 |
+| **the four child inserts** | **~1,820 (80 % of the pass)** | **~420** |
+| `work_items` `batchUpsert` (unchanged code) | 168 | 275 (the same code and statement; the rise is reproducible across all eight runs and NOT explained — the upsert is the one write that still runs one execution per row, so it may be paying for connection/pool effects the child inserts used to absorb; a guess, not measured; `pg_stat_statements` on the test database, per-statement mean time of the upsert before/after, is the way to settle it) |
+| **whole `JiraProcessStream.run` pass** | **2,225-2,288 (median 2,246)** | **976-1,105 (median 1,024), -54 %** |
+
+- **Fix:** the four per-page writers (`StatusIntervals`/`FieldIntervals`/`FieldChanges`/`Worklogs`) call
+  `insertRows(rows) { … }` instead of `batchInsert(rows, shouldReturnGeneratedValues = false) { … }`: same lambda,
+  same columns, same values, same transaction (the page's, unchanged), same order of statements (deletes, the
+  four inserts, the `work_items` upsert, the mark). The reference-table rebuilds (statuses, people, boards,
+  board columns, sprints; a few hundred rows once per run) and the `work_items` `batchUpsert` (`ON CONFLICT`,
+  not an insert) are untouched. The prepared-statement texts stay bounded: the quantized chunk sizes give each
+  of the four tables at most ~14 texts (a page has at most 50 issues, so a table's row counts are small and varied) —
+  ~56 for PROCESS. The driver's statement cache is per CONNECTION and shared with DERIVE's `insertRows` tables
+  (128 texts after a stub DERIVE, WHY 3), so on a worker connection that runs both the worst case is ~184 here
+  and can exceed `PREPARED_STATEMENT_CACHE_QUERIES` = 256 on a connection that has also served other `insertRows`
+  shapes: the least-recently-used text is then evicted and re-prepared — a performance cost only, never a
+  correctness one. Not measured on a long-lived worker connection.
+- **Bad-row path.** One multi-row statement fails as a whole, but the page was already one transaction that
+  PostgreSQL aborts on its first failing statement, so the page-level fallback (each issue in its own
+  transaction, which now writes one issue's rows as one multi-row statement per table) is unchanged and still
+  isolates the bad issue (`NormalizationPipelineTest` "falls back to per-issue transactions" — a planted worklog
+  PK conflict —, "a bad row alone on its page", the V19 `ProcessReferenceRowsTest` cases, all green unchanged). One
+  behavioural difference, pinned by a NEW test: `insertRows` skips Exposed's CLIENT-side `varchar(n)` length check,
+  so an over-long CHILD-table value is now PostgreSQL's SQLSTATE 22001 (class 22) rather than Exposed's
+  `IllegalArgumentException`; `isDataError` classifies both as a bad row (the new `NormalizationPipelineTest` case "a
+  value too long for a CHILD table column" plants a 150-character `field_id` and expects `issuesFailed = 1`, flagged
+  for the next pass, run succeeding).
+- **Byte-identical output**, three ways: `NormalizationPipelineTest`'s REPROCESS digest, `SyncedStubFixtureTest`,
+  `MetricsDigestTest` and `DerivedStubFixtureTest` pass unchanged; `MultiRowInsertTest` still pins the helper against
+  `batchInsert`; and a one-off A/B against the OLD writer (temporary scratch test, removed): a clone of the stub's raw
+  rows, every issue flagged, one PROCESS pass, then the REPROCESS digest function (every non-surrogate column of
+  `work_items` minus `processed_at`, status/field intervals, field changes, worklogs, ordered by their natural keys)
+  over all 1,200 items — `e9bd350e4fb4c11ddd3aa4296bb4da37` with `batchInsert` (master `5118d1b`) and with
+  `insertRows`.
+- **What is left of a stub PROCESS pass (~1.0 s):** the `work_items` `batchUpsert` ~0.27 s (an `ON CONFLICT` upsert
+  has no multi-row helper yet — the next candidate, ~0.15-0.25 ms per row), the four child inserts ~0.42 s, the rest
+  (page reads, deletes, mark, normalize, the reference rebuild) ~0.3 s. `stub-process` is back inside its 3 s target
+  (1.0 s against 3 s). At scale 20 (24,000 issues) the pass projects from ~1 min to ~25-30 s — projected from the
+  per-issue figures, NOT measured at scale.
 
 Open questions — each is "why does this take this long for a tiny dataset?", to be answered with
 evidence and recorded here as a dated entry (finding + fix, or "measured, intended because …"):

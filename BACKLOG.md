@@ -54,9 +54,10 @@ The checkup fixed tiers A–D in PRs #31–#53; the leftovers (A15, C8, D2–D5 
 PRs #59–#61. What remains is the build-time follow-ups, B7 step 3 and the user's own decisions (item ids as in the
 report, `~/.claude/plans/flow-checkup-2026-09-30.md`):
 
-- **Build-time follow-ups** (`build-times.md`): WHY 3/4/9 are answered (2026-10-01); what is left is PROCESS on
-  `infra/db/MultiRowInsert.kt`'s `insertRows` (the same per-row `batchInsert` cost, ~2.1 s of a 2.4-3.2 s pass), the
-  nightly `e2e` image-build cache (WHY 7's data decides), and re-checking `images` after its first master run.
+- **Build-time follow-ups** (`build-times.md`): WHY 3/4/9 are answered (2026-10-01); PROCESS's child inserts
+  moved to `insertRows` (2026-10-06: a stub pass 2.25 s -> 1.0 s; its `work_items` `batchUpsert` is the remaining
+  ~0.27 s, an `ON CONFLICT` multi-row helper would be the next step), the nightly `e2e`
+  image-build cache (WHY 7's data decides), and re-checking `images` after its first master run.
 - **B7 — the always-loaded instruction budget, step 3:** step 2 (2026-10-05) moved the feature template to
   `conventions.md`, the fixture narrative to `test-fixtures.md` and `web/CLAUDE.md`'s per-feature sections to
   `web-features.md`, and cut the package tree to one line per package. The always-loaded set is 40.3k chars (from

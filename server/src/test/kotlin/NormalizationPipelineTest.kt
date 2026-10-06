@@ -471,6 +471,38 @@ class NormalizationPipelineTest {
         }
 
     @Test
+    fun `a value too long for a CHILD table column - rejected by PostgreSQL in the multi-row insert - is a bad row too`() =
+        runBlocking {
+            val connId = clonedConnection(SyncedStubFixture.connectionId(), processed = true)
+            val store = rawStore()
+            val items = workItems()
+            val poisoned = suspendTransaction(sharedDatabaseForTests()) {
+                val changes = WorkItemStore.FieldChanges
+                changes.selectAll()
+                    .where { (changes.connectionId eq connId) and (changes.fieldId eq "customfield_10015") }
+                    .toList().first()[changes.issueId]
+            }
+            // `norm.work_item_field_changes.field_id` is varchar(100) and the child inserts are ONE multi-row `INSERT … VALUES`
+            // (`insertRows`), which skips Exposed's client-side length check: the overflow is PostgreSQL's own SQLSTATE 22001
+            // (a class-22 data exception), and `isDataError` must classify it exactly like the client-side rejection above.
+            rawSql(
+                "UPDATE raw.jira_changelogs SET payload = replace(payload::text, '\"customfield_10015\"', " +
+                    "'\"customfield_' || repeat('9', 150) || '\"')::jsonb WHERE connection_id = $connId AND issue_id = $poisoned",
+            )
+            rawSql("UPDATE raw.jira_issues SET needs_processing = false WHERE connection_id = $connId")
+            rawSql("UPDATE raw.jira_issues SET needs_processing = true WHERE connection_id = $connId AND issue_id = $poisoned")
+            val context = SyncedStubFixture.freshContext(connId)
+
+            JiraProcessStream(store, items).run(context)
+
+            assertEquals(
+                listOf(poisoned), store.issuesToProcess(connId, PROCESSING_VERSION, limit = 10),
+                "the over-long row stays flagged for the next pass",
+            )
+            assertEquals(mapOf("issuesProcessed" to 0L, "issuesFailed" to 1L), context.progressSnapshot())
+        }
+
+    @Test
     fun `PROCESS rethrows when every issue of a page fails with a non-data database error - the job must fail`() =
         runBlocking {
             val connId = clonedConnection(SyncedStubFixture.connectionId())
@@ -811,7 +843,7 @@ class NormalizationPipelineTest {
      * persisted `norm` row a PROCESS pass rewrites — work items, status intervals, field intervals (all
      * four `TrackedField` kinds, PARENT included), field changes and worklogs — ordered
      * deterministically. The REPROCESS idempotence proof therefore pins each table the page-batched
-     * REPLACE writes (a `batchUpsert` for `work_items`, one `batchInsert` per child table), column by
+     * REPLACE writes (a `batchUpsert` for `work_items`, one `insertRows` per child table), column by
      * column, not just a hand-picked subset.
      */
     private suspend fun normalizedDigest(connId: UInt): String {
