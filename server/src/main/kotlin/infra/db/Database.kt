@@ -130,6 +130,10 @@ internal fun connectPooledDatabase(
         ConnectionPoolConfiguration.builder(rawFactory)
             .maxSize(maxSize)
             .initialSize(initialSize)
+            // r2dbc-pool 1.0.2 builds create() as `Mono.defer { acquire.timeout(maxAcquireTime) }.retry(acquireRetry)`
+            // with acquireRetry defaulting to 1, so the effective acquire deadline is ~2x maxAcquireTime (the
+            // retried waiter re-queues). Kept deliberately: the same retry transparently replaces a connection that
+            // fails LOCAL validation (closed by a Postgres/pod restart). `.claude/docs/persistence.md`.
             .maxAcquireTime(maxAcquireTime)
             .maxIdleTime(maxIdleTime)
             .build(),

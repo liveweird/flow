@@ -67,8 +67,9 @@ D9 WHY 3 and the Kover cost (#62), B7 step 2 (#68), the class-order fixture depe
 migrates on start), and the `value_text` overflow (V18). What remains:
 
 - **B7 step 3** — the always-loaded set is 40.3k chars against a ~35k target (BACKLOG).
-- **Follow-ups** (in BACKLOG): r2dbc-pool reports the acquire timeout at 2x the configured
-  `postgres.pool.maxAcquireTimeSeconds`; shutdown audit lines lost to an OTel flush race.
+- **Follow-ups**: shutdown audit lines lost to an OTel flush race (BACKLOG). The r2dbc-pool acquire timeout firing at
+  ~2x `postgres.pool.maxAcquireTimeSeconds` is documented by design in `persistence.md` (the retry also recovers stale
+  connections).
 - Not doing: D6 (de-Jira the `Connector` seam) waits for the GitLab connector (BACKLOG).
 
 ## Decisions made on the user's behalf
