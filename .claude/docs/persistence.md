@@ -295,7 +295,7 @@ tables in the `raw` schema — the REFERENCE and ISSUES streams' target
   its `deleted_at`/`moved_out_at` cleared by the same upsert path that would otherwise report
   `CHANGED` — reported instead as `RawUpsertOutcome.RESURRECTED`.
 - **PURGE (plan §0 A2).** `JiraRawStore.purgeIssuesBatch`/`purgeEntitiesBatch` (500 rows per call,
-  `JIRA_PURGE_BATCH_SIZE`) delete one connection's rows in batches; `JiraRawStore.purgeAll` (an
+  `JIRA_PURGE_BATCH_SIZE`) delete one connection's rows in batches; `JiraRawStore.purgeAll` (in `jira/JiraRawPurge.kt`; an
   extension function) drains all four `raw.jira_*` tables (issues/entities plus the V11
   changelogs/worklogs tables below) by looping each batch call until it deletes zero rows.
   `JiraConnector.purgeSteps` wires this as the PURGE job's one connector-owned cleanup step.

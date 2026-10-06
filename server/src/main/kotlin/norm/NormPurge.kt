@@ -20,7 +20,7 @@ import org.jetbrains.exposed.v1.r2dbc.deleteWhere
 import org.jetbrains.exposed.v1.r2dbc.select
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 
-/** Batch size for the PURGE step's cleanup over the bigger `norm.*` tables — mirrors `jira/JiraRawStore.kt`'s `JIRA_PURGE_BATCH_SIZE`. */
+/** Batch size for the PURGE step's cleanup over the bigger `norm.*` tables — mirrors `jira/JiraRawPurge.kt`'s `JIRA_PURGE_BATCH_SIZE`. */
 internal const val NORM_PURGE_BATCH_SIZE = 500
 
 /**
@@ -76,7 +76,7 @@ internal class NormPurge(private val database: R2dbcDatabase) {
     }
 }
 
-/** Drains a connection's `norm.*` rows in batches — the PURGE step (plan §0 A2), mirroring `jira/JiraRawStore.kt`'s `purgeAll`. */
+/** Drains a connection's `norm.*` rows in batches — the PURGE step (plan §0 A2), mirroring `jira/JiraRawPurge.kt`'s `purgeAll`. */
 suspend fun WorkItemStore.purgeAll(connectionId: UInt, batchSize: Int = NORM_PURGE_BATCH_SIZE) {
     while (purgeFieldChangesBatch(connectionId, batchSize) > 0) { /* drain */ }
     while (purgeFieldIntervalsBatch(connectionId, batchSize) > 0) { /* drain */ }
