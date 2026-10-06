@@ -1,6 +1,5 @@
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useSearchParams } from "react-router-dom";
 import { Alert, Group, List, Stack, Switch, Tabs, Text, Title } from "@mantine/core";
 import { IconInfoCircle } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
@@ -14,17 +13,11 @@ import ErrorAlert from "../components/ErrorAlert";
 import LoadingBlock from "../components/LoadingBlock";
 import PageHeader from "../components/PageHeader";
 import ReportFiltersStatus from "../components/ReportFiltersStatus";
+import { useDeepDiveUrlState } from "../hooks/useDeepDiveUrlState";
 import { isBoolean, useStoredState } from "../hooks/useStoredState";
 import type { DeepDiveLayers } from "../utils/deepDiveCell";
-import {
-  applyDeepDiveSelection,
-  applyDeepDiveView,
-  deepDiveMode,
-  deepDiveQuery,
-  parseDeepDiveSelection,
-  parseDeepDiveView,
-} from "../utils/deepDiveFilter";
-import { noteOf } from "../utils/deepDiveMatrix";
+import { deepDiveQuery } from "../utils/deepDiveFilter";
+import { noteOf } from "../utils/deepDiveNote";
 import { knownLabels } from "../utils/deepDivePanel";
 
 const ALL_LAYERS: DeepDiveLayers = { pv: true, exec: true, cost: true };
@@ -75,11 +68,7 @@ function Explainer() {
 /** Report 17 — Deep dive: plan, execution and cost on one epic/task × time matrix, for a selection the URL carries. */
 export default function ReportDeepDive() {
   const { t } = useTranslation();
-  const [params, setParams] = useSearchParams();
-  const selection = useMemo(() => parseDeepDiveSelection(params), [params]);
-  const selectionKey = deepDiveQuery(selection);
-  const view = parseDeepDiveView(params);
-  const complete = deepDiveMode(selection) !== null;
+  const { selection, selectionKey, view, complete, applySelection, setView } = useDeepDiveUrlState();
 
   // The panel keeps its own draft, so it is reset only when the URL changes from OUTSIDE it (Back/forward, a pasted
   // or followed link): `shown` is the key its own Show button just wrote, consumed by the change that follows.
@@ -134,7 +123,7 @@ export default function ReportDeepDive() {
             <Tabs
               value={view}
               keepMounted
-              onChange={(next) => setParams(applyDeepDiveView(params, next === "burnup" ? "burnup" : "matrix"), { replace: true })}
+              onChange={(next) => setView(next === "burnup" ? "burnup" : "matrix")}
             >
               <Tabs.List aria-label={t("reports.deepDive.viewAria")}>
                 <Tabs.Tab value="matrix">{t("reports.deepDive.tab.matrix")}</Tabs.Tab>
@@ -187,7 +176,7 @@ export default function ReportDeepDive() {
             // The same selection again is not a new history entry.
             if (key === selectionKey) return;
             setShown(key);
-            setParams(applyDeepDiveSelection(params, next));
+            applySelection(next);
           }}
         />
       )}

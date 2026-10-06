@@ -2,12 +2,9 @@ import type { CSSProperties } from "react";
 import type { TFunction } from "i18next";
 import { CHART_COLORS, DEEP_DIVE_FILL_ALPHA } from "./chartColors";
 import { addDays } from "./isoDate";
-import {
-  type MatrixCell,
-  type MatrixEpic,
-  type MatrixRow,
-  type TimeColumn,
-} from "./deepDiveMatrix";
+import { type MatrixCell, type MatrixRow } from "./deepDiveAggregate";
+import { type TimeColumn } from "./deepDiveCalendar";
+import { type MatrixEpic } from "./deepDiveMatrix";
 import { formatFigure } from "./reportFormat";
 
 /** Which of the matrix's layers are drawn (execution carries the ◆ done marker and its EV figure). */
