@@ -5,6 +5,7 @@ import ch.nokillswit.infra.db.insertRows
 import org.jetbrains.exposed.v1.core.Table
 import ch.nokillswit.infra.json.stringArrayJson
 import ch.nokillswit.metrics.MetricsTables
+import ch.nokillswit.norm.WorkItemStore
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.core.ResultRow
@@ -170,6 +171,73 @@ class MultiRowInsertTest {
             assertEquals(expected, read(viaRows))
         } finally {
             cleanUp(listOf(viaBatch, viaRows))
+        }
+    }
+
+    @Test
+    fun `norm field_changes rows - NULLs in each nullable column and a long TEXT field - equal batchInsert's`() = runBlocking {
+        data class Change(
+            val issueId: Long,
+            val seq: Int,
+            val field: String,
+            val changedAt: Long,
+            val fromValue: String?,
+            val fromText: String?,
+            val toValue: String?,
+            val toText: String?,
+            val fieldId: String?,
+        )
+        val viaBatch = connection()
+        val viaRows = connection()
+        val table = WorkItemStore.FieldChanges
+        // `field` is TEXT (V19): a 5,000-character display name must round-trip; the middle rows null each nullable column in turn.
+        val rows = listOf(
+            Change(1, 1, "Status", 1_000, "10000", "To Do", "10001", "In Progress", "status"),
+            Change(1, 2, "L".repeat(5_000), 2_000, null, null, null, null, null),
+            Change(2, 1, "Start date", 3_000, null, "2024-01-01", "x".repeat(3_000), null, "customfield_10015"),
+            Change(2, 2, "Assignee", 4_000, "a", null, null, "b", null),
+            Change(3, 1, "Résumé — \u00e9\u4e2d", 5_000, "", "", "", "", "customfield_${"9".repeat(80)}"),
+        )
+        try {
+            suspendTransaction(sharedDatabaseForTests()) {
+                table.batchInsert(rows, shouldReturnGeneratedValues = false) {
+                    this[table.connectionId] = viaBatch
+                    this[table.issueId] = it.issueId
+                    this[table.seq] = it.seq
+                    this[table.field] = it.field
+                    this[table.changedAt] = it.changedAt
+                    this[table.fromValue] = it.fromValue
+                    this[table.fromText] = it.fromText
+                    this[table.toValue] = it.toValue
+                    this[table.toText] = it.toText
+                    this[table.fieldId] = it.fieldId
+                }
+                table.insertRows(rows) {
+                    this[table.connectionId] = viaRows
+                    this[table.issueId] = it.issueId
+                    this[table.seq] = it.seq
+                    this[table.field] = it.field
+                    this[table.changedAt] = it.changedAt
+                    this[table.fromValue] = it.fromValue
+                    this[table.fromText] = it.fromText
+                    this[table.toValue] = it.toValue
+                    this[table.toText] = it.toText
+                    this[table.fieldId] = it.fieldId
+                }
+            }
+            suspend fun read(connId: UInt) = suspendTransaction(sharedDatabaseForTests()) {
+                table.selectAll().where { table.connectionId eq connId }
+                    .orderBy(table.issueId to SortOrder.ASC, table.seq to SortOrder.ASC).toList()
+                    .map { row -> table.columns.filter { it != table.id && it != table.connectionId }.map { row[it] } }
+            }
+            val expected = read(viaBatch)
+            assertEquals(rows.size, expected.size)
+            assertEquals(rows.map { it.field }, expected.map { it[2] }, "the reference write must round-trip the long TEXT field")
+            assertEquals(expected, read(viaRows), "insertRows must store the same rows (every non-id column) as batchInsert")
+        } finally {
+            suspendTransaction(sharedDatabaseForTests()) {
+                for (connId in listOf(viaBatch, viaRows)) table.deleteWhere { table.connectionId eq connId }
+            }
         }
     }
 

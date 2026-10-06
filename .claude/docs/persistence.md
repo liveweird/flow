@@ -404,7 +404,7 @@ the tiling invariants and stream mechanics — this section is the schema/persis
 to 50 issues (plan §8 step 5; `replaceWorkItem` is the one-issue call of the same code — the fallback
 path and the fixtures): delete `norm.work_item_status_intervals`/`_field_intervals`/`_field_changes`/
 `_worklogs` for the page's `(connection_id, issue_id IN (…))`, insert the freshly tiled rows (one
-`batchInsert` per table, `shouldReturnGeneratedValues = false` — nothing reads the serial ids back;
+`insertRows` call per table — `infra/db/MultiRowInsert.kt`, one multi-row `INSERT … VALUES` per chunk, generated serial ids never returned, `build-times.md` WHY 3 follow-up;
 `work_item_field_changes.seq` stays 1-based PER ISSUE), then `batchUpsert` `norm.work_items` on its
 PK (`ON CONFLICT (connection_id, issue_id) DO UPDATE` — every non-key column is written either way,
 the same row the old select-then-insert/update produced) — all inside the SAME transaction
