@@ -1,7 +1,7 @@
 # Audit status
 
 Flow's first checkup, 2026-09-30, run on `bef0e74` (v0.3.0 + PR #32) and fixed the same night;
-this record is current as of master `0c19481` (PR #49). It is the starting point for the next
+this record is current as of master `53c4d10` (PR #74), 2026-10-06. It is the starting point for the next
 checkup: what was audited, what was fixed, what is still open, what is parked. Use the linked
 docs for current behavior; the findings' original `path:line` evidence is in the PR descriptions.
 
@@ -49,11 +49,16 @@ web ~3 min to ~1-2 min (latest 1m09s, in budget); `images` 4m00s is over its ala
 
 ## In flight
 
-- [#51](https://github.com/liveweird/flow/pull/51) D1: two parallel forks on CI, migrations at
-  container start, CI timeout 25 min. Open at the time of writing; check `gh pr view 51`.
-- Branch `fix/live-check-findings` (no PR yet): an unknown `/api/*` returns `404` `problem+json`
-  instead of the SPA's 200 HTML; a `derive_runs` row left RUNNING after SIGKILL; Flyway connect
-  retries (a cold-start crash-loop had none).
+Nothing from the checkup itself: #51 (parallel forks, D1) and the live-check findings (#53) are merged. Other work
+open on 2026-10-06 (`gh pr list -R liveweird/flow --state open`):
+
+- [#75](https://github.com/liveweird/flow/pull/75) draft: report cache validators (ETag/304) and an atomic DERIVE
+  success mark; waits for the user's cache-posture sign-off.
+- [#76](https://github.com/liveweird/flow/pull/76): per-domain status-to-stage overrides (editor UI and DERIVE).
+- Branch `fix/sync-history-refresh`: the Details page's sync-jobs history auto-refreshes while a job is open.
+- Branch `fix/process-reference-lengths` (in progress): PROCESS reference rows (statuses, people, boards, sprints)
+  that overflow their `varchar` columns no longer fail a whole run (BACKLOG).
+- Dependabot #12, #47, #64-#67 are held under the dependency rule.
 
 ## Still open (the next session)
 

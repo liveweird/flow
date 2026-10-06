@@ -431,6 +431,36 @@ describe("DataSourceDetails page", () => {
     expect(jobsCalls).toBe(3);
   });
 
+  test("a PENDING history row under an idle summary is followed to Running and Succeeded, then polling stops", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    let jobsCalls = 0;
+    mockFetch.mockImplementation((url: string, init?: RequestInit) => {
+      const method = init?.method ?? "GET";
+      if (method === "GET" && url === "/api/v1/data-sources/1/status") return Promise.resolve(jsonResponse(200, statusWith(null)));
+      if (method === "GET" && url.startsWith("/api/v1/data-sources/1/sync-jobs?")) {
+        jobsCalls += 1;
+        const status = jobsCalls < 2 ? "PENDING" : jobsCalls < 3 ? "RUNNING" : "SUCCEEDED";
+        return Promise.resolve(jsonResponse(200, { ...JOBS_PAGE, items: [{ ...RUNNING_JOB, status }] }));
+      }
+      return Promise.resolve(jsonResponse(404, { title: "Not Found", status: 404 }));
+    });
+
+    renderPage();
+    const history = await screen.findByRole("table", { name: "Sync jobs" });
+    expect(await within(history).findByText("Pending")).toBeInTheDocument();
+
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(await within(history).findByText("Running")).toBeInTheDocument();
+
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(await within(history).findByText("Succeeded")).toBeInTheDocument();
+    expect(jobsCalls).toBe(3);
+
+    // No visible row is open any more: the history stops polling.
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(jobsCalls).toBe(3);
+  });
+
   test("a sync-jobs list load failure renders the jobs error alert (the connection summary still loads)", async () => {
     mockFetch.mockImplementation((url: string, init?: RequestInit) => {
       const method = init?.method ?? "GET";

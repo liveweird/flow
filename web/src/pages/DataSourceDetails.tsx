@@ -174,8 +174,9 @@ export default function DataSourceDetails() {
     enabled: idIsValid && admin,
     refetchInterval: (query) => (isOpen(query.state.data?.currentJob?.status) ? AUTO_REFRESH_MS : false),
   });
-  // The history polls on the SAME condition as the summary (a job is open), so a row never keeps saying
-  // Running after the job finished.
+  // The history polls whenever the summary does (a job is RUNNING — the server's `currentJob` is the running job
+  // only) AND while any visible history row is still open, so a PENDING row (just requested, or released back to
+  // the queue) is followed to Running and on to its terminal state.
   const jobOpen = isOpen(status.data?.currentJob?.status);
 
   const [jobKind, setJobKind] = useState<SyncJobKind | null>(null);
@@ -188,7 +189,8 @@ export default function DataSourceDetails() {
     queryFn: () => listSyncJobs(id, { page: jobsPage, pageSize: jobsPageSize, kind: jobKind ?? undefined, status: jobStatus ?? undefined }),
     placeholderData: keepPreviousData,
     enabled: idIsValid && admin,
-    refetchInterval: jobOpen ? AUTO_REFRESH_MS : false,
+    refetchInterval: (query) =>
+      jobOpen || query.state.data?.items.some((job) => isOpen(job.status)) ? AUTO_REFRESH_MS : false,
   });
   // One last refetch when the open job finishes: the interval stops the moment the summary reports no open job,
   // and the tick that raced it may have read the history before the job's terminal state landed.
