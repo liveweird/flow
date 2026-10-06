@@ -448,7 +448,7 @@ export interface paths {
         };
         /**
          * List a team's dated Jira-user memberships (D1)
-         * @description Any authenticated user (the team-reads posture). Most recent `validFrom` first.
+         * @description Any authenticated user (the team-reads posture). Most recent `validFrom` first. Deliberately NOT paged (a plain `{items}`, no `page`/`pageSize`/`total`): it returns one row per dated membership interval of this ONE team, an admin-curated roster that grows only by hand-entered intervals (a Jira account never overlaps itself, so rows are bounded by the team's roster times its own membership changes), not by synced data.
          */
         get: operations["listTeamJiraMemberships"];
         put?: never;
@@ -2299,7 +2299,10 @@ export interface components {
         MetricsSprintCapacity: {
             /** Format: int64 */
             sprintId: number;
-            /** Format: double */
+            /**
+             * Format: double
+             * @description Man-days, at most two decimals (`NUMERIC(8, 2)`).
+             */
             capacityMd: number;
         };
         DataSourceMetricsConfig: {
@@ -2399,6 +2402,7 @@ export interface components {
             hoursPerDay: number;
             timeZone: string;
             weekendDays: number[];
+            /** @description ISO dates (YYYY-MM-DD); duplicates collapse. */
             holidays: string[];
             commitmentGraceMinutes: number;
             minSampleSize: number;
@@ -2635,7 +2639,10 @@ export interface components {
         };
         /** @description One time bucket of the PERIOD view (tasks by `done_at`, priced at done). */
         ThroughputBucketRow: {
-            /** @description The bucket's first day, ISO date (a Monday for weeks, the 1st for months). */
+            /**
+             * Format: date
+             * @description The bucket's first day, ISO date (a Monday for weeks, the 1st for months).
+             */
             bucketStart: string;
             /** Format: double */
             deliveredMd: number;
@@ -2868,7 +2875,10 @@ export interface components {
         };
         /** @description One bucket of the trend: the working-day cycle time of tasks done in the bucket. `p50`/`p90` are null when `n` is below `minSampleSize` (an empty bucket has `n` 0). */
         CycleTimeTrendBucket: {
-            /** @description The bucket's first day, ISO date (a Monday for weeks, the 1st for months). */
+            /**
+             * Format: date
+             * @description The bucket's first day, ISO date (a Monday for weeks, the 1st for months).
+             */
             bucketStart: string;
             /** Format: double */
             p50: number | null;
@@ -2923,7 +2933,10 @@ export interface components {
         };
         /** @description One calendar day of a WIP series; `counts` carries EVERY key of the report's `keys` (zero-filled). */
         WipPoint: {
-            /** @description ISO date in the configured zone. */
+            /**
+             * Format: date
+             * @description ISO date in the configured zone.
+             */
             day: string;
             /** @description Whether the day is a working day of the configured calendar (weekends and holidays are not). */
             isWorkingDay: boolean;
@@ -2953,7 +2966,10 @@ export interface components {
         };
         /** @description The estimated backlog at the END of one calendar day. */
         BacklogTrendPoint: {
-            /** @description ISO date in the configured zone. */
+            /**
+             * Format: date
+             * @description ISO date in the configured zone.
+             */
             day: string;
             items: number;
             /**
@@ -2964,7 +2980,10 @@ export interface components {
         };
         /** @description The backlog on the last listed day, and report 13's backlog in sprints. */
         BacklogCurrent: {
-            /** @description The day the snapshot is read for (the trend's last day); null when the trend is empty. */
+            /**
+             * Format: date
+             * @description The day the snapshot is read for (the trend's last day); null when the trend is empty.
+             */
             asOfDay?: string | null;
             items: number;
             /** Format: double */
@@ -3117,7 +3136,10 @@ export interface components {
         };
         /** @description One calendar day of the series (configured zone) — CUMULATIVE values at the end of the day. */
         EpicProgressPoint: {
-            /** @description ISO date (YYYY-MM-DD). */
+            /**
+             * Format: date
+             * @description ISO date (YYYY-MM-DD).
+             */
             date: string;
             /**
              * Format: double
@@ -3142,7 +3164,10 @@ export interface components {
         };
         /** @description The figures at `day`, man-days at two decimals. */
         EpicProgressAsOf: {
-            /** @description ISO date the figures are read at; null when there is nothing to read. */
+            /**
+             * Format: date
+             * @description ISO date the figures are read at; null when there is nothing to read.
+             */
             day: string | null;
             /** Format: double */
             pv: number;

@@ -107,7 +107,11 @@ computed by `MetricsConfigService.replaceConfig`/`.referenceData`; the editor's 
   never validated against a field the request doesn't itself choose; submitting `workCategories`
   while `fields.workCategory` is `null` is itself a `400`.
 - `sprintCapacities[].sprintId` → `norm.sprints` (`WorkItemStore.allSprintRefs`); `capacityMd` must
-  be `>= 0`.
+  be finite, `0..999999.99` with at most two decimals (the `NUMERIC(8, 2)` column — Postgres would round the rest silently).
+- **Column widths** (`validateColumnBounds`, run first; the over-long value would be a 500): `domains[].domainKey` and a
+  `domainStatusStages[].domainKey` at most 50 characters, `domains[].domainName` and `workCategories[].category` at most 100 —
+  the same constants (`DOMAIN_KEY_MAX_LENGTH`, ...) size the Exposed tables, and the strings are trimmed first
+  (`sanitizedDataSourceMetricsConfig`, control characters a `400`). `activityType`/`valueId`/`valueName` are TEXT (V19), unbounded.
 
 **A repeated key WITHIN one array of the SAME request** (two `statusStages` entries naming the same
 `statusId`, two `domains` entries naming the same `projectKey`, and so on for every list-shaped

@@ -22,7 +22,11 @@ import { CONTENT_MAX_WIDTH } from "../utils/layout";
 import {
   buildInitialState,
   buildRequest,
+  CAPACITY_MD_MAX,
+  CATEGORY_MAX_LENGTH,
   changedBoardIds,
+  DOMAIN_KEY_MAX_LENGTH,
+  DOMAIN_NAME_MAX_LENGTH,
   mergeWorkCategoryValues,
   METRICS_STAGES,
   setDomainKeyForProject,
@@ -149,12 +153,14 @@ function DomainsTab({
         type: "text",
         ariaLabel: t("metrics.config.domains.domainKeyAria", { project: row.projectKey }),
         value: row.domainKey,
+        maxLength: DOMAIN_KEY_MAX_LENGTH,
         onChange: (value) => onChange(setDomainKeyForProject(domains, row.projectKey, value)),
       },
       {
         type: "text",
         ariaLabel: t("metrics.config.domains.domainNameAria", { project: row.projectKey }),
         value: row.domainName,
+        maxLength: DOMAIN_NAME_MAX_LENGTH,
         onChange: (value) => onChange(domains.map((d) => (d.projectKey === row.projectKey ? { ...d, domainName: value } : d))),
       },
       {
@@ -282,6 +288,7 @@ function WorkCategoriesTab({
         type: "text",
         ariaLabel: t("metrics.config.workCategories.categoryAria", { value: row.valueName ?? row.valueId }),
         value: row.category,
+        maxLength: CATEGORY_MAX_LENGTH,
         onChange: (value) =>
           onChange(workCategories.map((w) => (w.valueId === row.valueId ? { ...w, category: value } : w))),
       },
@@ -334,6 +341,8 @@ function CapacitiesTab({
             aria-label={t("metrics.config.capacities.capacityAria", { sprint: row.name })}
             placeholder={t("metrics.config.capacities.columnCapacity")}
             min={0}
+            max={CAPACITY_MD_MAX}
+            decimalScale={2}
             value={row.capacityMd === "" ? "" : Number(row.capacityMd)}
             onChange={(value) =>
               onChange(
@@ -462,6 +471,7 @@ export default function DataSourceMetricsConfig() {
         message={notFound ? t("dataSources.notFound") : t("metrics.config.loadFailedGeneric")}
         backTo={dataSourcePath(id)}
         backLabel={t("dataSources.details.backToDetails")}
+        title={t("metrics.config.title")}
       />
     );
   }

@@ -76,7 +76,7 @@ class MetricsConfigService(
     object StatusStageMap : Table("metrics.status_stage_map") {
         val connectionId = reference("connection_id", DataSourceService.Connections)
         val statusId = varchar("status_id", 50)
-        val domainKey = varchar("domain_key", 50).default("")
+        val domainKey = varchar("domain_key", DOMAIN_KEY_MAX_LENGTH).default("")
         val stage = varchar("stage", 20)
         override val primaryKey = PrimaryKey(connectionId, statusId, domainKey)
     }
@@ -91,8 +91,8 @@ class MetricsConfigService(
     object DomainMap : Table("metrics.domain_map") {
         val connectionId = reference("connection_id", DataSourceService.Connections)
         val projectKey = varchar("project_key", 20)
-        val domainKey = varchar("domain_key", 50)
-        val domainName = varchar("domain_name", 100)
+        val domainKey = varchar("domain_key", DOMAIN_KEY_MAX_LENGTH)
+        val domainName = varchar("domain_name", DOMAIN_NAME_MAX_LENGTH)
         /** A19 (V17, commit 9d) — an explicitly configured owner team for this project; not yet
          * writable through the request/response DTO (the config API/UI for it is the NEXT commit),
          * so [replaceConfig] preserves whatever value is already stored across its own full-replace. */
@@ -110,7 +110,7 @@ class MetricsConfigService(
     object TeamSprintCapacity : Table("metrics.team_sprint_capacity") {
         val connectionId = reference("connection_id", DataSourceService.Connections)
         val sprintId = long("sprint_id")
-        val capacityMd = decimal("capacity_md", precision = 8, scale = 2)
+        val capacityMd = decimal("capacity_md", precision = 8, scale = CAPACITY_MD_SCALE)
         override val primaryKey = PrimaryKey(connectionId, sprintId)
     }
 
@@ -125,7 +125,7 @@ class MetricsConfigService(
         val connectionId = reference("connection_id", DataSourceService.Connections)
         val valueId = text("value_id")
         val valueName = text("value_name").nullable()
-        val category = varchar("category", 100)
+        val category = varchar("category", WORK_CATEGORY_MAX_LENGTH)
         override val primaryKey = PrimaryKey(connectionId, valueId)
     }
 

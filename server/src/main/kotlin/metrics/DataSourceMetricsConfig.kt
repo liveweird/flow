@@ -4,6 +4,21 @@ import ch.nokillswit.infra.validation.sanitizeSingleLine
 import ch.nokillswit.norm.StatusCategory
 import io.ktor.server.plugins.BadRequestException
 import kotlinx.serialization.Serializable
+import java.math.BigDecimal
+
+/**
+ * The widths of the bounded `metrics.*` columns a client-supplied string lands in (`V15`) — one source for the
+ * validator AND `MetricsConfigService`'s Exposed tables, so the 400 bound can never drift from the column.
+ * `status_id`/`field_id`/`project_key` are validated against reference data (already bounded); `activity_type`,
+ * `value_id` and `value_name` are TEXT since V19.
+ */
+internal const val DOMAIN_KEY_MAX_LENGTH = 50
+internal const val DOMAIN_NAME_MAX_LENGTH = 100
+internal const val WORK_CATEGORY_MAX_LENGTH = 100
+
+/** `metrics.team_sprint_capacity.capacity_md` is `NUMERIC(8, 2)`: at most six integer digits and two decimals. */
+internal const val CAPACITY_MD_MAX = 999_999.99
+internal const val CAPACITY_MD_SCALE = 2
 
 /** Matches `V15__create_metrics_config.sql`'s `status_stage_map.stage` CHECK. */
 @Serializable
@@ -128,15 +143,22 @@ internal fun DataSourceMetricsConfigRequest.canonicalized(): DataSourceMetricsCo
 )
 
 /**
- * Trims free-text names (the sanitizer convention — control characters are a 400): the domain and work-category
- * display names and the user-entered activity type. A mapping's `issueType`/`valueId` are NOT touched — they are
- * Jira's own values, matched verbatim against the connection's reference data.
+ * Trims free-text names (the sanitizer convention — control characters are a 400): the domain key and display
+ * name (a `domainStatusStages` override's `domainKey` too — it must keep matching a `domains[].domainKey`), the
+ * work-category label and the user-entered activity type. A mapping's `issueType`/`valueId` are NOT touched —
+ * they are Jira's own values, matched verbatim against the connection's reference data.
  */
 fun sanitizedDataSourceMetricsConfig(request: DataSourceMetricsConfigRequest): DataSourceMetricsConfigRequest = request.copy(
     activityTypes = request.activityTypes.map { it.copy(activityType = sanitizeSingleLine(it.activityType, "activityType")) },
-    domains = request.domains.map { it.copy(domainName = sanitizeSingleLine(it.domainName, "domainName")) },
+    domainStatusStages = request.domainStatusStages.map { it.copy(domainKey = sanitizeSingleLine(it.domainKey, "domainKey")) },
+    domains = request.domains.map {
+        it.copy(domainKey = sanitizeSingleLine(it.domainKey, "domainKey"), domainName = sanitizeSingleLine(it.domainName, "domainName"))
+    },
     workCategories = request.workCategories.map {
-        it.copy(valueName = it.valueName?.let { name -> sanitizeSingleLine(name, "valueName") })
+        it.copy(
+            valueName = it.valueName?.let { name -> sanitizeSingleLine(name, "valueName") },
+            category = sanitizeSingleLine(it.category, "category"),
+        )
     },
 )
 
@@ -169,6 +191,7 @@ data class MetricsConfigReferenceData(
  * `uq_metrics_board_team_map_team_id` constraint (already wired in `plugins/ErrorHandling.kt`).
  */
 fun validateDataSourceMetricsConfig(request: DataSourceMetricsConfigRequest, ref: MetricsConfigReferenceData) {
+    validateColumnBounds(request)
     requireNoDuplicateKeys(request.statusStages.map { it.statusId }, "statusId in statusStages")
     requireNoDuplicateKeys(request.domainStatusStages.map { it.domainKey to it.statusId }, "(domainKey, statusId) in domainStatusStages")
     requireNoDuplicateKeys(request.domains.map { it.projectKey }, "projectKey in domains")
@@ -210,8 +233,35 @@ fun validateDataSourceMetricsConfig(request: DataSourceMetricsConfigRequest, ref
     }
     request.sprintCapacities.forEach { capacity ->
         if (capacity.sprintId !in ref.sprintIds) throw BadRequestException("Unknown sprint id: ${capacity.sprintId}")
-        if (capacity.capacityMd < 0) throw BadRequestException("capacityMd must be >= 0")
     }
+}
+
+/**
+ * The shape bounds the database would otherwise answer with a 500 (an over-long `varchar` or a `NUMERIC(8, 2)`
+ * overflow): checked FIRST, against the (already sanitized) strings. `capacityMd` also rejects more than two
+ * decimals — Postgres would silently round them, and a re-PUT of the rounded-away value would never compare equal
+ * to what is stored (a spurious revision bump).
+ */
+private fun validateColumnBounds(request: DataSourceMetricsConfigRequest) {
+    request.domains.forEach { domain ->
+        // Blank is reserved: the empty key means "every domain" in domainStatusStages.
+        if (domain.domainKey.isBlank()) throw BadRequestException("domainKey must not be blank")
+        requireMaxLength(domain.domainKey, DOMAIN_KEY_MAX_LENGTH, "domainKey")
+        requireMaxLength(domain.domainName, DOMAIN_NAME_MAX_LENGTH, "domainName")
+    }
+    request.domainStatusStages.forEach { requireMaxLength(it.domainKey, DOMAIN_KEY_MAX_LENGTH, "domainKey") }
+    request.workCategories.forEach { requireMaxLength(it.category, WORK_CATEGORY_MAX_LENGTH, "category") }
+    request.sprintCapacities.forEach { capacity ->
+        val md = capacity.capacityMd
+        if (!md.isFinite() || md < 0 || md > CAPACITY_MD_MAX) throw BadRequestException("capacityMd must be between 0 and $CAPACITY_MD_MAX")
+        if (BigDecimal.valueOf(md).stripTrailingZeros().scale() > CAPACITY_MD_SCALE) {
+            throw BadRequestException("capacityMd must have at most $CAPACITY_MD_SCALE decimal places")
+        }
+    }
+}
+
+private fun requireMaxLength(value: String, max: Int, field: String) {
+    if (value.length > max) throw BadRequestException("$field must be at most $max characters")
 }
 
 /**

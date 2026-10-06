@@ -748,6 +748,14 @@ evidence and recorded here as a dated entry (finding + fix, or "measured, intend
    lockout, proxy trust) seeds real accounts — an unknown email costs a cost-12 bcrypt verify per attempt; a
    test that calls `IngestWorker.tick()` wraps it in the queue fence.
 
+12. **The `web` job +42 % since checkup 1 (1m09s → 1m51s–2m19s on master) — ANSWERED 2026-10-06 (checkup 2): the code grew, the job didn't regress.**
+   Between the 09-26 runs (60-80 s) and master 184495a, `web/src` grew from 9.9k to 42.3k lines (×4.3: the v0.3.0 report
+   pages and the 0.4.0 Deep dive) and from 42 to 124 test files (×3). Step for step (09-26 → 10-06, `gh run view`):
+   `npm run lint` 6-8 s → 19-24 s, `test:coverage` 22-37 s → 53-72 s, `build` 5-7 s → 9-13 s; `npm ci`, the API check and knip
+   unchanged. The job grows slower than the code (×1.8 for ×4.3), so nothing per-file got worse; the 1m09s at checkup 1 was a
+   fast-runner sample. Checkup 2 adds the shuffled vitest run (~10 s on CI). No budget change: the job sits inside its
+   3-min alarm; the next lever, if it nears it, is an eslint cache (`--cache` + `actions/cache`), since lint grew fastest.
+
 **What the suite is made of (local, pre-fix run, 782 tests, 12m30s of class time):**
 `MetricsDerivationTest` 5m55s (47 %), `MetricsDigestTest` 2m00s (16 %), `NormalizationPipelineTest`
 1m16s, `ReportDataQualityTest` 47 s, `DataProfileTest` 35 s — 24 tests over 5 s account for 87 % of

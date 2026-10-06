@@ -132,7 +132,9 @@ async function collect(workflow) {
 
   // Non-success runs: find timed-out jobs (a job stopped right at a timeout-minutes value).
   const timeouts = workflowTimeouts(workflow);
-  const finished = others.filter((r) => r.status === "completed");
+  // A cancelled run is a concurrency cancellation (a newer push superseded it), never a timeout:
+  // a job that hits timeout-minutes ends its run as a failure, so cancelled runs are skipped.
+  const finished = others.filter((r) => r.status === "completed" && r.conclusion !== "cancelled");
   const otherJobs = await pool(finished, 8, jobsOf);
   finished.forEach((run, i) => {
     run.timedOut = otherJobs[i]

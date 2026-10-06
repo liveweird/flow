@@ -86,12 +86,14 @@ export default defineConfig({
       // (2026-09-26: measured after trimming the donor app's domain features down to Flow's —
       // actuals lines 96.90 / statements 94.09 / functions 90.30 / branches 89.58.
       // 2026-09-27, v0.2.0 with the data-source pages and their tests: lines 97.71 /
-      // statements 95.11 / functions 92.15 / branches 90.23.)
+      // statements 95.11 / functions 92.15 / branches 90.23.
+      // 2026-10-06, v0.4.0 + checkup 2: lines 98.75 / statements 97.23 / functions 95.71 /
+      // branches 93.73.)
       thresholds: {
-        lines: 97,
-        statements: 94,
-        functions: 91,
-        branches: 89,
+        lines: 98,
+        statements: 97,
+        functions: 95,
+        branches: 93,
       },
     },
   },

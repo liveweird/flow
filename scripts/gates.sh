@@ -35,7 +35,7 @@ server_build() {
 
 web_gates() {
   "${record[@]}" web-gates -- bash -c \
-    'cd "$1/web" && npm run lint:api && npm run check:api && npm run lint && npm run knip && npm run test:coverage && npm run build' \
+    'cd "$1/web" && npm run lint:api && npm run check:api && npm run lint && npm run knip && npm run test:coverage && npx vitest run --sequence.shuffle && npm run build' \
     _ "$root"
 }
 
