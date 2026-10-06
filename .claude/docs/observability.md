@@ -15,6 +15,25 @@ config tier) **on purpose**, so the sink can be redirected to a collector by env
 code change — set `OTEL_LOGS_EXPORTER=otlp` + `OTEL_EXPORTER_OTLP_ENDPOINT` (the
 `opentelemetry-exporter-otlp` dep is already on the classpath); `OTEL_TRACES_EXPORTER` likewise.
 Metrics and traces exporters default to `none` (`otel.metrics.exporter`/`otel.traces.exporter`).
+**Shutdown ordering (the SDK closes LAST).** JVM shutdown hooks run concurrently and unordered. The
+OpenTelemetry autoconfigure SDK registers its own hook (flush + close the logs pipeline) and Ktor's
+`start(wait = true)` registers another (it fires `ApplicationStopping`, where the ingest worker releases its
+leases and audits `sync_job.released`); with both live, the SDK often closed first and every audit line
+emitted during Ktor's stop was silently dropped (the DB release still happened — only the log line
+vanished). So `getOpenTelemetry` (`core`) calls `disableShutdownHook()` and `configureOpenTelemetry`
+registers `TelemetryShutdown`'s hook instead: it waits (bounded, 20 s) for `ApplicationStopped` — the end of
+Ktor's stop — and only then closes the SDK. Ktor raises an event's handlers in subscription order, so the
+latch handler is subscribed from inside the `ApplicationStarted` handler (after every module has subscribed its
+own `ApplicationStopped` work — the pool dispose, the Jira client close) and therefore runs last. The 20 s sits
+in a budget: Ktor grace + timeout + the worker join ≈ 11 s by default, and 20 s + the SDK's ≤10 s `close()`
+fits the Kubernetes default `terminationGracePeriodSeconds` (30 s) — raising Ktor's shutdown timeout or
+lowering the pod's grace must revisit `STOP_WAIT_SECONDS`; if the application never finished starting (a boot failure)
+there is no Ktor stop to wait for and it flushes at once, so the failure's own lines still export. Anything
+that must log during a stop belongs in an `ApplicationStopping`/`ApplicationStopped` handler, never in its
+own JVM hook (it would race the SDK again). Pinned by `ShutdownAuditTest`: a forked child JVM (a real Netty
+server + the real `configureOpenTelemetry`) gets `kill -TERM` and its stdout must hold the line its
+`ApplicationStopping` handler audited (not `Process.destroy()`, which closes the child's pipes first).
+
 **Convention for non-fatal "this should never happen" events:** emit a WARN with the
 `SHOULD_NEVER_HAPPEN` marker (`MarkerFactory.getMarker`) plus key/value attributes — they flow
 through the appender to OTel. Reserve it for branches that are genuinely unreachable by ordinary

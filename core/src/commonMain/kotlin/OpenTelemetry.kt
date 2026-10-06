@@ -1,11 +1,18 @@
 package ch.nokillswit
 
-import io.opentelemetry.api.OpenTelemetry
+import io.opentelemetry.sdk.OpenTelemetrySdk
 import io.opentelemetry.sdk.autoconfigure.AutoConfiguredOpenTelemetrySdk
 import io.opentelemetry.semconv.ServiceAttributes
 
-fun getOpenTelemetry(serviceName: String): OpenTelemetry =
+/**
+ * The SDK is returned concrete so its OWNER closes it: the autoconfigure builder's own JVM shutdown
+ * hook is disabled, because it runs concurrently with Ktor's stop hook and closed the logs pipeline
+ * while `ApplicationStopping` handlers were still auditing — those lines were silently dropped
+ * (`server`'s `plugins/OpenTelemetry.kt` closes it AFTER the application has stopped).
+ */
+fun getOpenTelemetry(serviceName: String): OpenTelemetrySdk =
     AutoConfiguredOpenTelemetrySdk.builder()
+        .disableShutdownHook()
         // Defaults via addPropertiesSupplier (lowest precedence) so OTEL_* env vars can override —
         // e.g. flip OTEL_LOGS_EXPORTER=otlp later to ship logs to a collector with no code change.
         .addPropertiesSupplier {
