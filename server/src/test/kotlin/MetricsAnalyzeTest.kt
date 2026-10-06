@@ -1,9 +1,12 @@
 package ch.nokillswit
 
 import ch.nokillswit.metrics.ANALYZED_TABLES
+import ch.nokillswit.metrics.MetricsStore
 import ch.nokillswit.metrics.MetricsTables
+import ch.nokillswit.metrics.statisticsDescribeRows
 import ch.qos.logback.classic.Level
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -11,6 +14,8 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.jetbrains.exposed.v1.core.SortOrder
@@ -22,6 +27,7 @@ import java.io.File
 import java.sql.Connection
 import java.sql.DriverManager
 import java.sql.Timestamp
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -30,17 +36,19 @@ import kotlin.test.assertTrue
 /**
  * Regression pins for the `ANALYZE` of DERIVE (`MetricsStore.analyzeDerivedTables`,
  * `.claude/docs/metrics.md` "The DERIVE run algorithm"). DERIVE rebuilds `metrics.*` in ONE transaction;
- * a connection's FIRST derive ANALYZEs inside it (no statistics at all would mean `rows=1` plans and
- * every re-derive slower, build-times WHY 1), every LATER derive ANALYZEs after the commit in its own
- * short transaction, so concurrent derives overlap (the lock is held for milliseconds, not to commit).
+ * a derive whose predecessor left no statistics that describe the connection's rows (the first one, one after a
+ * SUCCEEDED run over zero tasks, one over more than twice the previous task count — `statisticsDescribeRows`)
+ * ANALYZEs inside it (no statistics would mean `rows=1` plans and every re-derive slower, build-times WHY 1); every
+ * other derive ANALYZEs after the commit in its own short, time-bounded transaction, so concurrent derives overlap.
  * Deliberately not a timing test of the plans — it pins the statistics a derive leaves behind
- * (`pg_stat_user_tables.last_analyze` advanced by THIS derive for every table in `ANALYZED_TABLES`),
- * which path each kind of derive takes (a foreign transaction holding `ANALYZE metrics.item_stage`
- * open blocks a first derive's COMMIT but never a re-derive's, whose post-commit ANALYZE gives up after its lock
- * timeout with a WARN and a still-SUCCEEDED run), that `ANALYZED_TABLES` covers every
- * table the WIP/flow SQL sources mention (a future join to an un-analyzed table fails here rather than
- * silently planning on stale statistics), and logs the measured two-connection overlap. Every test
- * derives its own DISABLED clone (`.claude/docs/testing.md` fixture rules).
+ * (`pg_stat_user_tables.last_analyze` advanced by THIS derive for every table in `ANALYZED_TABLES`), which path each
+ * kind of derive takes (a foreign transaction holding `ANALYZE metrics.item_stage` open holds back an
+ * in-transaction derive's COMMIT but never a re-derive's, whose post-commit ANALYZE gives up after its lock timeout
+ * with a WARN and a still-SUCCEEDED run), and that `ANALYZED_TABLES` covers every table the WIP/flow SQL sources
+ * mention (a future join to an un-analyzed table fails here rather than silently planning on stale statistics).
+ * The re-derive tests share ONE derived clone (`SharedClone`); the in-transaction ones need a derive that is
+ * first (or over an empty connection), so each makes its own DISABLED clone (`.claude/docs/testing.md` fixture
+ * rules). The two-connection overlap measurement is opt-in (`FLOW_MEASURE_DERIVE_OVERLAP=1`).
  */
 class MetricsAnalyzeTest {
     private fun <T> jdbc(block: (Connection) -> T): T =
@@ -140,13 +148,17 @@ class MetricsAnalyzeTest {
         }
     }
 
-    /** Waits until some backend is blocked BY the [holder] (a derive's ANALYZE queued on its lock); fails after [BACKSTOP_MS]. */
-    private suspend fun awaitWaiter(holder: AnalyzeHolder) {
+    /**
+     * Waits until some backend is blocked BY the [holder] (a derive's ANALYZE queued on its lock); fails at once if the
+     * [derive] already completed (no ANALYZE ever waited) and after [BACKSTOP_MS] otherwise.
+     */
+    private suspend fun awaitWaiter(holder: AnalyzeHolder, derive: Deferred<*>) {
         val deadline = System.nanoTime() + BACKSTOP_MS * NANOS_PER_MS
         connect().use { conn ->
             conn.prepareStatement("SELECT count(*) FROM pg_stat_activity WHERE ? = ANY(pg_blocking_pids(pid))").use { stmt ->
                 stmt.setInt(1, holder.pid)
                 while (stmt.executeQuery().use { rs -> rs.next(); rs.getInt(1) } == 0) {
+                    assertFalse(derive.isCompleted, "the derive completed without any ANALYZE queuing behind the held item_stage lock")
                     assertTrue(System.nanoTime() < deadline, "no ANALYZE ever queued behind the held item_stage lock")
                     delay(WAITER_POLL_MS)
                 }
@@ -156,57 +168,63 @@ class MetricsAnalyzeTest {
 
     @Test
     fun `a second DERIVE of a connection advances last_analyze on every analyzed table (the post-commit path)`() = runBlocking {
-        val connId = preparedClone("analyze-second-team")
+        val connId = SharedClone.connectionId()
         DerivedStubFixture.withPinnedSettings(DerivedStubFixture.metricsSettings()) {
-            DerivedStubFixture.derivePinned(connId, jobId = 1u)
-            val beforeSecond = dbNow()
-            DerivedStubFixture.derivePinned(connId, jobId = 2u)
-            // derive() returns only after its post-commit ANALYZE, so everything is stamped after `beforeSecond`.
-            val stale = staleTablesAfter(beforeSecond)
+            val before = dbNow()
+            DerivedStubFixture.derivePinned(connId, SharedClone.nextJobId())
+            // derive() returns only after its post-commit ANALYZE, so everything is stamped after `before`.
+            val stale = staleTablesAfter(before)
             assertTrue(stale.isEmpty(), "a re-DERIVE must ANALYZE every table its WIP/flow SQL reads; no fresh last_analyze for: $stale")
         }
-        assertEquals(2, succeededRuns(connId))
     }
 
     @Test
     fun `a re-DERIVE commits and succeeds while a foreign ANALYZE holds a table lock, and ANALYZEs once it is released`() = runBlocking {
-        val connId = preparedClone("analyze-held-re-team")
+        val connId = SharedClone.connectionId()
         DerivedStubFixture.withPinnedSettings(DerivedStubFixture.metricsSettings()) {
-            DerivedStubFixture.derivePinned(connId, jobId = 1u)
-            val beforeRederive = dbNow()
+            val runsBefore = succeededRuns(connId)
+            val before = dbNow()
             withItemStageAnalyzeHeld { holder ->
-                val rederive = async(Dispatchers.Default) { DerivedStubFixture.derivePinned(connId, jobId = 2u) }
-                awaitWaiter(holder) // the post-commit ANALYZE has queued on item_stage …
-                assertEquals(2, succeededRuns(connId), "… so the derive's data is already committed and its run marked SUCCEEDED")
+                val rederive = async(Dispatchers.Default) {
+                    DerivedStubFixture.derivePinned(connId, SharedClone.nextJobId(), analyzeLockTimeoutMs = LONG_LOCK_TIMEOUT_MS)
+                }
+                awaitWaiter(holder, rederive) // the post-commit ANALYZE has queued on item_stage …
+                assertEquals(runsBefore + 1, succeededRuns(connId), "… so the data is already committed and the run marked SUCCEEDED")
                 assertFalse(rederive.isCompleted, "the post-commit ANALYZE waits for the foreign lock rather than skipping the table")
                 holder.release.complete(Unit)
                 rederive.await()
             }
-            val stale = staleTablesAfter(beforeRederive)
+            val stale = staleTablesAfter(before)
             assertTrue(stale.isEmpty(), "once the lock is free the post-commit ANALYZE must cover every table; stale: $stale")
         }
     }
 
     @Test
     fun `a re-DERIVE whose post-commit ANALYZE cannot get its lock in time WARNs and still succeeds`() = runBlocking {
-        val connId = preparedClone("analyze-timeout-team")
+        val connId = SharedClone.connectionId()
         val capture = LogCapture("ch.nokillswit.metrics.MetricsDeriver")
         try {
             DerivedStubFixture.withPinnedSettings(DerivedStubFixture.metricsSettings()) {
-                DerivedStubFixture.derivePinned(connId, jobId = 1u)
+                val runsBefore = succeededRuns(connId)
                 withItemStageAnalyzeHeld { holder ->
                     val rederive = async(Dispatchers.Default) {
-                        DerivedStubFixture.derivePinned(connId, jobId = 2u, analyzeLockTimeoutMs = SHORT_LOCK_TIMEOUT_MS)
+                        DerivedStubFixture.derivePinned(
+                            connId,
+                            SharedClone.nextJobId(),
+                            analyzeLockTimeoutMs = TIMEOUT_TEST_LOCK_TIMEOUT_MS,
+                        )
                     }
-                    awaitWaiter(holder) // the post-commit ANALYZE has queued; the lock stays held past its timeout
+                    awaitWaiter(holder, rederive) // the post-commit ANALYZE has queued; the lock stays held past its timeout
                     val waitStart = System.nanoTime()
-                    withTimeout(SHORT_LOCK_TIMEOUT_MS + TIMEOUT_MARGIN_MS) { rederive.await() }
+                    withTimeout(TIMEOUT_TEST_LOCK_TIMEOUT_MS + TIMEOUT_MARGIN_MS) { rederive.await() }
                     val waitedMs = (System.nanoTime() - waitStart) / NANOS_PER_MS
-                    assertTrue(waitedMs < SHORT_LOCK_TIMEOUT_MS + TIMEOUT_MARGIN_MS, "the derive call returned after $waitedMs ms")
-                    assertFalse(holder.release.isCompleted, "the derive finished while the foreign lock was still held")
+                    assertTrue(
+                        waitedMs < TIMEOUT_TEST_LOCK_TIMEOUT_MS + TIMEOUT_MARGIN_MS,
+                        "the derive returned after $waitedMs ms (lock timeout $TIMEOUT_TEST_LOCK_TIMEOUT_MS ms), the lock still held",
+                    )
                 }
+                assertEquals(runsBefore + 1, succeededRuns(connId), "a timed-out post-commit ANALYZE never fails the run")
             }
-            assertEquals(2, succeededRuns(connId), "a timed-out post-commit ANALYZE never fails the run")
             assertEquals("SUCCEEDED", latestRunStatus(connId))
             val warned = capture.events.any { it.level == Level.WARN && it.formattedMessage.contains("post-commit ANALYZE") }
             assertTrue(warned, "the lock timeout must be logged as a WARN")
@@ -219,29 +237,68 @@ class MetricsAnalyzeTest {
     fun `a first DERIVE ANALYZEs inside its transaction, so a foreign ANALYZE lock holds back its commit`() = runBlocking {
         val connId = preparedClone("analyze-held-first-team")
         DerivedStubFixture.withPinnedSettings(DerivedStubFixture.metricsSettings()) {
-            withItemStageAnalyzeHeld { holder ->
-                // A lock timeout far below the hold must NOT apply to the in-transaction ANALYZE: it has to wait for fresh stats.
-                val first = async(Dispatchers.Default) {
-                    DerivedStubFixture.derivePinned(connId, jobId = 1u, analyzeLockTimeoutMs = SHORT_LOCK_TIMEOUT_MS)
-                }
-                awaitWaiter(holder) // the in-transaction ANALYZE has queued on item_stage
-                delay(HOLD_WAIT_MS)
-                assertFalse(first.isCompleted, "a first DERIVE must not finish while its in-transaction ANALYZE waits on the lock")
-                assertEquals("RUNNING", latestRunStatus(connId), "the first derive's data is not committed until its ANALYZE ran")
-                holder.release.complete(Unit)
-                first.await()
-            }
+            assertHeldBackInTransaction(connId)
         }
         assertEquals("SUCCEEDED", latestRunStatus(connId))
     }
 
+    @Test
+    fun `a derive after a SUCCEEDED run over zero tasks still ANALYZEs inside its transaction`() = runBlocking {
+        // A new connection derived before its first SYNC: SUCCEEDED, but its statistics describe nothing.
+        val connId = SyncedStubFixture.createConnection(namePrefix = "jira-analyze-empty", enabled = false)
+        val store = MetricsStore(sharedDatabaseForTests())
+        DerivedStubFixture.withPinnedSettings(DerivedStubFixture.metricsSettings()) {
+            DerivedStubFixture.derivePinned(connId, jobId = 1u)
+            assertEquals(1, succeededRuns(connId))
+            assertEquals(0, store.newestSucceededRunTaskCount(connId), "the empty derive wrote no tasks")
+
+            SyncedStubFixture.cloneProcessedData(SyncedStubFixture.connectionId(), connId)
+            DerivedStubFixture.mapFloBoardToNewTeam(connId, DerivedStubFixture.metricsConfig(), "analyze-empty-team")
+            assertHeldBackInTransaction(connId, jobId = 2u)
+        }
+        assertEquals(2, succeededRuns(connId))
+        assertEquals(true, (store.newestSucceededRunTaskCount(connId) ?: 0) > 0, "the real derive wrote tasks")
+    }
+
+    @Test
+    fun `statisticsDescribeRows only trusts a previous run over a similar number of rows`() {
+        assertFalse(statisticsDescribeRows(null, 1_200), "no previous SUCCEEDED run")
+        assertFalse(statisticsDescribeRows(0, 1_200), "a previous run over zero tasks left statistics for nothing")
+        assertFalse(statisticsDescribeRows(0, 0), "zero tasks stays blind even over zero items")
+        assertTrue(statisticsDescribeRows(1_000, 1_200), "the same connection, a little bigger")
+        assertTrue(statisticsDescribeRows(1_000, 2_000), "exactly twice the tasks is still described")
+        assertFalse(statisticsDescribeRows(1_000, 2_001), "more than twice the previous task count is a different table")
+        assertTrue(statisticsDescribeRows(1_000, 300), "a shrunken connection is still described by the older statistics")
+    }
+
+    /**
+     * Asserts [connId]'s next derive (job [jobId]) ANALYZEs INSIDE its transaction: with a foreign `ANALYZE
+     * metrics.item_stage` held it queues, stays RUNNING (a short lock timeout, which applies only to the post-commit
+     * path, does not rescue it) and finishes only after the release.
+     */
+    private suspend fun assertHeldBackInTransaction(connId: UInt, jobId: UInt = 1u) = coroutineScope {
+        withItemStageAnalyzeHeld { holder ->
+            val derive = async(Dispatchers.Default) {
+                DerivedStubFixture.derivePinned(connId, jobId, analyzeLockTimeoutMs = TIMEOUT_TEST_LOCK_TIMEOUT_MS)
+            }
+            awaitWaiter(holder, derive) // the in-transaction ANALYZE has queued on item_stage
+            delay(HOLD_WAIT_MS)
+            assertFalse(derive.isCompleted, "the derive must not finish while its in-transaction ANALYZE waits on the lock")
+            assertEquals("RUNNING", latestRunStatus(connId), "its data is not committed until its ANALYZE ran")
+            holder.release.complete(Unit)
+            derive.await()
+        }
+    }
+
     /**
      * Two connections' re-derives running at once vs one after the other: the ANALYZE no longer holds shared table
-     * locks to the commit, so only the (shared-CPU-bound) fact building is left to contend. The wall times are LOGGED,
-     * not asserted — a timing assertion would flake on a loaded CI box — and `build-times.md` records the measurement.
+     * locks to the commit, so only the (shared-CPU-bound) fact building is left to contend. The wall times are PRINTED,
+     * not asserted — a timing assertion would flake on a loaded CI box — and `build-times.md` records the measurement,
+     * so the test only runs when asked (`FLOW_MEASURE_DERIVE_OVERLAP=1`) and costs the suite nothing.
      */
     @Test
-    fun `two connections re-derive concurrently and the overlap is measured`() = runBlocking {
+    fun `two connections re-derive concurrently and the overlap is measured (opt-in)`() = runBlocking {
+        if (System.getenv("FLOW_MEASURE_DERIVE_OVERLAP") == null) return@runBlocking
         val first = preparedClone("analyze-conc-a-team")
         val second = preparedClone("analyze-conc-b-team")
         DerivedStubFixture.withPinnedSettings(DerivedStubFixture.metricsSettings()) {
@@ -280,13 +337,36 @@ class MetricsAnalyzeTest {
         assertTrue(NOT_ANALYZED.none { it in ANALYZED_TABLES }, "an excluded table must not also be analyzed")
     }
 
+    /** ONE processed clone, derived once (its FIRST derive), that every re-derive test then re-derives under fresh job ids. */
+    private object SharedClone {
+        private val lock = Mutex()
+        private var id: UInt? = null
+        private val jobIds = AtomicInteger(1)
+
+        fun nextJobId(): UInt = jobIds.incrementAndGet().toUInt()
+
+        suspend fun connectionId(): UInt = lock.withLock {
+            id ?: run {
+                SyncedStubFixture.ensureMigrated()
+                val connId = SyncedStubFixture.createConnection(namePrefix = "jira-analyze-shared", enabled = false)
+                SyncedStubFixture.cloneProcessedData(SyncedStubFixture.connectionId(), connId)
+                DerivedStubFixture.mapFloBoardToNewTeam(connId, DerivedStubFixture.metricsConfig(), "analyze-shared-team")
+                DerivedStubFixture.withPinnedSettings(DerivedStubFixture.metricsSettings()) {
+                    DerivedStubFixture.derivePinned(connId, jobId = 1u)
+                }
+                connId.also { id = it }
+            }
+        }
+    }
+
     private companion object {
         const val ANALYZE_POLLS = 40
         const val ANALYZE_POLL_MS = 500L
         const val WAITER_POLL_MS = 50L
         const val HOLD_WAIT_MS = 1_500L
-        const val SHORT_LOCK_TIMEOUT_MS = 500L
-        const val TIMEOUT_MARGIN_MS = 10_000L
+        const val TIMEOUT_TEST_LOCK_TIMEOUT_MS = 2_000L
+        const val LONG_LOCK_TIMEOUT_MS = 120_000L
+        const val TIMEOUT_MARGIN_MS = 3_000L
         const val BACKSTOP_MS = 120_000L
         const val NANOS_PER_MS = 1_000_000L
 

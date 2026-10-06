@@ -406,9 +406,10 @@ projection moves from ~25-30 s by ~5 s, projected, NOT measured.
 `perf/derive-analyze-after-commit`).** `analyzeDerivedTables` ran inside the derive transaction, so its 16
 `SHARE UPDATE EXCLUSIVE` locks (the tables are shared by every connection) lived to the COMMIT and a second
 connection's derive queued on them for the rest of the first's run (~50 % of a stub derive: ANALYZE + WIP + flow +
-commit). The fix moves it AFTER the commit and `markRunSucceeded` for every derive but a connection's first
-(which has no statistics at all and keeps it in the transaction — the WHY 1 failure mode is ABSENT statistics, not
-one-derive-old ones). **Step 0 gate (measured before keeping any code):** a temporary harness (removed), local,
+commit). The fix moves it AFTER the commit and `markRunSucceeded` for every derive whose predecessor's statistics
+describe its rows (a SUCCEEDED run over > 0 tasks, at most half the current item count; otherwise — first derive, a
+zero-task run, a doubled connection — it stays in the transaction: the WHY 1 failure mode is ABSENT or wrong-sized
+statistics, not one-derive-old ones). **Step 0 gate (measured before keeping any code):** a temporary harness (removed), local,
 18 cores, shared machine, the 1,200-issue stub, a disabled processed clone derived three times under the pinned
 clock, LEGACY (in-transaction ANALYZE) and NEW (post-commit) interleaved, plus `EXPLAIN (ANALYZE, BUFFERS)` of every
 WIP/flow statement during derives 1-3 (the statement itself was run through the `EXPLAIN`, so the plans are the ones
@@ -430,12 +431,20 @@ the derive really used):
   1,704-1,926 ms concurrent (**0.53-0.58**, near the 0.5 of perfect overlap on a machine whose derives also compete
   for CPU); LEGACY (ANALYZE in the transaction for both) 2,864-3,208 ms vs 2,250-2,527 ms (**0.78-0.83**).
   The scale-20 two-connection run is NOT done (BACKLOG).
-- **Bounded wait:** the post-commit ANALYZE runs under `SET LOCAL lock_timeout = 5000` (`DEFAULT_ANALYZE_LOCK_TIMEOUT_MS`;
-  a healthy ANALYZE is 16-90 ms and heartbeats come every `leaseSeconds/3` ≥ 10 s), so a foreign lock (a long manual
-  `VACUUM`, another ANALYZE) delays the job's end by 5 s at most; the timeout is a WARN and the run stays SUCCEEDED
-  (`MetricsAnalyzeTest` pins it with a 500 ms timeout). The first derive's in-transaction ANALYZE has no timeout.
-- **Left as is:** a connection's first derive (new connection, or after PURGE) still serializes with another first
-  derive from the ANALYZE to its commit.
+- **Bounded wait:** the post-commit ANALYZE runs under `SET LOCAL lock_timeout = 5000` (per table lock,
+  `DEFAULT_ANALYZE_LOCK_TIMEOUT_MS`) and `SET LOCAL statement_timeout = 30000` (the whole statement,
+  `DEFAULT_ANALYZE_STATEMENT_TIMEOUT_MS`; a healthy ANALYZE is 16-90 ms), so a foreign lock (a long manual `VACUUM`,
+  another ANALYZE) occupies the worker slot for 30 s at most — slot occupancy, not lease safety: the heartbeat is a
+  concurrent `leaseSeconds/3` ticker. A timeout is a WARN and the run stays SUCCEEDED; the WARN is EXPECTED when a
+  re-derive's post-commit ANALYZE overlaps another connection's in-transaction one. The in-transaction ANALYZE has no
+  timeout. It runs under `NonCancellable`.
+- **Test cost:** `MetricsAnalyzeTest` went from 2 tests / 9.6 s (the WHY 3 table's older figure) to 9 tests / ~12 s of its own work (28-29 s run alone,
+  including the one-time ~16 s shared stub sync; three runs, 27.5-29.0 s) — the re-derive tests share one
+  derived clone, and the two-connection overlap measurement above is opt-in (`FLOW_MEASURE_DERIVE_OVERLAP=1`) and costs the
+  suite nothing.
+- **Left as is:** a derive whose predecessor's statistics do not describe its rows (a new connection, one after
+  PURGE or a zero-task run, a doubled connection) still serializes with another such derive from the ANALYZE to its
+  commit.
 
 Open questions — each is "why does this take this long for a tiny dataset?", to be answered with
 evidence and recorded here as a dated entry (finding + fix, or "measured, intended because …"):
@@ -586,7 +595,7 @@ evidence and recorded here as a dated entry (finding + fix, or "measured, intend
    empty-connection derives spend 2-6 s each in `dim_date` upsert row-lock contention — ADDRESSED: `dim_date` is now
    ensured in its own short transaction (`MetricsStore.ensureDimDate`), and derives instead serialized from
    `analyzeDerivedTables` to their commit, on the ANALYZE lock of the shared tables — since 2026-10-06 only a
-   connection's FIRST derive does, see "Cause found and fixed: DERIVE's ANALYZE" above). The effect on
+   derive without usable statistics does, see "Cause found and fixed: DERIVE's ANALYZE" above). The effect on
    wall time is unmeasured.
 9. **`images` at ~4 min — ANSWERED 2026-10-01 (`perf/why-3-9`): the BuildKit layer cache made it SLOWER; removed.**
    Sources: `ci-times.mjs --branch master --steps images`, `gh run view <id> --json jobs` for every master push

@@ -44,6 +44,28 @@ internal const val DEFAULT_JOB_RETENTION_DAYS = 90L
 internal const val DEFAULT_ANALYZE_LOCK_TIMEOUT_MS = 5_000L
 
 /**
+ * Bounds the WHOLE post-commit `ANALYZE` (16 tables, so up to 16 lock waits of [DEFAULT_ANALYZE_LOCK_TIMEOUT_MS] each
+ * otherwise): `statement_timeout` also covers the lock waits. A healthy one is 16-90 ms; the bound exists so a stuck
+ * ANALYZE can never hold a worker slot for long (the claim's heartbeat is a concurrent ticker, so this is slot
+ * occupancy, not lease safety).
+ */
+internal const val DEFAULT_ANALYZE_STATEMENT_TIMEOUT_MS = 30_000L
+
+/** The previous derive's statistics still describe this one's rows while the item count is at most this multiple of its task count. */
+private const val STATISTICS_GROWTH_FACTOR = 2
+
+/**
+ * Whether the planner statistics left by the connection's newest SUCCEEDED derive (it wrote [previousTasks]
+ * `fact_task_delivery` rows; null = no such run) still describe a derive over [workItemCount] items — the test that picks
+ * the in-transaction ANALYZE (they do NOT: no statistics for these rows, so the WIP/flow `INSERT … SELECT`s would plan
+ * at default `rows=1`, build-times WHY 1) or the post-commit one (they do). A SUCCEEDED run over ZERO tasks (a new
+ * connection derived before its first SYNC) left statistics for nothing, and a connection that more than doubled since
+ * its last derive has statistics for a different table.
+ */
+internal fun statisticsDescribeRows(previousTasks: Int?, workItemCount: Int): Boolean =
+    previousTasks != null && previousTasks > 0 && workItemCount <= STATISTICS_GROWTH_FACTOR * previousTasks
+
+/**
  * The per-item/per-batch work runs in chunks of this size (v0.3.0 M3 review round 2b, plan §5):
  * `MetricsDeriver.derive` never loads every issue's intervals/field changes for the WHOLE
  * connection into memory at once — only one batch's worth, read, computed, and written before the
@@ -84,6 +106,7 @@ class MetricsDeriver(
     private val database: R2dbcDatabase,
     private val jobRetentionDays: Long = DEFAULT_JOB_RETENTION_DAYS,
     private val analyzeLockTimeoutMs: Long = DEFAULT_ANALYZE_LOCK_TIMEOUT_MS,
+    private val analyzeStatementTimeoutMs: Long = DEFAULT_ANALYZE_STATEMENT_TIMEOUT_MS,
 ) {
     /**
      * The DERIVE job's own run — `context.claim.connectionId`/`context.claim.id`; heartbeats once
@@ -135,19 +158,13 @@ class MetricsDeriver(
 
         try {
             val graceMs = settings.commitmentGraceMinutes * MILLIS_PER_MINUTE
-            // Read BEFORE the transaction (the RUNNING row inserted above does not count): a connection's FIRST
-            // successful derive has no statistics at all for its rows, and that — not one-run-old statistics — is the
-            // planner's failure mode (`.claude/docs/build-times.md` WHY 1), so it alone keeps the ANALYZE inside the
-            // transaction where it sees the uncommitted rows (`MetricsStore.analyzeDerivedTables`).
-            val firstDerive = metricsStore.firstSuccessfulDeriveRunStartedAt(connectionId) == null
-            val counts = suspendTransaction(database) {
+            val derivation = suspendTransaction(database) {
                 runDerivation(
                     connectionId, config, calendar, now, settings.hoursPerDay, settings.epicDriftDays, graceMs, settings.configRevision,
-                    firstDerive,
                 )
             }
-            markRunSucceeded(runId, counts, context.clock())
-            if (!firstDerive) analyzeAfterCommit(connectionId)
+            markRunSucceeded(runId, derivation.counts, context.clock())
+            if (!derivation.analyzedInTransaction) analyzeAfterCommit(connectionId)
             context.heartbeat(null, "derive")
         } catch (failure: Exception) {
             // A genuine coroutine cancellation is an Exception too (`CancellationException`) and
@@ -168,7 +185,8 @@ class MetricsDeriver(
      * Deletes every rebuildable `metrics.*` row for this connection ONCE, then rebuilds dims,
      * bridges and task/epic facts in batches of [DERIVE_BATCH_SIZE] — the whole thing runs inside the
      * CALLER's one transaction (`derive()`'s own `suspendTransaction` wrap). Returns the row counts
-     * `markRunSucceeded` stamps onto `derive_runs.row_counts`.
+     * `markRunSucceeded` stamps onto `derive_runs.row_counts`, and whether the ANALYZE already ran in the
+     * transaction ([Derivation.analyzedInTransaction]) — see [statisticsDescribeRows].
      */
     private suspend fun runDerivation(
         connectionId: UInt,
@@ -179,8 +197,7 @@ class MetricsDeriver(
         epicDriftDays: Int,
         graceMs: Long,
         configRevision: Long,
-        firstDerive: Boolean,
-    ): DeriveRowCounts {
+    ): Derivation {
         val relevantFieldIds = relevantCustomFieldIds(config)
         val workItems = workItemStore.workItemsForDerivation(connectionId).map { trimCustomFields(it, relevantFieldIds) }
         val createdMin = workItems.minOfOrNull { it.createdAt }
@@ -214,15 +231,17 @@ class MetricsDeriver(
         val worklogCount = runWorklogStep(connectionId, workItems, context, derivedById, configRevision)
         val epicPlanCount = runEpicPlanStep(connectionId, workItems, context, derivedById, factEpicsByIssueId, configRevision)
         widenDimDate(connectionId, calendar, createdMin, now, configRevision)
-        // A connection's FIRST derive has no statistics for its rows at all (the WIP/flow INSERT..SELECTs below would
-        // plan against default rows=1 estimates; autovacuum never sees uncommitted rows), so it ANALYZEs in this
-        // transaction (legal in a transaction block, counts its own rows) and holds the table locks to the commit.
-        // Every later derive plans on the previous committed state's statistics and ANALYZEs after the commit.
-        if (firstDerive) metricsStore.analyzeDerivedTables()
+        // Statistics that do not describe this connection's rows (no SUCCEEDED derive yet, or one over zero tasks, or the
+        // connection has more than doubled) would have the WIP/flow INSERT..SELECTs below plan at default rows=1
+        // estimates (autovacuum never sees uncommitted rows), so such a derive ANALYZEs in this transaction (legal in a
+        // transaction block, counts its own rows) and holds the table locks to the commit. Every other derive plans on
+        // the previous committed state's statistics and ANALYZEs after the commit.
+        val analyzeInTransaction = !statisticsDescribeRows(metricsStore.newestSucceededRunTaskCount(connectionId), workItems.size)
+        if (analyzeInTransaction) metricsStore.analyzeDerivedTables()
         val wipCount = runWipStep(connectionId, now, configRevision)
         val flowCount = runFlowStep(metricsStore, connectionId, now, configRevision)
 
-        return DeriveRowCounts(
+        val counts = DeriveRowCounts(
             tasks = taskCount,
             epics = epicCount,
             sprints = sprintOutcome.sprintCount,
@@ -232,18 +251,25 @@ class MetricsDeriver(
             aggWipRows = wipCount,
             aggFlowRows = flowCount,
         )
+        return Derivation(counts, analyzeInTransaction)
     }
 
+    /** [runDerivation]'s result: the run's row counts plus whether the ANALYZE already ran inside its transaction. */
+    private class Derivation(val counts: DeriveRowCounts, val analyzedInTransaction: Boolean)
+
     /**
-     * The post-commit `ANALYZE` of every derive but a connection's first, in its OWN short transaction (this is a
-     * top-level call, so [MetricsStore.analyzeDerivedTables] opens one) — the derive's data is already committed and
-     * marked SUCCEEDED, so a failure here is a WARN, never a FAILED run (the next derive plans on statistics one
-     * more derive old); cancellation still propagates. The wait for a foreign table lock is bounded by
-     * [analyzeLockTimeoutMs] (`SET LOCAL lock_timeout` inside that transaction), so a lock someone else holds can delay
-     * the job's end by that much at most — the lock-timeout error is just another failure to WARN about.
+     * The post-commit `ANALYZE` of every derive whose predecessor's statistics still describe its rows, in its OWN short
+     * transaction (this is a top-level call, so [MetricsStore.analyzeDerivedTables] opens one) — the derive's data is
+     * already committed and marked SUCCEEDED, so a failure here is a WARN, never a FAILED run (the next derive plans on
+     * statistics one more derive old). The wait is bounded twice: [analyzeLockTimeoutMs] per table lock and
+     * [analyzeStatementTimeoutMs] for the whole statement (`SET LOCAL`s inside that transaction), so a lock someone else
+     * holds — a manual VACUUM, another ANALYZE, a first derive's in-transaction one — occupies the worker slot for that
+     * long at most; a timeout is just another failure to WARN about. It runs under [NonCancellable] (bounded by those
+     * timeouts): a shutdown in this window must not abandon a committed derive halfway through its statistics — the
+     * cancellation is still observed at the next suspension point.
      */
-    private suspend fun analyzeAfterCommit(connectionId: UInt) {
-        catchingFailures({ metricsStore.analyzeDerivedTables(analyzeLockTimeoutMs) }) { failure ->
+    private suspend fun analyzeAfterCommit(connectionId: UInt) = withContext(NonCancellable) {
+        catchingFailures({ metricsStore.analyzeDerivedTables(analyzeLockTimeoutMs, analyzeStatementTimeoutMs) }) { failure ->
             log.warn("post-commit ANALYZE of the metrics tables failed for connection {}", connectionId, failure)
         }
     }
