@@ -57,14 +57,17 @@ report, `~/.claude/plans/flow-checkup-2026-09-30.md`):
   moved to `insertRows` and its `work_items` write to `upsertRows` (2026-10-06: a stub pass 2.25 s -> 1.0 s -> ~0.78 s;
   nothing in PROCESS is a per-row round trip any more), the nightly `e2e`
   image-build cache (WHY 7's data decides); `images` is ~3 min and green again since #85 (a base-image libssl CVE).
-- **B7 — the always-loaded instruction budget (steps 1-3 done):** step 2 (2026-10-05) moved the feature template to
+- **B7 — the always-loaded instruction budget (steps 1-4 done):** step 2 (2026-10-05) moved the feature template to
   `conventions.md`, the fixture narrative to `test-fixtures.md` and `web/CLAUDE.md`'s per-feature sections to
   `web-features.md`, and cut the package tree to one line per package. Step 3 (2026-10-06) moved `CLAUDE.md`'s CI
   paragraph, the full-stack notes, the roadmap history and the donor detail to the new `ci.md` and `product.md`, and
   `testing.md`'s harness bullets, setup/forks narrative, static-analysis detail and frontend-test internals to
   `test-fixtures.md`/`ci.md` (moved verbatim, one-line rules kept). The always-loaded set is now 35.1k chars (from
-  40.3k, originally 59.0k), on the ~35k target. What remains is optional: `web/CLAUDE.md` is 36.2k (from 72.8k) and
-  loads only when working in `web/`.
+  40.3k, originally 59.0k), on the ~35k target (35.3k after step 4's one table row). Step 4 (2026-10-06) moved `web/CLAUDE.md`'s transport/session
+  internals, the user-management and feature-flag narratives, the add-a-language and language-switcher detail, the
+  colour-token and logo internals, the changelog wiring and the "not yet ported" list verbatim to the new
+  `web-internals.md` (a one-line rule kept for every never/must/always); `web/CLAUDE.md` is now 29.6k (from 36.2k, originally
+  72.8k) and loads only when working in `web/`. B7 is complete.
 - **The user's decisions:** A1 — protect `master` (required checks: `server`, `web`, `e2e-static`,
   `gradle-vulnerability-scan`, `k8s-static`; no bypass); A13 — a TLS-terminating Ingress + ClusterIP Service vs a
   documented local-only overlay (behind today's bare LoadBalancer `X-Forwarded-For` is client-supplied); Dependabot
