@@ -120,7 +120,27 @@
         "IN_PROGRESS": "In progress",
         "DONE": "Done"
       },
-      "empty": "No statuses observed yet — sync this connection first."
+      "empty": "No statuses observed yet — sync this connection first.",
+      "overrides": {
+        "title": "Per-domain overrides",
+        "hint": "A status can mean a different stage in one domain than everywhere else. Choose a domain, then set a stage only for the statuses that differ — every other status keeps the stage in the table above.",
+        "summaryNone": "No overrides: every domain uses the stages above.",
+        "summary": "Overrides in total: {{total}}",
+        "noDomains": "No domains yet — define them on the Domains tab first.",
+        "domainLabel": "Domain",
+        "domainOption": "{{domain}} ({{total}} overridden)",
+        "orphanOption": "{{domain}} (no longer a domain)",
+        "orphanError": "\"{{domain}}\" is no longer a domain, so its overrides cannot be saved. Remove them or restore the domain key.",
+        "tableLabel": "Stage overrides for domain {{domain}}",
+        "columnAllDomains": "All domains",
+        "columnThisDomain": "In this domain",
+        "columnActions": "Actions",
+        "samePlaceholder": "Same as all domains",
+        "unmapped": "Unmapped",
+        "differs": "Differs",
+        "stageAria": "Stage for {{name}} in domain {{domain}}",
+        "removeAria": "Remove the override for {{name}} in domain {{domain}}"
+      }
     },
     "fields": {
       "estimateTask": "Task estimate field",

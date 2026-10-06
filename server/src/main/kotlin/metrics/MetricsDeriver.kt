@@ -302,8 +302,12 @@ class MetricsDeriver(
         hoursPerDay: Double,
         epicDriftDays: Int,
     ): DeriveContext {
+        val stageMap = config.statusStages.associate { it.statusId to ItemStage.valueOf(it.stage.name) }
         val configMaps = ConfigMaps(
-            stageMap = config.statusStages.associate { it.statusId to ItemStage.valueOf(it.stage.name) },
+            stageMap = stageMap,
+            stageMapByDomain = config.domainStatusStages.groupBy { it.domainKey }.mapValues { (_, overrides) ->
+                stageMap + overrides.associate { it.statusId to ItemStage.valueOf(it.stage.name) }
+            },
             domainByProject = config.domains.associate { it.projectKey to it.domainKey },
             activityTypeByIssueType = config.activityTypes.associate { it.issueType to it.activityType },
             workCategoryMap = config.workCategories.associate { it.valueId to it.category },

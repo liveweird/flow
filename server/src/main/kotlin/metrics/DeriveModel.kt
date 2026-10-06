@@ -32,6 +32,8 @@ internal data class ItemDerived(
 /** The connection's configured maps [DeriveContext] needs — split out of it purely to stay under the parameter-count gate. */
 internal data class ConfigMaps(
     val stageMap: Map<String, ItemStage>,
+    /** Per DOMAIN key with at least one override: the every-domain [stageMap] overlaid with that domain's own rows. */
+    val stageMapByDomain: Map<String, Map<String, ItemStage>>,
     val domainByProject: Map<String, String>,
     val activityTypeByIssueType: Map<String, String>,
     val workCategoryMap: Map<String, String>,
@@ -93,6 +95,10 @@ internal class DeriveContext(
     var issueKeyChangesByIssue: Map<Long, List<FieldChangeRow>> = emptyMap()
 
     val stageMap get() = configMaps.stageMap
+
+    /** The status → stage map for items of [domainKey]: its overrides over the every-domain rows, else the every-domain map itself. */
+    fun stageMapFor(domainKey: String): Map<String, ItemStage> = configMaps.stageMapByDomain[domainKey] ?: stageMap
+
     val domainByProject get() = configMaps.domainByProject
     val activityTypeByIssueType get() = configMaps.activityTypeByIssueType
     val workCategoryMap get() = configMaps.workCategoryMap

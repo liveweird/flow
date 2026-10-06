@@ -169,12 +169,22 @@ class MetricsConfigService(
                 return@suspendTransaction MetricsConfigUpdateOutcome(stored, changed = false)
             }
 
+            // Both the every-domain (`domain_key = ''`) rows and the per-domain overrides live in
+            // `status_stage_map` — one delete, then one insert per kind.
             StatusStageMap.deleteWhere { StatusStageMap.connectionId eq connectionId }
             if (request.statusStages.isNotEmpty()) {
                 StatusStageMap.batchInsert(request.statusStages) { entry ->
                     this[StatusStageMap.connectionId] = connectionId
                     this[StatusStageMap.statusId] = entry.statusId
                     this[StatusStageMap.domainKey] = ""
+                    this[StatusStageMap.stage] = entry.stage.name
+                }
+            }
+            if (request.domainStatusStages.isNotEmpty()) {
+                StatusStageMap.batchInsert(request.domainStatusStages) { entry ->
+                    this[StatusStageMap.connectionId] = connectionId
+                    this[StatusStageMap.statusId] = entry.statusId
+                    this[StatusStageMap.domainKey] = entry.domainKey
                     this[StatusStageMap.stage] = entry.stage.name
                 }
             }
@@ -336,10 +346,18 @@ class MetricsConfigService(
      * canonically (order-insensitively) regardless.
      */
     private suspend fun readStoredConfig(connectionId: UInt): DataSourceMetricsConfig? {
-        val statusStages = StatusStageMap.selectAll()
-            .where { (StatusStageMap.connectionId eq connectionId) and (StatusStageMap.domainKey eq "") }
-            .orderBy(StatusStageMap.statusId)
-            .toList().map { MetricsStatusStage(it[StatusStageMap.statusId], MetricsStage.valueOf(it[StatusStageMap.stage])) }
+        val stageRows = StatusStageMap.selectAll().where { StatusStageMap.connectionId eq connectionId }
+            .orderBy(StatusStageMap.domainKey to SortOrder.ASC, StatusStageMap.statusId to SortOrder.ASC)
+            .toList()
+        val statusStages = stageRows.filter { it[StatusStageMap.domainKey] == "" }
+            .map { MetricsStatusStage(it[StatusStageMap.statusId], MetricsStage.valueOf(it[StatusStageMap.stage])) }
+        val domainStatusStages = stageRows.filter { it[StatusStageMap.domainKey] != "" }.map {
+            MetricsDomainStatusStage(
+                it[StatusStageMap.domainKey],
+                it[StatusStageMap.statusId],
+                MetricsStage.valueOf(it[StatusStageMap.stage]),
+            )
+        }
         val fieldRows = FieldConfig.selectAll().where { FieldConfig.connectionId eq connectionId }
             .orderBy(FieldConfig.role)
             .toList().associate { it[FieldConfig.role] to it[FieldConfig.fieldId] }
@@ -371,13 +389,14 @@ class MetricsConfigService(
             .orderBy(TeamSprintCapacity.sprintId)
             .toList().map { MetricsSprintCapacity(it[TeamSprintCapacity.sprintId], it[TeamSprintCapacity.capacityMd].toDouble()) }
 
-        val anyStored = statusStages.isNotEmpty() || fieldRows.isNotEmpty() || domains.isNotEmpty() || boards.isNotEmpty() ||
+        val anyStored = stageRows.isNotEmpty() || fieldRows.isNotEmpty() || domains.isNotEmpty() || boards.isNotEmpty() ||
             activityTypes.isNotEmpty() || workCategories.isNotEmpty() || blockedStatuses.isNotEmpty() || sprintCapacities.isNotEmpty()
         if (!anyStored) return null
 
         return DataSourceMetricsConfig(
             configured = true,
             statusStages = statusStages,
+            domainStatusStages = domainStatusStages,
             fields = MetricsFieldConfig(
                 estimateTask = fieldRows["ESTIMATE_TASK"],
                 estimateEpic = fieldRows["ESTIMATE_EPIC"],

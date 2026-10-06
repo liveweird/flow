@@ -9,12 +9,19 @@ import kotlinx.serialization.Serializable
 @Serializable
 enum class MetricsStage { NOT_STARTED, IN_PROGRESS, DONE }
 
-/**
- * One `metrics.status_stage_map` row for the `domain_key = ''` (every-domain) override — the ONLY
- * one v0.3.0's UI edits (the per-domain override column exists at the schema level, unused here).
- */
+/** One `metrics.status_stage_map` row for the `domain_key = ''` (every-domain) mapping. */
 @Serializable
 data class MetricsStatusStage(val statusId: String, val stage: MetricsStage)
+
+/**
+ * One `metrics.status_stage_map` row for a NON-empty `domain_key` — a per-domain override of
+ * [MetricsStatusStage]'s every-domain mapping: an item whose domain is [domainKey] reads [stage]
+ * for [statusId] instead of the every-domain stage (`MetricsDeriver`/`DeriveKernels.stageIntervals`;
+ * `.claude/docs/metrics.md` "Per-domain stage overrides"). A status with no row here for the item's
+ * domain simply uses the every-domain mapping.
+ */
+@Serializable
+data class MetricsDomainStatusStage(val domainKey: String, val statusId: String, val stage: MetricsStage)
 
 /** `metrics.field_config`'s five roles, one field id each (`null` = unset — only `workCategory` ships unset by default). */
 @Serializable
@@ -65,6 +72,7 @@ data class MetricsSprintCapacity(val sprintId: Long, val capacityMd: Double)
 data class DataSourceMetricsConfig(
     val configured: Boolean,
     val statusStages: List<MetricsStatusStage> = emptyList(),
+    val domainStatusStages: List<MetricsDomainStatusStage> = emptyList(),
     val fields: MetricsFieldConfig = MetricsFieldConfig(),
     val domains: List<MetricsDomainMapping> = emptyList(),
     val boards: List<MetricsBoardTeamMapping> = emptyList(),
@@ -78,6 +86,7 @@ data class DataSourceMetricsConfig(
 @Serializable
 data class DataSourceMetricsConfigRequest(
     val statusStages: List<MetricsStatusStage> = emptyList(),
+    val domainStatusStages: List<MetricsDomainStatusStage> = emptyList(),
     val fields: MetricsFieldConfig = MetricsFieldConfig(),
     val domains: List<MetricsDomainMapping> = emptyList(),
     val boards: List<MetricsBoardTeamMapping> = emptyList(),
@@ -90,6 +99,7 @@ data class DataSourceMetricsConfigRequest(
 /** The stored response reshaped back into request form — [MetricsConfigService]'s own no-op comparison (the features-PUT precedent). */
 internal fun DataSourceMetricsConfig.asRequest(): DataSourceMetricsConfigRequest = DataSourceMetricsConfigRequest(
     statusStages = statusStages,
+    domainStatusStages = domainStatusStages,
     fields = fields,
     domains = domains,
     boards = boards,
@@ -108,6 +118,7 @@ internal fun DataSourceMetricsConfig.asRequest(): DataSourceMetricsConfigRequest
  */
 internal fun DataSourceMetricsConfigRequest.canonicalized(): DataSourceMetricsConfigRequest = copy(
     statusStages = statusStages.sortedBy { it.statusId },
+    domainStatusStages = domainStatusStages.sortedWith(compareBy({ it.domainKey }, { it.statusId })),
     domains = domains.sortedBy { it.projectKey },
     boards = boards.sortedBy { it.boardId },
     activityTypes = activityTypes.sortedBy { it.issueType },
@@ -154,6 +165,7 @@ data class MetricsConfigReferenceData(
  */
 fun validateDataSourceMetricsConfig(request: DataSourceMetricsConfigRequest, ref: MetricsConfigReferenceData) {
     requireNoDuplicateKeys(request.statusStages.map { it.statusId }, "statusId in statusStages")
+    requireNoDuplicateKeys(request.domainStatusStages.map { "${it.domainKey}/${it.statusId}" }, "domainKey/statusId in domainStatusStages")
     requireNoDuplicateKeys(request.domains.map { it.projectKey }, "projectKey in domains")
     requireNoDuplicateKeys(request.boards.map { it.boardId }, "boardId in boards")
     requireNoDuplicateKeys(request.activityTypes.map { it.issueType }, "issueType in activityTypes")
@@ -164,6 +176,7 @@ fun validateDataSourceMetricsConfig(request: DataSourceMetricsConfigRequest, ref
     request.statusStages.forEach { entry ->
         if (entry.statusId !in ref.statusIds) throw BadRequestException("Unknown status id: ${entry.statusId}")
     }
+    validateDomainStatusStages(request, ref)
     listOfNotNull(
         request.fields.estimateTask,
         request.fields.estimateEpic,
@@ -193,6 +206,27 @@ fun validateDataSourceMetricsConfig(request: DataSourceMetricsConfigRequest, ref
     request.sprintCapacities.forEach { capacity ->
         if (capacity.sprintId !in ref.sprintIds) throw BadRequestException("Unknown sprint id: ${capacity.sprintId}")
         if (capacity.capacityMd < 0) throw BadRequestException("capacityMd must be >= 0")
+    }
+}
+
+/**
+ * `domainStatusStages[]`'s checks (a per-domain override of the every-domain status → stage map): the
+ * status must be one of the connection's own `norm.statuses`, and the domain key must be a domain the
+ * SAME request defines — a `domains[].domainKey`, or the project key of an observed project the
+ * request's `domains` leaves unmapped (DERIVE falls back to the project key itself as the domain,
+ * `MetricsDeriver`'s `domainByProject[projectKey] ?: projectKey`). The empty key is the every-domain
+ * row (`statusStages`) and is never a valid override domain. The stage enum is enforced by
+ * deserialization.
+ */
+private fun validateDomainStatusStages(request: DataSourceMetricsConfigRequest, ref: MetricsConfigReferenceData) {
+    if (request.domainStatusStages.isEmpty()) return
+    val mappedProjects = request.domains.map { it.projectKey }.toSet()
+    val knownDomainKeys = request.domains.map { it.domainKey }.toSet() + (ref.projectKeys - mappedProjects)
+    request.domainStatusStages.forEach { entry ->
+        if (entry.domainKey.isEmpty() || entry.domainKey !in knownDomainKeys) {
+            throw BadRequestException("Unknown domain key in domainStatusStages: ${entry.domainKey}")
+        }
+        if (entry.statusId !in ref.statusIds) throw BadRequestException("Unknown status id: ${entry.statusId}")
     }
 }
 

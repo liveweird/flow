@@ -13,6 +13,7 @@ import {
 } from "../api/metrics";
 import { listTeams } from "../api/teams";
 import { useAdmin } from "../auth";
+import DomainStageOverrides from "../components/DomainStageOverrides";
 import EditPageLoadState from "../components/EditPageLoadState";
 import MappingTable, { type MappingField, type MappingRow } from "../components/MappingTable";
 import PageHeader from "../components/PageHeader";
@@ -507,6 +508,12 @@ export default function DataSourceMetricsConfig() {
 
           <Tabs.Panel value="statuses" pt="md">
             <StatusesTab t={t} statuses={state.statuses} onChange={(statuses) => setState({ ...state, statuses })} />
+            <DomainStageOverrides
+              statuses={state.statuses}
+              domains={state.domains}
+              overrides={state.domainStages}
+              onChange={(domainStages) => setState({ ...state, domainStages })}
+            />
           </Tabs.Panel>
           <Tabs.Panel value="fields" pt="md">
             <FieldsTab

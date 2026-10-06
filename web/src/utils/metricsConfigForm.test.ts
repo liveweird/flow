@@ -3,8 +3,11 @@ import {
   buildInitialState,
   buildRequest,
   changedBoardIds,
+  currentDomainKeys,
   mergeWorkCategoryValues,
+  orphanOverrideDomains,
   setDomainKeyForProject,
+  setDomainStage,
   setOwnerTeamForDomainGroup,
   type BoardRowState,
   type DomainRowState,
@@ -15,6 +18,7 @@ import type { DataSourceMetricsConfigOptions, DataSourceMetricsConfigResponse } 
 const EMPTY_CONFIG: DataSourceMetricsConfigResponse = {
   configured: false,
   statusStages: [],
+  domainStatusStages: [],
   fields: { estimateTask: null, estimateEpic: null, epicStart: null, epicDue: null, workCategory: null },
   domains: [],
   boards: [],
@@ -50,6 +54,16 @@ describe("buildInitialState", () => {
     expect(state.activityTypes).toEqual([{ issueType: "Story", activityType: "Story" }]);
     expect(state.sprintCapacities).toEqual([{ sprintId: 11, boardId: 1, name: "Sprint 1", state: "active", capacityMd: "" }]);
     expect(state.workCategories).toEqual([]);
+    expect(state.domainStages).toEqual([]);
+  });
+
+  test("carries stored per-domain overrides into the form state", () => {
+    const config: DataSourceMetricsConfigResponse = {
+      ...EMPTY_CONFIG,
+      configured: true,
+      domainStatusStages: [{ domainKey: "ENG", statusId: "10", stage: "IN_PROGRESS" }],
+    };
+    expect(buildInitialState(config, OPTIONS).domainStages).toEqual([{ domainKey: "ENG", statusId: "10", stage: "IN_PROGRESS" }]);
   });
 
   test("carries over a stored mapping onto its matching reference row", () => {
@@ -115,6 +129,7 @@ describe("buildRequest", () => {
       { statusId: "3", name: "In Progress", category: "IN_PROGRESS", stage: "IN_PROGRESS", blocked: true },
       { statusId: "10", name: "Done", category: "DONE", stage: "", blocked: false },
     ],
+    domainStages: [{ domainKey: "ENG", statusId: "10", stage: "IN_PROGRESS" }],
     fields: { estimateTask: "", estimateEpic: "", epicStart: "", epicDue: "duedate", workCategory: "customfield_10002" },
     domains: [{ projectKey: "ENG", domainKey: "ENG", domainName: "ENG", ownerTeamId: "5" }],
     boards: [
@@ -136,6 +151,7 @@ describe("buildRequest", () => {
     const request = buildRequest(baseState);
     expect(request).toEqual({
       statusStages: [{ statusId: "3", stage: "IN_PROGRESS" }],
+      domainStatusStages: [{ domainKey: "ENG", statusId: "10", stage: "IN_PROGRESS" }],
       fields: { estimateTask: null, estimateEpic: null, epicStart: null, epicDue: "duedate", workCategory: "customfield_10002" },
       domains: [{ projectKey: "ENG", domainKey: "ENG", domainName: "ENG", ownerTeamId: 5 }],
       boards: [{ boardId: 1, teamId: 5 }],
@@ -242,5 +258,50 @@ describe("setDomainKeyForProject", () => {
   test("is a no-op when the project key is unknown", () => {
     const domains = rows();
     expect(setDomainKeyForProject(domains, "UNKNOWN", "P1")).toBe(domains);
+  });
+});
+
+describe("per-domain stage overrides", () => {
+  test("setDomainStage adds an override, replaces the same (domain, status) one and leaves the others alone", () => {
+    const first = setDomainStage([], "ENG", "3", "DONE");
+    expect(first).toEqual([{ domainKey: "ENG", statusId: "3", stage: "DONE" }]);
+    const other = setDomainStage(first, "OPS", "3", "NOT_STARTED");
+    const replaced = setDomainStage(other, "ENG", "3", "IN_PROGRESS");
+    expect(replaced).toHaveLength(2);
+    expect(replaced).toEqual(
+      expect.arrayContaining([
+        { domainKey: "ENG", statusId: "3", stage: "IN_PROGRESS" },
+        { domainKey: "OPS", statusId: "3", stage: "NOT_STARTED" },
+      ]),
+    );
+  });
+
+  test('setDomainStage with "" removes only that (domain, status) override', () => {
+    const start = [
+      { domainKey: "ENG", statusId: "3", stage: "DONE" as const },
+      { domainKey: "ENG", statusId: "10", stage: "DONE" as const },
+    ];
+    expect(setDomainStage(start, "ENG", "3", "")).toEqual([{ domainKey: "ENG", statusId: "10", stage: "DONE" }]);
+    expect(setDomainStage(start, "ENG", "99", "")).toEqual(start);
+  });
+
+  test("currentDomainKeys is distinct and skips a blank key", () => {
+    const domains: DomainRowState[] = [
+      { projectKey: "A", domainKey: "X", domainName: "A", ownerTeamId: "" },
+      { projectKey: "B", domainKey: "X", domainName: "B", ownerTeamId: "" },
+      { projectKey: "C", domainKey: "", domainName: "C", ownerTeamId: "" },
+      { projectKey: "D", domainKey: "Y", domainName: "D", ownerTeamId: "" },
+    ];
+    expect(currentDomainKeys(domains)).toEqual(["X", "Y"]);
+  });
+
+  test("orphanOverrideDomains names override domains the Domains tab no longer defines", () => {
+    const domains: DomainRowState[] = [{ projectKey: "A", domainKey: "RENAMED", domainName: "A", ownerTeamId: "" }];
+    const overrides = [
+      { domainKey: "RENAMED", statusId: "3", stage: "DONE" as const },
+      { domainKey: "OLD", statusId: "3", stage: "DONE" as const },
+      { domainKey: "OLD", statusId: "10", stage: "DONE" as const },
+    ];
+    expect(orphanOverrideDomains(domains, overrides)).toEqual(["OLD"]);
   });
 });

@@ -38,13 +38,19 @@
    - *Expected*: the "Showing computed defaults — save to confirm them" banner is visible, and
      the `To Do` status's Stage field already reads "Not started" (preselected from Jira's own
      status category).
-4. On the Boards tab, they map the `Flow Core board` to the throwaway team and save.
+4. Under the stage table, in the **Per-domain overrides** section, they choose the `PLT` domain
+   and set the `To Do` status's stage in that domain to Done.
+   - *Expected*: its field reads "Done" (it started on "Same as all domains") and the section
+     says "Overrides in total: 1"; the every-domain `To Do` field still reads "Not started".
+5. On the Boards tab, they map the `Flow Core board` to the throwaway team and save (this one
+   save carries the override too).
    - *Expected*: a "Saved — reports re-derive shortly" confirmation; after a reload, the
-     not-configured banner is gone.
-5. They map the `Platform board` to the SAME throwaway team and save again.
+     not-configured banner is gone, the section still says "Overrides in total: 1", and the `PLT`
+     domain's `To Do` field still reads "Done".
+6. They map the `Platform board` to the SAME throwaway team and save again.
    - *Expected*: an inline "This team is already mapped to another board" error, on the Platform
      board's Team field specifically (D10: one board per team).
-6. The test deletes the throwaway team and the data source.
+7. The test deletes the throwaway team and the data source.
 
 ## Scenario: admin adds a dated Jira member to a team; a regular user sees it read-only
 

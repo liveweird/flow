@@ -148,7 +148,18 @@ test("admin configures a data source's metrics", async ({ page }) => {
   await expect(page.getByText("Showing computed defaults — save to confirm them")).toBeVisible();
 
   // Stages are preselected from the Jira status category (`To Do` -> `new` -> Not started).
-  await expect(page.getByRole("combobox", { name: "Stage for To Do" })).toHaveValue("Not started");
+  await expect(page.getByRole("combobox", { name: "Stage for To Do", exact: true })).toHaveValue("Not started");
+
+  // A per-domain override under the stage table: in domain PLT only, `To Do` reads as Done.
+  await expect(page.getByRole("heading", { name: "Per-domain overrides" })).toBeVisible();
+  await page.getByRole("combobox", { name: "Domain", exact: true }).click();
+  await page.getByRole("option", { name: "PLT", exact: true }).click();
+  const pltToDo = page.getByRole("combobox", { name: "Stage for To Do in domain PLT", exact: true });
+  await expect(pltToDo).toHaveValue("");
+  await pltToDo.click();
+  await page.getByRole("option", { name: "Done", exact: true }).click();
+  await expect(pltToDo).toHaveValue("Done");
+  await expect(page.getByText("Overrides in total: 1")).toBeVisible();
 
   // Map one board to the throwaway team and save.
   await page.getByRole("tab", { name: "Boards" }).click();
@@ -166,6 +177,12 @@ test("admin configures a data source's metrics", async ({ page }) => {
   await page.reload();
   await expect(page.getByRole("heading", { name: "Metrics configuration" })).toBeVisible();
   await expect(page.getByText("Showing computed defaults — save to confirm them")).toHaveCount(0);
+
+  // The override was saved with the rest of the configuration: still there after the reload.
+  await expect(page.getByText("Overrides in total: 1")).toBeVisible();
+  await page.getByRole("combobox", { name: "Domain", exact: true }).click();
+  await page.getByRole("option", { name: "PLT (1 overridden)", exact: true }).click();
+  await expect(page.getByRole("combobox", { name: "Stage for To Do in domain PLT", exact: true })).toHaveValue("Done");
 
   // Map a second board to the SAME team — a 409, marked on the row that actually changed.
   await page.getByRole("tab", { name: "Boards" }).click();

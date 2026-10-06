@@ -120,7 +120,27 @@
         "IN_PROGRESS": "W trakcie",
         "DONE": "Zakończony"
       },
-      "empty": "Nie widzimy jeszcze żadnych statusów — najpierw zsynchronizuj to połączenie."
+      "empty": "Nie widzimy jeszcze żadnych statusów — najpierw zsynchronizuj to połączenie.",
+      "overrides": {
+        "title": "Nadpisania per domena",
+        "hint": "Status może oznaczać w jednej domenie inny etap niż wszędzie indziej. Wybierz domenę i ustaw etap tylko dla statusów, które się różnią — pozostałe statusy zachowują etap z tabeli powyżej.",
+        "summaryNone": "Brak nadpisań: każda domena używa etapów z tabeli powyżej.",
+        "summary": "Liczba nadpisań łącznie: {{total}}",
+        "noDomains": "Nie ma jeszcze domen — najpierw zdefiniuj je na karcie Domeny.",
+        "domainLabel": "Domena",
+        "domainOption": "{{domain}} (nadpisane: {{total}})",
+        "orphanOption": "{{domain}} (to już nie domena)",
+        "orphanError": "„{{domain}}” nie jest już domeną, więc jej nadpisań nie można zapisać. Usuń je albo przywróć klucz domeny.",
+        "tableLabel": "Nadpisania etapów dla domeny {{domain}}",
+        "columnAllDomains": "Wszystkie domeny",
+        "columnThisDomain": "W tej domenie",
+        "columnActions": "Akcje",
+        "samePlaceholder": "Tak samo jak we wszystkich domenach",
+        "unmapped": "Niezmapowany",
+        "differs": "Różni się",
+        "stageAria": "Etap dla {{name}} w domenie {{domain}}",
+        "removeAria": "Usuń nadpisanie dla {{name}} w domenie {{domain}}"
+      }
     },
     "fields": {
       "estimateTask": "Pole szacowania zadania",

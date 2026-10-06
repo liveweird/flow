@@ -42,7 +42,12 @@ internal fun deriveItem(
     config: DataSourceMetricsConfig,
 ): ItemDerived {
     val statusIntervals = context.statusIntervalsByIssue[item.issueId].orEmpty()
-    val stages = DeriveKernels.stageIntervals(statusIntervals, context.stageMap)
+    // The item's domain NOW (`domain_map`, else the project key itself — the same read `buildTaskRow`'s
+    // callers use): a per-domain stage override applies to every status interval of the item.
+    val stages = DeriveKernels.stageIntervals(
+        statusIntervals,
+        context.stageMapFor(context.domainByProject[item.projectKey] ?: item.projectKey),
+    )
     val startedDone = DeriveKernels.startedDoneAt(stages)
     val blocked = DeriveKernels.blockedIntervals(
         context.flaggedIntervalsByIssue[item.issueId].orEmpty(),
