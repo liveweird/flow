@@ -54,8 +54,8 @@ PRs #59–#61. What remains is the build-time follow-ups, B7 step 3 and the user
 report, `~/.claude/plans/flow-checkup-2026-09-30.md`):
 
 - **Build-time follow-ups** (`build-times.md`): WHY 3/4/9 are answered (2026-10-01); PROCESS's child inserts
-  moved to `insertRows` (2026-10-06: a stub pass 2.25 s -> 1.0 s; its `work_items` `batchUpsert` is the remaining
-  ~0.27 s, an `ON CONFLICT` multi-row helper would be the next step), the nightly `e2e`
+  moved to `insertRows` and its `work_items` write to `upsertRows` (2026-10-06: a stub pass 2.25 s -> 1.0 s -> ~0.78 s;
+  nothing in PROCESS is a per-row round trip any more), the nightly `e2e`
   image-build cache (WHY 7's data decides); `images` is ~3 min and green again since #85 (a base-image libssl CVE).
 - **B7 — the always-loaded instruction budget (steps 1-3 done):** step 2 (2026-10-05) moved the feature template to
   `conventions.md`, the fixture narrative to `test-fixtures.md` and `web/CLAUDE.md`'s per-feature sections to

@@ -448,9 +448,10 @@ class NormalizationPipelineTest {
             val items = workItems()
             val poisoned = middleIssueId(connId)
             // The issue `key` maps straight into `norm.work_items.issue_key` (varchar(20) — an identifier, so still bounded;
-            // the free-text names became TEXT in V19). Exposed checks the length CLIENT-side (an IllegalArgumentException
-            // before any SQL), so no SQLSTATE class 22 ever reaches the classifier — `isDataError` must still recognise it,
-            // or a page of one ends the whole job FAILED on every run.
+            // the free-text names became TEXT in V19). `work_items` is written by `upsertRows` (one multi-row `ON CONFLICT`
+            // statement), which skips Exposed's client-side length check, so the overflow is PostgreSQL's own SQLSTATE 22001
+            // (class 22; `batchUpsert` used to throw an IllegalArgumentException before any SQL) — `isDataError` must
+            // recognise it either way, or a page of one ends the whole job FAILED on every run.
             val tooLong = "K".repeat(30)
             rawSql(
                 "UPDATE raw.jira_issues SET payload = jsonb_set(payload, '{key}', to_jsonb('$tooLong'::text)) " +

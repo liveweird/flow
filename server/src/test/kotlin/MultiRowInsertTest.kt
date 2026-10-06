@@ -2,6 +2,7 @@ package ch.nokillswit
 
 import ch.nokillswit.infra.db.chunkSizes
 import ch.nokillswit.infra.db.insertRows
+import ch.nokillswit.infra.db.upsertRows
 import org.jetbrains.exposed.v1.core.Table
 import ch.nokillswit.infra.json.stringArrayJson
 import ch.nokillswit.metrics.MetricsTables
@@ -11,7 +12,9 @@ import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.Column
 import org.jetbrains.exposed.v1.r2dbc.batchInsert
+import org.jetbrains.exposed.v1.r2dbc.batchUpsert
 import org.jetbrains.exposed.v1.r2dbc.deleteWhere
 import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
@@ -239,6 +242,167 @@ class MultiRowInsertTest {
                 for (connId in listOf(viaBatch, viaRows)) table.deleteWhere { table.connectionId eq connId }
             }
         }
+    }
+
+    /** One `norm.work_items` row's values, in the shape both writers take; [variant] decides which nullable columns are NULL. */
+    private fun workItemValues(issueId: Long, variant: Int): List<Pair<Column<*>, Any?>> {
+        val t = WorkItemStore.WorkItems
+        val odd = (issueId + variant) % 2 == 0L
+        return listOf(
+            t.issueId to issueId,
+            t.issueKey to "MRU-$issueId",
+            t.projectKey to "MRU",
+            t.issueType to if (variant == 1) "Bug" else "Story \u00e9\u4e2d",
+            t.isSubtask to odd,
+            t.parentIssueId to if (odd) issueId + 1 else null,
+            t.summary to if (variant == 1 && issueId % 3 == 0L) null else "summary $variant ${"s".repeat((issueId % 50).toInt())}",
+            t.statusId to "1000${variant}",
+            t.statusName to "Status $variant",
+            t.statusCategory to if (odd) "DONE" else "IN_PROGRESS",
+            t.resolution to if (odd) "Done" else null,
+            t.priority to if (variant == 1) null else "High",
+            t.assigneeAccountId to if (odd) "acc-$issueId" else null,
+            t.reporterAccountId to if (variant == 1) null else "rep-$issueId",
+            t.createdAt to 1_000L + issueId,
+            t.updatedAt to 2_000L + issueId * variant,
+            t.resolvedAt to if (odd) 3_000L + issueId else null,
+            t.storyPoints to if (odd) 2.5 + variant else null,
+            t.originalEstimateSeconds to if (variant == 1) null else 3_600L * issueId,
+            t.timeSpentSeconds to 60L * variant,
+            t.labels to stringArrayJson(listOf("a$variant", "b")),
+            t.components to stringArrayJson(emptyList()),
+            t.fixVersions to stringArrayJson(listOf("v$issueId")),
+            t.currentSprintIds to "[$issueId, ${issueId + 1}]",
+            t.teamValue to if (odd) """{"id":"t$variant"}""" else null,
+            t.flagged to (variant == 1),
+            t.rank to if (odd) "0|i$issueId:" else null,
+            t.hierarchyLevel to if (variant == 1) null else 0,
+            t.dueAt to if (odd) 9_000L else null,
+            t.customFields to """{"customfield_1":"x$variant"}""",
+            t.anomalies to "[]",
+            t.deletedAt to if (variant == 1 && issueId % 7 == 0L) 5_000L else null,
+            t.movedOutAt to if (variant == 0 && issueId % 7 == 0L) 6_000L else null,
+            t.processedAt to 10_000L * (variant + 1),
+            t.processingVersion to 3 + variant,
+        )
+    }
+
+    private suspend fun readWorkItems(connId: UInt): List<List<Any?>> = suspendTransaction(sharedDatabaseForTests()) {
+        val t = WorkItemStore.WorkItems
+        t.selectAll().where { t.connectionId eq connId }.orderBy(t.issueId to SortOrder.ASC).toList()
+            .map { row -> t.columns.filter { it != t.connectionId }.map { row[it] } }
+    }
+
+    private suspend fun cleanUpWorkItems(connIds: List<UInt>) = suspendTransaction(sharedDatabaseForTests()) {
+        for (connId in connIds) WorkItemStore.WorkItems.deleteWhere { WorkItemStore.WorkItems.connectionId eq connId }
+    }
+
+    /** Writes [ids] at [variant] through `batchUpsert` into [connId] — the reference `upsertRows` must match. */
+    private suspend fun batchUpsertWorkItems(connId: UInt, ids: List<Long>, variant: Int) = suspendTransaction(sharedDatabaseForTests()) {
+        val t = WorkItemStore.WorkItems
+        t.batchUpsert(ids, t.connectionId, t.issueId, shouldReturnGeneratedValues = false) { id ->
+            this[t.connectionId] = connId
+            @Suppress("UNCHECKED_CAST") // every pair's value comes from its own column's declared type
+            for ((column, value) in workItemValues(id, variant)) this[column as Column<Any?>] = value
+        }
+    }
+
+    private suspend fun upsertRowsWorkItems(connId: UInt, ids: List<Long>, variant: Int) = suspendTransaction(sharedDatabaseForTests()) {
+        val t = WorkItemStore.WorkItems
+        t.upsertRows(ids, listOf(t.connectionId, t.issueId)) { id ->
+            this[t.connectionId] = connId
+            @Suppress("UNCHECKED_CAST") // every pair's value comes from its own column's declared type
+            for ((column, value) in workItemValues(id, variant)) this[column as Column<Any?>] = value
+        }
+    }
+
+    @Test
+    fun `work_items upsert - insert path then update path over several chunks, NULLs both ways - equals batchUpsert`() = runBlocking {
+        val viaBatch = connection()
+        val viaRows = connection()
+        try {
+            // 36 columns -> 888 rows per statement: 1,000 rows are two full-or-quantized statements; the second write
+            // overwrites ids 500..1000 (update path, every nullable column flips between NULL and a value) and adds 1001..1500.
+            val first = (1L..1_000L).toList()
+            val second = (500L..1_500L).toList()
+            batchUpsertWorkItems(viaBatch, first, variant = 0)
+            upsertRowsWorkItems(viaRows, first, variant = 0)
+            val afterInsert = readWorkItems(viaBatch)
+            assertEquals(1_000, afterInsert.size)
+            assertEquals(afterInsert, readWorkItems(viaRows), "insert path: upsertRows must store what batchUpsert stores")
+
+            batchUpsertWorkItems(viaBatch, second, variant = 1)
+            upsertRowsWorkItems(viaRows, second, variant = 1)
+            val afterUpdate = readWorkItems(viaBatch)
+            assertEquals(1_500, afterUpdate.size)
+            assertEquals(afterUpdate, readWorkItems(viaRows), "update path: upsertRows must store what batchUpsert stores")
+            val t = WorkItemStore.WorkItems
+            val columns = t.columns.filter { it != t.connectionId }
+            val summary = columns.indexOf(t.summary)
+            val summaries = afterUpdate.map { it[summary] }
+            assertTrue(summaries.any { it == null } && summaries.any { it != null }, "NULL and non-NULL both exercised")
+            assertTrue(afterUpdate.first()[columns.indexOf(t.processingVersion)] == 3, "rows outside the second write are untouched")
+            assertTrue(afterUpdate[700][columns.indexOf(t.processingVersion)] == 4, "rows inside the second write were updated")
+        } finally {
+            cleanUpWorkItems(listOf(viaBatch, viaRows))
+        }
+    }
+
+    @Test
+    fun `upsertRows collapses a repeated key to its last row like batchUpsert's sequential executions`() = runBlocking {
+        val viaBatch = connection()
+        val viaRows = connection()
+        try {
+            // id 5 appears twice with different values: a single ON CONFLICT statement would otherwise raise
+            // "cannot affect row a second time"; batchUpsert executes in order, so the last one wins.
+            val t = WorkItemStore.WorkItems
+            suspend fun write(connId: UInt, viaUpsertRows: Boolean) = suspendTransaction(sharedDatabaseForTests()) {
+                val rows = listOf(5L to 0, 6L to 0, 5L to 1, 7L to 0)
+                @Suppress("UNCHECKED_CAST") // every pair's value comes from its own column's declared type
+                if (viaUpsertRows) {
+                    t.upsertRows(rows, listOf(t.connectionId, t.issueId)) { (id, variant) ->
+                        this[t.connectionId] = connId
+                        for ((column, value) in workItemValues(id, variant)) this[column as Column<Any?>] = value
+                    }
+                } else {
+                    t.batchUpsert(rows, t.connectionId, t.issueId, shouldReturnGeneratedValues = false) { (id, variant) ->
+                        this[t.connectionId] = connId
+                        for ((column, value) in workItemValues(id, variant)) this[column as Column<Any?>] = value
+                    }
+                }
+            }
+            write(viaBatch, viaUpsertRows = false)
+            write(viaRows, viaUpsertRows = true)
+            val expected = readWorkItems(viaBatch)
+            assertEquals(3, expected.size)
+            val statusName = t.columns.filter { it != t.connectionId }.indexOf(t.statusName)
+            assertEquals("Status 1", expected.first()[statusName], "the reference: the last row for id 5 wins")
+            assertEquals(expected, readWorkItems(viaRows))
+        } finally {
+            cleanUpWorkItems(listOf(viaBatch, viaRows))
+        }
+    }
+
+    @Test
+    fun `upsertRows refuses an empty or unset conflict target and a table that is all key`() = runBlocking {
+        val connId = connection()
+        val t = MetricsTables.ItemStage
+        assertFailsWith<IllegalArgumentException> {
+            suspendTransaction(sharedDatabaseForTests()) { t.upsertRows(listOf(1L), emptyList()) { this[t.connectionId] = connId } }
+        }
+        val unset = assertFailsWith<IllegalArgumentException> {
+            suspendTransaction(sharedDatabaseForTests()) {
+                t.upsertRows(listOf(1L), listOf(t.connectionId, t.issueId)) { this[t.connectionId] = connId }
+            }
+        }
+        assertTrue(unset.message!!.contains("conflict key"), unset.message)
+        val allKey = assertFailsWith<IllegalArgumentException> {
+            suspendTransaction(sharedDatabaseForTests()) {
+                t.upsertRows(listOf(1L), listOf(t.issueId)) { this[t.issueId] = it }
+            }
+        }
+        assertTrue(allKey.message!!.contains("nothing to update"), allKey.message)
+        Unit
     }
 
     @Test

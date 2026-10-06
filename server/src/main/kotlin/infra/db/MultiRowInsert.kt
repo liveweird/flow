@@ -6,6 +6,7 @@ import org.jetbrains.exposed.v1.core.EntityIDColumnType
 import org.jetbrains.exposed.v1.core.IColumnType
 import org.jetbrains.exposed.v1.core.dao.id.EntityID
 import org.jetbrains.exposed.v1.core.Table
+import org.jetbrains.exposed.v1.r2dbc.R2dbcTransaction
 import org.jetbrains.exposed.v1.r2dbc.transactions.TransactionManager
 
 /**
@@ -65,20 +66,51 @@ class InsertRow {
  * table, however many rows a batch has.
  */
 suspend fun <T : Table, E> T.insertRows(rows: Iterable<E>, body: InsertRow.(E) -> Unit) {
-    val collected = rows.map { row -> InsertRow().also { it.body(row) }.values }
-    if (collected.isEmpty()) return
-    val setColumns = collected.first().keys
-    require(setColumns.isNotEmpty()) { "insertRows: a row that sets no column cannot be inserted" }
-    require(collected.all { it.keys == setColumns }) { "insertRows: every row must set the same columns" }
+    writeRows("insertRows", rows, body, conflictKeys = null)
+}
+
+/**
+ * [insertRows]' `ON CONFLICT` sibling — `table.upsertRows(rows, keys = listOf(Col, …)) { this[Col] = it.value }` replaces
+ * `batchUpsert(rows, *keys)` with ONE multi-row
+ * `INSERT … VALUES (…), (…) ON CONFLICT (<keys>) DO UPDATE SET c = EXCLUDED.c, …` per chunk (the same chunking, the same
+ * quantized statement texts, the same bind-parameter cap, the same contract as [insertRows]; the `ON CONFLICT` suffix
+ * is constant, so it adds no statement texts). Why: `batchUpsert` is one bound execution per row, ~0.2 ms each
+ * (`.claude/docs/build-times.md`, the `norm.work_items` follow-up).
+ *
+ * `keys` are the conflict target (a unique index/PK of the table, every one set by every row). The `DO UPDATE SET`
+ * list is every OTHER column of the statement — each column a row sets plus each unset client-side `default(…)`
+ * column, exactly what `batchUpsert` updates — and it must not be empty (use [insertRows] for a table that is all
+ * key). A single `INSERT … ON CONFLICT DO UPDATE` cannot touch one row twice (`cardinality_violation`), so rows
+ * sharing a key are collapsed to the LAST one before chunking: the end state `batchUpsert`'s sequential
+ * executions leave. No `WHERE` clause, nothing returned.
+ */
+suspend fun <T : Table, E> T.upsertRows(rows: Iterable<E>, keys: List<Column<*>>, body: InsertRow.(E) -> Unit) {
+    require(keys.isNotEmpty()) { "upsertRows: the conflict target needs at least one key column" }
+    writeRows("upsertRows", rows, body, conflictKeys = keys)
+}
+
+private suspend fun <T : Table, E> T.writeRows(
+    caller: String,
+    rows: Iterable<E>,
+    body: InsertRow.(E) -> Unit,
+    conflictKeys: List<Column<*>>?,
+) {
+    val allRows = rows.map { row -> InsertRow().also { it.body(row) }.values }
+    if (allRows.isEmpty()) return
+    val setColumns = allRows.first().keys
+    require(setColumns.isNotEmpty()) { "$caller: a row that sets no column cannot be inserted" }
+    require(allRows.all { it.keys == setColumns }) { "$caller: every row must set the same columns" }
     setColumns.firstOrNull { it.table != this }?.let { foreign ->
-        throw IllegalArgumentException("insertRows: column ${foreign.name} belongs to ${foreign.table.tableName}, not ${this.tableName}")
+        throw IllegalArgumentException("$caller: column ${foreign.name} belongs to ${foreign.table.tableName}, not ${this.tableName}")
     }
     require(this.columns.none { (it.columnType as? AutoIncColumnType<*>)?.sequence != null }) {
-        "insertRows: ${this.tableName} has a sequence-backed autoIncrement column; use batchInsert"
+        "$caller: ${this.tableName} has a sequence-backed autoIncrement column; use batchInsert"
     }
+    val collected = if (conflictKeys == null) allRows else lastPerKey(caller, allRows, conflictKeys)
     val columns = this.columns.filter { it in setColumns || it.defaultValueFun != null }
     val tx = TransactionManager.current()
     val header = "INSERT INTO ${tx.identity(this)} (${columns.joinToString(", ") { tx.identity(it) }}) VALUES "
+    val suffix = if (conflictKeys == null) "" else conflictSuffix(caller, tx, columns, conflictKeys)
     val maxRows = (MAX_BIND_PARAMETERS / columns.size).coerceAtLeast(1)
     var offset = 0
     for (size in chunkSizes(collected.size, maxRows)) {
@@ -98,8 +130,24 @@ suspend fun <T : Table, E> T.insertRows(rows: Iterable<E>, body: InsertRow.(E) -
             }
             sql.append(')')
         }
+        sql.append(suffix)
         tx.exec(sql.toString(), arguments)
     }
+}
+
+/** [rows] with every key collapsed to its LAST row (first-seen order), see [upsertRows]. */
+private fun lastPerKey(caller: String, rows: List<Map<Column<*>, Any?>>, keys: List<Column<*>>): List<Map<Column<*>, Any?>> {
+    require(keys.all { it in rows.first() }) { "$caller: every conflict key column must be set by every row" }
+    val byKey = LinkedHashMap<List<Any?>, Map<Column<*>, Any?>>(rows.size * 2)
+    for (row in rows) byKey[keys.map { key -> row[key].let { if (it is EntityID<*>) it.value else it } }] = row
+    return byKey.values.toList()
+}
+
+private fun conflictSuffix(caller: String, tx: R2dbcTransaction, columns: List<Column<*>>, keys: List<Column<*>>): String {
+    val updated = columns.filter { it !in keys }
+    require(updated.isNotEmpty()) { "$caller: every column is a conflict key, nothing to update" }
+    return " ON CONFLICT (${keys.joinToString(", ") { tx.identity(it) }}) DO UPDATE SET " +
+        updated.joinToString(", ") { "${tx.identity(it)} = EXCLUDED.${tx.identity(it)}" }
 }
 
 /**

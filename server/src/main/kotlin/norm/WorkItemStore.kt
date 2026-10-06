@@ -4,6 +4,7 @@ import ch.nokillswit.infra.db.active
 import ch.nokillswit.infra.db.containsNormalized
 import ch.nokillswit.infra.db.insertRows
 import ch.nokillswit.infra.db.jsonb
+import ch.nokillswit.infra.db.upsertRows
 import ch.nokillswit.infra.json.parseStringArray
 import ch.nokillswit.infra.json.stringArrayJson
 import ch.nokillswit.infra.paging.PageRequest
@@ -27,7 +28,6 @@ import kotlinx.serialization.json.long
 import org.jetbrains.exposed.v1.core.*
 import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
 import org.jetbrains.exposed.v1.r2dbc.batchInsert
-import org.jetbrains.exposed.v1.r2dbc.batchUpsert
 import org.jetbrains.exposed.v1.r2dbc.deleteWhere
 import org.jetbrains.exposed.v1.r2dbc.select
 import org.jetbrains.exposed.v1.r2dbc.selectAll
@@ -375,7 +375,7 @@ class WorkItemStore(private val database: R2dbcDatabase) {
      * [replaceWorkItems]' transaction.
      */
     private suspend fun upsertWorkItems(connectionId: UInt, normalized: List<NormalizedIssue>, now: Long, processingVersion: Int) {
-        WorkItems.batchUpsert(normalized, WorkItems.connectionId, WorkItems.issueId, shouldReturnGeneratedValues = false) { item ->
+        WorkItems.upsertRows(normalized, listOf(WorkItems.connectionId, WorkItems.issueId)) { item ->
             val facts = item.facts
             this[WorkItems.connectionId] = connectionId
             this[WorkItems.issueId] = item.issueId
