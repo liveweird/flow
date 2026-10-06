@@ -948,7 +948,9 @@ export interface paths {
          *     (`bySprint` to that team's sprints, the period view to tasks credited to that team — `teamId=0`
          *     selects UNASSIGNED credit for the period view and yields no sprints) and `groups` becomes one per
          *     assignee at done; `teamId` AND `accountId` narrow to USER level (`groups` empty; `bySprint` is
-         *     that account's deliveries by assignee at commitment). Σ `groups` equals Σ `byBucket`.
+         *     that account's deliveries by assignee at commitment, its `snapshot` that account's frozen share
+         *     computed from the sprint's stored snapshot scope by the same rule as the live figures — null when
+         *     the sprint has no snapshot). Σ `groups` equals Σ `byBucket`.
          */
         get: operations["getReportThroughput"];
         put?: never;
@@ -979,8 +981,9 @@ export interface paths {
          *     `groups` becomes a per-user split (`fact_sprint_scope.assignee_at_commitment`, the same bucket
          *     predicates the team figures use, so Σ groups == the team figures for every bucket; a null
          *     `accountId` is the unassigned-at-commitment bucket); `teamId` AND `accountId` narrow to USER level —
-         *     `sprints` narrows to that account's own rows per sprint (`snapshot` null, `drift` false) and
-         *     `groups` is empty. `teamId=0` (UNASSIGNED) is always empty. An active or future sprint
+         *     `sprints` narrows to that account's own rows per sprint (its `snapshot` is that account's frozen
+         *     figures, computed from the sprint's stored snapshot scope by the same bucket predicates as the live
+         *     ones — null when the sprint has no snapshot — and `drift` compares the two) and `groups` is empty. `teamId=0` (UNASSIGNED) is always empty. An active or future sprint
          *     (`completedAt` null) is reachable only by an explicit `sprintId`: its live figures, `snapshot` null.
          */
         get: operations["getReportSprintConsistency"];

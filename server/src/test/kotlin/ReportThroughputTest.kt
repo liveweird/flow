@@ -1,10 +1,12 @@
 package ch.nokillswit
 
+import ch.nokillswit.FrozenScopeFixtures.scopeItem
 import ch.nokillswit.metrics.FactTaskDeliveryRow
 import ch.nokillswit.metrics.MetricsSettingsService
 import ch.nokillswit.metrics.MetricsStore
 import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.reports.ThroughputReport
+import ch.nokillswit.reports.ThroughputSnapshot
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
@@ -12,12 +14,21 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.testApplication
 import java.io.File
 import java.math.BigDecimal
+import java.math.RoundingMode
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.ZoneId
 import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.isNotNull
@@ -25,6 +36,7 @@ import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /** A minimal local slice of `sample-data/jira/expected.json`'s `golden.sprint` — just what this test needs. */
@@ -370,6 +382,11 @@ class ReportThroughputTest {
             assertTrue(!sprint.drift)
             assertEquals(open.deliveredMd, sprint.deliveredMd, ABS_TOLERANCE)
             assertEquals(open.deliveredItems, sprint.deliveredItems)
+            // USER level: a sprint with no snapshot (D13) has a null per-user snapshot and no drift, whoever the account.
+            val userQuery = "connectionId=$connId&teamId=$floTeamId&accountId=any-account&sprintId=${open.sprintId}"
+            val user = client.throughput(userQuery).bySprint.single()
+            assertEquals(null, user.snapshot)
+            assertTrue(!user.drift)
             // Window [start_at, now]: done tasks all predate now, so every one from start_at on counts; no start_at -> empty.
             val expected = open.startAt?.let { start -> all.filter { it.doneAt >= start } }.orEmpty()
             assertEquals(expected.size, body.byBucket.sumOf { it.deliveredItems }, "sprint ${open.sprintId} period view")
@@ -430,6 +447,107 @@ class ReportThroughputTest {
         assertEquals(team.deliveredItems, itemSum)
         assertEquals(golden.deliveredItems, itemSum)
     }
+
+    /** One assignee bucket's `done_in_sprint` items summed off the stored JSON (per-item round2), never the production reader. */
+    private fun frozenDelivered(stored: List<JsonObject>, account: String?): Pair<BigDecimal, Int> {
+        val rows = stored.filter {
+            it.getValue("assigneeAtCommitment").jsonPrimitive.contentOrNull == account && it.getValue("doneInSprint").jsonPrimitive.boolean
+        }
+        val md = rows.fold(BigDecimal.ZERO) { acc, item ->
+            val value = item.getValue("estimateAtDoneMd")
+            acc + if (value is JsonNull) BigDecimal.ZERO else BigDecimal((value as JsonPrimitive).content).setScale(2, RoundingMode.HALF_UP)
+        }
+        return md to rows.size
+    }
+
+    @Test
+    fun `USER-level bySprint snapshot equals the stored scope and sums to the team snapshot`() =
+        testApplication {
+            usePostgresTestcontainer()
+            val connId = DerivedStubFixture.connectionId()
+            val golden = reportThroughputGolden
+            val floTeamId = floTeamId(connId, golden.sprintId)
+            val client = seededClient("reports-throughput-user-frozen")
+            val sprintQuery = "connectionId=$connId&sprintId=${golden.sprintId}"
+
+            val team = client.throughput("$sprintQuery&teamId=$floTeamId").bySprint.single()
+            val teamSnapshot = assertNotNull(team.snapshot, "the golden sprint is closed and team-mapped, so it is frozen")
+            val stored = FrozenScopeFixtures.storedScope(connId, golden.sprintId).map { it.jsonObject }
+            val accounts = stored.mapNotNull { it.getValue("assigneeAtCommitment").jsonPrimitive.contentOrNull }.distinct()
+            assertTrue(accounts.isNotEmpty(), "the golden sprint has assigned scope")
+
+            val (unassignedMd, unassignedItems) = frozenDelivered(stored, null)
+            var mdSum = unassignedMd
+            var itemSum = unassignedItems
+            for (account in accounts) {
+                val sprint = client.throughput("$sprintQuery&teamId=$floTeamId&accountId=$account").bySprint.single()
+                val snapshot = assertNotNull(sprint.snapshot, "$account: a snapshotted sprint has per-user frozen figures")
+                val (expectedMd, expectedItems) = frozenDelivered(stored, account)
+                assertEquals(0, expectedMd.compareTo(BigDecimal.valueOf(snapshot.deliveredMd)), "$account deliveredMd")
+                assertEquals(expectedItems, snapshot.deliveredItems, "$account deliveredItems")
+                // The fixture's snapshot is frozen from the very rows the live figures read: no drift.
+                assertEquals(sprint.deliveredMd, snapshot.deliveredMd, "$account live == frozen")
+                assertEquals(sprint.deliveredItems, snapshot.deliveredItems, "$account live == frozen items")
+                assertTrue(!sprint.drift, "$account: no drift")
+                mdSum += BigDecimal.valueOf(snapshot.deliveredMd)
+                itemSum += snapshot.deliveredItems
+            }
+            // Σ named users + the unassigned remainder (no USER-level query) == the team snapshot, to the cent.
+            assertEquals(0, BigDecimal.valueOf(teamSnapshot.deliveredMd).compareTo(mdSum), "Sigma users + unassigned deliveredMd")
+            assertEquals(teamSnapshot.deliveredItems, itemSum)
+        }
+
+    @Test
+    fun `USER-level bySprint snapshot reads the stored scope per connection, with drift`() =
+        testApplication {
+            usePostgresTestcontainer()
+            val sprintId = reportThroughputGolden.sprintId
+            val (connA, teamA) = FrozenScopeFixtures.derivedDisabledClone("jira-throughput-frozen", "throughput-frozen-team-a")
+            val (connB, teamB) = FrozenScopeFixtures.derivedDisabledClone("jira-throughput-frozen", "throughput-frozen-team-b")
+            val client = seededClient("reports-throughput-user-frozen-synthetic")
+            fun userUrl(connId: UInt, teamId: UInt, accountId: String) =
+                "connectionId=$connId&teamId=$teamId&accountId=$accountId&sprintId=$sprintId"
+
+            // Synthetic accounts own NO live scope row, so their live figures are zero and every frozen one is the JSON's.
+            val ann = "synthetic-ann"
+            val other = "synthetic-other"
+            // A: [ann] two deliveries priced 1000.004 -> 1000.00 and 2.506 -> 2.51, one delivery with NO done estimate (an item
+            // worth 0 MD), one item not delivered (ignored), plus a delivery of `other` and of the unassigned bucket.
+            FrozenScopeFixtures.overwriteSnapshotScope(
+                connA, sprintId,
+                buildJsonArray {
+                    add(scopeItem(1, ann, doneMd = 1000.004, done = true))
+                    add(scopeItem(2, ann, doneMd = 2.506, done = true))
+                    add(scopeItem(3, ann, doneMd = null, done = true))
+                    add(scopeItem(4, ann, commitMd = 9.0, closeMd = 9.0, carried = true))
+                    add(scopeItem(5, other, doneMd = 50.0, done = true))
+                    add(scopeItem(6, null, doneMd = 100.0, done = true))
+                },
+            )
+            // B shares the SAME sprint id (one Jira site, two connections) but a different snapshot.
+            FrozenScopeFixtures.overwriteSnapshotScope(
+                connB, sprintId, buildJsonArray { add(scopeItem(1, ann, doneMd = 1.0, done = true)) },
+            )
+
+            val a = client.throughput(userUrl(connA, teamA, ann)).bySprint.single()
+            val snapshotA = assertNotNull(a.snapshot)
+            assertEquals(1002.51, snapshotA.deliveredMd, ABS_TOLERANCE)
+            assertEquals(3, snapshotA.deliveredItems)
+            assertEquals(0.0, a.deliveredMd, "the live figures still come from fact_sprint_scope, not the snapshot")
+            assertEquals(0, a.deliveredItems)
+            assertTrue(a.drift, "the frozen figures differ from the live ones")
+
+            val b = client.throughput(userUrl(connB, teamB, ann)).bySprint.single()
+            val snapshotB = assertNotNull(b.snapshot)
+            assertEquals(1.0, snapshotB.deliveredMd, ABS_TOLERANCE)
+            assertEquals(1, snapshotB.deliveredItems)
+            assertTrue(b.drift)
+
+            // An account with no delivery in the stored scope has zero frozen figures (not null: the sprint IS frozen) and no drift.
+            val nobody = client.throughput(userUrl(connB, teamB, other)).bySprint.single()
+            assertEquals(ThroughputSnapshot(0.0, 0), nobody.snapshot)
+            assertTrue(!nobody.drift)
+        }
 
     @Test
     fun `MONTH and WEEK buckets sum to the same totals and start on Mondays and the first`() = testApplication {

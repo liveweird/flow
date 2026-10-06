@@ -5,13 +5,6 @@ import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.metrics.sumMd
 import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonNull
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.booleanOrNull
-import kotlinx.serialization.json.doubleOrNull
 import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
@@ -66,17 +59,6 @@ data class VelocityGroup(
 @Serializable
 data class VelocityReport(val meta: ReportMeta, val sprints: List<VelocitySprint>, val groups: List<VelocityGroup>)
 
-/** One `fact_sprint_scope` row's contribution to the committed/final buckets (the removed-row rule applied by the caller). */
-internal data class ScopeContribution(
-    val connectionId: UInt,
-    val sprintId: Long,
-    val accountId: String?,
-    val committed: Boolean,
-    val inScopeAtClose: Boolean,
-    val commitMd: Double?,
-    val closeMd: Double?,
-)
-
 /** The committed(∧inScopeAtClose)/final figures of one account's (or any group's) scope rows — the ONE rule live and frozen share. */
 private fun figuresOf(rows: List<ScopeContribution>): VelocitySnapshot = VelocitySnapshot(
     initialMd = sumMd(rows.filter { it.committed && it.inScopeAtClose }.map { it.commitMd }),
@@ -109,7 +91,7 @@ suspend fun ReportService.velocity(filter: ReportFilter): VelocityReport = suspe
     if (filter.level == ReportLevel.USER) {
         val accountId = requireNotNull(filter.accountId) { "USER level always carries an accountId (ReportFilter's own invariant)" }
         val contributions = fetchScopeContributions(sprintRows, accountId)
-        val frozen = fetchFrozenContributions(sprintRows, accountId)
+        val frozen = fetchFrozenScopes(sprintRows, accountId, ::frozenContributionsOf) { it.accountId }
         return@suspendTransaction VelocityReport(meta, buildUserSprints(sprintRows, contributions, frozen), emptyList())
     }
 
@@ -186,74 +168,6 @@ private suspend fun userGroups(contributions: List<ScopeContribution>): List<Vel
             finalItems = figures.finalItems,
         )
     }
-
-/**
- * The frozen counterpart of [fetchScopeContributions]: parses each in-scope sprint's `fact_sprint_snapshot.scope`
- * JSONB (the writer's `sprintScopeItemsJson` shape, D13) into the same [ScopeContribution] rows, keeping [accountId]'s
- * own items. A sprint WITH a snapshot is always a key (an account with no items there maps to an empty list, so its
- * frozen figures are zeros, like the live ones); a sprint with none is absent -> `snapshot = null`.
- */
-private suspend fun fetchFrozenContributions(
-    sprintRows: List<SprintRow>,
-    accountId: String,
-): Map<Pair<UInt, Long>, List<ScopeContribution>> {
-    if (sprintRows.isEmpty()) return emptyMap()
-    val snapshot = MetricsTables.FactSprintSnapshot
-    val inScope = sprintRows.map { it.connectionId to it.sprintId }.toSet()
-    return snapshot.selectAll()
-        .where {
-            (snapshot.connectionId inList sprintRows.map { it.connectionId }.distinct()) and
-                (snapshot.sprintId inList sprintRows.map { it.sprintId }.distinct())
-        }
-        .toList()
-        .filter { (it[snapshot.connectionId].value to it[snapshot.sprintId]) in inScope }
-        .associate { row ->
-            val connectionId = row[snapshot.connectionId].value
-            val sprintId = row[snapshot.sprintId]
-            val items = frozenContributionsOf(row[snapshot.scope], connectionId, sprintId)
-            (connectionId to sprintId) to items.filter { it.accountId == accountId }
-        }
-}
-
-/**
- * Parses one snapshot's stored `scope` JSON (written ONLY by `MetricsStore.sprintScopeItemsJson`) into [ScopeContribution]
- * rows. Strict on purpose: a missing key, a non-boolean flag or a non-numeric MD is an invariant violation of the one
- * writer, so it fails loudly with the offending connection/sprint/item rather than being read as "no estimate". A JSON
- * `null` MD stays `null` (= no estimate, exactly as the live `fact_sprint_scope` columns).
- */
-internal fun frozenContributionsOf(scopeJson: String, connectionId: UInt, sprintId: Long): List<ScopeContribution> {
-    fun malformed(what: String): Nothing =
-        error("fact_sprint_snapshot.scope malformed for connection $connectionId sprint $sprintId: $what")
-    val array = Json.parseToJsonElement(scopeJson) as? JsonArray ?: malformed("not a JSON array")
-    return array.mapIndexed { index, element ->
-        val item = element as? JsonObject ?: malformed("item $index is not an object")
-        fun scalar(key: String): JsonPrimitive {
-            val value = item[key] ?: malformed("item $index is missing key $key")
-            return value as? JsonPrimitive ?: malformed("item $index key $key is not a scalar")
-        }
-        fun flag(key: String): Boolean =
-            scalar(key).takeIf { !it.isString }?.booleanOrNull ?: malformed("item $index key $key is not a boolean")
-        fun md(key: String): Double? {
-            val value = scalar(key)
-            if (value is JsonNull) return null
-            return value.takeIf { !it.isString }?.doubleOrNull ?: malformed("item $index key $key is not a number")
-        }
-        val assignee = scalar("assigneeAtCommitment")
-        ScopeContribution(
-            connectionId = connectionId,
-            sprintId = sprintId,
-            accountId = when {
-                assignee is JsonNull -> null
-                assignee.isString -> assignee.content
-                else -> malformed("item $index key assigneeAtCommitment is not a string")
-            },
-            committed = flag("committed"),
-            inScopeAtClose = flag("inScopeAtClose"),
-            commitMd = md("estimateAtCommitmentMd"),
-            closeMd = md("estimateAtCloseMd"),
-        )
-    }
-}
 
 /**
  * The USER level's own `sprints` — one row per sprint, narrowed to [contributions]' one account

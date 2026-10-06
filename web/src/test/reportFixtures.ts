@@ -174,6 +174,14 @@ export const THROUGHPUT_UNIT: ThroughputReport = {
   ],
 };
 
+/** USER level: one account's own sprint row — the frozen per-user share and drift ride along like the team level's. */
+export const THROUGHPUT_USER: ThroughputReport = {
+  meta: { ...META, level: "USER" },
+  bySprint: [{ ...THROUGHPUT_UNIT.bySprint[0], deliveredMd: 7.5, deliveredItems: 3, snapshot: { deliveredMd: 6, deliveredItems: 3 }, drift: true }],
+  byBucket: THROUGHPUT_UNIT.byBucket,
+  groups: [],
+};
+
 export const THROUGHPUT_MONTHS: ThroughputReport = {
   ...THROUGHPUT_UNIT,
   byBucket: [
@@ -257,6 +265,51 @@ export const CONSISTENCY_UNIT: SprintConsistencyReport = {
     { teamId: 1, label: "Alpha", ...ALPHA_LIVE },
     { teamId: 2, label: "Beta", ...BETA_LIVE },
   ],
+};
+
+/** USER level: one account's own sprint row — its frozen figures and drift ride along like the team level's. */
+export const CONSISTENCY_USER: SprintConsistencyReport = {
+  meta: { ...META, level: "USER" },
+  sprints: [
+    {
+      sprintId: 12,
+      name: "Alpha 2",
+      teamId: 1,
+      completedAt: Date.UTC(2026, 8, 10),
+      committedMd: 8,
+      committedItems: 3,
+      addedMd: 1,
+      addedItems: 1,
+      removedMd: 0,
+      removedItems: 0,
+      finalMd: 9,
+      finalItems: 4,
+      deliveredMd: 6,
+      deliveredItems: 3,
+      carriedOverMd: 2,
+      carriedOverItems: 1,
+      droppedMd: 1,
+      droppedItems: 0,
+      snapshot: {
+        committedMd: 8,
+        committedItems: 3,
+        addedMd: 1,
+        addedItems: 1,
+        removedMd: 0,
+        removedItems: 0,
+        finalMd: 9,
+        finalItems: 4,
+        deliveredMd: 5,
+        deliveredItems: 3,
+        carriedOverMd: 3,
+        carriedOverItems: 1,
+        droppedMd: 1,
+        droppedItems: 0,
+      },
+      drift: true,
+    },
+  ],
+  groups: [],
 };
 
 export const CONSISTENCY_EMPTY: SprintConsistencyReport = { meta: META, sprints: [], groups: [] };

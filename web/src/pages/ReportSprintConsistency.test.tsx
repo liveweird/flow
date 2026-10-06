@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { Route, Routes } from "react-router-dom";
 import ReportSprintConsistency from "./ReportSprintConsistency";
 import { jsonResponse } from "../test/http";
-import { CONSISTENCY_EMPTY, CONSISTENCY_UNIT, FILTERS } from "../test/reportFixtures";
+import { CONSISTENCY_EMPTY, CONSISTENCY_UNIT, CONSISTENCY_USER, FILTERS } from "../test/reportFixtures";
 import { renderWithProviders, screen, waitFor, within } from "../test/render";
 
 // recharts renders nothing under happy-dom (no layout), so each chart is a probe carrying its props.
@@ -91,6 +91,19 @@ describe("ReportSprintConsistency page", () => {
     expect(screen.getByRole("link", { name: "Show Alpha" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Show Beta" })).toBeInTheDocument();
     expect(calls(mockFetch)).toEqual(["/api/v1/reports/sprint-consistency?"]);
+  });
+
+  test("at user level the sprint row shows the account's frozen figures and the drift badge", async () => {
+    serve(mockFetch, () => jsonResponse(200, CONSISTENCY_USER));
+    renderPage("/reports/sprint-consistency?teamId=1&accountId=acc-ann");
+    await screen.findAllByTestId("bar-chart");
+
+    const table = screen.getByRole("heading", { name: "All figures" }).closest("div[class*=Paper]") as HTMLElement;
+    const row = within(table).getByRole("row", { name: /Alpha 2/ });
+    expect(within(row).getByText("8 (3)")).toBeInTheDocument();
+    expect(within(row).getByText("Drift")).toBeInTheDocument();
+    expect(within(row).getByText("Frozen at completion: committed 8 · final 9 · delivered 5 MD")).toBeInTheDocument();
+    expect(calls(mockFetch)).toEqual(["/api/v1/reports/sprint-consistency?teamId=1&accountId=acc-ann"]);
   });
 
   test("offers no report-specific controls — no bucket, domain view, domain, activity type or category", async () => {
