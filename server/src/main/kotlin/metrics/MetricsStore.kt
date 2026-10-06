@@ -51,7 +51,8 @@ private const val DIM_DATE_WRITE_BATCH = 1000
 
 /**
  * The tables `DeriveWipStep.kt`/`DeriveFlowStep.kt`'s SQL reads and `MetricsDeriver` has just
- * rebuilt in its transaction ([MetricsStore.analyzeDerivedTables]): the connection-scoped dims,
+ * rebuilt in its transaction ([MetricsStore.analyzeDerivedTables], in the transaction for a connection's first
+ * derive, after the commit for every later one): the connection-scoped dims,
  * bridges and facts, plus the global `dim_date` (ensured in the same run, in its own transaction; every step joins it).
  * Deliberately NOT here: `agg_daily_*` (written by those steps, never read by them),
  * `fact_epic_delivery`/`item_blocked`/`fact_sprint_snapshot` (read by neither), `team_membership`
@@ -683,24 +684,37 @@ class MetricsStore(private val database: R2dbcDatabase) {
     suspend fun execAggDailyFlow(sql: String) = suspendTransaction(database) { exec(sql) }
 
     /**
-     * `ANALYZE` over [ANALYZED_TABLES] — every table the WIP and flow `INSERT ... SELECT`s read —
-     * so the planner sees the rows THIS run just rebuilt. DERIVE rewrites them inside ONE
-     * transaction, and autovacuum can neither see uncommitted rows nor run in time for the very next
-     * statement, so without it those statements plan against stale (or, on a fresh table, default
-     * `rows=1`) estimates: nested loops over tens of thousands of rows, and every re-derive of the
-     * same connection slower than the last as dead tuples pile up. Unlike `VACUUM`, `ANALYZE` is
-     * legal inside a transaction block, and it counts the transaction's own inserted rows as live and
-     * its own deletes as dead, so the statistics describe the rebuilt state. Table names are fixed
-     * constants (no user input); reuses the CALLER's transaction like [execAggDailyWip].
-     * The tables stay locked (`SHARE UPDATE EXCLUSIVE`, which conflicts with itself) until that
-     * transaction commits. Two DERIVEs therefore serialize from this statement to their commit: the
-     * second one's ANALYZE waits for the first's commit (no deadlock — every DERIVE ANALYZEs the same
-     * tables in the same order). The fact-building phase before it overlaps freely (`dim_date` is
-     * ensured in its own transaction). The lock also conflicts with VACUUM/autovacuum and DDL: autovacuum
-     * on these tables is skipped or cancelled meanwhile (an anti-wraparound vacuum would make the derive
-     * wait — rare). It must NOT be made skippable: it has to see this transaction's uncommitted rows.
+     * `ANALYZE` over [ANALYZED_TABLES] — every table the WIP and flow `INSERT ... SELECT`s read. DERIVE
+     * rewrites them inside ONE transaction, and autovacuum can neither see uncommitted rows nor run in time
+     * for the very next statement, so a table with NO statistics yet (a connection's first derive) would be
+     * planned at default `rows=1` estimates: nested loops over tens of thousands of rows (build-times WHY 1:
+     * 7.5 s, then 12.3 s, 18.9 s per derive). Two call sites, one per situation:
+     *
+     * - A connection's FIRST successful derive calls it INSIDE the derive transaction (reusing the caller's
+     *   transaction like [execAggDailyWip]). Unlike `VACUUM`, `ANALYZE` is legal in a transaction block and
+     *   counts the transaction's own inserted rows as live, so the statistics describe the rebuilt state. Its
+     *   `SHARE UPDATE EXCLUSIVE` locks, which conflict with themselves, are held to the commit, so two such
+     *   derives (rare: a new connection, or one after PURGE) serialize from this statement to their commit —
+     *   the second's ANALYZE waits for the first's commit (no deadlock: same tables, same order).
+     * - Every LATER derive calls it AFTER the commit, as a top-level call, so it is its own short transaction, with a
+     *   `SET LOCAL lock_timeout` of [lockTimeoutMs] so a table lock another session holds delays the job's end by that
+     *   much at most (the timeout error reaches the caller, which WARNs; the data is already committed).
+     *   Those derives plan on the previous committed state's statistics (the same connection's rows: same
+     *   `connection_id` share, `issue_id` n_distinct, validity-range histograms; the row count is rescaled by
+     *   the actual block count) — the planner's failure mode is ABSENT statistics, not one-derive-old ones —
+     *   and the post-commit ANALYZE keeps them at most one derive old. The lock is then held for
+     *   milliseconds, never for a derive, so concurrent derives overlap fully.
+     *
+     * Table names are fixed constants (no user input); [lockTimeoutMs] is a number, not text. A `null` timeout (the
+     * first-derive call) waits as long as it takes. Never make it skippable (`SKIP_LOCKED`): the
+     * first-derive call has to see the transaction's uncommitted rows, and a skipped post-commit ANALYZE would
+     * silently age the statistics. The locks also conflict with VACUUM/autovacuum and DDL: autovacuum on these
+     * tables is skipped or cancelled meanwhile, and an anti-wraparound vacuum would make the ANALYZE wait (rare).
      */
-    suspend fun analyzeDerivedTables() = suspendTransaction(database) { exec("ANALYZE ${ANALYZED_TABLES.joinToString(", ")}") }
+    suspend fun analyzeDerivedTables(lockTimeoutMs: Long? = null) = suspendTransaction(database) {
+        if (lockTimeoutMs != null) exec("SET LOCAL lock_timeout = $lockTimeoutMs")
+        exec("ANALYZE ${ANALYZED_TABLES.joinToString(", ")}")
+    }
 
     /**
      * Hard-deletes terminal `derive_runs` rows older than [retentionMillis] (v0.3.0 M3 review round
