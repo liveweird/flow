@@ -139,6 +139,16 @@ warns the recipient that their previous password no longer works. Tests:
 full email→login roundtrip via a `ListAppender` on the `ch.nokillswit.mail` logger and the
 send-before-store delivery-failure case).
 
+**Known trade-off — the reset has no confirmation step.** The new password is generated, emailed and stored
+(`credential_revision` incremented) straight from the unauthenticated `POST /api/v1/password-reset`, with no
+link or token the owner must first click. Anyone who knows an account's email can therefore force a rotation —
+the old password stops working and every refresh token and pending MFA challenge of that user is invalidated,
+so the session ends within the ≤15-min access-token window — at most once per
+`security.passwordReset.minIntervalSeconds` (default 60 s) per address, within the per-IP bucket. The new
+password only reaches the account's own mailbox, and email MFA, where enabled, still applies at the next login,
+so this is a nuisance/lockout-by-annoyance vector, not an account takeover; the recipient's email says so. Accepted
+as is, with no redesign (a confirmation-link flow would be one).
+
 **Per-IP login bucket** (`security.rateLimit.loginPerMinute`, `$LOGIN_RATE_LIMIT_PER_MINUTE`;
 every bucket is installed by `plugins/RateLimits.kt`, which also owns the bucket names — today
 `login`, `refresh`, `password-reset`, `mfa`, `data-source-test`): blank **follows the mode** — 10/min in production,
@@ -204,8 +214,8 @@ stays byte-wise (all writes are canonical).
 `MAX_REQUEST_BODY_BYTES` = 10 MiB) rejects oversized bodies with a 413 problem (mapped in
 `plugins/ErrorHandling.kt`) before any receive/validation work — a memory-DoS backstop, not a
 business rule; field-level `maxLength` validation rejects oversized values far earlier on ordinary
-payloads. Declared in the spec on the body-heavy operations (users create today) and covered by
-`PayloadValidationTest`.
+payloads. Declared in the spec on every body-taking operation (all 20 today) and covered by the one
+`PayloadValidationTest` case.
 
 **Request payload validation (convention — API-SEC-003/API-ERR-005).** Mutating routes validate
 payloads up-front and throw `BadRequestException` (→ `400` + `ProblemDetail`) instead of letting

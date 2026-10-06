@@ -1,9 +1,9 @@
 # Jira Cloud integration
 
-Started in v0.2.0 plan commit 4 (`feat(jira): outbound guard + Jira HTTP client + Test connection
-endpoints`). Covers auth, the gateway/`cloudId` shape, rate limits/backoff, the stub, and error
-codes; the raw store, streams and normalization arrive in later commits (see
-`.claude/docs/ingestion.md`).
+The `jira/` package (v0.2.0): the guarded HTTP client and the Test connection endpoints, the raw
+store, the ISSUES/CHANGELOGS/WORKLOGS/RECONCILE/reference/profile streams and the normalizer. This doc covers
+auth, the gateway/`cloudId` shape, rate limits/backoff, the stub, the stream endpoints, timestamps and
+error codes; the queue, worker and `norm` tiling around them are in `.claude/docs/ingestion.md`.
 
 ## Auth and the gateway
 
