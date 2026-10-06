@@ -7,6 +7,7 @@ import ch.nokillswit.ingest.JiraConnectionRequest
 import ch.nokillswit.ingest.SyncCounts
 import ch.nokillswit.ingest.SyncCursorsService
 import ch.nokillswit.ingest.SyncJobKind
+import ch.nokillswit.ingest.SyncJobStatus
 import ch.nokillswit.ingest.SyncJobsService
 import ch.nokillswit.ingest.SyncStatusResponse
 import ch.nokillswit.jira.JiraRawStore
@@ -22,6 +23,9 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
+import org.jetbrains.exposed.v1.r2dbc.update
 
 /**
  * `GET /api/v1/data-sources/{id}/status` (v0.2.0 plan §9/§12 item 7, `ingest/SyncStatusRoutes.kt`):
@@ -118,7 +122,54 @@ class SyncStatusRoutesTest {
         assertEquals(1, status.lastJobs.size)
         val lastSync = assertNotNull(status.lastJobs[SyncJobKind.SYNC.name])
         assertEquals(requested.jobId, lastSync.id)
-        assertNull(status.currentJob, "the job is still PENDING, never claimed - no currentJob yet")
+        assertEquals(requested.jobId, status.currentJob?.id, "the job is still PENDING, never claimed - it is the open job")
+        assertEquals(SyncJobStatus.PENDING, status.currentJob?.status)
+        assertNull(status.connection.status.runningJobId, "runningJobId stays RUNNING-only")
         assertTrue(status.lastJobs.keys.all { it in SyncJobKind.entries.map(SyncJobKind::name) })
+    }
+
+    @Test
+    fun `currentJob is null with no open job, the oldest PENDING one, and RUNNING wins over PENDING`() = testApplication {
+        configureApp("app.role" to "web")
+        startApplication()
+        val admin = seededClient("statusopen", UserRole.ADMIN)
+        val created = admin.postJson("/api/v1/data-sources", dataSourceRequest()).body<DataSourceResponse>()
+        val connId = created.id
+        val jobs = SyncJobsService(sharedDatabaseForTests(), defaultMaxAttempts = 3)
+
+        suspend fun status() = admin.get("/api/v1/data-sources/$connId/status").body<SyncStatusResponse>()
+
+        assertNull(status().currentJob, "nothing requested - no open job")
+
+        val sync = jobs.requestJob(connId, SyncJobKind.SYNC, requestedByUserId = 1u, configRevision = created.configRevision)
+        val reconcile = jobs.requestJob(connId, SyncJobKind.RECONCILE, requestedByUserId = 1u, configRevision = created.configRevision)
+        val pending = status()
+        assertEquals(sync.jobId, pending.currentJob?.id, "two PENDING jobs - the oldest is reported")
+        assertEquals(SyncJobStatus.PENDING, pending.currentJob?.status)
+        assertNull(pending.connection.status.runningJobId)
+
+        markJobRunning(reconcile.jobId)
+        val running = status()
+        assertEquals(reconcile.jobId, running.currentJob?.id, "a RUNNING job wins over an older PENDING one")
+        assertEquals(SyncJobStatus.RUNNING, running.currentJob?.status)
+        assertEquals(reconcile.jobId, running.connection.status.runningJobId)
+
+        suspendTransaction(sharedDatabaseForTests()) {
+            val table = SyncJobsService.Jobs
+            table.update({ table.connectionId eq connId }) { it[status] = SyncJobStatus.CANCELLED.name }
+        }
+        assertNull(status().currentJob, "every job terminal - no open job")
+    }
+
+    /** Flips a specific job row straight to RUNNING — a stand-in for the worker's claim (the queue is shared suite-wide). */
+    private suspend fun markJobRunning(jobId: UInt) {
+        suspendTransaction(sharedDatabaseForTests()) {
+            val table = SyncJobsService.Jobs
+            table.update({ table.id eq jobId }) {
+                it[status] = SyncJobStatus.RUNNING.name
+                it[leaseOwner] = "test-worker"
+                it[leaseUntil] = System.currentTimeMillis() + 300_000
+            }
+        }
     }
 }

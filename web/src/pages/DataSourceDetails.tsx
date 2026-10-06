@@ -174,9 +174,9 @@ export default function DataSourceDetails() {
     enabled: idIsValid && admin,
     refetchInterval: (query) => (isOpen(query.state.data?.currentJob?.status) ? AUTO_REFRESH_MS : false),
   });
-  // The history polls whenever the summary does (a job is RUNNING — the server's `currentJob` is the running job
-  // only) AND while any visible history row is still open, so a PENDING row (just requested, or released back to
-  // the queue) is followed to Running and on to its terminal state.
+  // The history polls whenever the summary does (the server's `currentJob` is the open job: RUNNING, else the oldest
+  // PENDING) AND while any visible history row is still open, so a row that is not the summary's job (a second
+  // PENDING one, or one filtered in) is still followed to Running and on to its terminal state.
   const jobOpen = isOpen(status.data?.currentJob?.status);
 
   const [jobKind, setJobKind] = useState<SyncJobKind | null>(null);

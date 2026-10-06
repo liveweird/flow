@@ -16,7 +16,7 @@ data class SyncStatusResponse(
     val counts: SyncCounts,
     /** The most recent job of each [SyncJobKind] ever requested for this connection, keyed by its name. */
     val lastJobs: Map<String, SyncJobResponse>,
-    /** The connection's currently RUNNING job, if any (mirrors `connection.status.runningJobId`, in full). */
+    /** The connection's open job in full: RUNNING if any, else the oldest PENDING (`status.runningJobId` stays RUNNING-only). */
     val currentJob: SyncJobResponse? = null,
 )
 

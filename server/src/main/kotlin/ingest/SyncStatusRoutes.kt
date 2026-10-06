@@ -22,7 +22,7 @@ class DataSourceStatusResource(val parent: DataSourcesRoute.Id)
 /**
  * `GET /api/v1/data-sources/{id}/status` (v0.2.0 plan §9/§12 item 7): ADMIN only, read-only — a
  * connection summary, every persisted stream cursor, raw-store row counts, the most recent job of
- * each kind, and the connection's currently RUNNING job, if any. Split out of
+ * each kind, and the connection's open job (RUNNING, else the oldest PENDING), if any. Split out of
  * `DataSourceRoutes.kt` like `SyncJobRoutes.kt` — one file per sub-resource.
  */
 fun Application.configureSyncStatusRoutes() {
@@ -40,15 +40,16 @@ fun Application.configureSyncStatusRoutes() {
                 requireAdmin(caller)
                 val connectionId = route.parent.id
                 val connection = dataSources.read(connectionId).orNotFound("Data source")
-                val runningJob = syncJobs.runningJob(connectionId)
+                val openJob = syncJobs.openJob(connectionId)
+                val runningJobId = openJob?.takeIf { it.status == SyncJobStatus.RUNNING }?.id
                 val response = SyncStatusResponse(
-                    connection = connection.copy(status = connection.status.copy(runningJobId = runningJob?.id)),
+                    connection = connection.copy(status = connection.status.copy(runningJobId = runningJobId)),
                     cursors = cursors.getAll(connectionId).map {
                         SyncCursorSummary(it.stream, it.watermarkAt, it.cursor, it.lastCompletedAt)
                     },
                     counts = counts(rawStore, connectionId),
                     lastJobs = syncJobs.lastJobsByKind(connectionId),
-                    currentJob = runningJob,
+                    currentJob = openJob,
                 )
                 call.respond(HttpStatusCode.OK, response)
             }

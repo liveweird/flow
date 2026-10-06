@@ -114,10 +114,17 @@ class SyncJobsService(
         }
     }
 
-    /** The connection's currently RUNNING job, in full — `GET …/{id}/status`'s `currentJob` (v0.2.0 plan §9). */
-    suspend fun runningJob(connectionId: UInt): SyncJobResponse? = suspendTransaction(database) {
-        Jobs.selectAll().where { (Jobs.connectionId eq connectionId) and (Jobs.status eq SyncJobStatus.RUNNING.name) }
-            .limit(1).toList().singleOrNull()?.toResponse()
+    /**
+     * The connection's open job, in full — `GET …/{id}/status`'s `currentJob`: the RUNNING job if any, else the
+     * oldest PENDING one (just requested, or released back to the queue), so a client sees — and polls — a job
+     * that has not been claimed yet. `runningJobId` stays RUNNING-only.
+     */
+    suspend fun openJob(connectionId: UInt): SyncJobResponse? = suspendTransaction(database) {
+        suspend fun open(status: SyncJobStatus, vararg order: Pair<Expression<*>, SortOrder>) =
+            Jobs.selectAll().where { (Jobs.connectionId eq connectionId) and (Jobs.status eq status.name) }
+                .orderBy(*order).limit(1).toList().singleOrNull()?.toResponse()
+        open(SyncJobStatus.RUNNING, Jobs.id to SortOrder.ASC)
+            ?: open(SyncJobStatus.PENDING, Jobs.requestedAt to SortOrder.ASC, Jobs.id to SortOrder.ASC)
     }
 
     /**

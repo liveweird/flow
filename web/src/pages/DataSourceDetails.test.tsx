@@ -461,6 +461,34 @@ describe("DataSourceDetails page", () => {
     expect(jobsCalls).toBe(3);
   });
 
+  test("a PENDING currentJob shows its badge in the summary and polls it until the job is gone", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    let statusCalls = 0;
+    mockFetch.mockImplementation((url: string, init?: RequestInit) => {
+      const method = init?.method ?? "GET";
+      if (method === "GET" && url === "/api/v1/data-sources/1/status") {
+        statusCalls += 1;
+        const pending = { ...RUNNING_JOB, status: "PENDING", startedAt: undefined, currentStream: undefined, progress: undefined };
+        return Promise.resolve(jsonResponse(200, statusWith(statusCalls < 2 ? pending : null)));
+      }
+      if (method === "GET" && url.startsWith("/api/v1/data-sources/1/sync-jobs?")) return Promise.resolve(jsonResponse(200, { ...JOBS_PAGE, items: [], total: 0 }));
+      return Promise.resolve(jsonResponse(404, { title: "Not Found", status: 404 }));
+    });
+
+    renderPage();
+    const currentJob = await screen.findByRole("table", { name: "Current job" });
+    expect(within(currentJob).getByText("Pending")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^cancel/i })).toBeInTheDocument();
+
+    await vi.advanceTimersByTimeAsync(5000);
+    await vi.waitFor(() => expect(statusCalls).toBe(2));
+    await waitFor(() => expect(screen.queryByRole("table", { name: "Current job" })).not.toBeInTheDocument());
+
+    // The summary no longer reports an open job: polling stops.
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(statusCalls).toBe(2);
+  });
+
   test("a sync-jobs list load failure renders the jobs error alert (the connection summary still loads)", async () => {
     mockFetch.mockImplementation((url: string, init?: RequestInit) => {
       const method = init?.method ?? "GET";
