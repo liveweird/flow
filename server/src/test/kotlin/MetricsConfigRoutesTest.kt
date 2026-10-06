@@ -10,12 +10,14 @@ import ch.nokillswit.metrics.DataSourceMetricsConfig
 import ch.nokillswit.metrics.DataSourceMetricsConfigOptions
 import ch.nokillswit.metrics.DataSourceMetricsConfigRequest
 import ch.nokillswit.metrics.MetricsBoardTeamMapping
+import ch.nokillswit.metrics.MetricsActivityTypeMapping
 import ch.nokillswit.metrics.MetricsDomainMapping
 import ch.nokillswit.metrics.MetricsDomainStatusStage
 import ch.nokillswit.metrics.MetricsFieldConfig
 import ch.nokillswit.metrics.MetricsSettingsResponse
 import ch.nokillswit.metrics.MetricsStage
 import ch.nokillswit.metrics.MetricsStatusStage
+import ch.nokillswit.metrics.MetricsWorkCategoryMapping
 import ch.nokillswit.norm.BoardRef
 import ch.nokillswit.norm.IntervalSource
 import ch.nokillswit.norm.NormalizedIssue
@@ -34,6 +36,7 @@ import io.ktor.client.request.put
 import io.ktor.client.request.setBody
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.testApplication
+import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import java.util.UUID
 import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
@@ -228,6 +231,54 @@ class MetricsConfigRoutesTest {
         val beforeNoOp = admin.configRevision()
         assertEquals(HttpStatusCode.NoContent, admin.putJson("/api/v1/data-sources/$connId/metrics-config", request).status)
         assertEquals(beforeNoOp, admin.configRevision(), "an identical re-PUT must not bump the revision")
+    }
+
+    @Test
+    fun `over-long Jira option ids and labels round-trip - the work-category map and activity types are TEXT`() = testApplication {
+        usePostgresTestcontainer()
+        val admin = seededClient("metricslongvalues", UserRole.ADMIN)
+        val connId = runBlocking { createConnection(dataSources()) }
+        val seeded = runBlocking { seedNormFixture(connId, "PLT", "Task") }
+        // A primitive-valued work-category field: the option's value text IS its id (`fieldValueOptions`), so the id is as
+        // long as the Jira label; the seeded work item carries one such value under `duedate` (always a known field id).
+        val longValue = "V".repeat(150)
+        runBlocking {
+            suspendTransaction(sharedDatabaseForTests()) {
+                exec(
+                    "UPDATE norm.work_items SET custom_fields = jsonb_build_object('duedate', '$longValue') " +
+                        "WHERE connection_id = $connId",
+                )
+            }
+        }
+        val longActivity = "A".repeat(120)
+        val request = DataSourceMetricsConfigRequest(
+            fields = MetricsFieldConfig(workCategory = "duedate"),
+            activityTypes = listOf(MetricsActivityTypeMapping(seeded.issueType, longActivity)),
+            workCategories = listOf(MetricsWorkCategoryMapping(longValue, longValue, "Feature")),
+        )
+
+        assertEquals(HttpStatusCode.NoContent, admin.putJson("/api/v1/data-sources/$connId/metrics-config", request).status)
+
+        val fetched = admin.getConfig(connId)
+        assertEquals(request.workCategories, fetched.workCategories)
+        assertEquals(request.activityTypes, fetched.activityTypes)
+    }
+
+    @Test
+    fun `a user-entered activity type is trimmed and a control character in it is a 400`() = testApplication {
+        usePostgresTestcontainer()
+        val admin = seededClient("metricsactivity", UserRole.ADMIN)
+        val connId = runBlocking { createConnection(dataSources()) }
+        val seeded = runBlocking { seedNormFixture(connId, "PLT", "Task") }
+        fun request(activityType: String) =
+            DataSourceMetricsConfigRequest(activityTypes = listOf(MetricsActivityTypeMapping(seeded.issueType, activityType)))
+
+        suspend fun put(activityType: String) = admin.putJson("/api/v1/data-sources/$connId/metrics-config", request(activityType)).status
+
+        assertEquals(HttpStatusCode.BadRequest, put("Deliv\nery"))
+        assertEquals(HttpStatusCode.BadRequest, put("Deli\u0000very"))
+        assertEquals(HttpStatusCode.NoContent, put("  Delivery  "))
+        assertEquals(listOf("Delivery"), admin.getConfig(connId).activityTypes.map { it.activityType })
     }
 
     @Test

@@ -31,6 +31,7 @@ import org.jetbrains.exposed.v1.r2dbc.deleteWhere
 import org.jetbrains.exposed.v1.r2dbc.select
 import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
+import org.slf4j.LoggerFactory
 
 /** Batch size for the PURGE step's cleanup over the bigger `norm.*` tables — mirrors `jira/JiraRawStore.kt`'s `JIRA_PURGE_BATCH_SIZE`. */
 internal const val NORM_PURGE_BATCH_SIZE = 500
@@ -40,6 +41,28 @@ internal const val MAX_DISTINCT_FIELD_VALUES = 200
 
 /** Published by `jira/Jira.kt`'s `configureJira` — the raw issue inspector and the data profile step both read it back. */
 val WorkItemStoreKey = AttributeKey<WorkItemStore>("WorkItemStore")
+
+private val log = LoggerFactory.getLogger(WorkItemStore::class.java)
+
+/**
+ * True when [value] fits this `varchar(n)` column (or is null / the column is unbounded). Exposed checks the
+ * length CLIENT-side before any SQL runs, so an over-long value would throw out of the whole rebuild — the
+ * reference rebuilds ([WorkItemStore.replaceStatuses] and friends) use this to SKIP such a row instead.
+ * `String.length` is never smaller than the code-point count, so it can only be stricter than either check.
+ */
+private fun Column<out String?>.fits(value: String?): Boolean {
+    val limit = (columnType as? VarCharColumnType)?.colLength
+    return value == null || limit == null || value.length <= limit
+}
+
+/** One structured warn naming what a reference rebuild skipped; [ids] stay out of the line for people (account ids). */
+private fun logSkippedReferenceRows(table: String, skipped: Int, ids: List<Any>?) {
+    if (skipped == 0) return
+    val firstIds = ids?.take(REFERENCE_SKIP_LOGGED_IDS)?.joinToString(prefix = ", first ids ").orEmpty()
+    log.warn("{} rebuild skipped {} row(s) whose key/enum value exceeds its column length{}", table, skipped, firstIds)
+}
+
+private const val REFERENCE_SKIP_LOGGED_IDS = 5
 
 private fun longArrayJson(values: List<Long>): String = buildJsonArray { values.forEach { add(JsonPrimitive(it)) } }.toString()
 private fun anomaliesJson(values: List<TilingAnomaly>): String =
@@ -113,15 +136,15 @@ class WorkItemStore(private val database: R2dbcDatabase) {
         val issueId = long("issue_id")
         val issueKey = varchar("issue_key", 20)
         val projectKey = varchar("project_key", 20)
-        val issueType = varchar("issue_type", 50)
+        val issueType = text("issue_type")
         val isSubtask = bool("is_subtask").default(false)
         val parentIssueId = long("parent_issue_id").nullable()
         val summary = text("summary").nullable()
         val statusId = varchar("status_id", 50)
-        val statusName = varchar("status_name", 100)
+        val statusName = text("status_name")
         val statusCategory = varchar("status_category", 20)
-        val resolution = varchar("resolution", 100).nullable()
-        val priority = varchar("priority", 50).nullable()
+        val resolution = text("resolution").nullable()
+        val priority = text("priority").nullable()
         val assigneeAccountId = varchar("assignee_account_id", 100).nullable()
         val reporterAccountId = varchar("reporter_account_id", 100).nullable()
         val createdAt = long("created_at")
@@ -154,7 +177,7 @@ class WorkItemStore(private val database: R2dbcDatabase) {
         val issueId = long("issue_id")
         val seq = integer("seq")
         val statusId = varchar("status_id", 50)
-        val statusName = varchar("status_name", 100)
+        val statusName = text("status_name")
         val statusCategory = varchar("status_category", 20)
         val fromAt = long("from_at")
         val toAt = long("to_at").nullable()
@@ -180,7 +203,7 @@ class WorkItemStore(private val database: R2dbcDatabase) {
         val connectionId = reference("connection_id", DataSourceService.Connections)
         val issueId = long("issue_id")
         val seq = integer("seq")
-        val field = varchar("field", 50)
+        val field = text("field")
         val changedAt = long("changed_at")
         val fromValue = text("from_value").nullable()
         val fromText = text("from_text").nullable()
@@ -205,7 +228,7 @@ class WorkItemStore(private val database: R2dbcDatabase) {
     object Statuses : Table("norm.statuses") {
         val connectionId = reference("connection_id", DataSourceService.Connections)
         val statusId = varchar("status_id", 50)
-        val name = varchar("name", 100)
+        val name = text("name")
         val category = varchar("category", 20)
         override val primaryKey = PrimaryKey(connectionId, statusId)
     }
@@ -213,8 +236,8 @@ class WorkItemStore(private val database: R2dbcDatabase) {
     object People : Table("norm.people") {
         val connectionId = reference("connection_id", DataSourceService.Connections)
         val accountId = varchar("account_id", 100)
-        val displayName = varchar("display_name", 200)
-        val email = varchar("email", 254).nullable()
+        val displayName = text("display_name")
+        val email = text("email").nullable()
         val active = bool("active").default(true)
         override val primaryKey = PrimaryKey(connectionId, accountId)
     }
@@ -222,7 +245,7 @@ class WorkItemStore(private val database: R2dbcDatabase) {
     object Boards : Table("norm.boards") {
         val connectionId = reference("connection_id", DataSourceService.Connections)
         val boardId = long("board_id")
-        val name = varchar("name", 200)
+        val name = text("name")
         val boardType = varchar("board_type", 20)
         val projectKey = varchar("project_key", 20).nullable()
         override val primaryKey = PrimaryKey(connectionId, boardId)
@@ -232,7 +255,7 @@ class WorkItemStore(private val database: R2dbcDatabase) {
         val connectionId = reference("connection_id", DataSourceService.Connections)
         val boardId = long("board_id")
         val seq = integer("seq")
-        val name = varchar("name", 200)
+        val name = text("name")
         val statusIds = jsonb("status_ids")
         override val primaryKey = PrimaryKey(connectionId, boardId, seq)
     }
@@ -241,7 +264,7 @@ class WorkItemStore(private val database: R2dbcDatabase) {
         val connectionId = reference("connection_id", DataSourceService.Connections)
         val sprintId = long("sprint_id")
         val boardId = long("board_id").nullable()
-        val name = varchar("name", 200)
+        val name = text("name")
         val state = varchar("state", 20)
         val startAt = long("start_at").nullable()
         val endAt = long("end_at").nullable()
@@ -397,16 +420,21 @@ class WorkItemStore(private val database: R2dbcDatabase) {
     }
 
     /** Reference rows are rebuilt WHOLESALE per connection, once per PROCESS run (plan §8) — never diffed. */
-    suspend fun replaceStatuses(connectionId: UInt, statuses: List<StatusRef>) = suspendTransaction(database) {
-        Statuses.deleteWhere { Statuses.connectionId eq connectionId }
-        if (statuses.isNotEmpty()) {
-            Statuses.batchInsert(statuses) {
-                this[Statuses.connectionId] = connectionId
-                this[Statuses.statusId] = it.statusId
-                this[Statuses.name] = it.name
-                this[Statuses.category] = it.category.name
+    suspend fun replaceStatuses(connectionId: UInt, statuses: List<StatusRef>): Int {
+        val (rows, skipped) = statuses.partition { Statuses.statusId.fits(it.statusId) }
+        suspendTransaction(database) {
+            Statuses.deleteWhere { Statuses.connectionId eq connectionId }
+            if (rows.isNotEmpty()) {
+                Statuses.batchInsert(rows) {
+                    this[Statuses.connectionId] = connectionId
+                    this[Statuses.statusId] = it.statusId
+                    this[Statuses.name] = it.name
+                    this[Statuses.category] = it.category.name
+                }
             }
         }
+        logSkippedReferenceRows("norm.statuses", skipped.size, skipped.map { it.statusId })
+        return skipped.size
     }
 
     /** One `norm.people` row collapsed to its account id (v0.3.0 M1 commit 3's `/api/v1/jira-users`). */
@@ -476,59 +504,74 @@ class WorkItemStore(private val database: R2dbcDatabase) {
             .toSet()
     }
 
-    suspend fun replacePeople(connectionId: UInt, people: List<PersonRef>) = suspendTransaction(database) {
-        People.deleteWhere { People.connectionId eq connectionId }
-        if (people.isNotEmpty()) {
-            People.batchInsert(people) {
-                this[People.connectionId] = connectionId
-                this[People.accountId] = it.accountId
-                this[People.displayName] = it.displayName
-                this[People.email] = it.email
-                this[People.active] = it.active
-            }
-        }
-    }
-
-    suspend fun replaceBoards(connectionId: UInt, boards: List<BoardRef>) = suspendTransaction(database) {
-        Boards.deleteWhere { Boards.connectionId eq connectionId }
-        BoardColumns.deleteWhere { BoardColumns.connectionId eq connectionId }
-        if (boards.isNotEmpty()) {
-            Boards.batchInsert(boards) {
-                this[Boards.connectionId] = connectionId
-                this[Boards.boardId] = it.boardId
-                this[Boards.name] = it.name
-                this[Boards.boardType] = it.boardType
-                this[Boards.projectKey] = it.projectKey
-            }
-        }
-        boards.forEach { board ->
-            if (board.columns.isNotEmpty()) {
-                BoardColumns.batchInsert(board.columns.withIndex().toList()) { (index, column) ->
-                    this[BoardColumns.connectionId] = connectionId
-                    this[BoardColumns.boardId] = board.boardId
-                    this[BoardColumns.seq] = index + 1
-                    this[BoardColumns.name] = column.name
-                    this[BoardColumns.statusIds] = stringArrayJson(column.statusIds)
+    suspend fun replacePeople(connectionId: UInt, people: List<PersonRef>): Int {
+        val (rows, skipped) = people.partition { People.accountId.fits(it.accountId) }
+        suspendTransaction(database) {
+            People.deleteWhere { People.connectionId eq connectionId }
+            if (rows.isNotEmpty()) {
+                People.batchInsert(rows) {
+                    this[People.connectionId] = connectionId
+                    this[People.accountId] = it.accountId
+                    this[People.displayName] = it.displayName
+                    this[People.email] = it.email
+                    this[People.active] = it.active
                 }
             }
         }
+        logSkippedReferenceRows("norm.people", skipped.size, null)
+        return skipped.size
     }
 
-    suspend fun replaceSprints(connectionId: UInt, sprints: List<SprintRef>) = suspendTransaction(database) {
-        Sprints.deleteWhere { Sprints.connectionId eq connectionId }
-        if (sprints.isNotEmpty()) {
-            Sprints.batchInsert(sprints) {
-                this[Sprints.connectionId] = connectionId
-                this[Sprints.sprintId] = it.sprintId
-                this[Sprints.boardId] = it.boardId
-                this[Sprints.name] = it.name
-                this[Sprints.state] = it.state
-                this[Sprints.startAt] = it.startAtMs
-                this[Sprints.endAt] = it.endAtMs
-                this[Sprints.goal] = it.goal
-                this[Sprints.completeAt] = it.completeAtMs
+    suspend fun replaceBoards(connectionId: UInt, boards: List<BoardRef>): Int {
+        val (rows, skipped) = boards.partition { Boards.boardType.fits(it.boardType) && Boards.projectKey.fits(it.projectKey) }
+        suspendTransaction(database) {
+            Boards.deleteWhere { Boards.connectionId eq connectionId }
+            BoardColumns.deleteWhere { BoardColumns.connectionId eq connectionId }
+            if (rows.isNotEmpty()) {
+                Boards.batchInsert(rows) {
+                    this[Boards.connectionId] = connectionId
+                    this[Boards.boardId] = it.boardId
+                    this[Boards.name] = it.name
+                    this[Boards.boardType] = it.boardType
+                    this[Boards.projectKey] = it.projectKey
+                }
+            }
+            rows.forEach { board ->
+                if (board.columns.isNotEmpty()) {
+                    BoardColumns.batchInsert(board.columns.withIndex().toList()) { (index, column) ->
+                        this[BoardColumns.connectionId] = connectionId
+                        this[BoardColumns.boardId] = board.boardId
+                        this[BoardColumns.seq] = index + 1
+                        this[BoardColumns.name] = column.name
+                        this[BoardColumns.statusIds] = stringArrayJson(column.statusIds)
+                    }
+                }
             }
         }
+        logSkippedReferenceRows("norm.boards", skipped.size, skipped.map { it.boardId })
+        return skipped.size
+    }
+
+    suspend fun replaceSprints(connectionId: UInt, sprints: List<SprintRef>): Int {
+        val (rows, skipped) = sprints.partition { Sprints.state.fits(it.state) }
+        suspendTransaction(database) {
+            Sprints.deleteWhere { Sprints.connectionId eq connectionId }
+            if (rows.isNotEmpty()) {
+                Sprints.batchInsert(rows) {
+                    this[Sprints.connectionId] = connectionId
+                    this[Sprints.sprintId] = it.sprintId
+                    this[Sprints.boardId] = it.boardId
+                    this[Sprints.name] = it.name
+                    this[Sprints.state] = it.state
+                    this[Sprints.startAt] = it.startAtMs
+                    this[Sprints.endAt] = it.endAtMs
+                    this[Sprints.goal] = it.goal
+                    this[Sprints.completeAt] = it.completeAtMs
+                }
+            }
+        }
+        logSkippedReferenceRows("norm.sprints", skipped.size, skipped.map { it.sprintId })
+        return skipped.size
     }
 
     // RECONCILE/PROCESS tombstone mirror (plan §8): a raw issue tombstoned since the last PROCESS
