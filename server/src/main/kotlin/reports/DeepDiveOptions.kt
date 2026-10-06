@@ -20,7 +20,6 @@ import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.or
 import org.jetbrains.exposed.v1.r2dbc.select
-import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 
 // The three picker option lists of report 17, the Deep dive (`.claude/docs/reports.md` "Report 17"): the sprints of a domain, the epics,
 // and ONE epic's level-0 tasks. Ordinary list endpoints (`.claude/docs/list-endpoints.md`): the shared paging/sort machinery, `q` through
@@ -101,7 +100,7 @@ suspend fun ReportService.deepDiveSprints(
     connectionId: UInt?,
     q: String?,
     paging: PageRequest,
-): DeepDiveSprintPageResponse = suspendTransaction(database) {
+): DeepDiveSprintPageResponse = reportTransaction {
     val connectionIds = resolveConnectionScope(connectionId)
     val known = MetricsTables.DimDomain.select(MetricsTables.DimDomain.domainKey)
         .where { (MetricsTables.DimDomain.connectionId inList connectionIds) and (MetricsTables.DimDomain.domainKey eq domain) }
@@ -153,7 +152,7 @@ suspend fun ReportService.deepDiveEpics(
     connectionId: UInt?,
     q: String?,
     paging: PageRequest,
-): DeepDiveEpicPageResponse = suspendTransaction(database) {
+): DeepDiveEpicPageResponse = reportTransaction {
     val connectionIds = resolveConnectionScope(connectionId)
     val epic = MetricsTables.DimEpic
     var predicate: Op<Boolean> = epic.connectionId inList connectionIds
@@ -188,7 +187,7 @@ suspend fun ReportService.deepDiveEpicTasks(
     connectionId: UInt?,
     q: String?,
     paging: PageRequest,
-): DeepDiveTaskPageResponse = suspendTransaction(database) {
+): DeepDiveTaskPageResponse = reportTransaction {
     val key = sanitizeSingleLine(epicKey, "epicKey")
     val connectionIds = resolveConnectionScope(connectionId)
     val epic = MetricsTables.DimEpic

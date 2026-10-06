@@ -15,7 +15,6 @@ import org.jetbrains.exposed.v1.core.less
 import org.jetbrains.exposed.v1.core.lessEq
 import org.jetbrains.exposed.v1.core.sum
 import org.jetbrains.exposed.v1.r2dbc.select
-import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 
 /** One calendar day of [BacklogReport.trend]: the estimated backlog at the END of that day. */
 @Serializable
@@ -63,7 +62,7 @@ private data class BacklogDay(val items: Int, val md: BigDecimal)
  * row is zero), `current` its last day, and the backlog in sprints against the owner team's recent delivery. See
  * `.claude/docs/reports.md` "Reports 9, 10, 13".
  */
-suspend fun ReportService.backlog(filter: ReportFilter, nowMs: Long): BacklogReport = suspendTransaction(database) {
+suspend fun ReportService.backlog(filter: ReportFilter, nowMs: Long): BacklogReport = reportTransaction {
     val scope = resolveReportScope(filter, nowMs)
     val snapshotScope = snapshotScopeOf(filter)
     val calendar = WorkingCalendar.of(scope.settings)

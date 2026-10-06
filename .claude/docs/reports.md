@@ -45,6 +45,30 @@ data-source pages stay ADMIN-only, but a report itself never does. Since nothing
 anything, there is no `audit(...)` call to add -- the observability doc's per-mutation rule simply
 does not apply (`.claude/docs/observability.md`).
 
+## Query budget (`reports.statementTimeoutSeconds`)
+
+Any signed-in user can request an expensive report in a loop (deep dive: 500 tasks x 1100 days), and the pool is 20
+connections, so every report read is bounded by a PostgreSQL **statement timeout**: `REPORTS_STATEMENT_TIMEOUT_SECONDS`
+(`reports.statementTimeoutSeconds`, default 30, boot-validated 1..3600 by `requireConfigInt` in `configureReportRoutes`).
+**One choke point:** `ReportService.reportTransaction { }` -- every report (all seventeen, `filters`, the deep-dive option
+lists) opens its transaction through it, never through a bare `suspendTransaction` (a new report copies the idiom; a bare one
+would run unbudgeted). It sets Exposed's `queryTimeout` on the transaction.
+
+**Why seconds, and not a `SET LOCAL statement_timeout`:** Exposed's R2DBC executor re-applies the transaction's `queryTimeout`
+(default 0, never null) with a session-level `SET statement_timeout` before EVERY statement, which silently undoes a
+`SET LOCAL statement_timeout` (measured; `SET LOCAL work_mem`/`lock_timeout` survive) -- so the budget has to be the
+`queryTimeout`, whose unit is whole seconds. The same per-statement reset is why the value cannot leak: the next Exposed
+statement on that pooled connection (every statement the app runs) starts by resetting it to 0 (`ReportQueryBudgetTest` pins it).
+The budget is per STATEMENT, not per request; it does not cover waiting for a pooled connection (`postgres.pool.maxAcquireTimeSeconds`).
+
+**Answer:** a cancelled statement (SQLSTATE `57014`, `plugins/ErrorHandling.kt`'s `respondQueryTimedOut`) is a **500** problem
+("The query exceeded its time budget -- narrow the selection and retry"), logged as a WARN with the path (no stack, no query
+string). 500 on purpose: it is already declared on every operation and is a cross-cutting status the conformance gate does not
+require a test per operation for (`OpenApiCoverageMerge.CROSS_CUTTING_STATUSES`), whereas a 503 would have to be declared and
+covered on all 22 report operations. A per-user rate bucket is deliberately NOT part of this (the user's decision).
+Tests: `ReportQueryBudgetTest` (a lock held on `metrics.dim_domain` makes `GET /reports/filters` outrun a 1 s budget -> the
+problem body; `pg_sleep` cancelled with 57014; no leak to the pool; the knob's boot validation).
+
 ## The shared filter parser (`reports/ReportFilter.kt`)
 
 Every report endpoint parses its query string through ONE function,

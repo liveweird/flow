@@ -3,6 +3,7 @@ package ch.nokillswit.plugins
 import ch.nokillswit.authz.NotFoundException
 import io.ktor.server.application.*
 import io.ktor.server.http.content.*
+import io.ktor.server.plugins.swagger.swaggerUI
 import io.ktor.server.request.*
 import io.ktor.server.routing.*
 
@@ -14,6 +15,13 @@ fun Application.configureRouting() {
     val staticDir = environment.config.propertyOrNull("web.staticDir")?.getString()?.takeIf { it.isNotBlank() }
 
     routing {
+        // Swagger UI + the full spec are an API roadmap for anyone who can reach the host, so they are served
+        // only in development mode — or when explicitly re-enabled for a trusted environment via
+        // HTTP_EXPOSE_OPENAPI=true. (Bearer-token auth cannot protect a browser-loaded UI: page loads carry no
+        // Authorization header.) Mounted HERE, not in Http.kt, because it must obey the role switch (a `worker`
+        // serves only the probes) and the role is published after Http.kt's module runs. swaggerUI serves both
+        // the UI page and the spec (GET /openapi/documentation.yaml); it is registered ahead of the SPA fallback.
+        if (exposesOpenApi()) swaggerUI(path = "openapi")
         if (staticDir != null) {
             // Serve the built React SPA: hashed assets plus a fallback to index.html
             // so React Router owns the non-/api URL space. When unset (local dev / tests),

@@ -11,7 +11,6 @@ import org.jetbrains.exposed.v1.core.greaterEq
 import org.jetbrains.exposed.v1.core.isNotNull
 import org.jetbrains.exposed.v1.core.less
 import org.jetbrains.exposed.v1.r2dbc.select
-import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 
 /** Milliseconds in the day `elapsedDays` is measured in (wall-clock days, weekends included). */
 internal val MS_PER_DAY = MILLIS_PER_DAY.toDouble()
@@ -112,7 +111,7 @@ private fun cycleDistributions(tasks: List<DoneCycleTask>, minSample: Int): Trip
  * `.claude/docs/reports.md`.
  */
 suspend fun ReportService.cycleTime(filter: ReportFilter, bucket: ThroughputBucket, nowMs: Long): CycleTimeReport =
-    suspendTransaction(database) {
+    reportTransaction {
         val scope = resolveReportScope(filter, nowMs)
         val minSample = scope.settings.minSampleSize
         val zone = WorkingCalendar.zoneOf(scope.settings.timeZone)

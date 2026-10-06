@@ -1,6 +1,7 @@
 package ch.nokillswit.reports
 
 import ch.nokillswit.authz.caller
+import ch.nokillswit.infra.config.requireConfigInt
 import ch.nokillswit.infra.db.R2dbcDatabaseKey
 import ch.nokillswit.infra.db.nowMillis
 import ch.nokillswit.infra.paging.SortField
@@ -107,6 +108,9 @@ class ReportDeepDiveEpicsRoute
 @Resource("/api/v1/reports/deep-dive/epics/{epicKey}/tasks")
 class ReportDeepDiveEpicTasksRoute(val epicKey: String)
 
+/** One hour: the ceiling for `reports.statementTimeoutSeconds` (a report slower than that is a bug, not a setting). */
+private const val MAX_REPORT_STATEMENT_TIMEOUT_SECONDS = 3_600
+
 val ReportServiceKey = AttributeKey<ReportService>("ReportService")
 
 /**
@@ -129,7 +133,13 @@ fun Application.configureReportRoutes() {
     val database = attributes[R2dbcDatabaseKey]
     val metricsSettings = attributes[MetricsSettingsServiceKey]
     val teamMembership = attributes[TeamMembershipServiceKey]
-    val reportService = ReportService(database, metricsSettings, teamMembership)
+    // Boot-validated like every numeric knob (a malformed value refuses startup wherever the report routes are
+    // configured, i.e. the web/all roles). Whole seconds because
+    // that is the unit Exposed's per-statement `queryTimeout` takes (ReportService.reportTransaction).
+    val statementTimeoutSeconds = requireConfigInt(
+        environment.config, "reports.statementTimeoutSeconds", min = 1, max = MAX_REPORT_STATEMENT_TIMEOUT_SECONDS,
+    )
+    val reportService = ReportService(database, metricsSettings, teamMembership, statementTimeoutSeconds)
     attributes.put(ReportServiceKey, reportService)
 
     routing {

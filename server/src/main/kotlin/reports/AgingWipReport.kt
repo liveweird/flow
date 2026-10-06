@@ -13,7 +13,6 @@ import org.jetbrains.exposed.v1.core.isNotNull
 import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.core.lessEq
 import org.jetbrains.exposed.v1.r2dbc.select
-import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 
 /** The most items [AgingWipReport.items] lists (the plan's `≤ 500`); `itemsTruncated` says when more matched. */
 const val AGING_MAX_ITEMS = 500
@@ -100,7 +99,7 @@ internal suspend fun workItemLabels(items: Collection<Pair<UInt, Long>>): Map<Pa
  * IN_PROGRESS task and epic with its age in working days at the request's clock ([nowMs]) against the cycle-time
  * percentiles of the last N DONE items. See `.claude/docs/reports.md`.
  */
-suspend fun ReportService.agingWip(filter: ReportFilter, nowMs: Long): AgingWipReport = suspendTransaction(database) {
+suspend fun ReportService.agingWip(filter: ReportFilter, nowMs: Long): AgingWipReport = reportTransaction {
     val scope = resolveReportScope(filter, nowMs)
     val calendar = WorkingCalendar.of(scope.settings)
     val percentiles = scope.settings.agingPercentiles.sorted()
