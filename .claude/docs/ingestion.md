@@ -719,7 +719,7 @@ value there used to throw Exposed's client-side `varchar(n)` check out of `run()
 2. The bounded identifiers/enums (`status_id` 50, `account_id` 100, `board_type`/`project_key`/`state` 20) are
    checked by `WorkItemStore.replaceStatuses`/`replacePeople`/`replaceBoards`/`replaceSprints` BEFORE the write —
    a row whose bounded value overflows is SKIPPED (never truncated: a cut key would join to the wrong thing),
-   logged once per table by `WorkItemStore` (`norm.<table> rebuild skipped N row(s)…`, the first five ids except
+   logged once per table by `NormReferenceStore` (under the `ch.nokillswit.norm.WorkItemStore` logger name; `norm.<table> rebuild skipped N row(s)…`, the first five ids except
    for people, whose account ids stay out of the log) and returned as a count.
 3. A table whose rebuild still fails with a bad VALUE (`isBadValueError`: SQLSTATE class 22 or Exposed's length
    check) keeps its previous rows — its transaction rolled back — logged by

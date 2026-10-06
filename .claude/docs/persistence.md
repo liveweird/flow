@@ -353,7 +353,7 @@ is a scratch table, not a raw store proper: it holds every issue id the daily RE
 
 ### The normalized layer (V13)
 
-`norm.*` (v0.2.0 plan §0 A3/§4/§8, plan commit 8a, `norm/WorkItemStore.kt`) is the FIRST schema
+`norm.*` (v0.2.0 plan §0 A3/§4/§8, plan commit 8a, `norm/WorkItemStore.kt` — the tables and the one facade, delegating to `norm/WorkItemWriter.kt` (PROCESS write path), `NormReferenceStore.kt`, `NormDerivationReads.kt`, `NormProfileReads.kt`, `NormInspectorReads.kt`, `NormPickerReads.kt` and `NormPurge.kt`, one concern per file; a new `norm` read/write goes in its concern's file plus a one-line delegation on the facade) is the FIRST schema
 outside `raw`/`public` — the connector-agnostic facts every connector's PROCESS step rebuilds a
 work item's rows into, one issue at a time, keyed the same way `raw.jira_issues` is
 `(connection_id, issue_id)`. `norm/Tiling.kt`/`norm/Normalization.kt` build the in-memory shape;
@@ -432,7 +432,7 @@ processing_version mismatch makes an issue eligible for the next PROCESS pass".
 `purgeWorklogsBatch` (500 rows per call, `NORM_PURGE_BATCH_SIZE`, mirroring
 `JIRA_PURGE_BATCH_SIZE`) delete one connection's rows in batches; the small reference tables are
 cleared outright (`purgeReferenceRows`, no batching needed — they are already rebuilt wholesale).
-`WorkItemStore.purgeAll` (an extension function) drains field changes, field intervals, status
+`WorkItemStore.purgeAll` (an extension function in `norm/NormPurge.kt`) drains field changes, field intervals, status
 intervals, worklogs, then work items, in that order, before clearing the reference tables.
 `JiraConnector.purgeSteps` runs `JiraRawStore.purgeAll` (the `raw.*` tables) THEN
 `WorkItemStore.purgeAll` (the `norm.*` tables) as its two connector-owned PURGE steps.
