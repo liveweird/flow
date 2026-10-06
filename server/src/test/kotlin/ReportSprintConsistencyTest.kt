@@ -17,9 +17,19 @@ import io.ktor.client.request.get
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.testApplication
 import java.io.File
+import java.math.BigDecimal
+import java.math.RoundingMode
 import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.isNull
@@ -67,6 +77,8 @@ private val reportConsistencyGolden: ConsistencyGoldenSprint by lazy {
 }
 
 private const val MD_TOLERANCE = 0.005
+
+private val NO_FIGURES = SprintFigures(0.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, 0)
 
 private fun SprintConsistencySprint.figures() = SprintFigures(
     committedMd, committedItems, addedMd, addedItems, removedMd, removedItems, finalMd, finalItems,
@@ -206,7 +218,8 @@ class ReportSprintConsistencyTest {
             )
             assertTrue(user.groups.isEmpty(), "USER level has nothing further to drill")
             val sprint = user.sprints.single()
-            assertNull(sprint.snapshot)
+            // The fixture's snapshot is frozen from the very rows the live figures read: the per-user frozen figures equal them.
+            assertFigures(sprint.figures(), assertNotNull(sprint.snapshot), "USER ${group.accountId} frozen vs live")
             assertTrue(!sprint.drift)
             assertFigures(group.figures(), sprint.figures(), "USER ${group.accountId} vs its TEAM group")
             sprint.figures()
@@ -214,6 +227,123 @@ class ReportSprintConsistencyTest {
         // The null-assignee bucket has no USER-level query (no accountId to name): it is the remainder.
         val unassigned = team.groups.filter { it.accountId == null }.map { it.figures() }
         assertFigures(teamSprint.figures(), (userFigures + unassigned).total(), "Σ users + unassigned vs team")
+    }
+
+    /**
+     * One assignee bucket's fourteen frozen figures, straight off the stored scope JSON with the predicates written out from
+     * `.claude/docs/reports.md` "Report 6" (each item's MD rounded half-up to two decimals first) — never the production reader.
+     */
+    private fun frozenFigures(stored: List<JsonObject>, account: String?): SprintFigures {
+        val rows = stored.filter { it.getValue("assigneeAtCommitment").jsonPrimitive.contentOrNull == account }
+        fun flag(item: JsonObject, key: String) = item.getValue(key).jsonPrimitive.boolean
+        fun set(item: JsonObject, key: String) = item.getValue(key) !is JsonNull
+        fun bucket(pred: (JsonObject) -> Boolean, mdKey: String): Pair<Double, Int> {
+            val items = rows.filter(pred)
+            val md = items.fold(BigDecimal.ZERO) { acc, item ->
+                val value = item.getValue(mdKey)
+                val estimate = if (value is JsonNull) BigDecimal.ZERO else BigDecimal((value as JsonPrimitive).content)
+                acc + estimate.setScale(2, RoundingMode.HALF_UP)
+            }
+            return md.toDouble() to items.size
+        }
+        return figures(
+            committed = bucket({ flag(it, "committed") && flag(it, "inScopeAtClose") }, "estimateAtCommitmentMd"),
+            added = bucket({ set(it, "addedAtMs") }, "estimateAtCommitmentMd"),
+            removed = bucket({ set(it, "removedAtMs") }, "estimateAtCommitmentMd"),
+            final = bucket({ flag(it, "inScopeAtClose") }, "estimateAtCloseMd"),
+            delivered = bucket({ flag(it, "doneInSprint") }, "estimateAtDoneMd"),
+            carried = bucket({ flag(it, "carriedOver") }, "estimateAtCloseMd"),
+            dropped = bucket({ flag(it, "dropped") }, "estimateAtCloseMd"),
+        )
+    }
+
+    @Test
+    fun `USER level snapshot equals the stored scope and sums to the team snapshot`() =
+        testApplication {
+            usePostgresTestcontainer()
+            val connId = DerivedStubFixture.connectionId()
+            val golden = reportConsistencyGolden
+            val floTeamId = floTeamId(connId, golden.sprintId)
+            val client = seededClient("reports-consistency-user-frozen")
+
+            val team = client.consistency("connectionId=$connId&teamId=$floTeamId&sprintId=${golden.sprintId}").sprints.single()
+            val teamSnapshot = assertNotNull(team.snapshot, "the golden sprint is closed and team-mapped, so it is frozen")
+            val stored = FrozenScopeFixtures.storedScope(connId, golden.sprintId).map { it.jsonObject }
+            val accounts = stored.mapNotNull { it.getValue("assigneeAtCommitment").jsonPrimitive.contentOrNull }.distinct()
+            assertTrue(accounts.isNotEmpty(), "the golden sprint has assigned scope")
+
+            val named = accounts.map { account ->
+                val sprint = client.consistency(
+                    "connectionId=$connId&teamId=$floTeamId&accountId=$account&sprintId=${golden.sprintId}",
+                ).sprints.single()
+                val snapshot = assertNotNull(sprint.snapshot, "$account: a snapshotted sprint has per-user frozen figures")
+                assertFigures(frozenFigures(stored, account), snapshot, "USER $account frozen vs the stored scope")
+                assertFigures(sprint.figures(), snapshot, "USER $account live vs frozen")
+                assertTrue(!sprint.drift, "$account: no drift")
+                snapshot
+            }
+            // The null-assignee bucket has no USER-level query: it is the remainder.
+            assertFigures(teamSnapshot, (named + frozenFigures(stored, null)).total(), "Σ users + unassigned vs the team snapshot")
+        }
+
+    @Test
+    fun `USER level snapshot reads the stored scope per connection, with drift`() = testApplication {
+        usePostgresTestcontainer()
+        val sprintId = reportConsistencyGolden.sprintId
+        val (connA, teamA) = FrozenScopeFixtures.derivedDisabledClone("jira-consistency-frozen", "consistency-frozen-team-a")
+        val (connB, teamB) = FrozenScopeFixtures.derivedDisabledClone("jira-consistency-frozen", "consistency-frozen-team-b")
+        val client = seededClient("reports-consistency-user-frozen-synthetic")
+        fun userQuery(connId: UInt, teamId: UInt, accountId: String) =
+            "connectionId=$connId&teamId=$teamId&accountId=$accountId&sprintId=$sprintId"
+        fun item(
+            issueId: Long, assignee: String?, committed: Boolean = true, inScopeAtClose: Boolean = true, addedAtMs: Long? = null,
+            removedAtMs: Long? = null, commitMd: Double? = null, closeMd: Double? = null, doneMd: Double? = null,
+            done: Boolean = false, carried: Boolean = false, dropped: Boolean = false,
+        ) = FrozenScopeFixtures.scopeItem(
+            issueId, assignee, committed, inScopeAtClose, addedAtMs, removedAtMs, commitMd, closeMd, doneMd, done, carried, dropped,
+        )
+
+        // Synthetic accounts own NO live scope row, so their live figures are zero and every frozen figure is the JSON's.
+        val ann = "synthetic-ann"
+        val other = "synthetic-other"
+        // A, for [ann]: 1 committed + delivered (2.504 -> 2.50 at commitment, 3.0 at close and at done); 2 committed + carried over
+        // (2.506 -> 2.51, 4.126 -> 4.13 at close); 3 committed + dropped with NO estimate (an item, 0 MD); 4 added mid-sprint
+        // (priced 1.5 at entry, 2.0 at close and done) + delivered; 5 committed then removed (9.0, in no other bucket); plus
+        // items of `other` and of the unassigned bucket, which must not count for `ann`.
+        FrozenScopeFixtures.overwriteSnapshotScope(
+            connA, sprintId,
+            buildJsonArray {
+                add(item(1, ann, commitMd = 2.504, closeMd = 3.0, doneMd = 3.0, done = true))
+                add(item(2, ann, commitMd = 2.506, closeMd = 4.126, carried = true))
+                add(item(3, ann, dropped = true))
+                add(item(4, ann, committed = false, addedAtMs = 1_000, commitMd = 1.5, closeMd = 2.0, doneMd = 2.0, done = true))
+                add(item(5, ann, inScopeAtClose = false, removedAtMs = 2_000, commitMd = 9.0))
+                add(item(6, other, commitMd = 50.0, closeMd = 50.0, doneMd = 50.0, done = true))
+                add(item(7, null, commitMd = 100.0, closeMd = 100.0, carried = true))
+            },
+        )
+        // B shares the SAME sprint id (one Jira site, two connections) but a different snapshot.
+        FrozenScopeFixtures.overwriteSnapshotScope(connB, sprintId, buildJsonArray { add(item(1, ann, commitMd = 1.0, closeMd = 1.0)) })
+
+        val a = client.consistency(userQuery(connA, teamA, ann)).sprints.single()
+        assertEquals(
+            figures(
+                committed = 5.01 to 3, added = 1.5 to 1, removed = 9.0 to 1, final = 9.13 to 4,
+                delivered = 5.0 to 2, carried = 4.13 to 1, dropped = 0.0 to 1,
+            ),
+            assertNotNull(a.snapshot),
+        )
+        assertEquals(NO_FIGURES, a.figures(), "the live figures still come from fact_sprint_scope, not the snapshot")
+        assertTrue(a.drift, "the frozen figures differ from the live ones")
+
+        val b = client.consistency(userQuery(connB, teamB, ann)).sprints.single()
+        assertEquals(figures(committed = 1.0 to 1, final = 1.0 to 1), assertNotNull(b.snapshot))
+        assertTrue(b.drift)
+
+        // An account with no item in the stored scope has zero frozen figures (not null: the sprint IS frozen) and no drift.
+        val nobody = client.consistency(userQuery(connB, teamB, other)).sprints.single()
+        assertEquals(NO_FIGURES, nobody.snapshot)
+        assertTrue(!nobody.drift)
     }
 
     private fun scopeItem(
@@ -377,6 +507,12 @@ class ReportSprintConsistencyTest {
             assertEquals(row[MetricsTables.FactSprint.committedMd].toDouble(), sprint.committedMd, MD_TOLERANCE)
             assertEquals(row[MetricsTables.FactSprint.finalItems], sprint.finalItems)
             assertEquals(row[MetricsTables.FactSprint.addedItems], sprint.addedItems)
+            // USER level: a sprint with no snapshot (D13) has a null per-user snapshot and no drift, whoever the account.
+            val user = client.consistency(
+                "connectionId=$connId&teamId=$floTeamId&accountId=any-account&sprintId=${row[MetricsTables.FactSprint.sprintId]}",
+            ).sprints.single()
+            assertNull(user.snapshot)
+            assertTrue(!user.drift)
         }
     }
 

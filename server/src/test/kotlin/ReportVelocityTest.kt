@@ -13,7 +13,6 @@ import java.math.RoundingMode
 import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -313,45 +312,12 @@ class ReportVelocityTest {
         put("dropped", false)
     }
 
-    /** A private, DISABLED, FLO-mapped clone derived once under the pinned clock; returns (connection id, its team id). */
-    private suspend fun derivedDisabledClone(teamPrefix: String): Pair<UInt, UInt> {
-        val connId = SyncedStubFixture.createConnection(namePrefix = "jira-velocity-frozen", enabled = false)
-        SyncedStubFixture.cloneProcessedData(SyncedStubFixture.connectionId(), connId)
-        val teamId = DerivedStubFixture.mapFloBoardToNewTeam(connId, DerivedStubFixture.metricsConfig(), teamPrefix)
-        DerivedStubFixture.withPinnedSettings(DerivedStubFixture.metricsSettings()) { DerivedStubFixture.derivePinned(connId, jobId = 1u) }
-        return connId to teamId
-    }
-
-    /**
-     * Rewrites one snapshot row's `scope` so it DIFFERS from the live `fact_sprint_scope` rows. The immutability trigger forbids
-     * UPDATE/DELETE unless `metrics.allow_snapshot_delete` is SET LOCAL 'on' — the PURGE step's own sanctioned bypass (pinned by
-     * `IngestWorkerTest`); the trigger itself stays enabled, and only this test's private clone is touched.
-     */
-    private suspend fun overwriteSnapshotScope(connectionId: UInt, sprintId: Long, scope: JsonArray) {
-        suspendTransaction(sharedDatabaseForTests()) {
-            exec("SET LOCAL metrics.allow_snapshot_delete = 'on'")
-            exec(
-                "UPDATE metrics.fact_sprint_snapshot SET scope = '$scope'::jsonb " +
-                    "WHERE connection_id = $connectionId AND sprint_id = $sprintId",
-            )
-        }
-        val stored = suspendTransaction(sharedDatabaseForTests()) {
-            MetricsTables.FactSprintSnapshot.selectAll()
-                .where {
-                    (MetricsTables.FactSprintSnapshot.connectionId eq connectionId) and
-                        (MetricsTables.FactSprintSnapshot.sprintId eq sprintId)
-                }
-                .toList().single()[MetricsTables.FactSprintSnapshot.scope]
-        }
-        assertEquals(scope, Json.parseToJsonElement(stored), "the synthetic scope must actually have been stored")
-    }
-
     @Test
     fun `USER level frozen figures come from the stored snapshot scope not the live rows, per connection`() = testApplication {
         usePostgresTestcontainer()
         val sprintId = reportVelocityGolden.sprintId
-        val (connA, teamA) = derivedDisabledClone("velocity-frozen-team-a")
-        val (connB, teamB) = derivedDisabledClone("velocity-frozen-team-b")
+        val (connA, teamA) = FrozenScopeFixtures.derivedDisabledClone("jira-velocity-frozen", "velocity-frozen-team-a")
+        val (connB, teamB) = FrozenScopeFixtures.derivedDisabledClone("jira-velocity-frozen", "velocity-frozen-team-b")
         val client = seededClient("reports-velocity-user-frozen-synthetic")
 
         fun userUrl(connId: UInt, teamId: UInt, accountId: String) =
@@ -366,7 +332,7 @@ class ReportVelocityTest {
         // Connection A: [ann] 2.504 -> 2.50 and 2.506 -> 2.51 (committed, in scope), one committed item with NO estimate
         // (counts as an item, 0 MD), one added item (final only), one removed item (neither bucket); plus an item with a
         // null assignee and one of `other`, which must not count for `ann`.
-        overwriteSnapshotScope(
+        FrozenScopeFixtures.overwriteSnapshotScope(
             connA, sprintId,
             buildJsonArray {
                 add(scopeItem(1, ann, committed = true, inScopeAtClose = true, commitMd = 2.504, closeMd = 3.0))
@@ -379,7 +345,7 @@ class ReportVelocityTest {
             },
         )
         // Connection B shares the SAME sprint id (one Jira site, two connections) but a different snapshot.
-        overwriteSnapshotScope(
+        FrozenScopeFixtures.overwriteSnapshotScope(
             connB, sprintId,
             buildJsonArray { add(scopeItem(1, ann, committed = true, inScopeAtClose = true, commitMd = 1.0, closeMd = 1.0)) },
         )

@@ -40,7 +40,7 @@ data class SprintFigures(
 
 /**
  * One sprint's consistency row (Report 6.1-6.3 with the item counts of 13): every scope bucket, live,
- * beside the frozen [snapshot] (`null` until first snapshotted, D13 — and always at USER level) and
+ * beside the frozen [snapshot] (`null` until first snapshotted, D13; at USER level that account's share of the stored scope) and
  * [drift] (any figure differs beyond [SPRINT_DRIFT_TOLERANCE_MD] MD / exact items).
  */
 @Serializable
@@ -159,8 +159,8 @@ private data class ScopeEntry(val connectionId: UInt, val sprintId: Long, val it
  * `GET /api/v1/reports/sprint-consistency` (v0.3.0 M4 commit 10d, reports 6.1-6.3 with the item
  * counts of 13, `.claude/docs/measures.md` "Report 6"). Levels: UNIT `groups` per team summing every
  * figure; TEAM `groups` per `assignee_at_commitment` (Σ groups == the team figures for every
- * bucket); USER narrows `sprints` to that account's own rows (`snapshot` null, `drift` false,
- * `groups` empty). `teamId = 0` (UNASSIGNED) is always empty. See `.claude/docs/reports.md`.
+ * bucket); USER narrows `sprints` to that account's own rows (`snapshot`/`drift` from the sprint's stored
+ * scope JSON, `groups` empty). `teamId = 0` (UNASSIGNED) is always empty. See `.claude/docs/reports.md`.
  */
 suspend fun ReportService.sprintConsistency(filter: ReportFilter): SprintConsistencyReport = suspendTransaction(database) {
     // A sprint-anchored report reads no time window, so `nowMs` only feeds the scope's unused `window`.
@@ -173,9 +173,12 @@ suspend fun ReportService.sprintConsistency(filter: ReportFilter): SprintConsist
         ReportLevel.USER -> {
             val accountId = requireNotNull(filter.accountId) { "USER level always carries an accountId (ReportFilter's own invariant)" }
             val entries = fetchScopeEntries(sprintRows, accountId).groupBy { it.connectionId to it.sprintId }
+            val frozen = fetchFrozenScopes(sprintRows, accountId, ::frozenScopeItemsOf) { it.assigneeAtCommitment }
             val sprints = sprintRows.map { row ->
                 val items = entries[row.connectionId to row.sprintId].orEmpty().map { it.item }
-                row.toConsistencySprint(DeriveKernels.sprintTotals(items).toFigures(), snapshot = null, drift = false)
+                val live = DeriveKernels.sprintTotals(items).toFigures()
+                val snapshot = frozen[row.connectionId to row.sprintId]?.let { DeriveKernels.sprintTotals(it).toFigures() }
+                row.toConsistencySprint(live, snapshot, figuresDrift(live, snapshot))
             }
             SprintConsistencyReport(meta, sprints, emptyList())
         }

@@ -1,5 +1,6 @@
 package ch.nokillswit.reports
 
+import ch.nokillswit.metrics.DeriveKernels
 import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.metrics.WorkingCalendar
 import java.math.BigDecimal
@@ -193,7 +194,9 @@ private fun deliveredDrift(live: ThroughputSnapshot, frozen: ThroughputSnapshot?
 /**
  * USER-level sprint view: each sprint narrowed to the deliveries whose `assignee_at_commitment` is
  * [accountId] (`done_in_sprint` rows at `estimate_at_done_md` — the SAME predicate `fact_sprint`'s
- * own delivered total sums). `snapshot`/`drift` are `null`/`false`, velocity's documented narrowing.
+ * own delivered total sums). `snapshot` is that account's FROZEN share, computed by the same kernel
+ * ([DeriveKernels.sprintTotals]) over the sprint's stored `fact_sprint_snapshot.scope` ([fetchFrozenScopes]);
+ * `null` for a sprint with no snapshot (D13), and [ThroughputSprint.drift] is the team level's own [deliveredDrift].
  */
 private suspend fun userSprints(sprintRows: List<SprintRow>, accountId: String): List<ThroughputSprint> {
     if (sprintRows.isEmpty()) return emptyList()
@@ -205,12 +208,17 @@ private suspend fun userSprints(sprintRows: List<SprintRow>, accountId: String):
                 (s.assigneeAtCommitment eq accountId) and (s.doneInSprint eq true)
         }
         .toList().groupBy({ it[s.connectionId].value to it[s.sprintId] }, { it[s.estimateAtDoneMd] ?: BigDecimal.ZERO })
+    val frozen = fetchFrozenScopes(sprintRows, accountId, ::frozenScopeItemsOf) { it.assigneeAtCommitment }
     return sprintRows.map { row ->
         val delivered = rows[row.connectionId to row.sprintId].orEmpty()
+        val live = ThroughputSnapshot(delivered.fold(BigDecimal.ZERO, BigDecimal::add).toDouble(), delivered.size)
+        val snapshot = frozen[row.connectionId to row.sprintId]?.let {
+            DeriveKernels.sprintTotals(it).let { totals -> ThroughputSnapshot(totals.deliveredMd, totals.deliveredItems) }
+        }
         ThroughputSprint(
             sprintId = row.sprintId, name = row.name, teamId = row.teamId, completedAt = row.completedAt,
-            deliveredMd = delivered.fold(BigDecimal.ZERO, BigDecimal::add).toDouble(), deliveredItems = delivered.size,
-            snapshot = null, drift = false,
+            deliveredMd = live.deliveredMd, deliveredItems = live.deliveredItems,
+            snapshot = snapshot, drift = deliveredDrift(live, snapshot),
         )
     }
 }

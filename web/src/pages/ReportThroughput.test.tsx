@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { Route, Routes } from "react-router-dom";
 import ReportThroughput from "./ReportThroughput";
 import { jsonResponse } from "../test/http";
-import { FILTERS, THROUGHPUT_MONTHS, THROUGHPUT_NOTHING, THROUGHPUT_UNIT } from "../test/reportFixtures";
+import { FILTERS, THROUGHPUT_MONTHS, THROUGHPUT_NOTHING, THROUGHPUT_UNIT, THROUGHPUT_USER } from "../test/reportFixtures";
 import { renderWithProviders, screen, waitFor, within } from "../test/render";
 
 // recharts renders nothing under happy-dom (no layout), so the chart is a probe carrying its props.
@@ -80,6 +80,19 @@ describe("ReportThroughput page", () => {
     expect(screen.getByRole("link", { name: "Show Alpha" })).toBeInTheDocument();
     expect(screen.getByText("Unassigned")).toBeInTheDocument();
     expect(calls(mockFetch)).toEqual(["/api/v1/reports/throughput?"]);
+  });
+
+  test("at user level the sprint row shows the account's frozen figures and the drift badge", async () => {
+    serve(mockFetch, () => jsonResponse(200, THROUGHPUT_USER));
+    renderPage("/reports/throughput?teamId=1&accountId=acc-ann");
+    await screen.findByTestId("bar-chart");
+
+    const sprintCard = screen.getByRole("heading", { name: "Delivered per sprint" }).closest("div[class*=Paper]") as HTMLElement;
+    const row = within(sprintCard).getByRole("row", { name: /Alpha 2/ });
+    expect(within(row).getByText("7.5")).toBeInTheDocument();
+    expect(within(row).getByText("Drift")).toBeInTheDocument();
+    expect(within(row).getByText("Frozen at completion: delivered 6 MD, 3 items")).toBeInTheDocument();
+    expect(calls(mockFetch)).toEqual(["/api/v1/reports/throughput?teamId=1&accountId=acc-ann"]);
   });
 
   test("the bucket control writes the URL, refetches and relabels the buckets", async () => {
