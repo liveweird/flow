@@ -1,5 +1,6 @@
 package ch.nokillswit.auth
 
+import ch.nokillswit.infra.db.nowMillis
 import ch.nokillswit.plugins.JwtConfig
 import ch.nokillswit.users.Feature
 import ch.nokillswit.users.UserRole
@@ -51,7 +52,7 @@ private fun JwtConfig.issueToken(
     ttlSeconds: Long,
     credentialRevision: Long? = null,
 ): IssuedToken {
-    val now = System.currentTimeMillis()
+    val now = nowMillis()
     val expiresAt = now + ttlSeconds * 1000
     val token = JWT.create()
         .withAudience(audience)

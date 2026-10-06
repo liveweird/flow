@@ -428,20 +428,6 @@ object DeriveKernels {
     }
 
     /**
-     * The value active at [atMs] from an ordered (ascending by change instant) list of `(changedAt,
-     * newValue)` points — the ONE as-of helper (work category at `done_at`, assignee at commitment,
-     * a sprint's team at an instant).
-     */
-    fun <T> valueAsOf(points: List<Pair<Long, T>>, initial: T, atMs: Long): T {
-        var current = initial
-        for ((changedAt, value) in points) {
-            if (changedAt > atMs) break
-            current = value
-        }
-        return current
-    }
-
-    /**
      * Diffs the Sprint field's raw changelog text into per-sprint set-valued membership intervals —
      * Jira renders both `fromValue`/`toValue` on a Sprint changelog item as a comma-joined id list,
      * so a task moved from sprint A directly into sprint B (never leaving the field empty in

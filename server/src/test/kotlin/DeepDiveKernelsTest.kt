@@ -13,6 +13,7 @@ import ch.nokillswit.reports.TaskPlan
 import ch.nokillswit.reports.costDays
 import ch.nokillswit.reports.executionDays
 import ch.nokillswit.reports.planDays
+import ch.nokillswit.reports.sprintWindow
 import ch.nokillswit.reports.spreadCumulative
 import ch.nokillswit.reports.taskPlan
 import java.math.BigDecimal
@@ -188,6 +189,29 @@ class DeepDiveKernelsTest {
         assertEquals(
             listOf(5, 6, 7, 8, 9, 12, 13).map { LocalDate.of(2026, 10, it) },
             planDays(windows, weekdays),
+        )
+    }
+
+    @Test
+    fun `sprintWindow is dayOf(start or close) to dayOf(complete or end), clamped, null with no close or an empty window`() {
+        fun window(start: String?, complete: String?, end: String?, calendar: WorkingCalendar = weekdays) =
+            sprintWindow(start?.let(::utcMs), complete?.let(::utcMs), end?.let(::utcMs), calendar)
+
+        val oct5 = LocalDate.of(2026, 10, 5)
+        // complete_at wins over end_at as the close.
+        assertEquals(oct5 to LocalDate.of(2026, 10, 7), window("2026-10-05T09:00:00Z", "2026-10-07T17:00:00Z", "2026-10-30T00:00:00Z"))
+        // end_at is the close when there is no complete_at; no start means the close day alone.
+        assertEquals(oct5 to LocalDate.of(2026, 10, 8), window("2026-10-05T09:00:00Z", null, "2026-10-08T09:00:00Z"))
+        assertEquals(LocalDate.of(2026, 10, 8).let { it to it }, window(null, null, "2026-10-08T09:00:00Z"))
+        // No close -> no window; a close before the start -> empty -> no window.
+        assertNull(window("2026-10-05T09:00:00Z", null, null))
+        assertNull(window("2026-10-09T09:00:00Z", "2026-10-05T09:00:00Z", null))
+        // Clamped to its first 1100 days.
+        assertEquals(oct5 to oct5.plusDays(1099), window("2026-10-05T09:00:00Z", "2030-12-31T17:00:00Z", null))
+        // The zone decides the day: 23:30Z on Monday is already Tuesday in Warsaw (UTC+2 in October).
+        assertEquals(
+            LocalDate.of(2026, 10, 6).let { it to it },
+            window(null, "2026-10-05T23:30:00Z", null, WorkingCalendar(warsaw, setOf(6, 7), emptySet())),
         )
     }
 

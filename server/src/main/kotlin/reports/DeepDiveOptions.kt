@@ -8,7 +8,6 @@ import ch.nokillswit.infra.paging.toPage
 import ch.nokillswit.infra.validation.sanitizeSingleLine
 import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.norm.WorkItemStore
-import io.ktor.server.plugins.BadRequestException
 import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.Serializable
 import org.jetbrains.exposed.v1.core.Column
@@ -102,10 +101,7 @@ suspend fun ReportService.deepDiveSprints(
     paging: PageRequest,
 ): DeepDiveSprintPageResponse = reportTransaction {
     val connectionIds = resolveConnectionScope(connectionId)
-    val known = MetricsTables.DimDomain.select(MetricsTables.DimDomain.domainKey)
-        .where { (MetricsTables.DimDomain.connectionId inList connectionIds) and (MetricsTables.DimDomain.domainKey eq domain) }
-        .toList().isNotEmpty()
-    if (!known) throw BadRequestException("Unknown domain: $domain")
+    requireDomainName(domain, connectionIds)
 
     val scope = MetricsTables.FactSprintScope
     val task = MetricsTables.FactTaskDelivery
@@ -190,14 +186,9 @@ suspend fun ReportService.deepDiveEpicTasks(
 ): DeepDiveTaskPageResponse = reportTransaction {
     val key = sanitizeSingleLine(epicKey, "epicKey")
     val connectionIds = resolveConnectionScope(connectionId)
-    val epic = MetricsTables.DimEpic
-    val matches = epic.select(epic.connectionId, epic.issueId)
-        .where { (epic.connectionId inList connectionIds) and (epic.issueKey eq key) }
-        .toList()
-    if (matches.isEmpty()) throw BadRequestException("Unknown epic: $key")
-    if (matches.size > 1) throw BadRequestException("Epic $key exists in several connections; narrow with connectionId")
-    val epicConnectionId = matches.single()[epic.connectionId].value
-    val epicIssueId = matches.single()[epic.issueId]
+    val epic = requireEpicsByKey(listOf(key), connectionIds, name = "epicKey").single()
+    val epicConnectionId = epic.connectionId
+    val epicIssueId = epic.issueId
 
     val task = MetricsTables.FactTaskDelivery
     val item = WorkItemStore.WorkItems
