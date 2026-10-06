@@ -11,6 +11,7 @@ import ch.nokillswit.metrics.DataSourceMetricsConfigOptions
 import ch.nokillswit.metrics.DataSourceMetricsConfigRequest
 import ch.nokillswit.metrics.MetricsBoardTeamMapping
 import ch.nokillswit.metrics.MetricsDomainMapping
+import ch.nokillswit.metrics.MetricsDomainStatusStage
 import ch.nokillswit.metrics.MetricsFieldConfig
 import ch.nokillswit.metrics.MetricsSettingsResponse
 import ch.nokillswit.metrics.MetricsStage
@@ -327,6 +328,122 @@ class MetricsConfigRoutesTest {
                 DataSourceMetricsConfigRequest(boards = listOf(MetricsBoardTeamMapping(999_999_999L, 1u))),
             ).status,
         )
+    }
+
+    @Test
+    fun `per-domain stage overrides round-trip through GET, an identical re-PUT is a no-op and changing one bumps and audits`() =
+        testApplication {
+            usePostgresTestcontainer()
+            val admin = seededClient("metricsoverride", UserRole.ADMIN)
+            val connId = runBlocking { createConnection(dataSources()) }
+            val seeded = runBlocking { seedNormFixture(connId, "PLT", "Task") }
+            val url = "/api/v1/data-sources/$connId/metrics-config"
+
+            val request = DataSourceMetricsConfigRequest(
+                statusStages = listOf(
+                    MetricsStatusStage("10001", MetricsStage.NOT_STARTED),
+                    MetricsStatusStage("10003", MetricsStage.DONE),
+                ),
+                domains = listOf(MetricsDomainMapping(seeded.projectKey, "platform", "Platform")),
+                domainStatusStages = listOf(
+                    MetricsDomainStatusStage("platform", "10003", MetricsStage.IN_PROGRESS),
+                    MetricsDomainStatusStage("platform", "10001", MetricsStage.NOT_STARTED),
+                ),
+            )
+            assertEquals(HttpStatusCode.NoContent, admin.putJson(url, request).status)
+
+            val fetched = admin.getConfig(connId)
+            assertEquals(true, fetched.configured)
+            // The every-domain rows and the overrides share one table; neither list leaks into the other.
+            assertEquals(request.statusStages.toSet(), fetched.statusStages.toSet())
+            assertEquals(request.domainStatusStages.toSet(), fetched.domainStatusStages.toSet())
+            assertEquals(
+                listOf("10001", "10003"),
+                fetched.domainStatusStages.map { it.statusId },
+                "GET orders overrides by domain then status",
+            )
+
+            val beforeNoOp = admin.configRevision()
+            assertEquals(
+                HttpStatusCode.NoContent,
+                admin.putJson(url, request.copy(domainStatusStages = request.domainStatusStages.reversed())).status,
+            )
+            assertEquals(beforeNoOp, admin.configRevision(), "a reordered-but-equal re-PUT with overrides must not bump the revision")
+
+            withAuditCapture { capture ->
+                val changed = request.copy(domainStatusStages = listOf(MetricsDomainStatusStage("platform", "10003", MetricsStage.DONE)))
+                assertEquals(HttpStatusCode.NoContent, admin.putJson(url, changed).status)
+                assertEquals(beforeNoOp + 1, admin.configRevision(), "changing only the overrides is a real change")
+                assertNotNull(
+                    capture.awaitEvent { it.message == "metrics_config.updated" && it.hasKeyValue("dataSourceId", connId.toLong()) },
+                    "an override change audits metrics_config.updated",
+                )
+            }
+            assertEquals(
+                listOf(MetricsDomainStatusStage("platform", "10003", MetricsStage.DONE)),
+                admin.getConfig(connId).domainStatusStages,
+                "REPLACE semantics: an override left out of the PUT is removed",
+            )
+
+            assertEquals(HttpStatusCode.NoContent, admin.putJson(url, request.copy(domainStatusStages = emptyList())).status)
+            assertEquals(emptyList(), admin.getConfig(connId).domainStatusStages)
+            assertEquals(request.statusStages.toSet(), admin.getConfig(connId).statusStages.toSet())
+        }
+
+    @Test
+    fun `an override on a domain that exists only as an unmapped project key is accepted`() = testApplication {
+        usePostgresTestcontainer()
+        val admin = seededClient("metricsoverrideproj", UserRole.ADMIN)
+        val connId = runBlocking { createConnection(dataSources()) }
+        val seeded = runBlocking { seedNormFixture(connId, "PLT", "Task") }
+        val url = "/api/v1/data-sources/$connId/metrics-config"
+
+        // `domains` is empty, so DERIVE reads the project key itself as the domain — a valid override target.
+        val request = DataSourceMetricsConfigRequest(
+            domainStatusStages = listOf(MetricsDomainStatusStage(seeded.projectKey, "10001", MetricsStage.IN_PROGRESS)),
+        )
+        assertEquals(HttpStatusCode.NoContent, admin.putJson(url, request).status)
+        assertEquals(request.domainStatusStages, admin.getConfig(connId).domainStatusStages)
+
+        // ... but once `domains` maps that project elsewhere, the project key is no longer a domain.
+        val remapped = request.copy(domains = listOf(MetricsDomainMapping(seeded.projectKey, "elsewhere", "Elsewhere")))
+        assertEquals(HttpStatusCode.BadRequest, admin.putJson(url, remapped).status)
+    }
+
+    @Test
+    fun `an invalid per-domain override is 400 and stores nothing`() = testApplication {
+        usePostgresTestcontainer()
+        val admin = seededClient("metricsoverride400", UserRole.ADMIN)
+        val connId = runBlocking { createConnection(dataSources()) }
+        val seeded = runBlocking { seedNormFixture(connId, "PLT", "Task") }
+        val url = "/api/v1/data-sources/$connId/metrics-config"
+        val domains = listOf(MetricsDomainMapping(seeded.projectKey, "platform", "Platform"))
+        val good = MetricsDomainStatusStage("platform", "10001", MetricsStage.DONE)
+        val before = admin.configRevision()
+
+        val bad = listOf(
+            listOf(MetricsDomainStatusStage("nope", "10001", MetricsStage.DONE)), // unknown domain
+            listOf(MetricsDomainStatusStage("", "10001", MetricsStage.DONE)), // '' is the every-domain row, not an override
+            listOf(MetricsDomainStatusStage("platform", "no-such-status", MetricsStage.DONE)), // unknown status
+            listOf(good, good.copy(stage = MetricsStage.IN_PROGRESS)), // duplicate (domain, status)
+        )
+        for (overrides in bad) {
+            val response = admin.putJson(url, DataSourceMetricsConfigRequest(domains = domains, domainStatusStages = overrides))
+            assertEquals(HttpStatusCode.BadRequest, response.status, "overrides $overrides must be rejected")
+        }
+        assertEquals(before, admin.configRevision(), "a rejected PUT bumps nothing")
+        assertEquals(false, admin.getConfig(connId).configured, "a rejected PUT stores nothing")
+    }
+
+    @Test
+    fun `a non-admin cannot PUT per-domain overrides`() = testApplication {
+        usePostgresTestcontainer()
+        val user = seededClient("metricsoverride403")
+        val response = user.putJson(
+            "/api/v1/data-sources/999999999/metrics-config",
+            DataSourceMetricsConfigRequest(domainStatusStages = listOf(MetricsDomainStatusStage("platform", "10001", MetricsStage.DONE))),
+        )
+        assertEquals(HttpStatusCode.Forbidden, response.status)
     }
 
     @Test

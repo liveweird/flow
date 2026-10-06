@@ -1191,7 +1191,8 @@ paths:
         config tables in one transaction — every id is validated against this connection's own
         `norm` reference rows (statuses, boards, sprints, project keys, issue types) and its
         stored data profile (field ids), else `400`; a board mapped to a team already mapped
-        elsewhere is `409` (D10: one board per team). Bumps the shared `configRevision` unless
+        elsewhere is `409` (D10: one board per team); a `domainStatusStages` override must name a
+        domain the same request defines and a known status, once per (domain, status). Bumps the shared `configRevision` unless
         the request is byte-for-byte identical to what is already stored.
       requestBody:
         required: true
@@ -3259,6 +3260,14 @@ components:
       properties:
         statusId: { type: string }
         stage: { type: string, enum: [NOT_STARTED, IN_PROGRESS, DONE] }
+    MetricsDomainStatusStage:
+      type: object
+      required: [domainKey, statusId, stage]
+      description: "A per-domain override of the every-domain status → stage mapping: items of this domain read this stage for this status instead."
+      properties:
+        domainKey: { type: string, description: "A domain the same request defines (a `domains[].domainKey`, or the project key of an observed project it leaves unmapped); never empty." }
+        statusId: { type: string }
+        stage: { type: string, enum: [NOT_STARTED, IN_PROGRESS, DONE] }
     MetricsFieldConfig:
       type: object
       properties:
@@ -3307,12 +3316,16 @@ components:
         capacityMd: { type: number, format: double, minimum: 0 }
     DataSourceMetricsConfig:
       type: object
-      required: [configured, statusStages, fields, domains, boards, activityTypes, workCategories, blockedStatuses, sprintCapacities]
+      required: [configured, statusStages, domainStatusStages, fields, domains, boards, activityTypes, workCategories, blockedStatuses, sprintCapacities]
       properties:
         configured: { type: boolean, description: "False means every field below is a COMPUTED default, nothing is stored yet." }
         statusStages:
           type: array
           items: { $ref: '#/components/schemas/MetricsStatusStage' }
+        domainStatusStages:
+          type: array
+          items: { $ref: '#/components/schemas/MetricsDomainStatusStage' }
+          description: "Per-domain overrides of `statusStages` (at most one per domain and status); empty by default — a status without an override for the item's domain uses `statusStages`."
         fields:
           $ref: '#/components/schemas/MetricsFieldConfig'
         domains:
@@ -3339,6 +3352,10 @@ components:
         statusStages:
           type: array
           items: { $ref: '#/components/schemas/MetricsStatusStage' }
+        domainStatusStages:
+          type: array
+          items: { $ref: '#/components/schemas/MetricsDomainStatusStage' }
+          description: "Per-domain overrides of `statusStages` (at most one per domain and status); empty by default — a status without an override for the item's domain uses `statusStages`."
         fields:
           $ref: '#/components/schemas/MetricsFieldConfig'
         domains:

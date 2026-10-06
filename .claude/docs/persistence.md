@@ -493,7 +493,7 @@ ONE GiST index — `btree_gist` is what makes `=` available inside a GiST index 
   `activity_type_map`/`work_category_map`/`blocked_statuses`** — the per-connection configuration
   tables the v0.3.0 plan's commit 4 (`GET/PUT /api/v1/data-sources/{id}/metrics-config`) reads and
   writes; created here (priority item 1 of commit 3) so no later migration needs to add them.
-  `board_team_map` carries `CONSTRAINT uq_metrics_board_team_map_team_id UNIQUE (team_id)` — D10's
+  `status_stage_map`'s `domain_key` column holds the per-domain overrides (`''` = every domain; written since the stage-override UI, `.claude/docs/metrics.md` "Per-domain stage overrides"). `board_team_map` carries `CONSTRAINT uq_metrics_board_team_map_team_id UNIQUE (team_id)` — D10's
   "one board maps to at most one team", named in `plugins/ErrorHandling.kt`'s
   `UNIQUE_CONSTRAINT_DETAILS` for a friendly `409` (a real consumer, and its own route validation,
   arrive with commit 4).

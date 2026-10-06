@@ -47,12 +47,17 @@ internal class ConnectionMappings(val stageStatusIds: Set<String>, val boardIds:
  */
 internal suspend fun readConnectionMappings(connectionIds: List<UInt>): Map<UInt, ConnectionMappings> {
     if (connectionIds.isEmpty()) return emptyMap()
-    val stages = MetricsConfigService.StatusStageMap.select(
+    // Every stage row of the connection (the every-domain `''` rows AND the per-domain overrides) marks it as configured;
+    // only the `''` rows say which statuses have a stage everywhere — an override covers just its own domain's items, so it
+    // never un-flags a status whose every-domain mapping is missing.
+    val stageRows = MetricsConfigService.StatusStageMap.select(
         MetricsConfigService.StatusStageMap.connectionId, MetricsConfigService.StatusStageMap.statusId,
-    ).where {
-        (MetricsConfigService.StatusStageMap.connectionId inList connectionIds) and
-            (MetricsConfigService.StatusStageMap.domainKey eq "")
-    }.toList().groupBy({ it[MetricsConfigService.StatusStageMap.connectionId].value }) { it[MetricsConfigService.StatusStageMap.statusId] }
+        MetricsConfigService.StatusStageMap.domainKey,
+    ).where { MetricsConfigService.StatusStageMap.connectionId inList connectionIds }.toList()
+        .groupBy { it[MetricsConfigService.StatusStageMap.connectionId].value }
+    val stages = stageRows.mapValues { (_, rows) ->
+        rows.filter { it[MetricsConfigService.StatusStageMap.domainKey] == "" }.map { it[MetricsConfigService.StatusStageMap.statusId] }
+    }
     val boards = MetricsConfigService.BoardTeamMap.select(
         MetricsConfigService.BoardTeamMap.connectionId, MetricsConfigService.BoardTeamMap.boardId,
     ).where { MetricsConfigService.BoardTeamMap.connectionId inList connectionIds }

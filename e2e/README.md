@@ -144,7 +144,7 @@ the same commit** — this list is the coverage map, the scenario file is the de
   surfaces (the reports are `reports.spec.ts`): the global Metrics settings form (a save
   persists, an all-weekend-days value is refused inline) restored to its pre-test values through
   the API; a synced Jira-stub connection's per-connection Metrics configuration (preselected
-  stages, a board → team mapping, a second board mapped to the same team marked `409`); D1's
+  stages, a per-domain stage override saved with the rest and still there after a reload, a board → team mapping, a second board mapped to the same team marked `409`); D1's
   dated Jira-user team membership on a throwaway team (an overlapping second membership refused
   inline) and a regular user's read-only view of it, with no Metrics settings nav access.
 - [`reports.spec.ts`](scenarios/reports.md) — the v0.3.0 reports, read by a NON-ADMIN user (D12)

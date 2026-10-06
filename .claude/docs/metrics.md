@@ -45,6 +45,7 @@ per-connection `metrics.*` config tables (`.claude/docs/persistence.md` "V15") i
 DataSourceMetricsConfig {
   configured: Boolean
   statusStages: [{ statusId, stage }]              // metrics.status_stage_map, domain_key = ''
+  domainStatusStages: [{ domainKey, statusId, stage }]  // metrics.status_stage_map, domain_key <> '' (per-domain overrides)
   fields: { estimateTask, estimateEpic, epicStart, epicDue, workCategory }  // metrics.field_config
   domains: [{ projectKey, domainKey, domainName, ownerTeamId? }]  // metrics.domain_map
   boards: [{ boardId, teamId }]                     // metrics.board_team_map
@@ -61,6 +62,7 @@ a `404` and never an empty shell an admin has to fill in from scratch before rep
 
 | Field | Default |
 |---|---|
+| `domainStatusStages` | empty — no override exists until an admin makes one (see "Per-domain stage overrides") |
 | `statusStages` | seeded from each status's Jira category (`norm.statuses`) — `new → NOT_STARTED`, `indeterminate → IN_PROGRESS`, `done → DONE`; a status whose category is `UNKNOWN` is left OUT of this list (flagged, never guessed — `.claude/docs/domain-model.md`'s "an unmapped status is flagged, never guessed"). The `metrics-config/options` endpoint's own `statuses` list still names every status Jira reports, mapped or not, so an admin can see the gap. |
 | `fields.estimateTask` / `fields.estimateEpic` | the connection's stored data profile's `STORY_POINTS`-detected custom field id (`source_connections.profile.customFields`, `jira/JiraProfile.kt`) — both roles share the one detected field |
 | `fields.epicStart` | the profile's custom field whose name contains "start date" (case-insensitive); if none, the field whose name contains "target start" (Jira Plans' own start-date field, for a company-managed-project tenant using Plans dates instead of a team-managed "Start date" custom field); `null` if neither was detected |
@@ -79,6 +81,10 @@ connection's own reference data (`metrics/DataSourceMetricsConfig.kt`'s `Metrics
 computed by `MetricsConfigService.replaceConfig`/`.referenceData`; the editor's `options` read is `MetricsConfigOptions.options`):
 
 - `statusStages[].statusId` and `blockedStatuses[]` → `norm.statuses` (`WorkItemStore.allStatusRefs`).
+- `domainStatusStages[]` (`validateDomainStatusStages`) → `statusId` in `norm.statuses`; `domainKey` must be a domain the
+  SAME request defines — a `domains[].domainKey`, or the project key of an observed project the request's `domains` leaves
+  unmapped (DERIVE reads such a project as its own domain) — and never `''` (that is the every-domain `statusStages`
+  row). The stage enum is enforced by deserialization; a repeated (domain, status) pair is the duplicate-key `400`.
 - Every non-null field id (`fields.*`) → the stored data profile's `customFields` ids, plus the one
   hardcoded system field `"duedate"`.
 - `domains[].projectKey` → distinct project keys observed in `norm.work_items`
@@ -169,6 +175,31 @@ own `purgeSteps` finish. This is deliberately NOT wired into
 GitLab connector's connection would purge through the exact same call), so the cleanup lives beside
 the OTHER connector-agnostic PURGE work the worker itself already owns, not duplicated per
 connector kind.
+
+### Per-domain stage overrides
+
+`metrics.status_stage_map` is keyed `(connection_id, status_id, domain_key)`; `domain_key = ''` is the every-domain
+mapping (`statusStages`), any other key a per-domain override (`domainStatusStages`, no migration — the column existed
+since V15). A PUT replaces BOTH kinds together (one delete over the connection's rows, then one insert per list) and
+bumps the shared revision like any other config change; an override-only change is a real change (bump, DERIVE
+enqueue, `metrics_config.updated` audit), a re-PUT of the same overrides in any order is a no-op.
+
+**Resolution (DERIVE, `DeriveContext.stageMapFor`):** for each item and status, the stage is the item's domain's
+override row if one exists, else the `''` row, else `UNMAPPED` (flagged, never guessed). The item's domain is the
+**current** one — `domain_map[item.projectKey]`, else the project key itself, the same read `dim_task`/`dim_epic`
+`domain_key` carry — applied to the item's WHOLE status history, so a task that moved project is read through the
+workflow of the domain it lives in now (a status interval's as-was domain is not tracked for stages). `buildContext` merges each overridden
+domain's rows over the global map once per run (`ConfigMaps.stageMapByDomain`); a domain without overrides reads the global map itself,
+so an unconfigured connection derives byte-for-byte as before. `MetricsStageOverrideTest` pins it: a hand-built
+two-domain connection (override applies to its domain and status only; removing it restores the global stage) and
+the stub, graded against an independent per-row resolution over the stored map.
+
+**What an override does NOT change:** the Data quality report's unmapped-status finding keys on the every-domain rows only
+(`reports/DataQualityConfig.kt` `readConnectionMappings`) — an override covers one domain's items, so a status with no
+every-domain row stays listed (while ANY stage row, either kind, makes the connection "stored" rather than defaulted);
+an item sitting in such a status in a domain that does override it still tiles to the override's stage.
+`defaultConfig` never seeds overrides. The editor is the "Per-domain overrides" section under the Statuses tab
+(`.claude/docs/web-features.md`).
 
 ## The DERIVE run algorithm (v0.3.0 M3 commit 7)
 
@@ -311,7 +342,7 @@ Pure, per-item functions — no DB, the `norm/Tiling.kt` pattern — called once
 `MetricsDeriver.kt`:
 
 - **`stageIntervals`** tiles `norm` status intervals into `item_stage` rows via the configured
-  `statusId -> ItemStage` map; an unmapped status becomes `ItemStage.UNMAPPED` (flagged, never
+  `statusId -> ItemStage` map (the item's own domain's map — every-domain rows overlaid with that domain's overrides, "Per-domain stage overrides" above); an unmapped status becomes `ItemStage.UNMAPPED` (flagged, never
   guessed). **`startedDoneAt`**: `startedAtMs` = the FIRST-ever entry into `IN_PROGRESS` (even
   across a later reopen); `doneAtMs` is set ONLY while the CURRENT (last, open) stage is `DONE` —
   the start of that trailing unbroken DONE run, not merely the last transition into DONE — so an
@@ -946,9 +977,8 @@ Extra cases, same method: `epic-progress` at EPIC level (`epicId=FLO-10`, wide) 
 The metrics layer is complete for v0.3.0: the configuration, DERIVE, the star and its aggregates,
 and the re-derive/REPROCESS check ("Reproducibility (invariant 12)" above) are all shipped, and the
 scale-20 performance check is recorded above. The report API and pages that read it are documented
-in `.claude/docs/reports.md`; what is deliberately not built yet is listed in `BACKLOG.md` (a
-per-domain status-to-stage override UI, seeding memberships from Jira's Team field, reading
-`hoursPerDay` from Jira's time-tracking configuration).
+in `.claude/docs/reports.md`; what is deliberately not built yet is listed in `BACKLOG.md` (seeding
+memberships from Jira's Team field, reading `hoursPerDay` from Jira's time-tracking configuration).
 
 **Membership history is permanent (by design).** Deleting a team closes its members' open
 memberships at that moment (so they can join another team from then on), but the history before

@@ -155,7 +155,14 @@ team membership landed in M2 commit 5, and the per-connection `metrics-config` p
   `DataSourceDetails.tsx` beside Profile/Inspect) edits the ONE composite
   `DataSourceMetricsConfig` resource (`.claude/docs/metrics.md` "Per-connection metrics
   configuration") over `Tabs`: Statuses (stage `Select` + a Blocked `Checkbox` per status, the
-  Jira category as a `Badge`), Fields (five `Select`s over the profile-detected custom fields plus
+  Jira category as a `Badge`; under that table `components/DomainStageOverrides.tsx` — a "Per-domain
+  overrides" section: a domain `Select` over the Domains tab's CURRENT domain keys (each option counts its
+  overrides), then a table with one row per status — the every-domain stage, a stage `Select` whose empty value reads
+  "Same as all domains" (= no row; clearing it or the row's remove button deletes the override) and a "Differs"
+  badge when the override's stage is not the every-domain one; a domain key renamed on the Domains tab leaves its
+  overrides orphaned, flagged by a red inline `Alert` per orphan, and so is an override on a status the connection no longer reports (an `Alert`
+  with a Remove button — such an override has no row in the status table and would `400` every save), and the server's `400` shows in the page alert
+  — they save with the ONE Save, as `domainStatusStages`), Fields (five `Select`s over the profile-detected custom fields plus
   Jira's own `duedate` system field, labelled with the detected role), Domains (project key →
   domain key/name), Boards → team (an active-teams `Select`; a `409` marks the changed board
   row(s) inline, the "which row" rule computed by diffing the just-submitted board→team snapshot
@@ -176,7 +183,8 @@ team membership landed in M2 commit 5, and the per-connection `metrics-config` p
   response with the options endpoint's reference lists into one row per reference item (mapped or
   not), `buildRequest` is its inverse, `mergeWorkCategoryValues` combines the field-scoped values
   query with whatever category is already chosen, and `changedBoardIds` is the 409 row-marking
-  rule.
+  rule; its override helpers (`setDomainStage`, `currentDomainKeys`, `orphanOverrideDomains`) keep the list free of
+  duplicate (domain, status) rows.
 
 ## Reports (`pages/ReportVelocity.tsx`, `components/Report*.tsx`, `utils/reportFilter.ts`)
 

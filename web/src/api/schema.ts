@@ -787,7 +787,7 @@ export interface paths {
         get: operations["getDataSourceMetricsConfig"];
         /**
          * Replace a data source's metrics configuration
-         * @description ADMIN only, guard before the body decode. A full replace over all eight per-connection config tables in one transaction — every id is validated against this connection's own `norm` reference rows (statuses, boards, sprints, project keys, issue types) and its stored data profile (field ids), else `400`; a board mapped to a team already mapped elsewhere is `409` (D10: one board per team). Bumps the shared `configRevision` unless the request is byte-for-byte identical to what is already stored.
+         * @description ADMIN only, guard before the body decode. A full replace over all eight per-connection config tables in one transaction — every id is validated against this connection's own `norm` reference rows (statuses, boards, sprints, project keys, issue types) and its stored data profile (field ids), else `400`; a board mapped to a team already mapped elsewhere is `409` (D10: one board per team); a `domainStatusStages` override must name a domain the same request defines and a known status, once per (domain, status). Bumps the shared `configRevision` unless the request is byte-for-byte identical to what is already stored.
          */
         put: operations["updateDataSourceMetricsConfig"];
         post?: never;
@@ -2252,6 +2252,14 @@ export interface components {
             /** @enum {string} */
             stage: "NOT_STARTED" | "IN_PROGRESS" | "DONE";
         };
+        /** @description A per-domain override of the every-domain status → stage mapping: items of this domain read this stage for this status instead. */
+        MetricsDomainStatusStage: {
+            /** @description A domain the same request defines (a `domains[].domainKey`, or the project key of an observed project it leaves unmapped); never empty. */
+            domainKey: string;
+            statusId: string;
+            /** @enum {string} */
+            stage: "NOT_STARTED" | "IN_PROGRESS" | "DONE";
+        };
         MetricsFieldConfig: {
             estimateTask?: string | null;
             estimateEpic?: string | null;
@@ -2294,6 +2302,8 @@ export interface components {
             /** @description False means every field below is a COMPUTED default, nothing is stored yet. */
             configured: boolean;
             statusStages: components["schemas"]["MetricsStatusStage"][];
+            /** @description Per-domain overrides of `statusStages` (at most one per domain and status); empty by default — a status without an override for the item's domain uses `statusStages`. */
+            domainStatusStages: components["schemas"]["MetricsDomainStatusStage"][];
             fields: components["schemas"]["MetricsFieldConfig"];
             domains: components["schemas"]["MetricsDomainMapping"][];
             boards: components["schemas"]["MetricsBoardTeamMapping"][];
@@ -2304,6 +2314,8 @@ export interface components {
         };
         DataSourceMetricsConfigRequest: {
             statusStages?: components["schemas"]["MetricsStatusStage"][];
+            /** @description Per-domain overrides of `statusStages` (at most one per domain and status); empty by default — a status without an override for the item's domain uses `statusStages`. */
+            domainStatusStages?: components["schemas"]["MetricsDomainStatusStage"][];
             fields?: components["schemas"]["MetricsFieldConfig"];
             domains?: components["schemas"]["MetricsDomainMapping"][];
             boards?: components["schemas"]["MetricsBoardTeamMapping"][];

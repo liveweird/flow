@@ -22,6 +22,13 @@ export interface StatusRowState {
   blocked: boolean;
 }
 
+/** One per-domain override of a status's stage — only ever a set stage; "same as all domains" is the ABSENCE of a row. */
+export interface DomainStageRowState {
+  domainKey: string;
+  statusId: string;
+  stage: MetricsStage;
+}
+
 export interface DomainRowState {
   projectKey: string;
   domainKey: string;
@@ -69,6 +76,8 @@ export interface FieldsState {
 
 export interface MetricsConfigFormState {
   statuses: StatusRowState[];
+  /** Per-domain status → stage overrides (`metrics.status_stage_map` rows with a domain key). */
+  domainStages: DomainStageRowState[];
   fields: FieldsState;
   domains: DomainRowState[];
   boards: BoardRowState[];
@@ -142,7 +151,13 @@ export function buildInitialState(
   // workCategories starts empty — it only has rows once a work-category field is chosen and its
   // own values query resolves (mergeWorkCategoryValues below), same as the stored config's own
   // "empty until a field is chosen" default (`.claude/docs/metrics.md`).
-  return { statuses, fields, domains, boards, activityTypes, workCategories: [], sprintCapacities };
+  const domainStages: DomainStageRowState[] = config.domainStatusStages.map((o) => ({
+    domainKey: o.domainKey,
+    statusId: o.statusId,
+    stage: o.stage,
+  }));
+
+  return { statuses, domainStages, fields, domains, boards, activityTypes, workCategories: [], sprintCapacities };
 }
 
 /**
@@ -170,6 +185,7 @@ export function buildRequest(state: MetricsConfigFormState): DataSourceMetricsCo
     statusStages: state.statuses
       .filter((s) => s.stage !== "")
       .map((s) => ({ statusId: s.statusId, stage: s.stage as MetricsStage })),
+    domainStatusStages: state.domainStages.map((o) => ({ domainKey: o.domainKey, statusId: o.statusId, stage: o.stage })),
     fields: {
       estimateTask: state.fields.estimateTask || null,
       estimateEpic: state.fields.estimateEpic || null,
@@ -234,4 +250,42 @@ export function changedBoardIds(before: BoardRowState[], after: BoardRowState[])
     if (beforeById.get(row.boardId) !== row.teamId && row.teamId !== "") changed.add(row.boardId);
   }
   return changed;
+}
+
+/**
+ * Sets (or, for `stage === ""`, removes) the override of one status in one domain — the list never
+ * holds two rows for the same (domain, status), mirroring the server's duplicate-key `400`.
+ */
+export function setDomainStage(
+  overrides: DomainStageRowState[],
+  domainKey: string,
+  statusId: string,
+  stage: MetricsStage | "",
+): DomainStageRowState[] {
+  const rest = overrides.filter((o) => !(o.domainKey === domainKey && o.statusId === statusId));
+  return stage === "" ? rest : [...rest, { domainKey, statusId, stage }];
+}
+
+/** The distinct, non-empty domain keys the Domains tab currently defines, in first-seen order. */
+export function currentDomainKeys(domains: DomainRowState[]): string[] {
+  return [...new Set(domains.map((d) => d.domainKey).filter((key) => key !== ""))];
+}
+
+/**
+ * The domain keys that carry overrides but are no longer a defined domain (a key renamed on the Domains tab
+ * after an override was set) — the server would `400` them, so the editor flags them before saving.
+ */
+export function orphanOverrideDomains(domains: DomainRowState[], overrides: DomainStageRowState[]): string[] {
+  const known = new Set(currentDomainKeys(domains));
+  return [...new Set(overrides.map((o) => o.domainKey).filter((key) => !known.has(key)))];
+}
+
+/**
+ * The overrides naming a status the connection no longer reports (it left `norm.statuses` after the override was
+ * saved): the status table has no row for them, so without this they could be neither seen nor removed — and the
+ * server would `400` every save carrying them.
+ */
+export function orphanOverrideStatuses(statuses: StatusRowState[], overrides: DomainStageRowState[]): DomainStageRowState[] {
+  const known = new Set(statuses.map((s) => s.statusId));
+  return overrides.filter((o) => !known.has(o.statusId));
 }

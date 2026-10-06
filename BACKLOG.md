@@ -34,7 +34,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 - **Small follow-ups (M2–M5):**
   - `epic_domain_key` uses the epic's current domain, not as-of (no epic-domain history exists). After the first real sync.
   - Read `hoursPerDay` from Jira's time-tracking configuration (A5). After the first real sync.
-  - A per-domain status→stage override UI.
   - Seed memberships from the Team field (D1). After the first real sync.
   - Cache validators for the report endpoints.
   - Throughput and Sprint consistency at USER level: the frozen per-user figures are still null (Velocity's `fact_sprint_snapshot.scope` reader can be reused).

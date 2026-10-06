@@ -671,7 +671,7 @@ WipReport {
   grains (D2), so mixing them is an explicit choice; `by` (default `STAGE`)
   keys `counts`. `STAGE`: the four stages `NOT_STARTED`, `IN_PROGRESS`, `DONE`, `UNMAPPED` -- always all four, `UNMAPPED` (a
   status with no stage mapping) is its own key. `STATUS`: the Jira status id, `label` its `norm.statuses` name; only
-  statuses seen in the period, ordered by stage then name. `COLUMN`: the mapped board's columns in board order
+  statuses seen in the period, ordered by the status's earliest stage (in `NOT_STARTED, IN_PROGRESS, DONE, UNMAPPED` order — a per-domain stage override can give one status two stages in a scope) then name. `COLUMN`: the mapped board's columns in board order
   (`norm.board_columns`, read at query time so a board edit needs no re-derive), plus `(no column)` when a status no column
   holds has items in the period.
 - **The counts are end-of-day snapshots**: the number of items whose `item_stage` interval covers the END of that day, all

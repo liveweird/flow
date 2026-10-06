@@ -1084,6 +1084,19 @@ class ReportDataQualityTest {
                 val stored = client.dq("connectionId=$statusConn&$query").unmappedStatuses
                 assertEquals(listOf("2", "3"), stored.items.map { it.statusId })
                 assertEquals(listOf("Weird", "Working"), stored.items.map { it.name })
+                // A connection holding ONLY a per-domain override row is still a stored configuration (not the defaults), and the
+                // override covers one domain's items only — status 1 stays unmapped for the report.
+                suspendTransaction(sharedDatabaseForTests()) {
+                    MetricsConfigService.StatusStageMap.deleteWhere { MetricsConfigService.StatusStageMap.connectionId eq statusConn }
+                    MetricsConfigService.StatusStageMap.insert {
+                        it[MetricsConfigService.StatusStageMap.connectionId] = statusConn
+                        it[statusId] = "1"
+                        it[domainKey] = "AAA"
+                        it[stage] = "DONE"
+                    }
+                }
+                val overrideOnly = client.dq("connectionId=$statusConn&$query").unmappedStatuses
+                assertEquals(listOf("1", "2", "3"), overrideOnly.items.map { it.statusId })
             } finally {
                 suspendTransaction(sharedDatabaseForTests()) {
                     store.deleteFactTaskDelivery(boardConn)

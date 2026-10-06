@@ -43,6 +43,7 @@ function baseConfig(configured: boolean) {
   return {
     configured,
     statusStages: [{ statusId: "3", stage: "IN_PROGRESS" }],
+    domainStatusStages: [] as { domainKey: string; statusId: string; stage: string }[],
     fields: { estimateTask: null, estimateEpic: null, epicStart: null, epicDue: "duedate", workCategory: null },
     domains: [{ projectKey: "ENG", domainKey: "ENG", domainName: "ENG" }],
     boards: [],
@@ -157,6 +158,7 @@ describe("DataSourceMetricsConfig page", () => {
     const putCall = mockFetch.mock.calls.find(([url, init]) => url === CONFIG_URL && (init as RequestInit | undefined)?.method === "PUT");
     expect(JSON.parse((putCall![1] as RequestInit).body as string)).toEqual({
       statusStages: [{ statusId: "3", stage: "IN_PROGRESS" }],
+      domainStatusStages: [],
       fields: { estimateTask: null, estimateEpic: null, epicStart: null, epicDue: "duedate", workCategory: null },
       domains: [{ projectKey: "ENG", domainKey: "ENG", domainName: "ENG", ownerTeamId: null }],
       boards: [],
@@ -379,6 +381,113 @@ describe("DataSourceMetricsConfig page", () => {
     expect(body.workCategories).toEqual([{ valueId: "v1", valueName: "Bug", category: "Defect" }]);
     expect(body.sprintCapacities).toEqual([{ sprintId: 11, capacityMd: 10 }]);
   }, 20_000); // a long multi-tab editing journey: well under a second locally, but past vitest's 5 s default on a loaded CI runner
+
+  function putBodyOf(): { domainStatusStages: unknown } {
+    const call = mockFetch.mock.calls.find(([url, init]) => url === CONFIG_URL && (init as RequestInit | undefined)?.method === "PUT");
+    expect(call).toBeTruthy();
+    return JSON.parse((call![1] as RequestInit).body as string);
+  }
+
+  test("adds a per-domain override that differs from the every-domain stage, and the PUT carries it", async () => {
+    serve(mockFetch, { config: baseConfig(true) });
+    const user = userEvent.setup();
+    renderPage();
+
+    expect(await screen.findByText("Per-domain overrides")).toBeInTheDocument();
+    expect(screen.getByText("No overrides: every domain uses the stages above.")).toBeInTheDocument();
+    expect(screen.queryByText("Differs")).not.toBeInTheDocument();
+
+    const overrideSelect = (await screen.findByRole("combobox", { name: "Stage for In Progress in domain ENG" })) as HTMLInputElement;
+    expect(overrideSelect.value).toBe("");
+    expect(overrideSelect.placeholder).toBe("Same as all domains");
+    await user.click(overrideSelect);
+    await user.click(await screen.findByRole("option", { name: "Done" }));
+
+    await waitFor(() => expect(overrideSelect.value).toBe("Done"));
+    expect(screen.getByText("Differs")).toBeInTheDocument();
+    expect(screen.getByText("Overrides in total: 1")).toBeInTheDocument();
+    // The every-domain table is untouched.
+    expect(((await screen.findByRole("combobox", { name: "Stage for In Progress" })) as HTMLInputElement).value).toBe("In progress");
+
+    await user.click(screen.getByRole("button", { name: /^save$/i }));
+    await waitFor(() => expect(showSuccessToast).toHaveBeenCalled());
+    expect(putBodyOf().domainStatusStages).toEqual([{ domainKey: "ENG", statusId: "3", stage: "DONE" }]);
+  });
+
+  test("changes and removes stored overrides, flags only the ones that differ, and the PUT is the remainder", async () => {
+    serve(mockFetch, {
+      config: {
+        ...baseConfig(true),
+        domainStatusStages: [
+          { domainKey: "ENG", statusId: "3", stage: "IN_PROGRESS" }, // same as the every-domain stage: stored, not flagged
+          { domainKey: "ENG", statusId: "10", stage: "NOT_STARTED" }, // differs: "Done" has no every-domain stage
+        ],
+      },
+    });
+    const user = userEvent.setup();
+    renderPage();
+
+    expect(await screen.findByText("Overrides in total: 2")).toBeInTheDocument();
+    expect(screen.getAllByText("Differs")).toHaveLength(1);
+    const doneOverride = screen.getByRole("combobox", { name: "Stage for Done in domain ENG" }) as HTMLInputElement;
+    expect(doneOverride.value).toBe("Not started");
+
+    // Change it, then remove the other one with its own button.
+    await user.click(doneOverride);
+    await user.click(await screen.findByRole("option", { name: "In progress" }));
+    await waitFor(() => expect(doneOverride.value).toBe("In progress"));
+    await user.click(screen.getByRole("button", { name: "Remove the override for In Progress in domain ENG" }));
+    expect(screen.getByText("Overrides in total: 1")).toBeInTheDocument();
+    expect((screen.getByRole("combobox", { name: "Stage for In Progress in domain ENG" }) as HTMLInputElement).value).toBe("");
+    expect(screen.queryByRole("button", { name: "Remove the override for In Progress in domain ENG" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /^save$/i }));
+    await waitFor(() => expect(showSuccessToast).toHaveBeenCalled());
+    expect(putBodyOf().domainStatusStages).toEqual([{ domainKey: "ENG", statusId: "10", stage: "IN_PROGRESS" }]);
+  });
+
+  test("renaming a domain key flags its overrides inline, and the server's 400 shows too", async () => {
+    serve(mockFetch, {
+      config: { ...baseConfig(true), domainStatusStages: [{ domainKey: "ENG", statusId: "3", stage: "DONE" }] },
+      putStatus: 400,
+      putBody: {
+        title: "Bad Request",
+        status: 400,
+        detail: "Unknown domain key in domainStatusStages: ENG",
+        instance: "/x",
+        type: "about:blank",
+      },
+    });
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByText("Overrides in total: 1");
+    await user.click(screen.getByRole("tab", { name: "Domains" }));
+    const domainKeyInput = screen.getByLabelText("Domain key for ENG") as HTMLInputElement;
+    await user.clear(domainKeyInput);
+    await user.type(domainKeyInput, "ENGINEERING");
+    await user.click(screen.getByRole("tab", { name: "Statuses" }));
+
+    expect(await screen.findByText(/"ENG" is no longer a domain/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /^save$/i }));
+    expect(await screen.findByText("Unknown domain key in domainStatusStages: ENG")).toBeInTheDocument();
+  });
+
+  test("an override on a status that left the connection is shown, and saving after removing it succeeds", async () => {
+    serve(mockFetch, {
+      config: { ...baseConfig(true), domainStatusStages: [{ domainKey: "ENG", statusId: "gone", stage: "DONE" }] },
+    });
+    const user = userEvent.setup();
+    renderPage();
+
+    expect(await screen.findByText(/Status gone is no longer reported by this connection/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Remove the override for unknown status gone in domain ENG" }));
+    expect(screen.queryByText(/no longer reported/)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /^save$/i }));
+    await waitFor(() => expect(showSuccessToast).toHaveBeenCalled());
+    expect(putBodyOf().domainStatusStages).toEqual([]);
+  });
 
   test("shows the not-found message when the connection no longer exists", async () => {
     serve(mockFetch, { configErrorStatus: 404, optionsErrorStatus: 404 });
