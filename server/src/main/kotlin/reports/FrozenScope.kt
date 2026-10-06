@@ -107,7 +107,7 @@ internal fun frozenContributionsOf(scopeJson: String, connectionId: UInt, sprint
 
 /**
  * The stored scope as the kernel's own [SprintScopeItem] (every key the writer emits), so Throughput and Sprint
- * consistency run `DeriveKernels.sprintTotals` — the very function that produced the frozen team totals — over it.
+ * consistency run `sprintTotals` — the very function that produced the frozen team totals — over it.
  */
 internal fun frozenScopeItemsOf(scopeJson: String, connectionId: UInt, sprintId: Long): List<SprintScopeItem> =
     parseFrozenScope(scopeJson, connectionId, sprintId) { item ->

@@ -60,7 +60,7 @@ internal suspend fun runSprintStep(
         for (item in batch) {
             val derived = derivedById.getValue(item.issueId)
             val memberships =
-                DeriveKernels.sprintMembership(item.createdAt, sprintChangesByIssue[item.issueId].orEmpty(), item.currentSprintIds)
+                sprintMembership(item.createdAt, sprintChangesByIssue[item.issueId].orEmpty(), item.currentSprintIds)
             if (memberships.isEmpty()) continue
             memberships.forEach { taskSprintRowsBatch += TaskSprintRow(item.issueId, it.sprintId, it.fromAtMs, it.toAtMs) }
             val itemScopeRows = itemSprintScopeRows(
@@ -85,7 +85,7 @@ internal suspend fun runSprintStep(
             sprint.sprintId, sprint.boardId, teamId, sprint.name, sprint.state,
             sprint.startAtMs, sprint.endAtMs, sprint.completeAtMs, capacityMd, capacitySource,
         )
-        val totals = DeriveKernels.sprintTotals(scopeItemsBySprint[sprint.sprintId].orEmpty())
+        val totals = sprintTotals(scopeItemsBySprint[sprint.sprintId].orEmpty())
         val load = if (capacityMd != null && capacityMd > 0.0) totals.committedMd / capacityMd else null
         val factRow = FactSprintRow(sprint.sprintId, teamId, sprint.completeAtMs, totals, capacityMd, load)
         factRows += factRow
@@ -123,7 +123,7 @@ private fun itemSprintScopeRows(
     return sprints.mapNotNull { sprint ->
         val startAt = sprint.startAtMs ?: return@mapNotNull null
         val intervals = membershipsBySprintId[sprint.sprintId] ?: return@mapNotNull null
-        val row = DeriveKernels.sprintScope(
+        val row = sprintScope(
             issueId = item.issueId,
             sprintStartAtMs = startAt,
             sprintCloseAtMs = sprint.completeAtMs ?: now,

@@ -1,9 +1,10 @@
 package ch.nokillswit.reports
 
-import ch.nokillswit.metrics.DeriveKernels
 import ch.nokillswit.metrics.EpicPlanBaseline
 import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.metrics.WorkingCalendar
+import ch.nokillswit.metrics.inPvHorizon
+import ch.nokillswit.metrics.pvCurve
 import java.math.BigDecimal
 import java.time.Instant
 import java.time.LocalDate
@@ -144,7 +145,7 @@ internal suspend fun epicDetail(epic: ResolvedEpic, ctx: ProgressContext): EpicD
     return EpicDetail(block, originalCurve)
 }
 
-private fun PlanRow.inHorizon(nowMs: Long): Boolean = DeriveKernels.inPvHorizon(startAt!!, dueAt!!, nowMs)
+private fun PlanRow.inHorizon(nowMs: Long): Boolean = inPvHorizon(startAt!!, dueAt!!, nowMs)
 
 private fun differs(a: BigDecimal?, b: BigDecimal?): Boolean = if (a == null || b == null) a !== b else a.compareTo(b) != 0
 
@@ -168,7 +169,7 @@ private suspend fun deliveredBudget(epic: ResolvedEpic): Pair<BigDecimal?, Strin
 }
 
 /**
- * [plan]'s PV curve on the working days [DeriveKernels.pvCurve] picks — under the calendar DERIVE spread the stored PV with (see
+ * [plan]'s PV curve on the working days [pvCurve] picks — under the calendar DERIVE spread the stored PV with (see
  * [deriveTimeCalendar]) — each day's cumulative value rounded exactly as the stored `pv_md` increments are (`ROUND(budget * i / n,
  * 2)`, the last day = the budget), so an unchanged baseline redraws to precisely the stored curve. `null` when the window holds no
  * working day (nowhere to place the budget).
@@ -176,7 +177,7 @@ private suspend fun deliveredBudget(epic: ResolvedEpic): Pair<BigDecimal?, Strin
 private suspend fun curveOf(plan: PlanRow, ctx: ProgressContext): TreeMap<LocalDate, BigDecimal>? {
     val budget = plan.budgetMd!!
     val baseline = EpicPlanBaseline(plan.baselinedAt, plan.startAt!!, plan.dueAt!!, budget.toDouble(), plan.budgetSource, plan.supersededAt)
-    val curve = DeriveKernels.pvCurve(baseline, deriveTimeCalendar(plan, ctx))
+    val curve = pvCurve(baseline, deriveTimeCalendar(plan, ctx))
     if (curve.isEmpty()) return null
     val cumulative = TreeMap<LocalDate, BigDecimal>()
     cumulativeSplit(budget, curve.size).forEachIndexed { index, value -> cumulative[curve[index].day] = value }

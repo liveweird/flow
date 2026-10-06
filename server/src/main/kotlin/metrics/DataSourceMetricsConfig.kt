@@ -3,8 +3,8 @@ package ch.nokillswit.metrics
 import ch.nokillswit.infra.validation.sanitizeSingleLine
 import ch.nokillswit.norm.StatusCategory
 import io.ktor.server.plugins.BadRequestException
-import kotlinx.serialization.Serializable
 import java.math.BigDecimal
+import kotlinx.serialization.Serializable
 
 /**
  * The widths of the bounded `metrics.*` columns a client-supplied string lands in (`V15`) — one source for the
@@ -31,7 +31,7 @@ data class MetricsStatusStage(val statusId: String, val stage: MetricsStage)
 /**
  * One `metrics.status_stage_map` row for a NON-empty `domain_key` — a per-domain override of
  * [MetricsStatusStage]'s every-domain mapping: an item whose domain is [domainKey] reads [stage]
- * for [statusId] instead of the every-domain stage (`MetricsDeriver`/`DeriveKernels.stageIntervals`;
+ * for [statusId] instead of the every-domain stage (`MetricsDeriver`/`stageIntervals`;
  * `.claude/docs/metrics.md` "Per-domain stage overrides"). A status with no row here for the item's
  * domain simply uses the every-domain mapping.
  */

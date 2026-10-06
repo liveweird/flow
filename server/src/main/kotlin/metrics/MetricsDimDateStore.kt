@@ -5,6 +5,7 @@ import ch.nokillswit.metrics.MetricsTables.DimSprint
 import ch.nokillswit.metrics.MetricsTables.FactEpicPlan
 import ch.nokillswit.metrics.MetricsTables.FactTaskDelivery
 import ch.nokillswit.metrics.MetricsTables.FactWorklog
+import java.time.LocalDate
 import kotlinx.coroutines.flow.toList
 import org.jetbrains.exposed.v1.core.*
 import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
@@ -13,7 +14,6 @@ import org.jetbrains.exposed.v1.r2dbc.select
 import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.inTopLevelSuspendTransaction
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
-import java.time.LocalDate
 
 /**
  * The PostgreSQL advisory-lock key of [MetricsStore.ensureDimDate] — the ASCII bytes of
@@ -96,7 +96,7 @@ internal class MetricsDimDateStore(private val database: R2dbcDatabase) {
     /**
      * `(start_at, due_at)` of every CURRENT epic baseline (`superseded_at IS NULL`, start/due/budget
      * all set) — the windows [runFlowStep]'s PV spreading reads `dim_date` over. Not horizon-filtered
-     * here: [DeriveKernels.dimDateRange] applies [DeriveKernels.inPvHorizon] itself.
+     * here: [dimDateRange] applies [inPvHorizon] itself.
      */
     suspend fun currentEpicPlanWindows(connectionId: UInt): List<Pair<Long, Long>> = suspendTransaction(database) {
         FactEpicPlan.select(FactEpicPlan.startAt, FactEpicPlan.dueAt).where {

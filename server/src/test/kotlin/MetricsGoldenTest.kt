@@ -1,9 +1,10 @@
 package ch.nokillswit
 
-import ch.nokillswit.metrics.DeriveKernels
 import ch.nokillswit.metrics.EstimatePoint
 import ch.nokillswit.metrics.SprintMembershipInterval
 import ch.nokillswit.metrics.SprintScopeItem
+import ch.nokillswit.metrics.sprintScope
+import ch.nokillswit.metrics.sprintTotals
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -11,12 +12,12 @@ import kotlin.test.assertEquals
  * A hand-built micro-fixture (v0.3.0 M3 commit 8, `.claude/docs/testing.md`'s "hand-computed
  * golden micro-fixture" pattern) — every number below is computed BY HAND in this file's own
  * comments, independent of both the generator (`sample-data/jira/generate.mjs`) and
- * `DeriveKernels`' own code path, exercising `DeriveKernels.sprintScope`/`sprintTotals` (the
+ * the derive kernels' own code path, exercising `sprintScope`/`sprintTotals` (the
  * `fact_sprint_scope`/`fact_sprint` kernels) directly — pure, no DB.
  *
  * **Six tasks, not the plan's illustrative three** — a deliberate, documented deviation. Every
  * bucket the plan names (committed/added/removed/delivered/carried/dropped) is mutually exclusive
- * PER TASK against several of the others by construction (`DeriveKernels.sprintScope`'s own
+ * PER TASK against several of the others by construction (`sprintScope`'s own
  * doc — a REMOVED row can never also be committed/final/delivered/carried/dropped in the
  * aggregate sense, and dropped/carried require the FINAL branch a removed row never reaches), so
  * three tasks cannot populate all six buckets at once. Five tasks populate one task per
@@ -43,7 +44,7 @@ class MetricsGoldenTest {
         // at it) so `estimateAt(timeline, commitAt)` unambiguously reads the FIRST point.
         val timeline = mutableListOf(EstimatePoint(0, estimateAtCommit))
         if (estimateAtClose != estimateAtCommit) timeline += EstimatePoint(sprintStart + 100, estimateAtClose)
-        return DeriveKernels.sprintScope(
+        return sprintScope(
             issueId = issueId,
             sprintStartAtMs = sprintStart,
             sprintCloseAtMs = sprintClose,
@@ -79,7 +80,7 @@ class MetricsGoldenTest {
         // added/final (carried-over/dropped were committed-only); now it drops like task 4 does.
         val task6 = scope(6L, enteredAt = 1_300, estimateAtCommit = 2.0, estimateAtClose = 2.0)
 
-        val totals = DeriveKernels.sprintTotals(listOf(task1, task2, task3, task4, task5, task6))
+        val totals = sprintTotals(listOf(task1, task2, task3, task4, task5, task6))
 
         // committed = task1(3) + task2(5) + task4(6) = 14 — task5 is committed but REMOVED (see
         // sprintTotals' own doc: the committed bucket excludes removed rows).

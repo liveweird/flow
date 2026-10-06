@@ -1,10 +1,10 @@
 package ch.nokillswit.reports
 
 import ch.nokillswit.infra.db.nowMillis
-import ch.nokillswit.metrics.DeriveKernels
 import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.metrics.SprintScopeItem
 import ch.nokillswit.metrics.SprintTotals
+import ch.nokillswit.metrics.sprintTotals
 import ch.nokillswit.metrics.sumMd
 import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.Serializable
@@ -16,7 +16,7 @@ import org.jetbrains.exposed.v1.r2dbc.selectAll
 
 /**
  * The fourteen sprint figures (`fact_sprint` / `fact_sprint_snapshot` / a per-user split of
- * `fact_sprint_scope`, all through [DeriveKernels.sprintTotals]'s own bucket predicates), MD beside items.
+ * `fact_sprint_scope`, all through [sprintTotals]'s own bucket predicates), MD beside items.
  * Used as the wire shape of a sprint's frozen [SprintConsistencySprint.snapshot].
  */
 @Serializable
@@ -151,7 +151,7 @@ private fun SprintFigures.toGroup(teamId: UInt?, accountId: String?, label: Stri
     droppedMd = droppedMd, droppedItems = droppedItems,
 )
 
-/** One `fact_sprint_scope` row as the kernel's own [SprintScopeItem], so the bucket predicates are [DeriveKernels.sprintTotals]'s. */
+/** One `fact_sprint_scope` row as the kernel's own [SprintScopeItem], so the bucket predicates are [sprintTotals]'s. */
 private data class ScopeEntry(val connectionId: UInt, val sprintId: Long, val item: SprintScopeItem)
 
 /**
@@ -175,8 +175,8 @@ suspend fun ReportService.sprintConsistency(filter: ReportFilter): SprintConsist
             val frozen = fetchFrozenScopes(sprintRows, accountId, ::frozenScopeItemsOf) { it.assigneeAtCommitment }
             val sprints = sprintRows.map { row ->
                 val items = entries[row.connectionId to row.sprintId].orEmpty().map { it.item }
-                val live = DeriveKernels.sprintTotals(items).toFigures()
-                val snapshot = frozen[row.connectionId to row.sprintId]?.let { DeriveKernels.sprintTotals(it).toFigures() }
+                val live = sprintTotals(items).toFigures()
+                val snapshot = frozen[row.connectionId to row.sprintId]?.let { sprintTotals(it).toFigures() }
                 row.toConsistencySprint(live, snapshot, figuresDrift(live, snapshot))
             }
             SprintConsistencyReport(meta, sprints, emptyList())
@@ -238,5 +238,5 @@ private suspend fun teamConsistencyGroups(sprintRows: List<SprintRow>): List<Spr
 /** One group per `assignee_at_commitment` (null = unassigned, last), the kernel's own bucket predicates over that user's rows. */
 private suspend fun userConsistencyGroups(entries: List<ScopeEntry>): List<SprintConsistencyGroup> =
     orgGroups(ReportLevel.TEAM, entries, { null }, { it.item.assigneeAtCommitment }).map { (key, rows) ->
-        DeriveKernels.sprintTotals(rows.map { it.item }).toFigures().toGroup(null, key.accountId, key.label)
+        sprintTotals(rows.map { it.item }).toFigures().toGroup(null, key.accountId, key.label)
     }

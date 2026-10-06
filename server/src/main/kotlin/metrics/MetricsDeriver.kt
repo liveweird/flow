@@ -208,7 +208,7 @@ class MetricsDeriver(
         val relevantFieldIds = relevantCustomFieldIds(config)
         val workItems = workItemStore.workItemsForDerivation(connectionId).map { trimCustomFields(it, relevantFieldIds) }
         val createdMin = workItems.minOfOrNull { it.createdAt }
-        val initialRange = DeriveKernels.dimDateRange(now, createdMin, emptyList())
+        val initialRange = dimDateRange(now, createdMin, emptyList())
         metricsStore.ensureDimDate(calendar, initialRange, configRevision)
 
         metricsStore.deleteDims(connectionId)
@@ -293,7 +293,7 @@ class MetricsDeriver(
      * flow-aggregate join on `dim_date` silently drops an event whose day has no row, so the range
      * must also reach the earliest worklog start, sprint start and done time
      * ([MetricsStore.earliestFactEventMs], floored at 50 years back) and every epic window inside the
-     * PV horizon ([MetricsStore.currentEpicPlanWindows]) — the pure rule is [DeriveKernels.dimDateRange].
+     * PV horizon ([MetricsStore.currentEpicPlanWindows]) — the pure rule is [dimDateRange].
      * The two READS stay in the caller's transaction (the facts are not committed yet); the write is
      * [MetricsStore.ensureDimDate] over the FULL range — its own short, serialized, committed
      * transaction that writes only the missing or changed rows, so this DERIVE holds no `dim_date`
@@ -302,7 +302,7 @@ class MetricsDeriver(
     private suspend fun widenDimDate(connectionId: UInt, calendar: WorkingCalendar, createdMin: Long?, now: Long, configRevision: Long) {
         val factMin = metricsStore.earliestFactEventMs(connectionId)
         val earliest = listOfNotNull(createdMin, factMin).minOrNull()
-        val range = DeriveKernels.dimDateRange(now, earliest, metricsStore.currentEpicPlanWindows(connectionId))
+        val range = dimDateRange(now, earliest, metricsStore.currentEpicPlanWindows(connectionId))
         metricsStore.ensureDimDate(calendar, range, configRevision)
     }
 

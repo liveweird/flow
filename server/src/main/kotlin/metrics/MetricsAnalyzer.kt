@@ -41,7 +41,7 @@ internal class MetricsAnalyzer(private val database: R2dbcDatabase) {
      * - Every OTHER derive calls it AFTER the commit, as a top-level call, so it is its own short transaction, with
      *   `SET LOCAL lock_timeout` ([lockTimeoutMs], per table) and the transaction's `queryTimeout` ([statementTimeoutMs]
      *   rounded UP to whole seconds, the whole statement; it does not cover acquiring a pooled connection — and it is the
-     *   `queryTimeout`, not a `SET LOCAL statement_timeout`, which Exposed overwrites before every statement) so a lock
+     *   `queryTimeout`, never a `SET LOCAL statement_timeout` — persistence.md "Statement timeouts") so a lock
      *   another session holds occupies the worker slot for that long at most (the timeout error reaches the caller, which
      *   WARNs; the data is already committed).
      *   Those derives plan on the previous committed state's statistics (the same connection's rows: same `connection_id`
@@ -59,10 +59,11 @@ internal class MetricsAnalyzer(private val database: R2dbcDatabase) {
      */
     suspend fun analyzeDerivedTables(lockTimeoutMs: Long? = null, statementTimeoutMs: Long? = null) = suspendTransaction(database) {
         if (lockTimeoutMs != null) exec("SET LOCAL lock_timeout = $lockTimeoutMs")
-        // NOT `SET LOCAL statement_timeout`: Exposed's R2DBC executor re-applies the transaction's `queryTimeout` (whole
-        // seconds, default 0) with `SET statement_timeout` before EVERY statement, which overwrites it (this call used to
-        // have no statement budget at all). So the budget is the `queryTimeout`, rounded UP to a whole second (a sub-second
-        // bound would become 0 = unbounded). `lock_timeout` is not touched by that reset, so its `SET LOCAL` is effective.
+        // NOT `SET LOCAL statement_timeout`: Exposed's R2DBC executor requests the transaction's `queryTimeout` (whole
+        // seconds, default 0) before every statement, so a hand-rolled one is overwritten or desyncs the statement-timeout
+        // cache (persistence.md "Statement timeouts"; this call once had no budget at all). So the budget is the
+        // `queryTimeout`, rounded UP to a whole second (a sub-second bound would become 0 = unbounded). `lock_timeout` is
+        // untouched by either, so its `SET LOCAL` is effective.
         if (statementTimeoutMs != null) queryTimeout = Math.ceilDiv(statementTimeoutMs, MILLIS_PER_SECOND).toInt()
         exec("ANALYZE ${ANALYZED_TABLES.joinToString(", ")}")
     }

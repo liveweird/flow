@@ -154,19 +154,19 @@ private fun pvTeamFlowSql(connectionId: UInt, configRevision: Long): String = ""
 
 /**
  * PV, EPIC and DOMAIN: every epic's CURRENT baseline (`superseded_at IS NULL`, start/due/budget set)
- * spread over the WORKING days of `[start, due]` — [DeriveKernels.pvCurve]'s rule exactly: start and
+ * spread over the WORKING days of `[start, due]` — [pvCurve]'s rule exactly: start and
  * due are read as UTC dates, the day key is that ISO date, and a working day is the `dim_date` row
  * with that key and `is_working_day`. Cumulative-rounded so the day increments SUM to the budget
  * exactly at scale 2 (`round(budget*i/n) - round(budget*(i-1)/n)`, never `budget/n` rounded per day);
  * no working day at all → no rows. **Horizon (A23):** only a baseline whose start AND due both lie in
- * the PV horizon ([DeriveKernels.pvHorizonMs], ±[PV_HORIZON_YEARS] years of `now`) gets a curve —
+ * the PV horizon ([pvHorizonMs], ±[PV_HORIZON_YEARS] years of `now`) gets a curve —
  * outside it the epic is treated like "no dates", never clamped, so Σ PV = budget holds for every
  * epic that has a curve. EPIC = the epic's issue id, DOMAIN = `dim_epic.domain_key` (the
  * epic's own current domain; none → no DOMAIN row), summed from the SAME rounded increments so it
  * equals the sum of its EPIC rows exactly.
  */
 private fun pvEpicDomainFlowSql(connectionId: UInt, now: Long, configRevision: Long): String {
-    val (horizonFrom, horizonToExclusive) = DeriveKernels.pvHorizonMs(now)
+    val (horizonFrom, horizonToExclusive) = pvHorizonMs(now)
     return """
     WITH cur AS (
         SELECT p.issue_id AS issue_id, p.budget_md AS budget_md,

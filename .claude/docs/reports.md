@@ -248,7 +248,7 @@ VelocityReport {
     per-user split keyed by `fact_sprint_scope.assignee_at_commitment` -- committed
     (`committed AND in_scope_at_close`) sums `estimate_at_commitment_md`, final
     (`in_scope_at_close`) sums `estimate_at_close_md`, the SAME removed-row rule
-    `DeriveKernels.sprintTotals` applies to the team total itself (`.claude/docs/metrics.md`
+    `sprintTotals` applies to the team total itself (`.claude/docs/metrics.md`
     "Sprint scope, facts and snapshots"), so `Σ groups == the team total` (both buckets, both
     MD and items, exactly -- see "Rounding" under Report 6). A `null` `accountId`/`label` group is the unassigned-at-commitment
     bucket, listed last -- never a stored sentinel, the `credit_team_id` convention.
@@ -354,7 +354,7 @@ ThroughputReport {
   empty and `bySprint` narrows to that account's deliveries by `assignee_at_commitment`
   (`done_in_sprint` rows at `estimate_at_done_md`). Its `snapshot` is that account's FROZEN share: the
   sprint's `fact_sprint_snapshot.scope` JSON (velocity's shared reader, `reports/FrozenScope.kt`) run through
-  `DeriveKernels.sprintTotals` -- the same `done_in_sprint` predicate, `assignee_at_commitment` attribution and
+  `sprintTotals` -- the same `done_in_sprint` predicate, `assignee_at_commitment` attribution and
   per-item two-decimal rounding (`sumMd`) as the live figure, an unestimated delivery an item worth 0 MD; a
   snapshotted sprint in which the account delivered nothing shows zeros, a sprint with no snapshot (D13) `null`,
   and `drift` is the team level's own `deliveredDrift` over the two. The unassigned bucket has no USER-level query.
@@ -415,7 +415,7 @@ SprintConsistencyReport {
     figure of that team's sprints (Σ groups == Σ sprints, all fourteen).
   - **TEAM** (`teamId`) -- `sprints` narrow to that team's; `groups` is one per
     `fact_sprint_scope.assignee_at_commitment` (a null `accountId`/`label` = unassigned at commitment).
-    Each group's figures come from `DeriveKernels.sprintTotals` over that user's scope rows -- the SAME
+    Each group's figures come from `sprintTotals` over that user's scope rows -- the SAME
     bucket predicates that produced the team's `fact_sprint` row (committed = committed ∧ in scope at
     close; added = `added_at` set; removed = `removed_at` set; final = in scope at close; delivered =
     `done_in_sprint`; carried over / dropped by their flags; each on the estimate column
@@ -427,15 +427,15 @@ SprintConsistencyReport {
     one Jira site share sprint ids (velocity's per-user reader does the same).
   - **USER** (`teamId` AND `accountId`) -- `sprints` narrow to that account's rows per sprint (the same
     kernel over its rows; a sprint with none shows zeros); `snapshot` is that account's FROZEN fourteen figures,
-    the same `DeriveKernels.sprintTotals` over the account's items of the sprint's `fact_sprint_snapshot.scope` JSON
+    the same `sprintTotals` over the account's items of the sprint's `fact_sprint_snapshot.scope` JSON
     (velocity's shared reader, `reports/FrozenScope.kt`; the stored items carry every field a bucket reads --
     `addedAtMs`, `removedAtMs`, the flags and the three estimates -- so nothing is approximated): the same
     `assignee_at_commitment` attribution (an added item to the assignee at entry), predicates and `sumMd` rounding
     as the live figures; zeros for a snapshotted sprint where the account had no items, `null` for a sprint with no
     snapshot (D13); `drift` is the report's own `figuresDrift` over the two. `groups` is empty. The unassigned bucket has no USER-level query -- it is the
     remainder Σ named users + unassigned == team.
-- **Rounding.** Every MD figure of a sprint is `Σ round2(item)`: `DeriveKernels.sprintTotals` rounds each
-  item's estimate half-up to two decimals (`sumMd`, `metrics/DeriveKernels.kt`) BEFORE the exact sum, which is
+- **Rounding.** Every MD figure of a sprint is `Σ round2(item)`: `sprintTotals` rounds each
+  item's estimate half-up to two decimals (`sumMd`, `metrics/DeriveSprintKernels.kt`) BEFORE the exact sum, which is
   exactly what `fact_sprint_scope` stores per item, and the per-user groups here and in velocity re-sum the
   stored rows with the same `sumMd` -- so Σ groups == the team figure to the cent (items likewise), whatever
   decimals the estimates carry.
@@ -548,7 +548,7 @@ AdjustmentFigures { started, changedAfterStart, share?, estimatedLate,
   never a `+infinity` change) else `unestimated` (either snapshot missing, a never-started item included), so
   `changeDistribution.n + estimatedLate + unestimated == population`.
 - **An estimated-late item is also "changed after start"**: its late estimate is itself a change point after
-  `started_at` (`DeriveKernels.estimateSnapshots`), and the row's predicate is literally `changes > 0`.
+  `started_at` (`estimateSnapshots`), and the row's predicate is literally `changes > 0`.
   `ReportEstimateAdjustmentsTest` pins it against the stub generator: `estimatedLate` equals
   `expected.json`'s `taskEstimatedLateCount` and `changedAfterStart` equals `taskEstimateChangedAfterStartCount +
   taskEstimatedLateCount`.
@@ -896,7 +896,7 @@ empty but the open ones remain.
   counted only for connections whose effective configuration has a work-category field; `workCategoryConfigured` says whether any
   has), `unassigned` (DONE, no assignee at done); the three epic lists: `epicsWithoutEstimate` (`budget_source = 'CHILDREN'`),
   `epicsWithoutDates` (start or due null), `epicsOutsidePvHorizon` (both set but one outside ±10 years of the connection's last
-  DERIVE clock -- its newest SUCCEEDED `derive_runs.started_at`, else the request clock -- `DeriveKernels.inPvHorizon`: no PV curve,
+  DERIVE clock -- its newest SUCCEEDED `derive_runs.started_at`, else the request clock -- `inPvHorizon`: no PV curve,
   A23; a half-dated epic is "without dates" only).
 - **`outsideSprint`** (D10) -- DONE tasks with no sprint at done, `md` = their estimate at done. A task done inside a sprint of an
   unmapped board is not here: it is counted under `unmappedBoards[].doneTasks`. **`crossDomain`** -- DONE tasks whose epic is in another
@@ -1022,10 +1022,10 @@ EpicProgressReport {
   baseline, the delivery fact's; `startAt`/`dueAt` the epic's own dates (UTC midnight millis of a calendar date, zone-free);
   `baselines` every `fact_epic_plan` baseline oldest first; `drift` compares the CURRENT baseline with the FIRST (`dates`: start or
   due moved, `budget`: it changed -- both `false` with one baseline). `inPvHorizon` is literal: the current baseline is complete and
-  both its dates lie within +-10 years of the connection's DERIVE clock (`DeriveKernels.inPvHorizon`), otherwise there is no PV
+  both its dates lie within +-10 years of the connection's DERIVE clock (`inPvHorizon`), otherwise there is no PV
   (A23) -- while EV and AC still count. `hasPvCurve` adds that the window holds a working day, so PV is actually spread (a weekend-only
   window is in the horizon but has no curve). `series[].pvOriginal` is the epic's FIRST baseline redrawn: the working days come from
-  `DeriveKernels.pvCurve` under the calendar DERIVE used -- `metrics.dim_date.is_working_day` where `dim_date` covers the whole
+  `pvCurve` under the calendar DERIVE used -- `metrics.dim_date.is_working_day` where `dim_date` covers the whole
   window (the table is global; a DERIVE at the current settings revision rewrites every row that differs, so `dim_date` carries the current
   calendar once any DERIVE of ANY connection at that revision has run — a calendar edited since moves `pvOriginal` only then), else the current settings
   calendar (a superseded baseline's window outside the range DERIVE keeps stamped) -- and each day's cumulative value is rounded

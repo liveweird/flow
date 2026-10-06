@@ -141,7 +141,7 @@ data class DimSprintRow(
     val capacitySource: String?,
 )
 
-/** One `metrics.fact_sprint_scope` row — [DeriveKernels.SprintScopeItem] plus the `sprintId` its own kernel call didn't carry. */
+/** One `metrics.fact_sprint_scope` row — [SprintScopeItem] plus the `sprintId` its own kernel call didn't carry. */
 data class FactSprintScopeRow(val sprintId: Long, val item: SprintScopeItem)
 
 /**
@@ -174,7 +174,7 @@ data class FactWorklogRow(
 
 /**
  * One `metrics.fact_epic_plan` row (v0.3.0 M3 commit 9b, `.claude/docs/domain-model.md`
- * "Plan — PV", D4) — [DeriveKernels.EpicPlanBaseline] plus the `issueId`/`baselineSeq` its own
+ * "Plan — PV", D4) — [EpicPlanBaseline] plus the `issueId`/`baselineSeq` its own
  * kernel call didn't carry (the [FactSprintScopeRow] precedent).
  */
 data class FactEpicPlanRow(val issueId: Long, val baselineSeq: Int, val baseline: EpicPlanBaseline)

@@ -1,7 +1,7 @@
 package ch.nokillswit.reports
 
-import ch.nokillswit.metrics.DeriveKernels
 import ch.nokillswit.metrics.MetricsTables
+import ch.nokillswit.metrics.inPvHorizon
 import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -101,7 +101,7 @@ internal suspend fun fetchDqEpics(
             connectionId = connectionId, issueId = fact[e.issueId], issueKey = dim?.get(d.issueKey) ?: fact[e.issueId].toString(),
             summary = dim?.get(d.summary), owner = fact[e.ownerTeamId]?.value, domainKey = fact[e.domainKey],
             startAt = start, dueAt = due, doneAt = fact[e.doneAt], budgetSource = fact[e.budgetSource],
-            outsideHorizon = start != null && due != null && !DeriveKernels.inPvHorizon(start, due, clock),
+            outsideHorizon = start != null && due != null && !inPvHorizon(start, due, clock),
             flags = Json.decodeFromString<List<String>>(fact[e.driftFlags]),
         )
     }

@@ -1,6 +1,5 @@
 package ch.nokillswit
 
-import ch.nokillswit.metrics.DeriveKernels
 import ch.nokillswit.metrics.DimDomainRow
 import ch.nokillswit.metrics.DimEpicRow
 import ch.nokillswit.metrics.FactWorklogRow
@@ -10,6 +9,7 @@ import ch.nokillswit.metrics.MetricsStore
 import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.metrics.TeamMembershipService
 import ch.nokillswit.metrics.asRequest
+import ch.nokillswit.metrics.inPvHorizon
 import ch.nokillswit.norm.WorkItemStore
 import ch.nokillswit.reports.DataQualityReport
 import ch.nokillswit.reports.TaskFinding
@@ -19,6 +19,16 @@ import io.ktor.client.request.get
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.ApplicationTestBuilder
 import io.ktor.server.testing.testApplication
+import java.math.BigDecimal
+import java.time.LocalDate
+import java.time.ZoneId
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.core.Column
@@ -31,16 +41,6 @@ import org.jetbrains.exposed.v1.r2dbc.insert
 import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.r2dbc.update
-import java.math.BigDecimal
-import java.time.LocalDate
-import java.time.ZoneId
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertFalse
-import kotlin.test.assertNotEquals
-import kotlin.test.assertNotNull
-import kotlin.test.assertNull
-import kotlin.test.assertTrue
 
 private const val EPS = 1e-9
 private const val DAY_MS = 86_400_000L
@@ -207,7 +207,7 @@ class ReportDataQualityTest {
         val outsideHorizon = epics.count {
             val start = dim(it)[d.startAt]
             val due = dim(it)[d.dueAt]
-            start != null && due != null && !DeriveKernels.inPvHorizon(start, due, DerivedStubFixture.PINNED_NOW)
+            start != null && due != null && !inPvHorizon(start, due, DerivedStubFixture.PINNED_NOW)
         }
         assertEquals(outsideHorizon, body.missing.epicsOutsidePvHorizon.total)
         assertEquals(epics.count { it[e.driftFlags] != "[]" }, body.epicDrift.total)

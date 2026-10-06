@@ -1,12 +1,12 @@
 package ch.nokillswit
 
-import ch.nokillswit.metrics.DeriveKernels
 import ch.nokillswit.metrics.DimSprintRow
 import ch.nokillswit.metrics.FactSprintRow
 import ch.nokillswit.metrics.FactSprintScopeRow
 import ch.nokillswit.metrics.MetricsStore
 import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.metrics.SprintScopeItem
+import ch.nokillswit.metrics.sprintTotals
 import ch.nokillswit.reports.SprintConsistencyGroup
 import ch.nokillswit.reports.SprintConsistencyReport
 import ch.nokillswit.reports.SprintConsistencySprint
@@ -19,6 +19,11 @@ import io.ktor.server.testing.testApplication
 import java.io.File
 import java.math.BigDecimal
 import java.math.RoundingMode
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
 import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -35,11 +40,6 @@ import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertNotNull
-import kotlin.test.assertNull
-import kotlin.test.assertTrue
 
 /** `sample-data/jira/expected.json`'s `golden.sprint` — every scope bucket this report shows. */
 @Serializable
@@ -369,7 +369,7 @@ class ReportSprintConsistencyTest {
         DimSprintRow(sprintId, boardId, teamId, name, "closed", completeAt - 14 * 86_400_000L, completeAt, completeAt, null, null)
 
     private fun factSprint(sprintId: Long, teamId: UInt, completeAt: Long, items: List<SprintScopeItem>) =
-        FactSprintRow(sprintId, teamId, completeAt, DeriveKernels.sprintTotals(items), capacityMd = null, load = null)
+        FactSprintRow(sprintId, teamId, completeAt, sprintTotals(items), capacityMd = null, load = null)
 
     private fun figures(
         committed: Pair<Double, Int> = 0.0 to 0,
