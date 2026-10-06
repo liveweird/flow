@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Stack, Switch, Table, Text, Title } from "@mantine/core";
 import type { DeepDiveReport } from "../api/reports";
 import { buildDeepDiveBurnup, type DeepDiveBurnup as BurnupModel } from "../utils/deepDiveBurnup";
-import { formatFigure } from "../utils/deepDiveMatrix";
+import { formatFigure } from "../utils/reportFormat";
 import DailyTableDisclosure from "./DailyTableDisclosure";
 import LoadingBlock from "./LoadingBlock";
 import ScrollRegion from "./ScrollRegion";

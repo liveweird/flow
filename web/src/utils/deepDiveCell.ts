@@ -1,14 +1,14 @@
 import type { CSSProperties } from "react";
 import type { TFunction } from "i18next";
 import { CHART_COLORS, DEEP_DIVE_FILL_ALPHA } from "./chartColors";
-import { epochMillisToIsoDate, isoDateToEpochMillis } from "./isoDate";
+import { addDays } from "./isoDate";
 import {
-  formatFigure,
   type MatrixCell,
   type MatrixEpic,
   type MatrixRow,
   type TimeColumn,
 } from "./deepDiveMatrix";
+import { formatFigure } from "./reportFormat";
 
 /** Which of the matrix's layers are drawn (execution carries the ◆ done marker and its EV figure). */
 export interface DeepDiveLayers {
@@ -199,7 +199,7 @@ export function visibleRows(
 
 /** The ISO date `offset` days after `from` (an epic's planned window is sent as offsets from `range.from`). */
 export function dayDate(from: string, offset: number): string {
-  return epochMillisToIsoDate(isoDateToEpochMillis(from) + offset * 86_400_000);
+  return addDays(from, offset);
 }
 
 /** An epic's planned window as dates, `null` when it has none (or an inverted one). */

@@ -1,6 +1,7 @@
 import type { DeepDiveReport } from "../api/reports";
 import { grainColumns } from "./deepDiveMatrix";
-import { isoDateToEpochMillis } from "./isoDate";
+import { DAY_MS, isoDateToEpochMillis } from "./isoDate";
+import { roundScaled } from "./reportFormat";
 
 /**
  * The Deep dive's burn-up: a `DeepDiveReport` (sparse daily series, day offsets from `range.from`) turned into
@@ -23,8 +24,6 @@ import { isoDateToEpochMillis } from "./isoDate";
  *    inside the range. For the days OUTSIDE the shown range this ASSUMES a Monday–Friday week and no holidays:
  *    the configured weekend and holidays (`nonWorkingDays`) are only known inside the range.
  */
-
-const DAY_MS = 86_400_000;
 
 interface BurnupPoint {
   /** Offset from `range.from`. */
@@ -56,8 +55,8 @@ export interface DeepDiveBurnup {
 
 const isDay = (d: number, days: number) => Number.isInteger(d) && d >= 0 && d < days;
 
-/** Hundredths of `value`, rounded half-up on the decimal (binary noise cleaned at 6 places, as `formatFigure` does). */
-const hundredths = (value: number) => Math.round(Number((value * 100).toFixed(6)));
+/** Hundredths of `value`, rounded by the one figure rule (`roundScaled`, as `formatFigure` does). */
+const hundredths = (value: number) => roundScaled(value, 2);
 
 /** How many Monday-to-Friday days lie before the epoch-day-indexed `m` (Monday = 0 after the +3 shift; floor-mod safe for negatives). */
 const weekdaysBefore = (m: number) => 5 * Math.floor(m / 7) + Math.min(((m % 7) + 7) % 7, 5);
