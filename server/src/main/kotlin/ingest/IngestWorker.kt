@@ -1,23 +1,14 @@
 package ch.nokillswit.ingest
 
 import ch.nokillswit.audit.audit
-import ch.nokillswit.infra.catchingFailures
-import ch.nokillswit.infra.config.requireConfigInt
-import ch.nokillswit.infra.config.requireConfigLong
 import ch.nokillswit.infra.time.MILLIS_PER_DAY
 import ch.nokillswit.plugins.runsWorker
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationStarted
 import io.ktor.server.application.ApplicationStopping
-import io.ktor.server.config.ApplicationConfig
 import io.ktor.util.AttributeKey
-import java.net.InetAddress
-import java.util.UUID
-import java.util.concurrent.TimeoutException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Deferred
-import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -51,55 +42,6 @@ val IngestClockKey = AttributeKey<() -> Long>("IngestClock")
 val IngestWorkerStartedKey = AttributeKey<Boolean>("IngestWorkerStarted")
 
 private const val SHUTDOWN_JOIN_TIMEOUT_MS = 5_000L
-private const val MIN_HEARTBEAT_INTERVAL_MS = 1_000L
-/** Floor of the heartbeat slack — only a test lease below 5 s ever reaches it (a configured lease is at least 30 s, so slack >= 3 s). */
-private const val MIN_HEARTBEAT_SLACK_MS = 500L
-
-data class IngestConfig(
-    val schedulerTickSeconds: Long,
-    val workerSlots: Int,
-    val leaseSeconds: Long,
-    val jobRetentionDays: Long,
-    val purgeGraceDays: Long,
-    val workerId: String,
-)
-
-private fun readIngestConfig(config: ApplicationConfig): IngestConfig {
-    val tick = requireConfigLong(config, "ingest.schedulerTickSeconds", min = 5, max = 300)
-    val slots = requireConfigInt(config, "ingest.workerSlots", min = 1, max = 16)
-    val lease = requireConfigLong(config, "ingest.leaseSeconds", min = 30, max = 3600)
-    val retention = requireConfigLong(config, "ingest.jobRetentionDays", min = 1, max = 3650)
-    val grace = requireConfigLong(config, "ingest.purgeGraceDays", min = 0, max = 90)
-    val configuredWorkerId = config.propertyOrNull("ingest.workerId")?.getString()?.trim().orEmpty()
-    return IngestConfig(tick, slots, lease, retention, grace, configuredWorkerId.ifBlank { defaultWorkerId() })
-}
-
-/**
- * A running DERIVE holds TWO pooled connections at once — its own big transaction plus the short
- * `MetricsStore.ensureDimDate` transaction opened from inside it — so `workerSlots` concurrent derives
- * can pin `2 × workerSlots` connections. At exactly that many the derives still fit, but nothing is left
- * for requests, job heartbeats or the claim scan, so the pool must be strictly larger. Fail-closed at
- * boot, only for a role that runs the worker (`.claude/docs/persistence.md` "Connection pool").
- *
- * Abandoned lease renewals are deliberately NOT added to this bound: an attempt the ticker gave up on (at its slack) is
- * bounded server-side by about a slack too, and attempts are spaced by `retry = max(1s, interval/2) > slack`, so at most
- * one abandoned renewal per slot is outstanding at a time. If a stall ever eats the headroom, the next renewal's
- * pool-acquire fails or times out, which the lease budget counts as a failed renewal — the job stops before its lease
- * runs out, the fail-closed outcome. Raise `postgres.pool.maxSize` rather than the formula.
- */
-private fun requirePoolFitsWorkerSlots(config: ApplicationConfig, workerSlots: Int) {
-    val poolMaxSize = requireConfigInt(config, "postgres.pool.maxSize", min = 1, max = 1000)
-    check(poolMaxSize > 2 * workerSlots) {
-        "postgres.pool.maxSize ($poolMaxSize) must be greater than 2 x ingest.workerSlots ($workerSlots): a running DERIVE " +
-            "holds two pooled connections at once (its transaction plus the dim_date ensure), leaving no headroom for " +
-            "requests and heartbeats"
-    }
-}
-
-private fun defaultWorkerId(): String {
-    val host = runCatching { InetAddress.getLocalHost().hostName }.getOrDefault("worker")
-    return "$host-${UUID.randomUUID().toString().take(8)}"
-}
 
 /**
  * The `FLOW_ROLE=worker` scheduler (v0.2.0 plan §5, `.claude/docs/ingestion.md` "Worker
@@ -171,7 +113,7 @@ class JobCancelRequestedException(jobId: UInt) : Exception("Cancel requested for
  * Claims and runs sync jobs: a scheduler tick (every [IngestConfig.schedulerTickSeconds]) enqueues
  * due SYNC/RECONCILE/PURGE jobs, then claims up to [IngestConfig.workerSlots] free jobs and runs
  * each under a ticker that heartbeats every `leaseSeconds/3` and honours `cancel_requested_at`
- * (see [heartbeatLoop] for how a failing heartbeat is budgeted against the lease).
+ * (see [LeaseHeartbeat.heartbeatLoop] for how a failing heartbeat is budgeted against the lease).
  * [clock] is injectable for tests.
  */
 class IngestWorker internal constructor(
@@ -186,7 +128,7 @@ class IngestWorker internal constructor(
      * or hang; reachable only through the `internal` constructor, production always uses [SyncJobsService.renewLease].
      */
     private val renewLease: suspend (claim: SyncJobClaim, now: Long, boundMillis: Long) -> HeartbeatOutcome,
-    /** The monotonic source of the lease budget ([heartbeatLoop]); `IngestWorkerTest` passes a `TestTimeSource`. */
+    /** The monotonic source of the lease budget ([LeaseHeartbeat.heartbeatLoop]); `IngestWorkerTest` passes a `TestTimeSource`. */
     private val timeSource: TimeSource,
 ) {
     constructor(
@@ -203,7 +145,7 @@ class IngestWorker internal constructor(
     )
 
     private val slots = Semaphore(config.workerSlots)
-    private val renewalScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val heartbeat = LeaseHeartbeat(config, clock, timeSource, renewLease)
 
     fun start(scope: CoroutineScope) {
         scope.launch {
@@ -257,7 +199,7 @@ class IngestWorker internal constructor(
 
     /**
      * `internal` so `IngestWorkerTest` can run a single claimed job deterministically without the tick loop's timing.
-     * [leaseStart] is the budget origin of [heartbeatLoop]: the monotonic time taken just before the `clock()` read the
+     * [leaseStart] is the budget origin of [LeaseHeartbeat.heartbeatLoop]: the monotonic time taken just before the `clock()` read the
      * claim's `lease_until` was computed from (the default, for a caller that claimed just before, is "now").
      */
     internal suspend fun runJob(claim: SyncJobClaim, leaseStart: TimeMark = timeSource.markNow()) {
@@ -273,7 +215,7 @@ class IngestWorker internal constructor(
         var deriveRevisionUsed: Long? = null
         try {
             coroutineScope {
-                val ticker = launch { heartbeatLoop(claim, leaseStart) }
+                val ticker = launch { heartbeat.heartbeatLoop(claim, leaseStart) }
                 val context = SyncJobRunContext(claim, clock = clock) { progress, currentStream ->
                     syncJobs.heartbeat(claim.id, config.workerId, claim.attempt, config.leaseSeconds, clock(), progress, currentStream)
                 }
@@ -329,98 +271,10 @@ class IngestWorker internal constructor(
         }
     }
 
-    /**
-     * The ticker body: every `max(1s, leaseSeconds/3)` it renews the lease and checks `cancel_requested_at` in ONE call
-     * ([renewLease], one pooled connection, one failure policy). [HeartbeatOutcome.LOST] is fatal at once
-     * ([LeaseLostException]); [HeartbeatOutcome.CANCEL_REQUESTED] throws [JobCancelRequestedException].
-     *
-     * **A failing renewal (it throws, or hangs) is tolerated only while the renewal can still be stopped
-     * strictly BEFORE `lease_until`** — a DERIVE must survive one pool hiccup, but the worker must not keep renewing
-     * (and running) as if nothing were wrong until another claimer may take the row. With `L` the lease,
-     * `slack = max(500 ms, L/10)` and `E` the monotonic time since [leaseStart] / the START of the last successful
-     * renewal (taken before the call, like the `now` the lease is computed from, so it can only be early):
-     *  - every attempt is bounded by `withTimeoutOrNull(slack)` on the client (a timeout counts as a failure) and, in the
-     *    database, by `lock_timeout` + `queryTimeout` of about `slack` (`renewLease`'s `boundMillis`);
-     *  - after a failure observed at `E`, the retry (after `retry = max(1s, interval/2)`) is tolerated only if
-     *    `E + retry + 2·slack < L`. A tolerated retry therefore starts at `E + retry` and its failure is observed by
-     *    `E + retry + slack < L - slack`: **renewal stops and the job's cancellation is REQUESTED at least `slack`
-     *    before `lease_until`** (that `slack` is the allowance for the stop itself and for clock skew against the
-     *    reclaimer, which compares `lease_until` with ITS wall clock). The first failure is observed by
-     *    `interval + slack`, well inside that. Otherwise the failure is rethrown (`runJob` → `onFailed`) at once.
-     *
-     * What this does NOT promise: the lease bounds a run, it does not exclude a stale one. Cancelling the job scope
-     * only requests the body to stop — a body inside a database statement unwinds when that statement returns (its
-     * open transaction then rolls back), and a frozen worker (a long GC pause, a stopped container) does not unwind
-     * at all. Every `sync_jobs` write of such a stale run is a no-op through the fences (`SyncJobsService`), but its
-     * stream DATA writes are not fenced, so it can overlap a reclaimed run in that window (the streams are re-runnable by
-     * design — cursors, per-scope replace — but nothing excludes the overlap).
-     *
-     * Which failure is the fatal one depends on how long the failures take: at the defaults (L = 300 s, 100 s interval,
-     * 50 s retry, slack 30 s) the threshold is `E < 190 s`, so FAST failures (observed at 100 s and 150 s) are tolerated
-     * and a third, at 200 s, is fatal; failures that each take the whole slack (observed at 130 s, then 210 s) make the
-     * second one fatal. Cancellation is never swallowed (`catchingFailures`).
-     */
-    private suspend fun heartbeatLoop(claim: SyncJobClaim, leaseStart: TimeMark): Nothing {
-        val leaseMillis = config.leaseSeconds * 1000
-        val intervalMillis = maxOf(MIN_HEARTBEAT_INTERVAL_MS, leaseMillis / 3)
-        val retryMillis = maxOf(MIN_HEARTBEAT_INTERVAL_MS, intervalMillis / 2)
-        val slackMillis = maxOf(MIN_HEARTBEAT_SLACK_MS, leaseMillis / 10)
-        var lastRenewalStart = leaseStart
-        var waitMillis = intervalMillis
-        while (true) {
-            delay(waitMillis)
-            val attemptStart = timeSource.markNow()
-            var failure: Exception? = null
-            val outcome = catchingFailures({ attemptRenewal(claim, slackMillis) }) {
-                failure = it
-                null
-            }
-            if (outcome == null) {
-                val sinceRenewalMillis = lastRenewalStart.elapsedNow().inWholeMilliseconds
-                if (sinceRenewalMillis + retryMillis + 2 * slackMillis >= leaseMillis) {
-                    throw failure ?: TimeoutException(
-                        "Heartbeat for sync job ${claim.id} timed out ($slackMillis ms) at $sinceRenewalMillis of $leaseMillis ms",
-                    )
-                }
-                log.warn(
-                    "Heartbeat for sync job {} did not complete ({} ms since the last renewal started, lease {} ms); retrying in {} ms",
-                    claim.id, sinceRenewalMillis, leaseMillis, retryMillis, failure,
-                )
-                waitMillis = retryMillis
-                continue
-            }
-            when (outcome) {
-                HeartbeatOutcome.LOST -> throw LeaseLostException(claim.id)
-                HeartbeatOutcome.CANCEL_REQUESTED -> throw JobCancelRequestedException(claim.id)
-                HeartbeatOutcome.RENEWED -> {
-                    lastRenewalStart = attemptStart
-                    waitMillis = intervalMillis
-                }
-            }
-        }
-    }
-
-    /**
-     * One renewal attempt, bounded by [slackMillis] — `null` on timeout. The renewal runs in the worker's own [renewalScope],
-     * NOT as a child of the job: a coroutine blocked inside a database statement does not react to cancellation until that
-     * statement ends (exposed-r2dbc's transaction waits for its rollback — measured in `SyncJobQueueTest`), so a
-     * `withTimeoutOrNull` around the call itself would not return on time, and a failing ticker could not cancel the job
-     * scope either (it waits for its children). Awaiting a detached [Deferred] returns at the timeout; the abandoned attempt
-     * is cancelled and rolls back whenever its statement ends — and the renewal carries `slackMillis` as its server-side
-     * bound too, so that is within about a slack (`lock_timeout`/`queryTimeout`), unless the connection itself is stalled.
-     */
-    private suspend fun attemptRenewal(claim: SyncJobClaim, slackMillis: Long): HeartbeatOutcome? {
-        val attempt = renewalScope.async { renewLease(claim, clock(), slackMillis) }
-        try {
-            return withTimeoutOrNull(slackMillis) { attempt.await() }
-        } finally {
-            attempt.cancel()
-        }
-    }
 
     /** Cancels the renewal attempts still running (shutdown); the job scopes are cancelled by the caller's own scope. */
     fun close() {
-        renewalScope.cancel()
+        heartbeat.close()
     }
 
     private fun logStale(claim: SyncJobClaim, write: String) {

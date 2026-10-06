@@ -56,7 +56,7 @@ actuals are noted in a comment beside them); run `cd web && npm run test:coverag
 **Static analysis (detekt).** `./gradlew detekt` rides `check`; the gate is zero findings with **no baseline file**.
 Tune only in `config/detekt/detekt.yml`, one commented override per deliberate repo idiom; fix new findings in code
 first, prefer a config override over `@Suppress` (a per-site `@Suppress` needs a one-line justifying comment). Runs in
-seconds, no Docker — safe to run anytime, unlike the test suite.
+seconds, no Docker — safe to run anytime, unlike the test suite. `SourceFileSizeTest` caps main source files at 400 lines (a new file stays under it; a grandfathered ceiling only goes down — raising one is a reviewed exception justified in the PR).
 
 **Frontend static analysis (sonarjs + knip).** Same zero-findings/no-baseline policy: `cd web && npm run lint`
 (eslint + `eslint-plugin-sonarjs`; every override in `web/eslint.config.js` carries the idiom comment) and
