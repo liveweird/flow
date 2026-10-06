@@ -131,3 +131,18 @@ jobs:
           name: playwright-report
           path: e2e/playwright-report/
           retention-days: 7
+
+      # The nightly CVE check (checkup 2, 2A5): ci.yml's `images` scan runs only on a master push, so an
+      # advisory published during a quiet week surfaces only with the next merge. Same scanner, flags and
+      # gate as `images` (keep the two in step); it scans the image this run already built, and runs after
+      # the suite so a red scan never hides a UI regression (or the other way round).
+      - name: Scan the app image for vulnerabilities (HIGH/CRITICAL, fixable)
+        if: ${{ !cancelled() }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/trivy-cache"
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$RUNNER_TEMP/trivy-cache:/cache" \
+            ghcr.io/aquasecurity/trivy:0.74.0@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969 \
+            image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
+            --cache-dir /cache --no-progress flow-app
