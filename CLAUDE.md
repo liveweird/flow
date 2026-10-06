@@ -200,6 +200,7 @@ this file disagree, the doc wins.
 | `.claude/docs/product.md` | the per-version roadmap and what each donor repo (Covenant/Lettuce/Toadie) contributed |
 | `.claude/docs/test-fixtures.md` | any server test fixture, the derived/synced stub fixtures, digests, OpenAPI conformance internals, e2e scenario files, Schemathesis |
 | `.claude/docs/web-features.md` | a data-source, metrics-config or report page in `web/` (the per-feature frontend conventions) |
+| `.claude/docs/web-internals.md` | the `web/` transport/session layer, the user/feature-flag pages, the language switcher, colour tokens/logo, changelog wiring (mechanics behind `web/CLAUDE.md`'s one-liners) |
 | `.claude/docs/dependencies.md` | any dependency, image or runtime-pin change (grouping, compatibility pins, acceptance checks) |
 | `.claude/docs/dependency-reproducibility.md` | lockfiles or `gradle/verification-metadata.xml` (the empty-`GRADLE_USER_HOME` rule) |
 | `.claude/docs/app-releases.md` | a version bump, changelog entry, tag or GitHub release |
