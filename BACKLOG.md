@@ -57,12 +57,15 @@ report, `~/.claude/plans/flow-checkup-2026-09-30.md`):
 - **Build-time follow-ups** (`build-times.md`): WHY 3/4/9 are answered (2026-10-01); PROCESS's child inserts
   moved to `insertRows` (2026-10-06: a stub pass 2.25 s -> 1.0 s; its `work_items` `batchUpsert` is the remaining
   ~0.27 s, an `ON CONFLICT` multi-row helper would be the next step), the nightly `e2e`
-  image-build cache (WHY 7's data decides), and re-checking `images` after its first master run.
-- **B7 — the always-loaded instruction budget, step 3:** step 2 (2026-10-05) moved the feature template to
+  image-build cache (WHY 7's data decides); `images` is ~3 min and green again since #85 (a base-image libssl CVE).
+- **B7 — the always-loaded instruction budget (steps 1-3 done):** step 2 (2026-10-05) moved the feature template to
   `conventions.md`, the fixture narrative to `test-fixtures.md` and `web/CLAUDE.md`'s per-feature sections to
-  `web-features.md`, and cut the package tree to one line per package. The always-loaded set is 40.3k chars (from
-  59.0k), against a ~35k target, and `web/CLAUDE.md` is 36.2k (from 72.8k). Next candidates: `CLAUDE.md`'s Commands/CI
-  paragraph and `testing.md`'s harness bullets.
+  `web-features.md`, and cut the package tree to one line per package. Step 3 (2026-10-06) moved `CLAUDE.md`'s CI
+  paragraph, the full-stack notes, the roadmap history and the donor detail to the new `ci.md` and `product.md`, and
+  `testing.md`'s harness bullets, setup/forks narrative, static-analysis detail and frontend-test internals to
+  `test-fixtures.md`/`ci.md` (moved verbatim, one-line rules kept). The always-loaded set is now 35.1k chars (from
+  40.3k, originally 59.0k), on the ~35k target. What remains is optional: `web/CLAUDE.md` is 36.2k (from 72.8k) and
+  loads only when working in `web/`.
 - **The user's decisions:** A1 — protect `master` (required checks: `server`, `web`, `e2e-static`,
   `gradle-vulnerability-scan`, `k8s-static`; no bypass); A13 — a TLS-terminating Ingress + ClusterIP Service vs a
   documented local-only overlay (behind today's bare LoadBalancer `X-Forwarded-For` is client-supplied); Dependabot

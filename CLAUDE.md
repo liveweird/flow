@@ -12,21 +12,10 @@ outlier detection, and input for continuous improvement. The name refers to the 
 (Theory of Constraints, Kanban, Reinertsen's cost-of-delay economics): the discipline of exposing
 where work waits, not who is busy.
 
-**Roadmap:**
-
-- **v0.1.0 — foundation.** Sign-in with email MFA, users, teams, feature flags, EN/PL,
-  light/dark theme.
-- **v0.2.0 — Jira ingestion.** An ADMIN-managed Jira Cloud connection (an Atlassian service
-  account + a scoped read-only API token, encrypted at rest with `infra/crypto/FieldCipher`), a raw
-  store with incremental cursors (`raw.*`), a neutral normalized layer above it (`norm.*` — facts
-  only, no interpretation), the data profile and the admin pages over all of it
-  (`.claude/docs/ingestion.md`).
-- **v0.3.0 — the domain model, metrics, reports.** The model in
-  `.claude/docs/domain-model.md`, implemented: metrics configuration, a `DERIVE` job building the
-  `metrics` star from `norm` (`metrics/`), and the reports (`reports/`); Home is the unit overview.
-- **v0.4.0 (this codebase) — the Deep dive.** Report 17 (A29): plan, execution and cost per task
-  and day on a drillable epic/task × time matrix; seventeen reports on sixteen pages. Next: the
-  real-Jira first sync, then `BACKLOG.md`.
+**Roadmap:** v0.1.0 foundation, v0.2.0 Jira ingestion, v0.3.0 the domain model, metrics and reports, and
+**v0.4.0 (this codebase) — the Deep dive**: report 17 (A29), plan, execution and cost per task and day on a drillable
+epic/task × time matrix; seventeen reports on sixteen pages. Next: the real-Jira first sync, then `BACKLOG.md`. The
+per-version scope: `.claude/docs/product.md`.
 
 Brand: blue (the `flow` colour tuple in `web/src/theme.ts`, `primaryShade: { light: 8, dark: 9 }`);
 the logo is "Rolling" — a stream running round a blue disc and rolling inward into a curl
@@ -34,22 +23,11 @@ the logo is "Rolling" — a stream running round a blue disc and rolling inward 
 
 ## Donors
 
-Flow's repository was copied from Covenant and trimmed to its generic foundation — auth, users,
-teams, feature flags, i18n, theming, quality gates — with the contract-catalog domain removed.
-**Port, don't reinvent**: when Flow needs a capability one of these siblings already has, port its
-implementation rather than designing a new one.
-
-- **Covenant** (`~/Sources/covenant`, the primary donor) — this repo's entire foundation IS
-  Covenant's scaffold. Its `toadie/` server package (an ADMIN-curated external-API connector:
-  encrypted connection config, scoped read-only credentials, bounded paginated reads, a
-  raw/derived cache split) is the template for Flow's own Jira connector in v0.2.0 — port its
-  *shape*, not its GraphQL specifics.
-- **Lettuce** (`~/Sources/lettuce`) — `@mantine/charts` + `recharts` for the flow-metrics
-  dashboards; its WireMock teams-stub pattern for integration-testing an external API
-  client without hitting the real service.
-- **Toadie** (`~/Sources/toadie`) — the `UrlFetch` SSRF guard (public-host validation before any
-  server-initiated outbound call) — forward guidance for the Jira client from v0.2.0; see
-  `.claude/docs/security.md`.
+Flow's repository was copied from Covenant and trimmed to its generic foundation. **Port, don't reinvent**: when
+Flow needs a capability one of the sibling repos already has, port its implementation rather than designing a new
+one — Covenant (`~/Sources/covenant`, the primary donor; its `toadie/` connector is the template for `jira/`),
+Lettuce (`~/Sources/lettuce`, charts and the WireMock stub pattern) and Toadie (`~/Sources/toadie`, the `UrlFetch`
+SSRF guard — `.claude/docs/security.md`). What each one donated: `.claude/docs/product.md`.
 
 ## Commands
 
@@ -86,29 +64,18 @@ the mise shim on `PATH`), point it explicitly: `JAVA_HOME=$(mise where java) ./g
   fixture against `api-guidelines/`) and `npm run check:api` (in-memory spec → `schema.ts` diff).
 - E2E: `cd e2e && npm ci && npx playwright install chromium && npm test` (plus `npm run lint`,
   `npm run knip`, `npm run typecheck` and `npm run check:scenarios`).
-- CI: `.github/workflows/ci.yml` re-runs every gate above on push/PR (a PR changing only Markdown, `measures.md` aside, skips the server job; server — incl. the OpenAPI
-  coverage gate, strict Gradle dependency verification (`--dependency-verification strict`) plus a
-  lock/verification-metadata drift check, and a HIGH/CRITICAL Gradle lockfile vulnerability scan,
-  web — incl. the API-contract gate (`lint:api` + `check:api`), e2e statics —
-  lint/knip/typecheck/scenario parity/setup, `npm audit` (high+) on both npm workspaces, `k8s-static` (kubeconform over
-  `k8s/`), and on `master` an image build plus a Trivy scan of it); the blackbox Playwright
-  suite (`e2e.yml`) runs nightly and on demand. Dependabot (`.github/dependabot.yml`) checks every
-  workspace, Actions and container manifests weekly; `.claude/docs/dependencies.md` describes
-  grouping, compatibility pins and runtime verification, and
-  `.claude/docs/dependency-reproducibility.md` describes the Gradle lock/checksum mechanism itself.
+- CI: `.github/workflows/ci.yml` re-runs every gate above on push/PR; the blackbox Playwright suite (`e2e.yml`) runs
+  nightly and on demand; Dependabot checks every workspace weekly. The job list, the Markdown-only skip, Trivy and
+  grouping: `.claude/docs/ci.md` (dependency rules: `dependencies.md`, `dependency-reproducibility.md`).
 
 ## Running the full stack
 
-`docker compose up --build` serves everything at `http://localhost:8084` (sign in as
-`admin@flow.local` — see the README for where the initial password comes from); local dev is
-`docker compose up postgres mailpit` (Postgres on host port **5435**) + `./gradlew :server:run`
-(API on **8084**) + `cd web && npm run dev` (Vite on **5176**, proxying `/api` to :8084), each in
-its own terminal. The compose stack bundles **Mailpit** (`http://localhost:8028`) and wires the
-app's password-reset and MFA email to it (`MAIL_TRANSPORT=smtp`). Ports deliberately avoid
-Lettuce's (8080/5432/5173/8025), Toadie's (8081/5433/5174/8026) and Covenant's (8082/5434/5175/8027)
-so every sibling stack can run side by side; host ports bind to 127.0.0.1 only. Kubernetes
-(OrbStack) deployment targets the dedicated `flow` namespace — see `k8s/secret.yaml`'s header for
-the secret-creation command.
+`docker compose up --build` serves everything at `http://localhost:8084` (sign in as `admin@flow.local` — the README
+says where the initial password comes from); local dev is `docker compose up postgres mailpit` (Postgres on host port
+**5435**, Mailpit UI **8028**) + `./gradlew :server:run` (API on **8084**) + `cd web && npm run dev` (Vite on **5176**,
+proxying `/api` to :8084), each in its own terminal. The ports deliberately avoid Lettuce's, Toadie's and Covenant's so
+every sibling stack runs side by side; host ports bind to 127.0.0.1 only. Mailpit wiring, the sibling port table and
+the Kubernetes (OrbStack) `flow` namespace: `.claude/docs/ci.md` "Running the full stack".
 
 ## Architecture
 
@@ -229,6 +196,8 @@ this file disagree, the doc wins.
 | `.claude/docs/metrics.md` | `metrics/`: the configuration model, DERIVE, the `metrics` star mechanics, the daily aggregates, performance figures |
 | `.claude/docs/measures.md` | any derived number or report: the per-measure contract (grain, anchor, attribution, estimate snapshot, missing data; `MeasureContractTest` checks its "Pinned by" column) |
 | `.claude/docs/reports.md` | `reports/` or any report page: the reports API (filter parser, `Distribution`, `meta`, D12 posture) and each report's shape, levels and period rules |
+| `.claude/docs/ci.md` | a CI job, Dependabot rule or static-analysis config (the CI job list, the detekt/eslint/knip policy details, the full-stack/Kubernetes notes) |
+| `.claude/docs/product.md` | the per-version roadmap and what each donor repo (Covenant/Lettuce/Toadie) contributed |
 | `.claude/docs/test-fixtures.md` | any server test fixture, the derived/synced stub fixtures, digests, OpenAPI conformance internals, e2e scenario files, Schemathesis |
 | `.claude/docs/web-features.md` | a data-source, metrics-config or report page in `web/` (the per-feature frontend conventions) |
 | `.claude/docs/dependencies.md` | any dependency, image or runtime-pin change (grouping, compatibility pins, acceptance checks) |

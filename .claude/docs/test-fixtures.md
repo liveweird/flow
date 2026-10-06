@@ -199,3 +199,99 @@ Gradle property to switch it off** (none was added); for a timing run or a tight
 it (no `test.ic` is written, so `koverVerify` would have nothing to check). Frontend vitest enforces thresholds in
 `web/vite.config.ts` (`test.coverage.thresholds`, same re-measure convention — the current
 actuals are noted in a comment beside them); run `cd web && npm run test:coverage`.
+
+**Server test setup, forks and the `TestEnvironment.kt` harness** (moved from `testing.md`; the binding one-line rules stay there).
+
+Backend tests live flat in `server/src/test/kotlin/` (kotlin.test + `io.ktor.server.testing.testApplication`)
+and override the `postgres.*` config keys via `MapApplicationConfig` to point at a Testcontainers
+`PostgreSQLContainer("postgres:18.6-alpine@sha256:77f58511…")` (the same digest `docker-compose.yaml` and
+`k8s/postgres-deployment.yaml` pin — `PostgresImagePinTest`) started lazily by `PostgresTestSupport` and **shared
+across the whole suite within a JVM fork** (one container per fork — "Parallel forks" below) (test-side direct database access, `sharedDatabaseForTests()`, goes through a small
+r2dbc-pool built by production's own `connectPooledDatabase` — an unpooled connect paid ~4 ms of backend
+setup per transaction, `.claude/docs/build-times.md` WHY 10). Running tests requires a working Docker daemon (Docker Desktop,
+OrbStack, etc. — with OrbStack and no `/var/run/docker.sock`, export
+`DOCKER_HOST=unix://$HOME/.orbstack/run/docker.sock`). The container runs **all** Flyway
+migrations, so the V3 seed admin (`admin@flow.local`) is present — tests scope their assertions
+with unique prefixes/filters (`uniqueEmail("marker")`) rather than asserting absolute counts.
+
+**Parallel forks (`-Pforks=N`).** `server/build.gradle.kts` sets `maxParallelForks` from the `forks` Gradle
+property (an integer 1..8, anything else fails any build that runs the `test` task; default 1 = one JVM; CI runs `-Pforks=2`; `forkEvery` is deliberately unset). Each fork is its own
+JVM, so it starts its OWN Testcontainers Postgres (`PostgresTestSupport` is a per-JVM `object`) and holds its own
+fixture singletons (`SyncedStubFixture`, `DerivedStubFixture`) — every "shared suite" rule in this doc
+(`withSoloAdmins`, `restoreSeedAccounts`, the metrics settings row, `dim_date`, worker claims, the fixtures'
+tripwires) therefore holds per fork, never across forks; a test must never assume another class ran before it
+on the same JVM, or that a class ran at all in this one. Gradle hands whole CLASSES to forks in whatever order it
+likes, so **class order is not a contract**: any class may be the first thing a fork runs. The one rule that
+follows: the container is migrated by `PostgresTestSupport` itself the moment it starts (a `Flyway.migrate()`
+in its lazy init, the same call as `infra/db/Flyway.kt`), so a fixture or raw-JDBC helper never needs its own
+"has Flyway run yet?" guard (`PostgresTestSupport.ensureMigrated()` is the explicit spelling; `MetricsDigestTest`
+run alone is the pin). The OpenAPI gate below
+merges the forks' coverage (per-fork fixed cost and the point where more forks stop paying: `build-times.md` WHY 5).
+
+**The `TestEnvironment.kt` harness** — use it instead of hand-rolling setup:
+
+- `configureApp(vararg overrides)` points the app at the shared container (with CSRF off)
+  WITHOUT starting it — tests that assert startup behavior (the fail-closed checks) add their
+  overrides and call `startApplication()` themselves; `usePostgresTestcontainer()` is the
+  configure-and-start shorthand.
+- `jsonClient()` / `authedClient(email, password)` — the standard HTTP clients; both go through
+  the shared test-client defaults (JSON + `application/problem+json` negotiation + the
+  `OpenApiConformance` plugin), and `authedClient` logs in and attaches the bearer on every
+  request.
+- `LogCapture(loggerName)` + `hasKeyValue` — a Logback `ListAppender` for asserting the audit
+  trail (`ch.nokillswit.audit`); `awaitEvent` polls for asynchronously produced events. Detach in
+  a finally.
+- `TestUsers.seed(email, password, name, role)` (bcrypt cost 4 for speed; defaults to ADMIN — pass
+  `UserRole.USER` for a non-privileged caller) — every seeded user funnels through
+  `UserService.create`, so they carry the inverted-default MFA-disabled row and log in
+  single-step and `TestUsers.softDelete(id)` (direct table update, bypassing the delete endpoint's
+  guards) and `TestUsers.withSoloAdmins(ids) { }` (temporarily parks every other active admin —
+  the last-admin-protection pin). `seededClient(prefix, role)` is the one-line seed+login
+  fixture.
+- `postJson`/`putJson` (the JSON body ceremony) + `HttpClient.login` (the raw login POST),
+  `withAuditCapture { }` (attach/detach on the audit logger), `withSeedRestored { }` and
+  `assertStartupFails(part) { }` for bootstrap/fail-closed tests — use these instead of re-rolling
+  the blocks they replaced.
+- **Many failed logins → seeded accounts.** A login for an UNKNOWN email pays a discarded cost-12 bcrypt
+  verify (the timing equalizer, ~225 ms locally); a test that needs a dozen failures (rate limit,
+  proxy trust) logs in as freshly seeded accounts (`TestUsers.seed`, cost 4) with a wrong password —
+  the same 401 path at ~1 ms (`.claude/docs/build-times.md` WHY 11); soft-delete them afterwards.
+- **`IngestWorker.tick()` claims from the whole shared queue** (and enqueues due jobs for every enabled
+  connection), so a direct tick runs whatever other classes left pending. Wrap it in
+  `withOnlyConnections(setOf(connId), tickClockMillis) { }` (`TestEnvironment.kt`, beside `withSoloAdmins`):
+  for the duration, every OTHER connection is disabled and every OTHER job the claim scan could take (PENDING,
+  or RUNNING with `lease_until` below the tick's clock) is parked under a far-future lease — set up in one
+  transaction, restored in a `finally`.
+- `TestTeams.seed(name, memberIds)` — a fresh team fixture; beside it, raw-row readers for what
+  the API hides (`TestTeams.rawRows`/`rawMemberIds`, `TestUsers.stampPasswordChangedAt`). Shared
+  suite state (the seed admin) is never mutated destructively — tests mint UNIQUE rows and remove
+  their own.
+- `TestSeedState.restoreSeedAccounts()` — bootstrap/production-mode tests rotate the seed admin's
+  password in the SHARED container; call this afterwards so later tests (and re-runs) see the
+  pristine V3 state. Production-mode boots must also override `"mail.transport" to "disabled"` —
+  the dev-default `log` transport is refused in production (`MailTransportTest`) — and
+  `"security.encryption.key" to strongEncryptionKey()` — the dev-default data-encryption key is
+  burned (`CryptoBootTest`); the checks fire in module order (JWT → mail → crypto → seed
+  passwords), so a test asserting a later check must satisfy every earlier one.
+
+**Frontend test internals** (moved from `testing.md`; the binding rules stay there).
+
+**Frontend tests.** Vitest + happy-dom + Testing Library, **co-located** next to the source
+(`Foo.test.tsx` beside `Foo.tsx`). `src/test/setup.ts` imports `../i18n` and forces `en`, so text
+assertions match the English resources; `src/test/render.tsx` is the shared wrapper and — like
+every file-local `MantineProvider` — must pass **`env="test"`** (since Mantine 9.4 the
+Popover/Combobox dropdown is `display: none` until Floating UI sees a real bounding box, which
+never happens in happy-dom, so Select-option clicks silently fail without it). `src/test/http.ts`
+holds the fetch-stubbing helpers. The shared setup also forces the reduced-motion media query and
+makes every Mantine test provider honor it: `Transition` invokes its animation hook even with
+`env="test"`, so synchronous reduced-motion transitions prevent callbacks from outliving happy-dom
+teardown. Other media queries retain their normal behavior; the application theme is unchanged.
+
+**The suite runs with `isolate: false`** (`web/vite.config.ts` — a worker reuses its module registry and
+globals across files; the measured gain is in `build-times.md`, WHY 6). Vitest already scopes `vi.mock`
+registrations per test file; what carries over is the EVALUATED `src/` modules, so `setup.ts` calls
+`vi.resetModules()` before every file (npm packages stay cached) and each file's own mocks apply. Tests must not assume anything an earlier test left
+behind — await lazy chart chunks (`findBy…`/`waitFor`, never a synchronous `getBy…` right after the first
+data assertion), reset module-level state in `afterEach`, and unstub globals/timers a test installed. The
+proof is `cd web && npx vitest run --sequence.shuffle` (run it a few times after adding a test); a test
+that only passes in file order is the bug, not the config.
