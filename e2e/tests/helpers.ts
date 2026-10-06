@@ -16,9 +16,15 @@ const PASSWORD = "changeme";
  * a fill() waits out the whole test timeout.
  */
 async function gotoSignInForm(page: Page): Promise<void> {
-  if (!page.url().startsWith("http")) await page.goto("/login");
-  await page.evaluate(() => localStorage.clear());
-  await page.goto("/login");
+  if (page.url().startsWith("http")) {
+    await page.evaluate(() => localStorage.clear());
+    await page.goto("/login");
+  } else {
+    // A fresh page (about:blank) is a fresh browser context: there is no session to clear, so ONE
+    // load of the SPA is enough — the clear-and-reload branch above cost a second one in every
+    // login (~125 per run, ~95 of them on the axe sweeps; build-times.md WHY 7).
+    await page.goto("/login");
+  }
   await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible();
 }
 

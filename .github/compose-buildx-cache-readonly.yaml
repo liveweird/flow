@@ -1,0 +1,8 @@
+# CI-only override for e2e.yml, the read-only twin of compose-buildx-cache.yaml: imports the restored
+# layer cache and exports nothing. Used when actions/cache reported an exact key hit — it saves only on a
+# miss, so an export on a hit would be discarded (~15 s per nightly, build-times.md WHY 7/9).
+services:
+  app:
+    build:
+      cache_from:
+        - type=local,src=${BUILDX_CACHE_DIR:?set BUILDX_CACHE_DIR}

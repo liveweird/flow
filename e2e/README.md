@@ -40,7 +40,7 @@ carve-out in [`scenarios/README.md`](scenarios/README.md).
 
 ## Parallel execution
 
-The suite runs on **4 workers by default** (`E2E_WORKERS` overrides; `E2E_WORKERS=1` restores
+The suite runs on **4 workers by default** (`E2E_WORKERS` overrides; the `e2e.yml` `workflow_dispatch` form has a `workers` input for A/B runs; `E2E_WORKERS=1` restores
 fully-serial behavior). The serial unit is the **spec file** (`fullyParallel: false` — a file's
 tests may be order-dependent); different files run concurrently. That is only sound because
 **every spec file owns its server-side state exclusively** — the standing rulebook, inherited
