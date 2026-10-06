@@ -3,7 +3,7 @@
 - **Spec**: [tests/data-sources.spec.ts](../tests/data-sources.spec.ts)
 - **Actors**: the seed administrator (`admin@flow.local`); one throwaway user in the second test
 - **Owns** (exclusive server-side state): its throwaway data source (unique `e2e-jira-*` name),
-  deleted at the end of the first test; its throwaway user in the second test. The synced
+  deleted at the end of the first test (the cleanup hook removes it through the API if a step fails first); its throwaway user in the second test. The synced
   connection's `raw.*`/`norm.*` rows are NOT deleted with it (see "Not covered here" below) — the
   compose stack's Postgres volume accumulates ~1,200 raw issues per run until the grace period
   purges them.
@@ -42,7 +42,8 @@
 2. The user signs in.
    - *Expected*: there is no **Data sources** nav link, and visiting `/data-sources` directly
      redirects to Home (the `RequireAdmin` route guard).
-3. The admin signs back in and deletes the throwaway user.
+3. The admin signs back in and deletes the throwaway user (the cleanup hook also removes it through the API if a step
+   failed first).
 
 ## Not covered here (and why)
 

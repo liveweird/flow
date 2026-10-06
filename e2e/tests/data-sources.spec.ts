@@ -3,10 +3,17 @@
 // tenant is ever touched), test-connects it, syncs it end to end, and reads back what landed —
 // the sync-jobs history, the raw-store counts, the data profile and the raw issue inspector.
 // A regular user sees no trace of the surface at all. Owns: its throwaway data source (unique
-// `e2e-jira-*` name) — deleted at the end of the file — and, in the second test, a throwaway
+// `e2e-jira-*` name) — deleted at the end of its test (and by the afterEach below when a step fails first) — and, in the second test, a throwaway
 // user. The synced connection's raw/normalized rows are NOT purged by the delete (see
 // scenarios/data-sources.md "Not covered here").
-import { createUserViaUi, deleteUserRow, expect, login, openFilters, rowOperation, signOut, test, uniqueText } from "./helpers";
+import { createUserViaUi, deleteUserRow, deleteViaApi, expect, login, openFilters, rowOperation, signOut, test, uniqueText } from "./helpers";
+
+// Server-side rows the running test created, removed (children first) by the afterEach below whatever the test's outcome — the
+// in-body UI delete is a scenario step, this is the safety net for a step that fails before reaching it (404 = already gone).
+const teardown: string[] = [];
+test.afterEach(async () => {
+  await deleteViaApi(teardown.splice(0).reverse());
+});
 
 test("admin connects the Jira stub, syncs it, and inspects the result", async ({ page }) => {
   test.setTimeout(300_000);
@@ -40,10 +47,11 @@ test("admin connects the Jira stub, syncs it, and inspects the result", async ({
   }
   await expect(dialog.getByText(/Cloud ID: /)).toBeVisible();
 
-  await Promise.all([
+  const [createResponse] = await Promise.all([
     page.waitForResponse((r) => r.url().endsWith("/api/v1/data-sources") && r.request().method() === "POST" && r.ok()),
     dialog.getByRole("button", { name: "Create", exact: true }).click(),
   ]);
+  teardown.push(`/api/v1/data-sources/${(await createResponse.json()).id as number}`);
   await expect(dialog).toHaveCount(0);
 
   // Filter the list down to the new row and open its details page.
@@ -116,6 +124,7 @@ test("admin connects the Jira stub, syncs it, and inspects the result", async ({
 test("a regular user sees no Data sources surface", async ({ page }) => {
   await login(page);
   const user = await createUserViaUi(page, "E2E DataSource Reader");
+  teardown.push(`/api/v1/users/${user.id}`);
   await signOut(page);
 
   await login(page, user.email, user.password);
