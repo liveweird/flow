@@ -102,7 +102,7 @@ below, never a failing check.
 | `stub-clone` (`cloneProcessedData`) | 0.5 s | 1.5 s | an `INSERT … SELECT` of the same 14 tables measured 220 ms; the Exposed clone takes 3.6 s |
 | `stub-process` (PROCESS, 1,200 issues) | 3 s | 8 s | ~2.5 ms per issue is generous for a page-batched read plus a handful of batched writes; measured 0.6-0.65 s with the statement-timeout cache (2026-10-06, WHY 13), 0.75-0.85 s with `insertRows` + `upsertRows` (2026-10-06), 1.0-1.1 s with `insertRows` alone (WHY 3 follow-up), 2.2-2.3 s with `batchInsert` after the page batching (2026-09-30: 2.4-3.2 s), was 16-19 s at 13.5-15 ms per issue |
 | `stub-derive` (one DERIVE of the stub) | 1 s | 3 s | 1,200 items, ~1,300 days; measured ~1.1 s steady with the statement-timeout cache (2026-10-06, WHY 13), 1.17-1.75 s with `insertRows` (2026-10-01, WHY 3; 2.9-3.7 s with `batchInsert`), 7-26 s before the statistics fix; of the rest the WIP `INSERT … SELECT` is 0.5-0.75 s |
-| `derive-perf` (scale-20, ~24k issues, `docker-compose.perf.yaml`) | 20 s | 180 s | 20x the stub at 1 s; the ceiling is the v0.3.0 plan budget (< 3 min); measured 82 s |
+| `derive-perf` (scale-20, ~24k issues, `docker-compose.perf.yaml`) | 20 s | 180 s | 20x the stub at 1 s; the ceiling is the v0.3.0 plan budget (< 3 min); measured 82 s on 2026-09-29, 38-52 s at 512m on 2026-10-07 (WHY 14) |
 
 ## History so far
 
@@ -793,6 +793,38 @@ evidence and recorded here as a dated entry (finding + fix, or "measured, intend
    (`cleanTest :server:test -Pforks=2`, alternated): 133 s / 142 s off vs 127 s / 136 s with the cache — about -5 %, inside the noise.
    `stub-process` is now ~0.6-0.65 s (was 0.75-0.85 s), `stub-derive` ~1.1 s steady. Behaviour change to know: a hand-rolled
    `SET LOCAL statement_timeout` is no longer reliably undone by Exposed — the rule stays "only the `queryTimeout` sets it".
+
+14. **DERIVE died with `OutOfMemoryError` at production sizing after the multi-row INSERT work — ANSWERED 2026-10-07 (`fix/derive-heap-retention`): Exposed kept every executed statement until the transaction ended.**
+   Live on master `3f51ab4`: the scale-20 DERIVE (24,000 issues, `-Xmx512m`, 768 MiB container, `docker-compose.perf.yaml`) that passed in 137.8 s on
+   2026-09-29 (before WHY 3's `insertRows`) failed with `Java heap space`, in `MultiRowInsert.writeRows` and in
+   `PostgresqlSqlParser.tokenize` (the victim, not the cause); even a 3 GiB heap kept ≥ 725 MB live (a Full GC reclaimed nothing). Class histograms
+   mid-run: `ParsedSql$Token` ~4.0 M, `String` 4.3 M, `byte[]` 4.4 M, `EncodedParameter` 1.75 M — real derive data is a few MB.
+   **Cause (bytecode + measurement, not a guess):** `R2dbcTransaction.exec(sql, args)` wraps the SQL in a `SuspendExecutable`, and
+   `SuspendExecutableKt.executeIn` does `transaction.executedStatements.add(statement)` (before the after-execution interceptors); the only things
+   that empty the list are `clearExecutedStatements()` — which `executeIn` itself calls before a statement when `!db.supportsMultipleResultSets` —
+   and `closeStatementsAndConnection`, which runs at the end of every top-level transaction (commit OR rollback) and does nothing else — it closes
+   no statement (`javap -c` of all three). DERIVE is deliberately ONE transaction, so each of its multi-row statements (up to 32,000 bind parameters: ~100,000 parsed SQL
+   tokens in the driver's per-statement `ParsedSql` plus every `EncodedParameter`) stays reachable until the end. The probe
+   (`item_stage`, one maximum 31,998-parameter chunk per round, one transaction, heap after `System.gc()`): `executedStatements` grew by one
+   per chunk and the live heap by **~8.2 MB per chunk** (72 -> 109 -> 142 -> 174 -> 206 -> 238 -> 270 MB over 24 chunks); with the fix the list
+   stays empty and the heap sits flat at 86 MB for all 24. **Not the driver's statement cache:** r2dbc-postgresql's `BoundedStatementCache`
+   (bounded to `PREPARED_STATEMENT_CACHE_QUERIES` = 256) keys on `CacheKey(String sql, int[] parameterTypes)` and maps to a statement NAME — it
+   never holds the `ParsedSql` (that lives on the `PostgresqlStatement` instance) — and the flat 86 MB above was measured WITH the cache active.
+   Its cost is the SQL strings of the cached texts only (the ~128 texts of a DERIVE; a few MB).
+   **Fix:** `MultiRowInsert.writeRows` calls `tx.clearExecutedStatements()` after every chunk (the one public hook; nothing is closed by
+   Exposed when a transaction ends either, so nothing is lost, and `openResultRowsCount` it also resets is a log-threshold counter).
+   **Scope caveat:** the call empties the transaction's WHOLE list, the caller's earlier statements too (DERIVE's per-batch `inList` SELECTs, ~80 MB at
+   scale 20 if kept). DERIVE's per-batch reads are bounded only because every batch ends in an `insertRows`; a future step that reads per batch
+   but writes via `batchInsert`/`exec` would bring the linear retention back. One transaction stays one
+   transaction (the whole-rebuild atomicity is untouched); PROCESS's page transactions commit and clear anyway, so its speed is unchanged. Alternatives
+   not taken: `INSERT … SELECT FROM unnest($1::t[], …)` (constant SQL text, but a new binding path for every column type — a rewrite for no gain
+   once the retention is gone) and a smaller chunk (it only slows the leak).
+   **Pin:** `MultiRowInsertRetentionTest` — (1) after 3 chunks in one transaction the `executedStatements` list (reflection on the Exposed field; a
+   rename on an upgrade fails loudly) is empty: the cause (negative control: with the `clearExecutedStatements()` line removed it fails). A second case measured
+   the effect (retained heap after 4 warm-up + 8 maximum-size chunks: < 30 MB flat vs ~66 MB leaking) but cost 4.7-5.0 s per fork for no
+   extra signal over the cause pin, so it was dropped before merge (build times matter); the class now takes ~0.02 s. **Result at scale 20 / 512m** (`metrics.md` "Performance (scale 20)"): DERIVE first 38.0 s, mapped 50.1 s, warm 52.2 s, live heap
+   130-275 MB, two connections at once 68.9 / 69.3 s and still inside 512m. Also added: `-XX:+ExitOnOutOfMemoryError` in `applicationDefaultJvmArgs`
+   — the OOM had killed single threads (the worker coroutine, a Netty event loop) and left a half-dead process that compose/k8s never restarted.
 
 **What the suite is made of (local, pre-fix run, 782 tests, 12m30s of class time):**
 `MetricsDerivationTest` 5m55s (47 %), `MetricsDigestTest` 2m00s (16 %), `NormalizationPipelineTest`

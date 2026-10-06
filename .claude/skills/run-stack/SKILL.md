@@ -17,7 +17,7 @@ Flyway's `ServiceLoader` discovery works exactly as under `:server:run`.
 ## JVM footprint tuning
 
 JVM footprint tuning is baked into the `application {}` block in `server/build.gradle.kts` via
-`applicationDefaultJvmArgs` = `-XX:+UseSerialGC -Xmx256m -XX:TieredStopAtLevel=1`, so it flows
+`applicationDefaultJvmArgs` = `-XX:+UseSerialGC -Xmx256m -XX:TieredStopAtLevel=1 -XX:+ExitOnOutOfMemoryError`, so it flows
 into both `bin/server` (→ Docker image) and `:server:run` (the Gradle `test` task is unaffected).
 Measured (in Lettuce, the same stack) on a 512 MiB Linux container: baseline G1 drifts
 **~345→410 MiB RSS** as it grows its heap, vs a steady, deterministic **~270 MiB** with these
@@ -25,7 +25,10 @@ flags (**~25% lower and predictable**); startup is ~1.6 s either way, so the win
 startup. SerialGC removes G1's per-heap overhead (~75 MiB); `-Xmx256m` caps a heap that holds no
 large caches (drop to `192m` to trim ~25 MiB more); C1-only (`TieredStopAtLevel=1`) trims
 code-cache + C2-compiler memory (~50 MiB) at the cost of peak CPU-bound throughput (irrelevant
-here — **remove that flag if the service ever runs hot**). Override per-deploy with
+here — **remove that flag if the service ever runs hot**); `-XX:+ExitOnOutOfMemoryError` makes a heap OOM
+end the process (it used to kill single threads — the worker coroutine, a Netty event loop — and leave a
+half-dead process that compose/k8s never restarted; now `restart: unless-stopped`/k8s restarts it and the job
+lease is reclaimed). Override per-deploy with
 `JAVA_OPTS`/`SERVER_OPTS` — the Gradle-generated launcher script (`bin/server`) assembles the JVM
 command line as `$DEFAULT_JVM_OPTS $JAVA_OPTS $SERVER_OPTS`, so a `JAVA_OPTS`-supplied flag comes
 AFTER the baked `applicationDefaultJvmArgs` on the same `java` invocation and the JVM takes the

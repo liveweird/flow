@@ -41,11 +41,17 @@ application {
     //   - TieredStopAtLevel=1: C1-only JIT — trims code-cache + C2-compiler memory (~50 MiB here).
     //                          Peak CPU-bound throughput is lower, which is irrelevant for an
     //                          I/O-bound tool; REMOVE this flag if the service ever runs hot.
+    //   - ExitOnOutOfMemoryError: a heap OOM used to kill single threads (the worker coroutine, a Netty
+    //                          event loop) and leave a half-dead process that compose/k8s never restarted;
+    //                          exiting lets `restart: unless-stopped`/k8s restart it and the job lease be reclaimed.
+    //                          It fires only on VM-raised OOMs (heap, metaspace, native thread), not on Netty's
+    //                          `OutOfDirectMemoryError` ("Direct buffer memory"), which Java code throws.
     // Override per-deployment with the JAVA_OPTS / SERVER_OPTS env vars (the launcher appends both).
     applicationDefaultJvmArgs = listOf(
         "-XX:+UseSerialGC",
         "-Xmx256m",
         "-XX:TieredStopAtLevel=1",
+        "-XX:+ExitOnOutOfMemoryError",
     )
 }
 
