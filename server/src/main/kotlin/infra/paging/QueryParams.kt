@@ -38,32 +38,28 @@ fun Parameters.repeatedValues(name: String): List<String> =
 
 /**
  * Every non-blank value of [name], trimmed and `distinct()` (first occurrence wins), for a repeated-key param whose contract bounds how
- * MANY values it takes (the deep dive's `epicId`/`issueId` keys): 400 when fewer than [minCount] or more than [maxCount] distinct
- * values arrive. Duplicates collapse rather than fail, as in [repeatedEnum]; the bound applies to what is left.
+ * MANY values it takes (the deep dive's `epicId`/`issueId` keys): 400 when more than [maxCount] distinct values arrive. Duplicates collapse
+ * rather than fail; the bound applies to what is left.
  */
-fun Parameters.repeatedStrings(name: String, minCount: Int = 0, maxCount: Int): List<String> =
-    boundedCount(name, repeatedValues(name).map { it.trim() }.distinct(), minCount, maxCount)
+fun Parameters.repeatedStrings(name: String, maxCount: Int): List<String> =
+    boundedCount(name, repeatedValues(name).map { it.trim() }.distinct(), maxCount)
 
 /**
  * Every non-blank value of [name] parsed as an id (`Long`, `distinct()`) of at least [minValue] (default 0; pass 1 to refuse a zero id),
- * bounded to [minCount]..[maxCount] distinct values like [repeatedStrings]; 400 on a value that is not an integer of at least
- * [minValue]. Empty (when [minCount] is 0) when absent.
+ * bounded to [maxCount] distinct values like [repeatedStrings]; 400 on a value that is not an integer of at least [minValue]. Empty when
+ * absent.
  */
-fun Parameters.repeatedLongs(name: String, minCount: Int = 0, maxCount: Int, minValue: Long = 0): List<Long> =
+fun Parameters.repeatedLongs(name: String, maxCount: Int, minValue: Long = 0): List<Long> =
     boundedCount(
         name,
         repeatedValues(name).map { raw ->
             raw.trim().toLongOrNull()?.takeIf { it >= minValue } ?: throw BadRequestException("Invalid $name: $raw")
         }.distinct(),
-        minCount,
         maxCount,
     )
 
-private fun <T> boundedCount(name: String, values: List<T>, minCount: Int, maxCount: Int): List<T> {
+private fun <T> boundedCount(name: String, values: List<T>, maxCount: Int): List<T> {
     if (values.size > maxCount) throw BadRequestException("Parameter '$name' takes at most $maxCount values")
-    if (values.size < minCount) {
-        throw BadRequestException("Parameter '$name' takes at least $minCount value${if (minCount == 1) "" else "s"}")
-    }
     return values
 }
 
@@ -83,15 +79,3 @@ inline fun <reified E : Enum<E>> Parameters.optionalEnum(name: String): E? =
             "Unknown $name: $raw (allowed: ${enumValues<E>().joinToString { it.name }})",
         )
     }
-
-/**
- * Every non-blank value of [name] parsed as an enum constant (case-insensitive, `distinct()`) —
- * the repeated-key any-of idiom (API-LIST-004) for an enum-typed filter; 400 (listing the allowed
- * values) on an unknown one. Empty when absent.
- */
-inline fun <reified E : Enum<E>> Parameters.repeatedEnum(name: String): List<E> =
-    repeatedValues(name).map { raw ->
-        enumValues<E>().firstOrNull { it.name.equals(raw, ignoreCase = true) } ?: throw BadRequestException(
-            "Unknown $name: $raw (allowed: ${enumValues<E>().joinToString { it.name }})",
-        )
-    }.distinct()

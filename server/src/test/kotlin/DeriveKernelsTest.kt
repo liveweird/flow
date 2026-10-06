@@ -401,17 +401,6 @@ class DeriveKernelsTest {
         assertTrue(timeline.all { it.atMs >= 1_000 }, "no point may predate the item's own creation")
     }
 
-    // ---- valueAsOf -----------------------------------------------------------------------------
-
-    @Test
-    fun `valueAsOf returns the initial value before any change and the latest change at or before t`() {
-        val points = listOf(10L to "A", 20L to "B", 30L to "C")
-        assertEquals("start", DeriveKernels.valueAsOf(points, initial = "start", atMs = 5))
-        assertEquals("A", DeriveKernels.valueAsOf(points, initial = "start", atMs = 10))
-        assertEquals("B", DeriveKernels.valueAsOf(points, initial = "start", atMs = 25))
-        assertEquals("C", DeriveKernels.valueAsOf(points, initial = "start", atMs = 1000))
-    }
-
     // ---- sprintMembership (set-valued) ----------------------------------------------------------
 
     @Test

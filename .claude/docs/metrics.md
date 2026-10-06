@@ -376,8 +376,6 @@ Pure, per-item functions — no DB, the `norm/Tiling.kt` pattern — called once
   carries no key) into `task_domain`'s effective-dated history.
 - **`epicDriftFlags`** compares an epic's OWN stage against its children's delivery state — D11's
   three codes, flagged, never re-dating the epic.
-- **`valueAsOf`** is the one generic as-of helper (a value active at an instant from an ordered
-  `(changedAt, value)` list) — work category at `done_at`, a sprint's team at an instant, etc.
 
 ## Sprint scope, facts and snapshots (D13, v0.3.0 M3 commit 8)
 

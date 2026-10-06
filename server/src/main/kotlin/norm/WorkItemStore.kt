@@ -575,17 +575,6 @@ class WorkItemStore(private val database: R2dbcDatabase) {
         return skipped.size
     }
 
-    // RECONCILE/PROCESS tombstone mirror (plan §8): a raw issue tombstoned since the last PROCESS
-    // gets the SAME tombstone here, on its next normal replace — no separate code path.
-
-    suspend fun countWorkItems(connectionId: UInt): Long = suspendTransaction(database) {
-        WorkItems.selectAll().where { WorkItems.connectionId eq connectionId }.count()
-    }
-
-    suspend fun countWorklogs(connectionId: UInt): Long = suspendTransaction(database) {
-        Worklogs.selectAll().where { Worklogs.connectionId eq connectionId }.count()
-    }
-
     /** One issue's PROFILE-relevant `norm.work_items` columns (v0.2.0 plan §8/§12 item 9) — `jira/JiraProfile.kt`'s bulk read. */
     data class ProfileWorkItemRow(
         val issueId: Long,
@@ -902,10 +891,6 @@ class WorkItemStore(private val database: R2dbcDatabase) {
             .toList()
             .groupBy({ it[Worklogs.issueId] }) { it[Worklogs.timeSpentSeconds] }
             .mapValues { (_, seconds) -> seconds.sum() }
-    }
-
-    suspend fun workItemRow(connectionId: UInt, issueId: Long): org.jetbrains.exposed.v1.core.ResultRow? = suspendTransaction(database) {
-        WorkItems.selectAll().where { (WorkItems.connectionId eq connectionId) and (WorkItems.issueId eq issueId) }.toList().singleOrNull()
     }
 
     /**

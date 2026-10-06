@@ -418,12 +418,6 @@ class MetricsStore(private val database: R2dbcDatabase) {
         }
     }
 
-    /** Wholesale-replace shape (one call), kept for a caller with every row in memory — `IngestWorkerTest`'s own fixture seeding. */
-    suspend fun replaceFactTaskDelivery(connectionId: UInt, rows: List<FactTaskDeliveryRow>, configRevision: Long) {
-        deleteFactTaskDelivery(connectionId)
-        insertFactTaskDelivery(connectionId, rows, configRevision)
-    }
-
     suspend fun deleteFactEpicDelivery(connectionId: UInt) {
         FactEpicDelivery.deleteWhere { FactEpicDelivery.connectionId eq connectionId }
     }
@@ -453,12 +447,6 @@ class MetricsStore(private val database: R2dbcDatabase) {
             this[FactEpicDelivery.ownerTeamId] = it.ownerTeamId
             this[FactEpicDelivery.configRevision] = configRevision
         }
-    }
-
-    /** Wholesale-replace shape (one call), kept for a caller with every row in memory already. */
-    suspend fun replaceFactEpicDelivery(connectionId: UInt, rows: List<FactEpicDeliveryRow>, configRevision: Long) {
-        deleteFactEpicDelivery(connectionId)
-        insertFactEpicDelivery(connectionId, rows, configRevision)
     }
 
     // ---- Sprint step (v0.3.0 M3 commit 8: dim_sprint, fact_sprint_scope, fact_sprint, snapshots) ----
