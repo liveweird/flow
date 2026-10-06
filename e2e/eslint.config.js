@@ -4,7 +4,7 @@ import sonarjs from 'eslint-plugin-sonarjs'
 import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
-// The e2e workspace's quality gate — the sibling of checker/eslint.config.js and web/eslint.config.js:
+// The e2e workspace's quality gate — the sibling of web/eslint.config.js:
 // zero findings, no baseline, one commented override per deliberate idiom.
 export default defineConfig([
   globalIgnores(['node_modules', 'playwright-report', 'test-results', '.playwright']),

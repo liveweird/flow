@@ -6,7 +6,7 @@
     "minDeltaSeconds": 10,
     "minDeltaFromSeconds": 60
   },
-  "historicTimeoutMinutes": [30],
+  "historicTimeoutMinutes": [30, 45, 25],
   "budgets": {
     "ci": {
       "changes": { "target": 15, "alarm": 30, "why": "one checkout + one git diff" },
