@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ParseKeys } from "i18next";
 import { useTranslation } from "react-i18next";
 import { Link as RouterLink, useParams } from "react-router-dom";
@@ -47,6 +47,7 @@ const JOB_TOASTS: Record<"SYNC" | "RECONCILE" | "REPROCESS", { requested: ParseK
 };
 
 const PAGE_SIZE = 20;
+const AUTO_REFRESH_MS = 5000;
 
 /** True while a job is still open — the auto-refresh condition (plan §10/§11: refetch every 5s only then). */
 function isOpen(status: SyncJobStatus | undefined): boolean {
@@ -154,7 +155,8 @@ function CountsSection({ counts }: { counts: SyncCounts }) {
 /**
  * One data source's operational surface (`/data-sources/:id`, ADMIN only — plan §9/§10/§11):
  * connection summary, the current job's progress (auto-refreshing every 5s only while one is
- * open), cursors, raw-store counts, and the paged/filterable sync-jobs history. Actions request
+ * open — the sync-jobs history refreshes on the same condition), cursors, raw-store counts, and the
+ * paged/filterable sync-jobs history. Actions request
  * the same three job kinds `DataSources.tsx`'s "Sync now" does, plus Reconcile/Reprocess and
  * Cancel — all through the one generic `requestSyncJob`/`cancelSyncJob` pair.
  */
@@ -170,8 +172,11 @@ export default function DataSourceDetails() {
     queryKey: ["dataSources", "status", id],
     queryFn: () => getDataSourceStatus(id),
     enabled: idIsValid && admin,
-    refetchInterval: (query) => (isOpen(query.state.data?.currentJob?.status) ? 5000 : false),
+    refetchInterval: (query) => (isOpen(query.state.data?.currentJob?.status) ? AUTO_REFRESH_MS : false),
   });
+  // The history polls on the SAME condition as the summary (a job is open), so a row never keeps saying
+  // Running after the job finished.
+  const jobOpen = isOpen(status.data?.currentJob?.status);
 
   const [jobKind, setJobKind] = useState<SyncJobKind | null>(null);
   const [jobStatus, setJobStatus] = useState<SyncJobStatus | null>(null);
@@ -183,7 +188,16 @@ export default function DataSourceDetails() {
     queryFn: () => listSyncJobs(id, { page: jobsPage, pageSize: jobsPageSize, kind: jobKind ?? undefined, status: jobStatus ?? undefined }),
     placeholderData: keepPreviousData,
     enabled: idIsValid && admin,
+    refetchInterval: jobOpen ? AUTO_REFRESH_MS : false,
   });
+  // One last refetch when the open job finishes: the interval stops the moment the summary reports no open job,
+  // and the tick that raced it may have read the history before the job's terminal state landed.
+  const wasOpen = useRef(false);
+  const refetchJobs = jobs.refetch;
+  useEffect(() => {
+    if (wasOpen.current && !jobOpen) void refetchJobs();
+    wasOpen.current = jobOpen;
+  }, [jobOpen, refetchJobs]);
 
   const [editing, setEditing] = useState(false);
   const [reprocessConfirmOpen, setReprocessConfirmOpen] = useState(false);
