@@ -16,7 +16,7 @@ private val SKIP_LOCKED = ForUpdateOption.PostgreSQL.ForUpdate(ForUpdateOption.P
 /**
  * The first key of the claim's per-connection advisory lock — the ASCII bytes of "SYNC" as a positive `int`; the second
  * key is the connection id. The two-`int` form of `pg_try_advisory_xact_lock` lives in its own key space, apart from
- * the single-`bigint` keys (`metrics/MetricsStore.kt`'s `DIM_DATE_LOCK_KEY`), so the two can never collide.
+ * the single-`bigint` keys (`metrics/MetricsDimDateStore.kt`'s `DIM_DATE_LOCK_KEY`), so the two can never collide.
  * `.claude/docs/persistence.md` lists it.
  */
 internal const val CLAIM_LOCK_NAMESPACE = 0x53594E43

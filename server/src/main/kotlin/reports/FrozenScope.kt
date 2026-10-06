@@ -18,7 +18,7 @@ import org.jetbrains.exposed.v1.r2dbc.selectAll
 /*
  * The USER-level frozen reader every sprint report shares (Velocity, Throughput's `bySprint`, Sprint consistency): a
  * sprint's per-user FROZEN figures are computed from the `fact_sprint_snapshot.scope` JSONB (the writer's
- * `MetricsStore.sprintScopeItemsJson` shape, D13) with the same predicates, attribution and rounding as the live ones —
+ * `MetricsSprintWrites.kt`'s `sprintScopeItemsJson` shape, D13) with the same predicates, attribution and rounding as the live ones —
  * `.claude/docs/metrics.md`: "per-user velocity from the snapshot needs no child table". ONE strict parser
  * ([parseFrozenScope]) and ONE fetch ([fetchFrozenScopes]); each report only picks the item shape it needs.
  * Every function runs inside the CALLER's `suspendTransaction`.
@@ -78,7 +78,7 @@ internal class FrozenScopeItem(
 }
 
 /**
- * Parses one snapshot's stored `scope` JSON (written ONLY by `MetricsStore.sprintScopeItemsJson`) item by item through
+ * Parses one snapshot's stored `scope` JSON (written ONLY by `MetricsSprintWrites.kt`'s `sprintScopeItemsJson`) item by item through
  * [build]. A malformed document fails with `fact_sprint_snapshot.scope malformed for connection C sprint S: …`.
  */
 internal fun <T> parseFrozenScope(scopeJson: String, connectionId: UInt, sprintId: Long, build: (FrozenScopeItem) -> T): List<T> {

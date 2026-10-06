@@ -559,14 +559,14 @@ and every `metrics.*` star table: `dim_date`/`dim_domain`/`dim_task`/`dim_epic`/
 writers). Interval storage mirrors `metrics.team_membership`'s own precedent (V15): half-open
 `valid_from BIGINT NOT NULL, valid_to BIGINT NULL` pairs, no `tstzrange` (no r2dbc-postgresql codec
 for it). Every table is `connection_id`-scoped and rebuilt WHOLESALE per DERIVE run — delete then
-insert, `MetricsStore.kt` (the table objects live in `MetricsTables.kt`, the row shapes in `MetricsRows.kt`) splits each pair into a `deleteX`/`insertX` method so
+insert, `MetricsStore` (the facade in `MetricsStore.kt`; the writes live in `MetricsDimWrites.kt`/`MetricsFactWrites.kt`/`MetricsSprintWrites.kt`, the table objects in `MetricsTables.kt`, the row shapes in `MetricsRows.kt`) splits each pair into a `deleteX`/`insertX` method so
 `MetricsDeriver.kt` can delete ONCE up front and insert BATCH BY BATCH (`.claude/docs/metrics.md`
 "The DERIVE run algorithm") — EXCEPT `dim_date` (global, reconciled by `MetricsStore.ensureDimDate`:
 its own committed `inTopLevelSuspendTransaction` under the advisory lock `DIM_DATE_LOCK_KEY`, writing only rows that
 are missing or differ from the calendar — `.claude/docs/metrics.md` "Calendar math")
 and `fact_sprint_snapshot` (append-only, see below). **The `insertX` methods write through `infra/db/MultiRowInsert.kt`'s `insertRows`**
 (`batchInsert`'s call shape, one multi-row `INSERT … VALUES` per chunk): `exposed-r2dbc`'s `batchInsert` executes every row as its own bound
-statement (~0.16-0.19 ms a row, 10x the multi-row cost — `.claude/docs/build-times.md` WHY 3). **The repo has exactly two PostgreSQL advisory locks, both transaction-scoped.** `DIM_DATE_LOCK_KEY` (`MetricsStore.kt`, the ASCII bytes of
+statement (~0.16-0.19 ms a row, 10x the multi-row cost — `.claude/docs/build-times.md` WHY 3). **The repo has exactly two PostgreSQL advisory locks, both transaction-scoped.** `DIM_DATE_LOCK_KEY` (`MetricsDimDateStore.kt`, the ASCII bytes of
 "FlowDate", the single-`bigint` form `pg_advisory_xact_lock(key)`) and `ensureDimDate`, the only
 `inTopLevelSuspendTransaction` caller (a write that commits while its caller's transaction is still open); no other code may take that key.
 The second is `SyncJobsService.claim`'s per-connection try-lock, `pg_try_advisory_xact_lock(CLAIM_LOCK_NAMESPACE, connectionId)`
