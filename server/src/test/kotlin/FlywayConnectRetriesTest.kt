@@ -2,6 +2,7 @@ package ch.nokillswit
 
 import ch.nokillswit.infra.db.buildFlyway
 import ch.nokillswit.infra.db.readFlywayConnectRetries
+import ch.nokillswit.infra.db.worstCaseConnectWaitSeconds
 import io.ktor.server.config.MapApplicationConfig
 import io.ktor.server.testing.testApplication
 import kotlin.test.Test
@@ -28,6 +29,18 @@ class FlywayConnectRetriesTest {
             val failure = assertFailsWith<IllegalStateException>("value \"$bad\"") { readFlywayConnectRetries(config(bad)) }
             assertTrue("postgres.connectRetries" in failure.message.orEmpty(), failure.message)
         }
+    }
+
+    @Test
+    fun `Ktor's startup timeout outlasts the longest Flyway wait and stays inside the k8s startup probe`() = testApplication {
+        configureApp()
+        startApplication()
+        assertEquals(63, worstCaseConnectWaitSeconds(10))
+        val longestWaitMillis = worstCaseConnectWaitSeconds(15) * 1_000L // the 0..15 bound's maximum: 103 s
+        val timeout = application.environment.config.property("ktor.application.startupTimeoutMillis").getString().toLong()
+        // Boot besides Flyway (JVM, migrations, seed hashing) needs headroom; the k8s startupProbe allows ~150 s (30 x 5 s).
+        assertTrue(timeout >= longestWaitMillis + 20_000, "startupTimeoutMillis $timeout cuts the Flyway retry wait short")
+        assertTrue(timeout < 150_000, "startupTimeoutMillis $timeout outlasts the k8s startupProbe")
     }
 
     @Test

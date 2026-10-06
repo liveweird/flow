@@ -6,6 +6,11 @@ ktor:
   deployment:
     port: 8084
   application:
+    # Ktor cancels module loading after `startupTimeoutMillis` (default 10 s) — which cut the cold-start
+    # Flyway retry wait (up to ~103 s at the maximum 15 retries, infra/db/Flyway.kt) short and crashed the
+    # pod once on every fresh deploy (checkup 2, live k8s). 140 s outlasts that wait plus boot and stays
+    # inside the k8s startupProbe (~150 s); FlywayConnectRetriesTest pins both bounds.
+    startupTimeoutMillis: 140000
     modules:
       # — base plugins
       - ch.nokillswit.plugins.HttpKt.configureHttp
