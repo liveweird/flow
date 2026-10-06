@@ -67,7 +67,7 @@ D9 WHY 3 and the Kover cost (#62), B7 steps 2-3 (#68, step 3 (2026-10-06)), the 
 migrates on start), and the `value_text` overflow (V18). What remains:
 
 - **B7** — done: the always-loaded set is 35.1k chars against a ~35k target after step 3 (BACKLOG). Only `web/CLAUDE.md` (36.2k, loaded in `web/` only) could still shrink.
-- **Follow-ups**: shutdown audit lines lost to an OTel flush race (BACKLOG). The r2dbc-pool acquire timeout firing at
+- **Follow-ups**: the shutdown audit lines lost to an OTel flush race are fixed (`observability.md` "Shutdown ordering"). The r2dbc-pool acquire timeout firing at
   ~2x `postgres.pool.maxAcquireTimeSeconds` is documented by design in `persistence.md` (the retry also recovers stale
   connections).
 - Not doing: D6 (de-Jira the `Connector` seam) waits for the GitLab connector (BACKLOG).
