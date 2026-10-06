@@ -501,7 +501,7 @@ async function computedPx(locator: Locator, property: string): Promise<number> {
   return Number.parseFloat(await computed(locator, property));
 }
 
-/** The Deep dive journey: pick the golden sprint's domain and sprint, drill an epic, a month and a cell, switch a layer, then an epic's window. */
+/** The Deep dive journey: pick the golden sprint's domain and sprint, drill an epic, a month and a cell, switch a layer, read the Burn-up tab, then an epic's window. */
 async function diveIntoGoldenSprint(page: Page): Promise<void> {
   await login(page, reader.email, reader.password);
   await page.getByRole("link", { name: "Deep dive", exact: true }).click();
@@ -511,6 +511,7 @@ async function diveIntoGoldenSprint(page: Page): Promise<void> {
 
   // Sprints of a domain: this spec's connection (the picker shows only when the stack holds more than one active connection),
   // the golden sprint's domain, the golden sprint.
+  await expect(page.getByRole("combobox", { name: "Domain", exact: true })).toBeVisible();
   if (await page.getByRole("combobox", { name: "Connection", exact: true }).count()) await pickFilter(page, "Connection", dataSourceName);
   await pickFilter(page, "Domain", "FLO");
   await pickInPanel(page, "Sprints", GOLDEN.name);
@@ -566,6 +567,33 @@ async function diveIntoGoldenSprint(page: Page): Promise<void> {
   await expect(page.locator('[data-layer="exec"]')).toHaveCount(0);
   await expect(page.locator('[data-layer="done"]')).toHaveCount(0);
   await expect(page.locator('[data-layer="pv"]').first()).toBeVisible();
+
+  // The Burn-up tab shows the same selection day by day: the tab is in the URL, the chart names its series, the numbers sit
+  // behind the disclosure (the newest day first), and a hop back to the matrix drops the param and redraws the grid.
+  await page.getByRole("tab", { name: "Burn-up", exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`[?&]view=burnup(&|$)`));
+  await expect(page.getByRole("heading", { level: 3, name: "Burn-up", exact: true })).toBeVisible();
+  const chart = page.getByRole("group", { name: "Chart: cumulative plan, earned value and cost in man-days by day" });
+  await expect(chart).toBeVisible();
+  for (const series of ["Plan (PV)", "Earned value (EV)", "Cost (AC)"]) await expect(chart.getByText(series, { exact: true })).toBeVisible();
+  const toggle = page.getByRole("button", { name: "Show daily figures", exact: true });
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await toggle.click();
+  await expect(page.getByRole("button", { name: "Hide daily figures", exact: true })).toHaveAttribute("aria-expanded", "true");
+  const daily = page.getByRole("table", { name: "Cumulative figures per day", exact: true });
+  await expect(daily).toBeVisible();
+  const figure = /^-?\d+(\.\d+)?$/;
+  // The newest day (the first row) always carries a plan figure; earned value and cost end where the data does, so the first row
+  // that has them (an em dash otherwise) must hold numbers in all three columns.
+  const rows = daily.getByRole("row");
+  await expect(rows.nth(1).getByRole("cell").first()).toHaveText(/^\d{4}-\d{2}-\d{2}$/);
+  await expect(rows.nth(1).getByRole("cell").nth(1)).toHaveText(figure);
+  const current = rows.filter({ has: page.getByRole("cell").nth(3), hasNot: page.getByRole("cell", { name: "—", exact: true }) }).first();
+  for (const column of [1, 2, 3]) await expect(current.getByRole("cell").nth(column)).toHaveText(figure);
+  await page.getByRole("tab", { name: "Matrix", exact: true }).click();
+  await expect(page).not.toHaveURL(/view=/);
+  await expect(grid).toBeVisible();
+  await expect(page.getByRole("heading", { level: 3, name: "Burn-up", exact: true })).toHaveCount(0);
 
   // Epics mode, one epic: its planned window is outlined across the columns it spans.
   await page.getByRole("radiogroup", { name: "How to select work" }).getByText("Epics", { exact: true }).click();

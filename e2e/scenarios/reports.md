@@ -302,7 +302,18 @@ finished in autumn 2025, before the six-month window opens.
      `max-height` and `overflow: auto`.
 7. They switch the **Execution** layer off.
    - *Expected*: every execution bar and every done marker is gone; the plan bars are still drawn.
-8. They switch to **Epics**, pick the golden epic FLO-33 and press **Show**.
+8. They switch to the **Burn-up** tab.
+   - *Expected*: the URL gains `view=burnup`; the "Burn-up" heading and the chart (a group named for its
+     cumulative plan, earned value and cost) are shown, its legend naming Plan (PV), Earned value (EV) and
+     Cost (AC).
+9. They open **Show daily figures**.
+   - *Expected*: the button reports itself expanded ("Hide daily figures") and the "Cumulative figures per
+     day" table appears, newest day first: the first row's day is a date and its plan figure a number, and
+     the first row that has earned value and cost (an em dash stands in beyond the day the data is current
+     for) holds numbers in all three columns.
+10. They switch back to the **Matrix** tab.
+   - *Expected*: `view` is gone from the URL, the grid is visible again and the Burn-up heading is gone.
+11. They switch to **Epics**, pick the golden epic FLO-33 and press **Show**.
    - *Expected*: the URL is `?epicId=<golden epic>&connectionId=<this spec's>`; the epic is a row and
      its planned window is outlined across the columns it spans.
 
@@ -326,7 +337,8 @@ finished in autumn 2025, before the six-month window opens.
 ## Not covered here (and why)
 
 - **The Deep dive's figures and keyboard grid** — the journey asserts structure and the browser-computed
-  styles; the matrix's sums, the grid's arrow-key navigation and the tooltip's hover/Escape rules are
+  styles (and that the Burn-up's figures are numbers, not their values — the sums, the budget switch and
+  the as-of marker are the SPA's `deepDiveBurnup` and component tests'); the matrix's sums, the grid's arrow-key navigation and the tooltip's hover/Escape rules are
   pinned by the SPA's component tests and the server's `DeepDive*Test` classes. Tasks of an epic mode
   (the handpicked list) is likewise a component-test subject.
 - **The figures of the period views** (throughput's weekly/monthly MD, accuracy ratios, cycle-time
