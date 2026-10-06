@@ -52,12 +52,12 @@ class ReportService(
      * 57014, answered by `plugins/ErrorHandling.kt`) instead of holding one of the pool's connections indefinitely.
      * Never open a report read with a bare `suspendTransaction` — it would silently run unbudgeted.
      *
-     * The budget is Exposed's own `queryTimeout` (WHOLE SECONDS), not a hand-rolled `SET LOCAL statement_timeout`:
-     * Exposed's R2DBC executor re-applies the transaction's `queryTimeout` (default 0 = none; the getter never
-     * returns null) with a session-level `SET statement_timeout` before EVERY statement, which silently undoes a
-     * `SET LOCAL statement_timeout` (measured: `SHOW statement_timeout` read back `0` right after it, while
-     * `SET LOCAL work_mem`/`lock_timeout` survived). Because the same executor resets it to 0 before the next
-     * borrower's first statement, the value never leaks to another caller of the pool (`ReportQueryBudgetTest`).
+     * The budget is Exposed's own `queryTimeout` (WHOLE SECONDS), not a hand-rolled `SET LOCAL statement_timeout`: Exposed's
+     * R2DBC executor requests the transaction's `queryTimeout` (default 0 = none; the getter never returns null) from the
+     * driver before EVERY statement, and `infra/db/StatementTimeoutCache.kt` sends it only when it differs from the
+     * connection's last confirmed value (nothing but the `queryTimeout` may set the statement timeout). The next borrower's
+     * first statement asks for 0, differs from this 30 s and resets it, so the value never leaks to another caller of the pool
+     * (`ReportQueryBudgetTest`).
      */
     internal suspend fun <T> reportTransaction(block: suspend R2dbcTransaction.() -> T): T =
         suspendTransaction(database) {

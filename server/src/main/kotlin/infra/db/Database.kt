@@ -125,7 +125,8 @@ internal fun connectPooledDatabase(
             .option(PostgresqlConnectionFactoryProvider.PREPARED_STATEMENT_CACHE_QUERIES, PREPARED_STATEMENT_CACHE_QUERIES)
             .build()
     }
-    val rawFactory = ConnectionFactories.get(cached)
+    // Below the pool, so the remembered statement timeout belongs to one physical connection (StatementTimeoutCache.kt).
+    val rawFactory = StatementTimeoutCachingConnectionFactory(ConnectionFactories.get(cached))
     val pool = ConnectionPool(
         ConnectionPoolConfiguration.builder(rawFactory)
             .maxSize(maxSize)
