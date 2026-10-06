@@ -30,7 +30,9 @@ with.
 8 s, ~63 s at 10) instead of failing at once — a `web`/`worker` pod that starts before Postgres
 accepts connections waits rather than crash-looping. That is inside the k8s `startupProbe` budget
 (~150 s); after the retries are spent the original connection error is raised and the process exits
-as before. `0` restores fail-fast.
+as before. `0` restores fail-fast. Ktor's own module-loading timeout (`ktor.application.startupTimeoutMillis`,
+default 10 s) is raised to 140 s in `application.yaml` — at the default it cut this wait short and every fresh
+deploy crashed once (checkup 2, live k8s).
 
 `Application.servesApi()` (true for `WEB`/`ALL`) is the guard every feature route module and the
 SPA catch-all check first; `Application.runsWorker()` (true for `WORKER`/`ALL`) is its counterpart
