@@ -62,12 +62,29 @@ in-network consumers use `postgres:5432`). There is one persistence stack:
   prepared-statement cache is bounded (`PREPARED_STATEMENT_CACHE_QUERIES` = 256 in `Database.kt`, applied in
   `connectPooledDatabase`, so the test pool has it too; r2dbc-postgresql's default is unbounded and every cached text stays a
   named server-side statement for the connection's life) — it matters because `MultiRowInsert.kt`'s SQL text varies with the row count
-  (quantized to a handful of sizes per table). **Statement timeouts: use the transaction's `queryTimeout`, never a hand-rolled
-  `SET LOCAL statement_timeout`.** Exposed's R2DBC executor issues a session-level `SET statement_timeout` (the transaction's
-  `queryTimeout`, whole seconds, default 0, never null) before EVERY statement, so a `SET LOCAL statement_timeout` is overwritten
-  before the next statement runs (measured with `SHOW statement_timeout`; `SET LOCAL lock_timeout`/`work_mem` survive). The reports
-  use it through `ReportService.reportTransaction` (`reports.md` "Query budget"), the post-commit ANALYZE through
+  (quantized to a handful of sizes per table). **Statement timeouts: use the transaction's `queryTimeout`, nothing else.** Exposed's R2DBC executor *requests* the
+  transaction's `queryTimeout` (whole seconds, default 0, never null) from the driver before EVERY statement. The reports use it
+  through `ReportService.reportTransaction` (`reports.md` "Query budget"), the post-commit ANALYZE through
   `MetricsStore.analyzeDerivedTables` (`SET LOCAL lock_timeout` is effective, the statement budget is the `queryTimeout`).
+  **The per-connection cache (`infra/db/StatementTimeoutCache.kt`, `build-times.md` WHY 13).** r2dbc-postgresql answers each
+  request with its own `SET STATEMENT_TIMEOUT` simple query that Exposed awaits — 43-49 % of all the round trips of a stub
+  PROCESS or DERIVE. `connectPooledDatabase` therefore wraps the RAW connection factory (below the pool) in
+  `StatementTimeoutCachingConnectionFactory`: each physical connection remembers the value the server last confirmed, and the
+  driver call is *sent* only when the requested value differs from it. No reset on release is needed — Exposed requests its
+  value before every statement, so the borrower after a report's 30 s sees `0 != 30` and sends it, which is also why a budget
+  never leaks to the next borrower (`ReportQueryBudgetTest`). **The hazard it handles:** PostgreSQL reverts a session-level
+  `SET` issued inside a transaction when that transaction rolls back, and a statement cancelled by the timeout aborts its
+  transaction — a naive cache would then believe the budget is still set and run the next report unbudgeted. The remembered value
+  is therefore forgotten on every rollback (also to a savepoint), on a failed commit and on `setAutoCommit(true)`, forgotten
+  before a SET is sent and remembered only once it completed under an unchanged generation, and kept across a successful commit.
+  **Rule: ONLY the transaction's `queryTimeout` may set the statement timeout.** A `SET LOCAL statement_timeout` may stay in
+  force for the rest of its transaction (the cache no longer sends a request that matches its remembered value, so nothing
+  overwrites it), and a session-level `SET`, `set_config(…, false)`, `RESET` or `DISCARD` on a pooled connection desyncs the cache
+  from the backend. Nothing in `server/src/main` does any of these (grep, 2026-10-06). Deployment assumption: one client
+  connection is one server session — a transaction-mode PgBouncer in front of Postgres would break the cache (none today).
+  `StatementTimeoutCacheTest` (own one-connection pool) pins convergence, the rolled-back SET, the aborted-transaction canary
+  (driver ROLLBACK-tag exception + Exposed's rollback after a failed commit), a budget enforced again after a cancelled
+  statement, and the skip with its limit.
   A role that runs the worker
   (`worker`/`all`) refuses to boot unless `maxSize > 2 × ingest.workerSlots` (`configureIngestWorker`): a running DERIVE
   holds two pooled connections at once (its transaction plus `MetricsStore.ensureDimDate`'s own); a lease renewal the

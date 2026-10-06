@@ -100,8 +100,8 @@ below, never a failing check.
 | Measure | Target | Ceiling | Reasoning / measured |
 |---|---|---|---|
 | `stub-clone` (`cloneProcessedData`) | 0.5 s | 1.5 s | an `INSERT … SELECT` of the same 14 tables measured 220 ms; the Exposed clone takes 3.6 s |
-| `stub-process` (PROCESS, 1,200 issues) | 3 s | 8 s | ~2.5 ms per issue is generous for a page-batched read plus a handful of batched writes; measured 0.75-0.85 s with `insertRows` + `upsertRows` (2026-10-06), 1.0-1.1 s with `insertRows` alone (WHY 3 follow-up), 2.2-2.3 s with `batchInsert` after the page batching (2026-09-30: 2.4-3.2 s), was 16-19 s at 13.5-15 ms per issue |
-| `stub-derive` (one DERIVE of the stub) | 1 s | 3 s | 1,200 items, ~1,300 days; measured 1.17-1.75 s with `insertRows` (2026-10-01, WHY 3; 2.9-3.7 s with `batchInsert`), 7-26 s before the statistics fix; of the rest the WIP `INSERT … SELECT` is 0.5-0.75 s |
+| `stub-process` (PROCESS, 1,200 issues) | 3 s | 8 s | ~2.5 ms per issue is generous for a page-batched read plus a handful of batched writes; measured 0.6-0.65 s with the statement-timeout cache (2026-10-06, WHY 13), 0.75-0.85 s with `insertRows` + `upsertRows` (2026-10-06), 1.0-1.1 s with `insertRows` alone (WHY 3 follow-up), 2.2-2.3 s with `batchInsert` after the page batching (2026-09-30: 2.4-3.2 s), was 16-19 s at 13.5-15 ms per issue |
+| `stub-derive` (one DERIVE of the stub) | 1 s | 3 s | 1,200 items, ~1,300 days; measured ~1.1 s steady with the statement-timeout cache (2026-10-06, WHY 13), 1.17-1.75 s with `insertRows` (2026-10-01, WHY 3; 2.9-3.7 s with `batchInsert`), 7-26 s before the statistics fix; of the rest the WIP `INSERT … SELECT` is 0.5-0.75 s |
 | `derive-perf` (scale-20, ~24k issues, `docker-compose.perf.yaml`) | 20 s | 180 s | 20x the stub at 1 s; the ceiling is the v0.3.0 plan budget (< 3 min); measured 82 s |
 
 ## History so far
@@ -755,6 +755,44 @@ evidence and recorded here as a dated entry (finding + fix, or "measured, intend
    unchanged. The job grows slower than the code (×1.8 for ×4.3), so nothing per-file got worse; the 1m09s at checkup 1 was a
    fast-runner sample. Checkup 2 adds the shuffled vitest run (~10 s on CI). No budget change: the job sits inside its
    3-min alarm; the next lever, if it nears it, is an eslint cache (`--cache` + `actions/cache`), since lint grew fastest.
+
+13. **Half of every PROCESS/DERIVE round trip was `SET STATEMENT_TIMEOUT` — ANSWERED 2026-10-06 (`perf/exposed-statement-timeout`): a per-connection cache skips it.**
+   Found in bytecode by a review: Exposed R2DBC 1.5.0 calls `setTimeout(transaction.queryTimeout)` before EVERY statement
+   (`SuspendExecutableKt.executeIn`) and r2dbc-postgresql's `PostgresqlConnection.setStatementTimeout` sends `SET STATEMENT_TIMEOUT = n`
+   as a separate simple query Exposed awaits — app-wide, even at the default 0. **Counted** on the real stack (the test Postgres with
+   `log_statement=all`, the server log lines of one run; a wrapper counter agreed exactly on the SETs; "real statements" are executes, so a
+   batch insert re-executing one statement counts several):
+
+   | One run on the stub | Round trips | `SET STATEMENT_TIMEOUT` | BEGIN/COMMIT/ROLLBACK | Real statements | Round trips with the cache |
+   |---|---|---|---|---|---|
+   | PROCESS (clone, 1,200 issues) | 1,711 | **729** (43 %) | 61 | 921 | 982 |
+   | DERIVE (pinned, clone) | 894 | **440** (49 %) | 7 | 447 | 454 |
+   | report `cycle-time` | 20 | 8 | 2 | 10 | 14 (2 SETs) |
+   | report `filters` | 32 | 15 | 1 | 16 | 17 (0) |
+   | report `velocity` | 18 | 7 | 2 | 9 | 13 (2) |
+
+   A report keeps two SETs by design: its transaction needs 30 s, the next borrower of that connection needs 0 again.
+   **Fix:** `infra/db/StatementTimeoutCache.kt`, a `Connection` decorator below the pool that remembers the last value the server confirmed per
+   physical connection and skips an unchanged `setStatementTimeout` (design and rule: `persistence.md` "Statement timeouts").
+   **The finding that shaped it:** PostgreSQL reverts a session-level `SET` made inside a transaction when that transaction rolls back, and a
+   statement cancelled by the budget aborts its transaction — so the cache must forget its value on every rollback, failed commit and
+   `setAutoCommit(true)`; without that, a budget that was just enforced is silently NOT applied to the next report (mutation-tested: removing
+   the rollback invalidation turns two `StatementTimeoutCacheTest` cases red).
+   **Before / after** (local, 18 cores, a SHARED machine — load average swung 3-11 between runs, so read the figures as a trend, not a
+   benchmark; alternated off/cache back to back, one JVM per run, steady-state laps 2-7, medians, ms):
+
+   | | off | cache | off | cache | off | cache | off |
+   |---|---|---|---|---|---|---|---|
+   | PROCESS (stub) | 728 | **623** | 843 | 776 | 687 | **609** | 672 |
+   | DERIVE (stub) | 1,172 | **1,112** | 1,355 | 1,275 | 1,112 | **1,080** | 1,108 |
+   | 20x `cycle-time` report | 112 | **101** | 143 | 131 | 118 | **100** | 118 |
+
+   PROCESS 8-15 % faster, DERIVE 3-6 % (its time is mostly the database-side WIP `INSERT … SELECT`), reports 8-15 %. Micro-benchmark
+   (`exec("SELECT 1")` through Exposed): 3,000 selects in one transaction 460-520 ms off vs 236-330 ms with the cache (about -45 to -50 %,
+   two round trips become one); 1,000 single-select transactions 332-386 ms vs 254-308 ms (-20 to -25 %). Whole suite
+   (`cleanTest :server:test -Pforks=2`, alternated): 133 s / 142 s off vs 127 s / 136 s with the cache — about -5 %, inside the noise.
+   `stub-process` is now ~0.6-0.65 s (was 0.75-0.85 s), `stub-derive` ~1.1 s steady. Behaviour change to know: a hand-rolled
+   `SET LOCAL statement_timeout` is no longer reliably undone by Exposed — the rule stays "only the `queryTimeout` sets it".
 
 **What the suite is made of (local, pre-fix run, 782 tests, 12m30s of class time):**
 `MetricsDerivationTest` 5m55s (47 %), `MetricsDigestTest` 2m00s (16 %), `NormalizationPipelineTest`
