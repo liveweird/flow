@@ -279,6 +279,7 @@ transport at startup (`.claude/docs/security.md`).
 | `POSTGRES_POOL_INITIAL_SIZE` | `2` | Connections the pool fills up to on its first acquire (0..maxSize). |
 | `POSTGRES_POOL_MAX_ACQUIRE_SECONDS` | `10` | How long a caller waits for a free pooled connection before failing (1..600). |
 | `POSTGRES_POOL_MAX_IDLE_SECONDS` | `600` | How long an idle pooled connection may sit before recycling (1..86400). |
+| `REPORTS_STATEMENT_TIMEOUT_SECONDS` | `30` | Per-statement time budget of every report read (1..3600, whole seconds); a statement over it is cancelled and answers a 500 problem (`.claude/docs/reports.md` "Query budget"). |
 
 ## Useful Gradle tasks
 

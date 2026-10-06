@@ -68,6 +68,24 @@ class RoleTest {
     }
 
     @Test
+    fun `worker role does not mount the swagger UI even when OpenAPI exposure is on`() = testApplication {
+        configureApp("app.role" to "worker", "http.exposeOpenApi" to "true")
+        startApplication()
+        // The default client on purpose (not an API operation). A `web` role with the same switch serves it.
+        assertEquals(HttpStatusCode.NotFound, client.get("/openapi").status)
+        assertEquals(HttpStatusCode.NotFound, client.get("/openapi/documentation.yaml").status)
+        // And the CSP exemption follows the mount: nothing is mounted, so the 404 carries the strict policy.
+        assertTrue(client.get("/openapi").headers["Content-Security-Policy"].orEmpty().startsWith("default-src 'self'"))
+    }
+
+    @Test
+    fun `web role serves the swagger UI when OpenAPI exposure is on`() = testApplication {
+        configureApp("app.role" to "web", "http.exposeOpenApi" to "true")
+        startApplication()
+        assertEquals(HttpStatusCode.OK, client.get("/openapi/documentation.yaml").status)
+    }
+
+    @Test
     fun `web role serves the API but runs no worker`() = testApplication {
         configureApp("app.role" to "web")
         var servesApi: Boolean? = null

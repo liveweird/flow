@@ -3,7 +3,6 @@ package ch.nokillswit.reports
 import ch.nokillswit.metrics.WorkingCalendar
 import java.time.LocalDate
 import kotlinx.serialization.Serializable
-import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 
 /** What an epic-progress read is about: the whole unit, one domain, one epic or one team (`level` of the response). */
 @Serializable
@@ -132,7 +131,7 @@ internal class ProgressContext(
  * beginning of time; see `.claude/docs/reports.md` "Report 15".
  */
 suspend fun ReportService.epicProgress(filter: ReportFilter, epicKey: String?, nowMs: Long): EpicProgressReport =
-    suspendTransaction(database) {
+    reportTransaction {
         val target = progressTargetOf(filter, epicKey)
         val scope = resolveReportScope(filter, nowMs)
         val calendar = WorkingCalendar.of(scope.settings)
@@ -143,7 +142,7 @@ suspend fun ReportService.epicProgress(filter: ReportFilter, epicKey: String?, n
         // Nothing derived: an epic/domain cannot be checked against dimensions that do not exist yet, so the answer is empty + the note.
         val resolved = resolveTarget(target, scope.connectionIds, validate = coveredThrough != null)
         if (coveredThrough == null || window == null) {
-            return@suspendTransaction emptyProgress(scope.meta, resolved, notes)
+            return@reportTransaction emptyProgress(scope.meta, resolved, notes)
         }
         // asOf = min(end of period, now), and never beyond the last derived day (EV and AC are unknown past it, PV alone is not a triple).
         val asOfDay = minOf(coveredThrough, calendar.dayOf(nowMs), calendar.dayOf(window.second - 1))

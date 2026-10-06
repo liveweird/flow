@@ -87,6 +87,11 @@ private const val PG_EXCLUSION_VIOLATION = "23P01"
 // error (nothing legitimate contains NUL), not a server fault.
 private const val PG_CHARACTER_NOT_IN_REPERTOIRE = "22021"
 
+// query_canceled: raised when a statement outruns its statement timeout — the report reads' `queryTimeout` budget
+// (`ReportService.reportTransaction`, `reports.statementTimeoutSeconds`) and the post-commit ANALYZE's (a worker path,
+// never an HTTP answer).
+private const val PG_QUERY_CANCELED = "57014"
+
 /** One cause-chain walk for every predicate below (self included). */
 private inline fun Throwable.anyInChain(predicate: (Throwable) -> Boolean): Boolean {
     var cur: Throwable? = this
@@ -106,6 +111,8 @@ internal fun Throwable.isUniqueViolation(): Boolean = hasSqlState(PG_UNIQUE_VIOL
 internal fun Throwable.isExclusionViolation(): Boolean = hasSqlState(PG_EXCLUSION_VIOLATION)
 
 internal fun Throwable.isCharacterNotInRepertoire(): Boolean = hasSqlState(PG_CHARACTER_NOT_IN_REPERTOIRE)
+
+internal fun Throwable.isQueryCanceled(): Boolean = hasSqlState(PG_QUERY_CANCELED)
 
 // Per-constraint 409 wording: Postgres names the violated unique index in its error message
 // ('duplicate key value violates unique constraint "uq_…"'), so the detail can say WHAT
@@ -137,14 +144,30 @@ private suspend fun ApplicationCall.respondDbFailure(cause: Throwable) = when {
         respondProblem(HttpStatusCode.Conflict, "Overlapping team membership for this account")
     cause.isCharacterNotInRepertoire() ->
         respondProblem(HttpStatusCode.BadRequest, "Text must not contain the NUL character")
+    // The friendly wording is about a report selection; a cancellation anywhere else is a plain internal error (with its stack).
+    cause.isQueryCanceled() && request.path().startsWith(REPORTS_PATH_PREFIX) -> respondQueryTimedOut()
     else -> respondInternalError(cause)
+}
+
+private const val REPORTS_PATH_PREFIX = "/api/v1/reports/"
+
+// A statement cancelled by `statement_timeout` is the report budget doing its job, not a defect: a WARN with the
+// path (never the query string, never a stack) instead of respondInternalError's ERROR + trace. It answers the
+// spec's already-declared, cross-cutting 500 — a 503 would have to be declared and covered on every report
+// operation (`OpenApiCoverageMerge.CROSS_CUTTING_STATUSES`), see `.claude/docs/reports.md` "Query budget".
+private suspend fun ApplicationCall.respondQueryTimedOut() {
+    application.log.warn("Query cancelled by statement_timeout while processing ${request.local.method.value} ${request.path()}")
+    respondProblem(
+        HttpStatusCode.InternalServerError,
+        "The query exceeded its time budget — narrow the selection and retry",
+    )
 }
 
 // Internal (not private): the JWT `validate`/`challenge` pair in plugins/Security.kt answers a
 // blocklist-lookup failure with this same catch-all 500 instead of a 401 (the 500-not-401 rule —
 // see "JWT model" in .claude/docs/security.md).
 internal suspend fun ApplicationCall.respondInternalError(cause: Throwable) {
-    application.log.error("Unhandled exception while processing ${request.local.method.value} ${request.local.uri}", cause)
+    application.log.error("Unhandled exception while processing ${request.local.method.value} ${request.path()}", cause)
     respondProblem(HttpStatusCode.InternalServerError, "An unexpected error occurred")
 }
 
@@ -181,6 +204,7 @@ private fun ApplicationCall.hasNegativeIdSegment(): Boolean {
 }
 
 fun Application.configureErrorHandling() {
+    val rateLimitAudit = RateLimitAuditThrottle()
     install(StatusPages) {
         // The per-IP RateLimit plugin rejects with a bodiless 429; give it the same RFC 7807
         // body every other error carries. NOTE: this status handler intercepts EVERY 429 that
@@ -188,6 +212,21 @@ fun Application.configureErrorHandling() {
         // go through TooManyRequestsException below (handled calls are marked and skipped),
         // never a direct respondProblem, or their specific detail would be replaced.
         status(HttpStatusCode.TooManyRequests) { call, status ->
+            // A per-IP rejection leaves the security trail too (checkup 2C15): the bucket (stamped by the
+            // bucket's own requestKey, plugins/RateLimits.kt) and the path — never the client address
+            // (X-Forwarded-For-derived, so attacker-chosen text) or the query string. Coalesced to one event per
+            // bucket per minute carrying `suppressed` (the rejections folded in since the previous one), so a flood
+            // cannot write a line per request.
+            val bucket = call.attributes.getOrNull(RateLimitBucketKey) ?: "unknown"
+            rateLimitAudit.admit(bucket)?.let { suppressed ->
+                audit(
+                    "rate_limit.exceeded",
+                    "bucket" to bucket,
+                    "method" to call.request.local.method.value,
+                    "path" to call.request.path(),
+                    "suppressed" to suppressed,
+                )
+            }
             call.respondProblem(status, "Rate limit exceeded — retry later")
         }
         // Routing's wrong-method-on-an-existing-path rejection is a bodiless 405; give it the
@@ -229,7 +268,7 @@ fun Application.configureErrorHandling() {
             audit(
                 "authz.denied",
                 "method" to call.request.local.method.value,
-                "path" to call.request.local.uri,
+                "path" to call.request.path(),
                 "byUserId" to call.principal<JWTPrincipal>()?.payload?.getClaim("userId")?.asLong(),
                 "detail" to cause.message,
             )

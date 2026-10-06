@@ -16,7 +16,6 @@ import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.r2dbc.select
-import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 
 // Report 17, the Deep dive (`.claude/docs/reports.md` "Report 17", A29): plan (PV), execution and cost (AC) as SPARSE DAILY series per
 // task, in man-days, for the tasks a selection resolves to. The kernels (`DeepDiveKernels.kt`) compute plan and cost from a fixed
@@ -187,7 +186,7 @@ private class DeepDiveSeries(val tasks: List<TaskSeries>, val epicOwn: Map<Long,
  * `GET /api/v1/reports/deep-dive`: the report for [request]'s selection. Nothing derived in scope yet is the empty answer with
  * [NOT_DERIVED_NOTE] (never a validation `400` against dimensions that do not exist yet).
  */
-internal suspend fun ReportService.deepDive(request: DeepDiveRequest, nowMs: Long): DeepDiveReport = suspendTransaction(database) {
+internal suspend fun ReportService.deepDive(request: DeepDiveRequest, nowMs: Long): DeepDiveReport = reportTransaction {
     val settings = metricsSettings.read()
     val calendar = WorkingCalendar.of(settings)
     val connectionIds = resolveConnectionScope(request.connectionId)
@@ -197,11 +196,11 @@ internal suspend fun ReportService.deepDive(request: DeepDiveRequest, nowMs: Lon
         derivedAt = stamp.derivedAt, configRevision = stamp.configRevision, from = range.from, to = range.to,
         level = ReportLevel.UNIT, domainView = DomainView.TASK, resolvedSprints = emptyList(), minSampleSize = settings.minSampleSize,
     )
-    if (clocks.isEmpty()) return@suspendTransaction notDerived(request, calendar, nowMs, ::metaOf)
+    if (clocks.isEmpty()) return@reportTransaction notDerived(request, calendar, nowMs, ::metaOf)
     val targets = resolveDeepDiveTargets(request, connectionIds)
     // The selected connection's own DERIVE clock: where open execution stops and the day `range.asOfDay` names. A connection with
     // dimension rows but no successful run reads as not derived, never as "now".
-    val clockMs = clocks[targets.connectionId] ?: return@suspendTransaction notDerived(request, calendar, nowMs, ::metaOf)
+    val clockMs = clocks[targets.connectionId] ?: return@reportTransaction notDerived(request, calendar, nowMs, ::metaOf)
     val facts = readFacts(targets)
     val series = seriesOf(facts, calendar, clockMs)
     val choice = resolveRange(request, targets, facts, series, calendar, nowMs)

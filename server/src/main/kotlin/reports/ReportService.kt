@@ -10,6 +10,7 @@ import ch.nokillswit.teams.TeamService
 import kotlinx.coroutines.flow.toList
 import org.jetbrains.exposed.v1.core.*
 import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
+import org.jetbrains.exposed.v1.r2dbc.R2dbcTransaction
 import org.jetbrains.exposed.v1.r2dbc.select
 import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
@@ -20,6 +21,9 @@ import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
  * `VelocityReport.kt`'s own [ReportService.database]-scoped `derivedAt` read.
  */
 internal const val DERIVE_RUN_SUCCEEDED = "SUCCEEDED"
+
+/** The default `reports.statementTimeoutSeconds`: generous for the heaviest legitimate report, far below "forever". */
+const val DEFAULT_REPORT_STATEMENT_TIMEOUT_SECONDS: Int = 30
 
 /**
  * `reports/` package's read-only assembly of `GET /api/v1/reports/filters` (v0.3.0 M4 commit 10a,
@@ -40,8 +44,29 @@ class ReportService(
     internal val database: R2dbcDatabase,
     internal val metricsSettings: MetricsSettingsService,
     private val teamMembership: TeamMembershipService,
+    /** The per-statement budget [reportTransaction] applies, whole seconds (`reports.statementTimeoutSeconds`). */
+    private val statementTimeoutSeconds: Int = DEFAULT_REPORT_STATEMENT_TIMEOUT_SECONDS,
 ) {
-    suspend fun filters(nowMs: Long): ReportFilters = suspendTransaction(database) {
+    /**
+     * The ONE transaction every report read opens (checkup 2A3): a plain `suspendTransaction` under a PostgreSQL
+     * statement timeout, so a pathological selection (500 tasks x 1100 days) is cancelled by the server (SQLSTATE
+     * 57014, answered by `plugins/ErrorHandling.kt`) instead of holding one of the pool's connections indefinitely.
+     * Never open a report read with a bare `suspendTransaction` — it would silently run unbudgeted.
+     *
+     * The budget is Exposed's own `queryTimeout` (WHOLE SECONDS), not a hand-rolled `SET LOCAL statement_timeout`:
+     * Exposed's R2DBC executor re-applies the transaction's `queryTimeout` (default 0 = none; the getter never
+     * returns null) with a session-level `SET statement_timeout` before EVERY statement, which silently undoes a
+     * `SET LOCAL statement_timeout` (measured: `SHOW statement_timeout` read back `0` right after it, while
+     * `SET LOCAL work_mem`/`lock_timeout` survived). Because the same executor resets it to 0 before the next
+     * borrower's first statement, the value never leaks to another caller of the pool (`ReportQueryBudgetTest`).
+     */
+    internal suspend fun <T> reportTransaction(block: suspend R2dbcTransaction.() -> T): T =
+        suspendTransaction(database) {
+            queryTimeout = statementTimeoutSeconds
+            block()
+        }
+
+    suspend fun filters(nowMs: Long): ReportFilters = reportTransaction {
         val settings = metricsSettings.read()
 
         val teamRows = TeamService.Teams.selectAll().where { TeamService.Teams.active() }

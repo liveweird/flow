@@ -91,7 +91,16 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
   or a value) — the two boot-time
   credential events, so a key rotation or admin-password reset leaves a trail beyond a log line,
 - `authz.denied` (every 403, from the `ForbiddenException` handler in `plugins/ErrorHandling.kt`,
-  with method/path/byUserId/detail),
+  with method/path/byUserId/detail — `path` is the request path only, never the query string),
+- `rate_limit.exceeded` (bucket/method/path/suppressed — a per-IP token bucket (`plugins/RateLimits.kt`: login, refresh,
+  password-reset, mfa, data-source-test) rejected the request with a 429, emitted from the 429 status handler in
+  `plugins/ErrorHandling.kt`; `bucket` is stamped by the bucket's own `requestKey`. **Coalesced**
+  (`RateLimitAuditThrottle`): at most ONE event per bucket per 60 s, `suppressed` counting the rejections folded into it
+  since the previous event (0 on the first), so an unauthenticated flood writes a line a minute per bucket instead of one
+  per request; keyed by bucket only, so memory is bounded whoever floods. The client address is deliberately NOT a field
+  (it is `X-Forwarded-For`-derived behind a proxy, i.e. attacker-chosen text; the ingress log has it), and neither is the
+  query string. The per-account lockout's 429s are their own `login.lockout`/`login.rejected_locked` events and do not
+  emit this),
 - `data_source.created` (byUserId/dataSourceId/name/siteHost — HOST only, never the full
   `siteUrl`, and never the API token) / `.updated` (byUserId/dataSourceId/name/siteHost) /
   `.token_rotated` (byUserId/dataSourceId — its own event, separate from `.updated`, so the audit

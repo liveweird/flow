@@ -19,7 +19,6 @@ import org.jetbrains.exposed.v1.core.lessEq
 import org.jetbrains.exposed.v1.core.sum
 import org.jetbrains.exposed.v1.r2dbc.select
 import org.jetbrains.exposed.v1.r2dbc.selectAll
-import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 
 /** What a WIP report's `counts` are keyed by (`by`): the Jira status, the configured stage, or the mapped board's column. */
 @Serializable
@@ -79,7 +78,7 @@ private fun WipItemKind.storedKinds(): List<String> = when (this) {
  * snapshot, one row per non-zero cell — a missing cell is zero). See `.claude/docs/reports.md` "Reports 9, 10, 13".
  */
 suspend fun ReportService.wip(filter: ReportFilter, by: WipBy, itemKind: WipItemKind, nowMs: Long): WipReport =
-    suspendTransaction(database) {
+    reportTransaction {
         val scope = resolveReportScope(filter, nowMs)
         val snapshotScope = snapshotScopeOf(filter)
         val mapping = if (by == WipBy.COLUMN) columnMappingFor(snapshotScope, scope.connectionIds) else null

@@ -2,7 +2,6 @@ package ch.nokillswit.reports
 
 import ch.nokillswit.metrics.WorkingCalendar
 import kotlinx.serialization.Serializable
-import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 
 /** The most entries any list of the data-quality report carries; the `total` beside it says how many matched. */
 const val DATA_QUALITY_MAX_ITEMS = 50
@@ -153,7 +152,7 @@ data class DataQualityReport(
  * missing estimate/epic/work category, epic dates and drift, mapping gaps, sprint-snapshot drift and DERIVE warnings.
  * Every list is capped with a `total` beside it. See `.claude/docs/reports.md`.
  */
-suspend fun ReportService.dataQuality(filter: ReportFilter, nowMs: Long): DataQualityReport = suspendTransaction(database) {
+suspend fun ReportService.dataQuality(filter: ReportFilter, nowMs: Long): DataQualityReport = reportTransaction {
     val scope = resolveReportScope(filter, nowMs)
     val calendar = WorkingCalendar.of(scope.settings)
     val connectionIds = scope.connectionIds
