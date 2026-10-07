@@ -12,7 +12,8 @@ val JiraRawStoreKey = AttributeKey<JiraRawStore>("JiraRawStore")
 /**
  * The kinds `raw.jira_entities` partitions by (v0.2.0 plan §4 V10) — this exact order is also the
  * REFERENCE stream's fixed step sequence (`jira/JiraReferenceStream.kt`), so a kind name doubles as
- * a cursor `step` value.
+ * a cursor `step` value. PRIORITY is retained for persisted rows (`raw.jira_entities.kind`) and in-flight cursors
+ * (`ReferenceCursor.step`); it is no longer fetched.
  */
 enum class JiraEntityKind {
     FIELD, STATUS, STATUS_CATEGORY, PROJECT, PROJECT_STATUSES, ISSUE_TYPE, PRIORITY, RESOLUTION,

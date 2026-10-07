@@ -178,13 +178,21 @@ Once the stack is running, an ADMIN can point Flow at a real Jira Cloud site fro
 sources** page (Administration nav). Before clicking New, have ready:
 
 - An **Atlassian service account** — a dedicated account for Flow's own reads, not a real person's.
-- A **scoped, read-only API token** for that account, carrying only the scopes Flow's Test
-  connection probes actually use: `read:jira-user`, `read:jql:jira`, `read:field:jira`,
-  `read:status:jira`, `read:project:jira`, `read:issue-details:jira`, `read:issue:jira`, and — if
-  boards/sprints matter to this connection — `read:board-scope:jira-software`,
-  `read:board-scope.admin:jira-software`, `read:sprint:jira-software` (see
-  `.claude/docs/jira-integration.md`'s "Test connection" table for the full probe-to-scope mapping;
-  a missing board/sprint scope only degrades those optional probes, it never fails the connection).
+- A **scoped, read-only API token** for that account. Create the token with these scopes (a SYNC needs
+  all of them, not only the Test connection probes):
+  - `read:jira-user`, `read:jql:jira`, `read:field:jira`, `read:status:jira`, `read:workflow:jira`,
+    `read:project:jira`;
+  - `read:issue-details:jira`, `read:issue:jira`, `read:issue-status:jira`, `read:issue-type:jira`;
+  - `read:issue.changelog:jira`, `read:issue-worklog:jira`, `read:resolution:jira`,
+    `read:issue-link-type:jira`;
+  - `read:board-scope:jira-software`, `read:board-scope.admin:jira-software`,
+    `read:sprint:jira-software`.
+
+  The board and sprint scopes are not optional: a SYNC reads boards, board configurations and
+  sprints for every connection, and a 401/403 there fails the job. On a scoped token a missing scope
+  comes back as **401**, not 403, so one failing Test connection probe while `myself` passes means a
+  missing scope, not bad credentials. `.claude/docs/jira-integration.md` maps every endpoint to its
+  scopes ("Test connection" and "Scopes per endpoint").
 - The Jira **site URL**, exactly `https://<site>.atlassian.net`.
 - The **project keys** to bring into scope (worklogs and issue data are stored for these projects
   only, never the whole tenant — see `.claude/docs/ingestion.md`'s WORKLOGS "A1" note).
@@ -207,6 +215,10 @@ To try all of this without a real tenant, the compose stack's `jira-stub` servic
 deterministic sample dataset: create a data source with any `https://<name>.atlassian.net` site
 URL, any email and token, and the project keys `FLO`, `PLT`, `GTM`, `OPS` — the app reroutes every
 Jira call to the stub in development mode (`JIRA_STUB_BASE_URL`; see `sample-data/README.md`).
+
+The compose stack routes **every** Jira call to that bundled stub, so a real `*.atlassian.net`
+connection would silently talk to the stub. To connect a real tenant, start the stack with the
+reroute turned off: `JIRA_STUB_BASE_URL= docker compose up` (an explicitly empty value, not unset).
 
 ## Configuration (environment variables)
 

@@ -43,7 +43,6 @@ interface JiraClient {
     suspend fun projectsSearch(startAt: Int = 0): JiraStartAtPage
     suspend fun projectStatuses(projectKey: String): JsonArray
     suspend fun issueTypes(): JsonArray
-    suspend fun priorities(startAt: Int = 0): JiraStartAtPage
     suspend fun resolutions(startAt: Int = 0): JiraStartAtPage
     suspend fun issueLinkTypes(): JsonObject
     suspend fun usersSearch(startAt: Int = 0): JsonArray
@@ -202,11 +201,6 @@ class HttpJiraClient(
     override suspend fun issueTypes(): JsonArray {
         val endpoint = "/rest/api/3/issuetype"
         return decode(get(endpoint), endpoint)
-    }
-
-    override suspend fun priorities(startAt: Int): JiraStartAtPage {
-        val endpoint = "/rest/api/3/priority/search"
-        return decode(get(endpoint, mapOf("startAt" to startAt.toString())), endpoint)
     }
 
     override suspend fun resolutions(startAt: Int): JiraStartAtPage {

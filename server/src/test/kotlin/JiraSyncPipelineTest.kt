@@ -19,10 +19,12 @@ import ch.nokillswit.jira.HttpJiraClient
 import ch.nokillswit.jira.IssuesCursor
 import ch.nokillswit.jira.JiraClient
 import ch.nokillswit.jira.JiraConnector
+import ch.nokillswit.jira.JiraEntityKind
 import ch.nokillswit.jira.JiraFetchException
 import ch.nokillswit.jira.JiraHttp
 import ch.nokillswit.jira.JiraIssuesStream
 import ch.nokillswit.jira.JiraRawStore
+import ch.nokillswit.jira.JiraReferenceStream
 import ch.nokillswit.jira.JiraSyncDependencies
 import ch.nokillswit.jira.JiraWorklogStream
 import ch.nokillswit.norm.WorkItemStore
@@ -221,7 +223,6 @@ class JiraSyncPipelineTest {
                 "PROJECT" to 5,
                 "PROJECT_STATUSES" to 4,
                 "ISSUE_TYPE" to 5,
-                "PRIORITY" to 5,
                 "RESOLUTION" to 4,
                 "ISSUE_LINK_TYPE" to 3,
                 "USER" to 30,
@@ -568,4 +569,58 @@ class JiraSyncPipelineTest {
         assertNull(restored[JiraRawStore.Issues.movedOutAt])
         assertEquals(0L, store.countReconcileSeen(connId), "the scratch table must be empty after a completed pass")
     }
+
+    @Test
+    fun `a pass resumed from an old PRIORITY cursor completes, clears the cursor and tombstones the no-longer-fetched PRIORITY rows`() =
+        runBlocking {
+            val connId = createConnection(dataSources())
+            val store = rawStore()
+            val cursorService = cursors()
+            // What a pre-change version left behind: a REFERENCE cursor between ISSUE_TYPE and PRIORITY, plus a raw PRIORITY row.
+            val oldPassStartedAt = 5_000L
+            cursorService.put(connId, "reference", """{"passStartedAt":$oldPassStartedAt,"step":"PRIORITY"}""")
+            store.upsertEntity(connId, JiraEntityKind.PRIORITY.name, "3", """{"id":"3","name":"Medium"}""", now = 1_000L)
+
+            val stream = JiraReferenceStream(buildClient(maxRetries = 0), store, IN_SCOPE_PROJECT_KEYS)
+            stream.run(StreamContext(connId, 1u, sharedDatabaseForTests(), cursorService, jobHeartbeat = { _, _ -> true }))
+
+            assertNull(cursorService.get(connId, "reference"), "the pass completed, so its cursor is cleared")
+            val priority = suspendTransaction(sharedDatabaseForTests()) {
+                JiraRawStore.Entities.selectAll().where {
+                    (JiraRawStore.Entities.connectionId eq connId) and (JiraRawStore.Entities.kind eq JiraEntityKind.PRIORITY.name)
+                }.toList()
+            }.single()
+            assertNotNull(priority[JiraRawStore.Entities.deletedAt], "PRIORITY is no longer fetched; the sweep tombstones it")
+            val fields = suspendTransaction(sharedDatabaseForTests()) {
+                JiraRawStore.Entities.selectAll().where {
+                    (JiraRawStore.Entities.connectionId eq connId) and (JiraRawStore.Entities.kind eq JiraEntityKind.FIELD.name)
+                }.toList()
+            }
+            assertTrue(
+                fields.isNotEmpty() && fields.all { it[JiraRawStore.Entities.deletedAt] == null },
+                "the restarted pass fetched FIELD live",
+            )
+        }
+
+    @Test
+    fun `a 401 on the board list fails the REFERENCE stream with AUTHENTICATION_FAILED (the sync is strict about the board scopes)`() =
+        runBlocking {
+            val connId = createConnection(dataSources())
+            val cursorService = cursors()
+            val stream = JiraReferenceStream(buildClient(maxRetries = 0), rawStore(), IN_SCOPE_PROJECT_KEYS)
+            val unauthorized = JiraStubServer.addOverride(
+                get(urlPathMatching(".*/rest/agile/1.0/board"))
+                    .atPriority(1)
+                    .willReturn(aResponse().withStatus(401)),
+            )
+            try {
+                val failure = assertFailsWith<JiraFetchException> {
+                    stream.run(StreamContext(connId, 1u, sharedDatabaseForTests(), cursorService, jobHeartbeat = { _, _ -> true }))
+                }
+                assertEquals("AUTHENTICATION_FAILED", failure.code)
+                assertEquals(401, failure.status)
+            } finally {
+                JiraStubServer.removeOverride(unauthorized)
+            }
+        }
 }

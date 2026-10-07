@@ -49,35 +49,107 @@ Covenant's `ToadieGraphqlClient` shape) — `LIMIT_EXCEEDED` past the cap.
 `apiToken` — and `POST /api/v1/data-sources/{id}/test` — the stored, decrypted token; the latter
 persists `cloudId` on success) probes each endpoint below in sequence, at most 10s each and 30s
 total, NEVER throwing — every outcome is a `ConnectionTestRow {name, path, required, ok, status,
-code, scopeHint}`. `required = false` rows (bulkfetch, boards + its children) may legitimately fail
-on a real tenant whose scopes/GA status differ; a failure there doesn't fail the connection.
+code, scopeHint}`. Only `bulkfetch` is `required = false`: CHANGELOGS really does fall back from it to
+the per-issue endpoint on 404/405/410/501, and a real tenant's GA/scope status for it differs, so a
+failure there doesn't fail the *Test connection*. The three board probes are required, because a SYNC's
+REFERENCE stream fetches boards, board configurations and sprints for every connection, and a 401/403
+there fails the SYNC job. Recorded decision (2026-10-08): the sync stays strict and the board probes
+are required. `scopeHint` is one plain string; several scopes are comma+space separated.
 
-| Probe | Endpoint | Required | Likely scope |
+On a scoped API token, a missing scope comes back from the gateway as **401**
+(`AUTHENTICATION_FAILED`), not 403. So one failing probe while `myself` passes means a missing scope,
+not bad credentials.
+
+| Probe | Endpoint | Required | Scope hint |
 |---|---|---|---|
 | `tenant_info` | `GET /_edge/tenant_info` | yes | — (unauthenticated) |
 | `myself` | `GET /rest/api/3/myself` | yes | `read:jira-user` |
 | `search` | `GET /rest/api/3/search/jql` | yes | `read:jql:jira` |
 | `field` | `GET /rest/api/3/field` | yes | `read:field:jira` |
-| `statuses` | `GET /rest/api/3/statuses/search` | yes | `read:status:jira` |
+| `statuses` | `GET /rest/api/3/statuses/search` | yes | `read:workflow:jira` |
 | `projects` | `GET /rest/api/3/project/search` | yes | `read:project:jira` |
-| `project_statuses:<KEY>` (one per configured project key) | `GET /rest/api/3/project/{key}/statuses` | yes | `read:project:jira` |
-| `bulkfetch` | `POST /rest/api/3/changelog/bulkfetch` (single-id probe, not a real 50-id chunk) | **no** | uncertain GA/scope (spike fact sheet) |
-| `issue_changelog` | `GET /rest/api/3/issue/{id}/changelog` | yes | `read:issue-details:jira` |
-| `issue_worklog` (A1) | `GET /rest/api/3/issue/{id}/worklog` | yes | `read:issue:jira` |
-| `worklog_updated` | `GET /rest/api/3/worklog/updated` | yes | — |
+| `project_statuses:<KEY>` (one per configured project key) | `GET /rest/api/3/project/{key}/statuses` | yes | `read:status:jira, read:issue-status:jira, read:issue-type:jira` |
+| `bulkfetch` | `POST /rest/api/3/changelog/bulkfetch` (single-id probe, not a real 50-id chunk) | **no** | `read:issue.changelog:jira` |
+| `issue_changelog` | `GET /rest/api/3/issue/{id}/changelog` | yes | `read:issue-details:jira, read:issue.changelog:jira` |
+| `issue_worklog` (A1) | `GET /rest/api/3/issue/{id}/worklog` | yes | `read:issue:jira, read:issue-worklog:jira` |
+| `worklog_updated` | `GET /rest/api/3/worklog/updated` | yes | `read:issue-worklog:jira` |
 | `users` | `GET /rest/api/3/users/search` | yes | `read:jira-user` |
-| `boards` | `GET /rest/agile/1.0/board` | **no** | `read:board-scope:jira-software` |
-| `board_configuration` | `GET /rest/agile/1.0/board/{id}/configuration` | **no** | `read:board-scope.admin:jira-software` |
-| `board_sprints` | `GET /rest/agile/1.0/board/{id}/sprint` | **no** | `read:sprint:jira-software` |
+| `boards` | `GET /rest/agile/1.0/board` | yes | `read:board-scope:jira-software, read:project:jira` |
+| `board_configuration` | `GET /rest/agile/1.0/board/{id}/configuration` | yes | `read:board-scope.admin:jira-software, read:project:jira` |
+| `board_sprints` | `GET /rest/agile/1.0/board/{id}/sprint` | yes | `read:sprint:jira-software` |
+
+The rule behind the hints: keep the scope that real-tenant evidence shows works, and add the
+endpoint-specific granular scope from Atlassian's spec (pinned by `JiraConnectorTest`).
 
 The `issue_*`/`bulkfetch` probes reuse the first in-scope issue id the `search` probe returns; the
-`board_*` probes reuse the first board id `boards` returns. If `search`/`boards` return nothing (or
-fail), their dependent probes are skipped entirely rather than guessing an id.
+`board_*` probes follow the REFERENCE stream's own board rules (`isInScopeBoard`/`isScrumBoard` in
+`JiraReferenceStream.kt`): `board_configuration` uses the first board of `boards`' first page whose
+`location.projectKey` is in the connection's project keys, `board_sprints` the first such SCRUM board (a Kanban
+board's `/sprint` answers 400, so a Kanban-first tenant would otherwise see a false red required row). If
+`search`/`boards` return nothing in scope (or fail), their dependent probes are skipped entirely rather than
+guessing an id.
 
 `POST /api/v1/data-sources/test` and `.../{id}/test` are ADMIN-only (guard before body decode),
 rate-limited at 10/min per IP (`RateLimits.DATA_SOURCE_TEST`), and audited as `data_source.tested`
 (siteHost, ok, failedEndpoints — never a token). Never `502`: a probe failure is a row, not a
 failing HTTP status.
+
+### Scopes per endpoint
+
+Source: Atlassian's two OpenAPI specs, Jira platform
+(`https://developer.atlassian.com/cloud/jira/platform/swagger-v3.v3.json`) and Jira Software / agile
+(`https://developer.atlassian.com/cloud/jira/software/swagger.v3.json`). A platform operation's
+`x-atlassian-oauth2-scopes` gives a classic scope (`state: Current`) and granular scopes
+(`state: Beta`); agile operations only have `security`. Read them without saving the spec into the repo:
+
+```sh
+curl -sSfL https://developer.atlassian.com/cloud/jira/platform/swagger-v3.v3.json \
+  | jq -c '.paths["/rest/api/3/statuses/search"].get."x-atlassian-oauth2-scopes"'
+curl -sSfL https://developer.atlassian.com/cloud/jira/software/swagger.v3.json \
+  | jq -c '.paths["/rest/agile/1.0/board"].get.security'
+```
+
+Every endpoint `jira/JiraClient.kt` calls, as the spec stood on 2026-10-07 (verified 2026-10-08;
+every granular scope without a suffix ends in `:jira`):
+
+| Endpoint (Flow caller) | Granular scopes (spec) | Classic |
+|---|---|---|
+| `GET /rest/api/3/myself` (probe) | read:application-role, read:group, read:user, read:avatar | read:jira-user |
+| `GET /rest/api/3/search/jql` (probe, ISSUES) | read:issue-details, read:audit-log, read:avatar, read:field-configuration, read:issue-meta | read:jira-work |
+| `POST /rest/api/3/search/approximate-count` (ISSUES) | read:issue-details, read:field.default-value, read:field.option, read:field, read:group | read:jira-work |
+| `GET /rest/api/3/issue/{id}` (RECONCILE) | read:issue-meta, read:issue-security-level, read:issue.vote, read:issue.changelog, read:avatar, read:issue, read:status, read:user, read:field-configuration | read:jira-work |
+| `POST /rest/api/3/changelog/bulkfetch` (probe, CHANGELOGS) | read:issue-meta, read:avatar, read:issue.changelog | read:jira-work |
+| `GET /rest/api/3/issue/{id}/changelog` (probe, CHANGELOGS) | read:issue-meta, read:avatar, read:issue.changelog | read:jira-work |
+| `GET /rest/api/3/issue/{id}/worklog` (probe, WORKLOGS) | read:group, read:issue-worklog, read:issue-worklog.property, read:project-role, read:user, read:avatar | read:jira-work |
+| `GET /rest/api/3/worklog/updated` (probe, WORKLOGS) | read:issue-worklog, read:issue-worklog.property | read:jira-work |
+| `GET /rest/api/3/worklog/deleted` (WORKLOGS) | read:issue-worklog, read:issue-worklog.property | read:jira-work |
+| `POST /rest/api/3/worklog/list` (WORKLOGS) | read:comment, read:group, read:issue-worklog, read:issue-worklog.property, read:project-role, read:user, read:avatar | read:jira-work |
+| `GET /rest/api/3/field` (probe, REFERENCE) | read:field, read:avatar, read:project-category, read:project, read:field-configuration | read:jira-work |
+| `GET /rest/api/3/statuses/search` (probe, REFERENCE) | read:workflow | manage:jira-configuration |
+| `GET /rest/api/3/statuscategory` (REFERENCE) | read:status | read:jira-work |
+| `GET /rest/api/3/project/search` (probe, REFERENCE) | read:issue-type, read:project, read:project.property, read:user, read:application-role, read:avatar, read:group, read:issue-type-hierarchy, read:project-category, read:project-version, read:project.component | read:jira-work |
+| `GET /rest/api/3/project/{key}/statuses` (probe, REFERENCE) | read:issue-status, read:issue-type, read:status | read:jira-work |
+| `GET /rest/api/3/issuetype` (REFERENCE) | read:issue-type, read:avatar, read:project-category, read:project | read:jira-work |
+| `GET /rest/api/3/resolution/search` (REFERENCE) | read:resolution | read:jira-work |
+| `GET /rest/api/3/issueLinkType` (REFERENCE) | read:issue-link-type | read:jira-work |
+| `GET /rest/api/3/users/search` (probe, REFERENCE) | read:user, read:application-role, read:avatar, read:group | read:jira-user |
+| `GET /rest/agile/1.0/board` (probe, REFERENCE) | read:board-scope:jira-software + read:project:jira | — |
+| `GET /rest/agile/1.0/board/{id}/configuration` (probe, REFERENCE) | read:board-scope.admin:jira-software + read:project:jira | — |
+| `GET /rest/agile/1.0/board/{id}/sprint` (probe, REFERENCE) | read:sprint:jira-software | — |
+
+Caveat: the spec's granular lists are evidently not all enforced (a token missing several of them
+passed most probes), so the real failures are the ground truth and the spec is the best guide we
+have. Open question: the observed `boards` 401 is unexplained, because it is unknown whether that
+token carried `read:board-scope:jira-software`.
+
+### Decision: the REFERENCE stream no longer fetches priorities (2026-10-08)
+
+`GET /rest/api/3/priority/search` has no granular scope in Atlassian's spec, only the admin classic
+`manage:jira-configuration`, so a read-only scoped token likely cannot call it. Raw PRIORITY entities
+had no downstream reader (an issue's priority comes from its own fields), so the step was dropped.
+The `JiraEntityKind.PRIORITY` value stays, because old raw rows and cursor JSON carry it. If a
+consumer ever appears, use `GET /rest/api/3/priority/{id}` or `GET /rest/api/3/priority`
+(`read:priority:jira`).
 
 ## ISSUES stream: fields and JQL
 

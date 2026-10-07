@@ -24,10 +24,24 @@ internal data class ReferenceCursor(
     val startAt: Int = 0,
 )
 
-/** Fixed step order (v0.2.0 plan §12 item 6) — doubles as `raw.jira_entities.kind`. */
-private val STEP_ORDER: List<JiraEntityKind> = JiraEntityKind.entries.toList()
+/**
+ * Fixed step order (v0.2.0 plan §12 item 6) — doubles as `raw.jira_entities.kind`. PRIORITY is not a step: its
+ * endpoint has no granular OAuth scope (`jira-integration.md`), and nothing reads the raw rows. A resumed cursor
+ * naming PRIORITY finds no index and restarts the pass at step 0, which is idempotent.
+ */
+private val STEP_ORDER: List<JiraEntityKind> = JiraEntityKind.entries.filter { it != JiraEntityKind.PRIORITY }
 
 private const val SCRUM_BOARD_TYPE = "scrum"
+
+/**
+ * The REFERENCE stream's board scope rule, shared with `JiraConnector.testConnection` so its board probes seed from a
+ * board the SYNC would actually fetch: a board is in scope when its `location.projectKey` is one of [projectKeys].
+ */
+internal fun isInScopeBoard(board: JsonObject, projectKeys: List<String>): Boolean =
+    board["location"]?.jsonObject?.get("projectKey")?.jsonPrimitive?.contentOrNull in projectKeys
+
+/** Only scrum boards carry sprints (Jira's `/board/{id}/sprint` answers 400 for a Kanban board). */
+internal fun isScrumBoard(board: JsonObject): Boolean = board["type"]?.jsonPrimitive?.contentOrNull == SCRUM_BOARD_TYPE
 
 /**
  * The REFERENCE stream (v0.2.0 plan §7): one full, resumable pass over every kind
@@ -35,7 +49,9 @@ private const val SCRUM_BOARD_TYPE = "scrum"
  * scoped to [projectKeys] (the stub has no board-side project filter, so this fetches every board
  * and filters — `sample-data/README.md`'s "Gateway shape"/paging notes); board sprints are fetched
  * only for scrum boards (Jira's own `/board/{id}/sprint` 400s for a Kanban board). Entities not
- * seen during the pass are tombstoned at the end and resurrected the next time they reappear.
+ * seen during the pass are tombstoned at the end and resurrected the next time they reappear. The sweep covers
+ * every [JiraEntityKind], the no-longer-fetched PRIORITY included, so a connection's old PRIORITY rows are
+ * tombstoned on its next pass (intended).
  */
 class JiraReferenceStream(
     private val client: JiraClient,
@@ -62,13 +78,13 @@ class JiraReferenceStream(
                 }
                 JiraEntityKind.STATUS -> runStartAtPaged(context, passStartedAt, step, startAt) { client.statusesSearch(it) }
                 JiraEntityKind.PROJECT -> runStartAtPaged(context, passStartedAt, step, startAt) { client.projectsSearch(it) }
-                JiraEntityKind.PRIORITY -> runStartAtPaged(context, passStartedAt, step, startAt) { client.priorities(it) }
                 JiraEntityKind.RESOLUTION -> runStartAtPaged(context, passStartedAt, step, startAt) { client.resolutions(it) }
                 JiraEntityKind.PROJECT_STATUSES -> runPerProjectKey(context, passStartedAt, startAt)
                 JiraEntityKind.USER -> runUsersPaged(context, passStartedAt, startAt)
                 JiraEntityKind.BOARD -> runStartAtPaged(context, passStartedAt, step, startAt, ::isInScopeBoard) { client.boards(it) }
                 JiraEntityKind.BOARD_CONFIGURATION -> runBoardConfigurations(context, passStartedAt, startAt)
                 JiraEntityKind.SPRINT -> runSprints(context, passStartedAt, startAt)
+                JiraEntityKind.PRIORITY -> error("PRIORITY is never in STEP_ORDER")
             }
             stepIndex++
             if (stepIndex < STEP_ORDER.size) {
@@ -82,8 +98,7 @@ class JiraReferenceStream(
         }
     }
 
-    private fun isInScopeBoard(board: JsonObject): Boolean =
-        board["location"]?.jsonObject?.get("projectKey")?.jsonPrimitive?.contentOrNull in projectKeys
+    private fun isInScopeBoard(board: JsonObject): Boolean = isInScopeBoard(board, projectKeys)
 
     private suspend fun runSingleShot(context: StreamContext, step: JiraEntityKind, fetch: suspend () -> JsonArray) {
         val elements = fetch()
@@ -179,7 +194,7 @@ class JiraReferenceStream(
      * interruption restarts THAT board's own paging from 0 (idempotent).
      */
     private suspend fun runSprints(context: StreamContext, passStartedAt: Long, resumeIndex: Int) {
-        val scrumBoards = fetchInScopeBoards(context).filter { it["type"]?.jsonPrimitive?.contentOrNull == SCRUM_BOARD_TYPE }
+        val scrumBoards = fetchInScopeBoards(context).filter(::isScrumBoard)
         var index = resumeIndex
         while (index < scrumBoards.size) {
             val boardId = scrumBoards[index].getValue("id").jsonPrimitive.content.toLong()

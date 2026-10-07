@@ -220,8 +220,9 @@ digest-pinning style as Lettuce's `teams-stub`).
   pass (which calls every in-scope issue) always gets a `200`, not a `404`, for the majority that
   simply have nothing to report.
 - **Reference data (`field`, `statuscategory`, `project/search`, `project/{key}/statuses`,
-  `issuetype`, `priority/search`, `resolution/search`, `issueLinkType`, `board/{id}/configuration`)
-  is scenario-independent** — it does not change between `Started` and `day2`. Only issues,
+  `issuetype`, `resolution/search`, `issueLinkType`, `board/{id}/configuration`)
+  is scenario-independent** — it does not change between `Started` and `day2`. (The stub still serves
+  `priority/search`, but Flow has not called it since 2026-10-08; see `.claude/docs/jira-integration.md`.) Only issues,
   changelog, worklogs and the two `search/jql` variants are scenario-gated.
 
 ### Timestamp formats

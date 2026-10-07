@@ -17,6 +17,7 @@ import ch.nokillswit.norm.purgeAll
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -31,8 +32,10 @@ private const val TOTAL_BUDGET_MS = 30_000L
  * total, never throwing — every outcome becomes a [ConnectionTestRow]. Order: tenant_info →
  * myself → search → field → statuses → projects (+ each key) → bulkfetch (optional) + per-issue
  * changelog → per-issue worklog (A1) → worklog/updated → users → boards + configuration
- * (optional) + sprints. The first in-scope issue id found by the search probe seeds the
- * issue-scoped probes; the first board id found by the boards probe seeds its two children.
+ * + sprints (required: a SYNC's REFERENCE stream fetches all three). The first in-scope issue id found by the search probe seeds the
+ * issue-scoped probes. The boards probe seeds its two children by the REFERENCE stream's own rules (`isInScopeBoard`,
+ * `isScrumBoard`): `board_configuration` uses the first board of the first page whose project is in `projectKeys`,
+ * `board_sprints` the first such SCRUM board (a Kanban board's `/sprint` answers 400); a child with no such board is skipped.
  *
  * `bulkfetch` is deliberately probed with a SINGLE issue id (not a real 50-id chunk — that shape
  * belongs to the CHANGELOGS stream arriving in plan commit 6): against the sample stub, whose
@@ -189,6 +192,7 @@ class JiraConnector(
         var cloudId: String? = null
         var firstIssueId: String? = null
         var firstBoardId: Long? = null
+        var firstScrumBoardId: Long? = null
         val deadline = now() + TOTAL_BUDGET_MS
 
         suspend fun probe(name: String, path: String, required: Boolean, scopeHint: String? = null, block: suspend () -> Unit) {
@@ -237,41 +241,61 @@ class JiraConnector(
             firstIssueId = page.issues.firstOrNull()?.jsonObject?.get("id")?.jsonPrimitive?.contentOrNull
         }
         probe("field", "/rest/api/3/field", required = true, scopeHint = "read:field:jira") { client.fields() }
-        probe("statuses", "/rest/api/3/statuses/search", required = true, scopeHint = "read:status:jira") { client.statusesSearch() }
+        probe("statuses", "/rest/api/3/statuses/search", required = true, scopeHint = "read:workflow:jira") { client.statusesSearch() }
         probe("projects", "/rest/api/3/project/search", required = true, scopeHint = "read:project:jira") { client.projectsSearch() }
         projectKeys.forEach { key ->
-            probe("project_statuses:$key", "/rest/api/3/project/$key/statuses", required = true) { client.projectStatuses(key) }
+            probe(
+                "project_statuses:$key",
+                "/rest/api/3/project/$key/statuses",
+                required = true,
+                scopeHint = "read:status:jira, read:issue-status:jira, read:issue-type:jira",
+            ) { client.projectStatuses(key) }
         }
         firstIssueId?.let { issueId ->
-            probe("bulkfetch", "/rest/api/3/changelog/bulkfetch", required = false) {
+            probe("bulkfetch", "/rest/api/3/changelog/bulkfetch", required = false, scopeHint = "read:issue.changelog:jira") {
                 client.changelogBulk(listOf(issueId), maxResults = 1)
             }
-            probe("issue_changelog", "/rest/api/3/issue/$issueId/changelog", required = true, scopeHint = "read:issue-details:jira") {
-                client.issueChangelogPage(issueId)
-            }
-            probe("issue_worklog", "/rest/api/3/issue/$issueId/worklog", required = true, scopeHint = "read:issue:jira") {
-                client.issueWorklogPage(issueId)
-            }
+            probe(
+                "issue_changelog",
+                "/rest/api/3/issue/$issueId/changelog",
+                required = true,
+                scopeHint = "read:issue-details:jira, read:issue.changelog:jira",
+            ) { client.issueChangelogPage(issueId) }
+            probe(
+                "issue_worklog",
+                "/rest/api/3/issue/$issueId/worklog",
+                required = true,
+                scopeHint = "read:issue:jira, read:issue-worklog:jira",
+            ) { client.issueWorklogPage(issueId) }
         }
-        probe("worklog_updated", "/rest/api/3/worklog/updated", required = true) { client.worklogUpdated(0) }
+        probe("worklog_updated", "/rest/api/3/worklog/updated", required = true, scopeHint = "read:issue-worklog:jira") {
+            client.worklogUpdated(0)
+        }
         probe("users", "/rest/api/3/users/search", required = true, scopeHint = "read:jira-user") { client.usersSearch() }
-        probe("boards", "/rest/agile/1.0/board", required = false, scopeHint = "read:board-scope:jira-software") {
-            val page = client.boards()
-            firstBoardId = page.values.firstOrNull()?.jsonObject?.get("id")?.jsonPrimitive?.longOrNull
+        // Required: a SYNC's REFERENCE stream fetches boards, configurations and sprints for every
+        // connection, and a 401/403 there fails the job (`.claude/docs/jira-integration.md`).
+        probe("boards", "/rest/agile/1.0/board", required = true, scopeHint = "read:board-scope:jira-software, read:project:jira") {
+            val inScope = client.boards().values.map { it.jsonObject }.filter { isInScopeBoard(it, projectKeys) }
+            firstBoardId = inScope.firstOrNull()?.boardId()
+            firstScrumBoardId = inScope.firstOrNull(::isScrumBoard)?.boardId()
         }
         firstBoardId?.let { boardId ->
             probe(
                 "board_configuration",
                 "/rest/agile/1.0/board/$boardId/configuration",
-                required = false,
-                scopeHint = "read:board-scope.admin:jira-software",
+                required = true,
+                scopeHint = "read:board-scope.admin:jira-software, read:project:jira",
             ) { client.boardConfiguration(boardId) }
-            probe("board_sprints", "/rest/agile/1.0/board/$boardId/sprint", required = false, scopeHint = "read:sprint:jira-software") {
+        }
+        firstScrumBoardId?.let { boardId ->
+            probe("board_sprints", "/rest/agile/1.0/board/$boardId/sprint", required = true, scopeHint = "read:sprint:jira-software") {
                 client.boardSprints(boardId)
             }
         }
         return ConnectionTestResult(rows, cloudId)
     }
+
+    private fun JsonObject.boardId(): Long? = get("id")?.jsonPrimitive?.longOrNull
 
     private companion object {
         const val SEARCH_PROBE_MAX_RESULTS = 5
