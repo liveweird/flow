@@ -94,8 +94,9 @@ services:
       # Dev-only reroute for the Jira client (`jira.stubBaseUrl`, jira/Jira.kt — production mode
       # refuses a non-blank value): every outbound Jira call, gateway and tenant_info alike,
       # targets the jira-stub above instead of the real Atlassian hosts. No depends_on on
-      # jira-stub since the stub is optional for the app to start.
-      JIRA_STUB_BASE_URL: http://jira-stub:8080
+      # jira-stub since the stub is optional for the app to start. The `-` (not `:-`) default keeps an
+      # explicitly EMPTY `JIRA_STUB_BASE_URL=` empty, which turns the reroute off for a real tenant.
+      JIRA_STUB_BASE_URL: ${JIRA_STUB_BASE_URL-http://jira-stub:8080}
     ports:
       - "127.0.0.1:8084:8084"
     # Mirrors the image's HEALTHCHECK (stated here so `depends_on: service_healthy` and the e2e

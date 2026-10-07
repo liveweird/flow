@@ -38,7 +38,7 @@ test("admin connects the Jira stub, syncs it, and inspects the result", async ({
 
   await dialog.getByRole("button", { name: "Test connection" }).click();
   // Every REQUIRED probe row must be OK against the sample stub (server's own
-  // DataSourceTestConnectionTest pins this) — only the optional board/bulkfetch rows may vary.
+  // DataSourceTestConnectionTest pins this) — only the optional bulkfetch row may vary.
   const requiredRows = dialog.locator("table tbody tr", { hasText: "Required" });
   await expect(requiredRows.first()).toBeVisible({ timeout: 35_000 });
   const requiredCount = await requiredRows.count();

@@ -23,13 +23,13 @@ describe("ConnectionTestResults", () => {
     const result: ConnectionTestResult = {
       rows: [
         {
-          name: "boards",
-          path: "/rest/agile/1.0/board",
+          name: "bulkfetch",
+          path: "/rest/api/3/changelog/bulkfetch",
           required: false,
           ok: false,
           status: 403,
           code: "FORBIDDEN_SCOPE",
-          scopeHint: "read:board-scope:jira-software",
+          scopeHint: "read:issue.changelog:jira",
         },
       ],
     };
@@ -37,7 +37,7 @@ describe("ConnectionTestResults", () => {
 
     expect(screen.getByText("Optional")).toBeInTheDocument();
     expect(screen.getByText("Failed")).toBeInTheDocument();
-    expect(screen.getByText("403 · FORBIDDEN_SCOPE · scope: read:board-scope:jira-software")).toBeInTheDocument();
+    expect(screen.getByText("403 · FORBIDDEN_SCOPE · scope: read:issue.changelog:jira")).toBeInTheDocument();
   });
 
   test("a failed row with no status/code/scopeHint at all still renders the em-dash detail", () => {

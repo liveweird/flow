@@ -292,11 +292,15 @@ above).
 - **`reference`** (`jira/JiraReferenceStream.kt`'s `ReferenceCursor`): `passStartedAt` (fixed for
   the whole pass, preserved across a resume), `step` (a `JiraEntityKind` — doubles as
   `raw.jira_entities.kind`, in the FIXED order the enum declares: `FIELD`, `STATUS`,
-  `STATUS_CATEGORY`, `PROJECT`, `PROJECT_STATUSES`, `ISSUE_TYPE`, `PRIORITY`, `RESOLUTION`,
+  `STATUS_CATEGORY`, `PROJECT`, `PROJECT_STATUSES`, `ISSUE_TYPE`, `RESOLUTION`,
   `ISSUE_LINK_TYPE`, `USER`, `BOARD`, `BOARD_CONFIGURATION`, `SPRINT`), an optional `boardId`
   (diagnostic only, for the two board-scoped steps) and `startAt` (a real Jira `startAt` for the
   `startAt`-paged steps, or an index into the in-scope project-key/board list for the per-item
-  steps).
+  steps). `PRIORITY` is still a `JiraEntityKind` value but is no longer fetched (2026-10-08; its
+  endpoint has no granular OAuth scope and nothing reads the raw rows): the value is kept for
+  persisted `raw.jira_entities` rows and in-flight cursors, a resumed cursor naming it restarts the
+  pass at step 0 (idempotent), and the end-of-pass sweep tombstones a connection's old `PRIORITY`
+  rows. The rationale is in `jira-integration.md`.
 - **`issues`** (`jira/JiraIssuesStream.kt`'s `IssuesCursor`): `watermarkAt` (null until a first run
   completes), `jql` (the exact query driving the CURRENT run, computed once and reused for every
   page — a real tenant's paging must reuse the same query text), `nextPageToken` (Jira's opaque
@@ -336,7 +340,7 @@ commits — a lost lease is caught here, never before the write.
 - REFERENCE resumes at the `step`/`startAt` its last-written cursor named: single-shot steps
   (`FIELD`, `STATUS_CATEGORY`, `ISSUE_TYPE`, `ISSUE_LINK_TYPE`) have no cursor of their own and
   simply restart from scratch (idempotent, hash-diffed); `startAt`-paged steps
-  (`STATUS`/`PROJECT`/`PRIORITY`/`RESOLUTION`/`BOARD`), the per-project-key `PROJECT_STATUSES` loop,
+  (`STATUS`/`PROJECT`/`RESOLUTION`/`BOARD`), the per-project-key `PROJECT_STATUSES` loop,
   the per-board `BOARD_CONFIGURATION` loop and the per-board-then-per-sprint-page `SPRINT` loop all
   resume mid-list/mid-page from their persisted `startAt`/index. `users/search` (`USER`) has no
   `total` in its response, so its own "last page" detection compares each page's size against the

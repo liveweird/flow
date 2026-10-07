@@ -121,7 +121,7 @@ class DataSourceTestConnectionTest {
             assertEquals(false, boardsRow.ok)
             assertEquals("FORBIDDEN_SCOPE", boardsRow.code)
             assertEquals(403, boardsRow.status)
-            assertEquals(false, boardsRow.required)
+            assertEquals(true, boardsRow.required)
 
             val myselfRow = result.rows.single { it.name == "myself" }
             assertEquals(false, myselfRow.ok)
