@@ -8,6 +8,7 @@ import ch.nokillswit.jira.JiraProjectFields
 import ch.nokillswit.jira.JiraRawStore
 import ch.nokillswit.jira.JiraReferenceStream
 import ch.nokillswit.jira.JiraStartAtPage
+import ch.nokillswit.jira.REFERENCE_STEP_ORDER
 import ch.nokillswit.jira.ReferenceCursor
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.toList
@@ -186,7 +187,7 @@ class JiraProjectFieldsScriptedTest {
         assertEquals(KEYS.toSet(), projectIds.keys)
 
         // passStartedAt = 1 keeps the resumed pass's end sweep from tombstoning anything (a fresh pass would re-run the earlier steps).
-        val cursor = Json.encodeToString(ReferenceCursor(1L, JiraEntityKind.PROJECT_FIELDS, startAt = 2))
+        val cursor = Json.encodeToString(ReferenceCursor(1L, JiraEntityKind.PROJECT_FIELDS, startAt = 2, stepOrder = REFERENCE_STEP_ORDER))
         SyncedStubFixture.cursors().put(connId, "reference", cursor)
         val requested = mutableSetOf<Long>()
         val client = scripted { projectId, _, _ ->

@@ -13,9 +13,10 @@ val JiraRawStoreKey = AttributeKey<JiraRawStore>("JiraRawStore")
  * The kinds `raw.jira_entities` partitions by (v0.2.0 plan §4 V10) — this exact order is also the
  * REFERENCE stream's fixed step sequence (`jira/JiraReferenceStream.kt`), so a kind name doubles as
  * a cursor `step` value. PRIORITY is retained for persisted rows (`raw.jira_entities.kind`) and in-flight cursors
- * (`ReferenceCursor.step`); it is no longer fetched. ISSUE_TYPE precedes PROJECT_FIELDS on purpose: the field-scheme split reads the
- * stored issue types' hierarchy levels. A cursor persisted under the previous order stays valid — it names a step and resume
- * re-runs from there (every step is idempotent).
+ * (`ReferenceCursor.step`); it is no longer fetched. ISSUE_TYPE precedes PROJECT_FIELDS on purpose: the field-scheme split
+ * reads the stored issue types' hierarchy levels. A cursor naming PROJECT_FIELDS persisted under the previous order (no
+ * `stepOrder`; it ran before ISSUE_TYPE) restarts the pass at step 0, like one naming PRIORITY, so ISSUE_TYPE is never
+ * skipped; every other old cursor still names a step that resume re-runs from (every step is idempotent).
  */
 enum class JiraEntityKind {
     FIELD, STATUS, STATUS_CATEGORY, PROJECT, PROJECT_STATUSES, ISSUE_TYPE, PROJECT_FIELDS, PRIORITY, RESOLUTION,

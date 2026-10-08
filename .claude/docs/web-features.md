@@ -182,12 +182,12 @@ team membership landed in M2 commit 5, and the per-connection `metrics-config` p
   — they save with the ONE Save, as `domainStatusStages`), Fields (five `Select`s over the profile-detected custom fields plus
   Jira's own `duedate` system field, labelled with the detected role; **by default only the fields of the projects' field
   scheme are listed**, **per slot**: the three epic slots (estimate, start, due) list options `inEpicScheme === true`, the two
-  task slots (task estimate, work category) `inTaskScheme === true`, each falling back to `inScheme === true` while its split
-  is unknown (`visibleFields(fields, selected, showAll, scope)` with `scope` `epic`/`task`) — PLUS every field currently
-  selected in any of the five slots (`utils/metricsConfigForm.ts`'s `visibleFields`); a split that flags nothing for a scope
-  lists everything for it rather than an empty `Select`; when no field carries scheme information (`inScheme` null for all, the
-  optional `projects/fields` step produced nothing) it falls back to fields with `nonNullCount > 0` and a dimmed one-line
-  note says the scheme is unavailable; with no information at all everything is listed. A "Show all fields (N)" `Switch`
+  task slots (task estimate) `inTaskScheme === true`, and the work-category slot the union (`inScheme === true` — D8 reads "the
+  task's own value, else its epic's"), via `visibleFields(fields, selected, showAll, scope)` with `scope` `epic`/`task`/`any` —
+  PLUS every field currently selected in any of the five slots (`utils/metricsConfigForm.ts`'s `visibleFields`); a scope never
+  comes up empty: when its split is unknown or flags nothing it falls back to `inScheme === true`, then (the optional
+  `projects/fields` step produced nothing — a dimmed one-line note says the scheme is unavailable) to fields with
+  `nonNullCount > 0`, and with no information at all everything is listed. A "Show all fields (N)" `Switch`
   (state inside `FieldsTab`, remembered nowhere, shown only when the default hides something) lists the rest. The filter is
   display-only: the saved `fields` always carry the selected ids), Domains (project key →
   domain key/name), Boards → team (an active-teams `Select`; a `409` marks the changed board

@@ -173,9 +173,10 @@ project's field scheme carries, so the editor lists those by default.
   above level 1 (a Premium "Initiative") counts for neither (it stays in the union). The level comes from the stored
   `ISSUE_TYPE` entities (`JiraNormalizer.issueTypeHierarchy`, keyed by issue-type id = the row's `workTypeId`).
   **Step order**: `ISSUE_TYPE` is stored BEFORE `PROJECT_FIELDS` (the `JiraEntityKind` declaration order is the REFERENCE
-  step order; `ISSUE_TYPE` moved up one slot). A resumed cursor stays valid — it names a step, resume restarts there, and
-  every step is idempotent (a cursor persisted under the old order that names `PROJECT_FIELDS` resumes with the issue types
-  of the previous pass, if any). The split keys are OMITTED — only the union is stored — when no `ISSUE_TYPE` entity exists or
+  step order; `ISSUE_TYPE` moved up one slot). A resumed cursor names a step and resume restarts there (every step is
+  idempotent) — except one naming `PROJECT_FIELDS` that lacks `stepOrder` (written under the old order, when it ran before `ISSUE_TYPE`; every cursor written now carries `stepOrder: 2`): resuming
+  after the moved-up `ISSUE_TYPE` would skip it and the end-of-pass sweep would tombstone every issue type, so it restarts the
+  pass at step 0, like an old `PRIORITY` cursor. The split keys are OMITTED — only the union is stored — when no `ISSUE_TYPE` entity exists or
   a row has no numeric `workTypeId`; a payload stored before the split existed (or with only one of the two keys) is read
   as "unknown split": `JiraProjectFields.parse` returns the union for both scopes. Inputs are read off the entities stored
   earlier in the same pass: the project id from the `PROJECT` entity of that key, the issue-type ids from that key's

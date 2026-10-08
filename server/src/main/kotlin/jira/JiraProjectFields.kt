@@ -55,37 +55,41 @@ internal object JiraProjectFields {
     /**
      * The field ids of [projectId]'s field scheme per work type (the row's `workTypeId`), for [workTypeIds]: pages through
      * `projects/fields` (startAt-paged, trusting a non-null `isLast` over `total`, which may be absent/0, and the page size
-     * Jira actually returned) in request-sized groups of work types. A row without a numeric `workTypeId` still counts in
-     * [FetchedScheme.fieldIds] but makes the per-type split unknown ([FetchedScheme.byWorkType] `null`). Throws
+     * Jira actually returned) in request-sized groups of work types, folding each page into the per-type sets as it arrives.
+     * A row without a numeric `workTypeId` still counts in [FetchedScheme.fieldIds] but makes the per-type split unknown
+     * ([FetchedScheme.byWorkType] `null`). Throws
      * [JiraFetchException] — `INVALID_RESPONSE` for a row without a string `fieldId` — so the caller decides what skips.
      */
     suspend fun fetchScheme(client: JiraClient, projectId: Long, workTypeIds: List<Long>): FetchedScheme {
-        val rows = mutableListOf<JsonElement>()
+        val collector = SchemeCollector()
         for (group in workTypeIds.chunked(WORK_TYPES_PER_REQUEST)) {
             var startAt = 0
             while (true) {
                 val page = client.projectFields(projectId, group, startAt)
-                rows.addAll(page.values)
+                page.values.forEach(collector::add)
                 val nextStartAt = startAt + page.values.size
                 val last = page.isLast ?: (nextStartAt >= page.total)
                 if (last || page.values.isEmpty()) break
                 startAt = nextStartAt
             }
         }
-        return collect(rows)
+        return collector.build()
     }
 
-    private fun collect(rows: List<JsonElement>): FetchedScheme {
-        val fieldIds = sortedSetOf<String>()
-        val byWorkType = sortedMapOf<Long, MutableSet<String>>()
-        var splitKnown = true
-        for (row in rows) {
+    /** Folds the rows of each page into the distinct field ids and the per-work-type sets, so no page is kept once folded. */
+    private class SchemeCollector {
+        private val fieldIds = sortedSetOf<String>()
+        private val byWorkType = sortedMapOf<Long, MutableSet<String>>()
+        private var splitKnown = true
+
+        fun add(row: JsonElement) {
             val fieldId = fieldIdOf(row)
             fieldIds += fieldId
             val workTypeId = workTypeIdOf(row)
             if (workTypeId == null) splitKnown = false else byWorkType.getOrPut(workTypeId) { sortedSetOf() } += fieldId
         }
-        return FetchedScheme(fieldIds.toList(), if (splitKnown) byWorkType else null)
+
+        fun build() = FetchedScheme(fieldIds.toList(), if (splitKnown) byWorkType else null)
     }
 
     /** What [fetchScheme] collected: the distinct field ids and — when every row named its work type — the ids per work type. */

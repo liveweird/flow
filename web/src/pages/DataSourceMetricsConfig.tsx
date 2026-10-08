@@ -133,19 +133,22 @@ function FieldsTab({
   // Epic slots read the epic issue types' field scheme, task slots the task types' (each falls back to the union while the split is unknown).
   const epic = visibleFields(fieldOptions, selectedIds, showAll, "epic");
   const task = visibleFields(fieldOptions, selectedIds, showAll, "task");
-  const hiddenCount = Math.max(epic.hiddenCount, task.hiddenCount);
+  // The work category follows D8 — the task's own value, else its epic's — so it lists the union of both schemes.
+  const category = visibleFields(fieldOptions, selectedIds, showAll, "any");
+  const hiddenCount = Math.max(epic.hiddenCount, task.hiddenCount, category.hiddenCount);
   const dataFor = (listed: MetricsFieldOption[]) => [
     { value: "duedate", label: t("metrics.config.fields.dueDateOption") },
     ...listed.map((f) => ({ value: f.fieldId, label: `${f.name} (${t(`dataSources.profile.fieldRole.${f.detectedRole}` as ParseKeys)})` })),
   ];
   const epicData = dataFor(epic.listed);
   const taskData = dataFor(task.listed);
+  const categoryData = dataFor(category.listed);
   const slots: { key: keyof FieldsState; label: string; data: typeof epicData }[] = [
     { key: "estimateTask", label: t("metrics.config.fields.estimateTask"), data: taskData },
     { key: "estimateEpic", label: t("metrics.config.fields.estimateEpic"), data: epicData },
     { key: "epicStart", label: t("metrics.config.fields.epicStart"), data: epicData },
     { key: "epicDue", label: t("metrics.config.fields.epicDue"), data: epicData },
-    { key: "workCategory", label: t("metrics.config.fields.workCategory"), data: taskData },
+    { key: "workCategory", label: t("metrics.config.fields.workCategory"), data: categoryData },
   ];
   return (
     <Stack maw={480}>

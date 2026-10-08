@@ -155,7 +155,7 @@ describe("DataSourceMetricsConfig Fields filter", () => {
     expect(await optionNames(user, "Task estimate field")).toHaveLength(5);
   });
 
-  test("epic slots list the epic scheme's fields and task slots the task scheme's", async () => {
+  test("epic slots list the epic scheme's fields, task slots the task scheme's and the work category their union", async () => {
     const split: FieldOptions = [
       { fieldId: "customfield_1", name: "Story points", type: "number", detectedRole: "STORY_POINTS", inScheme: true, nonNullCount: 40, inEpicScheme: false, inTaskScheme: true },
       { fieldId: "customfield_2", name: "Epic start", type: "date", detectedRole: "OTHER", inScheme: true, nonNullCount: 3, inEpicScheme: true, inTaskScheme: false },
@@ -170,7 +170,13 @@ describe("DataSourceMetricsConfig Fields filter", () => {
     const task = ["Due date (system field)", "Story points (Story points)", "Team (Team)"];
     const epic = ["Due date (system field)", "Epic start (Other)", "Team (Team)"];
     expect(await optionNames(user, "Task estimate field")).toEqual(task);
-    expect(await optionNames(user, "Work-category field")).toEqual(task);
+    // D8: the work category is the task's own value, else its epic's — so it lists the union of both schemes.
+    expect(await optionNames(user, "Work-category field")).toEqual([
+      "Due date (system field)",
+      "Story points (Story points)",
+      "Epic start (Other)",
+      "Team (Team)",
+    ]);
     expect(await optionNames(user, "Epic estimate field")).toEqual(epic);
     expect(await optionNames(user, "Epic start-date field")).toEqual(epic);
     expect(await optionNames(user, "Epic due-date field")).toEqual(epic);

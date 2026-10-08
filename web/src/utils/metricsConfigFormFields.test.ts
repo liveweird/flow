@@ -79,8 +79,15 @@ describe("the per-scope Fields-tab filter", () => {
     expect(result.schemeUnknown).toBe(true);
   });
 
-  test("a split that lists nothing for a scope lists everything rather than an empty Select", () => {
+  test("a split that flags nothing for a scope falls back to the union, then to the fields with data, never to an empty list", () => {
     const noEpic = split.map((f) => ({ ...f, inEpicScheme: false }));
-    expect(ids(visibleFields(noEpic, [], false, "epic").listed)).toEqual(ids(noEpic));
+    expect(ids(visibleFields(noEpic, [], false, "epic").listed)).toEqual(["epicOnly", "taskOnly", "both"]);
+    const noSchemeAtAll = [
+      field("a", { inScheme: false, inEpicScheme: false, inTaskScheme: false, nonNullCount: 2 }),
+      field("b", { inScheme: false, inEpicScheme: false, inTaskScheme: false }),
+    ];
+    expect(ids(visibleFields(noSchemeAtAll, [], false, "epic").listed)).toEqual(["a"]);
+    const nothingAtAll = noSchemeAtAll.map((f) => ({ ...f, nonNullCount: 0 }));
+    expect(ids(visibleFields(nothingAtAll, [], false, "epic").listed)).toEqual(["a", "b"]);
   });
 });

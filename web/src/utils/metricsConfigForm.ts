@@ -377,11 +377,11 @@ function schemeFlag(f: MetricsFieldOption, scope: FieldScope): boolean | null {
 
 /**
  * The Fields tab's default filter for the slots reading [scope]'s scheme: a field is listed when it is in the in-scope
- * projects' field scheme of that scope (`inEpicScheme`/`inTaskScheme === true`; per slot it falls back to the union's
- * `inScheme` while the split is unknown), PLUS every field currently selected in any slot (a hidden choice never
- * disappears). When the scheme is unknown altogether (the optional `projects/fields` step produced nothing) it falls
- * back to fields with at least one value in the synced issues (`nonNullCount > 0`); with no information at all
- * (nothing has data either) it lists everything.
+ * projects' field scheme of that scope (`inEpicScheme`/`inTaskScheme === true`), PLUS every field currently selected in
+ * any slot (a hidden choice never disappears). The list never comes up empty: when the split is unknown for the scope, or
+ * known but flags no field, it falls back to the union's `inScheme === true`; when that flags nothing either (the optional
+ * `projects/fields` step produced nothing) to fields with at least one value in the synced issues (`nonNullCount > 0`);
+ * with no information at all it lists everything.
  */
 export function visibleFields(
   fields: MetricsFieldOption[],
@@ -390,13 +390,13 @@ export function visibleFields(
   scope: FieldScope = "any",
 ): VisibleFields {
   const schemeUnknown = !fields.some((f) => f.inScheme != null);
-  const useSplit = scope !== "any" && fields.some((f) => schemeFlag(f, scope) != null);
-  const relevant = (f: MetricsFieldOption) => {
-    if (schemeUnknown) return f.nonNullCount > 0;
-    return (useSplit ? schemeFlag(f, scope) : f.inScheme) === true;
-  };
-  const informative = fields.some(relevant);
+  const candidates: ((f: MetricsFieldOption) => boolean)[] = [
+    ...(scope === "any" ? [] : [(f: MetricsFieldOption) => schemeFlag(f, scope) === true]),
+    (f) => f.inScheme === true,
+    (f) => f.nonNullCount > 0,
+  ];
+  const relevant = candidates.find((candidate) => fields.some(candidate));
   const selected = new Set(selectedIds);
-  const filtered = informative ? fields.filter((f) => relevant(f) || selected.has(f.fieldId)) : fields;
+  const filtered = relevant ? fields.filter((f) => relevant(f) || selected.has(f.fieldId)) : fields;
   return { listed: showAll ? fields : filtered, hiddenCount: fields.length - filtered.length, schemeUnknown };
 }

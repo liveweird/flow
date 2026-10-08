@@ -118,7 +118,7 @@
       "workflow": {
         "epic": "Epic",
         "task": "Task",
-        "hint": "Which workflow uses the status: the epic issue types' (Epic), the other issue types' (Task), or both."
+        "hint": "Which workflow uses the status: the epic issue types' (Epic), the other issue types' (Task), or both. No badge: the status belongs only to a type above epic level, or the split is unknown."
       },
       "showAll": "Show all statuses ({{count}})",
       "showAllHint": "By default only statuses used by this connection's workflows or seen in its history are listed, plus any you changed. Saving always covers every status.",
