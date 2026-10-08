@@ -163,6 +163,43 @@ class DeriveKernelsTest {
         assertEquals(0, result.reopenCount)
     }
 
+    @Test
+    fun `startedDoneAt starts an item at its first entry into WAITING when that precedes any IN_PROGRESS (A30)`() {
+        val stageMap = mapOf("1" to ItemStage.NOT_STARTED, "2" to ItemStage.IN_PROGRESS, "3" to ItemStage.WAITING)
+        val stages = stageIntervals(
+            listOf(statusInterval("1", 0, 10, 1), statusInterval("3", 10, 20, 2), statusInterval("2", 20, null, 3)),
+            stageMap,
+        )
+        val result = startedDoneAt(stages)
+        assertEquals(10, result.startedAtMs, "WAITING is a started stage: the first WAITING entry wins over the later IN_PROGRESS")
+        assertNull(result.doneAtMs)
+        assertEquals(0, result.reopenCount)
+    }
+
+    @Test
+    fun `startedDoneAt leaves a WAITING-only history started but never done (A30)`() {
+        val stages = stageIntervals(
+            listOf(statusInterval("1", 0, 10, 1), statusInterval("3", 10, null, 2)),
+            mapOf("1" to ItemStage.NOT_STARTED, "3" to ItemStage.WAITING),
+        )
+        val result = startedDoneAt(stages)
+        assertEquals(10, result.startedAtMs)
+        assertNull(result.doneAtMs, "WAITING is not DONE")
+    }
+
+    @Test
+    fun `startedDoneAt counts DONE to WAITING as a reopen and keeps the first start (A30)`() {
+        val stageMap = mapOf("2" to ItemStage.IN_PROGRESS, "3" to ItemStage.WAITING, "4" to ItemStage.DONE)
+        val stages = stageIntervals(
+            listOf(statusInterval("2", 0, 10, 1), statusInterval("4", 10, 20, 2), statusInterval("3", 20, null, 3)),
+            stageMap,
+        )
+        val result = startedDoneAt(stages)
+        assertEquals(0, result.startedAtMs)
+        assertNull(result.doneAtMs, "a reopened item sitting in WAITING is not delivered")
+        assertEquals(1, result.reopenCount, "DONE -> WAITING is a reopen")
+    }
+
     // ---- blockedIntervals --------------------------------------------------------------------
 
     @Test
@@ -329,6 +366,41 @@ class DeriveKernelsTest {
         assertNull(startedDone.doneAtMs)
         val result = activeWaitMs(stages, emptyList(), startedDone.startedAtMs, startedDone.doneAtMs)
         assertEquals(ActiveWait(0, 0), result)
+    }
+
+    @Test
+    fun `activeWaitMs counts WAITING time inside the cycle as wait, never active (A30)`() {
+        // IN_PROGRESS [0,40) -> WAITING [40,70) -> IN_PROGRESS [70,90) -> DONE [90, null)
+        val stages = listOf(
+            StageInterval(ItemStage.IN_PROGRESS, "2", 0, 40),
+            StageInterval(ItemStage.WAITING, "5", 40, 70),
+            StageInterval(ItemStage.IN_PROGRESS, "2", 70, 90),
+            StageInterval(ItemStage.DONE, "3", 90, null),
+        )
+        val result = activeWaitMs(stages, emptyList(), startedAtMs = 0, doneAtMs = 90)
+        assertEquals(60, result.activeMs, "40 + 20 of IN_PROGRESS; the 30 in WAITING is not active")
+        assertEquals(30, result.waitMs, "cycle 90 - active 60 is exactly the WAITING time")
+    }
+
+    @Test
+    fun `activeWaitMs starts the cycle at a WAITING entry and never subtracts blocked time spent in WAITING (A30)`() {
+        // WAITING [10,50) (also blocked, e.g. On Hold) -> IN_PROGRESS [50,80) -> DONE [80, null); started = 10 via WAITING
+        val stages = listOf(
+            StageInterval(ItemStage.NOT_STARTED, "1", 0, 10),
+            StageInterval(ItemStage.WAITING, "5", 10, 50),
+            StageInterval(ItemStage.IN_PROGRESS, "2", 50, 80),
+            StageInterval(ItemStage.DONE, "3", 80, null),
+        )
+        val blocked = listOf(BlockedInterval(10, 50, "STATUS"), BlockedInterval(60, 70, "FLAGGED"))
+        val result = activeWaitMs(stages, blocked, startedAtMs = 10, doneAtMs = 80)
+        assertEquals(20, result.activeMs, "IN_PROGRESS 30 minus the 10 blocked inside it; the WAITING-and-blocked span subtracts nothing")
+        assertEquals(50, result.waitMs, "cycle 70 - active 20")
+    }
+
+    @Test
+    fun `epicDriftFlags treats a WAITING epic as started (A30)`() {
+        val children = listOf(ch.nokillswit.metrics.ChildDeliveryStatus(startedAtMs = 100, doneAtMs = null))
+        assertTrue(epicDriftFlags(ItemStage.WAITING, children, epicDriftDays = 14, nowMs = 1_000_000).isEmpty())
     }
 
     // ---- estimateTimeline / estimateSnapshots -------------------------------------------------

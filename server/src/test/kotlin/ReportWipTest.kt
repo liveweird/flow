@@ -30,7 +30,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-private val STAGES = listOf("NOT_STARTED", "IN_PROGRESS", "DONE", "UNMAPPED")
+private val STAGES = listOf("NOT_STARTED", "IN_PROGRESS", "WAITING", "DONE", "UNMAPPED")
 
 /** The kinds an `itemKind` value stands for. */
 private fun kindsOf(itemKind: String): Set<String> = if (itemKind == "BOTH") setOf("TASK", "EPIC") else setOf(itemKind)
@@ -381,13 +381,13 @@ class ReportWipTest {
         insertWipRows(
             connId,
             listOf(
-                // team X: day 5 = 3 to do, 2 (+1 epic) doing, 1 unmapped; day 6 nothing; day 7 = 4 + 1 doing
+                // team X: day 5 = 3 to do, 2 (+1 epic) doing, 1 unmapped; day 6 nothing; day 7 = 4 doing + 1 waiting (A30)
                 cell("TEAM", x, d5, "TASK", "s1", "NOT_STARTED", 3),
                 cell("TEAM", x, d5, "TASK", "s2", "IN_PROGRESS", 2),
                 cell("TEAM", x, d5, "TASK", "s9", "UNMAPPED", 1),
                 cell("TEAM", x, d5, "EPIC", "s2", "IN_PROGRESS", 1),
                 cell("TEAM", x, d7, "TASK", "s2", "IN_PROGRESS", 4),
-                cell("TEAM", x, d7, "TASK", "s3", "IN_PROGRESS", 1),
+                cell("TEAM", x, d7, "TASK", "s3", "WAITING", 1),
                 // another team, the unassigned/unowned buckets, and a domain: never leak into team X
                 cell("TEAM", teamY.toString(), d5, "TASK", "s2", "IN_PROGRESS", 10),
                 cell("TEAM", "UNASSIGNED", d5, "TASK", "s1", "NOT_STARTED", 2),
@@ -423,9 +423,9 @@ class ReportWipTest {
             assertEquals(isoDays(d5, "2026-01-11"), stage.series.map { it.day })
             assertEquals(listOf(true, true, true, true, true, false, false), stage.series.map { it.isWorkingDay })
             fun WipReport.day(day: String) = series.single { it.day == day }.counts
-            assertEquals(mapOf("NOT_STARTED" to 3, "IN_PROGRESS" to 3, "DONE" to 0, "UNMAPPED" to 1), stage.day(d5))
+            assertEquals(mapOf("NOT_STARTED" to 3, "IN_PROGRESS" to 3, "WAITING" to 0, "DONE" to 0, "UNMAPPED" to 1), stage.day(d5))
             assertEquals(STAGES.associateWith { 0 }, stage.day("2026-01-06"))
-            assertEquals(mapOf("NOT_STARTED" to 0, "IN_PROGRESS" to 5, "DONE" to 0, "UNMAPPED" to 0), stage.day(d7))
+            assertEquals(mapOf("NOT_STARTED" to 0, "IN_PROGRESS" to 4, "WAITING" to 1, "DONE" to 0, "UNMAPPED" to 0), stage.day(d7))
             assertEquals(STAGES.associateWith { 0 }, stage.day("2026-01-11"))
             assertEquals(2, client.wip("$base&teamId=$teamX").day(d5).getValue("IN_PROGRESS"), "TASK is the default item kind")
             assertEquals(2, client.wip("$base&teamId=$teamX&itemKind=TASK").day(d5).getValue("IN_PROGRESS"))
@@ -449,10 +449,13 @@ class ReportWipTest {
 
             // UNIT sums every TEAM scope (X + Y + UNASSIGNED + UNOWNED) and none of the DOMAIN scopes.
             val unit = client.wip(both)
-            assertEquals(mapOf("NOT_STARTED" to 3 + 2 + 5 + 100, "IN_PROGRESS" to 3 + 10, "DONE" to 0, "UNMAPPED" to 1), unit.day(d5))
+            assertEquals(
+                mapOf("NOT_STARTED" to 3 + 2 + 5 + 100, "IN_PROGRESS" to 3 + 10, "WAITING" to 0, "DONE" to 0, "UNMAPPED" to 1),
+                unit.day(d5),
+            )
             // A domain reads its own scope only.
             val domain = client.wip("$both&domain=AAA")
-            assertEquals(mapOf("NOT_STARTED" to 0, "IN_PROGRESS" to 7, "DONE" to 3, "UNMAPPED" to 0), domain.day(d5))
+            assertEquals(mapOf("NOT_STARTED" to 0, "IN_PROGRESS" to 7, "WAITING" to 0, "DONE" to 3, "UNMAPPED" to 0), domain.day(d5))
             assertEquals(7, client.wip("$base&domain=AAA&itemKind=TASK").day(d5).getValue("IN_PROGRESS"))
             assertEquals(STAGES.associateWith { 0 }, client.wip("$both&domain=NOPE").day(d5))
 
@@ -475,7 +478,7 @@ class ReportWipTest {
 
     /**
      * A per-domain stage override lets ONE status carry two stages in a scope. The STATUS legend ranks it by its earliest
-     * stage in `NOT_STARTED, IN_PROGRESS, DONE, UNMAPPED` order, whatever order the cells come back in: "Alpha" is both
+     * stage in `NOT_STARTED, IN_PROGRESS, WAITING, DONE, UNMAPPED` order, whatever order the cells come back in: "Alpha" is both
      * IN_PROGRESS and DONE (alphabetically DONE sorts first, so a first-seen rule would rank it 3rd) and must precede
      * "Beta" (IN_PROGRESS); "Zero" (NOT_STARTED) leads; counts of the two-stage status sum.
      */

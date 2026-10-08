@@ -63,7 +63,7 @@ a `404` and never an empty shell an admin has to fill in from scratch before rep
 | Field | Default |
 |---|---|
 | `domainStatusStages` | empty — no override exists until an admin makes one (see "Per-domain stage overrides") |
-| `statusStages` | seeded from each status's Jira category (`norm.statuses`) — `new → NOT_STARTED`, `indeterminate → IN_PROGRESS`, `done → DONE`; a status whose category is `UNKNOWN` is left OUT of this list (flagged, never guessed — `.claude/docs/domain-model.md`'s "an unmapped status is flagged, never guessed"). The `metrics-config/options` endpoint's own `statuses` list still names every status Jira reports, mapped or not, so an admin can see the gap. |
+| `statusStages` | seeded from each status's Jira category (`norm.statuses`) — `new → NOT_STARTED`, `indeterminate → IN_PROGRESS`, `done → DONE` (**never `WAITING`** — Jira has no category for it, an admin maps it by hand, A30); a status whose category is `UNKNOWN` is left OUT of this list (flagged, never guessed — `.claude/docs/domain-model.md`'s "an unmapped status is flagged, never guessed"). The `metrics-config/options` endpoint's own `statuses` list still names every status Jira reports, mapped or not, so an admin can see the gap. |
 | `fields.estimateTask` / `fields.estimateEpic` | the connection's stored data profile's `STORY_POINTS`-detected custom field id (`source_connections.profile.customFields`, `jira/JiraProfile.kt`) — both roles share the one detected field |
 | `fields.epicStart` | the profile's custom field whose name contains "start date" (case-insensitive); if none, the field whose name contains "target start" (Jira Plans' own start-date field, for a company-managed-project tenant using Plans dates instead of a team-managed "Start date" custom field); `null` if neither was detected |
 | `fields.epicDue` | `"duedate"` — Jira's plain system field, always a valid choice, never subject to profile detection |
@@ -221,6 +221,29 @@ an item sitting in such a status in a domain that does override it still tiles t
 `defaultConfig` never seeds overrides. The editor is the "Per-domain overrides" section under the Statuses tab
 (`.claude/docs/web-features.md`).
 
+### The WAITING stage (A30)
+
+The stage vocabulary is `NOT_STARTED`, `IN_PROGRESS`, `WAITING`, `DONE` (`MetricsStage`, the `status_stage_map` CHECK) plus the derived
+`UNMAPPED` (`ItemStage`; `item_stage`, `dim_epic.current_stage`, `fact_task_delivery.current_stage` and `agg_daily_wip.stage`) —
+`V22__waiting_stage.sql` widened the five CHECKs. `WAITING` means "work has started but nothing is actively worked on" (waiting for
+review or test, on hold). **No status ever defaults to it**: `toDefaultStage` maps Jira's `new`/`indeterminate`/`done` categories to
+`NOT_STARTED`/`IN_PROGRESS`/`DONE` only, so an unconfigured connection derives byte-for-byte as before (the fixture digests do not move) and
+the admin opts a status in on the Statuses tab (globally, or as a per-domain override). What the stage changes in DERIVE:
+
+- **`startedDoneAt`**: `started_at` is the first entry into IN_PROGRESS **or** WAITING; the reopen rule is unchanged (DONE → WAITING is a
+  reopen: `done_at` clears, `reopen_count` rises).
+- **`activeWaitMs`**: unchanged — active is IN_PROGRESS time only, so WAITING time is wait; blocked time is only ever subtracted inside IN_PROGRESS,
+  so a status that is both WAITING and blocked ("On Hold") is never double counted.
+- **`epicDriftFlags`**: an epic in WAITING counts as started (`epicStage != NOT_STARTED`), exactly like IN_PROGRESS.
+- **The WIP step** copies `item_stage.stage` through, so `agg_daily_wip` gains `WAITING` rows with no SQL change; the backlog step reads
+  NOT_STARTED only and is untouched.
+- **Readers**: report 9 lists `WAITING` as the third stage key; report 11 takes `current_stage IN (IN_PROGRESS, WAITING)` and marks WAITING
+  items `waiting`; the deep dive's execution (IN_PROGRESS only) and data quality (a mapped stage is not unmapped) are unchanged.
+
+`MetricsWaitingStageTest` pins it on a private disabled clone of the stub: derive under the default configuration, map "In Review" and
+"Waiting" to WAITING, derive again, and grade active time (each unblocked task drops by exactly its WAITING time inside the cycle), WIP
+(in progress + waiting equals the old in progress, per scope and day) and aging (the same items, the waiting ones marked).
+
 ## The DERIVE run algorithm (v0.3.0 M3 commit 7)
 
 `metrics/MetricsDeriver.kt`'s `derive(context)` is the `DERIVE` job body
@@ -368,13 +391,13 @@ timelines, PV baselines/curve/horizon, `dimDateRange`); the tests stay in `Deriv
 
 - **`stageIntervals`** tiles `norm` status intervals into `item_stage` rows via the configured
   `statusId -> ItemStage` map (the item's own domain's map — every-domain rows overlaid with that domain's overrides, "Per-domain stage overrides" above); an unmapped status becomes `ItemStage.UNMAPPED` (flagged, never
-  guessed). **`startedDoneAt`**: `startedAtMs` = the FIRST-ever entry into `IN_PROGRESS` (even
+  guessed). **`startedDoneAt`**: `startedAtMs` = the FIRST-ever entry into `IN_PROGRESS` or `WAITING` (A30; even
   across a later reopen); `doneAtMs` is set ONLY while the CURRENT (last, open) stage is `DONE` —
   the start of that trailing unbroken DONE run, not merely the last transition into DONE — so an
   item whose entire history sits in `UNMAPPED` is never started and never done (neither
-  `IN_PROGRESS` nor `DONE`, per the domain-model rule "an unmapped status is flagged, never
+  `IN_PROGRESS`, `WAITING` nor `DONE`, per the domain-model rule "an unmapped status is flagged, never
   guessed" — `MetricsDerivationTest`'s dedicated UNMAPPED-status test pins this end to end).
-  `reopenCount` = every DONE → non-DONE transition.
+  `reopenCount` = every DONE → non-DONE transition (DONE → WAITING included).
 - **`blockedIntervals`** unions FLAGGED=true spans and configured-blocked-status spans, merges
   overlapping/adjacent pieces, and clips to `[startedAtMs, doneAtMs ?: now)`. Each merged
   `BlockedInterval` carries a `reason` — `"FLAGGED"` when every raw span folded into it came from
@@ -669,7 +692,8 @@ A18/A19/A21 describe. This commit closes all five, backed by the additive V17 co
   in the first place — subtracting it a second time silently inflated `wait` at `active`'s expense),
   and floors/ceils the result into `[0, cycle]` (now a purely DEFENSIVE backstop, since the
   intersection can never exceed the IN_PROGRESS sum by construction) — `wait = cycle - active`,
-  never negative either. A reopened item's earlier `IN_PROGRESS` stretch counts too (the window is
+  never negative either. `WAITING` time (A30) is never `IN_PROGRESS`, so it is wait by construction, and a
+  status that is both WAITING and blocked subtracts nothing. A reopened item's earlier `IN_PROGRESS` stretch counts too (the window is
   the WHOLE `[started_at, done_at)`, not just the trailing DONE run's lead-up), and a blocked
   interval spanning a reopen (crossing OUT of and back INTO IN_PROGRESS) is subtracted only for the
   portions that actually overlap an IN_PROGRESS stretch, never the DONE gap in between; an item that

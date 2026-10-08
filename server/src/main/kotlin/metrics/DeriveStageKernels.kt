@@ -6,11 +6,12 @@ import ch.nokillswit.norm.NormalizedStatusInterval
 
 /**
  * `metrics.item_stage`'s own stage vocabulary (v0.3.0 M3 commit 7) — `NOT_STARTED`/`IN_PROGRESS`/
- * `DONE` mirror `metrics.status_stage_map`'s CHECK (`MetricsStage`, `metrics/DataSourceMetricsConfig.kt`),
+ * `WAITING`/`DONE` mirror `metrics.status_stage_map`'s CHECK (`MetricsStage`, `metrics/DataSourceMetricsConfig.kt`),
  * plus `UNMAPPED` for a status carrying no configured stage — flagged, never guessed
- * (`.claude/docs/domain-model.md`: "an unmapped status is flagged, never guessed").
+ * (`.claude/docs/domain-model.md`: "an unmapped status is flagged, never guessed"). `WAITING` (A30) is work
+ * that has started with nothing actively worked on: it starts the item and counts as WIP, but is wait time.
  */
-enum class ItemStage { NOT_STARTED, IN_PROGRESS, DONE, UNMAPPED }
+enum class ItemStage { NOT_STARTED, IN_PROGRESS, WAITING, DONE, UNMAPPED }
 
 /** One `metrics.item_stage` row (pure, pre-persistence) — the status tiling's stage attached to each interval. */
 data class StageInterval(val stage: ItemStage, val statusId: String, val fromAtMs: Long, val toAtMs: Long?)
@@ -30,7 +31,7 @@ data class BlockedInterval(val fromAtMs: Long, val toAtMs: Long, val reason: Str
  * Flow efficiency (A18, `.claude/docs/domain-model.md` "Delivery — EV (earned value)",
  * `.claude/docs/measures.md` report 7/8): [activeMs] is time in `IN_PROGRESS`-stage intervals inside
  * `[startedAtMs, doneAtMs)` MINUS blocked time in that same window; [waitMs] is the rest of the
- * cycle (`cycle - active`). Both are `0` for an item that is not done — see [activeWaitMs].
+ * cycle (`cycle - active`) — so `WAITING` time (A30) is wait, never active. Both are `0` for an item that is not done — see [activeWaitMs].
  */
 data class ActiveWait(val activeMs: Long, val waitMs: Long)
 
@@ -54,8 +55,8 @@ fun stageIntervals(statusIntervals: List<NormalizedStatusInterval>, stageMap: Ma
     }
 
 /**
- * `startedAtMs` = the item's FIRST-ever entry into [ItemStage.IN_PROGRESS] (even across a later
- * reopen — the FIRST one always wins). `doneAtMs` is set ONLY while the item's CURRENT (last,
+ * `startedAtMs` = the item's FIRST-ever entry into [ItemStage.IN_PROGRESS] or [ItemStage.WAITING] (A30: work that
+ * is waiting has started; even across a later reopen — the FIRST one always wins). `doneAtMs` is set ONLY while the item's CURRENT (last,
  * open) stage interval is itself [ItemStage.DONE] — a reopened item currently back in progress
  * has no `doneAtMs` until it reaches DONE again — and is the start of the TRAILING unbroken DONE
  * run (not merely the last transition into DONE). `reopenCount` = every DONE -> non-DONE
@@ -63,7 +64,7 @@ fun stageIntervals(statusIntervals: List<NormalizedStatusInterval>, stageMap: Ma
  */
 fun startedDoneAt(stageIntervals: List<StageInterval>): StartedDoneResult {
     if (stageIntervals.isEmpty()) return StartedDoneResult(null, null, 0)
-    val startedAt = stageIntervals.firstOrNull { it.stage == ItemStage.IN_PROGRESS }?.fromAtMs
+    val startedAt = stageIntervals.firstOrNull { it.stage == ItemStage.IN_PROGRESS || it.stage == ItemStage.WAITING }?.fromAtMs
     val reopenCount = stageIntervals.zipWithNext().count { (a, b) -> a.stage == ItemStage.DONE && b.stage != ItemStage.DONE }
     val last = stageIntervals.last()
     val doneAt = if (last.stage == ItemStage.DONE) {
@@ -172,6 +173,10 @@ private fun overlapWithInProgressMs(
  * at interval boundaries, not a real "more blocked-while-IN_PROGRESS time than IN_PROGRESS time"
  * case, since the intersection above can never exceed `inProgressMs` by construction) — and `wait`
  * is `cycle - active`, itself then never negative either.
+ *
+ * **WAITING is wait (A30).** Only [ItemStage.IN_PROGRESS] intervals count as active, so time in a `WAITING` stage
+ * is wait by construction; a status that is both WAITING and a configured blocked status (e.g. "On Hold") is
+ * likewise never subtracted, since the blocked subtraction only ever intersects IN_PROGRESS intervals.
  */
 fun activeWaitMs(
     stages: List<StageInterval>,

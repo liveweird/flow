@@ -675,7 +675,7 @@ migration — the persistence.md cross-feature list above is unchanged.
 
 `MigrationChecksumTest` gains V17's pin.
 
-Current migrations are `V1`–`V21`:
+Current migrations are `V1`–`V22`:
 
 - `V1__init` — the `users` table: `name` (≤50), `email` (≤254), `password_hash`, `role` with
   `CHECK ("role" IN ('ADMIN', 'USER'))` (single-column role storage; the wire shape stays a
@@ -767,6 +767,14 @@ Current migrations are `V1`–`V21`:
   due and was re-enqueued on every scheduler tick (113 failed jobs in under 30 minutes on the first real tenant).
   Additive (a constant-default `NOT NULL` column is catalog-only on PostgreSQL 11+); neither column is exposed by the
   API. See `.claude/docs/ingestion.md` "Scheduling". `MigrationChecksumTest` pins it.
+- `V22__waiting_stage` — the 4th status stage `WAITING` (domain-model A30): the stage `CHECK` of five columns is dropped
+  and re-added with `'WAITING'` in the list — `metrics.status_stage_map.stage` (V15: `NOT_STARTED`/`IN_PROGRESS`/`WAITING`/
+  `DONE`) and, with `UNMAPPED` kept, `metrics.dim_epic.current_stage`, `metrics.item_stage.stage`,
+  `metrics.fact_task_delivery.current_stage` and `metrics.agg_daily_wip.stage` (V16). The inline `CHECK`s carry
+  PostgreSQL's auto-generated names `<table>_<column>_check` (`status_stage_map_stage_check`, `dim_epic_current_stage_check`,
+  `item_stage_stage_check`, `fact_task_delivery_current_stage_check`, `agg_daily_wip_stage_check`, read off a migrated
+  database). A pure widening: no row changes, the re-add scans each table once; with the default configuration no row is
+  `WAITING` (no status ever defaults to it), so the fixture digests do not move. `MigrationChecksumTest` pins it.
 
 The `users`/`teams` tables follow Toadie's dialect (`SERIAL`/`INTEGER` ids, epoch-millis `BIGINT`
 timestamps, `marked_as_deleted` + partial unique indexes over active rows) and its idioms: a

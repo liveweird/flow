@@ -20,9 +20,9 @@ internal const val WORK_CATEGORY_MAX_LENGTH = 100
 internal const val CAPACITY_MD_MAX = 999_999.99
 internal const val CAPACITY_MD_SCALE = 2
 
-/** Matches `V15__create_metrics_config.sql`'s `status_stage_map.stage` CHECK. */
+/** The `status_stage_map.stage` CHECK (V15, V22); `WAITING` (A30) is mapped by hand, [toDefaultStage] never yields it. */
 @Serializable
-enum class MetricsStage { NOT_STARTED, IN_PROGRESS, DONE }
+enum class MetricsStage { NOT_STARTED, IN_PROGRESS, WAITING, DONE }
 
 /** One `metrics.status_stage_map` row for the `domain_key = ''` (every-domain) mapping. */
 @Serializable

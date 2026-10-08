@@ -601,7 +601,7 @@ CycleTimeReport {
 }
 ```
 
-- **Cycle** = `done_at - started_at` (first entry into IN_PROGRESS to the start of the trailing DONE run, so a
+- **Cycle** = `done_at - started_at` (first entry into IN_PROGRESS or WAITING (A30) to the start of the trailing DONE run, so a
   reopened task counts its whole span). `elapsedDays` is wall-clock (`cycle_ms / 86_400_000`), `workingDays` the
   configured calendar's fractional working days.
 - **One exclusion**: `neverStarted` (`cycle_ms` null, i.e. no `started_at` -- created straight into DONE), so
@@ -645,7 +645,7 @@ ReportedTimeRatioReport { meta, ratio: Distribution,             // actual_md / 
   zero working days is excluded, as `zeroCycle`); read the p50 first.
 - **Flow efficiency (A18) is shown beside it**, over the same DONE level-0 population: `flowEfficiency` is `active_ms /
   cycle_ms` (active = IN_PROGRESS-stage time minus blocked time while in progress, `.claude/docs/measures.md`'s "Flow
-  efficiency (A18)" row) and `flowEfficiencyExcluded` puts each unmeasurable task in exactly ONE bucket, in this order:
+  efficiency (A18)" row; WAITING-stage time (A30) is wait, never active) and `flowEfficiencyExcluded` puts each unmeasurable task in exactly ONE bucket, in this order:
   `neverStarted` (no cycle), then `zeroCycle` (`cycle_ms = 0`). Worklogs play no part, so a task with none is still
   measured -- unlike the ratio there is no `noWorklogs` bucket -- and `flowEfficiency.n + neverStarted + zeroCycle ==
   population`. Note the two `zeroCycle`s differ: the ratio's is zero WORKING days, this one zero ELAPSED time. Groups
@@ -713,13 +713,14 @@ WipReport {
 
 - `itemKind` (default `TASK`) counts level-0 tasks; `EPIC` counts epics and `BOTH` adds the two -- tasks and epics are different
   grains (D2), so mixing them is an explicit choice; `by` (default `STAGE`)
-  keys `counts`. `STAGE`: the four stages `NOT_STARTED`, `IN_PROGRESS`, `DONE`, `UNMAPPED` -- always all four, `UNMAPPED` (a
+  keys `counts`. `STAGE`: the five stages `NOT_STARTED`, `IN_PROGRESS`, `WAITING`, `DONE`, `UNMAPPED` -- always all five; `WAITING` (A30: started,
+  nothing actively worked on, an admin-mapped stage that no Jira category defaults to) is its own band, and `UNMAPPED` (a
   status with no stage mapping) is its own key. `STATUS`: the Jira status id, `label` its `norm.statuses` name; only
-  statuses seen in the period, ordered by the status's earliest stage (in `NOT_STARTED, IN_PROGRESS, DONE, UNMAPPED` order — a per-domain stage override can give one status two stages in a scope) then name. `COLUMN`: the mapped board's columns in board order
+  statuses seen in the period, ordered by the status's earliest stage (in `NOT_STARTED, IN_PROGRESS, WAITING, DONE, UNMAPPED` order — a per-domain stage override can give one status two stages in a scope) then name. `COLUMN`: the mapped board's columns in board order
   (`norm.board_columns`, read at query time so a board edit needs no re-derive), plus `(no column)` when a status no column
   holds has items in the period.
 - **The counts are end-of-day snapshots**: the number of items whose `item_stage` interval covers the END of that day, all
-  stages (the `DONE` count only grows -- a chart that wants "work in progress" picks the `IN_PROGRESS` key). Invariant 9's
+  stages (the `DONE` count only grows -- a chart that wants "work in progress" sums the `IN_PROGRESS` and `WAITING` keys, A30). Invariant 9's
   other half lives in DERIVE's tests: the backlog never exceeds the NOT_STARTED WIP of its domain/day.
 - **`by=COLUMN` needs one team's board**: `400` at UNIT level, with `domain`, for `teamId=0` and for a team with no board
   mapped in the connections in scope (a team has at most one board, D10). It reads only the board's connection's rows. A
@@ -782,7 +783,7 @@ AgingWipReport {
   thresholds:     { n, hidden, percentiles: [{ percentile, workingDays? }] },   // tasks
   epicThresholds: { n, hidden, percentiles: [...] },                            // epics
   items: [{ issueKey, summary?, itemKind: TASK|EPIC, teamId?, assigneeAccountId?, assignee?, startedAt,
-            ageWorkingDays, blocked, band? }],                                  // oldest first, <= 500
+            ageWorkingDays, blocked, waiting, band? }],                         // oldest first, <= 500
   itemsTruncated
 }
 ```
@@ -791,8 +792,9 @@ AgingWipReport {
   (`nowMillis()` in the route, injected into the service so tests pin it) with the configured calendar
   (`WorkingCalendar.workingDaysBetween(started_at, now)`, never negative). The shared parser still accepts `from`/`to`/
   `lastSprints`/`sprintId` (a sprint-relative one only resolves sprints, or 400s for an unknown id).
-- **Items** = every OPEN level-0 task whose `current_stage` is IN_PROGRESS (`UNMAPPED` is not in progress) and every open epic
-  whose own stage (`dim_epic.current_stage`) is IN_PROGRESS, each with `started_at` set. Tasks are attributed to the CURRENT
+- **Items** = every OPEN level-0 task whose `current_stage` is IN_PROGRESS or WAITING (A30; `UNMAPPED` is not in progress) and every open epic
+  whose own stage (`dim_epic.current_stage`) is IN_PROGRESS or WAITING, each with `started_at` set. `waiting` = the item's current stage is
+  WAITING (started, nothing actively worked on); it ages from `started_at` like any other item and is banded the same way. Tasks are attributed to the CURRENT
   team and assignee (A25: `taskFactSlice(openAttribution = true)`, `teamId=0` = no current team), epics to the owner team
   (`teamId=0` = UNOWNED) with no assignee; USER level (`accountId`) lists that assignee's tasks and no epics. `domain`,
   `activityType` and `workCategory` slice as elsewhere (`activityType` is not an epic attribute and is ignored for epics).
@@ -908,7 +910,7 @@ empty but the open ones remain.
   (`MetricsConfigService.effectiveConfig` -- the map DERIVE used), plus any status DERIVE actually tiled UNMAPPED; `items` = work
   items (sub-tasks included) that ever sat in it, `openItems` those in it now (from `item_stage`). This is the **stage** map; a status
   missing from a board's columns (`DataProfile`'s `unmappedStatusNames`, the stub's GTM `Waiting`) is a different thing and, with the
-  default category-based map, `Waiting` is mapped IN_PROGRESS.
+  default category-based map, `Waiting` is mapped IN_PROGRESS (an admin can map it to the WAITING stage, A30).
 - **`unmappedBoards`** -- `{total, items, unattributedDoneTasks}`: `norm.boards` with no team in the effective board map, each with its
   `sprints` (`norm.sprints`) and `doneTasks` (the period's DONE tasks that were done in one of them -- `sprint_id_at_done` set, no
   `sprint_team_id_at_done`). **`unattributedDoneTasks`** is the residual: tasks done in a teamless sprint that belongs to none of the
@@ -1122,7 +1124,8 @@ read-only, no audit (D12), every operation answers `200`/`400`/`401` only.
 
 One matrix compares plan (PV), execution and cost (AC) for a chosen set of work, in man-days. The server returns sparse DAILY series per task
 and layer; the client sums them into weeks, months and epic rows, so drilling never refetches. The layer rules (what a task's PV is, what
-counts as execution, where the EV marker and each worklog fall) are A29 and are not repeated here.
+counts as execution, where the EV marker and each worklog fall) are A29 and are not repeated here. Execution is IN_PROGRESS time only:
+WAITING time (A30) is a queue, not execution, so it does not count.
 
 ### Endpoints
 

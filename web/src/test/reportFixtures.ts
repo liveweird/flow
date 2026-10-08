@@ -806,11 +806,11 @@ export const AGING_UNIT: AgingWipReport = {
   thresholds: { n: 40, hidden: false, percentiles: DEFAULT_PERCENTILES },
   epicThresholds: { n: 2, hidden: true, percentiles: HIDDEN_PERCENTILES },
   items: [
-    { issueKey: "FLO-E1", summary: "Reporting epic", itemKind: "EPIC", teamId: 1, startedAt: Date.UTC(2026, 6, 20), ageWorkingDays: 40, blocked: false, band: null },
-    { issueKey: "FLO-1", summary: "Stuck on review", itemKind: "TASK", teamId: 1, assigneeAccountId: "acc-ann", assignee: "Ann Author", startedAt: Date.UTC(2026, 7, 10), ageWorkingDays: 30, blocked: true, band: "P95" },
-    { issueKey: "FLO-2", summary: "Slow but moving", itemKind: "TASK", teamId: 2, assigneeAccountId: "acc-cy", assignee: "Cy Coder", startedAt: Date.UTC(2026, 8, 7), ageWorkingDays: 15.5, blocked: false, band: "P85" },
-    { issueKey: "FLO-3", summary: null, itemKind: "TASK", teamId: 2, assigneeAccountId: "acc-cy", assignee: "Cy Coder", startedAt: Date.UTC(2026, 8, 15), ageWorkingDays: 9, blocked: false, band: "P50" },
-    { issueKey: "FLO-4", summary: "Fresh", itemKind: "TASK", teamId: null, assigneeAccountId: null, assignee: null, startedAt: Date.UTC(2026, 8, 22), ageWorkingDays: 6, blocked: false, band: "WITHIN" },
+    { issueKey: "FLO-E1", summary: "Reporting epic", itemKind: "EPIC", teamId: 1, startedAt: Date.UTC(2026, 6, 20), ageWorkingDays: 40, blocked: false, waiting: false, band: null },
+    { issueKey: "FLO-1", summary: "Stuck on review", itemKind: "TASK", teamId: 1, assigneeAccountId: "acc-ann", assignee: "Ann Author", startedAt: Date.UTC(2026, 7, 10), ageWorkingDays: 30, blocked: true, waiting: false, band: "P95" },
+    { issueKey: "FLO-2", summary: "Slow but moving", itemKind: "TASK", teamId: 2, assigneeAccountId: "acc-cy", assignee: "Cy Coder", startedAt: Date.UTC(2026, 8, 7), ageWorkingDays: 15.5, blocked: false, waiting: false, band: "P85" },
+    { issueKey: "FLO-3", summary: null, itemKind: "TASK", teamId: 2, assigneeAccountId: "acc-cy", assignee: "Cy Coder", startedAt: Date.UTC(2026, 8, 15), ageWorkingDays: 9, blocked: false, waiting: false, band: "P50" },
+    { issueKey: "FLO-4", summary: "Fresh", itemKind: "TASK", teamId: null, assigneeAccountId: null, assignee: null, startedAt: Date.UTC(2026, 8, 22), ageWorkingDays: 6, blocked: false, waiting: false, band: "WITHIN" },
   ],
   itemsTruncated: false,
 };

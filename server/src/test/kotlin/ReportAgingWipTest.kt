@@ -156,16 +156,20 @@ class ReportAgingWipTest {
             // Open in-progress tasks of X at the fixed clock: ages 1, 2, 3, 4, 5, 8 working days.
             open(11, "2026-01-13", account = "acc-1"), open(12, "2026-01-12"), open(13, "2026-01-09"), open(14, "2026-01-08"),
             open(15, "2026-01-07"), open(16, "2026-01-02"),
+            // A WAITING task (A30) ages from its started_at like an in-progress one, flagged `waiting`: age 6.
+            open(17, "2026-01-06", stage = "WAITING"),
             // Never listed: another team, not in progress, never started, a sub-task.
             open(21, "2026-01-02", team = teamY), open(22, "2026-01-02", stage = "NOT_STARTED"), open(23, null),
             open(24, "2026-01-02", subtask = true),
         )
         val epics = listOf(
             handEpic(31, noonUtc("2026-01-12"), null, ownerTeamId = teamX), handEpic(32, noonUtc("2026-01-12"), null, ownerTeamId = teamX),
+            handEpic(33, noonUtc("2026-01-12"), null, ownerTeamId = teamX),
         )
         val dims = listOf(
             DimEpicRow(31, "EP-31", "Open epic", "AAA", null, "IN_PROGRESS", null, null),
             DimEpicRow(32, "EP-32", null, "AAA", null, "NOT_STARTED", null, null),
+            DimEpicRow(33, "EP-33", "Waiting epic", "AAA", null, "WAITING", null, null),
         )
         suspendTransaction(sharedDatabaseForTests()) {
             store.replaceFactTaskDelivery(connId, tasks, configRevision = 1L)
@@ -189,23 +193,28 @@ class ReportAgingWipTest {
             }
             // Keys fall back to the issue id: hand-built issues have no norm.work_items rows.
             val taskItems = body.items.filter { it.itemKind == "TASK" }
-            assertEquals(listOf(16L, 15L, 14L, 13L, 12L, 11L), taskItems.map { it.issueKey.toLong() })
+            assertEquals(listOf(16L, 17L, 15L, 14L, 13L, 12L, 11L), taskItems.map { it.issueKey.toLong() })
             val ages = body.items.filter { it.itemKind == "TASK" }.map { it.ageWorkingDays }
-            listOf(8.0, 5.0, 4.0, 3.0, 2.0, 1.0).zip(ages).forEach { (want, got) -> assertEquals(want, got, 1e-6) }
+            listOf(8.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0).zip(ages).forEach { (want, got) -> assertEquals(want, got, 1e-6) }
             // The window keeps the newest five done tasks: 1..5 → p50 3, p85 4.4, p95 4.8; the older 100 is outside.
             assertEquals(5, body.thresholds.n)
             assertEquals(listOf(3.0, 4.4, 4.8), body.thresholds.percentiles.map { it.workingDays!! })
             assertEquals(listOf(50, 85, 95), body.thresholds.percentiles.map { it.percentile })
-            // Bands: 8 and 5 pass p95 (4.8); 4 passes p50 only; 3, 2, 1 pass none.
-            assertEquals(listOf("P95", "P95", "P50", "WITHIN", "WITHIN", "WITHIN"), taskItems.map { it.band })
-            assertEquals(listOf(true, false, false, false, false, false), body.items.filter { it.itemKind == "TASK" }.map { it.blocked })
+            // Bands: 8, 6 and 5 pass p95 (4.8); 4 passes p50 only; 3, 2, 1 pass none.
+            assertEquals(listOf("P95", "P95", "P95", "P50", "WITHIN", "WITHIN", "WITHIN"), taskItems.map { it.band })
+            assertEquals(listOf(true, false, false, false, false, false, false), taskItems.map { it.blocked })
+            // Only the WAITING task (17) carries the marker; the waiting item still ages and bands like the rest (A30).
+            assertEquals(listOf(false, true, false, false, false, false, false), taskItems.map { it.waiting })
             val assigned = body.items.single { it.issueKey == "11" }
             assertEquals("acc-1", assigned.assigneeAccountId)
             assertEquals("acc-1", assigned.assignee, "no display name known: the account id stands in")
             assertEquals(teamX, assigned.teamId)
 
             // The epic: owner team X, its own thresholds hidden (no done epic), so no band; the NOT_STARTED one is not listed.
-            val epic = body.items.single { it.itemKind == "EPIC" }
+            val epicItems = body.items.filter { it.itemKind == "EPIC" }
+            assertEquals(listOf("EP-31", "EP-33"), epicItems.map { it.issueKey }, "the IN_PROGRESS and the WAITING epic, not EP-32")
+            assertEquals(listOf(false, true), epicItems.map { it.waiting })
+            val epic = epicItems.first()
             assertEquals("EP-31", epic.issueKey)
             assertEquals("Open epic", epic.summary)
             assertEquals(2.0, epic.ageWorkingDays, EPS)
@@ -235,7 +244,7 @@ class ReportAgingWipTest {
                 service().agingWip(filter(connId), now)
             }
             assertTrue(unit.items.any { it.issueKey == "21" && it.teamId == teamY })
-            assertEquals(7, unit.items.count { it.itemKind == "TASK" })
+            assertEquals(8, unit.items.count { it.itemKind == "TASK" })
         } finally {
             suspendTransaction(sharedDatabaseForTests()) {
                 store.deleteFactTaskDelivery(connId)

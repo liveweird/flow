@@ -1111,7 +1111,7 @@ export interface paths {
          * @description Any authenticated user (D12), read-only — `.claude/docs/measures.md` "Reports 7, 8". Population:
          *     level-0 tasks (no sub-tasks) DONE in the period (`done_at`); team = the D5 credit team, user = assignee
          *     at done, domain per `domainView` (default TASK). Cycle time = `done_at − started_at` (first entry into
-         *     an IN_PROGRESS stage to the start of the trailing DONE run, so a reopened task counts its whole
+         *     an IN_PROGRESS or WAITING stage to the start of the trailing DONE run, so a reopened task counts its whole
          *     first-start-to-final-done span): `elapsedDays` is wall-clock days (`cycle_ms`), `workingDays` the
          *     configured calendar's working days (`cycle_working_days`); both `Distribution`s, hidden below
          *     `minSampleSize`. The only exclusion is `excluded.neverStarted` (no `started_at`, hence no cycle — e.g.
@@ -1152,8 +1152,9 @@ export interface paths {
          *     zone), each the END-of-day snapshot of how many items sat in each status / stage / board column — items
          *     the aggregate has no row for count as zero, and every point carries every key of `keys`. `itemKind` (default
          *     TASK) counts level-0 tasks, `EPIC` the epics (a different grain, D2) and `BOTH` the two added together. `by`
-         *     (default STAGE) keys `counts` by `STAGE` (the four stages NOT_STARTED, IN_PROGRESS, DONE, UNMAPPED — UNMAPPED, a status with no stage
-         *     mapping, is its own key), `STATUS` (the Jira status id, labelled with its name) or `COLUMN` (the mapped
+         *     (default STAGE) keys `counts` by `STAGE` (the five stages NOT_STARTED, IN_PROGRESS, WAITING, DONE, UNMAPPED — WAITING is work
+         *     that has started with nothing actively worked on, an admin-mapped stage (A30); UNMAPPED, a status with no stage
+         *     mapping, is its own key; work in progress is IN_PROGRESS plus WAITING), `STATUS` (the Jira status id, labelled with its name) or `COLUMN` (the mapped
          *     board's column, read from `norm.board_columns` at query time; a status no column holds is "(no column)").
          *     `isWorkingDay` lets a chart hide weekends. Levels: UNIT (default) sums every TEAM scope — including
          *     UNASSIGNED tasks and UNOWNED epics — or, with `domain`, reads that DOMAIN scope (a task's as-was domain, an
@@ -1226,10 +1227,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Report 11 — the age of every in-progress task and epic against the cycle-time percentiles
+         * Report 11 — the age of every in-progress or waiting task and epic against the cycle-time percentiles
          * @description Any authenticated user (D12), read-only — `.claude/docs/measures.md` "Report 11". An "as of now" read: the
          *     period parameters are accepted but ignored (a sprint-relative one only resolves sprints). `items` lists every
-         *     OPEN level-0 task and epic in an IN_PROGRESS stage (`UNMAPPED` is not in progress), oldest first, at most 500
+         *     OPEN level-0 task and epic in an IN_PROGRESS or WAITING stage (A30; `UNMAPPED` is not in progress), oldest first, at most 500
          *     (`itemsTruncated`), each with its age in WORKING days from `started_at` to the request's clock, computed with
          *     the configured calendar. Tasks are attributed to the CURRENT team and assignee (A25), epics to the owner team
          *     and have no assignee. `thresholds` are the configured percentiles (`aging_percentiles`) of `cycle_working_days`
@@ -1237,7 +1238,8 @@ export interface paths {
          *     the same over DONE epics — hidden (only `n`, every `workingDays` null) below `minSampleSize`. An item's `band`
          *     is the highest threshold its age is above (`P85` = above p85 but not above the next), `WITHIN` when above none,
          *     null when its thresholds are hidden. Thresholds belong to the team, so `accountId` narrows the listed items
-         *     only; at UNIT level they span the whole unit. `blocked` = blocked as of the connection's last DERIVE (a blocked spell covers its clock). Levels:
+         *     only; at UNIT level they span the whole unit. `blocked` = blocked as of the connection's last DERIVE (a blocked spell covers its clock); `waiting` = the item's
+         *     current stage is WAITING (started, nothing actively worked on). Levels:
          *     UNIT (default), `teamId` (`0` = UNASSIGNED tasks / UNOWNED epics), USER (`teamId` and `accountId` — tasks only,
          *     epics have no user). `domain`, `activityType` and `workCategory` slice as elsewhere.
          */
@@ -1425,7 +1427,7 @@ export interface paths {
          *     Per task, `pv` spreads `planBasisMd` (the `estimate_at_commitment_md` of the task's earliest sprint, else its first later one —
          *     `planSource`) evenly, with cumulative rounding, over the working days of the union of the windows of every sprint the task was in
          *     scope at close in; `noPlanReason` says why a task has none (`NEVER_IN_SPRINT`, `NO_ESTIMATE`, or `NO_WORKING_DAY`, which keeps
-         *     the basis and source with an empty `pv`). `exec` is the fraction of each working day spent IN_PROGRESS (task-days, blocked time not
+         *     the basis and source with an empty `pv`). `exec` is the fraction of each working day spent IN_PROGRESS (task-days; WAITING time (A30) is not execution; blocked time not
          *     subtracted). `done` is the EV marker (`estimate_at_done_md` on the day of `done_at`). `cost` is `fact_worklog.md` on the day of
          *     `started_at` by author (`a` indexes `authors`; sub-task worklogs roll up to their parent task). `epics[]` carry the epic's CURRENT
          *     baseline window (`plannedStart`/`plannedDue` offsets, an outline, never summed) and budget, and — mode (b) only — the worklog MD
@@ -1544,7 +1546,7 @@ export interface paths {
          *     UNIT `groups` per credit team, TEAM per assignee at done, USER none; each group carries its own
          *     distribution and exclusion counts. Sprint-relative periods use the resolved sprints' envelope.
          *     Beside the ratio, `flowEfficiency` is the status-based flow efficiency (A18) `active_ms ÷ cycle_ms` over
-         *     the same population — active time is the time in IN_PROGRESS stages minus blocked time while in progress;
+         *     the same population — active time is the time in IN_PROGRESS stages (WAITING time is wait, A30) minus blocked time while in progress;
          *     `flowEfficiencyExcluded` puts each task that is not measurable in exactly ONE bucket (`neverStarted`, then
          *     `zeroCycle` = `cycle_ms` of 0, so `flowEfficiency.n + neverStarted + zeroCycle = population`); worklogs play
          *     no part, so a task with none is still measured. Reported time ratios can be dominated by very short
@@ -2266,7 +2268,7 @@ export interface components {
         MetricsStatusStage: {
             statusId: string;
             /** @enum {string} */
-            stage: "NOT_STARTED" | "IN_PROGRESS" | "DONE";
+            stage: "NOT_STARTED" | "IN_PROGRESS" | "WAITING" | "DONE";
         };
         /** @description A per-domain override of the every-domain status → stage mapping: items of this domain read this stage for this status instead. */
         MetricsDomainStatusStage: {
@@ -2274,7 +2276,7 @@ export interface components {
             domainKey: string;
             statusId: string;
             /** @enum {string} */
-            stage: "NOT_STARTED" | "IN_PROGRESS" | "DONE";
+            stage: "NOT_STARTED" | "IN_PROGRESS" | "WAITING" | "DONE";
         };
         MetricsFieldConfig: {
             estimateTask?: string | null;
@@ -2988,7 +2990,7 @@ export interface components {
              * @enum {string}
              */
             itemKind: "TASK" | "EPIC" | "BOTH";
-            /** @description The legend, in display order — the four stages for STAGE, the statuses seen (ordered by stage, then name) for STATUS, the board's columns in board order (plus "(no column)" when used) for COLUMN. */
+            /** @description The legend, in display order — the five stages for STAGE, the statuses seen (ordered by stage, then name) for STATUS, the board's columns in board order (plus "(no column)" when used) for COLUMN. */
             keys: components["schemas"]["WipKey"][];
             /** @description One point per calendar day of the period, oldest first, cut off after the last derived day. Empty at USER level (see `note`), for a period with nothing to read, and for a period entirely past the last derived day. */
             series: components["schemas"]["WipPoint"][];
@@ -3076,7 +3078,7 @@ export interface components {
             assignee?: string | null;
             /**
              * Format: int64
-             * @description Epoch millis of the first entry into an IN_PROGRESS stage.
+             * @description Epoch millis of the first entry into an IN_PROGRESS or WAITING stage.
              */
             startedAt: number;
             /**
@@ -3086,6 +3088,8 @@ export interface components {
             ageWorkingDays: number;
             /** @description Blocked as of the connection's last DERIVE (a blocked spell covers its clock). */
             blocked: boolean;
+            /** @description The item's current stage is WAITING (started, nothing actively worked on) rather than IN_PROGRESS. */
+            waiting: boolean;
             /** @description The highest threshold the age is above (`P50`, `P85`, ...), `WITHIN` when above none, null when the thresholds are hidden. */
             band?: string | null;
         };

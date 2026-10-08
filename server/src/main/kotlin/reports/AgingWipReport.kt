@@ -7,7 +7,6 @@ import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.Serializable
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and
-import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.isNotNull
 import org.jetbrains.exposed.v1.core.isNull
@@ -18,6 +17,10 @@ import org.jetbrains.exposed.v1.r2dbc.select
 const val AGING_MAX_ITEMS = 500
 
 private const val STAGE_IN_PROGRESS = "IN_PROGRESS"
+private const val STAGE_WAITING = "WAITING"
+
+/** The stages an item is "in progress" in for aging: started and not done (A30: waiting work is still aging). */
+private val AGING_STAGES = listOf(STAGE_IN_PROGRESS, STAGE_WAITING)
 
 /** `band` of an item at or below the lowest configured threshold. */
 private const val BAND_WITHIN = "WITHIN"
@@ -35,10 +38,10 @@ data class AgingPercentile(val percentile: Int, val workingDays: Double?)
 data class AgingThresholds(val n: Long, val hidden: Boolean, val percentiles: List<AgingPercentile>)
 
 /**
- * One IN_PROGRESS item: [ageWorkingDays] = working days from `started_at` to the request's clock. [band] is the highest
+ * One IN_PROGRESS or WAITING item: [ageWorkingDays] = working days from `started_at` to the request's clock. [band] is the highest
  * configured threshold the age passes (`"P85"` = above p85 but not above the next one), [BAND_WITHIN] when it passes none,
  * null when the matching thresholds are hidden. [blocked] = it is blocked as of the connection's last DERIVE (a blocked
- * spell covers that clock).
+ * spell covers that clock). [waiting] = its current stage is WAITING (started, nothing actively worked on — A30).
  */
 @Serializable
 data class AgingItem(
@@ -51,6 +54,7 @@ data class AgingItem(
     val startedAt: Long,
     val ageWorkingDays: Double,
     val blocked: Boolean,
+    val waiting: Boolean,
     val band: String?,
 )
 
@@ -73,6 +77,7 @@ private data class OpenItem(
     val teamId: UInt?,
     val account: String?,
     val startedAt: Long,
+    val waiting: Boolean,
 )
 
 /**
@@ -96,7 +101,7 @@ internal suspend fun workItemLabels(items: Collection<Pair<UInt, Long>>): Map<Pa
 
 /**
  * `GET /api/v1/reports/aging-wip` (v0.3.0 M5 commit 15, Report 11, `.claude/docs/measures.md` "Report 11"): every
- * IN_PROGRESS task and epic with its age in working days at the request's clock ([nowMs]) against the cycle-time
+ * IN_PROGRESS or WAITING task and epic with its age in working days at the request's clock ([nowMs]) against the cycle-time
  * percentiles of the last N DONE items. See `.claude/docs/reports.md`.
  */
 suspend fun ReportService.agingWip(filter: ReportFilter, nowMs: Long): AgingWipReport = reportTransaction {
@@ -133,6 +138,7 @@ suspend fun ReportService.agingWip(filter: ReportFilter, nowMs: Long): AgingWipR
                 startedAt = item.startedAt,
                 ageWorkingDays = age,
                 blocked = (item.connectionId to item.issueId) in blocked,
+                waiting = item.waiting,
                 band = bandOf(age, thresholds.second),
             )
         },
@@ -186,20 +192,23 @@ private suspend fun fetchDoneCycles(filter: ReportFilter, connectionIds: List<UI
         .toList().map { it[e.cycleWorkingDays]!!.toDouble() }
 }
 
-/** Open level-0 tasks in an IN_PROGRESS stage (A25: attributed to the CURRENT team and assignee). */
+/** Open level-0 tasks in an IN_PROGRESS or WAITING stage (A25: attributed to the CURRENT team and assignee). */
 private suspend fun fetchOpenTasks(filter: ReportFilter, connectionIds: List<UInt>): List<OpenItem> {
     if (connectionIds.isEmpty()) return emptyList()
     val t = MetricsTables.FactTaskDelivery
     val predicate = taskFactSlice(filter, connectionIds, openAttribution = true) and t.doneAt.isNull() and
-        t.startedAt.isNotNull() and (t.currentStage eq STAGE_IN_PROGRESS)
-    return t.select(t.connectionId, t.issueId, t.currentTeamId, t.currentAssigneeAccountId, t.startedAt)
+        t.startedAt.isNotNull() and (t.currentStage inList AGING_STAGES)
+    return t.select(t.connectionId, t.issueId, t.currentTeamId, t.currentAssigneeAccountId, t.startedAt, t.currentStage)
         .where { predicate }.toList().map {
             val team = it[t.currentTeamId]?.value
-            OpenItem(KIND_TASK, it[t.connectionId].value, it[t.issueId], team, it[t.currentAssigneeAccountId], it[t.startedAt]!!)
+            OpenItem(
+                KIND_TASK, it[t.connectionId].value, it[t.issueId], team, it[t.currentAssigneeAccountId], it[t.startedAt]!!,
+                it[t.currentStage] == STAGE_WAITING,
+            )
         }
 }
 
-/** Open epics whose own stage is IN_PROGRESS, attributed to the owner team; epics carry no user, so a user-level read has none. */
+/** Open epics whose own stage is IN_PROGRESS or WAITING, attributed to the owner team; epics carry no user, so a user read has none. */
 private suspend fun fetchOpenEpics(filter: ReportFilter, connectionIds: List<UInt>): List<OpenItem> {
     if (connectionIds.isEmpty() || filter.accountId != null) return emptyList()
     val e = MetricsTables.FactEpicDelivery
@@ -207,14 +216,17 @@ private suspend fun fetchOpenEpics(filter: ReportFilter, connectionIds: List<UIn
     val candidates = e.select(e.connectionId, e.issueId, e.ownerTeamId, e.startedAt).where { predicate }.toList()
     if (candidates.isEmpty()) return emptyList()
     val d = MetricsTables.DimEpic
-    val inProgress = d.select(d.connectionId, d.issueId)
+    val started = d.select(d.connectionId, d.issueId, d.currentStage)
         .where {
             (d.connectionId inList candidates.map { it[e.connectionId].value }.distinct()) and
-                (d.issueId inList candidates.map { it[e.issueId] }.distinct()) and (d.currentStage eq STAGE_IN_PROGRESS)
+                (d.issueId inList candidates.map { it[e.issueId] }.distinct()) and (d.currentStage inList AGING_STAGES)
         }
-        .toList().map { it[d.connectionId].value to it[d.issueId] }.toSet()
-    return candidates.filter { (it[e.connectionId].value to it[e.issueId]) in inProgress }
-        .map { OpenItem(KIND_EPIC, it[e.connectionId].value, it[e.issueId], it[e.ownerTeamId]?.value, null, it[e.startedAt]!!) }
+        .toList().associate { (it[d.connectionId].value to it[d.issueId]) to (it[d.currentStage] == STAGE_WAITING) }
+    return candidates.filter { (it[e.connectionId].value to it[e.issueId]) in started }
+        .map {
+            val waiting = started.getValue(it[e.connectionId].value to it[e.issueId])
+            OpenItem(KIND_EPIC, it[e.connectionId].value, it[e.issueId], it[e.ownerTeamId]?.value, null, it[e.startedAt]!!, waiting)
+        }
 }
 
 /**
