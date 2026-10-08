@@ -90,7 +90,7 @@ object SyncedStubFixture {
         ),
     )
 
-    fun buildJiraHttp(maxRetries: Int = 4): JiraHttp {
+    fun buildJiraHttp(maxRetries: Int = 4, maxResponseBytes: Long = 33_554_432L): JiraHttp {
         val httpClient = HttpClient(OkHttp) {
             engine { preconfigured = okhttp3.OkHttpClient() }
             expectSuccess = false
@@ -100,7 +100,7 @@ object SyncedStubFixture {
                 connectTimeoutMillis = 10_000
             }
         }
-        return JiraHttp(httpClient, maxRetries, maxResponseBytes = 33_554_432L, maxConcurrentRequests = 4)
+        return JiraHttp(httpClient, maxRetries, maxResponseBytes, maxConcurrentRequests = 4)
     }
 
     /** A ready [JiraClient] (its ONE unauthenticated `resolveCloudId()` call already made) against [JiraStubServer]. */
