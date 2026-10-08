@@ -3405,7 +3405,7 @@ components:
         seenInHistory: { type: boolean, description: "Some work item's status interval of this connection carries the status id." }
     MetricsFieldOption:
       type: object
-      required: [fieldId, name, type, detectedRole, nonNullCount]
+      required: [fieldId, name, type, detectedRole, inScheme, nonNullCount]
       properties:
         fieldId: { type: string }
         name: { type: string }

@@ -70,7 +70,6 @@ not bad credentials.
 | `statuses` | `GET /rest/api/3/statuses/search` | yes | `read:workflow:jira` |
 | `projects` | `GET /rest/api/3/project/search` | yes | `read:project:jira` |
 | `project_statuses:<KEY>` (one per configured project key) | `GET /rest/api/3/project/{key}/statuses` | yes | `read:status:jira, read:issue-status:jira, read:issue-type:jira` |
-| `project_fields` | `GET /rest/api/3/projects/fields` (one row asked for; seeded with the first configured key's project id and first issue-type id) | **no** | `read:field-configuration:jira` |
 | `bulkfetch` | `POST /rest/api/3/changelog/bulkfetch` (single-id probe, not a real 50-id chunk) | **no** | `read:issue.changelog:jira` |
 | `issue_changelog` | `GET /rest/api/3/issue/{id}/changelog` | yes | `read:issue-details:jira, read:issue.changelog:jira` |
 | `issue_worklog` (A1) | `GET /rest/api/3/issue/{id}/worklog` | yes | `read:issue:jira, read:issue-worklog:jira` |
@@ -79,13 +78,16 @@ not bad credentials.
 | `boards` | `GET /rest/agile/1.0/board` | yes | `read:board-scope:jira-software, read:project:jira` |
 | `board_configuration` | `GET /rest/agile/1.0/board/{id}/configuration` | yes | `read:board-scope.admin:jira-software, read:project:jira` |
 | `board_sprints` | `GET /rest/agile/1.0/board/{id}/sprint` | yes | `read:sprint:jira-software` |
+| `project_fields` | `GET /rest/api/3/projects/fields` (one row asked for; seeded with the first configured key's project id and first issue-type id) | **no** (runs last) | `read:field-configuration:jira` |
 
 The rule behind the hints: keep the scope that real-tenant evidence shows works, and add the
 endpoint-specific granular scope from Atlassian's spec (pinned by `JiraConnectorTest`).
 
-The `project_fields` probe takes the first configured key's project id from the `projects` probe's first page and its
+The `project_fields` probe runs LAST (after the required issue and board probes, so it can never eat their shared 30s
+budget). It takes the first configured key's project id from the `projects` probe's first page and its
 first issue-type id from that key's `project_statuses` probe; it is skipped when either is unavailable (the key is
-not on `project/search`'s first page, or the key's own probe failed). The `issue_*`/`bulkfetch` probes reuse the first in-scope issue id the `search` probe returns; the
+not on `project/search`'s first page, or the key's own probe failed). The seeding helpers (`JiraProjectFields.projectIdsByKey`/
+`issueTypeIds`) are total — a malformed entry is skipped, so reading the seeds can never fail the REQUIRED probe they ride on. The `issue_*`/`bulkfetch` probes reuse the first in-scope issue id the `search` probe returns; the
 `board_*` probes follow the REFERENCE stream's own board rules (`isInScopeBoard`/`isScrumBoard` in
 `JiraReferenceStream.kt`): `board_configuration` uses the first board of `boards`' first page whose
 `location.projectKey` is in the connection's project keys, `board_sprints` the first such SCRUM board (a Kanban
@@ -168,14 +170,18 @@ field scheme carries, so the editor lists those by default.
   field-id set. Inputs are read off the entities stored earlier in the same pass: the project id from the `PROJECT`
   entity of that key, the issue-type ids from that key's `PROJECT_STATUSES` payload (one array entry per issue type).
 - **Optional by design.** A project's step is SKIPPED, never failing the SYNC, when its inputs are missing, when the call
-  answers 401/403 (`AUTHENTICATION_FAILED`/`FORBIDDEN_SCOPE` — a missing scope is a 401 on a scoped token), 404 (endpoint
-  withdrawn) or `INVALID_RESPONSE` (any other 4xx, a body that is not the envelope, a row without `fieldId`), or when the
-  response lists no field at all. A skip logs ONE warn (project key, code, status; never a query) and `touch`es the
+  fails with ANY `JiraFetchException` except `BLOCKED_HOST` (401/403 — a missing scope is a 401 on a scoped token —, 404
+  endpoint withdrawn, `INVALID_RESPONSE` for any other 4xx / a body that is not the envelope / a row without a string
+  `fieldId`, and also 5xx after retries, `TIMEOUT`, `RATE_LIMITED`, `REDIRECT`, `LIMIT_EXCEEDED`, `CURSOR_EXPIRED`), or when the
+  response lists no field at all (any page's bad row discards the whole project: the previous entity is never merged with a
+  partial answer). A skip logs ONE warn (project key, code, status; never a query), ticks the `projectFieldsSkipped`
+  progress counter (one per skipped project, `ingestion.md` "Progress counters") and `touch`es the
   project's previous entity (`JiraRawStore.touchEntity`: only `last_seen_at`), so the end-of-pass tombstone sweep does NOT
-  tombstone it — the last known scheme survives a transient scope loss; a key no longer configured is swept as usual.
-  Other failures (5xx after retries, timeouts, `RATE_LIMITED`, `BLOCKED_HOST`) propagate like any reference step.
+  tombstone it — the last known scheme survives a transient failure; a key no longer configured is swept as usual.
+  A `BLOCKED_HOST` (an SSRF-guard rejection), lease loss / cancellation and non-Jira failures (database errors) still
+  propagate like any reference step. Paging trusts a non-null `isLast` over `total` (which may be absent/0).
 - **Profile.** `DataProfile.schemeFieldIds` = the sorted union over the live `PROJECT_FIELDS` entities of the CURRENT
-  project keys, `null` (unknown) when none of them has one; the options endpoint turns it into each custom field's
+  project keys, `null` (unknown) unless EVERY current key has one (a partial union would hide a project's fields); the options endpoint turns it into each custom field's
   `inScheme` (`.claude/docs/metrics.md`). `README.md` lists `read:field-configuration:jira` as the recommended optional scope.
 
 ### Decision: the REFERENCE stream no longer fetches priorities (2026-10-08)

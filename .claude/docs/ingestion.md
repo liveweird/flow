@@ -367,7 +367,7 @@ tombstones every `JiraEntityKind` in one final transaction
 (`JiraRawStore.markEntitiesDeletedNotSeenSince`, per kind, entities whose `last_seen_at` predates
 `passStartedAt`) and clears the `reference` cursor (`context.clearCursor`) — a fresh pass starts
 clean next time. The one exception to "unseen means tombstoned" is the optional `PROJECT_FIELDS` step: a project whose
-call was skipped (missing scope, withdrawn endpoint, bad shape) `touch`es its previous entity (`last_seen_at` only) so
+call was skipped (any Jira-side failure but a blocked host, a bad shape, no inputs) `touch`es its previous entity (`last_seen_at` only) so
 the sweep leaves the last known field scheme live (`jira-integration.md` "Project field schemes"). An entity or issue tombstoned in an earlier pass that reappears is resurrected
 (`deleted_at`/`moved_out_at` cleared) the moment the corresponding upsert sees it again, whether
 that is the next REFERENCE pass or, for issues, the next ISSUES page.
@@ -858,7 +858,8 @@ index-gap fetch), `movedOutOfScope` (ISSUES, once per run: rows tombstoned becau
 left `projectKeys`), `changelogs` (CHANGELOGS, per history inserted), `worklogs` (WORKLOGS, per worklog
 upserted), `worklogsOutOfScope` (WORKLOGS, A1's scope-filter drop count), `tombstoned` (RECONCILE,
 per issue flagged `deleted_at`/`moved_out_at`), `indexGapSkipped` (RECONCILE: ids left unfetched because the
-ISSUES stream has not yet covered the scope), `issuesProcessed`/`issuesFailed` (PROCESS, per issue
+ISSUES stream has not yet covered the scope), `projectFieldsSkipped` (REFERENCE, one per project whose optional `PROJECT_FIELDS` step was skipped),
+`issuesProcessed`/`issuesFailed` (PROCESS, per issue
 in a batch — see "Normalized layer" above), `referenceRowsSkipped` (PROCESS, once per run: reference rows left out, see
 "Reference-row robustness"), `profileComputed` (PROFILE, always `1` — a single
 recompute pass, not a per-row counter, see "Data profile" below).
@@ -1047,8 +1048,8 @@ above):**
   empty and refreshes on the next PROFILE run.
 - **`schemeFieldIds`** — the sorted, distinct union of field ids across the live `PROJECT_FIELDS` entities of the
   connection's CURRENT project keys (the optional, experimental `projects/fields` REFERENCE step — it is skipped, keeping
-  the previous entity, when the scope is missing or the endpoint is gone: `.claude/docs/jira-integration.md` "Project field
-  schemes"); `null` = unknown when no current project has an entity. The options endpoint turns it into each custom field's
+  the previous entity, on any Jira-side failure but a blocked host: `.claude/docs/jira-integration.md` "Project field
+  schemes"); `null` = unknown unless EVERY current project has an entity. The options endpoint turns it into each custom field's
   `inScheme` (the Fields tab's default filter, `.claude/docs/metrics.md`). `JiraProfile.compute` takes the project keys from
   `DataSourceService.read` in `JiraProfileStream`.
 - **`anomalyCounts`** — every `TilingAnomaly` code (`STATUS_CHANGE_BEFORE_CREATED`/

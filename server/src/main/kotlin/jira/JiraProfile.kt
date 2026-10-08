@@ -79,11 +79,11 @@ object JiraProfile {
 
     /**
      * The sorted distinct union of field ids over the live `PROJECT_FIELDS` entities of the CURRENT [projectKeys], or `null` —
-     * "unknown" — when none of them has one (the optional step was skipped or never ran).
+     * "unknown" — unless EVERY current key has one (a partial union would hide a project's fields behind the default filter).
      */
     private fun computeSchemeFieldIds(rows: List<Pair<String, String>>, projectKeys: List<String>): List<String>? {
         val current = rows.filter { (projectKey, _) -> projectKey in projectKeys }
-        if (current.isEmpty()) return null
+        if (projectKeys.isEmpty() || !current.map { it.first }.containsAll(projectKeys)) return null
         return current.flatMap { (_, payload) -> JiraProjectFields.fieldIds(payload) }.distinct().sorted()
     }
 

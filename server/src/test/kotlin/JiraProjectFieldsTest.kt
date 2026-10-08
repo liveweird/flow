@@ -2,7 +2,6 @@ package ch.nokillswit
 
 import ch.nokillswit.ingest.StreamContext
 import ch.nokillswit.jira.JiraEntityKind
-import ch.nokillswit.jira.JiraFetchException
 import ch.nokillswit.jira.JiraProfile
 import ch.nokillswit.jira.JiraRawStore
 import ch.nokillswit.jira.JiraReferenceStream
@@ -24,7 +23,6 @@ import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -34,16 +32,20 @@ private const val FIELDS_PATH = ".*/rest/api/3/projects/fields"
 
 /**
  * The OPTIONAL `PROJECT_FIELDS` REFERENCE step (`GET /projects/fields`, experimental) against the sample stub: the stored
- * per-project field-id sets, the skip-never-fail behaviour for a missing scope/withdrawn endpoint/bad shape (keeping the
- * previous row), a real failure still failing the pass, and the data profile's `schemeFieldIds` (null = unknown).
+ * per-project field-id sets, the skip-never-fail behaviour for ANY Jira-side failure but a blocked host (keeping the
+ * previous row, counting `projectFieldsSkipped`), and the data profile's `schemeFieldIds` (null = unknown or partial).
+ * The scripted-client cases (chunking, paging, resume, missing inputs) are in `JiraProjectFieldsScriptedTest`.
  */
 class JiraProjectFieldsTest {
 
     private fun context(connId: UInt) =
         StreamContext(connId, 1u, sharedDatabaseForTests(), SyncedStubFixture.cursors(), jobHeartbeat = { _, _ -> true })
 
-    private suspend fun runReference(connId: UInt, keys: List<String> = KEYS, maxRetries: Int = 0) {
-        JiraReferenceStream(SyncedStubFixture.buildClient(maxRetries), SyncedStubFixture.rawStore(), keys).run(context(connId))
+    /** Runs one REFERENCE pass and returns the progress counters it accumulated. */
+    private suspend fun runReference(connId: UInt, keys: List<String> = KEYS, maxRetries: Int = 0): Map<String, Long> {
+        val context = context(connId)
+        JiraReferenceStream(SyncedStubFixture.buildClient(maxRetries), SyncedStubFixture.rawStore(), keys).run(context)
+        return context.progressSnapshot()
     }
 
     private suspend fun fieldRows(connId: UInt): List<ResultRow> = suspendTransaction(sharedDatabaseForTests()) {
@@ -68,9 +70,9 @@ class JiraProjectFieldsTest {
         get(urlPathMatching(FIELDS_PATH)).atPriority(1).willReturn(aResponse().withStatus(status).apply { body?.let { withBody(it) } }),
     )
 
-    private suspend fun withFieldsOverride(status: Int, body: String? = null, block: suspend () -> Unit) {
+    private suspend fun <T> withFieldsOverride(status: Int, body: String? = null, block: suspend () -> T): T {
         val override = overrideFields(status, body)
-        try {
+        return try {
             block()
         } finally {
             JiraStubServer.removeOverride(override)
@@ -101,8 +103,9 @@ class JiraProjectFieldsTest {
         listOf(Triple(401, null, "401"), Triple(403, null, "403"), Triple(404, null, "404"), Triple(200, badShape, "bad shape"))
             .forEach { (status, body, label) ->
                 val connId = SyncedStubFixture.createConnection(namePrefix = "jira-fields-skip")
-                withFieldsOverride(status, body) { runReference(connId) }
+                val progress = withFieldsOverride(status, body) { runReference(connId) }
 
+                assertEquals(KEYS.size.toLong(), progress["projectFieldsSkipped"], "$label: one skip counted per project")
                 assertEquals(emptyList(), fieldRows(connId), "$label: nothing stored for a skipped step")
                 assertNull(SyncedStubFixture.cursors().get(connId, "reference"), "$label: the REFERENCE pass still completed")
                 val entities = suspendTransaction(sharedDatabaseForTests()) {
@@ -133,9 +136,23 @@ class JiraProjectFieldsTest {
         assertEquals(setOf("FLO", "GONE"), rows.keys)
 
         // The profile reads only the CURRENT project keys' live entities: FLO's survives, PLT has none, a removed key is ignored.
-        val flo = JiraProfile.compute(connId, store, SyncedStubFixture.workItems(), listOf("FLO", "PLT"))
+        val flo = JiraProfile.compute(connId, store, SyncedStubFixture.workItems(), listOf("FLO"))
         assertEquals(listOf("customfield_10016", "summary"), flo.schemeFieldIds)
         assertNull(JiraProfile.compute(connId, store, SyncedStubFixture.workItems(), listOf("PLT")).schemeFieldIds)
+    }
+
+    @Test
+    fun `the profile scheme is unknown unless EVERY current project has a stored scheme - partial coverage is null`() = runBlocking {
+        val connId = SyncedStubFixture.createConnection(namePrefix = "jira-fields-partial")
+        val store = SyncedStubFixture.rawStore()
+        val stored = """{"projectKey":"A","projectId":1,"fieldIds":["summary"]}"""
+        store.upsertEntity(connId, JiraEntityKind.PROJECT_FIELDS.name, "A", stored, now = 1_000L)
+
+        assertEquals(listOf("summary"), JiraProfile.compute(connId, store, SyncedStubFixture.workItems(), listOf("A")).schemeFieldIds)
+        assertNull(
+            JiraProfile.compute(connId, store, SyncedStubFixture.workItems(), listOf("A", "B")).schemeFieldIds,
+            "keys [A, B] with only A stored: a partial union would hide B's fields behind the default filter",
+        )
     }
 
     @Test
@@ -151,11 +168,22 @@ class JiraProjectFieldsTest {
     }
 
     @Test
-    fun `a server failure on the fields step is not optional - it fails the pass like any reference step`() = runBlocking {
+    fun `a server failure on the fields step skips the project like any Jira-side failure - the pass completes`() = runBlocking {
         val connId = SyncedStubFixture.createConnection(namePrefix = "jira-fields-500")
-        withFieldsOverride(500) {
-            val failure = assertFailsWith<JiraFetchException> { runReference(connId, maxRetries = 0) }
-            assertEquals("UPSTREAM_UNAVAILABLE", failure.code)
-        }
+        val progress = withFieldsOverride(500) { runReference(connId, maxRetries = 0) }
+
+        assertEquals(KEYS.size.toLong(), progress["projectFieldsSkipped"])
+        assertEquals(emptyList(), fieldRows(connId))
+        assertNull(SyncedStubFixture.cursors().get(connId, "reference"), "the REFERENCE pass completed")
+    }
+
+    @Test
+    fun `an empty field list skips the project - nothing stored, previous rows kept`() = runBlocking {
+        val connId = SyncedStubFixture.createConnection(namePrefix = "jira-fields-empty")
+        val empty = """{"startAt":0,"maxResults":100,"total":0,"isLast":true,"values":[]}"""
+        val progress = withFieldsOverride(200, empty) { runReference(connId) }
+
+        assertEquals(KEYS.size.toLong(), progress["projectFieldsSkipped"])
+        assertEquals(emptyList(), fieldRows(connId))
     }
 }

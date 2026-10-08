@@ -249,6 +249,7 @@ class JiraConnector(
         probe("projects", "/rest/api/3/project/search", required = true, scopeHint = "read:project:jira") {
             // The first configured key's id seeds the optional `project_fields` probe (only when the key is on this first page).
             val projects = client.projectsSearch().values
+            // `projectIdsByKey` is total (skips malformed entries), so seeding the optional probe can never fail this REQUIRED one.
             firstProjectId = projectKeys.firstOrNull()?.let { JiraProjectFields.projectIdsByKey(projects)[it] }
         }
         projectKeys.forEach { key ->
@@ -260,14 +261,6 @@ class JiraConnector(
             ) {
                 val statuses = client.projectStatuses(key)
                 if (key == projectKeys.first()) firstProjectTypeId = JiraProjectFields.issueTypeIds(statuses).firstOrNull()
-            }
-        }
-        val fieldsProjectId = firstProjectId
-        val fieldsTypeId = firstProjectTypeId
-        if (fieldsProjectId != null && fieldsTypeId != null) {
-            // Optional: the field scheme only decides which custom fields the metrics-config editor lists by default.
-            probe("project_fields", "/rest/api/3/projects/fields", required = false, scopeHint = "read:field-configuration:jira") {
-                client.projectFields(fieldsProjectId, listOf(fieldsTypeId), maxResults = 1)
             }
         }
         firstIssueId?.let { issueId ->
@@ -309,6 +302,15 @@ class JiraConnector(
         firstScrumBoardId?.let { boardId ->
             probe("board_sprints", "/rest/agile/1.0/board/$boardId/sprint", required = true, scopeHint = "read:sprint:jira-software") {
                 client.boardSprints(boardId)
+            }
+        }
+        // Optional and last: the field scheme only decides which custom fields the metrics-config editor lists by default,
+        // so it must not eat the shared time budget of the required probes above.
+        val fieldsProjectId = firstProjectId
+        val fieldsTypeId = firstProjectTypeId
+        if (fieldsProjectId != null && fieldsTypeId != null) {
+            probe("project_fields", "/rest/api/3/projects/fields", required = false, scopeHint = "read:field-configuration:jira") {
+                client.projectFields(fieldsProjectId, listOf(fieldsTypeId), maxResults = 1)
             }
         }
         return ConnectionTestResult(rows, cloudId)

@@ -190,7 +190,7 @@ sources** page (Administration nav). Before clicking New, have ready:
   - **recommended, optional:** `read:field-configuration:jira` — lets the REFERENCE stream read each project's field
     scheme (Jira's experimental `GET /rest/api/3/projects/fields`), so the metrics-config **Fields** tab lists only the
     fields your projects use instead of every custom field on the site (1,300+ on a large tenant). Without it (or if
-    Atlassian withdraws the endpoint) the sync is unaffected and the tab falls back to fields that have data in the
+    Atlassian withdraws the endpoint, or the call fails for any Jira-side reason) the sync is unaffected and the tab falls back to fields that have data in the
     synced issues; Test connection shows the optional `project_fields` row.
 
   The board and sprint scopes are not optional: a SYNC reads boards, board configurations and

@@ -180,9 +180,11 @@ class JiraReferenceStream(
      * `PROJECT_FIELDS` — OPTIONAL by design (`GET /projects/fields` is experimental and needs `read:field-configuration:jira`).
      * Per configured project key, from the project id (the stored `PROJECT` entity) and the issue-type ids (the
      * `PROJECT_STATUSES` payload stored just before), stores ONE entity: the sorted distinct field ids of the project's field
-     * scheme. A project whose inputs are missing, or whose call answers one of [PROJECT_FIELDS_SKIP_CODES] (or yields no field at
-     * all), is SKIPPED with one warn (no query text): its previous entity is only `touch`ed — kept live through the end-of-pass
-     * tombstone sweep — and the pass goes on. Any other failure propagates like any reference step.
+     * scheme. A project whose inputs are missing, whose call fails with ANY [JiraFetchException] but `BLOCKED_HOST`
+     * ([skipsProjectFields]), or that yields no field at all, is SKIPPED with one warn (no query text) and one
+     * `projectFieldsSkipped` progress tick: its previous entity is only `touch`ed — kept live through the end-of-pass
+     * tombstone sweep — and the pass goes on. Lease loss, cancellation, a blocked host and non-Jira failures (database
+     * errors) propagate as in any reference step.
      */
     private suspend fun runProjectFields(context: StreamContext, passStartedAt: Long, resumeIndex: Int) {
         val projectIds = JiraProjectFields.projectIdsByKey(
@@ -200,6 +202,7 @@ class JiraReferenceStream(
                     context.incrementProgress("pages")
                 } else {
                     rawStore.touchEntity(context.connectionId, JiraEntityKind.PROJECT_FIELDS.name, key, context.clock())
+                    context.incrementProgress("projectFieldsSkipped")
                 }
                 context.putCursor(name, encode(ReferenceCursor(passStartedAt, JiraEntityKind.PROJECT_FIELDS, startAt = index + 1)))
             }
@@ -222,7 +225,7 @@ class JiraReferenceStream(
         val fieldIds = try {
             JiraProjectFields.fetchFieldIds(client, projectId, workTypeIds)
         } catch (failure: JiraFetchException) {
-            if (failure.code !in PROJECT_FIELDS_SKIP_CODES) throw failure
+            if (!skipsProjectFields(failure)) throw failure
             log.warn("PROJECT_FIELDS skipped for project {}: {} (status {})", key, failure.code, failure.status)
             return null
         }

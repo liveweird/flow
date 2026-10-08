@@ -3,8 +3,10 @@ package ch.nokillswit.jira
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -16,12 +18,15 @@ private const val PROJECT_FIELDS_ENDPOINT = "/rest/api/3/projects/fields"
 private const val WORK_TYPES_PER_REQUEST = 25
 
 /**
- * The failure codes that make the OPTIONAL `PROJECT_FIELDS` REFERENCE step skip a project instead of failing the SYNC
- * (`.claude/docs/jira-integration.md` "Project field schemes"): the endpoint is EXPERIMENTAL, so a missing scope (401/403),
- * a withdrawn endpoint (404) or a shape/status the client cannot read (`INVALID_RESPONSE`) must never cost the sync. Everything
- * else (5xx after retries, timeouts, rate limits, a blocked host) behaves like any other reference step.
+ * The ONE failure code that stays fatal for the OPTIONAL `PROJECT_FIELDS` REFERENCE step (`.claude/docs/jira-integration.md`
+ * "Project field schemes"): an SSRF-guard rejection is a security signal, never something to swallow. Every other
+ * [JiraFetchException] (a missing scope, a withdrawn endpoint, a bad shape, a 5xx after retries, a timeout, a rate limit, ...)
+ * only skips the project — the endpoint is EXPERIMENTAL and must never stop ingestion.
  */
-internal val PROJECT_FIELDS_SKIP_CODES: Set<String> = setOf("AUTHENTICATION_FAILED", "FORBIDDEN_SCOPE", "NOT_FOUND", "INVALID_RESPONSE")
+private const val FATAL_PROJECT_FIELDS_CODE = "BLOCKED_HOST"
+
+/** Whether [failure] skips the optional `PROJECT_FIELDS` step for a project (true) or must propagate (`BLOCKED_HOST`). */
+internal fun skipsProjectFields(failure: JiraFetchException): Boolean = failure.code != FATAL_PROJECT_FIELDS_CODE
 
 /**
  * `PROJECT_FIELDS` entity helpers (`GET /projects/fields`, one stored entity per project key): the inputs the step reads
@@ -30,21 +35,27 @@ internal val PROJECT_FIELDS_SKIP_CODES: Set<String> = setOf("AUTHENTICATION_FAIL
  */
 internal object JiraProjectFields {
 
-    /** Project key → numeric project id, from `PROJECT` entity payloads (`project/search` values). */
+    /**
+     * Project key → numeric project id, from `PROJECT` entity payloads (`project/search` values). Total: an entry of an
+     * unexpected shape is skipped, never thrown on — the Test-connection probe that seeds from it is REQUIRED and must not fail here.
+     */
     fun projectIdsByKey(projects: List<JsonElement>): Map<String, Long> = projects.mapNotNull { project ->
-        val key = project.jsonObject["key"]?.jsonPrimitive?.content
-        val id = project.jsonObject["id"]?.jsonPrimitive?.content?.toLongOrNull()
+        val obj = project as? JsonObject ?: return@mapNotNull null
+        val key = (obj["key"] as? JsonPrimitive)?.contentOrNull
+        val id = (obj["id"] as? JsonPrimitive)?.contentOrNull?.toLongOrNull()
         if (key == null || id == null) null else key to id
     }.toMap()
 
-    /** The issue-type ids of a project's statuses document (`GET /project/{key}/statuses`: one array entry per issue type). */
-    fun issueTypeIds(statuses: JsonArray): List<Long> =
-        statuses.mapNotNull { it.jsonObject["id"]?.jsonPrimitive?.content?.toLongOrNull() }.distinct().sorted()
+    /** The issue-type ids of a project's statuses document (one entry per type); total like [projectIdsByKey]. */
+    fun issueTypeIds(statuses: JsonArray): List<Long> = statuses.mapNotNull {
+        ((it as? JsonObject)?.get("id") as? JsonPrimitive)?.contentOrNull?.toLongOrNull()
+    }.distinct().sorted()
 
     /**
      * Every field id in [projectId]'s field scheme for [workTypeIds]: pages through `projects/fields` (startAt-paged,
-     * honouring `isLast`/`total` and the page size Jira actually returned) in request-sized groups of work types.
-     * Throws [JiraFetchException] — `INVALID_RESPONSE` for a row without a `fieldId` — so the caller decides what skips.
+     * trusting a non-null `isLast` over `total`, which may be absent/0, and the page size Jira actually returned) in
+     * request-sized groups of work types. Throws [JiraFetchException] — `INVALID_RESPONSE` for a row without a string
+     * `fieldId` — so the caller decides what skips.
      */
     suspend fun fetchFieldIds(client: JiraClient, projectId: Long, workTypeIds: List<Long>): List<String> {
         val fieldIds = sortedSetOf<String>()
@@ -54,7 +65,8 @@ internal object JiraProjectFields {
                 val page = client.projectFields(projectId, group, startAt)
                 page.values.forEach { fieldIds += fieldIdOf(it) }
                 val nextStartAt = startAt + page.values.size
-                if (page.isLast == true || nextStartAt >= page.total || page.values.isEmpty()) break
+                val last = page.isLast ?: (nextStartAt >= page.total)
+                if (last || page.values.isEmpty()) break
                 startAt = nextStartAt
             }
         }
@@ -71,11 +83,10 @@ internal object JiraProjectFields {
     fun fieldIds(payload: String): List<String> =
         Json.parseToJsonElement(payload).jsonObject.getValue("fieldIds").jsonArray.map { it.jsonPrimitive.content }
 
-    private fun fieldIdOf(row: JsonElement): String = try {
-        row.jsonObject.getValue("fieldId").jsonPrimitive.content
-    } catch (cause: IllegalArgumentException) {
-        throw JiraFetchException("INVALID_RESPONSE", null, PROJECT_FIELDS_ENDPOINT).also { it.initCause(cause) }
-    } catch (cause: NoSuchElementException) {
-        throw JiraFetchException("INVALID_RESPONSE", null, PROJECT_FIELDS_ENDPOINT).also { it.initCause(cause) }
+    /** A row's `fieldId` — a non-blank JSON string, else `INVALID_RESPONSE` (`JsonNull.content` is the text "null", so never `content`). */
+    private fun fieldIdOf(row: JsonElement): String {
+        val field = (row as? JsonObject)?.get("fieldId") as? JsonPrimitive
+        return field?.takeIf { it.isString }?.contentOrNull?.takeIf { it.isNotBlank() }
+            ?: throw JiraFetchException("INVALID_RESPONSE", null, PROJECT_FIELDS_ENDPOINT)
     }
 }

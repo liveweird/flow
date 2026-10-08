@@ -2352,7 +2352,7 @@ export interface components {
             /** @description SPRINT/RANK/TEAM/STORY_POINTS/FLAGGED/OTHER — `jira/JiraProfile.kt`'s detection. */
             detectedRole: string;
             /** @description The field id is in the stored data profile's `schemeFieldIds` (an in-scope project's field scheme lists it); null when that set is unknown. */
-            inScheme?: boolean | null;
+            inScheme: boolean | null;
             /**
              * Format: int64
              * @description How many live issues carry a value for the field (the profile's fill count) — the editor's fallback relevance signal when inScheme is unknown.
