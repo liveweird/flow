@@ -154,7 +154,10 @@
       "epicDue": "Epic due-date field",
       "workCategory": "Work-category field",
       "none": "None",
-      "dueDateOption": "Due date (system field)"
+      "dueDateOption": "Due date (system field)",
+      "showAll": "Show all fields ({{count}})",
+      "showAllHint": "By default only the fields in your projects' field scheme are listed, plus any field you selected.",
+      "schemeUnknownHint": "The field scheme isn't available from Jira (the optional Field configuration scope may be missing), so only fields that have data in the synced issues are listed."
     },
     "domains": {
       "columnProject": "Project key",

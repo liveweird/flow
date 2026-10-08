@@ -1661,6 +1661,47 @@ for (const project of PROJECTS) {
   ]);
 }
 
+// --- projects/fields (experimental; startAt-paged, one row per (field, work type)) -----------------
+// Jira's field scheme: the fields (system AND custom) each project's work types carry. The in-scope projects' schemes
+// cover every custom field the dataset's issues use, except that the Kanban project (no sprints, no estimates) leaves out
+// Sprint and Story point estimate; epic start only applies to epics. The stub ignores the `workTypeId` params (like
+// search/jql ignores JQL) and answers every work type of the project, filtered by the `projectId` param only.
+const SCHEME_SYSTEM_FIELDS = [
+  ...FIELDS.filter((f) => !f.custom).map((f) => f.id),
+  "description", "environment", "fixVersions", "issuelinks", "timetracking", "versions",
+];
+function projectFieldIds(project, issueType) {
+  const custom = [CF.TEAM, CF.RANK, CF.FLAGGED, CF.WORK_CATEGORY];
+  if (project.boardType === "scrum") custom.push(CF.SPRINT, CF.STORY_POINTS);
+  if (issueType === ISSUE_TYPE.EPIC) custom.push(CF.EPIC_START);
+  return [...SCHEME_SYSTEM_FIELDS, ...custom].sort();
+}
+const PROJECT_FIELDS_PAGE_SIZE = 50;
+for (const project of PROJECTS.filter((p) => p.inScope)) {
+  const rows = [];
+  for (const issueType of [ISSUE_TYPE.STORY, ISSUE_TYPE.TASK, ISSUE_TYPE.BUG, ISSUE_TYPE.SUBTASK, ISSUE_TYPE.EPIC]) {
+    for (const fieldId of projectFieldIds(project, issueType)) {
+      rows.push({ fieldId, projectId: Number(project.id), workTypeId: Number(issueType.id), isRequired: fieldId === "summary" || fieldId === "issuetype" });
+    }
+  }
+  for (let i = 0; i * PROJECT_FIELDS_PAGE_SIZE < rows.length; i++) {
+    const page = rows.slice(i * PROJECT_FIELDS_PAGE_SIZE, (i + 1) * PROJECT_FIELDS_PAGE_SIZE);
+    const paging = startAtPaging(i, PROJECT_FIELDS_PAGE_SIZE);
+    stub(
+      `projects-fields-${project.key}-page-${i + 1}`,
+      { urlPath: `${API}/projects/fields`, ...paging, queryParameters: { ...paging.queryParameters, projectId: { equalTo: project.id } } },
+      200,
+      {
+        maxResults: PROJECT_FIELDS_PAGE_SIZE,
+        startAt: i * PROJECT_FIELDS_PAGE_SIZE,
+        total: rows.length,
+        isLast: (i + 1) * PROJECT_FIELDS_PAGE_SIZE >= rows.length,
+        values: page,
+      },
+    );
+  }
+}
+
 // --- issuetype / priority / resolution / issueLinkType ------------------------------------------
 stub("issuetype", { urlPath: `${API}/issuetype` }, 200, Object.values(ISSUE_TYPE));
 stub("priority-search", { urlPath: `${API}/priority/search` }, 200, {

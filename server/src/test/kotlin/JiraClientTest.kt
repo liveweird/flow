@@ -187,6 +187,50 @@ class JiraClientTest {
     }
 
     @Test
+    fun `projectFields sends projectId and every workTypeId as repeated query params, kept across a retry`() = runBlocking {
+        val seen = mutableListOf<Pair<List<String>, List<String>>>()
+        var calls = 0
+        val engine = MockEngine { request ->
+            if (request.url.encodedPath.endsWith("/_edge/tenant_info")) {
+                respond("""{"cloudId":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"}""", HttpStatusCode.OK, JSON_HEADERS)
+            } else {
+                seen += request.url.parameters.getAll("projectId").orEmpty() to request.url.parameters.getAll("workTypeId").orEmpty()
+                calls++
+                if (calls == 1) {
+                    respond("{}", HttpStatusCode.ServiceUnavailable, JSON_HEADERS)
+                } else {
+                    val row = """{"fieldId":"summary","projectId":7,"workTypeId":10001,"isRequired":true}"""
+                    respond("""{"startAt":0,"maxResults":100,"total":1,"isLast":true,"values":[$row]}""", HttpStatusCode.OK, JSON_HEADERS)
+                }
+            }
+        }
+        val http = jiraHttp(engine, maxRetries = 1)
+        val client = HttpJiraClient(http, "https://acme.atlassian.net", null, "svc@example.com", "tok", JiraAuthScheme.BASIC)
+        client.resolveCloudId()
+        val page = client.projectFields(7, listOf(10001, 10002))
+        assertEquals(1, page.values.size)
+        val expected = listOf("7") to listOf("10001", "10002")
+        assertEquals(listOf(expected, expected), seen, "the failed attempt and the retry both carry the repeated params")
+    }
+
+    @Test
+    fun `a failing projectFields call reports the endpoint without its query string`() = runBlocking {
+        val engine = MockEngine { request ->
+            if (request.url.encodedPath.endsWith("/_edge/tenant_info")) {
+                respond("""{"cloudId":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"}""", HttpStatusCode.OK, JSON_HEADERS)
+            } else {
+                respond("{}", HttpStatusCode.Forbidden, JSON_HEADERS)
+            }
+        }
+        val client = jiraClient(engine, JiraAuthScheme.BASIC, apiToken = "tok")
+        client.resolveCloudId()
+        val error = assertFailsWith<JiraFetchException> { client.projectFields(7, listOf(10001)) }
+        assertEquals("FORBIDDEN_SCOPE", error.code)
+        assertTrue(error.message.orEmpty().endsWith("/rest/api/3/projects/fields"), error.message)
+        assertTrue("?" !in error.message.orEmpty() && "projectId" !in error.message.orEmpty(), error.message)
+    }
+
+    @Test
     fun `resolveCloudId is unauthenticated - no Authorization header is sent`() = runBlocking {
         var sawAuthHeader = false
         val engine = MockEngine { request ->

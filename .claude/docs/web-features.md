@@ -178,7 +178,13 @@ team membership landed in M2 commit 5, and the per-connection `metrics-config` p
   overrides orphaned, flagged by a red inline `Alert` per orphan, and so is an override on a status the connection no longer reports (an `Alert`
   with a Remove button — such an override has no row in the status table and would `400` every save), and the server's `400` shows in the page alert
   — they save with the ONE Save, as `domainStatusStages`), Fields (five `Select`s over the profile-detected custom fields plus
-  Jira's own `duedate` system field, labelled with the detected role), Domains (project key →
+  Jira's own `duedate` system field, labelled with the detected role; **by default only the fields of the projects' field
+  scheme are listed** — options `inScheme === true` — PLUS every field currently selected in any of the five slots
+  (`utils/metricsConfigForm.ts`'s `visibleFields`); when no field carries scheme information (`inScheme` null for all, the
+  optional `projects/fields` step produced nothing) it falls back to fields with `nonNullCount > 0` and a dimmed one-line
+  note says the scheme is unavailable; with no information at all everything is listed. A "Show all fields (N)" `Switch`
+  (state inside `FieldsTab`, remembered nowhere, shown only when the default hides something) lists the rest. The filter is
+  display-only: the saved `fields` always carry the selected ids), Domains (project key →
   domain key/name), Boards → team (an active-teams `Select`; a `409` marks the changed board
   row(s) inline, the "which row" rule computed by diffing the just-submitted board→team snapshot
   against the last-loaded/last-saved one — `utils/metricsConfigForm.ts`'s `changedBoardIds`),

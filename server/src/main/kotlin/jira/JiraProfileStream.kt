@@ -25,7 +25,9 @@ class JiraProfileStream(
     override val name: String = "profile"
 
     override suspend fun run(context: StreamContext) {
-        val sections = JiraProfile.compute(context.connectionId, rawStore, workItemStore)
+        // The CURRENT project keys scope the field scheme (a key removed since the last SYNC still has its entity until the next pass).
+        val projectKeys = dataSources.read(context.connectionId)?.jira?.projectKeys.orEmpty()
+        val sections = JiraProfile.compute(context.connectionId, rawStore, workItemStore, projectKeys)
         dataSources.updateProfile(context.connectionId, PROFILE_STREAM_JSON.encodeToString(sections), context.clock())
         context.incrementProgress("profileComputed")
         context.heartbeat()

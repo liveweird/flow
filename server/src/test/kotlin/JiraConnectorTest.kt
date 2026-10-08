@@ -12,7 +12,9 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlin.test.Test
@@ -47,6 +49,7 @@ class JiraConnectorTest {
         override suspend fun statusCategories() = fail()
         override suspend fun projectsSearch(startAt: Int) = fail()
         override suspend fun projectStatuses(projectKey: String) = fail()
+        override suspend fun projectFields(projectId: Long, workTypeIds: List<Long>, startAt: Int, maxResults: Int) = fail()
         override suspend fun issueTypes() = fail()
         override suspend fun resolutions(startAt: Int) = fail()
         override suspend fun issueLinkTypes() = fail()
@@ -108,8 +111,14 @@ class JiraConnectorTest {
                 JiraSearchPage(JsonArray(listOf(buildJsonObject { put("id", "10001") })))
             override suspend fun fields() = JsonArray(emptyList())
             override suspend fun statusesSearch(startAt: Int) = JiraStartAtPage()
-            override suspend fun projectsSearch(startAt: Int) = JiraStartAtPage()
-            override suspend fun projectStatuses(projectKey: String) = JsonArray(emptyList())
+            override suspend fun projectsSearch(startAt: Int) =
+                JiraStartAtPage(values = JsonArray(listOf(buildJsonObject { put("id", "10050"); put("key", "COOK") })))
+            override suspend fun projectStatuses(projectKey: String) = JsonArray(listOf(buildJsonObject { put("id", "10001") }))
+            override suspend fun projectFields(projectId: Long, workTypeIds: List<Long>, startAt: Int, maxResults: Int): JiraStartAtPage {
+                assertEquals(10050L, projectId)
+                assertEquals(listOf(10001L), workTypeIds)
+                return JiraStartAtPage()
+            }
             override suspend fun changelogBulk(issueIds: List<String>, nextPageToken: String?, maxResults: Int) = buildJsonObject {}
             override suspend fun issueChangelogPage(issueId: String, startAt: Int) = JiraChangelogPage()
             override suspend fun issueWorklogPage(issueId: String, startAt: Int) = JiraWorklogStartAtPage()
@@ -139,11 +148,34 @@ class JiraConnectorTest {
                 "boards" to "read:board-scope:jira-software, read:project:jira",
                 "board_configuration" to "read:board-scope.admin:jira-software, read:project:jira",
                 "board_sprints" to "read:sprint:jira-software",
+                "project_fields" to "read:field-configuration:jira",
             ),
             result.rows.associate { it.name to it.scopeHint },
         )
-        // bulkfetch is the only optional row: CHANGELOGS falls back from it; a SYNC needs the board endpoints.
-        assertEquals(listOf("bulkfetch"), result.rows.filter { !it.required }.map { it.name })
+        // bulkfetch and project_fields are the only optional rows: CHANGELOGS falls back from the first, the metrics-config
+        // editor from the second; a SYNC needs the board endpoints.
+        assertEquals(listOf("bulkfetch", "project_fields"), result.rows.filter { !it.required }.map { it.name })
+        // The optional field-scheme probe runs LAST, so it can never eat the shared time budget of a required probe.
+        assertEquals("project_fields", result.rows.last().name)
+    }
+
+    @Test
+    fun `a malformed projects entry cannot fail the required projects probe - it only costs the optional probe its seed`() = runBlocking {
+        val calls = mutableListOf<String>()
+        val client: JiraClient = object : JiraClient by boardsClient(emptyList(), calls) {
+            override suspend fun projectsSearch(startAt: Int) = JiraStartAtPage(
+                values = JsonArray(
+                    listOf(JsonPrimitive("junk"), JsonArray(emptyList()), buildJsonObject { put("key", "COOK"); put("id", JsonNull) }),
+                ),
+            )
+            override suspend fun projectStatuses(projectKey: String) =
+                JsonArray(listOf(JsonPrimitive("junk"), buildJsonObject { put("id", "10001") }))
+        }
+        val connector = JiraConnector(newClient = { _, _, _, _ -> client })
+        val result = connector.testConnection("https://acme.atlassian.net", "svc@example.com", "tok", listOf("COOK"), JiraAuthScheme.BASIC)
+        assertTrue(result.rows.single { it.name == "projects" }.ok, "the REQUIRED projects probe must pass: ${result.rows}")
+        assertTrue(result.rows.single { it.name == "project_statuses:COOK" }.ok, "so must the statuses probe: ${result.rows}")
+        assertTrue(result.rows.none { it.name == "project_fields" }, "no usable project id means the optional probe is skipped")
     }
 
     private fun board(id: Long, projectKey: String, type: String) = buildJsonObject {

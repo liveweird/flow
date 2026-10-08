@@ -222,6 +222,7 @@ class JiraSyncPipelineTest {
                 "STATUS_CATEGORY" to 4,
                 "PROJECT" to 5,
                 "PROJECT_STATUSES" to 4,
+                "PROJECT_FIELDS" to 4,
                 "ISSUE_TYPE" to 5,
                 "RESOLUTION" to 4,
                 "ISSUE_LINK_TYPE" to 3,

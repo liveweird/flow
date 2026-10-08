@@ -3266,6 +3266,11 @@ components:
           type: array
           items: { type: string }
           description: Sorted, distinct status ids across every in-scope project's reference workflow (`PROJECT_STATUSES`); empty on a profile stored before this field existed.
+        schemeFieldIds:
+          type: array
+          nullable: true
+          items: { type: string }
+          description: Sorted, distinct field ids in the in-scope projects' field schemes (`PROJECT_FIELDS`, Jira's experimental `GET /projects/fields`, scope `read:field-configuration:jira`); null = unknown (no project has the entity — the optional step was skipped or never ran, or the profile predates it).
 
     MetricsStatusStage:
       type: object
@@ -3400,12 +3405,14 @@ components:
         seenInHistory: { type: boolean, description: "Some work item's status interval of this connection carries the status id." }
     MetricsFieldOption:
       type: object
-      required: [fieldId, name, type, detectedRole]
+      required: [fieldId, name, type, detectedRole, inScheme, nonNullCount]
       properties:
         fieldId: { type: string }
         name: { type: string }
         type: { type: string }
         detectedRole: { type: string, description: "SPRINT/RANK/TEAM/STORY_POINTS/FLAGGED/OTHER — `jira/JiraProfile.kt`'s detection." }
+        inScheme: { type: boolean, nullable: true, description: "The field id is in the stored data profile's `schemeFieldIds` (an in-scope project's field scheme lists it); null when that set is unknown." }
+        nonNullCount: { type: integer, format: int64, minimum: 0, description: "How many live issues carry a value for the field (the profile's fill count) — the editor's fallback relevance signal when inScheme is unknown." }
     MetricsBoardOption:
       type: object
       required: [boardId, name]

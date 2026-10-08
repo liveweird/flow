@@ -130,6 +130,17 @@ internal class JiraRawWrites(private val database: R2dbcDatabase) {
         }
 
     /**
+     * Marks a live entity row as seen WITHOUT changing its payload — the REFERENCE pass's way of keeping the previous row of an
+     * optional step it skipped (`PROJECT_FIELDS`) out of the end-of-pass tombstone sweep. A no-op for a missing or tombstoned row.
+     */
+    suspend fun touchEntity(connectionId: UInt, kind: String, entityId: String, now: Long): Int = suspendTransaction(database) {
+        Entities.update({
+            (Entities.connectionId eq connectionId) and (Entities.kind eq kind) and (Entities.entityId eq entityId) and
+                Entities.deletedAt.isNull()
+        }) { it[lastSeenAt] = now }
+    }
+
+    /**
      * Append-only insert for one changelog history (v0.2.0 plan §7 "CHANGELOGS"): a history is
      * immutable once Jira creates it, so `ON CONFLICT DO NOTHING` on the PK is the whole dedup rule
      * — the same history reaching here twice (a resumed batch, an overlapping bulk/per-issue

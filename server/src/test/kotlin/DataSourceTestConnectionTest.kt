@@ -57,6 +57,30 @@ class DataSourceTestConnectionTest {
         assertTrue(requiredFailures.isEmpty(), "required probes failed: $requiredFailures")
         assertTrue(result.rows.any { it.name == "tenant_info" && it.ok })
         assertTrue(result.rows.any { it.name.startsWith("project_statuses:") })
+        val fieldsRow = result.rows.single { it.name == "project_fields" }
+        assertTrue(fieldsRow.ok && !fieldsRow.required, "the field-scheme probe is optional and the stub serves it: $fieldsRow")
+        assertEquals("read:field-configuration:jira", fieldsRow.scopeHint)
+    }
+
+    @Test
+    fun `a scope-denied projects-fields probe is a failed optional row - it never fails the required set`() = testApplication {
+        configureApp("jira.stubBaseUrl" to JiraStubServer.start())
+        startApplication()
+        val admin = seededClient("dstestfields", UserRole.ADMIN)
+        val forbidden = JiraStubServer.addOverride(
+            get(urlPathMatching(".*/rest/api/3/projects/fields")).atPriority(1).willReturn(aResponse().withStatus(403)),
+        )
+        try {
+            val result = admin.postJson("/api/v1/data-sources/test", DataSourceTestRequest(jiraRequest())).body<ConnectionTestResult>()
+            val row = result.rows.single { it.name == "project_fields" }
+            assertEquals(false, row.ok)
+            assertEquals("FORBIDDEN_SCOPE", row.code)
+            assertEquals(false, row.required)
+            val requiredFailures = result.rows.filter { it.required && !it.ok }
+            assertTrue(requiredFailures.isEmpty(), "required probes failed: $requiredFailures")
+        } finally {
+            JiraStubServer.removeOverride(forbidden)
+        }
     }
 
     @Test

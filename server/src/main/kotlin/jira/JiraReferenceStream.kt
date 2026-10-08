@@ -10,6 +10,9 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import org.slf4j.LoggerFactory
+
+private val log = LoggerFactory.getLogger(JiraReferenceStream::class.java)
 
 private val REFERENCE_CURSOR_JSON = Json { encodeDefaults = true; ignoreUnknownKeys = true }
 
@@ -51,7 +54,8 @@ internal fun isScrumBoard(board: JsonObject): Boolean = board["type"]?.jsonPrimi
  * only for scrum boards (Jira's own `/board/{id}/sprint` 400s for a Kanban board). Entities not
  * seen during the pass are tombstoned at the end and resurrected the next time they reappear. The sweep covers
  * every [JiraEntityKind], the no-longer-fetched PRIORITY included, so a connection's old PRIORITY rows are
- * tombstoned on its next pass (intended).
+ * tombstoned on its next pass (intended). `PROJECT_FIELDS` is the one OPTIONAL step ([runProjectFields]): it skips a project
+ * rather than failing the pass, and keeps that project's previous entity out of the sweep.
  */
 class JiraReferenceStream(
     private val client: JiraClient,
@@ -69,23 +73,7 @@ class JiraReferenceStream(
         while (stepIndex < STEP_ORDER.size) {
             val step = STEP_ORDER[stepIndex]
             val startAt = if (stepIndex == resumedStepIndex) existing?.startAt ?: 0 else 0
-            when (step) {
-                JiraEntityKind.FIELD -> runSingleShot(context, step) { client.fields() }
-                JiraEntityKind.STATUS_CATEGORY -> runSingleShot(context, step) { client.statusCategories() }
-                JiraEntityKind.ISSUE_TYPE -> runSingleShot(context, step) { client.issueTypes() }
-                JiraEntityKind.ISSUE_LINK_TYPE -> runSingleShot(context, step) {
-                    client.issueLinkTypes()["issueLinkTypes"]?.jsonArray ?: JsonArray(emptyList())
-                }
-                JiraEntityKind.STATUS -> runStartAtPaged(context, passStartedAt, step, startAt) { client.statusesSearch(it) }
-                JiraEntityKind.PROJECT -> runStartAtPaged(context, passStartedAt, step, startAt) { client.projectsSearch(it) }
-                JiraEntityKind.RESOLUTION -> runStartAtPaged(context, passStartedAt, step, startAt) { client.resolutions(it) }
-                JiraEntityKind.PROJECT_STATUSES -> runPerProjectKey(context, passStartedAt, startAt)
-                JiraEntityKind.USER -> runUsersPaged(context, passStartedAt, startAt)
-                JiraEntityKind.BOARD -> runStartAtPaged(context, passStartedAt, step, startAt, ::isInScopeBoard) { client.boards(it) }
-                JiraEntityKind.BOARD_CONFIGURATION -> runBoardConfigurations(context, passStartedAt, startAt)
-                JiraEntityKind.SPRINT -> runSprints(context, passStartedAt, startAt)
-                JiraEntityKind.PRIORITY -> error("PRIORITY is never in STEP_ORDER")
-            }
+            runStep(context, passStartedAt, step, startAt)
             stepIndex++
             if (stepIndex < STEP_ORDER.size) {
                 context.transaction { context.putCursor(name, encode(ReferenceCursor(passStartedAt, STEP_ORDER[stepIndex]))) }
@@ -95,6 +83,27 @@ class JiraReferenceStream(
         context.transaction {
             JiraEntityKind.entries.forEach { rawStore.markEntitiesDeletedNotSeenSince(context.connectionId, it.name, passStartedAt) }
             context.clearCursor(name)
+        }
+    }
+
+    private suspend fun runStep(context: StreamContext, passStartedAt: Long, step: JiraEntityKind, startAt: Int) {
+        when (step) {
+            JiraEntityKind.FIELD -> runSingleShot(context, step) { client.fields() }
+            JiraEntityKind.STATUS_CATEGORY -> runSingleShot(context, step) { client.statusCategories() }
+            JiraEntityKind.ISSUE_TYPE -> runSingleShot(context, step) { client.issueTypes() }
+            JiraEntityKind.ISSUE_LINK_TYPE -> runSingleShot(context, step) {
+                client.issueLinkTypes()["issueLinkTypes"]?.jsonArray ?: JsonArray(emptyList())
+            }
+            JiraEntityKind.STATUS -> runStartAtPaged(context, passStartedAt, step, startAt) { client.statusesSearch(it) }
+            JiraEntityKind.PROJECT -> runStartAtPaged(context, passStartedAt, step, startAt) { client.projectsSearch(it) }
+            JiraEntityKind.RESOLUTION -> runStartAtPaged(context, passStartedAt, step, startAt) { client.resolutions(it) }
+            JiraEntityKind.PROJECT_STATUSES -> runPerProjectKey(context, passStartedAt, startAt)
+            JiraEntityKind.PROJECT_FIELDS -> runProjectFields(context, passStartedAt, startAt)
+            JiraEntityKind.USER -> runUsersPaged(context, passStartedAt, startAt)
+            JiraEntityKind.BOARD -> runStartAtPaged(context, passStartedAt, step, startAt, ::isInScopeBoard) { client.boards(it) }
+            JiraEntityKind.BOARD_CONFIGURATION -> runBoardConfigurations(context, passStartedAt, startAt)
+            JiraEntityKind.SPRINT -> runSprints(context, passStartedAt, startAt)
+            JiraEntityKind.PRIORITY -> error("PRIORITY is never in STEP_ORDER")
         }
     }
 
@@ -165,6 +174,66 @@ class JiraReferenceStream(
             context.heartbeat()
             index++
         }
+    }
+
+    /**
+     * `PROJECT_FIELDS` — OPTIONAL by design (`GET /projects/fields` is experimental and needs `read:field-configuration:jira`).
+     * Per configured project key, from the project id (the stored `PROJECT` entity) and the issue-type ids (the
+     * `PROJECT_STATUSES` payload stored just before), stores ONE entity: the sorted distinct field ids of the project's field
+     * scheme. A project whose inputs are missing, whose call fails with ANY [JiraFetchException] but `BLOCKED_HOST`
+     * ([skipsProjectFields]), or that yields no field at all, is SKIPPED with one warn (no query text) and one
+     * `projectFieldsSkipped` progress tick: its previous entity is only `touch`ed — kept live through the end-of-pass
+     * tombstone sweep — and the pass goes on. Lease loss, cancellation, a blocked host and non-Jira failures (database
+     * errors) propagate as in any reference step.
+     */
+    private suspend fun runProjectFields(context: StreamContext, passStartedAt: Long, resumeIndex: Int) {
+        val projectIds = JiraProjectFields.projectIdsByKey(
+            rawStore.entityPayloadsByKind(context.connectionId, JiraEntityKind.PROJECT.name).map { Json.parseToJsonElement(it) },
+        )
+        val statusPayloads = rawStore.entityRowsByKind(context.connectionId, JiraEntityKind.PROJECT_STATUSES.name).toMap()
+        var index = resumeIndex
+        while (index < projectKeys.size) {
+            val key = projectKeys[index]
+            val payload = fetchProjectFieldsPayload(key, projectIds[key], statusPayloads[key])
+            context.transaction {
+                if (payload != null) {
+                    rawStore.upsertEntity(context.connectionId, JiraEntityKind.PROJECT_FIELDS.name, key, payload, context.clock())
+                    context.incrementProgress("entities")
+                    context.incrementProgress("pages")
+                } else {
+                    rawStore.touchEntity(context.connectionId, JiraEntityKind.PROJECT_FIELDS.name, key, context.clock())
+                    context.incrementProgress("projectFieldsSkipped")
+                }
+                context.putCursor(name, encode(ReferenceCursor(passStartedAt, JiraEntityKind.PROJECT_FIELDS, startAt = index + 1)))
+            }
+            context.heartbeat()
+            index++
+        }
+    }
+
+    /** The `PROJECT_FIELDS` payload for [key], or `null` when this project's step is skipped (see [runProjectFields]). */
+    private suspend fun fetchProjectFieldsPayload(key: String, projectId: Long?, statusesPayload: String?): String? {
+        val workTypeIds = try {
+            statusesPayload?.let { JiraProjectFields.issueTypeIds(Json.parseToJsonElement(it).jsonArray) }.orEmpty()
+        } catch (_: IllegalArgumentException) {
+            emptyList()
+        }
+        if (projectId == null || workTypeIds.isEmpty()) {
+            log.warn("PROJECT_FIELDS skipped for project {}: no project id or issue types are stored yet", key)
+            return null
+        }
+        val fieldIds = try {
+            JiraProjectFields.fetchFieldIds(client, projectId, workTypeIds)
+        } catch (failure: JiraFetchException) {
+            if (!skipsProjectFields(failure)) throw failure
+            log.warn("PROJECT_FIELDS skipped for project {}: {} (status {})", key, failure.code, failure.status)
+            return null
+        }
+        if (fieldIds.isEmpty()) {
+            log.warn("PROJECT_FIELDS skipped for project {}: the response listed no fields", key)
+            return null
+        }
+        return JiraProjectFields.payload(key, projectId, fieldIds)
     }
 
     private suspend fun runBoardConfigurations(context: StreamContext, passStartedAt: Long, resumeIndex: Int) {

@@ -16,7 +16,7 @@ val JiraRawStoreKey = AttributeKey<JiraRawStore>("JiraRawStore")
  * (`ReferenceCursor.step`); it is no longer fetched.
  */
 enum class JiraEntityKind {
-    FIELD, STATUS, STATUS_CATEGORY, PROJECT, PROJECT_STATUSES, ISSUE_TYPE, PRIORITY, RESOLUTION,
+    FIELD, STATUS, STATUS_CATEGORY, PROJECT, PROJECT_STATUSES, PROJECT_FIELDS, ISSUE_TYPE, PRIORITY, RESOLUTION,
     ISSUE_LINK_TYPE, USER, BOARD, BOARD_CONFIGURATION, SPRINT,
 }
 
@@ -163,6 +163,8 @@ class JiraRawStore(database: R2dbcDatabase) {
         writes.upsertIssue(connectionId, issue, now)
     suspend fun upsertEntity(connectionId: UInt, kind: String, entityId: String, payloadJson: String, now: Long): RawUpsertOutcome =
         writes.upsertEntity(connectionId, kind, entityId, payloadJson, now)
+    suspend fun touchEntity(connectionId: UInt, kind: String, entityId: String, now: Long): Int =
+        writes.touchEntity(connectionId, kind, entityId, now)
     suspend fun insertChangelog(
         connectionId: UInt,
         historyId: Long,

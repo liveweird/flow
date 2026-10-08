@@ -1,5 +1,6 @@
 package ch.nokillswit
 
+import ch.nokillswit.ingest.CustomFieldProfile
 import ch.nokillswit.ingest.DataProfileSections
 import ch.nokillswit.ingest.DataSourceRequest
 import ch.nokillswit.ingest.DataSourceService
@@ -811,6 +812,51 @@ class MetricsConfigRoutesTest {
             assertEquals(expectedWorkflow.intersect(reported), statuses.filter { it.inWorkflow }.map { it.statusId }.toSet())
             assertEquals(expectedSeen.intersect(reported), statuses.filter { it.seenInHistory }.map { it.statusId }.toSet())
             assertTrue(expectedWorkflow.all { it in reported }, "every workflow status is a known norm.statuses row")
+        }
+    }
+
+    @Test
+    fun `options flag each custom field inScheme from the stored profile, null when the scheme is unknown, with its fill count`() =
+        testApplication {
+            usePostgresTestcontainer()
+            val admin = seededClient("metricsoptionsscheme", UserRole.ADMIN)
+            val ds = dataSources()
+            val connId = runBlocking { createConnection(ds) }
+            val fields = listOf(
+                CustomFieldProfile("customfield_1", "In scheme", "number", 12, 40.0, "STORY_POINTS"),
+                CustomFieldProfile("customfield_2", "Not in scheme", "string", 0, 0.0, "OTHER"),
+            )
+            val withScheme = DataProfileSections(customFields = fields, schemeFieldIds = listOf("customfield_1"))
+            runBlocking { ds.updateProfile(connId, Json.encodeToString(withScheme)) }
+
+            val known = admin.get("/api/v1/data-sources/$connId/metrics-config/options").body<DataSourceMetricsConfigOptions>().fields
+            assertEquals(listOf("customfield_1" to true, "customfield_2" to false), known.map { it.fieldId to it.inScheme })
+            assertEquals(listOf(12L, 0L), known.map { it.nonNullCount })
+
+            runBlocking { ds.updateProfile(connId, Json.encodeToString(DataProfileSections(customFields = fields))) }
+            val unknown = admin.get("/api/v1/data-sources/$connId/metrics-config/options").body<DataSourceMetricsConfigOptions>().fields
+            assertEquals(listOf(null, null), unknown.map { it.inScheme }, "no scheme information is unknown, never false")
+            assertEquals(listOf(12L, 0L), unknown.map { it.nonNullCount })
+        }
+
+    @Test
+    fun `options on the synced stub - a field is inScheme exactly when a PROJECT_FIELDS entity lists it`() {
+        val connId = runBlocking { SyncedStubFixture.connectionId() }
+        val inSchemes = runBlocking {
+            SyncedStubFixture.rawStore().entityPayloadsByKind(connId, "PROJECT_FIELDS")
+                .flatMap { payload -> Json.parseToJsonElement(payload).jsonObject.getValue("fieldIds").jsonArray }
+                .map { it.jsonPrimitive.content }.toSet()
+        }
+        assertTrue(inSchemes.isNotEmpty(), "the stub serves the field schemes")
+
+        testApplication {
+            configureApp("app.role" to "web")
+            startApplication()
+            val admin = seededClient("metricsoptionsscheme-stub", UserRole.ADMIN)
+            val fields = admin.get("/api/v1/data-sources/$connId/metrics-config/options").body<DataSourceMetricsConfigOptions>().fields
+            assertTrue(fields.isNotEmpty())
+            fields.forEach { assertEquals(it.fieldId in inSchemes, it.inScheme, it.fieldId) }
+            assertTrue(fields.any { it.detectedRole == "STORY_POINTS" && it.nonNullCount > 0 }, "the fill count comes from the profile")
         }
     }
 

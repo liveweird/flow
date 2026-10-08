@@ -38,7 +38,12 @@ private val PROFILE_JSON = Json { ignoreUnknownKeys = true }
  */
 object JiraProfile {
 
-    suspend fun compute(connectionId: UInt, rawStore: JiraRawStore, workItems: WorkItemStore): DataProfileSections {
+    suspend fun compute(
+        connectionId: UInt,
+        rawStore: JiraRawStore,
+        workItems: WorkItemStore,
+        projectKeys: List<String>,
+    ): DataProfileSections {
         val items = workItems.profileWorkItems(connectionId)
         val liveIssueIds = items.map { it.issueId }.toSet()
         val intervalsByIssue = workItems.statusIntervalsByIssue(connectionId).filterKeys { it in liveIssueIds }
@@ -51,6 +56,7 @@ object JiraProfile {
         val referenceStatusesByProject = rawStore.entityRowsByKind(connectionId, JiraEntityKind.PROJECT_STATUSES.name)
             .associate { (projectKey, payload) -> projectKey to parseProjectStatuses(payload) }
         val workflowStatusIds = referenceStatusesByProject.values.flatMap { it.values }.flatten().map { it.id }.distinct().sorted()
+        val schemeFieldIds = computeSchemeFieldIds(rawStore.entityRowsByKind(connectionId, JiraEntityKind.PROJECT_FIELDS.name), projectKeys)
         val fieldPayloads = rawStore.entityPayloadsByKind(connectionId, JiraEntityKind.FIELD.name)
         val issueFieldsPayloads = rawStore.issuePayloads(connectionId)
 
@@ -67,7 +73,18 @@ object JiraProfile {
             people = computePeople(items),
             anomalyCounts = items.flatMap { it.anomalies }.groupingBy { it.name }.eachCount().mapValues { it.value.toLong() },
             workflowStatusIds = workflowStatusIds,
+            schemeFieldIds = schemeFieldIds,
         )
+    }
+
+    /**
+     * The sorted distinct union of field ids over the live `PROJECT_FIELDS` entities of the CURRENT [projectKeys], or `null` —
+     * "unknown" — unless EVERY current key has one (a partial union would hide a project's fields behind the default filter).
+     */
+    private fun computeSchemeFieldIds(rows: List<Pair<String, String>>, projectKeys: List<String>): List<String>? {
+        val current = rows.filter { (projectKey, _) -> projectKey in projectKeys }
+        if (projectKeys.isEmpty() || !current.map { it.first }.containsAll(projectKeys)) return null
+        return current.flatMap { (_, payload) -> JiraProjectFields.fieldIds(payload) }.distinct().sorted()
     }
 
     private fun pct(count: Long, total: Long): Double = if (total <= 0) 0.0 else count.toDouble() * 100.0 / total

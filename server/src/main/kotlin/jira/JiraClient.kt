@@ -42,6 +42,16 @@ interface JiraClient {
     suspend fun statusCategories(): JsonArray
     suspend fun projectsSearch(startAt: Int = 0): JiraStartAtPage
     suspend fun projectStatuses(projectKey: String): JsonArray
+    /**
+     * `GET /projects/fields` (EXPERIMENTAL): one row per (field, work type) of [projectId]'s field scheme for the given
+     * issue-type ids — `{fieldId, projectId, workTypeId, isRequired}`. `projectId` and `workTypeId` are required repeated params.
+     */
+    suspend fun projectFields(
+        projectId: Long,
+        workTypeIds: List<Long>,
+        startAt: Int = 0,
+        maxResults: Int = PROJECT_FIELDS_PAGE_SIZE,
+    ): JiraStartAtPage
     suspend fun issueTypes(): JsonArray
     suspend fun resolutions(startAt: Int = 0): JiraStartAtPage
     suspend fun issueLinkTypes(): JsonObject
@@ -50,6 +60,9 @@ interface JiraClient {
     suspend fun boardConfiguration(boardId: Long): JsonObject
     suspend fun boardSprints(boardId: Long, startAt: Int = 0): JiraStartAtPage
 }
+
+/** `maxResults` asked of `GET /projects/fields`; Jira may cap it lower, so callers honour `isLast`/`total` and the page they get. */
+const val PROJECT_FIELDS_PAGE_SIZE = 100
 
 /** [MED-2] A genuine Atlassian `cloudId` — a UUID, matched case-insensitively then stored lowercase. */
 private val CLOUD_ID_PATTERN = Regex("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", RegexOption.IGNORE_CASE)
@@ -196,6 +209,13 @@ class HttpJiraClient(
     override suspend fun projectStatuses(projectKey: String): JsonArray {
         val endpoint = "/rest/api/3/project/$projectKey/statuses"
         return decode(get(endpoint), endpoint)
+    }
+
+    override suspend fun projectFields(projectId: Long, workTypeIds: List<Long>, startAt: Int, maxResults: Int): JiraStartAtPage {
+        val endpoint = "/rest/api/3/projects/fields"
+        val repeated = listOf("projectId" to projectId.toString()) + workTypeIds.map { "workTypeId" to it.toString() }
+        val query = mapOf("startAt" to startAt.toString(), "maxResults" to maxResults.toString())
+        return decode(http.request(HttpMethod.Get, "${requireGateway()}$endpoint", query, null, auth, repeatedQuery = repeated), endpoint)
     }
 
     override suspend fun issueTypes(): JsonArray {

@@ -2252,6 +2252,8 @@ export interface components {
             };
             /** @description Sorted, distinct status ids across every in-scope project's reference workflow (`PROJECT_STATUSES`); empty on a profile stored before this field existed. */
             workflowStatusIds?: string[];
+            /** @description Sorted, distinct field ids in the in-scope projects' field schemes (`PROJECT_FIELDS`, Jira's experimental `GET /projects/fields`, scope `read:field-configuration:jira`); null = unknown (no project has the entity — the optional step was skipped or never ran, or the profile predates it). */
+            schemeFieldIds?: string[] | null;
         };
         MetricsStatusStage: {
             statusId: string;
@@ -2349,6 +2351,13 @@ export interface components {
             type: string;
             /** @description SPRINT/RANK/TEAM/STORY_POINTS/FLAGGED/OTHER — `jira/JiraProfile.kt`'s detection. */
             detectedRole: string;
+            /** @description The field id is in the stored data profile's `schemeFieldIds` (an in-scope project's field scheme lists it); null when that set is unknown. */
+            inScheme: boolean | null;
+            /**
+             * Format: int64
+             * @description How many live issues carry a value for the field (the profile's fill count) — the editor's fallback relevance signal when inScheme is unknown.
+             */
+            nonNullCount: number;
         };
         MetricsBoardOption: {
             /** Format: int64 */

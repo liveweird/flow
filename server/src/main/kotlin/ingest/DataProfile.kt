@@ -95,7 +95,9 @@ data class PeopleProfile(val activeAssignees: Long = 0, val unassignedPercent: D
  * section below; the PROFILE stream (`jira/JiraProfileStream.kt`) stores the result verbatim in
  * `source_connections.profile`/`profile_at`. [workflowStatusIds] is the sorted union of status ids
  * across every in-scope project's reference workflow (`PROJECT_STATUSES`) — the metrics-config
- * Statuses tab's "relevant statuses" filter; empty on a profile stored before the field existed.
+ * Statuses tab's "relevant statuses" filter; empty on a profile stored before the field existed. [schemeFieldIds] is the
+ * sorted union of field ids in the in-scope projects' field schemes (`PROJECT_FIELDS`, the optional experimental
+ * `projects/fields` step) — the Fields tab's "fields of the project" filter; `null` = unknown (no project has the entity).
  */
 @Serializable
 data class DataProfile(
@@ -112,6 +114,7 @@ data class DataProfile(
     val people: PeopleProfile = PeopleProfile(),
     val anomalyCounts: Map<String, Long> = emptyMap(),
     val workflowStatusIds: List<String> = emptyList(),
+    val schemeFieldIds: List<String>? = null,
 )
 
 /**
@@ -132,6 +135,7 @@ data class DataProfileSections(
     val people: PeopleProfile = PeopleProfile(),
     val anomalyCounts: Map<String, Long> = emptyMap(),
     val workflowStatusIds: List<String> = emptyList(),
+    val schemeFieldIds: List<String>? = null,
 )
 
 /** Wraps [this] with [computedAt] into the wire response — `ingest/DataProfileRoutes.kt`'s one call site. */
@@ -149,4 +153,5 @@ fun DataProfileSections.withComputedAt(computedAt: Long?): DataProfile = DataPro
     people = people,
     anomalyCounts = anomalyCounts,
     workflowStatusIds = workflowStatusIds,
+    schemeFieldIds = schemeFieldIds,
 )

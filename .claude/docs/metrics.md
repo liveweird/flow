@@ -160,7 +160,12 @@ reports hundreds of statuses (271 on the first real tenant) of which a project w
 Statuses tab lists only `inWorkflow || seenInHistory` ones by default — the server still returns and the PUT still
 replaces EVERY status), the profile-detected custom fields (with their `detectedRole` —
 `SPRINT`/`RANK`/`TEAM`/`STORY_POINTS`/`FLAGGED`/`OTHER`, `jira/JiraProfile.kt`'s own detection,
-reused rather than reimplemented), distinct project keys, boards, distinct issue types, and sprints
+reused rather than reimplemented — and two relevance flags: `inScheme`, whether the id is in the stored profile's
+`schemeFieldIds` (the union of the in-scope projects' field schemes, Jira's optional experimental `projects/fields`,
+`.claude/docs/jira-integration.md` "Project field schemes"), `null` — unknown — when the profile has no scheme
+(the step was skipped or never ran, or there is no profile); and `nonNullCount`, the profile's count of live issues
+carrying a value. A real site has over a thousand custom fields (1,344 on the first real tenant); the Fields tab lists
+the `inScheme == true` ones by default, falling back to `nonNullCount > 0` when `inScheme` is unknown), distinct project keys, boards, distinct issue types, and sprints
 (all boards' sprints together — a future UI groups them per board client-side). `workCategoryValues`
 is populated ONLY when the caller supplies `?workCategoryField=<fieldId>`, from that field's own
 distinct observed values across the connection's LIVE work items
