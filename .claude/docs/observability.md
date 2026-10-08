@@ -115,7 +115,9 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
   (`ingest/SyncJobRoutes.kt`); `.started` (jobId/dataSourceId/kind/attempt/workerId — a job the
   worker just claimed) / `.succeeded` (jobId/dataSourceId/kind) / `.failed`
   (jobId/dataSourceId/kind/errorCode — always `RUN_FAILED` today; the exception message itself
-  goes to `error_detail` on the row, not the audit line) / `.released`
+  goes to `error_detail` on the row as `<ExceptionClass>: <message>`, not the audit line; the worker also logs a
+  WARN `Sync job {id} ({kind}) for data source {id} failed` with the stack trace, each cause reduced to its class name
+  by `LoggedFailure`, because a transport cause's message can embed a request URL with its query string) / `.released`
   (jobId/dataSourceId/workerId — a still-RUNNING job put back to `PENDING` on
   `ApplicationStopping`) — the worker-role surface (`ingest/IngestWorker.kt`). A run that lost
   its lease mid-way, or was cancelled via `cancel_requested_at`, logs a WARN/INFO instead of a

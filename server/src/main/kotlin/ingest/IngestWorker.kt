@@ -322,10 +322,12 @@ class IngestWorker internal constructor(
 
     private suspend fun onFailed(claim: SyncJobClaim, cause: Exception) {
         val errorCode = "RUN_FAILED"
-        if (!syncJobs.fail(claim.id, claim.attempt, errorCode, cause.message?.take(MAX_ERROR_DETAIL_LENGTH), clock())) {
+        val detail = "${cause.javaClass.simpleName}: ${cause.message}".take(MAX_ERROR_DETAIL_LENGTH)
+        if (!syncJobs.fail(claim.id, claim.attempt, errorCode, detail, clock())) {
             logStale(claim, "fail")
             return
         }
+        log.warn("Sync job {} ({}) for data source {} failed", claim.id, claim.kind, claim.connectionId, LoggedFailure(cause))
         if (claim.kind == SyncJobKind.SYNC) {
             dataSources.recordSyncOutcome(claim.connectionId, succeeded = false, errorCode = errorCode, now = clock())
         }
@@ -341,5 +343,22 @@ class IngestWorker internal constructor(
     private companion object {
         val log = LoggerFactory.getLogger(IngestWorker::class.java)
         const val MAX_ERROR_DETAIL_LENGTH = 1000
+    }
+}
+
+/**
+ * A failed job's exception as logged: its own class and message (the text `sync_jobs.error_detail` already shows) and
+ * every stack frame, but each CAUSE reduced to its class name. A transport cause's message can embed the full request
+ * URL with its query string (Ktor's connect-timeout `IOException`, wrapped by `JiraFetchException`), which is never
+ * logged (`.claude/docs/jira-integration.md`).
+ */
+internal class LoggedFailure(failure: Throwable, keepMessage: Boolean = true) : RuntimeException(
+    if (keepMessage) "${failure.javaClass.name}: ${failure.message}" else failure.javaClass.name,
+    failure.cause?.let { LoggedFailure(it, keepMessage = false) },
+    false,
+    true,
+) {
+    init {
+        stackTrace = failure.stackTrace
     }
 }
