@@ -53,6 +53,15 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   - Likely fix: tasks are level 0 (plus sub-tasks rolling up), and level ≥ 2 is excluded, unless initiatives or
     programs should be reported somewhere. That's a domain-model decision (a new D-entry or amendment).
   - The stub has no issue above level 1. Add one with the fix.
+- [new] **Sprint capacities from Jira Plans.** Probed 2026-10-08: the Plans REST API (`/rest/api/3/plans/plan`, then
+  `…/team/atlassian/{id}` for `capacity`, `planningStyle`, `sprintLength` and `issueSourceId`) returns 403 to the sync
+  service account: "You do not have the Administer Jira global permission". Every Plans endpoint needs it, reads included.
+  - No-go while that holds: a read-only sync token is not escalated to Jira admin for one figure per team.
+  - Still unknown: whether the site has Premium, whether COOK's plan team has a capacity set, and in which unit.
+  - Even with access: the capacity is in the plan's estimation unit (story points can't be converted to MD; hours need
+    A5), it is one figure per team rather than per sprint, and the API is experimental.
+  - If Atlassian drops the admin requirement: an optional REFERENCE step (like `PROJECT_FIELDS`), plan team →
+    `issueSourceId` board → `board_team_map`, and a `PLAN` capacity source ranked CONFIGURED > PLAN > DEFAULT.
 - [parked] **A28 — a composite estimate for estimated backlog.** Parked 2026-10-01: the teams do not estimate via
   sub-tasks.
   - Estimated backlog uses the OWN estimate only, so a parent estimated through its sub-tasks
