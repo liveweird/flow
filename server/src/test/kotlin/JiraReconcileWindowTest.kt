@@ -60,6 +60,8 @@ internal abstract class UnsupportedJiraClient : JiraClient {
     override suspend fun statusCategories(): JsonArray = unsupported()
     override suspend fun projectsSearch(startAt: Int): JiraStartAtPage = unsupported()
     override suspend fun projectStatuses(projectKey: String): JsonArray = unsupported()
+    override suspend fun projectFields(projectId: Long, workTypeIds: List<Long>, startAt: Int, maxResults: Int): JiraStartAtPage =
+        unsupported()
     override suspend fun issueTypes(): JsonArray = unsupported()
     override suspend fun resolutions(startAt: Int): JiraStartAtPage = unsupported()
     override suspend fun issueLinkTypes(): JsonObject = unsupported()

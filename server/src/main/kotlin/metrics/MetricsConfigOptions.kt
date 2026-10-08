@@ -33,6 +33,7 @@ class MetricsConfigOptions(
     suspend fun options(connectionId: UInt, workCategoryField: String?): DataSourceMetricsConfigOptions = suspendTransaction(database) {
         val profile = dataSources.readProfileSections(connectionId)
         val workflowStatusIds = profile?.workflowStatusIds.orEmpty().toSet()
+        val schemeFieldIds = profile?.schemeFieldIds?.toSet()
         val seenStatusIds = workItemStore.distinctIntervalStatusIds(connectionId)
         val workCategoryValues = workCategoryField?.let { field -> workItemStore.distinctCustomFieldValues(connectionId, field) }.orEmpty()
         DataSourceMetricsConfigOptions(
@@ -46,7 +47,10 @@ class MetricsConfigOptions(
                         seenInHistory = it.statusId in seenStatusIds,
                     )
                 },
-            fields = profile?.customFields.orEmpty().map { MetricsFieldOption(it.id, it.name, it.type, it.role) },
+            fields = profile?.customFields.orEmpty().map {
+                val inScheme = schemeFieldIds?.let { ids -> it.id in ids }
+                MetricsFieldOption(it.id, it.name, it.type, it.role, inScheme, it.nonNullCount)
+            },
             projects = workItemStore.distinctProjectKeys(connectionId).sorted(),
             boards = workItemStore.allBoardRefs(connectionId).sortedBy { it.boardId }
                 .map { MetricsBoardOption(it.boardId, it.name, it.projectKey) },

@@ -1,0 +1,308 @@
+{
+  "maxResults": 50,
+  "startAt": 50,
+  "total": 121,
+  "isLast": false,
+  "values": [
+    {
+      "fieldId": "customfield_10001",
+      "projectId": 10000,
+      "workTypeId": 10003,
+      "isRequired": false
+    },
+    {
+      "fieldId": "customfield_10016",
+      "projectId": 10000,
+      "workTypeId": 10003,
+      "isRequired": false
+    },
+    {
+      "fieldId": "customfield_10019",
+      "projectId": 10000,
+      "workTypeId": 10003,
+      "isRequired": false
+    },
+    {
+      "fieldId": "customfield_10020",
+      "projectId": 10000,
+      "workTypeId": 10003,
+      "isRequired": false
+    },
+    {
+      "fieldId": "customfield_10021",
+      "projectId": 10000,
+      "workTypeId": 10003,
+      "isRequired": false
+    },
+    {
+      "fieldId": "customfield_10030",
+      "projectId": 10000,
+      "workTypeId": 10003,
+      "isRequired": false
+    },
+    {
+      "fieldId": "description",
+      "projectId": 10000,
+      "workTypeId": 10003,
+      "isRequired": false
+    },
+    {
+      "fieldId": "duedate",
+      "projectId": 10000,
+      "workTypeId": 10003,
+      "isRequired": false
+    },
+    {
+      "fieldId": "environment",
+      "projectId": 10000,
+      "workTypeId": 10003,
+      "isRequired": false
+    },
+    {
+      "fieldId": "fixVersions",
+      "projectId": 10000,
+      "workTypeId": 10003,
+      "isRequired": false
+    },
+    {
+      "fieldId": "issuelinks",
+      "projectId": 10000,
+      "workTypeId": 10003,
+      "isRequired": false
+    },
+    {
+      "fieldId": "issuetype",
+      "projectId": 10000,
+      "workTypeId": 10003,
+      "isRequired": true
+    },
+    {
+      "fieldId": "labels",
+      "projectId": 10000,
+      "workTypeId": 10003,
+      "isRequired": false
+    },
+    {
+      "fieldId": "parent",
+      "projectId": 10000,
+      "workTypeId": 10003,
+      "isRequired": false
+    },
+    {
+      "fieldId": "priority",
+      "projectId": 10000,
+      "workTypeId": 10003,
+      "isRequired": false
+    },
+    {
+      "fieldId": "project",
+      "projectId": 10000,
+      "workTypeId": 10003,
+      "isRequired": false
+    },
+    {
+      "fieldId": "reporter",
+      "projectId": 10000,
+      "workTypeId": 10003,
+      "isRequired": false
+    },
+    {
+      "fieldId": "resolution",
+      "projectId": 10000,
+      "workTypeId": 10003,
+      "isRequired": false
+    },
+    {
+      "fieldId": "status",
+      "projectId": 10000,
+      "workTypeId": 10003,
+      "isRequired": false
+    },
+    {
+      "fieldId": "summary",
+      "projectId": 10000,
+      "workTypeId": 10003,
+      "isRequired": true
+    },
+    {
+      "fieldId": "timetracking",
+      "projectId": 10000,
+      "workTypeId": 10003,
+      "isRequired": false
+    },
+    {
+      "fieldId": "versions",
+      "projectId": 10000,
+      "workTypeId": 10003,
+      "isRequired": false
+    },
+    {
+      "fieldId": "assignee",
+      "projectId": 10000,
+      "workTypeId": 10004,
+      "isRequired": false
+    },
+    {
+      "fieldId": "components",
+      "projectId": 10000,
+      "workTypeId": 10004,
+      "isRequired": false
+    },
+    {
+      "fieldId": "customfield_10001",
+      "projectId": 10000,
+      "workTypeId": 10004,
+      "isRequired": false
+    },
+    {
+      "fieldId": "customfield_10016",
+      "projectId": 10000,
+      "workTypeId": 10004,
+      "isRequired": false
+    },
+    {
+      "fieldId": "customfield_10019",
+      "projectId": 10000,
+      "workTypeId": 10004,
+      "isRequired": false
+    },
+    {
+      "fieldId": "customfield_10020",
+      "projectId": 10000,
+      "workTypeId": 10004,
+      "isRequired": false
+    },
+    {
+      "fieldId": "customfield_10021",
+      "projectId": 10000,
+      "workTypeId": 10004,
+      "isRequired": false
+    },
+    {
+      "fieldId": "customfield_10030",
+      "projectId": 10000,
+      "workTypeId": 10004,
+      "isRequired": false
+    },
+    {
+      "fieldId": "description",
+      "projectId": 10000,
+      "workTypeId": 10004,
+      "isRequired": false
+    },
+    {
+      "fieldId": "duedate",
+      "projectId": 10000,
+      "workTypeId": 10004,
+      "isRequired": false
+    },
+    {
+      "fieldId": "environment",
+      "projectId": 10000,
+      "workTypeId": 10004,
+      "isRequired": false
+    },
+    {
+      "fieldId": "fixVersions",
+      "projectId": 10000,
+      "workTypeId": 10004,
+      "isRequired": false
+    },
+    {
+      "fieldId": "issuelinks",
+      "projectId": 10000,
+      "workTypeId": 10004,
+      "isRequired": false
+    },
+    {
+      "fieldId": "issuetype",
+      "projectId": 10000,
+      "workTypeId": 10004,
+      "isRequired": true
+    },
+    {
+      "fieldId": "labels",
+      "projectId": 10000,
+      "workTypeId": 10004,
+      "isRequired": false
+    },
+    {
+      "fieldId": "parent",
+      "projectId": 10000,
+      "workTypeId": 10004,
+      "isRequired": false
+    },
+    {
+      "fieldId": "priority",
+      "projectId": 10000,
+      "workTypeId": 10004,
+      "isRequired": false
+    },
+    {
+      "fieldId": "project",
+      "projectId": 10000,
+      "workTypeId": 10004,
+      "isRequired": false
+    },
+    {
+      "fieldId": "reporter",
+      "projectId": 10000,
+      "workTypeId": 10004,
+      "isRequired": false
+    },
+    {
+      "fieldId": "resolution",
+      "projectId": 10000,
+      "workTypeId": 10004,
+      "isRequired": false
+    },
+    {
+      "fieldId": "status",
+      "projectId": 10000,
+      "workTypeId": 10004,
+      "isRequired": false
+    },
+    {
+      "fieldId": "summary",
+      "projectId": 10000,
+      "workTypeId": 10004,
+      "isRequired": true
+    },
+    {
+      "fieldId": "timetracking",
+      "projectId": 10000,
+      "workTypeId": 10004,
+      "isRequired": false
+    },
+    {
+      "fieldId": "versions",
+      "projectId": 10000,
+      "workTypeId": 10004,
+      "isRequired": false
+    },
+    {
+      "fieldId": "assignee",
+      "projectId": 10000,
+      "workTypeId": 10000,
+      "isRequired": false
+    },
+    {
+      "fieldId": "components",
+      "projectId": 10000,
+      "workTypeId": 10000,
+      "isRequired": false
+    },
+    {
+      "fieldId": "customfield_10001",
+      "projectId": 10000,
+      "workTypeId": 10000,
+      "isRequired": false
+    },
+    {
+      "fieldId": "customfield_10015",
+      "projectId": 10000,
+      "workTypeId": 10000,
+      "isRequired": false
+    }
+  ]
+}

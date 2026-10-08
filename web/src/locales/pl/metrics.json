@@ -154,7 +154,10 @@
       "epicDue": "Pole terminu epika",
       "workCategory": "Pole kategorii pracy",
       "none": "Brak",
-      "dueDateOption": "Termin (pole systemowe)"
+      "dueDateOption": "Termin (pole systemowe)",
+      "showAll": "Pokaż wszystkie pola ({{count}})",
+      "showAllHint": "Domyślnie widać tylko pola ze schematu pól Twoich projektów oraz każde wybrane pole.",
+      "schemeUnknownHint": "Schemat pól nie jest dostępny w Jira (może brakować opcjonalnego zakresu Field configuration), więc widać tylko pola, które mają dane w zsynchronizowanych zadaniach."
     },
     "domains": {
       "columnProject": "Klucz projektu",

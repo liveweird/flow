@@ -100,9 +100,12 @@ class JiraHttp(
         jsonBody: JsonElement? = null,
         authHeader: String? = null,
         statusCodeOverrides: Map<Int, String> = emptyMap(),
+        // Keys that repeat (`workTypeId=1&workTypeId=2`) — a Map cannot carry them. Still values only, appended through
+        // Ktor's parameter builder (encoded), never concatenated into [url], so the no-query-in-errors rule is unchanged.
+        repeatedQuery: List<Pair<String, String>> = emptyList(),
     ): JsonElement = semaphore.withPermit {
         requestWithRetries(
-            method, url, query, jsonBody, authHeader,
+            method, url, query.toList() + repeatedQuery, jsonBody, authHeader,
             attempt = 0, deadline = clock() + requestDeadlineMillis, statusCodeOverrides = statusCodeOverrides,
         )
     }
@@ -110,7 +113,7 @@ class JiraHttp(
     private suspend fun requestWithRetries(
         method: HttpMethod,
         url: String,
-        query: Map<String, String>,
+        query: List<Pair<String, String>>,
         jsonBody: JsonElement?,
         authHeader: String?,
         attempt: Int,
@@ -163,7 +166,7 @@ class JiraHttp(
         response: HttpResponse,
         method: HttpMethod,
         url: String,
-        query: Map<String, String>,
+        query: List<Pair<String, String>>,
         jsonBody: JsonElement?,
         authHeader: String?,
         attempt: Int,
@@ -197,7 +200,7 @@ class JiraHttp(
         retryAfterSeconds: Long?,
         method: HttpMethod,
         url: String,
-        query: Map<String, String>,
+        query: List<Pair<String, String>>,
         jsonBody: JsonElement?,
         authHeader: String?,
         deadline: Long,

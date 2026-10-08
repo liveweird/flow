@@ -179,14 +179,19 @@ sources** page (Administration nav). Before clicking New, have ready:
 
 - An **Atlassian service account** — a dedicated account for Flow's own reads, not a real person's.
 - A **scoped, read-only API token** for that account. Create the token with these scopes (a SYNC needs
-  all of them, not only the Test connection probes):
+  all of them but the optional one below, not only the Test connection probes):
   - `read:jira-user`, `read:jql:jira`, `read:field:jira`, `read:status:jira`, `read:workflow:jira`,
     `read:project:jira`;
   - `read:issue-details:jira`, `read:issue:jira`, `read:issue-status:jira`, `read:issue-type:jira`;
   - `read:issue.changelog:jira`, `read:issue-worklog:jira`, `read:resolution:jira`,
     `read:issue-link-type:jira`;
   - `read:board-scope:jira-software`, `read:board-scope.admin:jira-software`,
-    `read:sprint:jira-software`.
+    `read:sprint:jira-software`;
+  - **recommended, optional:** `read:field-configuration:jira` — lets the REFERENCE stream read each project's field
+    scheme (Jira's experimental `GET /rest/api/3/projects/fields`), so the metrics-config **Fields** tab lists only the
+    fields your projects use instead of every custom field on the site (1,300+ on a large tenant). Without it (or if
+    Atlassian withdraws the endpoint) the sync is unaffected and the tab falls back to fields that have data in the
+    synced issues; Test connection shows the optional `project_fields` row.
 
   The board and sprint scopes are not optional: a SYNC reads boards, board configurations and
   sprints for every connection, and a 401/403 there fails the job. On a scoped token a missing scope

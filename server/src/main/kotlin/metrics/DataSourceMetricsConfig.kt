@@ -344,9 +344,21 @@ data class MetricsStatusOption(
     val seenInHistory: Boolean,
 )
 
-/** One custom field, for the options endpoint — the SAME shape `jira/JiraProfile.kt` already detects a role for. */
+/**
+ * One custom field, for the options endpoint — the SAME shape `jira/JiraProfile.kt` already detects a role for.
+ * [inScheme]: the id is in the stored profile's `schemeFieldIds` (the in-scope projects' field schemes), `null` when that
+ * set is unknown (no profile, or the optional `projects/fields` step never succeeded); [nonNullCount]: how many live issues
+ * carry a value (the profile's fill count) — the editor's fallback relevance signal when [inScheme] is unknown.
+ */
 @Serializable
-data class MetricsFieldOption(val fieldId: String, val name: String, val type: String, val detectedRole: String)
+data class MetricsFieldOption(
+    val fieldId: String,
+    val name: String,
+    val type: String,
+    val detectedRole: String,
+    val inScheme: Boolean?,
+    val nonNullCount: Long,
+)
 
 @Serializable
 data class MetricsBoardOption(val boardId: Long, val name: String, val projectKey: String?)

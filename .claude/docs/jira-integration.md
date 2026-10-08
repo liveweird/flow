@@ -49,9 +49,10 @@ Covenant's `ToadieGraphqlClient` shape) — `LIMIT_EXCEEDED` past the cap.
 `apiToken` — and `POST /api/v1/data-sources/{id}/test` — the stored, decrypted token; the latter
 persists `cloudId` on success) probes each endpoint below in sequence, at most 10s each and 30s
 total, NEVER throwing — every outcome is a `ConnectionTestRow {name, path, required, ok, status,
-code, scopeHint}`. Only `bulkfetch` is `required = false`: CHANGELOGS really does fall back from it to
-the per-issue endpoint on 404/405/410/501, and a real tenant's GA/scope status for it differs, so a
-failure there doesn't fail the *Test connection*. The three board probes are required, because a SYNC's
+code, scopeHint}`. Only `bulkfetch` and `project_fields` are `required = false`: CHANGELOGS really does fall back
+from `bulkfetch` to the per-issue endpoint on 404/405/410/501, and a real tenant's GA/scope status for it differs;
+`project_fields` is an experimental endpoint whose absence only costs the metrics-config editor its default field
+filter (see "Project field schemes" below). A failure of either doesn't fail the *Test connection*. The three board probes are required, because a SYNC's
 REFERENCE stream fetches boards, board configurations and sprints for every connection, and a 401/403
 there fails the SYNC job. Recorded decision (2026-10-08): the sync stays strict and the board probes
 are required. `scopeHint` is one plain string; several scopes are comma+space separated.
@@ -69,6 +70,7 @@ not bad credentials.
 | `statuses` | `GET /rest/api/3/statuses/search` | yes | `read:workflow:jira` |
 | `projects` | `GET /rest/api/3/project/search` | yes | `read:project:jira` |
 | `project_statuses:<KEY>` (one per configured project key) | `GET /rest/api/3/project/{key}/statuses` | yes | `read:status:jira, read:issue-status:jira, read:issue-type:jira` |
+| `project_fields` | `GET /rest/api/3/projects/fields` (one row asked for; seeded with the first configured key's project id and first issue-type id) | **no** | `read:field-configuration:jira` |
 | `bulkfetch` | `POST /rest/api/3/changelog/bulkfetch` (single-id probe, not a real 50-id chunk) | **no** | `read:issue.changelog:jira` |
 | `issue_changelog` | `GET /rest/api/3/issue/{id}/changelog` | yes | `read:issue-details:jira, read:issue.changelog:jira` |
 | `issue_worklog` (A1) | `GET /rest/api/3/issue/{id}/worklog` | yes | `read:issue:jira, read:issue-worklog:jira` |
@@ -81,7 +83,9 @@ not bad credentials.
 The rule behind the hints: keep the scope that real-tenant evidence shows works, and add the
 endpoint-specific granular scope from Atlassian's spec (pinned by `JiraConnectorTest`).
 
-The `issue_*`/`bulkfetch` probes reuse the first in-scope issue id the `search` probe returns; the
+The `project_fields` probe takes the first configured key's project id from the `projects` probe's first page and its
+first issue-type id from that key's `project_statuses` probe; it is skipped when either is unavailable (the key is
+not on `project/search`'s first page, or the key's own probe failed). The `issue_*`/`bulkfetch` probes reuse the first in-scope issue id the `search` probe returns; the
 `board_*` probes follow the REFERENCE stream's own board rules (`isInScopeBoard`/`isScrumBoard` in
 `JiraReferenceStream.kt`): `board_configuration` uses the first board of `boards`' first page whose
 `location.projectKey` is in the connection's project keys, `board_sprints` the first such SCRUM board (a Kanban
@@ -129,6 +133,7 @@ every granular scope without a suffix ends in `:jira`):
 | `GET /rest/api/3/statuscategory` (REFERENCE) | read:status | read:jira-work |
 | `GET /rest/api/3/project/search` (probe, REFERENCE) | read:issue-type, read:project, read:project.property, read:user, read:application-role, read:avatar, read:group, read:issue-type-hierarchy, read:project-category, read:project-version, read:project.component | read:jira-work |
 | `GET /rest/api/3/project/{key}/statuses` (probe, REFERENCE) | read:issue-status, read:issue-type, read:status | read:jira-work |
+| `GET /rest/api/3/projects/fields` (probe, REFERENCE `PROJECT_FIELDS`, optional, experimental) | read:field, read:field-configuration (as documented; verified working on the real tenant 2026-10-08 with Flow's token, no new scope needed there) | not documented |
 | `GET /rest/api/3/issuetype` (REFERENCE) | read:issue-type, read:avatar, read:project-category, read:project | read:jira-work |
 | `GET /rest/api/3/resolution/search` (REFERENCE) | read:resolution | read:jira-work |
 | `GET /rest/api/3/issueLinkType` (REFERENCE) | read:issue-link-type | read:jira-work |
@@ -141,6 +146,37 @@ Caveat: the spec's granular lists are evidently not all enforced (a token missin
 passed most probes), so the real failures are the ground truth and the spec is the best guide we
 have. Open question: the observed `boards` 401 is unexplained, because it is unknown whether that
 token carried `read:board-scope:jira-software`.
+
+### Project field schemes: `GET /rest/api/3/projects/fields` (optional, experimental)
+
+The metrics-config Fields tab used to list every custom field on the site (1,344 on the first real tenant). The REFERENCE
+stream's optional `PROJECT_FIELDS` step (right after `PROJECT_STATUSES`) records which fields each configured project's
+field scheme carries, so the editor lists those by default.
+
+- **Endpoint.** `JiraClient.projectFields(projectId, workTypeIds, startAt, maxResults)`; `projectId` and `workTypeId`
+  (an issue-type id) are REQUIRED and the latter REPEATS (`?projectId=11562&workTypeId=11434&workTypeId=10000`), so
+  `JiraHttp.request` has a `repeatedQuery: List<Pair<String, String>>` beside its `Map` query (values are appended
+  through Ktor's parameter builder and kept across retries; nothing is concatenated into the URL, so errors and logs
+  still carry host+path only). Observed shape (real tenant, 2026-10-08): the common `startAt` envelope
+  (`JiraStartAtPage`: `self`, `nextPage`, `maxResults`, `startAt`, `total`, `isLast`, `values`), one row per
+  (field, work type), system fields included: `{"fieldId":"aggregateprogress","projectId":11562,"workTypeId":11434,"isRequired":false}`.
+  Flow asks for 100 per page, honours `isLast`/`total` and the page size it actually gets, and sends the work types in
+  groups of 25. EXPERIMENTAL: Atlassian may change or withdraw it. Scopes as documented: `read:field:jira` +
+  `read:field-configuration:jira`; the real tenant answered 200 with the token Flow already used.
+- **Stored entity.** One `PROJECT_FIELDS` entity per configured project key (`raw.jira_entities`, entity id = the key),
+  payload `{"projectKey":…,"projectId":…,"fieldIds":[sorted, distinct]}` — the (field, work type) rows collapsed to a
+  field-id set. Inputs are read off the entities stored earlier in the same pass: the project id from the `PROJECT`
+  entity of that key, the issue-type ids from that key's `PROJECT_STATUSES` payload (one array entry per issue type).
+- **Optional by design.** A project's step is SKIPPED, never failing the SYNC, when its inputs are missing, when the call
+  answers 401/403 (`AUTHENTICATION_FAILED`/`FORBIDDEN_SCOPE` — a missing scope is a 401 on a scoped token), 404 (endpoint
+  withdrawn) or `INVALID_RESPONSE` (any other 4xx, a body that is not the envelope, a row without `fieldId`), or when the
+  response lists no field at all. A skip logs ONE warn (project key, code, status; never a query) and `touch`es the
+  project's previous entity (`JiraRawStore.touchEntity`: only `last_seen_at`), so the end-of-pass tombstone sweep does NOT
+  tombstone it — the last known scheme survives a transient scope loss; a key no longer configured is swept as usual.
+  Other failures (5xx after retries, timeouts, `RATE_LIMITED`, `BLOCKED_HOST`) propagate like any reference step.
+- **Profile.** `DataProfile.schemeFieldIds` = the sorted union over the live `PROJECT_FIELDS` entities of the CURRENT
+  project keys, `null` (unknown) when none of them has one; the options endpoint turns it into each custom field's
+  `inScheme` (`.claude/docs/metrics.md`). `README.md` lists `read:field-configuration:jira` as the recommended optional scope.
 
 ### Decision: the REFERENCE stream no longer fetches priorities (2026-10-08)
 

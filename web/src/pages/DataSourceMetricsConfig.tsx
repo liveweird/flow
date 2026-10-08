@@ -32,6 +32,7 @@ import {
   METRICS_STAGES,
   setDomainKeyForProject,
   setOwnerTeamForDomainGroup,
+  visibleFields,
   visibleStatuses,
   type ActivityRowState,
   type BoardRowState,
@@ -108,9 +109,12 @@ function FieldsTab({
   fieldOptions: MetricsFieldOption[];
   onChange: (next: FieldsState) => void;
 }) {
+  // The default filter's "Show all" switch: plain state, remembered nowhere (like the Statuses tab's).
+  const [showAll, setShowAll] = useState(false);
+  const { listed, hiddenCount, schemeUnknown } = visibleFields(fieldOptions, Object.values(fields), showAll);
   const data = [
     { value: "duedate", label: t("metrics.config.fields.dueDateOption") },
-    ...fieldOptions.map((f) => ({ value: f.fieldId, label: `${f.name} (${t(`dataSources.profile.fieldRole.${f.detectedRole}` as ParseKeys)})` })),
+    ...listed.map((f) => ({ value: f.fieldId, label: `${f.name} (${t(`dataSources.profile.fieldRole.${f.detectedRole}` as ParseKeys)})` })),
   ];
   const slots: { key: keyof FieldsState; label: string }[] = [
     { key: "estimateTask", label: t("metrics.config.fields.estimateTask") },
@@ -121,6 +125,18 @@ function FieldsTab({
   ];
   return (
     <Stack maw={480}>
+      {hiddenCount > 0 && (
+        <Stack gap={4}>
+          <Switch
+            checked={showAll}
+            onChange={(event) => setShowAll(event.currentTarget.checked)}
+            label={t("metrics.config.fields.showAll", { count: fieldOptions.length })}
+          />
+          <Text size="xs" c="dimmed">
+            {t(schemeUnknown ? "metrics.config.fields.schemeUnknownHint" : "metrics.config.fields.showAllHint")}
+          </Text>
+        </Stack>
+      )}
       {slots.map((slot) => (
         <Select
           key={slot.key}

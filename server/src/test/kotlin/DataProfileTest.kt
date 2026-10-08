@@ -17,6 +17,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -114,6 +115,7 @@ class DataProfileTest {
         assertNull(profile.computedAt)
         assertEquals(0, profile.projects.size)
         assertEquals(0L, profile.reopens.count)
+        assertNull(profile.schemeFieldIds, "no profile yet means the field scheme is unknown")
     }
 
     @Test
@@ -135,6 +137,9 @@ class DataProfileTest {
             assertTrue(profile.computedAt != null, "PROFILE must run after PROCESS in a SYNC job")
             assertTrue(profile.workflowStatusIds.isNotEmpty(), "the in-scope projects' reference workflows list statuses")
             assertEquals(profile.workflowStatusIds.distinct().sorted(), profile.workflowStatusIds, "sorted and distinct")
+            val schemeFieldIds = assertNotNull(profile.schemeFieldIds, "the stub serves projects/fields, so the scheme is known")
+            assertTrue(schemeFieldIds.isNotEmpty() && "customfield_10016" in schemeFieldIds)
+            assertEquals(schemeFieldIds.distinct().sorted(), schemeFieldIds, "sorted and distinct")
 
             assertEquals(
                 dataProfileExpectedFixture.reopens.inScopeCount, profile.reopens.count,

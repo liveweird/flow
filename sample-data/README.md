@@ -220,6 +220,11 @@ digest-pinning style as Lettuce's `teams-stub`).
   "empty page" stub for issues with no real data, so the WORKLOGS/CHANGELOGS streams' backfill
   pass (which calls every in-scope issue) always gets a `200`, not a `404`, for the majority that
   simply have nothing to report.
+- **`projects/fields`** (experimental, the optional `PROJECT_FIELDS` step): startAt-paged, 50 rows per page, one row
+  per (field, work type) of each IN-SCOPE project (`projects-fields-<KEY>-page-N`). Matched on `urlPath` plus the
+  `projectId` query parameter only — like `search/jql` ignores JQL, the stub ignores the repeated `workTypeId` params and
+  answers every work type of the project. System fields plus the custom fields the dataset's issues use; the Kanban
+  project's scheme leaves out Sprint and Story point estimate, and the epic start date applies to epics only.
 - **Reference data (`field`, `statuscategory`, `project/search`, `project/{key}/statuses`,
   `issuetype`, `resolution/search`, `issueLinkType`, `board/{id}/configuration`)
   is scenario-independent** — it does not change between `Started` and `day2`. (The stub still serves
@@ -256,7 +261,7 @@ one of the REST-API call sites above.
 
 ## Size
 
-`jira-stub/` is ~13 MiB (782 mapping/body file pairs), comfortably under the ~15 MB guideline —
+`jira-stub/` is ~13 MiB (797 mapping/body file pairs), comfortably under the ~15 MB guideline —
 the bulk of it is the `search/jql` full-field pages (12 pages × 2 scenarios, ~215 KiB each,
 1,200 issues' worth of `fields` documents). If it needs to shrink further, the first lever is
 trimming fields from `issueFieldsJson()` in `generate.mjs`, not the issue count (the counts above

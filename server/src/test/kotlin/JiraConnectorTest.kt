@@ -47,6 +47,7 @@ class JiraConnectorTest {
         override suspend fun statusCategories() = fail()
         override suspend fun projectsSearch(startAt: Int) = fail()
         override suspend fun projectStatuses(projectKey: String) = fail()
+        override suspend fun projectFields(projectId: Long, workTypeIds: List<Long>, startAt: Int, maxResults: Int) = fail()
         override suspend fun issueTypes() = fail()
         override suspend fun resolutions(startAt: Int) = fail()
         override suspend fun issueLinkTypes() = fail()
@@ -108,8 +109,14 @@ class JiraConnectorTest {
                 JiraSearchPage(JsonArray(listOf(buildJsonObject { put("id", "10001") })))
             override suspend fun fields() = JsonArray(emptyList())
             override suspend fun statusesSearch(startAt: Int) = JiraStartAtPage()
-            override suspend fun projectsSearch(startAt: Int) = JiraStartAtPage()
-            override suspend fun projectStatuses(projectKey: String) = JsonArray(emptyList())
+            override suspend fun projectsSearch(startAt: Int) =
+                JiraStartAtPage(values = JsonArray(listOf(buildJsonObject { put("id", "10050"); put("key", "COOK") })))
+            override suspend fun projectStatuses(projectKey: String) = JsonArray(listOf(buildJsonObject { put("id", "10001") }))
+            override suspend fun projectFields(projectId: Long, workTypeIds: List<Long>, startAt: Int, maxResults: Int): JiraStartAtPage {
+                assertEquals(10050L, projectId)
+                assertEquals(listOf(10001L), workTypeIds)
+                return JiraStartAtPage()
+            }
             override suspend fun changelogBulk(issueIds: List<String>, nextPageToken: String?, maxResults: Int) = buildJsonObject {}
             override suspend fun issueChangelogPage(issueId: String, startAt: Int) = JiraChangelogPage()
             override suspend fun issueWorklogPage(issueId: String, startAt: Int) = JiraWorklogStartAtPage()
@@ -131,6 +138,7 @@ class JiraConnectorTest {
                 "statuses" to "read:workflow:jira",
                 "projects" to "read:project:jira",
                 "project_statuses:COOK" to "read:status:jira, read:issue-status:jira, read:issue-type:jira",
+                "project_fields" to "read:field-configuration:jira",
                 "bulkfetch" to "read:issue.changelog:jira",
                 "issue_changelog" to "read:issue-details:jira, read:issue.changelog:jira",
                 "issue_worklog" to "read:issue:jira, read:issue-worklog:jira",
@@ -142,8 +150,9 @@ class JiraConnectorTest {
             ),
             result.rows.associate { it.name to it.scopeHint },
         )
-        // bulkfetch is the only optional row: CHANGELOGS falls back from it; a SYNC needs the board endpoints.
-        assertEquals(listOf("bulkfetch"), result.rows.filter { !it.required }.map { it.name })
+        // bulkfetch and project_fields are the only optional rows: CHANGELOGS falls back from the first, the metrics-config
+        // editor from the second; a SYNC needs the board endpoints.
+        assertEquals(listOf("project_fields", "bulkfetch"), result.rows.filter { !it.required }.map { it.name })
     }
 
     private fun board(id: Long, projectKey: String, type: String) = buildJsonObject {

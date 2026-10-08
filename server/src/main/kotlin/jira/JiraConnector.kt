@@ -32,7 +32,9 @@ private const val TOTAL_BUDGET_MS = 30_000L
  * total, never throwing — every outcome becomes a [ConnectionTestRow]. Order: tenant_info →
  * myself → search → field → statuses → projects (+ each key) → bulkfetch (optional) + per-issue
  * changelog → per-issue worklog (A1) → worklog/updated → users → boards + configuration
- * + sprints (required: a SYNC's REFERENCE stream fetches all three). The first in-scope issue id found by the search probe seeds the
+ * + sprints (required: a SYNC's REFERENCE stream fetches all three). The OPTIONAL `project_fields` row follows the per-key
+ * `project_statuses` rows, seeded with the first configured key's project id and first issue-type id (skipped when either is
+ * unavailable). The first in-scope issue id found by the search probe seeds the
  * issue-scoped probes. The boards probe seeds its two children by the REFERENCE stream's own rules (`isInScopeBoard`,
  * `isScrumBoard`): `board_configuration` uses the first board of the first page whose project is in `projectKeys`,
  * `board_sprints` the first such SCRUM board (a Kanban board's `/sprint` answers 400); a child with no such board is skipped.
@@ -191,6 +193,8 @@ class JiraConnector(
         val rows = mutableListOf<ConnectionTestRow>()
         var cloudId: String? = null
         var firstIssueId: String? = null
+        var firstProjectId: Long? = null
+        var firstProjectTypeId: Long? = null
         var firstBoardId: Long? = null
         var firstScrumBoardId: Long? = null
         val deadline = now() + TOTAL_BUDGET_MS
@@ -242,14 +246,29 @@ class JiraConnector(
         }
         probe("field", "/rest/api/3/field", required = true, scopeHint = "read:field:jira") { client.fields() }
         probe("statuses", "/rest/api/3/statuses/search", required = true, scopeHint = "read:workflow:jira") { client.statusesSearch() }
-        probe("projects", "/rest/api/3/project/search", required = true, scopeHint = "read:project:jira") { client.projectsSearch() }
+        probe("projects", "/rest/api/3/project/search", required = true, scopeHint = "read:project:jira") {
+            // The first configured key's id seeds the optional `project_fields` probe (only when the key is on this first page).
+            val projects = client.projectsSearch().values
+            firstProjectId = projectKeys.firstOrNull()?.let { JiraProjectFields.projectIdsByKey(projects)[it] }
+        }
         projectKeys.forEach { key ->
             probe(
                 "project_statuses:$key",
                 "/rest/api/3/project/$key/statuses",
                 required = true,
                 scopeHint = "read:status:jira, read:issue-status:jira, read:issue-type:jira",
-            ) { client.projectStatuses(key) }
+            ) {
+                val statuses = client.projectStatuses(key)
+                if (key == projectKeys.first()) firstProjectTypeId = JiraProjectFields.issueTypeIds(statuses).firstOrNull()
+            }
+        }
+        val fieldsProjectId = firstProjectId
+        val fieldsTypeId = firstProjectTypeId
+        if (fieldsProjectId != null && fieldsTypeId != null) {
+            // Optional: the field scheme only decides which custom fields the metrics-config editor lists by default.
+            probe("project_fields", "/rest/api/3/projects/fields", required = false, scopeHint = "read:field-configuration:jira") {
+                client.projectFields(fieldsProjectId, listOf(fieldsTypeId), maxResults = 1)
+            }
         }
         firstIssueId?.let { issueId ->
             probe("bulkfetch", "/rest/api/3/changelog/bulkfetch", required = false, scopeHint = "read:issue.changelog:jira") {

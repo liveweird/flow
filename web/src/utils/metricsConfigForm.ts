@@ -7,6 +7,7 @@ import type {
   DataSourceMetricsConfigOptions,
   DataSourceMetricsConfigRequest,
   DataSourceMetricsConfigResponse,
+  MetricsFieldOption,
   MetricsFieldValueOption,
 } from "../api/metrics";
 
@@ -347,4 +348,28 @@ export function changedOverrideStatusIds(before: DomainStageRowState[], after: D
   const afterKeys = new Set(after.map(key));
   const changed = [...before.filter((o) => !afterKeys.has(key(o))), ...after.filter((o) => !beforeKeys.has(key(o)))];
   return [...new Set(changed.map((o) => o.statusId))];
+}
+
+/** What the Fields tab lists: the shown fields, how many the default filter hides, and whether the scheme is unknown. */
+export interface VisibleFields {
+  listed: MetricsFieldOption[];
+  /** Fields the DEFAULT filter hides (independent of [showAll]) — zero means no switch and no note. */
+  hiddenCount: number;
+  /** No field carries scheme information (`inScheme` null on all): the filter fell back to "has data in the synced issues". */
+  schemeUnknown: boolean;
+}
+
+/**
+ * The Fields tab's default filter: a field is listed when it is in the in-scope projects' field scheme
+ * (`inScheme === true`), PLUS every field currently selected in any slot (a hidden choice never disappears). When the
+ * scheme is unknown (the optional `projects/fields` step produced nothing) it falls back to fields with at least one
+ * value in the synced issues (`nonNullCount > 0`); with no information at all (nothing has data either) it lists everything.
+ */
+export function visibleFields(fields: MetricsFieldOption[], selectedIds: readonly string[], showAll: boolean): VisibleFields {
+  const schemeUnknown = !fields.some((f) => f.inScheme != null);
+  const relevant = (f: MetricsFieldOption) => (schemeUnknown ? f.nonNullCount > 0 : f.inScheme === true);
+  const informative = fields.some(relevant);
+  const selected = new Set(selectedIds);
+  const filtered = informative ? fields.filter((f) => relevant(f) || selected.has(f.fieldId)) : fields;
+  return { listed: showAll ? fields : filtered, hiddenCount: fields.length - filtered.length, schemeUnknown };
 }

@@ -25,8 +25,8 @@ const OPTIONS: DataSourceMetricsConfigOptions = {
     { statusId: "10", name: "Done", category: "DONE", inWorkflow: true, seenInHistory: true },
   ],
   fields: [
-    { fieldId: "customfield_10001", name: "Story points", type: "number", detectedRole: "STORY_POINTS" },
-    { fieldId: "customfield_10002", name: "Category", type: "string", detectedRole: "OTHER" },
+    { fieldId: "customfield_10001", name: "Story points", type: "number", detectedRole: "STORY_POINTS", inScheme: true, nonNullCount: 12 },
+    { fieldId: "customfield_10002", name: "Category", type: "string", detectedRole: "OTHER", inScheme: true, nonNullCount: 4 },
   ],
   projects: ["ENG"],
   boards: [
