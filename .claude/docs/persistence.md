@@ -675,7 +675,7 @@ migration — the persistence.md cross-feature list above is unchanged.
 
 `MigrationChecksumTest` gains V17's pin.
 
-Current migrations are `V1`–`V20`:
+Current migrations are `V1`–`V21`:
 
 - `V1__init` — the `users` table: `name` (≤50), `email` (≤254), `password_hash`, `role` with
   `CHECK ("role" IN ('ADMIN', 'USER'))` (single-column role storage; the wire shape stays a
@@ -761,6 +761,12 @@ Current migrations are `V1`–`V20`:
   Service Management customer, `qm:<uuid>:<uuid>`) that failed every SYNC at the USER step. Raising a `VARCHAR`
   limit is the same catalog-only change as V18/V19 (neither the table nor its primary key index is rewritten);
   every column an accountId is copied into is already `VARCHAR(100)`. `MigrationChecksumTest` pins it.
+- `V21__reconcile_backoff` — `source_connections` gains `reconcile_failures INTEGER NOT NULL DEFAULT 0` and
+  `next_reconcile_at BIGINT` (nullable, epoch millis): a failing RECONCILE's back-off, the RECONCILE counterpart of
+  `consecutive_failures`/`next_sync_at`. Only a SUCCESSFUL reconcile stamps `last_reconcile_at`, so a failed one stayed
+  due and was re-enqueued on every scheduler tick (113 failed jobs in under 30 minutes on the first real tenant).
+  Additive (a constant-default `NOT NULL` column is catalog-only on PostgreSQL 11+); neither column is exposed by the
+  API. See `.claude/docs/ingestion.md` "Scheduling". `MigrationChecksumTest` pins it.
 
 The `users`/`teams` tables follow Toadie's dialect (`SERIAL`/`INTEGER` ids, epoch-millis `BIGINT`
 timestamps, `marked_as_deleted` + partial unique indexes over active rows) and its idioms: a
@@ -845,7 +851,8 @@ rows). `backfill_from` is a plain `VARCHAR(10)` ISO-date string, not a SQL `DATE
 value is only ever read/written whole and validated in Kotlin (`ingest/DataSource.kt`), so adding
 an Exposed date-column dependency bought nothing. `ingest/DataSourceService.kt` is the reference
 service for this shape; `ingest/DataSourceRoutes.kt` the ADMIN-only CRUD (see
-`.claude/docs/authorization.md`).
+`.claude/docs/authorization.md`). `reconcile_failures`/`next_reconcile_at` (V21, internal only, never in the
+API) hold a failing RECONCILE's back-off — `ingestion.md` "Scheduling".
 
 **`infra/db/Jsonb.kt`** — a repo-local `jsonb` column type, because `exposed-r2dbc` 1.5.0 ships no
 JSON column type of its own. It needs no reflection into the raw `io.r2dbc.spi.Statement`: Exposed

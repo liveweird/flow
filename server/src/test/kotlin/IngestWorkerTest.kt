@@ -3,6 +3,7 @@ package ch.nokillswit
 import ch.nokillswit.infra.crypto.DEV_DATA_ENCRYPTION_KEY
 import ch.nokillswit.infra.crypto.FieldCipher
 import ch.nokillswit.infra.paging.PageRequest
+import ch.nokillswit.infra.time.MILLIS_PER_MINUTE
 import ch.nokillswit.ingest.Connector
 import ch.nokillswit.ingest.ConnectionTestResult
 import ch.nokillswit.ingest.DataSourceKind
@@ -22,6 +23,7 @@ import ch.nokillswit.ingest.SyncJobResponse
 import ch.nokillswit.ingest.SyncJobRunContext
 import ch.nokillswit.ingest.SyncJobStatus
 import ch.nokillswit.ingest.SyncJobsService
+import ch.nokillswit.ingest.RECONCILE_RETRY_BASE_MILLIS
 import ch.nokillswit.ingest.backoffMillis
 import ch.nokillswit.ingest.MAX_BACKOFF_MILLIS
 import ch.nokillswit.ingest.defaultBackfillFrom
@@ -39,6 +41,7 @@ import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.jsonPrimitive
@@ -721,6 +724,109 @@ class IngestWorkerTest {
         assertEquals(oneMinute * 2, backoffMillis(oneMinute, failures = 1))
         assertEquals(oneMinute * 4, backoffMillis(oneMinute, failures = 2))
         assertEquals(MAX_BACKOFF_MILLIS, backoffMillis(oneMinute, failures = 20), "must cap rather than overflow or grow unbounded")
+    }
+
+    /** The connection's RECONCILE back-off columns and `last_reconcile_at`, read straight from the row. */
+    private data class ReconcileState(val failures: Int, val nextAt: Long?, val lastAt: Long?)
+
+    private suspend fun reconcileState(connId: UInt) = suspendTransaction(sharedDatabaseForTests()) {
+        val row = DataSourceService.Connections.selectAll().where { DataSourceService.Connections.id eq connId }.toList().single()
+        ReconcileState(
+            row[DataSourceService.Connections.reconcileFailures],
+            row[DataSourceService.Connections.nextReconcileAt],
+            row[DataSourceService.Connections.lastReconcileAt],
+        )
+    }
+
+    /** Pushes `next_sync_at` far out so a tick enqueues ONLY the RECONCILE under test (never a SYNC and its chained DERIVE). */
+    private suspend fun silenceSync(connId: UInt) {
+        suspendTransaction(sharedDatabaseForTests()) {
+            DataSourceService.Connections.update({ DataSourceService.Connections.id eq connId }) {
+                it[nextSyncAt] = PARKED_LEASE_UNTIL
+            }
+        }
+    }
+
+    @Test
+    fun `recordReconcileFailed backs off 15 minutes doubling to the six hour cap, and a success resets it`() = runBlocking {
+        val ds = dataSources()
+        val connId = createConnection(ds)
+        val now = TICK_CLOCK_MILLIS
+        val delays = (1..7).map {
+            ds.recordReconcileFailed(connId, now)
+            val state = reconcileState(connId)
+            assertEquals(it, state.failures)
+            assertNotNull(state.nextAt) - now
+        }
+        assertEquals((0..6).map { backoffMillis(RECONCILE_RETRY_BASE_MILLIS, it) }, delays)
+        assertEquals(RECONCILE_RETRY_BASE_MILLIS, delays.first())
+        assertEquals(MAX_BACKOFF_MILLIS, delays.last())
+        assertEquals(null, reconcileState(connId).lastAt, "a failure never stamps last_reconcile_at")
+
+        ds.recordReconcileSucceeded(connId, now)
+        assertEquals(ReconcileState(failures = 0, nextAt = null, lastAt = now), reconcileState(connId))
+    }
+
+    @Test
+    fun `a failed RECONCILE is not re-enqueued on the next tick, but is once its back-off elapsed`() = runBlocking {
+        val ds = dataSources()
+        val jobs = syncJobs()
+        val connId = createConnection(ds, enabled = true)
+        silenceSync(connId)
+        val runs = AtomicInteger()
+        val connector = FakeConnector { runs.incrementAndGet(); error("simulated reconcile failure") }
+        // 05:00 UTC: two hours past the connection's 03:00 reconcile boundary, so RECONCILE is due (and a SYNC is not).
+        val start = TICK_CLOCK_MILLIS + 4 * 60 * MILLIS_PER_MINUTE
+        val clock = AtomicLong(start)
+        val worker = IngestWorker(
+            jobs, ds, handlers(ds), mapOf(DataSourceKind.JIRA_CLOUD to connector), testConfig(workerSlots = 5), clock::get,
+        )
+        suspend fun reconcileJobs() = jobs.list(connId, SyncJobListFilter(kind = SyncJobKind.RECONCILE), pagingAll()).items
+
+        withOnlyConnections(setOf(connId), start + 60 * MILLIS_PER_MINUTE) {
+            coroutineScope { worker.tick(this) }
+            assertEquals(1, runs.get())
+            assertEquals(listOf(SyncJobStatus.FAILED), reconcileJobs().map { it.status })
+            assertEquals(ReconcileState(1, start + RECONCILE_RETRY_BASE_MILLIS, null), reconcileState(connId))
+
+            // The next scheduler ticks (15 s later, and just before the 15 minute back-off ends) enqueue nothing.
+            for (offset in listOf(15_000L, RECONCILE_RETRY_BASE_MILLIS - 1)) {
+                clock.set(start + offset)
+                coroutineScope { worker.tick(this) }
+                assertEquals(1, reconcileJobs().size, "no new RECONCILE inside the back-off (offset $offset ms)")
+                assertEquals(1, runs.get())
+            }
+
+            // The back-off has elapsed: exactly one more attempt, which fails again and doubles the delay.
+            val retryAt = start + RECONCILE_RETRY_BASE_MILLIS
+            clock.set(retryAt)
+            coroutineScope { worker.tick(this) }
+            assertEquals(2, runs.get())
+            assertEquals(2, reconcileJobs().size)
+            assertEquals(ReconcileState(2, retryAt + 2 * RECONCILE_RETRY_BASE_MILLIS, null), reconcileState(connId))
+        }
+    }
+
+    @Test
+    fun `a successful RECONCILE after failures resets the back-off and stamps last_reconcile_at`() = runBlocking {
+        val ds = dataSources()
+        val jobs = syncJobs()
+        val connId = createConnection(ds, enabled = true)
+        silenceSync(connId)
+        val start = TICK_CLOCK_MILLIS + 4 * 60 * MILLIS_PER_MINUTE
+        ds.recordReconcileFailed(connId, start)
+        ds.recordReconcileFailed(connId, start)
+        val retryAt = start + 2 * RECONCILE_RETRY_BASE_MILLIS // the second failure's delay (30 minutes) from the same instant
+        assertEquals(ReconcileState(2, retryAt, null), reconcileState(connId))
+        val worker = IngestWorker(
+            jobs, ds, handlers(ds), mapOf(DataSourceKind.JIRA_CLOUD to FakeConnector { }), testConfig(workerSlots = 5), { retryAt },
+        )
+
+        withOnlyConnections(setOf(connId), retryAt + 60 * MILLIS_PER_MINUTE) { coroutineScope { worker.tick(this) } }
+
+        val job = jobs.list(connId, SyncJobListFilter(kind = SyncJobKind.RECONCILE), pagingAll()).items.single()
+        assertEquals(SyncJobStatus.SUCCEEDED, job.status)
+        assertEquals(ReconcileState(0, null, retryAt), reconcileState(connId))
     }
 
     @Test

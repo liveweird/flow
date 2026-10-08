@@ -203,16 +203,23 @@ pair to every open job on that connection.
 
 **Scheduling.** `IngestWorker.tick` (every `ingest.schedulerTickSeconds`) calls `enqueueDue` —
 `DataSourceService.dueForSync` (enabled, active connections whose `next_sync_at` is null or past),
-`dueForReconcile` (past today's `reconcile_hour_utc` UTC boundary since `last_reconcile_at` — a
-worker outage spanning the boundary still catches up the same day, and a job already run today
-isn't re-enqueued) and `dueForPurge` (soft-deleted, never-purged connections past
+`dueForReconcile` (`reconcileDue` in `ingest/SchedulePolicy.kt`: past today's `reconcile_hour_utc` UTC
+boundary since `last_reconcile_at` — a worker outage spanning the boundary still catches up the same
+day, and a job already run today isn't re-enqueued — and not inside a failure back-off, below) and `dueForPurge` (soft-deleted, never-purged connections past
 `ingest.purgeGraceDays` since `updated_at` — plan §0 A2: a mistaken delete can be undone within the
 grace period) — before pruning old rows and claiming up to `ingest.workerSlots` free jobs.
 `DataSourceService.recordSyncOutcome` applies a finished SYNC's result: success resets
 `consecutive_failures` to 0 and schedules `next_sync_at = now + syncIntervalMinutes`; a failure
 backs off `next_sync_at = now + syncIntervalMinutes × 2^consecutiveFailuresBeforeThisOne`, capped
-at `MAX_BACKOFF_MILLIS` (6 hours) so a persistently-failing connection never waits longer than
-that between retries.
+at `MAX_BACKOFF_MILLIS` (6 hours, the one cap for both SYNC and RECONCILE) so a persistently-failing
+connection never waits longer than that between retries.
+A failed RECONCILE backs off the same way (V21): only a success stamps `last_reconcile_at`, so without it the
+job stays due and is re-enqueued on every tick. `IngestWorker.onFailed` calls
+`DataSourceService.recordReconcileFailed`, which sets
+`next_reconcile_at = now + backoffMillis(RECONCILE_RETRY_BASE_MILLIS, reconcile_failuresBeforeThisOne)` and
+increments `reconcile_failures` — 15 min, 30 min, 1 h, 2 h, 4 h, then the 6 h cap — and `reconcileDue` holds
+the connection back until `next_reconcile_at` has passed (the same-day catch-up rule is unchanged, only the
+retry is delayed). `recordReconcileSucceeded` resets both columns. A manual RECONCILE is not gated by the back-off.
 
 **Shutdown and release.** On `ApplicationStopping`, `configureIngestWorker` cancels the worker's
 `CoroutineScope` and joins it with a 5-second timeout. `runJob`'s `CancellationException` handler
@@ -746,7 +753,7 @@ permanently unwritable row alone on its page (however many issues the page holds
 `issuesFailed` and is retried by the next pass; when NONE is a data error (a connection loss, a
 timeout — an outage, not a row) the original database error is RETHROWN, the job fails, and a
 transient outage cannot end SUCCEEDED and chain a DERIVE over stale `norm`. A failed SYNC is
-rescheduled with backoff; a failed REPROCESS/RECONCILE needs a manual re-run. **Locking:** the page's
+rescheduled with backoff, a failed RECONCILE retried with its own ("Scheduling" above); a failed REPROCESS needs a manual re-run. **Locking:** the page's
 raw issue read — and the per-issue fallback's — is `FOR UPDATE` (the page's ordered by `issue_id`),
 held until the transaction commits (~50 rows, ~30 ms), so a concurrent re-flag of an issue (a changed payload
 from ISSUES) waits and lands after the commit instead of being overwritten by the page's

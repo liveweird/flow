@@ -328,8 +328,10 @@ class IngestWorker internal constructor(
             return
         }
         log.warn("Sync job {} ({}) for data source {} failed", claim.id, claim.kind, claim.connectionId, LoggedFailure(cause))
-        if (claim.kind == SyncJobKind.SYNC) {
-            dataSources.recordSyncOutcome(claim.connectionId, succeeded = false, errorCode = errorCode, now = clock())
+        when (claim.kind) {
+            SyncJobKind.SYNC -> dataSources.recordSyncOutcome(claim.connectionId, succeeded = false, errorCode = errorCode, now = clock())
+            SyncJobKind.RECONCILE -> dataSources.recordReconcileFailed(claim.connectionId, clock())
+            else -> Unit
         }
         audit(
             "sync_job.failed",
