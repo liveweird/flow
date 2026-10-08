@@ -59,7 +59,7 @@ class SourceFileSizeTest {
             "reports/DeepDiveReport.kt" to 614,
             "auth/AuthRoutes.kt" to 519,
             "reports/ReportSupport.kt" to 504,
-            "jira/JiraNormalizer.kt" to 466,
+            "jira/JiraNormalizer.kt" to 463,
             "metrics/DeriveTaskRows.kt" to 439,
             "metrics/MetricsConfigService.kt" to 432,
             "ingest/DataSourceService.kt" to 421,

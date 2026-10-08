@@ -142,6 +142,28 @@ class JiraNormalizerTest {
         assertTrue(input.facts.resolvedAtMs != null)
     }
 
+    /** The first real tenant sent an unset Sprint custom field as JSON `null`, not `[]`, and every such issue failed PROCESS. */
+    @Test
+    fun `normalizeIssue treats a JSON null sprint, flagged, labels, components or fixVersions as empty`() {
+        val payload = minimalIssuePayload(team = "null")
+            .replace("\"labels\": []", "\"labels\": null")
+            .replace("\"components\": []", "\"components\": null, \"fixVersions\": null, \"customfield_7\": null, \"customfield_8\": null")
+        val input = JiraNormalizer.normalizeIssue(
+            issuePayload = payload,
+            changelogPayloads = emptyList(),
+            worklogPayloads = emptyList(),
+            fieldIds = noFieldIds.copy(sprintFieldId = "customfield_7", flaggedFieldId = "customfield_8", teamFieldId = "customfield_9999"),
+            tombstone = TombstoneKind.NONE,
+        )
+        assertEquals(emptyList(), input.currentSprintIds)
+        assertNull(input.currentSprintText)
+        assertTrue(!input.currentFlagged)
+        assertEquals(emptyList(), input.facts.labels)
+        assertEquals(emptyList(), input.facts.components)
+        assertEquals(emptyList(), input.facts.fixVersions)
+        assertNull(input.facts.teamValueJson)
+    }
+
     @Test
     fun `normalizeIssue tombstone kinds are carried through unchanged`() {
         val deleted = JiraNormalizer.normalizeIssue(minimalIssuePayload(), emptyList(), emptyList(), noFieldIds, TombstoneKind.DELETED)

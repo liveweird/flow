@@ -47,9 +47,6 @@ private const val PARENT_FIELD_ID = "parent"
 private val PARENT_FIELD_NAMES = setOf("Parent", "IssueParentAssociation", "Epic Link")
 private const val CUSTOM_FIELD_PREFIX = "customfield_"
 
-/** Absent (Kotlin `null`) OR a literal JSON `null` both mean "no value" for a Jira object-shaped field — never a cast failure. */
-private fun JsonElement?.orNullObject(): JsonObject? = this?.takeIf { it != JsonNull }?.jsonObject
-
 /**
  * The Jira-specific field ids the PROCESS step needs, discovered ONCE per run from the REFERENCE
  * stream's `FIELD` entities (v0.2.0 plan §8) — never hardcoded, since a real tenant assigns its own
@@ -220,11 +217,11 @@ object JiraNormalizer {
         val parentIssueId = parent?.get("id")?.jsonPrimitive?.contentOrNull?.toLongOrNull()
         val parentIssueKey = parent?.get("key")?.jsonPrimitive?.contentOrNull
 
-        val currentSprints = fieldIds.sprintFieldId?.let { fields[it]?.jsonArray } ?: JsonArray(emptyList())
+        val currentSprints = fieldIds.sprintFieldId?.let { fields[it] }.orNullArray() ?: JsonArray(emptyList())
         val currentSprintIds = currentSprints.map { it.jsonObject.getValue("id").jsonPrimitive.content.toLong() }
         val currentSprintText = currentSprints.takeIf { it.isNotEmpty() }
             ?.joinToString(", ") { it.jsonObject.getValue("name").jsonPrimitive.content }
-        val currentFlagged = fieldIds.flaggedFieldId?.let { fields[it]?.jsonArray?.isNotEmpty() } ?: false
+        val currentFlagged = fieldIds.flaggedFieldId?.let { fields[it] }.orNullArray()?.isNotEmpty() ?: false
 
         val worklogs = worklogPayloads.map { payload ->
             val worklog = NORMALIZER_JSON.parseToJsonElement(payload).jsonObject
@@ -263,9 +260,9 @@ object JiraNormalizer {
             // Computed from the issue's OWN worklogs, never `timetracking.timeSpentSeconds` (which a
             // real tenant may leave stale relative to the worklog feed this stream already trusts).
             timeSpentSeconds = worklogs.sumOf { it.timeSpentSeconds },
-            labels = fields["labels"]?.jsonArray?.map { it.jsonPrimitive.content } ?: emptyList(),
-            components = fields["components"]?.jsonArray?.map { it.jsonObject.getValue("name").jsonPrimitive.content } ?: emptyList(),
-            fixVersions = fields["fixVersions"]?.jsonArray?.map { it.jsonObject.getValue("name").jsonPrimitive.content } ?: emptyList(),
+            labels = fields["labels"].orNullArray()?.map { it.jsonPrimitive.content } ?: emptyList(),
+            components = fields["components"].orNullArray()?.map { it.jsonObject.getValue("name").jsonPrimitive.content } ?: emptyList(),
+            fixVersions = fields["fixVersions"].orNullArray()?.map { it.jsonObject.getValue("name").jsonPrimitive.content } ?: emptyList(),
             teamValueJson = team?.toString(),
             rank = fieldIds.rankFieldId?.let { fields[it]?.jsonPrimitive?.contentOrNull },
             // Prefer the issue's OWN `fields.issuetype.hierarchyLevel` when a tenant does return it

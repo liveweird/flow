@@ -707,6 +707,11 @@ itself**: a real tenant's issue-search response does not carry `hierarchyLevel` 
 the only fixture carrying it), the same reason `norm.statuses`' category lookup is resolved once
 per run rather than trusted from the issue payload.
 
+**Unset fields are JSON `null`.** A real tenant sends an unset object- or array-shaped field (assignee, resolution,
+parent, the Team/Sprint/Flagged custom fields, labels, components, fixVersions) as a literal JSON `null`, not absent
+or `[]`. `JiraNormalizer` reads every such field through `orNullObject()`/`orNullArray()` (`jira/JiraJsonFields.kt`),
+never a bare `.jsonObject`/`.jsonArray` cast; the first real SYNC failed every issue without a sprint on exactly that.
+
 **Status category mapping.** `JiraNormalizer.statusRefs` maps each Jira status category to
 `StatusCategory` (`norm/Tiling.kt`), in either shape: the object's `key` (`new → TODO`, `indeterminate → IN_PROGRESS`,
 `done → DONE`) or the plain string enum real `statuses/search` returns (`TODO`/`IN_PROGRESS`/`DONE`, verbatim);
