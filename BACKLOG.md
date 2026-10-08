@@ -91,6 +91,17 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
     A value past one of these is a counted bad row (`issuesFailed`) that stays `needs_processing` forever.
   - After the first real sync, look for `referenceRowsSkipped` and `issuesFailed`, and widen what really overflows
     (the V19 pattern).
+- [new] **Scheduler back-off gaps (SYNC and RECONCILE alike).** Found in the #112 review:
+  - A job that exhausts its attempts (`SyncJobLeases.claim` → `RETRIES_EXHAUSTED`, e.g. a worker crash loop) never
+    reaches `onFailed`. So no back-off is recorded, and the next tick enqueues a fresh job at once.
+  - `onFailed` writes FAILED and the back-off in two transactions. Another worker's tick can enqueue one extra retry
+    in between (a millisecond window).
+  - A config PUT (e.g. a rotated token) doesn't reset `consecutive_failures`/`next_sync_at` or
+    `reconcile_failures`/`next_reconcile_at`. The fixed connection waits out up to 6 h unless someone requests a job
+    manually.
+- [new] **An oversized `fields=*all` issue page stalls SYNC.** If one `search/jql` page exceeds
+  `jira.maxResponseBytes` (32 MiB), `LIMIT_EXCEEDED` repeats for the same page on every run. Halving `maxResults` on
+  `LIMIT_EXCEEDED` would unstick it. Jira already shrinks pages for heavy field sets, so this is unlikely at 100.
 - [parked] **Data profile: multi-project boards.** A board whose filter spans several projects shows no observed or
   unmapped statuses, because `BoardRef` carries a single project key. Revisit if real boards span projects.
 - [parked] **Two connections to one Jira site are allowed** (with different project scopes). Confirm this is the wanted
