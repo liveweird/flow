@@ -168,9 +168,9 @@ describe("Home page — the unit overview", () => {
     renderHome();
     const wip = await screen.findByRole("region", { name: "Work in progress" });
     const stats = await within(wip).findByRole("group", { name: "Work in progress and aging" });
-    const cells = ["In progress", "Past p85", "Past p95"].map((label) => within(stats).getByRole("group", { name: label }).textContent);
+    const cells = ["In progress or waiting", "Past p85", "Past p95"].map((label) => within(stats).getByRole("group", { name: label }).textContent);
     // 4 tasks — FLO-3 among them is WAITING, which counts as work in progress (A30); the epic is not counted; 2 past p85 (FLO-1 above p95, FLO-2); 1 past p95.
-    expect(cells).toEqual(["In progress4", "Past p852", "Past p951"]);
+    expect(cells).toEqual(["In progress or waiting4", "Past p852", "Past p951"]);
     expect(within(stats).getByText("Past p85").className).toMatch(/Badge/);
     expect(within(wip).queryByText(/at least/)).not.toBeInTheDocument();
   });
@@ -187,7 +187,7 @@ describe("Home page — the unit overview", () => {
     renderHome();
     const truncated = await screen.findByRole("region", { name: "Work in progress" });
     expect(await within(truncated).findByText("The list holds the oldest 500 items, so these figures are at least.")).toBeInTheDocument();
-    expect(within(truncated).getByRole("group", { name: "In progress" })).toHaveTextContent("In progress4+");
+    expect(within(truncated).getByRole("group", { name: "In progress or waiting" })).toHaveTextContent("In progress or waiting4+");
   });
 
   test("data quality: configuration kinds first, then the largest volumes; the rest counted; a link to all findings", async () => {
@@ -404,6 +404,6 @@ describe("Home page — the unit overview", () => {
     expect(await screen.findByText(/The whole unit at a glance/)).toBeInTheDocument();
     expect(screen.getByText(/not your remembered team/)).toBeInTheDocument();
     await screen.findByRole("group", { name: "Cycle time in working days" });
-    expect(screen.getByText(/Tasks in progress right now/)).toBeInTheDocument();
+    expect(screen.getByText(/Tasks started and not yet done \(in progress or waiting\) right now/)).toBeInTheDocument();
   });
 });

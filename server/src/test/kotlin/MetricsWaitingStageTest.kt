@@ -1,10 +1,10 @@
 package ch.nokillswit
 
-import ch.nokillswit.metrics.DataSourceMetricsConfigRequest
 import ch.nokillswit.metrics.MetricsStage
 import ch.nokillswit.metrics.MetricsStatusStage
 import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.metrics.TeamMembershipService
+import ch.nokillswit.metrics.asRequest
 import ch.nokillswit.norm.WorkItemStore
 import ch.nokillswit.reports.AgingWipReport
 import ch.nokillswit.reports.DomainView
@@ -95,6 +95,8 @@ class MetricsWaitingStageTest {
         val baseTasks = doneTasks(connId)
         val baseWip = readWipRows(connId)
         val baseAging = aging(connId)
+        val baseBacklog = readFlowBacklogRows(connId).toSet()
+        assertTrue(baseBacklog.isNotEmpty(), "the stub carries backlog figures")
         assertTrue(baseWip.none { it.stage == "WAITING" }, "no status defaults to WAITING (A30)")
         assertTrue(baseAging.items.none { it.waiting }, "no item is waiting under the default configuration")
 
@@ -107,17 +109,9 @@ class MetricsWaitingStageTest {
         val current = config.effectiveConfig(connId)
         config.replaceConfig(
             connId,
-            DataSourceMetricsConfigRequest(
+            current.asRequest().copy(
                 statusStages = current.statusStages.filterNot { it.statusId in waitingIds } +
                     waitingIds.map { MetricsStatusStage(it, MetricsStage.WAITING) },
-                domainStatusStages = current.domainStatusStages,
-                fields = current.fields,
-                domains = current.domains,
-                boards = current.boards,
-                activityTypes = current.activityTypes,
-                workCategories = current.workCategories,
-                blockedStatuses = current.blockedStatuses,
-                sprintCapacities = current.sprintCapacities,
             ),
         )
         DerivedStubFixture.withPinnedSettings(DerivedStubFixture.metricsSettings()) { DerivedStubFixture.derivePinned(connId, jobId = 2u) }
@@ -156,6 +150,10 @@ class MetricsWaitingStageTest {
             total(wip, setOf("IN_PROGRESS", "WAITING")),
             "WIP = in progress + waiting: re-mapping a status moves items between the two, never in or out of WIP",
         )
+
+        // Invariant 9: only IN_PROGRESS statuses are remapped, so a WAITING item is WIP, never backlog -- the backlog figures
+        // (agg_daily_flow.backlog_items / backlog_md) are identical before and after.
+        assertEquals(baseBacklog, readFlowBacklogRows(connId).toSet(), "re-mapping to WAITING leaves the backlog untouched")
 
         // Aging WIP: the same open items (started + not done), the ones now in WAITING marked.
         val aged = aging(connId)

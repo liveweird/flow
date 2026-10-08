@@ -237,7 +237,7 @@ class MetricsStageOverrideTest {
             val current = config().effectiveConfig(connId)
             val overriddenDomain = "PLT"
             assertTrue(current.domains.any { it.domainKey == overriddenDomain }, "the stub's PLT project is a default 1:1 domain")
-            // Rotate every every-domain mapping in ONE domain (NOT_STARTED -> IN_PROGRESS -> DONE -> NOT_STARTED).
+            // Rotate every every-domain mapping in ONE domain (NOT_STARTED -> IN_PROGRESS -> WAITING -> DONE -> NOT_STARTED).
             val stages = MetricsStage.entries
             val rotated = current.statusStages.map {
                 MetricsDomainStatusStage(overriddenDomain, it.statusId, stages[(it.stage.ordinal + 1) % stages.size])

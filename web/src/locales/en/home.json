@@ -38,11 +38,11 @@
   },
   "wip": {
     "title": "Work in progress",
-    "caption": "Tasks in progress right now, aged in working days against the unit's recent finished tasks.",
+    "caption": "Tasks started and not yet done (in progress or waiting) right now, aged in working days against the unit's recent finished tasks.",
     "statsLabel": "Work in progress and aging",
-    "inProgress": "In progress",
+    "inProgress": "In progress or waiting",
     "past": "Past p{{percentile}}",
-    "empty": "Nothing is in progress right now.",
+    "empty": "Nothing is in progress or waiting right now.",
     "hidden": "Not enough finished tasks for aging thresholds ({{n}} of the {{min}} needed).",
     "truncated": "The list holds the oldest 500 items, so these figures are at least."
   },

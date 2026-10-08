@@ -459,19 +459,23 @@ carries the per-measure detail).
     ("flagged, never guessed"); the admin maps a status to WAITING on the Statuses tab, globally or as a per-domain
     override. A config change bumps the revision, so DERIVE re-runs and every report moves together.
   - **`started_at` = the first entry into IN_PROGRESS or WAITING.** An item that goes straight into a waiting status has
-    started. Everything keyed on `started_at` (cycle time, estimate at start, report 3/4/5 populations, epic drift) follows;
+    started. Everything keyed on `started_at` (cycle time, estimate at start, report 3/4/5 populations, epic drift, and
+    report 12: the blocked-time clip window, its share-of-cycle denominator `cycle_working_days` and its `neverStarted`
+    bucket) follows;
     the reopen rule is unchanged (DONE → WAITING is a reopen, `done_at` clears).
   - **WIP = IN_PROGRESS + WAITING.** The stage-keyed WIP report gets a fifth key, `WAITING`, a band of its own; work in
     progress is the two bands together. The estimated backlog (NOT_STARTED only) and `done_at` are unaffected.
   - **Flow efficiency's formula is unchanged**: active = IN_PROGRESS time in `[started_at, done_at)` minus blocked time
     while IN_PROGRESS. WAITING is simply not IN_PROGRESS, so its time is wait. A status can be both WAITING and a
     configured blocked status ("On Hold"); blocked time is only ever subtracted inside IN_PROGRESS, so nothing is
-    subtracted twice, and the Blocked-time report (12) is unchanged.
+    subtracted twice. (The Blocked-time report (12) is NOT unchanged: it clips blocked time to `[started_at, done_at)` and
+    divides by `cycle_working_days`, so it follows `started_at`, above.)
   - **Aging WIP keeps waiting items.** An open task or epic whose current stage is IN_PROGRESS or WAITING ages from
     `started_at`; each item carries `waiting` (its current stage is WAITING) beside `blocked`.
   - **Deep dive Execution stays IN_PROGRESS-only** (A29): WAITING days stop counting as execution, which is the intent.
-  - **Unchanged by construction:** velocity, throughput, sprint buckets, backlog and EVM (sprints, `done_at`, worklogs,
-    NOT_STARTED), the frozen sprint snapshots (they hold no stage), and data quality (WAITING is a mapped stage).
+  - **Unchanged by construction** (report 12 is not among them: it follows `started_at`): velocity, throughput, sprint
+    buckets, backlog and EVM (sprints, `done_at`, worklogs, NOT_STARTED), the frozen sprint snapshots (they hold no
+    stage), and data quality (WAITING is a mapped stage).
 
 ## Gaps in `norm` (closed in v0.3.0)
 

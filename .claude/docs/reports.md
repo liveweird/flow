@@ -829,7 +829,7 @@ BlockedTimeReport {
 - **`blockedWorkingDays`** is a `Distribution` over EVERY DONE item -- an item never blocked is a real zero and stays in
   (`blockedItems` counts those blocked at all, so a sea of zeros is visible rather than hidden). Blocked time is what the
   deriver stored (`blocked_working_days`: Flagged or in a configured blocked status, merged, clipped to `[started_at,
-  done_at)`). **`shareOfCycle`** covers the items with a cycle above zero; the rest are in exactly ONE `excluded` bucket,
+  done_at)`, where `started_at` is the first IN_PROGRESS-or-WAITING entry, A30). **`shareOfCycle`** covers the items with a cycle above zero; the rest are in exactly ONE `excluded` bucket,
   `neverStarted` (no cycle) then `zeroCycle` (0 working days), so `shareOfCycle.n + neverStarted + zeroCycle == population`.
   Both are hidden below `minSampleSize`.
 - **`topItems`** = the 20 most-blocked items (`blockedWorkingDays > 0`, then newest `doneAt`), keys/summaries from
