@@ -3,16 +3,20 @@ import {
   buildInitialState,
   buildRequest,
   changedBoardIds,
+  changedOverrideStatusIds,
   currentDomainKeys,
+  defaultStageForCategory,
   mergeWorkCategoryValues,
   orphanOverrideDomains,
   orphanOverrideStatuses,
   setDomainKeyForProject,
   setDomainStage,
   setOwnerTeamForDomainGroup,
+  visibleStatuses,
   type BoardRowState,
   type DomainRowState,
   type MetricsConfigFormState,
+  type StatusRowState,
 } from "./metricsConfigForm";
 import type { DataSourceMetricsConfigOptions, DataSourceMetricsConfigResponse } from "../api/metrics";
 
@@ -31,8 +35,8 @@ const EMPTY_CONFIG: DataSourceMetricsConfigResponse = {
 
 const OPTIONS: DataSourceMetricsConfigOptions = {
   statuses: [
-    { statusId: "3", name: "In Progress", category: "IN_PROGRESS" },
-    { statusId: "10", name: "Done", category: "DONE" },
+    { statusId: "3", name: "In Progress", category: "IN_PROGRESS", inWorkflow: true, seenInHistory: true },
+    { statusId: "10", name: "Done", category: "DONE", inWorkflow: true, seenInHistory: true },
   ],
   fields: [{ fieldId: "customfield_10001", name: "Story points", type: "number", detectedRole: "STORY_POINTS" }],
   projects: ["ENG"],
@@ -47,8 +51,8 @@ describe("buildInitialState", () => {
   test("gives every reference item a row, unmapped/blank when nothing is stored", () => {
     const state = buildInitialState(EMPTY_CONFIG, OPTIONS);
     expect(state.statuses).toEqual([
-      { statusId: "3", name: "In Progress", category: "IN_PROGRESS", stage: "", blocked: false },
-      { statusId: "10", name: "Done", category: "DONE", stage: "", blocked: false },
+      { statusId: "3", name: "In Progress", category: "IN_PROGRESS", stage: "", blocked: false, inWorkflow: true, seenInHistory: true },
+      { statusId: "10", name: "Done", category: "DONE", stage: "", blocked: false, inWorkflow: true, seenInHistory: true },
     ]);
     expect(state.domains).toEqual([{ projectKey: "ENG", domainKey: "ENG", domainName: "ENG", ownerTeamId: "" }]);
     expect(state.boards).toEqual([{ boardId: 1, name: "Board A", projectKey: "ENG", teamId: "" }]);
@@ -79,7 +83,7 @@ describe("buildInitialState", () => {
       sprintCapacities: [{ sprintId: 11, capacityMd: 12.5 }],
     };
     const state = buildInitialState(config, OPTIONS);
-    expect(state.statuses[0]).toEqual({ statusId: "3", name: "In Progress", category: "IN_PROGRESS", stage: "IN_PROGRESS", blocked: true });
+    expect(state.statuses[0]).toEqual({ statusId: "3", name: "In Progress", category: "IN_PROGRESS", stage: "IN_PROGRESS", blocked: true, inWorkflow: true, seenInHistory: true });
     expect(state.domains[0]).toEqual({
       projectKey: "ENG",
       domainKey: "ENGINEERING",
@@ -127,8 +131,8 @@ describe("mergeWorkCategoryValues", () => {
 describe("buildRequest", () => {
   const baseState: MetricsConfigFormState = {
     statuses: [
-      { statusId: "3", name: "In Progress", category: "IN_PROGRESS", stage: "IN_PROGRESS", blocked: true },
-      { statusId: "10", name: "Done", category: "DONE", stage: "", blocked: false },
+      { statusId: "3", name: "In Progress", category: "IN_PROGRESS", stage: "IN_PROGRESS", blocked: true, inWorkflow: true, seenInHistory: true },
+      { statusId: "10", name: "Done", category: "DONE", stage: "", blocked: false, inWorkflow: true, seenInHistory: true },
     ],
     domainStages: [{ domainKey: "ENG", statusId: "10", stage: "IN_PROGRESS" }],
     fields: { estimateTask: "", estimateEpic: "", epicStart: "", epicDue: "duedate", workCategory: "customfield_10002" },
@@ -313,5 +317,71 @@ describe("per-domain stage overrides", () => {
       { domainKey: "ENG", statusId: "gone", stage: "DONE" as const },
     ];
     expect(orphanOverrideStatuses(statuses, overrides)).toEqual([{ domainKey: "ENG", statusId: "gone", stage: "DONE" }]);
+  });
+});
+
+describe("the default status filter", () => {
+  const status = (statusId: string, patch: Partial<StatusRowState> = {}): StatusRowState => ({
+    statusId,
+    name: statusId,
+    category: "DONE",
+    stage: "DONE",
+    blocked: false,
+    inWorkflow: false,
+    seenInHistory: false,
+    ...patch,
+  });
+  const none = new Set<string>();
+
+  test("buildInitialState carries the two relevance flags from the options", () => {
+    const options: DataSourceMetricsConfigOptions = {
+      ...OPTIONS,
+      statuses: [{ statusId: "3", name: "In Progress", category: "IN_PROGRESS", inWorkflow: true, seenInHistory: false }],
+    };
+    const [row] = buildInitialState(EMPTY_CONFIG, options).statuses;
+    expect([row.inWorkflow, row.seenInHistory]).toEqual([true, false]);
+  });
+
+  test("maps a Jira category to its default stage; UNKNOWN stays unmapped", () => {
+    expect(["TODO", "IN_PROGRESS", "DONE", "UNKNOWN"].map(defaultStageForCategory)).toEqual(["NOT_STARTED", "IN_PROGRESS", "DONE", ""]);
+  });
+
+  test("lists workflow and history statuses plus any with a choice or a session edit, hides the rest", () => {
+    const rows = [
+      status("wf", { inWorkflow: true }),
+      status("hist", { seenInHistory: true }),
+      status("plain"),
+      status("stage", { stage: "IN_PROGRESS" }),
+      status("unmapped", { stage: "" }),
+      status("blocked", { blocked: true }),
+      status("override"),
+      status("touched"),
+      status("unknown", { category: "UNKNOWN", stage: "" }),
+    ];
+    const overrides = [{ domainKey: "ENG", statusId: "override", stage: "DONE" as const }];
+    const ids = visibleStatuses(rows, overrides, new Set(["touched"]), false).map((s) => s.statusId);
+    expect(ids).toEqual(["wf", "hist", "stage", "unmapped", "blocked", "override", "touched"]);
+  });
+
+  test("showAll lists everything, and so does a connection with no workflow or history information", () => {
+    const rows = [status("a", { inWorkflow: true }), status("b")];
+    expect(visibleStatuses(rows, [], none, true)).toBe(rows);
+    const noInfo = [status("a"), status("b")];
+    expect(visibleStatuses(noInfo, [], none, false)).toBe(noInfo);
+  });
+
+  test("changedOverrideStatusIds reports added, removed and restaged overrides once per status", () => {
+    const before = [
+      { domainKey: "ENG", statusId: "1", stage: "DONE" as const },
+      { domainKey: "ENG", statusId: "2", stage: "DONE" as const },
+      { domainKey: "OPS", statusId: "3", stage: "DONE" as const },
+    ];
+    const after = [
+      { domainKey: "ENG", statusId: "1", stage: "IN_PROGRESS" as const },
+      { domainKey: "ENG", statusId: "2", stage: "DONE" as const },
+      { domainKey: "OPS", statusId: "4", stage: "DONE" as const },
+    ];
+    expect(changedOverrideStatusIds(before, after).sort()).toEqual(["1", "3", "4"]);
+    expect(changedOverrideStatusIds(before, before)).toEqual([]);
   });
 });

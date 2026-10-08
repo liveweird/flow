@@ -93,7 +93,9 @@ data class PeopleProfile(val activeAssignees: Long = 0, val unassignedPercent: D
  * before the connection's first PROCESS/PROFILE run — every section then carries its own empty
  * default rather than the endpoint 404ing or omitting fields. `jira/JiraProfile.kt` computes every
  * section below; the PROFILE stream (`jira/JiraProfileStream.kt`) stores the result verbatim in
- * `source_connections.profile`/`profile_at`.
+ * `source_connections.profile`/`profile_at`. [workflowStatusIds] is the sorted union of status ids
+ * across every in-scope project's reference workflow (`PROJECT_STATUSES`) — the metrics-config
+ * Statuses tab's "relevant statuses" filter; empty on a profile stored before the field existed.
  */
 @Serializable
 data class DataProfile(
@@ -109,6 +111,7 @@ data class DataProfile(
     val sprints: SprintsProfile = SprintsProfile(),
     val people: PeopleProfile = PeopleProfile(),
     val anomalyCounts: Map<String, Long> = emptyMap(),
+    val workflowStatusIds: List<String> = emptyList(),
 )
 
 /**
@@ -128,6 +131,7 @@ data class DataProfileSections(
     val sprints: SprintsProfile = SprintsProfile(),
     val people: PeopleProfile = PeopleProfile(),
     val anomalyCounts: Map<String, Long> = emptyMap(),
+    val workflowStatusIds: List<String> = emptyList(),
 )
 
 /** Wraps [this] with [computedAt] into the wire response — `ingest/DataProfileRoutes.kt`'s one call site. */
@@ -144,4 +148,5 @@ fun DataProfileSections.withComputedAt(computedAt: Long?): DataProfile = DataPro
     sprints = sprints,
     people = people,
     anomalyCounts = anomalyCounts,
+    workflowStatusIds = workflowStatusIds,
 )

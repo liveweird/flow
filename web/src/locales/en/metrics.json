@@ -115,6 +115,8 @@
       "stageAria": "Stage for {{name}}",
       "blockedAria": "Blocked for {{name}}",
       "stagePlaceholder": "Unmapped",
+      "showAll": "Show all statuses ({{count}})",
+      "showAllHint": "By default only statuses used by this connection's workflows or seen in its history are listed, plus any you changed. Saving always covers every status.",
       "stage": {
         "NOT_STARTED": "Not started",
         "IN_PROGRESS": "In progress",

@@ -1038,6 +1038,11 @@ above):**
   from one sprint into the next without closing).
 - **`people`** — how many distinct accounts are currently assigned to a live issue, and what
   percentage of live issues are unassigned.
+- **`workflowStatusIds`** — the sorted, distinct union of status ids across every `PROJECT_STATUSES` entity
+  (every in-scope project's reference workflow, all issue types), parsed by the same `parseProjectStatuses` that feeds
+  `referenceStatusNames`. The metrics-config options endpoint turns it into each status's `inWorkflow` flag (the
+  Statuses tab's default filter, `.claude/docs/metrics.md`); a profile stored before the field existed decodes it as
+  empty and refreshes on the next PROFILE run.
 - **`anomalyCounts`** — every `TilingAnomaly` code (`STATUS_CHANGE_BEFORE_CREATED`/
   `STATUS_CHAIN_BROKEN`/`STATUS_MISMATCH_WITH_CURRENT`, see "Anomalies are flagged, never corrected"
   under "Normalized layer" above), counted across every live issue that carries it — never per-status

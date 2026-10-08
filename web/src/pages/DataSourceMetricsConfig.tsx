@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ParseKeys, TFunction } from "i18next";
-import { Alert, Badge, Box, Button, Group, NumberInput, Select, Stack, Tabs, Text } from "@mantine/core";
+import { Alert, Badge, Box, Button, Group, NumberInput, Select, Stack, Switch, Tabs, Text } from "@mantine/core";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams } from "react-router-dom";
 import { ApiError } from "../api/http";
@@ -25,16 +25,19 @@ import {
   CAPACITY_MD_MAX,
   CATEGORY_MAX_LENGTH,
   changedBoardIds,
+  changedOverrideStatusIds,
   DOMAIN_KEY_MAX_LENGTH,
   DOMAIN_NAME_MAX_LENGTH,
   mergeWorkCategoryValues,
   METRICS_STAGES,
   setDomainKeyForProject,
   setOwnerTeamForDomainGroup,
+  visibleStatuses,
   type ActivityRowState,
   type BoardRowState,
   type CapacityRowState,
   type DomainRowState,
+  type DomainStageRowState,
   type FieldsState,
   type MetricsConfigFormState,
   type StatusRowState,
@@ -51,8 +54,9 @@ function StatusesTab({
   onChange,
 }: {
   t: TFunction;
+  /** The rows to list (the default filter's output) — edits go out per status id, never as a replacement list. */
   statuses: StatusRowState[];
-  onChange: (next: StatusRowState[]) => void;
+  onChange: (statusId: string, patch: Partial<StatusRowState>) => void;
 }) {
   const stageOptions = METRICS_STAGES.map((s) => ({ value: s, label: t(`metrics.config.statuses.stage.${s}`) }));
   const rows: MappingRow[] = statuses.map((row) => ({
@@ -72,14 +76,13 @@ function StatusesTab({
         value: row.stage,
         options: stageOptions,
         placeholder: t("metrics.config.statuses.stagePlaceholder"),
-        onChange: (value) =>
-          onChange(statuses.map((s) => (s.statusId === row.statusId ? { ...s, stage: (value as StatusRowState["stage"]) || "" } : s))),
+        onChange: (value) => onChange(row.statusId, { stage: (value as StatusRowState["stage"]) || "" }),
       },
       {
         type: "checkbox",
         ariaLabel: t("metrics.config.statuses.blockedAria", { name: row.name }),
         checked: row.blocked,
-        onChange: (checked) => onChange(statuses.map((s) => (s.statusId === row.statusId ? { ...s, blocked: checked } : s))),
+        onChange: (checked) => onChange(row.statusId, { blocked: checked }),
       },
     ] satisfies MappingField[],
   }));
@@ -393,6 +396,10 @@ export default function DataSourceMetricsConfig() {
   const [boardErrors, setBoardErrors] = useState<Record<number, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // The Statuses tab's default filter: the "Show all" switch (plain state, remembered nowhere) and the ids the
+  // admin edited this session, which stay listed even if the edit restored their default.
+  const [showAllStatuses, setShowAllStatuses] = useState(false);
+  const [touchedStatuses, setTouchedStatuses] = useState<ReadonlySet<string>>(new Set());
 
   // Derived, not effect-set (the guarded-initialize idiom): both queries resolved, not yet built.
   if (!state && configQuery.data && optionsQuery.data) {
@@ -422,6 +429,22 @@ export default function DataSourceMetricsConfig() {
     if (currentIds !== mergedIds) {
       setState({ ...state, workCategories: merged });
     }
+  }
+
+  function touchStatuses(ids: string[]) {
+    if (ids.length > 0) setTouchedStatuses((prev) => new Set([...prev, ...ids]));
+  }
+
+  function onStatusChange(statusId: string, patch: Partial<StatusRowState>) {
+    if (!state) return;
+    touchStatuses([statusId]);
+    setState({ ...state, statuses: state.statuses.map((s) => (s.statusId === statusId ? { ...s, ...patch } : s)) });
+  }
+
+  function onDomainStagesChange(domainStages: DomainStageRowState[]) {
+    if (!state) return;
+    touchStatuses(changedOverrideStatusIds(state.domainStages, domainStages));
+    setState({ ...state, domainStages });
   }
 
   async function onSave() {
@@ -479,6 +502,8 @@ export default function DataSourceMetricsConfig() {
   // Non-null: the early return above only falls through once both queries have resolved successfully.
   const config = configQuery.data;
   const options = optionsQuery.data;
+  const listedStatuses = visibleStatuses(state.statuses, state.domainStages, touchedStatuses, showAllStatuses);
+  const filteredStatusCount = visibleStatuses(state.statuses, state.domainStages, touchedStatuses, false).length;
   const teamOptions = (teamsQuery.data?.items ?? []).map((team) => ({ value: String(team.id), label: team.name }));
 
   return (
@@ -517,12 +542,25 @@ export default function DataSourceMetricsConfig() {
           </Tabs.List>
 
           <Tabs.Panel value="statuses" pt="md">
-            <StatusesTab t={t} statuses={state.statuses} onChange={(statuses) => setState({ ...state, statuses })} />
+            {filteredStatusCount < state.statuses.length && (
+              <Stack gap={4} mb="sm">
+                <Switch
+                  checked={showAllStatuses}
+                  onChange={(event) => setShowAllStatuses(event.currentTarget.checked)}
+                  label={t("metrics.config.statuses.showAll", { count: state.statuses.length })}
+                />
+                <Text size="xs" c="dimmed">
+                  {t("metrics.config.statuses.showAllHint")}
+                </Text>
+              </Stack>
+            )}
+            <StatusesTab t={t} statuses={listedStatuses} onChange={onStatusChange} />
             <DomainStageOverrides
               statuses={state.statuses}
+              listedStatuses={listedStatuses}
               domains={state.domains}
               overrides={state.domainStages}
-              onChange={(domainStages) => setState({ ...state, domainStages })}
+              onChange={onDomainStagesChange}
             />
           </Tabs.Panel>
           <Tabs.Panel value="fields" pt="md">

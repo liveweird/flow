@@ -1,5 +1,6 @@
 package ch.nokillswit
 
+import ch.nokillswit.ingest.DataProfileSections
 import ch.nokillswit.ingest.DataSourceRequest
 import ch.nokillswit.ingest.DataSourceService
 import ch.nokillswit.ingest.JiraAuthScheme
@@ -39,8 +40,14 @@ import io.ktor.client.request.setBody
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.testApplication
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
+import java.sql.DriverManager
 import java.util.UUID
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -751,6 +758,58 @@ class MetricsConfigRoutesTest {
         assertTrue(options.issueTypes.contains(seeded.issueType))
         assertTrue(options.sprints.any { it.sprintId == seeded.sprintId })
         assertEquals(emptyList(), options.workCategoryValues, "no ?workCategoryField= given")
+        // No stored profile: nothing is in a workflow; only the one status the seeded work item's interval carries was seen.
+        assertTrue(options.statuses.none { it.inWorkflow })
+        assertEquals(setOf("10001"), options.statuses.filter { it.seenInHistory }.map { it.statusId }.toSet())
+    }
+
+    @Test
+    fun `options flags a status in the stored profile's workflow, independently of history`() = testApplication {
+        usePostgresTestcontainer()
+        val admin = seededClient("metricsoptionswf", UserRole.ADMIN)
+        val ds = dataSources()
+        val connId = runBlocking { createConnection(ds) }
+        runBlocking {
+            seedNormFixture(connId)
+            ds.updateProfile(connId, Json.encodeToString(DataProfileSections(workflowStatusIds = listOf("10002", "10099"))))
+        }
+
+        val byId = admin.get("/api/v1/data-sources/$connId/metrics-config/options").body<DataSourceMetricsConfigOptions>()
+            .statuses.associateBy { it.statusId }
+        assertEquals(setOf("10002", "10099"), byId.filterValues { it.inWorkflow }.keys)
+        assertEquals(setOf("10001"), byId.filterValues { it.seenInHistory }.keys)
+    }
+
+    @Test
+    fun `options on the synced stub - the flags equal the raw PROJECT_STATUSES ids and a SQL distinct over the intervals`() {
+        val connId = runBlocking { SyncedStubFixture.connectionId() }
+        val expectedWorkflow = runBlocking {
+            SyncedStubFixture.rawStore().entityPayloadsByKind(connId, "PROJECT_STATUSES")
+                .flatMap { payload -> Json.parseToJsonElement(payload).jsonArray }
+                .flatMap { issueType -> issueType.jsonObject.getValue("statuses").jsonArray }
+                .map { it.jsonObject.getValue("id").jsonPrimitive.content }
+                .toSet()
+        }
+        val distinctSql = "SELECT DISTINCT status_id FROM norm.work_item_status_intervals WHERE connection_id = $connId"
+        val expectedSeen = DriverManager.getConnection(PostgresTestSupport.jdbcUrl, PostgresTestSupport.user, PostgresTestSupport.password)
+            .use { conn ->
+                conn.createStatement().use { st ->
+                    st.executeQuery(distinctSql).use { rs -> buildSet { while (rs.next()) add(rs.getString(1)) } }
+                }
+            }
+        assertTrue(expectedWorkflow.isNotEmpty() && expectedSeen.isNotEmpty(), "the stub must yield both sets")
+
+        testApplication {
+            configureApp("app.role" to "web")
+            startApplication()
+            val admin = seededClient("metricsoptionsstub", UserRole.ADMIN)
+            val statuses = admin.get("/api/v1/data-sources/$connId/metrics-config/options").body<DataSourceMetricsConfigOptions>().statuses
+            val reported = statuses.map { it.statusId }.toSet()
+
+            assertEquals(expectedWorkflow.intersect(reported), statuses.filter { it.inWorkflow }.map { it.statusId }.toSet())
+            assertEquals(expectedSeen.intersect(reported), statuses.filter { it.seenInHistory }.map { it.statusId }.toSet())
+            assertTrue(expectedWorkflow.all { it in reported }, "every workflow status is a known norm.statuses row")
+        }
     }
 
     @Test

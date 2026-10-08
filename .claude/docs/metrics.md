@@ -152,7 +152,12 @@ explicitly set. An EXPLICITLY stored (non-null) value is never overwritten by th
 
 **`GET /api/v1/data-sources/{id}/metrics-config/options`** — the reference data the metrics-config
 editor picks from (`DataSourceMetricsConfigOptions`): every status (with its Jira category, mapped
-or not), the profile-detected custom fields (with their `detectedRole` —
+or not, and two relevance flags — `inWorkflow`: the id is in the stored data profile's `workflowStatusIds`, the
+union of the in-scope projects' reference workflows, false with no profile yet; `seenInHistory`: the id appears in
+the connection's `norm.work_item_status_intervals` (`WorkItemStore.distinctIntervalStatusIds`). A real Jira site
+reports hundreds of statuses (271 on the first real tenant) of which a project workflow uses ~a dozen; the editor's
+Statuses tab lists only `inWorkflow || seenInHistory` ones by default — the server still returns and the PUT still
+replaces EVERY status), the profile-detected custom fields (with their `detectedRole` —
 `SPRINT`/`RANK`/`TEAM`/`STORY_POINTS`/`FLAGGED`/`OTHER`, `jira/JiraProfile.kt`'s own detection,
 reused rather than reimplemented), distinct project keys, boards, distinct issue types, and sprints
 (all boards' sprints together — a future UI groups them per board client-side). `workCategoryValues`

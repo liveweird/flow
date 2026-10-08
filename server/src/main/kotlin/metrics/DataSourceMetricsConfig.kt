@@ -329,9 +329,20 @@ internal fun StatusCategory.toDefaultStage(): MetricsStage? = when (this) {
     StatusCategory.UNKNOWN -> null
 }
 
-/** One status, for the options endpoint — every status Jira reports, whether or not it is mapped. */
+/**
+ * One status, for the options endpoint — every status Jira reports, whether or not it is mapped.
+ * [inWorkflow]: the id is in the stored data profile's `workflowStatusIds` (some in-scope project's
+ * reference workflow uses it); [seenInHistory]: some work item's status interval carries it. The
+ * editor lists a status by default when either holds (or the user has made a choice on it).
+ */
 @Serializable
-data class MetricsStatusOption(val statusId: String, val name: String, val category: StatusCategory)
+data class MetricsStatusOption(
+    val statusId: String,
+    val name: String,
+    val category: StatusCategory,
+    val inWorkflow: Boolean,
+    val seenInHistory: Boolean,
+)
 
 /** One custom field, for the options endpoint — the SAME shape `jira/JiraProfile.kt` already detects a role for. */
 @Serializable

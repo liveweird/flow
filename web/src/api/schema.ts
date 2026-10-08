@@ -2250,6 +2250,8 @@ export interface components {
             anomalyCounts?: {
                 [key: string]: number;
             };
+            /** @description Sorted, distinct status ids across every in-scope project's reference workflow (`PROJECT_STATUSES`); empty on a profile stored before this field existed. */
+            workflowStatusIds?: string[];
         };
         MetricsStatusStage: {
             statusId: string;
@@ -2336,6 +2338,10 @@ export interface components {
             name: string;
             /** @enum {string} */
             category: "TODO" | "IN_PROGRESS" | "DONE" | "UNKNOWN";
+            /** @description The status id is in the stored data profile's `workflowStatusIds` (an in-scope project's reference workflow uses it). */
+            inWorkflow: boolean;
+            /** @description Some work item's status interval of this connection carries the status id. */
+            seenInHistory: boolean;
         };
         MetricsFieldOption: {
             fieldId: string;

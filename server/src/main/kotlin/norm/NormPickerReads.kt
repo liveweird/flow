@@ -7,6 +7,7 @@ import ch.nokillswit.ingest.DataSourceService
 import ch.nokillswit.norm.WorkItemStore.People
 import ch.nokillswit.norm.WorkItemStore.PersonListResult
 import ch.nokillswit.norm.WorkItemStore.PersonRow
+import ch.nokillswit.norm.WorkItemStore.StatusIntervals
 import ch.nokillswit.norm.WorkItemStore.WorkItems
 import ch.nokillswit.norm.WorkItemStore.Worklogs
 import kotlinx.coroutines.flow.map
@@ -118,6 +119,13 @@ internal class NormPickerReads(private val database: R2dbcDatabase) {
         WorkItems.select(WorkItems.projectKey).withDistinct()
             .where { (WorkItems.connectionId eq connectionId) and WorkItems.deletedAt.isNull() and WorkItems.movedOutAt.isNull() }
             .map { it[WorkItems.projectKey] }.toList().toSet()
+    }
+
+    /** Distinct status ids any of a connection's status intervals ever carried — the metrics-config options' `seenInHistory` flag. */
+    suspend fun distinctIntervalStatusIds(connectionId: UInt): Set<String> = suspendTransaction(database) {
+        StatusIntervals.select(StatusIntervals.statusId).withDistinct()
+            .where { StatusIntervals.connectionId eq connectionId }
+            .map { it[StatusIntervals.statusId] }.toList().toSet()
     }
 
     /** Distinct issue types among a connection's LIVE work items (v0.3.0 M1 commit 4) — the metrics-config defaults' activity-type map. */
