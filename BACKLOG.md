@@ -45,6 +45,13 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 - [blocked] **Seed memberships from the Team field (D1).** Waits on the first real sync.
 - [new] **Cache validators for the report endpoints.** Draft PR #75 (ETag/304 + an atomic DERIVE success mark) is
   open, waiting on the cache-posture sign-off.
+- [new] **Issues above epic level are derived as tasks.** The real tenant's COOK project has a "Program" issue at
+  hierarchy level 2 (above its epics). DERIVE treats every non-epic as a task (`hierarchyLevel != 1`:
+  `MetricsDeriver.kt`, `DeriveSprintStep.kt`). The domain model says a TASK is a level-0 issue, so the Program counts in
+  task WIP, throughput and cycle time like ordinary work.
+  - Likely fix: tasks are level 0 (plus sub-tasks rolling up), and level ≥ 2 is excluded, unless initiatives or
+    programs should be reported somewhere. That's a domain-model decision (a new D-entry or amendment).
+  - The stub has no issue above level 1. Add one with the fix.
 - [parked] **A28 — a composite estimate for estimated backlog.** Parked 2026-10-01: the teams do not estimate via
   sub-tasks.
   - Estimated backlog uses the OWN estimate only, so a parent estimated through its sub-tasks
