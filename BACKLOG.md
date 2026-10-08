@@ -90,14 +90,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
     first derive, a table that was empty, and a table that has doubled.
   - The scale-20 two-connection run is still to be done: the perf overlay, `workerSlots=2`, the `derive_runs` overlap
     and the `pg_stat_activity` relation waits. It would also close "ANALYZE at scale 20 NOT measured".
-- [new] **Scheduler back-off gaps (SYNC and RECONCILE alike).** Found in the #112 review:
-  - A job that exhausts its attempts (`SyncJobLeases.claim` → `RETRIES_EXHAUSTED`, e.g. a worker crash loop) never
-    reaches `onFailed`. So no back-off is recorded, and the next tick enqueues a fresh job at once.
-  - `onFailed` writes FAILED and the back-off in two transactions. Another worker's tick can enqueue one extra retry
-    in between (a millisecond window).
-  - A config PUT (e.g. a rotated token) doesn't reset `consecutive_failures`/`next_sync_at` or
-    `reconcile_failures`/`next_reconcile_at`. The fixed connection waits out up to 6 h unless someone requests a job
-    manually.
 - [new] **An oversized `fields=*all` issue page stalls SYNC.** If one `search/jql` page exceeds
   `jira.maxResponseBytes` (32 MiB), `LIMIT_EXCEEDED` repeats for the same page on every run. Halving `maxResults` on
   `LIMIT_EXCEEDED` would unstick it. Jira already shrinks pages for heavy field sets, so this is unlikely at 100.

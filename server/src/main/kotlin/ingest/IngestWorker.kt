@@ -323,16 +323,12 @@ class IngestWorker internal constructor(
     private suspend fun onFailed(claim: SyncJobClaim, cause: Exception) {
         val errorCode = "RUN_FAILED"
         val detail = "${cause.javaClass.simpleName}: ${cause.message}".take(MAX_ERROR_DETAIL_LENGTH)
+        // `fail` also records the SYNC/RECONCILE back-off in the same transaction, so a closed job never leaves the connection due.
         if (!syncJobs.fail(claim.id, claim.attempt, errorCode, detail, clock())) {
             logStale(claim, "fail")
             return
         }
         log.warn("Sync job {} ({}) for data source {} failed", claim.id, claim.kind, claim.connectionId, LoggedFailure(cause, detail))
-        when (claim.kind) {
-            SyncJobKind.SYNC -> dataSources.recordSyncOutcome(claim.connectionId, succeeded = false, errorCode = errorCode, now = clock())
-            SyncJobKind.RECONCILE -> dataSources.recordReconcileFailed(claim.connectionId, clock())
-            else -> Unit
-        }
         audit(
             "sync_job.failed",
             "jobId" to claim.id.toLong(),

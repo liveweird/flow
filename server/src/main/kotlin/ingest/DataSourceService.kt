@@ -13,7 +13,6 @@ import ch.nokillswit.infra.db.nowMillis
 import ch.nokillswit.infra.json.canonicalJson
 import ch.nokillswit.infra.paging.PageRequest
 import ch.nokillswit.infra.paging.applyPaging
-import ch.nokillswit.infra.time.MILLIS_PER_MINUTE
 import io.ktor.util.AttributeKey
 import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.Serializable
@@ -173,6 +172,8 @@ class DataSourceService(private val database: R2dbcDatabase, private val cipher:
             it[reconcileHourUtc] = request.reconcileHourUtc
             it[configRevision] = current[Connections.configRevision] + 1
             it[updatedAt] = nowMillis()
+            // A save is the operator's fix: lift any failure back-off so the connection is due on the next tick.
+            it.clearBackoff(current)
         }
         DataSourceUpdateResult(tokenRotated, siteHost(request.jira.siteUrl))
     }
@@ -268,30 +269,14 @@ class DataSourceService(private val database: R2dbcDatabase, private val cipher:
 
     /**
      * Applies a SYNC job's outcome to the connection's sync-status columns
-     * (`.claude/docs/ingestion.md` "Worker scheduler"): success resets the failure streak and
-     * schedules `now + syncIntervalMinutes`; a failure backs off `now + interval × 2^n` (n = the
-     * PRE-increment `consecutiveFailures`), capped at [MAX_BACKOFF_MILLIS] (6h).
+     * (`.claude/docs/ingestion.md` "Scheduling"): success resets the failure streak and
+     * schedules `now + syncIntervalMinutes`. The failure branch is TEST-ONLY: the worker's failure path is
+     * `SyncJobsService.fail`, which records the back-off (`now + interval × 2^n`, n = the PRE-increment
+     * `consecutiveFailures`, capped at [MAX_BACKOFF_MILLIS]) in the transaction that closes the job.
      */
     suspend fun recordSyncOutcome(id: UInt, succeeded: Boolean, errorCode: String?, now: Long = nowMillis()) {
         suspendTransaction(database) {
-            val row = Connections.selectAll().where { Connections.id eq id }.forUpdate().toList().singleOrNull()
-                ?: return@suspendTransaction
-            val intervalMillis = row[Connections.syncIntervalMinutes].toLong() * MILLIS_PER_MINUTE
-            if (succeeded) {
-                Connections.update({ Connections.id eq id }) {
-                    it[lastSyncSucceededAt] = now
-                    it[lastSyncErrorCode] = null
-                    it[consecutiveFailures] = 0
-                    it[nextSyncAt] = now + intervalMillis
-                }
-            } else {
-                val failuresBefore = row[Connections.consecutiveFailures]
-                Connections.update({ Connections.id eq id }) {
-                    it[lastSyncErrorCode] = errorCode
-                    it[consecutiveFailures] = failuresBefore + 1
-                    it[nextSyncAt] = now + backoffMillis(intervalMillis, failuresBefore)
-                }
-            }
+            if (succeeded) recordSyncSuccess(id, now) else recordFailureBackoff(id, SyncJobKind.SYNC, errorCode, now)
         }
     }
 
@@ -307,19 +292,11 @@ class DataSourceService(private val database: R2dbcDatabase, private val cipher:
     }
 
     /**
-     * A RECONCILE job failed — `next_reconcile_at = now + backoffMillis([RECONCILE_RETRY_BASE_MILLIS], n)`, n = the PRE-increment
-     * `reconcile_failures` (15 m, 30 m, 1 h, 2 h, 4 h, then the cap), so [dueForReconcile] stops re-enqueueing it every tick.
+     * TEST-ONLY (the worker's failure path is `SyncJobsService.fail`): a RECONCILE failure's back-off,
+     * `next_reconcile_at = now + backoffMillis([RECONCILE_RETRY_BASE_MILLIS], n)`, n = the PRE-increment `reconcile_failures`.
      */
-    suspend fun recordReconcileFailed(id: UInt, now: Long = nowMillis()) {
-        suspendTransaction(database) {
-            val row = Connections.selectAll().where { Connections.id eq id }.forUpdate().toList().singleOrNull()
-                ?: return@suspendTransaction
-            val failuresBefore = row[Connections.reconcileFailures]
-            Connections.update({ Connections.id eq id }) {
-                it[reconcileFailures] = failuresBefore + 1
-                it[nextReconcileAt] = now + backoffMillis(RECONCILE_RETRY_BASE_MILLIS, failuresBefore)
-            }
-        }
+    internal suspend fun recordReconcileFailed(id: UInt, now: Long = nowMillis()) {
+        suspendTransaction(database) { recordFailureBackoff(id, SyncJobKind.RECONCILE, null, now) }
     }
 
     /** A SYNC job's `started_at` claim — surfaces on the connection so a stuck/never-finished sync is still visible. */

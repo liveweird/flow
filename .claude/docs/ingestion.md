@@ -148,6 +148,15 @@ delete) or with the foreign-key share lock every job insert takes on it — whic
 row would. `SyncJobQueueTest` pins it with two claimers interleaved deterministically (one held inside its claim
 transaction by the `afterClaimLock` seam).
 
+The one connection-row lock a claim DOES take is for the failure back-off of the jobs it closed `RETRIES_EXHAUSTED`
+(see "Scheduling" below). It is taken AFTER the candidate scan, never inside it, and as `FOR NO KEY UPDATE`, in
+ASCENDING connection id: that mode does not conflict with the `FOR KEY SHARE` the foreign key takes on every job insert
+(`enqueueScheduled`, `MetricsSettingsService.bumpRevision`'s fan-out), so enqueuers are never held up; two claimers
+exhausting jobs of several connections lock them in the same order, so they cannot deadlock each other; and the only
+writers it can wait on (`DataSourceService.update`'s `FOR UPDATE`, the other `ScheduleBackoff` writes) lock the connection
+row alone and then commit, never waiting on a job row the claim holds. The scan holds the job-row `SKIP LOCKED` locks
+first, so the order is always job rows, then connections.
+
 **Lease and heartbeat.** A claim sets `lease_owner` (the worker's `ingest.workerId`, default
 hostname + a random suffix), `lease_until = now + leaseSeconds * 1000` and `heartbeat_at`, and
 increments `attempt`. `IngestWorker.runJob` runs a ticker coroutine (`ingest/LeaseHeartbeat.kt`) alongside the connector's
@@ -214,13 +223,41 @@ backs off `next_sync_at = now + syncIntervalMinutes × 2^consecutiveFailuresBefo
 at `MAX_BACKOFF_MILLIS` (6 hours, the one cap for both SYNC and RECONCILE) so a persistently-failing
 connection never waits longer than that between retries.
 A failed RECONCILE backs off the same way (V21): only a success stamps `last_reconcile_at`, so without it the
-job stays due and is re-enqueued on every tick. `IngestWorker.onFailed` calls
-`DataSourceService.recordReconcileFailed`, which sets
+job stays due and is re-enqueued on every tick. The failure path sets
 `next_reconcile_at = now + backoffMillis(RECONCILE_RETRY_BASE_MILLIS, reconcile_failuresBeforeThisOne)` and
 increments `reconcile_failures` — 15 min, 30 min, 1 h, 2 h, 4 h, then the 6 h cap — and `reconcileDue` holds
 the connection back until `next_reconcile_at` has passed. A retry that falls past midnight UTC waits for the next
 day's boundary (with a late `reconcile_hour_utc` a failing day may get no further retry), and `reconcile_failures`
 carries over until a success, so a connection that failed yesterday starts today further up the back-off. `recordReconcileSucceeded` resets both columns. A manual RECONCILE is not gated by the back-off.
+
+**Where the failure back-off is written (one transaction with the job's terminal write).** The connection-row
+writes live in `ingest/ScheduleBackoff.kt` as extensions on the CALLER's transaction (`recordFailureBackoff`; DERIVE,
+REPROCESS and PURGE have no schedule on the connection and write nothing). The row is locked `FOR NO KEY UPDATE`.
+Two paths call it, each inside the transaction that closes the job, so no other worker's tick can see "job closed,
+connection still due" and enqueue an extra retry in between:
+
+- **`SyncJobLeases.fail`** (the fenced `RUN_FAILED` write `IngestWorker.onFailed` makes): the job row goes FAILED and the
+  back-off is recorded together; a fenced-out (stale) write returns `false` and records no back-off.
+- **`SyncJobLeases.claim`'s inline `RETRIES_EXHAUSTED` close** (a job at `max_attempts`, e.g. a worker crash loop —
+  it never reaches `onFailed`): the same back-off is recorded for an exhausted SYNC/RECONCILE, so the next tick does not
+  enqueue a fresh job at once. It is applied after the scan, in ascending connection id (see "Claiming"). The close is
+  logged at WARN after the claim transaction commits (no audit event: the row's `status`/`error_code` and the
+  connection's `last_sync_error_code`, `RETRIES_EXHAUSTED` for SYNC, carry it).
+
+**Only a job of the connection's current `config_revision` records a failure back-off** (compared under the lock): a job that
+started before a config PUT and fails, or is found exhausted, afterwards must not re-impose the back-off the PUT just
+cleared. The job itself is still closed FAILED.
+
+**The success path is still two transactions** (`finish`, then `recordSyncSuccess`/`recordReconcileSucceeded`). That is
+harmless: the window between them can only let another worker's tick enqueue one early extra job (the connection looks
+due for a moment), never lose the success or the back-off reset.
+
+**A config PUT lifts the back-off.** `DataSourceService.update` (every successful PUT bumps `config_revision`, which
+also cancels the connection's open jobs `CONFIG_CHANGED`) clears an existing failure back-off in the same UPDATE
+(`clearBackoff`): `consecutive_failures` → 0 and `next_sync_at` → null for SYNC, `reconcile_failures` → 0 and
+`next_reconcile_at` → null for RECONCILE — so the operator's fix (a rotated token, a corrected scope) is retried on the
+next scheduler tick instead of after up to 6 h. `last_sync_error_code` stays as history. A connection with no
+back-off keeps its schedule (a rename triggers no extra sync). Soft delete and the metrics-config PUTs do not touch the back-off.
 
 **Shutdown and release.** On `ApplicationStopping`, `configureIngestWorker` cancels the worker's
 `CoroutineScope` and joins it with a 5-second timeout. `runJob`'s `CancellationException` handler
