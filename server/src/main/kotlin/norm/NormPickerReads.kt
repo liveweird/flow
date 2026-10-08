@@ -123,8 +123,14 @@ internal class NormPickerReads(private val database: R2dbcDatabase) {
 
     /** Distinct status ids any of a connection's status intervals ever carried — the metrics-config options' `seenInHistory` flag. */
     suspend fun distinctIntervalStatusIds(connectionId: UInt): Set<String> = suspendTransaction(database) {
-        StatusIntervals.select(StatusIntervals.statusId).withDistinct()
-            .where { StatusIntervals.connectionId eq connectionId }
+        // LIVE work items only: a deleted or moved-out issue's intervals are kept, but its old statuses are no reason to list them.
+        StatusIntervals.innerJoin(
+            WorkItems,
+            { StatusIntervals.connectionId },
+            { WorkItems.connectionId },
+            { StatusIntervals.issueId eq WorkItems.issueId },
+        ).select(StatusIntervals.statusId).withDistinct()
+            .where { (StatusIntervals.connectionId eq connectionId) and WorkItems.deletedAt.isNull() and WorkItems.movedOutAt.isNull() }
             .map { it[StatusIntervals.statusId] }.toList().toSet()
     }
 

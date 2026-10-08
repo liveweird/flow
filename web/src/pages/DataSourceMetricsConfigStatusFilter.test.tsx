@@ -121,6 +121,7 @@ describe("DataSourceMetricsConfig Statuses filter", () => {
     expect(screen.queryByRole("combobox", { name: "Stage for Legacy" })).not.toBeInTheDocument();
     expect(screen.queryByRole("combobox", { name: "Stage for Archived in domain ENG" })).not.toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "Stage for Done in domain ENG" })).toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: SWITCH_NAME })).toHaveAccessibleDescription(/only statuses used by this connection/);
 
     await user.click(screen.getByRole("switch", { name: SWITCH_NAME }));
     expect(await screen.findByRole("combobox", { name: "Stage for Archived" })).toBeInTheDocument();

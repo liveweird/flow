@@ -790,7 +790,9 @@ class MetricsConfigRoutesTest {
                 .map { it.jsonObject.getValue("id").jsonPrimitive.content }
                 .toSet()
         }
-        val distinctSql = "SELECT DISTINCT status_id FROM norm.work_item_status_intervals WHERE connection_id = $connId"
+        val distinctSql = "SELECT DISTINCT i.status_id FROM norm.work_item_status_intervals i JOIN norm.work_items w " +
+            "ON w.connection_id = i.connection_id AND w.issue_id = i.issue_id " +
+            "WHERE i.connection_id = $connId AND w.deleted_at IS NULL AND w.moved_out_at IS NULL"
         val expectedSeen = DriverManager.getConnection(PostgresTestSupport.jdbcUrl, PostgresTestSupport.user, PostgresTestSupport.password)
             .use { conn ->
                 conn.createStatement().use { st ->

@@ -548,8 +548,9 @@ export default function DataSourceMetricsConfig() {
                   checked={showAllStatuses}
                   onChange={(event) => setShowAllStatuses(event.currentTarget.checked)}
                   label={t("metrics.config.statuses.showAll", { count: state.statuses.length })}
+                  aria-describedby="metrics-config-statuses-show-all-hint"
                 />
-                <Text size="xs" c="dimmed">
+                <Text id="metrics-config-statuses-show-all-hint" size="xs" c="dimmed">
                   {t("metrics.config.statuses.showAllHint")}
                 </Text>
               </Stack>

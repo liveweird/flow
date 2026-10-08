@@ -233,9 +233,12 @@ object JiraProfile {
         PROFILE_JSON.parseToJsonElement(payload).jsonArray.associate { entry ->
             val obj = entry.jsonObject
             val typeName = obj.getValue("name").jsonPrimitive.content
-            val statuses = obj["statuses"]?.jsonArray?.map {
+            // An entry without an id or name is skipped, never a PROFILE failure.
+            val statuses = obj["statuses"]?.jsonArray?.mapNotNull {
                 val status = it.jsonObject
-                ReferenceStatus(status.getValue("id").jsonPrimitive.content, status.getValue("name").jsonPrimitive.content)
+                val id = status["id"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+                val name = status["name"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+                ReferenceStatus(id, name)
             }.orEmpty()
             typeName to statuses
         }

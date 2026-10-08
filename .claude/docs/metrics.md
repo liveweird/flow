@@ -154,7 +154,8 @@ explicitly set. An EXPLICITLY stored (non-null) value is never overwritten by th
 editor picks from (`DataSourceMetricsConfigOptions`): every status (with its Jira category, mapped
 or not, and two relevance flags — `inWorkflow`: the id is in the stored data profile's `workflowStatusIds`, the
 union of the in-scope projects' reference workflows, false with no profile yet; `seenInHistory`: the id appears in
-the connection's `norm.work_item_status_intervals` (`WorkItemStore.distinctIntervalStatusIds`). A real Jira site
+the connection's `norm.work_item_status_intervals` for a LIVE work item, never a deleted or moved-out one
+(`WorkItemStore.distinctIntervalStatusIds`). A real Jira site
 reports hundreds of statuses (271 on the first real tenant) of which a project workflow uses ~a dozen; the editor's
 Statuses tab lists only `inWorkflow || seenInHistory` ones by default — the server still returns and the PUT still
 replaces EVERY status), the profile-detected custom fields (with their `detectedRole` —
