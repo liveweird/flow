@@ -13,6 +13,7 @@
  *   carried    orange.8  3.58 / 3.34 | 3.79 / 4.60   (added scope uses the same hue: never both in one chart)
  *   dropped    red.7     3.84 / 3.58 | 3.53 / 4.29
  *   removed    gray.6    3.32 / 3.10 | 4.09 / 4.96
+ *   waiting    grape.6   4.02 / 3.75 | 3.37 / 4.10   (the WIP band of started work with nothing active)
  *   band 3rd   flow.7    4.20 / 3.91 | 3.24 / 3.93   (the WIP band cycle's extra blue: flow.5 fails on white, flow.8 on dark paper)
  *   final      flow.8    5.02 / 4.68 (light)   ·   flow.4  5.49 / 6.66 (dark; flow.8 is 2.70:1 on dark paper)
  *
@@ -40,9 +41,11 @@ export const CHART_COLORS = {
   evmOriginalPlan: "flow.6",
   evmEarned: "teal.8",
   evmActual: "gray.6",
-  /** WIP bands by stage: gray = not started, blue = in progress (active work), teal = done, orange = unmapped (a soft configuration finding). */
+  /** WIP bands by stage: gray = not started, blue = in progress (active work), grape = waiting (started, nothing active), teal = done, orange = unmapped (a soft configuration finding). */
   stageNotStarted: "gray.6",
   stageInProgress: "flow.6",
+  /** Waiting = started, nothing actively worked on (A30): grape (purple), a hue none of the other stages or semantic states wears. */
+  stageWaiting: "grape.6",
   stageDone: "teal.8",
   stageUnmapped: "orange.8",
   /**

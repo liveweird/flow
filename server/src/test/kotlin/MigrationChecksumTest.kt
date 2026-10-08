@@ -41,6 +41,7 @@ class MigrationChecksumTest {
         "V19__widen_reference_name_columns.sql" to 431478997,
         "V20__widen_jira_entity_id.sql" to 1345749268,
         "V21__reconcile_backoff.sql" to -1330966837,
+        "V22__waiting_stage.sql" to 133169169,
     )
 
     @Test

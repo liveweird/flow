@@ -125,6 +125,7 @@
       "stage": {
         "NOT_STARTED": "Nierozpoczęty",
         "IN_PROGRESS": "W trakcie",
+        "WAITING": "Oczekujący",
         "DONE": "Zakończony"
       },
       "empty": "Nie widzimy jeszcze żadnych statusów — najpierw zsynchronizuj to połączenie.",

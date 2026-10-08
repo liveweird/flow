@@ -6,6 +6,7 @@ import {
   changedOverrideStatusIds,
   currentDomainKeys,
   defaultStageForCategory,
+  METRICS_STAGES,
   mergeWorkCategoryValues,
   orphanOverrideDomains,
   orphanOverrideStatuses,
@@ -355,6 +356,20 @@ describe("the default status filter", () => {
 
   test("maps a Jira category to its default stage; UNKNOWN stays unmapped", () => {
     expect(["TODO", "IN_PROGRESS", "DONE", "UNKNOWN"].map(defaultStageForCategory)).toEqual(["NOT_STARTED", "IN_PROGRESS", "DONE", ""]);
+  });
+
+  test("WAITING is a selectable stage between In progress and Done, and no category defaults to it (A30)", () => {
+    expect(METRICS_STAGES).toEqual(["NOT_STARTED", "IN_PROGRESS", "WAITING", "DONE"]);
+    expect(["TODO", "IN_PROGRESS", "DONE", "UNKNOWN", "WAITING"].map(defaultStageForCategory)).not.toContain("WAITING");
+  });
+
+  test("a WAITING mapping is a user choice (the status stays listed) and travels in the request", () => {
+    const rows = [status("ready", { category: "IN_PROGRESS", stage: "WAITING", inWorkflow: false })];
+    const other = status("plain", { category: "IN_PROGRESS", stage: "IN_PROGRESS" });
+    expect(visibleStatuses([...rows, other, status("wf", { inWorkflow: true })], [], none, false).map((s) => s.statusId)).toEqual(["ready", "wf"]);
+    const state = { ...buildInitialState(EMPTY_CONFIG, OPTIONS), statuses: rows, domainStages: [{ domainKey: "ENG", statusId: "ready", stage: "WAITING" as const }] };
+    expect(buildRequest(state).statusStages).toEqual([{ statusId: "ready", stage: "WAITING" }]);
+    expect(buildRequest(state).domainStatusStages).toEqual([{ domainKey: "ENG", statusId: "ready", stage: "WAITING" }]);
   });
 
   test("lists workflow and history statuses plus any with a choice or a session edit, hides the rest", () => {

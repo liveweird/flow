@@ -125,6 +125,7 @@
       "stage": {
         "NOT_STARTED": "Not started",
         "IN_PROGRESS": "In progress",
+        "WAITING": "Waiting",
         "DONE": "Done"
       },
       "empty": "No statuses observed yet — sync this connection first.",

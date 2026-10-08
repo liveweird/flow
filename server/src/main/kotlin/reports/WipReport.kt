@@ -53,7 +53,7 @@ data class WipReport(
 )
 
 /** The stages `item_stage`/`agg_daily_wip` carry, in flow order — also the fixed key set of `by=STAGE`. */
-private val WIP_STAGES = listOf("NOT_STARTED", "IN_PROGRESS", "DONE", "UNMAPPED")
+private val WIP_STAGES = listOf("NOT_STARTED", "IN_PROGRESS", "WAITING", "DONE", "UNMAPPED")
 
 /** The `by=COLUMN` key of a status no column of the board holds. */
 private const val NO_COLUMN_KEY = "(no column)"
@@ -156,7 +156,7 @@ private fun countsByDay(by: WipBy, cells: List<WipCell>, mapping: ColumnMapping?
         dayCells.groupBy { keyOf(by, it, mapping) }.mapValues { (_, group) -> group.sumOf { it.count } }
     }
 
-/** The legend: STAGE is the fixed four stages, COLUMN the board's columns (plus "(no column)" when used), STATUS every status seen. */
+/** The legend: STAGE is the fixed five stages, COLUMN the board's columns (plus "(no column)" when used), STATUS every status seen. */
 private suspend fun wipKeys(by: WipBy, cells: List<WipCell>, mapping: ColumnMapping?, connectionIds: List<UInt>): List<WipKey> = when (by) {
     WipBy.STAGE -> WIP_STAGES.map { WipKey(it, it) }
     WipBy.COLUMN -> {

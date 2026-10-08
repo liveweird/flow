@@ -514,6 +514,36 @@ class MetricsConfigRoutesTest {
     }
 
     @Test
+    fun `WAITING is a mappable stage - every-domain and per-domain - and defaults never produce it (A30)`() = testApplication {
+        usePostgresTestcontainer()
+        val admin = seededClient("metricswaiting", UserRole.ADMIN)
+        val connId = runBlocking { createConnection(dataSources()) }
+        val seeded = runBlocking { seedNormFixture(connId, "PLT", "Task") }
+        val url = "/api/v1/data-sources/$connId/metrics-config"
+
+        val defaults = admin.getConfig(connId)
+        assertEquals(false, defaults.configured)
+        assertTrue(defaults.statusStages.none { it.stage == MetricsStage.WAITING }, "no Jira category defaults to WAITING")
+
+        val request = DataSourceMetricsConfigRequest(
+            statusStages = listOf(MetricsStatusStage("10001", MetricsStage.WAITING), MetricsStatusStage("10003", MetricsStage.DONE)),
+            domains = listOf(MetricsDomainMapping(seeded.projectKey, "platform", "Platform")),
+            domainStatusStages = listOf(MetricsDomainStatusStage("platform", "10003", MetricsStage.WAITING)),
+        )
+        assertEquals(HttpStatusCode.NoContent, admin.putJson(url, request).status)
+        val fetched = admin.getConfig(connId)
+        assertEquals(request.statusStages.toSet(), fetched.statusStages.toSet(), "the every-domain WAITING row round-trips")
+        assertEquals(request.domainStatusStages, fetched.domainStatusStages, "the per-domain WAITING override round-trips")
+
+        val before = admin.configRevision()
+        assertEquals(HttpStatusCode.NoContent, admin.putJson(url, request).status)
+        assertEquals(before, admin.configRevision(), "an identical re-PUT is a no-op")
+        val changed = request.copy(statusStages = listOf(MetricsStatusStage("10001", MetricsStage.IN_PROGRESS), request.statusStages[1]))
+        assertEquals(HttpStatusCode.NoContent, admin.putJson(url, changed).status)
+        assertEquals(before + 1, admin.configRevision(), "moving a status out of WAITING is a real change")
+    }
+
+    @Test
     fun `an invalid per-domain override is 400 and stores nothing`() = testApplication {
         usePostgresTestcontainer()
         val admin = seededClient("metricsoverride400", UserRole.ADMIN)

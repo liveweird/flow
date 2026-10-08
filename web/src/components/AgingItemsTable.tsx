@@ -16,7 +16,7 @@ const MISSING = "—";
  * level) and the assignee (at TEAM level) are the way in: real links to this report narrowed to
  * them. The band badge is the SERVER's band, its colour only the rank of that threshold (red the
  * highest, orange the next), and its text always says which threshold — colour is never the only
- * carrier. Blocked is a red outline badge with a word. Wide, so it scrolls sideways on a phone.
+ * carrier. Blocked is a red outline badge with a word; Waiting (A30: started, nothing actively worked on) a light badge in the waiting hue with a word, in a column that appears only when some item waits. Wide, so it scrolls sideways on a phone.
  */
 export default function AgingItemsTable({
   report,
@@ -30,6 +30,7 @@ export default function AgingItemsTable({
   const [params] = useSearchParams();
   const level = report.meta.level;
   const showKind = report.items.some((item) => item.itemKind === "EPIC");
+  const showWaiting = report.items.some((item) => item.waiting);
 
   const narrowedTo = (change: { teamId?: number; accountId?: string }): string =>
     applyReportFilter(params, { ...parseReportFilter(params), ...change }).toString();
@@ -132,6 +133,25 @@ export default function AgingItemsTable({
           </Text>
         ),
     },
+    // Shown only when some item waits, so a connection with no WAITING status mapped keeps its familiar table.
+    ...(showWaiting
+      ? [
+          {
+            key: "waiting",
+            header: t("reports.agingWip.column.waiting"),
+            render: (item: AgingItem) =>
+              item.waiting ? (
+                <Badge color="grape" variant="light">
+                  {t("reports.agingWip.waiting")}
+                </Badge>
+              ) : (
+                <Text size="sm" c="dimmed">
+                  {MISSING}
+                </Text>
+              ),
+          },
+        ]
+      : []),
     { key: "band", header: t("reports.agingWip.column.band"), render: bandCell },
   ];
 

@@ -139,7 +139,7 @@ internal const val DEEP_DIVE_RANGE_CLAMPED_NOTE =
     "RANGE_CLAMPED: the selection spans more than 1100 days, so only 1100 days are shown (give from and to to choose them); " +
         "totals are whole-life"
 
-private const val STAGE_IN_PROGRESS = "IN_PROGRESS"
+private const val STAGE_IN_PROGRESS = "IN_PROGRESS" // execution is IN_PROGRESS only: WAITING (A30) is a queue
 private const val EXEC_SCALE = 4
 private const val ID_CHUNK = 10_000
 
