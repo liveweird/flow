@@ -1,5 +1,6 @@
 package ch.nokillswit
 
+import ch.nokillswit.infra.db.nowMillis
 import ch.nokillswit.jira.JiraProcessStream
 import ch.nokillswit.metrics.MetricsTables
 import io.r2dbc.spi.R2dbcException
@@ -203,6 +204,34 @@ class ProcessReferenceRowsTest {
         assertEquals(listOf(statusName), query("SELECT status_name FROM norm.work_items WHERE connection_id = $connId"))
         val sprints = "SELECT DISTINCT name FROM norm.sprints WHERE connection_id = $connId AND name = '$sprintName'"
         assertEquals(listOf(sprintName), query(sprints))
+    }
+
+    /**
+     * V20: the first real tenant had a 76-character accountId (a JSM customer's `qm:<uuid>:<uuid>` form) that the REFERENCE
+     * stream's raw write rejected while `raw.jira_entities.entity_id` was `VARCHAR(50)`, failing every SYNC at the USER step.
+     * Stored through the stream's own write path, it lands raw and in `norm.people` whole.
+     */
+    @Test
+    fun `a 76-character accountId is stored raw and rebuilt into norm people`() = runBlocking<Unit> {
+        val connId = clonedConnectionWithOneFlaggedIssue()
+        val accountId = "qm:0f6e2b8c-3d4a-4c1e-9b7a-5e8d2c1f0a9b:7c3e9a1d-2b5f-4e8c-a6d0-1f9b3c7e5a2d"
+        assertEquals(76, accountId.length)
+        SyncedStubFixture.rawStore().upsertEntity(
+            connId,
+            "USER",
+            accountId,
+            """{"accountId":"$accountId","accountType":"customer","displayName":"A JSM customer","active":true}""",
+            nowMillis(),
+        )
+        val context = SyncedStubFixture.freshContext(connId)
+
+        JiraProcessStream(SyncedStubFixture.rawStore(), SyncedStubFixture.workItems()).run(context)
+
+        val raw = "SELECT entity_id FROM raw.jira_entities WHERE connection_id = $connId AND kind = 'USER' AND entity_id = '$accountId'"
+        assertEquals(listOf(accountId), query(raw))
+        val people = "SELECT account_id FROM norm.people WHERE connection_id = $connId AND account_id = '$accountId'"
+        assertEquals(listOf(accountId), query(people))
+        assertEquals(mapOf("issuesProcessed" to 1L), context.progressSnapshot(), "nothing skipped, the flagged issue landed")
     }
 
     @Test

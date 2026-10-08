@@ -793,6 +793,12 @@ columns that are still bounded (`issue_key`/`project_key` 20, `status_id` 50, ac
 are identifiers, not names: a bad value there is a counted bad row (`issuesFailed`) that stays `needs_processing`.
 `ProcessReferenceRowsTest` pins all of it (clone-based, one flagged issue per run).
 
+The REFERENCE stream's own raw write (`raw.jira_entities`) has no per-row skip, deliberately: its only bounded
+value is `entity_id`, `VARCHAR(255)` since V20 (an accountId reached 76 characters on the first real tenant and
+failed every SYNC at the USER step while the column was 50), which no Jira entity id approaches. A skip there
+would silently drop a user or status that later joins fail on; a loud failure is the better signal for a shape
+that should never occur.
+
 **Worklog timestamps and sprint completion (v0.3.0 M1 commit 2, V14).**
 `norm.work_item_worklogs` gains `created_at`/`updated_at` (`raw.jira_worklogs.payload` already
 carried them; only `started_at` was kept here until now) — report 14's late-logging measure needs

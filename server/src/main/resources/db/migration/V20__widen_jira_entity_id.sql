@@ -1,0 +1,11 @@
+-- Widen raw.jira_entities.entity_id from VARCHAR(50) (V10) to VARCHAR(255). The REFERENCE stream stores a USER
+-- under its accountId, and a real tenant's ids are not all the 24- or 43-character Atlassian forms: a 76-character
+-- one (likely a Jira Service Management customer, `qm:<uuid>:<uuid>`) failed the first real SYNC at the USER step
+-- on every pass. Exposed's client-side varchar length check rejects the row before any SQL is sent, and the raw
+-- store's upsert has no per-row skip, so one long id stopped the whole stream. 255 bounds any Jira entity id with
+-- room to spare. Every column an accountId is copied into (norm.*, metrics.*) is already VARCHAR(100), so a
+-- 76-character id fits there unchanged.
+-- Raising a VARCHAR limit is binary-coercible, so PostgreSQL rewrites neither the table nor the primary key index
+-- it is part of (a catalog-only change, the V19 precedent); no existing V1-V19 file changes (their bytes are
+-- immutable — `MigrationChecksumTest`), no data migration, no reader changes.
+ALTER TABLE raw.jira_entities ALTER COLUMN entity_id TYPE VARCHAR(255);
