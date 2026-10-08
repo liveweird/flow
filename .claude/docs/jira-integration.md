@@ -41,7 +41,7 @@ address-range check ported from Toadie as defense in depth.
 precedence over the exponential formula). An `X-RateLimit-NearLimit: true` response header adds a
 1s pause before the NEXT call. A `Semaphore(jira.maxConcurrentRequests)` caps concurrent in-flight
 calls per process. A response body is read bounded at `jira.maxResponseBytes` (default 32 MiB,
-Covenant's `ToadieGraphqlClient` shape) — `LIMIT_EXCEEDED` past the cap.
+Covenant's `ToadieGraphqlClient` shape) — `LIMIT_EXCEEDED` past the cap (the ISSUES stream's answer: "Oversized issue page (`LIMIT_EXCEEDED`)" below).
 
 ## Test connection
 
@@ -262,6 +262,33 @@ in `application.yaml` since an earlier commit, unread until now): `jira.pageSize
 pages regardless) and `jira.incrementalOverlapMinutes` (default 10, 0..1440 — the re-widening
 window past the last watermark described above).
 
+### Oversized issue page (`LIMIT_EXCEEDED`)
+
+A `fields=*all` page of heavy issues can exceed `jira.maxResponseBytes` (`JiraHttp.readBounded` throws
+`LIMIT_EXCEEDED`, never retried). `JiraIssuesStream` answers by re-requesting the SAME page, with the same
+`nextPageToken` and JQL but `maxResults` halved (`size / 2`, floor 1), as often as needed. The smaller size lasts for the
+rest of that stream invocation only (it is not in the cursor; the next run starts at `jira.pageSize`), each halving logs
+one WARN (data source id, old and new size), and a 1-issue page that is still too large fails the run with
+`LIMIT_EXCEEDED`. `CURSOR_EXPIRED` restarts keep the reduced size.
+
+**Assumption (unverified against a real tenant):** `nextPageToken` is an opaque position token, and Atlassian's
+`search/jql` documents `maxResults` as a per-request value, so the same token may be sent with a different `maxResults`.
+Nothing in the client or docs says the token binds the page size (it is documented to bind the query, which we never
+change). If a tenant answers 400/410 to the re-asked token, that surfaces as `CURSOR_EXPIRED` and restarts the run from
+the last watermark, at the reduced size. A `CURSOR_EXPIRED` that immediately follows a halving does NOT count against
+`MAX_CURSOR_RESTARTS`: halvings are bounded on their own (log2 of the page size, at most 9), so the worst case is a
+re-read, not a stall. Every other `CURSOR_EXPIRED` restart is counted as before.
+
+**Known trade-off.** The reduced size is deliberately not persisted, so a tenant whose pages are always oversized
+re-pays the halving ladder on every run: up to 6 oversized responses (sizes 100, 50, 25, 12, 6 and 3 all over the cap, then size 1), each up to
+32 MiB read before it is discarded. Persisting the size would add cursor state that must be reset when the data
+shrinks; that is not worth it until a real tenant shows the cost.
+
+Pinned by `JiraIssuesPageSizeTest` (the ISSUES stream behaviour above only). Sibling paged calls share the failure shape
+but are NOT fixed: `changelog/bulkfetch` (the stream's unit is a batch of `jira.changelogBulkSize` issue ids; an
+oversized response fails that batch on every run) and `worklog/list` (up to 1000 ids per call). Both carry far smaller
+documents than `*all` issues; see the `BACKLOG.md` item "An oversized changelog/worklog batch stalls its stream".
+
 ## CHANGELOGS and WORKLOGS streams: endpoints
 
 Landed with the CHANGELOGS/WORKLOGS streams (plan §7, plan commit 7, V11 — see
@@ -417,7 +444,7 @@ same total-request deadline) · `TIMEOUT` (request/probe timeout) · `INVALID_RE
 JSON, an unexpected shape — every `.jsonObject`/`.jsonArray`/`.jsonPrimitive` cast is routed through
 one decode helper so a mismatch is always this code, never an uncaught exception — an invalid
 `cloudId` shape, or a Jira-supplied issue id/key that doesn't match the expected path shape) ·
-`LIMIT_EXCEEDED` (response over `jira.maxResponseBytes`) · `BLOCKED_HOST` (the outbound guard
+`LIMIT_EXCEEDED` (response over `jira.maxResponseBytes`; the ISSUES stream answers a `search/jql` page with a smaller one, see "Oversized issue page (`LIMIT_EXCEEDED`)" above) · `BLOCKED_HOST` (the outbound guard
 refused the resolved host/address — `BlockedHostException` extends `UnknownHostException`, the
 `Dns` contract's own checked type, so OkHttp's async call path delivers it to Ktor unwrapped instead
 of re-wrapping it as a generic `IOException`; a single attempt, never retried) · `REDIRECT` (a 3xx —
@@ -458,6 +485,10 @@ never hold the `jira.maxConcurrentRequests` `Semaphore` permit indefinitely.
   mappings the compose stack serves); `DataSourceTestConnectionTest` drives the real Test-connection
   endpoints against it, including per-test WireMock override mappings for the `FORBIDDEN_SCOPE`/
   `AUTHENTICATION_FAILED` cases and the rate-limit bucket.
+- `JiraIssuesPageSizeTest` — the oversized-page halving over real HTTP against `JiraStubServer` overrides and a tiny
+  `maxResponseBytes`: 8 to 4 to 2 on the same token, the size kept for the run and reset for the next, a first page
+  halved with no size in the persisted cursor, the 1-issue failure leaving the cursor at the last good page, and a
+  `CURSOR_EXPIRED` right after a halving (restart at the smaller size, not counted against `MAX_CURSOR_RESTARTS`).
 - `JiraSyncPipelineTest` — the full `JiraConnector.run(SYNC)` (REFERENCE → ISSUES → CHANGELOGS →
   WORKLOGS) against `JiraStubServer`, asserting in-scope-reachable counts (never the whole-dataset
   `expected.json` figures, see `.claude/docs/ingestion.md` "Jira stub"): the omitted bulkfetch

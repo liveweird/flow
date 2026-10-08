@@ -460,6 +460,13 @@ exactly that code and starts a fresh run from the last completed watermark (`fre
 `MAX_CURSOR_RESTARTS` (5) restarts within one stream invocation before letting the exception
 propagate — a bound against a pathologically misbehaving upstream, not an expected real-world count.
 
+**Oversized issue page (`LIMIT_EXCEEDED`).** A `search/jql` page over `jira.maxResponseBytes` (a `fields=*all` page of heavy
+issues) used to fail the same page on every run. `JiraIssuesStream` now re-requests the SAME page (same token and JQL)
+with `maxResults` halved, down to 1, and logs a WARN per halving (data source id, old and new size; no payload). The
+smaller size is a local variable of the stream invocation: it holds for the rest of that run, is NOT written to the
+cursor, and the next run starts at `jira.pageSize` again. One issue still over the cap fails the run with
+`LIMIT_EXCEEDED` as before. Assumption and the sibling streams: `jira-integration.md` "Oversized issue page (`LIMIT_EXCEEDED`)". A `CURSOR_EXPIRED` right after a halving restarts without using up the restart budget.
+
 **Lease loss.** Every stream (REFERENCE, ISSUES, CHANGELOGS, WORKLOGS, PROCESS, PROFILE) lets
 `context.heartbeat()`'s `LeaseLostException` propagate uncaught after every committed
 page/step/transaction/batch — none of them catches it, matching `StreamContext`'s contract

@@ -6,6 +6,9 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import org.slf4j.LoggerFactory
+
+private val log = LoggerFactory.getLogger(JiraIssuesStream::class.java)
 
 private val ISSUES_CURSOR_JSON = Json { encodeDefaults = true; ignoreUnknownKeys = true }
 
@@ -90,6 +93,12 @@ internal const val MAX_CURSOR_RESTARTS = 5
 internal const val ISSUE_SEARCH_FIELDS = "*all"
 
 /**
+ * The page size and restart budget of ONE stream invocation (run-local, never persisted): [size] starts at the
+ * configured page size and only shrinks; [halvedJustNow] is true between a halving and the next answer.
+ */
+private class PageAsk(var size: Int, var restarts: Int = 0, var halvedJustNow: Boolean = false)
+
+/**
  * The ISSUES stream (v0.2.0 plan §7): pages `search/jql` with an opaque `nextPageToken`, JQL scoped
  * by [projectKeys] with a relative `updated` bound (`JiraJql.incremental`) — TZ-free by design
  * (`jira/JiraJql.kt`). Fields are requested as [ISSUE_SEARCH_FIELDS] (`*all`, EVERY field — `search/jql` returns only
@@ -111,6 +120,11 @@ internal const val ISSUE_SEARCH_FIELDS = "*all"
  * (`ingest/Stream.kt`'s `StreamContext.transaction`); the watermark itself only moves to this run's
  * `runStartedAt` once the LAST page of that run is written — a lease loss or thrown fault mid-run
  * leaves it exactly where the last completed page left it.
+ *
+ * Oversized issue page (`.claude/docs/jira-integration.md` "Oversized issue page (`LIMIT_EXCEEDED`)"): a page over
+ * `jira.maxResponseBytes` (`LIMIT_EXCEEDED`, a heavy `*all` page) is re-requested with the SAME token and
+ * JQL at half the `maxResults`, down to 1; the smaller size lasts for the rest of this invocation only (the next run
+ * starts at [pageSize] again), and a single issue still over the cap fails the run as `LIMIT_EXCEEDED`.
  */
 class JiraIssuesStream(
     private val client: JiraClient,
@@ -136,16 +150,10 @@ class JiraIssuesStream(
             shrinkCoveredScope(context)
         }
         var state = loadOrStart(context)
-        var restarts = 0
+        val ask = PageAsk(pageSize)
         while (true) {
-            val page = try {
-                client.searchJql(state.jql, fields = ISSUE_SEARCH_FIELDS, nextPageToken = state.nextPageToken, maxResults = pageSize)
-            } catch (expired: JiraFetchException) {
-                if (expired.code != "CURSOR_EXPIRED" || restarts >= MAX_CURSOR_RESTARTS) throw expired
-                restarts++
-                state = freshRun(context, state)
-                continue
-            }
+            val (current, page) = nextPage(context, ask, state)
+            state = current
             val isLast = page.nextPageToken == null
             // The watermark and the scope it covers move together, on the run's LAST page only.
             val written = if (isLast) {
@@ -187,6 +195,41 @@ class JiraIssuesStream(
             if (isLast) break
             state = written
         }
+    }
+
+    /** Fetches the page [from] points at, recovering via [recover]; returns the state that was actually answered. */
+    private suspend fun nextPage(context: StreamContext, ask: PageAsk, from: IssuesCursor): Pair<IssuesCursor, JiraSearchPage> {
+        var state = from
+        while (true) {
+            try {
+                val page = client.searchJql(state.jql, ISSUE_SEARCH_FIELDS, state.nextPageToken, ask.size)
+                ask.halvedJustNow = false
+                return state to page
+            } catch (failure: JiraFetchException) {
+                state = recover(context, ask, state, failure)
+            }
+        }
+    }
+
+    /**
+     * The state to ask next after [failure], or the failure rethrown. `LIMIT_EXCEEDED` re-asks the SAME page (same
+     * token/JQL) at half the size; a single issue over the cap falls through and fails. `CURSOR_EXPIRED` restarts from
+     * the last completed watermark ([freshRun]); one right after a halving is not an upstream fault (halvings are
+     * bounded on their own, log2(pageSize) <= 9), so it does not use up the [MAX_CURSOR_RESTARTS] budget.
+     */
+    private fun recover(context: StreamContext, ask: PageAsk, state: IssuesCursor, failure: JiraFetchException): IssuesCursor = when {
+        failure.code == "LIMIT_EXCEEDED" && ask.size > 1 -> {
+            log.warn("ISSUES page over the response cap, data source {}: size {} -> {}", context.connectionId, ask.size, ask.size / 2)
+            ask.size /= 2
+            ask.halvedJustNow = true
+            state
+        }
+        failure.code == "CURSOR_EXPIRED" && (ask.halvedJustNow || ask.restarts < MAX_CURSOR_RESTARTS) -> {
+            if (!ask.halvedJustNow) ask.restarts++
+            ask.halvedJustNow = false
+            freshRun(context, state)
+        }
+        else -> throw failure
     }
 
     /**

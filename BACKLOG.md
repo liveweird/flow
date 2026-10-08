@@ -90,9 +90,10 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
     first derive, a table that was empty, and a table that has doubled.
   - The scale-20 two-connection run is still to be done: the perf overlay, `workerSlots=2`, the `derive_runs` overlap
     and the `pg_stat_activity` relation waits. It would also close "ANALYZE at scale 20 NOT measured".
-- [new] **An oversized `fields=*all` issue page stalls SYNC.** If one `search/jql` page exceeds
-  `jira.maxResponseBytes` (32 MiB), `LIMIT_EXCEEDED` repeats for the same page on every run. Halving `maxResults` on
-  `LIMIT_EXCEEDED` would unstick it. Jira already shrinks pages for heavy field sets, so this is unlikely at 100.
+- [new] **An oversized changelog/worklog batch stalls its stream.** CHANGELOGS (`changelog/bulkfetch`) and WORKLOGS
+  (`worklog/list`) batch up to `jira.changelogBulkSize` ids; a batch over `jira.maxResponseBytes` fails the same way
+  every run. Halve the batch like the ISSUES page (`jira-integration.md` "Oversized issue page"). Unlikely: their
+  documents are far smaller than `*all` issues.
 - [parked] **Data profile: multi-project boards.** A board whose filter spans several projects shows no observed or
   unmapped statuses, because `BoardRef` carries a single project key. Revisit if real boards span projects.
 - [parked] **Two connections to one Jira site are allowed** (with different project scopes). Confirm this is the wanted
