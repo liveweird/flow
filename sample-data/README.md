@@ -239,6 +239,8 @@ and REJECTS the form the REST API v3 actually uses
 - **REST API v3** (`generate.mjs`'s `restIso(ms)`) — `yyyy-MM-dd'T'HH:mm:ss.SSS+0000` (a colonless
   offset, never a bare `Z`): an issue's own `created`/`updated`/`resolutiondate`, a changelog
   history's `created`, and a worklog's `started`/`created`/`updated`.
+- **`changelog/bulkfetch`** — a history's `created` as epoch MILLIS (a JSON number), as the real endpoint returns
+  it; the per-issue changelog pages (the omitted chunk's fallback) keep the REST API v3 text form.
 - **Agile API** (`generate.mjs`'s `iso(ms)`, ordinary `toISOString()`) — `yyyy-MM-ddTHH:mm:ss.SSSZ`:
   a sprint's own `startDate`/`endDate`/`completeDate`, both on `GET board/{id}/sprint`'s response
   and the identically-named dates Jira duplicates onto an issue's own Sprint custom-field array

@@ -33,13 +33,26 @@ private val JIRA_INSTANT_FORMATTER: DateTimeFormatter = DateTimeFormatterBuilder
 
 /**
  * Parses a Jira-sourced timestamp string, accepting both the REST API v3 form (`+0000`, no colon)
- * and the Agile API/ordinary ISO-8601 form (`Z`, `+02:00`, `-0500`). A malformed value throws
+ * and the Agile API/ordinary ISO-8601 form (`Z`, `+02:00`, `-0500`), plus bulkfetch's epoch millis
+ * ([EPOCH_MILLIS]). A malformed value throws
  * `java.time.format.DateTimeParseException` — the SAME unchecked exception `Instant.parse` itself
  * threw before this parser existed, so every existing call site's failure handling is unchanged:
  * left uncaught, it fails the stream/job exactly as before; `jira/JiraProcessStream.kt`'s per-issue
  * `catch (failure: Exception)` still isolates it to that one issue.
  */
-fun parseJiraInstant(text: String): Instant = OffsetDateTime.parse(text, JIRA_INSTANT_FORMATTER).toInstant()
+fun parseJiraInstant(text: String): Instant =
+    if (EPOCH_MILLIS.matches(text)) {
+        Instant.ofEpochMilli(text.toLong())
+    } else {
+        OffsetDateTime.parse(text, JIRA_INSTANT_FORMATTER).toInstant()
+    }
+
+/**
+ * `POST /changelog/bulkfetch` gives a history's `created` as epoch MILLIS (a JSON number, e.g. `1790330188061`) where
+ * the per-issue `/issue/{id}/changelog` gives the text form; the raw history is stored verbatim, so every reader of it
+ * sees both. No Jira timestamp text is all digits; 18 digits keep `toLong` from overflowing.
+ */
+private val EPOCH_MILLIS = Regex("^[0-9]{1,18}$")
 
 /** Convenience for the overwhelmingly common `parseJiraInstant(text).toEpochMilli()` call shape. */
 fun parseJiraInstantEpochMillis(text: String): Long = parseJiraInstant(text).toEpochMilli()

@@ -1773,10 +1773,14 @@ stub(
 function historiesJson(issueId, upToMs) {
   return (changeHistories.get(issueId) ?? []).filter((h) => Date.parse(h.created) <= upToMs);
 }
+// Real bulkfetch gives a history's `created` as epoch millis (a number); the per-issue changelog keeps the text form.
+function bulkHistoriesJson(issueId, upToMs) {
+  return historiesJson(issueId, upToMs).map((h) => ({ ...h, created: Date.parse(h.created) }));
+}
 
 bulkChunks.forEach((chunk, idx) => {
   if (idx === OMITTED_CHUNK_INDEX) return; // omitted on purpose: exercises the per-issue fallback
-  const body = chunk.map((id) => ({ issueId: String(id), changeHistories: historiesJson(String(id), REFERENCE_MS) }));
+  const body = chunk.map((id) => ({ issueId: String(id), changeHistories: bulkHistoriesJson(String(id), REFERENCE_MS) }));
   stub(
     `changelog-bulkfetch-chunk-${idx}`,
     {
@@ -1800,7 +1804,7 @@ stub(
     requiredState: "day2",
   },
   200,
-  { issueChangeLogs: day2StaleIds.map((id) => ({ issueId: id, changeHistories: historiesJson(id, DAY2_NOW_MS) })), nextPageToken: null },
+  { issueChangeLogs: day2StaleIds.map((id) => ({ issueId: id, changeHistories: bulkHistoriesJson(id, DAY2_NOW_MS) })), nextPageToken: null },
 );
 
 // --- issue/{id}/changelog: catch-all (empty) + real data for the omitted chunk's issues ----------
