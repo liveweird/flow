@@ -50,14 +50,31 @@ describe("ReportAgingWip page", () => {
     expect(await screen.findByRole("heading", { level: 2, name: "Aging WIP" })).toBeInTheDocument();
     const table = await screen.findByRole("table", { name: "Open work, oldest first" });
     expect(rowsOf(table)).toEqual([
-      ["FLO-E1Reporting epic", "Epic", "Alpha", "—", "2026-07-20", "40", "—", "—"],
-      ["FLO-1Stuck on review", "Task", "Alpha", "Ann Author", "2026-08-10", "30", "Blocked", "Above p95"],
-      ["FLO-2Slow but moving", "Task", "Beta", "Cy Coder", "2026-09-07", "15.5", "—", "Above p85"],
-      ["FLO-3", "Task", "Beta", "Cy Coder", "2026-09-15", "9", "—", "Above p50"],
-      ["FLO-4Fresh", "Task", "Unassigned", "—", "2026-09-22", "6", "—", "Within"],
+      ["FLO-E1Reporting epic", "Epic", "Alpha", "—", "2026-07-20", "40", "—", "—", "—"],
+      ["FLO-1Stuck on review", "Task", "Alpha", "Ann Author", "2026-08-10", "30", "Blocked", "—", "Above p95"],
+      ["FLO-2Slow but moving", "Task", "Beta", "Cy Coder", "2026-09-07", "15.5", "—", "—", "Above p85"],
+      ["FLO-3", "Task", "Beta", "Cy Coder", "2026-09-15", "9", "—", "Waiting", "Above p50"],
+      ["FLO-4Fresh", "Task", "Unassigned", "—", "2026-09-22", "6", "—", "—", "Within"],
     ]);
     // No invented Jira link: an issue key is plain text.
     expect(within(table).queryByRole("link", { name: /FLO-1/ })).not.toBeInTheDocument();
+  });
+
+  test("a waiting item wears a Waiting badge with the word; without one there is no Waiting column", async () => {
+    serve(mockFetch);
+    renderPage();
+    const table = await screen.findByRole("table", { name: "Open work, oldest first" });
+    expect(within(table).getByRole("columnheader", { name: "Waiting" })).toBeInTheDocument();
+    expect(within(table).getAllByText("Waiting")).toHaveLength(2); // the header and FLO-3's badge
+    expect(within(within(table).getByText("FLO-3").closest("tr") as HTMLElement).getByText("Waiting")).toBeInTheDocument();
+    expect(within(within(table).getByText("FLO-1").closest("tr") as HTMLElement).queryByText("Waiting")).not.toBeInTheDocument();
+  });
+
+  test("with nothing waiting the table keeps its familiar columns", async () => {
+    serve(mockFetch, { ...AGING_UNIT, items: AGING_UNIT.items.map((item) => ({ ...item, waiting: false })) });
+    renderPage();
+    const table = await screen.findByRole("table", { name: "Open work, oldest first" });
+    expect(within(table).queryByRole("columnheader", { name: "Waiting" })).not.toBeInTheDocument();
   });
 
   test("the band is the server's — a band that contradicts the age is drawn as sent, never corrected", async () => {

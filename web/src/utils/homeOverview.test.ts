@@ -73,6 +73,12 @@ describe("agingSummary", () => {
     expect(agingSummary(AGING_EMPTY).wip).toBe(0);
   });
 
+  test("the WIP total counts waiting tasks too (A30: the server lists in-progress and waiting items)", () => {
+    expect(AGING_UNIT.items.filter((item) => item.itemKind === "TASK" && item.waiting)).toHaveLength(1);
+    expect(agingSummary(AGING_UNIT).wip).toBe(AGING_UNIT.items.filter((item) => item.itemKind === "TASK").length);
+    expect(agingSummary({ ...AGING_UNIT, items: AGING_UNIT.items.filter((item) => item.waiting) }).wip).toBe(1);
+  });
+
   test("a single configured percentile is the top (red) threshold and there is no orange one", () => {
     const only85 = {
       ...AGING_UNIT,

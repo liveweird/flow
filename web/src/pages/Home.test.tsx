@@ -169,7 +169,7 @@ describe("Home page — the unit overview", () => {
     const wip = await screen.findByRole("region", { name: "Work in progress" });
     const stats = await within(wip).findByRole("group", { name: "Work in progress and aging" });
     const cells = ["In progress", "Past p85", "Past p95"].map((label) => within(stats).getByRole("group", { name: label }).textContent);
-    // 4 tasks (the epic is not counted); 2 past p85 (FLO-1 above p95, FLO-2); 1 past p95.
+    // 4 tasks — FLO-3 among them is WAITING, which counts as work in progress (A30); the epic is not counted; 2 past p85 (FLO-1 above p95, FLO-2); 1 past p95.
     expect(cells).toEqual(["In progress4", "Past p852", "Past p951"]);
     expect(within(stats).getByText("Past p85").className).toMatch(/Badge/);
     expect(within(wip).queryByText(/at least/)).not.toBeInTheDocument();

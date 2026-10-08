@@ -110,6 +110,34 @@ describe("DataSourceMetricsConfig Statuses filter", () => {
     return JSON.parse((call[1] as RequestInit).body as string);
   }
 
+  test("the stage selects offer Waiting (A30); a status mapped to it is a choice, so it stays listed, and saves as WAITING", async () => {
+    // Legacy (hidden by default: no workflow, no history) is mapped to WAITING by the admin.
+    serveFiltered({
+      ...FILTERED_CONFIG,
+      statusStages: FILTERED_CONFIG.statusStages.map((s) => (s.statusId === "30" ? { ...s, stage: "WAITING" } : s)),
+    });
+    const user = userEvent.setup();
+    renderPage();
+
+    const legacy = (await screen.findByRole("combobox", { name: "Stage for Legacy" })) as HTMLInputElement;
+    await waitFor(() => expect(legacy.value).toBe("Waiting"));
+    expect(screen.queryByRole("combobox", { name: "Stage for Archived" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("combobox", { name: "Stage for In Progress" }));
+    expect((await screen.findAllByRole("option")).map((o) => o.textContent)).toEqual(["Not started", "In progress", "Waiting", "Done"]);
+    await user.click(screen.getByRole("option", { name: "Waiting" }));
+    // the per-domain override select offers it as well
+    await user.click(screen.getByRole("combobox", { name: "Stage for Done in domain ENG" }));
+    expect((await screen.findAllByRole("option", { name: "Waiting" })).length).toBeGreaterThan(0);
+    await user.keyboard("{Escape}");
+
+    expect((await putBody(user)).statusStages).toEqual(
+      expect.arrayContaining([
+        { statusId: "3", stage: "WAITING" },
+        { statusId: "30", stage: "WAITING" },
+      ]),
+    );
+  });
+
   test("lists only workflow/history statuses by default, in both tables, and the switch reveals the rest", async () => {
     serveFiltered();
     const user = userEvent.setup();

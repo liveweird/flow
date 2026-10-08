@@ -66,6 +66,7 @@ describe("ReportReportedTime page", () => {
     await screen.findByRole("heading", { name: "Reported time ÷ cycle time" });
     const flow = screen.getByRole("heading", { name: "Flow efficiency" });
     expect(flow).toBeInTheDocument();
+    expect(screen.getByText(/Time in a waiting status counts as waiting, not as active/)).toBeInTheDocument();
 
     await waitFor(() => expect(screen.getAllByTestId("bar-chart")).toHaveLength(2));
     const charts = screen.getAllByTestId("bar-chart");

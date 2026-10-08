@@ -120,7 +120,7 @@ finished in autumn 2025, before the six-month window opens.
 
 1. The user opens the **WIP** report for the seeded team (deep link, fixed window).
    - *Expected*: the stacked-bands chart is shown, and its text alternative — the per-band table —
-     lists the four stages (Not started, In progress, Done, Unmapped status).
+     lists the five stages (Not started, In progress, Waiting, Done, Unmapped status).
 2. They change **Count by** to **Status**.
    - *Expected*: the URL gains `by=STATUS`; the caption says the bands are by status; the table now
      lists the workflow's own statuses (To Do, In Progress, Done) and no longer the "Not started"

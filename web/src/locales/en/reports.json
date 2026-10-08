@@ -332,7 +332,7 @@
     "ratioAxis": "actual MD ÷ cycle working days",
     "outlierNote": "Very short cycles give very large ratios. They are real and never dropped, so read the median (p50) first — the mean, p95 and the top of the histogram can be dominated by them.",
     "flowTitle": "Flow efficiency",
-    "flowCaption": "Active time ÷ cycle time: time in progress and not blocked, as a share of the whole cycle. Logged time plays no part.",
+    "flowCaption": "Active time ÷ cycle time: time in progress and not blocked, as a share of the whole cycle. Time in a waiting status counts as waiting, not as active. Logged time plays no part.",
     "flowAxis": "active ÷ cycle time",
     "excluded": {
       "noWorklogs": "No time logged",
@@ -361,7 +361,7 @@
     "description": "How many items sit in each stage, status or board column at the end of every day. The bands are stacked, so the top edge is their total.",
     "chartTitle": "Items at the end of each day",
     "caption": {
-      "STAGE": "By stage. Not started and Done are hidden at first: Not started holds the whole backlog and Done only ever grows. Tick them to see all the work.",
+      "STAGE": "By stage. Not started and Done are hidden at first: Not started holds the whole backlog and Done only ever grows. Tick them to see all the work. Waiting is work that has started with nothing actively worked on.",
       "STATUS": "By status, ordered by stage and then by name.",
       "COLUMN": "By column of the team's board, in board order."
     },
@@ -374,6 +374,7 @@
     "stage": {
       "NOT_STARTED": "Not started",
       "IN_PROGRESS": "In progress",
+      "WAITING": "Waiting",
       "DONE": "Done",
       "UNMAPPED": "Unmapped status"
     },
@@ -430,7 +431,7 @@
     "title": "Aging WIP",
     "description": "The work in progress right now and how long each item has been going: working days from its first start until now. Age is as of now, so the period does not apply; the bands compare each age with the team's recent finished items.",
     "openTitle": "Open work, oldest first",
-    "caption": "Age is counted on the configured working calendar. Blocked is as of the last derive.",
+    "caption": "Age is counted on the configured working calendar. Blocked is as of the last derive. Waiting items have started but nothing is being actively worked on; they keep aging.",
     "thresholdsTitle": "Thresholds",
     "thresholdsCaption": "Cycle time, in working days, of the team's last finished items. An item is banded by the highest threshold its age is above.",
     "tasksTitle": "Tasks",
@@ -451,9 +452,11 @@
       "started": "Started",
       "age": "Age (working days)",
       "blocked": "Blocked",
+      "waiting": "Waiting",
       "band": "Band"
     },
     "blocked": "Blocked",
+    "waiting": "Waiting",
     "band": {
       "within": "Within",
       "above": "Above {{p}}"

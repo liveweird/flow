@@ -11,8 +11,9 @@ describe("wipBands and paintBands", () => {
     expect(paintBands("STAGE", bands).map((b) => [b.name, b.label, b.color])).toEqual([
       ["b0", "Not started", "gray.6"],
       ["b1", "In progress", "flow.6"],
-      ["b2", "Done", "teal.8"],
-      ["b3", "Unmapped status", "orange.8"],
+      ["b2", "Waiting", "grape.6"],
+      ["b3", "Done", "teal.8"],
+      ["b4", "Unmapped status", "orange.8"],
     ]);
   });
 
@@ -62,6 +63,10 @@ describe("wipChartRows and wipBandSummary", () => {
     expect(wipBandSummary(WIP_STAGE.series, "NOT_STARTED")).toEqual({ latest: 38, average: "39.4", peak: 40 });
     expect(wipBandSummary(WIP_STAGE.series, "IN_PROGRESS")).toEqual({ latest: 9, average: "7", peak: 9 });
     expect(wipBandSummary([], "IN_PROGRESS")).toEqual({ latest: 0, average: "0", peak: 0 });
+  });
+
+  test("WAITING is a visible band by default: only Not started and Done start hidden", () => {
+    expect(DEFAULT_HIDDEN_BANDS.STAGE).not.toContain("WAITING");
   });
 
   test("only the stage keying starts with bands hidden", () => {

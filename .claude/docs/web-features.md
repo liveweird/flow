@@ -161,7 +161,7 @@ team membership landed in M2 commit 5, and the per-connection `metrics-config` p
   `RequireAdmin` group, reached from a "Metrics configuration" toolbar link on
   `DataSourceDetails.tsx` beside Profile/Inspect) edits the ONE composite
   `DataSourceMetricsConfig` resource (`.claude/docs/metrics.md` "Per-connection metrics
-  configuration") over `Tabs`: Statuses (stage `Select` + a Blocked `Checkbox` per status, the
+  configuration") over `Tabs`: Statuses (stage `Select` — `METRICS_STAGES`: Not started, In progress, **Waiting** (A30: started, nothing actively worked on; never a category default, so choosing it is a user choice and keeps the status listed; the per-domain `DomainStageOverrides` select offers it too), Done — + a Blocked `Checkbox` per status, the
   Jira category as a `Badge`, plus a gray outline "Epic" and/or "Task" `Badge` for the workflow(s) that use it — options
   `inEpicWorkflow`/`inTaskWorkflow` (a status of both workflows shows both; none while the split is unknown, and then
   the one-line explanation above the table is hidden too); **by default only the relevant statuses are listed** — `inWorkflow || seenInHistory`
@@ -300,7 +300,7 @@ completed · the report's figures · the orange drift badge with the frozen figu
   option is disabled with a hint otherwise and a stray `by=COLUMN` is dropped from the URL (falls back to
   STAGE), and a `400` for a request that WAS for columns of one team is the "no board mapped" note, not a
   failure (any other 400 is the normal failure alert). The chart is a stacked `AreaChart` of end-of-day counts with band
-  toggles (`Chip.Group`, local state): stages keep their vocabulary colours (gray/blue/teal/orange); statuses
+  toggles (`Chip.Group`, local state): stages keep their vocabulary colours (gray/blue/**grape = Waiting**, `CHART_COLORS.stageWaiting` grape.6, visible by default/teal/orange; band order Not started, In progress, Waiting, Done, Unmapped is the server's `keys`); statuses
   and columns are arbitrary names, so they never wear a semantic hue: `BAND_CYCLE` alternates blue and gray
   (flow.6, gray.6, flow.7, gray.6 — the only neutral shades that clear 3:1 on all four surfaces), assigned by
   position among the bands SHOWN (`paintBands`) so neighbours never share a hue; beyond two bands a hue/shade
@@ -323,7 +323,10 @@ completed · the report's figures · the orange drift badge with the frozen figu
   recomputed from the age; `utils/agingReport.ts`'s `bandTone` only reads its RANK among the configured
   thresholds of the item's own kind: the top threshold red ("above p95"), the next orange ("above p85"), the
   rest gray — the text always names the threshold, colour is never the only carrier. Blocked is a red outline
-  badge with the word. Issue keys are plain text (no page links to Jira). Blocked time composes
+  badge with the word; Waiting (`item.waiting`, A30) is a light grape badge with the word in its own "Waiting"
+  column, rendered only when some listed item waits (waiting items keep aging). The Home WIP tile's total is
+  the count of listed tasks, so it includes waiting ones with no extra code. Flow efficiency's caption on Reported time
+  says time in a waiting status counts as waiting. Issue keys are plain text (no page links to Jira). Blocked time composes
   `DistributionWithAccounting` twice (blocked working days over EVERY finished item, so no exclusions and a
   "N of M were blocked at all" line; share of cycle with `neverStarted`/`zeroCycle`), the top-20 table and the
   groups table; `itemKind` (default TASK, always sent) reuses the WIP bar control, and at TEAM level with epics

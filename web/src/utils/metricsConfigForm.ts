@@ -18,7 +18,7 @@ export const CATEGORY_MAX_LENGTH = 100;
 export const CAPACITY_MD_MAX = 999999.99;
 
 export type MetricsStage = "NOT_STARTED" | "IN_PROGRESS" | "WAITING" | "DONE";
-export const METRICS_STAGES: MetricsStage[] = ["NOT_STARTED", "IN_PROGRESS", "DONE"];
+export const METRICS_STAGES: MetricsStage[] = ["NOT_STARTED", "IN_PROGRESS", "WAITING", "DONE"];
 
 export interface StatusRowState {
   statusId: string;

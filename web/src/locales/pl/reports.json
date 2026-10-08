@@ -345,7 +345,7 @@
     "ratioAxis": "zalogowane MD ÷ dni robocze cyklu",
     "outlierNote": "Bardzo krótkie cykle dają bardzo duże stosunki. Są prawdziwe i nigdy ich nie pomijamy, więc zacznij od mediany (p50) — średnia, p95 i prawy koniec histogramu mogą być przez nie zdominowane.",
     "flowTitle": "Efektywność przepływu",
-    "flowCaption": "Czas aktywny ÷ czas cyklu: czas w toku i niezablokowany jako udział całego cyklu. Zalogowany czas nie ma znaczenia.",
+    "flowCaption": "Czas aktywny ÷ czas cyklu: czas w toku i niezablokowany jako udział całego cyklu. Czas w statusie oczekującym liczy się jako czekanie, nie jako czas aktywny. Zalogowany czas nie ma znaczenia.",
     "flowAxis": "czas aktywny ÷ czas cyklu",
     "excluded": {
       "noWorklogs": "Nie zalogowano czasu",
@@ -374,7 +374,7 @@
     "description": "Ile pozycji znajduje się w każdym etapie, statusie lub kolumnie tablicy na koniec każdego dnia. Pasma są ułożone jedno na drugim, więc górna krawędź to ich suma.",
     "chartTitle": "Pozycje na koniec każdego dnia",
     "caption": {
-      "STAGE": "Według etapu. „Nierozpoczęte” i „Zakończone” są na początku ukryte: „Nierozpoczęte” to cały backlog, a „Zakończone” tylko rośnie. Zaznacz je, aby zobaczyć całą pracę.",
+      "STAGE": "Według etapu. „Nierozpoczęte” i „Zakończone” są na początku ukryte: „Nierozpoczęte” to cały backlog, a „Zakończone” tylko rośnie. Zaznacz je, aby zobaczyć całą pracę. „Oczekujące” to praca rozpoczęta, przy której nic się teraz aktywnie nie dzieje.",
       "STATUS": "Według statusu, w kolejności etapów, a potem nazw.",
       "COLUMN": "Według kolumn tablicy zespołu, w kolejności z tablicy."
     },
@@ -387,6 +387,7 @@
     "stage": {
       "NOT_STARTED": "Nierozpoczęte",
       "IN_PROGRESS": "W toku",
+      "WAITING": "Oczekujące",
       "DONE": "Zakończone",
       "UNMAPPED": "Status bez przypisanego etapu"
     },
@@ -449,7 +450,7 @@
     "title": "Wiek WIP",
     "description": "Praca w toku w tej chwili i jak długo trwa każda pozycja: dni robocze od pierwszego rozpoczęcia do teraz. Wiek liczymy na teraz, więc okres nie ma tu zastosowania; pasma porównują każdy wiek z ostatnio zakończonymi pozycjami zespołu.",
     "openTitle": "Otwarta praca, od najstarszej",
-    "caption": "Wiek liczymy według skonfigurowanego kalendarza roboczego. Stan blokady bierzemy z ostatniego wyliczenia.",
+    "caption": "Wiek liczymy według skonfigurowanego kalendarza roboczego. Stan blokady bierzemy z ostatniego wyliczenia. Pozycje oczekujące są już rozpoczęte, ale nic się przy nich aktywnie nie dzieje; nadal się starzeją.",
     "thresholdsTitle": "Progi",
     "thresholdsCaption": "Czas cyklu w dniach roboczych ostatnio zakończonych pozycji zespołu. Pozycję przypisujemy do pasma według najwyższego progu, który jej wiek przekracza.",
     "tasksTitle": "Zadania",
@@ -472,9 +473,11 @@
       "started": "Rozpoczęto",
       "age": "Wiek (dni robocze)",
       "blocked": "Zablokowane",
+      "waiting": "Oczekiwanie",
       "band": "Pasmo"
     },
     "blocked": "Zablokowane",
+    "waiting": "Oczekuje",
     "band": {
       "within": "W normie",
       "above": "Powyżej {{p}}"
