@@ -10,6 +10,7 @@ import org.jetbrains.exposed.v1.r2dbc.R2dbcTransaction
 import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.r2dbc.update
+import org.slf4j.LoggerFactory
 
 private val SKIP_LOCKED = ForUpdateOption.PostgreSQL.ForUpdate(ForUpdateOption.PostgreSQL.MODE.SKIP_LOCKED)
 
@@ -22,6 +23,10 @@ private val SKIP_LOCKED = ForUpdateOption.PostgreSQL.ForUpdate(ForUpdateOption.P
 internal const val CLAIM_LOCK_NAMESPACE = 0x53594E43
 
 private const val MILLIS_PER_SECOND = 1000L
+
+private const val RETRIES_EXHAUSTED = "RETRIES_EXHAUSTED"
+
+private val log = LoggerFactory.getLogger(SyncJobLeases::class.java)
 
 /**
  * The worker-role claim/lease path of the sync-job queue (`SyncJobsService`'s facade delegates here): the claim with its
@@ -39,7 +44,8 @@ internal class SyncJobLeases(
      * Claims one PENDING job, or a RUNNING job whose lease has expired (`FOR UPDATE SKIP LOCKED`,
      * so concurrent claimers never contend on the same row) — at most one RUNNING job per
      * connection, of ANY kind (the partial unique index only dedupes per KIND). A candidate
-     * past `max_attempts` fails `RETRIES_EXHAUSTED`; a `config_revision` mismatch (the connection
+     * past `max_attempts` fails `RETRIES_EXHAUSTED` (and, for SYNC/RECONCILE, records the connection's failure back-off in the
+     * same transaction as [fail] does, once the scan is done — see [recordExhaustedBackoffs]); a `config_revision` mismatch (the connection
      * was edited since enqueue) cancels it `CONFIG_CHANGED` — either way the scan continues to the
      * next candidate rather than returning null.
      *
@@ -55,53 +61,96 @@ internal class SyncJobLeases(
      * row, so it cannot conflict with the writers of the connection row (`DataSourceService`'s `FOR UPDATE`,
      * config PUT, soft delete) nor with the foreign-key share lock every job insert takes on it.
      */
-    suspend fun claim(workerId: String, leaseSeconds: Long, now: Long = clock()): SyncJobClaim? = suspendTransaction(database) {
+    suspend fun claim(workerId: String, leaseSeconds: Long, now: Long = clock()): SyncJobClaim? {
+        val outcome = suspendTransaction(database) { claimIn(workerId, leaseSeconds, now) }
+        // Logged only once the transaction has committed: a rolled-back claim must not report a close that never happened.
+        outcome.exhausted.forEach {
+            log.warn("Sync job {} ({}) for data source {} exhausted its {} attempts", it.jobId, it.kind, it.connectionId, it.maxAttempts)
+        }
+        return outcome.claim
+    }
+
+    /** What [claimIn] decided: the claimed job (if any) and the jobs it closed `RETRIES_EXHAUSTED` on the way. */
+    private class ClaimOutcome(val claim: SyncJobClaim?, val exhausted: List<ExhaustedJob>)
+
+    private class ExhaustedJob(
+        val jobId: UInt,
+        val connectionId: UInt,
+        val kind: SyncJobKind,
+        val configRevision: Long,
+        val maxAttempts: Int,
+    )
+
+    private suspend fun R2dbcTransaction.claimIn(workerId: String, leaseSeconds: Long, now: Long): ClaimOutcome {
         val expiredLease = (Jobs.status eq SyncJobStatus.RUNNING.name) and (Jobs.leaseUntil less now)
         val candidates = Jobs.selectAll()
             .where { (Jobs.status eq SyncJobStatus.PENDING.name) or expiredLease }
             .orderBy(Jobs.priority to SortOrder.ASC, Jobs.requestedAt to SortOrder.ASC, Jobs.id to SortOrder.ASC)
             .forUpdate(SKIP_LOCKED)
             .toList()
-        for (row in candidates) {
-            val jobId = row[Jobs.id].value
-            val connId = row[Jobs.connectionId].value
-            val attemptCount = row[Jobs.attempt]
-            val maxAttemptsForRow = row[Jobs.maxAttempts]
-            if (attemptCount >= maxAttemptsForRow) {
-                terminal(jobId, SyncJobStatus.FAILED, "RETRIES_EXHAUSTED", now)
-                continue
-            }
-            val connectionRow = DataSourceService.Connections.selectAll()
-                .where { DataSourceService.Connections.id eq connId }
-                .toList().singleOrNull()
-            val currentConfigRevision = connectionRow?.get(DataSourceService.Connections.configRevision)
-            if (currentConfigRevision != null && currentConfigRevision != row[Jobs.configRevision]) {
-                terminal(jobId, SyncJobStatus.CANCELLED, "CONFIG_CHANGED", now)
-                continue
-            }
-            if (!claimableForConnection(connId, jobId)) continue
-            val syncIntervalMinutes = connectionRow?.get(DataSourceService.Connections.syncIntervalMinutes) ?: 0
-            val connectorKind = connectionRow?.get(DataSourceService.Connections.kind)
-                ?.let { DataSourceKind.valueOf(it) } ?: DataSourceKind.JIRA_CLOUD
-            Jobs.update({ Jobs.id eq jobId }) {
-                it[status] = SyncJobStatus.RUNNING.name
-                it[leaseOwner] = workerId
-                it[leaseUntil] = now + leaseSeconds * 1000
-                it[heartbeatAt] = now
-                it[attempt] = attemptCount + 1
-                if (row[Jobs.startedAt] == null) it[startedAt] = now
-            }
-            return@suspendTransaction SyncJobClaim(
-                id = jobId,
-                connectionId = connId,
-                connectorKind = connectorKind,
-                kind = SyncJobKind.valueOf(row[Jobs.kind]),
-                attempt = attemptCount + 1,
-                maxAttempts = maxAttemptsForRow,
-                syncIntervalMinutes = syncIntervalMinutes,
-            )
+        val exhausted = mutableListOf<ExhaustedJob>()
+        val claimed = candidates.firstNotNullOfOrNull { claimCandidate(it, workerId, leaseSeconds, now, exhausted) }
+        recordExhaustedBackoffs(exhausted, now)
+        return ClaimOutcome(claimed, exhausted)
+    }
+
+    /** One candidate of [claimIn]'s scan: the claim if it took the job, null if it closed or skipped it (the scan goes on). */
+    private suspend fun R2dbcTransaction.claimCandidate(
+        row: ResultRow,
+        workerId: String,
+        leaseSeconds: Long,
+        now: Long,
+        exhausted: MutableList<ExhaustedJob>,
+    ): SyncJobClaim? {
+        val jobId = row[Jobs.id].value
+        val connId = row[Jobs.connectionId].value
+        val attemptCount = row[Jobs.attempt]
+        val maxAttemptsForRow = row[Jobs.maxAttempts]
+        if (attemptCount >= maxAttemptsForRow) {
+            terminal(jobId, SyncJobStatus.FAILED, RETRIES_EXHAUSTED, now)
+            exhausted += ExhaustedJob(jobId, connId, SyncJobKind.valueOf(row[Jobs.kind]), row[Jobs.configRevision], maxAttemptsForRow)
+            return null
         }
-        null
+        val connectionRow = DataSourceService.Connections.selectAll()
+            .where { DataSourceService.Connections.id eq connId }
+            .toList().singleOrNull()
+        val currentConfigRevision = connectionRow?.get(DataSourceService.Connections.configRevision)
+        if (currentConfigRevision != null && currentConfigRevision != row[Jobs.configRevision]) {
+            terminal(jobId, SyncJobStatus.CANCELLED, "CONFIG_CHANGED", now)
+            return null
+        }
+        if (!claimableForConnection(connId, jobId)) return null
+        val syncIntervalMinutes = connectionRow?.get(DataSourceService.Connections.syncIntervalMinutes) ?: 0
+        val connectorKind = connectionRow?.get(DataSourceService.Connections.kind)
+            ?.let { DataSourceKind.valueOf(it) } ?: DataSourceKind.JIRA_CLOUD
+        Jobs.update({ Jobs.id eq jobId }) {
+            it[status] = SyncJobStatus.RUNNING.name
+            it[leaseOwner] = workerId
+            it[leaseUntil] = now + leaseSeconds * 1000
+            it[heartbeatAt] = now
+            it[attempt] = attemptCount + 1
+            if (row[Jobs.startedAt] == null) it[startedAt] = now
+        }
+        return SyncJobClaim(
+            id = jobId,
+            connectionId = connId,
+            connectorKind = connectorKind,
+            kind = SyncJobKind.valueOf(row[Jobs.kind]),
+            attempt = attemptCount + 1,
+            maxAttempts = maxAttemptsForRow,
+            syncIntervalMinutes = syncIntervalMinutes,
+        )
+    }
+
+    /**
+     * The failure back-off of the jobs this claim closed `RETRIES_EXHAUSTED` (they never reach the worker's failure path), applied
+     * AFTER the candidate scan and in ASCENDING connection id: the connection row is locked `FOR NO KEY UPDATE` (one lock per
+     * connection, held to the claim's commit), so two claimers that exhaust jobs of several connections lock them in the same order
+     * and cannot deadlock — see `ingestion.md` "Claiming".
+     */
+    private suspend fun R2dbcTransaction.recordExhaustedBackoffs(exhausted: List<ExhaustedJob>, now: Long) {
+        exhausted.sortedWith(compareBy({ it.connectionId }, { it.kind }))
+            .forEach { recordFailureBackoff(it.connectionId, it.kind, RETRIES_EXHAUSTED, now, it.configRevision) }
     }
 
     /**
@@ -220,9 +269,16 @@ internal class SyncJobLeases(
         } > 0
     }
 
+    /**
+     * Fenced terminal write (FAILED). A SYNC/RECONCILE failure of the connection's CURRENT `config_revision` also records
+     * the connection's back-off (`consecutive_failures` and `next_sync_at`, or `reconcile_failures` and `next_reconcile_at` —
+     * `recordFailureBackoff`) in the SAME transaction, so no other worker's tick can see the job closed but the connection
+     * still due and enqueue an extra retry in between. A job of an older revision (it started before a config PUT) records
+     * none, so it cannot re-impose the back-off that PUT cleared. A fenced-out (stale) write returns `false` and records none.
+     */
     suspend fun fail(jobId: UInt, attempt: Int, errorCode: String, errorDetail: String? = null, now: Long = clock()): Boolean =
         suspendTransaction(database) {
-            Jobs.update({ runningAttempt(jobId, attempt) }) {
+            val failed = Jobs.update({ runningAttempt(jobId, attempt) }) {
                 it[status] = SyncJobStatus.FAILED.name
                 it[Jobs.errorCode] = errorCode
                 it[Jobs.errorDetail] = errorDetail
@@ -230,6 +286,13 @@ internal class SyncJobLeases(
                 it[leaseOwner] = null
                 it[leaseUntil] = null
             } > 0
+            if (failed) {
+                val row = Jobs.selectAll().where { Jobs.id eq jobId }.toList().single()
+                recordFailureBackoff(
+                    row[Jobs.connectionId].value, SyncJobKind.valueOf(row[Jobs.kind]), errorCode, now, row[Jobs.configRevision],
+                )
+            }
+            failed
         }
 
     /** The worker honoured `cancel_requested_at`. */

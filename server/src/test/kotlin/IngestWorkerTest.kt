@@ -84,6 +84,9 @@ private class VirtualTime : AbstractLongTimeSource(DurationUnit.NANOSECONDS) {
     }
 }
 
+/** `syncJobs()`'s default `max_attempts`; [exhaustAttempts] sets a row's `attempt` to it. */
+private const val SYNC_JOB_MAX_ATTEMPTS = 3
+
 private val TICK_CLOCK_MILLIS = java.time.Instant.parse("2024-01-01T01:00:00Z").toEpochMilli()
 
 /**
@@ -208,7 +211,7 @@ class IngestWorkerTest {
             MetricsConfigService.BlockedStatuses.selectAll().where { MetricsConfigService.BlockedStatuses.connectionId eq connId }.count()
     }
 
-    private fun syncJobs(maxAttempts: Int = 3, clock: () -> Long = System::currentTimeMillis) =
+    private fun syncJobs(maxAttempts: Int = SYNC_JOB_MAX_ATTEMPTS, clock: () -> Long = System::currentTimeMillis) =
         SyncJobsService(sharedDatabaseForTests(), maxAttempts, clock)
 
     /** One worker id per test instance, so a hand-claimed row ([claimFor]) is leased to the worker the test builds. */
@@ -841,6 +844,234 @@ class IngestWorkerTest {
         val job = jobs.list(connId, SyncJobListFilter(kind = SyncJobKind.RECONCILE), pagingAll()).items.single()
         assertEquals(SyncJobStatus.SUCCEEDED, job.status)
         assertEquals(ReconcileState(0, null, retryAt), reconcileState(connId))
+    }
+
+    /** The connection's SYNC back-off columns and last error code, read straight from the row. */
+    private data class SyncState(val failures: Int, val nextAt: Long?, val errorCode: String?)
+
+    private suspend fun syncState(connId: UInt) = suspendTransaction(sharedDatabaseForTests()) {
+        val row = DataSourceService.Connections.selectAll().where { DataSourceService.Connections.id eq connId }.toList().single()
+        SyncState(
+            row[DataSourceService.Connections.consecutiveFailures],
+            row[DataSourceService.Connections.nextSyncAt],
+            row[DataSourceService.Connections.lastSyncErrorCode],
+        )
+    }
+
+    /** Puts [jobId] (a PENDING row) at `max_attempts`, as a worker crash loop leaves it: the next claim fails it `RETRIES_EXHAUSTED`. */
+    private suspend fun exhaustAttempts(jobId: UInt) {
+        suspendTransaction(sharedDatabaseForTests()) {
+            SyncJobsService.Jobs.update({ SyncJobsService.Jobs.id eq jobId }) { it[attempt] = SYNC_JOB_MAX_ATTEMPTS }
+        }
+    }
+
+    @Test
+    fun `a SYNC job that exhausts its attempts records the back-off, so the next ticks enqueue no fresh job`() = runBlocking {
+        val ds = dataSources()
+        val jobs = syncJobs()
+        val connId = createConnection(ds, syncIntervalMinutes = 30, enabled = true)
+        val runs = AtomicInteger()
+        val clock = AtomicLong(TICK_CLOCK_MILLIS)
+        val worker = IngestWorker(
+            jobs, ds, handlers(ds), mapOf(DataSourceKind.JIRA_CLOUD to FakeConnector { runs.incrementAndGet() }),
+            testConfig(workerSlots = 5), clock::get,
+        )
+        jobs.enqueueScheduled(connId, SyncJobKind.SYNC, configRevision = 1L, now = TICK_CLOCK_MILLIS)
+        exhaustAttempts(jobs.list(connId, SyncJobListFilter(), pagingAll()).items.single().id)
+        suspend fun syncJobsOf() = jobs.list(connId, SyncJobListFilter(kind = SyncJobKind.SYNC), pagingAll()).items
+
+        withOnlyConnections(setOf(connId), TICK_CLOCK_MILLIS) {
+            coroutineScope { worker.tick(this) }
+            val closed = syncJobsOf().single()
+            assertEquals(SyncJobStatus.FAILED, closed.status)
+            assertEquals("RETRIES_EXHAUSTED", closed.errorCode)
+            assertEquals(0, runs.get(), "an exhausted job is never run")
+            assertEquals(SyncState(1, TICK_CLOCK_MILLIS + backoffMillis(30 * MILLIS_PER_MINUTE, 0), "RETRIES_EXHAUSTED"), syncState(connId))
+
+            clock.set(TICK_CLOCK_MILLIS + 15_000L)
+            coroutineScope { worker.tick(this) }
+            assertEquals(1, syncJobsOf().size, "the next scheduler tick must not enqueue a fresh SYNC inside the back-off")
+        }
+        assertTrue(ds.dueForSync(TICK_CLOCK_MILLIS + 30 * MILLIS_PER_MINUTE).any { it.id == connId }, "due again once the back-off elapsed")
+        assertTrue(ds.dueForSync(TICK_CLOCK_MILLIS + 30 * MILLIS_PER_MINUTE - 1).none { it.id == connId })
+    }
+
+    @Test
+    fun `a RECONCILE job that exhausts its attempts records the reconcile back-off, so no fresh job is enqueued`() = runBlocking {
+        val ds = dataSources()
+        val jobs = syncJobs()
+        val connId = createConnection(ds, enabled = true)
+        silenceSync(connId)
+        val start = TICK_CLOCK_MILLIS + 4 * 60 * MILLIS_PER_MINUTE // 05:00 UTC, past the 03:00 boundary, so RECONCILE is due
+        val clock = AtomicLong(start)
+        val runs = AtomicInteger()
+        val worker = IngestWorker(
+            jobs, ds, handlers(ds), mapOf(DataSourceKind.JIRA_CLOUD to FakeConnector { runs.incrementAndGet() }),
+            testConfig(workerSlots = 5), clock::get,
+        )
+        jobs.enqueueScheduled(connId, SyncJobKind.RECONCILE, configRevision = 1L, now = start)
+        exhaustAttempts(jobs.list(connId, SyncJobListFilter(), pagingAll()).items.single().id)
+        suspend fun reconcileJobs() = jobs.list(connId, SyncJobListFilter(kind = SyncJobKind.RECONCILE), pagingAll()).items
+
+        withOnlyConnections(setOf(connId), start) {
+            coroutineScope { worker.tick(this) }
+            val closed = reconcileJobs().single()
+            assertEquals(SyncJobStatus.FAILED, closed.status)
+            assertEquals("RETRIES_EXHAUSTED", closed.errorCode)
+            assertEquals(0, runs.get())
+            assertEquals(ReconcileState(1, start + RECONCILE_RETRY_BASE_MILLIS, null), reconcileState(connId))
+            assertEquals(SyncState(0, PARKED_LEASE_UNTIL, null), syncState(connId), "a RECONCILE failure never touches SYNC's back-off")
+
+            clock.set(start + 15_000L)
+            coroutineScope { worker.tick(this) }
+            assertEquals(1, reconcileJobs().size, "the next scheduler tick must not enqueue a fresh RECONCILE inside the back-off")
+        }
+        assertTrue(ds.dueForReconcile(start + RECONCILE_RETRY_BASE_MILLIS).any { it.id == connId })
+    }
+
+    @Test
+    fun `a failed job records its SYNC back-off in the closing transaction, a stale failure none, DERIVE has no schedule`() = runBlocking {
+        val ds = dataSources()
+        val jobs = syncJobs()
+        val connId = createConnection(ds, syncIntervalMinutes = 30)
+        val syncJobId = jobs.requestJob(connId, SyncJobKind.SYNC, requestedByUserId = 1u, configRevision = 1L).jobId
+        val syncClaim = claimFor(syncJobId, connId, SyncJobKind.SYNC)
+
+        assertTrue(jobs.fail(syncClaim.id, syncClaim.attempt, "RUN_FAILED", now = TICK_CLOCK_MILLIS))
+        assertEquals(SyncJobStatus.FAILED, jobs.read(connId, syncClaim.id)?.status)
+        // Visible the moment the job is FAILED: there is no window where the job is closed but the connection is still due.
+        val expected = SyncState(1, TICK_CLOCK_MILLIS + backoffMillis(30 * MILLIS_PER_MINUTE, 0), "RUN_FAILED")
+        assertEquals(expected, syncState(connId))
+
+        val staleFail = jobs.fail(syncClaim.id, syncClaim.attempt, "RUN_FAILED", now = TICK_CLOCK_MILLIS + 1)
+        assertEquals(false, staleFail, "a stale failure is fenced out")
+        assertEquals(expected, syncState(connId), "and records no back-off")
+
+        val deriveJobId = jobs.requestJob(connId, SyncJobKind.DERIVE, requestedByUserId = 1u, configRevision = 1L).jobId
+        val deriveClaim = claimFor(deriveJobId, connId, SyncJobKind.DERIVE)
+        assertTrue(jobs.fail(deriveClaim.id, deriveClaim.attempt, "RUN_FAILED", now = TICK_CLOCK_MILLIS))
+        assertEquals(expected, syncState(connId), "DERIVE has no schedule on the connection")
+        assertEquals(ReconcileState(0, null, null), reconcileState(connId))
+    }
+
+    /** A full-replace PUT body equal to the stored connection (same site, no token): only what the caller `copy`s changes. */
+    private suspend fun DataSourceService.putRequest(connId: UInt): DataSourceRequest {
+        val stored = assertNotNull(read(connId))
+        return DataSourceRequest(
+            name = stored.name,
+            enabled = stored.enabled,
+            syncIntervalMinutes = stored.syncIntervalMinutes,
+            backfillFrom = stored.backfillFrom,
+            reconcileHourUtc = stored.reconcileHourUtc,
+            jira = JiraConnectionRequest(
+                siteUrl = stored.jira.siteUrl,
+                email = stored.jira.email,
+                apiToken = null,
+                projectKeys = stored.jira.projectKeys,
+                authScheme = stored.jira.authScheme,
+            ),
+        )
+    }
+
+    @Test
+    fun `a config PUT lifts the SYNC and RECONCILE failure back-off, so the fixed connection is due on the next tick`() = runBlocking {
+        val ds = dataSources()
+        val connId = createConnection(ds, syncIntervalMinutes = 30, enabled = true)
+        val now = TICK_CLOCK_MILLIS + 4 * 60 * MILLIS_PER_MINUTE // 05:00 UTC: past the reconcile boundary
+        repeat(2) {
+            ds.recordSyncOutcome(connId, succeeded = false, errorCode = "RUN_FAILED", now = now)
+            ds.recordReconcileFailed(connId, now)
+        }
+        assertEquals(2, syncState(connId).failures)
+        assertTrue(ds.dueForSync(now).none { it.id == connId } && ds.dueForReconcile(now).none { it.id == connId }, "backing off")
+
+        // A rotated token (any save bumps config_revision, so it lifts the back-off with it).
+        val put = ds.putRequest(connId)
+        assertNotNull(ds.update(connId, put.copy(jira = put.jira.copy(apiToken = "rotated-${UUID.randomUUID()}"))))
+
+        assertEquals(SyncState(0, null, "RUN_FAILED"), syncState(connId), "the last error stays; the streak and schedule are cleared")
+        assertEquals(ReconcileState(0, null, null), reconcileState(connId))
+        assertTrue(ds.dueForSync(now).any { it.id == connId }, "SYNC is due on the very next tick")
+        assertTrue(ds.dueForReconcile(now).any { it.id == connId }, "and so is RECONCILE")
+    }
+
+    @Test
+    fun `a config PUT clears only the back-off that is set - SYNC alone, RECONCILE alone`() = runBlocking {
+        val ds = dataSources()
+        val now = TICK_CLOCK_MILLIS + 4 * 60 * MILLIS_PER_MINUTE
+        val syncOnly = createConnection(ds, syncIntervalMinutes = 30, enabled = true)
+        ds.recordSyncOutcome(syncOnly, succeeded = true, errorCode = null, now = now)
+        ds.recordSyncOutcome(syncOnly, succeeded = false, errorCode = "RUN_FAILED", now = now)
+        val reconcileOnly = createConnection(ds, syncIntervalMinutes = 30, enabled = true)
+        ds.recordSyncOutcome(reconcileOnly, succeeded = true, errorCode = null, now = now)
+        ds.recordReconcileFailed(reconcileOnly, now)
+        val reconcileOnlySync = syncState(reconcileOnly)
+        val failedReconcile = reconcileState(reconcileOnly)
+        assertEquals(1, failedReconcile.failures)
+
+        assertNotNull(ds.update(syncOnly, ds.putRequest(syncOnly)))
+        assertNotNull(ds.update(reconcileOnly, ds.putRequest(reconcileOnly)))
+
+        assertEquals(SyncState(0, null, "RUN_FAILED"), syncState(syncOnly))
+        assertEquals(ReconcileState(0, null, null), reconcileState(syncOnly), "RECONCILE had no back-off, so it is untouched")
+        assertEquals(reconcileOnlySync, syncState(reconcileOnly), "SYNC had no back-off, so its schedule is untouched")
+        assertEquals(ReconcileState(0, null, null), reconcileState(reconcileOnly), "the RECONCILE back-off is cleared")
+    }
+
+    @Test
+    fun `a job that started before a config PUT does not re-impose the back-off the PUT cleared`() = runBlocking {
+        val ds = dataSources()
+        val jobs = syncJobs()
+        val connId = createConnection(ds, syncIntervalMinutes = 30, enabled = true)
+        ds.recordSyncOutcome(connId, succeeded = false, errorCode = "EARLIER", now = TICK_CLOCK_MILLIS)
+        val staleJobId = jobs.requestJob(connId, SyncJobKind.SYNC, requestedByUserId = 1u, configRevision = 1L).jobId
+        val staleClaim = claimFor(staleJobId, connId, SyncJobKind.SYNC)
+
+        assertNotNull(ds.update(connId, ds.putRequest(connId))) // config_revision 1 -> 2, the back-off is cleared
+        assertEquals(SyncState(0, null, "EARLIER"), syncState(connId))
+        assertTrue(jobs.fail(staleClaim.id, staleClaim.attempt, "RUN_FAILED", now = TICK_CLOCK_MILLIS + 1))
+
+        assertEquals(SyncJobStatus.FAILED, jobs.read(connId, staleJobId)?.status, "the job itself is still closed")
+        assertEquals(SyncState(0, null, "EARLIER"), syncState(connId), "but the connection stays due")
+        assertTrue(ds.dueForSync(TICK_CLOCK_MILLIS + 1).any { it.id == connId })
+    }
+
+    @Test
+    fun `an exhausted job of a stale config revision records no back-off, and an exhausted DERIVE writes nothing`() = runBlocking {
+        val ds = dataSources()
+        val jobs = syncJobs()
+        val staleConn = createConnection(ds, syncIntervalMinutes = 30, enabled = true)
+        val deriveConn = createConnection(ds, syncIntervalMinutes = 30, enabled = true)
+        jobs.enqueueScheduled(staleConn, SyncJobKind.SYNC, configRevision = 1L, now = TICK_CLOCK_MILLIS)
+        jobs.enqueueScheduled(deriveConn, SyncJobKind.DERIVE, configRevision = 1L, now = TICK_CLOCK_MILLIS)
+        exhaustAttempts(jobs.list(staleConn, SyncJobListFilter(), pagingAll()).items.single().id)
+        exhaustAttempts(jobs.list(deriveConn, SyncJobListFilter(), pagingAll()).items.single().id)
+        assertNotNull(ds.update(staleConn, ds.putRequest(staleConn))) // the job was enqueued for revision 1; the connection is at 2
+
+        withOnlyConnections(setOf(staleConn, deriveConn), TICK_CLOCK_MILLIS) {
+            assertEquals(null, jobs.claim(workerId, leaseSeconds = 60, now = TICK_CLOCK_MILLIS))
+        }
+
+        for ((connId, kind) in listOf(staleConn to SyncJobKind.SYNC, deriveConn to SyncJobKind.DERIVE)) {
+            val job = jobs.list(connId, SyncJobListFilter(kind = kind), pagingAll()).items.single()
+            assertEquals(SyncJobStatus.FAILED, job.status)
+            assertEquals("RETRIES_EXHAUSTED", job.errorCode)
+            assertEquals(SyncState(0, null, null), syncState(connId), "no back-off for $kind")
+            assertEquals(ReconcileState(0, null, null), reconcileState(connId))
+        }
+    }
+
+    @Test
+    fun `a config PUT leaves a healthy connection's schedule alone`() = runBlocking {
+        val ds = dataSources()
+        val connId = createConnection(ds, syncIntervalMinutes = 30, enabled = true)
+        ds.recordSyncOutcome(connId, succeeded = true, errorCode = null, now = TICK_CLOCK_MILLIS)
+        val scheduled = syncState(connId)
+        assertEquals(TICK_CLOCK_MILLIS + 30 * MILLIS_PER_MINUTE, scheduled.nextAt)
+
+        assertNotNull(ds.update(connId, ds.putRequest(connId).let { it.copy(name = unique("renamed")) }))
+
+        assertEquals(scheduled, syncState(connId), "a rename must not trigger an extra sync")
     }
 
     @Test

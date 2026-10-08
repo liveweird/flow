@@ -121,7 +121,10 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
   (jobId/dataSourceId/workerId — a still-RUNNING job put back to `PENDING` on
   `ApplicationStopping`) — the worker-role surface (`ingest/IngestWorker.kt`). A run that lost
   its lease mid-way, or was cancelled via `cancel_requested_at`, logs a WARN/INFO instead of a
-  further audit event — the row's own `status`/`error_code` already carries that outcome.
+  further audit event — the row's own `status`/`error_code` already carries that outcome. So does a job the claim closes
+  `RETRIES_EXHAUSTED` (`SyncJobLeases.claim`): a WARN `Sync job {id} ({kind}) for data source {id} exhausted its {n} attempts`,
+  no `sync_job.failed`. The scheduler back-off it and every failed job record, and the config PUT that lifts it, are state
+  of the already-audited mutation (`sync_job.failed`, `data_source.updated`) and add no event of their own.
 - `outbound.blocked` (scheme/host ONLY — never the full URL) — every rejection from
   `infra/outbound/OutboundGuard.kt`'s host allow-list or address-range check, emitted by
   `GuardedDns` on the Jira HTTP client's every outbound call (`.claude/docs/jira-integration.md`).
