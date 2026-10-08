@@ -232,7 +232,7 @@ object JiraNormalizer {
             val updatedAtMs = worklog["updated"]?.jsonPrimitive?.contentOrNull?.let { parseJiraInstantEpochMillis(it) }
             WorklogFact(
                 worklogId = worklog.getValue("id").jsonPrimitive.content.toLong(),
-                authorAccountId = worklog["author"]?.jsonObject?.get("accountId")?.jsonPrimitive?.contentOrNull,
+                authorAccountId = worklog["author"].orNullObject()?.get("accountId")?.jsonPrimitive?.contentOrNull,
                 startedAtMs = startedAtMs,
                 timeSpentSeconds = worklog.getValue("timeSpentSeconds").jsonPrimitive.content.toLong(),
                 createdAtMs = createdAtMs,
@@ -256,7 +256,7 @@ object JiraNormalizer {
             updatedAtMs = parseJiraInstantEpochMillis(fields.getValue("updated").jsonPrimitive.content),
             resolvedAtMs = fields["resolutiondate"]?.jsonPrimitive?.contentOrNull?.let { parseJiraInstantEpochMillis(it) },
             storyPoints = fieldIds.storyPointsFieldId?.let { fields[it]?.jsonPrimitive?.doubleOrNull },
-            originalEstimateSeconds = fields["timetracking"]?.jsonObject?.get("originalEstimateSeconds")?.jsonPrimitive?.longOrNull,
+            originalEstimateSeconds = fields["timetracking"].orNullObject()?.get("originalEstimateSeconds")?.jsonPrimitive?.longOrNull,
             // Computed from the issue's OWN worklogs, never `timetracking.timeSpentSeconds` (which a
             // real tenant may leave stale relative to the worklog feed this stream already trusts).
             timeSpentSeconds = worklogs.sumOf { it.timeSpentSeconds },

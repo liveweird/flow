@@ -50,9 +50,10 @@ fun parseJiraInstant(text: String): Instant =
 /**
  * `POST /changelog/bulkfetch` gives a history's `created` as epoch MILLIS (a JSON number, e.g. `1790330188061`) where
  * the per-issue `/issue/{id}/changelog` gives the text form; the raw history is stored verbatim, so every reader of it
- * sees both. No Jira timestamp text is all digits; 18 digits keep `toLong` from overflowing.
+ * sees both. No Jira timestamp text is all digits. 12 digits (from 2001) keep a short number failing loudly, 18 keep
+ * `toLong` from overflowing.
  */
-private val EPOCH_MILLIS = Regex("^[0-9]{1,18}$")
+private val EPOCH_MILLIS = Regex("^[0-9]{12,18}$")
 
 /** Convenience for the overwhelmingly common `parseJiraInstant(text).toEpochMilli()` call shape. */
 fun parseJiraInstantEpochMillis(text: String): Long = parseJiraInstant(text).toEpochMilli()

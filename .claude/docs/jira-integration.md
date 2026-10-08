@@ -284,7 +284,7 @@ always would have; `jira/JiraProcessStream.kt`'s per-issue `catch (failure: Exce
 isolates it to that one issue during PROCESS, never aborting the rest of the batch.
 One more shape, found by the first real SYNC: `POST /changelog/bulkfetch` returns a history's `created` as epoch
 MILLIS (a JSON number, `1790330188061`), while the per-issue `/issue/{id}/changelog` returns the text form. Raw
-histories are stored verbatim, so `parseJiraInstant` also accepts an all-digit value (1–18 digits) as epoch millis;
+histories are stored verbatim, so `parseJiraInstant` also accepts an all-digit value (12–18 digits) as epoch millis;
 the stub's bulkfetch chunks emit the number, its per-issue pages the text.
 **Never call `Instant.parse` directly on Jira-sourced text** — always go through `JiraTime.kt`.
 Covered by `JiraTimeTest` (every accepted shape, with and without millis, plus the malformed-value

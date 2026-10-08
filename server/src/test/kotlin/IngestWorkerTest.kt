@@ -361,7 +361,10 @@ class IngestWorkerTest {
         val ds = dataSources()
         val jobs = syncJobs()
         val connId = createConnection(ds, syncIntervalMinutes = 30, enabled = true)
-        val connector = FakeConnector { error("simulated stream failure") }
+        // The cause's message embeds a URL query, as Ktor's connect-timeout IOException's does: it must never reach the log.
+        val transport = java.io.IOException("Connect timeout has expired [url=https://x.atlassian.net/rest/api/3/search/jql?jql=SECRET]")
+        val connector = FakeConnector { throw IllegalStateException("simulated stream failure", transport) }
+        val logs = LogCapture("ch.nokillswit.ingest.IngestWorker")
         // See the identical workerSlots note in the "success" test above.
         val worker = IngestWorker(
             jobs,
@@ -372,11 +375,22 @@ class IngestWorkerTest {
             fixedEarlyMorningClock(),
         )
 
-        withOnlyConnections(setOf(connId), TICK_CLOCK_MILLIS) { coroutineScope { worker.tick(this) } }
+        try {
+            withOnlyConnections(setOf(connId), TICK_CLOCK_MILLIS) { coroutineScope { worker.tick(this) } }
+        } finally {
+            logs.detach()
+        }
 
         val job = jobs.list(connId, SyncJobListFilter(), pagingAll()).items.single()
         assertEquals(SyncJobStatus.FAILED, job.status)
         assertEquals("RUN_FAILED", job.errorCode)
+        assertEquals("IllegalStateException: simulated stream failure", job.errorDetail)
+        val logged = assertNotNull(logs.events.singleOrNull { it.formattedMessage.startsWith("Sync job ${job.id} (SYNC)") }?.throwableProxy)
+        assertEquals("IllegalStateException: simulated stream failure", logged.message)
+        // Every cause is logged as its class name alone (coroutine stack-trace recovery may add a copy of the top one).
+        val causeMessages = generateSequence(logged.cause) { it.cause }.map { it.message }.toList()
+        assertTrue("java.io.IOException" in causeMessages, "the transport cause is still named: $causeMessages")
+        assertTrue(causeMessages.all { it == it?.trim() && it?.contains(' ') == false }, "only class names: $causeMessages")
         val connection = assertNotNull(ds.read(connId))
         assertEquals(1, connection.status.consecutiveFailures)
         assertEquals("RUN_FAILED", connection.status.lastSyncErrorCode)

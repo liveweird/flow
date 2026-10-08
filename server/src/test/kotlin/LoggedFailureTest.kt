@@ -14,9 +14,9 @@ class LoggedFailureTest {
         val transport = IOException("Connect timeout has expired [url=https://example.atlassian.net/rest/api/3/search/jql?jql=x]")
         val failure = IllegalStateException("Jira fetch failed: TIMEOUT @ https://example.atlassian.net/rest/api/3/search/jql", transport)
 
-        val logged = LoggedFailure(failure)
+        val logged = LoggedFailure(failure, "IllegalStateException: ${failure.message}")
 
-        assertEquals("java.lang.IllegalStateException: ${failure.message}", logged.message)
+        assertEquals("IllegalStateException: ${failure.message}", logged.message)
         assertEquals(failure.stackTrace.toList(), logged.stackTrace.toList())
         val cause = logged.cause!!
         assertEquals("java.io.IOException", cause.message)
@@ -28,9 +28,19 @@ class LoggedFailureTest {
     fun `a failure without a cause logs without one`() {
         val failure = IllegalArgumentException("Element class kotlinx.serialization.json.JsonLiteral is not a JsonObject")
 
-        val logged = LoggedFailure(failure)
+        val logged = LoggedFailure(failure, "bounded")
 
         assertSame(null, logged.cause)
-        assertEquals("java.lang.IllegalArgumentException: ${failure.message}", logged.message)
+        assertEquals("bounded", logged.message)
+    }
+
+    @Test
+    fun `a cause chain is cut after ten levels`() {
+        var failure: Throwable = IllegalStateException("root")
+        repeat(15) { failure = IllegalStateException("level $it", failure) }
+
+        val depth = generateSequence(LoggedFailure(failure, "top") as Throwable) { it.cause }.count()
+
+        assertEquals(11, depth)
     }
 }

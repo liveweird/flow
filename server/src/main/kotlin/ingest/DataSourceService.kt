@@ -94,7 +94,7 @@ class DataSourceService(private val database: R2dbcDatabase, private val cipher:
         // pruned by ingest.jobRetentionDays).
         val purgedAt = long("purged_at").nullable()
         // V21: a failing RECONCILE's back-off (the consecutive_failures / next_sync_at pair, for RECONCILE).
-        val reconcileFailures = integer("reconcile_failures")
+        val reconcileFailures = integer("reconcile_failures").default(0)
         val nextReconcileAt = long("next_reconcile_at").nullable()
     }
 

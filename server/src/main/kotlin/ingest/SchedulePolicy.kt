@@ -14,8 +14,9 @@ internal fun todayReconcileBoundary(reconcileHourUtc: Int, now: Long): Long {
  * today is not re-enqueued (`ingest/DataSourceService.kt`'s `dueForReconcile`, polled every
  * `ingest.schedulerTickSeconds`). A failed run (which never stamps [lastReconcileAt]) would
  * otherwise stay due on every tick, so a pending failure back-off ([nextRetryAt], the
- * `next_reconcile_at` column) also holds the connection back until it has elapsed; the catch-up
- * property is unchanged, the retry is merely delayed.
+ * `next_reconcile_at` column) also holds the connection back until it has elapsed. A retry that falls past midnight
+ * UTC waits for the next day's boundary (that day's run is then the retry), and `reconcile_failures` carries over
+ * until a success, so a connection that failed yesterday starts today further up the back-off.
  */
 internal fun reconcileDue(lastReconcileAt: Long?, reconcileHourUtc: Int, now: Long, nextRetryAt: Long? = null): Boolean {
     val boundary = todayReconcileBoundary(reconcileHourUtc, now)

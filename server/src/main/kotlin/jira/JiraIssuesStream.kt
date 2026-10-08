@@ -92,8 +92,8 @@ internal const val ISSUE_SEARCH_FIELDS = "*all"
 /**
  * The ISSUES stream (v0.2.0 plan §7): pages `search/jql` with an opaque `nextPageToken`, JQL scoped
  * by [projectKeys] with a relative `updated` bound (`JiraJql.incremental`) — TZ-free by design
- * (`jira/JiraJql.kt`). Fields are requested with `fields = null` (Jira's own default — EVERY
- * field), matching the stub's "no `fields` param" full-document response
+ * (`jira/JiraJql.kt`). Fields are requested as [ISSUE_SEARCH_FIELDS] (`*all`, EVERY field — `search/jql` returns only
+ * `id` without it), the only `fields` value the stub's full-document pages match
  * (`.claude/docs/jira-integration.md` "ISSUES stream fields"); this also serves the normalization
  * layer landing in a later commit, since Jira does not let a caller ask for "every SYSTEM field
  * plus every discovered custom field" any more cheaply than asking for all of them.

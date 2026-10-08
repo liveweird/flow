@@ -218,8 +218,9 @@ job stays due and is re-enqueued on every tick. `IngestWorker.onFailed` calls
 `DataSourceService.recordReconcileFailed`, which sets
 `next_reconcile_at = now + backoffMillis(RECONCILE_RETRY_BASE_MILLIS, reconcile_failuresBeforeThisOne)` and
 increments `reconcile_failures` — 15 min, 30 min, 1 h, 2 h, 4 h, then the 6 h cap — and `reconcileDue` holds
-the connection back until `next_reconcile_at` has passed (the same-day catch-up rule is unchanged, only the
-retry is delayed). `recordReconcileSucceeded` resets both columns. A manual RECONCILE is not gated by the back-off.
+the connection back until `next_reconcile_at` has passed. A retry that falls past midnight UTC waits for the next
+day's boundary (with a late `reconcile_hour_utc` a failing day may get no further retry), and `reconcile_failures`
+carries over until a success, so a connection that failed yesterday starts today further up the back-off. `recordReconcileSucceeded` resets both columns. A manual RECONCILE is not gated by the back-off.
 
 **Shutdown and release.** On `ApplicationStopping`, `configureIngestWorker` cancels the worker's
 `CoroutineScope` and joins it with a 5-second timeout. `runJob`'s `CancellationException` handler
