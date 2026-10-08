@@ -20,15 +20,20 @@ import ColumnTable, { type ColumnDef } from "./ColumnTable";
  * "Per-domain stage overrides"): pick a domain, then give any status a stage that differs from the
  * every-domain one above. "Same as all domains" is the ABSENCE of an override, so clearing the
  * select (or the row's remove button) deletes the row; a status without one keeps the stage in the
- * every-domain table. Callers own all state — the selected domain is the only local state.
+ * every-domain table. Callers own all state — the selected domain is the only local state. The table lists
+ * [listedStatuses] (the Statuses tab's default filter); the override list itself always covers every status.
  */
 export default function DomainStageOverrides({
   statuses,
+  listedStatuses,
   domains,
   overrides,
   onChange,
 }: {
+  /** Every status the connection reports — the orphan-override check needs the full list. */
   statuses: StatusRowState[];
+  /** The rows the table lists (the Statuses tab's default filter, or all of them). */
+  listedStatuses: StatusRowState[];
   domains: DomainRowState[];
   overrides: DomainStageRowState[];
   onChange: (next: DomainStageRowState[]) => void;
@@ -154,7 +159,7 @@ export default function DomainStageOverrides({
           <ColumnTable
             aria-label={t("metrics.config.statuses.overrides.tableLabel", { domain: domainKey })}
             columns={columnsFor(domainKey)}
-            rows={statuses}
+            rows={listedStatuses}
             rowKey={(status) => status.statusId}
           />
         </>

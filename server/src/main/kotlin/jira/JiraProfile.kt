@@ -50,6 +50,7 @@ object JiraProfile {
             .filter { (issueId, valueId) -> issueId in liveIssueIds && valueId != null }
         val referenceStatusesByProject = rawStore.entityRowsByKind(connectionId, JiraEntityKind.PROJECT_STATUSES.name)
             .associate { (projectKey, payload) -> projectKey to parseProjectStatuses(payload) }
+        val workflowStatusIds = referenceStatusesByProject.values.flatMap { it.values }.flatten().map { it.id }.distinct().sorted()
         val fieldPayloads = rawStore.entityPayloadsByKind(connectionId, JiraEntityKind.FIELD.name)
         val issueFieldsPayloads = rawStore.issuePayloads(connectionId)
 
@@ -65,6 +66,7 @@ object JiraProfile {
             sprints = computeSprints(sprintRefs, sprintFieldValues, items.size.toLong()),
             people = computePeople(items),
             anomalyCounts = items.flatMap { it.anomalies }.groupingBy { it.name }.eachCount().mapValues { it.value.toLong() },
+            workflowStatusIds = workflowStatusIds,
         )
     }
 
@@ -84,7 +86,7 @@ object JiraProfile {
     private fun computeWorkflows(
         items: List<WorkItemStore.ProfileWorkItemRow>,
         intervalsByIssue: Map<Long, List<NormalizedStatusInterval>>,
-        referenceStatusesByProject: Map<String, Map<String, List<String>>>,
+        referenceStatusesByProject: Map<String, Map<String, List<ReferenceStatus>>>,
     ): List<WorkflowProfile> = items.groupBy { it.projectKey to it.issueType }.map { (key, rows) ->
         val (projectKey, issueType) = key
         val issueIds = rows.map { it.issueId }.toSet()
@@ -108,7 +110,7 @@ object JiraProfile {
                 transitionCount = transitionCounts[statusId] ?: 0L,
             )
         }
-        WorkflowProfile(projectKey, issueType, observed, referenceStatusesByProject[projectKey]?.get(issueType).orEmpty())
+        WorkflowProfile(projectKey, issueType, observed, referenceStatusesByProject[projectKey]?.get(issueType).orEmpty().map { it.name })
     }.sortedWith(compareBy({ it.projectKey }, { it.issueType }))
 
     private fun computeBoards(
@@ -223,12 +225,21 @@ object JiraProfile {
         return PeopleProfile(activeAssignees, pct(unassigned, total))
     }
 
+    /** One entry of a `PROJECT_STATUSES` issue type's status list: the status id and name. */
+    private data class ReferenceStatus(val id: String, val name: String)
+
     /** `GET /project/{key}/statuses`' response (v0.2.0 plan §7 "REFERENCE"): one entry per issue type, its own status list. */
-    private fun parseProjectStatuses(payload: String): Map<String, List<String>> =
+    private fun parseProjectStatuses(payload: String): Map<String, List<ReferenceStatus>> =
         PROFILE_JSON.parseToJsonElement(payload).jsonArray.associate { entry ->
             val obj = entry.jsonObject
             val typeName = obj.getValue("name").jsonPrimitive.content
-            val statusNames = obj["statuses"]?.jsonArray?.map { it.jsonObject.getValue("name").jsonPrimitive.content }.orEmpty()
-            typeName to statusNames
+            // An entry without an id or name is skipped, never a PROFILE failure.
+            val statuses = obj["statuses"]?.jsonArray?.mapNotNull {
+                val status = it.jsonObject
+                val id = status["id"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+                val name = status["name"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+                ReferenceStatus(id, name)
+            }.orEmpty()
+            typeName to statuses
         }
 }

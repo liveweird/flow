@@ -26,6 +26,10 @@ export interface StatusRowState {
   /** "" means unmapped — omitted from the submitted `statusStages` list. */
   stage: MetricsStage | "";
   blocked: boolean;
+  /** Some in-scope project's reference workflow uses the status (options `inWorkflow`) — drives the default Statuses filter. */
+  inWorkflow: boolean;
+  /** Some work item's status interval carries the status (options `seenInHistory`). */
+  seenInHistory: boolean;
 }
 
 /** One per-domain override of a status's stage — only ever a set stage; "same as all domains" is the ABSENCE of a row. */
@@ -110,6 +114,8 @@ export function buildInitialState(
     category: s.category,
     stage: stageByStatusId.get(s.statusId) ?? "",
     blocked: blockedStatusIds.has(s.statusId),
+    inWorkflow: s.inWorkflow,
+    seenInHistory: s.seenInHistory,
   }));
 
   const fields: FieldsState = {
@@ -294,4 +300,51 @@ export function orphanOverrideDomains(domains: DomainRowState[], overrides: Doma
 export function orphanOverrideStatuses(statuses: StatusRowState[], overrides: DomainStageRowState[]): DomainStageRowState[] {
   const known = new Set(statuses.map((s) => s.statusId));
   return overrides.filter((o) => !known.has(o.statusId));
+}
+
+/**
+ * The stage the server seeds a status with before any admin choice (`metrics/DataSourceMetricsConfig.kt`'s
+ * `toDefaultStage`): the to-do category → NOT_STARTED, IN_PROGRESS → IN_PROGRESS, DONE → DONE, UNKNOWN stays unmapped ("").
+ */
+export function defaultStageForCategory(category: string): MetricsStage | "" {
+  switch (category) {
+    case "TODO":
+      return "NOT_STARTED";
+    case "IN_PROGRESS":
+      return "IN_PROGRESS";
+    case "DONE":
+      return "DONE";
+    default:
+      return "";
+  }
+}
+
+/** Whether the status carries a deliberate admin choice: a non-default stage, the Blocked flag or a per-domain override. */
+function statusHasUserChoice(row: StatusRowState, overrides: DomainStageRowState[]): boolean {
+  return row.stage !== defaultStageForCategory(row.category) || row.blocked || overrides.some((o) => o.statusId === row.statusId);
+}
+
+/**
+ * The Statuses tab's default filter: a status is listed when the connection's workflows use it or its history
+ * carries it, PLUS any status the admin has made a choice on (so a hidden status never hides a choice) or touched
+ * this session (so a row never vanishes under the cursor when an edit happens to restore its default). When NO
+ * status is in a workflow or in history (no profile yet) the filter has nothing to go on and lists everything.
+ */
+export function visibleStatuses(
+  statuses: StatusRowState[],
+  overrides: DomainStageRowState[],
+  touched: ReadonlySet<string>,
+  showAll: boolean,
+): StatusRowState[] {
+  if (showAll || !statuses.some((s) => s.inWorkflow || s.seenInHistory)) return statuses;
+  return statuses.filter((s) => s.inWorkflow || s.seenInHistory || statusHasUserChoice(s, overrides) || touched.has(s.statusId));
+}
+
+/** The status ids whose per-domain overrides differ between two override lists (added, removed or restaged). */
+export function changedOverrideStatusIds(before: DomainStageRowState[], after: DomainStageRowState[]): string[] {
+  const key = (o: DomainStageRowState) => JSON.stringify([o.domainKey, o.statusId, o.stage]);
+  const beforeKeys = new Set(before.map(key));
+  const afterKeys = new Set(after.map(key));
+  const changed = [...before.filter((o) => !afterKeys.has(key(o))), ...after.filter((o) => !beforeKeys.has(key(o)))];
+  return [...new Set(changed.map((o) => o.statusId))];
 }

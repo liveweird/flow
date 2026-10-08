@@ -162,7 +162,15 @@ team membership landed in M2 commit 5, and the per-connection `metrics-config` p
   `DataSourceDetails.tsx` beside Profile/Inspect) edits the ONE composite
   `DataSourceMetricsConfig` resource (`.claude/docs/metrics.md` "Per-connection metrics
   configuration") over `Tabs`: Statuses (stage `Select` + a Blocked `Checkbox` per status, the
-  Jira category as a `Badge`; under that table `components/DomainStageOverrides.tsx` — a "Per-domain
+  Jira category as a `Badge`; **by default only the relevant statuses are listed** — `inWorkflow || seenInHistory`
+  from the options endpoint — PLUS every status carrying an admin choice (a stage other than its category's default,
+  Blocked, any per-domain override) or edited this session (`utils/metricsConfigForm.ts`'s `visibleStatuses`; the
+  edited-ids set keeps a row from vanishing under the cursor when an edit restores its default), so a hidden status
+  never hides a choice. A "Show all statuses (N)" `Switch` (plain page state, remembered nowhere, shown only when
+  something is hidden) lists the rest; with no workflow/history information (no profile yet) everything is listed.
+  The filter is display-only: the form state and the full-replace PUT always carry every status, hidden ones at
+  their current/default stage. The filtered list drives both the status table and the overrides table below it
+  (`DomainStageOverrides`'s `listedStatuses`; its orphan-override check still uses the full `statuses`); under that table `components/DomainStageOverrides.tsx` — a "Per-domain
   overrides" section: a domain `Select` over the Domains tab's CURRENT domain keys (each option counts its
   overrides), then a table with one row per status — the every-domain stage, a stage `Select` whose empty value reads
   "Same as all domains" (= no row; clearing it or the row's remove button deletes the override) and a "Differs"

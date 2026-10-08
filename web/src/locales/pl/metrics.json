@@ -115,6 +115,8 @@
       "stageAria": "Etap dla {{name}}",
       "blockedAria": "Zablokowany dla {{name}}",
       "stagePlaceholder": "Niezmapowany",
+      "showAll": "Pokaż wszystkie statusy ({{count}})",
+      "showAllHint": "Domyślnie widać tylko statusy z workflowów tego połączenia lub z jego historii oraz te, które zmieniasz. Zapis zawsze obejmuje wszystkie statusy.",
       "stage": {
         "NOT_STARTED": "Nierozpoczęty",
         "IN_PROGRESS": "W trakcie",

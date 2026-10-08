@@ -7,8 +7,8 @@ import { renderWithProviders } from "../test/render";
 import type { DomainRowState, DomainStageRowState, StatusRowState } from "../utils/metricsConfigForm";
 
 const STATUSES: StatusRowState[] = [
-  { statusId: "3", name: "In Progress", category: "IN_PROGRESS", stage: "IN_PROGRESS", blocked: false },
-  { statusId: "10", name: "Done", category: "DONE", stage: "", blocked: false },
+  { statusId: "3", name: "In Progress", category: "IN_PROGRESS", stage: "IN_PROGRESS", blocked: false, inWorkflow: true, seenInHistory: true },
+  { statusId: "10", name: "Done", category: "DONE", stage: "", blocked: false, inWorkflow: true, seenInHistory: true },
 ];
 const DOMAINS: DomainRowState[] = [
   { projectKey: "ENG", domainKey: "ENG", domainName: "ENG", ownerTeamId: "" },
@@ -19,9 +19,11 @@ const DOMAINS: DomainRowState[] = [
 function Harness({
   domains = DOMAINS,
   initial = [],
+  listed = STATUSES,
   onState,
 }: {
   domains?: DomainRowState[];
+  listed?: StatusRowState[];
   initial?: DomainStageRowState[];
   onState: (next: DomainStageRowState[]) => void;
 }) {
@@ -29,6 +31,7 @@ function Harness({
   return (
     <DomainStageOverrides
       statuses={STATUSES}
+      listedStatuses={listed}
       domains={domains}
       overrides={overrides}
       onChange={(next) => {
@@ -113,5 +116,16 @@ describe("DomainStageOverrides", () => {
 
     await waitFor(() => expect(latest).toEqual([{ domainKey: "ENG", statusId: "3", stage: "DONE" }]));
     expect(screen.queryByText(/no longer reported/)).not.toBeInTheDocument();
+  });
+
+  test("lists only the listed statuses, and a status left out of the table is not mistaken for one the connection dropped", async () => {
+    renderWithProviders(
+      <Harness listed={[STATUSES[0]]} initial={[{ domainKey: "ENG", statusId: "10", stage: "DONE" }]} onState={() => undefined} />,
+    );
+
+    expect(await screen.findByRole("combobox", { name: "Stage for In Progress in domain ENG" })).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "Stage for Done in domain ENG" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/is no longer reported/)).not.toBeInTheDocument();
+    expect(screen.getByText("Overrides in total: 1")).toBeInTheDocument();
   });
 });

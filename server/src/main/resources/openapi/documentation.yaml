@@ -3262,6 +3262,10 @@ components:
           type: object
           additionalProperties: { type: integer, format: int64, minimum: 0 }
           description: Keyed by anomaly code (`STATUS_CHANGE_BEFORE_CREATED`/`STATUS_CHAIN_BROKEN`/`STATUS_MISMATCH_WITH_CURRENT`).
+        workflowStatusIds:
+          type: array
+          items: { type: string }
+          description: Sorted, distinct status ids across every in-scope project's reference workflow (`PROJECT_STATUSES`); empty on a profile stored before this field existed.
 
     MetricsStatusStage:
       type: object
@@ -3387,11 +3391,13 @@ components:
           items: { $ref: '#/components/schemas/MetricsSprintCapacity' }
     MetricsStatusOption:
       type: object
-      required: [statusId, name, category]
+      required: [statusId, name, category, inWorkflow, seenInHistory]
       properties:
         statusId: { type: string }
         name: { type: string }
         category: { type: string, enum: [TODO, IN_PROGRESS, DONE, UNKNOWN] }
+        inWorkflow: { type: boolean, description: "The status id is in the stored data profile's `workflowStatusIds` (an in-scope project's reference workflow uses it)." }
+        seenInHistory: { type: boolean, description: "Some work item's status interval of this connection carries the status id." }
     MetricsFieldOption:
       type: object
       required: [fieldId, name, type, detectedRole]

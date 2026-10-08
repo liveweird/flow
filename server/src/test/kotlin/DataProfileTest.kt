@@ -133,6 +133,8 @@ class DataProfileTest {
             val admin = seededClient("profilefull-read", UserRole.ADMIN)
             val profile = admin.get("/api/v1/data-sources/$connId/profile").body<DataProfile>()
             assertTrue(profile.computedAt != null, "PROFILE must run after PROCESS in a SYNC job")
+            assertTrue(profile.workflowStatusIds.isNotEmpty(), "the in-scope projects' reference workflows list statuses")
+            assertEquals(profile.workflowStatusIds.distinct().sorted(), profile.workflowStatusIds, "sorted and distinct")
 
             assertEquals(
                 dataProfileExpectedFixture.reopens.inScopeCount, profile.reopens.count,

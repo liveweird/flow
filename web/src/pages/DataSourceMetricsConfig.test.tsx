@@ -21,8 +21,8 @@ const TEAMS_URL = "/api/v1/teams?page=1&pageSize=100&sort=name";
 
 const OPTIONS: DataSourceMetricsConfigOptions = {
   statuses: [
-    { statusId: "3", name: "In Progress", category: "IN_PROGRESS" },
-    { statusId: "10", name: "Done", category: "DONE" },
+    { statusId: "3", name: "In Progress", category: "IN_PROGRESS", inWorkflow: true, seenInHistory: true },
+    { statusId: "10", name: "Done", category: "DONE", inWorkflow: true, seenInHistory: true },
   ],
   fields: [
     { fieldId: "customfield_10001", name: "Story points", type: "number", detectedRole: "STORY_POINTS" },

@@ -321,6 +321,7 @@ class WorkItemStore(database: R2dbcDatabase) {
     suspend fun distinctWorklogAuthorAccountIds(): Set<String> = pickers.distinctWorklogAuthorAccountIds()
     suspend fun distinctProjectKeys(connectionId: UInt): Set<String> = pickers.distinctProjectKeys(connectionId)
     suspend fun distinctIssueTypes(connectionId: UInt): Set<String> = pickers.distinctIssueTypes(connectionId)
+    suspend fun distinctIntervalStatusIds(connectionId: UInt): Set<String> = pickers.distinctIntervalStatusIds(connectionId)
     suspend fun distinctCustomFieldValues(connectionId: UInt, fieldId: String): List<Pair<String, String?>> =
         pickers.distinctCustomFieldValues(connectionId, fieldId)
 
