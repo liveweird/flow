@@ -9,7 +9,6 @@ import ch.nokillswit.norm.FieldChangeFact
 import ch.nokillswit.norm.IssueNormalizationInput
 import ch.nokillswit.norm.PersonRef
 import ch.nokillswit.norm.SprintRef
-import ch.nokillswit.norm.StatusCategory
 import ch.nokillswit.norm.StatusChangeEvent
 import ch.nokillswit.norm.StatusRef
 import ch.nokillswit.norm.TombstoneKind
@@ -125,28 +124,8 @@ object JiraNormalizer {
         StatusRef(
             statusId = status.getValue("id").jsonPrimitive.content,
             name = status.getValue("name").jsonPrimitive.content,
-            category = statusCategoryOf(status["statusCategory"]),
+            category = jiraStatusCategory(status["statusCategory"]),
         )
-    }
-
-    private fun statusCategoryOf(element: JsonElement?): StatusCategory = when (element) {
-        is JsonPrimitive -> if (element.isString) statusCategoryForEnum(element.content) else StatusCategory.UNKNOWN
-        is JsonObject -> statusCategoryForKey((element["key"] as? JsonPrimitive)?.contentOrNull)
-        else -> StatusCategory.UNKNOWN
-    }
-
-    private fun statusCategoryForEnum(name: String): StatusCategory = when (name) {
-        "TODO" -> StatusCategory.TODO
-        "IN_PROGRESS" -> StatusCategory.IN_PROGRESS
-        "DONE" -> StatusCategory.DONE
-        else -> StatusCategory.UNKNOWN
-    }
-
-    private fun statusCategoryForKey(key: String?): StatusCategory = when (key) {
-        "new" -> StatusCategory.TODO
-        "indeterminate" -> StatusCategory.IN_PROGRESS
-        "done" -> StatusCategory.DONE
-        else -> StatusCategory.UNKNOWN
     }
 
     /** `norm.people`'s rebuilt reference rows — one per `USER` entity. */
