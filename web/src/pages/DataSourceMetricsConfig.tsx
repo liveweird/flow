@@ -68,6 +68,16 @@ function StatusesTab({
         <Badge variant="light" size="sm">
           {t(`dataSources.profile.category.${row.category}` as ParseKeys)}
         </Badge>
+        {row.inEpicWorkflow && (
+          <Badge variant="outline" color="gray" size="sm">
+            {t("metrics.config.statuses.workflow.epic")}
+          </Badge>
+        )}
+        {row.inTaskWorkflow && (
+          <Badge variant="outline" color="gray" size="sm">
+            {t("metrics.config.statuses.workflow.task")}
+          </Badge>
+        )}
       </Group>
     ),
     fields: [
@@ -87,14 +97,22 @@ function StatusesTab({
       },
     ] satisfies MappingField[],
   }));
+  const showWorkflowHint = statuses.some((row) => row.inEpicWorkflow || row.inTaskWorkflow);
   return (
-    <MappingTable
-      label={t("metrics.config.tab.statuses")}
-      idColumnLabel={t("metrics.config.statuses.columnStatus")}
-      fieldColumnLabels={[t("metrics.config.statuses.columnStage"), t("metrics.config.statuses.columnBlocked")]}
-      rows={rows}
-      emptyMessage={t("metrics.config.statuses.empty")}
-    />
+    <Stack gap="xs">
+      {showWorkflowHint && (
+        <Text size="xs" c="dimmed">
+          {t("metrics.config.statuses.workflow.hint")}
+        </Text>
+      )}
+      <MappingTable
+        label={t("metrics.config.tab.statuses")}
+        idColumnLabel={t("metrics.config.statuses.columnStatus")}
+        fieldColumnLabels={[t("metrics.config.statuses.columnStage"), t("metrics.config.statuses.columnBlocked")]}
+        rows={rows}
+        emptyMessage={t("metrics.config.statuses.empty")}
+      />
+    </Stack>
   );
 }
 
@@ -111,17 +129,23 @@ function FieldsTab({
 }) {
   // The default filter's "Show all" switch: plain state, remembered nowhere (like the Statuses tab's).
   const [showAll, setShowAll] = useState(false);
-  const { listed, hiddenCount, schemeUnknown } = visibleFields(fieldOptions, Object.values(fields), showAll);
-  const data = [
+  const selectedIds = Object.values(fields);
+  // Epic slots read the epic issue types' field scheme, task slots the task types' (each falls back to the union while the split is unknown).
+  const epic = visibleFields(fieldOptions, selectedIds, showAll, "epic");
+  const task = visibleFields(fieldOptions, selectedIds, showAll, "task");
+  const hiddenCount = Math.max(epic.hiddenCount, task.hiddenCount);
+  const dataFor = (listed: MetricsFieldOption[]) => [
     { value: "duedate", label: t("metrics.config.fields.dueDateOption") },
     ...listed.map((f) => ({ value: f.fieldId, label: `${f.name} (${t(`dataSources.profile.fieldRole.${f.detectedRole}` as ParseKeys)})` })),
   ];
-  const slots: { key: keyof FieldsState; label: string }[] = [
-    { key: "estimateTask", label: t("metrics.config.fields.estimateTask") },
-    { key: "estimateEpic", label: t("metrics.config.fields.estimateEpic") },
-    { key: "epicStart", label: t("metrics.config.fields.epicStart") },
-    { key: "epicDue", label: t("metrics.config.fields.epicDue") },
-    { key: "workCategory", label: t("metrics.config.fields.workCategory") },
+  const epicData = dataFor(epic.listed);
+  const taskData = dataFor(task.listed);
+  const slots: { key: keyof FieldsState; label: string; data: typeof epicData }[] = [
+    { key: "estimateTask", label: t("metrics.config.fields.estimateTask"), data: taskData },
+    { key: "estimateEpic", label: t("metrics.config.fields.estimateEpic"), data: epicData },
+    { key: "epicStart", label: t("metrics.config.fields.epicStart"), data: epicData },
+    { key: "epicDue", label: t("metrics.config.fields.epicDue"), data: epicData },
+    { key: "workCategory", label: t("metrics.config.fields.workCategory"), data: taskData },
   ];
   return (
     <Stack maw={480}>
@@ -133,7 +157,7 @@ function FieldsTab({
             label={t("metrics.config.fields.showAll", { count: fieldOptions.length })}
           />
           <Text size="xs" c="dimmed">
-            {t(schemeUnknown ? "metrics.config.fields.schemeUnknownHint" : "metrics.config.fields.showAllHint")}
+            {t(epic.schemeUnknown ? "metrics.config.fields.schemeUnknownHint" : "metrics.config.fields.showAllHint")}
           </Text>
         </Stack>
       )}
@@ -141,7 +165,7 @@ function FieldsTab({
         <Select
           key={slot.key}
           label={slot.label}
-          data={data}
+          data={slot.data}
           value={fields[slot.key] || null}
           onChange={(value) => onChange({ ...fields, [slot.key]: value ?? "" })}
           placeholder={t("metrics.config.fields.none")}

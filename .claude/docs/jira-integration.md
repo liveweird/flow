@@ -152,8 +152,8 @@ token carried `read:board-scope:jira-software`.
 ### Project field schemes: `GET /rest/api/3/projects/fields` (optional, experimental)
 
 The metrics-config Fields tab used to list every custom field on the site (1,344 on the first real tenant). The REFERENCE
-stream's optional `PROJECT_FIELDS` step (right after `PROJECT_STATUSES`) records which fields each configured project's
-field scheme carries, so the editor lists those by default.
+stream's optional `PROJECT_FIELDS` step (after `PROJECT_STATUSES` and `ISSUE_TYPE`) records which fields each configured
+project's field scheme carries, so the editor lists those by default.
 
 - **Endpoint.** `JiraClient.projectFields(projectId, workTypeIds, startAt, maxResults)`; `projectId` and `workTypeId`
   (an issue-type id) are REQUIRED and the latter REPEATS (`?projectId=11562&workTypeId=11434&workTypeId=10000`), so
@@ -166,9 +166,20 @@ field scheme carries, so the editor lists those by default.
   groups of 25. EXPERIMENTAL: Atlassian may change or withdraw it. Scopes as documented: `read:field:jira` +
   `read:field-configuration:jira`; the real tenant answered 200 with the token Flow already used.
 - **Stored entity.** One `PROJECT_FIELDS` entity per configured project key (`raw.jira_entities`, entity id = the key),
-  payload `{"projectKey":…,"projectId":…,"fieldIds":[sorted, distinct]}` — the (field, work type) rows collapsed to a
-  field-id set. Inputs are read off the entities stored earlier in the same pass: the project id from the `PROJECT`
-  entity of that key, the issue-type ids from that key's `PROJECT_STATUSES` payload (one array entry per issue type).
+  payload `{"projectKey":…,"projectId":…,"fieldIds":[sorted, distinct],"epicFieldIds":[…],"taskFieldIds":[…]}` — the (field,
+  work type) rows collapsed to field-id sets: the union (`fieldIds`, unchanged and always present) plus the epic/task split.
+  A field is an **epic field** when any work type at hierarchy level 1 carries it, a **task field** when any at level 0 or -1
+  does (a sub-task counts with its task — D2 rolls it up); a work type missing from the hierarchy counts as a task type, one
+  above level 1 (a Premium "Initiative") counts for neither (it stays in the union). The level comes from the stored
+  `ISSUE_TYPE` entities (`JiraNormalizer.issueTypeHierarchy`, keyed by issue-type id = the row's `workTypeId`).
+  **Step order**: `ISSUE_TYPE` is stored BEFORE `PROJECT_FIELDS` (the `JiraEntityKind` declaration order is the REFERENCE
+  step order; `ISSUE_TYPE` moved up one slot). A resumed cursor stays valid — it names a step, resume restarts there, and
+  every step is idempotent (a cursor persisted under the old order that names `PROJECT_FIELDS` resumes with the issue types
+  of the previous pass, if any). The split keys are OMITTED — only the union is stored — when no `ISSUE_TYPE` entity exists or
+  a row has no numeric `workTypeId`; a payload stored before the split existed (or with only one of the two keys) is read
+  as "unknown split": `JiraProjectFields.parse` returns the union for both scopes. Inputs are read off the entities stored
+  earlier in the same pass: the project id from the `PROJECT` entity of that key, the issue-type ids from that key's
+  `PROJECT_STATUSES` payload (one array entry per issue type).
 - **Optional by design.** A project's step is SKIPPED, never failing the SYNC, when its inputs are missing, when the call
   fails with ANY `JiraFetchException` except `BLOCKED_HOST` (401/403 — a missing scope is a 401 on a scoped token —, 404
   endpoint withdrawn, `INVALID_RESPONSE` for any other 4xx / a body that is not the envelope / a row without a string
@@ -181,8 +192,15 @@ field scheme carries, so the editor lists those by default.
   A `BLOCKED_HOST` (an SSRF-guard rejection), lease loss / cancellation and non-Jira failures (database errors) still
   propagate like any reference step. Paging trusts a non-null `isLast` over `total` (which may be absent/0).
 - **Profile.** `DataProfile.schemeFieldIds` = the sorted union over the live `PROJECT_FIELDS` entities of the CURRENT
-  project keys, `null` (unknown) unless EVERY current key has one (a partial union would hide a project's fields); the options endpoint turns it into each custom field's
-  `inScheme` (`.claude/docs/metrics.md`). `README.md` lists `read:field-configuration:jira` as the recommended optional scope.
+  project keys, `null` (unknown) unless EVERY current key has one (a partial union would hide a project's fields);
+  `schemeEpicFieldIds`/`schemeTaskFieldIds` follow the same rule over the split sets (a project whose payload predates the
+  split contributes its whole scheme to both). The options endpoint turns them into each custom field's
+  `inScheme`/`inEpicScheme`/`inTaskScheme` (`.claude/docs/metrics.md`). `README.md` lists `read:field-configuration:jira` as
+  the recommended optional scope.
+- **Per-level workflows.** `GET /project/{key}/statuses` carries one entry per issue type, each with the issue type's `id`; the
+  profile (`JiraProfile`) maps those ids through the same `ISSUE_TYPE` hierarchy (`JiraHierarchy.bucket`) into
+  `epicWorkflowStatusIds` / `taskWorkflowStatusIds` (`ingestion.md` "Data profile"); both stay empty while no `ISSUE_TYPE`
+  entity exists. On the real tenant epics have their own workflow, distinct from every other type's.
 
 ### Decision: the REFERENCE stream no longer fetches priorities (2026-10-08)
 

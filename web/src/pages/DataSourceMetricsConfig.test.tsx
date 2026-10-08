@@ -21,12 +21,12 @@ const TEAMS_URL = "/api/v1/teams?page=1&pageSize=100&sort=name";
 
 const OPTIONS: DataSourceMetricsConfigOptions = {
   statuses: [
-    { statusId: "3", name: "In Progress", category: "IN_PROGRESS", inWorkflow: true, seenInHistory: true },
-    { statusId: "10", name: "Done", category: "DONE", inWorkflow: true, seenInHistory: true },
+    { statusId: "3", name: "In Progress", category: "IN_PROGRESS", inWorkflow: true, seenInHistory: true, inEpicWorkflow: false, inTaskWorkflow: false },
+    { statusId: "10", name: "Done", category: "DONE", inWorkflow: true, seenInHistory: true, inEpicWorkflow: false, inTaskWorkflow: false },
   ],
   fields: [
-    { fieldId: "customfield_10001", name: "Story points", type: "number", detectedRole: "STORY_POINTS", inScheme: true, nonNullCount: 12 },
-    { fieldId: "customfield_10002", name: "Category", type: "string", detectedRole: "OTHER", inScheme: true, nonNullCount: 4 },
+    { fieldId: "customfield_10001", name: "Story points", type: "number", detectedRole: "STORY_POINTS", inScheme: true, nonNullCount: 12, inEpicScheme: null, inTaskScheme: null },
+    { fieldId: "customfield_10002", name: "Category", type: "string", detectedRole: "OTHER", inScheme: true, nonNullCount: 4, inEpicScheme: null, inTaskScheme: null },
   ],
   projects: ["ENG"],
   boards: [

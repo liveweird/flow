@@ -162,7 +162,9 @@ team membership landed in M2 commit 5, and the per-connection `metrics-config` p
   `DataSourceDetails.tsx` beside Profile/Inspect) edits the ONE composite
   `DataSourceMetricsConfig` resource (`.claude/docs/metrics.md` "Per-connection metrics
   configuration") over `Tabs`: Statuses (stage `Select` + a Blocked `Checkbox` per status, the
-  Jira category as a `Badge`; **by default only the relevant statuses are listed** — `inWorkflow || seenInHistory`
+  Jira category as a `Badge`, plus a gray outline "Epic" and/or "Task" `Badge` for the workflow(s) that use it — options
+  `inEpicWorkflow`/`inTaskWorkflow` (a status of both workflows shows both; none while the split is unknown, and then
+  the one-line explanation above the table is hidden too); **by default only the relevant statuses are listed** — `inWorkflow || seenInHistory`
   from the options endpoint — PLUS every status carrying an admin choice (a stage other than its category's default,
   Blocked, any per-domain override) or edited this session (`utils/metricsConfigForm.ts`'s `visibleStatuses`; the
   edited-ids set keeps a row from vanishing under the cursor when an edit restores its default), so a hidden status
@@ -179,8 +181,11 @@ team membership landed in M2 commit 5, and the per-connection `metrics-config` p
   with a Remove button — such an override has no row in the status table and would `400` every save), and the server's `400` shows in the page alert
   — they save with the ONE Save, as `domainStatusStages`), Fields (five `Select`s over the profile-detected custom fields plus
   Jira's own `duedate` system field, labelled with the detected role; **by default only the fields of the projects' field
-  scheme are listed** — options `inScheme === true` — PLUS every field currently selected in any of the five slots
-  (`utils/metricsConfigForm.ts`'s `visibleFields`); when no field carries scheme information (`inScheme` null for all, the
+  scheme are listed**, **per slot**: the three epic slots (estimate, start, due) list options `inEpicScheme === true`, the two
+  task slots (task estimate, work category) `inTaskScheme === true`, each falling back to `inScheme === true` while its split
+  is unknown (`visibleFields(fields, selected, showAll, scope)` with `scope` `epic`/`task`) — PLUS every field currently
+  selected in any of the five slots (`utils/metricsConfigForm.ts`'s `visibleFields`); a split that flags nothing for a scope
+  lists everything for it rather than an empty `Select`; when no field carries scheme information (`inScheme` null for all, the
   optional `projects/fields` step produced nothing) it falls back to fields with `nonNullCount > 0` and a dimmed one-line
   note says the scheme is unavailable; with no information at all everything is listed. A "Show all fields (N)" `Switch`
   (state inside `FieldsTab`, remembered nowhere, shown only when the default hides something) lists the rest. The filter is

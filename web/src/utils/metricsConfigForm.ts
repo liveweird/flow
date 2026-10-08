@@ -31,6 +31,10 @@ export interface StatusRowState {
   inWorkflow: boolean;
   /** Some work item's status interval carries the status (options `seenInHistory`). */
   seenInHistory: boolean;
+  /** An epic issue type's workflow (hierarchy level 1) of some in-scope project uses the status (options `inEpicWorkflow`). */
+  inEpicWorkflow: boolean;
+  /** A task issue type's workflow (level 0 or below) of some in-scope project uses the status (options `inTaskWorkflow`). */
+  inTaskWorkflow: boolean;
 }
 
 /** One per-domain override of a status's stage — only ever a set stage; "same as all domains" is the ABSENCE of a row. */
@@ -117,6 +121,8 @@ export function buildInitialState(
     blocked: blockedStatusIds.has(s.statusId),
     inWorkflow: s.inWorkflow,
     seenInHistory: s.seenInHistory,
+    inEpicWorkflow: s.inEpicWorkflow,
+    inTaskWorkflow: s.inTaskWorkflow,
   }));
 
   const fields: FieldsState = {
@@ -359,15 +365,36 @@ export interface VisibleFields {
   schemeUnknown: boolean;
 }
 
+/** Which field scheme a slot reads: the epic issue types' (`epic`), the task issue types' (`task`) or the union (`any`). */
+export type FieldScope = "epic" | "task" | "any";
+
+/** The scope's scheme flag of [f] (`null` = unknown): the split flags `inEpicScheme`/`inTaskScheme`, else the union's `inScheme`. */
+function schemeFlag(f: MetricsFieldOption, scope: FieldScope): boolean | null {
+  if (scope === "epic") return f.inEpicScheme;
+  if (scope === "task") return f.inTaskScheme;
+  return f.inScheme;
+}
+
 /**
- * The Fields tab's default filter: a field is listed when it is in the in-scope projects' field scheme
- * (`inScheme === true`), PLUS every field currently selected in any slot (a hidden choice never disappears). When the
- * scheme is unknown (the optional `projects/fields` step produced nothing) it falls back to fields with at least one
- * value in the synced issues (`nonNullCount > 0`); with no information at all (nothing has data either) it lists everything.
+ * The Fields tab's default filter for the slots reading [scope]'s scheme: a field is listed when it is in the in-scope
+ * projects' field scheme of that scope (`inEpicScheme`/`inTaskScheme === true`; per slot it falls back to the union's
+ * `inScheme` while the split is unknown), PLUS every field currently selected in any slot (a hidden choice never
+ * disappears). When the scheme is unknown altogether (the optional `projects/fields` step produced nothing) it falls
+ * back to fields with at least one value in the synced issues (`nonNullCount > 0`); with no information at all
+ * (nothing has data either) it lists everything.
  */
-export function visibleFields(fields: MetricsFieldOption[], selectedIds: readonly string[], showAll: boolean): VisibleFields {
+export function visibleFields(
+  fields: MetricsFieldOption[],
+  selectedIds: readonly string[],
+  showAll: boolean,
+  scope: FieldScope = "any",
+): VisibleFields {
   const schemeUnknown = !fields.some((f) => f.inScheme != null);
-  const relevant = (f: MetricsFieldOption) => (schemeUnknown ? f.nonNullCount > 0 : f.inScheme === true);
+  const useSplit = scope !== "any" && fields.some((f) => schemeFlag(f, scope) != null);
+  const relevant = (f: MetricsFieldOption) => {
+    if (schemeUnknown) return f.nonNullCount > 0;
+    return (useSplit ? schemeFlag(f, scope) : f.inScheme) === true;
+  };
   const informative = fields.some(relevant);
   const selected = new Set(selectedIds);
   const filtered = informative ? fields.filter((f) => relevant(f) || selected.has(f.fieldId)) : fields;

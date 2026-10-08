@@ -300,7 +300,7 @@ above).
 - **`reference`** (`jira/JiraReferenceStream.kt`'s `ReferenceCursor`): `passStartedAt` (fixed for
   the whole pass, preserved across a resume), `step` (a `JiraEntityKind` — doubles as
   `raw.jira_entities.kind`, in the FIXED order the enum declares: `FIELD`, `STATUS`,
-  `STATUS_CATEGORY`, `PROJECT`, `PROJECT_STATUSES`, `PROJECT_FIELDS`, `ISSUE_TYPE`, `RESOLUTION`,
+  `STATUS_CATEGORY`, `PROJECT`, `PROJECT_STATUSES`, `ISSUE_TYPE`, `PROJECT_FIELDS`, `RESOLUTION`,
   `ISSUE_LINK_TYPE`, `USER`, `BOARD`, `BOARD_CONFIGURATION`, `SPRINT`), an optional `boardId`
   (diagnostic only, for the two board-scoped steps) and `startAt` (a real Jira `startAt` for the
   `startAt`-paged steps, or an index into the in-scope project-key/board list for the per-item
@@ -1046,12 +1046,22 @@ above):**
   `referenceStatusNames`. The metrics-config options endpoint turns it into each status's `inWorkflow` flag (the
   Statuses tab's default filter, `.claude/docs/metrics.md`); a profile stored before the field existed decodes it as
   empty and refreshes on the next PROFILE run.
+- **`epicWorkflowStatusIds` / `taskWorkflowStatusIds`** — the same union split by the issue type each `PROJECT_STATUSES` entry
+  belongs to (its `id`, mapped to a hierarchy level through the stored `ISSUE_TYPE` entities, `JiraHierarchy.bucket`): level 1
+  is an epic type; level 0 and -1 (sub-task) are task types; an entry of unknown level counts as a task type, a level above 1
+  counts for neither. Both are EMPTY while no `ISSUE_TYPE` entity exists (and on a profile stored before they existed) —
+  empty means "unknown", never "no statuses"; `workflowStatusIds` stays the union. On the real tenant epics run their own
+  workflow. The options endpoint turns them into `inEpicWorkflow`/`inTaskWorkflow` (`.claude/docs/metrics.md`).
 - **`schemeFieldIds`** — the sorted, distinct union of field ids across the live `PROJECT_FIELDS` entities of the
   connection's CURRENT project keys (the optional, experimental `projects/fields` REFERENCE step — it is skipped, keeping
   the previous entity, on any Jira-side failure but a blocked host: `.claude/docs/jira-integration.md` "Project field
   schemes"); `null` = unknown unless EVERY current project has an entity. The options endpoint turns it into each custom field's
   `inScheme` (the Fields tab's default filter, `.claude/docs/metrics.md`). `JiraProfile.compute` takes the project keys from
   `DataSourceService.read` in `JiraProfileStream`.
+- **`schemeEpicFieldIds` / `schemeTaskFieldIds`** — the same union restricted to the work types at hierarchy level 1 / level 0
+  and below (the split stored in each `PROJECT_FIELDS` payload, `jira-integration.md` "Project field schemes"); a project whose
+  entity predates the split contributes its whole scheme to both; `null` under the `schemeFieldIds` rule (unknown unless EVERY
+  current project has an entity). The options endpoint turns them into `inEpicScheme`/`inTaskScheme`.
 - **`anomalyCounts`** — every `TilingAnomaly` code (`STATUS_CHANGE_BEFORE_CREATED`/
   `STATUS_CHAIN_BROKEN`/`STATUS_MISMATCH_WITH_CURRENT`, see "Anomalies are flagged, never corrected"
   under "Normalized layer" above), counted across every live issue that carries it — never per-status

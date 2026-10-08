@@ -116,6 +116,10 @@ class DataProfileTest {
         assertEquals(0, profile.projects.size)
         assertEquals(0L, profile.reopens.count)
         assertNull(profile.schemeFieldIds, "no profile yet means the field scheme is unknown")
+        assertNull(profile.schemeEpicFieldIds)
+        assertNull(profile.schemeTaskFieldIds)
+        assertEquals(emptyList(), profile.epicWorkflowStatusIds)
+        assertEquals(emptyList(), profile.taskWorkflowStatusIds)
     }
 
     @Test
@@ -140,6 +144,14 @@ class DataProfileTest {
             val schemeFieldIds = assertNotNull(profile.schemeFieldIds, "the stub serves projects/fields, so the scheme is known")
             assertTrue(schemeFieldIds.isNotEmpty() && "customfield_10016" in schemeFieldIds)
             assertEquals(schemeFieldIds.distinct().sorted(), schemeFieldIds, "sorted and distinct")
+            // The epic/task split: the stub's epic start date is epic-only, Sprint is task-only, On Hold (10005) is an epic-only status.
+            val epicFieldIds = assertNotNull(profile.schemeEpicFieldIds)
+            val taskFieldIds = assertNotNull(profile.schemeTaskFieldIds)
+            assertEquals(schemeFieldIds, (epicFieldIds + taskFieldIds).distinct().sorted())
+            assertTrue("customfield_10015" in epicFieldIds && "customfield_10015" !in taskFieldIds)
+            assertTrue("customfield_10020" in taskFieldIds && "customfield_10020" !in epicFieldIds)
+            assertTrue("10005" in profile.epicWorkflowStatusIds && "10005" !in profile.taskWorkflowStatusIds)
+            assertTrue(profile.taskWorkflowStatusIds.isNotEmpty() && profile.taskWorkflowStatusIds.all { it in profile.workflowStatusIds })
 
             assertEquals(
                 dataProfileExpectedFixture.reopens.inScopeCount, profile.reopens.count,

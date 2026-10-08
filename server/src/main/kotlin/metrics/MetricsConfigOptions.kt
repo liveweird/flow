@@ -33,7 +33,11 @@ class MetricsConfigOptions(
     suspend fun options(connectionId: UInt, workCategoryField: String?): DataSourceMetricsConfigOptions = suspendTransaction(database) {
         val profile = dataSources.readProfileSections(connectionId)
         val workflowStatusIds = profile?.workflowStatusIds.orEmpty().toSet()
+        val epicWorkflowStatusIds = profile?.epicWorkflowStatusIds.orEmpty().toSet()
+        val taskWorkflowStatusIds = profile?.taskWorkflowStatusIds.orEmpty().toSet()
         val schemeFieldIds = profile?.schemeFieldIds?.toSet()
+        val schemeEpicFieldIds = profile?.schemeEpicFieldIds?.toSet()
+        val schemeTaskFieldIds = profile?.schemeTaskFieldIds?.toSet()
         val seenStatusIds = workItemStore.distinctIntervalStatusIds(connectionId)
         val workCategoryValues = workCategoryField?.let { field -> workItemStore.distinctCustomFieldValues(connectionId, field) }.orEmpty()
         DataSourceMetricsConfigOptions(
@@ -45,11 +49,21 @@ class MetricsConfigOptions(
                         category = it.category,
                         inWorkflow = it.statusId in workflowStatusIds,
                         seenInHistory = it.statusId in seenStatusIds,
+                        inEpicWorkflow = it.statusId in epicWorkflowStatusIds,
+                        inTaskWorkflow = it.statusId in taskWorkflowStatusIds,
                     )
                 },
             fields = profile?.customFields.orEmpty().map {
-                val inScheme = schemeFieldIds?.let { ids -> it.id in ids }
-                MetricsFieldOption(it.id, it.name, it.type, it.role, inScheme, it.nonNullCount)
+                MetricsFieldOption(
+                    fieldId = it.id,
+                    name = it.name,
+                    type = it.type,
+                    detectedRole = it.role,
+                    inScheme = schemeFieldIds?.let { ids -> it.id in ids },
+                    nonNullCount = it.nonNullCount,
+                    inEpicScheme = schemeEpicFieldIds?.let { ids -> it.id in ids },
+                    inTaskScheme = schemeTaskFieldIds?.let { ids -> it.id in ids },
+                )
             },
             projects = workItemStore.distinctProjectKeys(connectionId).sorted(),
             boards = workItemStore.allBoardRefs(connectionId).sortedBy { it.boardId }

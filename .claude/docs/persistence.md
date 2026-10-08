@@ -292,7 +292,7 @@ tables in the `raw` schema — the REFERENCE and ISSUES streams' target
   commit 7, V10, A1's per-issue backfill scan, same shape, read by `JiraRawStore.staleWorklogIssueIds`).
 - **`raw.jira_entities`** — PK `(connection_id, kind, entity_id)`, one row per REFERENCE-stream
   entity kind (`JiraEntityKind`: `FIELD`, `STATUS`, `STATUS_CATEGORY`, `PROJECT`,
-  `PROJECT_STATUSES`, `PROJECT_FIELDS` (the optional field-scheme step, one entity per project key), `ISSUE_TYPE`, `PRIORITY` (no longer fetched since 2026-10-08; old rows are tombstoned), `RESOLUTION`, `ISSUE_LINK_TYPE`, `USER`, `BOARD`,
+  `PROJECT_STATUSES`, `ISSUE_TYPE`, `PROJECT_FIELDS` (the optional field-scheme step, one entity per project key, after `ISSUE_TYPE`: it reads the hierarchy levels), `PRIORITY` (no longer fetched since 2026-10-08; old rows are tombstoned), `RESOLUTION`, `ISSUE_LINK_TYPE`, `USER`, `BOARD`,
   `BOARD_CONFIGURATION`, `SPRINT` — no CHECK constraint, since the Kotlin enum is the whitelist and
   the column drives no SQL-level behavior, the `users.role`/`sync_jobs.status` idiom reserved for
   columns a CHECK usefully pins). `entity_id` is `VARCHAR(255)` (V20; 50 in V10), not `BIGINT`, because Jira ids are

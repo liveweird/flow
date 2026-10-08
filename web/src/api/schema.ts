@@ -2254,6 +2254,14 @@ export interface components {
             workflowStatusIds?: string[];
             /** @description Sorted, distinct field ids in the in-scope projects' field schemes (`PROJECT_FIELDS`, Jira's experimental `GET /projects/fields`, scope `read:field-configuration:jira`); null = unknown (no project has the entity — the optional step was skipped or never ran, or the profile predates it). */
             schemeFieldIds?: string[] | null;
+            /** @description Sorted, distinct status ids of the workflows of the issue types at hierarchy level 1 (epics) across the in-scope projects; empty while the issue-type hierarchy is unknown or on a profile stored before this field existed. */
+            epicWorkflowStatusIds?: string[];
+            /** @description Sorted, distinct status ids of the workflows of the issue types at hierarchy level 0 or below (tasks, bugs, sub-tasks; a type of unknown level counts as a task type); empty while the issue-type hierarchy is unknown or on a profile stored before this field existed. */
+            taskWorkflowStatusIds?: string[];
+            /** @description The `schemeFieldIds` union restricted to the issue types at hierarchy level 1 (a project whose entity predates the split contributes its whole scheme); null under the same rule as `schemeFieldIds`. */
+            schemeEpicFieldIds?: string[] | null;
+            /** @description The `schemeFieldIds` union restricted to the issue types at hierarchy level 0 or below (sub-tasks count with tasks; a type of unknown level counts as a task type); null under the same rule as `schemeFieldIds`. */
+            schemeTaskFieldIds?: string[] | null;
         };
         MetricsStatusStage: {
             statusId: string;
@@ -2344,6 +2352,10 @@ export interface components {
             inWorkflow: boolean;
             /** @description Some work item's status interval of this connection carries the status id. */
             seenInHistory: boolean;
+            /** @description The status id is in the workflow of an epic issue type (hierarchy level 1) of some in-scope project (the profile's `epicWorkflowStatusIds`); false while the split is unknown. */
+            inEpicWorkflow: boolean;
+            /** @description The status id is in the workflow of a task issue type (hierarchy level 0 or below) of some in-scope project (the profile's `taskWorkflowStatusIds`); false while the split is unknown. */
+            inTaskWorkflow: boolean;
         };
         MetricsFieldOption: {
             fieldId: string;
@@ -2358,6 +2370,10 @@ export interface components {
              * @description How many live issues carry a value for the field (the profile's fill count) — the editor's fallback relevance signal when inScheme is unknown.
              */
             nonNullCount: number;
+            /** @description The field id is in the stored data profile's `schemeEpicFieldIds` (the field scheme of an epic issue type lists it); null when that set is unknown. */
+            inEpicScheme: boolean | null;
+            /** @description The field id is in the stored data profile's `schemeTaskFieldIds` (the field scheme of a task issue type lists it); null when that set is unknown. */
+            inTaskScheme: boolean | null;
         };
         MetricsBoardOption: {
             /** Format: int64 */

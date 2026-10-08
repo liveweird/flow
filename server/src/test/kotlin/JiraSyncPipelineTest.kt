@@ -218,7 +218,7 @@ class JiraSyncPipelineTest {
         assertEquals(
             mapOf(
                 "FIELD" to 19,
-                "STATUS" to 6,
+                "STATUS" to 7, // the stub's six workflow statuses plus the epic-only On Hold (no issue ever sits in it)
                 "STATUS_CATEGORY" to 4,
                 "PROJECT" to 5,
                 "PROJECT_STATUSES" to 4,

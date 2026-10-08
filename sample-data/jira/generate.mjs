@@ -177,6 +177,8 @@ const STATUS = {
   DONE: { id: "10002", name: "Done", categoryKey: "done" },
   BLOCKED: { id: "10003", name: "Blocked", categoryKey: "indeterminate" },
   WAITING: { id: "10004", name: "Waiting", categoryKey: "indeterminate" },
+  // Only the Epic issue type's workflow lists it (`epicWorkflow`) — no issue ever transitions into it, so no interval changes.
+  ON_HOLD: { id: "10005", name: "On Hold", categoryKey: "indeterminate" },
 };
 const ALL_STATUSES = Object.values(STATUS);
 
@@ -1651,28 +1653,35 @@ stub("project-search", { urlPath: `${API}/project/search` }, 200, {
   isLast: true,
   values: PROJECTS.map((p) => ({ id: p.id, key: p.key, name: p.name, projectTypeKey: "software", simplified: false, style: "classic" })),
 });
+// Epics have their own workflow on a real tenant: the project's workflow plus an epic-only On Hold (before Done).
+function epicWorkflow(project) {
+  const done = project.workflow.indexOf(STATUS.DONE);
+  return [...project.workflow.slice(0, done), STATUS.ON_HOLD, ...project.workflow.slice(done)];
+}
 for (const project of PROJECTS) {
   stub(`project-statuses-${project.key}`, { urlPath: `${API}/project/${project.key}/statuses` }, 200, [
     { id: ISSUE_TYPE.STORY.id, name: ISSUE_TYPE.STORY.name, subtask: false, statuses: project.workflow.map(statusJson) },
     { id: ISSUE_TYPE.TASK.id, name: ISSUE_TYPE.TASK.name, subtask: false, statuses: project.workflow.map(statusJson) },
     { id: ISSUE_TYPE.BUG.id, name: ISSUE_TYPE.BUG.name, subtask: false, statuses: project.workflow.map(statusJson) },
     { id: ISSUE_TYPE.SUBTASK.id, name: ISSUE_TYPE.SUBTASK.name, subtask: true, statuses: project.workflow.map(statusJson) },
-    { id: ISSUE_TYPE.EPIC.id, name: ISSUE_TYPE.EPIC.name, subtask: false, statuses: project.workflow.map(statusJson) },
+    { id: ISSUE_TYPE.EPIC.id, name: ISSUE_TYPE.EPIC.name, subtask: false, statuses: epicWorkflow(project).map(statusJson) },
   ]);
 }
 
 // --- projects/fields (experimental; startAt-paged, one row per (field, work type)) -----------------
 // Jira's field scheme: the fields (system AND custom) each project's work types carry. The in-scope projects' schemes
 // cover every custom field the dataset's issues use, except that the Kanban project (no sprints, no estimates) leaves out
-// Sprint and Story point estimate; epic start only applies to epics. The stub ignores the `workTypeId` params (like
-// search/jql ignores JQL) and answers every work type of the project, filtered by the `projectId` param only.
+// Sprint and Story point estimate. Epic start only applies to epics and Sprint only to the other issue types (epics are not
+// in sprints), so the epic/task split of the scheme is exercised. The stub ignores the `workTypeId` params (like search/jql
+// ignores JQL) and answers every work type of the project, filtered by the `projectId` param only.
 const SCHEME_SYSTEM_FIELDS = [
   ...FIELDS.filter((f) => !f.custom).map((f) => f.id),
   "description", "environment", "fixVersions", "issuelinks", "timetracking", "versions",
 ];
 function projectFieldIds(project, issueType) {
   const custom = [CF.TEAM, CF.RANK, CF.FLAGGED, CF.WORK_CATEGORY];
-  if (project.boardType === "scrum") custom.push(CF.SPRINT, CF.STORY_POINTS);
+  if (project.boardType === "scrum") custom.push(CF.STORY_POINTS);
+  if (project.boardType === "scrum" && issueType !== ISSUE_TYPE.EPIC) custom.push(CF.SPRINT);
   if (issueType === ISSUE_TYPE.EPIC) custom.push(CF.EPIC_START);
   return [...SCHEME_SYSTEM_FIELDS, ...custom].sort();
 }

@@ -3271,6 +3271,24 @@ components:
           nullable: true
           items: { type: string }
           description: Sorted, distinct field ids in the in-scope projects' field schemes (`PROJECT_FIELDS`, Jira's experimental `GET /projects/fields`, scope `read:field-configuration:jira`); null = unknown (no project has the entity — the optional step was skipped or never ran, or the profile predates it).
+        epicWorkflowStatusIds:
+          type: array
+          items: { type: string }
+          description: Sorted, distinct status ids of the workflows of the issue types at hierarchy level 1 (epics) across the in-scope projects; empty while the issue-type hierarchy is unknown or on a profile stored before this field existed.
+        taskWorkflowStatusIds:
+          type: array
+          items: { type: string }
+          description: Sorted, distinct status ids of the workflows of the issue types at hierarchy level 0 or below (tasks, bugs, sub-tasks; a type of unknown level counts as a task type); empty while the issue-type hierarchy is unknown or on a profile stored before this field existed.
+        schemeEpicFieldIds:
+          type: array
+          nullable: true
+          items: { type: string }
+          description: The `schemeFieldIds` union restricted to the issue types at hierarchy level 1 (a project whose entity predates the split contributes its whole scheme); null under the same rule as `schemeFieldIds`.
+        schemeTaskFieldIds:
+          type: array
+          nullable: true
+          items: { type: string }
+          description: The `schemeFieldIds` union restricted to the issue types at hierarchy level 0 or below (sub-tasks count with tasks; a type of unknown level counts as a task type); null under the same rule as `schemeFieldIds`.
 
     MetricsStatusStage:
       type: object
@@ -3396,16 +3414,18 @@ components:
           items: { $ref: '#/components/schemas/MetricsSprintCapacity' }
     MetricsStatusOption:
       type: object
-      required: [statusId, name, category, inWorkflow, seenInHistory]
+      required: [statusId, name, category, inWorkflow, seenInHistory, inEpicWorkflow, inTaskWorkflow]
       properties:
         statusId: { type: string }
         name: { type: string }
         category: { type: string, enum: [TODO, IN_PROGRESS, DONE, UNKNOWN] }
         inWorkflow: { type: boolean, description: "The status id is in the stored data profile's `workflowStatusIds` (an in-scope project's reference workflow uses it)." }
         seenInHistory: { type: boolean, description: "Some work item's status interval of this connection carries the status id." }
+        inEpicWorkflow: { type: boolean, description: "The status id is in the workflow of an epic issue type (hierarchy level 1) of some in-scope project (the profile's `epicWorkflowStatusIds`); false while the split is unknown." }
+        inTaskWorkflow: { type: boolean, description: "The status id is in the workflow of a task issue type (hierarchy level 0 or below) of some in-scope project (the profile's `taskWorkflowStatusIds`); false while the split is unknown." }
     MetricsFieldOption:
       type: object
-      required: [fieldId, name, type, detectedRole, inScheme, nonNullCount]
+      required: [fieldId, name, type, detectedRole, inScheme, nonNullCount, inEpicScheme, inTaskScheme]
       properties:
         fieldId: { type: string }
         name: { type: string }
@@ -3413,6 +3433,8 @@ components:
         detectedRole: { type: string, description: "SPRINT/RANK/TEAM/STORY_POINTS/FLAGGED/OTHER — `jira/JiraProfile.kt`'s detection." }
         inScheme: { type: boolean, nullable: true, description: "The field id is in the stored data profile's `schemeFieldIds` (an in-scope project's field scheme lists it); null when that set is unknown." }
         nonNullCount: { type: integer, format: int64, minimum: 0, description: "How many live issues carry a value for the field (the profile's fill count) — the editor's fallback relevance signal when inScheme is unknown." }
+        inEpicScheme: { type: boolean, nullable: true, description: "The field id is in the stored data profile's `schemeEpicFieldIds` (the field scheme of an epic issue type lists it); null when that set is unknown." }
+        inTaskScheme: { type: boolean, nullable: true, description: "The field id is in the stored data profile's `schemeTaskFieldIds` (the field scheme of a task issue type lists it); null when that set is unknown." }
     MetricsBoardOption:
       type: object
       required: [boardId, name]

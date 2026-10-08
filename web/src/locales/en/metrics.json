@@ -115,6 +115,11 @@
       "stageAria": "Stage for {{name}}",
       "blockedAria": "Blocked for {{name}}",
       "stagePlaceholder": "Unmapped",
+      "workflow": {
+        "epic": "Epic",
+        "task": "Task",
+        "hint": "Which workflow uses the status: the epic issue types' (Epic), the other issue types' (Task), or both."
+      },
       "showAll": "Show all statuses ({{count}})",
       "showAllHint": "By default only statuses used by this connection's workflows or seen in its history are listed, plus any you changed. Saving always covers every status.",
       "stage": {
