@@ -93,7 +93,7 @@ class JiraRawStore(database: R2dbcDatabase) {
     object Entities : Table("raw.jira_entities") {
         val connectionId = reference("connection_id", DataSourceService.Connections)
         val kind = varchar("kind", 30)
-        val entityId = varchar("entity_id", 50)
+        val entityId = varchar("entity_id", 255)
         val payload = jsonb("payload")
         val sha256 = char("sha256", 64)
         val firstSeenAt = long("first_seen_at")

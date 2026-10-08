@@ -33,8 +33,6 @@ private const val STALE_INTERVAL_MULTIPLIER = 3L
 
 // ignoreUnknownKeys: rolling-deploy tolerance — an older replica must not 500 decoding a
 // `settings` payload a newer replica already wrote with an extra field.
-// ignoreUnknownKeys: rolling-deploy tolerance — an older replica must not 500 decoding a
-// `settings` payload a newer replica already wrote with an extra field.
 private val settingsJson = Json { encodeDefaults = true; ignoreUnknownKeys = true }
 
 /** The `settings` jsonb payload — Jira's fields today; a GitLab kind adds its own shape later. */
@@ -95,6 +93,9 @@ class DataSourceService(private val database: R2dbcDatabase, private val cipher:
         // it — independent of sync_jobs row retention (a SUCCEEDED PURGE row is itself eventually
         // pruned by ingest.jobRetentionDays).
         val purgedAt = long("purged_at").nullable()
+        // V21: a failing RECONCILE's back-off (the consecutive_failures / next_sync_at pair, for RECONCILE).
+        val reconcileFailures = integer("reconcile_failures").default(0)
+        val nextReconcileAt = long("next_reconcile_at").nullable()
     }
 
     override val encryptedRowLabel = "Jira API token"
@@ -249,10 +250,12 @@ class DataSourceService(private val database: R2dbcDatabase, private val cipher:
         }.toList().map { DueConnection(it[Connections.id].value, it[Connections.configRevision]) }
     }
 
-    /** Enabled, active connections whose daily `reconcile_hour_utc` boundary has arrived since `last_reconcile_at`. */
+    /** Enabled, active connections that are [reconcileDue] (daily boundary passed, no failure back-off pending). */
     suspend fun dueForReconcile(now: Long): List<DueConnection> = suspendTransaction(database) {
         Connections.selectAll().where { Connections.active() and (Connections.enabled eq true) }.toList()
-            .filter { reconcileDue(it[Connections.lastReconcileAt], it[Connections.reconcileHourUtc], now) }
+            .filter {
+                reconcileDue(it[Connections.lastReconcileAt], it[Connections.reconcileHourUtc], now, it[Connections.nextReconcileAt])
+            }
             .map { DueConnection(it[Connections.id].value, it[Connections.configRevision]) }
     }
 
@@ -292,10 +295,30 @@ class DataSourceService(private val database: R2dbcDatabase, private val cipher:
         }
     }
 
-    /** A RECONCILE job succeeded — stamps `last_reconcile_at`; a failure leaves the connection's schedule untouched. */
+    /** A RECONCILE job succeeded — stamps `last_reconcile_at` and clears the failure back-off. */
     suspend fun recordReconcileSucceeded(id: UInt, now: Long = nowMillis()) {
         suspendTransaction(database) {
-            Connections.update({ Connections.id eq id }) { it[lastReconcileAt] = now }
+            Connections.update({ Connections.id eq id }) {
+                it[lastReconcileAt] = now
+                it[reconcileFailures] = 0
+                it[nextReconcileAt] = null
+            }
+        }
+    }
+
+    /**
+     * A RECONCILE job failed — `next_reconcile_at = now + backoffMillis([RECONCILE_RETRY_BASE_MILLIS], n)`, n = the PRE-increment
+     * `reconcile_failures` (15 m, 30 m, 1 h, 2 h, 4 h, then the cap), so [dueForReconcile] stops re-enqueueing it every tick.
+     */
+    suspend fun recordReconcileFailed(id: UInt, now: Long = nowMillis()) {
+        suspendTransaction(database) {
+            val row = Connections.selectAll().where { Connections.id eq id }.forUpdate().toList().singleOrNull()
+                ?: return@suspendTransaction
+            val failuresBefore = row[Connections.reconcileFailures]
+            Connections.update({ Connections.id eq id }) {
+                it[reconcileFailures] = failuresBefore + 1
+                it[nextReconcileAt] = now + backoffMillis(RECONCILE_RETRY_BASE_MILLIS, failuresBefore)
+            }
         }
     }
 
@@ -391,29 +414,6 @@ class DataSourceService(private val database: R2dbcDatabase, private val cipher:
 
 /** The host only — never the full URL — for audit lines (`.claude/docs/security.md`). */
 internal fun siteHost(siteUrl: String): String = java.net.URI(siteUrl).host
-
-/** Today's `reconcileHourUtc` boundary (UTC), as epoch millis. */
-internal fun todayReconcileBoundary(reconcileHourUtc: Int, now: Long): Long {
-    val date = java.time.Instant.ofEpochMilli(now).atZone(java.time.ZoneOffset.UTC).toLocalDate()
-    return date.atTime(reconcileHourUtc, 0).toInstant(java.time.ZoneOffset.UTC).toEpochMilli()
-}
-
-/**
- * True once today's `reconcileHourUtc` boundary has passed AND the last reconcile predates it —
- * so a worker outage spanning the boundary still catches up the same day, and a job already run
- * today is not re-enqueued (`ingest/DataSourceService.kt`'s `dueForReconcile`, polled every
- * `ingest.schedulerTickSeconds`).
- */
-internal fun reconcileDue(lastReconcileAt: Long?, reconcileHourUtc: Int, now: Long): Boolean {
-    val boundary = todayReconcileBoundary(reconcileHourUtc, now)
-    return now >= boundary && (lastReconcileAt == null || lastReconcileAt < boundary)
-}
-
-internal const val MAX_BACKOFF_MILLIS = 6L * 60 * 60 * 1000
-
-/** `interval × 2^failures`, capped at [MAX_BACKOFF_MILLIS] — the shift is bounded so it can never overflow. */
-internal fun backoffMillis(intervalMillis: Long, failures: Int): Long =
-    minOf(intervalMillis * (1L shl minOf(failures, 32)), MAX_BACKOFF_MILLIS)
 
 private fun encodeSettings(settings: JiraConnectionSettings): String =
     canonicalJson(settingsJson.encodeToString(settings))

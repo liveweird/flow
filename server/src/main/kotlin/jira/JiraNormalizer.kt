@@ -9,7 +9,6 @@ import ch.nokillswit.norm.FieldChangeFact
 import ch.nokillswit.norm.IssueNormalizationInput
 import ch.nokillswit.norm.PersonRef
 import ch.nokillswit.norm.SprintRef
-import ch.nokillswit.norm.StatusCategory
 import ch.nokillswit.norm.StatusChangeEvent
 import ch.nokillswit.norm.StatusRef
 import ch.nokillswit.norm.TombstoneKind
@@ -47,9 +46,6 @@ private const val ASSIGNEE_FIELD_ID = "assignee"
 private const val PARENT_FIELD_ID = "parent"
 private val PARENT_FIELD_NAMES = setOf("Parent", "IssueParentAssociation", "Epic Link")
 private const val CUSTOM_FIELD_PREFIX = "customfield_"
-
-/** Absent (Kotlin `null`) OR a literal JSON `null` both mean "no value" for a Jira object-shaped field — never a cast failure. */
-private fun JsonElement?.orNullObject(): JsonObject? = this?.takeIf { it != JsonNull }?.jsonObject
 
 /**
  * The Jira-specific field ids the PROCESS step needs, discovered ONCE per run from the REFERENCE
@@ -114,22 +110,19 @@ object JiraNormalizer {
         id to level
     }.toMap()
 
-    /** `norm.statuses`' rebuilt reference rows (v0.2.0 plan §8) — one per `STATUS` entity. */
+    /**
+     * `norm.statuses`' rebuilt reference rows (v0.2.0 plan §8) — one per `STATUS` entity. Jira has two shapes for the
+     * category: `GET /statuses/search` (what the REFERENCE stream stores) returns a plain string enum
+     * (`"TODO"`/`"IN_PROGRESS"`/`"DONE"`), while an issue's `fields.status` and `/status` return the object form
+     * (`{"key":"new"|"indeterminate"|"done"}`). Both are accepted; anything else is `UNKNOWN`, never a throw.
+     */
     fun statusRefs(statusPayloads: List<String>): List<StatusRef> = statusPayloads.map { payload ->
         val status = NORMALIZER_JSON.parseToJsonElement(payload).jsonObject
-        val categoryKey = status["statusCategory"]?.jsonObject?.get("key")?.jsonPrimitive?.contentOrNull
         StatusRef(
             statusId = status.getValue("id").jsonPrimitive.content,
             name = status.getValue("name").jsonPrimitive.content,
-            category = statusCategoryForKey(categoryKey),
+            category = jiraStatusCategory(status["statusCategory"]),
         )
-    }
-
-    private fun statusCategoryForKey(key: String?): StatusCategory = when (key) {
-        "new" -> StatusCategory.TODO
-        "indeterminate" -> StatusCategory.IN_PROGRESS
-        "done" -> StatusCategory.DONE
-        else -> StatusCategory.UNKNOWN
     }
 
     /** `norm.people`'s rebuilt reference rows — one per `USER` entity. */
@@ -224,11 +217,11 @@ object JiraNormalizer {
         val parentIssueId = parent?.get("id")?.jsonPrimitive?.contentOrNull?.toLongOrNull()
         val parentIssueKey = parent?.get("key")?.jsonPrimitive?.contentOrNull
 
-        val currentSprints = fieldIds.sprintFieldId?.let { fields[it]?.jsonArray } ?: JsonArray(emptyList())
+        val currentSprints = fieldIds.sprintFieldId?.let { fields[it] }.orNullArray() ?: JsonArray(emptyList())
         val currentSprintIds = currentSprints.map { it.jsonObject.getValue("id").jsonPrimitive.content.toLong() }
         val currentSprintText = currentSprints.takeIf { it.isNotEmpty() }
             ?.joinToString(", ") { it.jsonObject.getValue("name").jsonPrimitive.content }
-        val currentFlagged = fieldIds.flaggedFieldId?.let { fields[it]?.jsonArray?.isNotEmpty() } ?: false
+        val currentFlagged = fieldIds.flaggedFieldId?.let { fields[it] }.orNullArray()?.isNotEmpty() ?: false
 
         val worklogs = worklogPayloads.map { payload ->
             val worklog = NORMALIZER_JSON.parseToJsonElement(payload).jsonObject
@@ -239,7 +232,7 @@ object JiraNormalizer {
             val updatedAtMs = worklog["updated"]?.jsonPrimitive?.contentOrNull?.let { parseJiraInstantEpochMillis(it) }
             WorklogFact(
                 worklogId = worklog.getValue("id").jsonPrimitive.content.toLong(),
-                authorAccountId = worklog["author"]?.jsonObject?.get("accountId")?.jsonPrimitive?.contentOrNull,
+                authorAccountId = worklog["author"].orNullObject()?.get("accountId")?.jsonPrimitive?.contentOrNull,
                 startedAtMs = startedAtMs,
                 timeSpentSeconds = worklog.getValue("timeSpentSeconds").jsonPrimitive.content.toLong(),
                 createdAtMs = createdAtMs,
@@ -263,13 +256,13 @@ object JiraNormalizer {
             updatedAtMs = parseJiraInstantEpochMillis(fields.getValue("updated").jsonPrimitive.content),
             resolvedAtMs = fields["resolutiondate"]?.jsonPrimitive?.contentOrNull?.let { parseJiraInstantEpochMillis(it) },
             storyPoints = fieldIds.storyPointsFieldId?.let { fields[it]?.jsonPrimitive?.doubleOrNull },
-            originalEstimateSeconds = fields["timetracking"]?.jsonObject?.get("originalEstimateSeconds")?.jsonPrimitive?.longOrNull,
+            originalEstimateSeconds = fields["timetracking"].orNullObject()?.get("originalEstimateSeconds")?.jsonPrimitive?.longOrNull,
             // Computed from the issue's OWN worklogs, never `timetracking.timeSpentSeconds` (which a
             // real tenant may leave stale relative to the worklog feed this stream already trusts).
             timeSpentSeconds = worklogs.sumOf { it.timeSpentSeconds },
-            labels = fields["labels"]?.jsonArray?.map { it.jsonPrimitive.content } ?: emptyList(),
-            components = fields["components"]?.jsonArray?.map { it.jsonObject.getValue("name").jsonPrimitive.content } ?: emptyList(),
-            fixVersions = fields["fixVersions"]?.jsonArray?.map { it.jsonObject.getValue("name").jsonPrimitive.content } ?: emptyList(),
+            labels = fields["labels"].orNullArray()?.map { it.jsonPrimitive.content } ?: emptyList(),
+            components = fields["components"].orNullArray()?.map { it.jsonObject.getValue("name").jsonPrimitive.content } ?: emptyList(),
+            fixVersions = fields["fixVersions"].orNullArray()?.map { it.jsonObject.getValue("name").jsonPrimitive.content } ?: emptyList(),
             teamValueJson = team?.toString(),
             rank = fieldIds.rankFieldId?.let { fields[it]?.jsonPrimitive?.contentOrNull },
             // Prefer the issue's OWN `fields.issuetype.hierarchyLevel` when a tenant does return it

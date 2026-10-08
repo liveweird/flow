@@ -7,22 +7,20 @@
     {
       "id": "10003",
       "name": "Blocked",
-      "statusCategory": {
-        "id": 4,
-        "key": "indeterminate",
-        "name": "In Progress",
-        "colorName": "yellow"
-      }
+      "scope": {
+        "type": "GLOBAL"
+      },
+      "description": "",
+      "statusCategory": "IN_PROGRESS"
     },
     {
       "id": "10004",
       "name": "Waiting",
-      "statusCategory": {
-        "id": 4,
-        "key": "indeterminate",
-        "name": "In Progress",
-        "colorName": "yellow"
-      }
+      "scope": {
+        "type": "GLOBAL"
+      },
+      "description": "",
+      "statusCategory": "IN_PROGRESS"
     }
   ]
 }

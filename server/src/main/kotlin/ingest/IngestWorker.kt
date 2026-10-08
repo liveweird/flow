@@ -322,12 +322,16 @@ class IngestWorker internal constructor(
 
     private suspend fun onFailed(claim: SyncJobClaim, cause: Exception) {
         val errorCode = "RUN_FAILED"
-        if (!syncJobs.fail(claim.id, claim.attempt, errorCode, cause.message?.take(MAX_ERROR_DETAIL_LENGTH), clock())) {
+        val detail = "${cause.javaClass.simpleName}: ${cause.message}".take(MAX_ERROR_DETAIL_LENGTH)
+        if (!syncJobs.fail(claim.id, claim.attempt, errorCode, detail, clock())) {
             logStale(claim, "fail")
             return
         }
-        if (claim.kind == SyncJobKind.SYNC) {
-            dataSources.recordSyncOutcome(claim.connectionId, succeeded = false, errorCode = errorCode, now = clock())
+        log.warn("Sync job {} ({}) for data source {} failed", claim.id, claim.kind, claim.connectionId, LoggedFailure(cause, detail))
+        when (claim.kind) {
+            SyncJobKind.SYNC -> dataSources.recordSyncOutcome(claim.connectionId, succeeded = false, errorCode = errorCode, now = clock())
+            SyncJobKind.RECONCILE -> dataSources.recordReconcileFailed(claim.connectionId, clock())
+            else -> Unit
         }
         audit(
             "sync_job.failed",
@@ -343,3 +347,23 @@ class IngestWorker internal constructor(
         const val MAX_ERROR_DETAIL_LENGTH = 1000
     }
 }
+
+/**
+ * A failed job's exception as logged: [message] (the bounded `<Class>: <message>` text `sync_jobs.error_detail` stores)
+ * and every stack frame, but each CAUSE reduced to its class name. A transport cause's message can embed the full
+ * request URL with its query string (Ktor's connect-timeout `IOException`, wrapped by `JiraFetchException`), which is
+ * never logged (`.claude/docs/jira-integration.md`); the top message is bounded because a database exception's message
+ * inlines every bound value of its statement (a page of whole issue documents). At most [MAX_LOGGED_CAUSES] causes.
+ */
+internal class LoggedFailure(failure: Throwable, message: String, depth: Int = 0) : RuntimeException(
+    message,
+    failure.cause?.takeIf { depth < MAX_LOGGED_CAUSES }?.let { LoggedFailure(it, it.javaClass.name, depth + 1) },
+    false,
+    true,
+) {
+    init {
+        stackTrace = failure.stackTrace
+    }
+}
+
+private const val MAX_LOGGED_CAUSES = 10

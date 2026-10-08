@@ -199,8 +199,9 @@ digest-pinning style as Lettuce's `teams-stub`).
     `nextPageToken`, later pages require the exact opaque token the previous page returned
     (`"<Scenario>-page-N"`). **The stub ignores JQL text entirely** — project/date scoping is
     baked into the fixed response set, keyed only by the `fields` query parameter and the
-    scenario. There are exactly two `fields` variants: no `fields` param at all (the default,
-    full-field search) and `fields=id` (the reconcile id-sweep, a single page up to 5000 ids).
+    scenario. There are exactly two `fields` variants: `fields=*all` (the ISSUES stream's full-field
+    search) and `fields=id` (the reconcile id-sweep and the Test-connection probe, a single page up to 5000 ids). A
+    search with no `fields` matches nothing: real `search/jql` returns only `id` then, unlike the retired `/search`.
   - `changelog/bulkfetch` chunks are **ascending, exact-order** 50-id batches
     (`equalToJson` with `ignoreArrayOrder: false`) — see `expected.json` →
     `changelog.bulkfetchChunkCount`/`bulkfetchChunkSize`. **Chunk index 5 is deliberately
@@ -224,6 +225,8 @@ digest-pinning style as Lettuce's `teams-stub`).
   is scenario-independent** — it does not change between `Started` and `day2`. (The stub still serves
   `priority/search`, but Flow has not called it since 2026-10-08; see `.claude/docs/jira-integration.md`.) Only issues,
   changelog, worklogs and the two `search/jql` variants are scenario-gated.
+  `statuses/search` serves `statusCategory` as the real string enum (`"TODO"`/`"IN_PROGRESS"`/`"DONE"`, `statusSearchJson`),
+  while issue payloads and project statuses keep the object form (`statusJson`); `.claude/docs/jira-integration.md` "Status category shapes".
 
 ### Timestamp formats
 
@@ -236,6 +239,8 @@ and REJECTS the form the REST API v3 actually uses
 - **REST API v3** (`generate.mjs`'s `restIso(ms)`) — `yyyy-MM-dd'T'HH:mm:ss.SSS+0000` (a colonless
   offset, never a bare `Z`): an issue's own `created`/`updated`/`resolutiondate`, a changelog
   history's `created`, and a worklog's `started`/`created`/`updated`.
+- **`changelog/bulkfetch`** — a history's `created` as epoch MILLIS (a JSON number), as the real endpoint returns
+  it; the per-issue changelog pages (the omitted chunk's fallback) keep the REST API v3 text form.
 - **Agile API** (`generate.mjs`'s `iso(ms)`, ordinary `toISOString()`) — `yyyy-MM-ddTHH:mm:ss.SSSZ`:
   a sprint's own `startDate`/`endDate`/`completeDate`, both on `GET board/{id}/sprint`'s response
   and the identically-named dates Jira duplicates onto an issue's own Sprint custom-field array

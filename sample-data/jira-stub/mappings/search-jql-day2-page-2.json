@@ -5,7 +5,7 @@
     "urlPath": "/ex/jira/b3f1a2c4-5d6e-4f7a-8b9c-0d1e2f3a4b5c/rest/api/3/search/jql",
     "queryParameters": {
       "fields": {
-        "absent": true
+        "equalTo": "*all"
       },
       "nextPageToken": {
         "equalTo": "day2-page-2"

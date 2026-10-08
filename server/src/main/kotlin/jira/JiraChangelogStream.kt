@@ -155,7 +155,7 @@ class JiraChangelogStream(
     private suspend fun storeHistory(context: StreamContext, issueId: Long, history: JsonObject) {
         val historyId = history.getValue("id").jsonPrimitive.content.toLong()
         val createdAt = parseJiraInstantEpochMillis(history.getValue("created").jsonPrimitive.content)
-        val authorAccountId = history["author"]?.jsonObject?.get("accountId")?.jsonPrimitive?.contentOrNull
+        val authorAccountId = history["author"].orNullObject()?.get("accountId")?.jsonPrimitive?.contentOrNull
         rawStore.insertChangelog(context.connectionId, historyId, issueId, createdAt, authorAccountId, history.toString(), context.clock())
     }
 

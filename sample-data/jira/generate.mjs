@@ -185,6 +185,13 @@ function statusJson(s) {
   return { id: s.id, name: s.name, statusCategory: { id: cat.id, key: cat.key, name: cat.name, colorName: cat.colorName } };
 }
 
+// `GET /statuses/search` returns the category as a plain string enum (real tenant: "TODO"/"IN_PROGRESS"/"DONE"),
+// unlike an issue's `fields.status` / `/status` / project statuses, which carry the object form (`statusJson`).
+const STATUS_SEARCH_CATEGORY = { new: "TODO", indeterminate: "IN_PROGRESS", done: "DONE" };
+function statusSearchJson(s) {
+  return { id: s.id, name: s.name, scope: { type: "GLOBAL" }, description: "", statusCategory: STATUS_SEARCH_CATEGORY[s.categoryKey] };
+}
+
 const ISSUE_TYPE = {
   EPIC: { id: "10000", name: "Epic", subtask: false, hierarchyLevel: 1 },
   STORY: { id: "10001", name: "Story", subtask: false, hierarchyLevel: 0 },
@@ -1620,7 +1627,7 @@ stub("myself", { urlPath: `${API}/myself` }, 200, {
 stub("field", { urlPath: `${API}/field` }, 200, FIELDS);
 
 // --- statuses/search (paged) ---------------------------------------------------------------------
-const statusValues = ALL_STATUSES.map((s) => statusJson(s));
+const statusValues = ALL_STATUSES.map((s) => statusSearchJson(s));
 const STATUS_PAGE_SIZE = 4;
 for (let i = 0; i * STATUS_PAGE_SIZE < statusValues.length; i++) {
   const page = statusValues.slice(i * STATUS_PAGE_SIZE, (i + 1) * STATUS_PAGE_SIZE);
@@ -1707,7 +1714,8 @@ for (const scenario of ["Started", "day2"]) {
       {
         urlPath: `${API}/search/jql`,
         queryParameters: {
-          fields: { absent: true },
+          // Real `search/jql` returns only `id` without `fields`; the full documents need `fields=*all`.
+          fields: { equalTo: "*all" },
           nextPageToken: idx === 0 ? { absent: true } : { equalTo: `${scenario}-page-${idx + 1}` },
         },
         requiredState: scenario,
@@ -1765,10 +1773,14 @@ stub(
 function historiesJson(issueId, upToMs) {
   return (changeHistories.get(issueId) ?? []).filter((h) => Date.parse(h.created) <= upToMs);
 }
+// Real bulkfetch gives a history's `created` as epoch millis (a number); the per-issue changelog keeps the text form.
+function bulkHistoriesJson(issueId, upToMs) {
+  return historiesJson(issueId, upToMs).map((h) => ({ ...h, created: Date.parse(h.created) }));
+}
 
 bulkChunks.forEach((chunk, idx) => {
   if (idx === OMITTED_CHUNK_INDEX) return; // omitted on purpose: exercises the per-issue fallback
-  const body = chunk.map((id) => ({ issueId: String(id), changeHistories: historiesJson(String(id), REFERENCE_MS) }));
+  const body = chunk.map((id) => ({ issueId: String(id), changeHistories: bulkHistoriesJson(String(id), REFERENCE_MS) }));
   stub(
     `changelog-bulkfetch-chunk-${idx}`,
     {
@@ -1792,7 +1804,7 @@ stub(
     requiredState: "day2",
   },
   200,
-  { issueChangeLogs: day2StaleIds.map((id) => ({ issueId: id, changeHistories: historiesJson(id, DAY2_NOW_MS) })), nextPageToken: null },
+  { issueChangeLogs: day2StaleIds.map((id) => ({ issueId: id, changeHistories: bulkHistoriesJson(id, DAY2_NOW_MS) })), nextPageToken: null },
 );
 
 // --- issue/{id}/changelog: catch-all (empty) + real data for the omitted chunk's issues ----------

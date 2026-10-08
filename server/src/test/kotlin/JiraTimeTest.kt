@@ -49,6 +49,12 @@ class JiraTimeTest {
     }
 
     @Test
+    fun `accepts the epoch millis changelog bulkfetch returns for a history's created`() {
+        assertEquals(Instant.ofEpochMilli(1_790_330_188_061), parseJiraInstant("1790330188061"))
+        assertEquals(1_790_330_188_061, parseJiraInstantEpochMillis("1790330188061"))
+    }
+
+    @Test
     fun `a malformed value throws the same unchecked exception Instant-parse itself would have`() {
         assertFailsWith<DateTimeParseException> { parseJiraInstant("not-a-timestamp") }
     }

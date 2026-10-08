@@ -295,8 +295,8 @@ tables in the `raw` schema — the REFERENCE and ISSUES streams' target
   `PROJECT_STATUSES`, `ISSUE_TYPE`, `PRIORITY` (no longer fetched since 2026-10-08; old rows are tombstoned), `RESOLUTION`, `ISSUE_LINK_TYPE`, `USER`, `BOARD`,
   `BOARD_CONFIGURATION`, `SPRINT` — no CHECK constraint, since the Kotlin enum is the whitelist and
   the column drives no SQL-level behavior, the `users.role`/`sync_jobs.status` idiom reserved for
-  columns a CHECK usefully pins). `entity_id` is `VARCHAR`, not `BIGINT`, because Jira ids are
-  numeric for most kinds but an opaque `accountId` string for `USER`. `idx_raw_jira_entities_last_seen`
+  columns a CHECK usefully pins). `entity_id` is `VARCHAR(255)` (V20; 50 in V10), not `BIGINT`, because Jira ids are
+  numeric for most kinds but an opaque `accountId` string for `USER` (76 characters for a JSM customer). `idx_raw_jira_entities_last_seen`
   (`connection_id, kind, last_seen_at`) backs the REFERENCE stream's end-of-pass tombstone sweep.
 - **sha256 change detection (both tables).** `JiraRawStore.upsertIssue`/`upsertEntity` canonicalize
   the incoming payload (`infra/json/CanonicalJson.kt`) and hash it; an unchanged hash on a
@@ -675,7 +675,7 @@ migration — the persistence.md cross-feature list above is unchanged.
 
 `MigrationChecksumTest` gains V17's pin.
 
-Current migrations are `V1`–`V19`:
+Current migrations are `V1`–`V21`:
 
 - `V1__init` — the `users` table: `name` (≤50), `email` (≤254), `password_hash`, `role` with
   `CHECK ("role" IN ('ADMIN', 'USER'))` (single-column role storage; the wire shape stays a
@@ -756,6 +756,17 @@ Current migrations are `V1`–`V19`:
   reused as-is. `norm.work_item_field_intervals.field` (an internal tag) stays `VARCHAR(20)`. V13's/V15's/V16's
   bytes stay immutable, no data migration, no reader changes; `MigrationChecksumTest` pins it and
   `ProcessReferenceRowsTest` pins the column types (identifiers and keys stay `VARCHAR`).
+- `V20__widen_jira_entity_id` — `raw.jira_entities.entity_id` `VARCHAR(50)` → `VARCHAR(255)`: the REFERENCE
+  stream stores a `USER` under its `accountId`, and the first real tenant had a 76-character one (likely a Jira
+  Service Management customer, `qm:<uuid>:<uuid>`) that failed every SYNC at the USER step. Raising a `VARCHAR`
+  limit is the same catalog-only change as V18/V19 (neither the table nor its primary key index is rewritten);
+  every column an accountId is copied into is already `VARCHAR(100)`. `MigrationChecksumTest` pins it.
+- `V21__reconcile_backoff` — `source_connections` gains `reconcile_failures INTEGER NOT NULL DEFAULT 0` and
+  `next_reconcile_at BIGINT` (nullable, epoch millis): a failing RECONCILE's back-off, the RECONCILE counterpart of
+  `consecutive_failures`/`next_sync_at`. Only a SUCCESSFUL reconcile stamps `last_reconcile_at`, so a failed one stayed
+  due and was re-enqueued on every scheduler tick (113 failed jobs in under 30 minutes on the first real tenant).
+  Additive (a constant-default `NOT NULL` column is catalog-only on PostgreSQL 11+); neither column is exposed by the
+  API. See `.claude/docs/ingestion.md` "Scheduling". `MigrationChecksumTest` pins it.
 
 The `users`/`teams` tables follow Toadie's dialect (`SERIAL`/`INTEGER` ids, epoch-millis `BIGINT`
 timestamps, `marked_as_deleted` + partial unique indexes over active rows) and its idioms: a
@@ -840,7 +851,8 @@ rows). `backfill_from` is a plain `VARCHAR(10)` ISO-date string, not a SQL `DATE
 value is only ever read/written whole and validated in Kotlin (`ingest/DataSource.kt`), so adding
 an Exposed date-column dependency bought nothing. `ingest/DataSourceService.kt` is the reference
 service for this shape; `ingest/DataSourceRoutes.kt` the ADMIN-only CRUD (see
-`.claude/docs/authorization.md`).
+`.claude/docs/authorization.md`). `reconcile_failures`/`next_reconcile_at` (V21, internal only, never in the
+API) hold a failing RECONCILE's back-off — `ingestion.md` "Scheduling".
 
 **`infra/db/Jsonb.kt`** — a repo-local `jsonb` column type, because `exposed-r2dbc` 1.5.0 ships no
 JSON column type of its own. It needs no reflection into the raw `io.r2dbc.spi.Statement`: Exposed

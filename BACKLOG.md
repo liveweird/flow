@@ -45,6 +45,13 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 - [blocked] **Seed memberships from the Team field (D1).** Waits on the first real sync.
 - [new] **Cache validators for the report endpoints.** Draft PR #75 (ETag/304 + an atomic DERIVE success mark) is
   open, waiting on the cache-posture sign-off.
+- [new] **Issues above epic level are derived as tasks.** The real tenant's COOK project has a "Program" issue at
+  hierarchy level 2 (above its epics). DERIVE treats every non-epic as a task (`hierarchyLevel != 1`:
+  `MetricsDeriver.kt`, `DeriveSprintStep.kt`). The domain model says a TASK is a level-0 issue, so the Program counts in
+  task WIP, throughput and cycle time like ordinary work.
+  - Likely fix: tasks are level 0 (plus sub-tasks rolling up), and level ≥ 2 is excluded, unless initiatives or
+    programs should be reported somewhere. That's a domain-model decision (a new D-entry or amendment).
+  - The stub has no issue above level 1. Add one with the fix.
 - [parked] **A28 — a composite estimate for estimated backlog.** Parked 2026-10-01: the teams do not estimate via
   sub-tasks.
   - Estimated backlog uses the OWN estimate only, so a parent estimated through its sub-tasks
@@ -84,6 +91,17 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
     A value past one of these is a counted bad row (`issuesFailed`) that stays `needs_processing` forever.
   - After the first real sync, look for `referenceRowsSkipped` and `issuesFailed`, and widen what really overflows
     (the V19 pattern).
+- [new] **Scheduler back-off gaps (SYNC and RECONCILE alike).** Found in the #112 review:
+  - A job that exhausts its attempts (`SyncJobLeases.claim` → `RETRIES_EXHAUSTED`, e.g. a worker crash loop) never
+    reaches `onFailed`. So no back-off is recorded, and the next tick enqueues a fresh job at once.
+  - `onFailed` writes FAILED and the back-off in two transactions. Another worker's tick can enqueue one extra retry
+    in between (a millisecond window).
+  - A config PUT (e.g. a rotated token) doesn't reset `consecutive_failures`/`next_sync_at` or
+    `reconcile_failures`/`next_reconcile_at`. The fixed connection waits out up to 6 h unless someone requests a job
+    manually.
+- [new] **An oversized `fields=*all` issue page stalls SYNC.** If one `search/jql` page exceeds
+  `jira.maxResponseBytes` (32 MiB), `LIMIT_EXCEEDED` repeats for the same page on every run. Halving `maxResults` on
+  `LIMIT_EXCEEDED` would unstick it. Jira already shrinks pages for heavy field sets, so this is unlikely at 100.
 - [parked] **Data profile: multi-project boards.** A board whose filter spans several projects shows no observed or
   unmapped statuses, because `BoardRef` carries a single project key. Revisit if real boards span projects.
 - [parked] **Two connections to one Jira site are allowed** (with different project scopes). Confirm this is the wanted

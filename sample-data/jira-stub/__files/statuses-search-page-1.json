@@ -7,42 +7,38 @@
     {
       "id": "1",
       "name": "To Do",
-      "statusCategory": {
-        "id": 2,
-        "key": "new",
-        "name": "To Do",
-        "colorName": "blue-gray"
-      }
+      "scope": {
+        "type": "GLOBAL"
+      },
+      "description": "",
+      "statusCategory": "TODO"
     },
     {
       "id": "3",
       "name": "In Progress",
-      "statusCategory": {
-        "id": 4,
-        "key": "indeterminate",
-        "name": "In Progress",
-        "colorName": "yellow"
-      }
+      "scope": {
+        "type": "GLOBAL"
+      },
+      "description": "",
+      "statusCategory": "IN_PROGRESS"
     },
     {
       "id": "10001",
       "name": "In Review",
-      "statusCategory": {
-        "id": 4,
-        "key": "indeterminate",
-        "name": "In Progress",
-        "colorName": "yellow"
-      }
+      "scope": {
+        "type": "GLOBAL"
+      },
+      "description": "",
+      "statusCategory": "IN_PROGRESS"
     },
     {
       "id": "10002",
       "name": "Done",
-      "statusCategory": {
-        "id": 3,
-        "key": "done",
-        "name": "Done",
-        "colorName": "green"
-      }
+      "scope": {
+        "type": "GLOBAL"
+      },
+      "description": "",
+      "statusCategory": "DONE"
     }
   ]
 }

@@ -142,6 +142,28 @@ class JiraNormalizerTest {
         assertTrue(input.facts.resolvedAtMs != null)
     }
 
+    /** The first real tenant sent an unset Sprint custom field as JSON `null`, not `[]`, and every such issue failed PROCESS. */
+    @Test
+    fun `normalizeIssue treats a JSON null sprint, flagged, labels, components or fixVersions as empty`() {
+        val payload = minimalIssuePayload(team = "null")
+            .replace("\"labels\": []", "\"labels\": null")
+            .replace("\"components\": []", "\"components\": null, \"fixVersions\": null, \"customfield_7\": null, \"customfield_8\": null")
+        val input = JiraNormalizer.normalizeIssue(
+            issuePayload = payload,
+            changelogPayloads = emptyList(),
+            worklogPayloads = emptyList(),
+            fieldIds = noFieldIds.copy(sprintFieldId = "customfield_7", flaggedFieldId = "customfield_8", teamFieldId = "customfield_9999"),
+            tombstone = TombstoneKind.NONE,
+        )
+        assertEquals(emptyList(), input.currentSprintIds)
+        assertNull(input.currentSprintText)
+        assertTrue(!input.currentFlagged)
+        assertEquals(emptyList(), input.facts.labels)
+        assertEquals(emptyList(), input.facts.components)
+        assertEquals(emptyList(), input.facts.fixVersions)
+        assertNull(input.facts.teamValueJson)
+    }
+
     @Test
     fun `normalizeIssue tombstone kinds are carried through unchanged`() {
         val deleted = JiraNormalizer.normalizeIssue(minimalIssuePayload(), emptyList(), emptyList(), noFieldIds, TombstoneKind.DELETED)
@@ -210,6 +232,29 @@ class JiraNormalizerTest {
         assertEquals(StatusCategory.IN_PROGRESS, refs.first { it.statusId == "3" }.category)
         assertEquals(StatusCategory.DONE, refs.first { it.statusId == "10002" }.category)
         assertEquals(StatusCategory.UNKNOWN, refs.first { it.statusId == "99" }.category)
+    }
+
+    @Test
+    fun `statusRefs accepts the statuses-search string enum and never throws on other shapes`() {
+        val refs = JiraNormalizer.statusRefs(
+            listOf(
+                """{"id":"1","name":"To Do","scope":{"type":"GLOBAL"},"description":"","statusCategory":"TODO"}""",
+                """{"id":"3","name":"In Progress","statusCategory":"IN_PROGRESS"}""",
+                """{"id":"10135","name":"Abandoned","scope":{"type":"GLOBAL"},"description":"","statusCategory":"DONE"}""",
+                """{"id":"90","name":"Odd","statusCategory":"SOMETHING_ELSE"}""",
+                """{"id":"91","name":"Undefined","statusCategory":"UNDEFINED"}""",
+                """{"id":"92","name":"Missing"}""",
+                """{"id":"93","name":"Null","statusCategory":null}""",
+                """{"id":"94","name":"Number","statusCategory":7}""",
+                """{"id":"95","name":"Array","statusCategory":["DONE"]}""",
+            ),
+        )
+        assertEquals(StatusCategory.TODO, refs.first { it.statusId == "1" }.category)
+        assertEquals(StatusCategory.IN_PROGRESS, refs.first { it.statusId == "3" }.category)
+        assertEquals(StatusCategory.DONE, refs.first { it.statusId == "10135" }.category)
+        listOf("90", "91", "92", "93", "94", "95").forEach { id ->
+            assertEquals(StatusCategory.UNKNOWN, refs.first { it.statusId == id }.category, "status $id")
+        }
     }
 
     @Test
