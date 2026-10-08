@@ -199,8 +199,9 @@ digest-pinning style as Lettuce's `teams-stub`).
     `nextPageToken`, later pages require the exact opaque token the previous page returned
     (`"<Scenario>-page-N"`). **The stub ignores JQL text entirely** — project/date scoping is
     baked into the fixed response set, keyed only by the `fields` query parameter and the
-    scenario. There are exactly two `fields` variants: no `fields` param at all (the default,
-    full-field search) and `fields=id` (the reconcile id-sweep, a single page up to 5000 ids).
+    scenario. There are exactly two `fields` variants: `fields=*all` (the ISSUES stream's full-field
+    search) and `fields=id` (the reconcile id-sweep and the Test-connection probe, a single page up to 5000 ids). A
+    search with no `fields` matches nothing: real `search/jql` returns only `id` then, unlike the retired `/search`.
   - `changelog/bulkfetch` chunks are **ascending, exact-order** 50-id batches
     (`equalToJson` with `ignoreArrayOrder: false`) — see `expected.json` →
     `changelog.bulkfetchChunkCount`/`bulkfetchChunkSize`. **Chunk index 5 is deliberately

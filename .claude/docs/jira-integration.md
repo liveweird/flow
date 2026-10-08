@@ -164,13 +164,14 @@ maps to `UNKNOWN` and never throws. The stub serves the real string form for `st
 ## ISSUES stream: fields and JQL
 
 `jira/JiraIssuesStream.kt` (v0.2.0 plan §7, plan commit 6) pages `GET /rest/api/3/search/jql` with
-`fields = null` — the `fields` query parameter is omitted entirely rather than sent empty, matching
-Jira's OWN default of returning every field on the issue document (the stub mirrors this: a request
-with no `fields` param gets the full document, `sample-data/README.md`). Normalization
-(`JiraNormalizer.kt`) needs both every system field and every discovered custom field
-(`schema.custom`-tagged, e.g. Sprint/Story Points/Flagged/Team), and Jira offers no cheaper "all
-system + all discovered custom" shape than asking for everything — so `fields=null` is intentional,
-not a placeholder.
+`fields=*all` (`ISSUE_SEARCH_FIELDS`). Unlike the retired `/search`, `search/jql` returns ONLY `id` per issue when
+`fields` is omitted; the code first omitted it, on the old endpoint's default, and the first real tenant's SYNC failed
+on issues with no `fields` at all (the stub had mirrored the wrong default). Normalization (`JiraNormalizer.kt`)
+needs both every system field and every discovered custom field (`schema.custom`-tagged, e.g. Sprint/Story
+Points/Flagged/Team), and Jira offers no cheaper "all system + all discovered custom" shape than asking for
+everything; `*all` is also what `GET /issue/{id}` returns by default, so the index-gap path stores the same document.
+The stub's full-document pages match only `fields=*all`, so a search without `fields` finds nothing there. The
+Test-connection `search` probe reads only the first issue's id and asks for `fields=id`.
 
 **JQL shapes** (`jira/JiraJql.kt`, project keys pre-validated by `PROJECT_KEY_PATTERN`
 `^[A-Z][A-Z0-9_]{1,9}$`, so no quoting/escaping is ever needed):
@@ -314,7 +315,7 @@ Landed with the RECONCILE stream (plan §7/§12 item 7, plan commit 7, V12 — s
 
 - **`GET /rest/api/3/search/jql` with `fields=id`** (`JiraClient.searchJql`, the same method the
   ISSUES stream uses, `jql = JiraJql.reconcile(projectKeys, sinceMinutes)`) — the daily id-sweep, paged at 5000
-  ids per page. Asking for `fields=id` only (never `fields=null`, unlike the ISSUES stream) is
+  ids per page. Asking for `fields=id` only (never `fields=*all`, unlike the ISSUES stream) is
   deliberate: the sweep only needs to know WHICH issue ids Jira still reports in scope, not their
   content.
 - **`GET /rest/api/3/issue/{id}` with `fields=project,key`** (`JiraClient.issue(idOrKey, fields)`) —

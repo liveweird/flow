@@ -83,6 +83,13 @@ private fun List<String>?.sameKeysAs(other: List<String>?): Boolean = this.orEmp
 internal const val MAX_CURSOR_RESTARTS = 5
 
 /**
+ * The ISSUES stream's `search/jql` `fields`: every field, the same document `GET /issue/{id}` returns (the index-gap
+ * path stores that one through the same write). `search/jql` returns only `id` when `fields` is omitted, unlike the
+ * retired `/search`; the first real tenant's SYNC failed on exactly that.
+ */
+internal const val ISSUE_SEARCH_FIELDS = "*all"
+
+/**
  * The ISSUES stream (v0.2.0 plan §7): pages `search/jql` with an opaque `nextPageToken`, JQL scoped
  * by [projectKeys] with a relative `updated` bound (`JiraJql.incremental`) — TZ-free by design
  * (`jira/JiraJql.kt`). Fields are requested with `fields = null` (Jira's own default — EVERY
@@ -132,7 +139,7 @@ class JiraIssuesStream(
         var restarts = 0
         while (true) {
             val page = try {
-                client.searchJql(state.jql, fields = null, nextPageToken = state.nextPageToken, maxResults = pageSize)
+                client.searchJql(state.jql, fields = ISSUE_SEARCH_FIELDS, nextPageToken = state.nextPageToken, maxResults = pageSize)
             } catch (expired: JiraFetchException) {
                 if (expired.code != "CURSOR_EXPIRED" || restarts >= MAX_CURSOR_RESTARTS) throw expired
                 restarts++

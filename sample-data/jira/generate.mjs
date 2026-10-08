@@ -1714,7 +1714,8 @@ for (const scenario of ["Started", "day2"]) {
       {
         urlPath: `${API}/search/jql`,
         queryParameters: {
-          fields: { absent: true },
+          // Real `search/jql` returns only `id` without `fields`; the full documents need `fields=*all`.
+          fields: { equalTo: "*all" },
           nextPageToken: idx === 0 ? { absent: true } : { equalTo: `${scenario}-page-${idx + 1}` },
         },
         requiredState: scenario,

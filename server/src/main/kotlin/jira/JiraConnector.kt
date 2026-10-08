@@ -237,7 +237,7 @@ class JiraConnector(
         probe("tenant_info", "/_edge/tenant_info", required = true) { cloudId = client.resolveCloudId() }
         probe("myself", "/rest/api/3/myself", required = true, scopeHint = "read:jira-user") { client.myself() }
         probe("search", "/rest/api/3/search/jql", required = true, scopeHint = "read:jql:jira") {
-            val page = client.searchJql(JiraJql.scope(projectKeys), maxResults = SEARCH_PROBE_MAX_RESULTS)
+            val page = client.searchJql(JiraJql.scope(projectKeys), fields = "id", maxResults = SEARCH_PROBE_MAX_RESULTS)
             firstIssueId = page.issues.firstOrNull()?.jsonObject?.get("id")?.jsonPrimitive?.contentOrNull
         }
         probe("field", "/rest/api/3/field", required = true, scopeHint = "read:field:jira") { client.fields() }
