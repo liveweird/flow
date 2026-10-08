@@ -115,6 +115,11 @@
       "stageAria": "Etap dla {{name}}",
       "blockedAria": "Zablokowany dla {{name}}",
       "stagePlaceholder": "Niezmapowany",
+      "workflow": {
+        "epic": "Epik",
+        "task": "Zadanie",
+        "hint": "Który workflow używa statusu: typów zgłoszeń epik (Epik), pozostałych typów (Zadanie) albo obu. Bez plakietki: status należy tylko do typu powyżej epików albo podział jest nieznany."
+      },
       "showAll": "Pokaż wszystkie statusy ({{count}})",
       "showAllHint": "Domyślnie widać tylko statusy z workflowów tego połączenia lub z jego historii oraz te, które zmieniasz. Zapis zawsze obejmuje wszystkie statusy.",
       "stage": {

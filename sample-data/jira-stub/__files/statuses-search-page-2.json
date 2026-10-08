@@ -1,7 +1,7 @@
 {
   "maxResults": 4,
   "startAt": 4,
-  "total": 6,
+  "total": 7,
   "isLast": true,
   "values": [
     {
@@ -16,6 +16,15 @@
     {
       "id": "10004",
       "name": "Waiting",
+      "scope": {
+        "type": "GLOBAL"
+      },
+      "description": "",
+      "statusCategory": "IN_PROGRESS"
+    },
+    {
+      "id": "10005",
+      "name": "On Hold",
       "scope": {
         "type": "GLOBAL"
       },

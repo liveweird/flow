@@ -41,6 +41,7 @@ import io.ktor.client.request.setBody
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.testApplication
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
+import java.io.File
 import java.sql.DriverManager
 import java.util.UUID
 import kotlinx.coroutines.runBlocking
@@ -857,6 +858,94 @@ class MetricsConfigRoutesTest {
             assertTrue(fields.isNotEmpty())
             fields.forEach { assertEquals(it.fieldId in inSchemes, it.inScheme, it.fieldId) }
             assertTrue(fields.any { it.detectedRole == "STORY_POINTS" && it.nonNullCount > 0 }, "the fill count comes from the profile")
+        }
+    }
+
+    @Test
+    fun `options flag the epic and task workflow and scheme from the stored profile - false and null when unknown`() = testApplication {
+        usePostgresTestcontainer()
+        val admin = seededClient("metricsoptionssplit", UserRole.ADMIN)
+        val ds = dataSources()
+        val connId = runBlocking { createConnection(ds) }
+        runBlocking { seedNormFixture(connId) }
+        val fields = listOf(
+            CustomFieldProfile("customfield_1", "Both", "number", 1, 1.0, "OTHER"),
+            CustomFieldProfile("customfield_2", "Epic only", "date", 1, 1.0, "OTHER"),
+            CustomFieldProfile("customfield_3", "Task only", "string", 1, 1.0, "OTHER"),
+            CustomFieldProfile("customfield_4", "Neither", "string", 1, 1.0, "OTHER"),
+        )
+        val split = DataProfileSections(
+            customFields = fields,
+            workflowStatusIds = listOf("10001", "10002", "10003"),
+            epicWorkflowStatusIds = listOf("10001", "10002"),
+            taskWorkflowStatusIds = listOf("10002", "10003"),
+            schemeFieldIds = listOf("customfield_1", "customfield_2", "customfield_3"),
+            schemeEpicFieldIds = listOf("customfield_1", "customfield_2"),
+            schemeTaskFieldIds = listOf("customfield_1", "customfield_3"),
+        )
+        runBlocking { ds.updateProfile(connId, Json.encodeToString(split)) }
+
+        val options = admin.get("/api/v1/data-sources/$connId/metrics-config/options").body<DataSourceMetricsConfigOptions>()
+        val statuses = options.statuses.associateBy { it.statusId }
+        assertEquals(true to false, statuses.getValue("10001").let { it.inEpicWorkflow to it.inTaskWorkflow })
+        assertEquals(true to true, statuses.getValue("10002").let { it.inEpicWorkflow to it.inTaskWorkflow })
+        assertEquals(
+            listOf(Triple(true, true, true), Triple(true, true, false), Triple(true, false, true), Triple(false, false, false)),
+            options.fields.map { Triple(it.inScheme, it.inEpicScheme, it.inTaskScheme) },
+        )
+
+        // A profile without the split (stored before it existed): no workflow flag, and the scheme flags are unknown rather than false.
+        val oldProfile = DataProfileSections(customFields = fields, schemeFieldIds = listOf("customfield_1"))
+        runBlocking { ds.updateProfile(connId, Json.encodeToString(oldProfile)) }
+        val unsplit = admin.get("/api/v1/data-sources/$connId/metrics-config/options").body<DataSourceMetricsConfigOptions>()
+        assertTrue(unsplit.statuses.none { it.inEpicWorkflow || it.inTaskWorkflow })
+        assertEquals(listOf(true, false, false, false), unsplit.fields.map { it.inScheme })
+        assertTrue(unsplit.fields.all { it.inEpicScheme == null && it.inTaskScheme == null })
+    }
+
+    @Test
+    fun `options on the synced stub - the epic and task flags equal an independent re-derivation from the stub's per-type rows`() {
+        val connId = runBlocking { SyncedStubFixture.connectionId() }
+        // Epic is issue type 10000 (level 1) in the stub, every other type level 0 or -1 (generate.mjs ISSUE_TYPE).
+        val statusIdsByEpic = runBlocking {
+            SyncedStubFixture.rawStore().entityPayloadsByKind(connId, "PROJECT_STATUSES")
+                .flatMap { payload -> Json.parseToJsonElement(payload).jsonArray }
+                .map { it.jsonObject }
+                .groupBy({ it.getValue("id").jsonPrimitive.content == "10000" }) { type ->
+                    type.getValue("statuses").jsonArray.map { it.jsonObject.getValue("id").jsonPrimitive.content }
+                }
+                .mapValues { (_, lists) -> lists.flatten().toSet() }
+        }
+        val stubDir = listOf(File("sample-data/jira-stub/__files"), File("../sample-data/jira-stub/__files")).first { it.isDirectory }
+        val fieldRows = SyncedStubFixture.IN_SCOPE_PROJECT_KEYS.flatMap { key ->
+            stubDir.listFiles { f -> f.name.startsWith("projects-fields-$key-page-") }.orEmpty()
+                .flatMap { Json.parseToJsonElement(it.readText()).jsonObject.getValue("values").jsonArray }
+                .map { it.jsonObject }
+        }
+        val epicFields = fieldRows.filter { it.getValue("workTypeId").jsonPrimitive.content == "10000" }
+            .map { it.getValue("fieldId").jsonPrimitive.content }.toSet()
+        val taskFields = fieldRows.filter { it.getValue("workTypeId").jsonPrimitive.content != "10000" }
+            .map { it.getValue("fieldId").jsonPrimitive.content }.toSet()
+        val epicStatuses = statusIdsByEpic.getValue(true)
+        val taskStatuses = statusIdsByEpic.getValue(false)
+        assertTrue(epicStatuses.minus(taskStatuses).isNotEmpty(), "the stub has an epic-only status")
+        assertTrue(epicFields.minus(taskFields).isNotEmpty() && taskFields.minus(epicFields).isNotEmpty(), "and epic-only/task-only fields")
+
+        testApplication {
+            configureApp("app.role" to "web")
+            startApplication()
+            val admin = seededClient("metricsoptionssplit-stub", UserRole.ADMIN)
+            val options = admin.get("/api/v1/data-sources/$connId/metrics-config/options").body<DataSourceMetricsConfigOptions>()
+            options.statuses.forEach {
+                assertEquals(it.statusId in epicStatuses, it.inEpicWorkflow, "epic ${it.statusId}")
+                assertEquals(it.statusId in taskStatuses, it.inTaskWorkflow, "task ${it.statusId}")
+                assertEquals(it.inEpicWorkflow || it.inTaskWorkflow, it.inWorkflow, "the union stays inWorkflow ${it.statusId}")
+            }
+            assertTrue(options.statuses.any { it.inEpicWorkflow && !it.inTaskWorkflow }, "the epic-only status is a norm.statuses row")
+            options.fields.forEach {
+                assertEquals(it.fieldId in epicFields, it.inEpicScheme, "epic ${it.fieldId}")
+                assertEquals(it.fieldId in taskFields, it.inTaskScheme, "task ${it.fieldId}")
+            }
         }
     }
 

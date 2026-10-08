@@ -55,8 +55,10 @@ object JiraProfile {
             .filter { (issueId, valueId) -> issueId in liveIssueIds && valueId != null }
         val referenceStatusesByProject = rawStore.entityRowsByKind(connectionId, JiraEntityKind.PROJECT_STATUSES.name)
             .associate { (projectKey, payload) -> projectKey to parseProjectStatuses(payload) }
-        val workflowStatusIds = referenceStatusesByProject.values.flatMap { it.values }.flatten().map { it.id }.distinct().sorted()
-        val schemeFieldIds = computeSchemeFieldIds(rawStore.entityRowsByKind(connectionId, JiraEntityKind.PROJECT_FIELDS.name), projectKeys)
+        val workflowTypes = referenceStatusesByProject.values.flatten()
+        val workflowStatusIds = workflowTypes.flatMap { it.statuses }.map { it.id }.distinct().sorted()
+        val hierarchy = JiraNormalizer.issueTypeHierarchy(rawStore.entityPayloadsByKind(connectionId, JiraEntityKind.ISSUE_TYPE.name))
+        val schemeRows = rawStore.entityRowsByKind(connectionId, JiraEntityKind.PROJECT_FIELDS.name)
         val fieldPayloads = rawStore.entityPayloadsByKind(connectionId, JiraEntityKind.FIELD.name)
         val issueFieldsPayloads = rawStore.issuePayloads(connectionId)
 
@@ -73,18 +75,40 @@ object JiraProfile {
             people = computePeople(items),
             anomalyCounts = items.flatMap { it.anomalies }.groupingBy { it.name }.eachCount().mapValues { it.value.toLong() },
             workflowStatusIds = workflowStatusIds,
-            schemeFieldIds = schemeFieldIds,
+            schemeFieldIds = computeSchemeFieldIds(schemeRows, projectKeys) { it.fieldIds },
+            epicWorkflowStatusIds = workflowStatusIdsAt(workflowTypes, hierarchy, JiraHierarchy.Bucket.EPIC),
+            taskWorkflowStatusIds = workflowStatusIdsAt(workflowTypes, hierarchy, JiraHierarchy.Bucket.TASK),
+            schemeEpicFieldIds = computeSchemeFieldIds(schemeRows, projectKeys) { it.epicFieldIds },
+            schemeTaskFieldIds = computeSchemeFieldIds(schemeRows, projectKeys) { it.taskFieldIds },
         )
     }
 
     /**
-     * The sorted distinct union of field ids over the live `PROJECT_FIELDS` entities of the CURRENT [projectKeys], or `null` —
-     * "unknown" — unless EVERY current key has one (a partial union would hide a project's fields behind the default filter).
+     * The sorted distinct union of [select]ed field ids over the live `PROJECT_FIELDS` entities of the CURRENT [projectKeys], or
+     * `null` — "unknown" — unless EVERY current key has one (a partial union would hide a project's fields behind the default filter).
      */
-    private fun computeSchemeFieldIds(rows: List<Pair<String, String>>, projectKeys: List<String>): List<String>? {
+    private fun computeSchemeFieldIds(
+        rows: List<Pair<String, String>>,
+        projectKeys: List<String>,
+        select: (JiraProjectFields.Parsed) -> List<String>,
+    ): List<String>? {
         val current = rows.filter { (projectKey, _) -> projectKey in projectKeys }
         if (projectKeys.isEmpty() || !current.map { it.first }.containsAll(projectKeys)) return null
-        return current.flatMap { (_, payload) -> JiraProjectFields.fieldIds(payload) }.distinct().sorted()
+        return current.flatMap { (_, payload) -> select(JiraProjectFields.parse(payload)) }.distinct().sorted()
+    }
+
+    /**
+     * The sorted distinct status ids of the workflows of the issue types in [bucket] ([JiraHierarchy]); empty while the issue-type
+     * [hierarchy] is unknown (no `ISSUE_TYPE` entity) — every type would otherwise read as a task type.
+     */
+    private fun workflowStatusIdsAt(
+        types: List<ReferenceType>,
+        hierarchy: Map<String, Int>,
+        bucket: JiraHierarchy.Bucket,
+    ): List<String> {
+        if (hierarchy.isEmpty()) return emptyList()
+        return types.filter { JiraHierarchy.bucket(it.id?.let(hierarchy::get)) == bucket }
+            .flatMap { it.statuses }.map { it.id }.distinct().sorted()
     }
 
     private fun pct(count: Long, total: Long): Double = if (total <= 0) 0.0 else count.toDouble() * 100.0 / total
@@ -103,7 +127,7 @@ object JiraProfile {
     private fun computeWorkflows(
         items: List<WorkItemStore.ProfileWorkItemRow>,
         intervalsByIssue: Map<Long, List<NormalizedStatusInterval>>,
-        referenceStatusesByProject: Map<String, Map<String, List<ReferenceStatus>>>,
+        referenceStatusesByProject: Map<String, List<ReferenceType>>,
     ): List<WorkflowProfile> = items.groupBy { it.projectKey to it.issueType }.map { (key, rows) ->
         val (projectKey, issueType) = key
         val issueIds = rows.map { it.issueId }.toSet()
@@ -127,7 +151,8 @@ object JiraProfile {
                 transitionCount = transitionCounts[statusId] ?: 0L,
             )
         }
-        WorkflowProfile(projectKey, issueType, observed, referenceStatusesByProject[projectKey]?.get(issueType).orEmpty().map { it.name })
+        val referenceNames = referenceStatusesByProject[projectKey].orEmpty().lastOrNull { it.name == issueType }?.statuses.orEmpty()
+        WorkflowProfile(projectKey, issueType, observed, referenceNames.map { it.name })
     }.sortedWith(compareBy({ it.projectKey }, { it.issueType }))
 
     private fun computeBoards(
@@ -245,9 +270,12 @@ object JiraProfile {
     /** One entry of a `PROJECT_STATUSES` issue type's status list: the status id and name. */
     private data class ReferenceStatus(val id: String, val name: String)
 
+    /** One `PROJECT_STATUSES` entry: an issue type's id (when the entry carries one), name and own status list. */
+    private data class ReferenceType(val id: String?, val name: String, val statuses: List<ReferenceStatus>)
+
     /** `GET /project/{key}/statuses`' response (v0.2.0 plan §7 "REFERENCE"): one entry per issue type, its own status list. */
-    private fun parseProjectStatuses(payload: String): Map<String, List<ReferenceStatus>> =
-        PROFILE_JSON.parseToJsonElement(payload).jsonArray.associate { entry ->
+    private fun parseProjectStatuses(payload: String): List<ReferenceType> =
+        PROFILE_JSON.parseToJsonElement(payload).jsonArray.map { entry ->
             val obj = entry.jsonObject
             val typeName = obj.getValue("name").jsonPrimitive.content
             // An entry without an id or name is skipped, never a PROFILE failure.
@@ -257,6 +285,6 @@ object JiraProfile {
                 val name = status["name"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
                 ReferenceStatus(id, name)
             }.orEmpty()
-            typeName to statuses
+            ReferenceType(obj["id"]?.jsonPrimitive?.contentOrNull, typeName, statuses)
         }
 }

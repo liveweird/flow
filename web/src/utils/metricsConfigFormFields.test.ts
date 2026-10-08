@@ -3,7 +3,7 @@ import { visibleFields } from "./metricsConfigForm";
 import type { MetricsFieldOption } from "../api/metrics";
 
 function field(fieldId: string, patch: Partial<MetricsFieldOption> = {}): MetricsFieldOption {
-  return { fieldId, name: fieldId, type: "string", detectedRole: "OTHER", inScheme: null, nonNullCount: 0, ...patch };
+  return { fieldId, name: fieldId, type: "string", detectedRole: "OTHER", inScheme: null, nonNullCount: 0, inEpicScheme: null, inTaskScheme: null, ...patch };
 }
 
 const ids = (fields: MetricsFieldOption[]) => fields.map((f) => f.fieldId);
@@ -46,5 +46,48 @@ describe("the default Fields-tab filter", () => {
     const unknownAndEmpty = [field("a"), field("b")];
     expect(visibleFields(unknownAndEmpty, [], false)).toEqual({ listed: unknownAndEmpty, hiddenCount: 0, schemeUnknown: true });
     expect(visibleFields([], [], false)).toEqual({ listed: [], hiddenCount: 0, schemeUnknown: true });
+  });
+});
+
+describe("the per-scope Fields-tab filter", () => {
+  const split = [
+    field("epicOnly", { inScheme: true, inEpicScheme: true, inTaskScheme: false }),
+    field("taskOnly", { inScheme: true, inEpicScheme: false, inTaskScheme: true }),
+    field("both", { inScheme: true, inEpicScheme: true, inTaskScheme: true }),
+    field("neither", { inScheme: false, inEpicScheme: false, inTaskScheme: false }),
+  ];
+
+  test("the epic scope lists the epic scheme's fields and the task scope the task scheme's", () => {
+    expect(ids(visibleFields(split, [], false, "epic").listed)).toEqual(["epicOnly", "both"]);
+    expect(ids(visibleFields(split, [], false, "task").listed)).toEqual(["taskOnly", "both"]);
+    expect(ids(visibleFields(split, [], false, "any").listed)).toEqual(["epicOnly", "taskOnly", "both"]);
+    expect(visibleFields(split, [], false, "epic").hiddenCount).toBe(2);
+  });
+
+  test("a selected field stays listed in a scope that excludes it, and showAll lists everything", () => {
+    expect(ids(visibleFields(split, ["taskOnly"], false, "epic").listed)).toEqual(["epicOnly", "taskOnly", "both"]);
+    expect(visibleFields(split, [], true, "task").listed).toBe(split);
+  });
+
+  test("an unknown split falls back to the union's scheme, then to the fields with data", () => {
+    const unsplit = split.map((f) => ({ ...f, inEpicScheme: null, inTaskScheme: null }));
+    expect(ids(visibleFields(unsplit, [], false, "epic").listed)).toEqual(["epicOnly", "taskOnly", "both"]);
+    expect(ids(visibleFields(unsplit, [], false, "task").listed)).toEqual(["epicOnly", "taskOnly", "both"]);
+    const noScheme = [field("a", { nonNullCount: 4 }), field("b")];
+    const result = visibleFields(noScheme, [], false, "epic");
+    expect(ids(result.listed)).toEqual(["a"]);
+    expect(result.schemeUnknown).toBe(true);
+  });
+
+  test("a split that flags nothing for a scope falls back to the union, then to the fields with data, never to an empty list", () => {
+    const noEpic = split.map((f) => ({ ...f, inEpicScheme: false }));
+    expect(ids(visibleFields(noEpic, [], false, "epic").listed)).toEqual(["epicOnly", "taskOnly", "both"]);
+    const noSchemeAtAll = [
+      field("a", { inScheme: false, inEpicScheme: false, inTaskScheme: false, nonNullCount: 2 }),
+      field("b", { inScheme: false, inEpicScheme: false, inTaskScheme: false }),
+    ];
+    expect(ids(visibleFields(noSchemeAtAll, [], false, "epic").listed)).toEqual(["a"]);
+    const nothingAtAll = noSchemeAtAll.map((f) => ({ ...f, nonNullCount: 0 }));
+    expect(ids(visibleFields(nothingAtAll, [], false, "epic").listed)).toEqual(["a", "b"]);
   });
 });

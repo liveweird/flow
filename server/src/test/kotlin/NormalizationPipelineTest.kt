@@ -52,6 +52,7 @@ private val EXPECTED_STATUS_CATEGORY = mapOf(
     "10002" to StatusCategory.DONE,
     "10003" to StatusCategory.IN_PROGRESS,
     "10004" to StatusCategory.IN_PROGRESS,
+    "10005" to StatusCategory.IN_PROGRESS,
 )
 
 @Serializable

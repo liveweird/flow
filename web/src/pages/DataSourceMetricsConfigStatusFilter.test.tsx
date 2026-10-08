@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import { Route, Routes } from "react-router-dom";
 import DataSourceMetricsConfig from "./DataSourceMetricsConfig";
 import { jsonResponse } from "../test/http";
@@ -79,10 +79,10 @@ describe("DataSourceMetricsConfig Statuses filter", () => {
   }
 
   const FILTERED_STATUSES: DataSourceMetricsConfigOptions["statuses"] = [
-    { statusId: "3", name: "In Progress", category: "IN_PROGRESS", inWorkflow: true, seenInHistory: true },
-    { statusId: "10", name: "Done", category: "DONE", inWorkflow: false, seenInHistory: true },
-    { statusId: "20", name: "Archived", category: "DONE", inWorkflow: false, seenInHistory: false },
-    { statusId: "30", name: "Legacy", category: "TODO", inWorkflow: false, seenInHistory: false },
+    { statusId: "3", name: "In Progress", category: "IN_PROGRESS", inWorkflow: true, seenInHistory: true, inEpicWorkflow: false, inTaskWorkflow: false },
+    { statusId: "10", name: "Done", category: "DONE", inWorkflow: false, seenInHistory: true, inEpicWorkflow: false, inTaskWorkflow: false },
+    { statusId: "20", name: "Archived", category: "DONE", inWorkflow: false, seenInHistory: false, inEpicWorkflow: false, inTaskWorkflow: false },
+    { statusId: "30", name: "Legacy", category: "TODO", inWorkflow: false, seenInHistory: false, inEpicWorkflow: false, inTaskWorkflow: false },
   ];
   /** The server seeds every status with its category default, hidden ones included. */
   const FILTERED_CONFIG = {
@@ -130,6 +130,37 @@ describe("DataSourceMetricsConfig Statuses filter", () => {
 
     await user.click(screen.getByRole("switch", { name: SWITCH_NAME }));
     await waitFor(() => expect(screen.queryByRole("combobox", { name: "Stage for Archived" })).not.toBeInTheDocument());
+  });
+
+  test("badges each status with the workflows (Epic, Task, both) that use it", async () => {
+    serveFiltered(FILTERED_CONFIG, [
+      { statusId: "3", name: "In Progress", category: "IN_PROGRESS", inWorkflow: true, seenInHistory: true, inEpicWorkflow: true, inTaskWorkflow: true },
+      { statusId: "10", name: "Done", category: "DONE", inWorkflow: true, seenInHistory: true, inEpicWorkflow: false, inTaskWorkflow: true },
+      { statusId: "20", name: "On Hold", category: "IN_PROGRESS", inWorkflow: true, seenInHistory: false, inEpicWorkflow: true, inTaskWorkflow: false },
+      { statusId: "30", name: "Legacy", category: "TODO", inWorkflow: false, seenInHistory: true, inEpicWorkflow: false, inTaskWorkflow: false },
+    ]);
+    renderPage();
+
+    const badgesOf = async (name: string) => {
+      const label = (await screen.findAllByText(name, { selector: "p" }))[0];
+      const row = label.closest("tr") as HTMLElement;
+      return ["Epic", "Task"].filter((badge) => within(row).queryByText(badge) !== null);
+    };
+    expect(await badgesOf("In Progress")).toEqual(["Epic", "Task"]);
+    expect(await badgesOf("Done")).toEqual(["Task"]);
+    expect(await badgesOf("On Hold")).toEqual(["Epic"]);
+    expect(await badgesOf("Legacy")).toEqual([]);
+    expect(screen.getByText(/Which workflow uses the status/)).toBeInTheDocument();
+  });
+
+  test("no badges and no hint while the epic/task split is unknown", async () => {
+    serveFiltered();
+    renderPage();
+
+    await screen.findByRole("combobox", { name: "Stage for In Progress" });
+    expect(screen.queryByText("Epic")).not.toBeInTheDocument();
+    expect(screen.queryByText("Task")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Which workflow uses the status/)).not.toBeInTheDocument();
   });
 
   test("a hidden-by-default status stays listed once the admin changed it", async () => {
@@ -209,7 +240,7 @@ describe("DataSourceMetricsConfig Statuses filter", () => {
   test("with no workflow or history information every status is listed and there is no switch", async () => {
     serveFiltered(
       FILTERED_CONFIG,
-      FILTERED_STATUSES.map((s) => ({ ...s, inWorkflow: false, seenInHistory: false })),
+      FILTERED_STATUSES.map((s) => ({ ...s, inWorkflow: false, seenInHistory: false, inEpicWorkflow: false, inTaskWorkflow: false })),
     );
     renderPage();
 
@@ -219,7 +250,7 @@ describe("DataSourceMetricsConfig Statuses filter", () => {
   });
 
   test("no switch is offered when every status is already listed", async () => {
-    serve(baseConfig(), [{ statusId: "3", name: "In Progress", category: "IN_PROGRESS", inWorkflow: true, seenInHistory: true }]);
+    serve(baseConfig(), [{ statusId: "3", name: "In Progress", category: "IN_PROGRESS", inWorkflow: true, seenInHistory: true, inEpicWorkflow: false, inTaskWorkflow: false }]);
     renderPage();
 
     await screen.findByRole("combobox", { name: "Stage for In Progress" });

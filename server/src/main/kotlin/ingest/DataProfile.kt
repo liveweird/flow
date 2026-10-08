@@ -98,6 +98,10 @@ data class PeopleProfile(val activeAssignees: Long = 0, val unassignedPercent: D
  * Statuses tab's "relevant statuses" filter; empty on a profile stored before the field existed. [schemeFieldIds] is the
  * sorted union of field ids in the in-scope projects' field schemes (`PROJECT_FIELDS`, the optional experimental
  * `projects/fields` step) — the Fields tab's "fields of the project" filter; `null` = unknown (no project has the entity).
+ * [schemeEpicFieldIds]/[schemeTaskFieldIds] are the same union restricted to the issue types at hierarchy level 1 / level 0 and
+ * below (a project whose entity predates the split contributes its whole scheme to both), `null` under the same rule;
+ * [epicWorkflowStatusIds]/[taskWorkflowStatusIds] split [workflowStatusIds] by the issue type the `PROJECT_STATUSES` entry belongs
+ * to (both empty while the issue-type hierarchy is unknown, or on a profile stored before they existed).
  */
 @Serializable
 data class DataProfile(
@@ -115,6 +119,10 @@ data class DataProfile(
     val anomalyCounts: Map<String, Long> = emptyMap(),
     val workflowStatusIds: List<String> = emptyList(),
     val schemeFieldIds: List<String>? = null,
+    val epicWorkflowStatusIds: List<String> = emptyList(),
+    val taskWorkflowStatusIds: List<String> = emptyList(),
+    val schemeEpicFieldIds: List<String>? = null,
+    val schemeTaskFieldIds: List<String>? = null,
 )
 
 /**
@@ -136,6 +144,10 @@ data class DataProfileSections(
     val anomalyCounts: Map<String, Long> = emptyMap(),
     val workflowStatusIds: List<String> = emptyList(),
     val schemeFieldIds: List<String>? = null,
+    val epicWorkflowStatusIds: List<String> = emptyList(),
+    val taskWorkflowStatusIds: List<String> = emptyList(),
+    val schemeEpicFieldIds: List<String>? = null,
+    val schemeTaskFieldIds: List<String>? = null,
 )
 
 /** Wraps [this] with [computedAt] into the wire response — `ingest/DataProfileRoutes.kt`'s one call site. */
@@ -154,4 +166,8 @@ fun DataProfileSections.withComputedAt(computedAt: Long?): DataProfile = DataPro
     anomalyCounts = anomalyCounts,
     workflowStatusIds = workflowStatusIds,
     schemeFieldIds = schemeFieldIds,
+    epicWorkflowStatusIds = epicWorkflowStatusIds,
+    taskWorkflowStatusIds = taskWorkflowStatusIds,
+    schemeEpicFieldIds = schemeEpicFieldIds,
+    schemeTaskFieldIds = schemeTaskFieldIds,
 )

@@ -7,8 +7,8 @@ import { renderWithProviders } from "../test/render";
 import type { DomainRowState, DomainStageRowState, StatusRowState } from "../utils/metricsConfigForm";
 
 const STATUSES: StatusRowState[] = [
-  { statusId: "3", name: "In Progress", category: "IN_PROGRESS", stage: "IN_PROGRESS", blocked: false, inWorkflow: true, seenInHistory: true },
-  { statusId: "10", name: "Done", category: "DONE", stage: "", blocked: false, inWorkflow: true, seenInHistory: true },
+  { statusId: "3", name: "In Progress", category: "IN_PROGRESS", stage: "IN_PROGRESS", blocked: false, inWorkflow: true, seenInHistory: true, inEpicWorkflow: false, inTaskWorkflow: false },
+  { statusId: "10", name: "Done", category: "DONE", stage: "", blocked: false, inWorkflow: true, seenInHistory: true, inEpicWorkflow: false, inTaskWorkflow: false },
 ];
 const DOMAINS: DomainRowState[] = [
   { projectKey: "ENG", domainKey: "ENG", domainName: "ENG", ownerTeamId: "" },

@@ -45,10 +45,10 @@ function baseConfig(fields: Record<string, string | null> = {}) {
 }
 
 const SCHEME_FIELDS: FieldOptions = [
-  { fieldId: "customfield_1", name: "Story points", type: "number", detectedRole: "STORY_POINTS", inScheme: true, nonNullCount: 40 },
-  { fieldId: "customfield_2", name: "Team", type: "team", detectedRole: "TEAM", inScheme: true, nonNullCount: 0 },
-  { fieldId: "customfield_3", name: "Legacy cost centre", type: "string", detectedRole: "OTHER", inScheme: false, nonNullCount: 9 },
-  { fieldId: "customfield_4", name: "Old risk", type: "string", detectedRole: "OTHER", inScheme: false, nonNullCount: 0 },
+  { fieldId: "customfield_1", name: "Story points", type: "number", detectedRole: "STORY_POINTS", inScheme: true, nonNullCount: 40, inEpicScheme: null, inTaskScheme: null },
+  { fieldId: "customfield_2", name: "Team", type: "team", detectedRole: "TEAM", inScheme: true, nonNullCount: 0, inEpicScheme: null, inTaskScheme: null },
+  { fieldId: "customfield_3", name: "Legacy cost centre", type: "string", detectedRole: "OTHER", inScheme: false, nonNullCount: 9, inEpicScheme: null, inTaskScheme: null },
+  { fieldId: "customfield_4", name: "Old risk", type: "string", detectedRole: "OTHER", inScheme: false, nonNullCount: 0, inEpicScheme: null, inTaskScheme: null },
 ];
 const SWITCH_NAME = "Show all fields (4)";
 
@@ -153,6 +153,47 @@ describe("DataSourceMetricsConfig Fields filter", () => {
     ]);
     await user.click(screen.getByRole("switch", { name: SWITCH_NAME }));
     expect(await optionNames(user, "Task estimate field")).toHaveLength(5);
+  });
+
+  test("epic slots list the epic scheme's fields, task slots the task scheme's and the work category their union", async () => {
+    const split: FieldOptions = [
+      { fieldId: "customfield_1", name: "Story points", type: "number", detectedRole: "STORY_POINTS", inScheme: true, nonNullCount: 40, inEpicScheme: false, inTaskScheme: true },
+      { fieldId: "customfield_2", name: "Epic start", type: "date", detectedRole: "OTHER", inScheme: true, nonNullCount: 3, inEpicScheme: true, inTaskScheme: false },
+      { fieldId: "customfield_3", name: "Team", type: "team", detectedRole: "TEAM", inScheme: true, nonNullCount: 3, inEpicScheme: true, inTaskScheme: true },
+      { fieldId: "customfield_4", name: "Old risk", type: "string", detectedRole: "OTHER", inScheme: false, nonNullCount: 0, inEpicScheme: false, inTaskScheme: false },
+    ];
+    serve(split);
+    const user = userEvent.setup();
+    renderPage();
+    await openFieldsTab(user);
+
+    const task = ["Due date (system field)", "Story points (Story points)", "Team (Team)"];
+    const epic = ["Due date (system field)", "Epic start (Other)", "Team (Team)"];
+    expect(await optionNames(user, "Task estimate field")).toEqual(task);
+    // D8: the work category is the task's own value, else its epic's — so it lists the union of both schemes.
+    expect(await optionNames(user, "Work-category field")).toEqual([
+      "Due date (system field)",
+      "Story points (Story points)",
+      "Epic start (Other)",
+      "Team (Team)",
+    ]);
+    expect(await optionNames(user, "Epic estimate field")).toEqual(epic);
+    expect(await optionNames(user, "Epic start-date field")).toEqual(epic);
+    expect(await optionNames(user, "Epic due-date field")).toEqual(epic);
+
+    await user.click(screen.getByRole("switch", { name: SWITCH_NAME }));
+    expect(await optionNames(user, "Epic start-date field")).toHaveLength(5);
+  });
+
+  test("a slot falls back to the union scheme while the epic/task split is unknown", async () => {
+    serve(SCHEME_FIELDS);
+    const user = userEvent.setup();
+    renderPage();
+    await openFieldsTab(user);
+
+    const union = ["Due date (system field)", "Story points (Story points)", "Team (Team)"];
+    expect(await optionNames(user, "Epic start-date field")).toEqual(union);
+    expect(await optionNames(user, "Task estimate field")).toEqual(union);
   });
 
   test("no switch and no note when nothing is hidden", async () => {

@@ -8,6 +8,7 @@ import ch.nokillswit.jira.JiraProjectFields
 import ch.nokillswit.jira.JiraRawStore
 import ch.nokillswit.jira.JiraReferenceStream
 import ch.nokillswit.jira.JiraStartAtPage
+import ch.nokillswit.jira.REFERENCE_STEP_ORDER
 import ch.nokillswit.jira.ReferenceCursor
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.toList
@@ -89,7 +90,7 @@ class JiraProjectFieldsScriptedTest {
             fieldsPage(listOf(fieldRowOf("summary"), fieldRowOf("type-${types.first()}")), total = 2)
         }
         val ids = (1L..30L).toList()
-        val fieldIds = JiraProjectFields.fetchFieldIds(client, 7L, ids)
+        val fieldIds = JiraProjectFields.fetchScheme(client, 7L, ids).fieldIds
 
         assertEquals(listOf(ids.take(25), ids.drop(25)), calls, "two calls, the work types in groups of 25")
         assertEquals(listOf("summary", "type-1", "type-26"), fieldIds, "the union of both answers, sorted and distinct")
@@ -102,7 +103,7 @@ class JiraProjectFieldsScriptedTest {
             starts += startAt
             fieldsPage(listOf(fieldRowOf(if (startAt == 0) "a" else "b")), total = 0, isLast = startAt != 0)
         }
-        assertEquals(listOf("a", "b"), JiraProjectFields.fetchFieldIds(onToTwoPages, 7L, listOf(1L)))
+        assertEquals(listOf("a", "b"), JiraProjectFields.fetchScheme(onToTwoPages, 7L, listOf(1L)).fieldIds)
         assertEquals(listOf(0, 1), starts)
 
         starts.clear()
@@ -110,7 +111,7 @@ class JiraProjectFieldsScriptedTest {
             starts += startAt
             fieldsPage(listOf(fieldRowOf("a")), total = 999, isLast = true)
         }
-        assertEquals(listOf("a"), JiraProjectFields.fetchFieldIds(stopsEarly, 7L, listOf(1L)))
+        assertEquals(listOf("a"), JiraProjectFields.fetchScheme(stopsEarly, 7L, listOf(1L)).fieldIds)
         assertEquals(listOf(0), starts, "isLast=true ends the walk although total says there is more")
     }
 
@@ -124,7 +125,7 @@ class JiraProjectFieldsScriptedTest {
         )
         bad.forEach { badRow ->
             val client = scripted { _, _, _ -> fieldsPage(listOf(fieldRowOf("summary"), badRow), total = 2, isLast = true) }
-            val failure = assertFailsWith<JiraFetchException>("$badRow") { JiraProjectFields.fetchFieldIds(client, 7L, listOf(1L)) }
+            val failure = assertFailsWith<JiraFetchException>("$badRow") { JiraProjectFields.fetchScheme(client, 7L, listOf(1L)) }
             assertEquals("INVALID_RESPONSE", failure.code, "$badRow")
         }
     }
@@ -186,7 +187,7 @@ class JiraProjectFieldsScriptedTest {
         assertEquals(KEYS.toSet(), projectIds.keys)
 
         // passStartedAt = 1 keeps the resumed pass's end sweep from tombstoning anything (a fresh pass would re-run the earlier steps).
-        val cursor = Json.encodeToString(ReferenceCursor(1L, JiraEntityKind.PROJECT_FIELDS, startAt = 2))
+        val cursor = Json.encodeToString(ReferenceCursor(1L, JiraEntityKind.PROJECT_FIELDS, startAt = 2, stepOrder = REFERENCE_STEP_ORDER))
         SyncedStubFixture.cursors().put(connId, "reference", cursor)
         val requested = mutableSetOf<Long>()
         val client = scripted { projectId, _, _ ->

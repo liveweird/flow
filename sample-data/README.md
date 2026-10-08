@@ -224,7 +224,11 @@ digest-pinning style as Lettuce's `teams-stub`).
   per (field, work type) of each IN-SCOPE project (`projects-fields-<KEY>-page-N`). Matched on `urlPath` plus the
   `projectId` query parameter only — like `search/jql` ignores JQL, the stub ignores the repeated `workTypeId` params and
   answers every work type of the project. System fields plus the custom fields the dataset's issues use; the Kanban
-  project's scheme leaves out Sprint and Story point estimate, and the epic start date applies to epics only.
+  project's scheme leaves out Sprint and Story point estimate; the epic start date applies to the Epic work type only and Sprint
+  to the non-epic work types, so the epic/task split is exercised.
+- **Epic workflow.** `project/{key}/statuses` answers a workflow per issue type: the Epic entry is the project's workflow
+  plus an epic-only `On Hold` status (id `10005`, in `statuses/search` too) before `Done`; no issue ever transitions into it,
+  so no interval, digest or `expected.json` figure moves.
 - **Reference data (`field`, `statuscategory`, `project/search`, `project/{key}/statuses`,
   `issuetype`, `resolution/search`, `issueLinkType`, `board/{id}/configuration`)
   is scenario-independent** — it does not change between `Started` and `day2`. (The stub still serves

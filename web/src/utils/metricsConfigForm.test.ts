@@ -35,10 +35,10 @@ const EMPTY_CONFIG: DataSourceMetricsConfigResponse = {
 
 const OPTIONS: DataSourceMetricsConfigOptions = {
   statuses: [
-    { statusId: "3", name: "In Progress", category: "IN_PROGRESS", inWorkflow: true, seenInHistory: true },
-    { statusId: "10", name: "Done", category: "DONE", inWorkflow: true, seenInHistory: true },
+    { statusId: "3", name: "In Progress", category: "IN_PROGRESS", inWorkflow: true, seenInHistory: true, inEpicWorkflow: false, inTaskWorkflow: false },
+    { statusId: "10", name: "Done", category: "DONE", inWorkflow: true, seenInHistory: true, inEpicWorkflow: false, inTaskWorkflow: false },
   ],
-  fields: [{ fieldId: "customfield_10001", name: "Story points", type: "number", detectedRole: "STORY_POINTS", inScheme: true, nonNullCount: 3 }],
+  fields: [{ fieldId: "customfield_10001", name: "Story points", type: "number", detectedRole: "STORY_POINTS", inScheme: true, nonNullCount: 3, inEpicScheme: null, inTaskScheme: null }],
   projects: ["ENG"],
   boards: [{ boardId: 1, name: "Board A", projectKey: "ENG" }],
   issueTypes: ["Story"],
@@ -51,8 +51,8 @@ describe("buildInitialState", () => {
   test("gives every reference item a row, unmapped/blank when nothing is stored", () => {
     const state = buildInitialState(EMPTY_CONFIG, OPTIONS);
     expect(state.statuses).toEqual([
-      { statusId: "3", name: "In Progress", category: "IN_PROGRESS", stage: "", blocked: false, inWorkflow: true, seenInHistory: true },
-      { statusId: "10", name: "Done", category: "DONE", stage: "", blocked: false, inWorkflow: true, seenInHistory: true },
+      { statusId: "3", name: "In Progress", category: "IN_PROGRESS", stage: "", blocked: false, inWorkflow: true, seenInHistory: true, inEpicWorkflow: false, inTaskWorkflow: false },
+      { statusId: "10", name: "Done", category: "DONE", stage: "", blocked: false, inWorkflow: true, seenInHistory: true, inEpicWorkflow: false, inTaskWorkflow: false },
     ]);
     expect(state.domains).toEqual([{ projectKey: "ENG", domainKey: "ENG", domainName: "ENG", ownerTeamId: "" }]);
     expect(state.boards).toEqual([{ boardId: 1, name: "Board A", projectKey: "ENG", teamId: "" }]);
@@ -83,7 +83,7 @@ describe("buildInitialState", () => {
       sprintCapacities: [{ sprintId: 11, capacityMd: 12.5 }],
     };
     const state = buildInitialState(config, OPTIONS);
-    expect(state.statuses[0]).toEqual({ statusId: "3", name: "In Progress", category: "IN_PROGRESS", stage: "IN_PROGRESS", blocked: true, inWorkflow: true, seenInHistory: true });
+    expect(state.statuses[0]).toEqual({ statusId: "3", name: "In Progress", category: "IN_PROGRESS", stage: "IN_PROGRESS", blocked: true, inWorkflow: true, seenInHistory: true, inEpicWorkflow: false, inTaskWorkflow: false });
     expect(state.domains[0]).toEqual({
       projectKey: "ENG",
       domainKey: "ENGINEERING",
@@ -131,8 +131,8 @@ describe("mergeWorkCategoryValues", () => {
 describe("buildRequest", () => {
   const baseState: MetricsConfigFormState = {
     statuses: [
-      { statusId: "3", name: "In Progress", category: "IN_PROGRESS", stage: "IN_PROGRESS", blocked: true, inWorkflow: true, seenInHistory: true },
-      { statusId: "10", name: "Done", category: "DONE", stage: "", blocked: false, inWorkflow: true, seenInHistory: true },
+      { statusId: "3", name: "In Progress", category: "IN_PROGRESS", stage: "IN_PROGRESS", blocked: true, inWorkflow: true, seenInHistory: true, inEpicWorkflow: false, inTaskWorkflow: false },
+      { statusId: "10", name: "Done", category: "DONE", stage: "", blocked: false, inWorkflow: true, seenInHistory: true, inEpicWorkflow: false, inTaskWorkflow: false },
     ],
     domainStages: [{ domainKey: "ENG", statusId: "10", stage: "IN_PROGRESS" }],
     fields: { estimateTask: "", estimateEpic: "", epicStart: "", epicDue: "duedate", workCategory: "customfield_10002" },
@@ -329,6 +329,8 @@ describe("the default status filter", () => {
     blocked: false,
     inWorkflow: false,
     seenInHistory: false,
+    inEpicWorkflow: false,
+    inTaskWorkflow: false,
     ...patch,
   });
   const none = new Set<string>();
@@ -336,10 +338,19 @@ describe("the default status filter", () => {
   test("buildInitialState carries the two relevance flags from the options", () => {
     const options: DataSourceMetricsConfigOptions = {
       ...OPTIONS,
-      statuses: [{ statusId: "3", name: "In Progress", category: "IN_PROGRESS", inWorkflow: true, seenInHistory: false }],
+      statuses: [{ statusId: "3", name: "In Progress", category: "IN_PROGRESS", inWorkflow: true, seenInHistory: false, inEpicWorkflow: false, inTaskWorkflow: false }],
     };
     const [row] = buildInitialState(EMPTY_CONFIG, options).statuses;
     expect([row.inWorkflow, row.seenInHistory]).toEqual([true, false]);
+  });
+
+  test("buildInitialState carries the epic/task workflow flags from the options", () => {
+    const options: DataSourceMetricsConfigOptions = {
+      ...OPTIONS,
+      statuses: [{ statusId: "3", name: "On Hold", category: "IN_PROGRESS", inWorkflow: true, seenInHistory: false, inEpicWorkflow: true, inTaskWorkflow: false }],
+    };
+    const [row] = buildInitialState(EMPTY_CONFIG, options).statuses;
+    expect([row.inEpicWorkflow, row.inTaskWorkflow]).toEqual([true, false]);
   });
 
   test("maps a Jira category to its default stage; UNKNOWN stays unmapped", () => {
@@ -349,7 +360,7 @@ describe("the default status filter", () => {
   test("lists workflow and history statuses plus any with a choice or a session edit, hides the rest", () => {
     const rows = [
       status("wf", { inWorkflow: true }),
-      status("hist", { seenInHistory: true }),
+      status("hist", { seenInHistory: true, inEpicWorkflow: false, inTaskWorkflow: false }),
       status("plain"),
       status("stage", { stage: "IN_PROGRESS" }),
       status("unmapped", { stage: "" }),

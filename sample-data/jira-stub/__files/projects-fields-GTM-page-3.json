@@ -1,7 +1,7 @@
 {
   "maxResults": 50,
   "startAt": 100,
-  "total": 121,
+  "total": 120,
   "isLast": true,
   "values": [
     {
@@ -12,12 +12,6 @@
     },
     {
       "fieldId": "customfield_10019",
-      "projectId": 10002,
-      "workTypeId": 10000,
-      "isRequired": false
-    },
-    {
-      "fieldId": "customfield_10020",
       "projectId": 10002,
       "workTypeId": 10000,
       "isRequired": false

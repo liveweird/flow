@@ -45,6 +45,12 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 - [blocked] **Seed memberships from the Team field (D1).** Waits on the first real sync.
 - [new] **Cache validators for the report endpoints.** Draft PR #75 (ETag/304 + an atomic DERIVE success mark) is
   open, waiting on the cache-posture sign-off.
+- [new] **A per-level (epic vs task) status → stage override.** Epics and tasks have different workflows: on COOK,
+  To Do, In Progress, On Hold, Ready and Closed are shared by both. Flow maps each status id to ONE stage, with
+  per-domain overrides only, so a shared status can't mean NOT_STARTED for an epic and DONE for a task.
+  - The Statuses tab now badges each status Epic/Task (#115). Decide after reviewing them whether any shared status
+    differs.
+  - If one does, this needs a domain-model amendment plus config, DERIVE and UI changes.
 - [new] **Issues above epic level are derived as tasks.** The real tenant's COOK project has a "Program" issue at
   hierarchy level 2 (above its epics). DERIVE treats every non-epic as a task (`hierarchyLevel != 1`:
   `MetricsDeriver.kt`, `DeriveSprintStep.kt`). The domain model says a TASK is a level-0 issue, so the Program counts in

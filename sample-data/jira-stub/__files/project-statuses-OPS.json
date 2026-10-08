@@ -223,6 +223,16 @@
         }
       },
       {
+        "id": "10005",
+        "name": "On Hold",
+        "statusCategory": {
+          "id": 4,
+          "key": "indeterminate",
+          "name": "In Progress",
+          "colorName": "yellow"
+        }
+      },
+      {
         "id": "10002",
         "name": "Done",
         "statusCategory": {

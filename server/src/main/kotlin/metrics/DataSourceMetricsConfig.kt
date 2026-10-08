@@ -333,7 +333,9 @@ internal fun StatusCategory.toDefaultStage(): MetricsStage? = when (this) {
  * One status, for the options endpoint — every status Jira reports, whether or not it is mapped.
  * [inWorkflow]: the id is in the stored data profile's `workflowStatusIds` (some in-scope project's
  * reference workflow uses it); [seenInHistory]: some work item's status interval carries it. The
- * editor lists a status by default when either holds (or the user has made a choice on it).
+ * editor lists a status by default when either holds (or the user has made a choice on it). [inEpicWorkflow]/[inTaskWorkflow]:
+ * the id is in the workflow of an epic issue type (hierarchy level 1) / a task issue type (level 0 or below) of some in-scope
+ * project — [inWorkflow] stays their union; both are false while the profile has no hierarchy split.
  */
 @Serializable
 data class MetricsStatusOption(
@@ -342,6 +344,8 @@ data class MetricsStatusOption(
     val category: StatusCategory,
     val inWorkflow: Boolean,
     val seenInHistory: Boolean,
+    val inEpicWorkflow: Boolean,
+    val inTaskWorkflow: Boolean,
 )
 
 /**
@@ -349,6 +353,8 @@ data class MetricsStatusOption(
  * [inScheme]: the id is in the stored profile's `schemeFieldIds` (the in-scope projects' field schemes), `null` when that
  * set is unknown (no profile, or the optional `projects/fields` step never succeeded); [nonNullCount]: how many live issues
  * carry a value (the profile's fill count) — the editor's fallback relevance signal when [inScheme] is unknown.
+ * [inEpicScheme]/[inTaskScheme]: the same test against the epic-type / task-type split of the schemes
+ * (`schemeEpicFieldIds`/`schemeTaskFieldIds`), `null` under the same rule as [inScheme].
  */
 @Serializable
 data class MetricsFieldOption(
@@ -358,6 +364,8 @@ data class MetricsFieldOption(
     val detectedRole: String,
     val inScheme: Boolean?,
     val nonNullCount: Long,
+    val inEpicScheme: Boolean?,
+    val inTaskScheme: Boolean?,
 )
 
 @Serializable

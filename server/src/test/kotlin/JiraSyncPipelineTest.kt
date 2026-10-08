@@ -218,7 +218,7 @@ class JiraSyncPipelineTest {
         assertEquals(
             mapOf(
                 "FIELD" to 19,
-                "STATUS" to 6,
+                "STATUS" to 7, // the stub's six workflow statuses plus the epic-only On Hold (no issue ever sits in it)
                 "STATUS_CATEGORY" to 4,
                 "PROJECT" to 5,
                 "PROJECT_STATUSES" to 4,
@@ -600,6 +600,43 @@ class JiraSyncPipelineTest {
             assertTrue(
                 fields.isNotEmpty() && fields.all { it[JiraRawStore.Entities.deletedAt] == null },
                 "the restarted pass fetched FIELD live",
+            )
+        }
+
+    @Test
+    fun `a pass resumed from an old PROJECT_FIELDS cursor restarts at step 0, so ISSUE_TYPE still runs and is not tombstoned`() =
+        runBlocking {
+            val connId = createConnection(dataSources())
+            val store = rawStore()
+            val cursorService = cursors()
+            // What the previous step order (PROJECT_FIELDS before ISSUE_TYPE) left behind: a PROJECT_FIELDS cursor, plus an issue type.
+            val oldPassStartedAt = 5_000L
+            cursorService.put(connId, "reference", """{"passStartedAt":$oldPassStartedAt,"step":"PROJECT_FIELDS","startAt":1}""")
+            val staleEpicType = """{"id":"10000","name":"Epic","hierarchyLevel":1}"""
+            store.upsertEntity(connId, JiraEntityKind.ISSUE_TYPE.name, "10000", staleEpicType, now = 1_000L)
+
+            val stream = JiraReferenceStream(buildClient(maxRetries = 0), store, IN_SCOPE_PROJECT_KEYS)
+            stream.run(StreamContext(connId, 1u, sharedDatabaseForTests(), cursorService, jobHeartbeat = { _, _ -> true }))
+
+            assertNull(cursorService.get(connId, "reference"), "the pass completed, so its cursor is cleared")
+            val issueTypes = suspendTransaction(sharedDatabaseForTests()) {
+                JiraRawStore.Entities.selectAll().where {
+                    (JiraRawStore.Entities.connectionId eq connId) and (JiraRawStore.Entities.kind eq JiraEntityKind.ISSUE_TYPE.name)
+                }.toList()
+            }
+            assertEquals(5, issueTypes.size, "the ISSUE_TYPE step ran and stored the stub's issue types")
+            assertTrue(
+                issueTypes.all { it[JiraRawStore.Entities.deletedAt] == null && it[JiraRawStore.Entities.lastSeenAt] >= oldPassStartedAt },
+                "every issue type was seen in this pass, so the sweep leaves it live",
+            )
+            val projectFields = suspendTransaction(sharedDatabaseForTests()) {
+                JiraRawStore.Entities.selectAll().where {
+                    (JiraRawStore.Entities.connectionId eq connId) and (JiraRawStore.Entities.kind eq JiraEntityKind.PROJECT_FIELDS.name)
+                }.toList()
+            }
+            assertTrue(
+                projectFields.size == IN_SCOPE_PROJECT_KEYS.size && projectFields.all { it[JiraRawStore.Entities.deletedAt] == null },
+                "PROJECT_FIELDS ran for every project, after ISSUE_TYPE",
             )
         }
 
