@@ -35,6 +35,9 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 
 - [new] **`epic_domain_key` as-of.** Today it uses the epic's current domain, because no epic-domain history
   exists. Real data is in now; evaluate whether a parent move across projects shows up in COOK's changelog.
+  - Evaluated 2026-10-09: COOK's changelog (2025-07-23 → 2026-09-25) has NO `project` or `Key` change on any issue.
+    Its 100 `IssueParentAssociation` changes are re-parentings inside the project (30 tasks, 4 epics under the
+    Program), which never change an epic's domain. Nothing to fix on real data; a candidate for [parked].
 - [new] **Read `hoursPerDay` from Jira's time-tracking configuration (A5).** Real data is in now; check the
   endpoint and its scope on the tenant.
 - [new] **Seed memberships from the Team field (D1).** Possible now: COOK's Team field is filled on 43 of 46 issues.

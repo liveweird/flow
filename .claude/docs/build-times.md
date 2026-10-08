@@ -826,6 +826,14 @@ evidence and recorded here as a dated entry (finding + fix, or "measured, intend
    130-275 MB, two connections at once 68.9 / 69.3 s and still inside 512m. Also added: `-XX:+ExitOnOutOfMemoryError` in `applicationDefaultJvmArgs`
    — the OOM had killed single threads (the worker coroutine, a Netty event loop) and left a half-dead process that compose/k8s never restarted.
 
+15. **The `web` job crossed its 3-min alarm (3m29s median on master, 2026-10-09) — ANSWERED 2026-10-09 (`ci/web-single-vitest`): the suite ran twice.**
+   Step for step (`gh run view`, master 47db43c → a4fa9b5): the shuffled vitest run checkup 2 added (WHY 12 said "~10 s") took
+   **30-58 s**, and `test:coverage` grew 57-65 s → 76-80 s as the 0.4.0 tests landed — lint, build and `npm ci` stayed flat. Fix:
+   ONE run, `npm run test:coverage -- --sequence.shuffle` (CI and `scripts/gates.sh web`), which keeps both the coverage
+   thresholds and the order-independence proof (coverage under shuffle was already shown identical, WHY 12's checkup notes).
+   Expected: the job drops by the 30-58 s second run, back under the alarm. No budget change. The next lever is unchanged:
+   an eslint cache.
+
 **What the suite is made of (local, pre-fix run, 782 tests, 12m30s of class time):**
 `MetricsDerivationTest` 5m55s (47 %), `MetricsDigestTest` 2m00s (16 %), `NormalizationPipelineTest`
 1m16s, `ReportDataQualityTest` 47 s, `DataProfileTest` 35 s — 24 tests over 5 s account for 87 % of

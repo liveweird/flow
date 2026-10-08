@@ -7,8 +7,8 @@ Read on demand before changing a CI job, a Dependabot rule or a static-analysis 
 - CI: `.github/workflows/ci.yml` re-runs every gate above on push/PR (a PR changing only Markdown, `measures.md` aside, skips the server job; server — incl. the OpenAPI
   coverage gate, strict Gradle dependency verification (`--dependency-verification strict`) plus a
   lock/verification-metadata drift check, and a HIGH/CRITICAL Gradle lockfile vulnerability scan,
-  web — incl. the API-contract gate (`lint:api` + `check:api`) and a second, shuffled-order vitest run
-  (`npx vitest run --sequence.shuffle`, the `isolate: false` independence proof; `scripts/gates.sh web` mirrors it), e2e statics —
+  web — incl. the API-contract gate (`lint:api` + `check:api`) and the coverage run in shuffled order
+  (`npm run test:coverage -- --sequence.shuffle`, which is also the `isolate: false` independence proof; `scripts/gates.sh web` mirrors it), e2e statics —
   lint/knip/typecheck/scenario parity/setup, `npm audit` (high+) on both npm workspaces, `k8s-static` (kubeconform over
   `k8s/`, and the web deployment pinned to one replica), and on `master` an image build plus a Trivy scan of it); the blackbox Playwright
   suite (`e2e.yml`) runs nightly and on demand, and re-scans the image it built with the same Trivy gate. Dependabot (`.github/dependabot.yml`) checks every
