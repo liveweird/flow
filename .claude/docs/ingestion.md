@@ -700,9 +700,10 @@ itself**: a real tenant's issue-search response does not carry `hierarchyLevel` 
 the only fixture carrying it), the same reason `norm.statuses`' category lookup is resolved once
 per run rather than trusted from the issue payload.
 
-**Status category mapping.** `JiraNormalizer.statusRefs` maps each Jira `statusCategory.key` to
-`StatusCategory` (`norm/Tiling.kt`): `new → TODO`, `indeterminate → IN_PROGRESS`, `done → DONE`,
-anything else (including absent) `→ UNKNOWN`. `norm.statuses` (rebuilt wholesale every PROCESS run)
+**Status category mapping.** `JiraNormalizer.statusRefs` maps each Jira status category to
+`StatusCategory` (`norm/Tiling.kt`), in either shape: the object's `key` (`new → TODO`, `indeterminate → IN_PROGRESS`,
+`done → DONE`) or the plain string enum real `statuses/search` returns (`TODO`/`IN_PROGRESS`/`DONE`, verbatim);
+anything else (including absent, `UNDEFINED` or a wrong JSON type) `→ UNKNOWN`, never a failure. `norm.statuses` (rebuilt wholesale every PROCESS run)
 is the lookup `Normalization.normalize` uses to attach a `(name, category)` pair to every tiled
 status interval and to the issue's own current status.
 

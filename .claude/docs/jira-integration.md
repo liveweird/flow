@@ -151,6 +151,16 @@ The `JiraEntityKind.PRIORITY` value stays, because old raw rows and cursor JSON 
 consumer ever appears, use `GET /rest/api/3/priority/{id}` or `GET /rest/api/3/priority`
 (`read:priority:jira`).
 
+## Status category shapes
+
+`GET /rest/api/3/statuses/search` (the REFERENCE `STATUS` kind) returns `statusCategory` as a plain string enum
+(`"TODO"`, `"IN_PROGRESS"`, `"DONE"`, e.g. `{"id":"10135","name":"Abandoned","scope":{"type":"GLOBAL"},"description":"","statusCategory":"DONE"}`),
+while an issue's `fields.status`, `/rest/api/3/status` and project statuses carry the object form
+(`{"id":2,"key":"new","name":"To Do",...}`). `JiraNormalizer.statusRefs` accepts both (the enum, or the object's `key`
+`new`/`indeterminate`/`done`); anything else, including `UNDEFINED`, a missing or null value or another JSON type,
+maps to `UNKNOWN` and never throws. The stub serves the real string form for `statuses/search` (`statusSearchJson` in
+`sample-data/jira/generate.mjs`) and the object form everywhere else (`statusJson`).
+
 ## ISSUES stream: fields and JQL
 
 `jira/JiraIssuesStream.kt` (v0.2.0 plan §7, plan commit 6) pages `GET /rest/api/3/search/jql` with

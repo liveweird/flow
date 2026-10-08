@@ -114,15 +114,32 @@ object JiraNormalizer {
         id to level
     }.toMap()
 
-    /** `norm.statuses`' rebuilt reference rows (v0.2.0 plan §8) — one per `STATUS` entity. */
+    /**
+     * `norm.statuses`' rebuilt reference rows (v0.2.0 plan §8) — one per `STATUS` entity. Jira has two shapes for the
+     * category: `GET /statuses/search` (what the REFERENCE stream stores) returns a plain string enum
+     * (`"TODO"`/`"IN_PROGRESS"`/`"DONE"`), while an issue's `fields.status` and `/status` return the object form
+     * (`{"key":"new"|"indeterminate"|"done"}`). Both are accepted; anything else is `UNKNOWN`, never a throw.
+     */
     fun statusRefs(statusPayloads: List<String>): List<StatusRef> = statusPayloads.map { payload ->
         val status = NORMALIZER_JSON.parseToJsonElement(payload).jsonObject
-        val categoryKey = status["statusCategory"]?.jsonObject?.get("key")?.jsonPrimitive?.contentOrNull
         StatusRef(
             statusId = status.getValue("id").jsonPrimitive.content,
             name = status.getValue("name").jsonPrimitive.content,
-            category = statusCategoryForKey(categoryKey),
+            category = statusCategoryOf(status["statusCategory"]),
         )
+    }
+
+    private fun statusCategoryOf(element: JsonElement?): StatusCategory = when (element) {
+        is JsonPrimitive -> if (element.isString) statusCategoryForEnum(element.content) else StatusCategory.UNKNOWN
+        is JsonObject -> statusCategoryForKey((element["key"] as? JsonPrimitive)?.contentOrNull)
+        else -> StatusCategory.UNKNOWN
+    }
+
+    private fun statusCategoryForEnum(name: String): StatusCategory = when (name) {
+        "TODO" -> StatusCategory.TODO
+        "IN_PROGRESS" -> StatusCategory.IN_PROGRESS
+        "DONE" -> StatusCategory.DONE
+        else -> StatusCategory.UNKNOWN
     }
 
     private fun statusCategoryForKey(key: String?): StatusCategory = when (key) {

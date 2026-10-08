@@ -185,6 +185,13 @@ function statusJson(s) {
   return { id: s.id, name: s.name, statusCategory: { id: cat.id, key: cat.key, name: cat.name, colorName: cat.colorName } };
 }
 
+// `GET /statuses/search` returns the category as a plain string enum (real tenant: "TODO"/"IN_PROGRESS"/"DONE"),
+// unlike an issue's `fields.status` / `/status` / project statuses, which carry the object form (`statusJson`).
+const STATUS_SEARCH_CATEGORY = { new: "TODO", indeterminate: "IN_PROGRESS", done: "DONE" };
+function statusSearchJson(s) {
+  return { id: s.id, name: s.name, scope: { type: "GLOBAL" }, description: "", statusCategory: STATUS_SEARCH_CATEGORY[s.categoryKey] };
+}
+
 const ISSUE_TYPE = {
   EPIC: { id: "10000", name: "Epic", subtask: false, hierarchyLevel: 1 },
   STORY: { id: "10001", name: "Story", subtask: false, hierarchyLevel: 0 },
@@ -1620,7 +1627,7 @@ stub("myself", { urlPath: `${API}/myself` }, 200, {
 stub("field", { urlPath: `${API}/field` }, 200, FIELDS);
 
 // --- statuses/search (paged) ---------------------------------------------------------------------
-const statusValues = ALL_STATUSES.map((s) => statusJson(s));
+const statusValues = ALL_STATUSES.map((s) => statusSearchJson(s));
 const STATUS_PAGE_SIZE = 4;
 for (let i = 0; i * STATUS_PAGE_SIZE < statusValues.length; i++) {
   const page = statusValues.slice(i * STATUS_PAGE_SIZE, (i + 1) * STATUS_PAGE_SIZE);

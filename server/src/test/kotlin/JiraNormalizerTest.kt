@@ -213,6 +213,29 @@ class JiraNormalizerTest {
     }
 
     @Test
+    fun `statusRefs accepts the statuses-search string enum and never throws on other shapes`() {
+        val refs = JiraNormalizer.statusRefs(
+            listOf(
+                """{"id":"1","name":"To Do","scope":{"type":"GLOBAL"},"description":"","statusCategory":"TODO"}""",
+                """{"id":"3","name":"In Progress","statusCategory":"IN_PROGRESS"}""",
+                """{"id":"10135","name":"Abandoned","scope":{"type":"GLOBAL"},"description":"","statusCategory":"DONE"}""",
+                """{"id":"90","name":"Odd","statusCategory":"SOMETHING_ELSE"}""",
+                """{"id":"91","name":"Undefined","statusCategory":"UNDEFINED"}""",
+                """{"id":"92","name":"Missing"}""",
+                """{"id":"93","name":"Null","statusCategory":null}""",
+                """{"id":"94","name":"Number","statusCategory":7}""",
+                """{"id":"95","name":"Array","statusCategory":["DONE"]}""",
+            ),
+        )
+        assertEquals(StatusCategory.TODO, refs.first { it.statusId == "1" }.category)
+        assertEquals(StatusCategory.IN_PROGRESS, refs.first { it.statusId == "3" }.category)
+        assertEquals(StatusCategory.DONE, refs.first { it.statusId == "10135" }.category)
+        listOf("90", "91", "92", "93", "94", "95").forEach { id ->
+            assertEquals(StatusCategory.UNKNOWN, refs.first { it.statusId == id }.category, "status $id")
+        }
+    }
+
+    @Test
     fun `peopleRefs falls back to accountId when displayName is absent, and defaults active to true`() {
         val refs = JiraNormalizer.peopleRefs(
             listOf(

@@ -224,6 +224,8 @@ digest-pinning style as Lettuce's `teams-stub`).
   is scenario-independent** — it does not change between `Started` and `day2`. (The stub still serves
   `priority/search`, but Flow has not called it since 2026-10-08; see `.claude/docs/jira-integration.md`.) Only issues,
   changelog, worklogs and the two `search/jql` variants are scenario-gated.
+  `statuses/search` serves `statusCategory` as the real string enum (`"TODO"`/`"IN_PROGRESS"`/`"DONE"`, `statusSearchJson`),
+  while issue payloads and project statuses keep the object form (`statusJson`); `.claude/docs/jira-integration.md` "Status category shapes".
 
 ### Timestamp formats
 
