@@ -1,84 +1,139 @@
 # Product backlog
 
-Updated 2026-10-06. This file tracks **outstanding work only**. Implemented behaviour and release history belong elsewhere:
+Updated 2026-10-08. This file tracks **outstanding work only**. Implemented behaviour and release history belong elsewhere:
 - [README.md](README.md);
 - the [application changelog](web/src/changelog/entries.ts);
 - the topic guides under `.claude/docs/`.
 
 Entries are proposals, not delivery commitments.
 
+**Status tags.** Every top-level item under a `##` section opens with one tag:
+- `[next]`: what comes next;
+- `[todo]`: confirmed, to do;
+- `[new]`: proposed, not yet confirmed. That includes the decisions only the user can take. Claude adds items as
+  `[new]`, and only the user promotes them;
+- `[parked]`: deliberately set aside until a trigger;
+- `[blocked]`: waiting on someone or something else.
+
+The `backlog` mod (`liveweird/claude-mods`) summarises the tags on the status line and in `/backlog`.
+
 ## Next: the phase 2 exit — real Jira (needs the user)
 
-- Create an Atlassian service account with a scoped, read-only API token (scopes in `.claude/docs/jira-integration.md`).
-- Add the data source, run Test connection, and fix any scope gaps it reports.
-- Backfill 24 months, then read the data profile together (runbook: `.claude/docs/ingestion.md`, "Reading the data profile after the first real sync").
-- The first sync will bring adjustments (A10): the defaults the metrics configuration ships with (status → stage, the estimate and epic fields, the work-category field) meet real data for the first time.
-- Things to confirm on the real tenant, where the spike marked them uncertain:
-  - Basic vs Bearer auth;
-  - bulk-changelog availability and its per-request cap;
-  - the search page-size ceiling;
-  - how Sprint changes appear in the changelog.
+- [next] **The real-Jira first sync.** The steps:
+  - Create an Atlassian service account with a scoped, read-only API token. The scope list is in the README,
+    "Connecting Jira", and includes `read:workflow:jira`.
+  - Start the stack with the stub off (`JIRA_STUB_BASE_URL= docker compose up`). Add the data source, run Test
+    connection, and fix any scope gaps it reports.
+    - Check whether the boards 401 persists once the token has the board scopes.
+  - Backfill 24 months, then read the data profile together (runbook: `.claude/docs/ingestion.md`, "Reading the data
+    profile after the first real sync").
+  - The first sync will bring adjustments (A10). The defaults the metrics configuration ships with meet real data for
+    the first time: status → stage, the estimate and epic fields, the work-category field.
+  - Things to confirm on the real tenant, where the spike marked them uncertain:
+    - Basic vs Bearer auth;
+    - bulk-changelog availability and its per-request cap;
+    - the search page-size ceiling;
+    - how Sprint changes appear in the changelog.
 
-## Phase 3: the domain model — done in v0.3.0 (released 2026-09-29)
+## Phase 3 follow-ups (the domain model, v0.3.0)
 
-Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 override the body. A11–A16 were overnight judgement calls (approved 2026-09-28), A23, A25, A26 and A27 approved 2026-09-29; A17–A21 came from the measure contract (`.claude/docs/measures.md`); A22 from the 9d review.
+Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 override the body.
 
-- **Delivered:**
-  - M1 (PR #22), M2 (PR #23), the configuration e2e (PR #24), Dependabot #17;
-  - M3, the derivation (PR #26): the V16/V17 star, DERIVE, the facts, `agg_daily_wip`/`agg_daily_flow`, the invariant-12 digest, and the scale-20 perf check (DERIVE 136 s cold on 24k issues);
-  - M4, the reports API (PR #27) and the report pages 1–8, the estimation batch and the reports e2e (PR #28);
-  - M5 (PR #29): reports 9–16 (WIP and backlog, aging WIP and blocked time, epic progress, data quality, cost matrix) with their pages, the Home unit overview, the batch-2 e2e, the docs sweep and the v0.3.0 changelog.
-- **Release:** v0.3.0 is tagged and released on GitHub (2026-09-29; process in `.claude/docs/app-releases.md`). The first deploy reprocesses the whole tenant (`PROCESSING_VERSION = 2`) and DERIVE follows — minutes on the worker, once.
-- **Next:**
-  - the real-Jira first sync and the adjustments it brings (A10) — see the section above.
-- **Small follow-ups (M2–M5):**
-  - `epic_domain_key` uses the epic's current domain, not as-of (no epic-domain history exists). After the first real sync.
-  - Read `hoursPerDay` from Jira's time-tracking configuration (A5). After the first real sync.
-  - Seed memberships from the Team field (D1). After the first real sync.
-  - Cache validators for the report endpoints. Draft PR #75 (ETag/304 + an atomic DERIVE success mark) is open, waiting on the cache-posture sign-off.
-  - **Parked (2026-10-01; the teams do not estimate via sub-tasks):** estimated backlog uses the OWN estimate only, so a parent estimated through its sub-tasks (`estimate_source = SUBTASKS`) is missing from it. The fix is a composite-estimate bridge, and velocity (`sprintScope`) needs the same composite or backlog-in-sprints is overstated. Number the amendment A28 (A23 is taken).
+- [blocked] **`epic_domain_key` as-of.** Today it uses the epic's current domain, because no epic-domain history
+  exists. Waits on the first real sync.
+- [blocked] **Read `hoursPerDay` from Jira's time-tracking configuration (A5).** Waits on the first real sync.
+- [blocked] **Seed memberships from the Team field (D1).** Waits on the first real sync.
+- [new] **Cache validators for the report endpoints.** Draft PR #75 (ETag/304 + an atomic DERIVE success mark) is
+  open, waiting on the cache-posture sign-off.
+- [parked] **A28 — a composite estimate for estimated backlog.** Parked 2026-10-01: the teams do not estimate via
+  sub-tasks.
+  - Estimated backlog uses the OWN estimate only, so a parent estimated through its sub-tasks
+    (`estimate_source = SUBTASKS`) is missing from it.
+  - The fix is a composite-estimate bridge. Velocity (`sprintScope`) needs the same composite, or backlog-in-sprints
+    is overstated.
+  - Number the amendment A28 (A23 is taken).
 
 ## Engineering follow-ups
 
-- **CI duration — tracked, now within budget.** The `server` CI job fell from ~30 min (one timeout) to 7–8 min on 2026-09-30 (#33 ANALYZE, #36 PROCESS batching, #40 pooled test DB, #44 slow small tests, #51 two parallel forks); the `web` job to ~1–2 min (#37); the CI timeout is 25 min. Local: `scripts/gates.sh`. Budgets, history and the open WHY questions live in `.claude/docs/build-times.md`; check `node scripts/timings/ci-times.mjs --branch master` at every milestone — a trend jump gets an investigation, never a raised budget. Rule already in force: a test that runs a full sync does it outside `testApplication` (its `runTest` timeout ends in `UncompletedCoroutinesError`).
-- **Data profile: multi-project boards.** A board whose filter spans several projects shows no observed or unmapped statuses, because `BoardRef` carries a single project key. Revisit if real boards span projects.
-- **DERIVE parallelism at scale 20 — measurement pending.** Re-derives now ANALYZE after the commit (a derive whose previous statistics do not describe its rows — the first, a table that was empty or has doubled — still ANALYZEs in its transaction), so two connections' derives overlap (stub: ~0.55 of the sequential time, `build-times.md` 2026-10-06); the scale-20 two-connection run (perf overlay, `workerSlots=2`, `derive_runs` overlap + `pg_stat_activity` relation waits) is still to be done, and would also close "ANALYZE at scale 20 NOT measured".
-- **Check the real tenant's longest Jira names at the first sync.** Every Jira-supplied free-text name is `TEXT` since V19 and an over-long reference KEY/enum is skipped and logged (`referenceRowsSkipped`, `.claude/docs/ingestion.md` "Reference-row robustness"). What is still bounded is identifiers: per-issue `issue_key`/`project_key` 20, `status_id` 50, account ids 100, `rank` 100, `field_id` 100, `value_id` 200 — a value past one of those is a counted bad row (`issuesFailed`) that stays `needs_processing` forever. Look for `referenceRowsSkipped` and `issuesFailed` after the first real sync; widen what really overflows (the V19 pattern).
-- **Two connections to one Jira site are allowed** (different project scopes). Confirm this is the wanted behaviour once real usage exists.
-- **D6 — de-Jira the `Connector` seam: not before the GitLab connector (YAGNI).** `ingest/Connector.kt` `testConnection(siteUrl, email, apiToken, projectKeys, authScheme)`, `JiraConnectorKey` in `DataSourceRoutes.kt` and `DataSourceRequest.jira` are Jira-shaped. Generalising them is speculative until a second connector exists; revisit with GitLab.
+- [todo] **CI duration: check the trend at every milestone.** Run `node scripts/timings/ci-times.mjs --branch master`.
+  A trend jump gets an investigation, never a raised budget.
+  - It is within budget today:
+    - `server` takes 7–8 min (from ~30 on 2026-09-30);
+    - `web` takes ~1–2 min;
+    - the CI timeout is 25 min.
+  - Budgets, history and the open WHY questions are in `.claude/docs/build-times.md`. Local runs use
+    `scripts/gates.sh`.
+- [todo] **DERIVE parallelism at scale 20 — measurement pending.**
+  - Re-derives now ANALYZE after the commit, so two connections' derives overlap (stub: ~0.55 of the sequential
+    time, `build-times.md` 2026-10-06).
+  - A derive whose previous statistics do not describe its rows still ANALYZEs in its transaction. That covers the
+    first derive, a table that was empty, and a table that has doubled.
+  - The scale-20 two-connection run is still to be done: the perf overlay, `workerSlots=2`, the `derive_runs` overlap
+    and the `pg_stat_activity` relation waits. It would also close "ANALYZE at scale 20 NOT measured".
+- [blocked] **Check the real tenant's longest Jira names at the first sync.**
+  - Every Jira-supplied free-text name is `TEXT` since V19. An over-long reference KEY or enum is skipped and logged
+    (`referenceRowsSkipped`, `.claude/docs/ingestion.md` "Reference-row robustness").
+  - What is still bounded is the identifiers:
+    - per-issue `issue_key` and `project_key`: 20;
+    - `status_id`: 50;
+    - account ids: 100;
+    - `rank`: 100;
+    - `field_id`: 100;
+    - `value_id`: 200.
 
-## Checkup 2026-09-30 — what is left (record: `.claude/docs/audit-status.md`)
+    A value past one of these is a counted bad row (`issuesFailed`) that stays `needs_processing` forever.
+  - After the first real sync, look for `referenceRowsSkipped` and `issuesFailed`, and widen what really overflows
+    (the V19 pattern).
+- [parked] **Data profile: multi-project boards.** A board whose filter spans several projects shows no observed or
+  unmapped statuses, because `BoardRef` carries a single project key. Revisit if real boards span projects.
+- [parked] **Two connections to one Jira site are allowed** (with different project scopes). Confirm this is the wanted
+  behaviour once real usage exists.
+- [parked] **D6 — de-Jira the `Connector` seam: not before the GitLab connector (YAGNI).**
+  - Today these are Jira-shaped:
+    - `ingest/Connector.kt` `testConnection(siteUrl, email, apiToken, projectKeys, authScheme)`;
+    - `JiraConnectorKey` in `DataSourceRoutes.kt`;
+    - `DataSourceRequest.jira`.
+  - Generalising them is speculative until a second connector exists. Revisit with GitLab.
 
-The checkup fixed tiers A–D in PRs #31–#53; the leftovers (A15, C8, D2–D5 and the small test/build items) landed in
-PRs #59–#61. What remains is the build-time follow-ups and the user's own decisions (item ids as in the
-report, `~/.claude/plans/flow-checkup-2026-09-30.md`):
+## Checkups — what is left (record: `.claude/docs/audit-status.md`)
 
-- **Build-time follow-ups** (`build-times.md`): WHY 3/4/9 are answered (2026-10-01); PROCESS's child inserts
-  moved to `insertRows` and its `work_items` write to `upsertRows` (2026-10-06: a stub pass 2.25 s -> 1.0 s -> ~0.78 s;
-  nothing in PROCESS is a per-row round trip any more), the nightly `e2e`
-  image-build cache (WHY 7's data decides); `images` is ~3 min and green again since #85 (a base-image libssl CVE).
-- **B7 — the always-loaded instruction budget (steps 1-4 done):** step 2 (2026-10-05) moved the feature template to
-  `conventions.md`, the fixture narrative to `test-fixtures.md` and `web/CLAUDE.md`'s per-feature sections to
-  `web-features.md`, and cut the package tree to one line per package. Step 3 (2026-10-06) moved `CLAUDE.md`'s CI
-  paragraph, the full-stack notes, the roadmap history and the donor detail to the new `ci.md` and `product.md`, and
-  `testing.md`'s harness bullets, setup/forks narrative, static-analysis detail and frontend-test internals to
-  `test-fixtures.md`/`ci.md` (moved verbatim, one-line rules kept). The always-loaded set (`wc -c CLAUDE.md .claude/docs/testing.md .claude/docs/list-endpoints.md`) now measures 35,487 bytes
-  (35.3k characters; from 40.3k, originally 59.0k), on the ~35k target. Step 4 (2026-10-06) moved `web/CLAUDE.md`'s transport/session
-  internals, the user-management and feature-flag narratives, the add-a-language and language-switcher detail, the
-  colour-token and logo internals, the changelog wiring and the "not yet ported" list verbatim to the new
-  `web-internals.md` (a one-line rule kept for every never/must/always); `web/CLAUDE.md` is now 29.6k (from 36.2k, originally
-  72.8k) and loads only when working in `web/`. B7 is complete.
-- **The user's decisions:** A1 — protect `master` (required checks: `server`, `web`, `e2e-static`,
-  `gradle-vulnerability-scan`, `k8s-static`; no bypass); A13 — a TLS-terminating Ingress + ClusterIP Service vs a
-  documented local-only overlay (behind today's bare LoadBalancer `X-Forwarded-For` is client-supplied); Dependabot
-  #12, #47 and #64–#67 (held under the dependency rule; #45, #46 and #48 were closed 2026-10-03).
+- [todo] **The nightly `e2e` image-build cache.** WHY 7's data decides (`build-times.md`).
+- [new] **A1 — protect `master`.**
+  - The required checks: `server`, `web`, `e2e-static`, `gradle-vulnerability-scan`, `k8s-static`.
+  - No bypass.
+  - The user's decision.
+- [new] **A13 — the Kubernetes front door.** The user decides between:
+  - a TLS-terminating Ingress + ClusterIP Service;
+  - a documented local-only overlay.
+
+  Behind today's bare LoadBalancer, `X-Forwarded-For` is client-supplied.
+- [blocked] **Dependabot #47 and #64–#67.** Held under the dependency rule; the user's decision. #45, #46 and #48 were
+  closed 2026-10-03.
+- [blocked] **2C8 — the Polish glossary pass.** A judgement call that needs a native speaker.
+- [new] **2D3 — password reset by confirm-link.** Today anyone who knows an email can force one rotation per 60 s
+  (MFA still applies). The user's decision.
+- [new] **2D4 — a per-request `credential_revision` check.** Today a delete or demote takes effect within the
+  15-minute access-token window. The user's decision.
+- [new] **A per-user report rate bucket.** The statement timeout bounds one query, not a stream of them. The user's
+  decision.
+- [new] **A PR-time image scan** (~3 min per PR). The nightly scan is the compromise. The user's decision.
+- [new] **Tag and release 0.4.0.** The user's decision (`.claude/docs/app-releases.md`).
 
 ## Security and operations
 
-- **Instance-local auth state.** The login lockout, reset throttle and MFA challenges live in memory. That's safe because the web Deployment runs one replica with Recreate. Moving to several web replicas first needs Lettuce's database-backed version (its V81 auth-state tables).
-- **Atlassian API-token quota.** API-token traffic is excluded from the 2026 points-based rate limits, but Atlassian is evaluating a quota for tokens "with advance notice". Re-check developer.atlassian.com/changelog before releases.
-- **Dependabot #12, OpenTelemetry 1.66.** Held until an `opentelemetry-instrumentation-bom-alpha` release pairs with it.
+- [parked] **Instance-local auth state.** The login lockout, reset throttle and MFA challenges live in memory.
+  - That's safe because the web Deployment runs one replica with Recreate.
+  - Moving to several web replicas first needs Lettuce's database-backed version (its V81 auth-state tables).
+- [todo] **Atlassian API-token quota: re-check developer.atlassian.com/changelog before releases.**
+  - API-token traffic is excluded from the 2026 points-based rate limits.
+  - Atlassian is evaluating a quota for tokens "with advance notice".
+- [blocked] **Dependabot #12, OpenTelemetry 1.66.** Held until an `opentelemetry-instrumentation-bom-alpha` release
+  pairs with it.
 
-## Sibling handoffs (the user's to dispatch)
+## Sibling handoffs
 
-- `~/Sources/covenant/flow-hardening-handoff.md`, `~/Sources/lettuce/flow-hardening-handoff.md` and `~/Sources/toadie/flow-hardening-handoff.md`: guardrails and fixes found while building Flow. Flow never edits sibling repos.
+- [blocked] **Dispatch the sibling handoffs** (the user's to dispatch). Guardrails and fixes found while building Flow;
+  Flow never edits sibling repos:
+  - `~/Sources/covenant/flow-hardening-handoff.md`;
+  - `~/Sources/lettuce/flow-hardening-handoff.md`;
+  - `~/Sources/toadie/flow-hardening-handoff.md`.
