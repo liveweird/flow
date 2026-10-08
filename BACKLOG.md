@@ -17,32 +17,27 @@ Entries are proposals, not delivery commitments.
 
 The `backlog` mod (`liveweird/claude-mods`) summarises the tags on the status line and in `/backlog`.
 
-## Next: the phase 2 exit — real Jira (needs the user)
+## After the first real sync (needs the user)
 
-- [next] **The real-Jira first sync.** The steps:
-  - Create an Atlassian service account with a scoped, read-only API token. The scope list is in the README,
-    "Connecting Jira", and includes `read:workflow:jira`.
-  - Start the stack with the stub off (`JIRA_STUB_BASE_URL= docker compose up`). Add the data source, run Test
-    connection, and fix any scope gaps it reports.
-    - Check whether the boards 401 persists once the token has the board scopes.
-  - Backfill 24 months, then read the data profile together (runbook: `.claude/docs/ingestion.md`, "Reading the data
-    profile after the first real sync").
-  - The first sync will bring adjustments (A10). The defaults the metrics configuration ships with meet real data for
-    the first time: status → stage, the estimate and epic fields, the work-category field.
-  - Things to confirm on the real tenant, where the spike marked them uncertain:
-    - Basic vs Bearer auth;
-    - bulk-changelog availability and its per-request cap;
-    - the search page-size ceiling;
-    - how Sprint changes appear in the changelog.
+The first real-Jira sync works end to end (2026-10-08, #112–#116): SYNC, PROCESS, DERIVE and RECONCILE on COOK.
+
+- [new] **Finish COOK's metrics configuration** (the user's, on the Metrics configuration page):
+  - map the work-category values (none are mapped, so no task has a category);
+  - map the waiting statuses (Ready for Review, Ready for Test, On Hold, …) to **Waiting** (A30);
+  - check "Ready" → DONE and whether "On Hold" is also a Blocked status;
+  - add the team's Jira members (Cookiecutter Team has one).
+- [new] **Confirm the search page-size ceiling** on a project with more than 100 issues. COOK's 46 issues fit on one
+  page, so the real tenant hasn't shown it yet.
 
 ## Phase 3 follow-ups (the domain model, v0.3.0)
 
 Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 override the body.
 
-- [blocked] **`epic_domain_key` as-of.** Today it uses the epic's current domain, because no epic-domain history
-  exists. Waits on the first real sync.
-- [blocked] **Read `hoursPerDay` from Jira's time-tracking configuration (A5).** Waits on the first real sync.
-- [blocked] **Seed memberships from the Team field (D1).** Waits on the first real sync.
+- [new] **`epic_domain_key` as-of.** Today it uses the epic's current domain, because no epic-domain history
+  exists. Real data is in now; evaluate whether a parent move across projects shows up in COOK's changelog.
+- [new] **Read `hoursPerDay` from Jira's time-tracking configuration (A5).** Real data is in now; check the
+  endpoint and its scope on the tenant.
+- [new] **Seed memberships from the Team field (D1).** Possible now: COOK's Team field is filled on 43 of 46 issues.
 - [new] **Cache validators for the report endpoints.** Draft PR #75 (ETag/304 + an atomic DERIVE success mark) is
   open, waiting on the cache-posture sign-off.
 - [new] **A per-level (epic vs task) status → stage override.** Epics and tasks have different workflows: on COOK,
@@ -83,20 +78,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
     first derive, a table that was empty, and a table that has doubled.
   - The scale-20 two-connection run is still to be done: the perf overlay, `workerSlots=2`, the `derive_runs` overlap
     and the `pg_stat_activity` relation waits. It would also close "ANALYZE at scale 20 NOT measured".
-- [blocked] **Check the real tenant's longest Jira names at the first sync.**
-  - Every Jira-supplied free-text name is `TEXT` since V19. An over-long reference KEY or enum is skipped and logged
-    (`referenceRowsSkipped`, `.claude/docs/ingestion.md` "Reference-row robustness").
-  - What is still bounded is the identifiers:
-    - per-issue `issue_key` and `project_key`: 20;
-    - `status_id`: 50;
-    - account ids: 100;
-    - `rank`: 100;
-    - `field_id`: 100;
-    - `value_id`: 200.
-
-    A value past one of these is a counted bad row (`issuesFailed`) that stays `needs_processing` forever.
-  - After the first real sync, look for `referenceRowsSkipped` and `issuesFailed`, and widen what really overflows
-    (the V19 pattern).
 - [new] **Scheduler back-off gaps (SYNC and RECONCILE alike).** Found in the #112 review:
   - A job that exhausts its attempts (`SyncJobLeases.claim` → `RETRIES_EXHAUSTED`, e.g. a worker crash loop) never
     reaches `onFailed`. So no back-off is recorded, and the next tick enqueues a fresh job at once.
