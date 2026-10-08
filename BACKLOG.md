@@ -46,7 +46,7 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   - The Statuses tab now badges each status Epic/Task (#115). Decide after reviewing them whether any shared status
     differs.
   - If one does, this needs a domain-model amendment plus config, DERIVE and UI changes.
-- [new] **Issues above epic level are derived as tasks.** The real tenant's COOK project has a "Program" issue at
+- [next] **Issues above epic level are derived as tasks.** The real tenant's COOK project has a "Program" issue at
   hierarchy level 2 (above its epics). DERIVE treats every non-epic as a task (`hierarchyLevel != 1`:
   `MetricsDeriver.kt`, `DeriveSprintStep.kt`). The domain model says a TASK is a level-0 issue, so the Program counts in
   task WIP, throughput and cycle time like ordinary work.
