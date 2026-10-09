@@ -14,12 +14,14 @@ import ch.nokillswit.ingest.WorkflowProfile
 import ch.nokillswit.ingest.WorkflowStatusProfile
 import ch.nokillswit.ingest.WorklogsProfile
 import ch.nokillswit.norm.BoardRef
+import ch.nokillswit.norm.HierarchyBucket
 import ch.nokillswit.norm.IntervalSource
 import ch.nokillswit.norm.Normalization
 import ch.nokillswit.norm.NormalizedStatusInterval
 import ch.nokillswit.norm.StatusCategory
 import ch.nokillswit.norm.TrackedField
 import ch.nokillswit.norm.WorkItemStore
+import ch.nokillswit.norm.hierarchyBucket
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
@@ -76,8 +78,8 @@ object JiraProfile {
             anomalyCounts = items.flatMap { it.anomalies }.groupingBy { it.name }.eachCount().mapValues { it.value.toLong() },
             workflowStatusIds = workflowStatusIds,
             schemeFieldIds = computeSchemeFieldIds(schemeRows, projectKeys) { it.fieldIds },
-            epicWorkflowStatusIds = workflowStatusIdsAt(workflowTypes, hierarchy, JiraHierarchy.Bucket.EPIC),
-            taskWorkflowStatusIds = workflowStatusIdsAt(workflowTypes, hierarchy, JiraHierarchy.Bucket.TASK),
+            epicWorkflowStatusIds = workflowStatusIdsAt(workflowTypes, hierarchy, HierarchyBucket.EPIC),
+            taskWorkflowStatusIds = workflowStatusIdsAt(workflowTypes, hierarchy, HierarchyBucket.TASK),
             schemeEpicFieldIds = computeSchemeFieldIds(schemeRows, projectKeys) { it.epicFieldIds },
             schemeTaskFieldIds = computeSchemeFieldIds(schemeRows, projectKeys) { it.taskFieldIds },
         )
@@ -98,16 +100,16 @@ object JiraProfile {
     }
 
     /**
-     * The sorted distinct status ids of the workflows of the issue types in [bucket] ([JiraHierarchy]); empty while the issue-type
+     * The sorted distinct status ids of the workflows of the issue types in [bucket] ([hierarchyBucket]); empty while the issue-type
      * [hierarchy] is unknown (no `ISSUE_TYPE` entity) — every type would otherwise read as a task type.
      */
     private fun workflowStatusIdsAt(
         types: List<ReferenceType>,
         hierarchy: Map<String, Int>,
-        bucket: JiraHierarchy.Bucket,
+        bucket: HierarchyBucket,
     ): List<String> {
         if (hierarchy.isEmpty()) return emptyList()
-        return types.filter { JiraHierarchy.bucket(it.id?.let(hierarchy::get)) == bucket }
+        return types.filter { hierarchyBucket(it.id?.let(hierarchy::get)) == bucket }
             .flatMap { it.statuses }.map { it.id }.distinct().sorted()
     }
 

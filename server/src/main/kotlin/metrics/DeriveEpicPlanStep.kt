@@ -1,6 +1,8 @@
 package ch.nokillswit.metrics
 
+import ch.nokillswit.norm.HierarchyBucket
 import ch.nokillswit.norm.WorkItemStore
+import ch.nokillswit.norm.hierarchyBucket
 
 /**
  * The epic plan step's own body (v0.3.0 M3 commit 9b, moved to `DeriveEpicPlanStep.kt` purely to
@@ -28,7 +30,7 @@ internal suspend fun runEpicPlanStep(
 ): Int {
     val startFieldId = context.epicStartFieldId
     val dueFieldId = context.epicDueFieldId
-    val epicItems = workItems.filter { it.hierarchyLevel == EPIC_HIERARCHY_LEVEL }
+    val epicItems = workItems.filter { hierarchyBucket(it.hierarchyLevel) == HierarchyBucket.EPIC }
     if (epicItems.isEmpty() || startFieldId == null || dueFieldId == null) return 0
     val dateFieldIds = listOf(startFieldId, dueFieldId).distinct()
 

@@ -20,6 +20,7 @@ import ch.nokillswit.metrics.TeamMembershipService
 import ch.nokillswit.metrics.WorkingCalendar
 import ch.nokillswit.metrics.inPvHorizon
 import ch.nokillswit.metrics.pvCurve
+import ch.nokillswit.norm.HierarchyBucket
 import ch.nokillswit.norm.IntervalSource
 import ch.nokillswit.norm.NormalizedIssue
 import ch.nokillswit.norm.NormalizedStatusInterval
@@ -31,6 +32,7 @@ import ch.nokillswit.norm.TombstoneKind
 import ch.nokillswit.norm.TrackedField
 import ch.nokillswit.norm.WorkItemFacts
 import ch.nokillswit.norm.WorkItemStore
+import ch.nokillswit.norm.hierarchyBucket
 import java.io.File
 import java.math.BigDecimal
 import java.time.LocalDate
@@ -1328,13 +1330,14 @@ class MetricsDerivationTest {
         val liveItems = workItems().workItemsForDerivation(connId)
         val worklogsByIssue = workItems().worklogsByIssue(connId)
         fun secondsFor(issueId: Long) = worklogsByIssue[issueId].orEmpty().sumOf { it.timeSpentSeconds }
-        val levelZeroTasks = liveItems.filter { !it.isSubtask && it.hierarchyLevel != 1 }
+        val levelZeroTasks = liveItems.filter { !it.isSubtask && hierarchyBucket(it.hierarchyLevel) == HierarchyBucket.TASK }
         val levelZeroActualMdSum = levelZeroTasks.sumOf { task ->
             val childSeconds = liveItems.filter { it.isSubtask && it.parentIssueId == task.issueId }.sumOf { secondsFor(it.issueId) }
             (secondsFor(task.issueId) + childSeconds) / 3600.0 / HOURS_PER_DAY
         }
-        val epicIssueIds = liveItems.filter { it.hierarchyLevel == 1 }.map { it.issueId }.toSet()
-        val epicsOwnMd = epicIssueIds.sumOf { epicId -> secondsFor(epicId) / 3600.0 / HOURS_PER_DAY }
+        // A31: an epic's and an above-epic item's worklogs are each logged on the item itself (no task to roll up into).
+        val ownLoggedIssueIds = liveItems.filter { hierarchyBucket(it.hierarchyLevel) != HierarchyBucket.TASK }.map { it.issueId }.toSet()
+        val epicsOwnMd = ownLoggedIssueIds.sumOf { issueId -> secondsFor(issueId) / 3600.0 / HOURS_PER_DAY }
 
         val factWorklogMdSum = suspendTransaction(sharedDatabaseForTests()) {
             MetricsTables.FactWorklog.selectAll().where { MetricsTables.FactWorklog.connectionId eq connId }
@@ -1344,7 +1347,8 @@ class MetricsDerivationTest {
 
         assertTrue(
             abs((levelZeroActualMdSum + epicsOwnMd) - factWorklogMdSum) < CAPACITY_TOLERANCE,
-            "invariant 7: Σ level-0 fact_task_delivery.actual_md + epics' own worklogs must equal Σ fact_worklog.md " +
+            "invariant 7: Σ level-0 fact_task_delivery.actual_md + epics' and above-epic items' own worklogs " +
+                "must equal Σ fact_worklog.md " +
                 "(level0=$levelZeroActualMdSum epicsOwn=$epicsOwnMd total=$factWorklogMdSum)",
         )
     }
@@ -1905,7 +1909,7 @@ class MetricsDerivationTest {
                 WorkItemStore.WorkItems.selectAll()
                     .where {
                         (WorkItemStore.WorkItems.connectionId eq connId) and (WorkItemStore.WorkItems.projectKey eq "FLO") and
-                            (WorkItemStore.WorkItems.isSubtask eq false) and (WorkItemStore.WorkItems.issueType neq "Epic")
+                            (WorkItemStore.WorkItems.isSubtask eq false) and (WorkItemStore.WorkItems.hierarchyLevel less 1)
                     }
                     .limit(1).toList().single()
             }
@@ -1999,7 +2003,7 @@ class MetricsDerivationTest {
                     WorkItemStore.WorkItems.selectAll()
                         .where {
                             (WorkItemStore.WorkItems.connectionId eq connId) and (WorkItemStore.WorkItems.projectKey eq "OPS") and
-                                (WorkItemStore.WorkItems.isSubtask eq false) and (WorkItemStore.WorkItems.issueType neq "Epic")
+                                (WorkItemStore.WorkItems.isSubtask eq false) and (WorkItemStore.WorkItems.hierarchyLevel less 1)
                         }
                         .limit(1).toList().single()
                 }

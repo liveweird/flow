@@ -1,5 +1,8 @@
 package ch.nokillswit.metrics
 
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+
 // ---- Row shapes MetricsDeriver assembles per connection --------------------------------------
 
 /** [ownerTeamId] (V17, A19/A22) — this domain's resolved owner team, `MetricsDeriver.ownerTeamByDomain`'s own output. */
@@ -122,7 +125,29 @@ data class DeriveRowCounts(
     val estimates: Int = 0,
     val aggWipRows: Int = 0,
     val aggFlowRows: Int = 0,
+    /** A31: work items above the epic level — outside the model, so no row in any `metrics.*` table but `fact_worklog`. */
+    val aboveEpicItems: Int = 0,
+    /** A31: the model items whose issue type has no known hierarchy level — treated as tasks, flagged so a mis-synced type is visible. */
+    val unknownLevelItems: Int = 0,
 )
+
+/**
+ * The `derive_runs.row_counts` JSON. `aboveEpicItems`/`unknownLevelItems` are item counts, not table row counts: they ride the run
+ * record only, never `statisticsRowCounts` (the ANALYZE-path choice compares table sizes).
+ */
+internal fun DeriveRowCounts.toJson(): String = buildJsonObject {
+    put("tasks", JsonPrimitive(tasks))
+    put("epics", JsonPrimitive(epics))
+    put("sprints", JsonPrimitive(sprints))
+    put("worklogs", JsonPrimitive(worklogs))
+    put("epicPlans", JsonPrimitive(epicPlans))
+    put("estimates", JsonPrimitive(estimates))
+    put("aggWipRows", JsonPrimitive(aggWipRows))
+    put("aggFlowRows", JsonPrimitive(aggFlowRows))
+    put("aboveEpicItems", JsonPrimitive(aboveEpicItems))
+    put("unknownLevelItems", JsonPrimitive(unknownLevelItems))
+    if (sprintFieldUnresolved) put("sprintFieldUnresolved", JsonPrimitive(true))
+}.toString()
 
 // ---- Sprint step row shapes (v0.3.0 M3 commit 8) ---------------------------------------------
 

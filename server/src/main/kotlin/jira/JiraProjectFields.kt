@@ -1,5 +1,7 @@
 package ch.nokillswit.jira
 
+import ch.nokillswit.norm.HierarchyBucket
+import ch.nokillswit.norm.hierarchyBucket
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -119,9 +121,9 @@ internal object JiraProjectFields {
         val epic = sortedSetOf<String>()
         val task = sortedSetOf<String>()
         byWorkType.forEach { (workTypeId, fields) ->
-            when (JiraHierarchy.bucket(hierarchy[workTypeId.toString()])) {
-                JiraHierarchy.Bucket.EPIC -> epic += fields
-                JiraHierarchy.Bucket.TASK -> task += fields
+            when (hierarchyBucket(hierarchy[workTypeId.toString()])) {
+                HierarchyBucket.EPIC -> epic += fields
+                HierarchyBucket.TASK -> task += fields
                 null -> Unit
             }
         }

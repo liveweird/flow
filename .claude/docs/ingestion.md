@@ -752,7 +752,8 @@ Epic") is resolved from the REFERENCE stream's `ISSUE_TYPE` entities
 itself**: a real tenant's issue-search response does not carry `hierarchyLevel` on
 `fields.issuetype` (confirmed against the stub — `sample-data/jira-stub/__files/issuetype.json` is
 the only fixture carrying it), the same reason `norm.statuses`' category lookup is resolved once
-per run rather than trusted from the issue payload.
+per run rather than trusted from the issue payload. The stored level is bucketed by `hierarchyBucket` (`norm/Hierarchy.kt`): PROCESS keeps every issue whatever its level, and
+DERIVE leaves out the ones above the epic level (domain-model A31, `metrics.md` "Hierarchy levels").
 
 **Unset fields are JSON `null`.** A real tenant sends an unset object- or array-shaped field (assignee, resolution,
 parent, the Team/Sprint/Flagged custom fields, labels, components, fixVersions) as a literal JSON `null`, not absent
@@ -1091,7 +1092,7 @@ above):**
   Statuses tab's default filter, `.claude/docs/metrics.md`); a profile stored before the field existed decodes it as
   empty and refreshes on the next PROFILE run.
 - **`epicWorkflowStatusIds` / `taskWorkflowStatusIds`** — the same union split by the issue type each `PROJECT_STATUSES` entry
-  belongs to (its `id`, mapped to a hierarchy level through the stored `ISSUE_TYPE` entities, `JiraHierarchy.bucket`): level 1
+  belongs to (its `id`, mapped to a hierarchy level through the stored `ISSUE_TYPE` entities, `hierarchyBucket` in `norm/Hierarchy.kt`): level 1
   is an epic type; level 0 and -1 (sub-task) are task types; an entry of unknown level counts as a task type, a level above 1
   counts for neither. Both are EMPTY while no `ISSUE_TYPE` entity exists (and on a profile stored before they existed) —
   empty means "unknown", never "no statuses"; `workflowStatusIds` stays the union. On the real tenant epics run their own

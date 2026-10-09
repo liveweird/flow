@@ -187,7 +187,9 @@ ReportFilters {
 - **`domains`/`activityTypes`/`workCategories`** -- the values a real DERIVE run has ACTUALLY
   produced (`metrics.dim_domain`/`dim_task`/`dim_epic`), never every value a per-connection
   config COULD map to: an admin's configured-but-unused mapping would otherwise clutter a filter
-  dropdown with a value no report can ever return a row for.
+  dropdown with a value no report can ever return a row for. **Known gap:** `activityTypes` is read from `dim_task` only, so a type
+  that appears solely on epic- or above-epic-logged worklogs (A31; e.g. "Program") is not offered, though report 16's `fact_worklog`
+  rows carry it and an `activityType` slice by that name is valid (BACKLOG: report filter options miss worklog-only activity types).
 - **`connections`** -- every ACTIVE connection (not additionally filtered to `enabled` -- a
   connection an admin has paused from syncing still owns whatever it already derived, and its
   history stays a legitimate filter choice), id and name ONLY -- never `settings`/the encrypted
@@ -1074,7 +1076,8 @@ CostMatrixReport {
 - **Columns and `domainView`.** `EPIC` (the DEFAULT -- a worklog-cost measure is PV/EV/AC-shaped, D3) uses `epic_domain_key`, an
   epic-less task falling back to its own `task_domain_key` (so there is no `(no epic)` column); `TASK` uses `task_domain_key`, so a
   cross-domain task moves from the epic's column to its own. A worklog logged ON an epic carries the epic's own domain in both
-  columns (A21) and is the same in both views. `task_domain_key` is never null (invariant 6), so the `(no domain)` column
+  columns (A21) and is the same in both views; so does a worklog logged on an issue ABOVE the epic level (A31): its own domain in both
+  columns, no epic. `task_domain_key` is never null (invariant 6), so the `(no domain)` column
   (`domain` null) exists only so a corrupt row could never silently leave the totals. Columns are only the domains the scoped
   worklogs reach (empty for none), ordered by key; `name` is `dim_domain.name` (the lowest connection id's for a key seen on several),
   null when no row names it.
@@ -1096,7 +1099,7 @@ CostMatrixReport {
   displayed addends by up to 0.005 per addend (three cells of 0.3333 show 0.33 each and a row total of 1.00).
 - **Foreign work (A21, A22).** `foreignMd` = the exact MD with `fact_worklog.foreign_work`, `foreignShare` = exact foreign MD / exact MD
   (a fraction 0..1, `null` when the row or the report logged nothing -- never 0). The flag is derive-time: task-logged = the author's
-  team differs from the task's sprint team at `started_at`, else from the assignee's team then; epic-logged = differs from the epic's
+  team differs from the task's sprint team at `started_at`, else from the assignee's team then; epic-logged (and, A31, logged on an issue above the epic level) = differs from the item's own
   domain owner team; an unknown side is never foreign, so UNASSIGNED authors read 0.0. It is PER PERIOD -- the epic-progress report's
   team `foreignWorkShare` is the same ratio over the cumulative window up to `asOf`, a different figure by design.
 - **Slices.** `domain` (matched against the same column the view uses), `activityType`, `workCategory` (`UNCATEGORIZED` = none) and

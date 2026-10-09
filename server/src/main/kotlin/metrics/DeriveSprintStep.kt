@@ -1,10 +1,12 @@
 package ch.nokillswit.metrics
 
+import ch.nokillswit.norm.HierarchyBucket
 import ch.nokillswit.norm.NormalizedFieldInterval
 import ch.nokillswit.norm.PROCESSING_VERSION
 import ch.nokillswit.norm.SprintRef
 import ch.nokillswit.norm.TrackedField
 import ch.nokillswit.norm.WorkItemStore
+import ch.nokillswit.norm.hierarchyBucket
 
 /**
  * [runSprintStep]'s own result — the sprint count for `derive_runs.row_counts`, plus whether the
@@ -48,7 +50,7 @@ internal suspend fun runSprintStep(
     val firstSuccessfulStartedAt = metricsStore.firstSuccessfulDeriveRunStartedAt(connectionId)
 
     val scopeItemsBySprint = mutableMapOf<Long, MutableList<SprintScopeItem>>()
-    val levelZeroTasks = workItems.filter { it.hierarchyLevel != EPIC_HIERARCHY_LEVEL && !it.isSubtask }
+    val levelZeroTasks = workItems.filter { hierarchyBucket(it.hierarchyLevel) == HierarchyBucket.TASK && !it.isSubtask }
     for (batch in levelZeroTasks.chunked(DERIVE_BATCH_SIZE)) {
         val ids = batch.map { it.issueId }
         val sprintChangesByIssue =

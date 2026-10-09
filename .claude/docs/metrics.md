@@ -284,12 +284,12 @@ once. The fix has two parts:
     batch's `item_stage`/`item_blocked`/`item_estimate` rows. `derivedById` (the computed RESULTS,
     not raw intervals — far smaller) accumulates across every batch, since later passes need it for
     epic/sub-task cross-references.
-  - **Pass 2** (TASK items only, i.e. `hierarchyLevel != 1`): reads ASSIGNEE + SPRINT + PARENT
+  - **Pass 2** (TASK items only, i.e. `hierarchyBucket(level) == TASK`): reads ASSIGNEE + SPRINT + PARENT
     intervals and `issuekey` field changes for the batch, builds `task_epic`/`task_domain`/
     `task_assignee` history and `dim_task`/`fact_task_delivery` rows from the ALREADY-computed
     `derivedById` (no fresh raw reads needed there), and inserts them. `factTasksByIssueId` (small
     fact rows, not raw data) accumulates across every batch for pass 3's epic roll-up.
-  - **Pass 3** (EPIC items only): no per-batch raw reads at all — an epic's own facts come entirely
+  - **Pass 3** (EPIC items only, `hierarchyBucket(level) == EPIC`): no per-batch raw reads at all — an epic's own facts come entirely
     from `derivedById`/`factTasksByIssueId`/config, already in memory; builds and inserts
     `dim_epic`/`fact_epic_delivery` per batch.
   - **Worklogs are a connection-wide AGGREGATE, not per-issue rows**: `WorkItemStore
@@ -297,6 +297,19 @@ once. The fix has two parts:
     issue) via one query — this commit's algorithm only ever SUMS worklog seconds (a task's own
     plus its sub-tasks', an epic's own plus its children's `actual_md`), so the full per-worklog row
     shape (author, timestamps — reserved for commit 9's `fact_worklog`) is never loaded here.
+
+**Hierarchy levels (A31).** Which items the passes see is decided once, at the top of `runDerivation`, by `hierarchyBucket`
+(`norm/Hierarchy.kt`, the same rule as the data profile and the `PROJECT_FIELDS` split): level 1 is an EPIC; level 0, -1 (a sub-task) and an
+unknown level (`null`) are TASKs; level ≥ 2 has no bucket and is OUT of the model. `modelItems` (the items with a bucket) feed passes 1-3, the
+sprint step and the epic-plan step, so an above-epic item has no row in any `metrics.*` table and is in no backlog, WIP, throughput, cycle or
+aging number. `buildContext` (the `itemsById` lookup, which `epicIdOf`/`taskEpicHistory` use to keep a parent only when it IS an epic) and the
+worklog step still see every item: a worklog on an above-epic item keeps its `fact_worklog` row (invariant 6), attributed to the author's team
+and the item's own domain, with `epic_id`, `epic_domain_key` and the sprint columns null, `foreign_work` by the A22 owner-team rule (as for an
+epic-logged worklog) and the item's own work category (`ownWorkCategory`). `derive_runs.row_counts` gains two item counts (not table
+counts, so they stay out of the ANALYZE comparison above): `aboveEpicItems` (the items filtered out) and `unknownLevelItems` (model items with a
+`null` level, which stay tasks). `row_counts` is not exposed by an endpoint (report 14's `deriveWarnings` reads `sprintFieldUnresolved` from it). **Exception:** the frozen
+`fact_sprint_snapshot` rows (append-only, D13, invariant 11) written before A31 keep a level-2+ item that sat in a closed sprint; A31 applies
+from the next freeze on. Pinned by `MetricsHierarchyLevelTest` and `HierarchyBucketTest`.
 
 The whole rebuild — dims, both passes, `dim_domain` — runs inside `derive()`'s ONE outer
 `suspendTransaction`; batching only bounds what is held in memory at once, not the number of
@@ -566,7 +579,9 @@ memory bound applies here too.
   gap `taskEpicHistory` already carries), so its worklogs use its CURRENT epic (`epicIdOf`) instead
   of an as-of value — the one place this step falls back to "current" rather than "as-of". A
   worklog logged directly on an EPIC (rare, but not filtered out) reports `task_domain_key = null`,
-  `epic_id` = the epic's own id, and `epic_domain_key` = the epic's own (current) domain.
+  `epic_id` = the epic's own id, and `epic_domain_key` = the epic's own (current) domain. A worklog logged on an issue ABOVE
+  the epic level (A31) has `task_domain_key` = the item's own (current) domain and `epic_id`, `epic_domain_key`,
+  `sprint_id_at_started` and `sprint_team_id_at_started` all `null`; its `work_category` is the item's own (no epic to fall back to).
 - **`activity_type`/`work_category`** — the SAME issue-type map and OWN-else-epic's-category
   fallback `buildTaskRow` uses (D6/D8) — never a separate lookup.
 - **`sprint_id_at_started`/`sprint_team_id_at_started`** — the task's SPRINT field interval AT
@@ -589,7 +604,7 @@ a connection equals its live-issue worklog count computed straight off
 `WorkItemStore.worklogsByIssue` — every live worklog gets exactly one row, whichever
 (author-team-or-UNASSIGNED, task-domain) pair it lands in. "fact_worklog - invariant 7" asserts
 Σ `fact_worklog.md` equals Σ level-0 tasks' own-plus-sub-tasks' worklog seconds (converted to MD)
-PLUS epics' own worklogs (worklogs logged directly on an epic, which never roll into any task's
+PLUS epics' own worklogs and above-epic items' own worklogs (A31) (worklogs logged directly on an epic or on a level-2+ issue, which never roll into any task's
 `actual_md`) — computed as an INDEPENDENT re-derivation straight off `norm.work_item_worklogs` +
 the live item set (`.claude/docs/test-fixtures.md`'s invariant-sweep pattern), rather than reading back
 `fact_task_delivery.actual_md`'s own `decimal(10, 2)` column: that column's 2-decimal-place
@@ -745,8 +760,9 @@ A18/A19/A21 describe. This commit closes all five, backed by the additive V17 co
   (epics carry no sprint at all) and the epic's OWN DOMAIN's resolved owner team
   (`context.ownerTeamByDomain[currentDomainKey]`) as the fallback — never the epic's assignee's team.
   `assignee_account_id_at_started`/`assignee_team_id_at_started` are still populated for EVERY
-  worklog (epic-logged included) as informational bridge columns; only the `foreign_work`
-  COMPARISON itself branches on `isEpic`.
+  worklog (epic-logged and above-epic-logged included) as informational bridge columns; only the `foreign_work`
+  COMPARISON itself branches on the item kind (TASK against EPIC / ABOVE_EPIC). **An above-epic-logged** worklog (A31, a level-2+ issue)
+  takes the EPIC-logged branch: `sprintTeamId = null` and the item's own domain's owner team as the fallback.
 - **Owner team (A19, A22) — storage and derivation, per DOMAIN not per project; the config API
   landed in commit 9e (see "Domain owner team" above).** `MetricsDeriver.ownerTeamByDomain`
   (renamed from `ownerTeamByProject`) resolves each DOMAIN's (not project's — several project rows

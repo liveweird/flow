@@ -199,7 +199,7 @@ project's field scheme carries, so the editor lists those by default.
   `inScheme`/`inEpicScheme`/`inTaskScheme` (`.claude/docs/metrics.md`). `README.md` lists `read:field-configuration:jira` as
   the recommended optional scope.
 - **Per-level workflows.** `GET /project/{key}/statuses` carries one entry per issue type, each with the issue type's `id`; the
-  profile (`JiraProfile`) maps those ids through the same `ISSUE_TYPE` hierarchy (`JiraHierarchy.bucket`) into
+  profile (`JiraProfile`) maps those ids through the same `ISSUE_TYPE` hierarchy (`hierarchyBucket`, `norm/Hierarchy.kt`) into
   `epicWorkflowStatusIds` / `taskWorkflowStatusIds` (`ingestion.md` "Data profile"); both stay empty while no `ISSUE_TYPE`
   entity exists. On the real tenant epics have their own workflow, distinct from every other type's.
 

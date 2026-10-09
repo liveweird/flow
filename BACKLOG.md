@@ -56,6 +56,9 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   - Likely fix: tasks are level 0 (plus sub-tasks rolling up), and level ≥ 2 is excluded, unless initiatives or
     programs should be reported somewhere. That's a domain-model decision (a new D-entry or amendment).
   - The stub has no issue above level 1. Add one with the fix.
+- [new] **Report filter options miss worklog-only activity types.** `ReportService` reads `activityType` options from
+  `dim_task`, so a type that only appears on epic- or above-epic-logged worklogs (e.g. "Program") can't be picked in
+  report 16. Union in `fact_worklog`'s activity types.
 - [new] **Sprint capacities from Jira Plans.** Probed 2026-10-08: the Plans REST API (`/rest/api/3/plans/plan`, then
   `…/team/atlassian/{id}` for `capacity`, `planningStyle`, `sprintLength` and `issueSourceId`) returns 403 to the sync
   service account: "You do not have the Administer Jira global permission". Every Plans endpoint needs it, reads included.
