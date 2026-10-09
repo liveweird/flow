@@ -6,7 +6,7 @@ reports it serves, its invariants, and how known data imperfections are handled.
 contract the metrics layer and every dashboard are built against. **Status: agreed 2026-09-27
 (D1–D16), validated against the target reports; amended 2026-09-28 (A17–A21, see "Amendments"
 below); implemented in v0.3.0** (the configuration, DERIVE and the star: `.claude/docs/metrics.md`;
-the sixteen reports: `.claude/docs/reports.md`; the deep dive, report 17, is A29 below; the WAITING stage is A30). The per-measure operational contract — each
+the sixteen reports: `.claude/docs/reports.md`; the deep dive, report 17, is A29 below; the WAITING stage is A30; issues above the epic level are A31). The per-measure operational contract — each
 report number's grain, time anchor, attribution, estimate snapshot, missing-data rule,
 frozen/live source and the test that pins it — is `.claude/docs/measures.md`.
 
@@ -38,7 +38,7 @@ them or a combination.
 | **TEAM** | a group of users | Flow-owned (D1) | effective-dated membership |
 | **USER** | a Jira account — not a Flow login | `accountId` (`norm.people`); optionally linked to a Flow login by email | ≤1 team at a time |
 | **EPIC** | a longer body of work with its own estimate and start/due dates, planned in Jira Plans | an issue at hierarchy level 1 | its domain = its space; dates and estimate can change |
-| **TASK** | every other issue, whatever its issue type | level-0 issues; sub-tasks roll up into their parent (D2) | epic, assignee, sprint(s), status, estimate — all intervals |
+| **TASK** | every other issue below the epic level, whatever its issue type | level-0 issues; sub-tasks roll up into their parent (D2); a level ≥ 2 issue (a Premium "Initiative", "Program") is outside the model (A31) | epic, assignee, sprint(s), status, estimate — all intervals |
 | **SPRINT** | the time-box work is planned into and delivered in | agile sprint (`originBoardId`, start/end/complete dates, state) | a task may pass through several (carry-over) |
 | **WORKLOG** | time actually spent | `/worklog` (author, `started`, seconds) | edits and deletions are tracked |
 
@@ -267,7 +267,7 @@ user, and slices by domain, activity type and work category.
 | 11 | **Aging WIP** | `item_stage` + `fact_task_delivery` | the current age of every IN_PROGRESS or WAITING task and epic (A30; waiting ones marked) against the team's cycle-time p50/p85/p95 over its last N done items; items past p85 highlighted |
 | 12 | **Blocked time** | `fact_task_delivery`, `fact_epic_delivery` | blocked time per item, as a share of cycle time, and as a distribution |
 | 13 | **Throughput in items; backlog in sprints** | `fact_sprint`, `agg_daily_*` | item counts beside SP in reports 1, 2, 6 and 10; backlog in sprints = estimated backlog SP ÷ mean delivered SP over the team's last N sprints |
-| 14 | **Data quality** | all facts | per team and domain: worklog coverage (DONE tasks with worklogs; logged hours per member per working day vs `hoursPerDay`), late logging (worklog created vs `started`), tasks without an estimate, epic or work category, epic drift (D11), unmapped statuses, work done outside any sprint, sprint-snapshot drift (D13) |
+| 14 | **Data quality** | all facts | per team and domain: worklog coverage (DONE tasks with worklogs; logged hours per member per working day vs `hoursPerDay`), late logging (worklog created vs `started`), tasks without an estimate, epic or work category, epic drift (D11), unmapped statuses, issues above the epic level (A31: left out of the model, listed with their own logged MD), work done outside any sprint, sprint-snapshot drift (D13) |
 | 15 | **Epic progress (EVM)** | `agg_daily_flow` (per-day PV/EV/AC increments, summed at query time), `fact_epic_plan` | PV, EV and AC in man-days as cumulative curves with SV/SPI/CV/CPI as of a day, at epic, domain and team level (A7, A20); superseded baselines redraw the "as originally planned" curve |
 | 16 | **Cost matrix and foreign work** | `fact_worklog` | man-days logged in the period as an author-team × domain matrix, with the foreign-work share beside every row (A8, D3) |
 | 17 | **Deep dive** | `fact_sprint_scope`, `fact_task_delivery`, `item_stage`, `fact_worklog`, `fact_epic_plan` | PV, Execution and AC in man-days on one epic/task × time matrix (daily series; the client drills month → week → day), for a domain's tasks in chosen sprints, chosen epics, or handpicked tasks of one epic; reads the facts directly, with no aggregate (A29) |
@@ -289,7 +289,7 @@ The implementation asserts these as SQL sweeps over the persisted rows (the
    lands in an explicit `UNASSIGNED` team — never dropped.
 7. No double counting: each worklog and each estimate is counted once, at its own item, and rolls
    **up** the hierarchy (sub-task → task → epic), never sideways — the sum of task `actual_md`
-   equals the `fact_worklog` total for the same scope (worklogs on epics aside).
+   equals the `fact_worklog` total for the same scope (worklogs on epics and on issues above the epic level, A31, aside).
 8. `fact_sprint`'s totals equal the sums of its `fact_sprint_scope` rows.
 9. Estimated backlog, WIP (IN_PROGRESS or WAITING) and done are mutually exclusive for an item at any instant.
 10. A board maps to at most one team (D10).
@@ -476,6 +476,31 @@ carries the per-measure detail).
   - **Unchanged by construction** (report 12 is not among them: it follows `started_at`): velocity, throughput, sprint
     buckets, backlog and EVM (sprints, `done_at`, worklogs, NOT_STARTED), the frozen sprint snapshots (they hold no
     stage), and data quality (WAITING is a mapped stage).
+
+- **A31 — Issues above the epic level are outside the model** (agreed with the user 2026-10-09). DERIVE treated every issue
+  whose `hierarchyLevel` was not 1 as a task, so a Premium level-2 issue (a "Program", an "Initiative") inflated the
+  estimated backlog and, once it moved, would have entered WIP, throughput, cycle time and aging. The one bucketing rule
+  already existed (the data profile's, `hierarchyBucket` in `norm/Hierarchy.kt`: level 1 is an epic; level 0 and -1 are tasks;
+  an unknown level is a task; a level above 1 is neither) and DERIVE now uses it too. The decisions:
+  - **Scope.** An issue at level 2 or above gets no row in any `metrics.*` table but `fact_worklog`: no `dim_task`/`dim_epic`,
+    no bridge, no fact, no sprint scope, no epic plan, so it leaves the backlog, WIP, throughput, cycle time and aging.
+    DERIVE filters once at the top of the run (`MetricsDeriver.runDerivation`'s `modelItems`); only the lookup map and the
+    worklog step still see every item. One exception: the frozen `fact_sprint_snapshot` rows (append-only, D13, invariant 11)
+    taken before A31 keep a level-2+ item that sat in a closed sprint; A31 applies from the next freeze on.
+  - **An unknown level stays a task, but is flagged.** An item whose issue type has no known `hierarchyLevel` is bucketed as
+    a task (as the data profile does), and `derive_runs.row_counts.unknownLevelItems` counts such model items, so a
+    mis-synced issue type shows up on the run instead of silently counting as work.
+  - **Worklogs are kept** (invariant 6). A worklog on an above-epic item keeps its `fact_worklog` row, attributed to the
+    author's team and the item's own domain, with no `epic_id`, `epic_domain_key` or sprint; `foreign_work` follows the A22
+    epic branch (the author's team against the item's domain's owner team); its work category is the item's own. The row
+    counts in report 16 and in team AC and logged hours, and is never in epic or domain EVM or the deep dive (which key on
+    `epic_id`).
+  - **Nothing walks above the epic.** `epicIdOf` and `task_epic` keep a parent only when it is an epic, so a task whose
+    parent is a level-2 issue has no epic: the level-2 issue is not a grouping, a roll-up level or a planning container.
+  - **Visibility.** `derive_runs.row_counts.aboveEpicItems` counts the filtered items on every run. The counts are item
+    counts, not table sizes, so they stay out of the ANALYZE-path comparison (`statisticsRowCounts`).
+  - **No forced re-derive and no migration.** Nothing persisted changes shape (a new JSON key only); the next SYNC chains a
+    DERIVE, and "Derive now" (the data source's "Re-derive metrics") applies it at once.
 
 ## Gaps in `norm` (closed in v0.3.0)
 

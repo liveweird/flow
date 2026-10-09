@@ -54,7 +54,8 @@ import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 object DerivedStubFixture {
     /** 2026-03-05T00:00:00Z — the v0.3.0 plan's own pinned-clock convention; matches `MetricsDerivationTest`'s private constant. */
     const val PINNED_NOW = 1_772_668_800_000L
-    private const val HOURS_PER_DAY = 8.0
+    /** The `hoursPerDay` every fixture derive runs under — a read-only test converting worklog seconds reads it from here. */
+    const val HOURS_PER_DAY = 8.0
     private const val FLO_BOARD_ID = 1L
 
     private val initLock = Mutex()

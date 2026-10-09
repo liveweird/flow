@@ -70,7 +70,7 @@ test("admin connects the Jira stub, syncs it, and inspects the result", async ({
   // Poll the details page (reloading each attempt, since the sync-jobs history table itself has
   // no auto-refresh — only the connection/counts/current-job summary does) until the SYNC job is
   // SUCCEEDED and the raw-store counts show the full in-scope dataset (sample-data/README.md /
-  // jira/expected.json: 1,200 in-scope issues across FLO/PLT/GTM/OPS). The scheduler may also
+  // jira/expected.json: 1,201 in-scope issues across FLO/PLT/GTM/OPS). The scheduler may also
   // enqueue its own RECONCILE pass alongside our manual SYNC (its "Sync now" click either starts
   // a fresh job or coalesces into one already scheduled) — scope the row lookup to the "Sync"
   // kind so a co-occurring Reconcile row's own "Succeeded" badge is never what we matched.
@@ -79,7 +79,7 @@ test("admin connects the Jira stub, syncs it, and inspects the result", async ({
     await page.reload();
     await expect(page.getByRole("heading", { name, exact: true })).toBeVisible();
     await expect(syncJobRow.first()).toBeVisible();
-    await expect(page.getByRole("row", { name: /Raw issues/ })).toContainText("1200");
+    await expect(page.getByRole("row", { name: /Raw issues/ })).toContainText("1201");
   }).toPass({ timeout: 280_000, intervals: [10_000] });
 
   // The data profile — a couple of stable section headings/values.

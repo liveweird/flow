@@ -1,7 +1,9 @@
 import { useTranslation } from "react-i18next";
 import { Text } from "@mantine/core";
 import type { DataQualityReport } from "../api/reports";
+import { connectionName } from "../utils/dataQualityReport";
 import { formatDate } from "../utils/formatDate";
+import { formatMd } from "../utils/reportFormat";
 import DataQualityCard, { CappedTable, ConnectionCell, type DataQualityScope } from "./DataQualityCard";
 
 /**
@@ -19,7 +21,7 @@ export default function DataQualityConfig({
   timeZone: string;
 }) {
   const { t } = useTranslation();
-  const { domainsWithoutOwner, unmappedStatuses, unmappedBoards, deriveWarnings } = report;
+  const { domainsWithoutOwner, unmappedStatuses, unmappedBoards, itemsAboveEpic, deriveWarnings } = report;
   const connectionColumn = {
     key: "connection",
     header: t("reports.dataQuality.column.connection"),
@@ -104,6 +106,44 @@ export default function DataQualityConfig({
         {unmappedBoards.unattributedDoneTasks > 0 && (
           <Text size="sm">{t("reports.dataQuality.unattributedNote", { count: unmappedBoards.unattributedDoneTasks })}</Text>
         )}
+      </DataQualityCard>
+      {/* A figure about the model's boundary, not a finding to fix: the `info` state (no badge), like the logged-hours card. */}
+      <DataQualityCard
+        id="itemsAboveEpic"
+        state="info"
+        scope={scope}
+        scopeNote="notTeam"
+      >
+        <CappedTable
+          label={t("reports.dataQuality.cards.itemsAboveEpic.title")}
+          columns={[
+            // Plain text, not a link: nothing in the metrics configuration fixes an issue the model leaves out on purpose.
+            { ...connectionColumn, render: (row) => connectionName(scope.filters, row.connectionId) },
+            {
+              key: "issue",
+              header: t("reports.dataQuality.column.issue"),
+              render: (row) => (
+                <>
+                  <Text size="sm" fw={500}>
+                    {row.issueKey}
+                  </Text>
+                  {row.summary && (
+                    <Text size="xs" c="dimmed">
+                      {row.summary}
+                    </Text>
+                  )}
+                </>
+              ),
+            },
+            { key: "type", header: t("reports.dataQuality.column.issueType"), render: (row) => row.issueType },
+            { key: "level", header: t("reports.dataQuality.column.hierarchyLevel"), align: "right", render: (row) => row.hierarchyLevel },
+            { key: "project", header: t("reports.dataQuality.column.project"), render: (row) => row.projectKey },
+            { key: "logged", header: t("reports.dataQuality.column.loggedMd"), align: "right", render: (row) => formatMd(row.worklogMd) },
+          ]}
+          rows={itemsAboveEpic.items}
+          total={itemsAboveEpic.total}
+          rowKey={(row) => `${row.connectionId}:${row.issueKey}`}
+        />
       </DataQualityCard>
       <DataQualityCard
         id="deriveWarnings"

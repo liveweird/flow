@@ -28,5 +28,11 @@
     "name": "Sub-task",
     "subtask": true,
     "hierarchyLevel": -1
+  },
+  {
+    "id": "10010",
+    "name": "Program",
+    "subtask": false,
+    "hierarchyLevel": 2
   }
 ]

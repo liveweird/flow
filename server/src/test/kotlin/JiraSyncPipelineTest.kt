@@ -73,7 +73,15 @@ private data class ExpectedWorklogs(val inScopeCount: Long)
 private data class ExpectedDay2(val deletedIssueId: String, val movedIssueId: String, val movedToProjectKey: String)
 
 @Serializable
-private data class ExpectedFixture(val changelog: ExpectedChangelog, val worklogs: ExpectedWorklogs, val day2: ExpectedDay2)
+private data class ExpectedIssues(val totalInScope: Long, val perProject: Map<String, Long>)
+
+@Serializable
+private data class ExpectedFixture(
+    val issues: ExpectedIssues,
+    val changelog: ExpectedChangelog,
+    val worklogs: ExpectedWorklogs,
+    val day2: ExpectedDay2,
+)
 
 private val EXPECTED_FIXTURE_JSON = Json { ignoreUnknownKeys = true }
 
@@ -209,9 +217,9 @@ class JiraSyncPipelineTest {
         val connId = SyncedStubFixture.connectionId()
 
         val rows = issueRows(connId)
-        assertEquals(1200, rows.size, "sample-data/jira/expected.json issues.totalInScope")
+        assertEquals(expectedFixture.issues.totalInScope.toInt(), rows.size, "sample-data/jira/expected.json issues.totalInScope")
         val perProject = rows.groupingBy { it[JiraRawStore.Issues.projectKey] }.eachCount()
-        assertEquals(mapOf("FLO" to 400, "PLT" to 350, "GTM" to 300, "OPS" to 150), perProject)
+        assertEquals(expectedFixture.issues.perProject.filterKeys { it != "SEC" }.mapValues { it.value.toInt() }, perProject)
         assertFalse(perProject.containsKey("SEC"), "the out-of-scope project's issues must never be stored")
 
         val entities = entityCounts(connId)
@@ -223,7 +231,7 @@ class JiraSyncPipelineTest {
                 "PROJECT" to 5,
                 "PROJECT_STATUSES" to 4,
                 "PROJECT_FIELDS" to 4,
-                "ISSUE_TYPE" to 5,
+                "ISSUE_TYPE" to 6,
                 "RESOLUTION" to 4,
                 "ISSUE_LINK_TYPE" to 3,
                 "USER" to 30,
@@ -244,18 +252,18 @@ class JiraSyncPipelineTest {
         // out-of-scope SEC project (`sample-data/jira/generate.mjs`'s "issues" array), so they also
         // count history/worklog rows on issues A1 deliberately never fetches. changelog.inScopeHistories/
         // worklogs.inScopeCount are the in-scope-reachable totals this backfill actually stores: the
-        // 23 real bulkfetch chunks' histories plus the omitted chunk's 50-issue fallback, and every
+        // real bulkfetch chunks' histories (every chunk but the omitted one) plus the omitted chunk's 50-issue fallback, and every
         // in-scope issue's own worklog page total.
         assertEquals(
             expectedFixture.changelog.inScopeHistories, store.countChangelogs(connId),
-            "sample-data/jira/expected.json changelog.inScopeHistories (23 bulk chunks + the omitted chunk's fallback)",
+            "sample-data/jira/expected.json changelog.inScopeHistories (the real bulk chunks + the omitted chunk's fallback)",
         )
         assertEquals(
             expectedFixture.worklogs.inScopeCount, store.countWorklogs(connId),
             "sample-data/jira/expected.json worklogs.inScopeCount (sample-data/jira-stub's per-issue worklog pages)",
         )
         assertEquals(
-            1200, rows.count { it[JiraRawStore.Issues.worklogsSyncedAt] != null },
+            expectedFixture.issues.totalInScope.toInt(), rows.count { it[JiraRawStore.Issues.worklogsSyncedAt] != null },
             "worklogs_synced_at must be set on every in-scope issue",
         )
 
@@ -403,7 +411,10 @@ class JiraSyncPipelineTest {
 
         // "Upstream recovers": the fault is gone, the SAME stream instance resumes from the persisted cursor.
         stream.run(context)
-        assertEquals(1200L, store.countIssues(connId), "the resumed run must reach the same final total, with no duplicates")
+        assertEquals(
+            expectedFixture.issues.totalInScope, store.countIssues(connId),
+            "the resumed run must reach the same final total, with no duplicates",
+        )
         val finalCursor = assertNotNull(cursorService.get(connId, "issues"))
         assertNull(ISSUES_TEST_JSON.decodeFromString<IssuesCursor>(finalCursor.cursor).nextPageToken)
     }
@@ -437,7 +448,7 @@ class JiraSyncPipelineTest {
             JiraStubServer.removeOverride(expired)
         }
 
-        assertEquals(1200L, store.countIssues(connId))
+        assertEquals(expectedFixture.issues.totalInScope, store.countIssues(connId))
         val finalCursor = assertNotNull(cursorService.get(connId, "issues"))
         val decoded = ISSUES_TEST_JSON.decodeFromString<IssuesCursor>(finalCursor.cursor)
         assertNull(decoded.nextPageToken)
@@ -560,11 +571,14 @@ class JiraSyncPipelineTest {
                 (JiraRawStore.Issues.connectionId eq connId) and (JiraRawStore.Issues.issueId eq probeIssueId)
             }
         }
-        assertEquals(1199L, store.countIssues(connId), "the simulated index gap must have removed exactly one row")
+        assertEquals(
+            expectedFixture.issues.totalInScope - 1, store.countIssues(connId),
+            "the simulated index gap must have removed exactly one row",
+        )
 
         runReconcileOnce(connector, connId)
 
-        assertEquals(1200L, store.countIssues(connId), "the index gap must be fetched and re-stored")
+        assertEquals(expectedFixture.issues.totalInScope, store.countIssues(connId), "the index gap must be fetched and re-stored")
         val restored = issueRows(connId).single { it[JiraRawStore.Issues.issueId] == probeIssueId }
         assertNull(restored[JiraRawStore.Issues.deletedAt])
         assertNull(restored[JiraRawStore.Issues.movedOutAt])
@@ -624,7 +638,7 @@ class JiraSyncPipelineTest {
                     (JiraRawStore.Entities.connectionId eq connId) and (JiraRawStore.Entities.kind eq JiraEntityKind.ISSUE_TYPE.name)
                 }.toList()
             }
-            assertEquals(5, issueTypes.size, "the ISSUE_TYPE step ran and stored the stub's issue types")
+            assertEquals(6, issueTypes.size, "the ISSUE_TYPE step ran and stored the stub's six issue types (incl. the A31 Program)")
             assertTrue(
                 issueTypes.all { it[JiraRawStore.Entities.deletedAt] == null && it[JiraRawStore.Entities.lastSeenAt] >= oldPassStartedAt },
                 "every issue type was seen in this pass, so the sweep leaves it live",

@@ -29,6 +29,7 @@ export type CardId =
   | "domainsNoOwner"
   | "unmappedStatuses"
   | "unmappedBoards"
+  | "itemsAboveEpic"
   | "deriveWarnings";
 
 /** What a card needs to know about the request: who is reading it, at which level, and what the filters can name. */

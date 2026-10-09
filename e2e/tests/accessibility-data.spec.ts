@@ -110,7 +110,7 @@ test.describe("pages over synced data", () => {
       path: () => `/data-sources/${dataSourceId}`,
       settled: async (page) => {
         await expect(page.getByRole("heading", { name: dataSourceName, exact: true })).toBeVisible();
-        await expect(page.getByRole("row", { name: /Raw issues/ })).toContainText("1200");
+        await expect(page.getByRole("row", { name: /Raw issues/ })).toContainText("1201");
       },
     },
     {

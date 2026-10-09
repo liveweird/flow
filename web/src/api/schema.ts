@@ -1350,11 +1350,12 @@ export interface paths {
          *     `missing` (no estimate / epic / work category — only for connections with a work-category field —, unassigned
          *     DONE tasks, epics without an own estimate, without dates, or with dates outside the ±10-year PV horizon so no PV curve
          *     exists), `outsideSprint` (D10), `crossDomain`, `epicDrift` (D11), `domainsWithoutOwner` (A19), `unmappedStatuses`,
-         *     `unmappedBoards`, `authorsWithoutTeam`, `snapshotDrift` (D13: a closed sprint's live figure vs its frozen one) and
+         *     `unmappedBoards`, `authorsWithoutTeam`, `itemsAboveEpic` (A31: live issues above the epic level, outside the task/epic
+         *     model, with the MD logged on them), `snapshotDrift` (D13: a closed sprint's live figure vs its frozen one) and
          *     `deriveWarnings` (A13). Every list is capped at 50 with a `total` beside it. **Levels:** UNIT `groups` per team
          *     (a null team is UNASSIGNED tasks/authors and UNOWNED epics), TEAM per member (no epic counts — epics carry no user),
          *     USER none and no epics or sprint findings. The configuration-level findings (`unmappedStatuses`, `unmappedBoards`,
-         *     `snapshotDrift`, `deriveWarnings`) are not narrowed by the team; `domain` narrows `domainsWithoutOwner`. A real
+         *     `itemsAboveEpic`, `snapshotDrift`, `deriveWarnings`) are not narrowed by the team; `domain` narrows `domainsWithoutOwner`. A real
          *     `teamId` sees no `domainsWithoutOwner` and no `authorsWithoutTeam` (they belong to no team); `teamId=0` sees them.
          *     `domainView` (default TASK) picks the domain a task/worklog is sliced by.
          */
@@ -3416,6 +3417,31 @@ export interface components {
             total: number;
             items: components["schemas"]["DataQualityUnownedDomain"][];
         };
+        /** @description A live issue above the epic level (Jira hierarchy level 2 and up, A31): outside the task/epic model, so DERIVE builds no task, epic or backlog row for it. */
+        DataQualityAboveEpicItem: {
+            /** Format: int32 */
+            connectionId: number;
+            issueKey: string;
+            summary: string | null;
+            issueType: string;
+            /**
+             * Format: int32
+             * @description The issue type's Jira hierarchy level (2 and up).
+             */
+            hierarchyLevel: number;
+            projectKey: string;
+            /**
+             * Format: double
+             * @description Man-days logged on the issue itself (Σ `fact_worklog.md`), all time -- not bound to the report period; 0 when none.
+             */
+            worklogMd: number;
+        };
+        /** @description A capped list of issues above the epic level (highest level first, then by key). */
+        DataQualityAboveEpicItemList: {
+            /** @description How many matched — `items` carries the first 50. */
+            total: number;
+            items: components["schemas"]["DataQualityAboveEpicItem"][];
+        };
         /** @description A Jira status with no stage mapping — its time is tiled UNMAPPED, never started, never done. */
         DataQualityUnmappedStatus: {
             /** Format: int32 */
@@ -3637,6 +3663,7 @@ export interface components {
             unmappedStatuses: components["schemas"]["DataQualityUnmappedStatusList"];
             unmappedBoards: components["schemas"]["DataQualityUnmappedBoardList"];
             authorsWithoutTeam: components["schemas"]["DataQualityAuthorList"];
+            itemsAboveEpic: components["schemas"]["DataQualityAboveEpicItemList"];
             snapshotDrift: components["schemas"]["DataQualitySnapshotDriftList"];
             deriveWarnings: components["schemas"]["DataQualityDeriveWarning"][];
         };

@@ -14,9 +14,9 @@
     "backfillFrom": "2025-09-01"
   },
   "issues": {
-    "totalInScope": 1200,
+    "totalInScope": 1201,
     "perProject": {
-      "FLO": 400,
+      "FLO": 401,
       "PLT": 350,
       "GTM": 300,
       "OPS": 150,
@@ -28,7 +28,7 @@
     "allProjectsHistories": 5436,
     "inScopeHistories": 5183,
     "bulkfetchChunkSize": 50,
-    "bulkfetchChunkCount": 24,
+    "bulkfetchChunkCount": 25,
     "omittedBulkfetchChunkIndex": 5,
     "omittedBulkfetchChunkIssueIds": [
       "30265",
@@ -85,10 +85,10 @@
     "fallbackIssueCount": 50
   },
   "worklogs": {
-    "allProjectsIssueCount": 495,
-    "allProjectsTotalCount": 1266,
-    "inScopeCount": 1187,
-    "inScopeIssueCount": 468,
+    "allProjectsIssueCount": 496,
+    "allProjectsTotalCount": 1267,
+    "inScopeCount": 1188,
+    "inScopeIssueCount": 469,
     "outOfScopeDay2FeedCount": 2,
     "day2NewInScopeCount": 2,
     "day2DeletedWorklogId": "700000",
@@ -600,5 +600,15 @@
       "childCount": 30
     }
   },
-  "mappingCount": 797
+  "aboveEpic": {
+    "issueId": "31280",
+    "issueKey": "FLO-401",
+    "childEpicIssueKeys": [
+      "FLO-36",
+      "FLO-44"
+    ],
+    "storyPoints": 100,
+    "worklogSeconds": 14400
+  },
+  "mappingCount": 800
 }

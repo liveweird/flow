@@ -1,9 +1,11 @@
 package ch.nokillswit.metrics
 
 import ch.nokillswit.norm.FieldChangeRow
+import ch.nokillswit.norm.HierarchyBucket
 import ch.nokillswit.norm.NormalizedFieldInterval
 import ch.nokillswit.norm.NormalizedStatusInterval
 import ch.nokillswit.norm.WorkItemStore
+import ch.nokillswit.norm.hierarchyBucket
 import java.time.LocalDate
 import java.time.ZoneOffset
 import kotlinx.serialization.json.contentOrNull
@@ -122,9 +124,13 @@ internal class DeriveContext(
 
     /** The configured estimate field id for [item] — epics may override tasks' own field. */
     fun estimateFieldIdFor(item: WorkItemStore.DerivationWorkItemRow, config: DataSourceMetricsConfig): String? =
-        if (item.hierarchyLevel == EPIC_HIERARCHY_LEVEL) {
+        if (isEpicItem(item)) {
             config.fields.estimateEpic ?: config.fields.estimateTask
         } else {
             config.fields.estimateTask
         }
 }
+
+/** Whether [item] is an epic (hierarchy level 1, `norm/Hierarchy.kt`) — a missing item is none. */
+internal fun isEpicItem(item: WorkItemStore.DerivationWorkItemRow?): Boolean =
+    item != null && hierarchyBucket(item.hierarchyLevel) == HierarchyBucket.EPIC

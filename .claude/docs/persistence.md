@@ -218,10 +218,11 @@ place:
   `accountDisplayNames`) and `ingest/DataSourceService.Connections` (the connection scope) -- all read-only, one query per table for the whole task
   set, in the report's own transaction.
 
-- `reports/DataQualityReport.kt` and its helpers (`DataQualityTasks.kt`, `DataQualityEpics.kt`, `DataQualityConfig.kt`,
+- `reports/DataQualityReport.kt` and its helpers (`DataQualityTasks.kt`, `DataQualityEpics.kt`, `DataQualityConfig.kt`, `DataQualityHierarchy.kt`,
   `DataQualityAssembly.kt`; v0.3.0 M5 commit 17, `GET /api/v1/reports/data-quality`) read, all read-only inside the report's own
   transaction: `metrics/TeamMembershipService.TeamMembership` (the dated roster behind the member-day denominator),
-  `norm/WorkItemStore.Statuses`/`Boards`/`Sprints` (the mapping-gap findings), the per-connection config tables
+  `norm/WorkItemStore.Statuses`/`Boards`/`Sprints` (the mapping-gap findings) and `WorkItems` (`DataQualityHierarchy.kt`: the live
+  `hierarchy_level >= 2` rows of the items-above-the-epic finding, A31, read with their key and summary directly), the per-connection config tables
   `metrics/MetricsConfigService.StatusStageMap`/`BoardTeamMap`/`FieldConfig` (plus a distinct-connection existence probe of
   `DomainMap`/`ActivityTypeMap`/`WorkCategoryMap`/`BlockedStatuses`/`TeamSprintCapacity`, `readConnectionMappings` -- the light
   counterpart of `effectiveConfig`'s stored-else-defaults rule) and the `metrics` tables `FactTaskDelivery`, `FactEpicDelivery`, `FactWorklog`,

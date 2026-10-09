@@ -28,7 +28,7 @@ private fun ownEstimateSnapshots(timeline: List<EstimatePoint>, startedAt: Long?
         estimateSnapshots(timeline, startedAt, doneAt)
     }
 
-private fun ownWorkCategory(item: WorkItemStore.DerivationWorkItemRow, context: DeriveContext): String? {
+internal fun ownWorkCategory(item: WorkItemStore.DerivationWorkItemRow, context: DeriveContext): String? {
     val fieldId = context.workCategoryFieldId ?: return null
     val valueId = fieldValueOptions(item.customFields[fieldId]).firstOrNull()?.first ?: return null
     return context.workCategoryMap[valueId]
@@ -312,13 +312,13 @@ private fun actualMdFor(
 internal fun epicIdOf(item: WorkItemStore.DerivationWorkItemRow, context: DeriveContext): Long? {
     val parent = item.parentIssueId?.let { context.itemsById[it] } ?: return null
     val candidate = if (item.isSubtask) parent.parentIssueId else item.parentIssueId
-    return candidate?.takeIf { context.itemsById[it]?.hierarchyLevel == EPIC_HIERARCHY_LEVEL }
+    return candidate?.takeIf { isEpicItem(context.itemsById[it]) }
 }
 
 /**
  * `task_epic`'s effective-dated history (review round 2a fix — was one open row carrying only
  * the CURRENT epic). Built from the item's OWN `PARENT` field intervals, kept ONLY when the
- * interval's parent id resolves to an item at [EPIC_HIERARCHY_LEVEL] (a defensive filter — a
+ * interval's parent id resolves to an epic ([hierarchyBucket]) (a defensive filter — a
  * level-0 task's PARENT is expected to always be an epic or nothing, never another task).
  * **Sub-tasks get NO `task_epic` row at all** (D2's roll-up, `.claude/docs/domain-model.md`): a
  * sub-task's own PARENT interval names its parent TASK, not an epic, and reconstructing "which
@@ -331,7 +331,7 @@ internal fun taskEpicHistory(item: WorkItemStore.DerivationWorkItemRow, context:
     if (item.isSubtask) return emptyList()
     return context.parentIntervalsByIssue[item.issueId].orEmpty().map { interval ->
         val parentId = interval.valueId?.toLongOrNull()
-        val epicId = parentId?.takeIf { context.itemsById[it]?.hierarchyLevel == EPIC_HIERARCHY_LEVEL }
+        val epicId = parentId?.takeIf { isEpicItem(context.itemsById[it]) }
         TaskEpicRow(item.issueId, epicId, interval.fromAtMs, interval.toAtMs)
     }
 }

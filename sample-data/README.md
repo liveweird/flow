@@ -93,6 +93,21 @@ but leave every other phase-2 figure — issue ids and counts, the omitted bulkf
 scenario, `worklogs.inScopeCount`/`inScopeIssueCount`, `reopens`, `sprints.carryOverCount` — bit
 for bit unchanged (phase-3 plan §0 A2).
 
+### A31 addition (v0.4.0) — one issue above the epic level
+
+`generate.mjs` appends **one level-2 "Program" issue** (issue type `10010`, `hierarchyLevel: 2`, a Premium-style type above
+the epic) to FLO, as the very last step before the stub files are written. It consumes neither PRNG, takes the next free
+id and FLO key (`expected.json` → `aboveEpic.issueId`/`issueKey`), and is absent from every random loop (work category,
+worklog skew, future-sprint candidates, day-2 candidates), so no pre-existing id, timeline, the omitted bulkfetch chunk, the
+day2 scenario or the golden fixtures move. Only the counts it joins move, each by one (or, for the chunk count, to a new last
+chunk): `issues.totalInScope`, FLO's `perProject` count, `worklogs.inScopeCount`/`inScopeIssueCount` and the whole-dataset worklog
+counts, `changelog.bulkfetchChunkCount` (25: the 1,201st id opens a one-id chunk) and `mappingCount`. Its values are constants: To Do, no assignee, sprint or flag, 100 SP, ONE worklog
+(id `790000`, `USERS[0]`, 4 h) and it is the `parent` of the two highest-id FLO epics other than the golden one
+(`aboveEpic.childEpicIssueKeys`). `project/FLO/statuses` gains a Program row; `projects/fields` is unchanged (a field scheme
+has no row for the type). What Flow must make of it — no task/epic/bridge row of its own, its worklog kept but never attributed
+to an epic — is domain-model A31; `MetricsHierarchyLevelTest` and `ReportDataQualityTest` read it through
+`expected.json` → `aboveEpic`. The data-profile FLO × Program workflow row is in `DataProfileTest`.
+
 ## The dataset
 
 Four Jira projects the sample connection's `projectKeys` cover, plus a fifth that is deliberately
@@ -101,17 +116,18 @@ worklogs out of the instance-wide worklog feed — see "A1" in the ingestion pla
 
 | Key | Name | Board | In scope | Workflow | Issues |
 |---|---|---|---|---|---|
-| `FLO` | Flow Core | Scrum | yes | To Do → In Progress → In Review → Done | 400 |
+| `FLO` | Flow Core | Scrum | yes | To Do → In Progress → In Review → Done | 401 (400 + the A31 Program) |
 | `PLT` | Platform | Scrum | yes | To Do → In Progress → **Blocked** → In Review → Done | 350 |
 | `GTM` | Go To Market | Scrum | yes | To Do → In Progress → In Review → **Waiting** → Done | 300 |
 | `OPS` | Operations | Kanban | yes | To Do → In Progress → Blocked → Done | 150 |
 | `SEC` | Security | Kanban | **no** | To Do → In Progress → Done | 80 |
 
-1,200 in-scope issues total, spread over the 12 months before the fixed reference date
+1,201 in-scope issues total (1,200 plus the A31 Program), spread over the 12 months before the fixed reference date
 (`2026-09-01T00:00:00Z`), each project mixing Story/Task/Bug/Sub-task plus a handful of Epics with
 parent links. Ids and per-project key numbers are assigned in one global chronological pass
 (mirroring Jira's own instance-wide sequential numeric id), so `FLO-1` is older than `FLO-2` and
-both are older than any issue with a higher numeric id than theirs, project boundaries aside.
+both are older than any issue with a higher numeric id than theirs, project boundaries aside — except FLO-401, the A31 Program:
+the highest id, yet created at the backfill start.
 
 GTM's board configuration deliberately never maps the `Waiting` status to a column, to exercise
 the data profile's "unmapped statuses" case.
@@ -265,8 +281,8 @@ one of the REST-API call sites above.
 
 ## Size
 
-`jira-stub/` is ~13 MiB (797 mapping/body file pairs), comfortably under the ~15 MB guideline —
-the bulk of it is the `search/jql` full-field pages (12 pages × 2 scenarios, ~215 KiB each,
-1,200 issues' worth of `fields` documents). If it needs to shrink further, the first lever is
+`jira-stub/` is ~13 MiB (800 mapping/body file pairs), comfortably under the ~15 MB guideline —
+the bulk of it is the `search/jql` full-field pages (12-13 pages × 2 scenarios, ~215 KiB each,
+1,201 issues' worth of `fields` documents). If it needs to shrink further, the first lever is
 trimming fields from `issueFieldsJson()` in `generate.mjs`, not the issue count (the counts above
 are load-bearing for the "~1,200 issues" dataset shape the plan calls for).

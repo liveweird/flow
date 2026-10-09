@@ -23,7 +23,7 @@
    - *Expected*: the modal closes; the new connection appears in the filtered list.
 5. They open the new data source's details page and click **Sync now**.
    - *Expected*: eventually (the page's own auto-refresh, or a reload) the most recent sync job's
-     status reads **Succeeded** and the raw-store counts show **Raw issues: 1200** — the full
+     status reads **Succeeded** and the raw-store counts show **Raw issues: 1201** — the full
      in-scope total across the four projects (`sample-data/jira/expected.json`
      `issues.totalInScope`).
 6. They open the **Data profile** page.

@@ -59,7 +59,10 @@ private val EXPECTED_STATUS_CATEGORY = mapOf(
 private data class ExpectedSprints(val perProjectSprintCounts: Map<String, Int>)
 
 @Serializable
-private data class ExpectedFixtureNorm(val sprints: ExpectedSprints)
+private data class ExpectedIssuesNorm(val totalInScope: Long)
+
+@Serializable
+private data class ExpectedFixtureNorm(val sprints: ExpectedSprints, val issues: ExpectedIssuesNorm)
 
 private val EXPECTED_NORM_JSON = Json { ignoreUnknownKeys = true }
 
@@ -117,10 +120,16 @@ class NormalizationPipelineTest {
         val connId = SyncedStubFixture.connectionId()
         val items = workItems()
 
-        assertEquals(1200L, items.countWorkItems(connId), "one norm.work_items row per in-scope raw issue")
+        assertEquals(
+            expectedNormFixture.issues.totalInScope, items.countWorkItems(connId),
+            "one norm.work_items row per in-scope raw issue",
+        )
 
         val intervalsByIssue = items.statusIntervalsByIssue(connId)
-        assertEquals(1200, intervalsByIssue.size, "every work item must have its own status-interval timeline")
+        assertEquals(
+            expectedNormFixture.issues.totalInScope.toInt(), intervalsByIssue.size,
+            "every work item must have its own status-interval timeline",
+        )
 
         intervalsByIssue.forEach { (issueId, intervals) ->
             val workItem = assertNotNull(items.workItemRow(connId, issueId), "issue $issueId")
@@ -162,7 +171,7 @@ class NormalizationPipelineTest {
         )
         assertTrue(
             fromPersistedIntervals > 0,
-            "the synthetic dataset's ~5% reopen rate must produce at least one reopen among 1200 in-scope issues",
+            "the ~5% reopen rate must produce at least one reopen among the ${expectedNormFixture.issues.totalInScope} in-scope issues",
         )
         // A sanity bound against the WHOLE-DATASET figure in expected.json (57, including the
         // out-of-scope SEC project's own issues) — the in-scope subset can never exceed it.

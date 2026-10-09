@@ -233,6 +233,12 @@ export default function DataQualitySummary({ report }: { report: DataQualityRepo
               hint: t("reports.dataQuality.summary.domainsHint"),
             },
             {
+              card: "itemsAboveEpic",
+              label: t("reports.dataQuality.cards.itemsAboveEpic.title"),
+              value: String(report.itemsAboveEpic.total),
+              hint: t("reports.dataQuality.summary.aboveEpicHint"),
+            },
+            {
               card: "deriveWarnings",
               label: t("reports.dataQuality.cards.deriveWarnings.title"),
               value: String(report.deriveWarnings.length),

@@ -5,17 +5,17 @@ import ch.nokillswit.infra.db.active
 import ch.nokillswit.infra.time.MILLIS_PER_DAY
 import ch.nokillswit.infra.time.MILLIS_PER_MINUTE
 import ch.nokillswit.ingest.SyncJobRunContext
+import ch.nokillswit.norm.HierarchyBucket
 import ch.nokillswit.norm.PROCESSING_VERSION
 import ch.nokillswit.norm.SprintRef
 import ch.nokillswit.norm.TrackedField
 import ch.nokillswit.norm.WorkItemStore
+import ch.nokillswit.norm.hierarchyBucket
 import ch.nokillswit.teams.TeamService
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.buildJsonObject
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
@@ -25,9 +25,6 @@ import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.r2dbc.update
 import org.slf4j.LoggerFactory
 
-/** Shared across every `Derive*.kt` file (`DeriveModel.kt`/`DeriveTaskRows.kt`/`DeriveWorklogStep.kt`/
- * `DeriveSprintStep.kt`/`DeriveEpicPlanStep.kt`) — an epic is level 1, never "type name = Epic". */
-internal const val EPIC_HIERARCHY_LEVEL = 1
 private const val MAX_ERROR_DETAIL_LENGTH = 1000
 private val log = LoggerFactory.getLogger(MetricsDeriver::class.java)
 private const val ABANDONED_RUN_DETAIL = "abandoned: worker lost its lease"
@@ -207,6 +204,9 @@ class MetricsDeriver(
     ): Derivation {
         val relevantFieldIds = relevantCustomFieldIds(config)
         val workItems = workItemStore.workItemsForDerivation(connectionId).map { trimCustomFields(it, relevantFieldIds) }
+        // A31: an issue above the epic level is outside the model — no row in any task/epic/sprint table; only `buildContext`'s
+        // lookup map and the worklog step still see it (invariant 6: its worklogs are kept).
+        val modelItems = workItems.filter { hierarchyBucket(it.hierarchyLevel) != null }
         val createdMin = workItems.minOfOrNull { it.createdAt }
         val initialRange = dimDateRange(now, createdMin, emptyList())
         metricsStore.ensureDimDate(calendar, initialRange, configRevision)
@@ -226,17 +226,17 @@ class MetricsDeriver(
 
         val derivedById = mutableMapOf<Long, ItemDerived>()
         val blockedByIssue = mutableMapOf<Long, Pair<Long, Double>>()
-        val estimateCount = runPass1(connectionId, workItems, context, config, derivedById, blockedByIssue)
+        val estimateCount = runPass1(connectionId, modelItems, context, config, derivedById, blockedByIssue)
 
         val factTasksByIssueId = mutableMapOf<Long, FactTaskDeliveryRow>()
         val factEpicsByIssueId = mutableMapOf<Long, FactEpicDeliveryRow>()
-        val taskCount = runPass2(connectionId, workItems, context, derivedById, blockedByIssue, factTasksByIssueId, configRevision)
+        val taskCount = runPass2(connectionId, modelItems, context, derivedById, blockedByIssue, factTasksByIssueId, configRevision)
         val epicCount =
-            runPass3(connectionId, workItems, context, derivedById, blockedByIssue, factTasksByIssueId, factEpicsByIssueId, configRevision)
+            runPass3(connectionId, modelItems, context, derivedById, blockedByIssue, factTasksByIssueId, factEpicsByIssueId, configRevision)
         val sprintFieldId = metricsConfig.detectedSprintFieldId(connectionId)
-        val sprintOutcome = runSprintStep(connectionId, workItems, context, config, derivedById, graceMs, configRevision, sprintFieldId)
+        val sprintOutcome = runSprintStep(connectionId, modelItems, context, config, derivedById, graceMs, configRevision, sprintFieldId)
         val worklogCount = runWorklogStep(connectionId, workItems, context, derivedById, configRevision)
-        val epicPlanCount = runEpicPlanStep(connectionId, workItems, context, derivedById, factEpicsByIssueId, configRevision)
+        val epicPlanCount = runEpicPlanStep(connectionId, modelItems, context, derivedById, factEpicsByIssueId, configRevision)
         widenDimDate(connectionId, calendar, createdMin, now, configRevision)
         // Statistics that do not describe this connection's rows (no SUCCEEDED derive yet, or some table that was empty or
         // is now more than twice as big as last time — `statisticsDescribeRows`) would have the WIP/flow INSERT..SELECTs
@@ -262,6 +262,8 @@ class MetricsDeriver(
             estimates = estimateCount,
             aggWipRows = wipCount,
             aggFlowRows = flowCount,
+            aboveEpicItems = workItems.size - modelItems.size,
+            unknownLevelItems = modelItems.count { it.hierarchyLevel == null },
         )
         return Derivation(counts, analyzeInTransaction)
     }
@@ -307,17 +309,7 @@ class MetricsDeriver(
     }
 
     private suspend fun markRunSucceeded(runId: Int, counts: DeriveRowCounts, finishedAt: Long) {
-        val countsJson = buildJsonObject {
-            put("tasks", JsonPrimitive(counts.tasks))
-            put("epics", JsonPrimitive(counts.epics))
-            put("sprints", JsonPrimitive(counts.sprints))
-            put("worklogs", JsonPrimitive(counts.worklogs))
-            put("epicPlans", JsonPrimitive(counts.epicPlans))
-            put("estimates", JsonPrimitive(counts.estimates))
-            put("aggWipRows", JsonPrimitive(counts.aggWipRows))
-            put("aggFlowRows", JsonPrimitive(counts.aggFlowRows))
-            if (counts.sprintFieldUnresolved) put("sprintFieldUnresolved", JsonPrimitive(true))
-        }.toString()
+        val countsJson = counts.toJson()
         suspendTransaction(database) {
             // Only while still RUNNING: a newer DERIVE of the same connection may already have swept this run
             // FAILED as abandoned (a lease-expired zombie) — its late write must not overwrite that.
@@ -511,7 +503,7 @@ class MetricsDeriver(
         configRevision: Long,
     ): Int {
         var count = 0
-        val taskItems = workItems.filter { it.hierarchyLevel != EPIC_HIERARCHY_LEVEL }
+        val taskItems = workItems.filter { hierarchyBucket(it.hierarchyLevel) == HierarchyBucket.TASK }
         for (batch in taskItems.chunked(DERIVE_BATCH_SIZE)) {
             val ids = batch.map { it.issueId }
             context.assigneeIntervalsByIssue = workItemStore.fieldIntervalsByIssue(connectionId, TrackedField.ASSIGNEE, ids)
@@ -575,7 +567,7 @@ class MetricsDeriver(
         configRevision: Long,
     ): Int {
         var count = 0
-        val epicItems = workItems.filter { it.hierarchyLevel == EPIC_HIERARCHY_LEVEL }
+        val epicItems = workItems.filter { hierarchyBucket(it.hierarchyLevel) == HierarchyBucket.EPIC }
         for (batch in epicItems.chunked(DERIVE_BATCH_SIZE)) {
             val epicsBatch = mutableListOf<DimEpicRow>()
             val factEpicsBatch = mutableListOf<FactEpicDeliveryRow>()

@@ -1256,6 +1256,10 @@
             "name": "Web"
           }
         ],
+        "parent": {
+          "id": "31280",
+          "key": "FLO-401"
+        },
         "customfield_10001": {
           "id": "8e6f8c9a-1a2b-4c3d-9e0f-333333333333",
           "name": "Growth"
@@ -2953,6 +2957,10 @@
           "tech-debt"
         ],
         "components": [],
+        "parent": {
+          "id": "31280",
+          "key": "FLO-401"
+        },
         "customfield_10016": 37,
         "customfield_10019": "0|i96176:",
         "customfield_10021": [],

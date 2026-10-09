@@ -142,6 +142,8 @@ data class DataQualityReport(
     val unmappedStatuses: QualityList<UnmappedStatus>,
     val unmappedBoards: UnmappedBoardList,
     val authorsWithoutTeam: QualityList<AuthorWithoutTeam>,
+    /** A31: live issues above the epic level (Jira level 2+), outside the task/epic model — listed so the exclusion is visible. */
+    val itemsAboveEpic: QualityList<AboveEpicItem>,
     val snapshotDrift: QualityList<SnapshotDrift>,
     val deriveWarnings: List<DeriveWarning>,
 )
@@ -201,6 +203,7 @@ suspend fun ReportService.dataQuality(filter: ReportFilter, nowMs: Long): DataQu
         unmappedStatuses = structure.unmappedStatuses,
         unmappedBoards = structure.unmappedBoards,
         authorsWithoutTeam = authorsWithoutTeamOf(input),
+        itemsAboveEpic = structure.itemsAboveEpic,
         snapshotDrift = structure.snapshotDrift,
         deriveWarnings = structure.deriveWarnings,
     )

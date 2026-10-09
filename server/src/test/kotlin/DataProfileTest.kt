@@ -40,6 +40,7 @@ private data class ProfileExpectedBoard(val id: Long, val projectKey: String, va
 
 @Serializable
 private data class ProfileExpectedFixture(
+    val workflows: Map<String, List<String>>,
     val issues: ProfileExpectedIssues,
     val reopens: ProfileExpectedReopens,
     val worklogs: ProfileExpectedWorklogs,
@@ -151,6 +152,14 @@ class DataProfileTest {
             assertTrue("customfield_10015" in epicFieldIds && "customfield_10015" !in taskFieldIds)
             assertTrue("customfield_10020" in taskFieldIds && "customfield_10020" !in epicFieldIds)
             assertTrue("10005" in profile.epicWorkflowStatusIds && "10005" !in profile.taskWorkflowStatusIds)
+            // A31: the stub's one FLO Program (level 2) is a workflow row of its own — never an epic or a task type.
+            val program = profile.workflows.single { it.projectKey == "FLO" && it.issueType == "Program" }
+            assertEquals(listOf("To Do"), program.observedStatuses.map { it.name }, "the Program never left To Do")
+            assertEquals(listOf(0L), program.observedStatuses.map { it.transitionCount })
+            assertEquals(
+                dataProfileExpectedFixture.workflows.getValue("FLO"), program.referenceStatusNames,
+                "FLO's workflow, as project/FLO/statuses lists it for the Program type",
+            )
             assertTrue(profile.taskWorkflowStatusIds.isNotEmpty() && profile.taskWorkflowStatusIds.all { it in profile.workflowStatusIds })
 
             assertEquals(
