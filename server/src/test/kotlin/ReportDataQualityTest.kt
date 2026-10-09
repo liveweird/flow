@@ -243,6 +243,7 @@ class ReportDataQualityTest {
                 (wi.connectionId eq fixture.connId) and (wi.hierarchyLevel greaterEq 2) and wi.deletedAt.isNull() and wi.movedOutAt.isNull()
             }.toList()
         }
+        assertEquals(1, aboveEpic.size, "the stub's one FLO Program (expected.json aboveEpic)")
         assertEquals(aboveEpic.size, body.itemsAboveEpic.total)
         assertEquals(aboveEpic.map { it[wi.issueKey] }.toSet(), body.itemsAboveEpic.items.map { it.issueKey }.toSet())
 

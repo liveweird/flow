@@ -137,7 +137,7 @@ the same commit** — this list is the coverage map, the scenario file is the de
   without Mailpit).
 - [`data-sources.spec.ts`](scenarios/data-sources.md) — the v0.2.0 Jira ingestion admin surface:
   create a connection against the Jira stub → test connection → sync it end to end (polling until
-  the job succeeds and the raw-store counts show the full 1,200-issue in-scope dataset) → read the
+  the job succeeds and the raw-store counts show the full 1,201-issue in-scope dataset) → read the
   data profile and the raw issue inspector (a known key, then a malformed one) → delete from the
   list; a regular user sees no Data sources nav link and is bounced from the URL.
 - [`metrics-config.spec.ts`](scenarios/metrics-config.md) — the v0.3.0 metrics CONFIGURATION

@@ -117,10 +117,10 @@ class NormalizationPipelineTest {
         val connId = SyncedStubFixture.connectionId()
         val items = workItems()
 
-        assertEquals(1200L, items.countWorkItems(connId), "one norm.work_items row per in-scope raw issue")
+        assertEquals(1201L, items.countWorkItems(connId), "one norm.work_items row per in-scope raw issue")
 
         val intervalsByIssue = items.statusIntervalsByIssue(connId)
-        assertEquals(1200, intervalsByIssue.size, "every work item must have its own status-interval timeline")
+        assertEquals(1201, intervalsByIssue.size, "every work item must have its own status-interval timeline")
 
         intervalsByIssue.forEach { (issueId, intervals) ->
             val workItem = assertNotNull(items.workItemRow(connId, issueId), "issue $issueId")
@@ -162,7 +162,7 @@ class NormalizationPipelineTest {
         )
         assertTrue(
             fromPersistedIntervals > 0,
-            "the synthetic dataset's ~5% reopen rate must produce at least one reopen among 1200 in-scope issues",
+            "the synthetic dataset's ~5% reopen rate must produce at least one reopen among 1201 in-scope issues",
         )
         // A sanity bound against the WHOLE-DATASET figure in expected.json (57, including the
         // out-of-scope SEC project's own issues) — the in-scope subset can never exceed it.

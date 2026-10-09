@@ -31,7 +31,10 @@ import kotlin.test.assertTrue
 
 private val KEYS = SyncedStubFixture.IN_SCOPE_PROJECT_KEYS
 
-/** The stub's issue types (`sample-data/jira/generate.mjs` ISSUE_TYPE) — an INDEPENDENT copy: Epic is level 1, the rest level 0 / -1. */
+/**
+ * The stub's issue types (`sample-data/jira/generate.mjs` ISSUE_TYPE) — an INDEPENDENT copy: Epic is level 1, the rest level 0 / -1;
+ * the one FLO Program (10010, level 2, A31) has no row in the field scheme, so it is in neither bucket here either.
+ */
 private const val STUB_EPIC_TYPE_ID = 10000L
 private const val EPIC_START_FIELD = "customfield_10015"
 private const val SPRINT_FIELD = "customfield_10020"

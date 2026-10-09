@@ -200,6 +200,8 @@ const ISSUE_TYPE = {
   TASK: { id: "10002", name: "Task", subtask: false, hierarchyLevel: 0 },
   BUG: { id: "10003", name: "Bug", subtask: false, hierarchyLevel: 0 },
   SUBTASK: { id: "10004", name: "Sub-task", subtask: true, hierarchyLevel: -1 },
+  // A Premium-style level-2 type ABOVE the epic (A31): exactly one FLO issue of it, appended after everything else is built.
+  PROGRAM: { id: "10010", name: "Program", subtask: false, hierarchyLevel: 2 },
 };
 
 const PRIORITIES = [
@@ -1545,6 +1547,71 @@ const goldenEpic = floEpics.reduce((best, e) => (childrenOf(e).length > children
 const goldenEpicChildren = childrenOf(goldenEpic);
 const goldenEpicChildSumMd = goldenEpicChildren.reduce((s, c) => s + (c.storyPoints ?? 0), 0);
 
+// --- A31: ONE level-2 "Program" issue above the epic level (appended LAST, constants only) -----------
+// Added after every draw and every derived figure above is final, so no existing id, timeline, count,
+// the omitted bulkfetch chunk or the day2 scenario can move: it never touches `rng`/`rng2`, takes the
+// next free id and FLO key, and is deliberately absent from every loop above (work category, worklog
+// skew, future-sprint candidates, day-2 candidates, parent moves, ...). Values are fixed: To Do, no
+// assignee/sprint/flag, 100 SP, one 4 h worklog by USERS[0]; it is the parent of the two highest-id
+// FLO epics other than the golden one. Flow must keep it out of every task/epic number (domain-model A31).
+const PROGRAM_STORY_POINTS = 100;
+const PROGRAM_WORKLOG_ID = "790000";
+const PROGRAM_WORKLOG_SECONDS = 4 * 3600;
+const programKeyNum = projectKeyCounters.get("FLO") + 1;
+const programIssue = {
+  id: String(nextIssueId++),
+  key: `FLO-${programKeyNum}`,
+  project: floProject,
+  type: ISSUE_TYPE.PROGRAM,
+  createdMs: BACKFILL_START_MS,
+  parentRef: null,
+  statusEvents: [],
+  status: floProject.workflow[0],
+  resolvedAtMs: null,
+  updatedMs: BACKFILL_START_MS,
+  reporter: USERS[0],
+  assignee: null,
+  assigneeEvents: [],
+  flagged: false,
+  flaggedEvents: [],
+  rank: "0|i99999:",
+  rankEvents: [],
+  sprintIds: [],
+  sprintEvents: [],
+  storyPoints: PROGRAM_STORY_POINTS,
+  originalEstimateSeconds: null,
+  labels: [],
+  components: [],
+  team: null,
+  priority: PRIORITIES[2],
+  resolution: null,
+  hasWorklogs: true,
+};
+const programChildEpics = floEpics
+  .filter((e) => e !== goldenEpic)
+  .sort((a, b) => Number(b.id) - Number(a.id))
+  .slice(0, 2);
+for (const epic of programChildEpics) epic.parent = programIssue;
+issues.push(programIssue);
+issueById.set(programIssue.id, programIssue);
+inScopeIssues.push(programIssue);
+inScopeIdsAscending.push(Number(programIssue.id)); // the highest id, so still ascending
+if (bulkChunks[bulkChunks.length - 1].length >= BULK_CHUNK_SIZE) bulkChunks.push([]);
+bulkChunks[bulkChunks.length - 1].push(Number(programIssue.id));
+worklogsByIssue.set(programIssue.id, [
+  {
+    id: PROGRAM_WORKLOG_ID,
+    issueId: programIssue.id,
+    author: { accountId: USERS[0].accountId },
+    started: restIso(BACKFILL_START_MS),
+    created: restIso(BACKFILL_START_MS),
+    updated: restIso(BACKFILL_START_MS),
+    timeSpentSeconds: PROGRAM_WORKLOG_SECONDS,
+  },
+]);
+worklogIssueCount++;
+worklogTotalCount++;
+
 // ===============================================================================================
 // WireMock mapping helpers
 // ===============================================================================================
@@ -1665,6 +1732,10 @@ for (const project of PROJECTS) {
     { id: ISSUE_TYPE.BUG.id, name: ISSUE_TYPE.BUG.name, subtask: false, statuses: project.workflow.map(statusJson) },
     { id: ISSUE_TYPE.SUBTASK.id, name: ISSUE_TYPE.SUBTASK.name, subtask: true, statuses: project.workflow.map(statusJson) },
     { id: ISSUE_TYPE.EPIC.id, name: ISSUE_TYPE.EPIC.name, subtask: false, statuses: epicWorkflow(project).map(statusJson) },
+    // A31: only FLO has a Program type in its workflow scheme (its one level-2 issue lives there).
+    ...(project.key === "FLO"
+      ? [{ id: ISSUE_TYPE.PROGRAM.id, name: ISSUE_TYPE.PROGRAM.name, subtask: false, statuses: project.workflow.map(statusJson) }]
+      : []),
   ]);
 }
 
@@ -2200,6 +2271,14 @@ const expected = {
       childSumMd: goldenEpicChildSumMd,
       childCount: goldenEpicChildren.length,
     },
+  },
+  // A31 (commit 2): the one level-2 issue above the epic level and what Flow must make of it.
+  aboveEpic: {
+    issueId: programIssue.id,
+    issueKey: programIssue.key,
+    childEpicIssueKeys: programChildEpics.map((e) => e.key).sort(),
+    storyPoints: PROGRAM_STORY_POINTS,
+    worklogSeconds: PROGRAM_WORKLOG_SECONDS,
   },
   mappingCount,
 };

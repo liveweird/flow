@@ -49,13 +49,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   - The Statuses tab now badges each status Epic/Task (#115). Decide after reviewing them whether any shared status
     differs.
   - If one does, this needs a domain-model amendment plus config, DERIVE and UI changes.
-- [next] **Issues above epic level are derived as tasks.** The real tenant's COOK project has a "Program" issue at
-  hierarchy level 2 (above its epics). DERIVE treats every non-epic as a task (`hierarchyLevel != 1`:
-  `MetricsDeriver.kt`, `DeriveSprintStep.kt`). The domain model says a TASK is a level-0 issue, so the Program counts in
-  task WIP, throughput and cycle time like ordinary work.
-  - Likely fix: tasks are level 0 (plus sub-tasks rolling up), and level ≥ 2 is excluded, unless initiatives or
-    programs should be reported somewhere. That's a domain-model decision (a new D-entry or amendment).
-  - The stub has no issue above level 1. Add one with the fix.
 - [new] **Report filter options miss worklog-only activity types.** `ReportService` reads `activityType` options from
   `dim_task`, so a type that only appears on epic- or above-epic-logged worklogs (e.g. "Program") can't be picked in
   report 16. Union in `fact_worklog`'s activity types.

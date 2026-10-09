@@ -4,6 +4,7 @@ import ch.nokillswit.metrics.DataSourceMetricsConfigRequest
 import ch.nokillswit.metrics.MetricsWorkCategoryMapping
 import ch.nokillswit.metrics.TeamMembershipCreateRequest
 import ch.nokillswit.metrics.TeamMembershipService
+import java.io.File
 import java.math.BigDecimal
 import java.sql.Connection
 import java.sql.DriverManager
@@ -13,6 +14,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -25,6 +27,27 @@ import kotlinx.serialization.json.jsonPrimitive
  * these tests mutate `norm.work_items.hierarchy_level` on a PRIVATE disabled clone ([SyncedStubFixture.cloneProcessedData]) and derive
  * it twice in ONE `withPinnedSettings` block (every derive stamps the same `config_revision`, [MetricsDigestTest]'s convention).
  */
+/** `sample-data/jira/expected.json` → `aboveEpic`: the stub's one level-2 Program issue (generator constants, never hand-copied). */
+@Serializable
+private data class ExpectedAboveEpic(
+    val issueId: String,
+    val issueKey: String,
+    val childEpicIssueKeys: List<String>,
+    val storyPoints: Int,
+    val worklogSeconds: Long,
+)
+
+@Serializable
+private data class ExpectedAboveEpicFixture(val aboveEpic: ExpectedAboveEpic)
+
+private val EXPECTED_JSON = Json { ignoreUnknownKeys = true }
+
+private val aboveEpicExpected: ExpectedAboveEpic by lazy {
+    val file = listOf(File("sample-data/jira/expected.json"), File("../sample-data/jira/expected.json")).firstOrNull { it.isFile }
+        ?: error("sample-data/jira/expected.json not found from ${File(".").absolutePath}")
+    EXPECTED_JSON.decodeFromString<ExpectedAboveEpicFixture>(file.readText()).aboveEpic
+}
+
 class MetricsHierarchyLevelTest {
     private fun <T> jdbc(block: (Connection) -> T): T =
         DriverManager.getConnection(PostgresTestSupport.jdbcUrl, PostgresTestSupport.user, PostgresTestSupport.password).use(block)
@@ -312,7 +335,9 @@ class MetricsHierarchyLevelTest {
                 val day = lastBacklogDay(connId, backlogBefore.domainKey)
                 val totalsBefore = totals(connId, backlogBefore.domainKey, day)
                 val taskRowsBefore = rowCount(connId, "tasks")
-                assertEquals(0, rowCount(connId, "aboveEpicItems"), "the default stub has no level-2+ issue")
+                // The stub's own Program (A31, expected.json aboveEpic) is the one item above the epic level before the flip.
+                val aboveEpicBefore = rowCount(connId, "aboveEpicItems")
+                assertEquals(1, aboveEpicBefore, "the default stub has exactly one level-2+ issue")
                 assertEquals(0, rowCount(connId, "unknownLevelItems"), "the default stub has no issue of unknown level")
                 flipped.forEach {
                     assertTrue(worklogsBefore.getValue(it).isNotEmpty(), "item $it has worklogs")
@@ -328,7 +353,7 @@ class MetricsHierarchyLevelTest {
                 flipped.forEach { id ->
                     modelTables.forEach { assertEquals(0, count(it, connId, id), "no $it row for the above-epic item $id") }
                 }
-                assertEquals(2, rowCount(connId, "aboveEpicItems"))
+                assertEquals(aboveEpicBefore + 2, rowCount(connId, "aboveEpicItems"))
                 assertEquals(0, rowCount(connId, "unknownLevelItems"))
                 assertEquals(taskRowsBefore - 2, rowCount(connId, "tasks"), "the items are no longer task rows")
 
@@ -383,12 +408,52 @@ class MetricsHierarchyLevelTest {
     }
 
     @Test
+    fun `the stub's Program above the epic level is in no model table, keeps its one worklog and leaves its child epics whole`() =
+        runBlocking {
+            // Read-only over the shared derived fixture (`DerivedStubFixture`): one DERIVE of the stub, never mutated here.
+            val connId = DerivedStubFixture.connectionId()
+            val program = aboveEpicExpected
+            val issueId = program.issueId.toLong()
+
+            modelTables.forEach { assertEquals(0, count(it, connId, issueId), "no $it row for the Program ${program.issueKey}") }
+            assertEquals(1, rowCount(connId, "aboveEpicItems"), "the fixture's DERIVE counted exactly the one Program")
+            assertEquals(0, rowCount(connId, "unknownLevelItems"), "the stub has no issue of unknown level")
+
+            // Invariant 6: its one worklog is kept — as an above-epic worklog: its own domain, no epic, no sprint.
+            val worklog = worklogSides(connId, issueId).single()
+            assertEquals("790000", worklog.worklogId.toString())
+            assertNull(worklog.epicId)
+            assertNull(worklog.epicDomainKey)
+            assertNull(worklog.sprintId)
+            assertEquals("FLO", worklog.taskDomainKey)
+            val hoursPerDay = DerivedStubFixture.HOURS_PER_DAY
+            val expectedMd =
+                BigDecimal(program.worklogSeconds).divide(BigDecimal(3600 * hoursPerDay), 4, java.math.RoundingMode.HALF_UP)
+            assertEquals(0, expectedMd.compareTo(worklog.md), "md = ${program.worklogSeconds} s / 3600 / $hoursPerDay h per day")
+
+            // Its two child epics are ordinary epics: a dim_epic row and a fact_epic_delivery row each; nothing walks above the
+            // epic, so no task or epic row points at the Program.
+            assertEquals(2, program.childEpicIssueKeys.size)
+            program.childEpicIssueKeys.forEach { key ->
+                val epicId = jdbc { c ->
+                    c.query("SELECT issue_id FROM metrics.dim_epic WHERE connection_id = $connId AND issue_key = '$key'") { it.getLong(1) }
+                }.single()
+                assertEquals(1, count("fact_epic_delivery", connId, epicId), "$key has its fact_epic_delivery row")
+            }
+            val pointingAtProgram = jdbc { c ->
+                c.query("SELECT count(*) FROM metrics.dim_task WHERE connection_id = $connId AND epic_id = $issueId") { it.getLong(1) }
+            }.single()
+            assertEquals(0L, pointingAtProgram, "no task is attributed to the Program as if it were an epic")
+        }
+
+    @Test
     fun `an item of unknown level stays a task and is counted`() = runBlocking {
         val (connId, _) = preparedClone("hierarchy-unknown-owner")
         val issueId = pickAnyTask(connId)
         DerivedStubFixture.withPinnedSettings(DerivedStubFixture.metricsSettings()) {
             DerivedStubFixture.derivePinned(connId, jobId = 1u)
             val tasksBefore = rowCount(connId, "tasks")
+            val aboveEpicBefore = rowCount(connId, "aboveEpicItems")
             val worklogsBefore = totalsOfWorklogs(connId)
             assertEquals(0, rowCount(connId, "unknownLevelItems"))
 
@@ -399,7 +464,7 @@ class MetricsHierarchyLevelTest {
             assertEquals(1, count("fact_task_delivery", connId, issueId))
             assertEquals(tasksBefore, rowCount(connId, "tasks"))
             assertEquals(1, rowCount(connId, "unknownLevelItems"))
-            assertEquals(0, rowCount(connId, "aboveEpicItems"))
+            assertEquals(aboveEpicBefore, rowCount(connId, "aboveEpicItems"), "the null level does not move the Program count")
             assertEquals(worklogsBefore, totalsOfWorklogs(connId))
         }
     }
