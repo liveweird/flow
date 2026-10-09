@@ -346,8 +346,8 @@ describe("ReportDataQuality page — request, overview and the findings", () => 
     renderPage();
     await ready();
     for (const title of CARD_TITLES) expect(card(title)).toBeInTheDocument();
-    // Every finding but the logged-hours figure states it is clean.
-    expect(screen.getAllByText("None found")).toHaveLength(CARD_TITLES.length - 1);
+    // Every finding but the two figures (logged hours, issues above the epic level: `info`, no badge) states it is clean.
+    expect(screen.getAllByText("None found")).toHaveLength(CARD_TITLES.length - 2);
     expect(screen.queryByText(/^Found: /)).not.toBeInTheDocument();
     expect(screen.queryAllByRole("table", { name: /, as a table$/ })).toEqual([]);
     expect(screen.queryByText(/and \d+ more/)).not.toBeInTheDocument();
@@ -407,7 +407,8 @@ describe("ReportDataQuality page — levels, roles and the empty states", () => 
     }
     // Issues above the epic level are a property of the connection: the team filter does not narrow them.
     const above = card("Issues above the epic level");
-    expect(within(above).getByText("Found: 1")).toBeInTheDocument();
+    expect(within(above).queryByText(/Found:/)).toBeNull();
+    expect(within(above).queryByText("None found")).toBeNull();
     expect(within(above).getByText(/does not narrow it/)).toBeInTheDocument();
     // Sprint drift follows the sprint's own team: it is not a connection-level finding, so it carries no such note.
     const drift = card("Sprint figures that moved since the freeze");

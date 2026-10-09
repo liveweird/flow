@@ -102,9 +102,7 @@ describe("qualityHighlights", () => {
       { card: "noEstimate", count: 4 },
     ]);
     expect(highlights.every((h) => h.count > 0)).toBe(true);
-    expect(highlights).toHaveLength(18);
-    // Issues above the epic level are a notice about the model, not a mapping to fix: a volume kind.
-    expect(highlights.find((h) => h.card === "itemsAboveEpic")).toEqual({ card: "itemsAboveEpic", count: 1 });
+    expect(highlights).toHaveLength(17);
   });
 
   test("a big configuration count still sorts among the configuration kinds by size", () => {

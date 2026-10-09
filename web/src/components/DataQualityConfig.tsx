@@ -107,10 +107,10 @@ export default function DataQualityConfig({
           <Text size="sm">{t("reports.dataQuality.unattributedNote", { count: unmappedBoards.unattributedDoneTasks })}</Text>
         )}
       </DataQualityCard>
+      {/* A figure about the model's boundary, not a finding to fix: the `info` state (no badge), like the logged-hours card. */}
       <DataQualityCard
         id="itemsAboveEpic"
-        state={itemsAboveEpic.total > 0 ? "found" : "none"}
-        count={itemsAboveEpic.total}
+        state="info"
         scope={scope}
         scopeNote="notTeam"
       >

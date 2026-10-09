@@ -1214,9 +1214,10 @@ class ReportDataQualityTest {
                 assertEquals(listOf("DQB-10"), b.items.map { it.issueKey })
                 assertEquals(7.0, b.items.single().worklogMd, EPS)
 
-                // Every connection: both lists' items are present (other classes' connections may add more, never fewer).
-                val all = client.dq(query).itemsAboveEpic.items.map { it.issueKey }
-                assertTrue(all.containsAll(listOf("DQA-10", "DQA-11", "DQB-10")), "the default read spans the connections")
+                // Every connection: the total spans them. Only the total is asserted: the list is capped at 50 and ordered by level
+                // then key, so other classes' level-2+ rows in the shared container may push these three off the page.
+                val unitTotal = client.dq(query).itemsAboveEpic.total
+                assertTrue(unitTotal >= a.total + b.total, "the default read spans the connections (others may add more, never fewer)")
 
                 // A connection-level finding: neither a real team nor the UNASSIGNED team narrows it.
                 assertEquals(a, client.dq("connectionId=$connA&$query&teamId=$team").itemsAboveEpic)

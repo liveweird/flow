@@ -202,7 +202,7 @@ describe("Home page — the unit overview", () => {
       "Derive warnings1",
       "Tasks without an epic7",
     ]);
-    expect(within(quality).getByText("and 13 more kinds of findings")).toBeInTheDocument();
+    expect(within(quality).getByText("and 12 more kinds of findings")).toBeInTheDocument();
     expect(within(quality).getByText(/Period-bound findings cover the last 90 days; configuration findings are current/)).toBeInTheDocument();
     expect(within(quality).getByRole("link", { name: "All findings" })).toHaveAttribute(
       "href",

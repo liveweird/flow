@@ -4579,7 +4579,7 @@ components:
         issueType: { type: string }
         hierarchyLevel: { type: integer, format: int32, minimum: 2, description: The issue type's Jira hierarchy level (2 and up). }
         projectKey: { type: string }
-        worklogMd: { type: number, format: double, description: 'Man-days logged on the issue itself (Σ `fact_worklog.md`); 0 when none.' }
+        worklogMd: { type: number, format: double, description: 'Man-days logged on the issue itself (Σ `fact_worklog.md`), all time -- not bound to the report period; 0 when none.' }
     DataQualityAboveEpicItemList:
       type: object
       description: A capped list of issues above the epic level (highest level first, then by key).

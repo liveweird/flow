@@ -925,7 +925,8 @@ empty but the open ones remain.
   over epics, say --, which DERIVE leaves out of the task/epic model (no task, epic, backlog or estimate row). The list makes that
   exclusion visible: `AboveEpicItem { connectionId, issueKey, summary?, issueType, hierarchyLevel, projectKey, worklogMd }`, highest
   level first, then key, capped like every list (50, `total` beside it). `worklogMd` is Σ `fact_worklog.md` of the item's own
-  worklogs (those rows are kept with a null `epic_id`), 0 when it has none. Read from the live norm layer, so it shows the item even
+  worklogs (those rows are kept with a null `epic_id`), 0 when it has none -- ALL TIME, not bound to the report's period (the column
+  reads "Logged MD (all time)"). A figure about the model's boundary, not a finding to fix: the card has no "Found" badge. Read from the live norm layer, so it shows the item even
   before the next DERIVE. Connection-level: neither the team nor the `domain` filter narrows it. Reader:
   `reports/DataQualityHierarchy.kt`.
 - **`snapshotDrift`** (D13) -- for the closed, team-mapped sprints of the period (`resolveSprintRows`, the sprint's team; USER level

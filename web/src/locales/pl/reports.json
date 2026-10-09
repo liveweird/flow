@@ -760,7 +760,7 @@
       },
       "itemsAboveEpic": {
         "title": "Zgłoszenia powyżej poziomu epika",
-        "explain": "Zgłoszenia wyżej w hierarchii Jiry niż epik (na przykład Program) są poza modelem zadań i epików: nie mają wiersza zadania ani epika ani backlogu, a ich własne wpisy czasu liczą się tylko w macierzy kosztów, zalogowanych godzinach i koszcie zespołu, nigdy w wartości wypracowanej (EVM) epika ani domeny."
+        "explain": "Zgłoszenia wyżej w hierarchii Jiry niż epik (na przykład Program) są poza modelem zadań i epików: nie mają wiersza zadania ani epika, ani nie są w backlogu, a ich własne wpisy czasu pracy liczą się tylko w macierzy kosztów, zalogowanych godzinach i koszcie zespołu, nigdy w wartości wypracowanej (EVM) epika ani domeny."
       },
       "deriveWarnings": {
         "title": "Ostrzeżenia z wyliczania",
@@ -792,7 +792,7 @@
       "issue": "Zgłoszenie",
       "issueType": "Typ",
       "hierarchyLevel": "Poziom",
-      "loggedMd": "Zalogowane (MD)",
+      "loggedMd": "Zalogowane MD (od początku)",
       "status": "Status",
       "category": "Kategoria w Jirze",
       "items": "Pozycje, które w nim były",

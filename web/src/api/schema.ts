@@ -3432,7 +3432,7 @@ export interface components {
             projectKey: string;
             /**
              * Format: double
-             * @description Man-days logged on the issue itself (Σ `fact_worklog.md`); 0 when none.
+             * @description Man-days logged on the issue itself (Σ `fact_worklog.md`), all time -- not bound to the report period; 0 when none.
              */
             worklogMd: number;
         };
