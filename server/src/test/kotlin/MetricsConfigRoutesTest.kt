@@ -936,11 +936,13 @@ class MetricsConfigRoutesTest {
     @Test
     fun `options on the synced stub - the epic and task flags equal an independent re-derivation from the stub's per-type rows`() {
         val connId = runBlocking { SyncedStubFixture.connectionId() }
-        // Epic is issue type 10000 (level 1) in the stub, every other type level 0 or -1 (generate.mjs ISSUE_TYPE).
+        // Epic is issue type 10000 (level 1) in the stub; Story/Task/Bug/Sub-task are level 0 or -1; Program (10010, level 2, A31) is in
+        // neither bucket and is left out (generate.mjs ISSUE_TYPE).
         val statusIdsByEpic = runBlocking {
             SyncedStubFixture.rawStore().entityPayloadsByKind(connId, "PROJECT_STATUSES")
                 .flatMap { payload -> Json.parseToJsonElement(payload).jsonArray }
                 .map { it.jsonObject }
+                .filter { it.getValue("id").jsonPrimitive.content != "10010" }
                 .groupBy({ it.getValue("id").jsonPrimitive.content == "10000" }) { type ->
                     type.getValue("statuses").jsonArray.map { it.jsonObject.getValue("id").jsonPrimitive.content }
                 }

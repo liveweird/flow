@@ -98,8 +98,10 @@ for bit unchanged (phase-3 plan §0 A2).
 `generate.mjs` appends **one level-2 "Program" issue** (issue type `10010`, `hierarchyLevel: 2`, a Premium-style type above
 the epic) to FLO, as the very last step before the stub files are written. It consumes neither PRNG, takes the next free
 id and FLO key (`expected.json` → `aboveEpic.issueId`/`issueKey`), and is absent from every random loop (work category,
-worklog skew, future-sprint candidates, day-2 candidates), so no pre-existing id, timeline, count, the omitted bulkfetch chunk,
-the day2 scenario or the golden fixtures move. Its values are constants: To Do, no assignee, sprint or flag, 100 SP, ONE worklog
+worklog skew, future-sprint candidates, day-2 candidates), so no pre-existing id, timeline, the omitted bulkfetch chunk, the
+day2 scenario or the golden fixtures move. Only the counts it joins move, each by one (or, for the chunk count, to a new last
+chunk): `issues.totalInScope`, FLO's `perProject` count, `worklogs.inScopeCount`/`inScopeIssueCount` and the whole-dataset worklog
+counts, `changelog.bulkfetchChunkCount` (25: the 1,201st id opens a one-id chunk) and `mappingCount`. Its values are constants: To Do, no assignee, sprint or flag, 100 SP, ONE worklog
 (id `790000`, `USERS[0]`, 4 h) and it is the `parent` of the two highest-id FLO epics other than the golden one
 (`aboveEpic.childEpicIssueKeys`). `project/FLO/statuses` gains a Program row; `projects/fields` is unchanged (a field scheme
 has no row for the type). What Flow must make of it — no task/epic/bridge row of its own, its worklog kept but never attributed
@@ -124,7 +126,8 @@ worklogs out of the instance-wide worklog feed — see "A1" in the ingestion pla
 (`2026-09-01T00:00:00Z`), each project mixing Story/Task/Bug/Sub-task plus a handful of Epics with
 parent links. Ids and per-project key numbers are assigned in one global chronological pass
 (mirroring Jira's own instance-wide sequential numeric id), so `FLO-1` is older than `FLO-2` and
-both are older than any issue with a higher numeric id than theirs, project boundaries aside.
+both are older than any issue with a higher numeric id than theirs, project boundaries aside — except FLO-401, the A31 Program:
+the highest id, yet created at the backfill start.
 
 GTM's board configuration deliberately never maps the `Waiting` status to a column, to exercise
 the data profile's "unmapped statuses" case.

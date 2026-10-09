@@ -1574,7 +1574,7 @@ const programIssue = {
   assigneeEvents: [],
   flagged: false,
   flaggedEvents: [],
-  rank: "0|i99999:",
+  rank: "0|i00001:", // outside the random range (10000-99999), so no `--scale N` run can collide with it
   rankEvents: [],
   sprintIds: [],
   sprintEvents: [],

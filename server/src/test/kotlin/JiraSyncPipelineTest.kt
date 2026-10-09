@@ -252,11 +252,11 @@ class JiraSyncPipelineTest {
         // out-of-scope SEC project (`sample-data/jira/generate.mjs`'s "issues" array), so they also
         // count history/worklog rows on issues A1 deliberately never fetches. changelog.inScopeHistories/
         // worklogs.inScopeCount are the in-scope-reachable totals this backfill actually stores: the
-        // 23 real bulkfetch chunks' histories plus the omitted chunk's 50-issue fallback, and every
+        // real bulkfetch chunks' histories (every chunk but the omitted one) plus the omitted chunk's 50-issue fallback, and every
         // in-scope issue's own worklog page total.
         assertEquals(
             expectedFixture.changelog.inScopeHistories, store.countChangelogs(connId),
-            "sample-data/jira/expected.json changelog.inScopeHistories (23 bulk chunks + the omitted chunk's fallback)",
+            "sample-data/jira/expected.json changelog.inScopeHistories (the real bulk chunks + the omitted chunk's fallback)",
         )
         assertEquals(
             expectedFixture.worklogs.inScopeCount, store.countWorklogs(connId),

@@ -680,7 +680,7 @@ invariants on every issue, always:
 
 `TilingTest` proves these hold over 200 random chain-consistent event sequences (property-style),
 plus dedicated same-millisecond and empty-changelog cases; `NormalizationPipelineTest` re-asserts
-the same four invariants over the PERSISTED rows for all 1,200 in-scope issues in the sample
+the same four invariants over the PERSISTED rows for all 1,201 in-scope issues in the sample
 dataset, not just `Tiling`'s in-memory guarantees.
 
 **Anomalies are flagged, never corrected.** A chain that doesn't add up is recorded on

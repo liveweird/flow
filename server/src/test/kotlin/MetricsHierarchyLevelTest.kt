@@ -19,14 +19,6 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
-/**
- * A31 — an issue above the epic level (hierarchy level 2+) is OUTSIDE the task/epic model: DERIVE writes no row of its own for it in
- * any `metrics.*` table (so it leaves the estimated backlog, WIP, throughput and every bridge), while its worklogs are KEPT
- * (invariant 6) as an epic-logged worklog would be — minus the epic. An item with an unknown (`null`) level stays a task but is
- * counted in `row_counts.unknownLevelItems`. The default stub has neither, so the shared [DerivedStubFixture] digest is unmoved;
- * these tests mutate `norm.work_items.hierarchy_level` on a PRIVATE disabled clone ([SyncedStubFixture.cloneProcessedData]) and derive
- * it twice in ONE `withPinnedSettings` block (every derive stamps the same `config_revision`, [MetricsDigestTest]'s convention).
- */
 /** `sample-data/jira/expected.json` → `aboveEpic`: the stub's one level-2 Program issue (generator constants, never hand-copied). */
 @Serializable
 private data class ExpectedAboveEpic(
@@ -48,6 +40,15 @@ private val aboveEpicExpected: ExpectedAboveEpic by lazy {
     EXPECTED_JSON.decodeFromString<ExpectedAboveEpicFixture>(file.readText()).aboveEpic
 }
 
+/**
+ * A31 — an issue above the epic level (hierarchy level 2+) is OUTSIDE the task/epic model: DERIVE writes no row of its own for it in
+ * any `metrics.*` table (so it leaves the estimated backlog, WIP, throughput and every bridge), while its worklogs are KEPT
+ * (invariant 6) as an epic-logged worklog would be — minus the epic. An item with an unknown (`null`) level stays a task but is
+ * counted in `row_counts.unknownLevelItems`. The stub carries exactly one Program (`expected.json` → `aboveEpic`), pinned read-only
+ * on the shared [DerivedStubFixture] below, and no issue of unknown level; the other tests change
+ * `norm.work_items.hierarchy_level` on a PRIVATE disabled clone ([SyncedStubFixture.cloneProcessedData]) and derive it twice in ONE
+ * `withPinnedSettings` block (every derive stamps the same `config_revision`, [MetricsDigestTest]'s convention).
+ */
 class MetricsHierarchyLevelTest {
     private fun <T> jdbc(block: (Connection) -> T): T =
         DriverManager.getConnection(PostgresTestSupport.jdbcUrl, PostgresTestSupport.user, PostgresTestSupport.password).use(block)
