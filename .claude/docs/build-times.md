@@ -177,7 +177,7 @@ the WIP step: full suite 712 s → 369 s (-48 %), one DERIVE 7-26 s → 2.9 s, p
 min. **Fix in progress on `perf/test-suite-speed`** (one statement in `MetricsDeriver`/`MetricsStore`
 plus a regression pin). Production caveat: at 24k issues the WIP team/task statement still costs ~9 µs
 per row after ANALYZE (its two correlated sub-selects), so the documented 46.7 s WIP figure may be
-that, not statistics — the effect of ANALYZE at scale 20 is NOT measured.
+that, not statistics — the effect of ANALYZE at scale 20 is NOT measured (measured 2026-10-09: WHY 16).
 
 **Cause found: PROCESS paid ~13 statement round trips and one transaction PER ISSUE (2026-09-30,
 `perf/process-speed`).** Measured with temporary per-statement timers (local, 18 cores, the 1,200-issue
@@ -833,6 +833,28 @@ evidence and recorded here as a dated entry (finding + fix, or "measured, intend
    thresholds and the order-independence proof (coverage under shuffle was already shown identical, WHY 12's checkup notes).
    Expected: the job drops by the 30-58 s second run, back under the alarm. No budget change. The next lever is unchanged:
    an eslint cache.
+
+16. **DERIVE at scale 20, two connections at once, and ANALYZE at scale — ANSWERED 2026-10-09 (master `347dbd8`, a measurement, no code change).**
+   Same machine and `docker-compose.perf.yaml` sizing as WHY 14 (`-Xmx512m` in 768 MiB, postgres 1 GiB), 24,001 issues (the A31
+   Program added one), two connections with their own teams, `ingest.workerSlots` = 2 (the default); figures in `metrics.md`
+   "Performance (scale 20)", the 2026-10-09 table.
+   - **Warm DERIVE is bimodal — ~32 s or ~53 s — and the planner decides which.** The WIP team/task statement's correlated
+     sub-select (task → sprint → team, ~4.5 M executions per derive) reads the 168-row `dim_sprint` either by its primary-key index
+     (cost 8.17) or by a seq scan (8.15); a statistics nudge flips it. Index: the statement takes 11-15 s; seq scan: 27-28 s alone,
+     42-45 s in a pair (confirmed from auto_explain plans on every slow and fast run). Dead tuples don't explain it (a slow run
+     started with 0, a fast one with 620k). The epic WIP statement flips too (2.95 s vs 8.4 s). Open: `[new]` BACKLOG item.
+   - **Two at once vs one alone:** 1.07-1.29x one derive on the fast plan, 1.25-1.37x on the slow one (0.55-0.68 of sequential;
+     10-07 measured 1.3-1.5x). **No real lock contention:** 1 s `pg_stat_activity` samples over ~350 s show derive sessions on
+     CPU (364 samples) or the app computing (96 idle-in-transaction), a handful of WAL/IO waits, and ONE relation lock wait
+     (< 1 s, one post-commit ANALYZE behind the other on `dim_date`). The pair penalty is shared CPU (postgres ~1 → ~2 cores).
+   - **ANALYZE at scale 20 costs 0.33-0.45 s per derive** (~1 % of a derive): post-commit 326 ms (statement log), in-transaction
+     on a first derive 383 ms — but that one holds its locks to the commit (~33 s here), blocking another connection's first
+     derive meanwhile. Two post-commit ANALYZEs plus autovacuum on the same tables collided once: 3.8 s / 4.1 s.
+   - **Memory headroom shrank:** app peak 712-731 MiB of the 768 MiB limit (617 MiB on 10-07), alone and in pairs alike, no
+     OOM — under 60 MiB left. Open: `[new]` BACKLOG item.
+   - Seen on the way: autovacuum works `agg_daily_wip`, `item_stage` and `task_assignee` hard (each ~50 % dead after a derive), and
+     one pair's `DELETE FROM metrics.dim_task` took 3.1 s in both connections at the same millisecond (a shared lock holder,
+     likely autovacuum truncating — inferred, not measured).
 
 **What the suite is made of (local, pre-fix run, 782 tests, 12m30s of class time):**
 `MetricsDerivationTest` 5m55s (47 %), `MetricsDigestTest` 2m00s (16 %), `NormalizationPipelineTest`
