@@ -147,6 +147,7 @@ export function qualityHighlights(report: DataQualityReport): QualityHighlight[]
     { card: "domainsNoOwner", count: report.domainsWithoutOwner.total },
     { card: "unmappedStatuses", count: report.unmappedStatuses.total },
     { card: "unmappedBoards", count: report.unmappedBoards.total },
+    { card: "itemsAboveEpic", count: report.itemsAboveEpic.total },
     { card: "deriveWarnings", count: report.deriveWarnings.length },
   ];
   const configFirst = (entry: QualityHighlight) => (CONFIGURATION_CARDS.has(entry.card) ? 0 : 1);

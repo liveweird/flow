@@ -10,6 +10,12 @@ import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.metrics.TeamMembershipService
 import ch.nokillswit.metrics.asRequest
 import ch.nokillswit.metrics.inPvHorizon
+import ch.nokillswit.norm.IntervalSource
+import ch.nokillswit.norm.NormalizedIssue
+import ch.nokillswit.norm.NormalizedStatusInterval
+import ch.nokillswit.norm.StatusCategory
+import ch.nokillswit.norm.TombstoneKind
+import ch.nokillswit.norm.WorkItemFacts
 import ch.nokillswit.norm.WorkItemStore
 import ch.nokillswit.reports.DataQualityReport
 import ch.nokillswit.reports.TaskFinding
@@ -35,7 +41,9 @@ import org.jetbrains.exposed.v1.core.Column
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.greaterEq
 import org.jetbrains.exposed.v1.core.inList
+import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.r2dbc.deleteWhere
 import org.jetbrains.exposed.v1.r2dbc.insert
 import org.jetbrains.exposed.v1.r2dbc.selectAll
@@ -227,6 +235,16 @@ class ReportDataQualityTest {
         for (item in body.domainsWithoutOwner.items) {
             assertEquals(rows.epicDims.values.count { it[d.domainKey] == item.domainKey }, item.epics, "epics of ${item.domainKey}")
         }
+
+        // Items above the epic level (A31): the live level-2+ rows of norm.work_items, counted independently of the report's query.
+        val wi = WorkItemStore.WorkItems
+        val aboveEpic = suspendTransaction(sharedDatabaseForTests()) {
+            wi.selectAll().where {
+                (wi.connectionId eq fixture.connId) and (wi.hierarchyLevel greaterEq 2) and wi.deletedAt.isNull() and wi.movedOutAt.isNull()
+            }.toList()
+        }
+        assertEquals(aboveEpic.size, body.itemsAboveEpic.total)
+        assertEquals(aboveEpic.map { it[wi.issueKey] }.toSet(), body.itemsAboveEpic.items.map { it.issueKey }.toSet())
 
         // Nothing drifted and no mapping gap of the stage kind in the untouched fixture.
         assertEquals(0, body.snapshotDrift.total)
@@ -1109,6 +1127,134 @@ class ReportDataQualityTest {
                 cleanUpTeams(listOf(team))
             }
         }
+
+    /** A minimal work item of [level] (null = unknown) with the key `[prefix]-[issueId]`; [tombstone] marks it deleted / moved out. */
+    private fun levelItem(
+        issueId: Long,
+        prefix: String,
+        level: Int?,
+        type: String = "Program",
+        tombstone: TombstoneKind = TombstoneKind.NONE,
+    ) = NormalizedIssue(
+        issueId = issueId,
+        facts = WorkItemFacts(
+            issueKey = "$prefix-$issueId", projectKey = prefix, issueType = type, isSubtask = false, parentIssueId = null,
+            summary = "Summary of $prefix-$issueId", currentStatusId = "1", resolution = null, priority = null, assigneeAccountId = null,
+            reporterAccountId = null, createdAtMs = 1_000L, updatedAtMs = 2_000L, resolvedAtMs = null, storyPoints = null,
+            originalEstimateSeconds = null, timeSpentSeconds = 0, labels = emptyList(), components = emptyList(),
+            fixVersions = emptyList(), teamValueJson = null, rank = null, hierarchyLevel = level, dueAtMs = null,
+            customFieldsJson = "{}", tombstone = tombstone,
+        ),
+        currentStatusName = "To Do",
+        currentStatusCategory = StatusCategory.TODO,
+        statusIntervals = listOf(NormalizedStatusInterval(1, "1", "To Do", StatusCategory.TODO, 1_000L, null, IntervalSource.CREATED)),
+        fieldIntervals = emptyList(), fieldChanges = emptyList(), worklogs = emptyList(), currentSprintIds = emptyList(),
+        flagged = false, anomalies = emptyList(),
+    )
+
+    private fun aboveEpicWorklog(id: Long, issueId: Long, md: Double) = FactWorklogRow(
+        worklogId = id, issueId = issueId, authorAccountId = "dq-above-author", authorTeamId = null, startedAt = noonUtc("2026-01-05"),
+        createdAt = null, lateMs = null, md = md, taskDomainKey = "AAA", epicId = null, epicDomainKey = null, activityType = "Program",
+        workCategory = null, sprintIdAtStarted = null, sprintTeamIdAtStarted = null, foreignWork = false,
+        assigneeAccountIdAtStarted = null, assigneeTeamIdAtStarted = null,
+    )
+
+    @Test
+    fun `items above the epic level - live level 2 plus items with their own worklogs, scoped to the connection and to no team`() =
+        testApplication {
+            usePostgresTestcontainer()
+            val store = MetricsStore(sharedDatabaseForTests())
+            val workItems = WorkItemStore(sharedDatabaseForTests())
+            val connA = SyncedStubFixture.createConnection(namePrefix = "dq-above-a", enabled = false)
+            val connB = SyncedStubFixture.createConnection(namePrefix = "dq-above-b", enabled = false)
+            val team = TestTeams.seed(SyncedStubFixture.unique("dq-above"))
+            val connections = listOf(connA, connB)
+            try {
+                // A: a Program (level 2) with two worklogs, a level-3 item with none, and everything that must NOT be listed.
+                val inA = listOf(
+                    levelItem(10, "DQA", 2), levelItem(11, "DQA", 3, "Portfolio"),
+                    levelItem(12, "DQA", 1, "Epic"), levelItem(13, "DQA", 0, "Story"), levelItem(14, "DQA", null, "Story"),
+                    levelItem(15, "DQA", 2, tombstone = TombstoneKind.DELETED),
+                    levelItem(16, "DQA", 2, tombstone = TombstoneKind.MOVED_OUT),
+                )
+                // B: the SAME issue id as A's Program, with a worklog of its own that must not leak into A's figure.
+                val inB = listOf(levelItem(10, "DQB", 2))
+                workItems.replaceWorkItems(connA, inA, now = 5_000L)
+                workItems.replaceWorkItems(connB, inB, now = 5_000L)
+                suspendTransaction(sharedDatabaseForTests()) {
+                    store.insertFactWorklog(
+                        connA, listOf(aboveEpicWorklog(1, 10, 1.5), aboveEpicWorklog(2, 10, 0.5), aboveEpicWorklog(3, 12, 4.0)),
+                        configRevision = 1L,
+                    )
+                    store.insertFactWorklog(connB, listOf(aboveEpicWorklog(1, 10, 7.0)), configRevision = 1L)
+                }
+                val client = seededClient("dq-above")
+                val query = "from=2026-01-01&to=2026-01-31"
+
+                val a = client.dq("connectionId=$connA&$query").itemsAboveEpic
+                assertEquals(2, a.total)
+                assertEquals(listOf("DQA-11", "DQA-10"), a.items.map { it.issueKey }, "highest level first")
+                val portfolio = a.items[0]
+                assertEquals(
+                    listOf(connA, "Summary of DQA-11", "Portfolio", 3, "DQA", 0.0),
+                    listOf(
+                        portfolio.connectionId, portfolio.summary, portfolio.issueType, portfolio.hierarchyLevel, portfolio.projectKey,
+                        portfolio.worklogMd,
+                    ),
+                )
+                val program = a.items[1]
+                assertEquals(
+                    listOf(connA, "Summary of DQA-10", "Program", 2, "DQA"),
+                    listOf(program.connectionId, program.summary, program.issueType, program.hierarchyLevel, program.projectKey),
+                )
+                assertEquals(2.0, program.worklogMd, EPS, "only the Program's own two worklogs, not the epic's and not connection B's")
+
+                val b = client.dq("connectionId=$connB&$query").itemsAboveEpic
+                assertEquals(listOf("DQB-10"), b.items.map { it.issueKey })
+                assertEquals(7.0, b.items.single().worklogMd, EPS)
+
+                // Every connection: both lists' items are present (other classes' connections may add more, never fewer).
+                val all = client.dq(query).itemsAboveEpic.items.map { it.issueKey }
+                assertTrue(all.containsAll(listOf("DQA-10", "DQA-11", "DQB-10")), "the default read spans the connections")
+
+                // A connection-level finding: neither a real team nor the UNASSIGNED team narrows it.
+                assertEquals(a, client.dq("connectionId=$connA&$query&teamId=$team").itemsAboveEpic)
+                assertEquals(a, client.dq("connectionId=$connA&$query&teamId=0").itemsAboveEpic)
+
+                // A connection with none lists none.
+                val none = SyncedStubFixture.createConnection(namePrefix = "dq-above-none", enabled = false)
+                assertEquals(0, client.dq("connectionId=$none&$query").itemsAboveEpic.total)
+            } finally {
+                suspendTransaction(sharedDatabaseForTests()) {
+                    for (connId in connections) {
+                        store.deleteFactWorklog(connId)
+                        WorkItemStore.WorkItems.deleteWhere { WorkItemStore.WorkItems.connectionId eq connId }
+                        WorkItemStore.StatusIntervals.deleteWhere { WorkItemStore.StatusIntervals.connectionId eq connId }
+                    }
+                }
+                cleanUpTeams(listOf(team))
+            }
+        }
+
+    @Test
+    fun `items above the epic level - a list longer than the cap reports its total and the first fifty`() = testApplication {
+        usePostgresTestcontainer()
+        val workItems = WorkItemStore(sharedDatabaseForTests())
+        val connId = SyncedStubFixture.createConnection(namePrefix = "dq-above-cap", enabled = false)
+        try {
+            workItems.replaceWorkItems(connId, (1L..55L).map { levelItem(it, "DQC", 2) }, now = 5_000L)
+            val list = seededClient("dq-above-cap").dq("connectionId=$connId&from=2026-01-01&to=2026-01-31").itemsAboveEpic
+            assertEquals(55, list.total)
+            assertEquals(50, list.items.size)
+            assertEquals((1L..55L).map { "DQC-$it" }.sorted().take(50), list.items.map { it.issueKey }, "same level: by key")
+            assertTrue(list.items.all { it.worklogMd == 0.0 })
+        } finally {
+            suspendTransaction(sharedDatabaseForTests()) {
+                WorkItemStore.WorkItems.deleteWhere { WorkItemStore.WorkItems.connectionId eq connId }
+                WorkItemStore.StatusIntervals.deleteWhere { WorkItemStore.StatusIntervals.connectionId eq connId }
+            }
+        }
+    }
 
     @Test
     fun `a list longer than the cap reports its total and the newest fifty`() = testApplication {

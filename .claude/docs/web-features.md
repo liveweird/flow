@@ -357,7 +357,7 @@ completed · the report's figures · the orange drift badge with the frozen figu
   (`components/DataQualityCard.tsx` the shell: h3 title, one plain-language line, a state badge — orange `Found: N`, teal `None found`, gray
   `Not measured`, none for the logged-hours figure — and `CappedTable`, which says "and N more" when `total > items.length`), in the order
   logging (`DataQualityLogging`) → missing data and epics (`DataQualityMissing`) → sprint/drift (`DataQualitySprint`) → configuration
-  (`DataQualityConfig`), the overview tiles (`DataQualitySummary`, each a link that scrolls to and focuses its card — no hash in the URL)
+  (`DataQualityConfig`, incl. A31's "Issues above the epic level" card: plain connection name, not a config link; a volume kind on the Home tile), the overview tiles (`DataQualitySummary`, each a link that scrolls to and focuses its card — no hash in the URL)
   first and the groups table last. A clean finding keeps its card (users see it was checked). The bar offers period, team/member, domain,
   domain view and — only with more than one connection — `connection` (`ReportControls.connection`); `normalizeDataQualityFilter` drops
   every param the page has no control for (activity type, work category, bucket, by, item kind, epic) off the request AND the

@@ -1230,6 +1230,12 @@ export const DATA_QUALITY: DataQualityReport = {
       { accountId: null, name: null, worklogs: 1, md: 0.5 },
     ],
   },
+  itemsAboveEpic: {
+    total: 1,
+    items: [
+      { connectionId: 1, issueKey: "FLO-90", summary: "Platform program", issueType: "Program", hierarchyLevel: 2, projectKey: "FLO", worklogMd: 1.25 },
+    ],
+  },
   snapshotDrift: {
     total: 3,
     items: [
@@ -1266,6 +1272,7 @@ export const DATA_QUALITY_CLEAN: DataQualityReport = {
   unmappedStatuses: { total: 0, items: [] },
   unmappedBoards: { total: 0, items: [], unattributedDoneTasks: 0 },
   authorsWithoutTeam: { total: 0, items: [] },
+  itemsAboveEpic: { total: 0, items: [] },
   snapshotDrift: { total: 0, items: [] },
   deriveWarnings: [],
 };

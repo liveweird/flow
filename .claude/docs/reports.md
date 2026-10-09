@@ -868,6 +868,7 @@ DataQualityReport {
   epicDrift: QualityList<EpicRef>,
   domainsWithoutOwner: QualityList<UnownedDomain>,  unmappedStatuses: QualityList<UnmappedStatus>,
   unmappedBoards: QualityList<UnmappedBoard>,  authorsWithoutTeam: QualityList<AuthorWithoutTeam>,
+  itemsAboveEpic: QualityList<AboveEpicItem>,
   snapshotDrift: QualityList<SnapshotDrift>,  deriveWarnings: [DeriveWarning]
 }
 TaskFinding { done, open, total, md, items: [TaskRef] }     // TaskRef { issueKey, summary?, teamId?, assigneeAccountId?, assignee?, doneAt?, startedAt?, estimateMd? }
@@ -920,6 +921,13 @@ empty but the open ones remain.
   the listed boards and the residual together account for every DONE task without a sprint team.
 - **`authorsWithoutTeam`** -- worklog authors with no team at `started_at`, by account (a `null` account = worklogs with no known
   author), most MD first. A real `teamId` sees none.
+- **`itemsAboveEpic`** (A31) -- live `norm.work_items` (not deleted, not moved out) with `hierarchy_level >= 2` -- a Jira "Program"
+  over epics, say --, which DERIVE leaves out of the task/epic model (no task, epic, backlog or estimate row). The list makes that
+  exclusion visible: `AboveEpicItem { connectionId, issueKey, summary?, issueType, hierarchyLevel, projectKey, worklogMd }`, highest
+  level first, then key, capped like every list (50, `total` beside it). `worklogMd` is Σ `fact_worklog.md` of the item's own
+  worklogs (those rows are kept with a null `epic_id`), 0 when it has none. Read from the live norm layer, so it shows the item even
+  before the next DERIVE. Connection-level: neither the team nor the `domain` filter narrows it. Reader:
+  `reports/DataQualityHierarchy.kt`.
 - **`snapshotDrift`** (D13) -- for the closed, team-mapped sprints of the period (`resolveSprintRows`, the sprint's team; USER level
   none) every one of the 16 figures whose live `fact_sprint` value differs from `fact_sprint_snapshot`: the seven MD figures beyond
   0.005, their item twins exactly, `capacityMd` beyond 0.005, `load` beyond 0.0005 (a figure null on one side only counts);
@@ -928,7 +936,7 @@ empty but the open ones remain.
   `row_counts.sprintFieldUnresolved`: `{connectionId, connectionName, runId, startedAt, warnings: ["sprintFieldUnresolved"]}`.
   Connections without a run, or whose latest run is clean, are not listed.
 
-**Not team-scoped.** `unmappedStatuses`, `unmappedBoards` (its `doneTasks` still follow the filter) and `deriveWarnings` are
+**Not team-scoped.** `unmappedStatuses`, `unmappedBoards` (its `doneTasks` still follow the filter), `itemsAboveEpic` and `deriveWarnings` are
 properties of a connection, not of a team: the team filter does not narrow them. `snapshotDrift` follows the sprint's own team.
 
 **Levels (`groups`).** UNIT: one group per team that has any finding row or roster (tasks by credit/current team, worklogs by author

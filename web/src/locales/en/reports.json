@@ -620,6 +620,7 @@
       "statusesHint": "statuses without a stage",
       "boardsHint": "boards without a team",
       "domainsHint": "domains without an owner team",
+      "aboveEpicHint": "issues above the epic level",
       "warningsHint": "connections with a warning",
       "groupSprint": "Flow and sprint",
       "boardsHintResidual": "boards without a team · unattributed done tasks: {{count}}"
@@ -734,6 +735,10 @@
         "title": "Boards without a team",
         "explain": "Their sprints have no team and no frozen figures, and their tasks fall back to the assignee's team. An administrator maps a team to each board in the metrics configuration (Boards)."
       },
+      "itemsAboveEpic": {
+        "title": "Issues above the epic level",
+        "explain": "Issues higher in Jira's hierarchy than an epic (a Program, say) are outside the task and epic model: they get no task or epic row and no backlog, and their own worklogs count only in the cost matrix, logged hours and team cost, never in an epic's or a domain's earned-value (EVM) figures."
+      },
       "deriveWarnings": {
         "title": "Derive warnings",
         "explain": "The latest successful derive of these connections skipped a step, so the reports that depend on it are missing or stale. An administrator can fix the cause in the metrics configuration."
@@ -761,6 +766,10 @@
       "domainName": "Domain",
       "projects": "Projects",
       "epics": "Epics",
+      "issue": "Issue",
+      "issueType": "Type",
+      "hierarchyLevel": "Level",
+      "loggedMd": "Logged (MD)",
       "status": "Status",
       "category": "Jira category",
       "items": "Items that sat in it",

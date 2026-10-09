@@ -84,6 +84,7 @@ const CARD_TITLES = [
   "Domains without an owner team",
   "Statuses without a stage",
   "Boards without a team",
+  "Issues above the epic level",
   "Derive warnings",
 ];
 
@@ -172,6 +173,7 @@ describe("ReportDataQuality page — request, overview and the findings", () => 
     expect(tile("Statuses without a stage")).toBe("Statuses without a stage1statuses without a stage");
     expect(tile("Boards without a team")).toBe("Boards without a team1boards without a team · unattributed done tasks: 2");
     expect(tile("Domains without an owner team")).toBe("Domains without an owner team1domains without an owner team");
+    expect(tile("Issues above the epic level")).toBe("Issues above the epic level1issues above the epic level");
     expect(tile("Derive warnings")).toBe("Derive warnings1connections with a warning");
 
     // Following a tile lands on its card (keyboard focus moves there) without touching the report's URL.
@@ -310,6 +312,7 @@ describe("ReportDataQuality page — request, overview and the findings", () => 
     expect(
       within(card("Boards without a team")).getByText(/2 done tasks were finished in a team-less sprint that belongs to none of the boards above/),
     ).toBeInTheDocument();
+    expect(rowsOf(table("Issues above the epic level"))).toEqual([["Stub", "FLO-90Platform program", "Program", "2", "FLO", "1.25"]]);
     expect(rowsOf(table("Derive warnings"))).toEqual([
       ["Stub", "2026-05-28", "The sprint field could not be resolved, so the sprint step was skipped"],
     ]);
@@ -402,6 +405,10 @@ describe("ReportDataQuality page — levels, roles and the empty states", () => 
       expect(within(c).getByText("None found")).toBeInTheDocument();
       expect(within(c).getByText(/This belongs to no team, so a single team's view lists none/)).toBeInTheDocument();
     }
+    // Issues above the epic level are a property of the connection: the team filter does not narrow them.
+    const above = card("Issues above the epic level");
+    expect(within(above).getByText("Found: 1")).toBeInTheDocument();
+    expect(within(above).getByText(/does not narrow it/)).toBeInTheDocument();
     // Sprint drift follows the sprint's own team: it is not a connection-level finding, so it carries no such note.
     const drift = card("Sprint figures that moved since the freeze");
     expect(within(drift).getByText("Found: 3")).toBeInTheDocument();

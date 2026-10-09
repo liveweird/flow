@@ -643,6 +643,7 @@
       "statusesHint": "statusy bez etapu",
       "boardsHint": "tablice bez zespołu",
       "domainsHint": "domeny bez zespołu właściciela",
+      "aboveEpicHint": "zgłoszenia powyżej poziomu epika",
       "warningsHint": "połączenia z ostrzeżeniem",
       "groupSprint": "Przepływ i sprinty",
       "boardsHintResidual": "tablice bez zespołu · zakończone zadania bez przypisania: {{count}}"
@@ -757,6 +758,10 @@
         "title": "Tablice bez zespołu",
         "explain": "Ich sprinty nie mają zespołu ani zamrożonych wartości, a ich zadania przechodzą na zespół osoby przypisanej. Administrator/ka przypisuje zespół do każdej tablicy w konfiguracji metryk (Tablice)."
       },
+      "itemsAboveEpic": {
+        "title": "Zgłoszenia powyżej poziomu epika",
+        "explain": "Zgłoszenia wyżej w hierarchii Jiry niż epik (na przykład Program) są poza modelem zadań i epików: nie mają wiersza zadania ani epika ani backlogu, a ich własne wpisy czasu liczą się tylko w macierzy kosztów, zalogowanych godzinach i koszcie zespołu, nigdy w wartości wypracowanej (EVM) epika ani domeny."
+      },
       "deriveWarnings": {
         "title": "Ostrzeżenia z wyliczania",
         "explain": "Ostatnie udane wyliczenie tych połączeń pominęło jeden krok, więc zależne od niego raporty są niepełne lub nieaktualne. Administrator/ka może usunąć przyczynę w konfiguracji metryk."
@@ -784,6 +789,10 @@
       "domainName": "Domena",
       "projects": "Projekty",
       "epics": "Epiki",
+      "issue": "Zgłoszenie",
+      "issueType": "Typ",
+      "hierarchyLevel": "Poziom",
+      "loggedMd": "Zalogowane (MD)",
       "status": "Status",
       "category": "Kategoria w Jirze",
       "items": "Pozycje, które w nim były",

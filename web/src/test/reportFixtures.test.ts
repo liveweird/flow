@@ -350,6 +350,7 @@ describe("cycle time and reported time fixtures hold the documented partitions",
         report.unmappedStatuses,
         report.unmappedBoards,
         report.authorsWithoutTeam,
+        report.itemsAboveEpic,
         report.snapshotDrift,
       ];
       for (const list of lists) expect(list.items.length).toBeLessThanOrEqual(Math.min(50, list.total));

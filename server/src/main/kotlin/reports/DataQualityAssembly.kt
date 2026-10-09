@@ -195,6 +195,7 @@ internal class StructuralFindings(
     val domainsWithoutOwner: QualityList<UnownedDomain>,
     val unmappedStatuses: QualityList<UnmappedStatus>,
     val unmappedBoards: UnmappedBoardList,
+    val itemsAboveEpic: QualityList<AboveEpicItem>,
     val snapshotDrift: QualityList<SnapshotDrift>,
     val deriveWarnings: List<DeriveWarning>,
 )
@@ -210,6 +211,7 @@ internal suspend fun structuralFindings(
         domainsWithoutOwner = fetchUnownedDomains(input.filter, connectionIds).capped(),
         unmappedStatuses = fetchUnmappedStatuses(connectionIds, mappings).capped(),
         unmappedBoards = fetchUnmappedBoards(connectionIds, mappings, fetchDoneInTeamlessSprints(input.taskScope)),
+        itemsAboveEpic = fetchItemsAboveEpic(connectionIds),
         snapshotDrift = fetchSnapshotDrift(sprints).capped(),
         deriveWarnings = fetchDeriveWarnings(deriveClocks),
     )
