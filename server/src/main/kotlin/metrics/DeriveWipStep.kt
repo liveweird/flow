@@ -66,31 +66,42 @@ private fun wipInsertHead(): String =
     "INSERT INTO metrics.agg_daily_wip " +
         "(connection_id, scope_kind, scope_id, day, item_kind, status_id, stage, item_count, config_revision)"
 
-private fun teamTaskWipSql(connectionId: UInt, now: Long, configRevision: Long): String = """
+/**
+ * Set-based, never a per-row sub-select: `sprint_team` joins the SPRINT field intervals to their mapped sprint ONCE and
+ * `assignee_team` joins the assignee intervals to the memberships ONCE, then both are `LEFT JOIN`ed per (day, task).
+ * The earlier correlated sub-selects ran ~4.8 M times at scale 20 and read `dim_sprint` by index or by seq scan at a
+ * near-equal cost, so a DERIVE took ~32 s or ~53 s depending on the plan (`build-times.md` WHY 16); `WipPlanShapeTest`
+ * pins the shape. Neither join can multiply a row: the SPRINT field is one tiled timeline (the LAST id of a carry-over
+ * set, `JiraNormalizer`), the assignee is tiled too, and an account is in at most one team at any instant. That
+ * relies on [coveringAt]'s strict lower bound (`(from, to]`): adjacent intervals never both cover one day-end instant.
+ */
+internal fun teamTaskWipSql(connectionId: UInt, now: Long, configRevision: Long): String = """
     WITH ${dayRangeCte(connectionId, now)},
+    sprint_team AS (
+        SELECT fi.issue_id, fi.from_at, fi.to_at, ds.team_id, ds.complete_at
+        FROM norm.work_item_field_intervals fi
+        JOIN metrics.dim_sprint ds ON ds.connection_id = $connectionId AND ds.sprint_id = fi.value_id::bigint
+        WHERE fi.connection_id = $connectionId AND fi.field = 'SPRINT' AND ds.team_id IS NOT NULL
+    ),
+    assignee_team AS (
+        SELECT ta.issue_id, ta.valid_from, ta.valid_to,
+               tm.valid_from AS member_from, tm.valid_to AS member_to, tm.team_id
+        FROM metrics.task_assignee ta
+        JOIN metrics.team_membership tm ON tm.account_id = ta.account_id
+        WHERE ta.connection_id = $connectionId
+    ),
     rows AS (
-        SELECT
-            d.day AS day, s.status_id AS status_id, s.stage AS stage,
-            COALESCE(
-                (SELECT ds.team_id
-                 FROM norm.work_item_field_intervals fi
-                 JOIN metrics.dim_sprint ds ON ds.connection_id = $connectionId AND ds.sprint_id = fi.value_id::bigint
-                 WHERE fi.connection_id = $connectionId AND fi.issue_id = t.issue_id AND fi.field = 'SPRINT'
-                   AND ${coveringAt("fi", "from_at", "to_at")}
-                   AND ds.team_id IS NOT NULL AND (ds.complete_at IS NULL OR ds.complete_at > d.day_end_ms)
-                 LIMIT 1),
-                (SELECT tm.team_id
-                 FROM metrics.task_assignee ta
-                 JOIN metrics.team_membership tm ON tm.account_id = ta.account_id
-                     AND ${coveringAt("tm")}
-                 WHERE ta.connection_id = $connectionId AND ta.issue_id = t.issue_id
-                   AND ${coveringAt("ta")}
-                 LIMIT 1)
-            ) AS team_id
+        SELECT d.day AS day, s.status_id AS status_id, s.stage AS stage, COALESCE(st.team_id, ast.team_id) AS team_id
         FROM day_range d
         JOIN metrics.dim_task t ON t.connection_id = $connectionId AND t.is_subtask = false
         JOIN metrics.item_stage s ON s.connection_id = $connectionId AND s.issue_id = t.issue_id
             AND ${coveringAt("s")}
+        LEFT JOIN sprint_team st ON st.issue_id = t.issue_id
+            AND ${coveringAt("st", "from_at", "to_at")}
+            AND (st.complete_at IS NULL OR st.complete_at > d.day_end_ms)
+        LEFT JOIN assignee_team ast ON ast.issue_id = t.issue_id
+            AND ${coveringAt("ast")}
+            AND ${coveringAt("ast", "member_from", "member_to")}
     )
     ${wipInsertHead()}
     SELECT $connectionId, 'TEAM', COALESCE(team_id::text, 'UNASSIGNED'), day, 'TASK', status_id, stage, COUNT(*), $configRevision

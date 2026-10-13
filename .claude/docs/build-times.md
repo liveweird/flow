@@ -842,7 +842,15 @@ evidence and recorded here as a dated entry (finding + fix, or "measured, intend
      sub-select (task → sprint → team, ~4.5 M executions per derive) reads the 168-row `dim_sprint` either by its primary-key index
      (cost 8.17) or by a seq scan (8.15); a statistics nudge flips it. Index: the statement takes 11-15 s; seq scan: 27-28 s alone,
      42-45 s in a pair (confirmed from auto_explain plans on every slow and fast run). Dead tuples don't explain it (a slow run
-     started with 0, a fast one with 620k). The epic WIP statement flips too (2.95 s vs 8.4 s). Open: `[new]` BACKLOG item.
+     started with 0, a fast one with 620k). The epic WIP statement flips too (2.95 s vs 8.4 s).
+     **Fixed 2026-10-14 (`perf/wip-sprint-team`):** the sprint → team and assignee → team lookups are set-based joins
+     (`sprint_team`/`assignee_team` CTEs, `LEFT JOIN`ed per (day, task)), so `dim_sprint` is read once per statement and
+     there is no per-row plan choice left. Same scale-20 data, one connection, three teams with 40 memberships (so the
+     assignee fallback runs too): the statement alone 23.5-33.0 s → 2.6-3.3 s (`EXPLAIN ANALYZE`, `EXCEPT ALL` both ways
+     empty: identical rows), 1.4-3.9 s inside a derive; **warm DERIVE 50.4-62.0 s → 22.0-27.6 s** (13 runs). Pinned by
+     `WipPlanShapeTest` (no `SubPlan` node in the statement's plan). The epic WIP statement kept ONE plan in every logged
+     run (auto_explain, 4 derives): its 3.0-4.5 s spread, and the domain statement's 2.2-11 s, are run-to-run variance,
+     not a plan flip; the domain statement is now the largest WIP cost.
    - **Two at once vs one alone:** 1.07-1.29x one derive on the fast plan, 1.25-1.37x on the slow one (0.55-0.68 of sequential;
      10-07 measured 1.3-1.5x). **No real lock contention:** 1 s `pg_stat_activity` samples over ~350 s show derive sessions on
      CPU (364 samples) or the app computing (96 idle-in-transaction), a handful of WAL/IO waits, and ONE relation lock wait
