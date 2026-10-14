@@ -76,14 +76,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
     - whether other `Distribution` consumers (estimation accuracy, blocked time and the rest) get the same tail
       bucket. The shape is shared, so doing it once in `Distribution` covers them all.
   - `n`, `mean`, `min`, `max` and the percentiles stay computed over every item; only the bucketing changes.
-- [new] **Throughput (`/reports/throughput`): the Commitments treatment, plus a cumulative view.** The user's feedback, 2026-10-14:
-  - Throughput here means delivered SP or item count over any time unit and any group of people (velocity is the per-sprint, per-team special case, shown as Sprint consistency's Delivered).
-  - Hideable filters, like Lettuce. Already done in #134 (every report's filter bar folds away).
-  - The team filter must not offer "All teams"; a specific team has to be chosen. Reuse Commitments' `teamRequired`
-    control flag.
-  - The user filter takes several users. Reuse Commitments' `multiMember` flag; the server opts `accountId` in to
-    `repeatedStrings` on this route, as on Commitments.
-  - A switch that toggles the chart between the current per-period view and a cumulative, CFD-style view.
 - [parked] **A28 — a composite estimate for estimated backlog.** Parked 2026-10-01: the teams do not estimate via
   sub-tasks.
   - Estimated backlog uses the OWN estimate only, so a parent estimated through its sub-tasks
