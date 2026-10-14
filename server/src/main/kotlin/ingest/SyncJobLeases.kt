@@ -26,6 +26,15 @@ private const val MILLIS_PER_SECOND = 1000L
 
 private const val RETRIES_EXHAUSTED = "RETRIES_EXHAUSTED"
 
+/**
+ * The `error_detail` of a job the claim closes `RETRIES_EXHAUSTED` while it is still RUNNING (its lease expired on the last
+ * attempt: the worker JVM died or was killed mid-job, never reaching [SyncJobLeases.fail]). A fixed vocabulary plus the two
+ * attempt counts — no exception text, so no stack trace, URL or token can reach the column. A PENDING job at `max_attempts`
+ * (released by a shutdown) is a different story and records none.
+ */
+internal fun leaseExpiredDetail(attempt: Int, maxAttempts: Int): String =
+    "Lease expired on attempt $attempt of $maxAttempts (the worker stopped mid-job — restarted or out of memory?)"
+
 private val log = LoggerFactory.getLogger(SyncJobLeases::class.java)
 
 /**
@@ -107,7 +116,11 @@ internal class SyncJobLeases(
         val attemptCount = row[Jobs.attempt]
         val maxAttemptsForRow = row[Jobs.maxAttempts]
         if (attemptCount >= maxAttemptsForRow) {
-            terminal(jobId, SyncJobStatus.FAILED, RETRIES_EXHAUSTED, now)
+            val leaseExpired = row[Jobs.status] == SyncJobStatus.RUNNING.name
+            terminal(
+                jobId, SyncJobStatus.FAILED, RETRIES_EXHAUSTED, now,
+                errorDetail = if (leaseExpired) leaseExpiredDetail(attemptCount, maxAttemptsForRow) else null,
+            )
             exhausted += ExhaustedJob(jobId, connId, SyncJobKind.valueOf(row[Jobs.kind]), row[Jobs.configRevision], maxAttemptsForRow)
             return null
         }
@@ -175,10 +188,11 @@ internal class SyncJobLeases(
             explicitStatementType = StatementType.SELECT,
         ) { row -> row.get(0, Boolean::class.javaObjectType) == true }?.toList()?.single() == true
 
-    private suspend fun terminal(jobId: UInt, status: SyncJobStatus, errorCode: String, now: Long) {
+    private suspend fun terminal(jobId: UInt, status: SyncJobStatus, errorCode: String, now: Long, errorDetail: String? = null) {
         Jobs.update({ Jobs.id eq jobId }) {
             it[Jobs.status] = status.name
             it[Jobs.errorCode] = errorCode
+            if (errorDetail != null) it[Jobs.errorDetail] = errorDetail
             it[finishedAt] = now
         }
     }
