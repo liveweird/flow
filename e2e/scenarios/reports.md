@@ -50,12 +50,13 @@ unfolds it first (`openFilters`, which leaves an already unfolded bar alone).
 1. The regular user signs in and opens **Delivery** from the sidebar.
    - *Expected*: the **Velocity** report loads (there is no admin gate on reports).
 2. They pick the seeded team, the period "One sprint" and the sprint "FLO Sprint 4".
-   - *Expected*: the URL carries `sprintId` and `teamId`; a "Derived … · configuration revision N"
-     line and the initial-vs-final chart are shown.
+   - *Expected*: the URL carries `sprintId` and `teamId` (the page starts on a team of its own —
+     velocity never reads the whole unit); a "Derived … · configuration revision N" line and the
+     initial-vs-final chart are shown.
 3. They read the sprint's row.
    - *Expected*: sprint name, the team, and **Initial** = the golden committed MD and items,
      **Final** = the golden final MD and items; no drift badge (nothing moved since the sprint
-     closed).
+     closed); the table also has **Capacity (MD)** and **Load** columns.
 
 ## Scenario: the user regroups throughput by month
 
@@ -77,10 +78,11 @@ unfolds it first (`openFilters`, which leaves an already unfolded bar alone).
 
 1. The regular user signs in and opens **Delivery** (Velocity).
    - *Expected*: the filter bar is folded — a "Filters" toggle (`aria-expanded` false, no badge)
-     and no Period control.
-2. They unfold it and pick the seeded team.
-   - *Expected*: `aria-expanded` is true and the controls show; the URL carries `teamId`; the
-     toggle's badge reads **1** (one filter differs from the default).
+     and no Period control; the URL already carries a `teamId` (velocity requires a team, and a
+     required team is not a narrowing, so it never counts on the badge).
+2. They unfold it and pick the period "Last 30 days".
+   - *Expected*: `aria-expanded` is true and the controls show; the URL carries `from` and `to`;
+     the toggle's badge reads **1** (one filter differs from the default).
 3. They fold it again.
    - *Expected*: the controls are gone, the badge still reads **1**.
 4. They reload the page, then unfold it and reload again.

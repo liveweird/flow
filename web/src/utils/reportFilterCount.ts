@@ -5,8 +5,9 @@ import { activePeriodChoice, wipColumnAvailable, type ReportControls, type Repor
  * collapsed "Filters" toggle, so a narrowing the user cannot see (a remembered team, a pasted
  * link) is still announced. A dimension counts only where the bar OFFERS its control (`controls`,
  * and — for the period — a report that reads one) and its value is not what the control shows
- * with nothing in the URL: the default 90-day preset, the whole unit, no member, any domain /
- * activity type / work category / connection, the report's own domain view, WEEK, STAGE, TASK.
+ * with nothing in the URL: the default 90-day preset, the whole unit (a `teamRequired` report has no
+ * such default, so its team never counts), no member (one or several), any domain / activity type /
+ * work category / connection, the report's own domain view, WEEK, STAGE, TASK.
  * `connectionCount` is how many Jira connections there are to choose from (the control is shown
  * only for more than one).
  */
@@ -17,8 +18,11 @@ export function activeReportFilterCount(
 ): number {
   const differs: boolean[] = [
     !controls.noPeriod && activePeriodChoice(filter, context.today) !== "last90",
-    filter.teamId !== undefined,
-    !controls.noMember && filter.teamId !== undefined && filter.accountId !== undefined,
+    // A required team is always set and the bar offers no "whole unit" to compare it with: it narrows nothing visible.
+    !controls.teamRequired && filter.teamId !== undefined,
+    !controls.noMember &&
+      filter.teamId !== undefined &&
+      (filter.accountId !== undefined || (filter.accountIds?.length ?? 0) > 0),
     !!controls.domain && filter.domain !== undefined,
     !!controls.connection && context.connectionCount > 1 && filter.connectionId !== undefined,
     !!controls.activityType && filter.activityType !== undefined,

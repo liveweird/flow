@@ -34,6 +34,8 @@ export const CHART_COLORS = {
   /** Trend lines: the median is the blue primary, the p90 tail the neutral gray — and it is dashed. */
   trendMedian: "flow.6",
   trendTail: "gray.6",
+  /** Velocity's sprint capacity: a neutral reference line (gray, DASHED, with dots) over the plan-blue bars. */
+  capacity: "gray.6",
   /** The backlog is planned work nobody has started: the plan blue. */
   backlog: "flow.6",
   /** EVM curves: planned value is the plan blue (and so is the original plan, told apart by its dash), earned value is delivery teal, actual cost the neutral gray. */
@@ -76,8 +78,8 @@ export const CHART_COLORS = {
 export const DEEP_DIVE_FILL_ALPHA = 0.32;
 
 /**
- * The bands of a WIP chart keyed by status or board column — arbitrary names, so they must not wear
- * a colour that MEANS something (teal = success, orange = waived, red = blocked). The neutral
+ * The bands of a WIP chart keyed by status or board column — and velocity's per-person segments, equally arbitrary
+ * names — must not wear a colour that MEANS something (teal = success, orange = waived, red = blocked). The neutral
  * palette left is blue and gray, and only three of their shades clear 3:1 on every chart surface
  * (flow.6, flow.7, gray.6; flow.5 and gray.5 fail on white, flow.8 and gray.7 on dark paper). So the
  * cycle ALTERNATES the two hues — bands are coloured by position among those shown, so neighbours

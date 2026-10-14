@@ -87,19 +87,44 @@
   },
   "velocity": {
     "title": "Velocity",
-    "description": "Ile zespół zaplanował w sprincie: zakres zobowiązany na starcie (początkowy) w porównaniu z zakresem na koniec (końcowy).",
+    "description": "Ile zespół zaplanował w sprincie: zakres zobowiązany na starcie (początkowy) w porównaniu z zakresem na koniec (końcowy) i z pojemnością zespołu. Wybierz osoby, żeby porównać ich udział w sprintach.",
     "chartTitle": "Zakres początkowy i końcowy w sprintach",
+    "chartTitleUsers": "Zakres początkowy i końcowy w sprintach, według osób",
     "series": {
       "initial": "Początkowy (zobowiązany)",
-      "final": "Końcowy"
+      "final": "Końcowy",
+      "capacity": "Pojemność"
     },
     "column": {
       "initialMd": "Początkowy (MD)",
       "initialItems": "Początkowy (zadania)",
       "finalMd": "Końcowy (MD)",
-      "finalItems": "Końcowy (zadania)"
+      "finalItems": "Końcowy (zadania)",
+      "capacityMd": "Pojemność (MD)",
+      "load": "Obciążenie",
+      "person": "Osoba"
     },
     "chartLabel": "Wykres: zakres początkowy i końcowy według sprintów",
+    "userChartLabel": "Wykres: zakres początkowy i końcowy według sprintów, ułożony według osób",
+    "userLegendLabel": "Legenda wykresu",
+    "userLegend": {
+      "committed": "Początkowy (lewa kolumna, z obrysem)",
+      "final": "Końcowy (prawa kolumna, pełna)"
+    },
+    "userSeries": {
+      "committed": "{{name}} · początkowy",
+      "final": "{{name}} · końcowy"
+    },
+    "capacitySource": {
+      "DEFAULT": "Pojemność: domyślna (liczba osób × dni robocze)",
+      "CONFIGURED": "Pojemność: skonfigurowana"
+    },
+    "defaultBadge": "domyślna",
+    "loadNote": "Obciążenie to zakres początkowy podzielony przez pojemność; myślnik oznacza sprint bez pojemności. Pojemność domyślna to liczba osób razy liczba dni roboczych sprintu.",
+    "personTotalsTitle": "Sumy według osób",
+    "sharesTitle": "Udział każdej osoby w każdym sprincie",
+    "sharesAria": "Zakres początkowy i końcowy każdej osoby w sprintach",
+    "noTeams": "Velocity liczymy dla zespołu, a nie ma jeszcze żadnego zespołu. Administrator/ka dodaje zespoły na stronie Zespoły.",
     "snapshot": "Zamrożone przy zakończeniu: początkowy {{initialMd}} MD, końcowy {{finalMd}} MD"
   },
   "items_one": "{{count}} zadanie",

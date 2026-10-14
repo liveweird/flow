@@ -32,6 +32,15 @@ describe("activeReportFilterCount", () => {
     expect(count({ accountId: "acc-1" })).toBe(0);
   });
 
+  test("several members count once, and a required team never counts (the bar has no whole unit to compare with)", () => {
+    expect(count({ teamId: 1, accountIds: ["a", "b"] }, { multiMember: true })).toBe(2);
+    expect(count({ teamId: 1, accountIds: ["a", "b"] }, { noMember: true })).toBe(1);
+    expect(count({ accountIds: ["a"] })).toBe(0);
+    expect(count({ teamId: 1 }, { teamRequired: true })).toBe(0);
+    expect(count({ teamId: 1, accountIds: ["a"] }, { teamRequired: true, multiMember: true })).toBe(1);
+    expect(count({ teamId: 1, lastSprints: 3 }, { teamRequired: true })).toBe(1);
+  });
+
   test("a slice counts only where the report offers its control", () => {
     const filter: ReportFilterState = { domain: "FLO", activityType: "Bug", workCategory: "Run", connectionId: 2 };
     expect(count(filter)).toBe(0);

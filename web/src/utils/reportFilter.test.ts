@@ -10,6 +10,7 @@ import {
   parseReportFilter,
   presetRange,
   reportQuery,
+  requiredTeamId,
   serializeReportFilter,
   wipColumnAvailable,
   withFilterKey,
@@ -93,6 +94,35 @@ describe("parseReportFilter / serializeReportFilter", () => {
   test("accountId needs a teamId; teamId 0 is the unassigned bucket, a real value", () => {
     expect(parse("accountId=acc-1")).toEqual({});
     expect(parse("teamId=0&accountId=acc-1")).toEqual({ teamId: 0, accountId: "acc-1" });
+  });
+
+  test("a repeated accountId reads as its first value on every page that has not opted into several members", () => {
+    expect(parse("teamId=1&accountId=a&accountId=b")).toEqual({ teamId: 1, accountId: "a" });
+  });
+
+  test("a multi-member page reads repeated accountId as accountIds: distinct, in order, at most eight, still needing a team", () => {
+    const multi = (query: string) => parseReportFilter(new URLSearchParams(query), { multiAccount: true });
+    expect(multi("teamId=1&accountId=b&accountId=a&accountId=b&accountId=")).toEqual({ teamId: 1, accountIds: ["b", "a"] });
+    expect(multi("teamId=1&accountId=a")).toEqual({ teamId: 1, accountIds: ["a"] });
+    expect(multi("accountId=a&accountId=b")).toEqual({});
+    const many = Array.from({ length: 10 }, (_, i) => `accountId=u${i}`).join("&");
+    expect(multi(`teamId=1&${many}`).accountIds).toEqual(Array.from({ length: 8 }, (_, i) => `u${i}`));
+  });
+
+  test("accountIds serialize as repeated accountId keys right after the team, deduplicated and capped, and round-trip", () => {
+    const filter: ReportFilterState = { lastSprints: 3, teamId: 1, accountIds: ["b", "a", "b"], bucket: "MONTH" };
+    expect(reportQuery(filter)).toBe("lastSprints=3&teamId=1&accountId=b&accountId=a&bucket=MONTH");
+    expect(parseReportFilter(serializeReportFilter(filter), { multiAccount: true })).toEqual({
+      lastSprints: 3,
+      teamId: 1,
+      accountIds: ["b", "a"],
+      bucket: "MONTH",
+    });
+    const ten = Array.from({ length: 10 }, (_, i) => `u${i}`);
+    expect(serializeReportFilter({ teamId: 1, accountIds: ten }).getAll("accountId")).toHaveLength(8);
+    expect(applyReportFilter(new URLSearchParams("teamId=1&accountId=x&accountId=y&utm=1"), { teamId: 1, accountId: "z" }).toString()).toBe(
+      "utm=1&teamId=1&accountId=z",
+    );
   });
 
   test("serialization uses one canonical key order", () => {
@@ -220,5 +250,30 @@ describe("withFilterKey", () => {
     expect(withFilterKey(filter, "domain", null)).toEqual({ teamId: 3 });
     expect(withFilterKey(filter, "domain", undefined as unknown as null)).toEqual({ teamId: 3 });
     expect("domain" in withFilterKey(filter, "domain", null)).toBe(false);
+  });
+});
+
+describe("requiredTeamId", () => {
+  const teams = [
+    { id: 2, name: "Beta", sprints: [{ sprintId: 21 }] },
+    { id: 1, name: "alpha", sprints: [{ sprintId: 11 }] },
+    { id: 3, name: "Gamma", sprints: [] },
+  ];
+
+  test("a filter that already has a team needs none", () => {
+    expect(requiredTeamId({ teamId: 3 }, teams, 1)).toBeUndefined();
+    expect(requiredTeamId({ teamId: 0 }, teams, 1)).toBeUndefined();
+  });
+
+  test("the team that lists a linked sprint wins, then the remembered team, then the first by name", () => {
+    expect(requiredTeamId({ sprintId: 21 }, teams, 3)).toBe(2);
+    expect(requiredTeamId({ sprintId: 999 }, teams, 3)).toBe(3);
+    expect(requiredTeamId({}, teams, 3)).toBe(3);
+    expect(requiredTeamId({}, teams, 99)).toBe(1);
+    expect(requiredTeamId({}, teams, undefined)).toBe(1);
+  });
+
+  test("no teams, no team", () => {
+    expect(requiredTeamId({}, [], undefined)).toBeUndefined();
   });
 });

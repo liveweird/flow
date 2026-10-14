@@ -116,16 +116,37 @@ export const VELOCITY_UNIT: VelocityReport = {
   ],
 };
 
+/** TEAM level (Alpha): two closed sprints with a capacity each — a computed default and a configured override; Σ groups == Σ sprints. */
 export const VELOCITY_TEAM: VelocityReport = {
   meta: { ...META, level: "TEAM" },
-  sprints: [VELOCITY_UNIT.sprints[0]],
+  sprints: [
+    { ...VELOCITY_UNIT.sprints[0], capacityMd: 25, capacitySource: "DEFAULT" },
+    {
+      sprintId: 11,
+      name: "Alpha 1",
+      teamId: 1,
+      completedAt: Date.UTC(2026, 7, 20),
+      initialMd: 15,
+      initialItems: 6,
+      finalMd: 16,
+      finalItems: 6,
+      snapshot: { initialMd: 15, initialItems: 6, finalMd: 16, finalItems: 6 },
+      drift: false,
+      capacityMd: 12,
+      capacitySource: "CONFIGURED",
+      byUser: [],
+    },
+  ],
   groups: [
-    { accountId: "acc-ann", label: "Ann Author", initialMd: 12, initialItems: 5, finalMd: 14.5, finalItems: 6 },
-    { accountId: null, label: null, initialMd: 8, initialItems: 3, finalMd: 10, finalItems: 3 },
+    { accountId: "acc-ann", label: "Ann Author", initialMd: 21, initialItems: 9, finalMd: 24.5, finalItems: 10 },
+    { accountId: null, label: null, initialMd: 14, initialItems: 5, finalMd: 16, finalItems: 5 },
   ],
 };
 
-/** USER level: one account's own sprint rows — the frozen per-user figures and drift ride along like the team level's. */
+const ANN_ALPHA_2 = { accountId: "acc-ann", label: "Ann Author", initialMd: 12, initialItems: 5, finalMd: 14.5, finalItems: 6 };
+const BOB_ALPHA_2 = { accountId: "acc-bob", label: "Bob Builder", initialMd: 8, initialItems: 3, finalMd: 10, finalItems: 3 };
+
+/** USER level, one account: its own sprint rows — the frozen per-user figures and drift ride along like the team level's; no capacity, a one-entry byUser. */
 export const VELOCITY_USER: VelocityReport = {
   meta: { ...META, level: "USER" },
   sprints: [
@@ -137,9 +158,24 @@ export const VELOCITY_USER: VelocityReport = {
       finalItems: 6,
       snapshot: { initialMd: 12, initialItems: 5, finalMd: 13, finalItems: 6 },
       drift: true,
+      byUser: [ANN_ALPHA_2],
     },
   ],
-  groups: [],
+  groups: [ANN_ALPHA_2],
+};
+
+/** USER level, two accounts (Ann then Bob, request order): the sprint is their sum, `byUser` splits it. */
+export const VELOCITY_USERS: VelocityReport = {
+  meta: { ...META, level: "USER" },
+  sprints: [
+    {
+      ...VELOCITY_UNIT.sprints[0],
+      snapshot: { initialMd: 20, initialItems: 8, finalMd: 24.5, finalItems: 9 },
+      drift: false,
+      byUser: [ANN_ALPHA_2, BOB_ALPHA_2],
+    },
+  ],
+  groups: [ANN_ALPHA_2, BOB_ALPHA_2],
 };
 
 export const VELOCITY_EMPTY: VelocityReport = { meta: META, sprints: [], groups: [] };

@@ -628,7 +628,8 @@ async function foldAndUnfoldFilters(page: Page): Promise<void> {
   const toggle = page.getByRole("button", { name: /^Filters/ });
   const period = page.getByRole("combobox", { name: "Period", exact: true });
 
-  // The bar starts folded: just the toggle, no badge, no controls.
+  // The bar starts folded: just the toggle, no badge, no controls — and the page already sits on a team (velocity never reads the whole unit).
+  await expect(page).toHaveURL(/teamId=\d+/);
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
   await expect(toggle).toHaveAccessibleName("Filters");
   await expect(period).toHaveCount(0);
@@ -637,8 +638,11 @@ async function foldAndUnfoldFilters(page: Page): Promise<void> {
   await toggle.click();
   await expect(toggle).toHaveAttribute("aria-expanded", "true");
   await expect(period).toBeVisible();
-  await pickFilter(page, "Team", teamName);
-  await expect(page).toHaveURL(new RegExp(`teamId=${teamId}`));
+  // Velocity always has a team (it is required, so the bar offers no "all teams" to compare it with and the badge never counts it):
+  // the narrowing that shows on the toggle here is the period.
+  await period.click();
+  await page.getByRole("option", { name: "Last 30 days", exact: true }).click();
+  await expect(page).toHaveURL(/from=\d{4}-\d{2}-\d{2}&to=/);
   await expect(toggle).toHaveAccessibleName("Filters 1");
   await toggle.click();
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
@@ -710,6 +714,10 @@ test.describe("reports, read by a regular user", () => {
 
     await expect(page.getByText(/^Derived .* · configuration revision \d+$/)).toBeVisible();
     await expect(page.getByRole("group", { name: "Chart: initial and final scope by sprint" })).toBeVisible();
+    // The team level adds the sprint's capacity and the load it puts on it (this team has no sprint capacity configured, so the figures are computed defaults).
+    const sprintTable = page.getByRole("table", { name: "Sprints and their figures" });
+    await expect(sprintTable.getByRole("columnheader", { name: "Capacity (MD)", exact: true })).toBeVisible();
+    await expect(sprintTable.getByRole("columnheader", { name: "Load", exact: true })).toBeVisible();
 
     // Initial = the committed scope, final = the final scope (A17) — the generator's own figures.
     const cells = goldenRow(page).getByRole("cell");
