@@ -91,6 +91,10 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   (`worklog/list`) batch up to `jira.changelogBulkSize` ids; a batch over `jira.maxResponseBytes` fails the same way
   every run. Halve the batch like the ISSUES page (`jira-integration.md` "Oversized issue page"). Unlikely: their
   documents are far smaller than `*all` issues.
+- [new] **A job that dies by lease expiry ends with no `error_detail`.** When the JVM exits mid-job (the 2026-10-14
+  PROFILE OOM on the first real-site SYNC), the next claim closes it `RETRIES_EXHAUSTED` with an empty detail
+  (`ingest/SyncJobLeases.kt`, the claim path), so the UI shows no reason. Write a short detail there, e.g. "lease
+  expired 3 times (worker restarted?)", if it fits the `error_detail` contract in `ingestion.md`.
 - [parked] **Data profile: multi-project boards.** A board whose filter spans several projects shows no observed or
   unmapped statuses, because `BoardRef` carries a single project key. Revisit if real boards span projects.
 - [parked] **Two connections to one Jira site are allowed** (with different project scopes). Confirm this is the wanted

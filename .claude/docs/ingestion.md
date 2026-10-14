@@ -696,6 +696,19 @@ dataset, not just `Tiling`'s in-memory guarantees.
 - **`STATUS_MISMATCH_WITH_CURRENT`** — the last computed status disagrees with the issue's current
   status; the stored interval keeps what the changelog chain computed, never the current value.
 
+**A status item with no id (a status deleted in Jira).** A changelog status item can lack `from` or
+`to` (absent, JSON null or blank) once Jira deleted that status — only `fromString`/`toString`
+survive. Such a side gets a stable synthetic id from its display name, exactly as Jira gave it
+(`jira/JiraDeletedStatus.kt`'s `deletedStatusId`): `deleted:<name>` when that fits in 50 characters
+(every `status_id` column is `VARCHAR(50)`), else `deleted:<first 33 chars>~<8 hex of SHA-256 of the
+full name>`, and `deleted:?` when there is no name either. The id matches no `norm.statuses` row, so
+the status lookup resolves it to `(id, UNKNOWN)`: the interval lands in the UNMAPPED stage (flagged,
+never guessed) and the name shows up as e.g. `deleted:Third Line` among the profile's unmapped
+statuses and in the Data Quality report. Two sides lacking ids with the same name derive the same id,
+so the chain stays continuous; a mismatch with the next event's real `from` is `STATUS_CHAIN_BROKEN`.
+The event is deliberately NOT dropped — the time spent in the deleted status would silently merge into
+its neighbour. No `PROCESSING_VERSION` bump: only issues that previously failed to normalize change.
+
 **Field intervals** (`Tiling.fieldIntervals`, the same four-invariant construction rule minus the
 status-specific anomaly checks) tile four fields into `norm.work_item_field_intervals`
 (`TrackedField`): **ASSIGNEE**, **SPRINT** (`value_id` is the LAST id of a possibly multi-valued
