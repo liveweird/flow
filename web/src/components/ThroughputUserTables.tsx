@@ -67,7 +67,9 @@ export default function ThroughputUserTables({
   cumulative: boolean;
 }) {
   const { t } = useTranslation();
-  const positions = new Map(buckets.people.map((person) => [person.accountId, person.position]));
+  // A sprintId period for a sprint not yet started has an empty period window, so its people come from the sprint series.
+  const people = buckets.people.length > 0 ? buckets.people : sprints.people;
+  const positions = new Map(people.map((person) => [person.accountId, person.position]));
   const groupColumns: ColumnDef<ThroughputGroup>[] = [
     {
       key: "name",
@@ -80,7 +82,7 @@ export default function ThroughputUserTables({
     },
     ...throughputFigureColumns<ThroughputGroup>(t, (group) => group).map((column) => ({ ...column, align: "right" as const })),
   ];
-  const severalPeople = buckets.people.length > 1;
+  const severalPeople = people.length > 1;
   return (
     <Stack gap="md">
       {groups.length > 0 && (

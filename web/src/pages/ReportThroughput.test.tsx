@@ -248,6 +248,16 @@ describe("ReportThroughput page", () => {
       expect(within(sprintCard()).getByText("Frozen at completion: delivered 6 MD, 3 items")).toBeInTheDocument();
     });
 
+    test("with no period buckets (a sprint not yet started) the people still come from the sprint view", async () => {
+      serve(mockFetch, { report: () => jsonResponse(200, { ...THROUGHPUT_USERS, byBucket: [] }) });
+      renderPage("/reports/throughput?teamId=1&accountId=acc-ann&accountId=acc-bob");
+
+      const totals = await screen.findByRole("table", { name: "Totals per person" });
+      expect(within(totals).getByRole("row", { name: /1\. Ann Author/ })).toBeInTheDocument();
+      expect(within(totals).getByRole("row", { name: /2\. Bob Builder/ })).toBeInTheDocument();
+      expect(screen.getByRole("table", { name: "Each person's delivered scope per sprint" })).toBeInTheDocument();
+    });
+
     test("one person is the same view with a single stack, their group, and no per-person share tables", async () => {
       serve(mockFetch);
       renderPage("/reports/throughput?teamId=1&accountId=acc-ann");
