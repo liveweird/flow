@@ -144,7 +144,9 @@ place:
   also reads `Users` for the manager: the active manager's display name (one batched lookup per page),
   the manager id check on create AND update, and `isActiveManager`'s `Teams` ⋈ `Users` join (the
   capacity guard). `teams.manager_user_id` has no `ON DELETE` rule: users are only ever soft-deleted;
-  a future hard purge of users must clear it first.
+  a future hard purge of users must clear it first, and a future user RESTORE must clear or re-audit the
+  manager grants the user held (a soft-deleted manager's id stays in the column, inert only while the user
+  is deleted).
 - `TeamService.delete` (v0.3.0 M1 commit 3) WRITES `metrics/TeamMembershipService.TeamMembership`
   and `metrics/MetricsSettingsService.Settings` directly, in the SAME transaction as the team's own
   soft delete: it closes/removes the team's D1 Jira-user memberships and bumps the shared

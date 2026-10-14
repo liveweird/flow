@@ -192,10 +192,12 @@ class JiraRawStore(database: R2dbcDatabase) {
 
     // --- CHANGELOGS / WORKLOGS claim scans ([JiraRawStreamScans]) ---
 
-    suspend fun staleChangelogIssueIds(connectionId: UInt, limit: Int): List<Long> = scans.staleChangelogIssueIds(connectionId, limit)
+    suspend fun staleChangelogIssueIds(connectionId: UInt, limit: Int, excluding: Set<Long> = emptySet()): List<Long> =
+        scans.staleChangelogIssueIds(connectionId, limit, excluding)
     suspend fun markChangelogSynced(connectionId: UInt, issueIds: List<Long>, now: Long) =
         scans.markChangelogSynced(connectionId, issueIds, now)
-    suspend fun staleWorklogIssueIds(connectionId: UInt, limit: Int): List<Long> = scans.staleWorklogIssueIds(connectionId, limit)
+    suspend fun staleWorklogIssueIds(connectionId: UInt, limit: Int, excluding: Set<Long> = emptySet()): List<Long> =
+        scans.staleWorklogIssueIds(connectionId, limit, excluding)
     suspend fun markWorklogsSynced(connectionId: UInt, issueId: Long, now: Long) = scans.markWorklogsSynced(connectionId, issueId, now)
     suspend fun knownInScopeIssueIds(connectionId: UInt, issueIds: List<Long>): Set<Long> =
         scans.knownInScopeIssueIds(connectionId, issueIds)

@@ -71,4 +71,13 @@ class GuardsTest {
             assertFailsWith<ForbiddenException> { requireTeamManagerOrAdmin(user, teamId = 8u, isManager = managerOfTeam7) }
             assertFailsWith<ForbiddenException> { requireTeamManagerOrAdmin(user, teamId = 999999u, isManager = managerOfTeam7) }
         }
+
+    @Test
+    fun `requireTeamManagerOrAdmin fails closed - a lookup failure propagates for a non-admin and is never reached for an admin`() =
+        runBlocking<Unit> {
+            val broken: suspend (UInt, UInt) -> Boolean = { _, _ -> error("database unavailable") }
+            requireTeamManagerOrAdmin(admin, teamId = 7u, isManager = broken)
+            val failure = assertFailsWith<IllegalStateException> { requireTeamManagerOrAdmin(user, teamId = 7u, isManager = broken) }
+            assertEquals("database unavailable", failure.message)
+        }
 }
