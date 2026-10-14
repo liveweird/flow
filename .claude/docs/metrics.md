@@ -474,7 +474,7 @@ one call per task × sprint membership):
   task reaching this branch is already in scope at close, so the predicate is simply "not done"):
   carried-over if a LATER sprint of the same board/team holds it (D10: one board per team, so
   "later sprint of this task's own board" = "later sprint of the same team",
-  `laterSprintIdsPerSprint`), dropped otherwise. A carried-over task counts in the velocity (final
+  `laterSprintIdsPerSprint`), dropped otherwise. A carried-over task counts in the commitments (final
   scope) of EVERY sprint it was committed to, but in throughput (delivered) only once — the sprint
   where it was actually done (Jira's own convention, `.claude/docs/domain-model.md`'s Glossary).
   This makes the sprint's buckets a true partition: **`final = committed + added = delivered +
@@ -1054,7 +1054,7 @@ Every `/api/v1/reports/*` endpoint against the same scale-20 database (last DERI
 | Endpoint | UNIT, default period | UNIT, wide period | TEAM, default period | TEAM, wide period |
 |---|---|---|---|---|
 | `filters` | 6 / 7 / 7 | n/a | n/a | n/a |
-| `velocity` | 5 / 6 / 8 | 10 / 11 / 74 | 21 / 23 / 24 | 96 / 103 / 110 |
+| `commitments` | 5 / 6 / 8 | 10 / 11 / 74 | 21 / 23 / 24 | 96 / 103 / 110 |
 | `throughput` | 20 / 24 / 24 | 62 / 68 / 69 | 9 / 9 / 9 | 29 / 34 / 34 |
 | `sprint-consistency` | 5 / 5 / 6 | 9 / 11 / 11 | 22 / 25 / 25 | 90 / 96 / 114 |
 | `task-estimation-accuracy` | 18 / 20 / 21 | 82 / 88 / 89 | 9 / 10 / 12 | 32 / 35 / 35 |
@@ -1070,7 +1070,7 @@ Every `/api/v1/reports/*` endpoint against the same scale-20 database (last DERI
 | `data-quality` | 53 / 56 / 57 | 140 / 149 / 150 | 26 / 30 / 76 | 40 / 50 / 51 |
 | `cost-matrix` | 5 / 5 / 5 | 9 / 10 / 10 | 2 / 3 / 3 | 3 / 3 / 4 |
 
-Extra cases, same method: `epic-progress` at EPIC level (`epicId=FLO-10`, wide) 6 / 7 / 8, at DOMAIN level (`domain=FLO`, wide) 10 / 14 / 14; the Home page carries no report calls today, but the calls an overview would make — `velocity?lastSprints=1` 4 / 5 / 5, `cycle-time` UNIT default 23 / 26 / 26, `aging-wip` and `data-quality` above — are all far under a tenth of a second.
+Extra cases, same method: `epic-progress` at EPIC level (`epicId=FLO-10`, wide) 6 / 7 / 8, at DOMAIN level (`domain=FLO`, wide) 10 / 14 / 14; the Home page carries no report calls today, but the calls an overview would make — `commitments?lastSprints=1` 4 / 5 / 5, `cycle-time` UNIT default 23 / 26 / 26, `aging-wip` and `data-quality` above — are all far under a tenth of a second.
 
 **Conclusion:** the plan target (every report p95 < 1.5 s) is met with a wide margin — the slowest case anywhere is the UNIT `aging-wip` at **278 ms** p95 (it ages every open item at the request's clock before the 500-row cap), then the wide-period distribution reports (`estimate-adjustments`, `data-quality`, `cycle-time`, `reported-time-ratio`: 100-150 ms); everything else is under 110 ms. Nothing is over or near budget, so no statement was captured or tuned. These are warm-cache reads on an otherwise idle stack: concurrent users and a cold buffer cache are not measured here.
 

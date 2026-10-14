@@ -29,7 +29,7 @@ data class ThroughputSnapshot(val deliveredMd: Double, val deliveredItems: Int)
 
 /**
  * One sprint's delivered scope (the SPRINT view, Report 2 — `fact_sprint.delivered_md/_items`, priced
- * at the sprint's close). [snapshot]/[drift] mirror velocity's: the frozen `fact_sprint_snapshot`
+ * at the sprint's close). [snapshot]/[drift] mirror Commitments': the frozen `fact_sprint_snapshot`
  * figures (`null` until snapshotted, D13) and whether live differs from frozen.
  */
 @Serializable

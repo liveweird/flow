@@ -2,7 +2,7 @@ import { lazy, Suspense } from "react";
 import { useTranslation } from "react-i18next";
 import { Badge, Group, Paper, Stack, Text } from "@mantine/core";
 import { IconUsers } from "@tabler/icons-react";
-import { getVelocityReport, type VelocityGroup, type VelocitySprint } from "../api/reports";
+import { getCommitmentsReport, type CommitmentsGroup, type CommitmentsSprint } from "../api/reports";
 import EmptyState from "../components/EmptyState";
 import LoadingBlock from "../components/LoadingBlock";
 import PageHeader from "../components/PageHeader";
@@ -30,7 +30,7 @@ const VelocityChart = lazy(() => import("../components/VelocityChart"));
 const CONTROLS: ReportControls = { teamRequired: true, multiMember: true };
 
 /** The capacity cell: the MD, and a neutral "default" badge when it is the computed default (members × working days) — words, not colour. */
-function CapacityCell({ sprint }: { sprint: VelocitySprint }) {
+function CapacityCell({ sprint }: { sprint: CommitmentsSprint }) {
   const { t } = useTranslation();
   if (sprint.capacityMd === null) return "—";
   return (
@@ -52,7 +52,7 @@ export default function ReportVelocity() {
   const { t } = useTranslation();
   const { filtersQuery, filters, filter, setFilter, query, storageKey } = useReportPage(
     "velocity",
-    getVelocityReport,
+    getCommitmentsReport,
     undefined,
     CONTROLS,
   );
@@ -61,17 +61,17 @@ export default function ReportVelocity() {
   const userMode = report?.meta.level === "USER";
   const noTeams = filters !== undefined && filters.teams.length === 0;
 
-  const groupColumns: GroupColumn<VelocityGroup>[] = velocityFigureColumns<VelocityGroup>(t, (group) => group);
-  const sprintColumns: SprintColumn<VelocitySprint>[] = [
-    ...velocityFigureColumns<VelocitySprint>(t, (sprint) => sprint),
+  const groupColumns: GroupColumn<CommitmentsGroup>[] = velocityFigureColumns<CommitmentsGroup>(t, (group) => group);
+  const sprintColumns: SprintColumn<CommitmentsSprint>[] = [
+    ...velocityFigureColumns<CommitmentsSprint>(t, (sprint) => sprint),
     ...(userMode
       ? []
       : [
-          { key: "capacityMd", header: t("reports.velocity.column.capacityMd"), render: (sprint: VelocitySprint) => <CapacityCell sprint={sprint} /> },
+          { key: "capacityMd", header: t("reports.velocity.column.capacityMd"), render: (sprint: CommitmentsSprint) => <CapacityCell sprint={sprint} /> },
           {
             key: "load",
             header: t("reports.velocity.column.load"),
-            render: (sprint: VelocitySprint) => {
+            render: (sprint: CommitmentsSprint) => {
               const load = loadFraction(sprint.initialMd, sprint.capacityMd);
               return load === null ? "—" : formatPercent(load);
             },

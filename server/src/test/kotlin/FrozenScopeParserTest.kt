@@ -33,7 +33,7 @@ class FrozenScopeParserTest {
         val unassigned = frozenScopeItemsOf(buildJsonArray { add(FrozenScopeFixtures.scopeItem(1, null)) }.toString(), 7u, 99L)
         assertEquals(null, unassigned.single().assigneeAtCommitment)
         assertEquals(emptyList(), frozenScopeItemsOf("[]", 7u, 99L))
-        // Velocity's narrower view of the same document reads the same values.
+        // Commitments' narrower view of the same document reads the same values.
         val contribution = frozenContributionsOf(buildJsonArray { add(full) }.toString(), 7u, 99L).single()
         assertEquals(1.25, contribution.commitMd)
         assertEquals("acc", contribution.accountId)

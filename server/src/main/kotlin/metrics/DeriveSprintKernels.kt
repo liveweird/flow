@@ -54,7 +54,7 @@ internal const val MD_SCALE = 2
 /**
  * Σ of [values] in man-days, each value rounded half-up to [MD_SCALE] BEFORE it is summed (`null` counts as `0`), the sum
  * exact (BigDecimal, no float drift). The ONE rule for a sprint's MD figure: [sprintTotals] (`fact_sprint`)
- * applies it to the per-item estimates, and the readers that re-sum stored figures (Velocity's and Sprint consistency's
+ * applies it to the per-item estimates, and the readers that re-sum stored figures (Commitments' and Sprint consistency's
  * per-user and per-team groups) apply it to values that are already two-decimal, so Σ groups equals the team figure to the
  * cent. A plain Double sum of those figures would drift in the last bits (12.34 + 5.67 = 18.009999999999998), so the
  * readers use this too. The per-item rounding matches what the database stores (`NUMERIC(_, 2)`, half away from zero =

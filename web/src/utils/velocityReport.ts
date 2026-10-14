@@ -1,5 +1,5 @@
 import type { TFunction } from "i18next";
-import type { ReportFilters, VelocitySprint } from "../api/reports";
+import type { ReportFilters, CommitmentsSprint } from "../api/reports";
 import type { ColumnDef } from "../components/ColumnTable";
 import { formatMd } from "./reportFormat";
 import { labelledSprints } from "./reportSprints";
@@ -33,11 +33,11 @@ export interface VelocityChartRow {
   /** The sprint's capacity in MD; `null` = none, and the line has no marker there. */
   capacityMd: number | null;
   /** Where the capacity came from — the tooltip says a default one is members × working days. */
-  capacitySource: VelocitySprint["capacitySource"];
+  capacitySource: CommitmentsSprint["capacitySource"];
 }
 
 /** The bar-chart rows: one per sprint, in completion order. */
-export function velocityChartRows(sprints: readonly VelocitySprint[], filters: ReportFilters): VelocityChartRow[] {
+export function velocityChartRows(sprints: readonly CommitmentsSprint[], filters: ReportFilters): VelocityChartRow[] {
   return labelledSprints(sprints, filters).map(({ sprint, label }) => ({
     label,
     initialMd: sprint.initialMd,
@@ -78,7 +78,7 @@ export function personLabel(position: number, label: string): string {
 }
 
 /** The people of a set of sprints in stack order: the union of every sprint's `byUser`, first seen first. */
-function chartUsers(sprints: readonly VelocitySprint[]): VelocityChartUser[] {
+function chartUsers(sprints: readonly CommitmentsSprint[]): VelocityChartUser[] {
   const users: VelocityChartUser[] = [];
   for (const sprint of sprints) {
     for (const share of sprint.byUser) {
@@ -91,7 +91,7 @@ function chartUsers(sprints: readonly VelocitySprint[]): VelocityChartUser[] {
 }
 
 /** Each person's stack position by account id — the number the chart and every table beside it show. */
-export function userPositions(sprints: readonly VelocitySprint[], filters: ReportFilters): ReadonlyMap<string, number> {
+export function userPositions(sprints: readonly CommitmentsSprint[], filters: ReportFilters): ReadonlyMap<string, number> {
   const ordered = labelledSprints(sprints, filters).map(({ sprint }) => sprint);
   return new Map(chartUsers(ordered).map((user) => [user.accountId, user.position]));
 }
@@ -105,7 +105,7 @@ export type VelocityUserRow = { label: string } & Record<string, number | string
  * one segment per person.
  */
 export function velocityUserChart(
-  sprints: readonly VelocitySprint[],
+  sprints: readonly CommitmentsSprint[],
   filters: ReportFilters,
 ): { users: VelocityChartUser[]; rows: VelocityUserRow[] } {
   const labelled = labelledSprints(sprints, filters);
@@ -125,14 +125,14 @@ export function velocityUserChart(
 /** A flat row of the per-person table beside the user-mode chart: one person's share of one sprint. */
 export interface VelocityShareRow {
   key: string;
-  sprint: VelocitySprint;
+  sprint: CommitmentsSprint;
   /** The person's stack position in the chart (`VelocityChartUser.position`). */
   position: number;
-  share: VelocitySprint["byUser"][number];
+  share: CommitmentsSprint["byUser"][number];
 }
 
 /** The per-person-per-sprint table rows, sprints in completion order, people numbered as in the chart. */
-export function velocityShareRows(sprints: readonly VelocitySprint[], filters: ReportFilters): VelocityShareRow[] {
+export function velocityShareRows(sprints: readonly CommitmentsSprint[], filters: ReportFilters): VelocityShareRow[] {
   const positions = userPositions(sprints, filters);
   return labelledSprints(sprints, filters).flatMap(({ sprint }) =>
     sprint.byUser.map((share) => ({

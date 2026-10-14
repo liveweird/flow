@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { Stack, Text, Title } from "@mantine/core";
-import type { ReportFilters, VelocityGroup, VelocitySprint } from "../api/reports";
+import type { ReportFilters, CommitmentsGroup, CommitmentsSprint } from "../api/reports";
 import { personLabel, userPositions, velocityFigureColumns, velocityShareRows, type VelocityShareRow } from "../utils/velocityReport";
 import ColumnTable, { type ColumnDef } from "./ColumnTable";
 import ScrollRegion from "./ScrollRegion";
@@ -16,8 +16,8 @@ export default function VelocityUserTables({
   groups,
   filters,
 }: {
-  sprints: readonly VelocitySprint[];
-  groups: readonly VelocityGroup[];
+  sprints: readonly CommitmentsSprint[];
+  groups: readonly CommitmentsGroup[];
   filters: ReportFilters;
 }) {
   const { t } = useTranslation();
@@ -25,7 +25,7 @@ export default function VelocityUserTables({
   const people = new Set(shares.map((row) => row.share.accountId)).size;
   const positions = userPositions(sprints, filters);
 
-  const groupColumns: ColumnDef<VelocityGroup>[] = [
+  const groupColumns: ColumnDef<CommitmentsGroup>[] = [
     {
       key: "name",
       header: t("reports.groups.member"),
@@ -35,7 +35,7 @@ export default function VelocityUserTables({
         return <Text size="sm">{position === undefined ? name : personLabel(position, name)}</Text>;
       },
     },
-    ...velocityFigureColumns<VelocityGroup>(t, (group) => group).map((column) => ({ ...column, align: "right" as const })),
+    ...velocityFigureColumns<CommitmentsGroup>(t, (group) => group).map((column) => ({ ...column, align: "right" as const })),
   ];
   const shareColumns: ColumnDef<VelocityShareRow>[] = [
     { key: "sprint", header: t("reports.sprints.sprint"), render: (row) => row.sprint.name },

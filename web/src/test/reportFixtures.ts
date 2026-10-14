@@ -23,7 +23,7 @@ import type {
   SprintConsistencyReport,
   TaskEstimationAccuracyReport,
   ThroughputReport,
-  VelocityReport,
+  CommitmentsReport,
   WipReport,
 } from "../api/reports";
 
@@ -65,7 +65,7 @@ export const FILTERS: ReportFilters = {
   timeZone: "Europe/Warsaw",
 };
 
-const META: VelocityReport["meta"] = {
+const META: CommitmentsReport["meta"] = {
   derivedAt: 1_780_000_000_000,
   configRevision: 4,
   from: "2026-07-02",
@@ -76,7 +76,7 @@ const META: VelocityReport["meta"] = {
   minSampleSize: 5,
 };
 
-export const VELOCITY_UNIT: VelocityReport = {
+export const VELOCITY_UNIT: CommitmentsReport = {
   meta: META,
   sprints: [
     {
@@ -117,7 +117,7 @@ export const VELOCITY_UNIT: VelocityReport = {
 };
 
 /** TEAM level (Alpha): two closed sprints with a capacity each — a computed default and a configured override; Σ groups == Σ sprints. */
-export const VELOCITY_TEAM: VelocityReport = {
+export const VELOCITY_TEAM: CommitmentsReport = {
   meta: { ...META, level: "TEAM" },
   sprints: [
     { ...VELOCITY_UNIT.sprints[0], capacityMd: 25, capacitySource: "DEFAULT" },
@@ -147,7 +147,7 @@ const ANN_ALPHA_2 = { accountId: "acc-ann", label: "Ann Author", initialMd: 12, 
 const BOB_ALPHA_2 = { accountId: "acc-bob", label: "Bob Builder", initialMd: 8, initialItems: 3, finalMd: 10, finalItems: 3 };
 
 /** USER level, one account: its own sprint rows — the frozen per-user figures and drift ride along like the team level's; no capacity, a one-entry byUser. */
-export const VELOCITY_USER: VelocityReport = {
+export const VELOCITY_USER: CommitmentsReport = {
   meta: { ...META, level: "USER" },
   sprints: [
     {
@@ -165,7 +165,7 @@ export const VELOCITY_USER: VelocityReport = {
 };
 
 /** USER level, two accounts (Ann then Bob, request order): the sprint is their sum, `byUser` splits it. */
-export const VELOCITY_USERS: VelocityReport = {
+export const VELOCITY_USERS: CommitmentsReport = {
   meta: { ...META, level: "USER" },
   sprints: [
     {
@@ -178,7 +178,7 @@ export const VELOCITY_USERS: VelocityReport = {
   groups: [ANN_ALPHA_2, BOB_ALPHA_2],
 };
 
-export const VELOCITY_EMPTY: VelocityReport = { meta: META, sprints: [], groups: [] };
+export const VELOCITY_EMPTY: CommitmentsReport = { meta: META, sprints: [], groups: [] };
 
 export const THROUGHPUT_UNIT: ThroughputReport = {
   meta: META,

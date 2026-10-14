@@ -881,7 +881,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/reports/velocity": {
+    "/api/v1/reports/commitments": {
         parameters: {
             query?: never;
             header?: never;
@@ -889,8 +889,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Report 1 — velocity (committed vs. final scope, per sprint)
-         * @description Any authenticated user (D12), read-only — `.claude/docs/measures.md` "Report 1 — Velocity".
+         * Report 1 — commitments (committed vs. final scope and capacity, per sprint)
+         * @description Any authenticated user (D12), read-only — `.claude/docs/measures.md` "Report 1 — Commitments".
          *     `initialMd`/`initialItems` are the committed scope, `finalMd`/`finalItems` the final scope
          *     (A17). `snapshot` is the frozen `fact_sprint_snapshot` figures (null until the sprint was
          *     first seen closed and team-mapped by a DERIVE run — D13); `drift` compares the two live vs.
@@ -908,12 +908,12 @@ export interface paths {
          *     period totals. `capacityMd`/`capacitySource` are the team's sprint capacity (A3: a configured
          *     override, else members × working days; null when the sprint has none) at UNIT and TEAM
          *     level, always null at USER level (capacity is team-only). `teamId=0` (UNASSIGNED) is always empty — a
-         *     sprint always carries a real team or is excluded from this report. Velocity carries no
+         *     sprint always carries a real team or is excluded from this report. Commitments carries no
          *     domain slice, so `domainView` is echoed in `meta` but never changes the result. An active or
          *     future sprint (`completedAt` null) is reachable only by an explicit `sprintId`: its live figures,
          *     `snapshot` null, `drift` false.
          */
-        get: operations["getReportVelocity"];
+        get: operations["getReportCommitments"];
         put?: never;
         post?: never;
         delete?: never;
@@ -935,7 +935,7 @@ export interface paths {
          *     (with the item counts of report 13). Two views that differ BY DESIGN: `bySprint` is the SPRINT
          *     view (each team's sprints completed in the period, `fact_sprint.delivered_md/_items` — what was
          *     done inside the sprint while in it, priced at the sprint's close; `snapshot`/`drift` as in
-         *     velocity); `byBucket` and `groups` are the PERIOD view (level-0 tasks — no sub-tasks — with
+         *     commitments); `byBucket` and `groups` are the PERIOD view (level-0 tasks — no sub-tasks — with
          *     `done_at` in the period, priced at their estimate at done, an unestimated task counting as an
          *     item worth 0 MD; team = the D5 credit team, `null` = UNASSIGNED; user = assignee at done). A
          *     task done after its sprint closed is in the period view only. `bucket` (default `WEEK`; weeks
@@ -981,7 +981,7 @@ export interface paths {
          *     final = delivered + carried over + dropped always, and committed + added = final in items. `snapshot`
          *     is the frozen `fact_sprint_snapshot` figures (null until the sprint was first seen closed and
          *     team-mapped by a DERIVE run — D13); `drift` is true when any live figure differs from it (0.005 MD
-         *     tolerance, item counts exactly). Same period/level semantics as velocity: UNIT (default) — `groups`
+         *     tolerance, item counts exactly). Same period/level semantics as commitments: UNIT (default) — `groups`
          *     sum every figure per team; `teamId` narrows to TEAM level, `sprints` to that team's own sprints and
          *     `groups` becomes a per-user split (`fact_sprint_scope.assignee_at_commitment`, the same bucket
          *     predicates the team figures use, so Σ groups == the team figures for every bucket; a null
@@ -2605,8 +2605,8 @@ export interface components {
             /** @description The configured IANA time zone (`metrics.settings.time_zone`) that `from`/`to` are read in — a client renders report dates and computes period presets in it. */
             timeZone: string;
         };
-        /** @description The four figures a velocity row carries, live or frozen. */
-        VelocitySnapshot: {
+        /** @description The four figures a commitments row carries, live or frozen. */
+        CommitmentsSnapshot: {
             /** Format: double */
             initialMd: number;
             initialItems: number;
@@ -2614,7 +2614,7 @@ export interface components {
             finalMd: number;
             finalItems: number;
         };
-        VelocitySprint: {
+        CommitmentsSprint: {
             /** Format: int64 */
             sprintId: number;
             name: string;
@@ -2631,7 +2631,7 @@ export interface components {
             /** Format: double */
             finalMd: number;
             finalItems: number;
-            snapshot: components["schemas"]["VelocitySnapshot"] | null;
+            snapshot: components["schemas"]["CommitmentsSnapshot"] | null;
             drift: boolean;
             /**
              * Format: double
@@ -2644,10 +2644,10 @@ export interface components {
              */
             capacitySource: "CONFIGURED" | "DEFAULT" | null;
             /** @description USER level only: one entry per picked account, in request order, zeros included; empty at UNIT/TEAM level. */
-            byUser: components["schemas"]["VelocityUserShare"][];
+            byUser: components["schemas"]["CommitmentsUserShare"][];
         };
         /** @description One picked account's own live share of a sprint (its `assignee_at_commitment` scope rows, the removed-row rule). */
-        VelocityUserShare: {
+        CommitmentsUserShare: {
             accountId: string;
             /** @description The Jira display name; the account id when none is known. */
             label: string;
@@ -2659,7 +2659,7 @@ export interface components {
             finalItems: number;
         };
         /** @description A team's own sums (UNIT level), one user's `assignee_at_commitment` sums (TEAM level) or, at USER level, one picked account's period totals (zero when it has no scope row). `teamId`/`accountId`/`label` are mutually exclusive with each other's absence: exactly one of `teamId` or `accountId` is set per row (a null `accountId` with a null `label` is the unassigned-at-commitment bucket, never a stored sentinel). */
-        VelocityGroup: {
+        CommitmentsGroup: {
             /** Format: int32 */
             teamId?: number | null;
             accountId?: string | null;
@@ -2671,10 +2671,10 @@ export interface components {
             finalMd: number;
             finalItems: number;
         };
-        VelocityReport: {
+        CommitmentsReport: {
             meta: components["schemas"]["ReportMeta"];
-            sprints: components["schemas"]["VelocitySprint"][];
-            groups: components["schemas"]["VelocityGroup"][];
+            sprints: components["schemas"]["CommitmentsSprint"][];
+            groups: components["schemas"]["CommitmentsGroup"][];
         };
         /** @description A sprint's delivered figures, live or frozen. */
         ThroughputSnapshot: {
@@ -5658,7 +5658,7 @@ export interface operations {
             500: components["responses"]["InternalServerError"];
         };
     };
-    getReportVelocity: {
+    getReportCommitments: {
         parameters: {
             query?: {
                 /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. */
@@ -5684,13 +5684,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The velocity report */
+            /** @description The commitments report */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["VelocityReport"];
+                    "application/json": components["schemas"]["CommitmentsReport"];
                 };
             };
             400: components["responses"]["BadRequest"];

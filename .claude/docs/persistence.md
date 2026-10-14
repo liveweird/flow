@@ -171,7 +171,7 @@ place:
   `DimSprint`, `DimDomain`, `DimEpic`, `DimTask` (the filter option lists) and `DeriveRuns` (the
   `derivedAt` clock), all inside its own transaction — a read-only reference-data assembly, never
   a write.
-- `reports/ReportSupport.kt` (v0.3.0 M4 commits 10b/10c/10d/12, shared by `reports/VelocityReport.kt`,
+- `reports/ReportSupport.kt` (v0.3.0 M4 commits 10b/10c/10d/12, shared by `reports/CommitmentsReport.kt`,
   `reports/ThroughputReport.kt`, `reports/SprintConsistencyReport.kt` and the estimation reports
   `reports/TaskAccuracyReport.kt`/`EpicAccuracyReport.kt`/`EstimateAdjustmentsReport.kt`) reads
   `ingest/DataSourceService.Connections` (the active-connection
@@ -184,7 +184,7 @@ place:
   transaction, through `ReportSupport`'s shared slices): `reports/CycleTimeReport.kt`,
   `ReportedTimeRatioReport.kt`, `TaskAccuracyReport.kt` and `EstimateAdjustmentsReport.kt` read
   `FactTaskDelivery`; `EstimateAdjustmentsReport.kt` also reads `FactEpicDelivery`;
-  `EpicAccuracyReport.kt` reads `FactEpicDelivery` and `DimEpic`; `VelocityReport.kt`, `ThroughputReport.kt` and
+  `EpicAccuracyReport.kt` reads `FactEpicDelivery` and `DimEpic`; `CommitmentsReport.kt`, `ThroughputReport.kt` and
   `SprintConsistencyReport.kt` read `FactSprintScope` (`ThroughputReport` also `FactTaskDelivery`).
 - `reports/WipReport.kt` (v0.3.0 M5 commit 15, `GET /api/v1/reports/wip`) reads `norm/WorkItemStore.Statuses`
   (status names for `by=STATUS`), `norm/WorkItemStore.BoardColumns` (the mapped board's columns for `by=COLUMN`, read

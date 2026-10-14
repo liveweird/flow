@@ -295,7 +295,7 @@ export async function configureMetricsViaApi(
 export async function awaitDerivedSprint(api: APIRequestContext, teamId: number, sprintId: number): Promise<void> {
   const deadline = Date.now() + 240_000;
   for (;;) {
-    const res = await api.get(`/api/v1/reports/velocity?teamId=${teamId}&sprintId=${sprintId}`);
+    const res = await api.get(`/api/v1/reports/commitments?teamId=${teamId}&sprintId=${sprintId}`);
     const text = await res.text();
     if (res.ok() && ((JSON.parse(text) as { sprints: { sprintId: number }[] }).sprints ?? []).some((sprint) => sprint.sprintId === sprintId)) return;
     if (Date.now() > deadline) {

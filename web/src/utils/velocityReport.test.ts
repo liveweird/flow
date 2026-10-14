@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import type { ReportFilters, VelocitySprint } from "../api/reports";
+import type { ReportFilters, CommitmentsSprint } from "../api/reports";
 import {
   hasCapacity,
   loadFraction,
@@ -10,7 +10,7 @@ import {
   velocityUserChart,
 } from "./velocityReport";
 
-const sprint = (over: Partial<VelocitySprint>): VelocitySprint => ({
+const sprint = (over: Partial<CommitmentsSprint>): CommitmentsSprint => ({
   sprintId: 1,
   name: "S1",
   teamId: 1,
