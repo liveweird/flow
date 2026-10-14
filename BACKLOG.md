@@ -49,9 +49,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   - The Statuses tab now badges each status Epic/Task (#115). Decide after reviewing them whether any shared status
     differs.
   - If one does, this needs a domain-model amendment plus config, DERIVE and UI changes.
-- [new] **Report filter options miss worklog-only activity types.** `ReportService` reads `activityType` options from
-  `dim_task`, so a type that only appears on epic- or above-epic-logged worklogs (e.g. "Program") can't be picked in
-  report 16. Union in `fact_worklog`'s activity types.
 - [new] **Proper capacity management: a per-person, per-day sprint calendar.** The user's feedback, 2026-10-15:
   - **Its own feature.** Today capacity is one MD figure per sprint, on the data source's metrics configuration
     (the Capacities tab, `metrics.team_sprint_capacity`). It becomes a separate "Capacity" entry under
@@ -69,16 +66,15 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
       their person coefficient;
     - add those up over the people;
     - multiply by the team coefficient.
-  - **Team managers.** Each team has a manager; one manager can manage several teams. Only a team's manager, or an
-    ADMIN, can set up that team's sprint capacity. Today teams and memberships are ADMIN-only (`teams/`), so this is
-    a new role relationship plus an authorization rule (`authorization.md`).
-  - **To decide:**
-    - how the calendar replaces CONFIGURED/DEFAULT capacity (`dim_sprint.capacity_source`, A3 = members × working
-      days, so the calendar's defaults would be 1 MD on working days and 0 on weekends and holidays);
-    - whether "each team should have 1 manager" is exactly one or at least one;
-    - the migration of existing configured capacities;
-    - the domain-model amendment.
-  - Commitments' capacity line and Load column then read the calendar's figure.
+  - **Team managers.** A team has at most one manager (optional), a Flow user; one user can manage several teams;
+    ADMINs assign them. Only the team's manager or an ADMIN edits its capacity; any signed-in user reads it.
+  - **Precedence (decided 2026-10-15):** the sprint's calendar (`CALENDAR`), else ONE configured MD figure per TEAM, a
+    default override that lives in capacity management (`TEAM_DEFAULT`), else members × working days (`DEFAULT`, A3).
+    The old per-sprint Capacities tab on the data source is removed.
+  - **Grid defaults:** rows are the team's Jira members whose membership overlaps the sprint; cells start at 1 MD on
+    working days, weekends and holidays start turned off; both coefficients default to 1 (range 0–2).
+  - Port Lettuce's holidays and its "Days off" calendar views for the grid.
+  - Commitments' capacity line and Load column then read the new figure.
 - [new] **Sprint capacities from Jira Plans.** Probed 2026-10-08: the Plans REST API (`/rest/api/3/plans/plan`, then
   `…/team/atlassian/{id}` for `capacity`, `planningStyle`, `sprintLength` and `issueSourceId`) returns 403 to the sync
   service account: "You do not have the Administer Jira global permission". Every Plans endpoint needs it, reads included.
