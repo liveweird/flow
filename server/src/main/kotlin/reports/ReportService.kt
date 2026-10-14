@@ -105,11 +105,18 @@ class ReportService(
             .distinctBy { it[MetricsTables.DimDomain.domainKey] }
             .map { ReportFilterDomain(it[MetricsTables.DimDomain.domainKey], it[MetricsTables.DimDomain.name]) }
 
-        val activityTypes = MetricsTables.DimTask.select(MetricsTables.DimTask.activityType)
+        // dim_task's types UNION fact_worklog's: a worklog on an epic or above (A31) carries its own activity type (e.g.
+        // "Program") that no task row has, yet report 16's `activityType` slice by it is valid. The worklog column is nullable.
+        val taskActivityTypes = MetricsTables.DimTask.select(MetricsTables.DimTask.activityType)
             .withDistinct()
             .toList()
             .map { it[MetricsTables.DimTask.activityType] }
-            .distinct().sorted()
+        val worklogActivityTypes = MetricsTables.FactWorklog.select(MetricsTables.FactWorklog.activityType)
+            .where { MetricsTables.FactWorklog.activityType.isNotNull() }
+            .withDistinct()
+            .toList()
+            .mapNotNull { it[MetricsTables.FactWorklog.activityType] }
+        val activityTypes = (taskActivityTypes + worklogActivityTypes).distinct().sorted()
 
         val taskWorkCategories = MetricsTables.DimTask.select(MetricsTables.DimTask.workCategory)
             .where { MetricsTables.DimTask.workCategory.isNotNull() }

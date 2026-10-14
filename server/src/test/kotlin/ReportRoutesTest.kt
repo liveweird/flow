@@ -1,12 +1,16 @@
 package ch.nokillswit
 
+import ch.nokillswit.metrics.FactWorklogRow
+import ch.nokillswit.metrics.MetricsStore
 import ch.nokillswit.reports.ReportFilters
 import io.ktor.client.call.body
 import io.ktor.client.request.get
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.testApplication
+import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -43,5 +47,42 @@ class ReportRoutesTest {
         // The configured zone the SPA renders dates in — must be a real IANA id (ZoneId.of throws otherwise).
         assertTrue(body.timeZone.isNotBlank())
         assertEquals(body.timeZone, java.time.ZoneId.of(body.timeZone).id)
+    }
+
+    /**
+     * An activity type carried ONLY by a worklog (an epic- or above-epic-logged one, A31) is offered next to the `dim_task` ones; the
+     * rest of the list is unchanged, still sorted and distinct. The worklogs live in a fresh disabled connection and are removed after.
+     */
+    @Test
+    fun `an activity type that only a worklog carries is offered next to the task ones`() = testApplication {
+        usePostgresTestcontainer()
+        val client = seededClient("reports-filters-worklog-types")
+        val before = client.get("/api/v1/reports/filters").body<ReportFilters>().activityTypes
+        assertTrue(before.isNotEmpty())
+        val connId = SyncedStubFixture.createConnection(namePrefix = "filters-worklog-types", enabled = false)
+        val store = MetricsStore(sharedDatabaseForTests())
+        val worklogOnly = SyncedStubFixture.unique("Program")
+        val alsoOnTasks = before.first()
+        fun wl(id: Long, activity: String) = FactWorklogRow(
+            worklogId = id, issueId = id, authorAccountId = null, authorTeamId = null, startedAt = 1_768_000_000_000L,
+            createdAt = null, lateMs = null, md = 1.0, taskDomainKey = null, epicId = id, epicDomainKey = null,
+            activityType = activity, workCategory = null, sprintIdAtStarted = null, sprintTeamIdAtStarted = null,
+            foreignWork = false, assigneeAccountIdAtStarted = null, assigneeTeamIdAtStarted = null,
+        )
+        suspendTransaction(sharedDatabaseForTests()) {
+            store.insertFactWorklog(connId, listOf(wl(1, worklogOnly), wl(2, alsoOnTasks), wl(3, worklogOnly)), configRevision = 1L)
+        }
+        try {
+            val after = client.get("/api/v1/reports/filters").body<ReportFilters>().activityTypes
+            assertTrue(worklogOnly in after, "the worklog-only type is offered")
+            assertEquals(after.sorted(), after, "sorted")
+            assertEquals(after.distinct(), after, "distinct: a type on both a task and a worklog, and a repeated worklog type, appear once")
+            assertEquals((before + worklogOnly).sorted(), after, "everything that was offered still is, plus the one new type")
+        } finally {
+            suspendTransaction(sharedDatabaseForTests()) { store.deleteFactWorklog(connId) }
+        }
+        val gone = client.get("/api/v1/reports/filters").body<ReportFilters>().activityTypes
+        assertFalse(worklogOnly in gone, "the type disappears with its worklogs")
+        assertEquals(before, gone)
     }
 }
