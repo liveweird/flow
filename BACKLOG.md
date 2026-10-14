@@ -61,6 +61,13 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
     A5), it is one figure per team rather than per sprint, and the API is experimental.
   - If Atlassian drops the admin requirement: an optional REFERENCE step (like `PROJECT_FIELDS`), plan team →
     `issueSourceId` board → `board_team_map`, and a `PLAN` capacity source ranked CONFIGURED > PLAN > DEFAULT.
+- [new] **Throughput (`/reports/throughput`): the Velocity treatment, plus a cumulative view.** The user's feedback, 2026-10-14:
+  - Hideable filters, like Lettuce. Already covered by `feat/velocity-capacity` (every report's filter bar folds away).
+  - The team filter must not offer "All teams"; a specific team has to be chosen. Reuse Velocity's `teamRequired`
+    control flag.
+  - The user filter takes several users. Reuse Velocity's `multiMember` flag; the server opts `accountId` in to
+    `repeatedStrings` on this route, as on Velocity.
+  - A switch that toggles the chart between the current per-period view and a cumulative, CFD-style view.
 - [parked] **A28 — a composite estimate for estimated backlog.** Parked 2026-10-01: the teams do not estimate via
   sub-tasks.
   - Estimated backlog uses the OWN estimate only, so a parent estimated through its sub-tasks
