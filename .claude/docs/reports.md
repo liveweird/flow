@@ -145,9 +145,9 @@ changes, only which side does the arithmetic.
 
 **The long tail (`tailPercent`).** Equal-width buckets from `min` to `max` let a few far outliers stretch every bucket, so the
 first one held nearly everything. With `tailPercent = N > 0` (default 5, the report parameter above) `buildDistribution` folds the
-top N% into ONE final open bucket: `X = percentile_cont((100 - N) / 100)` over all the values; the **tail** is the values
+values above the (100 − N)th percentile (roughly the top N%; with a small `n` one top value can be more than N%) into ONE final open bucket: `X = percentile_cont((100 - N) / 100)` over all the values; the **tail** is the values
 strictly `> X`; the **body** (values `<= X`) gets `histogramBuckets` (10) equal-width buckets over `[min, X]` by the rule above (the
-last body bucket closed at `X`), then `{from: X, to: null, count: tail.size}`. No value above `X` (`N = 0`, or ties at the top) means no
+last body bucket closed at `X`), then `{from: X, to: null, count: tail.size}`. No value above `X` (`N = 0`, or ties at the top), or `X` equal to the minimum (most values tie there, e.g. mostly-zero blocked time), means no
 open bucket: the histogram is exactly the plain `[min, max]` one, so **`tailPercent=0` reproduces the pre-tail histogram bit for bit**.
 Only the histogram moves: `n`, `mean`, `min`, `max`, `p50`/`p90`/`p95` stay over ALL values, the counts always sum to `n`, a hidden
 distribution is untouched, and `to` is nullable on the wire only for that last bucket (written as an explicit `null`; `to` has no

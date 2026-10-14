@@ -185,6 +185,27 @@ class DistributionTest {
     }
 
     @Test
+    fun `a cut at the minimum keeps the plain histogram - mostly-zero values never lose their shape`() {
+        // 96 zeros and 4 blocked values: the 95th percentile is 0 (= min), so folding would leave one zero-width body
+        // bucket and hide the four real values in the tail. The plain histogram over [0, 8] is kept instead.
+        val values = List(96) { 0.0 } + listOf(2.0, 4.0, 6.0, 8.0)
+        val tailed = buildDistribution(values, minSampleSize = 1, tailPercent = 5, histogramBuckets = 4)
+        val plain = buildDistribution(values, minSampleSize = 1, tailPercent = 0, histogramBuckets = 4)
+        assertEquals(plain.histogram, tailed.histogram)
+        assertTrue(tailed.histogram.all { it.to != null })
+    }
+
+    @Test
+    fun `the last body bucket ends exactly at the cut where the tail begins`() {
+        val values = (1..301).map { it * 0.1 }
+        for (n in 1..25) {
+            val histogram = buildDistribution(values, minSampleSize = 1, tailPercent = n).histogram
+            val tail = histogram.last()
+            if (tail.to == null) assertEquals(tail.from, histogram[histogram.size - 2].to, "tailPercent=$n")
+        }
+    }
+
+    @Test
     fun `the tail changes the histogram only, never n mean min max or the percentiles`() {
         val values = (1..40).map { (it * it).toDouble() }
         val plain = buildDistribution(values, minSampleSize = 1, tailPercent = 0)

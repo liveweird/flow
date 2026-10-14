@@ -69,12 +69,14 @@ data class Distribution(
  *
  * **The long tail (`tailPercent`).** Equal-width buckets over `[min, max]` let a few far outliers stretch
  * every bucket, so the first one ends up holding nearly everything and no distribution shows. With
- * `tailPercent = N > 0` the top N% fold into ONE final open bucket and the rest is spread over the equal-width
+ * `tailPercent = N > 0` the values above the (100 − N)th percentile (roughly the top N%; with a small `n` a single top
+ * value can be more than N%) fold into ONE final open bucket and the rest is spread over the equal-width
  * buckets: `X = percentile_cont((100 - N) / 100)` of all the values; the TAIL is the values strictly above `X`; the
  * BODY (values `<= X`) gets [histogramBuckets] equal-width buckets over `[min, X]` by the rule above (the last
  * body bucket closed at `X`, so a value equal to `X` stays in the body); then ONE bucket
- * `{from: X, to: null, count: tail.size}` follows. With no value above `X` (`N = 0`, or ties at the top
- * swallowing the tail) there is no open bucket and the histogram is exactly the plain one — so `tailPercent = 0`
+ * `{from: X, to: null, count: tail.size}` follows. With no value above `X` (`N = 0`, ties at the top
+ * swallowing the tail, or a cut equal to the minimum because most values tie there) there is no open bucket and the
+ * histogram is exactly the plain one — so `tailPercent = 0`
  * reproduces the pre-tail histogram bit for bit. Only the HISTOGRAM changes: `n`, `mean`, `min`, `max` and
  * `p50`/`p90`/`p95` stay over ALL values, the bucket counts always sum to `n`, and a hidden distribution
  * (`n < minSampleSize`) is untouched. [tailPercent] has no default so no call site can forget to thread
@@ -116,15 +118,21 @@ internal fun percentileContinuous(sorted: List<Double>, fraction: Double): Doubl
     return sorted[lower] + weight * (sorted[upper] - sorted[lower])
 }
 
-/** The histogram of [sorted] with the top [tailPercent]% folded into a final open bucket (see [buildDistribution]). */
+/**
+ * The histogram of [sorted] with the values above the (100 − [tailPercent])th percentile folded into a final open bucket
+ * (see [buildDistribution]).
+ */
 private fun histogramWithTail(sorted: List<Double>, tailPercent: Int, buckets: Int): List<HistogramBucket> {
     if (tailPercent == 0) return histogram(sorted, sorted.first(), sorted.last(), buckets)
     val cut = percentileContinuous(sorted, (100 - tailPercent) / PERCENT)
     // `sorted` is ascending, so the tail is a suffix: it starts at the first value strictly above the cut.
     val tailStart = sorted.indexOfFirst { it > cut }
-    if (tailStart < 0) return histogram(sorted, sorted.first(), sorted.last(), buckets)
-    return histogram(sorted.subList(0, tailStart), sorted.first(), cut, buckets) +
-        HistogramBucket(cut, null, (sorted.size - tailStart).toLong())
+    // A cut AT the minimum (more than (100 - N)% of the values tied there, e.g. mostly-zero blocked time) would squash
+    // the body into one zero-width bucket and hide the real signal in the tail: show the plain histogram instead.
+    if (tailStart < 0 || cut == sorted.first()) return histogram(sorted, sorted.first(), sorted.last(), buckets)
+    val body = histogram(sorted.subList(0, tailStart), sorted.first(), cut, buckets)
+    // The last body edge is the cut itself (min + buckets * width can miss it by an ulp), so the tail starts where the body ends.
+    return body.dropLast(1) + body.last().copy(to = cut) + HistogramBucket(cut, null, (sorted.size - tailStart).toLong())
 }
 
 private const val PERCENT = 100.0

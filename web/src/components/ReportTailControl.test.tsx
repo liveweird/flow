@@ -8,7 +8,7 @@ describe("ReportTailControl", () => {
     renderWithProviders(<ReportTailControl filter={{}} onChange={vi.fn()} />);
     expect(screen.getByRole("combobox", { name: "Long tail" })).toHaveValue("5%");
     const help = screen.getByText(
-      "The top N% of values are shown as one final bucket (≥ X), so a few outliers don't squash the rest. 0 shows the plain histogram.",
+      "Values above the (100 − N)th percentile, roughly the top N%, are shown as one final bucket (≥ X), so a few outliers don't squash the rest. 0 shows the plain histogram.",
     );
     expect(screen.getByRole("group", { name: "Long tail" })).toHaveAccessibleDescription(help.textContent!);
   });

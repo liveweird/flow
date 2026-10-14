@@ -313,7 +313,7 @@ completed · the report's figures · the orange drift badge with the frozen figu
   locale-formatted (repo convention): the ratio hint says "1", like the UI prints. Epic figures at USER
   level are one `EpicsPerPersonNote` line (epics carry no user), not an empty state or zeros. Heading
   levels: card title h3, block titles h4, distribution and accounting titles h5.
-  **The long tail** (`tailPercent`, server: `.claude/docs/reports.md` "The long tail"). A histogram ends in an open bucket (`to: null`, the top N% of the
+  **The long tail** (`tailPercent`, server: `.claude/docs/reports.md` "The long tail"). A histogram ends in an open bucket (`to: null`, the values above the (100 − N)th percentile, roughly the top N% of the
   values) that `histogramLabels` prints "≥ X". `components/ReportTailControl.tsx` is the ONE control, on the seven reports whose response carries a
   `Distribution` (task/epic accuracy, adjustments, cycle time, reported time, blocked time, data quality): a "Long tail" `Select` (`ReportFilterSelect required`,
   0/1/2/5/10/15/20/25 %, a hand-edited in-range value joins the list) plus the help line, placed right under the meta note and above the first card — page-level,
