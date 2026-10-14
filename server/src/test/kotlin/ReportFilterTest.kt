@@ -180,6 +180,16 @@ class ReportFilterTest {
     }
 
     @Test
+    fun `accountId is derived from accountIds, so a copy can never leave the two disagreeing`() {
+        val filter = parametersOf("teamId" to listOf("7"), "accountId" to listOf("b", "a"))
+            .parseReportFilter(utcCalendar, now, DomainView.TASK, multipleAccounts = true)
+        assertEquals("b", filter.accountId)
+        assertNull(filter.copy(accountIds = emptyList()).accountId)
+        assertEquals("c", filter.copy(accountIds = listOf("c", "a")).accountId)
+        assertEquals("b", filter.copy(domain = "FLO").accountId)
+    }
+
+    @Test
     fun `accountId without teamId is 400`() {
         val failure = assertFailsWith<BadRequestException> {
             parametersOf("accountId" to listOf("acc-1")).parseReportFilter(utcCalendar, now, DomainView.TASK)

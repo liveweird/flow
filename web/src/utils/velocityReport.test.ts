@@ -1,6 +1,14 @@
 import { describe, expect, test } from "vitest";
 import type { ReportFilters, VelocitySprint } from "../api/reports";
-import { hasCapacity, loadFraction, velocityChartRows, velocityShareRows, velocityUserChart } from "./velocityReport";
+import {
+  hasCapacity,
+  loadFraction,
+  personLabel,
+  userPositions,
+  velocityChartRows,
+  velocityShareRows,
+  velocityUserChart,
+} from "./velocityReport";
 
 const sprint = (over: Partial<VelocitySprint>): VelocitySprint => ({
   sprintId: 1,
@@ -100,8 +108,8 @@ describe("velocityUserChart", () => {
       filters,
     );
     expect(users).toEqual([
-      { accountId: "acc:ann", label: "Ann", committedKey: "c0", finalKey: "f0" },
-      { accountId: "acc:bob", label: "Bob", committedKey: "c1", finalKey: "f1" },
+      { accountId: "acc:ann", label: "Ann", position: 1, committedKey: "c0", finalKey: "f0" },
+      { accountId: "acc:bob", label: "Bob", position: 2, committedKey: "c1", finalKey: "f1" },
     ]);
     expect(rows).toEqual([
       { label: "Early", c0: 2, f0: 3, c1: 6, f1: 7 },
@@ -140,5 +148,36 @@ describe("velocityShareRows", () => {
       [2, "b", 3],
     ]);
     expect(new Set(rows.map((r) => r.key)).size).toBe(4);
+  });
+
+  test("each row carries the person's stack position, as numbered in the chart", () => {
+    const rows = velocityShareRows(
+      [
+        sprint({ sprintId: 2, completedAt: 2000, byUser: [share("b", "Bob", 3, 4), share("a", "Ann", 1, 2)] }),
+        sprint({ sprintId: 1, completedAt: 1000, byUser: [share("a", "Ann", 5, 6), share("b", "Bob", 0, 0)] }),
+      ],
+      filters,
+    );
+    // First seen in completion order: Ann (sprint 1) is 1, Bob 2 — whatever order a later sprint lists them in.
+    expect(rows.map((r) => [r.sprint.sprintId, r.share.label, r.position])).toEqual([
+      [1, "Ann", 1],
+      [1, "Bob", 2],
+      [2, "Bob", 2],
+      [2, "Ann", 1],
+    ]);
+  });
+});
+
+describe("person numbering", () => {
+  test("a person is named by their stack position, and positions are the chart's", () => {
+    expect(personLabel(2, "Bob")).toBe("2. Bob");
+    const sprints = [sprint({ byUser: [share("a", "Ann", 1, 2), share("b", "Bob", 3, 4), share("c", "Cy", 0, 0)] })];
+    expect([...userPositions(sprints, filters)]).toEqual([
+      ["a", 1],
+      ["b", 2],
+      ["c", 3],
+    ]);
+    expect(velocityUserChart(sprints, filters).users.map((u) => u.position)).toEqual([1, 2, 3]);
+    expect(userPositions([sprint({})], filters).size).toBe(0);
   });
 });

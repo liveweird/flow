@@ -260,9 +260,16 @@ describe("requiredTeamId", () => {
     { id: 3, name: "Gamma", sprints: [] },
   ];
 
-  test("a filter that already has a team needs none", () => {
+  test("a filter that already has a listed team needs none", () => {
     expect(requiredTeamId({ teamId: 3 }, teams, 1)).toBeUndefined();
-    expect(requiredTeamId({ teamId: 0 }, teams, 1)).toBeUndefined();
+    expect(requiredTeamId({ teamId: 2, sprintId: 11 }, teams, 3)).toBeUndefined();
+  });
+
+  test("a team the list does not know (deleted, or 0 = unassigned) counts as absent", () => {
+    expect(requiredTeamId({ teamId: 99 }, teams, 3)).toBe(3);
+    expect(requiredTeamId({ teamId: 0 }, teams, 99)).toBe(1);
+    expect(requiredTeamId({ teamId: 99, sprintId: 21 }, teams, 3)).toBe(2);
+    expect(requiredTeamId({ teamId: 99 }, [], undefined)).toBeUndefined();
   });
 
   test("the team that lists a linked sprint wins, then the remembered team, then the first by name", () => {

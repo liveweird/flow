@@ -264,12 +264,12 @@ completed · the report's figures · the orange drift badge with the frozen figu
   `CONTROLS` constant to both `useReportPage` and the bar). **A team is required**: the capacity and the per-person split are team figures, so the Team
   select is not clearable (no "All teams", the picked option cannot be clicked off) and a URL without a team is given one — `useReportFilter`
   applies `requiredTeamId` (the team that lists a linked `sprintId`, else the remembered `reports.teamId` when still listed, else the first team by name) and
-  rewrites the URL with `replace`; `useReportPage` holds the query back until the filter has a team, so the unit level is never requested. No teams at all
+  rewrites the URL with `replace` (a `teamId` the loaded list does not know — a deleted team, `0` — counts as absent, once the teams have loaded, and its members are dropped with it); `useReportPage` holds the query back until the filter has a team, so the unit level is never requested. No teams at all
   is one `EmptyState` and no request. The required team is not a narrowing, so it never counts on the folded toggle's badge (`activeReportFilterCount`).
   **Several members**: the member control is a `MultiSelect` (`ReportFilterMultiSelect`, max `MAX_ACCOUNTS` = 8, searchable, clearable, shown once a team
-  is set) over the same options as the single select, and `ReportFilterState.accountIds` is the REPEATED `accountId` URL key (`?accountId=a&accountId=b`), distinct,
+  is set; once 8 are picked its description says "Up to 8 people", and its search input may shrink to 48 px so one pill and the input share a line) over the same options as the single select, and `ReportFilterState.accountIds` is the REPEATED `accountId` URL key (`?accountId=a&accountId=b`), distinct,
   capped at 8, order preserved. Only a multi-member page parses it that way (`parseReportFilter(params, { multiAccount: true })`, passed by `useReportFilter`
-  from the same flags): every other page keeps reading `accountId` as its first value and the server answers a repeat with `400` there. The report is
+  from the same flags): every other page keeps reading `accountId` as its first value and the server answers a repeat with `400` there — so `reportHref` (the tab links) keeps only the FIRST `accountId` when leaving velocity. The report is
   requested with that array as repeated keys (`reportQuery`), and a team change drops the people. **Two modes, decided by the SHOWN report's
   `meta.level`** (so a refetch over kept data never mixes shapes). *Team mode* (no people picked: TEAM level): `VelocityChart` is a Mantine `CompositeChart` on ONE
   MD axis — the committed (`flow.6`) and final (`flow.8`/`flow.4`) bars as ever plus the sprint's capacity as a dashed neutral line (`CHART_COLORS.capacity`,
@@ -280,8 +280,10 @@ completed · the report's figures · the orange drift badge with the frozen figu
   team figure, null at this level); `VelocityChart` is a `BarChart` with two stacked columns per sprint — `stackId` "committed" (left; a translucent
   fill, `DEEP_DIVE_FILL_ALPHA`, inside a solid 2 px edge, the Deep dive's idiom) and "final" (right; solid, ringed in the surface) — each cut into one
   segment per picked person (`velocityUserChart`: data keys `c<i>`/`f<i>`, since account ids are not safe data keys). People are arbitrary names, so they wear
-  the neutral `BAND_CYCLE` by position (neighbouring segments alternate blue and gray, never a semantic hue); identity is carried by the page's own
-  legend (a list: one entry per person, then the two stacks' treatments in words), the tooltip ("Ann · initial") and the tables, and committed vs final by
+  the neutral `BAND_CYCLE` by position (neighbouring segments alternate blue and gray, never a semantic hue) — but it has only three distinguishable shades, so from the
+  fourth person on a colour repeats. **People are therefore numbered by stack position** (`personLabel`: "2. Bob"): in the page's own legend (a list), the
+  tooltip ("2. Bob · initial"), the per-person totals and the per-sprint share table, so identity never rests on colour. The legend's two treatment
+  entries are neutral text-colour glyphs (tall columns, outlined = committed, solid = final), never a swatch in a person's hue; committed vs final is told by
   fill, position and the legend. One person is the same shape with one segment per stack. The tables: the sprints table (the picked people's SUM, drift
   and frozen figures as ever, no capacity/load), "Totals per person" (`groups`, plain text — "By member" stays the team level's drill table) and, with
   two or more people, "Each person's share of each sprint" (every chart number, one row per sprint and person, in a `ScrollRegion` capped at 480 px).

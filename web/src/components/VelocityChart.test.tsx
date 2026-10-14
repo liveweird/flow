@@ -133,9 +133,9 @@ describe("VelocityChart — team mode", () => {
 
 describe("VelocityChart — user mode", () => {
   const users: VelocityChartUser[] = [
-    { accountId: "acc-ann", label: "Ann Author", committedKey: "c0", finalKey: "f0" },
-    { accountId: "acc-bob", label: "Bob Builder", committedKey: "c1", finalKey: "f1" },
-    { accountId: "acc-cy", label: "Cy Coder", committedKey: "c2", finalKey: "f2" },
+    { accountId: "acc-ann", label: "Ann Author", position: 1, committedKey: "c0", finalKey: "f0" },
+    { accountId: "acc-bob", label: "Bob Builder", position: 2, committedKey: "c1", finalKey: "f1" },
+    { accountId: "acc-cy", label: "Cy Coder", position: 3, committedKey: "c2", finalKey: "f2" },
   ];
   const rows: VelocityUserRow[] = [{ label: "S1", c0: 1, f0: 2, c1: 3, f1: 4, c2: 5, f2: 6 }];
 
@@ -144,12 +144,12 @@ describe("VelocityChart — user mode", () => {
     expect(screen.getByRole("group", { name: "Chart: initial and final scope by sprint, stacked by person" })).toBeInTheDocument();
     const series = attr("bar-chart", "data-series");
     expect(series).toEqual([
-      { name: "c0", label: "Ann Author · initial", color: "flow.6", stackId: "committed" },
-      { name: "c1", label: "Bob Builder · initial", color: "gray.6", stackId: "committed" },
-      { name: "c2", label: "Cy Coder · initial", color: "flow.7", stackId: "committed" },
-      { name: "f0", label: "Ann Author · final", color: "flow.6", stackId: "final" },
-      { name: "f1", label: "Bob Builder · final", color: "gray.6", stackId: "final" },
-      { name: "f2", label: "Cy Coder · final", color: "flow.7", stackId: "final" },
+      { name: "c0", label: "1. Ann Author · initial", color: "flow.6", stackId: "committed" },
+      { name: "c1", label: "2. Bob Builder · initial", color: "gray.6", stackId: "committed" },
+      { name: "c2", label: "3. Cy Coder · initial", color: "flow.7", stackId: "committed" },
+      { name: "f0", label: "1. Ann Author · final", color: "flow.6", stackId: "final" },
+      { name: "f1", label: "2. Bob Builder · final", color: "gray.6", stackId: "final" },
+      { name: "f2", label: "3. Cy Coder · final", color: "flow.7", stackId: "final" },
     ]);
     expect(screen.getByTestId("bar-chart").getAttribute("data-formatted")).toBe("12.35");
     expect(screen.queryByTestId("composite-chart")).not.toBeInTheDocument();
@@ -167,13 +167,47 @@ describe("VelocityChart — user mode", () => {
     renderWithProviders(<VelocityChart mode="user" users={users} rows={rows} />);
     const legend = screen.getByRole("list", { name: "Chart legend" });
     expect(within(legend).getAllByRole("listitem").map((item) => item.textContent)).toEqual([
-      "Ann Author",
-      "Bob Builder",
-      "Cy Coder",
+      "1. Ann Author",
+      "2. Bob Builder",
+      "3. Cy Coder",
       "Initial (left column, outlined)",
       "Final (right column, solid)",
     ]);
     expect(screen.getByTestId("bar-chart").getAttribute("data-legend")).toBe("false");
+  });
+
+  test("with more people than the palette has shades, colours repeat and the numbers carry identity", () => {
+    const many: VelocityChartUser[] = Array.from({ length: 8 }, (_, i) => ({
+      accountId: `acc-${i}`,
+      label: `Person ${i}`,
+      position: i + 1,
+      committedKey: `c${i}`,
+      finalKey: `f${i}`,
+    }));
+    renderWithProviders(<VelocityChart mode="user" users={many} rows={[{ label: "S1" }]} />);
+    const series: { name: string; label: string; color: string }[] = attr("bar-chart", "data-series");
+    const committed = series.filter((s) => s.name.startsWith("c"));
+    // Pigeonhole: fewer than eight distinct colours, yet every series label is unique and starts with its number.
+    expect(new Set(committed.map((s) => s.color)).size).toBeLessThan(8);
+    expect(new Set(series.map((s) => s.label)).size).toBe(16);
+    expect(committed.map((s) => s.label.slice(0, 2))).toEqual(["1.", "2.", "3.", "4.", "5.", "6.", "7.", "8."]);
+    const items = within(screen.getByRole("list", { name: "Chart legend" })).getAllByRole("listitem");
+    expect(items.slice(0, 8).map((item) => item.textContent)).toEqual(many.map((u) => `${u.position}. ${u.label}`));
+  });
+
+  test("the two treatment entries are neutral glyphs, never a person's swatch: no chart hue, a different shape, outlined vs solid", () => {
+    renderWithProviders(<VelocityChart mode="user" users={users} rows={rows} />);
+    const items = within(screen.getByRole("list", { name: "Chart legend" })).getAllByRole("listitem");
+    const glyph = (item: HTMLElement) => item.querySelector("[aria-hidden]") as HTMLElement;
+    const [person, committed, final] = [items[0], items[3], items[4]].map(glyph);
+    expect(person.style.background).toContain("--mantine-color-flow-6");
+    for (const treatment of [committed, final]) {
+      expect(treatment.style.border).toBe("2px solid currentcolor");
+      expect(treatment.outerHTML).not.toMatch(/--mantine-color-(flow|gray)-/);
+      expect(treatment.style.width).not.toBe(person.style.width);
+    }
+    expect(committed.style.background).toBe("transparent");
+    expect(final.style.background).toBe("currentcolor");
   });
 
   test("one person is the same shape with one segment per stack", () => {

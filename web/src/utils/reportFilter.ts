@@ -249,14 +249,16 @@ export interface ReportControls {
 /**
  * The team a `teamRequired` report starts on when the URL names none: the team that lists the linked sprint, else the
  * remembered team (when the reference data still lists it), else the first team by name. `undefined` when the
- * filter already has a team or there is no team at all.
+ * filter already has a team the reference data lists, or there is no team at all. A `teamId` the list does not know (a
+ * deleted team, or `0` = unassigned, which a team-only report cannot read) counts as ABSENT. `teams` must be the loaded list:
+ * called before it loads, every team would look unknown.
  */
 export function requiredTeamId(
   filter: ReportFilterState,
   teams: ReadonlyArray<{ id: number; name: string; sprints: ReadonlyArray<{ sprintId: number }> }>,
   remembered: number | undefined,
 ): number | undefined {
-  if (filter.teamId !== undefined) return undefined;
+  if (filter.teamId !== undefined && teams.some((team) => team.id === filter.teamId)) return undefined;
   const listingSprint =
     filter.sprintId === undefined ? undefined : teams.find((team) => team.sprints.some((s) => s.sprintId === filter.sprintId));
   if (listingSprint) return listingSprint.id;

@@ -84,10 +84,13 @@ export function reportSpecificKeep(path: string): ReadonlySet<ReportSpecificKey>
 
 /**
  * A report route carrying the current filter query, so switching tabs keeps the period/team/member —
- * minus the report-specific params the target's controls do not use.
+ * minus the report-specific params the target's controls do not use. Only velocity picks several members: leaving it
+ * keeps the FIRST `accountId` (what a single-member page reads from the repeats), so the address bar says what the page shows.
  */
 export function reportHref(path: string, search: string): string {
   const params = new URLSearchParams(search);
+  const accounts = params.getAll("accountId");
+  if (path !== velocityPath && accounts.length > 1) params.set("accountId", accounts[0]);
   const keep = reportSpecificKeep(path);
   for (const key of REPORT_SPECIFIC_KEYS) {
     if (!keep.has(key)) params.delete(key);

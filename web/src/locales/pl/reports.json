@@ -47,6 +47,7 @@
     "allTeams": "Wszystkie zespoły",
     "member": "Osoba",
     "wholeTeam": "Cały zespół",
+    "memberCap": "Najwyżej {{max}} osób",
     "domain": "Domena",
     "activityType": "Typ aktywności",
     "workCategory": "Kategoria pracy",
@@ -120,7 +121,7 @@
       "CONFIGURED": "Pojemność: skonfigurowana"
     },
     "defaultBadge": "domyślna",
-    "loadNote": "Obciążenie to zakres początkowy podzielony przez pojemność; myślnik oznacza sprint bez pojemności. Pojemność domyślna to liczba osób razy liczba dni roboczych sprintu.",
+    "loadNote": "Obciążenie to zakres początkowy podzielony przez pojemność; myślnik oznacza sprint bez pojemności albo z pojemnością 0. Pojemność domyślna to liczba osób razy liczba dni roboczych sprintu.",
     "personTotalsTitle": "Sumy według osób",
     "sharesTitle": "Udział każdej osoby w każdym sprincie",
     "sharesAria": "Zakres początkowy i końcowy każdej osoby w sprintach",

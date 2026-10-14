@@ -45,6 +45,7 @@
     "allTeams": "All teams",
     "member": "Member",
     "wholeTeam": "Whole team",
+    "memberCap": "Up to {{max}} people",
     "domain": "Domain",
     "activityType": "Activity type",
     "workCategory": "Work category",
@@ -118,7 +119,7 @@
       "CONFIGURED": "Capacity: configured"
     },
     "defaultBadge": "default",
-    "loadNote": "Load is the initial scope divided by the capacity; a dash means the sprint has no capacity. A default capacity is the members times the working days of the sprint.",
+    "loadNote": "Load is the initial scope divided by the capacity; a dash means the sprint has no capacity, or a capacity of 0. A default capacity is the members times the working days of the sprint.",
     "personTotalsTitle": "Totals per person",
     "sharesTitle": "Each person's share of each sprint",
     "sharesAria": "Each person's initial and final scope per sprint",

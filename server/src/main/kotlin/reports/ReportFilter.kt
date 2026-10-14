@@ -69,19 +69,22 @@ data class ReportFilter(
     val period: ReportPeriod,
     val level: ReportLevel,
     val teamId: UInt?,
-    val accountId: String?,
     /**
      * Every picked account, in request order, distinct: empty unless [level] is USER. Every report but velocity takes one
-     * `accountId` (a repeat is a `400`), so for them it is `[accountId]`; velocity ([parseReportFilter]'s `multipleAccounts`)
-     * takes 1..[MAX_VELOCITY_ACCOUNTS] and [accountId] is then the first of them.
+     * `accountId` (a repeat is a `400`), so for them it is one element; velocity ([parseReportFilter]'s `multipleAccounts`)
+     * takes 1..[MAX_VELOCITY_ACCOUNTS]. This is the ONLY stored form: [accountId] is derived from it, so a `copy(...)` can
+     * never leave the two disagreeing (narrowing to no account is `copy(accountIds = emptyList())`).
      */
-    val accountIds: List<String> = listOfNotNull(accountId),
+    val accountIds: List<String> = emptyList(),
     val domainView: DomainView,
     val domain: String?,
     val activityType: String?,
     val workCategory: String?,
     val connectionId: UInt?,
-)
+) {
+    /** The first picked account — the single `accountId` every non-velocity report reads; `null` when none is picked. */
+    val accountId: String? get() = accountIds.firstOrNull()
+}
 
 /**
  * Parses and structurally validates the query string of a report request into a [ReportFilter].
@@ -120,7 +123,6 @@ fun Parameters.parseReportFilter(
         period = period,
         level = level,
         teamId = teamId,
-        accountId = accountId,
         accountIds = accountIds,
         domainView = optionalEnum<DomainView>("domainView") ?: defaultDomainView,
         domain = optionalString("domain"),

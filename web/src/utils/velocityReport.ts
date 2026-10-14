@@ -59,12 +59,41 @@ export function loadFraction(initialMd: number, capacityMd: number | null): numb
   return capacityMd === null || capacityMd === 0 ? null : initialMd / capacityMd;
 }
 
-/** One picked person of the user-mode chart; `committedKey`/`finalKey` are the data keys of their two segments. */
+/**
+ * One picked person of the user-mode chart; `committedKey`/`finalKey` are the data keys of their two segments. `position`
+ * (1-based, bottom of the stack first) is the person's number: with more than three people the neutral palette repeats, so
+ * the number — `personLabel` — is what tells the segments apart in the legend, the tooltip and the tables.
+ */
 export interface VelocityChartUser {
   accountId: string;
   label: string;
+  position: number;
   committedKey: string;
   finalKey: string;
+}
+
+/** A person as the chart, its legend, its tooltip and the tables beside it name them: "2. Bob". */
+export function personLabel(position: number, label: string): string {
+  return `${position}. ${label}`;
+}
+
+/** The people of a set of sprints in stack order: the union of every sprint's `byUser`, first seen first. */
+function chartUsers(sprints: readonly VelocitySprint[]): VelocityChartUser[] {
+  const users: VelocityChartUser[] = [];
+  for (const sprint of sprints) {
+    for (const share of sprint.byUser) {
+      if (users.some((user) => user.accountId === share.accountId)) continue;
+      const index = users.length;
+      users.push({ accountId: share.accountId, label: share.label, position: index + 1, committedKey: `c${index}`, finalKey: `f${index}` });
+    }
+  }
+  return users;
+}
+
+/** Each person's stack position by account id — the number the chart and every table beside it show. */
+export function userPositions(sprints: readonly VelocitySprint[], filters: ReportFilters): ReadonlyMap<string, number> {
+  const ordered = labelledSprints(sprints, filters).map(({ sprint }) => sprint);
+  return new Map(chartUsers(ordered).map((user) => [user.accountId, user.position]));
 }
 
 /** User mode: a sprint's row holds each person's committed and final MD under their keys (account ids are not safe data keys). */
@@ -80,14 +109,7 @@ export function velocityUserChart(
   filters: ReportFilters,
 ): { users: VelocityChartUser[]; rows: VelocityUserRow[] } {
   const labelled = labelledSprints(sprints, filters);
-  const users: VelocityChartUser[] = [];
-  for (const { sprint } of labelled) {
-    for (const share of sprint.byUser) {
-      if (users.some((user) => user.accountId === share.accountId)) continue;
-      const index = users.length;
-      users.push({ accountId: share.accountId, label: share.label, committedKey: `c${index}`, finalKey: `f${index}` });
-    }
-  }
+  const users = chartUsers(labelled.map(({ sprint }) => sprint));
   const rows = labelled.map(({ sprint, label }) => {
     const row: VelocityUserRow = { label };
     for (const user of users) {
@@ -104,12 +126,20 @@ export function velocityUserChart(
 export interface VelocityShareRow {
   key: string;
   sprint: VelocitySprint;
+  /** The person's stack position in the chart (`VelocityChartUser.position`). */
+  position: number;
   share: VelocitySprint["byUser"][number];
 }
 
-/** The per-person-per-sprint table rows, sprints in completion order, people in request order. */
+/** The per-person-per-sprint table rows, sprints in completion order, people numbered as in the chart. */
 export function velocityShareRows(sprints: readonly VelocitySprint[], filters: ReportFilters): VelocityShareRow[] {
+  const positions = userPositions(sprints, filters);
   return labelledSprints(sprints, filters).flatMap(({ sprint }) =>
-    sprint.byUser.map((share) => ({ key: `${sprint.teamId}:${sprint.sprintId}:${share.accountId}`, sprint, share })),
+    sprint.byUser.map((share) => ({
+      key: `${sprint.teamId}:${sprint.sprintId}:${share.accountId}`,
+      sprint,
+      position: positions.get(share.accountId) ?? 0,
+      share,
+    })),
   );
 }

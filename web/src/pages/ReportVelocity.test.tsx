@@ -190,6 +190,18 @@ describe("ReportVelocity page", () => {
     expect((screen.getByRole("combobox", { name: "Team" }) as HTMLInputElement).value).toBe("Beta");
   });
 
+  test.each([
+    ["a deleted team", "99"],
+    ["the unassigned bucket", "0"],
+  ])("a link naming %s is rewritten to the first team by name, once, and drops the picked people", async (_name, teamId) => {
+    serve(mockFetch);
+    renderPage(`/reports/velocity?teamId=${teamId}&accountId=acc-ann&lastSprints=3`);
+    await screen.findByTestId("composite-chart");
+    expect(velocityCalls(mockFetch)).toEqual(["/api/v1/reports/velocity?lastSprints=3&teamId=1"]);
+    await openReportFilters();
+    expect((screen.getByRole("combobox", { name: "Team" }) as HTMLInputElement).value).toBe("Alpha");
+  });
+
   test("with no team at all the page says so and requests nothing", async () => {
     serve(mockFetch, { filters: () => jsonResponse(200, { ...FILTERS, teams: [] }) });
     renderPage();
@@ -232,8 +244,8 @@ describe("ReportVelocity page", () => {
     expect(within(byMember).getByRole("row", { name: /Ann Author/ })).toHaveTextContent("14.5");
     expect(within(byMember).getByRole("row", { name: /Bob Builder/ })).toHaveTextContent("10");
     const shares = screen.getByRole("table", { name: "Each person's initial and final scope per sprint" });
-    expect(within(shares).getByRole("row", { name: /Alpha 2 Ann Author/ })).toHaveTextContent("14.5");
-    expect(within(shares).getByRole("row", { name: /Alpha 2 Bob Builder/ })).toHaveTextContent("10");
+    expect(within(shares).getByRole("row", { name: /Alpha 2 1\. Ann Author/ })).toHaveTextContent("14.5");
+    expect(within(shares).getByRole("row", { name: /Alpha 2 2\. Bob Builder/ })).toHaveTextContent("10");
 
     // The folded toggle counts the member dimension once, however many people are picked (the required team counts for nothing).
     expect(screen.getByRole("button", { name: /^Filters/ })).toHaveTextContent("1");

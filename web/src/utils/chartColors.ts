@@ -83,8 +83,11 @@ export const DEEP_DIVE_FILL_ALPHA = 0.32;
  * palette left is blue and gray, and only three of their shades clear 3:1 on every chart surface
  * (flow.6, flow.7, gray.6; flow.5 and gray.5 fail on white, flow.8 and gray.7 on dark paper). So the
  * cycle ALTERNATES the two hues — bands are coloured by position among those shown, so neighbours
- * never share a hue — and beyond two bands a hue (or a shade) repeats: the legend, the tooltip and
- * the tables beside the chart carry identity, never the colour alone. Stage keyings do not use this:
+ * never share a hue — and beyond two bands a hue (or a shade) repeats. The limit is hard: only THREE
+ * distinguishable shades exist, so from the fourth band on one repeats exactly (velocity's per-person
+ * segments allow up to eight). A chart on this cycle must therefore carry identity without colour: the
+ * legend, the tooltip and the tables beside the chart, and — where bands are people, who can be eight —
+ * a position NUMBER in every label ("2. Bob", `personLabel`). Stage keyings do not use this:
  * a stage has a meaning, and wears its vocabulary colour (`stage*` above).
  */
 export const BAND_CYCLE: ReadonlyArray<string> = ["flow.6", "gray.6", "flow.7", "gray.6"];

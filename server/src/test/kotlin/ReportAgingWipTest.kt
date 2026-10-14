@@ -55,7 +55,7 @@ class ReportAgingWipTest {
             accountId == null -> ReportLevel.TEAM
             else -> ReportLevel.USER
         },
-        teamId = teamId, accountId = accountId, domainView = DomainView.TASK, domain = null, activityType = null,
+        teamId = teamId, accountIds = listOfNotNull(accountId), domainView = DomainView.TASK, domain = null, activityType = null,
         workCategory = null, connectionId = connId,
     )
 

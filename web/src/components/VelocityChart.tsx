@@ -5,7 +5,7 @@ import { Box, Text, useComputedColorScheme } from "@mantine/core";
 import { useTranslation } from "react-i18next";
 import { BAND_CYCLE, CHART_COLORS, DEEP_DIVE_FILL_ALPHA, FINAL_COLOR } from "../utils/chartColors";
 import { formatMd } from "../utils/reportFormat";
-import { hasCapacity, type VelocityChartRow, type VelocityChartUser, type VelocityUserRow } from "../utils/velocityReport";
+import { hasCapacity, personLabel, type VelocityChartRow, type VelocityChartUser, type VelocityUserRow } from "../utils/velocityReport";
 
 // Blue = plan/committed: initial is the committed blue, final the per-scheme deeper/lighter step
 // (utils/chartColors.ts has the contrast table). Known limit: two same-hue blues side by side are
@@ -100,9 +100,11 @@ function TeamChart({ rows }: { rows: VelocityChartRow[] }) {
 /**
  * Two stacks per sprint, `committed` (left; translucent fill inside a solid edge) and `final` (right; solid, ringed in the
  * surface so stacked segments never touch), one segment per person. People are arbitrary names, so they wear the neutral
- * blue/gray cycle by position (`BAND_CYCLE`, neighbours alternate hue) — never a semantic hue; identity is carried by the
- * legend, the tooltip ("Ann · committed") and the per-person table, and committed vs final by fill, position and the legend,
- * never by colour. No capacity here: it is a team figure.
+ * blue/gray cycle by position (`BAND_CYCLE`, neighbours alternate hue) — never a semantic hue. Known limit: that cycle has
+ * three distinct shades, so from the fourth person on a colour repeats (and the 8-person cap allows up to eight). Identity
+ * therefore never rests on colour: each person is NUMBERED by stack position (bottom first) — "2. Bob" — in the legend, the
+ * tooltip ("2. Bob · initial") and the per-person tables. Committed vs final is told by fill, position and the legend's
+ * neutral glyphs, never by colour. No capacity here: it is a team figure.
  */
 function UserChart({ users, rows }: { users: VelocityChartUser[]; rows: VelocityUserRow[] }) {
   const { t } = useTranslation();
@@ -110,13 +112,13 @@ function UserChart({ users, rows }: { users: VelocityChartUser[]; rows: Velocity
   const series = [
     ...users.map((user, index) => ({
       name: user.committedKey,
-      label: t("reports.velocity.userSeries.committed", { name: user.label }),
+      label: t("reports.velocity.userSeries.committed", { name: personLabel(user.position, user.label) }),
       color: colour(index),
       stackId: "committed",
     })),
     ...users.map((user, index) => ({
       name: user.finalKey,
-      label: t("reports.velocity.userSeries.final", { name: user.label }),
+      label: t("reports.velocity.userSeries.final", { name: personLabel(user.position, user.label) }),
       color: colour(index),
       stackId: "final",
     })),
@@ -143,23 +145,28 @@ function UserChart({ users, rows }: { users: VelocityChartUser[]; rows: Velocity
   );
 }
 
-/** A swatch: `solid` is the final fill, otherwise the committed treatment (translucent fill, solid edge). */
-function Swatch({ colour, solid }: { colour: string; solid: boolean }) {
+/** A person's swatch: their cycle colour, solid. The numbered label next to it is what actually identifies them. */
+function PersonSwatch({ colour }: { colour: string }) {
   const hue = `var(--mantine-color-${colour.replace(".", "-")})`;
+  return <Box aria-hidden w={14} h={14} style={{ border: `2px solid ${hue}`, background: hue }} />;
+}
+
+/**
+ * The glyph of a stack treatment: a tall column in the TEXT colour (no chart hue, so it can never be mistaken for a person's
+ * swatch), outlined for the committed column and solid for the final one.
+ */
+function TreatmentGlyph({ solid }: { solid: boolean }) {
   return (
     <Box
       aria-hidden
-      w={14}
-      h={14}
-      style={{
-        border: `2px solid ${hue}`,
-        background: solid ? hue : `color-mix(in srgb, ${hue} ${COMMITTED_FILL_ALPHA * 100}%, transparent)`,
-      }}
+      w={8}
+      h={16}
+      style={{ border: "2px solid currentColor", background: solid ? "currentColor" : "transparent", marginInline: 3 }}
     />
   );
 }
 
-/** The legend of user mode: one entry per person (their colour), then the two stacks' treatments in neutral gray. */
+/** The legend of user mode: one numbered entry per person (their colour), then the two stacks' treatments as neutral glyphs. */
 function UserLegend({ users, colour }: { users: VelocityChartUser[]; colour: (index: number) => string }) {
   const { t } = useTranslation();
   const entry = (key: string, swatch: ReactNode, text: string) => (
@@ -171,6 +178,7 @@ function UserLegend({ users, colour }: { users: VelocityChartUser[]; colour: (in
   return (
     <Box
       component="ul"
+      role="list"
       aria-label={t("reports.velocity.userLegendLabel")}
       display="flex"
       m={0}
@@ -178,9 +186,9 @@ function UserLegend({ users, colour }: { users: VelocityChartUser[]; colour: (in
       mb="xs"
       style={{ listStyle: "none", flexWrap: "wrap", gap: "4px 16px" }}
     >
-      {users.map((user, index) => entry(user.accountId, <Swatch colour={colour(index)} solid />, user.label))}
-      {entry("committed", <Swatch colour={CHART_COLORS.removed} solid={false} />, t("reports.velocity.userLegend.committed"))}
-      {entry("final", <Swatch colour={CHART_COLORS.removed} solid />, t("reports.velocity.userLegend.final"))}
+      {users.map((user, index) => entry(user.accountId, <PersonSwatch colour={colour(index)} />, personLabel(user.position, user.label)))}
+      {entry("committed", <TreatmentGlyph solid={false} />, t("reports.velocity.userLegend.committed"))}
+      {entry("final", <TreatmentGlyph solid />, t("reports.velocity.userLegend.final"))}
     </Box>
   );
 }
