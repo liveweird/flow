@@ -231,12 +231,12 @@ completed · the report's figures · the orange drift badge with the frozen figu
 
 - **The URL is the filter** (`utils/reportFilter.ts`, `hooks/useReportFilter.ts`): `from`/`to`,
   `lastSprints`, `sprintId`, `teamId`, `accountId`, `domainView`, `domain`, `activityType`,
-  `workCategory`, `bucket`, `connectionId` — deep-linkable, parsed forgivingly (an invalid or
+  `workCategory`, `bucket`, `connectionId`, `tailPercent` — deep-linkable, parsed forgivingly (an invalid or
   conflicting param is DROPPED, never sent; the period is exclusive with precedence `sprintId` >
   `lastSprints` > dates), serialized in one canonical key order (that string is also the page query
   key). Params this module does not own survive `applyReportFilter`; switching report tabs
   (`reportHref`) drops the report-specific params (`domainView`, `domain`, `activityType`,
-  `workCategory`, `bucket`) the target report has no control for — and the page-local `view` (throughput's chart switch, `PAGE_PARAMS`: no filter, never sent or keyed) anywhere but throughput — so a filter the user
+  `workCategory`, `bucket`, `tailPercent`) the target report has no control for — and the page-local `view` (throughput's chart switch, `PAGE_PARAMS`: no filter, never sent or keyed) anywhere but throughput — so a filter the user
   cannot see or clear never follows them (`REPORT_SPECIFIC_PARAMS` in `utils/reportLinks.ts`; `epicId` is one of them, kept only by epic progress; a page's normalizer drops the rest through `dropReportSpecific(filter, reportSpecificKeep(path))`, so the table stays the one source). A team id the reference data no longer lists prints `#<id>` through `teamLabel` (`utils/reportFormat.ts`). Presets are stored as
   absolute `from`/`to` dates (calendar days in the configured zone) and recognised again by
   `activePeriodChoice`. **The last team is remembered** (`useStoredState`, `reports.teamId`): a report
@@ -299,7 +299,7 @@ completed · the report's figures · the orange drift badge with the frozen figu
 
 - **Distributions** (`components/DistributionPanel.tsx`): a `Distribution` renders as a percentile
   strip (median p50, p90, p95, mean, item count), a lazy `DistributionHistogram` (single blue series,
-  no legend) and the histogram as a table; `hidden` (fewer items than `meta.minSampleSize`)
+  no legend — but see "The long tail" below) and the histogram as a table; `hidden` (fewer items than `meta.minSampleSize`)
   replaces all of it with `MinSampleNotice` (gray, names n and the minimum — never a warning: a small
   sample is a fact about the selection). Units come in through `format`: accuracy ratios via
   `formatRatio` ("actual ÷ estimate", 1.00 = on estimate), fractional changes via
@@ -313,6 +313,19 @@ completed · the report's figures · the orange drift badge with the frozen figu
   locale-formatted (repo convention): the ratio hint says "1", like the UI prints. Epic figures at USER
   level are one `EpicsPerPersonNote` line (epics carry no user), not an empty state or zeros. Heading
   levels: card title h3, block titles h4, distribution and accounting titles h5.
+  **The long tail** (`tailPercent`, server: `.claude/docs/reports.md` "The long tail"). A histogram ends in an open bucket (`to: null`, the values above the (100 − N)th percentile, roughly the top N% of the
+  values) that `histogramLabels` prints "≥ X". `components/ReportTailControl.tsx` is the ONE control, on the seven reports whose response carries a
+  `Distribution` (task/epic accuracy, adjustments, cycle time, reported time, blocked time, data quality): a "Long tail" `Select` (`ReportFilterSelect required`,
+  0/1/2/5/10/15/20/25 %, a hand-edited in-range value joins the list) plus the help line, placed right under the meta note and above the first card — page-level,
+  NOT in the filter bar and not in each `DistributionPanel`, because one answer feeds two to six histograms per page and the value is page-wide (it is no
+  narrowing either, so `activeReportFilterCount` ignores it). It IS a report-specific managed param (`ReportFilterState.tailPercent`, in `MANAGED_KEYS`
+  and `REPORT_SPECIFIC_KEYS`, kept per report by `REPORT_SPECIFIC_PARAMS`): in the URL, the request and the query key, and dropped across tabs to a report
+  without a histogram. The default `DEFAULT_TAIL_PERCENT` (5) is never stored — parsing drops it, the control writes it as an absent param, so
+  the default URL, request and key are the bare ones; `0` is real (the plain histogram) and an integer outside 0..25 is dropped like any invalid param.
+  The open bucket is its own series in `DistributionHistogram`: rows carry `open`, the chart stacks a second gray series (`CHART_COLORS.longTail`,
+  `gray.6`, 3:1 pinned by `chartColors.test.ts`) named "Long tail (top values)" beside the estimate-blue body, with a legend only when a tail exists and the series
+  a bar does not belong to left `undefined` (never 0, so the tooltip lists one series); colour is never the only carrier — the x label starts "≥", the legend and
+  tooltip name the series, and the histogram table's range cell reads "≥ X (long tail)" (`reports.distribution.tailRow`). The counts still sum to `n`.
   Task and epic accuracy show the at-start view first (D15: the primary view) and the at-done view
   beside it; an epic's own estimate is never replaced by its child sum (both are columns). The epic
   accuracy page offers only domain and work category (an epic's domain is its own space under either

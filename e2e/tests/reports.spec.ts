@@ -416,6 +416,46 @@ async function readEstimateAdjustments(page: Page): Promise<void> {
   await expect(tasks).toBeVisible();
 }
 
+/** The cycle-time long-tail journey: the default 5% open bucket, widened to 25%, switched off with 0, and back to the default. */
+async function widenCycleTimeTail(page: Page): Promise<void> {
+  await openReport(page, "/reports/cycle-time");
+  await expect(page.getByRole("heading", { name: "Elapsed days", exact: true })).toBeVisible();
+  // Elapsed days are continuous (milliseconds), so the top values are never tied: the tail bucket is certain to exist at any share above 0.
+  const lastRange = page
+    .getByRole("table", { name: "Histogram, as a table — Elapsed days", exact: true })
+    .getByRole("row")
+    .last()
+    .getByRole("cell")
+    .first();
+
+  // The default 5%: not in the URL, yet the last bucket is already the open "≥ X" tail, marked in words.
+  const tail = page.getByRole("combobox", { name: "Long tail", exact: true });
+  await expect(tail).toHaveValue("5%");
+  expect(new URL(page.url()).searchParams.has("tailPercent")).toBe(false);
+  await expect(lastRange).toHaveText(/^≥ \S+ \(long tail\)$/);
+  const narrow = await lastRange.innerText();
+
+  // Widening to 25% lowers the tail's start and puts the choice in the URL.
+  await tail.click();
+  await page.getByRole("option", { name: "25%", exact: true }).click();
+  await expect(page).toHaveURL(/tailPercent=25/);
+  await expect(tail).toHaveValue("25%");
+  await expect(lastRange).toHaveText(/^≥ \S+ \(long tail\)$/);
+  await expect(lastRange).not.toHaveText(narrow);
+
+  // 0 restores the plain histogram: no open bucket at all.
+  await tail.click();
+  await page.getByRole("option", { name: "0%", exact: true }).click();
+  await expect(page).toHaveURL(/tailPercent=0/);
+  await expect(lastRange).not.toHaveText(/^≥/);
+
+  // Back to the default 5%: the param leaves the URL.
+  await tail.click();
+  await page.getByRole("option", { name: "5%", exact: true }).click();
+  await expect.poll(() => new URL(page.url()).searchParams.has("tailPercent")).toBe(false);
+  await expect(lastRange).toHaveText(/^≥ /);
+}
+
 /** The reported-time journey: the Estimation tab hop, both distributions, the domain and domain-view controls, the team drill. */
 async function readReportedTime(page: Page): Promise<void> {
   // Reached through the Estimation tabs: the route is `reported-time-ratio`, the tab "Reported time".
@@ -863,6 +903,8 @@ test.describe("reports, read by a regular user", () => {
     await expect(page.getByRole("heading", { name: "Epics: working days", exact: true })).toBeVisible();
     await expect(owners).toHaveCount(0);
   });
+
+  test("a user widens the cycle time histogram's long tail", ({ page }) => widenCycleTimeTail(page));
 
   test("the user reads task estimation accuracy", async ({ page }) => {
     await openGroup(page, "Estimation");

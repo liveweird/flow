@@ -1507,6 +1507,7 @@ paths:
         - { $ref: '#/components/parameters/ReportActivityType' }
         - { $ref: '#/components/parameters/ReportWorkCategory' }
         - { $ref: '#/components/parameters/ReportConnectionId' }
+        - { $ref: '#/components/parameters/ReportTailPercent' }
       responses:
         '200':
           description: The task estimation accuracy report
@@ -1549,6 +1550,7 @@ paths:
         - { $ref: '#/components/parameters/ReportDomain' }
         - { $ref: '#/components/parameters/ReportWorkCategory' }
         - { $ref: '#/components/parameters/ReportConnectionId' }
+        - { $ref: '#/components/parameters/ReportTailPercent' }
       responses:
         '200':
           description: The epic estimation accuracy report
@@ -1593,6 +1595,7 @@ paths:
         - { $ref: '#/components/parameters/ReportActivityType' }
         - { $ref: '#/components/parameters/ReportWorkCategory' }
         - { $ref: '#/components/parameters/ReportConnectionId' }
+        - { $ref: '#/components/parameters/ReportTailPercent' }
       responses:
         '200':
           description: The estimate adjustments report
@@ -1641,6 +1644,7 @@ paths:
         - { $ref: '#/components/parameters/ReportActivityType' }
         - { $ref: '#/components/parameters/ReportWorkCategory' }
         - { $ref: '#/components/parameters/ReportConnectionId' }
+        - { $ref: '#/components/parameters/ReportTailPercent' }
         - { $ref: '#/components/parameters/ReportBucket' }
       responses:
         '200':
@@ -1825,6 +1829,7 @@ paths:
         - { $ref: '#/components/parameters/ReportActivityType' }
         - { $ref: '#/components/parameters/ReportWorkCategory' }
         - { $ref: '#/components/parameters/ReportConnectionId' }
+        - { $ref: '#/components/parameters/ReportTailPercent' }
         - { $ref: '#/components/parameters/ReportBlockedItemKind' }
       responses:
         '200':
@@ -1930,6 +1935,7 @@ paths:
         - { $ref: '#/components/parameters/ReportActivityType' }
         - { $ref: '#/components/parameters/ReportWorkCategory' }
         - { $ref: '#/components/parameters/ReportConnectionId' }
+        - { $ref: '#/components/parameters/ReportTailPercent' }
       responses:
         '200':
           description: The data quality report
@@ -2221,6 +2227,7 @@ paths:
         - { $ref: '#/components/parameters/ReportActivityType' }
         - { $ref: '#/components/parameters/ReportWorkCategory' }
         - { $ref: '#/components/parameters/ReportConnectionId' }
+        - { $ref: '#/components/parameters/ReportTailPercent' }
       responses:
         '200':
           description: The reported time ratio report
@@ -2402,6 +2409,16 @@ components:
       required: false
       schema: { type: integer, format: int32, minimum: 0 }
       description: Restricts to one data source's own connection. Defaults to every enabled, active connection.
+    ReportTailPercent:
+      name: tailPercent
+      in: query
+      required: false
+      schema: { type: integer, format: int32, minimum: 0, maximum: 25, default: 5 }
+      description: >-
+        On a report whose response carries a `Distribution`: the share (percent) of the largest values folded into the
+        histogram's one final OPEN bucket (`to: null`), so a few far outliers do not stretch every equal-width bucket.
+        `0` keeps the plain equal-width histogram; only the histogram changes, never `n`, `mean`, `min`, `max` or the
+        percentiles. Outside `0..25` or not an integer is `400`.
     ReportBucket:
       name: bucket
       in: query
@@ -3645,13 +3662,23 @@ components:
       required: [from, to, count]
       properties:
         from: { type: number, format: double }
-        to: { type: number, format: double }
+        to:
+          type: number
+          format: double
+          nullable: true
+          description: >-
+            The bucket's upper edge; `null` ONLY on the final open tail bucket (see `Distribution.histogram`), which has
+            no upper bound.
         count: { type: integer, format: int64, minimum: 0 }
     Distribution:
       type: object
       description: >-
         `hidden = true` (fewer than `minSampleSize` items) means only `n` is meaningful — every
-        other field is null/empty.
+        other field is null/empty. `histogram` is equal-width buckets over `[min, X]` (each `[from, to)`, the last
+        equal-width one closed at its `to`), where X is the `(100 − tailPercent)`th percentile, followed by ONE final
+        open bucket `{from: X, to: null, count}` holding every value strictly above X (the long tail). With no value
+        above X (`tailPercent=0`, or ties at the top) there is no open bucket and the buckets span `[min, max]`. The
+        counts always sum to `n`; `n`, `mean`, `min`, `max` and the percentiles are over ALL values.
       required: [n, hidden, histogram]
       properties:
         n: { type: integer, format: int64, minimum: 0 }

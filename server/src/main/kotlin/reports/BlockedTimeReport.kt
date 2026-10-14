@@ -111,8 +111,8 @@ suspend fun ReportService.blockedTime(filter: ReportFilter, itemKind: BlockedIte
         BlockedTimeReport(
             meta = scope.meta,
             itemKind = itemKind,
-            blockedWorkingDays = buildDistribution(items.map { it.blockedWd }, minSample),
-            shareOfCycle = buildDistribution(items.mapNotNull { it.share }, minSample),
+            blockedWorkingDays = buildDistribution(items.map { it.blockedWd }, minSample, filter.tailPercent),
+            shareOfCycle = buildDistribution(items.mapNotNull { it.share }, minSample, filter.tailPercent),
             blockedItems = items.count { it.blockedWd > 0.0 },
             excluded = excludedOf(items),
             topItems = top.map { item ->
@@ -133,8 +133,8 @@ suspend fun ReportService.blockedTime(filter: ReportFilter, itemKind: BlockedIte
                     teamId = key.teamId,
                     accountId = key.accountId,
                     label = key.label,
-                    blockedWorkingDays = buildDistribution(rows.map { it.blockedWd }, minSample),
-                    shareOfCycle = buildDistribution(rows.mapNotNull { it.share }, minSample),
+                    blockedWorkingDays = buildDistribution(rows.map { it.blockedWd }, minSample, filter.tailPercent),
+                    shareOfCycle = buildDistribution(rows.mapNotNull { it.share }, minSample, filter.tailPercent),
                     blockedItems = rows.count { it.blockedWd > 0.0 },
                     excluded = excludedOf(rows),
                 )

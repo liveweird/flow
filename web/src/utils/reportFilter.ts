@@ -52,7 +52,19 @@ export interface ReportFilterState {
   /** Which items the WIP report counts. */
   itemKind?: WipItemKind;
   connectionId?: number;
+  /**
+   * The share (integer 0..25) of the largest values the distribution reports fold into their histogram's final open
+   * bucket. Only the DEFAULT_TAIL_PERCENT's absence is canonical: 5 is never stored, serialized or sent (the server's default).
+   */
+  tailPercent?: number;
 }
+
+/** The server's default `tailPercent`: left out of the URL, the request and the query key. */
+export const DEFAULT_TAIL_PERCENT = 5;
+/** The largest `tailPercent` the server accepts. */
+const MAX_TAIL_PERCENT = 25;
+/** What the long-tail control offers (the default included); a hand-edited URL may carry any other integer in range. */
+export const TAIL_PERCENT_CHOICES: readonly number[] = [0, 1, 2, 5, 10, 15, 20, 25];
 
 /** Every param this module owns — anything else in the query string is left alone. */
 const MANAGED_KEYS = [
@@ -71,6 +83,7 @@ const MANAGED_KEYS = [
   "by",
   "itemKind",
   "connectionId",
+  "tailPercent",
 ] as const;
 
 /** The managed params only some reports have a control for; the rest (period, team, member, connection) are shared. */
@@ -83,6 +96,7 @@ export const REPORT_SPECIFIC_KEYS = [
   "bucket",
   "by",
   "itemKind",
+  "tailPercent",
 ] as const;
 export type ReportSpecificKey = (typeof REPORT_SPECIFIC_KEYS)[number];
 
@@ -183,6 +197,8 @@ export function parseReportFilter(params: URLSearchParams, options: ReportFilter
   if (itemKind !== undefined) filter.itemKind = itemKind;
   const connectionId = parseBoundedInteger(params.get("connectionId"), 1);
   if (connectionId !== undefined) filter.connectionId = connectionId;
+  const tailPercent = parseBoundedInteger(params.get("tailPercent"), 0, MAX_TAIL_PERCENT);
+  if (tailPercent !== undefined && tailPercent !== DEFAULT_TAIL_PERCENT) filter.tailPercent = tailPercent;
 
   return filter;
 }

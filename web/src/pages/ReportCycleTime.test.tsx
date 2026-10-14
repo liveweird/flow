@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
-import { Route, Routes } from "react-router-dom";
+import { Route, Routes, useLocation } from "react-router-dom";
 import ReportCycleTime from "./ReportCycleTime";
 import { jsonResponse } from "../test/http";
 import {
@@ -9,6 +9,7 @@ import {
   CYCLE_TIME_EMPTY,
   CYCLE_TIME_MONTHS,
   CYCLE_TIME_NO_EPICS,
+  CYCLE_TIME_TAIL,
   CYCLE_TIME_TEAM,
   CYCLE_TIME_USER,
   FILTERS,
@@ -18,8 +19,12 @@ import { renderWithProviders, screen, waitFor, within } from "../test/render";
 
 // recharts renders nothing under happy-dom (no layout): histograms and the trend are probes.
 vi.mock("@mantine/charts", () => ({
-  BarChart: (props: { data: { count: number }[]; xAxisLabel?: string }) => (
-    <div data-testid="bar-chart" data-counts={props.data.map((r) => r.count).join(",")} data-x-label={props.xAxisLabel} />
+  BarChart: (props: { data: { label: string; count?: number; tail?: number }[]; xAxisLabel?: string }) => (
+    <div
+      data-testid="bar-chart"
+      data-counts={props.data.map((r) => r.count ?? `tail ${r.tail}`).join(",")}
+      data-x-label={props.xAxisLabel}
+    />
   ),
   LineChart: (props: { data: { label: string; p50: number | null }[]; connectNulls: boolean }) => (
     <div
@@ -47,10 +52,22 @@ function serve(mockFetch: FetchMock, report?: (url: string) => Response) {
   });
 }
 
+function Where() {
+  return <div data-testid="where">{useLocation().search}</div>;
+}
+
 function renderPage(route = "/reports/cycle-time") {
   return renderWithProviders(
     <Routes>
-      <Route path="/reports/cycle-time" element={<ReportCycleTime />} />
+      <Route
+        path="/reports/cycle-time"
+        element={
+          <>
+            <ReportCycleTime />
+            <Where />
+          </>
+        }
+      />
     </Routes>,
     { route },
   );
@@ -138,6 +155,54 @@ describe("ReportCycleTime page", () => {
     await waitFor(() => expect(calls(mockFetch)).toContain(`${URL_PREFIX}bucket=MONTH`));
     await waitFor(() => expect(screen.getByTestId("line-chart").getAttribute("data-labels")).toBe("2026-08|2026-09"));
     expect(within(screen.getByRole("table", { name: "Trend, as a table" })).getByRole("columnheader", { name: "Month" })).toBeInTheDocument();
+  });
+
+  test("the long tail: the default 5 is in neither the URL nor the request; a pick writes both, and 5 again removes it", async () => {
+    serve(mockFetch, (url) =>
+      jsonResponse(200, new URL(url, "http://x").searchParams.get("tailPercent") === "10" ? CYCLE_TIME : CYCLE_TIME_TAIL),
+    );
+    const user = userEvent.setup();
+    renderPage();
+    // The default answer ends in the open bucket: the chart's gray series, the table's "≥ 6" row marked in words.
+    await waitFor(() => expect(screen.getAllByTestId("bar-chart").length).toBeGreaterThan(0));
+    expect(screen.getAllByTestId("bar-chart")[0].getAttribute("data-counts")).toBe("3,6,5,2,tail 2");
+    const table = screen.getByRole("table", { name: "Histogram, as a table — Working days" });
+    const rows = within(table).getAllByRole("row").slice(1);
+    expect(rows[rows.length - 1].firstElementChild).toHaveTextContent("≥ 8 (long tail)");
+    const control = screen.getByRole("combobox", { name: "Long tail" });
+    expect(control).toHaveValue("5%");
+    expect(calls(mockFetch)).toEqual([URL_PREFIX]);
+    expect(screen.getByTestId("where")).toHaveTextContent("");
+
+    await user.click(control);
+    await user.click(screen.getByRole("option", { name: "10%" }));
+    await waitFor(() => expect(calls(mockFetch)).toContain(`${URL_PREFIX}tailPercent=10`));
+    expect(screen.getByTestId("where")).toHaveTextContent("?tailPercent=10");
+    await waitFor(() => expect(screen.getAllByTestId("bar-chart")[0].getAttribute("data-counts")).toBe("3,6,5,3,1"));
+    expect(screen.getByRole("combobox", { name: "Long tail" })).toHaveValue("10%");
+
+    await user.click(screen.getByRole("combobox", { name: "Long tail" }));
+    await user.click(screen.getByRole("option", { name: "5%" }));
+    await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent(/^$/));
+    expect(calls(mockFetch)[calls(mockFetch).length - 1]).toBe(URL_PREFIX);
+  });
+
+  test("the long tail is a deep link: tailPercent=0 is sent as written, an out-of-range value is dropped", async () => {
+    serve(mockFetch);
+    const { unmount } = renderPage("/reports/cycle-time?tailPercent=0");
+    expect(await screen.findByRole("combobox", { name: "Long tail" })).toHaveValue("0%");
+    expect(calls(mockFetch)).toEqual([`${URL_PREFIX}tailPercent=0`]);
+    unmount();
+    mockFetch.mockClear();
+    renderPage("/reports/cycle-time?tailPercent=99");
+    expect(await screen.findByRole("combobox", { name: "Long tail" })).toHaveValue("5%");
+    expect(calls(mockFetch)).toEqual([URL_PREFIX]);
+  });
+
+  test("the long tail is no filter: opening the filter bar shows no badge for it", async () => {
+    serve(mockFetch);
+    renderPage("/reports/cycle-time?tailPercent=20");
+    expect(await screen.findByRole("button", { name: /^Filters$/ })).toBeInTheDocument();
   });
 
   test("groups: a team below the minimum shows counts and a dash; teams link in", async () => {

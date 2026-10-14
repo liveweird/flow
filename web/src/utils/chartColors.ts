@@ -34,6 +34,12 @@ export const CHART_COLORS = {
   /** Trend lines: the median is the blue primary, the p90 tail the neutral gray — and it is dashed. */
   trendMedian: "flow.6",
   trendTail: "gray.6",
+  /**
+   * A histogram's final open bucket ("≥ X", the long tail): neutral gray against the estimate-blue body, so it reads as
+   * "everything beyond" rather than another range. Never the only cue: its x label starts "≥", the legend and tooltip name it
+   * "Long tail", and its table row says so.
+   */
+  longTail: "gray.6",
   /** Commitments' sprint capacity: a neutral reference line (gray, DASHED, with dots) over the plan-blue bars. */
   capacity: "gray.6",
   /** The backlog is planned work nobody has started: the plan blue. */

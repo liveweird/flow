@@ -77,7 +77,7 @@ private data class AdjustmentItem(
 
 private fun Long?.within(window: Pair<Long, Long>): Boolean = this != null && this >= window.first && this < window.second
 
-private fun figuresOf(items: List<AdjustmentItem>, window: Pair<Long, Long>, minSample: Int): AdjustmentFigures {
+private fun figuresOf(items: List<AdjustmentItem>, window: Pair<Long, Long>, minSample: Int, tailPercent: Int): AdjustmentFigures {
     val started = items.filter { it.startedAt.within(window) }
     val changed = started.count { it.changes > 0 }
     val done = items.filter { it.doneAt.within(window) }
@@ -92,7 +92,7 @@ private fun figuresOf(items: List<AdjustmentItem>, window: Pair<Long, Long>, min
         changedAfterStart = changed,
         share = if (started.size < minSample) null else changed.toDouble() / started.size,
         estimatedLate = started.count { it.estimatedLate },
-        changeDistribution = buildDistribution(changes, minSample),
+        changeDistribution = buildDistribution(changes, minSample, tailPercent),
         changeExcluded = AdjustmentChangeExcluded(
             population = done.size,
             estimatedLate = late.size,
@@ -120,9 +120,9 @@ suspend fun ReportService.estimateAdjustments(filter: ReportFilter, nowMs: Long)
         val empty = window ?: (0L to 0L)
         EstimateAdjustmentsReport(
             meta = scope.meta,
-            tasks = figuresOf(tasks, empty, minSample),
-            epics = figuresOf(epics, empty, minSample),
-            groups = adjustmentGroups(filter.level, tasks, epics, empty, minSample),
+            tasks = figuresOf(tasks, empty, minSample, filter.tailPercent),
+            epics = figuresOf(epics, empty, minSample, filter.tailPercent),
+            groups = adjustmentGroups(filter.level, tasks, epics, empty, minSample, filter.tailPercent),
         )
     }
 
@@ -186,6 +186,7 @@ private suspend fun adjustmentGroups(
     epics: List<AdjustmentItem>,
     window: Pair<Long, Long>,
     minSample: Int,
+    tailPercent: Int,
 ): List<EstimateAdjustmentsGroup> {
     // UNIT: tasks and epics share the team key (UNASSIGNED tasks / UNOWNED epics together); TEAM: tasks only, by user.
     val items = tasks.map { KindedItem(it, false) } + if (level == ReportLevel.UNIT) epics.map { KindedItem(it, true) } else emptyList()
@@ -194,8 +195,12 @@ private suspend fun adjustmentGroups(
             teamId = key.teamId,
             accountId = key.accountId,
             label = key.label,
-            tasks = figuresOf(rows.filterNot { it.isEpic }.map { it.item }, window, minSample),
-            epics = if (level == ReportLevel.UNIT) figuresOf(rows.filter { it.isEpic }.map { it.item }, window, minSample) else null,
+            tasks = figuresOf(rows.filterNot { it.isEpic }.map { it.item }, window, minSample, tailPercent),
+            epics = if (level == ReportLevel.UNIT) {
+                figuresOf(rows.filter { it.isEpic }.map { it.item }, window, minSample, tailPercent)
+            } else {
+                null
+            },
         )
     }
 }

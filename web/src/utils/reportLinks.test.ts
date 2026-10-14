@@ -87,6 +87,36 @@ describe("reportHref", () => {
   });
 });
 
+describe("reportHref — the long tail", () => {
+  const search = "teamId=2&bucket=MONTH&tailPercent=10";
+
+  test("goes only to the seven reports with a histogram, and is dropped everywhere else", () => {
+    for (const path of [
+      "/reports/cycle-time",
+      "/reports/task-estimation-accuracy",
+      "/reports/epic-estimation-accuracy",
+      "/reports/estimate-adjustments",
+      "/reports/reported-time-ratio",
+      "/reports/blocked-time",
+      "/reports/data-quality",
+    ]) {
+      expect(reportHref(path, search), path).toContain("tailPercent=10");
+    }
+    for (const path of [
+      "/reports/commitments",
+      "/reports/throughput",
+      "/reports/sprint-consistency",
+      "/reports/wip",
+      "/reports/backlog",
+      "/reports/aging-wip",
+      "/reports/epic-progress",
+      "/reports/cost-matrix",
+    ]) {
+      expect(reportHref(path, search), path).not.toContain("tailPercent");
+    }
+  });
+});
+
 describe("reportHref — several members", () => {
   const search = "teamId=2&accountId=a&accountId=b&accountId=c&lastSprints=3";
 

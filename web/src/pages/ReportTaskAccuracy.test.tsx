@@ -1,16 +1,20 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
-import { Route, Routes } from "react-router-dom";
+import { Route, Routes, useLocation } from "react-router-dom";
 import ReportTaskAccuracy from "./ReportTaskAccuracy";
 import { jsonResponse } from "../test/http";
-import { FILTERS, TASK_ACCURACY, TASK_ACCURACY_EMPTY, TASK_ACCURACY_HIDDEN } from "../test/reportFixtures";
+import { FILTERS, TASK_ACCURACY, TASK_ACCURACY_EMPTY, TASK_ACCURACY_HIDDEN, TASK_ACCURACY_TAIL } from "../test/reportFixtures";
 import { openReportFilters } from "../test/reportFilters";
 import { renderWithProviders, screen, waitFor, within } from "../test/render";
 
 // recharts renders nothing under happy-dom (no layout), so each histogram is a probe.
 vi.mock("@mantine/charts", () => ({
-  BarChart: (props: { data: { label: string; count: number }[]; xAxisLabel?: string }) => (
-    <div data-testid="bar-chart" data-counts={props.data.map((r) => r.count).join(",")} data-x-label={props.xAxisLabel} />
+  BarChart: (props: { data: { label: string; count?: number; tail?: number }[]; xAxisLabel?: string }) => (
+    <div
+      data-testid="bar-chart"
+      data-counts={props.data.map((r) => r.count ?? `tail ${r.tail}`).join(",")}
+      data-x-label={props.xAxisLabel}
+    />
   ),
 }));
 
@@ -25,10 +29,22 @@ function serve(mockFetch: FetchMock, report?: () => Response) {
   });
 }
 
+function Where() {
+  return <div data-testid="where">{useLocation().search}</div>;
+}
+
 function renderPage(route = "/reports/task-estimation-accuracy") {
   return renderWithProviders(
     <Routes>
-      <Route path="/reports/task-estimation-accuracy" element={<ReportTaskAccuracy />} />
+      <Route
+        path="/reports/task-estimation-accuracy"
+        element={
+          <>
+            <ReportTaskAccuracy />
+            <Where />
+          </>
+        }
+      />
     </Routes>,
     { route },
   );
@@ -49,6 +65,22 @@ describe("ReportTaskAccuracy page", () => {
     vi.unstubAllGlobals();
     vi.clearAllMocks();
     localStorage.clear();
+  });
+
+  test("the long tail control sits with the histograms: a pick writes the URL and the request, and the open bucket shows", async () => {
+    serve(mockFetch, () => jsonResponse(200, TASK_ACCURACY_TAIL));
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getAllByTestId("bar-chart")[0].getAttribute("data-counts")).toBe("1,3,5,2,tail 1"));
+    const table = screen.getByRole("table", { name: "Histogram, as a table — Against the estimate at start" });
+    const rows = within(table).getAllByRole("row").slice(1);
+    expect(rows[rows.length - 1].firstElementChild).toHaveTextContent("≥ 2.5 (long tail)");
+    expect(calls(mockFetch)).toEqual([URL_PREFIX]);
+
+    await user.click(screen.getByRole("combobox", { name: "Long tail" }));
+    await user.click(screen.getByRole("option", { name: "0%" }));
+    await waitFor(() => expect(calls(mockFetch)).toContain(`${URL_PREFIX}tailPercent=0`));
+    expect(screen.getByTestId("where")).toHaveTextContent("?tailPercent=0");
   });
 
   test("shows both views side by side — at start first — with strips, histogram tables and the counted exclusions", async () => {

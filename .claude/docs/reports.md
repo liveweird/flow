@@ -107,6 +107,12 @@ data actually lives.
 - **Optional filters** -- `domain`, `activityType`, `workCategory` (the literal `UNCATEGORIZED` is a
   legal value, not just a real category name), `connectionId` -- all structural pass-through here,
   validated against the connection(s) in scope by the report's own service.
+- **`tailPercent`** (integer `0..25`, default `5`, spec parameter `ReportTailPercent`) -- the share of the largest values every
+  `Distribution` of the report folds into its histogram's final open bucket (`Distribution` below). Parsed for every report, read
+  only by the seven whose response carries a `Distribution` (task/epic estimation accuracy, estimate adjustments, cycle time,
+  blocked time, reported time ratio, data quality; the spec declares it on exactly those paths). Non-integer or outside `0..25` is
+  `400`, a repeat is `400`. `ReportFilter.tailPercent` is threaded to every `buildDistribution` call (the function has no default,
+  so a new call site cannot forget it). The cycle-time trend reads only `p50`/`p90` and passes `0`.
 - **No `breakdown` parameter.** A `breakdown=NONE|DOMAIN|ACTIVITY_TYPE|WORK_CATEGORY` slice of `groups` was parsed by
   every report but changed none of them, so it was removed (checkup C12); a request still carrying it is ignored like
   any unknown parameter name (`.claude/docs/list-endpoints.md`: unknown names stay ignored by deliberate leniency).
@@ -118,7 +124,7 @@ data actually lives.
 ## `Distribution` (`reports/Distribution.kt`)
 
 The shared shape every per-item measure (cycle time, estimation accuracy, blocked time, ...)
-returns: `{n, hidden, mean, min, max, p50, p90, p95, histogram[{from, to, count}]}`. `hidden = n <
+returns: `{n, hidden, mean, min, max, p50, p90, p95, histogram[{from, to, count}]}` (`to` is `null` on the one final open bucket). `hidden = n <
 minSampleSize` (`metrics.settings.min_sample_size`) -- when hidden, only `n` is populated, every
 other field stays `null`/empty (`.claude/docs/domain-model.md` "Distributions": "Groups smaller
 than the minimum sample size show counts only, with a note").
@@ -132,10 +138,23 @@ means `Distribution`'s own math is testable with zero database (`DistributionTes
 PostgreSQL's exact conventions so a later SQL-backed report never disagrees with this one over the
 same input: `p50`/`p90`/`p95` use `percentile_cont`'s own linear-interpolation-between-closest-ranks
 method; the histogram uses `width_bucket`'s own equal-width-bucket boundary rule (`[from, to)`
-except the LAST bucket, closed on both ends, so the maximum value always lands somewhere). A
+except the LAST equal-width bucket, closed on both ends, so the last body value always lands somewhere). A
 later report whose dataset is too large to pull wholesale into the JVM can run the SQL aggregate
 directly and feed its own numbers into this SAME `Distribution` shape -- the wire contract never
 changes, only which side does the arithmetic.
+
+**The long tail (`tailPercent`).** Equal-width buckets from `min` to `max` let a few far outliers stretch every bucket, so the
+first one held nearly everything. With `tailPercent = N > 0` (default 5, the report parameter above) `buildDistribution` folds the
+values above the (100 − N)th percentile (roughly the top N%; with a small `n` one top value can be more than N%) into ONE final open bucket: `X = percentile_cont((100 - N) / 100)` over all the values; the **tail** is the values
+strictly `> X`; the **body** (values `<= X`) gets `histogramBuckets` (10) equal-width buckets over `[min, X]` by the rule above (the
+last body bucket closed at `X`), then `{from: X, to: null, count: tail.size}`. No value above `X` (`N = 0`, or ties at the top), or `X` equal to the minimum (most values tie there, e.g. mostly-zero blocked time), means no
+open bucket: the histogram is exactly the plain `[min, max]` one, so **`tailPercent=0` reproduces the pre-tail histogram bit for bit**.
+Only the histogram moves: `n`, `mean`, `min`, `max`, `p50`/`p90`/`p95` stay over ALL values, the counts always sum to `n`, a hidden
+distribution is untouched, and `to` is nullable on the wire only for that last bucket (written as an explicit `null`; `to` has no
+Kotlin default because of `encodeDefaults = false`). Pinned by `DistributionTest` (hand-computed small inputs, the `tailPercent=0`
+equivalence against an independent re-implementation of the old algorithm on random inputs, ties, `n = 1`, negatives) and, end to end,
+`ReportCycleTimeTest` "tailPercent folds the top values into one open bucket and 0 restores the plain histogram" and
+`ReportTailPercentTest` (every distribution report, on the wire JSON).
 
 ## `meta` (`reports/ReportMeta.kt`)
 

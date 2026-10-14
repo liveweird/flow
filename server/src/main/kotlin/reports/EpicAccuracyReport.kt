@@ -137,8 +137,8 @@ suspend fun ReportService.epicEstimationAccuracy(filter: ReportFilter, nowMs: Lo
                 EpicAccuracyGroup(
                     teamId = key.teamId,
                     label = key.label,
-                    atStart = buildDistribution(result.atStart, minSample),
-                    atDone = buildDistribution(result.atDone, minSample),
+                    atStart = buildDistribution(result.atStart, minSample, filter.tailPercent),
+                    atDone = buildDistribution(result.atDone, minSample, filter.tailPercent),
                     excluded = result.excluded,
                 )
             }
@@ -147,8 +147,8 @@ suspend fun ReportService.epicEstimationAccuracy(filter: ReportFilter, nowMs: Lo
             .take(EPIC_ACCURACY_MAX_ROWS)
         EpicEstimationAccuracyReport(
             meta = scope.meta,
-            atStart = buildDistribution(total.atStart, minSample),
-            atDone = buildDistribution(total.atDone, minSample),
+            atStart = buildDistribution(total.atStart, minSample, filter.tailPercent),
+            atDone = buildDistribution(total.atDone, minSample, filter.tailPercent),
             excluded = total.excluded,
             epics = epicRows(listed),
             epicsTruncated = epics.size > EPIC_ACCURACY_MAX_ROWS,

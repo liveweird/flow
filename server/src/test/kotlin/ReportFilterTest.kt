@@ -235,4 +235,20 @@ class ReportFilterTest {
         assertEquals("UNCATEGORIZED", filter.workCategory)
         assertEquals(3u, filter.connectionId)
     }
+
+    @Test
+    fun `tailPercent defaults to 5, takes 0 to 25 and anything else is 400`() {
+        assertEquals(5, parametersOf().parseReportFilter(utcCalendar, now, DomainView.TASK).tailPercent)
+        for (ok in listOf(0, 1, 5, 25)) {
+            assertEquals(ok, parametersOf("tailPercent" to listOf("$ok")).parseReportFilter(utcCalendar, now, DomainView.TASK).tailPercent)
+        }
+        for (bad in listOf("26", "-1", "x", "2.5", "100")) {
+            assertFailsWith<BadRequestException>(bad) {
+                parametersOf("tailPercent" to listOf(bad)).parseReportFilter(utcCalendar, now, DomainView.TASK)
+            }
+        }
+        assertFailsWith<BadRequestException> {
+            parametersOf("tailPercent" to listOf("5", "6")).parseReportFilter(utcCalendar, now, DomainView.TASK)
+        }
+    }
 }
