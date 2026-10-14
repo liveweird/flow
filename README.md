@@ -21,7 +21,7 @@ not who is busy.
   See `.claude/docs/metrics.md`.
 - **Seventeen reports** on sixteen pages (the backlog in sprints sits on the estimated-backlog
   page), open to every signed-in user and drilling unit → team → user; period-based reports take
-  any calendar period or the last N sprints: velocity, throughput, sprint consistency and cycle
+  any calendar period or the last N sprints: commitments, velocity, throughput, sprint consistency and cycle
   time (tasks, and epics by owner team); task and epic estimation accuracy, estimate adjustments
   and reported ÷ cycle time; WIP, the estimated backlog, aging WIP and blocked time; epic progress
   (planned value, earned value and actual cost — PV/EV/AC — in man-days); data quality; and the

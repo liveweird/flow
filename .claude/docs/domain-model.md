@@ -120,20 +120,21 @@ below.
 
 ## Glossary
 
-Flow uses the user's vocabulary, which differs slightly from common Scrum usage:
+Flow's vocabulary now matches common Scrum usage:
 
-- **Velocity** — how much a team *plans* into a sprint: **initial velocity** = committed scope at
-  sprint start; **final velocity** = the final scope at sprint completion. (Scrum usually means
-  "delivered" by velocity — in Flow that is throughput.)
-- **Throughput** — how much a team *delivers* in a sprint: items done inside the sprint window
-  while in the sprint.
+- **Commitments** — what a team commits to a sprint: **initial** = committed scope at sprint start;
+  **final** = the scope at sprint completion.
+- **Velocity** — what a single team delivers in a sprint, in story points (1 SP = 1 MD); always per
+  sprint and per team. On screen it is Sprint consistency's per-sprint "Delivered" (`fact_sprint.delivered_md`).
+- **Throughput** — what was delivered over any time unit (week, month, quarter…) by any group of people
+  (a team, a few specific developers…), in story points or item count.
 - **Commitment** — the sprint's scope at start + grace that is still in the sprint at completion;
   scope taken out is reported as **removed**, beside it and in no other bucket (A17).
 - **Carry-over** — scope in the sprint at completion (committed or added) that is not done and
   appears in the team's next sprint; **dropped** scope is not done and in no later sprint. So a
   sprint's final scope = delivered + carried over + dropped, always, and = committed + added in items
   (in SP too, unless an item was re-estimated between its commitment and the sprint's close) (A17). A
-  task removed after being done counts as removed, not delivered. A carried-over task counts in the velocity
+  task removed after being done counts as removed, not delivered. A carried-over task counts in the commitments
   of every sprint it was committed to, but in throughput only once — in the sprint where it was
   done (Jira's own convention).
 - **Backlog in sprints** — estimated backlog SP ÷ the team's mean delivered SP over its last N
@@ -252,12 +253,12 @@ user, and slices by domain, activity type and work category.
 
 | # | Report | Source | Definition |
 |---|---|---|---|
-| 1 | **Velocity** | `fact_sprint_snapshot` (+ live `fact_sprint`) | initial = committed SP; final = final-scope SP at completion; per user via `assignee_at_commitment` in `fact_sprint_scope` |
+| 1 | **Commitments** | `fact_sprint_snapshot` (+ live `fact_sprint`) | initial = committed SP; final = final-scope SP at completion; plus the team's capacity; per user via `assignee_at_commitment` in `fact_sprint_scope` |
 | 2 | **Throughput** | `fact_sprint` (sprint view), `fact_task_delivery` (period view) | delivered SP; for a calendar period: SP of tasks with `done_at` in it |
 | 3 | **Task estimation accuracy** | `fact_task_delivery`, DONE tasks with an estimate and worklogs | `actual_md ÷ estimate at start` (D15; vs estimate at done as a second view); full distribution; unestimated or worklog-less DONE tasks counted beside it, never in it |
 | 4 | **Epic estimation accuracy** | `fact_epic_delivery`, DONE epics | `actual_md ÷ own estimate at start` (D15; at done as a second view); the child-sum estimate shown alongside |
 | 5 | **Estimate adjustments** | `fact_task_delivery`, `fact_epic_delivery` | share of started items whose estimate changed after start, and the change start → done as a fraction (`0.25` = +25 %, a distribution); estimated-late items counted separately |
-| 6.1 | **Velocity vs throughput** | `fact_sprint` | committed and final vs delivered SP, sprint over sprint |
+| 6.1 | **Commitments vs velocity** | `fact_sprint` | committed and final vs delivered SP (velocity), sprint over sprint |
 | 6.2 | **Carry-over** | `fact_sprint` | carried-over SP (and dropped SP) per sprint |
 | 6.3 | **Added scope** | `fact_sprint` | SP added after sprint start (and removed) |
 | 7 | **Cycle time** | `fact_task_delivery` | per task; elapsed and working days; distribution |
@@ -473,7 +474,7 @@ carries the per-measure detail).
   - **Aging WIP keeps waiting items.** An open task or epic whose current stage is IN_PROGRESS or WAITING ages from
     `started_at`; each item carries `waiting` (its current stage is WAITING) beside `blocked`.
   - **Deep dive Execution stays IN_PROGRESS-only** (A29): WAITING days stop counting as execution, which is the intent.
-  - **Unchanged by construction** (report 12 is not among them: it follows `started_at`): velocity, throughput, sprint
+  - **Unchanged by construction** (report 12 is not among them: it follows `started_at`): commitments, velocity, throughput, sprint
     buckets, backlog and EVM (sprints, `done_at`, worklogs, NOT_STARTED), the frozen sprint snapshots (they hold no
     stage), and data quality (WAITING is a mapped stage).
 
