@@ -670,6 +670,48 @@ async function foldAndUnfoldFilters(page: Page): Promise<void> {
   await expect(page.getByRole("button", { name: /^Filters/ })).toHaveAttribute("aria-expanded", "false");
 }
 
+/** Delivery, narrowed to the golden sprint, then the Throughput tab (which carries the period and team over). */
+async function openGoldenThroughput(page: Page): Promise<void> {
+  await openGroup(page, "Delivery");
+  await pickGoldenSprint(page);
+  await page.getByRole("tab", { name: "Throughput", exact: true }).click();
+  await expect(page.getByRole("heading", { level: 2, name: "Throughput", exact: true })).toBeVisible();
+}
+
+/** The cumulative throughput journey: the Chart view switch, the URL param, the running-total columns, and the param dropped on the next tab. */
+async function switchThroughputToCumulative(page: Page): Promise<void> {
+  await openGoldenThroughput(page);
+  await expect(page.getByRole("group", { name: "Chart: delivered scope by period", exact: true })).toBeVisible();
+  await expect(page.getByRole("group", { name: "Chart: delivered scope by sprint", exact: true })).toBeVisible();
+
+  // Per period is the default and leaves the URL alone; Cumulative draws running totals and writes the choice.
+  const view = page.getByRole("radiogroup", { name: "Chart view", exact: true });
+  await expect(view.getByRole("radio", { name: "Per period", exact: true })).toBeChecked();
+  await expect(page).not.toHaveURL(/view=/);
+  await view.getByText("Cumulative", { exact: true }).click();
+  await expect(page).toHaveURL(/view=cumulative/);
+  await expect(page.getByRole("group", { name: "Chart: delivered scope by period, cumulative", exact: true })).toBeVisible();
+  await expect(page.getByRole("group", { name: "Chart: delivered scope by sprint, cumulative", exact: true })).toBeVisible();
+
+  // Every number of the areas is in a table: the last week's running total is the period's total.
+  const summary = await page.getByText(/^Delivered in the period: [\d.]+ MD/).textContent();
+  const periodMd = /: ([\d.]+) MD/.exec(summary ?? "")?.[1] ?? "";
+  const bucketTable = page.getByRole("table", { name: "Delivered per period, as a table" });
+  await expect(bucketTable.getByRole("columnheader", { name: "Cumulative (MD)", exact: true })).toBeVisible();
+  await expect(bucketTable.getByRole("row").last().getByRole("cell").nth(3)).toHaveText(periodMd);
+  // One sprint is in view, so its running total is its own delivered MD.
+  await expect(goldenRow(page).getByRole("cell").nth(5)).toHaveText(md(GOLDEN.deliveredMd));
+
+  // Back to per period drops the param; the choice follows no report tab (it is no filter).
+  await view.getByText("Per period", { exact: true }).click();
+  await expect(page).not.toHaveURL(/view=/);
+  await expect(page.getByRole("group", { name: "Chart: delivered scope by period", exact: true })).toBeVisible();
+  await view.getByText("Cumulative", { exact: true }).click();
+  await page.getByRole("tab", { name: "Commitments", exact: true }).click();
+  await expect(page.getByRole("heading", { level: 2, name: "Commitments", exact: true })).toBeVisible();
+  await expect(page).not.toHaveURL(/view=/);
+}
+
 test.describe("reports, read by a regular user", () => {
   test.beforeAll(async () => {
     // A full stub sync (~1,200 issues) plus the derivation that follows it: the two waits below
@@ -739,10 +781,7 @@ test.describe("reports, read by a regular user", () => {
   });
 
   test("the user regroups throughput by month", async ({ page }) => {
-    await openGroup(page, "Delivery");
-    await pickGoldenSprint(page);
-    await page.getByRole("tab", { name: "Throughput", exact: true }).click();
-    await expect(page.getByRole("heading", { level: 2, name: "Throughput", exact: true })).toBeVisible();
+    await openGoldenThroughput(page);
     // Switching tabs carries the period and team with it.
     await expect(page).toHaveURL(/\/reports\/throughput\?/);
     await expect(page).toHaveURL(new RegExp(`sprintId=${GOLDEN.sprintId}`));
@@ -769,6 +808,8 @@ test.describe("reports, read by a regular user", () => {
     await expect(bucketRows.nth(1).getByRole("cell").first()).toHaveText(/^\d{4}-\d{2}$/);
     await expect(page.getByRole("group", { name: "Chart: delivered scope by period" })).toBeVisible();
   });
+
+  test("a user switches throughput to the cumulative view", ({ page }) => switchThroughputToCumulative(page));
 
   test("a user folds and unfolds the report filters and the choice is remembered", async ({ page }) => {
     await foldAndUnfoldFilters(page);

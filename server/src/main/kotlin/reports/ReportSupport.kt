@@ -366,7 +366,7 @@ internal suspend fun ReportService.resolveReportScope(filter: ReportFilter, nowM
 /**
  * The `fact_task_delivery` rows a task report reads, before any time anchor: the scoped connections,
  * level-0 only (`is_subtask = false`, D2), the org filter (team = the D5 credit team, `teamId=0` =
- * no credit team; user = assignee at done — and, with [openAttribution] (A25), an OPEN task is
+ * no credit team; user = assignee at done (`IN` the picked accounts) — and, with [openAttribution] (A25), an OPEN task is
  * attributed to `current_team_id`/`current_assignee_account_id` instead, branching on `done_at`, never
  * `COALESCE`, since a DONE task with no credit team is legitimately UNASSIGNED) and the `domain` (TASK view: the task's own domain; EPIC
  * view: the epic's domain, an epic-less task — or one whose epic is outside the ingested scope —
@@ -385,12 +385,12 @@ internal fun taskFactSlice(filter: ReportFilter, connectionIds: List<UInt>, open
             credit
         }
     }
-    filter.accountId?.let { account ->
+    filter.accountIds.takeIf { it.isNotEmpty() }?.let { accounts ->
         predicate = predicate and if (openAttribution) {
-            (t.doneAt.isNotNull() and (t.assigneeAccountIdAtDone eq account)) or
-                (t.doneAt.isNull() and (t.currentAssigneeAccountId eq account))
+            (t.doneAt.isNotNull() and (t.assigneeAccountIdAtDone inList accounts)) or
+                (t.doneAt.isNull() and (t.currentAssigneeAccountId inList accounts))
         } else {
-            t.assigneeAccountIdAtDone eq account
+            t.assigneeAccountIdAtDone inList accounts
         }
     }
     filter.domain?.let { domain ->

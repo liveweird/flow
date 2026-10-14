@@ -899,7 +899,7 @@ export interface paths {
          *     narrows to TEAM level, `sprints` becomes that one team's own sprints and `groups` becomes a
          *     per-user split (`fact_sprint_scope.assignee_at_commitment`, Σ committed/final MD — the same
          *     removed-row rule the team total itself follows, so Σ users == the team total); `teamId` AND
-         *     `accountId` together narrow to USER level — `accountId` repeats here (and on no other report),
+         *     `accountId` together narrow to USER level — `accountId` repeats here (and on throughput, no other report),
          *     1 to 8 distinct accounts, more is a 400. `sprints` itself narrows to the picked accounts' SUMMED
          *     contribution (its `snapshot` is their summed frozen figures, computed from the sprint's stored
          *     snapshot scope by the same rule as the live ones; null when the sprint has no snapshot);
@@ -952,10 +952,14 @@ export interface paths {
          *     are one per credit team (a `teamId: null` group is UNASSIGNED); `teamId` narrows to TEAM level
          *     (`bySprint` to that team's sprints, the period view to tasks credited to that team — `teamId=0`
          *     selects UNASSIGNED credit for the period view and yields no sprints) and `groups` becomes one per
-         *     assignee at done; `teamId` AND `accountId` narrow to USER level (`groups` empty; `bySprint` is
-         *     that account's deliveries by assignee at commitment, its `snapshot` that account's frozen share
-         *     computed from the sprint's stored snapshot scope by the same rule as the live figures — null when
-         *     the sprint has no snapshot). Σ `groups` equals Σ `byBucket`.
+         *     assignee at done; `teamId` AND `accountId` narrow to USER level — `accountId` repeats here (and on
+         *     commitments too, no other report), 1 to 8 distinct accounts, more is a 400. `byBucket` sums the tasks
+         *     whose assignee at done is one of the picked accounts and `groups` lists each picked account's period
+         *     totals (a zero entry when it delivered nothing); `bySprint` is the picked accounts' SUMMED deliveries
+         *     by assignee at commitment, its `snapshot` their summed frozen share computed from the sprint's stored
+         *     snapshot scope by the same rule as the live figures — null when the sprint has no snapshot.
+         *     `byUser` (on every `bySprint` and `byBucket` entry) splits the live figures into one entry per
+         *     picked account in request order, zeros included; empty at UNIT/TEAM level. Σ `groups` equals Σ `byBucket`.
          */
         get: operations["getReportThroughput"];
         put?: never;
@@ -2699,6 +2703,17 @@ export interface components {
             deliveredItems: number;
             snapshot: components["schemas"]["ThroughputSnapshot"] | null;
             drift: boolean;
+            /** @description USER level only: one entry per picked account, in request order, zeros included; empty at UNIT/TEAM level. */
+            byUser: components["schemas"]["ThroughputUserShare"][];
+        };
+        /** @description One picked account's own live delivered share of a sprint (its `assignee_at_commitment` deliveries) or of a time bucket (its tasks by `assignee_at_done`). */
+        ThroughputUserShare: {
+            accountId: string;
+            /** @description The Jira display name; the account id when none is known. */
+            label: string;
+            /** Format: double */
+            deliveredMd: number;
+            deliveredItems: number;
         };
         /** @description One time bucket of the PERIOD view (tasks by `done_at`, priced at done). */
         ThroughputBucketRow: {
@@ -2710,8 +2725,10 @@ export interface components {
             /** Format: double */
             deliveredMd: number;
             deliveredItems: number;
+            /** @description USER level only: one entry per picked account, in request order, zeros included; empty at UNIT/TEAM level. */
+            byUser: components["schemas"]["ThroughputUserShare"][];
         };
-        /** @description A credit team's sums (UNIT level; `teamId: null` is the UNASSIGNED bucket, `accountId` null) or one assignee-at-done's sums (TEAM level; `accountId` null with a null `label` is the unassigned bucket) over the PERIOD view — always empty at USER level. */
+        /** @description A credit team's sums (UNIT level; `teamId: null` is the UNASSIGNED bucket, `accountId` null) or one assignee-at-done's sums (TEAM level; `accountId` null with a null `label` is the unassigned bucket) over the PERIOD view — at USER level one entry per picked account (its period totals, a zero entry when it delivered nothing). */
         ThroughputGroup: {
             /** Format: int32 */
             teamId: number | null;
@@ -5711,8 +5728,8 @@ export interface operations {
                 sprintId?: components["parameters"]["ReportSprintId"];
                 /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
                 teamId?: components["parameters"]["ReportTeamId"];
-                /** @description One Jira account id — sets the level to USER. Requires `teamId`. */
-                accountId?: components["parameters"]["ReportAccountId"];
+                /** @description Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`. */
+                accountId?: string[];
                 /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
                 domainView?: components["parameters"]["ReportDomainView"];
                 /** @description Restricts to one domain key. */

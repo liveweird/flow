@@ -90,17 +90,29 @@ describe("reportHref", () => {
 describe("reportHref — several members", () => {
   const search = "teamId=2&accountId=a&accountId=b&accountId=c&lastSprints=3";
 
-  test("commitments keeps every picked member", () => {
+  test("commitments and throughput keep every picked member, so moving between them keeps all the picks", () => {
     expect(reportHref("/reports/commitments", search)).toBe(`/reports/commitments?${search}`);
+    expect(reportHref("/reports/throughput", search)).toBe(`/reports/throughput?${search}`);
   });
 
   test("any other report keeps only the FIRST member, in place, so the address bar matches what that page shows", () => {
-    expect(reportHref("/reports/throughput", search)).toBe("/reports/throughput?teamId=2&accountId=a&lastSprints=3");
+    expect(reportHref("/reports/sprint-consistency", search)).toBe("/reports/sprint-consistency?teamId=2&accountId=a&lastSprints=3");
     expect(reportHref("/reports/cycle-time", search)).toBe("/reports/cycle-time?teamId=2&accountId=a&lastSprints=3");
   });
 
   test("a single member is untouched everywhere", () => {
     expect(reportHref("/reports/throughput", "teamId=2&accountId=a")).toBe("/reports/throughput?teamId=2&accountId=a");
+  });
+});
+
+describe("reportHref — the throughput chart view", () => {
+  const search = "teamId=2&view=cumulative&bucket=MONTH";
+
+  test("follows a link only to throughput, which reads it; every other report drops it", () => {
+    expect(reportHref("/reports/throughput", search)).toBe(`/reports/throughput?${search}`);
+    for (const path of ["/reports/commitments", "/reports/cycle-time", "/reports/sprint-consistency", "/reports/wip"]) {
+      expect(reportHref(path, search)).not.toContain("view=");
+    }
   });
 });
 

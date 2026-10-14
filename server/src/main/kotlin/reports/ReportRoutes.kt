@@ -165,7 +165,7 @@ fun Application.configureReportRoutes() {
  * ONE report endpoint: the `call.caller()` guard FIRST (403/401 before any parameter is read, so 403 wins over 400), the shared
  * filter parse against the configured working calendar ([defaultView] is the report's own `domainView` default), then
  * [respond] with the filter, the raw query parameters (for a report's own extras — parsed AFTER the filter, so the shared
- * `400`s keep their order) and the request's `now`. [multipleAccounts] is commitments' opt-in to a repeated `accountId`.
+ * `400`s keep their order) and the request's `now`. [multipleAccounts] is the opt-in (commitments, throughput) to a repeated `accountId`.
  */
 private inline fun <reified R : Any> Route.reportGet(
     metricsSettings: MetricsSettingsService,
@@ -186,13 +186,13 @@ private inline fun <reified R : Any> Route.reportGet(
 /** The sprint, estimation, cycle-time and reported-time reports (1–8), in report order. */
 private fun Route.deliveryRoutes(reportService: ReportService, metricsSettings: MetricsSettingsService) {
     // Commitments (report 1) carries no domain slice (measures.md's Report 1 rows: domain "—"), so the TASK/EPIC default is a
-    // harmless placeholder — every response still echoes it in `meta`. Commitments alone takes several `accountId`s (1..8).
+    // harmless placeholder — every response still echoes it in `meta`. Commitments and throughput alone take several `accountId`s (1..8).
     reportGet<ReportCommitmentsRoute>(metricsSettings, DomainView.TASK, multipleAccounts = true) { filter, _, _ ->
         reportService.commitments(filter)
     }
     // Throughput's (report 2) period view honours domain/activityType/workCategory and defaults to the TASK domain view
-    // (D3: delivery/flow measures stay with the task's own domain).
-    reportGet<ReportThroughputRoute>(metricsSettings, DomainView.TASK) { filter, params, nowMs ->
+    // (D3: delivery/flow measures stay with the task's own domain); like commitments it takes several `accountId`s (1..8).
+    reportGet<ReportThroughputRoute>(metricsSettings, DomainView.TASK, multipleAccounts = true) { filter, params, nowMs ->
         reportService.throughput(filter, params.optionalEnum<ThroughputBucket>("bucket") ?: ThroughputBucket.WEEK, nowMs)
     }
     // Estimation accuracy (reports 3, 4) and adjustments (report 5). Tasks default to the TASK domain view (D3); epic

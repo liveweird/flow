@@ -1,11 +1,11 @@
 import "@mantine/charts/styles.css";
 import { BarChart, ChartTooltip, CompositeChart } from "@mantine/charts";
-import type { ReactNode } from "react";
-import { Box, Text, useComputedColorScheme } from "@mantine/core";
+import { Box, useComputedColorScheme } from "@mantine/core";
 import { useTranslation } from "react-i18next";
 import { BAND_CYCLE, CHART_COLORS, DEEP_DIVE_FILL_ALPHA, FINAL_COLOR } from "../utils/chartColors";
 import { formatMd } from "../utils/reportFormat";
 import { hasCapacity, personLabel, type CommitmentsChartRow, type CommitmentsChartUser, type CommitmentsUserRow } from "../utils/commitmentsReport";
+import ChartLegendList, { PersonSwatch } from "./ChartLegendList";
 
 // Blue = plan/committed: initial is the committed blue, final the per-scheme deeper/lighter step
 // (utils/chartColors.ts has the contrast table). Known limit: two same-hue blues side by side are
@@ -145,12 +145,6 @@ function UserChart({ users, rows }: { users: CommitmentsChartUser[]; rows: Commi
   );
 }
 
-/** A person's swatch: their cycle colour, solid. The numbered label next to it is what actually identifies them. */
-function PersonSwatch({ colour }: { colour: string }) {
-  const hue = `var(--mantine-color-${colour.replace(".", "-")})`;
-  return <Box aria-hidden w={14} h={14} style={{ border: `2px solid ${hue}`, background: hue }} />;
-}
-
 /**
  * The glyph of a stack treatment: a tall column in the TEXT colour (no chart hue, so it can never be mistaken for a person's
  * swatch), outlined for the committed column and solid for the final one.
@@ -169,26 +163,18 @@ function TreatmentGlyph({ solid }: { solid: boolean }) {
 /** The legend of user mode: one numbered entry per person (their colour), then the two stacks' treatments as neutral glyphs. */
 function UserLegend({ users, colour }: { users: CommitmentsChartUser[]; colour: (index: number) => string }) {
   const { t } = useTranslation();
-  const entry = (key: string, swatch: ReactNode, text: string) => (
-    <Box component="li" key={key} display="flex" style={{ alignItems: "center", gap: 6 }}>
-      {swatch}
-      <Text size="xs">{text}</Text>
-    </Box>
-  );
   return (
-    <Box
-      component="ul"
-      role="list"
-      aria-label={t("reports.commitments.userLegendLabel")}
-      display="flex"
-      m={0}
-      p={0}
-      mb="xs"
-      style={{ listStyle: "none", flexWrap: "wrap", gap: "4px 16px" }}
-    >
-      {users.map((user, index) => entry(user.accountId, <PersonSwatch colour={colour(index)} />, personLabel(user.position, user.label)))}
-      {entry("committed", <TreatmentGlyph solid={false} />, t("reports.commitments.userLegend.committed"))}
-      {entry("final", <TreatmentGlyph solid />, t("reports.commitments.userLegend.final"))}
-    </Box>
+    <ChartLegendList
+      label={t("reports.commitments.userLegendLabel")}
+      entries={[
+        ...users.map((user, index) => ({
+          key: user.accountId,
+          glyph: <PersonSwatch colour={colour(index)} />,
+          text: personLabel(user.position, user.label),
+        })),
+        { key: "committed", glyph: <TreatmentGlyph solid={false} />, text: t("reports.commitments.userLegend.committed") },
+        { key: "final", glyph: <TreatmentGlyph solid />, text: t("reports.commitments.userLegend.final") },
+      ]}
+    />
   );
 }

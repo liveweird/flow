@@ -5,6 +5,7 @@ import ch.nokillswit.metrics.FactTaskDeliveryRow
 import ch.nokillswit.metrics.MetricsSettingsService
 import ch.nokillswit.metrics.MetricsStore
 import ch.nokillswit.metrics.MetricsTables
+import ch.nokillswit.norm.WorkItemStore
 import ch.nokillswit.reports.ThroughputReport
 import ch.nokillswit.reports.ThroughputSnapshot
 import io.ktor.client.HttpClient
@@ -16,8 +17,10 @@ import java.io.File
 import java.math.BigDecimal
 import java.math.RoundingMode
 import java.time.DayOfWeek
+import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
+import java.time.temporal.TemporalAdjusters
 import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -31,6 +34,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.isNotNull
 import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
@@ -260,10 +264,11 @@ class ReportThroughputTest {
         assertTrue(team.bySprint.all { it.teamId == floTeamId })
         assertLabelThenIdOrder("TEAM", team.groups.map { GroupIdentity(it.label, it.teamId, it.accountId) })
 
-        // USER level: the one account's own period view, no groups.
+        // USER level: the one account's own period view; its single group is its period total.
         val account = team.groups.mapNotNull { it.accountId }.first()
         val user = client.throughput("$range&teamId=$floTeamId&accountId=$account")
-        assertTrue(user.groups.isEmpty())
+        assertEquals(listOf(account), user.groups.map { it.accountId })
+        assertEquals(user.byBucket.sumOf { it.deliveredItems }, user.groups.single().deliveredItems)
         assertEquals(team.groups.single { it.accountId == account }.deliveredItems, user.byBucket.sumOf { it.deliveredItems })
     }
 
@@ -570,6 +575,182 @@ class ReportThroughputTest {
         assertTrue(
             weekly.byBucket.zipWithNext().all { (a, b) -> LocalDate.parse(a.bucketStart).plusWeeks(1) == LocalDate.parse(b.bucketStart) },
         )
+    }
+
+    /** The accounts that delivered inside the golden sprint (`done_in_sprint` scope rows), with each one's MD/items — read via SQL. */
+    private suspend fun goldenDeliveries(connId: UInt): Map<String, Pair<BigDecimal, Int>> = suspendTransaction(sharedDatabaseForTests()) {
+        val s = MetricsTables.FactSprintScope
+        s.selectAll().where { (s.connectionId eq connId) and (s.sprintId eq reportThroughputGolden.sprintId) and (s.doneInSprint eq true) }
+            .toList().mapNotNull { row -> row[s.assigneeAtCommitment]?.let { it to (row[s.estimateAtDoneMd] ?: BigDecimal.ZERO) } }
+            .groupBy({ it.first }, { it.second })
+            .mapValues { (_, md) -> md.fold(BigDecimal.ZERO, BigDecimal::add) to md.size }
+    }
+
+    private suspend fun displayNames(accountIds: List<String>): Map<String, String> = suspendTransaction(sharedDatabaseForTests()) {
+        WorkItemStore.People.selectAll().where { WorkItemStore.People.accountId inList accountIds }.toList()
+            .associate { it[WorkItemStore.People.accountId] to it[WorkItemStore.People.displayName] }
+    }
+
+    @Test
+    fun `several accountIds sum bySprint and its frozen share and split it per user in request order`() = testApplication {
+        usePostgresTestcontainer()
+        val connId = DerivedStubFixture.connectionId()
+        val golden = reportThroughputGolden
+        val floTeamId = floTeamId(connId, golden.sprintId)
+        val client = seededClient("reports-throughput-multi-sprint")
+        val deliveries = goldenDeliveries(connId)
+        assertTrue(deliveries.size >= 2, "the golden sprint must have at least two named assignees-at-commitment, got ${deliveries.keys}")
+        val (a, b) = deliveries.keys.toList()
+        val query = "connectionId=$connId&teamId=$floTeamId&sprintId=${golden.sprintId}"
+        val nobody = "throughput-nobody-account"
+
+        val sprint = client.throughput("$query&accountId=$b&accountId=$a&accountId=$nobody").bySprint.single()
+        val sprintA = client.throughput("$query&accountId=$a").bySprint.single()
+        val sprintB = client.throughput("$query&accountId=$b").bySprint.single()
+
+        // Live: the sum of the independently read per-account scope rows == the sum of the two single-account runs.
+        val (mdA, itemsA) = deliveries.getValue(a)
+        val (mdB, itemsB) = deliveries.getValue(b)
+        assertEquals(mdA.add(mdB).toDouble(), sprint.deliveredMd, ABS_TOLERANCE)
+        assertEquals(itemsA + itemsB, sprint.deliveredItems)
+        assertEquals(sprintA.deliveredMd + sprintB.deliveredMd, sprint.deliveredMd, ABS_TOLERANCE)
+        assertEquals(sprintA.deliveredItems + sprintB.deliveredItems, sprint.deliveredItems)
+
+        // Frozen: the stored JSON's per-account sums (per-item round2), summed, == the report's snapshot == the single snapshots' sum.
+        val stored = FrozenScopeFixtures.storedScope(connId, golden.sprintId).map { it.jsonObject }
+        val snapshot = assertNotNull(sprint.snapshot, "the golden sprint is frozen")
+        val expectedFrozenMd = frozenDelivered(stored, a).first.add(frozenDelivered(stored, b).first)
+        assertEquals(0, expectedFrozenMd.compareTo(BigDecimal.valueOf(snapshot.deliveredMd)), "frozen deliveredMd")
+        assertEquals(frozenDelivered(stored, a).second + frozenDelivered(stored, b).second, snapshot.deliveredItems)
+        val snapshotA = assertNotNull(sprintA.snapshot)
+        val snapshotB = assertNotNull(sprintB.snapshot)
+        assertEquals(snapshotA.deliveredMd + snapshotB.deliveredMd, snapshot.deliveredMd, ABS_TOLERANCE)
+        assertEquals(snapshotA.deliveredItems + snapshotB.deliveredItems, snapshot.deliveredItems)
+        assertTrue(!sprint.drift, "the fixture's snapshot is frozen from the same rows")
+
+        // byUser: request order (b, a, nobody), the independent per-account figures, zeros included, labelled by display name.
+        assertEquals(listOf(b, a, nobody), sprint.byUser.map { it.accountId })
+        val names = displayNames(listOf(a, b))
+        for ((share, expected) in sprint.byUser.zip(listOf(b to (mdB to itemsB), a to (mdA to itemsA)))) {
+            assertEquals(expected.second.first.toDouble(), share.deliveredMd, ABS_TOLERANCE)
+            assertEquals(expected.second.second, share.deliveredItems)
+            assertEquals(names[expected.first] ?: expected.first, share.label)
+        }
+        val zero = sprint.byUser.last()
+        assertEquals(0.0, zero.deliveredMd)
+        assertEquals(0, zero.deliveredItems)
+        assertEquals(nobody, zero.label, "an account with no known display name is labelled by its id")
+        // The team level carries no per-user split.
+        val teamLevel = client.throughput("connectionId=$connId&teamId=$floTeamId&sprintId=${golden.sprintId}")
+        assertTrue(teamLevel.bySprint.single().byUser.isEmpty())
+        assertTrue(client.throughput("connectionId=$connId&sprintId=${golden.sprintId}").bySprint.single().byUser.isEmpty())
+    }
+
+    private fun bucketKey(zone: ZoneId, doneAt: Long): String =
+        Instant.ofEpochMilli(doneAt).atZone(zone).toLocalDate().with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)).toString()
+
+    @Test
+    fun `several accountIds sum byBucket, split every bucket per user and list each pick in groups`() = testApplication {
+        usePostgresTestcontainer()
+        val connId = DerivedStubFixture.connectionId()
+        val floTeamId = floTeamId(connId, reportThroughputGolden.sprintId)
+        val zone = zone()
+        val window = bounds(zone, "2024-01-01", "2026-12-31")
+        val teamTasks = doneTasks(connId).inWindow(window).filter { it.team == floTeamId }
+        val busiest = teamTasks.mapNotNull { it.account }.groupingBy { it }.eachCount().entries.sortedByDescending { it.value }
+        val (a, b) = busiest.take(2).map { it.key }
+        val nobody = "throughput-nobody-period"
+        val client = seededClient("reports-throughput-multi-bucket")
+        val query = "connectionId=$connId&from=2024-01-01&to=2026-12-31&teamId=$floTeamId"
+
+        val both = client.throughput("$query&accountId=$b&accountId=$a&accountId=$nobody")
+        val oneA = client.throughput("$query&accountId=$a")
+        val oneB = client.throughput("$query&accountId=$b")
+
+        // Independent expectation straight off fact_task_delivery: tasks credited to the team, assignee at done IN the picks.
+        val picked = teamTasks.filter { it.account == a || it.account == b }
+        assertTrue(picked.isNotEmpty())
+        assertEquals(picked.mdSum(), both.byBucket.sumOf { it.deliveredMd }, ABS_TOLERANCE)
+        assertEquals(picked.size, both.byBucket.sumOf { it.deliveredItems })
+        val singlesMd = oneA.byBucket.sumOf { it.deliveredMd } + oneB.byBucket.sumOf { it.deliveredMd }
+        assertEquals(singlesMd, both.byBucket.sumOf { it.deliveredMd }, ABS_TOLERANCE)
+        val singlesItems = oneA.byBucket.zip(oneB.byBucket).map { (x, y) -> x.deliveredItems + y.deliveredItems }
+        assertEquals(singlesItems, both.byBucket.map { it.deliveredItems })
+
+        // Every bucket splits per pick in request order (b, a, nobody), each share the independent per-bucket figures.
+        val names = displayNames(listOf(a, b))
+        for (bucket in both.byBucket) {
+            assertEquals(listOf(b, a, nobody), bucket.byUser.map { it.accountId })
+            for (share in bucket.byUser) {
+                val rows = picked.filter { it.account == share.accountId && bucketKey(zone, it.doneAt) == bucket.bucketStart }
+                assertEquals(rows.size, share.deliveredItems, "${share.accountId} items in ${bucket.bucketStart}")
+                assertEquals(rows.mdSum(), share.deliveredMd, ABS_TOLERANCE, "${share.accountId} MD in ${bucket.bucketStart}")
+            }
+            assertEquals(bucket.deliveredItems, bucket.byUser.sumOf { it.deliveredItems })
+            assertEquals(bucket.deliveredMd, bucket.byUser.sumOf { it.deliveredMd }, ABS_TOLERANCE)
+            assertEquals(nobody, bucket.byUser.last().label)
+            assertEquals(names[a] ?: a, bucket.byUser.single { it.accountId == a }.label)
+        }
+        assertTrue(both.byBucket.any { bucket -> bucket.byUser.any { it.deliveredItems > 0 } })
+
+        // groups: one per pick (zero entry for the nobody account), period totals, label-then-id order, Σ groups == Σ byBucket.
+        assertEquals(setOf(a, b, nobody), both.groups.map { it.accountId }.toSet())
+        assertEquals(3, both.groups.size)
+        assertTrue(both.groups.all { it.teamId == null })
+        assertLabelThenIdOrder("USER", both.groups.map { GroupIdentity(it.label, it.teamId, it.accountId) })
+        for (group in both.groups) {
+            val rows = picked.filter { it.account == group.accountId }
+            assertEquals(rows.size, group.deliveredItems, "${group.accountId} group items")
+            assertEquals(rows.mdSum(), group.deliveredMd, ABS_TOLERANCE, "${group.accountId} group MD")
+        }
+        assertEquals(both.byBucket.sumOf { it.deliveredItems }, both.groups.sumOf { it.deliveredItems })
+        // A repeated identical value collapses rather than fails.
+        assertEquals(oneA.byBucket, client.throughput("$query&accountId=$a&accountId=$a").byBucket)
+    }
+
+    @Test
+    fun `one accountId keeps today's figures with a one-entry byUser`() = testApplication {
+        usePostgresTestcontainer()
+        val connId = DerivedStubFixture.connectionId()
+        val golden = reportThroughputGolden
+        val floTeamId = floTeamId(connId, golden.sprintId)
+        val client = seededClient("reports-throughput-one-user")
+        val a = goldenDeliveries(connId).keys.first()
+        val sprintQuery = "connectionId=$connId&teamId=$floTeamId&sprintId=${golden.sprintId}"
+
+        val sprint = client.throughput("$sprintQuery&accountId=$a").bySprint.single()
+        val share = sprint.byUser.single()
+        assertEquals(a, share.accountId)
+        assertEquals(sprint.deliveredMd, share.deliveredMd)
+        assertEquals(sprint.deliveredItems, share.deliveredItems)
+        assertEquals(goldenDeliveries(connId).getValue(a).second, sprint.deliveredItems)
+
+        val periodQuery = "connectionId=$connId&from=2024-01-01&to=2026-12-31&teamId=$floTeamId&accountId=$a"
+        val period = client.throughput(periodQuery)
+        for (bucket in period.byBucket) {
+            val bucketShare = bucket.byUser.single()
+            assertEquals(a, bucketShare.accountId)
+            assertEquals(bucket.deliveredMd, bucketShare.deliveredMd)
+            assertEquals(bucket.deliveredItems, bucketShare.deliveredItems)
+        }
+        assertEquals(a, period.groups.single().accountId)
+        assertEquals(period.byBucket.sumOf { it.deliveredItems }, period.groups.single().deliveredItems)
+    }
+
+    @Test
+    fun `at most eight accountIds on throughput, and a repeated accountId on another report stays 400`() = testApplication {
+        usePostgresTestcontainer()
+        val connId = DerivedStubFixture.connectionId()
+        val floTeamId = floTeamId(connId, reportThroughputGolden.sprintId)
+        val client = seededClient("reports-throughput-account-bound")
+        fun url(report: String, count: Int) = "/api/v1/reports/$report?connectionId=$connId&teamId=$floTeamId" +
+            (1..count).joinToString("") { "&accountId=throughput-bound-$it" }
+
+        assertEquals(HttpStatusCode.OK, client.get(url("throughput", 8)).status)
+        assertEquals(HttpStatusCode.BadRequest, client.get(url("throughput", 9)).status)
+        assertEquals(HttpStatusCode.OK, client.get(url("cycle-time", 1)).status)
+        assertEquals(HttpStatusCode.BadRequest, client.get(url("cycle-time", 2)).status, "cycle time stays single-account")
+        assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/throughput?connectionId=$connId&accountId=a").status)
     }
 
     @Test

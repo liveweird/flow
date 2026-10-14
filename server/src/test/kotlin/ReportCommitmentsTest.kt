@@ -597,9 +597,9 @@ class ReportCommitmentsTest {
         assertEquals(HttpStatusCode.BadRequest, client.get(userUrl(p, ids(9))).status)
         val withoutTeam = client.get("/api/v1/reports/commitments?connectionId=${p.connId}&accountId=a")
         assertEquals(HttpStatusCode.BadRequest, withoutTeam.status, "accountId requires teamId")
-        val throughput = "/api/v1/reports/throughput?connectionId=${p.connId}&teamId=${p.teamId}&sprintId=${p.sprintId}"
-        assertEquals(HttpStatusCode.OK, client.get("$throughput&accountId=${p.accounts[0]}").status)
-        assertEquals(HttpStatusCode.BadRequest, client.get("$throughput&accountId=${p.accounts[0]}&accountId=${p.accounts[1]}").status)
+        val cycleTime = "/api/v1/reports/cycle-time?connectionId=${p.connId}&teamId=${p.teamId}&sprintId=${p.sprintId}"
+        assertEquals(HttpStatusCode.OK, client.get("$cycleTime&accountId=${p.accounts[0]}").status)
+        assertEquals(HttpStatusCode.BadRequest, client.get("$cycleTime&accountId=${p.accounts[0]}&accountId=${p.accounts[1]}").status)
     }
 
     @Test

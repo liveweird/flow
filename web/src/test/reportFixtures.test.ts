@@ -45,7 +45,10 @@ import {
   TASK_ACCURACY_EMPTY,
   TASK_ACCURACY_HIDDEN,
   THROUGHPUT_MONTHS,
+  THROUGHPUT_TEAM,
   THROUGHPUT_UNIT,
+  THROUGHPUT_USER,
+  THROUGHPUT_USERS,
   COMMITMENTS_UNIT,
   WIP_BOTH,
   WIP_COLUMN,
@@ -87,13 +90,18 @@ describe("report fixtures hold the server's invariants", () => {
   });
 
   test("throughput groups sum to the period buckets (and the month variant is its own consistent set)", () => {
-    for (const report of [THROUGHPUT_UNIT]) {
+    for (const report of [THROUGHPUT_UNIT, THROUGHPUT_TEAM, THROUGHPUT_USER, THROUGHPUT_USERS]) {
       const groupsMd = report.groups.reduce((s, g) => s + g.deliveredMd, 0);
       const bucketsMd = report.byBucket.reduce((s, b) => s + b.deliveredMd, 0);
       expect(groupsMd).toBeCloseTo(bucketsMd, 6);
       expect(report.groups.reduce((s, g) => s + g.deliveredItems, 0)).toBe(
         report.byBucket.reduce((s, b) => s + b.deliveredItems, 0),
       );
+    }
+    // The people split each bucket and sprint exactly: byUser sums to its slot.
+    for (const slot of [...THROUGHPUT_USERS.byBucket, ...THROUGHPUT_USERS.bySprint]) {
+      expect(slot.byUser.reduce((s, u) => s + u.deliveredMd, 0)).toBeCloseTo(slot.deliveredMd, 6);
+      expect(slot.byUser.reduce((s, u) => s + u.deliveredItems, 0)).toBe(slot.deliveredItems);
     }
     expect(THROUGHPUT_MONTHS.byBucket.every((b) => b.bucketStart.endsWith("-01"))).toBe(true);
   });

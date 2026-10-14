@@ -56,7 +56,8 @@ as `?sprintId=1&sprintId=2`, documented in the spec as `type: array` with `style
 (`distinct()`) and the bound applies to what is left, every other parameter of the endpoint stays strictly single-valued.
 The second consumer is `GET /api/v1/reports/commitments`'s `accountId` (`repeatedStrings`, 1..8, opt-in through `parseReportFilter(..., multipleAccounts = true)`,
 declared inline on that path as `type: array` with `style: form`, `explode: true`, `maxItems: 8`): on every other report `accountId` stays a
-`singleValue` and a repeat is a `400`.
+`singleValue` and a repeat is a `400`. The third consumer is `GET /api/v1/reports/throughput`'s `accountId`, the very same opt-in and inline
+declaration (`MAX_PICKED_ACCOUNTS` = 8 in `reports/ReportFilter.kt`).
 
 **Sub-collections and facets** are not implemented yet — a record's own unbounded sub-collection
 (e.g. a future audit-trail read) should be paged like any other list; reserve the plain `{items}`
