@@ -40,6 +40,12 @@ private val PROFILE_JSON = Json { ignoreUnknownKeys = true }
  */
 object JiraProfile {
 
+    /**
+     * Computes every profile section. The custom-field fill-rate is counted inside Postgres ([JiraRawStore.customFieldFill]), so no
+     * issue payload ever enters the heap. The remaining whole-connection reads (`profileWorkItems`, `statusIntervalsByIssue`,
+     * `worklogRows`, `fieldIntervalValues`) are small `norm.*` rows — linear in the issue count, a few hundred bytes each — and
+     * deliberately not paged.
+     */
     suspend fun compute(
         connectionId: UInt,
         rawStore: JiraRawStore,
@@ -62,14 +68,14 @@ object JiraProfile {
         val hierarchy = JiraNormalizer.issueTypeHierarchy(rawStore.entityPayloadsByKind(connectionId, JiraEntityKind.ISSUE_TYPE.name))
         val schemeRows = rawStore.entityRowsByKind(connectionId, JiraEntityKind.PROJECT_FIELDS.name)
         val fieldPayloads = rawStore.entityPayloadsByKind(connectionId, JiraEntityKind.FIELD.name)
-        val issueFieldsPayloads = rawStore.issuePayloads(connectionId)
+        val customFieldFill = rawStore.customFieldFill(connectionId)
 
         return DataProfileSections(
             range = computeRange(items),
             projects = computeProjects(items),
             workflows = computeWorkflows(items, intervalsByIssue, referenceStatusesByProject),
             boards = computeBoards(boardRefs, items, intervalsByIssue, statusRefs),
-            customFields = computeCustomFields(fieldPayloads, issueFieldsPayloads),
+            customFields = computeCustomFields(fieldPayloads, customFieldFill),
             estimates = computeEstimates(items),
             worklogs = computeWorklogs(worklogRows, items.size.toLong()),
             reopens = computeReopens(items, intervalsByIssue),
@@ -183,27 +189,16 @@ object JiraProfile {
         }.sortedBy { it.boardId }
     }
 
-    /**
-     * Whether Jira's `fields[fieldId]` counts as "set" for the custom-field fill-rate — an empty
-     * array (Sprint/Flagged) means "no value".
-     */
-    private fun hasCustomFieldValue(fields: kotlinx.serialization.json.JsonObject, fieldId: String): Boolean {
-        val element = fields[fieldId] ?: return false
-        if (element is kotlinx.serialization.json.JsonNull) return false
-        return (element as? kotlinx.serialization.json.JsonArray)?.isNotEmpty() ?: true
-    }
-
-    private fun computeCustomFields(fieldPayloads: List<String>, issuePayloads: List<String>): List<CustomFieldProfile> {
+    private fun computeCustomFields(fieldPayloads: List<String>, fill: CustomFieldFill): List<CustomFieldProfile> {
         val fields = fieldPayloads.map { PROFILE_JSON.parseToJsonElement(it).jsonObject }
             .filter { it["custom"]?.jsonPrimitive?.booleanOrNull == true }
         val fieldIds = JiraNormalizer.discoverFieldIds(fieldPayloads)
-        val issuesFields = issuePayloads.map { PROFILE_JSON.parseToJsonElement(it).jsonObject.getValue("fields").jsonObject }
-        val total = issuesFields.size.toLong()
+        val total = fill.total
         return fields.map { field ->
             val id = field.getValue("id").jsonPrimitive.content
             val name = field["name"]?.jsonPrimitive?.contentOrNull ?: id
             val type = field["schema"]?.jsonObject?.get("type")?.jsonPrimitive?.contentOrNull ?: "unknown"
-            val nonNullCount = issuesFields.count { hasCustomFieldValue(it, id) }.toLong()
+            val nonNullCount = fill.nonNullByField[id] ?: 0L
             val role = when (id) {
                 fieldIds.sprintFieldId -> "SPRINT"
                 fieldIds.rankFieldId -> "RANK"

@@ -1042,6 +1042,9 @@ crashes mid-run simply leaves the connection's PREVIOUS profile in place (or `nu
 success) — the next successful SYNC/REPROCESS recomputes it wholesale, exactly like PROCESS's own
 reference-row rebuild. `JiraProfile.compute` (`jira/JiraProfile.kt`) is pure aggregation over
 already-normalized/already-raw data — it makes no outbound Jira call of its own.
+The custom-field fill rate is counted in Postgres (`JiraRawStore.customFieldFill`, `jsonb_each` over `raw.jira_issues.payload`), so no
+issue payload enters the JVM heap and PROFILE's memory is bounded by the number of distinct field keys, not the project size (the
+first real-site SYNC — 2,105 issues, 59 MB of JSON — OOMed at `-Xmx256m` before this).
 
 **What each section measures (facts only — interpretation, e.g. which statuses count as "active"
 vs. "waiting", is a Phase 3 concern, see "Facts only — no interpretation" under "Normalized layer"
