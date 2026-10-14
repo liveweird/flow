@@ -111,15 +111,15 @@ suspend fun ReportService.taskEstimationAccuracy(filter: ReportFilter, nowMs: Lo
                 teamId = key.teamId,
                 accountId = key.accountId,
                 label = key.label,
-                atStart = buildDistribution(result.atStart, minSample),
-                atDone = buildDistribution(result.atDone, minSample),
+                atStart = buildDistribution(result.atStart, minSample, filter.tailPercent),
+                atDone = buildDistribution(result.atDone, minSample, filter.tailPercent),
                 excluded = result.excluded,
             )
         }
         TaskEstimationAccuracyReport(
             meta = scope.meta,
-            atStart = buildDistribution(total.atStart, minSample),
-            atDone = buildDistribution(total.atDone, minSample),
+            atStart = buildDistribution(total.atStart, minSample, filter.tailPercent),
+            atDone = buildDistribution(total.atDone, minSample, filter.tailPercent),
             excluded = total.excluded,
             groups = groups,
         )

@@ -45,11 +45,15 @@ private data class DoneEpicCycle(val ownerTeamId: UInt?, val cycleMs: Long?, val
 private fun measurableEpics(epics: List<DoneEpicCycle>): List<DoneEpicCycle> =
     epics.filter { it.cycleMs != null && it.cycleWorkingDays != null }
 
-private fun epicDistributions(epics: List<DoneEpicCycle>, minSample: Int): Triple<Distribution, Distribution, CycleTimeExcluded> {
+private fun epicDistributions(
+    epics: List<DoneEpicCycle>,
+    minSample: Int,
+    tailPercent: Int,
+): Triple<Distribution, Distribution, CycleTimeExcluded> {
     val rows = measurableEpics(epics)
     return Triple(
-        buildDistribution(rows.map { it.cycleMs!! / MS_PER_DAY }, minSample),
-        buildDistribution(rows.map { it.cycleWorkingDays!!.toDouble() }, minSample),
+        buildDistribution(rows.map { it.cycleMs!! / MS_PER_DAY }, minSample, tailPercent),
+        buildDistribution(rows.map { it.cycleWorkingDays!!.toDouble() }, minSample, tailPercent),
         CycleTimeExcluded(population = epics.size, neverStarted = epics.size - rows.size),
     )
 }
@@ -67,11 +71,11 @@ internal suspend fun epicCycleTime(
 ): EpicCycleTime {
     // Epics carry no user: USER level reads nothing.
     val epics = if (window == null || filter.level == ReportLevel.USER) emptyList() else fetchDoneEpicCycles(filter, connectionIds, window)
-    val (elapsed, working, excluded) = epicDistributions(epics, minSample)
+    val (elapsed, working, excluded) = epicDistributions(epics, minSample, filter.tailPercent)
     // Only UNIT drills (by owner team); TEAM has no further split of epics.
     val groups = if (filter.level == ReportLevel.UNIT) {
         orgGroups(ReportLevel.UNIT, epics, { it.ownerTeamId }, { null }).map { (key, rows) ->
-            val (groupElapsed, groupWorking, groupExcluded) = epicDistributions(rows, minSample)
+            val (groupElapsed, groupWorking, groupExcluded) = epicDistributions(rows, minSample, filter.tailPercent)
             EpicCycleTimeGroup(key.teamId, key.label, groupElapsed, groupWorking, groupExcluded)
         }
     } else {

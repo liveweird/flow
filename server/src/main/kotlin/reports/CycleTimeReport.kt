@@ -95,11 +95,15 @@ internal suspend fun fetchDoneCycleTasks(filter: ReportFilter, connectionIds: Li
 /** The measurable tasks: `cycle_ms` set, i.e. started. */
 private fun measurable(tasks: List<DoneCycleTask>): List<DoneCycleTask> = tasks.filter { it.cycleMs != null && it.cycleWorkingDays != null }
 
-private fun cycleDistributions(tasks: List<DoneCycleTask>, minSample: Int): Triple<Distribution, Distribution, CycleTimeExcluded> {
+private fun cycleDistributions(
+    tasks: List<DoneCycleTask>,
+    minSample: Int,
+    tailPercent: Int,
+): Triple<Distribution, Distribution, CycleTimeExcluded> {
     val rows = measurable(tasks)
     return Triple(
-        buildDistribution(rows.map { it.cycleMs!! / MS_PER_DAY }, minSample),
-        buildDistribution(rows.map { it.cycleWorkingDays!!.toDouble() }, minSample),
+        buildDistribution(rows.map { it.cycleMs!! / MS_PER_DAY }, minSample, tailPercent),
+        buildDistribution(rows.map { it.cycleWorkingDays!!.toDouble() }, minSample, tailPercent),
         CycleTimeExcluded(population = tasks.size, neverStarted = tasks.size - rows.size),
     )
 }
@@ -117,7 +121,7 @@ suspend fun ReportService.cycleTime(filter: ReportFilter, bucket: ThroughputBuck
         val zone = WorkingCalendar.zoneOf(scope.settings.timeZone)
         val window = scope.window
         val tasks = window?.let { fetchDoneCycleTasks(filter, scope.connectionIds, it) }.orEmpty()
-        val (elapsed, working, excluded) = cycleDistributions(tasks, minSample)
+        val (elapsed, working, excluded) = cycleDistributions(tasks, minSample, filter.tailPercent)
         CycleTimeReport(
             meta = scope.meta,
             elapsedDays = elapsed,
@@ -125,7 +129,7 @@ suspend fun ReportService.cycleTime(filter: ReportFilter, bucket: ThroughputBuck
             excluded = excluded,
             trend = window?.let { trend(tasks, it, zone, bucket, minSample) }.orEmpty(),
             groups = orgGroups(filter.level, tasks, { it.creditTeamId }, { it.accountId }).map { (key, rows) ->
-                val (groupElapsed, groupWorking, groupExcluded) = cycleDistributions(rows, minSample)
+                val (groupElapsed, groupWorking, groupExcluded) = cycleDistributions(rows, minSample, filter.tailPercent)
                 CycleTimeGroup(key.teamId, key.accountId, key.label, groupElapsed, groupWorking, groupExcluded)
             },
             epics = epicCycleTime(filter, scope.connectionIds, window, minSample),
@@ -143,8 +147,8 @@ private fun trend(
     return bucketStarts(window.first, window.second, zone, bucket).map { start ->
         val values = byStart[start].orEmpty().map { it.cycleWorkingDays!!.toDouble() }
         // An empty bucket (n = 0) is hidden like any other below-minimum one, because `minSampleSize >= 1` (validated on
-        // the settings PUT); p50/p90 are then null and only `n` is set.
-        val distribution = buildDistribution(values, minSample)
+        // the settings PUT); p50/p90 are then null and only `n` is set. Only p50/p90 are read, never the histogram, so no tail.
+        val distribution = buildDistribution(values, minSample, tailPercent = 0)
         CycleTimeTrendBucket(start.toString(), distribution.p50, distribution.p90, distribution.n)
     }
 }
