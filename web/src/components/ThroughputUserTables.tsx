@@ -1,0 +1,119 @@
+import { useTranslation } from "react-i18next";
+import { Stack, Text, Title } from "@mantine/core";
+import type { ThroughputGroup } from "../api/reports";
+import { personLabel } from "../utils/commitmentsReport";
+import {
+  throughputCumulativeColumns,
+  throughputFigureColumns,
+  throughputShareRows,
+  type ThroughputSeries,
+  type ThroughputShareRow,
+} from "../utils/throughputReport";
+import ColumnTable, { type ColumnDef } from "./ColumnTable";
+import ScrollRegion from "./ScrollRegion";
+
+/** Each person's share of every week/month or sprint — where a stacked chart's numbers live. */
+function SharesTable({
+  title,
+  aria,
+  slotHeader,
+  series,
+  cumulative,
+}: {
+  title: string;
+  aria: string;
+  slotHeader: string;
+  series: ThroughputSeries;
+  cumulative: boolean;
+}) {
+  const { t } = useTranslation();
+  const columns: ColumnDef<ThroughputShareRow>[] = [
+    { key: "slot", header: slotHeader, render: (row) => row.label },
+    { key: "person", header: t("reports.throughput.column.person"), render: (row) => personLabel(row.person.position, row.person.label) },
+    ...[
+      ...throughputFigureColumns<ThroughputShareRow>(t, (row) => row.figures),
+      ...(cumulative ? throughputCumulativeColumns<ThroughputShareRow>(t, (row) => row.figures) : []),
+    ].map((column) => ({ ...column, align: "right" as const })),
+  ];
+  return (
+    <Stack gap="xs">
+      <Title order={3} size="h4">
+        {title}
+      </Title>
+      <ScrollRegion label={aria} minWidth={cumulative ? 720 : 520} maxHeight={480}>
+        <ColumnTable aria-label={aria} columns={columns} rows={throughputShareRows(series)} rowKey={(row) => row.key} stickyHeader />
+      </ScrollRegion>
+    </Stack>
+  );
+}
+
+/**
+ * The tables of throughput's people view (one or more people picked): each person's period totals (`groups`; the team
+ * level's "By member" stays the drill table, and a user level has nothing further to drill, so this one is plain text —
+ * numbered like the chart's legend, so a person is told by number, not colour) and — with two or more people — their share of
+ * every week/month and every sprint (with one person the period and sprint tables already are that person's rows).
+ */
+export default function ThroughputUserTables({
+  groups,
+  buckets,
+  sprints,
+  bucket,
+  cumulative,
+}: {
+  groups: readonly ThroughputGroup[];
+  buckets: ThroughputSeries;
+  sprints: ThroughputSeries;
+  bucket: "WEEK" | "MONTH";
+  cumulative: boolean;
+}) {
+  const { t } = useTranslation();
+  const positions = new Map(buckets.people.map((person) => [person.accountId, person.position]));
+  const groupColumns: ColumnDef<ThroughputGroup>[] = [
+    {
+      key: "name",
+      header: t("reports.groups.member"),
+      render: (group) => {
+        const name = group.label ?? group.accountId ?? t("reports.groups.unassigned");
+        const position = group.accountId ? positions.get(group.accountId) : undefined;
+        return <Text size="sm">{position === undefined ? name : personLabel(position, name)}</Text>;
+      },
+    },
+    ...throughputFigureColumns<ThroughputGroup>(t, (group) => group).map((column) => ({ ...column, align: "right" as const })),
+  ];
+  const severalPeople = buckets.people.length > 1;
+  return (
+    <Stack gap="md">
+      {groups.length > 0 && (
+        <Stack gap="xs">
+          <Title order={3} size="h4">
+            {t("reports.throughput.personTotalsTitle")}
+          </Title>
+          <ColumnTable
+            aria-label={t("reports.throughput.personTotalsTitle")}
+            columns={groupColumns}
+            rows={groups}
+            rowKey={(group) => `${group.accountId ?? "-"}:${group.label ?? "-"}`}
+          />
+        </Stack>
+      )}
+      {severalPeople && (
+        <SharesTable
+          title={t("reports.throughput.periodSharesTitle")}
+          aria={t("reports.throughput.periodSharesAria")}
+          slotHeader={t(`reports.throughput.column.bucket${bucket}`)}
+          series={buckets}
+          cumulative={cumulative}
+        />
+      )}
+      {severalPeople && sprints.rows.length > 0 && (
+        <SharesTable
+          title={t("reports.throughput.sprintSharesTitle")}
+          aria={t("reports.throughput.sprintSharesAria")}
+          slotHeader={t("reports.sprints.sprint")}
+          series={sprints}
+          cumulative={cumulative}
+        />
+      )}
+    </Stack>
+  );
+}

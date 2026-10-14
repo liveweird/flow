@@ -34,7 +34,7 @@ export interface ReportFilterState {
   teamId?: number;
   accountId?: string;
   /**
-   * Several members at once (USER level, commitments only — `ReportControls.multiMember`): REPEATED `accountId` URL keys, distinct,
+   * Several members at once (USER level, commitments and throughput only — `ReportControls.multiMember`): REPEATED `accountId` URL keys, distinct,
    * at most `MAX_ACCOUNTS`, in the order picked. Only a multi-member page parses them (`parseReportFilter`'s `multiAccount`);
    * everywhere else a repeated `accountId` reads as its first value, as ever, and this stays unset.
    */
@@ -117,7 +117,7 @@ function distinctAccounts(values: readonly string[]): string[] {
   return picked.slice(0, MAX_ACCOUNTS);
 }
 
-/** What a page opts into when reading the URL — only the commitments page reads several members. */
+/** What a page opts into when reading the URL — only the commitments and throughput pages read several members. */
 export interface ReportFilterParseOptions {
   multiAccount?: boolean;
 }
@@ -237,12 +237,12 @@ export interface ReportControls {
   /** Narrow to one Jira connection (data quality); shown only when there is more than one to choose from. */
   connection?: boolean;
   /**
-   * The report cannot answer for the whole unit (commitments' capacity and per-user split are team figures): the team
+   * The report cannot answer for the whole unit (commitments' capacity and per-user split are team figures, and so is throughput's per-person split): the team
    * control is not clearable and offers no "All teams", and a URL without a team is normalized to one
    * (`requiredTeamId`, applied by `useReportFilter`).
    */
   teamRequired?: boolean;
-  /** The member control picks up to `MAX_ACCOUNTS` people (`ReportFilterState.accountIds`) instead of one (commitments). */
+  /** The member control picks up to `MAX_ACCOUNTS` people (`ReportFilterState.accountIds`) instead of one (commitments, throughput). */
   multiMember?: boolean;
 }
 

@@ -77,6 +77,22 @@ unfolds it first (`openFilters`, which leaves an already unfolded bar alone).
    - *Expected*: the URL gains `bucket=MONTH`; the table's first column now reads "Month" and
      holds one `YYYY-MM` row (the whole window falls in one month); the chart is still shown.
 
+## Scenario: a user switches throughput to the cumulative view
+
+1. The user opens **Delivery**, narrows to the golden sprint, and switches to the **Throughput**
+   tab.
+   - *Expected*: the **Chart view** switch reads **Per period** (selected), the URL carries no
+     `view`, and both charts — delivered scope by period and by sprint — are shown.
+2. They choose **Cumulative**.
+   - *Expected*: the URL gains `view=cumulative`; both charts become the cumulative ones (running
+     totals as stacked areas); the period table gains **Cumulative (MD)** and **Cumulative (items)**
+     columns and its last week's running total equals the "Delivered in the period" total; the
+     golden sprint's row shows its own delivered MD as its running total.
+3. They choose **Per period** again.
+   - *Expected*: `view` leaves the URL and the per-period charts return.
+4. They choose **Cumulative** once more and open the **Commitments** tab.
+   - *Expected*: the URL no longer carries `view` (it is no filter, so it follows no other report).
+
 ## Scenario: a user folds and unfolds the report filters and the choice is remembered
 
 1. The regular user signs in and opens **Delivery** (Commitments).

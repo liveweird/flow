@@ -218,12 +218,117 @@ export const THROUGHPUT_UNIT: ThroughputReport = {
   ],
 };
 
-/** USER level: one account's own sprint row — the frozen per-user share and drift ride along like the team level's. */
+/** TEAM level (what the page asks for: a team is required): Alpha's sprints, the period view, and one group per assignee. */
+export const THROUGHPUT_TEAM: ThroughputReport = {
+  meta: { ...META, level: "TEAM" },
+  bySprint: [
+    {
+      sprintId: 11,
+      name: "Alpha 1",
+      teamId: 1,
+      completedAt: Date.UTC(2026, 7, 20),
+      deliveredMd: 10,
+      deliveredItems: 4,
+      snapshot: { deliveredMd: 10, deliveredItems: 4 },
+      drift: false,
+      byUser: [],
+    },
+    THROUGHPUT_UNIT.bySprint[0],
+  ],
+  byBucket: THROUGHPUT_UNIT.byBucket,
+  groups: [
+    { teamId: 1, accountId: "acc-ann", label: "Ann Author", deliveredMd: 17.5, deliveredItems: 7 },
+    { teamId: 1, accountId: "acc-bob", label: "Bob Builder", deliveredMd: 8.5, deliveredItems: 3 },
+    { teamId: 1, accountId: null, label: null, deliveredMd: 2, deliveredItems: 1 },
+  ],
+};
+
+const ANN = { accountId: "acc-ann", label: "Ann Author" };
+const BOB = { accountId: "acc-bob", label: "Bob Builder" };
+
+/** USER level, one account: its own sprint row (the frozen per-user share and drift ride along like the team level's), a one-entry byUser everywhere, its own group. */
 export const THROUGHPUT_USER: ThroughputReport = {
   meta: { ...META, level: "USER" },
-  bySprint: [{ ...THROUGHPUT_UNIT.bySprint[0], deliveredMd: 7.5, deliveredItems: 3, snapshot: { deliveredMd: 6, deliveredItems: 3 }, drift: true }],
-  byBucket: THROUGHPUT_UNIT.byBucket,
-  groups: [],
+  bySprint: [
+    {
+      ...THROUGHPUT_UNIT.bySprint[0],
+      deliveredMd: 7.5,
+      deliveredItems: 3,
+      snapshot: { deliveredMd: 6, deliveredItems: 3 },
+      drift: true,
+      byUser: [{ ...ANN, deliveredMd: 7.5, deliveredItems: 3 }],
+    },
+  ],
+  byBucket: THROUGHPUT_UNIT.byBucket.map((bucket) => ({
+    ...bucket,
+    byUser: [{ ...ANN, deliveredMd: bucket.deliveredMd, deliveredItems: bucket.deliveredItems }],
+  })),
+  groups: [{ teamId: 1, ...ANN, deliveredMd: 28, deliveredItems: 11 }],
+};
+
+/** USER level, two accounts (Ann then Bob, request order): every sprint and bucket is their sum, `byUser` splits it (zeros included). */
+export const THROUGHPUT_USERS: ThroughputReport = {
+  meta: { ...META, level: "USER" },
+  bySprint: [
+    {
+      sprintId: 11,
+      name: "Alpha 1",
+      teamId: 1,
+      completedAt: Date.UTC(2026, 7, 20),
+      deliveredMd: 6,
+      deliveredItems: 3,
+      snapshot: { deliveredMd: 6, deliveredItems: 3 },
+      drift: false,
+      byUser: [
+        { ...ANN, deliveredMd: 4, deliveredItems: 2 },
+        { ...BOB, deliveredMd: 2, deliveredItems: 1 },
+      ],
+    },
+    {
+      ...THROUGHPUT_UNIT.bySprint[0],
+      deliveredMd: 7.5,
+      deliveredItems: 3,
+      snapshot: { deliveredMd: 6, deliveredItems: 3 },
+      drift: true,
+      byUser: [
+        { ...ANN, deliveredMd: 5, deliveredItems: 2 },
+        { ...BOB, deliveredMd: 2.5, deliveredItems: 1 },
+      ],
+    },
+  ],
+  byBucket: [
+    {
+      bucketStart: "2026-09-07",
+      deliveredMd: 9,
+      deliveredItems: 4,
+      byUser: [
+        { ...ANN, deliveredMd: 6, deliveredItems: 3 },
+        { ...BOB, deliveredMd: 3, deliveredItems: 1 },
+      ],
+    },
+    {
+      bucketStart: "2026-09-14",
+      deliveredMd: 0,
+      deliveredItems: 0,
+      byUser: [
+        { ...ANN, deliveredMd: 0, deliveredItems: 0 },
+        { ...BOB, deliveredMd: 0, deliveredItems: 0 },
+      ],
+    },
+    {
+      bucketStart: "2026-09-21",
+      deliveredMd: 7.5,
+      deliveredItems: 3,
+      byUser: [
+        { ...ANN, deliveredMd: 4.5, deliveredItems: 2 },
+        { ...BOB, deliveredMd: 3, deliveredItems: 1 },
+      ],
+    },
+  ],
+  groups: [
+    { teamId: 1, ...ANN, deliveredMd: 10.5, deliveredItems: 5 },
+    { teamId: 1, ...BOB, deliveredMd: 6, deliveredItems: 2 },
+  ],
 };
 
 export const THROUGHPUT_MONTHS: ThroughputReport = {

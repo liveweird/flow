@@ -44,7 +44,7 @@ const isRememberedTeam = (v: unknown): v is number | null => v === null || (type
  *
  * Every write keeps the current `location.state` (a drill link's hand-off, e.g. the domain an epic
  * was reached through), so a period change or a normalising rewrite does not silently lose it.
- * A `teamRequired` report (commitments) is never read for the whole unit: a URL that names no team — a bare link, or one with
+ * A `teamRequired` report (commitments, throughput) is never read for the whole unit: a URL that names no team — a bare link, or one with
  * only a period — is given one (`requiredTeamId`: the team listing a linked sprint, else the remembered team, else the first
  * by name) and the URL is rewritten (replace) like the remembered-team case; so is a `teamId` the loaded team list does
  * not know (a deleted team, `0`), whose members are dropped with it. With no team at all the filter stays teamless

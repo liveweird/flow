@@ -141,25 +141,54 @@
     "title": "Throughput",
     "description": "What each team delivered: the work finished per week or month, and the scope done inside each sprint. The two views differ by design — a task finished after its sprint closed counts in the period only.",
     "periodTitle": "Delivered per period",
+    "periodTitleCumulative": "Delivered per period, cumulative",
     "caption": {
       "TASK": "Domain view: delivered in — a task counts in its own domain.",
       "EPIC": "Domain view: earned in — a task counts in its epic's domain."
     },
     "summary": "Delivered in the period: {{md}} MD ({{items}})",
-    "chartLabel": "Chart: delivered scope by period",
     "series": {
-      "delivered": "Delivered"
+      "delivered": "Delivered",
+      "cumulative": "Delivered, cumulative"
     },
     "sprintTitle": "Delivered per sprint",
+    "sprintTitleCumulative": "Delivered per sprint, cumulative",
     "sprintCaption": "The sprint view: what was done inside each sprint while it was in it, priced at the sprint's close. It ignores the domain, activity type and work category filters.",
     "column": {
       "deliveredMd": "Delivered (MD)",
       "deliveredItems": "Delivered (items)",
       "bucketWEEK": "Week starting",
-      "bucketMONTH": "Month"
+      "bucketMONTH": "Month",
+      "person": "Person",
+      "cumulativeMd": "Cumulative (MD)",
+      "cumulativeItems": "Cumulative (items)"
     },
     "snapshot": "Frozen at completion: delivered {{md}} MD, {{items}}",
-    "bucketTableLabel": "Delivered per period, as a table"
+    "bucketTableLabel": "Delivered per period, as a table",
+    "noTeams": "Throughput is read per team and there is no team yet. An administrator adds teams on the Teams page.",
+    "view": {
+      "label": "Chart view",
+      "period": "Per period",
+      "cumulative": "Cumulative"
+    },
+    "chartLabels": {
+      "period": "Chart: delivered scope by period",
+      "periodCumulative": "Chart: delivered scope by period, cumulative",
+      "sprint": "Chart: delivered scope by sprint",
+      "sprintCumulative": "Chart: delivered scope by sprint, cumulative",
+      "byPerson": "{{label}}, stacked by person"
+    },
+    "userLegendLabel": "Chart legend",
+    "userSeries": {
+      "delivered": "{{name}} · delivered",
+      "cumulative": "{{name}} · delivered, cumulative"
+    },
+    "tooltipCumulativeItems": "{{items}} so far",
+    "personTotalsTitle": "Totals per person",
+    "periodSharesTitle": "Each person's share of each period",
+    "periodSharesAria": "Each person's delivered scope per period",
+    "sprintSharesTitle": "Each person's share of each sprint",
+    "sprintSharesAria": "Each person's delivered scope per sprint"
   },
   "sprintConsistency": {
     "title": "Sprint consistency",

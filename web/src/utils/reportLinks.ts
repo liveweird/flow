@@ -77,6 +77,19 @@ const REPORT_SPECIFIC_PARAMS: Readonly<Record<string, readonly ReportSpecificKey
   [costMatrixPath]: ["domain", "domainView", "activityType", "workCategory"],
 };
 
+/**
+ * The page-local params: view switches that live beside a report's chart, not in the filter bar. They are no part of the
+ * filter (never sent to the API, not in the query key), and — like the report-specific params — follow a link only to
+ * the page that reads them.
+ */
+export const THROUGHPUT_VIEW_PARAM = "view";
+const PAGE_PARAMS: Readonly<Record<string, readonly string[]>> = {
+  [throughputPath]: [THROUGHPUT_VIEW_PARAM],
+};
+
+/** The reports whose member control picks several people (repeated `accountId`); every other report keeps the FIRST. */
+const MULTI_ACCOUNT_PATHS: ReadonlySet<string> = new Set([commitmentsPath, throughputPath]);
+
 /** The report-specific params a report route has a control for — what its own filter normalizer keeps. */
 export function reportSpecificKeep(path: string): ReadonlySet<ReportSpecificKey> {
   return new Set(REPORT_SPECIFIC_PARAMS[path] ?? []);
@@ -84,13 +97,18 @@ export function reportSpecificKeep(path: string): ReadonlySet<ReportSpecificKey>
 
 /**
  * A report route carrying the current filter query, so switching tabs keeps the period/team/member —
- * minus the report-specific params the target's controls do not use. Only commitments picks several members: leaving it
- * keeps the FIRST `accountId` (what a single-member page reads from the repeats), so the address bar says what the page shows.
+ * minus the report-specific and page-local params the target does not use. Only commitments and throughput pick several
+ * members: moving between them keeps every `accountId`, leaving them keeps the FIRST (what a single-member page reads from
+ * the repeats), so the address bar says what the page shows.
  */
 export function reportHref(path: string, search: string): string {
   const params = new URLSearchParams(search);
   const accounts = params.getAll("accountId");
-  if (path !== commitmentsPath && accounts.length > 1) params.set("accountId", accounts[0]);
+  if (!MULTI_ACCOUNT_PATHS.has(path) && accounts.length > 1) params.set("accountId", accounts[0]);
+  const own = PAGE_PARAMS[path] ?? [];
+  for (const key of Object.values(PAGE_PARAMS).flat()) {
+    if (!own.includes(key)) params.delete(key);
+  }
   const keep = reportSpecificKeep(path);
   for (const key of REPORT_SPECIFIC_KEYS) {
     if (!keep.has(key)) params.delete(key);

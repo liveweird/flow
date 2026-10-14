@@ -145,25 +145,54 @@
     "title": "Przepustowość",
     "description": "Co dostarczył każdy zespół: praca zakończona w tygodniu lub miesiącu oraz zakres zrobiony w każdym sprincie. Oba widoki różnią się celowo — zadanie zakończone po zamknięciu sprintu liczy się tylko w okresie.",
     "periodTitle": "Dostarczone w okresach",
+    "periodTitleCumulative": "Dostarczone w okresach, narastająco",
     "caption": {
       "TASK": "Widok domeny: dostarczone w — zadanie liczy się w swojej domenie.",
       "EPIC": "Widok domeny: wypracowane w — zadanie liczy się w domenie swojego epika."
     },
     "summary": "Dostarczone w okresie: {{md}} MD ({{items}})",
-    "chartLabel": "Wykres: dostarczony zakres według okresów",
     "series": {
-      "delivered": "Dostarczone"
+      "delivered": "Dostarczone",
+      "cumulative": "Dostarczone narastająco"
     },
     "sprintTitle": "Dostarczone w sprintach",
+    "sprintTitleCumulative": "Dostarczone w sprintach, narastająco",
     "sprintCaption": "Widok sprintowy: co zrobiono w sprincie, gdy zadanie w nim było, wycenione na moment zamknięcia sprintu. Ignoruje filtry domeny, typu aktywności i kategorii pracy.",
     "column": {
       "deliveredMd": "Dostarczone (MD)",
       "deliveredItems": "Dostarczone (zadania)",
       "bucketWEEK": "Tydzień od",
-      "bucketMONTH": "Miesiąc"
+      "bucketMONTH": "Miesiąc",
+      "person": "Osoba",
+      "cumulativeMd": "Narastająco (MD)",
+      "cumulativeItems": "Narastająco (zadania)"
     },
     "snapshot": "Zamrożone przy zakończeniu: dostarczone {{md}} MD, {{items}}",
-    "bucketTableLabel": "Dostarczone w okresach, w tabeli"
+    "bucketTableLabel": "Dostarczone w okresach, w tabeli",
+    "noTeams": "Przepustowość liczymy dla zespołu, a nie ma jeszcze żadnego zespołu. Administrator/ka dodaje zespoły na stronie Zespoły.",
+    "view": {
+      "label": "Widok wykresu",
+      "period": "Za okres",
+      "cumulative": "Narastająco"
+    },
+    "chartLabels": {
+      "period": "Wykres: dostarczony zakres według okresów",
+      "periodCumulative": "Wykres: dostarczony zakres według okresów, narastająco",
+      "sprint": "Wykres: dostarczony zakres według sprintów",
+      "sprintCumulative": "Wykres: dostarczony zakres według sprintów, narastająco",
+      "byPerson": "{{label}}, ułożony według osób"
+    },
+    "userLegendLabel": "Legenda wykresu",
+    "userSeries": {
+      "delivered": "{{name}} · dostarczone",
+      "cumulative": "{{name}} · dostarczone narastająco"
+    },
+    "tooltipCumulativeItems": "{{items}} dotychczas",
+    "personTotalsTitle": "Sumy według osób",
+    "periodSharesTitle": "Udział każdej osoby w każdym okresie",
+    "periodSharesAria": "Dostarczony zakres każdej osoby w okresach",
+    "sprintSharesTitle": "Udział każdej osoby w każdym sprincie",
+    "sprintSharesAria": "Dostarczony zakres każdej osoby w sprintach"
   },
   "sprintConsistency": {
     "title": "Spójność sprintów",
