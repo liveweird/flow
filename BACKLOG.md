@@ -110,10 +110,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   which enqueues DERIVE for every enabled connection. Decide whether that is wanted (board → team mapping is unique
   across connections, so a save can move another connection's team) or only the saved connection, plus any whose
   mapping it changed, should re-derive. At scale 20 an extra DERIVE costs 30-50 s per connection.
-- [new] **An oversized changelog/worklog batch stalls its stream.** CHANGELOGS (`changelog/bulkfetch`) and WORKLOGS
-  (`worklog/list`) batch up to `jira.changelogBulkSize` ids; a batch over `jira.maxResponseBytes` fails the same way
-  every run. Halve the batch like the ISSUES page (`jira-integration.md` "Oversized issue page"). Unlikely: their
-  documents are far smaller than `*all` issues.
 - [parked] **Data profile: multi-project boards.** A board whose filter spans several projects shows no observed or
   unmapped statuses, because `BoardRef` carries a single project key. Revisit if real boards span projects.
 - [parked] **Two connections to one Jira site are allowed** (with different project scopes). Confirm this is the wanted

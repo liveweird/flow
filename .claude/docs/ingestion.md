@@ -502,6 +502,17 @@ unavailable (a GA/scope gap), not a transient failure — makes that ONE batch f
 for the whole batch (finer-grained resumability, since each issue is its own sequence of HTTP
 calls). Any OTHER `JiraFetchException` status propagates rather than triggering the fallback.
 
+**Oversized batch.** A bulk answer over `jira.maxResponseBytes` (`LIMIT_EXCEEDED`) halves the batch (claimed afresh at the
+smaller run-local size, never persisted); a batch of one issue goes to the per-issue endpoint, and an issue over the cap
+there too is skipped for the run (`changelogsSkipped`, one WARN per issue, stays stale, retried next run) — unless the run
+skips more than `max(10, 10% of the issues it attempted)`, which fails the stream `LIMIT_EXCEEDED` (a too-small
+`jira.maxResponseBytes` must not SUCCEED having skipped everything). **PROCESS does not wait for a skipped issue**: with no
+history it normalizes as one open interval in its CURRENT status since creation (no anomaly flagged: it looks as if it never
+changed status, skewing cycle time/flow efficiency); with an outdated history it tiles the old chain
+(`STATUS_MISMATCH_WITH_CURRENT` only if the current status differs). A later run that fetches the changelog re-flags and
+rebuilds it. The batch size only shrinks within a run (no regrow) and is not persisted — `jira-integration.md` "Oversized
+changelog/worklog batch".
+
 **Why the bulk-unavailable flag is decided ONCE at run start, not re-checked per batch.** A 24-hour
 `bulkUnavailableUntil` window is written to the `changelogs` cursor the FIRST time a batch falls
 back, but it is only ever READ at the very start of a run (`bulkUnavailableAtStart` in
@@ -921,7 +932,7 @@ name its own): `pages` (REFERENCE per-step-or-page, ISSUES per page, RECONCILE p
 `entities` (REFERENCE, per entity upserted), `issuesUpserted` (ISSUES per page, and RECONCILE's own
 index-gap fetch), `movedOutOfScope` (ISSUES, once per run: rows tombstoned because their project
 left `projectKeys`), `changelogs` (CHANGELOGS, per history inserted), `worklogs` (WORKLOGS, per worklog
-upserted), `worklogsOutOfScope` (WORKLOGS, A1's scope-filter drop count), `tombstoned` (RECONCILE,
+upserted), `worklogsOutOfScope` (WORKLOGS, A1's scope-filter drop count), `changelogsSkipped` (CHANGELOGS, an issue over `jira.maxResponseBytes` even alone, left stale for the next run), `worklogsSkipped` (WORKLOGS, one `worklog/list` worklog over the cap) and `worklogsIssuesSkipped` (WORKLOGS, a backfilled issue whose per-issue page is over the cap, left unsynced) — see `jira-integration.md` "Oversized changelog/worklog batch", `tombstoned` (RECONCILE,
 per issue flagged `deleted_at`/`moved_out_at`), `indexGapSkipped` (RECONCILE: ids left unfetched because the
 ISSUES stream has not yet covered the scope), `projectFieldsSkipped` (REFERENCE, one per project whose optional `PROJECT_FIELDS` step was skipped),
 `issuesProcessed`/`issuesFailed` (PROCESS, per issue

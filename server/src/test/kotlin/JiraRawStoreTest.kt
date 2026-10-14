@@ -285,6 +285,7 @@ class JiraRawStoreTest {
 
         val stale = store.staleChangelogIssueIds(connId, limit = 100)
         assertEquals(listOf(10L, 20L, 30L), stale)
+        assertEquals(listOf(10L, 30L), store.staleChangelogIssueIds(connId, limit = 100, excluding = setOf(20L)), "a run-local exclusion")
     }
 
     @Test
@@ -415,6 +416,7 @@ class JiraRawStoreTest {
 
         val stale = store.staleWorklogIssueIds(connId, limit = 100)
         assertEquals(listOf(60L), stale)
+        assertEquals(emptyList(), store.staleWorklogIssueIds(connId, limit = 100, excluding = setOf(60L)), "a run-local exclusion")
     }
 
     @Test
