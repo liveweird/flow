@@ -10,6 +10,9 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import org.slf4j.LoggerFactory
+
+private val log = LoggerFactory.getLogger(JiraChangelogStream::class.java)
 
 private val CHANGELOGS_CURSOR_JSON = Json { encodeDefaults = true; ignoreUnknownKeys = true }
 
@@ -37,6 +40,9 @@ internal data class ChangelogsCursor(
 private val BULK_UNAVAILABLE_STATUSES = setOf(404, 405, 410, 501)
 private const val BULK_UNAVAILABLE_WINDOW_MILLIS = MILLIS_PER_DAY
 
+/** What one `changelog/bulkfetch` attempt for a batch came to. */
+private enum class BulkOutcome { DONE, UNAVAILABLE, TOO_LARGE }
+
 /**
  * The CHANGELOGS stream (v0.2.0 plan §7): batches of `jira.changelogBulkSize` (default 50 — MUST
  * match `sample-data/jira-stub`'s own fixed 50-id chunking, `sample-data/README.md`) STALE issues —
@@ -53,6 +59,11 @@ private const val BULK_UNAVAILABLE_WINDOW_MILLIS = MILLIS_PER_DAY
  * — a 404/405/410/501 falls back to per-issue `GET /issue/{id}/changelog` (`startAt`-paged) for
  * EXACTLY that batch, one issue per transaction+heartbeat (finer-grained resumability, since each
  * issue is its own sequence of HTTP calls).
+ *
+ * Oversized batch (`.claude/docs/jira-integration.md` "Oversized changelog/worklog batch"): a bulk response over
+ * `jira.maxResponseBytes` (`LIMIT_EXCEEDED`) is re-asked as a batch of half the size (floor 1) for the rest of this
+ * invocation (not persisted); a single issue still over the cap goes to the per-issue endpoint, and an issue that
+ * is over the cap there too is skipped for this run (`changelogsSkipped`) rather than stalling the stream.
  */
 class JiraChangelogStream(
     private val client: JiraClient,
@@ -67,34 +78,56 @@ class JiraChangelogStream(
         val bulkUnavailableAtStart = loadCursor(context)?.bulkUnavailableUntil
         val skipBulkThisRun = bulkUnavailableAtStart != null && context.clock() < bulkUnavailableAtStart
         var cursorWritten = skipBulkThisRun
+        // Run-local, never persisted: the batch size only shrinks (oversized bulk responses), and the issues whose own
+        // response still exceeds the cap are left stale for the next run but not claimed again by this one.
+        var size = bulkSize
+        val gaveUp = mutableSetOf<Long>()
 
         while (true) {
-            val batch = rawStore.staleChangelogIssueIds(context.connectionId, bulkSize)
+            val batch = rawStore.staleChangelogIssueIds(context.connectionId, size, gaveUp)
             if (batch.isEmpty()) break
 
-            val handledByBulk = !skipBulkThisRun && tryBulk(context, batch)
-            if (!handledByBulk) {
-                if (!cursorWritten) {
-                    val bulkUnavailableUntil = context.clock() + BULK_UNAVAILABLE_WINDOW_MILLIS
-                    context.transaction { context.putCursor(name, encode(ChangelogsCursor(bulkUnavailableUntil))) }
-                    cursorWritten = true
+            when (if (skipBulkThisRun) BulkOutcome.UNAVAILABLE else tryBulk(context, batch)) {
+                BulkOutcome.DONE -> Unit
+                BulkOutcome.TOO_LARGE ->
+                    if (batch.size > 1) {
+                        val halved = halvedBatchSize(size, batch.size)
+                        log.warn(
+                            "CHANGELOGS batch over the response cap, data source {}: size {} -> {}",
+                            context.connectionId, batch.size, halved,
+                        )
+                        size = halved
+                    } else {
+                        // One issue's bulk answer is over the cap: the per-issue endpoint pages it in smaller pieces.
+                        perIssueFallback(context, batch, gaveUp)
+                    }
+                BulkOutcome.UNAVAILABLE -> {
+                    if (!cursorWritten) {
+                        val bulkUnavailableUntil = context.clock() + BULK_UNAVAILABLE_WINDOW_MILLIS
+                        context.transaction { context.putCursor(name, encode(ChangelogsCursor(bulkUnavailableUntil))) }
+                        cursorWritten = true
+                    }
+                    perIssueFallback(context, batch, gaveUp)
                 }
-                perIssueFallback(context, batch)
             }
         }
     }
 
     /**
-     * Attempts [batch] via `changelog/bulkfetch` in ONE transaction — `false` (having swallowed
-     * nothing but a bulk-unavailable status) means the CALLER must fall back to per-issue fetches
-     * for this batch instead; any other failure propagates.
+     * Attempts [batch] via `changelog/bulkfetch` in ONE transaction. [BulkOutcome.UNAVAILABLE] (having swallowed nothing
+     * but a bulk-unavailable status) means the CALLER must fall back to per-issue fetches for this batch instead;
+     * [BulkOutcome.TOO_LARGE] (a `LIMIT_EXCEEDED` on any page, the whole batch's partial answer discarded) means ask a
+     * smaller batch; any other failure propagates.
      */
-    private suspend fun tryBulk(context: StreamContext, batch: List<Long>): Boolean {
+    private suspend fun tryBulk(context: StreamContext, batch: List<Long>): BulkOutcome {
         val logs = try {
             fetchBulk(batch)
         } catch (cause: JiraFetchException) {
-            if (cause.status !in BULK_UNAVAILABLE_STATUSES) throw cause
-            return false
+            return when {
+                cause.status in BULK_UNAVAILABLE_STATUSES -> BulkOutcome.UNAVAILABLE
+                cause.isOversized() -> BulkOutcome.TOO_LARGE
+                else -> throw cause
+            }
         }
         context.transaction {
             storeBulkResult(context, logs)
@@ -102,7 +135,7 @@ class JiraChangelogStream(
             context.incrementProgress("changelogs", logs.sumOf { it["changeHistories"]?.jsonArray?.size ?: 0 }.toLong())
         }
         context.heartbeat()
-        return true
+        return BulkOutcome.DONE
     }
 
     /** Pages a `changelog/bulkfetch` call by `nextPageToken` until the response stops carrying one. */
@@ -128,20 +161,21 @@ class JiraChangelogStream(
 
     /**
      * The per-issue fallback (v0.2.0 plan §7): one issue per transaction+heartbeat, `startAt`-paged
-     * (the stub's per-issue changelog pages are deliberately small, `sample-data/README.md`).
+     * (the stub's per-issue changelog pages are deliberately small, `sample-data/README.md`). An issue whose own
+     * response is over the byte cap (`LIMIT_EXCEEDED`, the client has no page size to shrink) is isolated: it stays
+     * stale for the next run, joins [gaveUp] so this run does not claim it again, ticks `changelogsSkipped` and logs
+     * one WARN; the rest of the batch and of the stream carry on.
      */
-    private suspend fun perIssueFallback(context: StreamContext, issueIds: List<Long>) {
-        issueIds.forEach { issueId ->
-            val histories = mutableListOf<JsonObject>()
-            var startAt = 0
-            while (true) {
-                val page = client.issueChangelogPage(issueId.toString(), startAt)
-                histories += page.histories.map { it.jsonObject }
-                val consumed = page.histories.size
-                val nextStartAt = startAt + consumed
-                val isLast = page.isLast == true || nextStartAt >= page.total || consumed == 0
-                if (isLast) break
-                startAt = nextStartAt
+    private suspend fun perIssueFallback(context: StreamContext, issueIds: List<Long>, gaveUp: MutableSet<Long>) {
+        for (issueId in issueIds) {
+            val histories = try {
+                fetchIssueHistories(issueId)
+            } catch (cause: JiraFetchException) {
+                if (!cause.isOversized()) throw cause
+                log.warn("CHANGELOGS issue {} over the response cap, data source {}: skipped this run", issueId, context.connectionId)
+                gaveUp += issueId
+                context.incrementProgress("changelogsSkipped")
+                continue
             }
             context.transaction {
                 histories.forEach { storeHistory(context, issueId, it) }
@@ -150,6 +184,21 @@ class JiraChangelogStream(
             }
             context.heartbeat()
         }
+    }
+
+    private suspend fun fetchIssueHistories(issueId: Long): List<JsonObject> {
+        val histories = mutableListOf<JsonObject>()
+        var startAt = 0
+        while (true) {
+            val page = client.issueChangelogPage(issueId.toString(), startAt)
+            histories += page.histories.map { it.jsonObject }
+            val consumed = page.histories.size
+            val nextStartAt = startAt + consumed
+            val isLast = page.isLast == true || nextStartAt >= page.total || consumed == 0
+            if (isLast) break
+            startAt = nextStartAt
+        }
+        return histories
     }
 
     private suspend fun storeHistory(context: StreamContext, issueId: Long, history: JsonObject) {

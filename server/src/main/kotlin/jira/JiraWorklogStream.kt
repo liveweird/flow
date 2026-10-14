@@ -7,6 +7,9 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import org.slf4j.LoggerFactory
+
+private val log = LoggerFactory.getLogger(JiraWorklogStream::class.java)
 
 private val WORKLOGS_CURSOR_JSON = Json { encodeDefaults = true; ignoreUnknownKeys = true }
 
@@ -21,6 +24,12 @@ internal data class WorklogsCursor(
 
 /** One round's worth of stale-issue ids the per-issue backfill claims at a time (heartbeat/resumability granularity). */
 private const val BACKFILL_BATCH_SIZE = 100
+
+/** `POST /worklog/list`'s documented ceiling on ids per call; the run's id-batch size starts here and only shrinks. */
+private const val WORKLOG_LIST_MAX_IDS = 1000
+
+/** The run-local (never persisted) size of a `worklog/list` id batch: starts at [WORKLOG_LIST_MAX_IDS], only shrinks. */
+private class ListAsk(var size: Int = WORKLOG_LIST_MAX_IDS)
 
 /**
  * The WORKLOGS stream (v0.2.0 plan §0 A1/§7): the per-issue backfill first, then the incremental
@@ -46,6 +55,12 @@ private const val BACKFILL_BATCH_SIZE = 100
  * response is untrusted input the outbound guard never gets to re-check). `/worklog/deleted` runs
  * the same way after `/worklog/updated` fully drains, tombstoning whatever it names (a no-op for an
  * out-of-scope worklog Flow never stored).
+ *
+ * Oversized response (`.claude/docs/jira-integration.md` "Oversized changelog/worklog batch"): a `worklog/list` answer
+ * over `jira.maxResponseBytes` (`LIMIT_EXCEEDED`) is re-asked for half the ids (floor 1) for the rest of this invocation
+ * (not persisted); a single worklog id still over the cap is skipped (`worklogsSkipped`). A backfilled issue whose own
+ * `GET /issue/{id}/worklog` page is over the cap is skipped for this run, left unsynced for the next
+ * (`worklogsIssuesSkipped`), so neither path can stall the stream.
  */
 class JiraWorklogStream(
     private val client: JiraClient,
@@ -61,15 +76,25 @@ class JiraWorklogStream(
     }
 
     private suspend fun backfillPerIssue(context: StreamContext) {
+        // Run-local: issues whose own response is over the cap stay unsynced for the next run but are not re-claimed here.
+        val gaveUp = mutableSetOf<Long>()
         while (true) {
-            val batch = rawStore.staleWorklogIssueIds(context.connectionId, BACKFILL_BATCH_SIZE)
+            val batch = rawStore.staleWorklogIssueIds(context.connectionId, BACKFILL_BATCH_SIZE, gaveUp)
             if (batch.isEmpty()) break
-            batch.forEach { issueId -> backfillOneIssue(context, issueId) }
+            batch.forEach { issueId -> backfillOneIssue(context, issueId, gaveUp) }
         }
     }
 
-    private suspend fun backfillOneIssue(context: StreamContext, issueId: Long) {
-        val worklogs = fetchIssueWorklogPages(issueId)
+    private suspend fun backfillOneIssue(context: StreamContext, issueId: Long, gaveUp: MutableSet<Long>) {
+        val worklogs = try {
+            fetchIssueWorklogPages(issueId)
+        } catch (cause: JiraFetchException) {
+            if (!cause.isOversized()) throw cause
+            log.warn("WORKLOGS issue {} over the response cap, data source {}: skipped this run", issueId, context.connectionId)
+            gaveUp += issueId
+            context.incrementProgress("worklogsIssuesSkipped")
+            return
+        }
         context.transaction {
             worklogs.forEach { storeWorklog(context, issueId, it) }
             rawStore.markWorklogsSynced(context.connectionId, issueId, context.clock())
@@ -98,12 +123,13 @@ class JiraWorklogStream(
         val existing = loadCursor(context)
         var since = existing?.updatedSince ?: runStartedAt
         val deletedSince = existing?.deletedSince ?: runStartedAt
+        val listAsk = ListAsk()
         while (true) {
             val page = client.worklogUpdated(since)
             var outOfScopeThisPage = 0
             var storedThisPage = 0
             if (page.values.isNotEmpty()) {
-                val details = client.worklogList(page.values.map { it.worklogId }).map { it.jsonObject }
+                val details = listWorklogs(context, page.values.map { it.worklogId }, listAsk)
                 val candidateIssueIds = details.map { it.issueIdLong() }.toSet()
                 val knownIds = rawStore.knownInScopeIssueIds(context.connectionId, candidateIssueIds.toList())
                 context.transaction {
@@ -127,6 +153,35 @@ class JiraWorklogStream(
             if (page.lastPage) return page.until
             since = page.until
         }
+    }
+
+    /**
+     * Resolves [ids] through `POST /worklog/list` in batches of at most [ask]`.size`. A `LIMIT_EXCEEDED` answer halves the
+     * size and re-asks the same ids (the smaller size then holds for the rest of the run); a single id still over the
+     * cap is skipped, counted and logged, so the page — and the cursor behind it — can advance.
+     */
+    private suspend fun listWorklogs(context: StreamContext, ids: List<Long>, ask: ListAsk): List<JsonObject> {
+        val details = mutableListOf<JsonObject>()
+        var remaining = ids
+        while (remaining.isNotEmpty()) {
+            val chunk = remaining.take(ask.size)
+            try {
+                details += client.worklogList(chunk).map { it.jsonObject }
+                remaining = remaining.drop(chunk.size)
+            } catch (cause: JiraFetchException) {
+                if (!cause.isOversized()) throw cause
+                if (chunk.size > 1) {
+                    val halved = halvedBatchSize(ask.size, chunk.size)
+                    log.warn("WORKLOGS list over the response cap, data source {}: size {} -> {}", context.connectionId, chunk.size, halved)
+                    ask.size = halved
+                } else {
+                    log.warn("WORKLOGS worklog {} over the response cap, data source {}: skipped", chunk.single(), context.connectionId)
+                    context.incrementProgress("worklogsSkipped")
+                    remaining = remaining.drop(1)
+                }
+            }
+        }
+        return details
     }
 
     private suspend fun runIncrementalDeleted(context: StreamContext, runStartedAt: Long, updatedSinceFinal: Long) {
