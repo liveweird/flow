@@ -1,6 +1,7 @@
 package ch.nokillswit
 
 import ch.nokillswit.jira.JiraNormalizer
+import ch.nokillswit.jira.deletedStatusId
 import ch.nokillswit.norm.StatusCategory
 import ch.nokillswit.norm.TombstoneKind
 import java.time.LocalDate
@@ -170,6 +171,57 @@ class JiraNormalizerTest {
         assertEquals(TombstoneKind.DELETED, deleted.facts.tombstone)
         val moved = JiraNormalizer.normalizeIssue(minimalIssuePayload(), emptyList(), emptyList(), noFieldIds, TombstoneKind.MOVED_OUT)
         assertEquals(TombstoneKind.MOVED_OUT, moved.facts.tombstone)
+    }
+
+    private fun statusEvents(vararg itemJson: String) = JiraNormalizer.normalizeIssue(
+        minimalIssuePayload(),
+        listOf("""{"id":"1","created":"2026-01-01T01:00:00.000Z","items":[${itemJson.joinToString(",")}]}"""),
+        emptyList(), noFieldIds, TombstoneKind.NONE,
+    ).statusEvents
+
+    @Test
+    fun `a status item without a to id gets a synthetic id from toString`() {
+        val event = statusEvents(
+            """{"field":"status","fieldId":"status","from":"1","fromString":"Open","toString":"Third Line","fieldtype":"jira"}""",
+        ).single()
+        assertEquals("1", event.fromStatusId)
+        assertEquals("deleted:Third Line", event.toStatusId)
+    }
+
+    @Test
+    fun `a status item without a to id and without a toString gets deleted-question-mark`() {
+        val event = statusEvents("""{"field":"status","fieldId":"status","from":"1","fromString":"Open","to":null}""").single()
+        assertEquals("deleted:?", event.toStatusId)
+    }
+
+    @Test
+    fun `a status item without a from id gets a synthetic id from fromString, a blank id counts as missing`() {
+        val event = statusEvents(
+            """{"field":"status","fieldId":"status","from":" ","fromString":"Gone","to":"3","toString":"Done"}""",
+        ).single()
+        assertEquals("deleted:Gone", event.fromStatusId)
+        assertEquals("3", event.toStatusId)
+    }
+
+    @Test
+    fun `deletedStatusId keeps a name that fits and hash-truncates one that does not`() {
+        assertEquals("deleted:" + "x".repeat(42), deletedStatusId("x".repeat(42)))
+        val long = "A".repeat(41) + "-first-" + "z".repeat(12)
+        val id = deletedStatusId(long)
+        assertEquals(50, id.length)
+        assertTrue(id.startsWith("deleted:" + "A".repeat(33) + "~"))
+        assertTrue(Regex("~[0-9a-f]{8}$").containsMatchIn(id), id)
+        assertEquals(id, deletedStatusId(long), "stable across calls")
+        assertTrue(deletedStatusId("A".repeat(41) + "-second-" + "z".repeat(12)) != id, "same prefix, different name, different id")
+    }
+
+    @Test
+    fun `deletedStatusId never splits a surrogate pair and maps a missing or blank name to a question mark`() {
+        val id = deletedStatusId("A".repeat(32) + "\uD83D\uDE00" + "B".repeat(20))
+        assertTrue(id.length <= 50)
+        assertTrue(!id.substringBefore("~").last().isHighSurrogate())
+        assertEquals("deleted:?", deletedStatusId(null))
+        assertEquals("deleted:?", deletedStatusId("  "))
     }
 
     @Test

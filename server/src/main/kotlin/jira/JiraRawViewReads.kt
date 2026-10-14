@@ -5,6 +5,7 @@ import ch.nokillswit.jira.JiraRawStore.Entities
 import ch.nokillswit.jira.JiraRawStore.Issues
 import ch.nokillswit.jira.JiraRawStore.RawIssueDetail
 import ch.nokillswit.jira.JiraRawStore.Worklogs
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.toList
 import org.jetbrains.exposed.v1.core.ResultRow
@@ -12,10 +13,17 @@ import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.isNotNull
 import org.jetbrains.exposed.v1.core.isNull
+import org.jetbrains.exposed.v1.core.statements.StatementType
 import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
 import org.jetbrains.exposed.v1.r2dbc.select
 import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
+
+/**
+ * [JiraRawViewReads.customFieldFill]'s result: [total] LIVE issues and, per `fields` key, [nonNullByField] — how many of them
+ * carry a value there (a key absent from the map has none).
+ */
+data class CustomFieldFill(val total: Long, val nonNullByField: Map<String, Long>)
 
 /**
  * The read-only views over the raw rows (v0.2.0 plan §9): the raw issue inspector's lookups, the data profile's bulk
@@ -61,13 +69,44 @@ internal class JiraRawViewReads(private val database: R2dbcDatabase) {
     }
 
     /**
-     * Every LIVE (non-tombstoned) issue's raw payload for a connection (v0.2.0 plan §8/§12 item 9)
-     * — the data profile's custom-field fill-rate scan.
+     * The data profile's custom-field fill-rate input (v0.2.0 plan §8/§12 item 9): the LIVE (not tombstoned, not moved out)
+     * issue count and, per `fields` key, how many of those issues "have a value" there.
+     *
+     * The count runs INSIDE Postgres (`jsonb_each` over `raw.jira_issues.payload`) instead of keyset-paging payloads into the JVM:
+     * the heap holds one `(key, count)` pair per DISTINCT field key (about 1,400 on a real Jira site) however many issues the
+     * project has — the first real-site SYNC (2,105 issues, 59 MB of JSON) OOMed at `-Xmx256m` while PROFILE held every payload,
+     * and a paged variant would still parse every payload in Kotlin — and it is one round trip. The live-issue [CustomFieldFill.total]
+     * comes out of the SAME statement (a `live` CTE read by both branches of a `UNION ALL`; the row with a NULL key is the total), so
+     * counts and total see ONE snapshot — two statements would each take their own under READ COMMITTED.
+     *
+     * "Has a value" is exactly the old Kotlin check: a missing key, a JSON `null` and an empty array do NOT count (an
+     * empty array is how Jira reports an unset Sprint/Flagged); `""`, `{}`, `0`, `false` and any other value DO. Every key is
+     * returned (no `customfield_` filter) — the caller picks the custom-field ids it cares about. Only the numeric connection
+     * id is interpolated into the SQL text, never a string.
      */
-    suspend fun issuePayloads(connectionId: UInt): List<String> = suspendTransaction(database) {
-        Issues.select(Issues.payload)
-            .where { (Issues.connectionId eq connectionId) and Issues.deletedAt.isNull() and Issues.movedOutAt.isNull() }
-            .map { it[Issues.payload] }.toList()
+    suspend fun customFieldFill(connectionId: UInt): CustomFieldFill = suspendTransaction(database) {
+        // A payload whose `fields` is not an object contributes nothing (jsonb_each would raise on it) but still counts in the total.
+        // `f.value <> '[]'::jsonb` is jsonb equality: only an empty array equals it, and it is safe on any value type.
+        val rows: Flow<Pair<String?, Long>?>? = exec(
+            """
+            WITH live AS (
+              SELECT payload FROM raw.jira_issues
+              WHERE connection_id = $connectionId AND deleted_at IS NULL AND moved_out_at IS NULL
+            )
+            SELECT f.key, count(*) FROM live,
+              jsonb_each(CASE WHEN jsonb_typeof(live.payload -> 'fields') = 'object' THEN live.payload -> 'fields' ELSE '{}'::jsonb END) f
+            WHERE jsonb_typeof(f.value) <> 'null' AND f.value <> '[]'::jsonb
+            GROUP BY f.key
+            UNION ALL
+            SELECT NULL, count(*) FROM live
+            """.trimIndent(),
+            explicitStatementType = StatementType.SELECT,
+        ) { row -> row.get(0, String::class.java) to row.get(1, Long::class.javaObjectType)!! }
+        val all = rows?.toList()?.filterNotNull().orEmpty()
+        CustomFieldFill(
+            total = all.firstOrNull { it.first == null }?.second ?: 0L,
+            nonNullByField = all.mapNotNull { (key, n) -> key?.let { it to n } }.toMap(),
+        )
     }
 
     /** `GET …/{id}/status` counts (v0.2.0 plan §9): every `raw.jira_entities` row for a connection, grouped by kind. */
