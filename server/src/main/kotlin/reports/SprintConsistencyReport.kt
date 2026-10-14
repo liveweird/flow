@@ -172,7 +172,7 @@ suspend fun ReportService.sprintConsistency(filter: ReportFilter): SprintConsist
         ReportLevel.USER -> {
             val accountId = requireNotNull(filter.accountId) { "USER level always carries an accountId (ReportFilter's own invariant)" }
             val entries = fetchScopeEntries(sprintRows, accountId).groupBy { it.connectionId to it.sprintId }
-            val frozen = fetchFrozenScopes(sprintRows, accountId, ::frozenScopeItemsOf) { it.assigneeAtCommitment }
+            val frozen = fetchFrozenScopes(sprintRows, listOf(accountId), ::frozenScopeItemsOf) { it.assigneeAtCommitment }
             val sprints = sprintRows.map { row ->
                 val items = entries[row.connectionId to row.sprintId].orEmpty().map { it.item }
                 val live = sprintTotals(items).toFigures()

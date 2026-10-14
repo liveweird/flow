@@ -7,7 +7,6 @@ import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.Serializable
 import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.and
-import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.r2dbc.selectAll
 
@@ -19,8 +18,11 @@ data class VelocitySnapshot(val initialMd: Double, val initialItems: Int, val fi
  * One sprint's own velocity (Report 1, `.claude/docs/measures.md` "Report 1 — Velocity"): `initial`
  * = committed, `final` = final scope (A17). [snapshot] is the frozen `fact_sprint_snapshot` figures
  * (`null` until the sprint was closed AND team-mapped at some past DERIVE — D13); [drift] compares
- * the two, `false` whenever no snapshot exists yet. At USER level the snapshot is that one account's frozen
- * share of the sprint's stored scope (see [buildUserSprints]).
+ * the two, `false` whenever no snapshot exists yet. At USER level every figure, the snapshot included, is the SUM over the
+ * picked accounts (the snapshot: their frozen share of the sprint's stored scope, see [buildUserSprints]) and [byUser] splits it
+ * per picked account; [byUser] is empty at UNIT/TEAM level. [capacityMd]/[capacitySource] (`CONFIGURED`/`DEFAULT`, A3) are the
+ * TEAM's sprint capacity — `null` when the sprint has none, and always `null` at USER level (capacity is team-only; picking
+ * users hides it).
  */
 @Serializable
 data class VelocitySprint(
@@ -34,6 +36,20 @@ data class VelocitySprint(
     val finalItems: Int,
     val snapshot: VelocitySnapshot?,
     val drift: Boolean,
+    val capacityMd: Double?,
+    val capacitySource: String?,
+    val byUser: List<VelocityUserShare>,
+)
+
+/** One picked account's own share of a sprint's velocity at USER level (live figures, `assignee_at_commitment`) — zeros included. */
+@Serializable
+data class VelocityUserShare(
+    val accountId: String,
+    val label: String,
+    val initialMd: Double,
+    val initialItems: Int,
+    val finalMd: Double,
+    val finalItems: Int,
 )
 
 /**
@@ -42,7 +58,8 @@ data class VelocitySprint(
  * ([accountId]/[label] set, summed off `fact_sprint_scope` — the same removed-row rule the team
  * total itself follows, so Σ users == the team total; a `null` [accountId]/[label] is the
  * unassigned-at-commitment bucket, never a stored sentinel — the `credit_team_id` convention).
- * Always empty at USER level, where [VelocityReport.sprints] is already that one user's own split.
+ * At USER level one entry per picked account (its period totals; a picked account with no scope row in the period is a zero
+ * entry), same shape as TEAM level.
  */
 @Serializable
 data class VelocityGroup(
@@ -78,8 +95,9 @@ private fun velocityDrift(live: VelocitySnapshot, snapshot: VelocitySnapshot?): 
  * `GET /api/v1/reports/velocity` (v0.3.0 M4 commit 10b, Report 1). Levels (from the parsed
  * filter): UNIT groups every team's closed sprints in the period by team (Σ final MD/items,
  * straight off `fact_sprint`); TEAM narrows to one team's own sprints, grouped by
- * `fact_sprint_scope.assignee_at_commitment`; USER narrows `sprints` itself to that one account's
- * own contribution (`groups` stays empty). `teamId = 0` (UNASSIGNED) is always empty.
+ * `fact_sprint_scope.assignee_at_commitment`; USER narrows `sprints` itself to the 1..8 picked accounts'
+ * summed contribution (`groups` lists each account's period totals, every [VelocitySprint.byUser] its per-sprint
+ * share). `teamId = 0` (UNASSIGNED) is always empty.
  */
 suspend fun ReportService.velocity(filter: ReportFilter): VelocityReport = reportTransaction {
     // A sprint-anchored report reads no time window, so `nowMs` only feeds the scope's unused `window`.
@@ -88,10 +106,16 @@ suspend fun ReportService.velocity(filter: ReportFilter): VelocityReport = repor
     val meta = scope.meta
 
     if (filter.level == ReportLevel.USER) {
-        val accountId = requireNotNull(filter.accountId) { "USER level always carries an accountId (ReportFilter's own invariant)" }
-        val contributions = fetchScopeContributions(sprintRows, accountId)
-        val frozen = fetchFrozenScopes(sprintRows, accountId, ::frozenContributionsOf) { it.accountId }
-        return@reportTransaction VelocityReport(meta, buildUserSprints(sprintRows, contributions, frozen), emptyList())
+        val accountIds = filter.accountIds
+        check(accountIds.isNotEmpty()) { "USER level always carries accountIds (ReportFilter's own invariant)" }
+        val contributions = fetchScopeContributions(sprintRows, accountIds)
+        val frozen = fetchFrozenScopes(sprintRows, accountIds, ::frozenContributionsOf) { it.accountId }
+        val labels = accountDisplayNames(accountIds)
+        return@reportTransaction VelocityReport(
+            meta,
+            buildUserSprints(sprintRows, accountIds, labels, contributions, frozen),
+            pickedUserGroups(accountIds, labels, contributions),
+        )
     }
 
     val snapshotByKey = fetchSnapshots(sprintRows).associateBy { it.connectionId to it.sprintId }
@@ -102,24 +126,25 @@ suspend fun ReportService.velocity(filter: ReportFilter): VelocityReport = repor
             initialMd = row.live.initialMd, initialItems = row.live.initialItems,
             finalMd = row.live.finalMd, finalItems = row.live.finalItems,
             snapshot = snapshot, drift = velocityDrift(row.live, snapshot),
+            capacityMd = row.capacityMd, capacitySource = row.capacitySource, byUser = emptyList(),
         )
     }
     val groups = when (filter.level) {
         ReportLevel.UNIT -> teamGroups(sprintRows)
-        ReportLevel.TEAM -> userGroups(fetchScopeContributions(sprintRows, accountId = null))
+        ReportLevel.TEAM -> userGroups(fetchScopeContributions(sprintRows, accountIds = null))
         ReportLevel.USER -> emptyList() // handled above
     }
     VelocityReport(meta, sprints, groups)
 }
 
-/** [accountId] `null` fetches every user's own contribution (TEAM-level groups); non-null narrows to one (USER level). */
-private suspend fun fetchScopeContributions(sprintRows: List<SprintRow>, accountId: String?): List<ScopeContribution> {
+/** [accountIds] `null` fetches every user's own contribution (TEAM-level groups); non-null narrows to those accounts (USER level). */
+private suspend fun fetchScopeContributions(sprintRows: List<SprintRow>, accountIds: Collection<String>?): List<ScopeContribution> {
     if (sprintRows.isEmpty()) return emptyList()
     val connectionIds = sprintRows.map { it.connectionId }.distinct()
     val sprintIds = sprintRows.map { it.sprintId }.distinct()
     var predicate: Op<Boolean> = (MetricsTables.FactSprintScope.connectionId inList connectionIds) and
         (MetricsTables.FactSprintScope.sprintId inList sprintIds)
-    accountId?.let { predicate = predicate and (MetricsTables.FactSprintScope.assigneeAtCommitment eq it) }
+    accountIds?.let { predicate = predicate and (MetricsTables.FactSprintScope.assigneeAtCommitment inList it) }
     // connection IN (...) AND sprint IN (...) is a cross product: keep exactly the (connection, sprint) pairs
     // in scope, since two connections to one Jira site share sprint ids.
     val inScope = sprintRows.map { it.connectionId to it.sprintId }.toSet()
@@ -169,27 +194,58 @@ private suspend fun userGroups(contributions: List<ScopeContribution>): List<Vel
     }
 
 /**
- * The USER level's own `sprints` — one row per sprint, narrowed to [contributions]' one account
- * (the same removed-row rule [userGroups] applies, per sprint instead of summed across them).
- * `snapshot` is that account's FROZEN figures, computed by the same [figuresOf] rule from the sprint's
- * `fact_sprint_snapshot.scope` ([frozen], keyed like [contributions]; `.claude/docs/metrics.md`'s "per-user
- * velocity from the snapshot needs no child table"); `null` for a sprint with no snapshot (D13), and
- * [drift] is the team level's own [velocityDrift] over the two.
+ * The USER level's own `sprints` — one row per sprint, narrowed to [contributions]' picked [accountIds] and SUMMED over them (the
+ * same removed-row rule [userGroups] applies, per sprint instead of summed across them). `snapshot` is those accounts' FROZEN figures,
+ * computed by the same [figuresOf] rule from the sprint's `fact_sprint_snapshot.scope` ([frozen], keyed like [contributions];
+ * `.claude/docs/metrics.md`'s "per-user velocity from the snapshot needs no child table"); `null` for a sprint with no snapshot
+ * (D13), and [drift] is the team level's own [velocityDrift] over the two. [byUser] is each picked account's live share in request
+ * order, zeros included; capacity is team-only (A3), so it is `null` here.
  */
 private fun buildUserSprints(
     sprintRows: List<SprintRow>,
+    accountIds: List<String>,
+    labels: Map<String, String>,
     contributions: List<ScopeContribution>,
     frozen: Map<Pair<UInt, Long>, List<ScopeContribution>>,
 ): List<VelocitySprint> {
     val byKey = contributions.groupBy { it.connectionId to it.sprintId }
     return sprintRows.map { row ->
-        val live = figuresOf(byKey[row.connectionId to row.sprintId].orEmpty())
+        val rows = byKey[row.connectionId to row.sprintId].orEmpty()
+        val live = figuresOf(rows)
         val snapshot = frozen[row.connectionId to row.sprintId]?.let(::figuresOf)
+        val byAccount = rows.groupBy { it.accountId }
         VelocitySprint(
             sprintId = row.sprintId, name = row.name, teamId = row.teamId, completedAt = row.completedAt,
             initialMd = live.initialMd, initialItems = live.initialItems,
             finalMd = live.finalMd, finalItems = live.finalItems,
             snapshot = snapshot, drift = velocityDrift(live, snapshot),
+            capacityMd = null, capacitySource = null,
+            byUser = accountIds.map { userShare(it, labels, figuresOf(byAccount[it].orEmpty())) },
         )
     }
+}
+
+private fun userShare(accountId: String, labels: Map<String, String>, figures: VelocitySnapshot) = VelocityUserShare(
+    accountId = accountId, label = labels[accountId] ?: accountId,
+    initialMd = figures.initialMd, initialItems = figures.initialItems, finalMd = figures.finalMd, finalItems = figures.finalItems,
+)
+
+/**
+ * USER-level `groups`: each picked account's period totals by the [userGroups] rule (Σ committed(∧inScopeAtClose)/final over its
+ * scope rows), ordered like it (label, then account id) — but an explicit pick is always listed, a zero entry when the account has no
+ * scope row in the period.
+ */
+private fun pickedUserGroups(
+    accountIds: List<String>,
+    labels: Map<String, String>,
+    contributions: List<ScopeContribution>,
+): List<VelocityGroup> {
+    val byAccount = contributions.groupBy { it.accountId }
+    return accountIds.map { id ->
+        val share = userShare(id, labels, figuresOf(byAccount[id].orEmpty()))
+        VelocityGroup(
+            accountId = id, label = share.label,
+            initialMd = share.initialMd, initialItems = share.initialItems, finalMd = share.finalMd, finalItems = share.finalItems,
+        )
+    }.sortedWith(byLabelThenId({ it.label }, { null }, { it.accountId }))
 }

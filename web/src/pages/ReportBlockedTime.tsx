@@ -21,7 +21,7 @@ const CONTROLS: ReportControls = { domain: true, activityType: true, workCategor
 export default function ReportBlockedTime() {
   const { t } = useTranslation();
   // The item kind is always sent explicitly (the server's default, TASK, made visible).
-  const { filtersQuery, filters, filter, setFilter, query } = useReportPage("blocked-time", (requested) =>
+  const { filtersQuery, filters, filter, setFilter, query, storageKey } = useReportPage("blocked-time", (requested) =>
     getBlockedTimeReport({ ...requested, itemKind: requested.itemKind ?? "TASK" }),
   );
   const report = query.data;
@@ -41,7 +41,7 @@ export default function ReportBlockedTime() {
       <ReportFiltersStatus query={filtersQuery} />
       {filters && (
         <>
-          <ReportFilterBar filters={filters} filter={filter} onChange={setFilter} controls={CONTROLS} />
+          <ReportFilterBar storageKey={storageKey} filters={filters} filter={filter} onChange={setFilter} controls={CONTROLS} />
           {report && <ReportMetaNote meta={report.meta} timeZone={filters.timeZone} />}
           <ReportChartCard
             title={t("reports.blockedTime.title")}

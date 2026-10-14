@@ -29,7 +29,7 @@ const mdItems = (row: FigureRow, figure: Figure): ReactNode => `${formatMd(row[`
 /** Reports 6.1–6.3 — sprint consistency: how a sprint's scope moved and where its final scope ended. */
 export default function ReportSprintConsistency() {
   const { t } = useTranslation();
-  const { filtersQuery, filters, filter, setFilter, query } = useReportPage("sprint-consistency", getSprintConsistencyReport);
+  const { filtersQuery, filters, filter, setFilter, query, storageKey } = useReportPage("sprint-consistency", getSprintConsistencyReport);
   const report = query.data;
 
   const groupColumns: GroupColumn<SprintConsistencyGroup>[] = FIGURES.map((figure) => ({
@@ -72,7 +72,7 @@ export default function ReportSprintConsistency() {
       <ReportFiltersStatus query={filtersQuery} />
       {filters && (
         <>
-          <ReportFilterBar filters={filters} filter={filter} onChange={setFilter} />
+          <ReportFilterBar storageKey={storageKey} filters={filters} filter={filter} onChange={setFilter} />
           {report && <ReportMetaNote meta={report.meta} timeZone={filters.timeZone} />}
           {showing ? (
             <>

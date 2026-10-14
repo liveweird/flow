@@ -179,7 +179,7 @@ private suspend fun fetchDoneCycles(filter: ReportFilter, connectionIds: List<UI
     if (tasks) {
         val t = MetricsTables.FactTaskDelivery
         // Thresholds belong to the team, not the user: an `accountId` narrows the listed items only.
-        val predicate = taskFactSlice(filter.copy(accountId = null), connectionIds) and
+        val predicate = taskFactSlice(filter.copy(accountIds = emptyList()), connectionIds) and
             t.doneAt.isNotNull() and t.cycleWorkingDays.isNotNull()
         return t.select(t.cycleWorkingDays).where { predicate }
             .orderBy(t.doneAt to SortOrder.DESC, t.issueId to SortOrder.DESC).limit(limit)

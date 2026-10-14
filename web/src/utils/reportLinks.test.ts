@@ -87,6 +87,23 @@ describe("reportHref", () => {
   });
 });
 
+describe("reportHref — several members", () => {
+  const search = "teamId=2&accountId=a&accountId=b&accountId=c&lastSprints=3";
+
+  test("velocity keeps every picked member", () => {
+    expect(reportHref("/reports/velocity", search)).toBe(`/reports/velocity?${search}`);
+  });
+
+  test("any other report keeps only the FIRST member, in place, so the address bar matches what that page shows", () => {
+    expect(reportHref("/reports/throughput", search)).toBe("/reports/throughput?teamId=2&accountId=a&lastSprints=3");
+    expect(reportHref("/reports/cycle-time", search)).toBe("/reports/cycle-time?teamId=2&accountId=a&lastSprints=3");
+  });
+
+  test("a single member is untouched everywhere", () => {
+    expect(reportHref("/reports/throughput", "teamId=2&accountId=a")).toBe("/reports/throughput?teamId=2&accountId=a");
+  });
+});
+
 describe("deepDiveBasePath", () => {
   test("is the Deep dive's own route", () => {
     expect(deepDiveBasePath).toBe("/reports/deep-dive");

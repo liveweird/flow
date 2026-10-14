@@ -3,6 +3,7 @@ import { Route, Routes } from "react-router-dom";
 import ReportReportedTime from "./ReportReportedTime";
 import { jsonResponse } from "../test/http";
 import { FILTERS, REPORTED_TIME, REPORTED_TIME_EMPTY, REPORTED_TIME_HIDDEN } from "../test/reportFixtures";
+import { openReportFilters } from "../test/reportFilters";
 import { renderWithProviders, screen, waitFor, within } from "../test/render";
 
 vi.mock("@mantine/charts", () => ({
@@ -122,6 +123,7 @@ describe("ReportReportedTime page", () => {
     renderPage();
     await screen.findAllByTestId("bar-chart");
     expect(screen.getByRole("tab", { name: "Reported time" })).toHaveAttribute("aria-selected", "true");
+    await openReportFilters();
     expect(screen.getByRole("radio", { name: "Delivered in" })).toBeChecked();
     for (const name of ["Domain", "Activity type", "Work category"]) {
       expect(screen.getByRole("combobox", { name })).toBeInTheDocument();

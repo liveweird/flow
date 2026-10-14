@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
 import type { ReportFilters } from "../api/reports";
 import { withFilterKey, withPeriod, type ReportControls, type ReportFilterState } from "../utils/reportFilter";
+import ReportFilterMultiSelect from "./ReportFilterMultiSelect";
 import ReportFilterSelect from "./ReportFilterSelect";
 
 /**
@@ -21,10 +22,13 @@ export default function ReportScopeControls({
 }) {
   const { t } = useTranslation();
   const team = filters.teams.find((candidate) => candidate.id === filter.teamId);
+  const memberOptions = (team?.members ?? []).map((member) => ({ value: member.accountId, label: member.displayName }));
 
   const changeTeam = (value: string | null) => {
+    if (value === null && controls.teamRequired) return;
     const next: ReportFilterState = { ...filter };
     delete next.accountId;
+    delete next.accountIds;
     if (value === null) {
       delete next.teamId;
     } else {
@@ -44,6 +48,7 @@ export default function ReportScopeControls({
     const next = { ...filter, domain: value };
     delete next.teamId;
     delete next.accountId;
+    delete next.accountIds;
     onChange(next);
   };
 
@@ -55,15 +60,26 @@ export default function ReportScopeControls({
         data={filters.teams.map((candidate) => ({ value: String(candidate.id), label: candidate.name }))}
         value={filter.teamId === undefined ? null : String(filter.teamId)}
         onChange={changeTeam}
+        required={controls.teamRequired}
       />
       {team && !controls.noMember && (
-        <ReportFilterSelect
-          label={t("reports.filters.member")}
-          placeholder={t("reports.filters.wholeTeam")}
-          data={team.members.map((member) => ({ value: member.accountId, label: member.displayName }))}
-          value={filter.accountId ?? null}
-          onChange={(value) => onChange(withFilterKey(filter, "accountId", value))}
-        />
+        controls.multiMember ? (
+          <ReportFilterMultiSelect
+            label={t("reports.filters.member")}
+            placeholder={t("reports.filters.wholeTeam")}
+            data={memberOptions}
+            value={filter.accountIds ?? []}
+            onChange={(ids) => onChange(withFilterKey(filter, "accountIds", ids.length === 0 ? null : ids))}
+          />
+        ) : (
+          <ReportFilterSelect
+            label={t("reports.filters.member")}
+            placeholder={t("reports.filters.wholeTeam")}
+            data={memberOptions}
+            value={filter.accountId ?? null}
+            onChange={(value) => onChange(withFilterKey(filter, "accountId", value))}
+          />
+        )
       )}
       {controls.domain && (
         <ReportFilterSelect

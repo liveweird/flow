@@ -33,6 +33,12 @@ export interface ReportFilterState {
   /** Org drill: `teamId` alone = TEAM level; with `accountId` = USER level. `0` is UNASSIGNED. */
   teamId?: number;
   accountId?: string;
+  /**
+   * Several members at once (USER level, velocity only — `ReportControls.multiMember`): REPEATED `accountId` URL keys, distinct,
+   * at most `MAX_ACCOUNTS`, in the order picked. Only a multi-member page parses them (`parseReportFilter`'s `multiAccount`);
+   * everywhere else a repeated `accountId` reads as its first value, as ever, and this stays unset.
+   */
+  accountIds?: string[];
   domainView?: DomainView;
   domain?: string;
   /** An epic's issue key (`FLO-33`) — the epic progress report's EPIC scope; no other report has it. */
@@ -98,6 +104,23 @@ export function hasReportFilterParams(params: URLSearchParams): boolean {
 }
 
 const MAX_LAST_SPRINTS = 52;
+/** How many members a multi-member report takes (the server's cap on repeated `accountId`). */
+export const MAX_ACCOUNTS = 8;
+
+/** The distinct, non-blank values of a repeated param, in order, at most `MAX_ACCOUNTS` (extras dropped, never sent). */
+function distinctAccounts(values: readonly string[]): string[] {
+  const picked: string[] = [];
+  for (const value of values) {
+    const text = parseText(value);
+    if (text !== undefined && !picked.includes(text)) picked.push(text);
+  }
+  return picked.slice(0, MAX_ACCOUNTS);
+}
+
+/** What a page opts into when reading the URL — only the velocity page reads several members. */
+export interface ReportFilterParseOptions {
+  multiAccount?: boolean;
+}
 
 function parseText(value: string | null): string | undefined {
   return value != null && value.trim() !== "" && value.length <= MAX_TEXT ? value : undefined;
@@ -111,7 +134,7 @@ function parseEnum<T extends string>(value: string | null, allowed: readonly T[]
   return allowed.includes(value as T) ? (value as T) : undefined;
 }
 
-export function parseReportFilter(params: URLSearchParams): ReportFilterState {
+export function parseReportFilter(params: URLSearchParams, options: ReportFilterParseOptions = {}): ReportFilterState {
   const filter: ReportFilterState = {};
 
   const sprintId = parseBoundedInteger(params.get("sprintId"), 1);
@@ -133,8 +156,13 @@ export function parseReportFilter(params: URLSearchParams): ReportFilterState {
   if (teamId !== undefined) {
     filter.teamId = teamId;
     // A user-level read always needs the team whose roster it is read in.
-    const accountId = parseText(params.get("accountId"));
-    if (accountId !== undefined) filter.accountId = accountId;
+    if (options.multiAccount) {
+      const accountIds = distinctAccounts(params.getAll("accountId"));
+      if (accountIds.length > 0) filter.accountIds = accountIds;
+    } else {
+      const accountId = parseText(params.get("accountId"));
+      if (accountId !== undefined) filter.accountId = accountId;
+    }
   }
 
   const domainView = parseEnum(params.get("domainView"), DOMAIN_VIEWS);
@@ -166,6 +194,8 @@ export function applyReportFilter(base: URLSearchParams, filter: ReportFilterSta
   for (const key of MANAGED_KEYS) {
     const value = filter[key];
     if (value !== undefined && value !== "") next.set(key, String(value));
+    // The members of a multi-member page ride right after the single `accountId` slot: repeated keys, distinct, capped.
+    if (key === "accountId") for (const id of distinctAccounts(filter.accountIds ?? [])) next.append(key, id);
   }
   return next;
 }
@@ -206,6 +236,34 @@ export interface ReportControls {
   noMember?: boolean;
   /** Narrow to one Jira connection (data quality); shown only when there is more than one to choose from. */
   connection?: boolean;
+  /**
+   * The report cannot answer for the whole unit (velocity's capacity and per-user split are team figures): the team
+   * control is not clearable and offers no "All teams", and a URL without a team is normalized to one
+   * (`requiredTeamId`, applied by `useReportFilter`).
+   */
+  teamRequired?: boolean;
+  /** The member control picks up to `MAX_ACCOUNTS` people (`ReportFilterState.accountIds`) instead of one (velocity). */
+  multiMember?: boolean;
+}
+
+/**
+ * The team a `teamRequired` report starts on when the URL names none: the team that lists the linked sprint, else the
+ * remembered team (when the reference data still lists it), else the first team by name. `undefined` when the
+ * filter already has a team the reference data lists, or there is no team at all. A `teamId` the list does not know (a
+ * deleted team, or `0` = unassigned, which a team-only report cannot read) counts as ABSENT. `teams` must be the loaded list:
+ * called before it loads, every team would look unknown.
+ */
+export function requiredTeamId(
+  filter: ReportFilterState,
+  teams: ReadonlyArray<{ id: number; name: string; sprints: ReadonlyArray<{ sprintId: number }> }>,
+  remembered: number | undefined,
+): number | undefined {
+  if (filter.teamId !== undefined && teams.some((team) => team.id === filter.teamId)) return undefined;
+  const listingSprint =
+    filter.sprintId === undefined ? undefined : teams.find((team) => team.sprints.some((s) => s.sprintId === filter.sprintId));
+  if (listingSprint) return listingSprint.id;
+  if (remembered !== undefined && teams.some((team) => team.id === remembered)) return remembered;
+  return [...teams].sort((a, b) => a.name.localeCompare(b.name) || a.id - b.id)[0]?.id;
 }
 
 /** The filter with ONE key set — or dropped for `null`/`undefined` (a cleared control). */

@@ -6,11 +6,23 @@ import {
   hasReportFilterParams,
   parseReportFilter,
   reportQuery,
+  requiredTeamId,
+  type ReportControls,
   type ReportFilterState,
 } from "../utils/reportFilter";
 import { useStoredState } from "./useStoredState";
 
 const identity = (filter: ReportFilterState) => filter;
+
+/** The filter on `teamId`; a member of the team it replaces is dropped (the roster is another team's). */
+function onTeam(filter: ReportFilterState, teamId: number): ReportFilterState {
+  const next = { ...filter, teamId };
+  if (filter.teamId !== undefined && filter.teamId !== teamId) {
+    delete next.accountId;
+    delete next.accountIds;
+  }
+  return next;
+}
 
 const isRememberedTeam = (v: unknown): v is number | null => v === null || (typeof v === "number" && v > 0);
 
@@ -32,12 +44,19 @@ const isRememberedTeam = (v: unknown): v is number | null => v === null || (type
  *
  * Every write keeps the current `location.state` (a drill link's hand-off, e.g. the domain an epic
  * was reached through), so a period change or a normalising rewrite does not silently lose it.
+ * A `teamRequired` report (velocity) is never read for the whole unit: a URL that names no team — a bare link, or one with
+ * only a period — is given one (`requiredTeamId`: the team listing a linked sprint, else the remembered team, else the first
+ * by name) and the URL is rewritten (replace) like the remembered-team case; so is a `teamId` the loaded team list does
+ * not know (a deleted team, `0`), whose members are dropped with it. With no team at all the filter stays teamless
+ * and the page says so. `multiMember` makes the URL's repeated `accountId` read as `accountIds`.
+ *
  * `clearRememberedTeam` is for a link that must land on the WHOLE UNIT: a bare URL would otherwise
  * re-apply the remembered team, so such a link clears the memory as it is followed.
  */
 export function useReportFilter(
   filters: ReportFilters | undefined,
   normalize: (filter: ReportFilterState) => ReportFilterState = identity,
+  controls: Pick<ReportControls, "teamRequired" | "multiMember"> = {},
 ): {
   filter: ReportFilterState;
   setFilter: (next: ReportFilterState) => void;
@@ -46,16 +65,16 @@ export function useReportFilter(
   const [params, setParams] = useSearchParams();
   const { state } = useLocation();
   const [rememberedTeam, setRememberedTeam] = useStoredState<number | null>("reports.teamId", null, isRememberedTeam);
-  const parsed = useMemo(() => parseReportFilter(params), [params]);
+  const parseOptions = useMemo(() => ({ multiAccount: controls.multiMember === true }), [controls.multiMember]);
+  const parsed = useMemo(() => parseReportFilter(params, parseOptions), [params, parseOptions]);
 
-  const teamToApply =
-    !hasReportFilterParams(params) &&
-    rememberedTeam !== null &&
-    (filters?.teams.some((team) => team.id === rememberedTeam) ?? false)
-      ? rememberedTeam
-      : undefined;
+  const rememberedListed =
+    rememberedTeam !== null && (filters?.teams.some((team) => team.id === rememberedTeam) ?? false) ? rememberedTeam : undefined;
+  const requiredTeam =
+    controls.teamRequired && filters ? requiredTeamId(parsed, filters.teams, rememberedListed) : undefined;
+  const teamToApply = (hasReportFilterParams(params) ? undefined : rememberedListed) ?? requiredTeam;
   const requested = useMemo(
-    () => (teamToApply === undefined ? parsed : { ...parsed, teamId: teamToApply }),
+    () => (teamToApply === undefined ? parsed : onTeam(parsed, teamToApply)),
     [parsed, teamToApply],
   );
   const filter = useMemo(() => normalize(requested), [normalize, requested]);
@@ -63,15 +82,15 @@ export function useReportFilter(
 
   useEffect(() => {
     if (needsRewrite) {
-      setParams((prev) => applyReportFilter(prev, normalize(parseReportFilter(prev))), { replace: true, state });
+      setParams((prev) => applyReportFilter(prev, normalize(parseReportFilter(prev, parseOptions))), { replace: true, state });
     }
-  }, [needsRewrite, normalize, setParams, state]);
+  }, [needsRewrite, normalize, parseOptions, setParams, state]);
 
   useEffect(() => {
     if (teamToApply !== undefined) {
-      setParams((prev) => applyReportFilter(prev, { ...parseReportFilter(prev), teamId: teamToApply }), { replace: true, state });
+      setParams((prev) => applyReportFilter(prev, onTeam(parseReportFilter(prev, parseOptions), teamToApply)), { replace: true, state });
     }
-  }, [teamToApply, setParams, state]);
+  }, [teamToApply, parseOptions, setParams, state]);
 
   const setFilter = (next: ReportFilterState) => {
     if (next.teamId !== filter.teamId) setRememberedTeam(next.teamId !== undefined && next.teamId > 0 ? next.teamId : null);

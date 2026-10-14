@@ -37,7 +37,7 @@ export default function ReportCycleTime() {
   const { t } = useTranslation();
   // The report travels with the bucket that produced it (the throughput page's rule): a refetch over
   // kept data never labels the old buckets with the new resolution.
-  const { filtersQuery, filters, filter, setFilter, query } = useReportPage("cycle-time", async (requested) => ({
+  const { filtersQuery, filters, filter, setFilter, query, storageKey } = useReportPage("cycle-time", async (requested) => ({
     ...(await getCycleTimeReport(requested)),
     bucket: requested.bucket ?? "WEEK",
   }));
@@ -77,7 +77,7 @@ export default function ReportCycleTime() {
       <ReportFiltersStatus query={filtersQuery} />
       {filters && (
         <>
-          <ReportFilterBar filters={filters} filter={filter} onChange={setFilter} controls={CONTROLS} />
+          <ReportFilterBar storageKey={storageKey} filters={filters} filter={filter} onChange={setFilter} controls={CONTROLS} />
           {report && <ReportMetaNote meta={report.meta} timeZone={filters.timeZone} />}
           <ReportChartCard
             title={t("reports.cycleTime.title")}

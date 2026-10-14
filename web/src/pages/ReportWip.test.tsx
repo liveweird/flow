@@ -4,6 +4,7 @@ import { Route, Routes, useLocation } from "react-router-dom";
 import ReportWip from "./ReportWip";
 import { jsonResponse } from "../test/http";
 import { FILTERS, WIP_BOTH, WIP_COLUMN, WIP_EPICS, WIP_NOT_DERIVED, WIP_STAGE, WIP_STATUS } from "../test/reportFixtures";
+import { openReportFilters } from "../test/reportFilters";
 import { renderWithProviders, screen, waitFor, within } from "../test/render";
 
 // recharts renders nothing under happy-dom (no layout), so the chart is a probe carrying its props.
@@ -187,6 +188,7 @@ describe("ReportWip page", () => {
     const user = userEvent.setup();
     renderPage();
     await screen.findByTestId("area-chart");
+    await openReportFilters();
     expect(screen.getByRole("radio", { name: "Stage" })).toBeChecked();
     await user.click(screen.getByText("Status"));
     await waitFor(() => expect(calls(mockFetch)).toContain(`${URL_PREFIX}by=STATUS&itemKind=TASK`));
@@ -204,6 +206,7 @@ describe("ReportWip page", () => {
     const user = userEvent.setup();
     renderPage();
     await screen.findByTestId("area-chart");
+    await openReportFilters();
     expect(screen.getByRole("radio", { name: "Board column" })).toBeDisabled();
     expect(screen.getByText(/Board columns need one team/)).toBeInTheDocument();
     await user.click(screen.getByRole("combobox", { name: "Team" }));
@@ -220,6 +223,7 @@ describe("ReportWip page", () => {
     renderPage("/reports/wip?lastSprints=3&by=COLUMN");
     await screen.findByTestId("area-chart");
     expect(calls(mockFetch)).toEqual([`${URL_PREFIX}lastSprints=3&by=STAGE&itemKind=TASK`]);
+    await openReportFilters();
     expect(screen.getByRole("radio", { name: "Stage" })).toBeChecked();
   });
 
@@ -230,6 +234,7 @@ describe("ReportWip page", () => {
     await waitFor(() => expect(search().has("domain")).toBe(false));
     expect(search().get("teamId")).toBe("1");
     expect(calls(mockFetch)).toEqual([`${URL_PREFIX}teamId=1&by=STAGE&itemKind=TASK`]);
+    await openReportFilters();
     expect((screen.getByRole("combobox", { name: "Domain" }) as HTMLInputElement).value).toBe("");
   });
 
@@ -249,6 +254,7 @@ describe("ReportWip page", () => {
     renderPage("/reports/wip?lastSprints=3&by=COLUMN");
     await screen.findByTestId("area-chart");
     await waitFor(() => expect(search().has("by")).toBe(false));
+    await openReportFilters();
     await user.click(screen.getByRole("combobox", { name: "Team" }));
     await user.click(await screen.findByRole("option", { name: "Alpha" }));
     await waitFor(() => expect(calls(mockFetch)).toContain(`${URL_PREFIX}lastSprints=3&teamId=1&by=STAGE&itemKind=TASK`));
@@ -261,6 +267,7 @@ describe("ReportWip page", () => {
     const user = userEvent.setup();
     renderPage("/reports/wip?teamId=1&by=COLUMN");
     await waitFor(() => expect(chartSeries().map((s) => s.label)).toEqual(["Backlog", "Doing", "(no column)"]));
+    await openReportFilters();
     await user.click(screen.getByLabelText("Clear Team"));
     await waitFor(() => expect(search().has("by")).toBe(false));
     await user.click(screen.getByRole("combobox", { name: "Team" }));
@@ -282,6 +289,7 @@ describe("ReportWip page", () => {
     await waitFor(() => expect(chartSeries()).toHaveLength(3));
     await user.click(screen.getByRole("checkbox", { name: "Doing" }));
     await waitFor(() => expect(chartSeries().map((s) => s.label)).toEqual(["Backlog", "(no column)"]));
+    await openReportFilters();
     await user.click(screen.getByRole("combobox", { name: "Team" }));
     await user.click(await screen.findByRole("option", { name: "Beta" }));
     await waitFor(() => expect(chartSeries().map((s) => s.label)).toEqual(["Backlog", "Doing", "(no column)"]));
@@ -307,6 +315,7 @@ describe("ReportWip page", () => {
     const user = userEvent.setup();
     renderPage();
     await screen.findByTestId("area-chart");
+    await openReportFilters();
     expect(screen.getByRole("radio", { name: "Tasks" })).toBeChecked();
     expect(screen.queryByText(/different grains/)).not.toBeInTheDocument();
     await user.click(screen.getByText("Epics"));
@@ -321,6 +330,7 @@ describe("ReportWip page", () => {
     renderPage("/reports/wip?itemKind=EPIC&teamId=1&to=2026-09-29&from=2026-09-01&by=STATUS");
     await screen.findByTestId("area-chart");
     expect(calls(mockFetch)).toEqual([`${URL_PREFIX}from=2026-09-01&to=2026-09-29&teamId=1&by=STATUS&itemKind=EPIC`]);
+    await openReportFilters();
     expect(screen.getByRole("radio", { name: "Status" })).toBeChecked();
     expect(screen.getByRole("radio", { name: "Epics" })).toBeChecked();
   });
@@ -330,6 +340,7 @@ describe("ReportWip page", () => {
     serve(mockFetch);
     renderPage();
     await screen.findByTestId("area-chart");
+    await openReportFilters();
     await waitFor(() => expect((screen.getByRole("combobox", { name: "Team" }) as HTMLInputElement).value).toBe("Alpha"));
     expect(calls(mockFetch)).toEqual([`${URL_PREFIX}teamId=1&by=STAGE&itemKind=TASK`]);
   });
@@ -338,6 +349,7 @@ describe("ReportWip page", () => {
     serve(mockFetch);
     renderPage();
     await screen.findByTestId("area-chart");
+    await openReportFilters();
     expect(screen.getByRole("combobox", { name: "Domain" })).toBeInTheDocument();
     for (const name of ["Activity type", "Work category"]) expect(screen.queryByRole("combobox", { name })).not.toBeInTheDocument();
     expect(screen.queryByRole("radio", { name: "Delivered in" })).not.toBeInTheDocument();

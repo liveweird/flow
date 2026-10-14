@@ -13,6 +13,7 @@ import {
   CYCLE_TIME_USER,
   FILTERS,
 } from "../test/reportFixtures";
+import { openReportFilters } from "../test/reportFilters";
 import { renderWithProviders, screen, waitFor, within } from "../test/render";
 
 // recharts renders nothing under happy-dom (no layout): histograms and the trend are probes.
@@ -131,6 +132,7 @@ describe("ReportCycleTime page", () => {
     const user = userEvent.setup();
     renderPage();
     await screen.findByTestId("line-chart");
+    await openReportFilters();
     expect(screen.getByRole("radio", { name: "Week" })).toBeChecked();
     await user.click(screen.getByText("Month"));
     await waitFor(() => expect(calls(mockFetch)).toContain(`${URL_PREFIX}bucket=MONTH`));
@@ -216,6 +218,7 @@ describe("ReportCycleTime page", () => {
     serve(mockFetch);
     renderPage();
     await screen.findByTestId("line-chart");
+    await openReportFilters();
     expect(screen.getByRole("radio", { name: "Delivered in" })).toBeChecked();
     for (const name of ["Domain", "Activity type", "Work category"]) {
       expect(screen.getByRole("combobox", { name })).toBeInTheDocument();
@@ -257,6 +260,7 @@ describe("ReportCycleTime page", () => {
     const user = userEvent.setup();
     renderPage();
     await screen.findByTestId("line-chart");
+    await openReportFilters();
     await user.click(screen.getByText("Month"));
     await waitFor(() => expect(calls(mockFetch)).toContain(`${URL_PREFIX}bucket=MONTH`));
     // Old data, old (weekly) labels — never relabelled with the new resolution while in flight.

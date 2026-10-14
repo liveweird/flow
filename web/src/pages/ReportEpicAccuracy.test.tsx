@@ -3,6 +3,7 @@ import { Route, Routes } from "react-router-dom";
 import ReportEpicAccuracy from "./ReportEpicAccuracy";
 import { jsonResponse } from "../test/http";
 import { EPIC_ACCURACY, EPIC_ACCURACY_EMPTY, EPIC_ACCURACY_TRUNCATED, FILTERS } from "../test/reportFixtures";
+import { openReportFilters } from "../test/reportFilters";
 import { renderWithProviders, screen, within } from "../test/render";
 
 vi.mock("@mantine/charts", () => ({
@@ -127,6 +128,7 @@ describe("ReportEpicAccuracy page", () => {
     serve(mockFetch);
     renderPage("/reports/epic-estimation-accuracy?domainView=EPIC&activityType=Bug&domain=FLO");
     await screen.findAllByTestId("bar-chart");
+    await openReportFilters();
     expect(screen.queryByRole("radio", { name: "Earned in" })).not.toBeInTheDocument();
     expect(screen.queryByRole("radio", { name: "Delivered in" })).not.toBeInTheDocument();
     expect(screen.queryByRole("combobox", { name: "Activity type" })).not.toBeInTheDocument();
@@ -138,6 +140,7 @@ describe("ReportEpicAccuracy page", () => {
     serve(mockFetch);
     renderPage();
     await screen.findAllByTestId("bar-chart");
+    await openReportFilters();
     expect(screen.getByRole("combobox", { name: "Domain" })).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "Work category" })).toBeInTheDocument();
     expect(screen.queryByRole("combobox", { name: "Activity type" })).not.toBeInTheDocument();

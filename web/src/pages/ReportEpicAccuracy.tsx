@@ -26,7 +26,7 @@ const optional = (value: number | null, format: (n: number) => string) => (value
 /** Report 4 — epic estimation accuracy: actual ÷ the epic's OWN estimate, at start (primary) and at done. */
 export default function ReportEpicAccuracy() {
   const { t } = useTranslation();
-  const { filtersQuery, filters, filter, setFilter, query } = useReportPage("epic-estimation-accuracy", getEpicEstimationAccuracyReport);
+  const { filtersQuery, filters, filter, setFilter, query, storageKey } = useReportPage("epic-estimation-accuracy", getEpicEstimationAccuracyReport);
   const report = query.data;
 
   const epicColumns: ColumnDef<EpicAccuracyRow>[] = [
@@ -94,7 +94,7 @@ export default function ReportEpicAccuracy() {
       <ReportFiltersStatus query={filtersQuery} />
       {filters && (
         <>
-          <ReportFilterBar filters={filters} filter={filter} onChange={setFilter} controls={CONTROLS} />
+          <ReportFilterBar storageKey={storageKey} filters={filters} filter={filter} onChange={setFilter} controls={CONTROLS} />
           {report && <ReportMetaNote meta={report.meta} timeZone={filters.timeZone} />}
           {report?.meta.level === "USER" ? (
             <EpicsPerPersonNote />

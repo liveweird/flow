@@ -45,6 +45,7 @@
     "allTeams": "All teams",
     "member": "Member",
     "wholeTeam": "Whole team",
+    "memberCap": "Up to {{max}} people",
     "domain": "Domain",
     "activityType": "Activity type",
     "workCategory": "Work category",
@@ -85,19 +86,44 @@
   },
   "velocity": {
     "title": "Velocity",
-    "description": "How much each team planned into a sprint: the scope committed at the start (initial) against the scope it ended with (final).",
+    "description": "How much each team planned into a sprint: the scope committed at the start (initial) against the scope it ended with (final) and the team's capacity. Pick people to compare their shares of the sprints.",
     "chartTitle": "Initial and final scope per sprint",
+    "chartTitleUsers": "Initial and final scope per sprint, by person",
     "series": {
       "initial": "Initial (committed)",
-      "final": "Final"
+      "final": "Final",
+      "capacity": "Capacity"
     },
     "column": {
       "initialMd": "Initial (MD)",
       "initialItems": "Initial (items)",
       "finalMd": "Final (MD)",
-      "finalItems": "Final (items)"
+      "finalItems": "Final (items)",
+      "capacityMd": "Capacity (MD)",
+      "load": "Load",
+      "person": "Person"
     },
     "chartLabel": "Chart: initial and final scope by sprint",
+    "userChartLabel": "Chart: initial and final scope by sprint, stacked by person",
+    "userLegendLabel": "Chart legend",
+    "userLegend": {
+      "committed": "Initial (left column, outlined)",
+      "final": "Final (right column, solid)"
+    },
+    "userSeries": {
+      "committed": "{{name}} · initial",
+      "final": "{{name}} · final"
+    },
+    "capacitySource": {
+      "DEFAULT": "Capacity: default (members × working days)",
+      "CONFIGURED": "Capacity: configured"
+    },
+    "defaultBadge": "default",
+    "loadNote": "Load is the initial scope divided by the capacity; a dash means the sprint has no capacity, or a capacity of 0. A default capacity is the members times the working days of the sprint.",
+    "personTotalsTitle": "Totals per person",
+    "sharesTitle": "Each person's share of each sprint",
+    "sharesAria": "Each person's initial and final scope per sprint",
+    "noTeams": "Velocity is read per team and there is no team yet. An administrator adds teams on the Teams page.",
     "snapshot": "Frozen at completion: initial {{initialMd}} MD, final {{finalMd}} MD"
   },
   "items_one": "{{count}} item",

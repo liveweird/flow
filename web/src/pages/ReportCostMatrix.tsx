@@ -18,7 +18,7 @@ const CONTROLS: ReportControls = { domainView: "EPIC", domain: true, activityTyp
 /** Report 16 — cost matrix and foreign work: the man-days logged in the period by author team and domain, with the foreign share beside every row. */
 export default function ReportCostMatrix() {
   const { t } = useTranslation();
-  const { filtersQuery, filters, filter, setFilter, query } = useReportPage("cost-matrix", getCostMatrixReport, normalizeCostMatrixFilter);
+  const { filtersQuery, filters, filter, setFilter, query, storageKey } = useReportPage("cost-matrix", getCostMatrixReport, normalizeCostMatrixFilter);
   const report = query.data;
   const share = report?.foreignShare ?? null;
 
@@ -28,7 +28,7 @@ export default function ReportCostMatrix() {
       <ReportFiltersStatus query={filtersQuery} />
       {filters && (
         <>
-          <ReportFilterBar filters={filters} filter={filter} onChange={setFilter} controls={CONTROLS} />
+          <ReportFilterBar storageKey={storageKey} filters={filters} filter={filter} onChange={setFilter} controls={CONTROLS} />
           {report && <ReportMetaNote meta={report.meta} timeZone={filters.timeZone} />}
           <ReportChartCard
             title={t(`reports.costMatrix.levelTitle.${report?.meta.level ?? "UNIT"}`)}

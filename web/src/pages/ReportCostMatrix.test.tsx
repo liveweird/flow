@@ -14,6 +14,7 @@ import {
   COST_MATRIX_USER,
   FILTERS,
 } from "../test/reportFixtures";
+import { openReportFilters } from "../test/reportFilters";
 import { renderWithProviders, screen, waitFor, within } from "../test/render";
 
 type FetchMock = ReturnType<typeof vi.fn>;
@@ -149,6 +150,7 @@ describe("ReportCostMatrix page", () => {
     const user = userEvent.setup();
     renderPage();
     await screen.findByRole("table");
+    await openReportFilters();
     expect(screen.getByRole("radio", { name: "Earned in" })).toBeChecked();
     expect(screen.getByText("Columns show the epic's domain — a task with no epic counts in its own domain.")).toBeInTheDocument();
     expect(rowsOf(matrix())[0]).toEqual(["Alpha", "10", "2.5", "12.5", "3.75", "30%"]);
@@ -169,6 +171,7 @@ describe("ReportCostMatrix page", () => {
     const user = userEvent.setup();
     renderPage();
     await screen.findByRole("table");
+    await openReportFilters();
     for (const name of ["Period", "Team", "Domain", "Activity type", "Work category"]) {
       expect(screen.getByRole("combobox", { name })).toBeInTheDocument();
     }

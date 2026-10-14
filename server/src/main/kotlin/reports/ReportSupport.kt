@@ -5,7 +5,6 @@ import ch.nokillswit.ingest.DataSourceService
 import ch.nokillswit.metrics.MD_SCALE
 import ch.nokillswit.metrics.MetricsSettingsResponse
 import ch.nokillswit.metrics.MetricsTables
-import ch.nokillswit.norm.WorkItemStore
 import ch.nokillswit.teams.TeamService
 import io.ktor.server.plugins.BadRequestException
 import java.math.BigDecimal
@@ -60,6 +59,9 @@ internal data class SprintRow(
     /** `null` only for an ACTIVE/future sprint, reachable through an explicit `sprintId` (measures.md conventions). */
     val completedAt: Long?,
     val live: VelocitySnapshot,
+    /** `fact_sprint.capacity_md` / `dim_sprint.capacity_source` (`CONFIGURED`/`DEFAULT`); both `null` without a capacity (A3). */
+    val capacityMd: Double?,
+    val capacitySource: String?,
     val delivered: ThroughputSnapshot,
     /** Every one of the fourteen `fact_sprint` figures (sprint consistency, report 6). */
     val full: SprintFigures,
@@ -174,23 +176,6 @@ internal suspend fun deriveStamp(connectionIds: List<UInt>): DeriveStamp {
     )
 }
 
-/** Team names by id — an empty [ids] costs no query. */
-internal suspend fun teamNames(ids: Collection<UInt>): Map<UInt, String> {
-    if (ids.isEmpty()) return emptyMap()
-    return TeamService.Teams.select(TeamService.Teams.id, TeamService.Teams.name)
-        .where { TeamService.Teams.id inList ids }
-        .toList().associate { it[TeamService.Teams.id].value to it[TeamService.Teams.name] }
-}
-
-/** Jira display names by account id (the lowest connection id's name wins for an account seen on several). */
-internal suspend fun accountDisplayNames(accountIds: Collection<String>): Map<String, String> {
-    if (accountIds.isEmpty()) return emptyMap()
-    return WorkItemStore.People.select(WorkItemStore.People.accountId, WorkItemStore.People.displayName)
-        .where { WorkItemStore.People.accountId inList accountIds }
-        .orderBy(WorkItemStore.People.connectionId to SortOrder.DESC)
-        .toList().associate { it[WorkItemStore.People.accountId] to it[WorkItemStore.People.displayName] }
-}
-
 private fun sprintJoinQuery() = MetricsTables.FactSprint.join(
     MetricsTables.DimSprint,
     JoinType.INNER,
@@ -199,7 +184,7 @@ private fun sprintJoinQuery() = MetricsTables.FactSprint.join(
     additionalConstraint = { MetricsTables.FactSprint.connectionId eq MetricsTables.DimSprint.connectionId },
 ).select(
     MetricsTables.FactSprint.connectionId, MetricsTables.FactSprint.sprintId, MetricsTables.DimSprint.name,
-    MetricsTables.DimSprint.startAt,
+    MetricsTables.DimSprint.startAt, MetricsTables.DimSprint.capacitySource, MetricsTables.FactSprint.capacityMd,
     MetricsTables.FactSprint.teamId, MetricsTables.FactSprint.completeAt,
     MetricsTables.FactSprint.committedMd, MetricsTables.FactSprint.committedItems,
     MetricsTables.FactSprint.finalMd, MetricsTables.FactSprint.finalItems,
@@ -223,6 +208,8 @@ private fun ResultRow.toSprintRow() = SprintRow(
         finalMd = this[MetricsTables.FactSprint.finalMd].toDouble(),
         finalItems = this[MetricsTables.FactSprint.finalItems],
     ),
+    capacityMd = this[MetricsTables.FactSprint.capacityMd]?.toDouble(),
+    capacitySource = this[MetricsTables.DimSprint.capacitySource],
     delivered = ThroughputSnapshot(
         deliveredMd = this[MetricsTables.FactSprint.deliveredMd].toDouble(),
         deliveredItems = this[MetricsTables.FactSprint.deliveredItems],

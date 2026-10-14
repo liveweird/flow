@@ -11,6 +11,7 @@ import {
   BACKLOG_ZERO_VELOCITY,
   FILTERS,
 } from "../test/reportFixtures";
+import { openReportFilters } from "../test/reportFilters";
 import { renderWithProviders, screen, waitFor, within } from "../test/render";
 
 // recharts renders nothing under happy-dom (no layout), so the chart is a probe carrying its props.
@@ -205,6 +206,7 @@ describe("ReportBacklog page", () => {
     renderPage("/reports/backlog?teamId=1&to=2026-09-29&from=2026-09-01");
     await screen.findByTestId("area-chart");
     expect(calls(mockFetch)).toEqual([`${URL_PREFIX}from=2026-09-01&to=2026-09-29&teamId=1`]);
+    await openReportFilters();
     await user.click(screen.getByRole("combobox", { name: "Period" }));
     await user.click(await screen.findByRole("option", { name: "Last 3 sprints" }));
     await waitFor(() => expect(calls(mockFetch)).toContain(`${URL_PREFIX}lastSprints=3&teamId=1`));
@@ -215,6 +217,7 @@ describe("ReportBacklog page", () => {
     serve(mockFetch);
     renderPage();
     await screen.findByTestId("area-chart");
+    await openReportFilters();
     await waitFor(() => expect((screen.getByRole("combobox", { name: "Team" }) as HTMLInputElement).value).toBe("Alpha"));
     expect(calls(mockFetch)).toEqual([`${URL_PREFIX}teamId=1`]);
   });
@@ -223,6 +226,7 @@ describe("ReportBacklog page", () => {
     serve(mockFetch);
     renderPage();
     await screen.findByTestId("area-chart");
+    await openReportFilters();
     expect(screen.getByRole("combobox", { name: "Domain" })).toBeInTheDocument();
     for (const name of ["Activity type", "Work category"]) expect(screen.queryByRole("combobox", { name })).not.toBeInTheDocument();
     expect(screen.queryByRole("radio", { name: "Delivered in" })).not.toBeInTheDocument();

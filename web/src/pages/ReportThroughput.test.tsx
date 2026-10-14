@@ -4,6 +4,7 @@ import { Route, Routes } from "react-router-dom";
 import ReportThroughput from "./ReportThroughput";
 import { jsonResponse } from "../test/http";
 import { FILTERS, THROUGHPUT_MONTHS, THROUGHPUT_NOTHING, THROUGHPUT_UNIT, THROUGHPUT_USER } from "../test/reportFixtures";
+import { openReportFilters } from "../test/reportFilters";
 import { renderWithProviders, screen, waitFor, within } from "../test/render";
 
 // recharts renders nothing under happy-dom (no layout), so the chart is a probe carrying its props.
@@ -100,6 +101,7 @@ describe("ReportThroughput page", () => {
     const user = userEvent.setup();
     renderPage();
     await screen.findByTestId("bar-chart");
+    await openReportFilters();
     expect(screen.getByRole("radio", { name: "Week" })).toBeChecked();
 
     await user.click(screen.getByText("Month"));
@@ -121,6 +123,7 @@ describe("ReportThroughput page", () => {
     const user = userEvent.setup();
     renderPage();
     await screen.findByTestId("bar-chart");
+    await openReportFilters();
     expect(screen.getByRole("radio", { name: "Delivered in" })).toBeChecked();
     for (const name of ["Domain", "Activity type", "Work category"]) {
       expect(screen.getByRole("combobox", { name })).toBeInTheDocument();
@@ -155,6 +158,7 @@ describe("ReportThroughput page", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Load failed (500)");
     expect(screen.getAllByRole("alert")).toHaveLength(1);
     expect(screen.queryByRole("heading", { name: "Delivered per sprint" })).not.toBeInTheDocument();
+    await openReportFilters();
     expect(screen.getByRole("combobox", { name: "Period" })).toBeInTheDocument();
   });
 
@@ -167,6 +171,7 @@ describe("ReportThroughput page", () => {
     const rows = within(table).getAllByRole("row").slice(1);
     expect(rows.map((r) => r.textContent)).toEqual(["2026-09-0712.55", "2026-09-1400", "2026-09-2115.56"]);
 
+    await openReportFilters();
     await user.click(screen.getByText("Month"));
     await waitFor(() => expect(within(screen.getByRole("table", { name: "Delivered per period, as a table" })).getByRole("columnheader", { name: "Month" })).toBeInTheDocument());
     expect(within(screen.getByRole("table", { name: "Delivered per period, as a table" })).getByText("2026-08")).toBeInTheDocument();
@@ -194,6 +199,7 @@ describe("ReportThroughput page", () => {
     const busy = () => screen.getByTestId("bar-chart").closest("[aria-busy]");
     expect(busy()).toHaveAttribute("aria-busy", "false");
 
+    await openReportFilters();
     await user.click(screen.getByText("Month"));
     await waitFor(() => expect(calls(mockFetch)).toContain("/api/v1/reports/throughput?bucket=MONTH"));
     expect(busy()).toHaveAttribute("aria-busy", "true");

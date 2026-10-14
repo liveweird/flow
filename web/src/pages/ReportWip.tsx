@@ -35,7 +35,7 @@ export default function ReportWip() {
   // The request is always explicit — what to key by and which items. `normalizeWipPage` (URL
   // included) already dropped what the server would answer 400: params the page has no control for, a domain
   // beside a team, a column keying without one team.
-  const { filtersQuery, filters, filter, setFilter, query } = useReportPage(
+  const { filtersQuery, filters, filter, setFilter, query, storageKey } = useReportPage(
     "wip",
     (requested) => getWipReport({ ...requested, by: requested.by ?? "STAGE", itemKind: requested.itemKind ?? "TASK" }),
     normalizeWipPage,
@@ -64,7 +64,7 @@ export default function ReportWip() {
       <ReportFiltersStatus query={filtersQuery} />
       {filters && (
         <>
-          <ReportFilterBar filters={filters} filter={filter} onChange={setFilter} controls={CONTROLS} />
+          <ReportFilterBar storageKey={storageKey} filters={filters} filter={filter} onChange={setFilter} controls={CONTROLS} />
           {report && <ReportMetaNote meta={report.meta} timeZone={filters.timeZone} />}
           {report?.note && <ReportNote note={report.note} derivedAt={report.meta.derivedAt} />}
           {noBoard ? (

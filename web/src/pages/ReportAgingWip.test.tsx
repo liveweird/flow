@@ -3,6 +3,7 @@ import { Route, Routes } from "react-router-dom";
 import ReportAgingWip from "./ReportAgingWip";
 import { jsonResponse } from "../test/http";
 import { AGING_EMPTY, AGING_HIDDEN, AGING_TEAM, AGING_TRUNCATED, AGING_UNIT, FILTERS } from "../test/reportFixtures";
+import { openReportFilters } from "../test/reportFilters";
 import { renderWithProviders, screen, waitFor, within } from "../test/render";
 
 type FetchMock = ReturnType<typeof vi.fn>;
@@ -142,6 +143,7 @@ describe("ReportAgingWip page", () => {
     renderPage("/reports/aging-wip?lastSprints=3&teamId=1&domain=FLO");
     await screen.findByRole("table", { name: "Open work, oldest first" });
     expect(calls(mockFetch)).toEqual([`${URL_PREFIX}?teamId=1&domain=FLO`]);
+    await openReportFilters();
     expect(screen.queryByRole("combobox", { name: "Period" })).not.toBeInTheDocument();
     for (const name of ["Team", "Domain", "Activity type", "Work category"]) {
       expect(screen.getByRole("combobox", { name })).toBeInTheDocument();
@@ -153,6 +155,7 @@ describe("ReportAgingWip page", () => {
     serve(mockFetch);
     renderPage();
     await screen.findByRole("table", { name: "Open work, oldest first" });
+    await openReportFilters();
     await waitFor(() => expect((screen.getByRole("combobox", { name: "Team" }) as HTMLInputElement).value).toBe("Alpha"));
     expect(calls(mockFetch)).toEqual([`${URL_PREFIX}?teamId=1`]);
   });

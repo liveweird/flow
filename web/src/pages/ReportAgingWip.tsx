@@ -21,7 +21,7 @@ export default function ReportAgingWip() {
   const { t } = useTranslation();
   // The report has no period, so none is sent (a period left in the URL by another report is kept
   // there for the tab links, but a sprint-relative one could only 400 for an unknown id).
-  const { filtersQuery, filters, filter, setFilter, query } = useReportPage("aging-wip", (requested) =>
+  const { filtersQuery, filters, filter, setFilter, query, storageKey } = useReportPage("aging-wip", (requested) =>
     getAgingWipReport(withPeriod(requested, {})),
   );
   const report = query.data;
@@ -35,7 +35,7 @@ export default function ReportAgingWip() {
       <ReportFiltersStatus query={filtersQuery} />
       {filters && (
         <>
-          <ReportFilterBar filters={filters} filter={filter} onChange={setFilter} controls={CONTROLS} />
+          <ReportFilterBar storageKey={storageKey} filters={filters} filter={filter} onChange={setFilter} controls={CONTROLS} />
           {report && <ReportMetaNote meta={report.meta} timeZone={filters.timeZone} />}
           <ReportChartCard
             title={t("reports.agingWip.thresholdsTitle")}

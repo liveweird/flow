@@ -29,7 +29,7 @@ export default function ReportThroughput() {
   const { t } = useTranslation();
   // The report travels with the bucket that produced it, so a refetch over kept data (a bucket
   // change in flight) never labels the OLD buckets with the NEW resolution.
-  const { filtersQuery, filters, filter, setFilter, query } = useReportPage("throughput", async (requested) => ({
+  const { filtersQuery, filters, filter, setFilter, query, storageKey } = useReportPage("throughput", async (requested) => ({
     ...(await getThroughputReport(requested)),
     bucket: requested.bucket ?? "WEEK",
   }));
@@ -52,7 +52,7 @@ export default function ReportThroughput() {
       <ReportFiltersStatus query={filtersQuery} />
       {filters && (
         <>
-          <ReportFilterBar filters={filters} filter={filter} onChange={setFilter} controls={CONTROLS} />
+          <ReportFilterBar storageKey={storageKey} filters={filters} filter={filter} onChange={setFilter} controls={CONTROLS} />
           {report && <ReportMetaNote meta={report.meta} timeZone={filters.timeZone} />}
           <ReportChartCard
             title={t("reports.throughput.periodTitle")}

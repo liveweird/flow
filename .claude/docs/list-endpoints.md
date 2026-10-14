@@ -54,6 +54,9 @@ Select/MultiSelect/TagsInput default filter in `theme.ts`).
 `sprintId` (`repeatedLongs`, 1..52, ids of at least 1), `epicId` (`repeatedStrings`, 1..50) and `issueId` (`repeatedStrings`, 1..500) repeat
 as `?sprintId=1&sprintId=2`, documented in the spec as `type: array` with `style: form`, `explode: true` and `maxItems`; duplicates collapse
 (`distinct()`) and the bound applies to what is left, every other parameter of the endpoint stays strictly single-valued.
+The second consumer is `GET /api/v1/reports/velocity`'s `accountId` (`repeatedStrings`, 1..8, opt-in through `parseReportFilter(..., multipleAccounts = true)`,
+declared inline on that path as `type: array` with `style: form`, `explode: true`, `maxItems: 8`): on every other report `accountId` stays a
+`singleValue` and a repeat is a `400`.
 
 **Sub-collections and facets** are not implemented yet — a record's own unbounded sub-collection
 (e.g. a future audit-trail read) should be paged like any other list; reserve the plain `{items}`

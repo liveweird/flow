@@ -899,10 +899,15 @@ export interface paths {
          *     narrows to TEAM level, `sprints` becomes that one team's own sprints and `groups` becomes a
          *     per-user split (`fact_sprint_scope.assignee_at_commitment`, Σ committed/final MD — the same
          *     removed-row rule the team total itself follows, so Σ users == the team total); `teamId` AND
-         *     `accountId` together narrow to USER level — `sprints` itself narrows to that one account's
-         *     own contribution (its `snapshot` is that account's frozen figures, computed from the sprint's
-         *     stored snapshot scope by the same rule as the live ones; null when the sprint has no snapshot)
-         *     and `groups` is always empty. `teamId=0` (UNASSIGNED) is always empty — a
+         *     `accountId` together narrow to USER level — `accountId` repeats here (and on no other report),
+         *     1 to 8 distinct accounts, more is a 400. `sprints` itself narrows to the picked accounts' SUMMED
+         *     contribution (its `snapshot` is their summed frozen figures, computed from the sprint's stored
+         *     snapshot scope by the same rule as the live ones; null when the sprint has no snapshot);
+         *     `byUser` splits each sprint into one entry per picked account in request order (live
+         *     figures, zeros included; empty at UNIT/TEAM level) and `groups` lists each picked account's
+         *     period totals. `capacityMd`/`capacitySource` are the team's sprint capacity (A3: a configured
+         *     override, else members × working days; null when the sprint has none) at UNIT and TEAM
+         *     level, always null at USER level (capacity is team-only). `teamId=0` (UNASSIGNED) is always empty — a
          *     sprint always carries a real team or is excluded from this report. Velocity carries no
          *     domain slice, so `domainView` is echoed in `meta` but never changes the result. An active or
          *     future sprint (`completedAt` null) is reachable only by an explicit `sprintId`: its live figures,
@@ -2628,8 +2633,32 @@ export interface components {
             finalItems: number;
             snapshot: components["schemas"]["VelocitySnapshot"] | null;
             drift: boolean;
+            /**
+             * Format: double
+             * @description The team's sprint capacity in man-days (A3). Null when the sprint has none, and always null at USER level (capacity is team-only).
+             */
+            capacityMd: number | null;
+            /**
+             * @description CONFIGURED = an admin-set override, DEFAULT = members × working days. Null exactly when capacityMd is null.
+             * @enum {string|null}
+             */
+            capacitySource: "CONFIGURED" | "DEFAULT" | null;
+            /** @description USER level only: one entry per picked account, in request order, zeros included; empty at UNIT/TEAM level. */
+            byUser: components["schemas"]["VelocityUserShare"][];
         };
-        /** @description A team's own sums (UNIT level) or one user's `assignee_at_commitment` sums (TEAM level) — always empty at USER level. `teamId`/`accountId`/`label` are mutually exclusive with each other's absence: exactly one of `teamId` or `accountId` is set per row (a null `accountId` with a null `label` is the unassigned-at-commitment bucket, never a stored sentinel). */
+        /** @description One picked account's own live share of a sprint (its `assignee_at_commitment` scope rows, the removed-row rule). */
+        VelocityUserShare: {
+            accountId: string;
+            /** @description The Jira display name; the account id when none is known. */
+            label: string;
+            /** Format: double */
+            initialMd: number;
+            initialItems: number;
+            /** Format: double */
+            finalMd: number;
+            finalItems: number;
+        };
+        /** @description A team's own sums (UNIT level), one user's `assignee_at_commitment` sums (TEAM level) or, at USER level, one picked account's period totals (zero when it has no scope row). `teamId`/`accountId`/`label` are mutually exclusive with each other's absence: exactly one of `teamId` or `accountId` is set per row (a null `accountId` with a null `label` is the unassigned-at-commitment bucket, never a stored sentinel). */
         VelocityGroup: {
             /** Format: int32 */
             teamId?: number | null;
@@ -5642,8 +5671,8 @@ export interface operations {
                 sprintId?: components["parameters"]["ReportSprintId"];
                 /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
                 teamId?: components["parameters"]["ReportTeamId"];
-                /** @description One Jira account id — sets the level to USER. Requires `teamId`. */
-                accountId?: components["parameters"]["ReportAccountId"];
+                /** @description Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`. */
+                accountId?: string[];
                 /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
                 domainView?: components["parameters"]["ReportDomainView"];
                 /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */

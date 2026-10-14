@@ -232,7 +232,9 @@ VelocityReport {
     sprintId, name, teamId, completedAt,
     initialMd, initialItems, finalMd, finalItems,
     snapshot: { initialMd, initialItems, finalMd, finalItems } | null,
-    drift: boolean
+    drift: boolean,
+    capacityMd: number | null, capacitySource: "CONFIGURED" | "DEFAULT" | null,
+    byUser: [{ accountId, label, initialMd, initialItems, finalMd, finalItems }]
   }]
   groups: [{ teamId?, accountId?, label?, initialMd, initialItems, finalMd, finalItems }]
 }
@@ -243,6 +245,11 @@ VelocityReport {
   a DERIVE run -- D13); `drift` compares the two LIVE-vs-FROZEN figures with a 0.005 MD tolerance
   (item counts compared exactly) -- `true` whenever any of the four differs, always `false` when no
   snapshot exists yet.
+- **Capacity.** `capacityMd`/`capacitySource` are the sprint's capacity (A3, `.claude/docs/metrics.md` "Default sprint capacity"):
+  `fact_sprint.capacity_md` and `dim_sprint.capacity_source`, read by the same join that reads the sprint (no extra query per sprint) --
+  `CONFIGURED` (a per-sprint override) or `DEFAULT` (members x working days); both `null` when the sprint has none. Filled at UNIT and
+  TEAM level; always `null` at USER level -- capacity is a team figure, so it is hidden when users are picked. Load
+  (`committed / capacity`) stays on `fact_sprint`, not in this shape.
 - **Levels, from the parsed filter** (`reports/ReportFilter.kt`'s own `ReportLevel`):
   - **UNIT** (no `teamId`) -- every team's own CLOSED sprints in the period; `sprints` carries the
     whole-team figures (straight off `fact_sprint`); `groups` sums FINAL MD/items per team (`Σ
@@ -255,13 +262,18 @@ VelocityReport {
     "Sprint scope, facts and snapshots"), so `Σ groups == the team total` (both buckets, both
     MD and items, exactly -- see "Rounding" under Report 6). A `null` `accountId`/`label` group is the unassigned-at-commitment
     bucket, listed last -- never a stored sentinel, the `credit_team_id` convention.
-  - **USER** (`teamId` AND `accountId`) -- `sprints` itself narrows to that ONE account's own
-    contribution per sprint (the SAME committed/final predicates as the TEAM-level groups, applied
-    per sprint instead of summed); `groups` is always empty -- there is nothing further to drill.
-    `snapshot` is that account's own FROZEN figures, read from the sprint's `fact_sprint_snapshot.scope`
+  - **USER** (`teamId` AND `accountId`, which REPEATS on this report only: `?accountId=a&accountId=b`, 1..8 distinct values, a
+    ninth is a `400`; every other report keeps `accountId` strictly single-valued, a repeat is a `400` there) -- `sprints` itself
+    narrows to the picked accounts' own contribution per sprint, SUMMED over them (the SAME committed/final predicates as the
+    TEAM-level groups, applied per sprint instead of summed). Each sprint's `byUser` splits that sum: one entry per picked account
+    in REQUEST order (duplicates collapse, first occurrence wins), zeros included, `label` the Jira display name (the TEAM-level
+    group lookup; the account id when unknown); it is `[]` at UNIT/TEAM level. `groups` lists each picked account's period totals
+    by the TEAM-level groups' rule (committed/final over its `assignee_at_commitment` rows, label-then-id order) -- an explicit
+    pick is always listed, a zero entry when the account has no scope row in the period. One account gives exactly the figures it
+    always did, plus a one-entry `byUser`. `snapshot` is the picked accounts' summed FROZEN figures, read from the sprint's `fact_sprint_snapshot.scope`
     JSONB (`.claude/docs/metrics.md`: "per-user velocity from the snapshot needs no child table") with the
     same predicates, `assignee_at_commitment` attribution and `sumMd` rounding as the live figures; a
-    snapshotted sprint in which the account had no items shows zeros, a sprint with no snapshot (D13)
+    snapshotted sprint in which none of the picked accounts had items shows zeros, a sprint with no snapshot (D13)
     `null`. `drift` is the team level's own comparison. The unassigned bucket's frozen figure has no
     USER-level query. The parser and the frozen fetch are shared with Throughput's `bySprint` and Sprint
     consistency (`reports/FrozenScope.kt`, pinned by `FrozenScopeParserTest`). A malformed scope row is an
@@ -298,7 +310,11 @@ golden FLO sprint's `sprintId` period against `expected.json`'s `committedMd`/`f
 unassigned bucket to the team snapshot", "USER level snapshot is null for a sprint with no snapshot and
 drift stays false", "USER level frozen figures come from the stored snapshot scope not the live
 rows, per connection", "frozen scope parsing fails loudly on a malformed row and keeps a null estimate
-null"), `400` for `from > to` and an unknown `sprintId`; every request runs
+null"), the capacity ("capacity is the stored fact_sprint capacity and source at UNIT and TEAM level, and null at
+USER level", "a configured sprint capacity overrides the default at UNIT and TEAM level"), several accounts
+("several accountIds sum the sprint and split it per user in request order", "one accountId keeps the figures
+with a one-entry byUser and a user with no scope is a zero entry", "at most eight accountIds on
+velocity, and a repeated accountId on another report stays 400"), `400` for `from > to` and an unknown `sprintId`; every request runs
 through a non-admin `seededClient`, proving D12's `200` at the same time).
 
 ## Report 2 -- Throughput
@@ -443,7 +459,7 @@ SprintConsistencyReport {
   stored rows with the same `sumMd` -- so Σ groups == the team figure to the cent (items likewise), whatever
   decimals the estimates carry.
 - **Not in this report.** Capacity and load (also under measures.md's Report 6 heading) are not part of
-  this endpoint's shape; they stay on `dim_sprint`/`fact_sprint` for a later reader.
+  this endpoint's shape; Report 1 (velocity) now reads capacity from `dim_sprint`/`fact_sprint`, load stays unread.
 
 Code: `reports/SprintConsistencyReport.kt` (DTOs, drift, the query/aggregation functions as an extension
 on `ReportService`). Tests: `ReportSprintConsistencyTest` -- the golden FLO sprint's fourteen figures

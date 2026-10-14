@@ -69,7 +69,7 @@ const normalizeBacklogFilter = (filter: ReportFilterState) => dropDomainWithTeam
 /** Reports 10 and 13 — the estimated backlog over time, and how many sprints of delivery it amounts to. */
 export default function ReportBacklog() {
   const { t } = useTranslation();
-  const { filtersQuery, filters, filter, setFilter, query } = useReportPage("backlog", getBacklogReport, normalizeBacklogFilter);
+  const { filtersQuery, filters, filter, setFilter, query, storageKey } = useReportPage("backlog", getBacklogReport, normalizeBacklogFilter);
   const report = query.data;
   const rows = report ? backlogRows(report.trend) : [];
 
@@ -80,7 +80,7 @@ export default function ReportBacklog() {
       <ReportFiltersStatus query={filtersQuery} />
       {filters && (
         <>
-          <ReportFilterBar filters={filters} filter={filter} onChange={setFilter} controls={CONTROLS} />
+          <ReportFilterBar storageKey={storageKey} filters={filters} filter={filter} onChange={setFilter} controls={CONTROLS} />
           {report && <ReportMetaNote meta={report.meta} timeZone={filters.timeZone} />}
           {report?.note && <ReportNote note={report.note} derivedAt={report.meta.derivedAt} />}
           <ReportChartCard
