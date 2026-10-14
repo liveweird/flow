@@ -79,12 +79,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
     - the CI timeout is 25 min.
   - Budgets, history and the open WHY questions are in `.claude/docs/build-times.md`. Local runs use
     `scripts/gates.sh`.
-- [new] **The WIP team/task statement flips plans at scale 20 (~32 s vs ~53 s per DERIVE).** Measured 2026-10-09
-  (`build-times.md` WHY 16): its correlated task → sprint → team sub-select (~4.5 M executions) reads `dim_sprint` by
-  index or by seq scan at near-equal cost (8.17 vs 8.15), and the seq-scan plan costs 27-45 s instead of 11-15 s.
-  - Likely fix: resolve sprint → team once (a join or a CTE over `dim_sprint`/`fact_sprint` instead of the correlated
-    sub-select), which removes the choice. Pin with a plan-shape or timing regression check at stub scale if feasible.
-  - The epic WIP statement flips too (2.95 s vs 8.4 s).
 - [new] **App memory headroom at scale 20 is under 60 MiB.** DERIVE peaked at 712-731 MiB of the 768 MiB container
   (`-Xmx512m`) on 2026-10-09, alone and in pairs (617 MiB on 10-07). No OOM, but check what grew (metaspace, direct
   buffers, the A31 or later code) before the next scale step.
