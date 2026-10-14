@@ -23,13 +23,17 @@ class JiraProfileCustomFieldFillTest {
 
     private fun issue(issueId: Long, fieldJson: String?): RawIssueInput {
         val custom = fieldJson?.let { ""","$fieldId":$it""" }.orEmpty()
+        return rawIssue(issueId, """{"id":"$issueId","key":"ENG-$issueId","fields":{"summary":"s"$custom}}""")
+    }
+
+    private fun rawIssue(issueId: Long, payloadJson: String): RawIssueInput {
         return RawIssueInput(
             issueId = issueId,
             issueKey = "ENG-$issueId",
             projectId = 1L,
             projectKey = "ENG",
             issueUpdatedAt = 1_000,
-            payloadJson = """{"id":"$issueId","key":"ENG-$issueId","fields":{"summary":"s"$custom}}""",
+            payloadJson = payloadJson,
         )
     }
 
@@ -52,13 +56,21 @@ class JiraProfileCustomFieldFillTest {
         store.upsertIssue(connId, issue(101, "\"moved\""), now = 1_000)
         tombstone(connId, 100, movedOut = false)
         tombstone(connId, 101, movedOut = true)
+        // Live issues whose `fields` is JSON null / absent: they contribute to no key but count in the total.
+        store.upsertIssue(connId, rawIssue(102, """{"id":"102","key":"ENG-102","fields":null}"""), now = 1_000)
+        store.upsertIssue(connId, rawIssue(103, """{"id":"103","key":"ENG-103"}"""), now = 1_000)
+        // A DIFFERENT connection's filled issue must not leak into this one's counts.
+        val otherConnId = SyncedStubFixture.createConnection(namePrefix = "jira-fill-other", enabled = false)
+        store.upsertIssue(otherConnId, issue(200, "\"other\""), now = 1_000)
 
         val fill = store.customFieldFill(connId)
 
-        assertEquals(shapes.size.toLong(), fill.total)
-        // "" , {} , 0 and the filled value count; missing, null and [] do not; the tombstoned and moved-out issues are excluded.
+        assertEquals(shapes.size + 2L, fill.total)
+        // "" , {} , 0 and the filled value count; missing, null and [] do not; the tombstoned, moved-out and other-connection issues
+        // are excluded, and the fields-less issues add nothing.
         assertEquals(4L, fill.nonNullByField[fieldId])
         assertEquals(shapes.size.toLong(), fill.nonNullByField["summary"])
+        assertEquals(1L, store.customFieldFill(otherConnId).total)
     }
 
     @Test

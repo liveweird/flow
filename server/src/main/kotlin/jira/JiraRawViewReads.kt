@@ -75,8 +75,9 @@ internal class JiraRawViewReads(private val database: R2dbcDatabase) {
      * The count runs INSIDE Postgres (`jsonb_each` over `raw.jira_issues.payload`) instead of keyset-paging payloads into the JVM:
      * the heap holds one `(key, count)` pair per DISTINCT field key (about 1,400 on a real Jira site) however many issues the
      * project has — the first real-site SYNC (2,105 issues, 59 MB of JSON) OOMed at `-Xmx256m` while PROFILE held every payload,
-     * and a paged variant would still parse every payload in Kotlin — and it is one round trip. Both reads share ONE transaction
-     * so [CustomFieldFill.total] and the counts see the same snapshot.
+     * and a paged variant would still parse every payload in Kotlin — and it is one round trip. The live-issue [CustomFieldFill.total]
+     * comes out of the SAME statement (a `live` CTE read by both branches of a `UNION ALL`; the row with a NULL key is the total), so
+     * counts and total see ONE snapshot — two statements would each take their own under READ COMMITTED.
      *
      * "Has a value" is exactly the old Kotlin check: a missing key, a JSON `null` and an empty array do NOT count (an
      * empty array is how Jira reports an unset Sprint/Flagged); `""`, `{}`, `0`, `false` and any other value DO. Every key is
@@ -84,22 +85,28 @@ internal class JiraRawViewReads(private val database: R2dbcDatabase) {
      * id is interpolated into the SQL text, never a string.
      */
     suspend fun customFieldFill(connectionId: UInt): CustomFieldFill = suspendTransaction(database) {
-        val total = Issues.selectAll()
-            .where { (Issues.connectionId eq connectionId) and Issues.deletedAt.isNull() and Issues.movedOutAt.isNull() }
-            .count()
-        // A payload whose `fields` is not an object contributes nothing (jsonb_each would raise on it).
-        val rows: Flow<Pair<String, Long>?>? = exec(
+        // A payload whose `fields` is not an object contributes nothing (jsonb_each would raise on it) but still counts in the total.
+        // `f.value <> '[]'::jsonb` is jsonb equality: only an empty array equals it, and it is safe on any value type.
+        val rows: Flow<Pair<String?, Long>?>? = exec(
             """
-            SELECT f.key, count(*) FROM raw.jira_issues i,
-              jsonb_each(CASE WHEN jsonb_typeof(i.payload -> 'fields') = 'object' THEN i.payload -> 'fields' ELSE '{}'::jsonb END) f
-            WHERE i.connection_id = $connectionId AND i.deleted_at IS NULL AND i.moved_out_at IS NULL
-              AND jsonb_typeof(f.value) <> 'null'
-              AND NOT (jsonb_typeof(f.value) = 'array' AND jsonb_array_length(f.value) = 0)
+            WITH live AS (
+              SELECT payload FROM raw.jira_issues
+              WHERE connection_id = $connectionId AND deleted_at IS NULL AND moved_out_at IS NULL
+            )
+            SELECT f.key, count(*) FROM live,
+              jsonb_each(CASE WHEN jsonb_typeof(live.payload -> 'fields') = 'object' THEN live.payload -> 'fields' ELSE '{}'::jsonb END) f
+            WHERE jsonb_typeof(f.value) <> 'null' AND f.value <> '[]'::jsonb
             GROUP BY f.key
+            UNION ALL
+            SELECT NULL, count(*) FROM live
             """.trimIndent(),
             explicitStatementType = StatementType.SELECT,
-        ) { row -> row.get(0, String::class.java)!! to row.get(1, Long::class.javaObjectType)!! }
-        CustomFieldFill(total, rows?.toList()?.filterNotNull()?.toMap().orEmpty())
+        ) { row -> row.get(0, String::class.java) to row.get(1, Long::class.javaObjectType)!! }
+        val all = rows?.toList()?.filterNotNull().orEmpty()
+        CustomFieldFill(
+            total = all.firstOrNull { it.first == null }?.second ?: 0L,
+            nonNullByField = all.mapNotNull { (key, n) -> key?.let { it to n } }.toMap(),
+        )
     }
 
     /** `GET …/{id}/status` counts (v0.2.0 plan §9): every `raw.jira_entities` row for a connection, grouped by kind. */
