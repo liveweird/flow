@@ -90,6 +90,9 @@ export const VELOCITY_UNIT: VelocityReport = {
       finalItems: 9,
       snapshot: { initialMd: 20, initialItems: 8, finalMd: 22, finalItems: 9 },
       drift: true,
+      capacityMd: null,
+      capacitySource: null,
+      byUser: [],
     },
     {
       sprintId: 21,
@@ -102,6 +105,9 @@ export const VELOCITY_UNIT: VelocityReport = {
       finalItems: 4,
       snapshot: { initialMd: 10, initialItems: 4, finalMd: 10, finalItems: 4 },
       drift: false,
+      capacityMd: null,
+      capacitySource: null,
+      byUser: [],
     },
   ],
   groups: [

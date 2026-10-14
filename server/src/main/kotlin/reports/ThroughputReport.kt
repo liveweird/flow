@@ -207,7 +207,7 @@ private suspend fun userSprints(sprintRows: List<SprintRow>, accountId: String):
                 (s.assigneeAtCommitment eq accountId) and (s.doneInSprint eq true)
         }
         .toList().groupBy({ it[s.connectionId].value to it[s.sprintId] }, { it[s.estimateAtDoneMd] ?: BigDecimal.ZERO })
-    val frozen = fetchFrozenScopes(sprintRows, accountId, ::frozenScopeItemsOf) { it.assigneeAtCommitment }
+    val frozen = fetchFrozenScopes(sprintRows, listOf(accountId), ::frozenScopeItemsOf) { it.assigneeAtCommitment }
     return sprintRows.map { row ->
         val delivered = rows[row.connectionId to row.sprintId].orEmpty()
         val live = ThroughputSnapshot(delivered.fold(BigDecimal.ZERO, BigDecimal::add).toDouble(), delivered.size)

@@ -13,6 +13,9 @@ const sprint = (over: Partial<VelocitySprint>): VelocitySprint => ({
   finalItems: 5,
   snapshot: null,
   drift: false,
+  capacityMd: null,
+  capacitySource: null,
+  byUser: [],
   ...over,
 });
 

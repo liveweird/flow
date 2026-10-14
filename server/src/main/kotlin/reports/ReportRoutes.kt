@@ -165,11 +165,12 @@ fun Application.configureReportRoutes() {
  * ONE report endpoint: the `call.caller()` guard FIRST (403/401 before any parameter is read, so 403 wins over 400), the shared
  * filter parse against the configured working calendar ([defaultView] is the report's own `domainView` default), then
  * [respond] with the filter, the raw query parameters (for a report's own extras — parsed AFTER the filter, so the shared
- * `400`s keep their order) and the request's `now`.
+ * `400`s keep their order) and the request's `now`. [multipleAccounts] is velocity's opt-in to a repeated `accountId`.
  */
 private inline fun <reified R : Any> Route.reportGet(
     metricsSettings: MetricsSettingsService,
     defaultView: DomainView,
+    multipleAccounts: Boolean = false,
     crossinline respond: suspend (filter: ReportFilter, params: Parameters, nowMs: Long) -> Any,
 ) {
     get<R> {
@@ -177,7 +178,7 @@ private inline fun <reified R : Any> Route.reportGet(
         val calendar = reportsWorkingCalendar(metricsSettings)
         val nowMs = nowMillis()
         val params = call.request.queryParameters
-        val filter = params.parseReportFilter(calendar, nowMs, defaultView)
+        val filter = params.parseReportFilter(calendar, nowMs, defaultView, multipleAccounts)
         call.respond(HttpStatusCode.OK, respond(filter, params, nowMs))
     }
 }
@@ -185,8 +186,10 @@ private inline fun <reified R : Any> Route.reportGet(
 /** The sprint, estimation, cycle-time and reported-time reports (1–8), in report order. */
 private fun Route.deliveryRoutes(reportService: ReportService, metricsSettings: MetricsSettingsService) {
     // Velocity (report 1) carries no domain slice (measures.md's Report 1 rows: domain "—"), so the TASK/EPIC default is a
-    // harmless placeholder — every response still echoes it in `meta`.
-    reportGet<ReportVelocityRoute>(metricsSettings, DomainView.TASK) { filter, _, _ -> reportService.velocity(filter) }
+    // harmless placeholder — every response still echoes it in `meta`. Velocity alone takes several `accountId`s (1..8).
+    reportGet<ReportVelocityRoute>(metricsSettings, DomainView.TASK, multipleAccounts = true) { filter, _, _ ->
+        reportService.velocity(filter)
+    }
     // Throughput's (report 2) period view honours domain/activityType/workCategory and defaults to the TASK domain view
     // (D3: delivery/flow measures stay with the task's own domain).
     reportGet<ReportThroughputRoute>(metricsSettings, DomainView.TASK) { filter, params, nowMs ->

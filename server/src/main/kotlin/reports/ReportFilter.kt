@@ -3,6 +3,7 @@ package ch.nokillswit.reports
 import ch.nokillswit.infra.paging.optionalEnum
 import ch.nokillswit.infra.paging.optionalString
 import ch.nokillswit.infra.paging.optionalUInt
+import ch.nokillswit.infra.paging.repeatedStrings
 import ch.nokillswit.metrics.WorkingCalendar
 import io.ktor.http.Parameters
 import io.ktor.server.plugins.BadRequestException
@@ -20,6 +21,9 @@ private const val MAX_PERIOD_SPAN_DAYS = 1100
 private const val MIN_LAST_SPRINTS = 1
 private const val MIN_SPRINT_ID = 1L
 private const val MAX_LAST_SPRINTS = 52
+
+/** How many `accountId` values the velocity report's repeated key takes (`maxItems` in the spec). */
+private const val MAX_VELOCITY_ACCOUNTS = 8
 
 /**
  * `teamId`/`accountId` set the level (plan §7): `UNIT` groups by team (the default, no `teamId`),
@@ -66,6 +70,12 @@ data class ReportFilter(
     val level: ReportLevel,
     val teamId: UInt?,
     val accountId: String?,
+    /**
+     * Every picked account, in request order, distinct: empty unless [level] is USER. Every report but velocity takes one
+     * `accountId` (a repeat is a `400`), so for them it is `[accountId]`; velocity ([parseReportFilter]'s `multipleAccounts`)
+     * takes 1..[MAX_VELOCITY_ACCOUNTS] and [accountId] is then the first of them.
+     */
+    val accountIds: List<String> = listOfNotNull(accountId),
     val domainView: DomainView,
     val domain: String?,
     val activityType: String?,
@@ -82,13 +92,21 @@ data class ReportFilter(
  * only has the zone at hand. [nowMs] anchors the default 90-day window and is always caller-supplied
  * (never `System.currentTimeMillis()`) so both routes and tests can pin it. [defaultDomainView] is
  * per-report (plan §7: "EPIC for PV/EV/AC-shaped measures … TASK elsewhere") — the caller's own
- * default, never guessed here.
+ * default, never guessed here. [multipleAccounts] is the velocity report's opt-in: `accountId` repeats (`?accountId=a&accountId=b`, at most
+ * [MAX_VELOCITY_ACCOUNTS] distinct values, a `400` above) instead of being strictly single-valued like on every other report.
  */
-fun Parameters.parseReportFilter(calendar: WorkingCalendar, nowMs: Long, defaultDomainView: DomainView): ReportFilter {
+fun Parameters.parseReportFilter(
+    calendar: WorkingCalendar,
+    nowMs: Long,
+    defaultDomainView: DomainView,
+    multipleAccounts: Boolean = false,
+): ReportFilter {
     val period = parsePeriod(calendar, nowMs)
 
     val teamId = optionalUInt("teamId")
-    val accountId = optionalString("accountId")
+    val accountIds =
+        if (multipleAccounts) repeatedStrings("accountId", MAX_VELOCITY_ACCOUNTS) else listOfNotNull(optionalString("accountId"))
+    val accountId = accountIds.firstOrNull()
     if (accountId != null && teamId == null) {
         throw BadRequestException("accountId requires teamId")
     }
@@ -103,6 +121,7 @@ fun Parameters.parseReportFilter(calendar: WorkingCalendar, nowMs: Long, default
         level = level,
         teamId = teamId,
         accountId = accountId,
+        accountIds = accountIds,
         domainView = optionalEnum<DomainView>("domainView") ?: defaultDomainView,
         domain = optionalString("domain"),
         activityType = optionalString("activityType"),

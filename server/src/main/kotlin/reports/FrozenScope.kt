@@ -128,15 +128,15 @@ internal fun frozenScopeItemsOf(scopeJson: String, connectionId: UInt, sprintId:
     }
 
 /**
- * Each in-scope sprint's FROZEN scope rows, parsed by [parse] and narrowed to [accountId]'s own items ([assigneeOf]). A
- * sprint WITH a snapshot is always a key (an account with no items there maps to an empty list, so its frozen figures are
+ * Each in-scope sprint's FROZEN scope rows, parsed by [parse] and narrowed to the [accountIds]' own items ([assigneeOf]). A
+ * sprint WITH a snapshot is always a key (an account set with no items there maps to an empty list, so its frozen figures are
  * zeros, like the live ones); a sprint with none is absent -> the report's `snapshot = null`. Only the exact
  * (connection, sprint) pairs of [sprintRows] are kept: `connection IN (...) AND sprint IN (...)` is a cross product, and two
  * connections to one Jira site share sprint ids.
  */
 internal suspend fun <T> fetchFrozenScopes(
     sprintRows: List<SprintRow>,
-    accountId: String,
+    accountIds: Collection<String>,
     parse: (scopeJson: String, connectionId: UInt, sprintId: Long) -> List<T>,
     assigneeOf: (T) -> String?,
 ): Map<Pair<UInt, Long>, List<T>> {
@@ -153,6 +153,6 @@ internal suspend fun <T> fetchFrozenScopes(
         .associate { row ->
             val connectionId = row[snapshot.connectionId].value
             val sprintId = row[snapshot.sprintId]
-            (connectionId to sprintId) to parse(row[snapshot.scope], connectionId, sprintId).filter { assigneeOf(it) == accountId }
+            (connectionId to sprintId) to parse(row[snapshot.scope], connectionId, sprintId).filter { assigneeOf(it) in accountIds }
         }
 }
