@@ -564,7 +564,9 @@ paths:
       description: |
         ADMIN only (guarded before the body decodes — a non-admin's malformed body is still
         403). An optional initial roster: every id must be an active user (`400` otherwise). A
-        case-insensitive name clash with an active team is `409`.
+        case-insensitive name clash with an active team is `409`. An optional manager (a Flow
+        user who, with the administrators, may edit the team's capacity) must be an active user
+        (`400` otherwise).
       requestBody:
         required: true
         content:
@@ -610,8 +612,8 @@ paths:
     put:
       tags: [teams]
       operationId: updateTeam
-      summary: Rename / re-describe a team
-      description: "ADMIN only, guard before the id lookup (uniform 403). The roster is managed per member below. A case-insensitive name clash with another active team is `409`."
+      summary: Rename / re-describe a team, set its manager
+      description: "ADMIN only, guard before the id lookup (uniform 403). A full replace: an omitted `managerUserId` clears the manager; a set one must be an active user (`400` otherwise). The roster is managed per member below. A case-insensitive name clash with another active team is `409`."
       requestBody:
         required: true
         content:
@@ -2715,12 +2717,28 @@ components:
           maxItems: 200
           items: { type: integer, format: int32, minimum: 0 }
           description: Optional initial roster — every id must be an active user.
+        managerUserId:
+          type: integer
+          format: int32
+          minimum: 0
+          nullable: true
+          description: >-
+            The team's manager, a Flow user; must be active (`400` otherwise). The manager and the
+            administrators may edit the team's capacity.
     TeamUpdateRequest:
       type: object
       required: [name]
       properties:
         name: { type: string, minLength: 1, maxLength: 100 }
         description: { type: string, maxLength: 500, nullable: true }
+        managerUserId:
+          type: integer
+          format: int32
+          minimum: 0
+          nullable: true
+          description: >-
+            The team's manager, a Flow user; must be active (`400` otherwise). The manager and the
+            administrators may edit the team's capacity. Omitted on PUT (a full replace) = no manager.
     TeamMemberResponse:
       type: object
       required: [userId, name, email, deleted]
@@ -2733,11 +2751,18 @@ components:
           description: The user was soft-deleted after joining; the row stays for the record.
     TeamResponse:
       type: object
-      required: [id, name, members, createdAt, updatedAt]
+      required: [id, name, managerUserId, managerName, members, createdAt, updatedAt]
       properties:
         id: { type: integer, format: int32, minimum: 0 }
         name: { type: string }
         description: { type: string, nullable: true }
+        managerUserId:
+          type: integer
+          format: int32
+          minimum: 0
+          nullable: true
+          description: The team's manager; null when unset or when the assigned user was soft-deleted.
+        managerName: { type: string, nullable: true, description: The manager's display name; null with `managerUserId`. }
         members:
           type: array
           items:
@@ -2746,11 +2771,18 @@ components:
         updatedAt: { type: integer, format: int64, description: Epoch millis }
     TeamListItem:
       type: object
-      required: [id, name, memberCount, createdAt, updatedAt]
+      required: [id, name, managerUserId, managerName, memberCount, createdAt, updatedAt]
       properties:
         id: { type: integer, format: int32, minimum: 0 }
         name: { type: string }
         description: { type: string, nullable: true }
+        managerUserId:
+          type: integer
+          format: int32
+          minimum: 0
+          nullable: true
+          description: The team's manager; null when unset or when the assigned user was soft-deleted.
+        managerName: { type: string, nullable: true, description: The manager's display name; null with `managerUserId`. }
         memberCount:
           type: integer
           minimum: 0

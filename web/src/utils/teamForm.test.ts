@@ -20,7 +20,16 @@ describe("teamForm", () => {
     expect(toTeamBody({ name: "  Payments ", description: "   " })).toEqual({ name: "Payments", description: null });
     expect(toTeamBody({ name: "A", description: " movers " })).toEqual({ name: "A", description: "movers" });
     expect(
-      toTeamFormValues({ id: 1, name: "A", description: null, members: [], createdAt: 0, updatedAt: 0 }),
+      toTeamFormValues({
+        id: 1,
+        name: "A",
+        description: null,
+        managerUserId: null,
+        managerName: null,
+        members: [],
+        createdAt: 0,
+        updatedAt: 0,
+      }),
     ).toEqual({ name: "A", description: "" });
   });
 

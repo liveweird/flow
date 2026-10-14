@@ -371,7 +371,9 @@ export interface paths {
          * Create a team
          * @description ADMIN only (guarded before the body decodes — a non-admin's malformed body is still
          *     403). An optional initial roster: every id must be an active user (`400` otherwise). A
-         *     case-insensitive name clash with an active team is `409`.
+         *     case-insensitive name clash with an active team is `409`. An optional manager (a Flow
+         *     user who, with the administrators, may edit the team's capacity) must be an active user
+         *     (`400` otherwise).
          */
         post: operations["createTeam"];
         delete?: never;
@@ -395,8 +397,8 @@ export interface paths {
          */
         get: operations["getTeam"];
         /**
-         * Rename / re-describe a team
-         * @description ADMIN only, guard before the id lookup (uniform 403). The roster is managed per member below. A case-insensitive name clash with another active team is `409`.
+         * Rename / re-describe a team, set its manager
+         * @description ADMIN only, guard before the id lookup (uniform 403). A full replace: an omitted `managerUserId` clears the manager; a set one must be an active user (`400` otherwise). The roster is managed per member below. A case-insensitive name clash with another active team is `409`.
          */
         put: operations["updateTeam"];
         post?: never;
@@ -1731,10 +1733,20 @@ export interface components {
             description?: string | null;
             /** @description Optional initial roster — every id must be an active user. */
             memberIds?: number[];
+            /**
+             * Format: int32
+             * @description The team's manager, a Flow user; must be active (`400` otherwise). The manager and the administrators may edit the team's capacity.
+             */
+            managerUserId?: number | null;
         };
         TeamUpdateRequest: {
             name: string;
             description?: string | null;
+            /**
+             * Format: int32
+             * @description The team's manager, a Flow user; must be active (`400` otherwise). The manager and the administrators may edit the team's capacity. Omitted on PUT (a full replace) = no manager.
+             */
+            managerUserId?: number | null;
         };
         TeamMemberResponse: {
             /** Format: int32 */
@@ -1749,6 +1761,13 @@ export interface components {
             id: number;
             name: string;
             description?: string | null;
+            /**
+             * Format: int32
+             * @description The team's manager; null when unset or when the assigned user was soft-deleted.
+             */
+            managerUserId: number | null;
+            /** @description The manager's display name; null with `managerUserId`. */
+            managerName: string | null;
             members: components["schemas"]["TeamMemberResponse"][];
             /**
              * Format: int64
@@ -1766,6 +1785,13 @@ export interface components {
             id: number;
             name: string;
             description?: string | null;
+            /**
+             * Format: int32
+             * @description The team's manager; null when unset or when the assigned user was soft-deleted.
+             */
+            managerUserId: number | null;
+            /** @description The manager's display name; null with `managerUserId`. */
+            managerName: string | null;
             /** @description Active members only. */
             memberCount: number;
             /** Format: int64 */

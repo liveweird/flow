@@ -676,7 +676,7 @@ migration — the persistence.md cross-feature list above is unchanged.
 
 `MigrationChecksumTest` gains V17's pin.
 
-Current migrations are `V1`–`V22`:
+Current migrations are `V1`–`V23`:
 
 - `V1__init` — the `users` table: `name` (≤50), `email` (≤254), `password_hash`, `role` with
   `CHECK ("role" IN ('ADMIN', 'USER'))` (single-column role storage; the wire shape stays a
@@ -699,8 +699,8 @@ Current migrations are `V1`–`V22`:
   MFA joins the flags with an INVERTED default (opt-in) — every pre-existing user gets the `MFA`
   disabled row (`ON CONFLICT DO NOTHING`); `UserService.create` inserts the same row for every
   later user.
-- `V6__create_teams` — flat teams (Lettuce's, minus `manager_id` — no management chain by
-  design): `teams` (`name` ≤100, `description` ≤500 nullable, epoch-millis `created_at`/
+- `V6__create_teams` — flat teams (Lettuce's V2 minus `manager_id`, which V23 returns without the chain —
+  no management chain by design): `teams` (`name` ≤100, `description` ≤500 nullable, epoch-millis `created_at`/
   `updated_at`, soft-delete) with the partial unique index `uq_teams_name_active` over
   `LOWER(name)` active rows (a deleted team frees its name, no case twins), and `team_members` — a
   **hard-delete join** (`team_id` CASCADE, `user_id` CASCADE, composite PK, an index on `user_id`
@@ -776,6 +776,13 @@ Current migrations are `V1`–`V22`:
   `item_stage_stage_check`, `fact_task_delivery_current_stage_check`, `agg_daily_wip_stage_check`, read off a migrated
   database). A pure widening: no row changes, the re-add scans each table once; with the default configuration no row is
   `WAITING` (no status ever defaults to it), so the fixture digests do not move. `MigrationChecksumTest` pins it.
+- `V23__team_manager` — `teams.manager_user_id BIGINT NULL REFERENCES users(id)` (`users.id` is `BIGSERIAL`) + an index:
+  a team's optional manager, a Flow login, at most one per team, one user may manage several teams (no history, no chain).
+  Only the manager or an ADMIN edits the team's capacity (V24's routes, guard `requireTeamManagerOrAdmin`). A soft-deleted
+  user's id may linger in the column: every reader (`TeamService.read`/`list`/`isActiveManager`) resolves the manager
+  through ACTIVE users and reads a deleted one as "no manager" — the `metrics.domain_map.owner_team_id` idiom
+  (soft-delete-safe by construction, no cleanup write on user delete). Additive and nullable: no backfill, no digest moves.
+  `MigrationChecksumTest` pins it.
 
 The `users`/`teams` tables follow Toadie's dialect (`SERIAL`/`INTEGER` ids, epoch-millis `BIGINT`
 timestamps, `marked_as_deleted` + partial unique indexes over active rows) and its idioms: a
