@@ -94,7 +94,8 @@ data actually lives.
 - **Level -- `teamId`/`accountId` (plan section 7):** no `teamId` -> `UNIT` (groups by team); `teamId`
   alone -> `TEAM` (groups by user); `teamId` AND `accountId` together -> `USER` (the one user).
   `accountId` without `teamId` is `400` -- a user-level read always needs to know within which
-  team's roster it is being read. `teamId = 0` is the UNASSIGNED sentinel bucket, a real value, not
+  team's roster it is being read. `accountId` REPEATS (1..8 distinct, `parseReportFilter(..., multipleAccounts = true)`) on
+  commitments and throughput only; on every other report a repeat is a `400`. `teamId = 0` is the UNASSIGNED sentinel bucket, a real value, not
   "absent" -- never rejected here (a real check that a POSITIVE `teamId` names an actual team is a
   report service's own job, downstream).
 - **Group order.** The org drill (`groups`) of commitments, throughput, sprint consistency and the DONE-item reports is built by
@@ -262,7 +263,7 @@ CommitmentsReport {
     "Sprint scope, facts and snapshots"), so `Σ groups == the team total` (both buckets, both
     MD and items, exactly -- see "Rounding" under Report 6). A `null` `accountId`/`label` group is the unassigned-at-commitment
     bucket, listed last -- never a stored sentinel, the `credit_team_id` convention.
-  - **USER** (`teamId` AND `accountId`, which REPEATS on this report only: `?accountId=a&accountId=b`, 1..8 distinct values, a
+  - **USER** (`teamId` AND `accountId`, which REPEATS on this report and on throughput only: `?accountId=a&accountId=b`, 1..8 distinct values, a
     ninth is a `400`; every other report keeps `accountId` strictly single-valued, a repeat is a `400` there) -- `sprints` itself
     narrows to the picked accounts' own contribution per sprint, SUMMED over them (the SAME committed/final predicates as the
     TEAM-level groups, applied per sprint instead of summed). Each sprint's `byUser` splits that sum: one entry per picked account
@@ -321,7 +322,7 @@ through a non-admin `seededClient`, proving D12's `200` at the same time).
 
 `GET /api/v1/reports/throughput` (v0.3.0 M4 commit 10c, `.claude/docs/measures.md` "Report 2 --
 Throughput", with the item counts of report 13): what was DELIVERED, in MD and items. Takes the
-shared parameters plus `bucket=WEEK|MONTH` (default `WEEK`). Two views that **differ by design** --
+shared parameters plus `bucket=WEEK|MONTH` (default `WEEK`); `accountId` repeats (see Levels). Two views that **differ by design** --
 a task finished after its sprint closed is in the period view but in no sprint's delivered scope,
 and the sprint view prices at the sprint's close while the period view prices at `done_at`:
 
@@ -329,11 +330,15 @@ and the sprint view prices at the sprint's close while the period view prices at
 ThroughputReport {
   meta: ReportMeta
   bySprint: [{ sprintId, name, teamId, completedAt, deliveredMd, deliveredItems,
-               snapshot: { deliveredMd, deliveredItems } | null, drift: boolean }]
-  byBucket: [{ bucketStart, deliveredMd, deliveredItems }]
+               snapshot: { deliveredMd, deliveredItems } | null, drift: boolean,
+               byUser: [{ accountId, label, deliveredMd, deliveredItems }] }]
+  byBucket: [{ bucketStart, deliveredMd, deliveredItems,
+               byUser: [{ accountId, label, deliveredMd, deliveredItems }] }]
   groups:   [{ teamId?, accountId?, label?, deliveredMd, deliveredItems }]
 }
 ```
+
+Throughput is what is delivered over any time unit by any group of people, in MD (1 SP = 1 MD) or items.
 
 - **`bySprint` (the SPRINT view)** -- straight off `fact_sprint.delivered_md/_items` (= Σ
   `fact_sprint_scope.done_in_sprint`), one row per (team, closed sprint) by `complete_at`, whole
@@ -369,13 +374,20 @@ ThroughputReport {
 - **Levels.** UNIT: `groups` are one per credit team (a `teamId: null` group is UNASSIGNED, `label`
   the team name); TEAM (`teamId`): `bySprint` narrows to that team's sprints, the period view to tasks
   credited to it, and `groups` become one per assignee at done (`null` `accountId`/`label` =
-  unassigned); USER (`teamId` + `accountId`): the period view narrows to that account, `groups` is
-  empty and `bySprint` narrows to that account's deliveries by `assignee_at_commitment`
-  (`done_in_sprint` rows at `estimate_at_done_md`). Its `snapshot` is that account's FROZEN share: the
+  unassigned); USER (`teamId` + `accountId`, which REPEATS on this report and on commitments only:
+  `?accountId=a&accountId=b`, 1..8 distinct values in request order, a ninth is a `400`; every other report keeps
+  `accountId` strictly single-valued): the period view narrows to tasks whose `assignee_account_id_at_done` is IN the
+  picked accounts and SUMS over them, `groups` lists each picked account's period totals (the TEAM-level rule, label-then-id
+  order; an explicit pick is always listed, a zero entry when it delivered nothing -- commitments' picked-user groups), and
+  `bySprint` narrows to the picked accounts' deliveries by `assignee_at_commitment`, summed
+  (`done_in_sprint` rows at `estimate_at_done_md`). `byUser` on every `bySprint` and `byBucket` entry splits the live
+  figures per picked account in REQUEST order (duplicates collapse), zeros included, `label` the Jira display name (the account
+  id when unknown); it is `[]` at UNIT/TEAM level. One account gives exactly the figures it always did, plus a one-entry
+  `byUser`. The sprint `snapshot` is the picked accounts' summed FROZEN share: the
   sprint's `fact_sprint_snapshot.scope` JSON (commitments' shared reader, `reports/FrozenScope.kt`) run through
   `sprintTotals` -- the same `done_in_sprint` predicate, `assignee_at_commitment` attribution and
   per-item two-decimal rounding (`sumMd`) as the live figure, an unestimated delivery an item worth 0 MD; a
-  snapshotted sprint in which the account delivered nothing shows zeros, a sprint with no snapshot (D13) `null`,
+  snapshotted sprint in which the accounts delivered nothing shows zeros, a sprint with no snapshot (D13) `null`,
   and `drift` is the team level's own `deliveredDrift` over the two. The unassigned bucket has no USER-level query.
   **Σ `groups` == Σ `byBucket`** (MD and items) at UNIT and TEAM level.
 - **Two separate measures.** Never expect Σ `bySprint` == Σ `byBucket` (see the two-views note above).
@@ -385,14 +397,18 @@ ReportSupport.kt` (the connection scope / team-existence / sprint-row / snapshot
 from commitments). Tests: `ReportThroughputTest` -- `DerivedStubFixture`-based: `bySprint` against `fact_sprint` and
 `golden.sprint.deliveredMd/Items`; `byBucket` against an independent read of `fact_task_delivery` over
 two windows; the sprint-envelope window for a `sprintId` and for `lastSprints=2`; an open/future
-sprint by `sprintId`; Σ groups at UNIT/TEAM (and empty groups at USER); USER-level `bySprint` summed
+sprint by `sprintId`; Σ groups at UNIT/TEAM (and the picked account's own group at USER); USER-level `bySprint` summed
 over the golden sprint's assignees (plus the unassigned remainder) equalling the TEAM figure, its frozen
 `snapshot` equal to an independent computation over the stored scope JSON and Σ users + unassigned == the team
 snapshot ("USER-level bySprint snapshot equals the stored scope and sums to the team snapshot"), and hand-built
 snapshots on two disabled clones sharing one sprint id (frozen figures from the JSON not the live rows, drift,
 per-connection isolation, zeros for an account with no delivery; "USER-level bySprint snapshot reads the stored
 scope per connection, with drift"); an open sprint's USER `snapshot` is `null`; `teamId=0`; the `activityType` and TASK-view `domain` slices; WEEK vs MONTH totals; `400` for a bad
-`bucket` and `from > to`. The EPIC domain view and the `workCategory` filters are pinned on
+`bucket` and `from > to`. Several `accountId`s ("several accountIds sum bySprint and its frozen share and split it per user in
+request order", "several accountIds sum byBucket, split every bucket per user and list each pick in groups", "one accountId
+keeps today's figures with a one-entry byUser", "at most eight accountIds on throughput, and a repeated accountId on another
+report stays 400") are graded against independent SQL reads of `fact_sprint_scope`, the stored snapshot JSON and
+`fact_task_delivery`, never the single-account runs alone. The EPIC domain view and the `workCategory` filters are pinned on
 hand-built `fact_task_delivery` rows in a fresh disabled connection (the stub fixture has no work
 categories and no cross-domain epics), with exactly hand-computed counts and MD. `ThroughputBucketTest`
 pins the pure bucket math across Europe/Warsaw's DST change.

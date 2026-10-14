@@ -192,6 +192,7 @@ export const THROUGHPUT_UNIT: ThroughputReport = {
       deliveredItems: 7,
       snapshot: { deliveredMd: 16, deliveredItems: 6 },
       drift: true,
+      byUser: [],
     },
     {
       sprintId: 21,
@@ -202,12 +203,13 @@ export const THROUGHPUT_UNIT: ThroughputReport = {
       deliveredItems: 4,
       snapshot: { deliveredMd: 10, deliveredItems: 4 },
       drift: false,
+      byUser: [],
     },
   ],
   byBucket: [
-    { bucketStart: "2026-09-07", deliveredMd: 12.5, deliveredItems: 5 },
-    { bucketStart: "2026-09-14", deliveredMd: 0, deliveredItems: 0 },
-    { bucketStart: "2026-09-21", deliveredMd: 15.5, deliveredItems: 6 },
+    { bucketStart: "2026-09-07", deliveredMd: 12.5, deliveredItems: 5, byUser: [] },
+    { bucketStart: "2026-09-14", deliveredMd: 0, deliveredItems: 0, byUser: [] },
+    { bucketStart: "2026-09-21", deliveredMd: 15.5, deliveredItems: 6, byUser: [] },
   ],
   groups: [
     { teamId: 1, accountId: null, label: "Alpha", deliveredMd: 18, deliveredItems: 7 },
@@ -227,8 +229,8 @@ export const THROUGHPUT_USER: ThroughputReport = {
 export const THROUGHPUT_MONTHS: ThroughputReport = {
   ...THROUGHPUT_UNIT,
   byBucket: [
-    { bucketStart: "2026-08-01", deliveredMd: 20, deliveredItems: 8 },
-    { bucketStart: "2026-09-01", deliveredMd: 8, deliveredItems: 3 },
+    { bucketStart: "2026-08-01", deliveredMd: 20, deliveredItems: 8, byUser: [] },
+    { bucketStart: "2026-09-01", deliveredMd: 8, deliveredItems: 3, byUser: [] },
   ],
 };
 
@@ -236,8 +238,8 @@ export const THROUGHPUT_NOTHING: ThroughputReport = {
   meta: META,
   bySprint: [],
   byBucket: [
-    { bucketStart: "2026-09-07", deliveredMd: 0, deliveredItems: 0 },
-    { bucketStart: "2026-09-14", deliveredMd: 0, deliveredItems: 0 },
+    { bucketStart: "2026-09-07", deliveredMd: 0, deliveredItems: 0, byUser: [] },
+    { bucketStart: "2026-09-14", deliveredMd: 0, deliveredItems: 0, byUser: [] },
   ],
   groups: [],
 };

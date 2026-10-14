@@ -2,8 +2,8 @@ import { describe, expect, test } from "vitest";
 import { throughputChartRows, throughputTotals } from "./throughputReport";
 
 const buckets = [
-  { bucketStart: "2026-09-07", deliveredMd: 12.5, deliveredItems: 5 },
-  { bucketStart: "2026-10-01", deliveredMd: 1, deliveredItems: 1 },
+  { bucketStart: "2026-09-07", deliveredMd: 12.5, deliveredItems: 5, byUser: [] },
+  { bucketStart: "2026-10-01", deliveredMd: 1, deliveredItems: 1, byUser: [] },
 ];
 
 describe("throughputReport", () => {
