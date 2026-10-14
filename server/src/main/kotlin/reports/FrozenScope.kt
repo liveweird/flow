@@ -19,7 +19,7 @@ import org.jetbrains.exposed.v1.r2dbc.selectAll
  * The USER-level frozen reader every sprint report shares (Commitments, Throughput's `bySprint`, Sprint consistency): a
  * sprint's per-user FROZEN figures are computed from the `fact_sprint_snapshot.scope` JSONB (the writer's
  * `MetricsSprintWrites.kt`'s `sprintScopeItemsJson` shape, D13) with the same predicates, attribution and rounding as the live ones —
- * `.claude/docs/metrics.md`: "per-user commitments from the snapshot needs no child table". ONE strict parser
+ * per-user commitments come from the snapshot and need no child table. ONE strict parser
  * ([parseFrozenScope]) and ONE fetch ([fetchFrozenScopes]); each report only picks the item shape it needs.
  * Every function runs inside the CALLER's `suspendTransaction`.
  */

@@ -271,7 +271,7 @@ CommitmentsReport {
     by the TEAM-level groups' rule (committed/final over its `assignee_at_commitment` rows, label-then-id order) -- an explicit
     pick is always listed, a zero entry when the account has no scope row in the period. One account gives exactly the figures it
     always did, plus a one-entry `byUser`. `snapshot` is the picked accounts' summed FROZEN figures, read from the sprint's `fact_sprint_snapshot.scope`
-    JSONB (`.claude/docs/metrics.md`: "per-user commitments from the snapshot needs no child table") with the
+    JSONB (per-user commitments come from the snapshot, so no child table is needed) with the
     same predicates, `assignee_at_commitment` attribution and `sumMd` rounding as the live figures; a
     snapshotted sprint in which none of the picked accounts had items shows zeros, a sprint with no snapshot (D13)
     `null`. `drift` is the team level's own comparison. The unassigned bucket's frozen figure has no

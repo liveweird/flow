@@ -197,7 +197,7 @@ private suspend fun userGroups(contributions: List<ScopeContribution>): List<Com
  * The USER level's own `sprints` — one row per sprint, narrowed to [contributions]' picked [accountIds] and SUMMED over them (the
  * same removed-row rule [userGroups] applies, per sprint instead of summed across them). `snapshot` is those accounts' FROZEN figures,
  * computed by the same [figuresOf] rule from the sprint's `fact_sprint_snapshot.scope` ([frozen], keyed like [contributions];
- * `.claude/docs/metrics.md`'s "per-user commitments from the snapshot needs no child table"); `null` for a sprint with no snapshot
+ * per-user commitments come from the snapshot, no child table); `null` for a sprint with no snapshot
  * (D13), and [drift] is the team level's own [scopeDrift] over the two. [byUser] is each picked account's live share in request
  * order, zeros included; capacity is team-only (A3), so it is `null` here.
  */
