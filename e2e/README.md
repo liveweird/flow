@@ -173,7 +173,8 @@ the same commit** — this list is the coverage map, the scenario file is the de
   (folded by default; scenarios unfold it with `openFilters`), and one scenario folds and unfolds it: the toggle's
   `aria-expanded` and active-filter badge (on Commitments the period counts, the always-present team does not), the choice remembered per report across a reload.
 - [`teams.spec.ts`](scenarios/teams.md) — the flat-teams registry: create through the modal →
-  add a member from the searchable picker → rename → remove the member → delete from the list;
+  add a member from the searchable picker → rename → assign the member as the team's manager (the Manager picker; the
+  details page reads "Manager: …") → remove the member → delete from the list;
   a regular user's read-only list and roster (no New team, no row menu, no picker).
 - [`users.spec.ts`](scenarios/users.md) — the account lifecycle: create via the one-time
   password reveal → the new user's limited view + self password change → promotion →

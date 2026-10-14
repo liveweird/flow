@@ -6,6 +6,7 @@ import { ApiError } from "../api/http";
 import { createTeam, updateTeam, type TeamResponse } from "../api/teams";
 import RegistryEditorActions from "./RegistryEditorActions";
 import RegistryMetadataFields from "./RegistryMetadataFields";
+import TeamManagerSelect from "./TeamManagerSelect";
 import {
   EMPTY_TEAM_FORM,
   MAX_TEAM_DESCRIPTION_LENGTH,
@@ -20,7 +21,8 @@ import { showSuccessToast } from "../utils/toast";
 
 /**
  * Create (target null) / edit (target set) — one modal, the same field block (the shared
- * registry shape). The roster is managed on the details page, not here.
+ * registry shape) plus the optional Manager (a user who may edit the team's capacity). The roster
+ * is managed on the details page, not here.
  */
 export default function TeamEditorModal({
   target,
@@ -74,6 +76,13 @@ export default function TeamEditorModal({
             descriptionLength={form.values.description.length}
             nameInputProps={form.getInputProps("name")}
             descriptionInputProps={form.getInputProps("description")}
+          />
+          <TeamManagerSelect
+            picked={form.values.managerUserId !== null && form.values.managerLabel !== null ? { value: form.values.managerUserId, label: form.values.managerLabel } : null}
+            onPick={(picked) => {
+              form.setFieldValue("managerUserId", picked?.value ?? null);
+              form.setFieldValue("managerLabel", picked?.label ?? null);
+            }}
           />
           <RegistryEditorActions error={error} submitting={submitting} isEdit={Boolean(target)} onClose={onClose} gap="sm" />
         </Stack>

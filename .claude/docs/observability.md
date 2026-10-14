@@ -77,8 +77,10 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
   additional-roles set) / `user.updated` (name/email deltas, only when changed) /
   `user.roles_changed` (rolesFrom/rolesTo, both as stored) / `user.deleted`
   (byUserId/targetUserId),
-- `team.created` (byUserId/teamId/name/members — the initial roster size) / `team.updated`
-  (byUserId/teamId/name) / `team.deleted` (byUserId/teamId) / `team.member_added` /
+- `team.created` (byUserId/teamId/name/members — the initial roster size/managerUserId, nullable) / `team.updated`
+  (byUserId/teamId/name) / `team.manager_changed` (byUserId/teamId/managerFrom/managerTo, nullable ids as STORED —
+  only when a PUT actually changes the manager; a manager assignment grants capacity-edit rights, so it is its own
+  trail line, the `user.roles_changed` precedent) / `team.deleted` (byUserId/teamId) / `team.member_added` /
   `team.member_removed` (byUserId/teamId/targetUserId) — every team mutation; a rejected save
   emits nothing,
 - `bootstrap.admin_password_rotated` (userId/email — the fixed seed-admin email, never the password or

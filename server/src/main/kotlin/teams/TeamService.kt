@@ -39,6 +39,11 @@ class TeamService(private val database: R2dbcDatabase) {
         // (V6, active rows only) — Exposed defs are query-only, so no `.uniqueIndex()` here.
         val name = varchar("name", length = MAX_TEAM_NAME_LENGTH)
         val description = varchar("description", length = MAX_TEAM_DESCRIPTION_LENGTH).nullable()
+
+        /** V23: the optional manager. May name a soft-deleted user — readers resolve it through ACTIVE users. */
+        // A SECOND foreign key from the team tables to Users (TeamMembers.userId is the first): any join over
+        // Teams + TeamMembers + Users must name its columns (onColumn/otherColumn), never rely on the implicit FK.
+        val managerUserId = reference("manager_user_id", UserService.Users).nullable()
         val createdAt = long("created_at")
         val updatedAt = long("updated_at")
         override val markedAsDeleted = bool("marked_as_deleted").default(false)
@@ -56,13 +61,17 @@ class TeamService(private val database: R2dbcDatabase) {
         val total = Teams.selectAll().where { predicate }.count()
         val rows = Teams.selectAll().where { predicate }.applyPaging(paging, SORTABLE_COLUMNS).toList()
         val counts = activeMemberCounts(rows.map { it[Teams.id].value })
+        val managers = activeUserNames(rows.mapNotNull { it[Teams.managerUserId]?.value })
         TeamListResult(
             items = rows.map { row ->
                 val id = row[Teams.id].value
+                val managerId = row[Teams.managerUserId]?.value?.takeIf { it in managers }
                 TeamListItem(
                     id = id,
                     name = row[Teams.name],
                     description = row[Teams.description],
+                    managerUserId = managerId,
+                    managerName = managerId?.let(managers::get),
                     memberCount = counts[id] ?: 0,
                     createdAt = row[Teams.createdAt],
                     updatedAt = row[Teams.updatedAt],
@@ -76,10 +85,14 @@ class TeamService(private val database: R2dbcDatabase) {
     suspend fun read(id: UInt): TeamResponse? = suspendTransaction(database) {
         val row = Teams.selectAll().where { (Teams.id eq id) and Teams.active() }.toList().singleOrNull()
             ?: return@suspendTransaction null
+        val managerId = row[Teams.managerUserId]?.value
+        val managerName = managerId?.let { activeUserNames(listOf(it))[it] }
         TeamResponse(
             id = id,
             name = row[Teams.name],
             description = row[Teams.description],
+            managerUserId = managerId.takeIf { managerName != null },
+            managerName = managerName,
             members = membersOf(id),
             createdAt = row[Teams.createdAt],
             updatedAt = row[Teams.updatedAt],
@@ -87,18 +100,20 @@ class TeamService(private val database: R2dbcDatabase) {
     }
 
     /**
-     * Creates the team and its initial roster in ONE transaction: an unknown or soft-deleted
-     * member id is a 400 (client-supplied FK — never a 500 from the constraint). A name clash
+     * Creates the team, its initial roster and its optional manager in ONE transaction: an unknown or
+     * soft-deleted member or manager id is a 400 (client-supplied FK — never a 500 from the constraint). A name clash
      * with an active team rides the V6 partial index into the central 23505 → 409.
      */
     suspend fun create(request: TeamCreateRequest): UInt = suspendTransaction(database) {
         validateTeamCreate(request) // re-checked service-side so direct callers stay guarded
         val members = request.memberIds.orEmpty()
         requireActiveUsers(members)
+        requireActiveUsers(listOfNotNull(request.managerUserId), label = "manager")
         val stamp = nowMillis()
         val id = Teams.insert {
             it[name] = request.name
             it[description] = request.description
+            it[managerUserId] = request.managerUserId
             it[createdAt] = stamp
             it[updatedAt] = stamp
         }[Teams.id].value
@@ -111,16 +126,35 @@ class TeamService(private val database: R2dbcDatabase) {
         id
     }
 
-    /** Name/description replace; the roster is managed per member. Returns the affected-row count (0 → 404). */
-    suspend fun update(id: UInt, request: TeamUpdateRequest): Int = suspendTransaction(database) {
+    /**
+     * Name/description/manager replace (full replace — an omitted manager clears it); the roster is
+     * managed per member. `affected` 0 → 404; `managerFrom` is the stored manager before the write.
+     */
+    suspend fun update(id: UInt, request: TeamUpdateRequest): TeamUpdateOutcome = suspendTransaction(database) {
         validateTeamUpdate(request)
-        Teams.selectAll().where { (Teams.id eq id) and Teams.active() }
-            .forUpdate().toList().singleOrNull() ?: return@suspendTransaction 0
-        Teams.update({ (Teams.id eq id) and Teams.active() }) {
+        val before = Teams.selectAll().where { (Teams.id eq id) and Teams.active() }
+            .forUpdate().toList().singleOrNull() ?: return@suspendTransaction TeamUpdateOutcome(0, null)
+        requireActiveUsers(listOfNotNull(request.managerUserId), label = "manager")
+        val affected = Teams.update({ (Teams.id eq id) and Teams.active() }) {
             it[name] = request.name
             it[description] = request.description
+            it[managerUserId] = request.managerUserId
             it[updatedAt] = nowMillis()
         }
+        TeamUpdateOutcome(affected, before[Teams.managerUserId]?.value)
+    }
+
+    /**
+     * Whether [userId] is the team's current manager: an ACTIVE team whose manager is this ACTIVE user — one
+     * query. False for a missing/deleted team too, so `requireTeamManagerOrAdmin` answers a uniform 403.
+     */
+    suspend fun isActiveManager(teamId: UInt, userId: UInt): Boolean = suspendTransaction(database) {
+        Teams.innerJoin(UserService.Users) // the one Teams → users FK is `manager_user_id`
+            .select(Teams.id)
+            .where {
+                (Teams.id eq teamId) and Teams.active() and (Teams.managerUserId eq userId) and UserService.Users.active()
+            }
+            .count() > 0
     }
 
     /**
@@ -214,6 +248,16 @@ class TeamService(private val database: R2dbcDatabase) {
             .toMap()
     }
 
+    /** One batched lookup: the display names of the ACTIVE users among [ids] (a soft-deleted user is absent). */
+    private suspend fun activeUserNames(ids: Collection<UInt>): Map<UInt, String> {
+        if (ids.isEmpty()) return emptyMap()
+        return UserService.Users.select(UserService.Users.id, UserService.Users.name)
+            .where { (UserService.Users.id inList ids.distinct()) and UserService.Users.active() }
+            .map { it[UserService.Users.id].value to it[UserService.Users.name] }
+            .toList()
+            .toMap()
+    }
+
     private suspend fun requireActiveTeam(teamId: UInt) {
         val exists = Teams.select(Teams.id).where { (Teams.id eq teamId) and Teams.active() }.count() > 0
         if (!exists) throw NotFoundException("Team not found")
@@ -223,7 +267,7 @@ class TeamService(private val database: R2dbcDatabase) {
      * Every id must be an ACTIVE user. A create's unknown member is the client's fault (400 —
      * the `requireValidReferences` idiom); a single-member add names a resource (404).
      */
-    private suspend fun requireActiveUsers(ids: List<UInt>, asNotFound: Boolean = false) {
+    private suspend fun requireActiveUsers(ids: List<UInt>, asNotFound: Boolean = false, label: String = "member") {
         if (ids.isEmpty()) return
         val found = UserService.Users.select(UserService.Users.id)
             .where { (UserService.Users.id inList ids) and UserService.Users.active() }
@@ -233,7 +277,7 @@ class TeamService(private val database: R2dbcDatabase) {
         val missing = ids.filterNot { it in found }
         if (missing.isNotEmpty()) {
             if (asNotFound) throw NotFoundException("User not found")
-            throw BadRequestException("Unknown or deleted member ids: ${missing.joinToString()}")
+            throw BadRequestException("Unknown or deleted $label ids: ${missing.joinToString()}")
         }
     }
 

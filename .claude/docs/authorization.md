@@ -47,8 +47,10 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
   each route handler — there is no Ktor plugin or DSL. Each route reads `call.caller()` (which
   parses the JWT claims into a `CallerPrincipal{userId, email, roles}` — missing/unknown claims
   throw `UnauthorizedException`) and then invokes the relevant guard: `isAdmin(caller)`,
-  `requireAdmin(caller)`, `requireSelfOrAdmin(caller, targetUserId)`, plus `requireFeatureEnabled`
-  (awaiting its first area-gating consumer); new guards join this file so the whole policy stays
+  `requireAdmin(caller)`, `requireSelfOrAdmin(caller, targetUserId)`, `requireTeamManagerOrAdmin(caller, teamId,
+  isManager)` (V23: ADMIN, or the team's ACTIVE manager via the injected `TeamService.isActiveManager` lookup, which
+  answers false for a missing team so the 403 is uniform — awaiting its first consumer, the capacity routes), plus
+  `requireFeatureEnabled` (awaiting its first area-gating consumer); new guards join this file so the whole policy stays
   in one place.
 - **Resource rules**:
   - `/api/v1/users` (list/create) and `PUT`/`DELETE /api/v1/users/{id}` → **ADMIN only** — the
@@ -67,9 +69,13 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     (guard-before-read: a non-admin probe gets a uniform 403 whether or not the id exists, and a
     non-admin's malformed body stays 403). A create's unknown/deleted member id is `400` (a
     client-supplied FK), a single add's unknown user `404`, an existing member `409`; a
-    case-insensitive name clash with an active team `409` (the V6 partial index).
-    Mutations audit `team.created/updated/deleted` and
-    `team.member_added/member_removed`. Tests: `TeamTest`.
+    case-insensitive name clash with an active team `409` (the V6 partial index). The optional
+    `managerUserId` (V23; create and the full-replace PUT — omitted = no manager) must be an ACTIVE user,
+    else `400` ("Unknown or deleted manager ids"); `TeamResponse`/`TeamListItem` carry `managerUserId` +
+    `managerName`, both null for a soft-deleted manager. Being a team's manager grants NO write on the team
+    record itself (still ADMIN only) — only the capacity edits, via `requireTeamManagerOrAdmin`.
+    Mutations audit `team.created/updated/deleted`, `team.manager_changed` (only on an actual change) and
+    `team.member_added/member_removed`. Tests: `TeamTest`, `GuardsTest`.
   - `PUT /api/v1/users/{id}/features` → ADMIN only; **self allowed** (an admin adjusting their own
     flags is a feature, and the users routes are never gated, so a fully self-disabled admin can
     always get back); unknown/soft-deleted target → 404; unknown feature name → 400 (enum
@@ -117,6 +123,10 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     open, until the token's expiry (`jwt.accessExpiresInSeconds`, default 900 s); only the
     refresh (`user_gone`, current roles) re-reads the user, so the session ends at the next refresh.
     A known, bounded trade-off of stateless access tokens.
+  - **The team-manager grant is the exception: it is checked in the database on every request.**
+    `requireTeamManagerOrAdmin` asks `TeamService.isActiveManager` (an ACTIVE team whose `manager_user_id` is the caller
+    AND an ACTIVE user) per request, so assigning, clearing or soft-deleting a manager takes effect on the very next
+    request; only its ADMIN short-circuit rides the JWT like every other role. Never cache the verdict in a claim.
 - **Existence disclosure (403 vs 404) — deliberate policy (API-ERR-006)**: two sanctioned idioms,
   and every new resource picks one consciously rather than mixing them. **Guard-before-read**
   (`GET /users/{id}`): a forbidden caller gets a uniform 403 whether or not the id exists — use it
@@ -285,5 +295,5 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
 - **The HR read-only auditor role** (audited `hr.read`/`hr.list` cross-user reads) — with it,
   Lettuce's rule that every HR-privileged read is audit-logged.
 - **The management-chain rule** (`teams/ManagementChain.kt` — transitive manager rights) —
-  **deliberately NOT ported**: Flow's teams are flat (membership only, no manager, no chain). Port
-  only if a hierarchy of teams ever becomes a requirement.
+  **deliberately NOT ported**: Flow's teams are flat (membership plus ONE optional direct manager since V23, no
+  chain, no succession history). Port only if a hierarchy of teams ever becomes a requirement.
