@@ -1,5 +1,5 @@
 // Shared report test fixtures: the reference data every report's filter bar reads, and two
-// velocity responses (UNIT and TEAM level). Typed against the generated schema so a spec drift
+// commitments responses (UNIT and TEAM level). Typed against the generated schema so a spec drift
 // breaks the fixtures, not just the page.
 import type {
   AdjustmentFigures,
@@ -23,7 +23,7 @@ import type {
   SprintConsistencyReport,
   TaskEstimationAccuracyReport,
   ThroughputReport,
-  VelocityReport,
+  CommitmentsReport,
   WipReport,
 } from "../api/reports";
 
@@ -65,7 +65,7 @@ export const FILTERS: ReportFilters = {
   timeZone: "Europe/Warsaw",
 };
 
-const META: VelocityReport["meta"] = {
+const META: CommitmentsReport["meta"] = {
   derivedAt: 1_780_000_000_000,
   configRevision: 4,
   from: "2026-07-02",
@@ -76,7 +76,7 @@ const META: VelocityReport["meta"] = {
   minSampleSize: 5,
 };
 
-export const VELOCITY_UNIT: VelocityReport = {
+export const COMMITMENTS_UNIT: CommitmentsReport = {
   meta: META,
   sprints: [
     {
@@ -117,10 +117,10 @@ export const VELOCITY_UNIT: VelocityReport = {
 };
 
 /** TEAM level (Alpha): two closed sprints with a capacity each — a computed default and a configured override; Σ groups == Σ sprints. */
-export const VELOCITY_TEAM: VelocityReport = {
+export const COMMITMENTS_TEAM: CommitmentsReport = {
   meta: { ...META, level: "TEAM" },
   sprints: [
-    { ...VELOCITY_UNIT.sprints[0], capacityMd: 25, capacitySource: "DEFAULT" },
+    { ...COMMITMENTS_UNIT.sprints[0], capacityMd: 25, capacitySource: "DEFAULT" },
     {
       sprintId: 11,
       name: "Alpha 1",
@@ -147,11 +147,11 @@ const ANN_ALPHA_2 = { accountId: "acc-ann", label: "Ann Author", initialMd: 12, 
 const BOB_ALPHA_2 = { accountId: "acc-bob", label: "Bob Builder", initialMd: 8, initialItems: 3, finalMd: 10, finalItems: 3 };
 
 /** USER level, one account: its own sprint rows — the frozen per-user figures and drift ride along like the team level's; no capacity, a one-entry byUser. */
-export const VELOCITY_USER: VelocityReport = {
+export const COMMITMENTS_USER: CommitmentsReport = {
   meta: { ...META, level: "USER" },
   sprints: [
     {
-      ...VELOCITY_UNIT.sprints[0],
+      ...COMMITMENTS_UNIT.sprints[0],
       initialMd: 12,
       initialItems: 5,
       finalMd: 14.5,
@@ -165,11 +165,11 @@ export const VELOCITY_USER: VelocityReport = {
 };
 
 /** USER level, two accounts (Ann then Bob, request order): the sprint is their sum, `byUser` splits it. */
-export const VELOCITY_USERS: VelocityReport = {
+export const COMMITMENTS_USERS: CommitmentsReport = {
   meta: { ...META, level: "USER" },
   sprints: [
     {
-      ...VELOCITY_UNIT.sprints[0],
+      ...COMMITMENTS_UNIT.sprints[0],
       snapshot: { initialMd: 20, initialItems: 8, finalMd: 24.5, finalItems: 9 },
       drift: false,
       byUser: [ANN_ALPHA_2, BOB_ALPHA_2],
@@ -178,7 +178,7 @@ export const VELOCITY_USERS: VelocityReport = {
   groups: [ANN_ALPHA_2, BOB_ALPHA_2],
 };
 
-export const VELOCITY_EMPTY: VelocityReport = { meta: META, sprints: [], groups: [] };
+export const COMMITMENTS_EMPTY: CommitmentsReport = { meta: META, sprints: [], groups: [] };
 
 export const THROUGHPUT_UNIT: ThroughputReport = {
   meta: META,
@@ -808,7 +808,7 @@ export const BACKLOG_PARTIAL_WINDOW: BacklogReport = {
 };
 
 /** No closed sprint (or a scope with no velocity of its own): no mean, so no figure in sprints. */
-export const BACKLOG_NO_VELOCITY: BacklogReport = {
+export const BACKLOG_NO_PACE: BacklogReport = {
   meta: { ...META, level: "TEAM" },
   current: { asOfDay: "2026-09-29", items: 12, md: 25, meanDeliveredMd: null, windowSprints: 3, sprintsUsed: 0, backlogInSprints: null },
   trend: BACKLOG_TREND,
@@ -816,7 +816,7 @@ export const BACKLOG_NO_VELOCITY: BacklogReport = {
 };
 
 /** A mean of exactly 0: the mean is there, the ratio is not. */
-export const BACKLOG_ZERO_VELOCITY: BacklogReport = {
+export const BACKLOG_ZERO_PACE: BacklogReport = {
   meta: { ...META, level: "TEAM" },
   current: { asOfDay: "2026-09-29", items: 12, md: 25, meanDeliveredMd: 0, windowSprints: 3, sprintsUsed: 3, backlogInSprints: null },
   trend: BACKLOG_TREND,

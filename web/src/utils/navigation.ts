@@ -17,7 +17,7 @@ import {
   type Icon,
 } from "@tabler/icons-react";
 import { dataSourcesPath } from "./dataSourceLinks";
-import { costMatrixPath, dataQualityPath, deepDiveBasePath, DELIVERY_TABS, ESTIMATION_TABS, FLOW_TABS, taskAccuracyPath, velocityPath, wipPath } from "./reportLinks";
+import { commitmentsPath, costMatrixPath, dataQualityPath, deepDiveBasePath, DELIVERY_TABS, ESTIMATION_TABS, FLOW_TABS, taskAccuracyPath, wipPath } from "./reportLinks";
 import { teamsPath } from "./teamLinks";
 import { usersPath } from "./userLinks";
 
@@ -62,7 +62,7 @@ const NAV_SECTIONS: ReadonlyArray<NavSection> = [
     label: "appShell.section.reports",
     items: [
       {
-        to: velocityPath,
+        to: commitmentsPath,
         label: "appShell.nav.reportsDelivery",
         icon: IconChartBar,
         activeFor: DELIVERY_TABS.map((tab) => tab.to),

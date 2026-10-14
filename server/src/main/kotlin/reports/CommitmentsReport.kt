@@ -10,12 +10,12 @@ import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.r2dbc.selectAll
 
-/** The four figures every velocity row carries, live or frozen (`fact_sprint(_snapshot)`/`fact_sprint_scope` alike). */
+/** The four figures every commitments row carries, live or frozen (`fact_sprint(_snapshot)`/`fact_sprint_scope` alike). */
 @Serializable
-data class VelocitySnapshot(val initialMd: Double, val initialItems: Int, val finalMd: Double, val finalItems: Int)
+data class CommitmentsSnapshot(val initialMd: Double, val initialItems: Int, val finalMd: Double, val finalItems: Int)
 
 /**
- * One sprint's own velocity (Report 1, `.claude/docs/measures.md` "Report 1 — Velocity"): `initial`
+ * One sprint's commitments (Report 1, `.claude/docs/measures.md` "Report 1 — Commitments"): `initial`
  * = committed, `final` = final scope (A17). [snapshot] is the frozen `fact_sprint_snapshot` figures
  * (`null` until the sprint was closed AND team-mapped at some past DERIVE — D13); [drift] compares
  * the two, `false` whenever no snapshot exists yet. At USER level every figure, the snapshot included, is the SUM over the
@@ -25,7 +25,7 @@ data class VelocitySnapshot(val initialMd: Double, val initialItems: Int, val fi
  * users hides it).
  */
 @Serializable
-data class VelocitySprint(
+data class CommitmentsSprint(
     val sprintId: Long,
     val name: String,
     val teamId: UInt,
@@ -34,16 +34,16 @@ data class VelocitySprint(
     val initialItems: Int,
     val finalMd: Double,
     val finalItems: Int,
-    val snapshot: VelocitySnapshot?,
+    val snapshot: CommitmentsSnapshot?,
     val drift: Boolean,
     val capacityMd: Double?,
     val capacitySource: String?,
-    val byUser: List<VelocityUserShare>,
+    val byUser: List<CommitmentsUserShare>,
 )
 
-/** One picked account's own share of a sprint's velocity at USER level (live figures, `assignee_at_commitment`) — zeros included. */
+/** One picked account's own share of a sprint's commitments at USER level (live figures, `assignee_at_commitment`) — zeros included. */
 @Serializable
-data class VelocityUserShare(
+data class CommitmentsUserShare(
     val accountId: String,
     val label: String,
     val initialMd: Double,
@@ -62,7 +62,7 @@ data class VelocityUserShare(
  * entry), same shape as TEAM level.
  */
 @Serializable
-data class VelocityGroup(
+data class CommitmentsGroup(
     val teamId: UInt? = null,
     val accountId: String? = null,
     val label: String? = null,
@@ -73,17 +73,17 @@ data class VelocityGroup(
 )
 
 @Serializable
-data class VelocityReport(val meta: ReportMeta, val sprints: List<VelocitySprint>, val groups: List<VelocityGroup>)
+data class CommitmentsReport(val meta: ReportMeta, val sprints: List<CommitmentsSprint>, val groups: List<CommitmentsGroup>)
 
 /** The committed(∧inScopeAtClose)/final figures of one account's (or any group's) scope rows — the ONE rule live and frozen share. */
-private fun figuresOf(rows: List<ScopeContribution>): VelocitySnapshot = VelocitySnapshot(
+private fun figuresOf(rows: List<ScopeContribution>): CommitmentsSnapshot = CommitmentsSnapshot(
     initialMd = sumMd(rows.filter { it.committed && it.inScopeAtClose }.map { it.commitMd }),
     initialItems = rows.count { it.committed && it.inScopeAtClose },
     finalMd = sumMd(rows.filter { it.inScopeAtClose }.map { it.closeMd }),
     finalItems = rows.count { it.inScopeAtClose },
 )
 
-private fun velocityDrift(live: VelocitySnapshot, snapshot: VelocitySnapshot?): Boolean {
+private fun scopeDrift(live: CommitmentsSnapshot, snapshot: CommitmentsSnapshot?): Boolean {
     if (snapshot == null) return false
     return kotlin.math.abs(live.initialMd - snapshot.initialMd) > SPRINT_DRIFT_TOLERANCE_MD ||
         kotlin.math.abs(live.finalMd - snapshot.finalMd) > SPRINT_DRIFT_TOLERANCE_MD ||
@@ -92,14 +92,14 @@ private fun velocityDrift(live: VelocitySnapshot, snapshot: VelocitySnapshot?): 
 }
 
 /**
- * `GET /api/v1/reports/velocity` (v0.3.0 M4 commit 10b, Report 1). Levels (from the parsed
+ * `GET /api/v1/reports/commitments` (v0.3.0 M4 commit 10b, Report 1). Levels (from the parsed
  * filter): UNIT groups every team's closed sprints in the period by team (Σ final MD/items,
  * straight off `fact_sprint`); TEAM narrows to one team's own sprints, grouped by
  * `fact_sprint_scope.assignee_at_commitment`; USER narrows `sprints` itself to the 1..8 picked accounts'
- * summed contribution (`groups` lists each account's period totals, every [VelocitySprint.byUser] its per-sprint
+ * summed contribution (`groups` lists each account's period totals, every [CommitmentsSprint.byUser] its per-sprint
  * share). `teamId = 0` (UNASSIGNED) is always empty.
  */
-suspend fun ReportService.velocity(filter: ReportFilter): VelocityReport = reportTransaction {
+suspend fun ReportService.commitments(filter: ReportFilter): CommitmentsReport = reportTransaction {
     // A sprint-anchored report reads no time window, so `nowMs` only feeds the scope's unused `window`.
     val scope = resolveReportScope(filter, nowMillis())
     val sprintRows = scope.sprintRows
@@ -111,7 +111,7 @@ suspend fun ReportService.velocity(filter: ReportFilter): VelocityReport = repor
         val contributions = fetchScopeContributions(sprintRows, accountIds)
         val frozen = fetchFrozenScopes(sprintRows, accountIds, ::frozenContributionsOf) { it.accountId }
         val labels = accountDisplayNames(accountIds)
-        return@reportTransaction VelocityReport(
+        return@reportTransaction CommitmentsReport(
             meta,
             buildUserSprints(sprintRows, accountIds, labels, contributions, frozen),
             pickedUserGroups(accountIds, labels, contributions),
@@ -121,11 +121,11 @@ suspend fun ReportService.velocity(filter: ReportFilter): VelocityReport = repor
     val snapshotByKey = fetchSnapshots(sprintRows).associateBy { it.connectionId to it.sprintId }
     val sprints = sprintRows.map { row ->
         val snapshot = snapshotByKey[row.connectionId to row.sprintId]?.figures
-        VelocitySprint(
+        CommitmentsSprint(
             sprintId = row.sprintId, name = row.name, teamId = row.teamId, completedAt = row.completedAt,
             initialMd = row.live.initialMd, initialItems = row.live.initialItems,
             finalMd = row.live.finalMd, finalItems = row.live.finalItems,
-            snapshot = snapshot, drift = velocityDrift(row.live, snapshot),
+            snapshot = snapshot, drift = scopeDrift(row.live, snapshot),
             capacityMd = row.capacityMd, capacitySource = row.capacitySource, byUser = emptyList(),
         )
     }
@@ -134,7 +134,7 @@ suspend fun ReportService.velocity(filter: ReportFilter): VelocityReport = repor
         ReportLevel.TEAM -> userGroups(fetchScopeContributions(sprintRows, accountIds = null))
         ReportLevel.USER -> emptyList() // handled above
     }
-    VelocityReport(meta, sprints, groups)
+    CommitmentsReport(meta, sprints, groups)
 }
 
 /** [accountIds] `null` fetches every user's own contribution (TEAM-level groups); non-null narrows to those accounts (USER level). */
@@ -164,9 +164,9 @@ private suspend fun fetchScopeContributions(sprintRows: List<SprintRow>, account
 }
 
 /** Σ final MD/items per team, straight off `fact_sprint` (UNIT-level groups). */
-private suspend fun teamGroups(sprintRows: List<SprintRow>): List<VelocityGroup> =
+private suspend fun teamGroups(sprintRows: List<SprintRow>): List<CommitmentsGroup> =
     orgGroups(ReportLevel.UNIT, sprintRows, { it.teamId }, { null }).map { (key, rows) ->
-        VelocityGroup(
+        CommitmentsGroup(
             teamId = key.teamId,
             label = key.label,
             initialMd = sumMd(rows.map { it.live.initialMd }),
@@ -180,10 +180,10 @@ private suspend fun teamGroups(sprintRows: List<SprintRow>): List<VelocityGroup>
  * Σ committed(∧inScopeAtClose)/final MD per `assignee_at_commitment` — the removed-row rule, so Σ
  * users == the team total (TEAM-level groups); the unassigned (null) group last, as sprint consistency.
  */
-private suspend fun userGroups(contributions: List<ScopeContribution>): List<VelocityGroup> =
+private suspend fun userGroups(contributions: List<ScopeContribution>): List<CommitmentsGroup> =
     orgGroups(ReportLevel.TEAM, contributions, { null }, { it.accountId }).map { (key, rows) ->
         val figures = figuresOf(rows)
-        VelocityGroup(
+        CommitmentsGroup(
             accountId = key.accountId,
             label = key.label,
             initialMd = figures.initialMd,
@@ -197,8 +197,8 @@ private suspend fun userGroups(contributions: List<ScopeContribution>): List<Vel
  * The USER level's own `sprints` — one row per sprint, narrowed to [contributions]' picked [accountIds] and SUMMED over them (the
  * same removed-row rule [userGroups] applies, per sprint instead of summed across them). `snapshot` is those accounts' FROZEN figures,
  * computed by the same [figuresOf] rule from the sprint's `fact_sprint_snapshot.scope` ([frozen], keyed like [contributions];
- * `.claude/docs/metrics.md`'s "per-user velocity from the snapshot needs no child table"); `null` for a sprint with no snapshot
- * (D13), and [drift] is the team level's own [velocityDrift] over the two. [byUser] is each picked account's live share in request
+ * per-user commitments come from the snapshot, no child table); `null` for a sprint with no snapshot
+ * (D13), and [drift] is the team level's own [scopeDrift] over the two. [byUser] is each picked account's live share in request
  * order, zeros included; capacity is team-only (A3), so it is `null` here.
  */
 private fun buildUserSprints(
@@ -207,25 +207,25 @@ private fun buildUserSprints(
     labels: Map<String, String>,
     contributions: List<ScopeContribution>,
     frozen: Map<Pair<UInt, Long>, List<ScopeContribution>>,
-): List<VelocitySprint> {
+): List<CommitmentsSprint> {
     val byKey = contributions.groupBy { it.connectionId to it.sprintId }
     return sprintRows.map { row ->
         val rows = byKey[row.connectionId to row.sprintId].orEmpty()
         val live = figuresOf(rows)
         val snapshot = frozen[row.connectionId to row.sprintId]?.let(::figuresOf)
         val byAccount = rows.groupBy { it.accountId }
-        VelocitySprint(
+        CommitmentsSprint(
             sprintId = row.sprintId, name = row.name, teamId = row.teamId, completedAt = row.completedAt,
             initialMd = live.initialMd, initialItems = live.initialItems,
             finalMd = live.finalMd, finalItems = live.finalItems,
-            snapshot = snapshot, drift = velocityDrift(live, snapshot),
+            snapshot = snapshot, drift = scopeDrift(live, snapshot),
             capacityMd = null, capacitySource = null,
             byUser = accountIds.map { userShare(it, labels, figuresOf(byAccount[it].orEmpty())) },
         )
     }
 }
 
-private fun userShare(accountId: String, labels: Map<String, String>, figures: VelocitySnapshot) = VelocityUserShare(
+private fun userShare(accountId: String, labels: Map<String, String>, figures: CommitmentsSnapshot) = CommitmentsUserShare(
     accountId = accountId, label = labels[accountId] ?: accountId,
     initialMd = figures.initialMd, initialItems = figures.initialItems, finalMd = figures.finalMd, finalItems = figures.finalItems,
 )
@@ -239,11 +239,11 @@ private fun pickedUserGroups(
     accountIds: List<String>,
     labels: Map<String, String>,
     contributions: List<ScopeContribution>,
-): List<VelocityGroup> {
+): List<CommitmentsGroup> {
     val byAccount = contributions.groupBy { it.accountId }
     return accountIds.map { id ->
         val share = userShare(id, labels, figuresOf(byAccount[id].orEmpty()))
-        VelocityGroup(
+        CommitmentsGroup(
             accountId = id, label = share.label,
             initialMd = share.initialMd, initialItems = share.initialItems, finalMd = share.finalMd, finalItems = share.finalItems,
         )

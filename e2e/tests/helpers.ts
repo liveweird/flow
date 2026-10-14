@@ -243,7 +243,7 @@ export async function syncStubDataSourceViaApi(api: APIRequestContext, namePrefi
  * board mapped to it (D10 — a sprint is a team's sprint only through its board). Every other
  * setting keeps the COMPUTED defaults (the config PUT is a full replace, so the current effective
  * config is read first and written back with only `boards` changed). The caller owns the team.
- * Sprint capacities and the Jira-user roster are deliberately not seeded — the velocity,
+ * Sprint capacities and the Jira-user roster are deliberately not seeded — the commitments,
  * throughput, sprint-consistency, estimation and cycle-time figures do not read them.
  */
 export async function configureMetricsViaApi(
@@ -289,17 +289,17 @@ export async function configureMetricsViaApi(
 /**
  * Wait until a DERIVE has produced `sprintId` for `teamId` — the chained DERIVE (after the sync)
  * and the one the board mapping enqueues may both run; the sprint only appears in the team's
- * velocity once a derivation ran under the mapping. Polls the report API itself (bounded,
+ * commitments once a derivation ran under the mapping. Polls the report API itself (bounded,
  * ~240s), never a fixed sleep. A `400`/empty answer before that is expected and retried.
  */
 export async function awaitDerivedSprint(api: APIRequestContext, teamId: number, sprintId: number): Promise<void> {
   const deadline = Date.now() + 240_000;
   for (;;) {
-    const res = await api.get(`/api/v1/reports/velocity?teamId=${teamId}&sprintId=${sprintId}`);
+    const res = await api.get(`/api/v1/reports/commitments?teamId=${teamId}&sprintId=${sprintId}`);
     const text = await res.text();
     if (res.ok() && ((JSON.parse(text) as { sprints: { sprintId: number }[] }).sprints ?? []).some((sprint) => sprint.sprintId === sprintId)) return;
     if (Date.now() > deadline) {
-      throw new Error(`sprint ${sprintId} never appeared in team ${teamId}'s velocity within 240s (last answer: ${res.status()} ${text.slice(0, 300)})`);
+      throw new Error(`sprint ${sprintId} never appeared in team ${teamId}'s commitments within 240s (last answer: ${res.status()} ${text.slice(0, 300)})`);
     }
     await new Promise((resolve) => setTimeout(resolve, 5_000));
   }
@@ -392,7 +392,7 @@ export async function expectScheme(page: Page, scheme: Scheme): Promise<void> {
 
 /** Every report route (nav model: `web/src/utils/reportLinks.ts`) with its page title. */
 export const REPORT_PAGES: { path: string; heading: string }[] = [
-  { path: "/reports/velocity", heading: "Velocity" },
+  { path: "/reports/commitments", heading: "Commitments" },
   { path: "/reports/throughput", heading: "Throughput" },
   { path: "/reports/sprint-consistency", heading: "Sprint consistency" },
   { path: "/reports/cycle-time", heading: "Cycle time" },

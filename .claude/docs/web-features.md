@@ -212,13 +212,13 @@ team membership landed in M2 commit 5, and the per-connection `metrics-config` p
   rule; its override helpers (`setDomainStage`, `currentDomainKeys`, `orphanOverrideDomains`) keep the list free of
   duplicate (domain, status) rows.
 
-## Reports (`pages/ReportVelocity.tsx`, `components/Report*.tsx`, `utils/reportFilter.ts`)
+## Reports (`pages/ReportCommitments.tsx`, `components/Report*.tsx`, `utils/reportFilter.ts`)
 
 The v0.3.0 report pages (`.claude/docs/reports.md` is the API; every report is any-authenticated,
 D12 — routes sit under `RequireAuth`, never `RequireAdmin`). Sixteen pages carry the seventeen reports
 (report 13, the backlog in sprints, rides the Estimated backlog page): the shell (Reports nav
 section, `ReportTabs` — real router links with `role="tab"`, so middle-click opens a report in a new tab), the filter bar, the shared blocks and the three tab groups — Delivery
-(Velocity, Throughput, Sprint consistency, Cycle time; `DELIVERY_TABS`), Estimation (Task accuracy,
+(Commitments, Throughput, Sprint consistency, Cycle time; `DELIVERY_TABS`), Estimation (Task accuracy,
 Epic accuracy, Adjustments, Reported time; `ESTIMATION_TABS`) and Flow metrics (WIP, Estimated
 backlog, Aging WIP, Blocked time, Epic progress; `FLOW_TABS`) — plus the Data quality and Cost
 matrix pages. A new report appends a page, a tab (the tab lists live in
@@ -227,7 +227,7 @@ stays highlighted on all of them) and a `reports.<name>` key block. Every page c
 skeleton — `hooks/useReportPage` (filters query → keyed page query), `ReportFiltersStatus`,
 `ReportFilterBar`, `ReportMetaNote`, `ReportChartCard`, `ReportSprintsTable` (sprint · team ·
 completed · the report's figures · the orange drift badge with the frozen figures as text),
-`ReportGroupsTable` — copy `pages/ReportVelocity.tsx`.
+`ReportGroupsTable` — copy `pages/ReportCommitments.tsx`.
 
 - **The URL is the filter** (`utils/reportFilter.ts`, `hooks/useReportFilter.ts`): `from`/`to`,
   `lastSprints`, `sprintId`, `teamId`, `accountId`, `domainView`, `domain`, `activityType`,
@@ -246,7 +246,7 @@ completed · the report's figures · the orange drift badge with the frozen figu
 - **`components/ReportFilterBar.tsx`** is a controlled component (`filters`, `filter`, `onChange`);
   optional controls (domain view "delivered in / earned in", domain, activity type, work category,
   and the week/month `bucket` `SegmentedControl`) render ONLY where the report passes them
-  in `controls` — sprint consistency passes none, velocity passes only the two scope flags below, throughput passes domain view, domain,
+  in `controls` — sprint consistency passes none, commitments passes only the two scope flags below, throughput passes domain view, domain,
   activity type, work category and bucket. Every report is also a
   command-palette entry (`REPORT_PALETTE_LEAVES`, palette-only: the sidebar carries one Delivery leaf).
   **The bar is collapsible** (`FilterPanel`, the list pages' component — not re-ported): the controls sit in its body, which is unmounted
@@ -258,8 +258,8 @@ completed · the report's figures · the orange drift badge with the frozen figu
   the report's own, a bucket other than WEEK, a WIP keying other than STAGE (a column keying nothing can honour reads as STAGE) or an item
   kind other than TASK — so a narrowing nobody sees (the remembered team, a pasted link) still shows on the folded toggle. Tests unfold it
   with `openReportFilters()` (`test/reportFilters.ts`), e2e with `openFilters(page)`.
-  The bar is only the frame: `ReportPeriodControls` (with the `hooks/usePeriodChoice` hook), `ReportScopeControls` (team, member, domain, connection and the sprint-survival rule) and `ReportSliceControls` (+ `ReportSliceSelects`: activity type, work category and the segmented toggles) own the controls, `ReportFilterSelect` is their shared clearable select, and `ReportControls` lives in `utils/reportFilter.ts`. Two of its flags are velocity's alone (`teamRequired`, `multiMember`; see "Velocity"). The generic `components/ColumnTable.tsx` (`ColumnDef`: header, render, align; `GroupColumn`/`SprintColumn`/`QualityColumn` are aliases of it) is the table for any single-header-row, plain-cell table (optional right alignment, any `Table` props such as the accessible name, spacing or `stickyHeader`; an outer `ScrollRegion` wraps it as before): 24 files use it (the report tables, the data-source profile/inspector/details/cursor/test-result tables, the metrics-config `MappingTable` and `DomainStageOverrides`), and a new table of that shape should too. 9 files still hand-roll a Mantine `Table` (`Table.Thead`) because the shape does not fit and the API is deliberately not widened to absorb it: the ARIA-grid Deep dive matrix (roving tab stops, per-cell props), the Deep dive summary and cost-matrix tables (row-header `Th`, footer totals row, caption, sticky first column, `Td` `colSpan`), the Deep dive bucket table (raw `tr` rows with a `th scope="row"`), the sortable list pages (`Users`, `FeatureFlags`, via `SortHeader` plus loading/empty/pagination rows in the body, the registries' `RegistryListTable` likewise), and the member roster tables (`TeamDetails`, `TeamJiraMembers`: a header cell carrying its own `aria-label`/width and a per-row actions cell).
-- **Velocity** (`pages/ReportVelocity.tsx`, `components/VelocityChart.tsx` + `VelocityUserTables.tsx`, rows and columns in `utils/velocityReport.ts`;
+  The bar is only the frame: `ReportPeriodControls` (with the `hooks/usePeriodChoice` hook), `ReportScopeControls` (team, member, domain, connection and the sprint-survival rule) and `ReportSliceControls` (+ `ReportSliceSelects`: activity type, work category and the segmented toggles) own the controls, `ReportFilterSelect` is their shared clearable select, and `ReportControls` lives in `utils/reportFilter.ts`. Two of its flags are commitments' alone (`teamRequired`, `multiMember`; see "Commitments"). The generic `components/ColumnTable.tsx` (`ColumnDef`: header, render, align; `GroupColumn`/`SprintColumn`/`QualityColumn` are aliases of it) is the table for any single-header-row, plain-cell table (optional right alignment, any `Table` props such as the accessible name, spacing or `stickyHeader`; an outer `ScrollRegion` wraps it as before): 24 files use it (the report tables, the data-source profile/inspector/details/cursor/test-result tables, the metrics-config `MappingTable` and `DomainStageOverrides`), and a new table of that shape should too. 9 files still hand-roll a Mantine `Table` (`Table.Thead`) because the shape does not fit and the API is deliberately not widened to absorb it: the ARIA-grid Deep dive matrix (roving tab stops, per-cell props), the Deep dive summary and cost-matrix tables (row-header `Th`, footer totals row, caption, sticky first column, `Td` `colSpan`), the Deep dive bucket table (raw `tr` rows with a `th scope="row"`), the sortable list pages (`Users`, `FeatureFlags`, via `SortHeader` plus loading/empty/pagination rows in the body, the registries' `RegistryListTable` likewise), and the member roster tables (`TeamDetails`, `TeamJiraMembers`: a header cell carrying its own `aria-label`/width and a per-row actions cell).
+- **Commitments** (`pages/ReportCommitments.tsx`, `components/CommitmentsChart.tsx` + `CommitmentsUserTables.tsx`, rows and columns in `utils/commitmentsReport.ts`; route `/reports/commitments` — the report was called Velocity until "velocity" came to mean what a team DELIVERS per sprint, so `/reports/velocity` stays a `components/LegacyVelocityRedirect.tsx` `<Navigate replace>` that keeps the query string and hash;
   `.claude/docs/reports.md` "Report 1"). The only report that passes `ReportControls.teamRequired` and `multiMember` (the page hands its one
   `CONTROLS` constant to both `useReportPage` and the bar). **A team is required**: the capacity and the per-person split are team figures, so the Team
   select is not clearable (no "All teams", the picked option cannot be clicked off) and a URL without a team is given one — `useReportFilter`
@@ -269,17 +269,17 @@ completed · the report's figures · the orange drift badge with the frozen figu
   **Several members**: the member control is a `MultiSelect` (`ReportFilterMultiSelect`, max `MAX_ACCOUNTS` = 8, searchable, clearable, shown once a team
   is set; once 8 are picked its description says "Up to 8 people", and its search input may shrink to 48 px so one pill and the input share a line) over the same options as the single select, and `ReportFilterState.accountIds` is the REPEATED `accountId` URL key (`?accountId=a&accountId=b`), distinct,
   capped at 8, order preserved. Only a multi-member page parses it that way (`parseReportFilter(params, { multiAccount: true })`, passed by `useReportFilter`
-  from the same flags): every other page keeps reading `accountId` as its first value and the server answers a repeat with `400` there — so `reportHref` (the tab links) keeps only the FIRST `accountId` when leaving velocity. The report is
+  from the same flags): every other page keeps reading `accountId` as its first value and the server answers a repeat with `400` there — so `reportHref` (the tab links) keeps only the FIRST `accountId` when leaving commitments. The report is
   requested with that array as repeated keys (`reportQuery`), and a team change drops the people. **Two modes, decided by the SHOWN report's
-  `meta.level`** (so a refetch over kept data never mixes shapes). *Team mode* (no people picked: TEAM level): `VelocityChart` is a Mantine `CompositeChart` on ONE
+  `meta.level`** (so a refetch over kept data never mixes shapes). *Team mode* (no people picked: TEAM level): `CommitmentsChart` is a Mantine `CompositeChart` on ONE
   MD axis — the committed (`flow.6`) and final (`flow.8`/`flow.4`) bars as ever plus the sprint's capacity as a dashed neutral line (`CHART_COLORS.capacity`,
   `gray.6`) with 8 px dots; a sprint without a capacity is a gap (`connectNulls` off), and with none at all the series is left out. A DEFAULT capacity
   (members × working days) is told from a configured one in words, never by colour: the tooltip says so and the table cell carries a gray "default"
   `Badge`. The sprints table adds **Capacity (MD)** and **Load** (initial MD ÷ capacity as a percentage — over 100% is shown as is — a dash when the
   capacity is null or 0; `loadFraction`), with a one-line note under the table. *User mode* (one or more people, `level === "USER"`): no capacity (it is a
-  team figure, null at this level); `VelocityChart` is a `BarChart` with two stacked columns per sprint — `stackId` "committed" (left; a translucent
+  team figure, null at this level); `CommitmentsChart` is a `BarChart` with two stacked columns per sprint — `stackId` "committed" (left; a translucent
   fill, `DEEP_DIVE_FILL_ALPHA`, inside a solid 2 px edge, the Deep dive's idiom) and "final" (right; solid, ringed in the surface) — each cut into one
-  segment per picked person (`velocityUserChart`: data keys `c<i>`/`f<i>`, since account ids are not safe data keys). People are arbitrary names, so they wear
+  segment per picked person (`commitmentsUserChart`: data keys `c<i>`/`f<i>`, since account ids are not safe data keys). People are arbitrary names, so they wear
   the neutral `BAND_CYCLE` by position (neighbouring segments alternate blue and gray, never a semantic hue) — but it has only three distinguishable shades, so from the
   fourth person on a colour repeats. **People are therefore numbered by stack position** (`personLabel`: "2. Bob"): in the page's own legend (a list), the
   tooltip ("2. Bob · initial"), the per-person totals and the per-sprint share table, so identity never rests on colour. The legend's two treatment
@@ -345,7 +345,7 @@ completed · the report's figures · the orange drift badge with the frozen figu
   for columns); STAGE starts with Not started and Done hidden (Done only
   grows, Not started is the whole backlog). Its text alternatives are a per-band summary table and the full
   daily table behind `DailyTableDisclosure` (a series can run to ~1100 rows). The backlog page is three tiles
-  (MD, items, "≈ N sprints ahead" — a dash plus the reason when there is no velocity or the mean is 0,
+  (MD, items, "≈ N sprints ahead" — a dash plus the reason when there is no pace (no delivered mean) or the mean is 0,
   "< 0.1" instead of "≈ 0"; at UNIT level the wording says "at least N closed sprints per team", since the pace
   is a sum of team means and `sprintsUsed` their minimum) and a
   one-series MD `AreaChart` whose tooltip and table add the item count. The server's `note` (not derived yet,
@@ -486,8 +486,8 @@ completed · the report's figures · the orange drift badge with the frozen figu
   report endpoints, **five requests and no aggregator** (`["home", <report>]` keys, staleTime 60 s; the budget is pinned by
   `Home.test.tsx`): the shared `["reports","filters"]` reference data (same key as the report pages, so opening a report reuses
   it; only its `timeZone` is read, nothing waits on it and its failure shows nowhere), `sprint-consistency?lastSprints=1` (each team's last closed sprint, all from one `fact_sprint` row:
-  committed = initial, final, delivered; a lazy `HomeVelocityChart` beside a table with a Closed date read in the configured zone and the
-  orange "Drift" badge + frozen figures like the report pages; title → Velocity, secondary links → Throughput and Sprint
+  committed = initial, final, delivered; a lazy `HomeCommitmentsChart` beside a table with a Closed date read in the configured zone and the
+  orange "Drift" badge + frozen figures like the report pages; title → "Commitments and velocity" (the Delivered column reads as velocity), linking to Commitments; secondary links → Throughput and Sprint
   consistency), `cycle-time` (the server's default trailing 90 days: median/p90/finished count and `CycleTimeTrendChart` at
   `height={200}` with the trend as a visually hidden table), `aging-wip` (tasks in progress, and "Past p85" orange /
   "Past p95" red as the top two configured thresholds' counts — read off the SERVER's `band` through `bandTone`, epics
@@ -509,7 +509,7 @@ completed · the report's figures · the orange drift badge with the frozen figu
 - **Chart rules** (ported from Lettuce): charts live only in lazy chunks (the page lazy-imports its
   chart component), each chart component imports `@mantine/charts/styles.css` itself, a legend for
   two or more series (none for one), one axis (never dual), and every chart has its numbers in a
-  table beside it (velocity and the sprint charts: the per-sprint table; throughput's period chart:
+  table beside it (commitments and the sprint charts: the per-sprint table; throughput's period chart:
   `ThroughputBucketTable`). Colour is never the only carrier of identity — legend, tooltip and table are. Tests mock `@mantine/charts` (recharts draws nothing under happy-dom) and assert
   the props. **Colour vocabulary, no new hue** — concrete shades in `utils/chartColors.ts`: blue `flow.6` =
   plan/committed, teal `teal.8` = delivered, orange `orange.8` = carried over/added scope, red
@@ -520,7 +520,7 @@ completed · the report's figures · the orange drift badge with the frozen figu
   table: e.g. flow.6 3.56 on white, teal.8 3.44 on dark paper, red.7 3.53, orange.8 3.79, gray.6 3.32
   on white; flow.8 is 2.70:1 on dark paper, hence `flow.4` there). Adjacent series in ONE chart must
   also differ enough to tell apart (the dataviz validator's ΔE ≥ 15 floor): never two shades of one
-  hue side by side (velocity's initial/final pair is a known exception — legend, tooltip and table
+  hue side by side (commitments' initial/final pair is a known exception — legend, tooltip and table
   carry it; its user mode separates committed from final by fill and position, not by a second blue), and stacked segments are ordered so orange and red never touch (sprint consistency:
   carried over · delivered · dropped, teal between). One question per chart: sprint consistency is
   three small charts (committed vs delivered; the stacked final = carried + delivered + dropped;

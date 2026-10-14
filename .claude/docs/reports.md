@@ -12,12 +12,12 @@ Every endpoint is `GET`, under `/api/v1/reports/`, any signed-in user, no audit 
 
 | # | Report | Endpoint | Section |
 |---|---|---|---|
-| 1 | Velocity | `/velocity` | [Report 1](#report-1----velocity) |
+| 1 | Commitments | `/commitments` | [Report 1](#report-1----commitments) |
 | 2 | Throughput | `/throughput` | [Report 2](#report-2----throughput) |
 | 3 | Task estimation accuracy | `/task-estimation-accuracy` | [Reports 3, 4, 5](#reports-3-4-5----estimation-accuracy-and-adjustments) |
 | 4 | Epic estimation accuracy | `/epic-estimation-accuracy` | [Reports 3, 4, 5](#reports-3-4-5----estimation-accuracy-and-adjustments) |
 | 5 | Estimate adjustments | `/estimate-adjustments` | [Reports 3, 4, 5](#reports-3-4-5----estimation-accuracy-and-adjustments) |
-| 6 (6.1-6.3) | Sprint consistency (velocity vs throughput, carry-over, added scope) | `/sprint-consistency` | [Report 6](#report-6----sprint-consistency) |
+| 6 (6.1-6.3) | Sprint consistency (commitments vs velocity, carry-over, added scope) | `/sprint-consistency` | [Report 6](#report-6----sprint-consistency) |
 | 7 | Cycle time | `/cycle-time` | [Reports 7, 8](#reports-7-8----cycle-time-and-reported-time-ratio) |
 | 8 | Reported time / cycle time | `/reported-time-ratio` | [Reports 7, 8](#reports-7-8----cycle-time-and-reported-time-ratio) |
 | 9 | WIP | `/wip` | [Reports 9, 10, 13](#reports-9-10-13----wip-and-the-estimated-backlog) |
@@ -97,7 +97,7 @@ data actually lives.
   team's roster it is being read. `teamId = 0` is the UNASSIGNED sentinel bucket, a real value, not
   "absent" -- never rejected here (a real check that a POSITIVE `teamId` names an actual team is a
   report service's own job, downstream).
-- **Group order.** The org drill (`groups`) of velocity, throughput, sprint consistency and the DONE-item reports is built by
+- **Group order.** The org drill (`groups`) of commitments, throughput, sprint consistency and the DONE-item reports is built by
   `orgGroups` (`reports/ReportSupport.kt`), ordered by label (null last), then team id, then account id -- so two groups
   with an equal label never swap between requests.
 - **`domainView=TASK|EPIC`** (D3) -- the caller (each report's own route) supplies its own default
@@ -216,17 +216,17 @@ composes services `configureDatabase`/`configureJira`/`configureMetrics` have AL
 -- which runs BEFORE `configureMetrics` and so cannot see those keys yet. Registered in
 `application.yaml` in the "-- features" group, after the metrics feature routes it reads from.
 
-## Report 1 -- Velocity
+## Report 1 -- Commitments
 
-`GET /api/v1/reports/velocity` (v0.3.0 M4 commit 10b, `.claude/docs/measures.md` "Report 1 --
-Velocity"): `initial` = committed scope, `final` = final scope (A17) -- both read straight off
+`GET /api/v1/reports/commitments` (v0.3.0 M4 commit 10b, `.claude/docs/measures.md` "Report 1 --
+Commitments"): `initial` = committed scope, `final` = final scope (A17) -- both read straight off
 `metrics.fact_sprint` for the sprint-level rows, `metrics.fact_sprint_scope` for the per-user
 breakdown. Takes the shared `from`/`to`/`lastSprints`/`sprintId`, `teamId`/`accountId` and
 `connectionId` parameters (`domainView` is accepted and echoed in `meta` but never changes the
-result -- velocity carries no domain slice, `measures.md`'s Report 1 rows: domain "--").
+result -- commitments carries no domain slice, `measures.md`'s Report 1 rows: domain "--").
 
 ```
-VelocityReport {
+CommitmentsReport {
   meta: ReportMeta
   sprints: [{
     sprintId, name, teamId, completedAt,
@@ -271,7 +271,7 @@ VelocityReport {
     by the TEAM-level groups' rule (committed/final over its `assignee_at_commitment` rows, label-then-id order) -- an explicit
     pick is always listed, a zero entry when the account has no scope row in the period. One account gives exactly the figures it
     always did, plus a one-entry `byUser`. `snapshot` is the picked accounts' summed FROZEN figures, read from the sprint's `fact_sprint_snapshot.scope`
-    JSONB (`.claude/docs/metrics.md`: "per-user velocity from the snapshot needs no child table") with the
+    JSONB (per-user commitments come from the snapshot, so no child table is needed) with the
     same predicates, `assignee_at_commitment` attribution and `sumMd` rounding as the live figures; a
     snapshotted sprint in which none of the picked accounts had items shows zeros, a sprint with no snapshot (D13)
     `null`. `drift` is the team level's own comparison. The unassigned bucket's frozen figure has no
@@ -292,7 +292,7 @@ VelocityReport {
   existing-but-unmapped sprint simply returns `sprints: []`.
 - **Open sprints.** An ACTIVE/future sprint has no `complete_at`, so only an explicit `sprintId`
   reaches it (`measures.md` conventions): `completedAt` is `null`, the figures are the live
-  `fact_sprint` ones, `snapshot` is `null` and `drift` `false`. Pinned by `ReportVelocityTest`.
+  `fact_sprint` ones, `snapshot` is `null` and `drift` `false`. Pinned by `ReportCommitmentsTest`.
 - **Connection scope.** `connectionId` narrows to one ACTIVE connection (`400` if unknown/inactive);
   absent, defaults to every ACTIVE (not soft-deleted) connection, the same set `/reports/filters`
   lists — a DISABLED connection only has syncing paused, and its derived data still counts.
@@ -300,11 +300,11 @@ VelocityReport {
   otherwise) -- the client-supplied-FK idiom, `reports/ReportFilter.kt`'s own doc comment: structural
   parsing stays in the parser, existence checks live in the service.
 
-`reports/VelocityReport.kt` holds the wire DTOs, the drift comparison and every query/aggregation
+`reports/CommitmentsReport.kt` holds the wire DTOs, the drift comparison and every query/aggregation
 function as an extension on `ReportService` (`reports/ReportService.kt`'s `database`/`metricsConfig`
 are `internal`, not `private`, precisely so this sibling file can extend it without a second
 constructor) -- the file the brief's own "past ~120 lines -> a new file" idiom names. Tests:
-`ReportVelocityTest` (`DerivedStubFixture`-based: UNIT-level `finalMd` against `fact_sprint`, the
+`ReportCommitmentsTest` (`DerivedStubFixture`-based: UNIT-level `finalMd` against `fact_sprint`, the
 golden FLO sprint's `sprintId` period against `expected.json`'s `committedMd`/`finalMd`, TEAM-level
 `Σ groups == team total`, the USER level's frozen figures ("USER level frozen figures sum with the
 unassigned bucket to the team snapshot", "USER level snapshot is null for a sprint with no snapshot and
@@ -314,7 +314,7 @@ null"), the capacity ("capacity is the stored fact_sprint capacity and source at
 USER level", "a configured sprint capacity overrides the default at UNIT and TEAM level"), several accounts
 ("several accountIds sum the sprint and split it per user in request order", "one accountId keeps the figures
 with a one-entry byUser and a user with no scope is a zero entry", "at most eight accountIds on
-velocity, and a repeated accountId on another report stays 400"), `400` for `from > to` and an unknown `sprintId`; every request runs
+commitments, and a repeated accountId on another report stays 400"), `400` for `from > to` and an unknown `sprintId`; every request runs
 through a non-admin `seededClient`, proving D12's `200` at the same time).
 
 ## Report 2 -- Throughput
@@ -338,9 +338,9 @@ ThroughputReport {
 - **`bySprint` (the SPRINT view)** -- straight off `fact_sprint.delivered_md/_items` (= Σ
   `fact_sprint_scope.done_in_sprint`), one row per (team, closed sprint) by `complete_at`, whole
   sprint or nothing. The period/`lastSprints`/`sprintId` resolution, connection scope and the `400`
-  existence checks are velocity's own -- both reports share `reports/ReportSupport.kt`. `snapshot` is
+  existence checks are commitments' own -- both reports share `reports/ReportSupport.kt`. `snapshot` is
   the frozen `fact_sprint_snapshot` delivered figures, `drift` the same 0.005 MD / exact-items
-  comparison velocity uses. Sorted by `completedAt`, then `sprintId`. Carries no domain/activity/
+  comparison commitments uses. Sorted by `completedAt`, then `sprintId`. Carries no domain/activity/
   category slice (`measures.md`: domain "--").
 - **`byBucket` + `groups` (the PERIOD view)** -- level-0 tasks (`fact_task_delivery.is_subtask =
   false`, D2) with `done_at` in the window, `deliveredMd` = Σ `COALESCE(estimate_at_done_md, 0)`,
@@ -356,7 +356,7 @@ ThroughputReport {
   day as an ISO date, so the first/last bucket may start outside the requested range (only tasks
   inside the range are counted). Empty buckets are zero-filled across the whole window, so a chart
   needs no gap handling. The math is the pure `bucketStart`/`bucketStarts` (`ThroughputBucketTest`).
-- **Window rule.** A `from`/`to` period is exactly `[fromMs, toMs)` (exclusive end, as velocity). A
+- **Window rule.** A `from`/`to` period is exactly `[fromMs, toMs)` (exclusive end, as commitments). A
   `lastSprints`/`sprintId` period resolves the sprints (`meta.resolvedSprints`) and the period view
   reads their overall envelope `[min(start_at, else complete_at, else now), max(complete_at, else
   now)]` (inclusive end) -- an OPEN sprint (no `complete_at`, reachable only by an explicit `sprintId`;
@@ -372,7 +372,7 @@ ThroughputReport {
   unassigned); USER (`teamId` + `accountId`): the period view narrows to that account, `groups` is
   empty and `bySprint` narrows to that account's deliveries by `assignee_at_commitment`
   (`done_in_sprint` rows at `estimate_at_done_md`). Its `snapshot` is that account's FROZEN share: the
-  sprint's `fact_sprint_snapshot.scope` JSON (velocity's shared reader, `reports/FrozenScope.kt`) run through
+  sprint's `fact_sprint_snapshot.scope` JSON (commitments' shared reader, `reports/FrozenScope.kt`) run through
   `sprintTotals` -- the same `done_in_sprint` predicate, `assignee_at_commitment` attribution and
   per-item two-decimal rounding (`sumMd`) as the live figure, an unestimated delivery an item worth 0 MD; a
   snapshotted sprint in which the account delivered nothing shows zeros, a sprint with no snapshot (D13) `null`,
@@ -382,7 +382,7 @@ ThroughputReport {
 
 Code: `reports/ThroughputReport.kt` (DTOs, pure bucket math, the queries) over `reports/
 ReportSupport.kt` (the connection scope / team-existence / sprint-row / snapshot readers extracted
-from velocity). Tests: `ReportThroughputTest` -- `DerivedStubFixture`-based: `bySprint` against `fact_sprint` and
+from commitments). Tests: `ReportThroughputTest` -- `DerivedStubFixture`-based: `bySprint` against `fact_sprint` and
 `golden.sprint.deliveredMd/Items`; `byBucket` against an independent read of `fact_task_delivery` over
 two windows; the sprint-envelope window for a `sprintId` and for `lastSprints=2`; an open/future
 sprint by `sprintId`; Σ groups at UNIT/TEAM (and empty groups at USER); USER-level `bySprint` summed
@@ -402,11 +402,11 @@ pins the pure bucket math across Europe/Warsaw's DST change.
 `GET /api/v1/reports/sprint-consistency` (v0.3.0 M4 commit 10d, reports 6.1-6.3 with the item counts of
 13, `.claude/docs/measures.md` "Report 6"): how a sprint's scope moved and where it ended up --
 committed, added, removed, final, delivered, carried over, dropped, MD beside items -- straight off
-`metrics.fact_sprint` (+ `fact_sprint_snapshot`). Takes velocity's shared parameters (`from`/`to`,
+`metrics.fact_sprint` (+ `fact_sprint_snapshot`). Takes commitments' shared parameters (`from`/`to`,
 `lastSprints`, `sprintId`, `teamId`/`accountId`, `connectionId`; `domainView` echoed, never changes
 the result). Period resolution, connection scope, the `400` existence checks, `teamId = 0` (always
 empty) and the open-sprint handling (`sprintId` only, `completedAt` null, live figures, no snapshot) are
-velocity's own -- the shared `reports/ReportSupport.kt`, whose `SprintRow`/`SnapshotRow` now carry all
+commitments' own -- the shared `reports/ReportSupport.kt`, whose `SprintRow`/`SnapshotRow` now carry all
 fourteen figures (`full`).
 
 ```
@@ -441,13 +441,13 @@ SprintConsistencyReport {
     `sprintTotals` uses for it), never a re-implementation, so Σ groups == the team figures for every
     bucket and in items, exactly (MD: see the rounding note below). A removed row is attributed to the user
     assigned at commitment, an added one to the user assigned at entry; the unassigned (null) group
-    sorts last, as in velocity. The scope rows fetched are exactly the in-scope (connection, sprint)
+    sorts last, as in commitments. The scope rows fetched are exactly the in-scope (connection, sprint)
     pairs -- never the cross product of the connection and sprint id lists, since two connections to
-    one Jira site share sprint ids (velocity's per-user reader does the same).
+    one Jira site share sprint ids (commitments' per-user reader does the same).
   - **USER** (`teamId` AND `accountId`) -- `sprints` narrow to that account's rows per sprint (the same
     kernel over its rows; a sprint with none shows zeros); `snapshot` is that account's FROZEN fourteen figures,
     the same `sprintTotals` over the account's items of the sprint's `fact_sprint_snapshot.scope` JSON
-    (velocity's shared reader, `reports/FrozenScope.kt`; the stored items carry every field a bucket reads --
+    (commitments' shared reader, `reports/FrozenScope.kt`; the stored items carry every field a bucket reads --
     `addedAtMs`, `removedAtMs`, the flags and the three estimates -- so nothing is approximated): the same
     `assignee_at_commitment` attribution (an added item to the assignee at entry), predicates and `sumMd` rounding
     as the live figures; zeros for a snapshotted sprint where the account had no items, `null` for a sprint with no
@@ -455,11 +455,11 @@ SprintConsistencyReport {
     remainder Σ named users + unassigned == team.
 - **Rounding.** Every MD figure of a sprint is `Σ round2(item)`: `sprintTotals` rounds each
   item's estimate half-up to two decimals (`sumMd`, `metrics/DeriveSprintKernels.kt`) BEFORE the exact sum, which is
-  exactly what `fact_sprint_scope` stores per item, and the per-user groups here and in velocity re-sum the
+  exactly what `fact_sprint_scope` stores per item, and the per-user groups here and in commitments re-sum the
   stored rows with the same `sumMd` -- so Σ groups == the team figure to the cent (items likewise), whatever
   decimals the estimates carry.
 - **Not in this report.** Capacity and load (also under measures.md's Report 6 heading) are not part of
-  this endpoint's shape; Report 1 (velocity) now reads capacity from `dim_sprint`/`fact_sprint`, load stays unread.
+  this endpoint's shape; Report 1 (commitments) now reads capacity from `dim_sprint`/`fact_sprint`, load stays unread.
 
 Code: `reports/SprintConsistencyReport.kt` (DTOs, drift, the query/aggregation functions as an extension
 on `ReportService`). Tests: `ReportSprintConsistencyTest` -- the golden FLO sprint's fourteen figures

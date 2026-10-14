@@ -11,17 +11,17 @@ import LoadingBlock from "./LoadingBlock";
 import ScrollRegion from "./ScrollRegion";
 
 // The chart (and with it recharts) rides its own lazy chunk.
-const HomeVelocityChart = lazy(() => import("./HomeVelocityChart"));
+const HomeCommitmentsChart = lazy(() => import("./HomeCommitmentsChart"));
 
 /**
- * Tile 1 — each team's last closed sprint: initial and final velocity against what it delivered
+ * Tile 1 — each team's last closed sprint: initial and final scope against what it delivered (its velocity)
  * (throughput). ONE request answers it: `sprint-consistency?lastSprints=1` at UNIT level, whose sprint
  * rows carry the committed (= initial), final and delivered figures of the same `fact_sprint` row.
  * A sprint whose live figures moved since it closed (D13) gets the orange "Drift" badge with the
  * frozen figures as text, exactly as on the report pages. The closing day is read in the configured
  * zone (the shared reference data's `timeZone`), like every report date.
  */
-export default function HomeVelocityTile({
+export default function HomeCommitmentsTile({
   query,
   to,
   links,
@@ -36,18 +36,18 @@ export default function HomeVelocityTile({
   const { t } = useTranslation();
   const rows = query.data ? overviewTeamRows(query.data) : [];
   const columns: ColumnDef<OverviewTeamRow>[] = [
-    { key: "team", header: t("home.velocity.column.team"), render: (row) => row.team },
-    { key: "sprint", header: t("home.velocity.column.sprint"), render: (row) => row.sprint },
+    { key: "team", header: t("home.commitments.column.team"), render: (row) => row.team },
+    { key: "sprint", header: t("home.commitments.column.sprint"), render: (row) => row.sprint },
     {
       key: "closed",
-      header: t("home.velocity.column.closed"),
+      header: t("home.commitments.column.closed"),
       render: (row) => formatDate(row.completedAt, t("reports.sprints.open"), timeZone),
     },
-    { key: "initial", header: t("home.velocity.column.initial"), render: (row) => formatMd(row.initialMd), align: "right" },
-    { key: "final", header: t("home.velocity.column.final"), render: (row) => formatMd(row.finalMd), align: "right" },
+    { key: "initial", header: t("home.commitments.column.initial"), render: (row) => formatMd(row.initialMd), align: "right" },
+    { key: "final", header: t("home.commitments.column.final"), render: (row) => formatMd(row.finalMd), align: "right" },
     {
       key: "delivered",
-      header: t("home.velocity.column.delivered"),
+      header: t("home.commitments.column.delivered"),
       render: (row) => formatMd(row.deliveredMd),
       align: "right",
     },
@@ -74,26 +74,26 @@ export default function HomeVelocityTile({
   ];
   return (
     <HomeTile
-      title={t("home.velocity.title")}
+      title={t("home.commitments.title")}
       to={to}
-      caption={t("home.velocity.caption")}
+      caption={t("home.commitments.caption")}
       isPending={query.isPending}
       error={query.error}
       links={links}
     >
       {rows.length === 0 ? (
         <Text size="sm" c="dimmed">
-          {t("home.velocity.empty")}
+          {t("home.commitments.empty")}
         </Text>
       ) : (
         <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg">
           <Suspense fallback={<LoadingBlock />}>
-            <HomeVelocityChart rows={rows} />
+            <HomeCommitmentsChart rows={rows} />
           </Suspense>
-          <ScrollRegion label={t("home.velocity.tableLabel")} minWidth={520}>
+          <ScrollRegion label={t("home.commitments.tableLabel")} minWidth={520}>
             <ColumnTable
               verticalSpacing={4}
-              aria-label={t("home.velocity.tableLabel")}
+              aria-label={t("home.commitments.tableLabel")}
               columns={columns}
               rows={rows}
               rowKey={(row) => row.key}

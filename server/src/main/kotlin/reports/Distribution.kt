@@ -42,7 +42,7 @@ data class Distribution(
  * **SQL vs. Kotlin, and why this commit chooses Kotlin.** The plan allows either a
  * `percentile_cont`/`width_bucket` SQL fragment over a whitelisted column, or "a pure Kotlin
  * fallback over a fetched list if that is simpler". Commit 10a (this one) builds the reports
- * FOUNDATION only — no report query exists yet to attach a SQL fragment to; velocity, throughput,
+ * FOUNDATION only — no report query exists yet to attach a SQL fragment to; commitments, throughput,
  * cycle time and every other per-item measure land in later commits (plan §10, commits 10b/12/15).
  * A SQL fragment needs a concrete column expression to whitelist, and there is none here to whitelist
  * YET. The pure-Kotlin path is also what keeps this function testable with no database at all

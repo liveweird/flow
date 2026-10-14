@@ -61,12 +61,28 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
     A5), it is one figure per team rather than per sprint, and the API is experimental.
   - If Atlassian drops the admin requirement: an optional REFERENCE step (like `PROJECT_FIELDS`), plan team →
     `issueSourceId` board → `board_team_map`, and a `PLAN` capacity source ranked CONFIGURED > PLAN > DEFAULT.
-- [new] **Throughput (`/reports/throughput`): the Velocity treatment, plus a cumulative view.** The user's feedback, 2026-10-14:
-  - Hideable filters, like Lettuce. Already covered by `feat/velocity-capacity` (every report's filter bar folds away).
-  - The team filter must not offer "All teams"; a specific team has to be chosen. Reuse Velocity's `teamRequired`
+- [new] **Cycle time (`/reports/cycle-time`): fold the long tail into one final bucket.** The user's feedback,
+  2026-10-14:
+  - The problem: the histogram uses equal-width buckets from min to max (`Distribution.kt`, the `width_bucket` rule
+    in `reports.md` "Distribution"). A few far outliers stretch every bucket, so the first one holds nearly everything
+    and no real distribution shows.
+  - The fix: collect the top N% as a final open bucket, "from X to ∞", where X is the (100−N)th percentile. Spread
+    the remaining (100−N)% over the equal-width buckets, so they read as a real distribution.
+  - N is adjustable, with a default of 5%.
+  - To decide:
+    - where N lives: a report parameter (e.g. `tailPercent`, bounded), a control on the page, or a metrics setting;
+    - the wire shape of the open bucket: `to: null` on the last `histogram` entry is the obvious one, and it needs
+      an OpenAPI change;
+    - whether other `Distribution` consumers (estimation accuracy, blocked time and the rest) get the same tail
+      bucket. The shape is shared, so doing it once in `Distribution` covers them all.
+  - `n`, `mean`, `min`, `max` and the percentiles stay computed over every item; only the bucketing changes.
+- [new] **Throughput (`/reports/throughput`): the Commitments treatment, plus a cumulative view.** The user's feedback, 2026-10-14:
+  - Throughput here means delivered SP or item count over any time unit and any group of people (velocity is the per-sprint, per-team special case, shown as Sprint consistency's Delivered).
+  - Hideable filters, like Lettuce. Already done in #134 (every report's filter bar folds away).
+  - The team filter must not offer "All teams"; a specific team has to be chosen. Reuse Commitments' `teamRequired`
     control flag.
-  - The user filter takes several users. Reuse Velocity's `multiMember` flag; the server opts `accountId` in to
-    `repeatedStrings` on this route, as on Velocity.
+  - The user filter takes several users. Reuse Commitments' `multiMember` flag; the server opts `accountId` in to
+    `repeatedStrings` on this route, as on Commitments.
   - A switch that toggles the chart between the current per-period view and a cumulative, CFD-style view.
 - [parked] **A28 — a composite estimate for estimated backlog.** Parked 2026-10-01: the teams do not estimate via
   sub-tasks.

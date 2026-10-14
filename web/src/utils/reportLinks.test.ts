@@ -4,14 +4,14 @@ import { deepDiveBasePath, reportHref } from "./reportLinks";
 describe("reportHref", () => {
   test("keeps the shared params (period, team, member, connection) on every report", () => {
     const search = "lastSprints=3&teamId=2&accountId=a&connectionId=1";
-    for (const path of ["/reports/velocity", "/reports/throughput", "/reports/sprint-consistency"]) {
+    for (const path of ["/reports/commitments", "/reports/throughput", "/reports/sprint-consistency"]) {
       expect(reportHref(path, search)).toBe(`${path}?${search}`);
     }
   });
 
   test("drops the report-specific params the target has no control for", () => {
     const search = "teamId=2&domainView=EPIC&domain=FLO&activityType=Bug&workCategory=X&bucket=MONTH";
-    expect(reportHref("/reports/velocity", search)).toBe("/reports/velocity?teamId=2");
+    expect(reportHref("/reports/commitments", search)).toBe("/reports/commitments?teamId=2");
     expect(reportHref("/reports/sprint-consistency", search)).toBe("/reports/sprint-consistency?teamId=2");
     // Throughput keeps its own five.
     expect(reportHref("/reports/throughput", search)).toBe(
@@ -48,7 +48,7 @@ describe("reportHref", () => {
     // The backlog has neither by nor itemKind.
     expect(reportHref("/reports/backlog", search)).toBe("/reports/backlog?teamId=2&domain=FLO");
     // …and no other report carries WIP's own two.
-    expect(reportHref("/reports/velocity", search)).toBe("/reports/velocity?teamId=2");
+    expect(reportHref("/reports/commitments", search)).toBe("/reports/commitments?teamId=2");
     expect(reportHref("/reports/cycle-time", search)).not.toContain("by=");
   });
 
@@ -65,7 +65,7 @@ describe("reportHref", () => {
     expect(reportHref("/reports/epic-progress", search)).toBe("/reports/epic-progress?teamId=2&domain=FLO&epicId=FLO-33");
     // The epic is this report's own scope: no other report carries it.
     expect(reportHref("/reports/wip", search)).not.toContain("epicId");
-    expect(reportHref("/reports/velocity", search)).toBe("/reports/velocity?teamId=2");
+    expect(reportHref("/reports/commitments", search)).toBe("/reports/commitments?teamId=2");
   });
 
   test("data quality keeps a domain and its view — never an activity type, work category, bucket, by, item kind or epic", () => {
@@ -81,17 +81,17 @@ describe("reportHref", () => {
   });
 
   test("an empty query, or one that only held dropped params, is the bare path; foreign params survive", () => {
-    expect(reportHref("/reports/velocity", "")).toBe("/reports/velocity");
-    expect(reportHref("/reports/velocity", "?bucket=WEEK")).toBe("/reports/velocity");
-    expect(reportHref("/reports/velocity", "utm=x&bucket=WEEK")).toBe("/reports/velocity?utm=x");
+    expect(reportHref("/reports/commitments", "")).toBe("/reports/commitments");
+    expect(reportHref("/reports/commitments", "?bucket=WEEK")).toBe("/reports/commitments");
+    expect(reportHref("/reports/commitments", "utm=x&bucket=WEEK")).toBe("/reports/commitments?utm=x");
   });
 });
 
 describe("reportHref — several members", () => {
   const search = "teamId=2&accountId=a&accountId=b&accountId=c&lastSprints=3";
 
-  test("velocity keeps every picked member", () => {
-    expect(reportHref("/reports/velocity", search)).toBe(`/reports/velocity?${search}`);
+  test("commitments keeps every picked member", () => {
+    expect(reportHref("/reports/commitments", search)).toBe(`/reports/commitments?${search}`);
   });
 
   test("any other report keeps only the FIRST member, in place, so the address bar matches what that page shows", () => {

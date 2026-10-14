@@ -149,7 +149,7 @@ describe("overviewPeriod and overviewLink", () => {
   });
 
   test("links serialize the filter canonically", () => {
-    expect(overviewLink("/reports/velocity", { lastSprints: 1 })).toBe("/reports/velocity?lastSprints=1");
+    expect(overviewLink("/reports/commitments", { lastSprints: 1 })).toBe("/reports/commitments?lastSprints=1");
     expect(overviewLink("/reports/cycle-time", { from: "2026-07-02", to: "2026-09-29" })).toBe(
       "/reports/cycle-time?from=2026-07-02&to=2026-09-29",
     );

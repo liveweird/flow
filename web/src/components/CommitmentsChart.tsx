@@ -5,7 +5,7 @@ import { Box, Text, useComputedColorScheme } from "@mantine/core";
 import { useTranslation } from "react-i18next";
 import { BAND_CYCLE, CHART_COLORS, DEEP_DIVE_FILL_ALPHA, FINAL_COLOR } from "../utils/chartColors";
 import { formatMd } from "../utils/reportFormat";
-import { hasCapacity, personLabel, type VelocityChartRow, type VelocityChartUser, type VelocityUserRow } from "../utils/velocityReport";
+import { hasCapacity, personLabel, type CommitmentsChartRow, type CommitmentsChartUser, type CommitmentsUserRow } from "../utils/commitmentsReport";
 
 // Blue = plan/committed: initial is the committed blue, final the per-scheme deeper/lighter step
 // (utils/chartColors.ts has the contrast table). Known limit: two same-hue blues side by side are
@@ -21,15 +21,15 @@ const MAX_BAR = 28;
  * Team mode: the sprints' committed and final bars and, per sprint, the team's capacity. User mode: the picked people's
  * contribution, two stacked columns per sprint (committed, final) cut into one segment per person.
  */
-export type VelocityChartProps =
-  | { mode: "team"; rows: VelocityChartRow[] }
-  | { mode: "user"; users: VelocityChartUser[]; rows: VelocityUserRow[] };
+export type CommitmentsChartProps =
+  | { mode: "team"; rows: CommitmentsChartRow[] }
+  | { mode: "user"; users: CommitmentsChartUser[]; rows: CommitmentsUserRow[] };
 
-/** Velocity's chart — a lazy chunk: recharts never enters the main bundle. */
-export default function VelocityChart(props: VelocityChartProps) {
+/** Commitments' chart — a lazy chunk: recharts never enters the main bundle. */
+export default function CommitmentsChart(props: CommitmentsChartProps) {
   const { t } = useTranslation();
   return (
-    <Box role="group" aria-label={t(props.mode === "team" ? "reports.velocity.chartLabel" : "reports.velocity.userChartLabel")}>
+    <Box role="group" aria-label={t(props.mode === "team" ? "reports.commitments.chartLabel" : "reports.commitments.userChartLabel")}>
       {props.mode === "team" ? <TeamChart rows={props.rows} /> : <UserChart users={props.users} rows={props.rows} />}
     </Box>
   );
@@ -44,18 +44,18 @@ const tiltedAxis = (rows: readonly unknown[]) =>
  * when no sprint has one. A DEFAULT capacity is told from a configured one by words, not colour: the tooltip says it is
  * members × working days (and the table beside the chart carries a "default" badge).
  */
-function TeamChart({ rows }: { rows: VelocityChartRow[] }) {
+function TeamChart({ rows }: { rows: CommitmentsChartRow[] }) {
   const { t } = useTranslation();
   const scheme = useComputedColorScheme("light");
   const series = [
-    { name: "initialMd", type: "bar" as const, label: t("reports.velocity.series.initial"), color: INITIAL_COLOR },
-    { name: "finalMd", type: "bar" as const, label: t("reports.velocity.series.final"), color: FINAL_COLOR[scheme] },
+    { name: "initialMd", type: "bar" as const, label: t("reports.commitments.series.initial"), color: INITIAL_COLOR },
+    { name: "finalMd", type: "bar" as const, label: t("reports.commitments.series.final"), color: FINAL_COLOR[scheme] },
     ...(hasCapacity(rows)
       ? [
           {
             name: "capacityMd",
             type: "line" as const,
-            label: t("reports.velocity.series.capacity"),
+            label: t("reports.commitments.series.capacity"),
             color: CHART_COLORS.capacity,
             strokeDasharray: "6 4",
           },
@@ -81,8 +81,8 @@ function TeamChart({ rows }: { rows: VelocityChartRow[] }) {
       xAxisProps={tiltedAxis(rows)}
       tooltipProps={{
         content: ({ label, payload }) => {
-          const row = payload?.[0]?.payload as VelocityChartRow | undefined;
-          const note = row?.capacitySource ? t(`reports.velocity.capacitySource.${row.capacitySource}`) : null;
+          const row = payload?.[0]?.payload as CommitmentsChartRow | undefined;
+          const note = row?.capacitySource ? t(`reports.commitments.capacitySource.${row.capacitySource}`) : null;
           return (
             <ChartTooltip
               label={note === null ? label : `${String(label)} · ${note}`}
@@ -106,19 +106,19 @@ function TeamChart({ rows }: { rows: VelocityChartRow[] }) {
  * tooltip ("2. Bob · initial") and the per-person tables. Committed vs final is told by fill, position and the legend's
  * neutral glyphs, never by colour. No capacity here: it is a team figure.
  */
-function UserChart({ users, rows }: { users: VelocityChartUser[]; rows: VelocityUserRow[] }) {
+function UserChart({ users, rows }: { users: CommitmentsChartUser[]; rows: CommitmentsUserRow[] }) {
   const { t } = useTranslation();
   const colour = (index: number) => BAND_CYCLE[index % BAND_CYCLE.length];
   const series = [
     ...users.map((user, index) => ({
       name: user.committedKey,
-      label: t("reports.velocity.userSeries.committed", { name: personLabel(user.position, user.label) }),
+      label: t("reports.commitments.userSeries.committed", { name: personLabel(user.position, user.label) }),
       color: colour(index),
       stackId: "committed",
     })),
     ...users.map((user, index) => ({
       name: user.finalKey,
-      label: t("reports.velocity.userSeries.final", { name: personLabel(user.position, user.label) }),
+      label: t("reports.commitments.userSeries.final", { name: personLabel(user.position, user.label) }),
       color: colour(index),
       stackId: "final",
     })),
@@ -167,7 +167,7 @@ function TreatmentGlyph({ solid }: { solid: boolean }) {
 }
 
 /** The legend of user mode: one numbered entry per person (their colour), then the two stacks' treatments as neutral glyphs. */
-function UserLegend({ users, colour }: { users: VelocityChartUser[]; colour: (index: number) => string }) {
+function UserLegend({ users, colour }: { users: CommitmentsChartUser[]; colour: (index: number) => string }) {
   const { t } = useTranslation();
   const entry = (key: string, swatch: ReactNode, text: string) => (
     <Box component="li" key={key} display="flex" style={{ alignItems: "center", gap: 6 }}>
@@ -179,7 +179,7 @@ function UserLegend({ users, colour }: { users: VelocityChartUser[]; colour: (in
     <Box
       component="ul"
       role="list"
-      aria-label={t("reports.velocity.userLegendLabel")}
+      aria-label={t("reports.commitments.userLegendLabel")}
       display="flex"
       m={0}
       p={0}
@@ -187,8 +187,8 @@ function UserLegend({ users, colour }: { users: VelocityChartUser[]; colour: (in
       style={{ listStyle: "none", flexWrap: "wrap", gap: "4px 16px" }}
     >
       {users.map((user, index) => entry(user.accountId, <PersonSwatch colour={colour(index)} />, personLabel(user.position, user.label)))}
-      {entry("committed", <TreatmentGlyph solid={false} />, t("reports.velocity.userLegend.committed"))}
-      {entry("final", <TreatmentGlyph solid />, t("reports.velocity.userLegend.final"))}
+      {entry("committed", <TreatmentGlyph solid={false} />, t("reports.commitments.userLegend.committed"))}
+      {entry("final", <TreatmentGlyph solid />, t("reports.commitments.userLegend.final"))}
     </Box>
   );
 }

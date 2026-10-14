@@ -26,7 +26,7 @@ import org.jetbrains.exposed.v1.r2dbc.select
 import org.jetbrains.exposed.v1.r2dbc.selectAll
 
 /*
- * The plumbing the reports share (velocity — commit 10b, throughput — commit 10c, the estimation
+ * The plumbing the reports share (commitments — commit 10b, throughput — commit 10c, the estimation
  * batch — commit 12): connection scope + existence checks, the `fact_sprint` ⨝ `dim_sprint` reader,
  * the `lastSprints`/`sprintId`/`from`-`to` period resolution, the frozen-snapshot reader, and — for
  * the ITEM-based reports (throughput's period view, estimation accuracy/adjustments) — the period
@@ -58,7 +58,7 @@ internal data class SprintRow(
     val startAt: Long?,
     /** `null` only for an ACTIVE/future sprint, reachable through an explicit `sprintId` (measures.md conventions). */
     val completedAt: Long?,
-    val live: VelocitySnapshot,
+    val live: CommitmentsSnapshot,
     /** `fact_sprint.capacity_md` / `dim_sprint.capacity_source` (`CONFIGURED`/`DEFAULT`); both `null` without a capacity (A3). */
     val capacityMd: Double?,
     val capacitySource: String?,
@@ -70,7 +70,7 @@ internal data class SprintRow(
 internal data class SnapshotRow(
     val connectionId: UInt,
     val sprintId: Long,
-    val figures: VelocitySnapshot,
+    val figures: CommitmentsSnapshot,
     val delivered: ThroughputSnapshot,
     val full: SprintFigures,
 )
@@ -202,7 +202,7 @@ private fun ResultRow.toSprintRow() = SprintRow(
     teamId = this[MetricsTables.FactSprint.teamId]!!.value,
     startAt = this[MetricsTables.DimSprint.startAt],
     completedAt = this[MetricsTables.FactSprint.completeAt],
-    live = VelocitySnapshot(
+    live = CommitmentsSnapshot(
         initialMd = this[MetricsTables.FactSprint.committedMd].toDouble(),
         initialItems = this[MetricsTables.FactSprint.committedItems],
         finalMd = this[MetricsTables.FactSprint.finalMd].toDouble(),
@@ -285,7 +285,7 @@ internal suspend fun fetchSnapshots(sprintRows: List<SprintRow>): List<SnapshotR
             SnapshotRow(
                 connectionId = it[MetricsTables.FactSprintSnapshot.connectionId].value,
                 sprintId = it[MetricsTables.FactSprintSnapshot.sprintId],
-                figures = VelocitySnapshot(
+                figures = CommitmentsSnapshot(
                     initialMd = it[MetricsTables.FactSprintSnapshot.committedMd].toDouble(),
                     initialItems = it[MetricsTables.FactSprintSnapshot.committedItems],
                     finalMd = it[MetricsTables.FactSprintSnapshot.finalMd].toDouble(),

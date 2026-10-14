@@ -9,10 +9,10 @@ import { reportQuery, type ReportFilterState } from "../utils/reportFilter";
 
 export type ReportFilters = paths["/api/v1/reports/filters"]["get"]["responses"]["200"]["content"]["application/json"];
 export type ReportFilterTeam = ReportFilters["teams"][number];
-export type ReportMeta = VelocityReport["meta"];
-export type VelocityReport = paths["/api/v1/reports/velocity"]["get"]["responses"]["200"]["content"]["application/json"];
-export type VelocitySprint = VelocityReport["sprints"][number];
-export type VelocityGroup = VelocityReport["groups"][number];
+export type ReportMeta = CommitmentsReport["meta"];
+export type CommitmentsReport = paths["/api/v1/reports/commitments"]["get"]["responses"]["200"]["content"]["application/json"];
+export type CommitmentsSprint = CommitmentsReport["sprints"][number];
+export type CommitmentsGroup = CommitmentsReport["groups"][number];
 
 export type ThroughputReport = paths["/api/v1/reports/throughput"]["get"]["responses"]["200"]["content"]["application/json"];
 export type ThroughputSprint = ThroughputReport["bySprint"][number];
@@ -103,8 +103,8 @@ export async function getReportFilters(): Promise<ReportFilters> {
   return jsonRequest<ReportFilters>("/api/v1/reports/filters");
 }
 
-export async function getVelocityReport(filter: ReportFilterState): Promise<VelocityReport> {
-  return jsonRequest<VelocityReport>(`/api/v1/reports/velocity?${reportQuery(filter)}`);
+export async function getCommitmentsReport(filter: ReportFilterState): Promise<CommitmentsReport> {
+  return jsonRequest<CommitmentsReport>(`/api/v1/reports/commitments?${reportQuery(filter)}`);
 }
 
 export async function getThroughputReport(filter: ReportFilterState): Promise<ThroughputReport> {

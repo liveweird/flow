@@ -34,7 +34,7 @@ export interface ReportFilterState {
   teamId?: number;
   accountId?: string;
   /**
-   * Several members at once (USER level, velocity only — `ReportControls.multiMember`): REPEATED `accountId` URL keys, distinct,
+   * Several members at once (USER level, commitments only — `ReportControls.multiMember`): REPEATED `accountId` URL keys, distinct,
    * at most `MAX_ACCOUNTS`, in the order picked. Only a multi-member page parses them (`parseReportFilter`'s `multiAccount`);
    * everywhere else a repeated `accountId` reads as its first value, as ever, and this stays unset.
    */
@@ -117,7 +117,7 @@ function distinctAccounts(values: readonly string[]): string[] {
   return picked.slice(0, MAX_ACCOUNTS);
 }
 
-/** What a page opts into when reading the URL — only the velocity page reads several members. */
+/** What a page opts into when reading the URL — only the commitments page reads several members. */
 export interface ReportFilterParseOptions {
   multiAccount?: boolean;
 }
@@ -211,7 +211,7 @@ export function reportQuery(filter: ReportFilterState): string {
 
 /**
  * Which optional controls a report offers — the bar shows a control ONLY where the report uses
- * it (velocity ignores domain/activity/category, so it passes none). `domainView` is
+ * it (commitments ignores domain/activity/category, so it passes none). `domainView` is
  * the report's own default view (D3), its presence turns the "delivered in / earned in" toggle on.
  */
 export interface ReportControls {
@@ -237,12 +237,12 @@ export interface ReportControls {
   /** Narrow to one Jira connection (data quality); shown only when there is more than one to choose from. */
   connection?: boolean;
   /**
-   * The report cannot answer for the whole unit (velocity's capacity and per-user split are team figures): the team
+   * The report cannot answer for the whole unit (commitments' capacity and per-user split are team figures): the team
    * control is not clearable and offers no "All teams", and a URL without a team is normalized to one
    * (`requiredTeamId`, applied by `useReportFilter`).
    */
   teamRequired?: boolean;
-  /** The member control picks up to `MAX_ACCOUNTS` people (`ReportFilterState.accountIds`) instead of one (velocity). */
+  /** The member control picks up to `MAX_ACCOUNTS` people (`ReportFilterState.accountIds`) instead of one (commitments). */
   multiMember?: boolean;
 }
 

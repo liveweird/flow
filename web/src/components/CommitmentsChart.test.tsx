@@ -1,10 +1,10 @@
 import { describe, expect, test, vi } from "vitest";
 import { MantineProvider } from "@mantine/core";
 import { render } from "@testing-library/react";
-import VelocityChart from "./VelocityChart";
+import CommitmentsChart from "./CommitmentsChart";
 import { theme } from "../theme";
 import { renderWithProviders, screen, within } from "../test/render";
-import type { VelocityChartRow, VelocityChartUser, VelocityUserRow } from "../utils/velocityReport";
+import type { CommitmentsChartRow, CommitmentsChartUser, CommitmentsUserRow } from "../utils/commitmentsReport";
 
 interface TooltipElement {
   props: { label: string; payload: { name: string }[] };
@@ -54,7 +54,7 @@ vi.mock("@mantine/charts", async () => {
   return { CompositeChart: probe("composite-chart"), BarChart: probe("bar-chart"), ChartTooltip: () => null };
 });
 
-const row = (label: string, over: Partial<VelocityChartRow> = {}): VelocityChartRow => ({
+const row = (label: string, over: Partial<CommitmentsChartRow> = {}): CommitmentsChartRow => ({
   label,
   initialMd: 1,
   finalMd: 2,
@@ -67,10 +67,10 @@ const row = (label: string, over: Partial<VelocityChartRow> = {}): VelocityChart
 
 const attr = (testId: string, name: string) => JSON.parse(screen.getByTestId(testId).getAttribute(name)!);
 
-describe("VelocityChart — team mode", () => {
+describe("CommitmentsChart — team mode", () => {
   test("committed and final bars plus the capacity as a dashed gray line with dots, on one axis, with a legend and an accessible name", () => {
     renderWithProviders(
-      <VelocityChart
+      <CommitmentsChart
         mode="team"
         rows={[row("S1", { capacityMd: 25, capacitySource: "DEFAULT" }), row("S2", { capacityMd: 12, capacitySource: "CONFIGURED" })]}
       />,
@@ -94,13 +94,13 @@ describe("VelocityChart — team mode", () => {
   });
 
   test("the capacity series stays out when no sprint has a capacity", () => {
-    renderWithProviders(<VelocityChart mode="team" rows={[row("S1"), row("S2")]} />);
+    renderWithProviders(<CommitmentsChart mode="team" rows={[row("S1"), row("S2")]} />);
     expect(attr("composite-chart", "data-series").map((s: { name: string }) => s.name)).toEqual(["initialMd", "finalMd"]);
   });
 
   test("the tooltip names a default capacity in words, a configured one too, and drops the capacity entry of a sprint without one", () => {
-    renderWithProviders(<VelocityChart mode="team" rows={[row("S1", { capacityMd: 25, capacitySource: "DEFAULT" })]} />);
-    const payload = (capacityMd: number | null, capacitySource: VelocityChartRow["capacitySource"]) => [
+    renderWithProviders(<CommitmentsChart mode="team" rows={[row("S1", { capacityMd: 25, capacitySource: "DEFAULT" })]} />);
+    const payload = (capacityMd: number | null, capacitySource: CommitmentsChartRow["capacitySource"]) => [
       { name: "initialMd", payload: row("S1", { capacityMd, capacitySource }) },
       { name: "capacityMd", payload: row("S1", { capacityMd, capacitySource }) },
     ];
@@ -118,7 +118,7 @@ describe("VelocityChart — team mode", () => {
   test("the final series switches to a lighter blue in the dark scheme (flow.8 fails 3:1 on dark paper)", () => {
     render(
       <MantineProvider env="test" theme={theme} forceColorScheme="dark">
-        <VelocityChart mode="team" rows={[row("S1")]} />
+        <CommitmentsChart mode="team" rows={[row("S1")]} />
       </MantineProvider>,
     );
     const series = attr("composite-chart", "data-series");
@@ -126,21 +126,21 @@ describe("VelocityChart — team mode", () => {
   });
 
   test("many sprints tilt the x labels instead of overlapping", () => {
-    renderWithProviders(<VelocityChart mode="team" rows={Array.from({ length: 8 }, (_, i) => row(`S${i}`))} />);
+    renderWithProviders(<CommitmentsChart mode="team" rows={Array.from({ length: 8 }, (_, i) => row(`S${i}`))} />);
     expect(screen.getByTestId("composite-chart").getAttribute("data-crowded")).toBe("true");
   });
 });
 
-describe("VelocityChart — user mode", () => {
-  const users: VelocityChartUser[] = [
+describe("CommitmentsChart — user mode", () => {
+  const users: CommitmentsChartUser[] = [
     { accountId: "acc-ann", label: "Ann Author", position: 1, committedKey: "c0", finalKey: "f0" },
     { accountId: "acc-bob", label: "Bob Builder", position: 2, committedKey: "c1", finalKey: "f1" },
     { accountId: "acc-cy", label: "Cy Coder", position: 3, committedKey: "c2", finalKey: "f2" },
   ];
-  const rows: VelocityUserRow[] = [{ label: "S1", c0: 1, f0: 2, c1: 3, f1: 4, c2: 5, f2: 6 }];
+  const rows: CommitmentsUserRow[] = [{ label: "S1", c0: 1, f0: 2, c1: 3, f1: 4, c2: 5, f2: 6 }];
 
   test("two stacks per sprint, committed then final, one segment per person in the neutral blue/gray cycle — no capacity", () => {
-    renderWithProviders(<VelocityChart mode="user" users={users} rows={rows} />);
+    renderWithProviders(<CommitmentsChart mode="user" users={users} rows={rows} />);
     expect(screen.getByRole("group", { name: "Chart: initial and final scope by sprint, stacked by person" })).toBeInTheDocument();
     const series = attr("bar-chart", "data-series");
     expect(series).toEqual([
@@ -157,14 +157,14 @@ describe("VelocityChart — user mode", () => {
   });
 
   test("committed is a translucent fill inside a solid edge, final a solid fill ringed in the surface", () => {
-    renderWithProviders(<VelocityChart mode="user" users={users} rows={rows} />);
+    renderWithProviders(<CommitmentsChart mode="user" users={users} rows={rows} />);
     const bars = attr("bar-chart", "data-bar-props");
     expect(bars.c0).toEqual({ maxBarSize: 28, fillOpacity: 0.32, strokeOpacity: 1, strokeWidth: 2 });
     expect(bars.f0).toEqual({ maxBarSize: 28, stroke: "var(--mantine-color-body)", strokeOpacity: 1, strokeWidth: 2 });
   });
 
   test("the legend lists every person and explains the two stacks in words; the chart's own legend is off", () => {
-    renderWithProviders(<VelocityChart mode="user" users={users} rows={rows} />);
+    renderWithProviders(<CommitmentsChart mode="user" users={users} rows={rows} />);
     const legend = screen.getByRole("list", { name: "Chart legend" });
     expect(within(legend).getAllByRole("listitem").map((item) => item.textContent)).toEqual([
       "1. Ann Author",
@@ -177,14 +177,14 @@ describe("VelocityChart — user mode", () => {
   });
 
   test("with more people than the palette has shades, colours repeat and the numbers carry identity", () => {
-    const many: VelocityChartUser[] = Array.from({ length: 8 }, (_, i) => ({
+    const many: CommitmentsChartUser[] = Array.from({ length: 8 }, (_, i) => ({
       accountId: `acc-${i}`,
       label: `Person ${i}`,
       position: i + 1,
       committedKey: `c${i}`,
       finalKey: `f${i}`,
     }));
-    renderWithProviders(<VelocityChart mode="user" users={many} rows={[{ label: "S1" }]} />);
+    renderWithProviders(<CommitmentsChart mode="user" users={many} rows={[{ label: "S1" }]} />);
     const series: { name: string; label: string; color: string }[] = attr("bar-chart", "data-series");
     const committed = series.filter((s) => s.name.startsWith("c"));
     // Pigeonhole: fewer than eight distinct colours, yet every series label is unique and starts with its number.
@@ -196,7 +196,7 @@ describe("VelocityChart — user mode", () => {
   });
 
   test("the two treatment entries are neutral glyphs, never a person's swatch: no chart hue, a different shape, outlined vs solid", () => {
-    renderWithProviders(<VelocityChart mode="user" users={users} rows={rows} />);
+    renderWithProviders(<CommitmentsChart mode="user" users={users} rows={rows} />);
     const items = within(screen.getByRole("list", { name: "Chart legend" })).getAllByRole("listitem");
     const glyph = (item: HTMLElement) => item.querySelector("[aria-hidden]") as HTMLElement;
     const [person, committed, final] = [items[0], items[3], items[4]].map(glyph);
@@ -211,14 +211,14 @@ describe("VelocityChart — user mode", () => {
   });
 
   test("one person is the same shape with one segment per stack", () => {
-    renderWithProviders(<VelocityChart mode="user" users={users.slice(0, 1)} rows={[{ label: "S1", c0: 1, f0: 2 }]} />);
+    renderWithProviders(<CommitmentsChart mode="user" users={users.slice(0, 1)} rows={[{ label: "S1", c0: 1, f0: 2 }]} />);
     expect(attr("bar-chart", "data-series").map((s: { name: string }) => s.name)).toEqual(["c0", "f0"]);
     expect(within(screen.getByRole("list", { name: "Chart legend" })).getAllByRole("listitem")).toHaveLength(3);
   });
 
   test("many sprints tilt the x labels", () => {
     renderWithProviders(
-      <VelocityChart mode="user" users={users} rows={Array.from({ length: 8 }, (_, i) => ({ ...rows[0], label: `S${i}` }))} />,
+      <CommitmentsChart mode="user" users={users} rows={Array.from({ length: 8 }, (_, i) => ({ ...rows[0], label: `S${i}` }))} />,
     );
     expect(screen.getByTestId("bar-chart").getAttribute("data-crowded")).toBe("true");
   });

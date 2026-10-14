@@ -231,7 +231,7 @@ describe("ReportCycleTime page", () => {
     renderPage();
     await screen.findByTestId("line-chart");
     expect(screen.getByRole("tab", { name: "Cycle time" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["Velocity", "Throughput", "Sprint consistency", "Cycle time"]);
+    expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["Commitments", "Throughput", "Sprint consistency", "Cycle time"]);
   });
 
   test("a period with no finished tasks is the empty state — no trend card either", async () => {

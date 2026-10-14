@@ -7,6 +7,7 @@ import { useTranslation } from "react-i18next";
 import { RedirectIfAuthed, RequireAdmin, RequireAuth, useAdmin } from "./auth";
 import BrandLogo from "./components/BrandLogo";
 import CommandPalette from "./components/CommandPalette";
+import LegacyVelocityRedirect from "./components/LegacyVelocityRedirect";
 import LoadingBlock from "./components/LoadingBlock";
 import UserMenu from "./components/UserMenu";
 import VersionStamp from "./components/VersionStamp";
@@ -29,7 +30,7 @@ const DataSourceProfile = lazy(() => import("./pages/DataSourceProfile"));
 const RawIssueInspector = lazy(() => import("./pages/RawIssueInspector"));
 const DataSourceMetricsConfig = lazy(() => import("./pages/DataSourceMetricsConfig"));
 const MetricsSettings = lazy(() => import("./pages/MetricsSettings"));
-const ReportVelocity = lazy(() => import("./pages/ReportVelocity"));
+const ReportCommitments = lazy(() => import("./pages/ReportCommitments"));
 const ReportThroughput = lazy(() => import("./pages/ReportThroughput"));
 const ReportSprintConsistency = lazy(() => import("./pages/ReportSprintConsistency"));
 const ReportTaskAccuracy = lazy(() => import("./pages/ReportTaskAccuracy"));
@@ -223,7 +224,9 @@ export default function App() {
             <Route path="teams" element={<Teams />} />
             <Route path="teams/:id" element={<TeamDetails />} />
             {/* Reports: any signed-in user (D12) — never inside the RequireAdmin group. */}
-            <Route path="reports/velocity" element={<ReportVelocity />} />
+            <Route path="reports/commitments" element={<ReportCommitments />} />
+            {/* Report 1's old address, kept alive for bookmarks and shared links. */}
+            <Route path="reports/velocity" element={<LegacyVelocityRedirect />} />
             <Route path="reports/throughput" element={<ReportThroughput />} />
             <Route path="reports/sprint-consistency" element={<ReportSprintConsistency />} />
             <Route path="reports/task-estimation-accuracy" element={<ReportTaskAccuracy />} />

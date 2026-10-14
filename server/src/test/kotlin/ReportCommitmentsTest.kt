@@ -3,7 +3,7 @@ package ch.nokillswit
 import ch.nokillswit.metrics.MetricsSprintCapacity
 import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.metrics.asRequest
-import ch.nokillswit.reports.VelocityReport
+import ch.nokillswit.reports.CommitmentsReport
 import ch.nokillswit.reports.frozenContributionsOf
 import io.ktor.client.call.body
 import io.ktor.client.request.get
@@ -41,7 +41,7 @@ import kotlin.test.assertTrue
 
 /** A minimal local slice of `sample-data/jira/expected.json`'s `golden.sprint` — just what this test needs. */
 @Serializable
-private data class VelocityGoldenSprint(
+private data class CommitmentsGoldenSprint(
     val sprintId: Long,
     val committedMd: Double,
     val committedItems: Int,
@@ -50,29 +50,29 @@ private data class VelocityGoldenSprint(
 )
 
 @Serializable
-private data class VelocityGoldenFixture(val sprint: VelocityGoldenSprint)
+private data class CommitmentsGoldenFixture(val sprint: CommitmentsGoldenSprint)
 
 @Serializable
-private data class VelocityExpectedFixture(val golden: VelocityGoldenFixture)
+private data class CommitmentsExpectedFixture(val golden: CommitmentsGoldenFixture)
 
-private val REPORT_VELOCITY_JSON = Json { ignoreUnknownKeys = true }
+private val REPORT_COMMITMENTS_JSON = Json { ignoreUnknownKeys = true }
 
-private val reportVelocityGolden: VelocityGoldenSprint by lazy {
+private val reportCommitmentsGolden: CommitmentsGoldenSprint by lazy {
     val file = listOf(File("sample-data/jira/expected.json"), File("../sample-data/jira/expected.json"))
         .firstOrNull { it.isFile }
         ?: error("sample-data/jira/expected.json not found from ${File(".").absolutePath}")
-    REPORT_VELOCITY_JSON.decodeFromString<VelocityExpectedFixture>(file.readText()).golden.sprint
+    REPORT_COMMITMENTS_JSON.decodeFromString<CommitmentsExpectedFixture>(file.readText()).golden.sprint
 }
 
 /**
- * `GET /api/v1/reports/velocity` (v0.3.0 M4 commit 10b, Report 1, `.claude/docs/measures.md`
- * "Report 1 — Velocity"). Reads [DerivedStubFixture]'s connection (one FLO-mapped team, one
+ * `GET /api/v1/reports/commitments` (v0.3.0 M4 commit 10b, Report 1, `.claude/docs/measures.md`
+ * "Report 1 — Commitments"). Reads [DerivedStubFixture]'s connection (one FLO-mapped team, one
  * completed DERIVE). Every request narrows via `connectionId` to that one connection, so other
  * tests' connections in the shared database never leak into the figures. `seededClient` defaults to a
  * non-admin (`UserRole.USER`) caller, so every `200` below also proves D12 (`.claude/docs/reports.md`
  * "Access posture").
  */
-class ReportVelocityTest {
+class ReportCommitmentsTest {
 
     private suspend fun floTeamId(connectionId: UInt, sprintId: Long): UInt = suspendTransaction(sharedDatabaseForTests()) {
         MetricsTables.FactSprint.selectAll()
@@ -84,15 +84,15 @@ class ReportVelocityTest {
     fun `UNIT level lists the FLO team's sprints with finalMd matching fact_sprint`() = testApplication {
         usePostgresTestcontainer()
         val connId = DerivedStubFixture.connectionId()
-        val golden = reportVelocityGolden
+        val golden = reportCommitmentsGolden
         val floTeamId = floTeamId(connId, golden.sprintId)
-        val client = seededClient("reports-velocity-unit")
+        val client = seededClient("reports-commitments-unit")
 
         val response = client.get(
-            "/api/v1/reports/velocity?connectionId=$connId&from=2025-09-01&to=2026-03-06",
+            "/api/v1/reports/commitments?connectionId=$connId&from=2025-09-01&to=2026-03-06",
         )
         assertEquals(HttpStatusCode.OK, response.status)
-        val body = response.body<VelocityReport>()
+        val body = response.body<CommitmentsReport>()
 
         val floSprints = body.sprints.filter { it.teamId == floTeamId }
         assertTrue(floSprints.isNotEmpty(), "expected at least the FLO team's own sprints in the period")
@@ -111,12 +111,12 @@ class ReportVelocityTest {
     fun `sprintId period returns the golden FLO sprint matching expected json`() = testApplication {
         usePostgresTestcontainer()
         val connId = DerivedStubFixture.connectionId()
-        val golden = reportVelocityGolden
-        val client = seededClient("reports-velocity-sprint-id")
+        val golden = reportCommitmentsGolden
+        val client = seededClient("reports-commitments-sprint-id")
 
-        val response = client.get("/api/v1/reports/velocity?connectionId=$connId&sprintId=${golden.sprintId}")
+        val response = client.get("/api/v1/reports/commitments?connectionId=$connId&sprintId=${golden.sprintId}")
         assertEquals(HttpStatusCode.OK, response.status)
-        val body = response.body<VelocityReport>()
+        val body = response.body<CommitmentsReport>()
 
         val sprint = body.sprints.single()
         assertEquals(golden.sprintId, sprint.sprintId)
@@ -131,15 +131,15 @@ class ReportVelocityTest {
     fun `TEAM level groups sum to the team total`() = testApplication {
         usePostgresTestcontainer()
         val connId = DerivedStubFixture.connectionId()
-        val golden = reportVelocityGolden
+        val golden = reportCommitmentsGolden
         val floTeamId = floTeamId(connId, golden.sprintId)
-        val client = seededClient("reports-velocity-team")
+        val client = seededClient("reports-commitments-team")
 
         val response = client.get(
-            "/api/v1/reports/velocity?connectionId=$connId&teamId=$floTeamId&sprintId=${golden.sprintId}",
+            "/api/v1/reports/commitments?connectionId=$connId&teamId=$floTeamId&sprintId=${golden.sprintId}",
         )
         assertEquals(HttpStatusCode.OK, response.status)
-        val body = response.body<VelocityReport>()
+        val body = response.body<CommitmentsReport>()
 
         val teamTotal = body.sprints.single().finalMd
         val teamTotalItems = body.sprints.single().finalItems
@@ -166,8 +166,8 @@ class ReportVelocityTest {
     fun `an open or future sprint is reachable by sprintId with live figures and no snapshot`() = testApplication {
         usePostgresTestcontainer()
         val connId = DerivedStubFixture.connectionId()
-        val floTeamId = floTeamId(connId, reportVelocityGolden.sprintId)
-        val client = seededClient("reports-velocity-open-sprint")
+        val floTeamId = floTeamId(connId, reportCommitmentsGolden.sprintId)
+        val client = seededClient("reports-commitments-open-sprint")
 
         val open = suspendTransaction(sharedDatabaseForTests()) {
             MetricsTables.FactSprint.selectAll()
@@ -179,9 +179,9 @@ class ReportVelocityTest {
         }
         assertTrue(open.isNotEmpty(), "the stub fixture must carry an active/future FLO sprint")
         for (row in open) {
-            val response = client.get("/api/v1/reports/velocity?connectionId=$connId&sprintId=${row[MetricsTables.FactSprint.sprintId]}")
+            val response = client.get("/api/v1/reports/commitments?connectionId=$connId&sprintId=${row[MetricsTables.FactSprint.sprintId]}")
             assertEquals(HttpStatusCode.OK, response.status)
-            val sprint = response.body<VelocityReport>().sprints.single()
+            val sprint = response.body<CommitmentsReport>().sprints.single()
             assertEquals(null, sprint.completedAt)
             assertEquals(null, sprint.snapshot)
             assertTrue(!sprint.drift)
@@ -223,12 +223,12 @@ class ReportVelocityTest {
     fun `USER level frozen figures sum with the unassigned bucket to the team snapshot`() = testApplication {
         usePostgresTestcontainer()
         val connId = DerivedStubFixture.connectionId()
-        val golden = reportVelocityGolden
+        val golden = reportCommitmentsGolden
         val floTeamId = floTeamId(connId, golden.sprintId)
-        val client = seededClient("reports-velocity-user-frozen")
+        val client = seededClient("reports-commitments-user-frozen")
 
-        val team = client.get("/api/v1/reports/velocity?connectionId=$connId&teamId=$floTeamId&sprintId=${golden.sprintId}")
-            .body<VelocityReport>()
+        val team = client.get("/api/v1/reports/commitments?connectionId=$connId&teamId=$floTeamId&sprintId=${golden.sprintId}")
+            .body<CommitmentsReport>()
         val teamSnapshot = assertNotNull(team.sprints.single().snapshot, "the golden sprint is closed and team-mapped, so it is frozen")
         val frozen = frozenScopeFigures(connId, golden.sprintId)
         val named = team.groups.mapNotNull { it.accountId }
@@ -240,10 +240,10 @@ class ReportVelocityTest {
         var sumFinalItems = frozen[null]?.finalItems ?: 0
         for (accountId in named) {
             val response = client.get(
-                "/api/v1/reports/velocity?connectionId=$connId&teamId=$floTeamId&accountId=$accountId&sprintId=${golden.sprintId}",
+                "/api/v1/reports/commitments?connectionId=$connId&teamId=$floTeamId&accountId=$accountId&sprintId=${golden.sprintId}",
             )
             assertEquals(HttpStatusCode.OK, response.status)
-            val sprint = response.body<VelocityReport>().sprints.single()
+            val sprint = response.body<CommitmentsReport>().sprints.single()
             val snapshot = assertNotNull(sprint.snapshot, "$accountId: a snapshotted sprint has per-user frozen figures")
             val expected = frozen.getValue(accountId)
             assertEquals(0, expected.initialMd.compareTo(BigDecimal.valueOf(snapshot.initialMd)), "$accountId initialMd")
@@ -270,12 +270,12 @@ class ReportVelocityTest {
     fun `USER level snapshot is null for a sprint with no snapshot and drift stays false`() = testApplication {
         usePostgresTestcontainer()
         val connId = DerivedStubFixture.connectionId()
-        val golden = reportVelocityGolden
+        val golden = reportCommitmentsGolden
         val floTeamId = floTeamId(connId, golden.sprintId)
-        val client = seededClient("reports-velocity-user-no-snapshot")
+        val client = seededClient("reports-commitments-user-no-snapshot")
 
-        val accountId = client.get("/api/v1/reports/velocity?connectionId=$connId&teamId=$floTeamId&sprintId=${golden.sprintId}")
-            .body<VelocityReport>().groups.mapNotNull { it.accountId }.first()
+        val accountId = client.get("/api/v1/reports/commitments?connectionId=$connId&teamId=$floTeamId&sprintId=${golden.sprintId}")
+            .body<CommitmentsReport>().groups.mapNotNull { it.accountId }.first()
         val open = suspendTransaction(sharedDatabaseForTests()) {
             MetricsTables.FactSprint.selectAll()
                 .where {
@@ -285,8 +285,8 @@ class ReportVelocityTest {
                 .toList().first()[MetricsTables.FactSprint.sprintId]
         }
         val sprint = client.get(
-            "/api/v1/reports/velocity?connectionId=$connId&teamId=$floTeamId&accountId=$accountId&sprintId=$open",
-        ).body<VelocityReport>().sprints.single()
+            "/api/v1/reports/commitments?connectionId=$connId&teamId=$floTeamId&accountId=$accountId&sprintId=$open",
+        ).body<CommitmentsReport>().sprints.single()
         assertEquals(null, sprint.snapshot)
         assertTrue(!sprint.drift)
     }
@@ -317,16 +317,16 @@ class ReportVelocityTest {
     @Test
     fun `USER level frozen figures come from the stored snapshot scope not the live rows, per connection`() = testApplication {
         usePostgresTestcontainer()
-        val sprintId = reportVelocityGolden.sprintId
-        val (connA, teamA) = FrozenScopeFixtures.derivedDisabledClone("jira-velocity-frozen", "velocity-frozen-team-a")
-        val (connB, teamB) = FrozenScopeFixtures.derivedDisabledClone("jira-velocity-frozen", "velocity-frozen-team-b")
-        val client = seededClient("reports-velocity-user-frozen-synthetic")
+        val sprintId = reportCommitmentsGolden.sprintId
+        val (connA, teamA) = FrozenScopeFixtures.derivedDisabledClone("jira-commitments-frozen", "commitments-frozen-team-a")
+        val (connB, teamB) = FrozenScopeFixtures.derivedDisabledClone("jira-commitments-frozen", "commitments-frozen-team-b")
+        val client = seededClient("reports-commitments-user-frozen-synthetic")
 
         fun userUrl(connId: UInt, teamId: UInt, accountId: String) =
-            "/api/v1/reports/velocity?connectionId=$connId&teamId=$teamId&accountId=$accountId&sprintId=$sprintId"
-        val ann = client.get("/api/v1/reports/velocity?connectionId=$connA&teamId=$teamA&sprintId=$sprintId")
-            .body<VelocityReport>().groups.mapNotNull { it.accountId }.first()
-        val before = client.get(userUrl(connA, teamA, ann)).body<VelocityReport>().sprints.single()
+            "/api/v1/reports/commitments?connectionId=$connId&teamId=$teamId&accountId=$accountId&sprintId=$sprintId"
+        val ann = client.get("/api/v1/reports/commitments?connectionId=$connA&teamId=$teamA&sprintId=$sprintId")
+            .body<CommitmentsReport>().groups.mapNotNull { it.accountId }.first()
+        val before = client.get(userUrl(connA, teamA, ann)).body<CommitmentsReport>().sprints.single()
         assertNotNull(before.snapshot, "the clone's golden sprint is closed and team-mapped, so it is frozen")
         assertTrue(!before.drift, "before the overwrite the snapshot was frozen from the live rows")
 
@@ -352,7 +352,7 @@ class ReportVelocityTest {
             buildJsonArray { add(scopeItem(1, ann, committed = true, inScopeAtClose = true, commitMd = 1.0, closeMd = 1.0)) },
         )
 
-        val a = client.get(userUrl(connA, teamA, ann)).body<VelocityReport>().sprints.single()
+        val a = client.get(userUrl(connA, teamA, ann)).body<CommitmentsReport>().sprints.single()
         val snapshotA = assertNotNull(a.snapshot)
         // Hand-computed: initial = items 1-3 -> 3 items, 2.50 + 2.51 + 0 = 5.01 MD;
         // final = items 1-4 -> 4 items, 3.00 + 4.13 + 0 + 1.50 = 8.63 MD.
@@ -364,7 +364,7 @@ class ReportVelocityTest {
         assertNotEquals(snapshotA.initialMd, a.initialMd, "the live figures still come from fact_sprint_scope, not the snapshot")
         assertNotEquals(snapshotA.finalMd, a.finalMd)
 
-        val b = client.get(userUrl(connB, teamB, ann)).body<VelocityReport>().sprints.single()
+        val b = client.get(userUrl(connB, teamB, ann)).body<CommitmentsReport>().sprints.single()
         val snapshotB = assertNotNull(b.snapshot)
         assertEquals(1.0, snapshotB.initialMd, ABS_TOLERANCE)
         assertEquals(1, snapshotB.initialItems)
@@ -373,7 +373,7 @@ class ReportVelocityTest {
         assertTrue(b.drift)
 
         // An account with no item in the stored scope has zero frozen figures (not null: the sprint IS frozen).
-        val nobody = assertNotNull(client.get(userUrl(connB, teamB, other)).body<VelocityReport>().sprints.single().snapshot)
+        val nobody = assertNotNull(client.get(userUrl(connB, teamB, other)).body<CommitmentsReport>().sprints.single().snapshot)
         assertEquals(0.0, nobody.initialMd)
         assertEquals(0, nobody.initialItems)
         assertEquals(0.0, nobody.finalMd)
@@ -429,12 +429,12 @@ class ReportVelocityTest {
     fun `capacity is the stored fact_sprint capacity and source at UNIT and TEAM level, and null at USER level`() = testApplication {
         usePostgresTestcontainer()
         val connId = DerivedStubFixture.connectionId()
-        val golden = reportVelocityGolden
+        val golden = reportCommitmentsGolden
         val floTeamId = floTeamId(connId, golden.sprintId)
-        val client = seededClient("reports-velocity-capacity")
+        val client = seededClient("reports-commitments-capacity")
         val stored = storedCapacities(connId)
 
-        val unit = client.get("/api/v1/reports/velocity?connectionId=$connId&from=2025-09-01&to=2026-03-06").body<VelocityReport>()
+        val unit = client.get("/api/v1/reports/commitments?connectionId=$connId&from=2025-09-01&to=2026-03-06").body<CommitmentsReport>()
         assertTrue(unit.sprints.isNotEmpty())
         for (sprint in unit.sprints) {
             val (capacityMd, source) = stored.getValue(sprint.sprintId)
@@ -447,8 +447,8 @@ class ReportVelocityTest {
         assertEquals("DEFAULT", goldenSource)
         assertNotNull(goldenCapacity)
 
-        val team = client.get("/api/v1/reports/velocity?connectionId=$connId&teamId=$floTeamId&sprintId=${golden.sprintId}")
-            .body<VelocityReport>()
+        val team = client.get("/api/v1/reports/commitments?connectionId=$connId&teamId=$floTeamId&sprintId=${golden.sprintId}")
+            .body<CommitmentsReport>()
         val teamSprint = team.sprints.single()
         assertEquals(goldenCapacity, teamSprint.capacityMd)
         assertEquals("DEFAULT", teamSprint.capacitySource)
@@ -456,8 +456,8 @@ class ReportVelocityTest {
 
         val account = team.groups.mapNotNull { it.accountId }.first()
         val user = client.get(
-            "/api/v1/reports/velocity?connectionId=$connId&teamId=$floTeamId&accountId=$account&sprintId=${golden.sprintId}",
-        ).body<VelocityReport>().sprints.single()
+            "/api/v1/reports/commitments?connectionId=$connId&teamId=$floTeamId&accountId=$account&sprintId=${golden.sprintId}",
+        ).body<CommitmentsReport>().sprints.single()
         assertEquals(null, user.capacityMd, "capacity is team-only: hidden when users are picked")
         assertEquals(null, user.capacitySource)
     }
@@ -465,22 +465,23 @@ class ReportVelocityTest {
     @Test
     fun `a configured sprint capacity overrides the default at UNIT and TEAM level`() = testApplication {
         usePostgresTestcontainer()
-        val sprintId = reportVelocityGolden.sprintId
-        val (connId, teamId) = FrozenScopeFixtures.derivedDisabledClone("jira-velocity-capacity", "velocity-capacity-team")
+        val sprintId = reportCommitmentsGolden.sprintId
+        val (connId, teamId) = FrozenScopeFixtures.derivedDisabledClone("jira-commitments-capacity", "commitments-capacity-team")
         val configured = 42.5
         val config = DerivedStubFixture.metricsConfig()
         val current = config.effectiveConfig(connId)
         config.replaceConfig(connId, current.asRequest().copy(sprintCapacities = listOf(MetricsSprintCapacity(sprintId, configured))))
         DerivedStubFixture.withPinnedSettings(DerivedStubFixture.metricsSettings()) { DerivedStubFixture.derivePinned(connId, jobId = 2u) }
-        val client = seededClient("reports-velocity-capacity-configured")
+        val client = seededClient("reports-commitments-capacity-configured")
 
         // The expectation is what the admin configured, cross-checked against the stored row — not the report.
         assertEquals(configured to "CONFIGURED", storedCapacities(connId).getValue(sprintId))
-        val unit = client.get("/api/v1/reports/velocity?connectionId=$connId&sprintId=$sprintId").body<VelocityReport>().sprints.single()
+        val unit = client.get("/api/v1/reports/commitments?connectionId=$connId&sprintId=$sprintId")
+            .body<CommitmentsReport>().sprints.single()
         assertEquals(configured, unit.capacityMd)
         assertEquals("CONFIGURED", unit.capacitySource)
-        val team = client.get("/api/v1/reports/velocity?connectionId=$connId&teamId=$teamId&sprintId=$sprintId")
-            .body<VelocityReport>().sprints.single()
+        val team = client.get("/api/v1/reports/commitments?connectionId=$connId&teamId=$teamId&sprintId=$sprintId")
+            .body<CommitmentsReport>().sprints.single()
         assertEquals(configured, team.capacityMd)
         assertEquals("CONFIGURED", team.capacitySource)
     }
@@ -489,16 +490,16 @@ class ReportVelocityTest {
 
     private suspend fun io.ktor.client.HttpClient.pickedAccounts(): PickedAccounts {
         val connId = DerivedStubFixture.connectionId()
-        val sprintId = reportVelocityGolden.sprintId
+        val sprintId = reportCommitmentsGolden.sprintId
         val teamId = floTeamId(connId, sprintId)
-        val accounts = get("/api/v1/reports/velocity?connectionId=$connId&teamId=$teamId&sprintId=$sprintId")
-            .body<VelocityReport>().groups.mapNotNull { it.accountId }
+        val accounts = get("/api/v1/reports/commitments?connectionId=$connId&teamId=$teamId&sprintId=$sprintId")
+            .body<CommitmentsReport>().groups.mapNotNull { it.accountId }
         assertTrue(accounts.size >= 2, "the golden sprint must have at least two named assignees-at-commitment, got $accounts")
         return PickedAccounts(connId, teamId, sprintId, accounts)
     }
 
     private fun userUrl(p: PickedAccounts, accounts: List<String>) =
-        "/api/v1/reports/velocity?connectionId=${p.connId}&teamId=${p.teamId}&sprintId=${p.sprintId}" +
+        "/api/v1/reports/commitments?connectionId=${p.connId}&teamId=${p.teamId}&sprintId=${p.sprintId}" +
             accounts.joinToString("") { "&accountId=$it" }
 
     private fun md(vararg values: Double) = values.fold(BigDecimal.ZERO) { acc, v -> acc + BigDecimal.valueOf(v) }
@@ -506,12 +507,12 @@ class ReportVelocityTest {
     @Test
     fun `several accountIds sum the sprint and split it per user in request order`() = testApplication {
         usePostgresTestcontainer()
-        val client = seededClient("reports-velocity-multi-user")
+        val client = seededClient("reports-commitments-multi-user")
         val p = client.pickedAccounts()
         val (a, b) = p.accounts
-        val one = client.get(userUrl(p, listOf(a))).body<VelocityReport>()
-        val two = client.get(userUrl(p, listOf(b))).body<VelocityReport>()
-        val both = client.get(userUrl(p, listOf(b, a))).body<VelocityReport>()
+        val one = client.get(userUrl(p, listOf(a))).body<CommitmentsReport>()
+        val two = client.get(userUrl(p, listOf(b))).body<CommitmentsReport>()
+        val both = client.get(userUrl(p, listOf(b, a))).body<CommitmentsReport>()
 
         val sprintA = one.sprints.single()
         val sprintB = two.sprints.single()
@@ -533,8 +534,8 @@ class ReportVelocityTest {
 
         // byUser: request order (b, a), each entry the single-account run's own figures, labelled like the TEAM-level groups.
         assertEquals(listOf(b, a), sprint.byUser.map { it.accountId })
-        val teamLabels = client.get("/api/v1/reports/velocity?connectionId=${p.connId}&teamId=${p.teamId}&sprintId=${p.sprintId}")
-            .body<VelocityReport>().groups.filter { it.accountId != null }.associate { it.accountId!! to it.label }
+        val teamLabels = client.get("/api/v1/reports/commitments?connectionId=${p.connId}&teamId=${p.teamId}&sprintId=${p.sprintId}")
+            .body<CommitmentsReport>().groups.filter { it.accountId != null }.associate { it.accountId!! to it.label }
         for ((share, single) in sprint.byUser.zip(listOf(sprintB, sprintA))) {
             assertEquals(teamLabels.getValue(share.accountId), share.label)
             assertEquals(single.initialMd, share.initialMd)
@@ -557,10 +558,10 @@ class ReportVelocityTest {
     @Test
     fun `one accountId keeps the figures with a one-entry byUser and a user with no scope is a zero entry`() = testApplication {
         usePostgresTestcontainer()
-        val client = seededClient("reports-velocity-one-user")
+        val client = seededClient("reports-commitments-one-user")
         val p = client.pickedAccounts()
         val a = p.accounts.first()
-        val single = client.get(userUrl(p, listOf(a))).body<VelocityReport>()
+        val single = client.get(userUrl(p, listOf(a))).body<CommitmentsReport>()
         val sprint = single.sprints.single()
         val share = sprint.byUser.single()
         assertEquals(a, share.accountId)
@@ -572,10 +573,10 @@ class ReportVelocityTest {
         assertEquals(a, single.groups.single().accountId)
         assertEquals(sprint.finalMd, single.groups.single().finalMd)
         // A repeated identical value collapses rather than fails.
-        assertEquals(sprint, client.get(userUrl(p, listOf(a, a))).body<VelocityReport>().sprints.single())
+        assertEquals(sprint, client.get(userUrl(p, listOf(a, a))).body<CommitmentsReport>().sprints.single())
 
-        val nobody = "velocity-nobody-account"
-        val both = client.get(userUrl(p, listOf(nobody, a))).body<VelocityReport>()
+        val nobody = "commitments-nobody-account"
+        val both = client.get(userUrl(p, listOf(nobody, a))).body<CommitmentsReport>()
         val zero = both.sprints.single().byUser.first()
         assertEquals(nobody, zero.accountId)
         assertEquals(nobody, zero.label, "an account with no known display name is labelled by its id")
@@ -586,15 +587,15 @@ class ReportVelocityTest {
     }
 
     @Test
-    fun `at most eight accountIds on velocity, and a repeated accountId on another report stays 400`() = testApplication {
+    fun `at most eight accountIds on commitments, and a repeated accountId on another report stays 400`() = testApplication {
         usePostgresTestcontainer()
-        val client = seededClient("reports-velocity-account-bound")
+        val client = seededClient("reports-commitments-account-bound")
         val p = client.pickedAccounts()
-        fun ids(count: Int) = (1..count).map { "velocity-bound-$it" }
+        fun ids(count: Int) = (1..count).map { "commitments-bound-$it" }
 
         assertEquals(HttpStatusCode.OK, client.get(userUrl(p, ids(8))).status)
         assertEquals(HttpStatusCode.BadRequest, client.get(userUrl(p, ids(9))).status)
-        val withoutTeam = client.get("/api/v1/reports/velocity?connectionId=${p.connId}&accountId=a")
+        val withoutTeam = client.get("/api/v1/reports/commitments?connectionId=${p.connId}&accountId=a")
         assertEquals(HttpStatusCode.BadRequest, withoutTeam.status, "accountId requires teamId")
         val throughput = "/api/v1/reports/throughput?connectionId=${p.connId}&teamId=${p.teamId}&sprintId=${p.sprintId}"
         assertEquals(HttpStatusCode.OK, client.get("$throughput&accountId=${p.accounts[0]}").status)
@@ -605,18 +606,18 @@ class ReportVelocityTest {
     fun `unknown sprintId is 400`() = testApplication {
         usePostgresTestcontainer()
         val connId = DerivedStubFixture.connectionId()
-        val client = seededClient("reports-velocity-unknown-sprint")
+        val client = seededClient("reports-commitments-unknown-sprint")
 
-        val response = client.get("/api/v1/reports/velocity?connectionId=$connId&sprintId=999999999")
+        val response = client.get("/api/v1/reports/commitments?connectionId=$connId&sprintId=999999999")
         assertEquals(HttpStatusCode.BadRequest, response.status)
     }
 
     @Test
     fun `from after to is 400`() = testApplication {
         usePostgresTestcontainer()
-        val client = seededClient("reports-velocity-bad-range")
+        val client = seededClient("reports-commitments-bad-range")
 
-        val response = client.get("/api/v1/reports/velocity?from=2026-01-01&to=2025-01-01")
+        val response = client.get("/api/v1/reports/commitments?from=2026-01-01&to=2025-01-01")
         assertEquals(HttpStatusCode.BadRequest, response.status)
     }
 
