@@ -125,6 +125,13 @@ export default function SyncJobsTable({
               <Text size="sm" c="dimmed">
                 {job.errorCode ?? "—"}
               </Text>
+              {job.errorDetail && (
+                // Server text (exception class + message, or the fixed lease-expired sentence) — plain text only;
+                // clamped to two lines, the full text stays in the title.
+                <Text size="xs" c="dimmed" lineClamp={2} maw={320} title={job.errorDetail}>
+                  {job.errorDetail}
+                </Text>
+              )}
             </Table.Td>
             <Table.Td style={{ width: 1 }} ta="right">
               {isCancellable(job) && (

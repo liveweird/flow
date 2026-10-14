@@ -270,6 +270,48 @@ class SyncJobQueueTest {
         assertEquals("RETRIES_EXHAUSTED", row.errorCode)
     }
 
+    @Test
+    fun `a job whose lease expired on its last attempt is closed RETRIES_EXHAUSTED with a lease-expiry detail`() = runBlocking {
+        val ds = dataSources()
+        val jobs = syncJobs(maxAttempts = 2)
+        val connId = createConnection(ds)
+        jobs.enqueueScheduled(connId, SyncJobKind.SYNC, configRevision = 1L, now = 1000L)
+        val jobId = jobs.list(connId, SyncJobListFilter(), pagingAll()).items.single().id
+        assertNotNull(jobs.claimSpecific("worker-a", leaseSeconds = 10, now = 1000L, targetJobId = jobId))
+
+        // Attempt 1's lease expires and attempts remain: the job is re-claimed and records no note (it may still succeed).
+        val secondAt = 1000L + 11_000L
+        val second = assertNotNull(jobs.claimSpecific("worker-b", leaseSeconds = 10, now = secondAt, targetJobId = jobId))
+        assertEquals(2, second.attempt)
+        assertNull(assertNotNull(jobs.read(connId, jobId)).errorDetail, "a re-queued expired attempt records no detail")
+
+        // Attempt 2 (the last) expires too: the next claim closes the job and says why.
+        val closeAt = secondAt + 11_000L
+        assertNull(withOnlyConnections(setOf(connId), closeAt) { jobs.claim("worker-c", leaseSeconds = 10, now = closeAt) })
+        val row = assertNotNull(jobs.read(connId, jobId))
+        assertEquals(SyncJobStatus.FAILED, row.status)
+        assertEquals("RETRIES_EXHAUSTED", row.errorCode)
+        assertEquals("Lease expired on attempt 2 of 2 (the worker stopped mid-job — restarted or out of memory?)", row.errorDetail)
+    }
+
+    @Test
+    fun `a job that failed on its own keeps its own detail`() = runBlocking {
+        val ds = dataSources()
+        val jobs = syncJobs(maxAttempts = 1)
+        val connId = createConnection(ds)
+        jobs.enqueueScheduled(connId, SyncJobKind.SYNC, configRevision = 1L, now = 1000L)
+        val jobId = jobs.list(connId, SyncJobListFilter(), pagingAll()).items.single().id
+        val claim = assertNotNull(jobs.claimSpecific("worker-a", leaseSeconds = 10, now = 1000L, targetJobId = jobId))
+        assertEquals(true, jobs.fail(claim.id, claim.attempt, "RUN_FAILED", "IllegalStateException: boom", now = 2000L))
+
+        // A later claim past the lease must not touch the closed row.
+        val later = 1000L + 60_000L
+        assertNull(withOnlyConnections(setOf(connId), later) { jobs.claim("worker-b", leaseSeconds = 10, now = later) })
+        val row = assertNotNull(jobs.read(connId, jobId))
+        assertEquals("RUN_FAILED", row.errorCode)
+        assertEquals("IllegalStateException: boom", row.errorDetail)
+    }
+
     /**
      * A renewal cancelled mid-transaction (the worker cancels a renewal that outlived its slack), with the job row's lock held.
      * exposed-r2dbc 1.5.0 has no `NonCancellable`, so this pins what actually happens: the transaction rolls back and its
@@ -570,6 +612,7 @@ class SyncJobQueueTest {
         val job = jobs.list(connId, SyncJobListFilter(), pagingAll()).items.single { it.id == jobId }
         assertEquals(SyncJobStatus.FAILED, job.status)
         assertEquals("RETRIES_EXHAUSTED", job.errorCode)
+        assertNull(job.errorDetail, "a released (PENDING) job at max_attempts did not lose a lease: no lease-expiry detail")
     }
 
     @Test

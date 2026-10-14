@@ -57,7 +57,7 @@ endpoint (`requireAdmin` server-side).
   progress counters), `components/CursorTable.tsx` (each cursor's `position` rendered verbatim —
   the server owns its shape) and the raw-store counts, plus the paged sync-jobs history
   (`components/SyncJobsTable.tsx` on the `RegistryListTable` shell, kind/status filters, a Cancel
-  per still-open row). **Auto-refresh is conditional**: the status query's `refetchInterval` is 5s
+  per still-open row; the error cell shows `errorCode` with a non-empty `errorDetail` beneath it — dimmed `xs` plain text, clamped to two lines, full text in `title`). **Auto-refresh is conditional**: the status query's `refetchInterval` is 5s
   only while `currentJob` is open, `false` otherwise — never a fixed poll (the server's `currentJob` is the open
   job — RUNNING, else the PENDING one the worker would claim first, `SyncJobsService.openJob` — so a just-requested job shows its badge and is
   polled from the first fetch). The sync-jobs history query polls on that condition
