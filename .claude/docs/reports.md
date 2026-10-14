@@ -188,9 +188,9 @@ ReportFilters {
 - **`domains`/`activityTypes`/`workCategories`** -- the values a real DERIVE run has ACTUALLY
   produced (`metrics.dim_domain`/`dim_task`/`dim_epic`), never every value a per-connection
   config COULD map to: an admin's configured-but-unused mapping would otherwise clutter a filter
-  dropdown with a value no report can ever return a row for. **Known gap:** `activityTypes` is read from `dim_task` only, so a type
-  that appears solely on epic- or above-epic-logged worklogs (A31; e.g. "Program") is not offered, though report 16's `fact_worklog`
-  rows carry it and an `activityType` slice by that name is valid (BACKLOG: report filter options miss worklog-only activity types).
+  dropdown with a value no report can ever return a row for. `activityTypes` is the union of `dim_task`'s types and the non-null
+  `fact_worklog` ones (two `SELECT DISTINCT`s merged, sorted), so a type that appears solely on epic- or above-epic-logged worklogs
+  (A31; e.g. "Program") is offered too -- report 16's rows carry it and an `activityType` slice by that name is valid.
 - **`connections`** -- every ACTIVE connection (not additionally filtered to `enabled` -- a
   connection an admin has paused from syncing still owns whatever it already derived, and its
   history stays a legitimate filter choice), id and name ONLY -- never `settings`/the encrypted
