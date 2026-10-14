@@ -140,7 +140,11 @@ calls on the same database. Route handlers never touch tables (services only). T
 place:
 
 - `TeamService` joins `UserService.Users` for the roster's display fields and the active-member
-  counts, and checks member ids against active users inside the create/add transaction.
+  counts, and checks member ids against active users inside the create/add transaction. Since V23 it
+  also reads `Users` for the manager: the active manager's display name (one batched lookup per page),
+  the manager id check on create AND update, and `isActiveManager`'s `Teams` ⋈ `Users` join (the
+  capacity guard). `teams.manager_user_id` has no `ON DELETE` rule: users are only ever soft-deleted;
+  a future hard purge of users must clear it first.
 - `TeamService.delete` (v0.3.0 M1 commit 3) WRITES `metrics/TeamMembershipService.TeamMembership`
   and `metrics/MetricsSettingsService.Settings` directly, in the SAME transaction as the team's own
   soft delete: it closes/removes the team's D1 Jira-user memberships and bumps the shared

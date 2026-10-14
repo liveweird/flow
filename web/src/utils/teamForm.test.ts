@@ -17,8 +17,14 @@ describe("teamForm", () => {
   });
 
   test("the body trims and sends a blank description as null; values round-trip from a response", () => {
-    expect(toTeamBody({ name: "  Payments ", description: "   " })).toEqual({ name: "Payments", description: null });
-    expect(toTeamBody({ name: "A", description: " movers " })).toEqual({ name: "A", description: "movers" });
+    const none = { managerUserId: null, managerLabel: null };
+    expect(toTeamBody({ name: "  Payments ", description: "   ", ...none })).toEqual({ name: "Payments", description: null, managerUserId: null });
+    expect(toTeamBody({ name: "A", description: " movers ", ...none })).toEqual({ name: "A", description: "movers", managerUserId: null });
+    expect(toTeamBody({ name: "A", description: "", managerUserId: "7", managerLabel: "Ann (a@x.io)" })).toEqual({
+      name: "A",
+      description: null,
+      managerUserId: 7,
+    });
     expect(
       toTeamFormValues({
         id: 1,
@@ -30,7 +36,19 @@ describe("teamForm", () => {
         createdAt: 0,
         updatedAt: 0,
       }),
-    ).toEqual({ name: "A", description: "" });
+    ).toEqual({ name: "A", description: "", managerUserId: null, managerLabel: null });
+    expect(
+      toTeamFormValues({
+        id: 1,
+        name: "A",
+        description: null,
+        managerUserId: 7,
+        managerName: "Ann Manager",
+        members: [],
+        createdAt: 0,
+        updatedAt: 0,
+      }),
+    ).toEqual({ name: "A", description: "", managerUserId: "7", managerLabel: "Ann Manager" });
   });
 
   test("save errors map to the fixed vocabulary", () => {

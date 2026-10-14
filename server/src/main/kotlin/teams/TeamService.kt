@@ -41,6 +41,8 @@ class TeamService(private val database: R2dbcDatabase) {
         val description = varchar("description", length = MAX_TEAM_DESCRIPTION_LENGTH).nullable()
 
         /** V23: the optional manager. May name a soft-deleted user — readers resolve it through ACTIVE users. */
+        // A SECOND foreign key from the team tables to Users (TeamMembers.userId is the first): any join over
+        // Teams + TeamMembers + Users must name its columns (onColumn/otherColumn), never rely on the implicit FK.
         val managerUserId = reference("manager_user_id", UserService.Users).nullable()
         val createdAt = long("created_at")
         val updatedAt = long("updated_at")

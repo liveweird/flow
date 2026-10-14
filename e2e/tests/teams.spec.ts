@@ -1,4 +1,4 @@
-// The flat-teams registry: an admin creates a team, manages its roster, renames and deletes it;
+// The flat-teams registry: an admin creates a team, manages its roster, renames it, assigns its manager and deletes it;
 // a regular user sees the read-only list. Owns: its throwaway team(s) and user (unique names,
 // deleted by the end of the file).
 import { createUserViaUi, deleteUserRow, expect, login, openFilters, rowOperation, signOut, test, uniqueText } from "./helpers";
@@ -38,6 +38,21 @@ test("admin creates a team, manages its roster, renames it, and deletes it", asy
   await page.getByRole("dialog").getByLabel("Name").fill(renamed);
   await page.getByRole("dialog").getByRole("button", { name: "Save", exact: true }).click();
   await expect(page.getByRole("heading", { name: renamed })).toBeVisible();
+  await expect(page.getByText("No manager")).toBeVisible();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+
+  // Assign the throwaway user as the team's manager from the editor's searchable picker.
+  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  const editor = page.getByRole("dialog");
+  const managerPicker = editor.getByRole("combobox", { name: "Manager" });
+  await managerPicker.click();
+  await managerPicker.fill(member.name);
+  await page.getByRole("option", { name: `${member.name} (${member.email})` }).click();
+  await Promise.all([
+    page.waitForResponse((r) => r.request().method() === "PUT" && /\/api\/v1\/teams\/\d+$/.test(r.url()) && r.ok()),
+    editor.getByRole("button", { name: "Save", exact: true }).click(),
+  ]);
+  await expect(page.getByText(`Manager: ${member.name}`)).toBeVisible();
 
   // Remove the member through the row menu.
   await rowOperation(page, member.name, `Remove ${member.name} from the team`);
