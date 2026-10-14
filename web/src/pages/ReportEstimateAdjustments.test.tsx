@@ -3,6 +3,7 @@ import { Route, Routes } from "react-router-dom";
 import ReportEstimateAdjustments from "./ReportEstimateAdjustments";
 import { jsonResponse } from "../test/http";
 import { ADJUSTMENTS, ADJUSTMENTS_EMPTY, FILTERS } from "../test/reportFixtures";
+import { openReportFilters } from "../test/reportFilters";
 import { renderWithProviders, screen, within } from "../test/render";
 
 vi.mock("@mantine/charts", () => ({
@@ -150,6 +151,7 @@ describe("ReportEstimateAdjustments page", () => {
     serve(mockFetch);
     renderPage();
     await screen.findByRole("heading", { name: "Tasks" });
+    await openReportFilters();
     expect(screen.getByRole("radio", { name: "Delivered in" })).toBeChecked();
     for (const name of ["Domain", "Activity type", "Work category"]) {
       expect(screen.getByRole("combobox", { name })).toBeInTheDocument();

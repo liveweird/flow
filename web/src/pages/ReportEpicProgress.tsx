@@ -39,7 +39,7 @@ function levelTitle(report: EpicProgressReport, t: TFunction): string {
 /** Report 15 — epic progress (EVM): planned value, earned value and actual cost as cumulative curves, with SV, SPI, CV, CPI. */
 export default function ReportEpicProgress() {
   const { t } = useTranslation();
-  const { filtersQuery, filters, filter, setFilter, clearRememberedTeam, query } = useReportPage(
+  const { filtersQuery, filters, filter, setFilter, clearRememberedTeam, query, storageKey } = useReportPage(
     "epic-progress",
     getEpicProgressReport,
     normalizeEpicProgressFilter,
@@ -56,6 +56,7 @@ export default function ReportEpicProgress() {
       {filters && (
         <>
           <ReportFilterBar
+            storageKey={storageKey}
             filters={filters}
             filter={filter}
             onChange={(next) => setFilter(applyBarChange(filter, next))}

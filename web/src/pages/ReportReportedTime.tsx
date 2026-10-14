@@ -19,7 +19,7 @@ const CONTROLS: ReportControls = { domainView: "TASK", domain: true, activityTyp
 /** Report 8 — reported time ÷ cycle time, with flow efficiency (A18) beside it. */
 export default function ReportReportedTime() {
   const { t } = useTranslation();
-  const { filtersQuery, filters, filter, setFilter, query } = useReportPage("reported-time-ratio", getReportedTimeRatioReport);
+  const { filtersQuery, filters, filter, setFilter, query, storageKey } = useReportPage("reported-time-ratio", getReportedTimeRatioReport);
   const report = query.data;
 
   const groupColumns: GroupColumn<ReportedTimeGroup>[] = [
@@ -37,7 +37,7 @@ export default function ReportReportedTime() {
       <ReportFiltersStatus query={filtersQuery} />
       {filters && (
         <>
-          <ReportFilterBar filters={filters} filter={filter} onChange={setFilter} controls={CONTROLS} />
+          <ReportFilterBar storageKey={storageKey} filters={filters} filter={filter} onChange={setFilter} controls={CONTROLS} />
           {report && <ReportMetaNote meta={report.meta} timeZone={filters.timeZone} />}
           <ReportChartCard
             title={t("reports.reportedTime.title")}

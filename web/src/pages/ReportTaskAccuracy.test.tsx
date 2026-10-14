@@ -4,6 +4,7 @@ import { Route, Routes } from "react-router-dom";
 import ReportTaskAccuracy from "./ReportTaskAccuracy";
 import { jsonResponse } from "../test/http";
 import { FILTERS, TASK_ACCURACY, TASK_ACCURACY_EMPTY, TASK_ACCURACY_HIDDEN } from "../test/reportFixtures";
+import { openReportFilters } from "../test/reportFilters";
 import { renderWithProviders, screen, waitFor, within } from "../test/render";
 
 // recharts renders nothing under happy-dom (no layout), so each histogram is a probe.
@@ -126,6 +127,7 @@ describe("ReportTaskAccuracy page", () => {
     serve(mockFetch, () => jsonResponse(500, { title: "boom", status: 500 }));
     renderPage();
     expect(await screen.findByRole("alert")).toHaveTextContent("Load failed (500)");
+    await openReportFilters();
     expect(screen.getByRole("combobox", { name: "Period" })).toBeInTheDocument();
   });
 
@@ -147,6 +149,7 @@ describe("ReportTaskAccuracy page", () => {
     const user = userEvent.setup();
     renderPage();
     await screen.findAllByTestId("bar-chart");
+    await openReportFilters();
     expect(screen.getByRole("radio", { name: "Delivered in" })).toBeChecked();
     for (const name of ["Domain", "Activity type", "Work category"]) {
       expect(screen.getByRole("combobox", { name })).toBeInTheDocument();
@@ -170,6 +173,7 @@ describe("ReportTaskAccuracy page", () => {
     const user = userEvent.setup();
     renderPage();
     await screen.findAllByTestId("bar-chart");
+    await openReportFilters();
     await user.click(screen.getByRole("combobox", { name: "Period" }));
     await user.click(await screen.findByRole("option", { name: "Last 6 sprints" }));
     await waitFor(() => expect(calls(mockFetch)).toContain(`${URL_PREFIX}lastSprints=6`));

@@ -24,7 +24,7 @@ const shareCell = (figures: AdjustmentFigures | null) =>
 /** Report 5 — estimate adjustments: how often and how much estimates change, for tasks and for epics. */
 export default function ReportEstimateAdjustments() {
   const { t } = useTranslation();
-  const { filtersQuery, filters, filter, setFilter, query } = useReportPage("estimate-adjustments", getEstimateAdjustmentsReport);
+  const { filtersQuery, filters, filter, setFilter, query, storageKey } = useReportPage("estimate-adjustments", getEstimateAdjustmentsReport);
   const report = query.data;
 
   const groupColumns: GroupColumn<EstimateAdjustmentsGroup>[] = [
@@ -47,7 +47,7 @@ export default function ReportEstimateAdjustments() {
       <ReportFiltersStatus query={filtersQuery} />
       {filters && (
         <>
-          <ReportFilterBar filters={filters} filter={filter} onChange={setFilter} controls={CONTROLS} />
+          <ReportFilterBar storageKey={storageKey} filters={filters} filter={filter} onChange={setFilter} controls={CONTROLS} />
           <Text size="xs" c="dimmed">
             {t("reports.adjustments.domainViewNote")}
           </Text>

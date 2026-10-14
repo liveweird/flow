@@ -4,6 +4,7 @@ import { Route, Routes } from "react-router-dom";
 import ReportVelocity from "./ReportVelocity";
 import { jsonResponse } from "../test/http";
 import { FILTERS, VELOCITY_EMPTY, VELOCITY_TEAM, VELOCITY_UNIT, VELOCITY_USER } from "../test/reportFixtures";
+import { openReportFilters } from "../test/reportFilters";
 import { renderWithProviders, screen, waitFor, within } from "../test/render";
 
 // recharts renders nothing under happy-dom (no layout), so the chart is a probe carrying its props.
@@ -103,6 +104,7 @@ describe("ReportVelocity page", () => {
     serve(mockFetch);
     renderPage();
     await screen.findByTestId("bar-chart");
+    await openReportFilters();
     expect(screen.queryByRole("radio", { name: "Week" })).not.toBeInTheDocument();
     expect(screen.queryByRole("radio", { name: "Delivered in" })).not.toBeInTheDocument();
     for (const name of ["Domain", "Activity type", "Work category"]) {
@@ -121,6 +123,7 @@ describe("ReportVelocity page", () => {
     expect(screen.getByRole("heading", { name: "By member" })).toBeInTheDocument();
     expect(screen.getByText("Unassigned")).toBeInTheDocument();
     expect(velocityCalls(mockFetch)).toContain("/api/v1/reports/velocity?teamId=1");
+    await openReportFilters();
     expect((screen.getByRole("combobox", { name: "Team" }) as HTMLInputElement).value).toBe("Alpha");
   });
 
@@ -143,6 +146,7 @@ describe("ReportVelocity page", () => {
     serve(mockFetch, { velocity: () => jsonResponse(500, { title: "boom", status: 500 }) });
     renderPage();
     expect(await screen.findByRole("alert")).toHaveTextContent("Load failed (500)");
+    await openReportFilters();
     expect(screen.getByRole("combobox", { name: "Period" })).toBeInTheDocument();
   });
 
@@ -151,7 +155,7 @@ describe("ReportVelocity page", () => {
     renderPage();
     expect(await screen.findByRole("alert")).toHaveTextContent("Load failed (500)");
     expect(velocityCalls(mockFetch)).toEqual([]);
-    expect(screen.queryByRole("combobox", { name: "Period" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Filters/ })).not.toBeInTheDocument();
   });
 
   test("a bare link with a remembered team issues exactly one report fetch, already scoped to it", async () => {
@@ -170,6 +174,7 @@ describe("ReportVelocity page", () => {
     renderPage("/reports/velocity?sprintId=21");
     await screen.findByTestId("bar-chart");
     expect(velocityCalls(mockFetch)).toEqual(["/api/v1/reports/velocity?sprintId=21"]);
+    await openReportFilters();
     expect((screen.getByRole("combobox", { name: "Sprint" }) as HTMLInputElement).value).toBe("Beta 1");
     expect((screen.getByRole("combobox", { name: "Team" }) as HTMLInputElement).value).toBe("");
   });
@@ -190,6 +195,7 @@ describe("ReportVelocity page", () => {
     const busy = () => screen.getByTestId("bar-chart").closest("[aria-busy]");
     expect(busy()).toHaveAttribute("aria-busy", "false");
 
+    await openReportFilters();
     await user.click(screen.getByRole("combobox", { name: "Period" }));
     await user.click(await screen.findByRole("option", { name: "Last 6 sprints" }));
 

@@ -169,7 +169,9 @@ the same commit** — this list is the coverage map, the scenario file is the de
   sprint's domain and sprint, read the three-layer matrix, drill an epic into its tasks and a month into weeks (focus on the first
   week), open a cell's tooltip by keyboard focus, switch a layer off, the Burn-up tab (URL, chart legend, the daily table's figures) and back, then an epic's planned window in Epics mode — with the computed
   styles the unit tests cannot see (scroll margins, halos, the tooltip's height cap). Period-bound reads use a fixed window around the
-  stub's reference date and narrow to the spec's own connection through the URL.
+  stub's reference date and narrow to the spec's own connection through the URL. Every report's filter bar is collapsible
+  (folded by default; scenarios unfold it with `openFilters`), and one scenario folds and unfolds it: the toggle's
+  `aria-expanded` and active-filter badge, the choice remembered per report across a reload.
 - [`teams.spec.ts`](scenarios/teams.md) — the flat-teams registry: create through the modal →
   add a member from the searchable picker → rename → remove the member → delete from the list;
   a regular user's read-only list and roster (no New team, no row menu, no picker).

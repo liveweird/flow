@@ -22,7 +22,7 @@ const VelocityChart = lazy(() => import("../components/VelocityChart"));
 /** Report 1 — velocity: each sprint's committed (initial) scope against its final scope. */
 export default function ReportVelocity() {
   const { t } = useTranslation();
-  const { filtersQuery, filters, filter, setFilter, query } = useReportPage("velocity", getVelocityReport);
+  const { filtersQuery, filters, filter, setFilter, query, storageKey } = useReportPage("velocity", getVelocityReport);
   const report = query.data;
 
   const figures = [
@@ -45,7 +45,7 @@ export default function ReportVelocity() {
       <ReportFiltersStatus query={filtersQuery} />
       {filters && (
         <>
-          <ReportFilterBar filters={filters} filter={filter} onChange={setFilter} />
+          <ReportFilterBar storageKey={storageKey} filters={filters} filter={filter} onChange={setFilter} />
           {report && <ReportMetaNote meta={report.meta} timeZone={filters.timeZone} />}
           <ReportChartCard
             title={t("reports.velocity.chartTitle")}

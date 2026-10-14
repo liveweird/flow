@@ -20,7 +20,7 @@ const CONTROLS: ReportControls = { domainView: "TASK", domain: true, activityTyp
 /** Report 3 — task estimation accuracy: actual ÷ estimate for finished tasks, at start (primary) and at done. */
 export default function ReportTaskAccuracy() {
   const { t } = useTranslation();
-  const { filtersQuery, filters, filter, setFilter, query } = useReportPage("task-estimation-accuracy", getTaskEstimationAccuracyReport);
+  const { filtersQuery, filters, filter, setFilter, query, storageKey } = useReportPage("task-estimation-accuracy", getTaskEstimationAccuracyReport);
   const report = query.data;
 
   const groupColumns: GroupColumn<TaskAccuracyGroup>[] = [
@@ -38,7 +38,7 @@ export default function ReportTaskAccuracy() {
       <ReportFiltersStatus query={filtersQuery} />
       {filters && (
         <>
-          <ReportFilterBar filters={filters} filter={filter} onChange={setFilter} controls={CONTROLS} />
+          <ReportFilterBar storageKey={storageKey} filters={filters} filter={filter} onChange={setFilter} controls={CONTROLS} />
           {report && <ReportMetaNote meta={report.meta} timeZone={filters.timeZone} />}
           <ReportChartCard
             title={t("reports.taskAccuracy.title")}

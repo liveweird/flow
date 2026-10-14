@@ -42,6 +42,9 @@ reads a team. The epic reports (Epic estimation accuracy, Estimate adjustments) 
 window (`EPIC_WINDOW`: from 365 days before the reference date) instead, because the stub's epics all
 finished in autumn 2025, before the six-month window opens.
 
+Every report's filter bar is collapsible and starts folded; a scenario that drives a filter control
+unfolds it first (`openFilters`, which leaves an already unfolded bar alone).
+
 ## Scenario: a regular user reads the golden sprint's velocity
 
 1. The regular user signs in and opens **Delivery** from the sidebar.
@@ -69,6 +72,22 @@ finished in autumn 2025, before the six-month window opens.
 4. They change **Group by** to **Month**.
    - *Expected*: the URL gains `bucket=MONTH`; the table's first column now reads "Month" and
      holds one `YYYY-MM` row (the whole window falls in one month); the chart is still shown.
+
+## Scenario: a user folds and unfolds the report filters and the choice is remembered
+
+1. The regular user signs in and opens **Delivery** (Velocity).
+   - *Expected*: the filter bar is folded — a "Filters" toggle (`aria-expanded` false, no badge)
+     and no Period control.
+2. They unfold it and pick the seeded team.
+   - *Expected*: `aria-expanded` is true and the controls show; the URL carries `teamId`; the
+     toggle's badge reads **1** (one filter differs from the default).
+3. They fold it again.
+   - *Expected*: the controls are gone, the badge still reads **1**.
+4. They reload the page, then unfold it and reload again.
+   - *Expected*: the bar stays folded after the first reload and unfolded after the second (the
+     choice is remembered per report).
+5. They open the **Throughput** tab.
+   - *Expected*: its own filter bar is still folded (each report remembers its own state).
 
 ## Scenario: the user reads the golden sprint's scope movement
 

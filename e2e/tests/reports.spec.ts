@@ -20,6 +20,7 @@ import {
   configureMetricsViaApi,
   expect,
   login,
+  openFilters,
   stubDayOffset,
   syncStubDataSourceViaApi,
   test,
@@ -101,6 +102,7 @@ async function openGroup(page: Page, group: "Delivery" | "Estimation"): Promise<
  * none of the stub's sprints — they ended in 2025.)
  */
 async function pickGoldenSprint(page: Page): Promise<void> {
+  await openFilters(page);
   const team = page.getByRole("combobox", { name: "Team", exact: true });
   await team.click();
   await team.fill(teamName);
@@ -111,6 +113,17 @@ async function pickGoldenSprint(page: Page): Promise<void> {
   await page.getByRole("option", { name: GOLDEN.name, exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`sprintId=${GOLDEN.sprintId}`));
   await expect(page).toHaveURL(new RegExp(`teamId=${teamId}`));
+}
+
+/** Narrow the open report through the filter bar: the seeded team, then a period preset (the bar is unfolded first). */
+async function pickTeamAndPeriod(page: Page, period: string): Promise<void> {
+  await openFilters(page);
+  const team = page.getByRole("combobox", { name: "Team", exact: true });
+  await team.click();
+  await team.fill(teamName);
+  await page.getByRole("option", { name: teamName, exact: true }).click();
+  await page.getByRole("combobox", { name: "Period", exact: true }).click();
+  await page.getByRole("option", { name: period, exact: true }).click();
 }
 
 /**
@@ -336,6 +349,7 @@ async function readEpicAccuracy(page: Page): Promise<void> {
   expect(Math.abs(ratio - actual / GOLDEN_EPIC.childSumMd), "not actual ÷ child sum").toBeGreaterThan(0.05);
 
   // The domain narrows the epics: GTM's only, the golden FLO epic gone; clearing it brings it back.
+  await openFilters(page);
   await pickFilter(page, "Domain", "GTM");
   await expect(page).toHaveURL(/domain=GTM/);
   await expect(epics.getByRole("row", { name: /^GTM-\d+/ }).first()).toBeVisible();
@@ -383,6 +397,7 @@ async function readEstimateAdjustments(page: Page): Promise<void> {
   await expectAccountingToReconcile(page, 2);
 
   // The activity type narrows the TASKS (epics carry none): fewer tasks started, the filter in the URL.
+  await openFilters(page);
   const allTasks = Number(await blockFigure(tasks, "Started"));
   await pickFilter(page, "Activity type", "Bug");
   await expect(page).toHaveURL(/activityType=Bug/);
@@ -420,6 +435,7 @@ async function readReportedTime(page: Page): Promise<void> {
 
   // The domain narrows what finished: fewer items in the population, the filter in the URL.
   const all = await finishedInPeriod(page);
+  await openFilters(page);
   await pickFilter(page, "Domain", "FLO");
   await expect(page).toHaveURL(/domain=FLO/);
   await expect.poll(() => finishedInPeriod(page)).toBeLessThan(all);
@@ -466,6 +482,7 @@ async function readEstimatedBacklog(page: Page): Promise<void> {
   expect(await daily.getByRole("row").count(), "header + one row per day of the window").toBeGreaterThan(100);
 
   // The unit: the whole backlog (the unowned part too), its pace the SUM of the teams' — and it says so.
+  await openFilters(page);
   await clearFilter(page, "Team");
   await expect(page).not.toHaveURL(/teamId=/);
   await expect(tile("Backlog in sprints")).toContainText("At unit level the pace is the sum of each team's own mean");
@@ -604,6 +621,44 @@ async function diveIntoGoldenSprint(page: Page): Promise<void> {
   await expect(page.locator("[data-window]").first()).toBeVisible();
 }
 
+/** The collapsible filter bar journey: folded by default, the badge counts a narrowing, the choice is remembered per report. */
+async function foldAndUnfoldFilters(page: Page): Promise<void> {
+  await openGroup(page, "Delivery");
+  await expect(page.getByRole("heading", { level: 2, name: "Velocity", exact: true })).toBeVisible();
+  const toggle = page.getByRole("button", { name: /^Filters/ });
+  const period = page.getByRole("combobox", { name: "Period", exact: true });
+
+  // The bar starts folded: just the toggle, no badge, no controls.
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(toggle).toHaveAccessibleName("Filters");
+  await expect(period).toHaveCount(0);
+
+  // Unfolding shows the controls; a narrowing counts on the toggle, folded or not.
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await expect(period).toBeVisible();
+  await pickFilter(page, "Team", teamName);
+  await expect(page).toHaveURL(new RegExp(`teamId=${teamId}`));
+  await expect(toggle).toHaveAccessibleName("Filters 1");
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(period).toHaveCount(0);
+  await expect(toggle).toHaveAccessibleName("Filters 1");
+
+  // The choice is remembered per report: a reload keeps it folded, an unfolded bar stays unfolded.
+  await page.reload();
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await toggle.click();
+  await page.reload();
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await expect(period).toBeVisible();
+
+  // Another report keeps its own flag: Throughput is still folded.
+  await page.getByRole("tab", { name: "Throughput", exact: true }).click();
+  await expect(page.getByRole("heading", { level: 2, name: "Throughput", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^Filters/ })).toHaveAttribute("aria-expanded", "false");
+}
+
 test.describe("reports, read by a regular user", () => {
   test.beforeAll(async () => {
     // A full stub sync (~1,200 issues) plus the derivation that follows it: the two waits below
@@ -691,12 +746,17 @@ test.describe("reports, read by a regular user", () => {
     expect(await bucketRows.count(), "header + at least two weekly buckets").toBeGreaterThan(2);
 
     // Regroup by month: the URL, the table's column and its rows (one month covers the window) follow.
+    await openFilters(page);
     await page.getByRole("radiogroup", { name: "Group by" }).getByText("Month", { exact: true }).click();
     await expect(page).toHaveURL(/bucket=MONTH/);
     await expect(bucketTable.getByRole("columnheader", { name: "Month", exact: true })).toBeVisible();
     await expect(bucketRows).toHaveCount(2);
     await expect(bucketRows.nth(1).getByRole("cell").first()).toHaveText(/^\d{4}-\d{2}$/);
     await expect(page.getByRole("group", { name: "Chart: delivered scope by period" })).toBeVisible();
+  });
+
+  test("a user folds and unfolds the report filters and the choice is remembered", async ({ page }) => {
+    await foldAndUnfoldFilters(page);
   });
 
   test("the user reads the golden sprint's scope movement", async ({ page }) => {
@@ -764,12 +824,7 @@ test.describe("reports, read by a regular user", () => {
 
   test("the user reads the last three sprints and drills to a member", async ({ page }) => {
     await openGroup(page, "Delivery");
-    const team = page.getByRole("combobox", { name: "Team", exact: true });
-    await team.click();
-    await team.fill(teamName);
-    await page.getByRole("option", { name: teamName, exact: true }).click();
-    await page.getByRole("combobox", { name: "Period", exact: true }).click();
-    await page.getByRole("option", { name: "Last 3 sprints", exact: true }).click();
+    await pickTeamAndPeriod(page, "Last 3 sprints");
     await expect(page).toHaveURL(/lastSprints=3/);
     await expect(page).toHaveURL(new RegExp(`teamId=${teamId}`));
 
@@ -810,6 +865,7 @@ test.describe("reports, read by a regular user", () => {
     }
 
     // By status: the URL, the caption and the bands all follow — the workflow's own statuses.
+    await openFilters(page);
     await page.getByRole("radiogroup", { name: "Count by" }).getByText("Status", { exact: true }).click();
     await expect(page).toHaveURL(/by=STATUS/);
     await expect(page.getByText("By status, ordered by stage and then by name.")).toBeVisible();

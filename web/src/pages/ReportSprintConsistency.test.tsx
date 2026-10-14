@@ -4,6 +4,7 @@ import { Route, Routes } from "react-router-dom";
 import ReportSprintConsistency from "./ReportSprintConsistency";
 import { jsonResponse } from "../test/http";
 import { CONSISTENCY_EMPTY, CONSISTENCY_UNIT, CONSISTENCY_USER, FILTERS } from "../test/reportFixtures";
+import { openReportFilters } from "../test/reportFilters";
 import { renderWithProviders, screen, waitFor, within } from "../test/render";
 
 // recharts renders nothing under happy-dom (no layout), so each chart is a probe carrying its props.
@@ -110,6 +111,7 @@ describe("ReportSprintConsistency page", () => {
     serve(mockFetch);
     renderPage();
     await screen.findAllByTestId("bar-chart");
+    await openReportFilters();
     expect(screen.queryByRole("radio", { name: "Week" })).not.toBeInTheDocument();
     expect(screen.queryByRole("radio", { name: "Delivered in" })).not.toBeInTheDocument();
     for (const name of ["Domain", "Activity type", "Work category"]) {
@@ -139,6 +141,7 @@ describe("ReportSprintConsistency page", () => {
     renderPage();
     expect(await screen.findByRole("alert")).toHaveTextContent("Load failed (500)");
     expect(screen.getAllByRole("alert")).toHaveLength(1);
+    await openReportFilters();
     expect(screen.getByRole("combobox", { name: "Period" })).toBeInTheDocument();
   });
 
@@ -164,6 +167,7 @@ describe("ReportSprintConsistency page", () => {
     const user = userEvent.setup();
     renderPage();
     await screen.findAllByTestId("bar-chart");
+    await openReportFilters();
     await user.click(screen.getByRole("combobox", { name: "Period" }));
     await user.click(await screen.findByRole("option", { name: "Last 6 sprints" }));
 

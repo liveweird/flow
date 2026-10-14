@@ -14,6 +14,7 @@ import {
   EPIC_PROGRESS_UNIT,
   FILTERS,
 } from "../test/reportFixtures";
+import { openReportFilters } from "../test/reportFilters";
 import { renderWithProviders, screen, waitFor, within } from "../test/render";
 
 // recharts renders nothing under happy-dom (no layout), so the chart is a probe carrying its props.
@@ -258,6 +259,7 @@ describe("ReportEpicProgress page", () => {
     expect(screen.getByText(/Sprint view: planned is the committed scope of the team's sprints/)).toBeInTheDocument();
     expect((await screen.findByTestId("line-chart")).getAttribute("data-series")).toBe("pv,ev,ac");
     // No user level: the bar has a team but no member control.
+    await openReportFilters();
     expect(screen.getByRole("combobox", { name: "Team" })).toBeInTheDocument();
     expect(screen.queryByRole("combobox", { name: "Member" })).not.toBeInTheDocument();
   });
@@ -302,6 +304,7 @@ describe("ReportEpicProgress page", () => {
     expect(await screen.findByRole("heading", { level: 3, name: "Whole unit" })).toBeInTheDocument();
     await waitFor(() => expect(search().toString()).toBe(""));
     expect(calls(mockFetch).at(-1)).toBe(URL_PREFIX);
+    await openReportFilters();
     expect((screen.getByRole("combobox", { name: "Team" }) as HTMLInputElement).value).toBe("");
     // The memory is gone too, so the next bare visit stays at the unit.
     expect(localStorage.getItem("flow.viewSettings.reports.teamId")).toBe("null");
@@ -377,6 +380,7 @@ describe("ReportEpicProgress page", () => {
     let crumbs = await screen.findByRole("navigation", { name: "Where you are in the drill-down" });
     expect(within(crumbs).getByRole("link", { name: "Flow" })).toBeInTheDocument();
     // …and a period change made through the bar (a push navigation).
+    await openReportFilters();
     await user.click(screen.getByRole("combobox", { name: "Period" }));
     await user.click(await screen.findByRole("option", { name: "Last 30 days" }));
     await waitFor(() => expect(search().has("from")).toBe(true));
@@ -400,6 +404,7 @@ describe("ReportEpicProgress page", () => {
     const user = userEvent.setup();
     renderPage("/reports/epic-progress?epicId=FLO-33");
     await screen.findByTestId("line-chart");
+    await openReportFilters();
     for (const name of ["Activity type", "Work category"]) expect(screen.queryByRole("combobox", { name })).not.toBeInTheDocument();
     expect(screen.queryByRole("radio", { name: "Delivered in" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("combobox", { name: "Team" }));
@@ -414,6 +419,7 @@ describe("ReportEpicProgress page", () => {
     const user = userEvent.setup();
     renderPage("/reports/epic-progress?teamId=1");
     await screen.findByTestId("line-chart");
+    await openReportFilters();
     await user.click(screen.getByRole("combobox", { name: "Domain" }));
     await user.click(await screen.findByRole("option", { name: "Flow" }));
     await waitFor(() => expect(search().get("domain")).toBe("FLO"));

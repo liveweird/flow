@@ -11,6 +11,7 @@ import {
   DATA_QUALITY_USER,
   FILTERS,
 } from "../test/reportFixtures";
+import { openReportFilters } from "../test/reportFilters";
 import { renderWithProviders, screen, waitFor, within } from "../test/render";
 
 // recharts renders nothing under happy-dom (no layout): the histogram is a probe.
@@ -123,6 +124,7 @@ describe("ReportDataQuality page — request, overview and the findings", () => 
     renderPage();
     await ready();
     expect(calls(mockFetch)).toEqual([URL_PREFIX]);
+    await openReportFilters();
     for (const name of ["Period", "Team", "Domain"]) expect(screen.getByRole("combobox", { name })).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: "Delivered in" })).toBeChecked();
     expect(screen.queryByRole("combobox", { name: "Activity type" })).not.toBeInTheDocument();
@@ -137,6 +139,7 @@ describe("ReportDataQuality page — request, overview and the findings", () => 
     const user = userEvent.setup();
     renderPage();
     await ready();
+    await openReportFilters();
     await user.click(screen.getByText("Earned in"));
     await waitFor(() => expect(calls(mockFetch)).toContain(`${URL_PREFIX}domainView=EPIC`));
   });
