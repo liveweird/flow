@@ -10,6 +10,7 @@ import ch.nokillswit.ingest.SyncJobsServiceKey
 import ch.nokillswit.ingest.jobHandlerRegistry
 import ch.nokillswit.norm.WorkItemStoreKey
 import ch.nokillswit.plugins.servesApi
+import ch.nokillswit.teams.TeamServiceKey
 import io.ktor.http.HttpStatusCode
 import io.ktor.resources.Resource
 import io.ktor.server.application.Application
@@ -55,6 +56,10 @@ fun Application.configureMetrics() {
     attributes.put(MetricsConfigOptionsKey, MetricsConfigOptions(database, workItemStore, dataSources))
     val teamMembership = TeamMembershipService(database, metricsSettings)
     attributes.put(TeamMembershipServiceKey, teamMembership)
+    // Capacity management (A32): the team default + per-sprint calendars. Its routes are `SprintCalendarRoutes.kt`; its DERIVE input
+    // and PURGE drain are plugged in below (the deriver takes it in B3).
+    val sprintCalendars = SprintCalendarService(database, metricsSettings, teamMembership, attributes[TeamServiceKey])
+    attributes.put(SprintCalendarServiceKey, sprintCalendars)
     val metricsStore = MetricsStore(database)
     // `ingest.jobRetentionDays` is validated on EVERY boot regardless of role (the `configureIngestWorker`
     // idiom — a bad ingest.* setting is a deploy-time config error) — `derive_runs` prunes on the SAME
@@ -69,6 +74,7 @@ fun Application.configureMetrics() {
             workItemStore, metricsSettings, metricsConfig, domainOwners, teamMembership, metricsStore, database, jobRetentionDays,
         ),
         metricsConfig = metricsConfig,
+        sprintCalendars = sprintCalendars,
         metricsSettings = metricsSettings,
         metricsStore = metricsStore,
     )

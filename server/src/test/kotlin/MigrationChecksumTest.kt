@@ -43,6 +43,7 @@ class MigrationChecksumTest {
         "V21__reconcile_backoff.sql" to -1330966837,
         "V22__waiting_stage.sql" to 133169169,
         "V23__team_manager.sql" to -1082559543,
+        "V24__capacity_management.sql" to 1149927288,
     )
 
     @Test

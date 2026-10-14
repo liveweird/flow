@@ -30,8 +30,8 @@ fun requireSelfOrAdmin(caller: CallerPrincipal, targetUserId: UInt) {
 /**
  * ADMIN, or the team's current ACTIVE manager (V23). [isManager] answers false for a missing or deleted team too,
  * so run this as the FIRST guard of a team-scoped write, before any read: every other caller gets a uniform 403
- * whether or not the id exists. The lookup is injected so the guard stays DB-free (`GuardsTest` is pure). No route
- * uses it yet — the capacity routes are its first consumer (the `requireFeatureEnabled` precedent).
+ * whether or not the id exists. The lookup is injected so the guard stays DB-free (`GuardsTest` is pure). Consumers: the capacity
+ * writes (`metrics/SprintCalendarRoutes.kt`), which additionally re-check a non-admin's grant inside their locked write transaction.
  */
 suspend fun requireTeamManagerOrAdmin(
     caller: CallerPrincipal,

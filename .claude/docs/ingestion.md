@@ -108,10 +108,11 @@ PROFILE) and a RECONCILE job's (`reconcile` → PROCESS) are unchanged — `DERI
 their OWN steps, it is a SEPARATE job kind chained AFTER the whole job succeeds (above). A `DERIVE`
 job runs the ONE `derive` stream. **PURGE**, updated: after the connector's own `purgeSteps` and the
 generic per-connection `metrics.*` config drain (`MetricsConfigService.purgeConnectionConfig`,
-already documented above; both drains are `PurgeStep`s registered by `registerMetricsHandlers` and run
-by the worker in registration order), a THIRD generic step drains the derived star and `derive_runs`
-(`MetricsStore.purgeAll`, `.claude/docs/persistence.md` "The `metrics` schema — the derived star
-(V16)") — snapshot rows through the `SET LOCAL metrics.allow_snapshot_delete = 'on'` bypass.
+already documented above; the drains are `PurgeStep`s registered by `registerMetricsHandlers` and run
+by the worker in registration order), a THIRD generic step drains the connection's sprint calendars
+(`SprintCalendarService.purgeConnection`, V24 — `metrics.team_capacity_defaults` is per team and is never purged), and a
+FOURTH drains the derived star and `derive_runs` (`MetricsStore.purgeAll`, `.claude/docs/persistence.md` "The `metrics`
+schema — the derived star (V16)") — snapshot rows through the `SET LOCAL metrics.allow_snapshot_delete = 'on'` bypass.
 
 **Coalescing.** `uq_sync_jobs_open_per_kind` (a partial unique index over `(connection_id, kind)
 WHERE status IN ('PENDING','RUNNING')`) makes "at most one open job per (connection, kind)"

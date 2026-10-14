@@ -1,0 +1,349 @@
+package ch.nokillswit.metrics
+
+import ch.nokillswit.authz.ConflictException
+import ch.nokillswit.authz.ForbiddenException
+import ch.nokillswit.authz.NotFoundException
+import ch.nokillswit.infra.db.active
+import ch.nokillswit.infra.db.jsonb
+import ch.nokillswit.infra.db.lockActiveForUpdate
+import ch.nokillswit.infra.db.nowMillis
+import ch.nokillswit.infra.json.canonicalJson
+import ch.nokillswit.infra.paging.PageRequest
+import ch.nokillswit.infra.paging.applyPaging
+import ch.nokillswit.ingest.DataSourceService
+import ch.nokillswit.norm.WorkItemStore
+import ch.nokillswit.teams.TeamService
+import io.ktor.server.plugins.BadRequestException
+import io.ktor.util.AttributeKey
+import kotlinx.coroutines.flow.toList
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
+import org.jetbrains.exposed.v1.core.*
+import org.jetbrains.exposed.v1.r2dbc.*
+import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
+import java.math.BigDecimal
+
+val SprintCalendarServiceKey = AttributeKey<SprintCalendarService>("SprintCalendarService")
+
+/** [changed] false = a byte-equal re-PUT: nothing written, no revision bump, no audit line. [capacityMd] is what the next DERIVE stores. */
+data class SprintCalendarReplaceOutcome(val changed: Boolean, val connectionId: UInt, val capacityMd: Double?)
+
+private val D = MetricsTables.DimSprint
+
+private val SORTABLE_COLUMNS: Map<String, Column<*>> = mapOf(
+    "id" to MetricsTables.DimSprint.sprintId,
+    "startAt" to MetricsTables.DimSprint.startAt,
+)
+
+/** The sortable whitelist of `GET /teams/{id}/sprint-calendars` — derived from the column map so the two cannot drift. */
+val SPRINT_CALENDAR_SORT_FIELDS: Set<String> = SORTABLE_COLUMNS.keys
+
+/**
+ * Capacity management (domain-model A32, `V24__capacity_management.sql`): the team's one default MD figure and the per-sprint person x day
+ * calendars. Every write runs in ONE transaction that locks the ACTIVE team row (`TeamService.Teams.lockActiveForUpdate`, the
+ * `TeamMembershipService.create` precedent), re-checks a non-admin caller's manager grant inside it (a grant cleared a moment ago cannot
+ * ride a request that passed the route guard earlier) and addresses every row through the path's team id.
+ *
+ * Cross-feature reads (listed in `.claude/docs/persistence.md`): `teams/TeamService.Teams` (the lock, the active check) and
+ * `isActiveManager` (`Teams` ⋈ `Users`), `norm/WorkItemStore.People` (display names, the known-account check),
+ * `ingest/DataSourceService.Connections` (active connections only) and `metrics.dim_sprint` (the sprint's dates, team and
+ * last-derived figure).
+ */
+class SprintCalendarService(
+    private val database: R2dbcDatabase,
+    private val metricsSettings: MetricsSettingsService,
+    private val teamMembership: TeamMembershipService,
+    private val teams: TeamService,
+) {
+    object TeamCapacityDefaults : Table("metrics.team_capacity_defaults") {
+        val teamId = reference("team_id", TeamService.Teams)
+        val defaultCapacityMd = decimal("default_capacity_md", precision = 8, scale = CAPACITY_MD_SCALE).nullable()
+        val updatedAt = long("updated_at")
+        val updatedByUserId = long("updated_by_user_id").nullable()
+        override val primaryKey = PrimaryKey(teamId)
+    }
+
+    /** One jsonb document per (connection, sprint), read and written whole (the `norm.board_columns.status_ids` rule). */
+    object SprintCalendars : Table("metrics.sprint_calendars") {
+        val connectionId = reference("connection_id", DataSourceService.Connections)
+        val sprintId = long("sprint_id")
+        val teamId = reference("team_id", TeamService.Teams)
+        val sprintStartMs = long("sprint_start_ms")
+        val calendar = jsonb("calendar")
+        val updatedAt = long("updated_at")
+        val updatedByUserId = long("updated_by_user_id").nullable()
+        override val primaryKey = PrimaryKey(connectionId, sprintId)
+    }
+
+    private data class SprintRow(
+        val connectionId: UInt,
+        val sprintId: Long,
+        val name: String,
+        val state: String,
+        val startAt: Long?,
+        val endAt: Long?,
+        val completeAt: Long?,
+        val capacityMd: Double?,
+        val capacitySource: String?,
+    )
+
+    /** The team's derived sprints on active connections, one page; a missing or soft-deleted team is 404 (the team reads' posture). */
+    suspend fun listSprints(teamId: UInt, paging: PageRequest): SprintCalendarListResult = suspendTransaction(database) {
+        requireActiveTeam(teamId)
+        val predicate = (D.teamId eq teamId) and DataSourceService.Connections.active()
+        val total = sprintsOfTeam().where { predicate }.count()
+        val rows = sprintsOfTeam().where { predicate }.applyPaging(paging, SORTABLE_COLUMNS)
+            .orderBy(D.connectionId to SortOrder.ASC).toList().map { it.toSprintRow() }
+        val stored = SprintCalendars.select(SprintCalendars.connectionId, SprintCalendars.sprintId)
+            .where { (SprintCalendars.teamId eq teamId) and (SprintCalendars.sprintId inList rows.map { it.sprintId }) }
+            .toList().map { it[SprintCalendars.connectionId].value to it[SprintCalendars.sprintId] }.toSet()
+        SprintCalendarListResult(
+            rows.map { SprintCalendarSummary(it.sprintId, it.connectionId, it.name, it.state, it.startAt, it.endAt, it.completeAt,
+                (it.connectionId to it.sprintId) in stored, it.capacityMd, it.capacitySource) },
+            total,
+        )
+    }
+
+    /**
+     * The sprint's calendar as it would be stored NOW: the stored document re-projected onto the current window and roster (decision 4),
+     * else the defaults seeded from the team's most recent earlier calendar (decision 2). Defaults are materialized on read,
+     * persisted on write.
+     */
+    suspend fun read(teamId: UInt, sprintId: Long, calendar: WorkingCalendar, canEdit: Boolean): SprintCalendarResponse =
+        suspendTransaction(database) {
+            requireActiveTeam(teamId)
+            val sprint = resolveSprint(teamId, sprintId)
+            val row = storedRow(sprint, teamId)
+            fun response(
+                window: SprintCalendarWindow?,
+                note: String?,
+                document: SprintCalendarDocument?,
+                people: List<SprintCalendarPersonView>,
+            ) =
+                SprintCalendarResponse(
+                    teamId = teamId, sprintId = sprintId, connectionId = sprint.connectionId, sprintName = sprint.name,
+                    sprintState = sprint.state, window = window, note = note, hasCalendar = row != null, canEdit = canEdit,
+                    capacityMd = document?.let(::calendarCapacityMd), teamCoefficient = document?.teamCoefficient ?: DEFAULT_COEFFICIENT,
+                    days = document?.days.orEmpty(), people = people,
+                    derivedCapacityMd = sprint.capacityMd, derivedCapacitySource = sprint.capacitySource,
+                    updatedAt = row?.get(SprintCalendars.updatedAt), updatedByUserId = row?.get(SprintCalendars.updatedByUserId)?.toUInt(),
+                )
+            when (val outcome = windowOf(sprint, calendar)) {
+                SprintWindowOutcome.NoStart -> response(null, "The sprint has no start date, so it has no calendar", null, emptyList())
+                is SprintWindowOutcome.TooLong ->
+                    response(null, "The sprint spans ${outcome.days} days; a calendar covers at most $MAX_CALENDAR_DAYS", null, emptyList())
+                is SprintWindowOutcome.Window -> {
+                    val window = outcome.window
+                    val members = teamMembership.memberAccountIds(teamId, window.startMs, window.endMs)
+                    val document = project(row, window, members, calendar, teamId)
+                    val shown = SprintCalendarWindow(window.fromDay.toString(), window.toDay.toString())
+                    response(shown, null, document, personViews(document, members))
+                }
+            }
+        }
+
+    /** 404 unless the team is ACTIVE — the team-capacity PUT's pre-check, before the body decodes. */
+    suspend fun requireTeam(teamId: UInt) {
+        suspendTransaction(database) { requireActiveTeam(teamId) }
+    }
+
+    /** 404 unless the sprint is a derived sprint of [teamId] on an active connection — the route's pre-check, before the body decodes. */
+    suspend fun requireSprint(teamId: UInt, sprintId: Long) {
+        suspendTransaction(database) {
+            requireActiveTeam(teamId)
+            resolveSprint(teamId, sprintId)
+        }
+    }
+
+    /**
+     * A full-replace PUT of the sprint's calendar (409 without a start date, 400 for a window over [MAX_CALENDAR_DAYS] days or an invalid
+     * document). A canonically equal document is a no-op: no write, no revision bump. A real change bumps `config_revision`
+     * (enqueues DERIVE).
+     */
+    suspend fun replace(
+        teamId: UInt,
+        sprintId: Long,
+        request: SprintCalendarDocument,
+        byUserId: UInt,
+        callerIsAdmin: Boolean,
+        calendar: WorkingCalendar,
+    ): SprintCalendarReplaceOutcome = suspendTransaction(database) {
+        lockTeamAndAuthorize(teamId, byUserId, callerIsAdmin)
+        val sprint = resolveSprint(teamId, sprintId)
+        val window = when (val outcome = windowOf(sprint, calendar)) {
+            SprintWindowOutcome.NoStart -> throw ConflictException("The sprint has no start date, so it has no calendar")
+            is SprintWindowOutcome.TooLong ->
+                throw BadRequestException("The sprint spans ${outcome.days} days; a calendar covers at most $MAX_CALENDAR_DAYS")
+            is SprintWindowOutcome.Window -> outcome.window
+        }
+        val document = canonicalSprintCalendar(sanitizedSprintCalendar(request))
+        validateSprintCalendar(document, window)
+        requireKnownAccounts(document.people.map { it.accountId })
+        val members = teamMembership.memberAccountIds(teamId, window.startMs, window.endMs)
+        val derived = calendarCapacityMd(projectCalendar(document, window, members, calendar, carry = null))
+        val existing = storedRow(sprint, teamId)
+        if (existing != null && canonicalSprintCalendar(decode(existing[SprintCalendars.calendar])) == document) {
+            return@suspendTransaction SprintCalendarReplaceOutcome(changed = false, sprint.connectionId, derived)
+        }
+        val json = canonicalJson(Json.encodeToString(document))
+        val updated = SprintCalendars.update({ rowOf(sprint, teamId) }) {
+            it[sprintStartMs] = window.startMs
+            it[SprintCalendars.calendar] = json
+            it[updatedAt] = nowMillis()
+            it[updatedByUserId] = byUserId.toLong()
+        }
+        if (updated == 0) {
+            // A leftover of the sprint's previous team (its board was re-mapped): replaced by this team's calendar.
+            SprintCalendars.deleteWhere {
+                (SprintCalendars.connectionId eq sprint.connectionId) and (SprintCalendars.sprintId eq sprint.sprintId)
+            }
+            SprintCalendars.insert {
+                it[connectionId] = sprint.connectionId
+                it[SprintCalendars.sprintId] = sprint.sprintId
+                it[SprintCalendars.teamId] = teamId
+                it[sprintStartMs] = window.startMs
+                it[SprintCalendars.calendar] = json
+                it[updatedAt] = nowMillis()
+                it[updatedByUserId] = byUserId.toLong()
+            }
+        }
+        metricsSettings.bumpRevision()
+        SprintCalendarReplaceOutcome(changed = true, sprint.connectionId, derived)
+    }
+
+    suspend fun readTeamCapacity(teamId: UInt, canEdit: Boolean): TeamCapacityResponse = suspendTransaction(database) {
+        requireActiveTeam(teamId)
+        val row = TeamCapacityDefaults.selectAll().where { TeamCapacityDefaults.teamId eq teamId }.toList().singleOrNull()
+        TeamCapacityResponse(
+            teamId, row?.get(TeamCapacityDefaults.defaultCapacityMd)?.toDouble(), canEdit, row?.get(TeamCapacityDefaults.updatedAt),
+        )
+    }
+
+    /** Sets (or, with null, clears) the team's default figure; true when it changed (and DERIVE was enqueued). */
+    suspend fun replaceTeamCapacity(teamId: UInt, request: TeamCapacityRequest, byUserId: UInt, callerIsAdmin: Boolean): Boolean =
+        suspendTransaction(database) {
+            validateTeamCapacity(request)
+            lockTeamAndAuthorize(teamId, byUserId, callerIsAdmin)
+            val wanted = request.defaultCapacityMd?.let { BigDecimal.valueOf(it).setScale(CAPACITY_MD_SCALE) }
+            val row = TeamCapacityDefaults.selectAll().where { TeamCapacityDefaults.teamId eq teamId }.toList().singleOrNull()
+            val current = row?.get(TeamCapacityDefaults.defaultCapacityMd)
+            val unchanged = if (current == null || wanted == null) current == wanted else current.compareTo(wanted) == 0
+            if (unchanged) return@suspendTransaction false
+            val updated = TeamCapacityDefaults.update({ TeamCapacityDefaults.teamId eq teamId }) {
+                it[defaultCapacityMd] = wanted
+                it[updatedAt] = nowMillis()
+                it[updatedByUserId] = byUserId.toLong()
+            }
+            if (updated == 0) {
+                TeamCapacityDefaults.insert {
+                    it[TeamCapacityDefaults.teamId] = teamId
+                    it[defaultCapacityMd] = wanted
+                    it[updatedAt] = nowMillis()
+                    it[updatedByUserId] = byUserId.toLong()
+                }
+            }
+            metricsSettings.bumpRevision()
+            true
+        }
+
+    /** DERIVE's input: the connection's stored calendars and every team's non-null default figure. */
+    suspend fun forDerive(connectionId: UInt): SprintCapacityInputs = suspendTransaction(database) {
+        val calendars = SprintCalendars.selectAll().where { SprintCalendars.connectionId eq connectionId }.toList().associate {
+            it[SprintCalendars.sprintId] to StoredSprintCalendar(
+                it[SprintCalendars.teamId].value, it[SprintCalendars.sprintStartMs], decode(it[SprintCalendars.calendar]),
+            )
+        }
+        val defaults = TeamCapacityDefaults.selectAll().where { TeamCapacityDefaults.defaultCapacityMd.isNotNull() }.toList()
+            .associate { it[TeamCapacityDefaults.teamId].value to it[TeamCapacityDefaults.defaultCapacityMd]!!.toDouble() }
+        SprintCapacityInputs(calendars, defaults)
+    }
+
+    /** The PURGE step: drains the connection's calendars; `team_capacity_defaults` is per team and is never purged. */
+    suspend fun purgeConnection(connectionId: UInt): Int = suspendTransaction(database) {
+        SprintCalendars.deleteWhere { SprintCalendars.connectionId eq connectionId }
+    }
+
+    // --- internals ---------------------------------------------------------------------------------------------------
+
+    private suspend fun requireActiveTeam(teamId: UInt) {
+        val exists = TeamService.Teams.select(TeamService.Teams.id)
+            .where { (TeamService.Teams.id eq teamId) and TeamService.Teams.active() }.count() > 0
+        if (!exists) throw NotFoundException("Team not found")
+    }
+
+    /** Locks the ACTIVE team (404 when gone) and re-checks a non-admin's manager grant inside the same transaction (403). */
+    private suspend fun lockTeamAndAuthorize(teamId: UInt, byUserId: UInt, callerIsAdmin: Boolean) {
+        if (!TeamService.Teams.lockActiveForUpdate(teamId)) throw NotFoundException("Team not found")
+        if (!callerIsAdmin && !teams.isActiveManager(teamId, byUserId)) throw ForbiddenException("Team manager or admin role required")
+    }
+
+    private fun sprintsOfTeam() = D.join(DataSourceService.Connections, JoinType.INNER, D.connectionId, DataSourceService.Connections.id)
+        .selectAll()
+
+    private fun ResultRow.toSprintRow() = SprintRow(
+        this[D.connectionId].value, this[D.sprintId], this[D.name], this[D.state], this[D.startAt], this[D.endAt], this[D.completeAt],
+        this[D.capacityMd]?.toDouble(), this[D.capacitySource],
+    )
+
+    /** The `dim_sprint` row of [sprintId] under [teamId] on an ACTIVE connection; two connections to one site (parked): the lowest id. */
+    private suspend fun resolveSprint(teamId: UInt, sprintId: Long): SprintRow =
+        sprintsOfTeam().where { (D.teamId eq teamId) and (D.sprintId eq sprintId) and DataSourceService.Connections.active() }
+            .orderBy(D.connectionId to SortOrder.ASC).limit(1).toList().firstOrNull()?.toSprintRow()
+            ?: throw NotFoundException("Sprint not found")
+
+    private fun windowOf(sprint: SprintRow, calendar: WorkingCalendar) =
+        resolveSprintWindow(sprint.startAt, sprint.endAt, sprint.completeAt, calendar)
+
+    private fun rowOf(sprint: SprintRow, teamId: UInt): Op<Boolean> =
+        (SprintCalendars.connectionId eq sprint.connectionId) and (SprintCalendars.sprintId eq sprint.sprintId) and
+            (SprintCalendars.teamId eq teamId)
+
+    private suspend fun storedRow(sprint: SprintRow, teamId: UInt): ResultRow? =
+        SprintCalendars.selectAll().where { rowOf(sprint, teamId) }.toList().singleOrNull()
+
+    /** A malformed stored document is an invariant violation: fail loudly (the `FrozenScope.kt` precedent), never repair silently. */
+    private fun decode(json: String): SprintCalendarDocument = Json.decodeFromString(json)
+
+    /** The stored document (else the carry-forward defaults) laid over the current window and roster. Carry seeds a NEW calendar only. */
+    private suspend fun project(
+        row: ResultRow?,
+        window: SprintWindow,
+        members: Set<String>,
+        calendar: WorkingCalendar,
+        teamId: UInt,
+    ): SprintCalendarDocument {
+        val stored = row?.let { decode(it[SprintCalendars.calendar]) }
+        val carry = if (stored == null) carryForward(teamId, window.startMs) else null
+        return projectCalendar(stored, window, members, calendar, carry)
+    }
+
+    /** The team's most recent calendar saved for an EARLIER sprint start (decision 2: coefficients carry, turn-offs never). */
+    private suspend fun carryForward(teamId: UInt, startMs: Long): SprintCalendarDocument? =
+        SprintCalendars.selectAll().where { (SprintCalendars.teamId eq teamId) and (SprintCalendars.sprintStartMs less startMs) }
+            .orderBy(SprintCalendars.sprintStartMs to SortOrder.DESC).limit(1).toList().firstOrNull()
+            ?.let { decode(it[SprintCalendars.calendar]) }
+
+    private suspend fun personViews(document: SprintCalendarDocument, members: Set<String>): List<SprintCalendarPersonView> {
+        val ids = document.people.map { it.accountId }
+        val names = if (ids.isEmpty()) emptyMap() else {
+            WorkItemStore.People.select(WorkItemStore.People.accountId, WorkItemStore.People.displayName)
+                .where { WorkItemStore.People.accountId inList ids }
+                .orderBy(WorkItemStore.People.connectionId to SortOrder.DESC) // last wins = the lowest connection id
+                .toList().associate { it[WorkItemStore.People.accountId] to it[WorkItemStore.People.displayName] }
+        }
+        return document.people.map {
+            val displayName = names[it.accountId] ?: it.accountId
+            SprintCalendarPersonView(it.accountId, displayName, it.accountId in members, it.enabled, it.coefficient, it.cells)
+        }
+    }
+
+    /** An account id no connection's `norm.people` knows is a 400 (the client-supplied-FK idiom); a non-member is fine (historical). */
+    private suspend fun requireKnownAccounts(accountIds: List<String>) {
+        if (accountIds.isEmpty()) return
+        val known = WorkItemStore.People.select(WorkItemStore.People.accountId).withDistinct()
+            .where { WorkItemStore.People.accountId inList accountIds }
+            .toList().map { it[WorkItemStore.People.accountId] }.toSet()
+        accountIds.firstOrNull { it !in known }?.let { throw BadRequestException("Unknown Jira account id: $it") }
+    }
+}

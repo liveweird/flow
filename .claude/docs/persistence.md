@@ -211,6 +211,13 @@ place:
   (grouped sums of `md`) and `DimDomain` (column names), plus `teams/TeamService.Teams`/`norm/WorkItemStore.People` through
   `orgGroups` (team names, author display names) -- all read-only, inside the report's own transaction.
 
+- `metrics/SprintCalendarService` (V24, capacity management; `GET`/`PUT /api/v1/teams/{id}/capacity|sprint-calendars`) reads
+  `teams/TeamService.Teams` (the active-team check on every call, `lockActiveForUpdate` on the write paths) and, through
+  `TeamService.isActiveManager`, `Teams` ⋈ `users/UserService.Users` (the non-admin grant re-check inside the write
+  transaction); `norm/WorkItemStore.People` (display names, the known-account check); `ingest/DataSourceService.Connections`
+  (active connections only, joined to the sprint rows) and `metrics.dim_sprint` (a sprint's dates, team and last-derived
+  figure — read only). It WRITES only its own two tables, and bumps `MetricsSettingsService.bumpRevision` (same package).
+  `TeamMembershipService.memberAccountIds` serves it the roster overlapping a sprint.
 - `reports/DeepDiveOptions.kt` (`GET /api/v1/reports/deep-dive/sprints|epics|epics/{epicKey}/tasks`, the deep dive's picker lists) reads
   `metrics/MetricsTables.FactSprintScope`, `FactTaskDelivery`, `DimSprint`, `DimDomain` and `DimEpic`, plus `norm/WorkItemStore.WorkItems`
   (task summaries) and `ingest/DataSourceService.Connections` (the active-connection scope, `resolveConnectionScope`) -- all read-only, each
@@ -680,7 +687,7 @@ migration — the persistence.md cross-feature list above is unchanged.
 
 `MigrationChecksumTest` gains V17's pin.
 
-Current migrations are `V1`–`V23`:
+Current migrations are `V1`–`V24`:
 
 - `V1__init` — the `users` table: `name` (≤50), `email` (≤254), `password_hash`, `role` with
   `CHECK ("role" IN ('ADMIN', 'USER'))` (single-column role storage; the wire shape stays a
@@ -787,11 +794,42 @@ Current migrations are `V1`–`V23`:
   through ACTIVE users and reads a deleted one as "no manager" — the `metrics.domain_map.owner_team_id` idiom
   (soft-delete-safe by construction, no cleanup write on user delete). Additive and nullable: no backfill, no digest moves.
   `MigrationChecksumTest` pins it.
+- `V24__capacity_management` — see "Capacity management (V24)" below: `metrics.team_capacity_defaults`,
+  `metrics.sprint_calendars`, the widened `dim_sprint.capacity_source` and the legacy-figure seed. `MigrationChecksumTest` pins it.
 
 The `users`/`teams` tables follow Toadie's dialect (`SERIAL`/`INTEGER` ids, epoch-millis `BIGINT`
 timestamps, `marked_as_deleted` + partial unique indexes over active rows) and its idioms: a
 CHECK only where the value drives behavior (`users.role`), a Kotlin enum as the whitelist
 otherwise.
+
+### Capacity management (V24)
+
+`V24__capacity_management.sql` (domain-model A32; `metrics/SprintCalendarService.kt`, `metrics/CapacityKernels.kt`):
+
+- **`metrics.team_capacity_defaults`** — PK `team_id` (FK `teams`), `default_capacity_md NUMERIC(8, 2)` nullable (`CHECK >= 0`; a
+  row with a null figure = "no default", the same as no row), `updated_at`, `updated_by_user_id`. One MD figure per team —
+  DERIVE's `TEAM_DEFAULT`. Per team, never per connection: PURGE does not touch it (a soft-deleted team's row is harmless, the
+  FK stays valid).
+- **`metrics.sprint_calendars`** — PK `(connection_id, sprint_id)`, `team_id` (the team it was saved for — a reader that finds
+  another team here after a board re-map ignores the row, a write replaces it), `sprint_start_ms` (the sprint's `start_at` at
+  save time: orders "the team's most recent EARLIER calendar", the coefficient carry-forward), `calendar JSONB`
+  (`{teamCoefficient, days: [{day, enabled}], people: [{accountId, enabled, coefficient, cells: [{day, availability}]}]}`).
+  **The document is read and written WHOLE** (the `norm.board_columns.status_ids` rule): one jsonb through `infra/db/Jsonb.kt`,
+  written as `canonicalJson` of the canonicalised document (days by `day`, people by `accountId`, cells by `day`, two
+  decimals), so the no-op PUT test is an equality on the decoded canonical document. A malformed stored document is an
+  invariant violation and fails loudly. Hard-deleted by PURGE (`purgeConnection`, the step between the config drain and
+  `MetricsStore.purgeAll`). No FK to `dim_sprint` (it is rebuilt wholesale by every DERIVE).
+- **`metrics.dim_sprint.capacity_source`** widens `VARCHAR(10)` → `VARCHAR(20)` (`'TEAM_DEFAULT'` is 12 characters; catalog-only,
+  the V18–V20 idiom) and its CHECK (auto-named `dim_sprint_capacity_source_check`, read off a migrated database) becomes
+  `IN ('CALENDAR', 'TEAM_DEFAULT', 'DEFAULT', 'CONFIGURED')`. `CONFIGURED` stays accepted: a row written before V24 keeps it until
+  its connection's next DERIVE rebuilds `dim_sprint`; the writer never emits it again.
+- **The seed.** Each team's `TEAM_DEFAULT` is seeded from its most recent configured per-sprint figure in
+  `metrics.team_sprint_capacity` (via `norm.sprints` → `board_team_map`, active teams only). `team_sprint_capacity` itself stays,
+  now unread (its drain on PURGE stays too). Historical sprints that had an explicit figure therefore read `TEAM_DEFAULT`/`DEFAULT`
+  after their next DERIVE, while their frozen `fact_sprint_snapshot.capacity_md` keeps the old figure — Data quality's
+  snapshot-drift card flags the difference, by design.
+
+`MigrationChecksumTest` gains V24's pin.
 
 ### Soft delete (convention)
 

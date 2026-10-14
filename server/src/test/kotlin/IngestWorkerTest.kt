@@ -33,6 +33,7 @@ import ch.nokillswit.metrics.MetricsDeriver
 import ch.nokillswit.metrics.MetricsSettingsService
 import ch.nokillswit.metrics.MetricsStore
 import ch.nokillswit.metrics.MetricsTables
+import ch.nokillswit.metrics.SprintCalendarService
 import ch.nokillswit.metrics.TeamMembershipService
 import ch.nokillswit.metrics.registerMetricsHandlers
 import ch.nokillswit.norm.WorkItemStore
@@ -118,6 +119,27 @@ class IngestWorkerTest {
 
     private fun domainOwners() = DomainOwnerResolver(sharedDatabaseForTests(), WorkItemStore(sharedDatabaseForTests()))
 
+    /** The sprint-calendar PURGE step's service (A32) — fresh and stateless like the rest. */
+    private fun sprintCalendars(dataSources: DataSourceService) = SprintCalendarService(
+        sharedDatabaseForTests(), metricsSettings(dataSources),
+        TeamMembershipService(sharedDatabaseForTests(), metricsSettings(dataSources)), TestTeams.service,
+    )
+
+    private suspend fun seedSprintCalendar(connId: UInt, teamId: UInt) = suspendTransaction(sharedDatabaseForTests()) {
+        SprintCalendarService.SprintCalendars.insert {
+            it[connectionId] = connId
+            it[sprintId] = 999L
+            it[SprintCalendarService.SprintCalendars.teamId] = teamId
+            it[sprintStartMs] = 1_000L
+            it[calendar] = """{"teamCoefficient":1.0,"days":[],"people":[]}"""
+            it[updatedAt] = 1_000L
+        }
+    }
+
+    private suspend fun countSprintCalendars(connId: UInt): Long = suspendTransaction(sharedDatabaseForTests()) {
+        SprintCalendarService.SprintCalendars.selectAll().where { SprintCalendarService.SprintCalendars.connectionId eq connId }.count()
+    }
+
     /** The PURGE step's OTHER generic dependency (round 1 review: `MetricsStore.purgeAll` had no caller) — a fresh, stateless instance. */
     private fun metricsStore() = MetricsStore(sharedDatabaseForTests())
 
@@ -130,7 +152,7 @@ class IngestWorkerTest {
         config: MetricsConfigService = metricsConfig(dataSources),
         store: MetricsStore = metricsStore(),
     ) = JobHandlerRegistry().apply {
-        registerMetricsHandlers(deriver(dataSources), config, metricsSettings(dataSources), store)
+        registerMetricsHandlers(deriver(dataSources), config, sprintCalendars(dataSources), metricsSettings(dataSources), store)
     }
 
     /** The DERIVE job's dependency (v0.3.0 M3 commit 7) — a fresh instance per test, it is stateless. */
@@ -459,6 +481,8 @@ class IngestWorkerTest {
         val teamId = TestTeams.seed(unique("purge-team"))
         seedAllMetricsConfigTables(connId, teamId)
         assertEquals(8L, countAllMetricsConfigRows(connId), "fixture must seed exactly one row per table")
+        seedSprintCalendar(connId, teamId)
+        assertEquals(1L, countSprintCalendars(connId))
 
         val config = testConfig(workerSlots = 500)
         val connector = FakeConnector { } // succeeds trivially — the connector's own purgeSteps are empty here
@@ -470,6 +494,7 @@ class IngestWorkerTest {
         val firstJobId = jobs.requestJob(connId, SyncJobKind.PURGE, requestedByUserId = 1u, configRevision = 1L).jobId
         worker.runJob(claimFor(firstJobId, connId, SyncJobKind.PURGE))
         assertEquals(0L, countAllMetricsConfigRows(connId), "PURGE must drain every per-connection metrics config row")
+        assertEquals(0L, countSprintCalendars(connId), "and the connection's sprint calendars (A32)")
         assertEquals(SyncJobStatus.SUCCEEDED, jobs.read(connId, firstJobId)?.status)
 
         // A second PURGE (nothing left to drain) must still succeed — the deletes are no-ops, not errors.
