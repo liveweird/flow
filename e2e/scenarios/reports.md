@@ -134,6 +134,19 @@ unfolds it first (`openFilters`, which leaves an already unfolded bar alone).
    - *Expected*: the report narrows to that team, the epics card stays, and the owner table is
      gone (epics split by owner team, never by person).
 
+## Scenario: a user widens the cycle time histogram's long tail
+
+1. The user opens the **Cycle time** report for this spec's connection over the default fixed window.
+   - *Expected*: the "Long tail" control reads 5% and the URL has no `tailPercent`; the "Elapsed
+     days" histogram table already ends in an open row "≥ X (long tail)".
+2. They set the long tail to 25%.
+   - *Expected*: the URL gains `tailPercent=25`; the last histogram row is still an open "≥ X (long
+     tail)" bucket, now starting at a different (lower) value.
+3. They set it to 0%.
+   - *Expected*: the URL has `tailPercent=0` and the last histogram row is a closed range — no "≥" row.
+4. They set it back to 5%.
+   - *Expected*: `tailPercent` leaves the URL and the "≥ X" row is back.
+
 ## Scenario: the user reads task estimation accuracy
 
 1. The user opens **Estimation** from the sidebar.

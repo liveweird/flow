@@ -1,14 +1,14 @@
 import { describe, expect, test, vi } from "vitest";
 import DistributionPanel from "./DistributionPanel";
-import { TASK_ACCURACY, TASK_ACCURACY_HIDDEN } from "../test/reportFixtures";
+import { TASK_ACCURACY, TASK_ACCURACY_HIDDEN, TASK_ACCURACY_TAIL } from "../test/reportFixtures";
 import { formatRatio } from "../utils/reportFormat";
 import { renderWithProviders, screen, within } from "../test/render";
 
 vi.mock("@mantine/charts", () => ({
-  BarChart: (props: { data: { label: string; count: number }[]; xAxisLabel?: string }) => (
+  BarChart: (props: { data: { label: string; count?: number; tail?: number }[]; xAxisLabel?: string }) => (
     <div
       data-testid="bar-chart"
-      data-rows={props.data.map((r) => `${r.label}=${r.count}`).join("|")}
+      data-rows={props.data.map((r) => `${r.label}=${r.count ?? `tail ${r.tail}`}`).join("|")}
       data-x-label={props.xAxisLabel}
     />
   ),
@@ -32,6 +32,24 @@ describe("DistributionPanel", () => {
     const counts = within(table).getAllByRole("row").slice(1).map((r) => Number(r.lastElementChild?.textContent));
     expect(counts).toEqual([1, 3, 5, 2, 1]);
     expect(counts.reduce((a, b) => a + b, 0)).toBe(TASK_ACCURACY.atStart.n);
+  });
+
+  test("the open long-tail bucket reads \"≥ X\" in the chart and the table, marked in words, and the counts still sum to n", async () => {
+    renderWithProviders(
+      <DistributionPanel title="At start" distribution={TASK_ACCURACY_TAIL.atStart} minSampleSize={5} format={formatRatio} axisLabel="actual ÷ estimate" />,
+    );
+    expect((await screen.findByTestId("bar-chart")).getAttribute("data-rows")).toBe(
+      "0.5 – 1=1|1 – 1.5=3|1.5 – 2=5|2 – 2.5=2|≥ 2.5=tail 1",
+    );
+    const table = screen.getByRole("table", { name: "Histogram, as a table — At start" });
+    const rows = within(table).getAllByRole("row").slice(1);
+    const last = rows[rows.length - 1];
+    expect(within(last).getAllByRole("cell")[0]).toHaveTextContent("≥ 2.5 (long tail)");
+    expect(last.lastElementChild).toHaveTextContent("1");
+    // Only the open bucket carries the marker.
+    expect(rows.slice(0, -1).map((r) => r.firstElementChild?.textContent)).toEqual(["0.5 – 1", "1 – 1.5", "1.5 – 2", "2 – 2.5"]);
+    const counts = rows.map((r) => Number(r.lastElementChild?.textContent));
+    expect(counts.reduce((a, b) => a + b, 0)).toBe(TASK_ACCURACY_TAIL.atStart.n);
   });
 
   test("the x axis is titled with what the ranges measure", async () => {

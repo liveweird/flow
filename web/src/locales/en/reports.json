@@ -242,7 +242,13 @@
     "histogramTable": "Histogram, as a table",
     "histogramLabel": "Histogram: number of items per range",
     "yAxis": "Items",
-    "stripLabel": "Percentiles"
+    "stripLabel": "Percentiles",
+    "tailSeries": "Long tail (top values)",
+    "tailRow": "long tail",
+    "tail": {
+      "label": "Long tail",
+      "help": "The top N% of values are shown as one final bucket (≥ X), so a few outliers don't squash the rest. 0 shows the plain histogram."
+    }
   },
   "excluded": {
     "title": "Left out of this distribution",

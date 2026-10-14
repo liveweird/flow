@@ -38,9 +38,24 @@ export default function DistributionPanel({
   const { t } = useTranslation();
   const show = (value: number | null | undefined) => (value == null ? MISSING : format(value));
   const labels = histogramLabels(distribution.histogram, format);
-  const rows = distribution.histogram.map((bucket, index) => ({ label: labels[index], count: bucket.count }));
+  // The final open bucket (`to` null) is the long tail: its row and bar say so in words, not only in a gray tone.
+  const rows = distribution.histogram.map((bucket, index) => ({ label: labels[index], count: bucket.count, open: bucket.to == null }));
   const columns: ColumnDef<(typeof rows)[number]>[] = [
-    { key: "range", header: t("reports.distribution.range"), render: (row) => row.label },
+    {
+      key: "range",
+      header: t("reports.distribution.range"),
+      render: (row) =>
+        row.open ? (
+          <>
+            {row.label}{" "}
+            <Text span size="xs" c="dimmed">
+              ({t("reports.distribution.tailRow")})
+            </Text>
+          </>
+        ) : (
+          row.label
+        ),
+    },
     { key: "count", header: t("reports.distribution.count"), render: (row) => row.count, align: "right" },
   ];
   const strip: [string, string][] = [

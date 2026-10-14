@@ -13,6 +13,7 @@ import ReportFilterBar, { type ReportControls } from "../components/ReportFilter
 import ReportFiltersStatus from "../components/ReportFiltersStatus";
 import ReportGroupsTable, { type GroupColumn } from "../components/ReportGroupsTable";
 import ReportMetaNote from "../components/ReportMetaNote";
+import ReportTailControl from "../components/ReportTailControl";
 import ReportTabs from "../components/ReportTabs";
 import { useReportPage } from "../hooks/useReportPage";
 import { cycleTrendRows, trendHasPoints, type CycleTrendRow } from "../utils/cycleTimeReport";
@@ -79,6 +80,7 @@ export default function ReportCycleTime() {
         <>
           <ReportFilterBar storageKey={storageKey} filters={filters} filter={filter} onChange={setFilter} controls={CONTROLS} />
           {report && <ReportMetaNote meta={report.meta} timeZone={filters.timeZone} />}
+          <ReportTailControl filter={filter} onChange={setFilter} />
           <ReportChartCard
             title={t("reports.cycleTime.title")}
             isPending={query.isPending}

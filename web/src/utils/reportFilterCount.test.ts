@@ -12,6 +12,11 @@ describe("activeReportFilterCount", () => {
     expect(count({}, { domainView: "EPIC", domain: true, bucket: true, wipBy: true, itemKind: true })).toBe(0);
   });
 
+  test("the long tail is no narrowing: it never counts", () => {
+    expect(count({ tailPercent: 0 })).toBe(0);
+    expect(count({ tailPercent: 25 }, { domainView: "TASK", domain: true, bucket: true })).toBe(0);
+  });
+
   test("the default 90-day preset is the default, any other period counts once", () => {
     expect(count(presetRange("last90", TODAY))).toBe(0);
     expect(count(presetRange("last30", TODAY))).toBe(1);

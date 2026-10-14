@@ -14,6 +14,7 @@ import ReportChartCard from "../components/ReportChartCard";
 import ReportFilterBar, { type ReportControls } from "../components/ReportFilterBar";
 import ReportFiltersStatus from "../components/ReportFiltersStatus";
 import ReportMetaNote from "../components/ReportMetaNote";
+import ReportTailControl from "../components/ReportTailControl";
 import { useReportPage } from "../hooks/useReportPage";
 import { normalizeDataQualityFilter } from "../utils/dataQualityReport";
 
@@ -44,6 +45,7 @@ export default function ReportDataQuality() {
         <>
           <ReportFilterBar storageKey={storageKey} filters={filters} filter={filter} onChange={setFilter} controls={CONTROLS} />
           {report && <ReportMetaNote meta={report.meta} timeZone={filters.timeZone} />}
+          <ReportTailControl filter={filter} onChange={setFilter} />
           <ReportChartCard
             title={t("reports.dataQuality.summary.title")}
             isPending={query.isPending}

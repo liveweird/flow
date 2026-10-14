@@ -485,6 +485,22 @@ const shownDistribution = (
   histogram: counts.map((count, i) => ({ from: lo + i * step, to: lo + (i + 1) * step, count })),
 });
 
+/**
+ * A visible distribution whose histogram ends in the open long-tail bucket (`to: null`): `counts` equal-width body buckets
+ * from `lo`, then `{from: lo + step * counts.length, to: null, count: tail}`; `n` is body + tail, `max` lies beyond the tail's start.
+ */
+const shownDistributionWithTail = (
+  counts: number[],
+  lo: number,
+  step: number,
+  tail: number,
+  stats: { p50: number; p90: number; p95: number; mean: number },
+): Distribution => {
+  const body = shownDistribution(counts, lo, step, stats);
+  const from = lo + step * counts.length;
+  return { ...body, n: body.n + tail, max: from + step * 3, histogram: [...body.histogram, { from, to: null, count: tail }] };
+};
+
 export const TASK_ACCURACY: TaskEstimationAccuracyReport = {
   meta: META,
   atStart: shownDistribution([1, 3, 5, 2, 1], 0.5, 0.5, { p50: 1.1, p90: 1.9, p95: 2.2, mean: 1.25 }),
@@ -508,6 +524,12 @@ export const TASK_ACCURACY: TaskEstimationAccuracyReport = {
       excluded: { population: 8, noWorklogs: 1, neverStarted: 1, unestimatedAtStart: 2, unestimatedAtDone: 2 },
     },
   ],
+};
+
+/** The default `tailPercent` answer: the at-start view's largest ratio folded into the final open bucket (1 of 12), the at-done view plain. */
+export const TASK_ACCURACY_TAIL: TaskEstimationAccuracyReport = {
+  ...TASK_ACCURACY,
+  atStart: shownDistributionWithTail([1, 3, 5, 2], 0.5, 0.5, 1, { p50: 1.1, p90: 1.9, p95: 2.2, mean: 1.25 }),
 };
 
 export const TASK_ACCURACY_HIDDEN: TaskEstimationAccuracyReport = {
@@ -744,6 +766,13 @@ export const CYCLE_TIME_MONTHS: CycleTimeReport = {
     { bucketStart: "2026-08-01", p50: 4, p90: 8, n: 11 },
     { bucketStart: "2026-09-01", p50: 3, p90: 7, n: 7 },
   ],
+};
+
+/** The default `tailPercent` answer: the top values of the task views folded into one final open bucket (2 of 18 tasks), the epics' plain. */
+export const CYCLE_TIME_TAIL: CycleTimeReport = {
+  ...CYCLE_TIME,
+  workingDays: shownDistributionWithTail([3, 6, 5, 2], 0, 2, 2, { p50: 3.5, p90: 7.5, p95: 9, mean: 4.1 }),
+  elapsedDays: shownDistributionWithTail([2, 5, 6, 3], 0, 3, 2, { p50: 5, p90: 11, p95: 13, mean: 6 }),
 };
 
 /** The epics block when no epic finished in the period (and the whole block at USER level — epics carry no user). */

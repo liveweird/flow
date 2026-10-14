@@ -48,31 +48,33 @@ export const FLOW_TABS: ReadonlyArray<ReportTabDef> = [
 ];
 
 /**
- * The report-specific params each report has a control for. Switching tabs must not carry a param
+ * The report-specific params each report has a control for. `tailPercent` (the long-tail control above the histograms) belongs
+ * to the seven reports whose response carries a `Distribution`: task/epic accuracy, adjustments, cycle time, reported time,
+ * blocked time and data quality. Switching tabs must not carry a param
  * the target report cannot show or clear (a hidden `domain` filter silently narrowing Commitments).
  */
 const REPORT_SPECIFIC_PARAMS: Readonly<Record<string, readonly ReportSpecificKey[]>> = {
   [commitmentsPath]: [],
   [throughputPath]: ["domainView", "domain", "activityType", "workCategory", "bucket"],
   [sprintConsistencyPath]: [],
-  [taskAccuracyPath]: ["domainView", "domain", "activityType", "workCategory"],
+  [taskAccuracyPath]: ["domainView", "domain", "activityType", "workCategory", "tailPercent"],
   // Epics carry no activity type, and their domain is their own space under either view.
-  [epicAccuracyPath]: ["domain", "workCategory"],
-  [estimateAdjustmentsPath]: ["domainView", "domain", "activityType", "workCategory"],
+  [epicAccuracyPath]: ["domain", "workCategory", "tailPercent"],
+  [estimateAdjustmentsPath]: ["domainView", "domain", "activityType", "workCategory", "tailPercent"],
   // Cycle time trends by week/month; reported time is a plain distribution pair.
-  [cycleTimePath]: ["domainView", "domain", "activityType", "workCategory", "bucket"],
-  [reportedTimePath]: ["domainView", "domain", "activityType", "workCategory"],
+  [cycleTimePath]: ["domainView", "domain", "activityType", "workCategory", "bucket", "tailPercent"],
+  [reportedTimePath]: ["domainView", "domain", "activityType", "workCategory", "tailPercent"],
   // The snapshot reports read a task's own domain (no domain view) and answer 400 to an activity
   // type or work category; WIP adds what it counts and how it keys the counts.
   [wipPath]: ["domain", "by", "itemKind"],
   [backlogPath]: ["domain"],
   // Aging WIP slices like the fact reports but has no period; blocked time also counts tasks, epics or both.
   [agingWipPath]: ["domain", "activityType", "workCategory"],
-  [blockedTimePath]: ["domain", "activityType", "workCategory", "itemKind"],
+  [blockedTimePath]: ["domain", "activityType", "workCategory", "itemKind", "tailPercent"],
   // EVM is always the epic view and has no per-day activity type/work category; its scope is ONE of epic, domain or team.
   [epicProgressPath]: ["domain", "epicId"],
   // Data quality takes the domain and its view, but has no control for an activity type or work category.
-  [dataQualityPath]: ["domain", "domainView"],
+  [dataQualityPath]: ["domain", "domainView", "tailPercent"],
   // The cost matrix slices the worklogs by every one of these; its rows and columns are the org drill and the domains.
   [costMatrixPath]: ["domain", "domainView", "activityType", "workCategory"],
 };
