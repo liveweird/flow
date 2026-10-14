@@ -12,10 +12,10 @@ import {
   BLOCKED_TEAM_BOTH,
   BLOCKED_TIME,
   BACKLOG,
-  BACKLOG_NO_VELOCITY,
+  BACKLOG_NO_PACE,
   BACKLOG_NOT_DERIVED,
   BACKLOG_PARTIAL_WINDOW,
-  BACKLOG_ZERO_VELOCITY,
+  BACKLOG_ZERO_PACE,
   ADJUSTMENTS_EMPTY,
   COST_MATRIX_EMPTY,
   COST_MATRIX_NO_SHARE,
@@ -46,7 +46,7 @@ import {
   TASK_ACCURACY_HIDDEN,
   THROUGHPUT_MONTHS,
   THROUGHPUT_UNIT,
-  VELOCITY_UNIT,
+  COMMITMENTS_UNIT,
   WIP_BOTH,
   WIP_COLUMN,
   WIP_EPICS,
@@ -98,9 +98,9 @@ describe("report fixtures hold the server's invariants", () => {
     expect(THROUGHPUT_MONTHS.byBucket.every((b) => b.bucketStart.endsWith("-01"))).toBe(true);
   });
 
-  test("velocity groups sum the sprints' final scope", () => {
-    const groupsFinal = VELOCITY_UNIT.groups.reduce((s, g) => s + g.finalMd, 0);
-    const sprintsFinal = VELOCITY_UNIT.sprints.reduce((s, x) => s + x.finalMd, 0);
+  test("commitments groups sum the sprints' final scope", () => {
+    const groupsFinal = COMMITMENTS_UNIT.groups.reduce((s, g) => s + g.finalMd, 0);
+    const sprintsFinal = COMMITMENTS_UNIT.sprints.reduce((s, x) => s + x.finalMd, 0);
     expect(groupsFinal).toBeCloseTo(sprintsFinal, 6);
   });
 });
@@ -270,7 +270,7 @@ describe("cycle time and reported time fixtures hold the documented partitions",
   });
 
   test("backlog: current is the trend's last day, and backlog in sprints is md over the mean (null for no or a zero mean)", () => {
-    for (const report of [BACKLOG, BACKLOG_PARTIAL_WINDOW, BACKLOG_NO_VELOCITY, BACKLOG_ZERO_VELOCITY]) {
+    for (const report of [BACKLOG, BACKLOG_PARTIAL_WINDOW, BACKLOG_NO_PACE, BACKLOG_ZERO_PACE]) {
       const last = report.trend.at(-1);
       expect(report.current).toMatchObject({ asOfDay: last?.day, items: last?.items, md: last?.md });
       const { md, meanDeliveredMd, backlogInSprints, sprintsUsed, windowSprints } = report.current;

@@ -109,27 +109,27 @@ describe("Home page — the unit overview", () => {
     expect(requested(mockFetch).length).toBeLessThanOrEqual(5);
   });
 
-  test("velocity: initial, final and delivered per team from one report, as a chart and a table with the drift marker", async () => {
+  test("commitments: initial, final and delivered per team from one report, as a chart and a table with the drift marker", async () => {
     serve(mockFetch);
     renderHome();
-    const velocity = await screen.findByRole("region", { name: "Velocity and throughput" });
-    const chart = await within(velocity).findByTestId("bar-chart");
+    const commitments = await screen.findByRole("region", { name: "Commitments and velocity" });
+    const chart = await within(commitments).findByTestId("bar-chart");
     expect(chart.getAttribute("data-teams")).toBe("Alpha|Beta");
     expect(chart.getAttribute("data-delivered")).toBe("18,10");
     expect(chart.getAttribute("data-series")).toBe("initialMd,finalMd,deliveredMd");
-    expect(within(velocity).getByRole("group", { name: /Chart: initial scope, final scope and delivered scope/ })).toBeInTheDocument();
+    expect(within(commitments).getByRole("group", { name: /Chart: initial scope, final scope and delivered scope/ })).toBeInTheDocument();
 
-    const table = within(velocity).getByRole("table", { name: "Each team's last closed sprint, as a table" });
+    const table = within(commitments).getByRole("table", { name: "Each team's last closed sprint, as a table" });
     const rows = within(table).getAllByRole("row").slice(1).map((r) => within(r).getAllByRole("cell").map((c) => c.textContent));
     expect(rows).toEqual([
       ["Alpha", "Alpha 2", "2026-09-10", "20", "24.5", "18", "DriftFrozen at completion: committed 20 · final 22 · delivered 16.5 MD"],
       ["Beta", "Beta 1", "2026-09-01", "10", "10", "10", ""],
     ]);
     // The table sits in a focusable, named scroll region: it scrolls sideways in a half-width tile and a keyboard must reach it.
-    const scroller = within(velocity).getByRole("region", { name: "Each team's last closed sprint, as a table" });
+    const scroller = within(commitments).getByRole("region", { name: "Each team's last closed sprint, as a table" });
     expect(scroller).toHaveAttribute("tabindex", "0");
     expect(scroller).toContainElement(table);
-    expect(within(velocity).getByText(/Each team's last closed sprint, in man-days/)).toBeInTheDocument();
+    expect(within(commitments).getByText(/Each team's last closed sprint, in man-days/)).toBeInTheDocument();
   });
 
   test("cycle time: median, p90 and finished count, the smaller trend chart with its gaps, and the trend as a table", async () => {
@@ -243,10 +243,10 @@ describe("Home page — the unit overview", () => {
     await waitFor(() =>
       expect(within(tile("Cycle time")).getByRole("link", { name: "Cycle time" })).toHaveAttribute("href", `/reports/cycle-time?${period}`),
     );
-    const velocity = await screen.findByRole("region", { name: "Velocity and throughput" });
-    expect(await within(velocity).findByRole("link", { name: "Velocity and throughput" })).toHaveAttribute("href", "/reports/velocity?lastSprints=1");
-    expect(within(velocity).getByRole("link", { name: "Throughput report" })).toHaveAttribute("href", "/reports/throughput?lastSprints=1");
-    expect(within(velocity).getByRole("link", { name: "Sprint consistency report" })).toHaveAttribute(
+    const commitments = await screen.findByRole("region", { name: "Commitments and velocity" });
+    expect(await within(commitments).findByRole("link", { name: "Commitments and velocity" })).toHaveAttribute("href", "/reports/commitments?lastSprints=1");
+    expect(within(commitments).getByRole("link", { name: "Throughput report" })).toHaveAttribute("href", "/reports/throughput?lastSprints=1");
+    expect(within(commitments).getByRole("link", { name: "Sprint consistency report" })).toHaveAttribute(
       "href",
       "/reports/sprint-consistency?lastSprints=1",
     );
@@ -263,8 +263,8 @@ describe("Home page — the unit overview", () => {
     serve(mockFetch, { "cycle-time": answer, "data-quality": answer });
     renderHome();
     const { from, to } = presetRange("last90", todayIsoDate(FILTERS.timeZone));
-    const velocity = await screen.findByRole("region", { name: "Velocity and throughput" });
-    await within(velocity).findByRole("link", { name: "Sprint consistency report" });
+    const commitments = await screen.findByRole("region", { name: "Commitments and velocity" });
+    await within(commitments).findByRole("link", { name: "Sprint consistency report" });
     const reportLinks = screen.getAllByRole("link").map((link) => link.getAttribute("href") ?? "").filter((href) => href.startsWith("/reports/"));
     expect(reportLinks.length).toBeGreaterThanOrEqual(6);
     expect(reportLinks.every((href) => href.includes("?"))).toBe(true);
@@ -283,8 +283,8 @@ describe("Home page — the unit overview", () => {
     serve(mockFetch, { filters: answer, "cycle-time": answer, "data-quality": answer });
     renderHome();
     const { from, to } = presetRange("last90", todayIsoDate());
-    const velocity = await screen.findByRole("region", { name: "Velocity and throughput" });
-    await within(velocity).findByRole("link", { name: "Sprint consistency report" });
+    const commitments = await screen.findByRole("region", { name: "Commitments and velocity" });
+    await within(commitments).findByRole("link", { name: "Sprint consistency report" });
     expect(within(tile("Cycle time")).getByRole("link", { name: "Cycle time" })).toHaveAttribute("href", `/reports/cycle-time?from=${from}&to=${to}`);
     expect(within(tile("Data quality")).getByRole("link", { name: "Data quality" })).toHaveAttribute("href", `/reports/data-quality?from=${from}&to=${to}`);
   });
@@ -297,13 +297,13 @@ describe("Home page — the unit overview", () => {
     };
     serve(mockFetch, { "sprint-consistency": () => jsonResponse(200, lateClose) });
     const { unmount } = renderHome();
-    const table = await within(await screen.findByRole("region", { name: "Velocity and throughput" })).findByRole("table");
+    const table = await within(await screen.findByRole("region", { name: "Commitments and velocity" })).findByRole("table");
     await waitFor(() => expect(within(table).getByText("2026-09-11")).toBeInTheDocument());
     unmount();
 
     serve(mockFetch, { filters: failing, "sprint-consistency": () => jsonResponse(200, lateClose) });
     renderHome();
-    const utcTable = await within(await screen.findByRole("region", { name: "Velocity and throughput" })).findByRole("table");
+    const utcTable = await within(await screen.findByRole("region", { name: "Commitments and velocity" })).findByRole("table");
     expect(within(utcTable).getByText("2026-09-10")).toBeInTheDocument();
   });
 
@@ -314,20 +314,20 @@ describe("Home page — the unit overview", () => {
     expect(await within(cycle).findByRole("alert")).toHaveTextContent("Load failed (500)");
     expect(within(await screen.findByRole("region", { name: "Data quality" })).getByRole("list")).toBeInTheDocument();
     expect(within(tile("Work in progress")).getByRole("group", { name: "Work in progress and aging" })).toBeInTheDocument();
-    expect(await within(tile("Velocity and throughput")).findByRole("table")).toBeInTheDocument();
+    expect(await within(tile("Commitments and velocity")).findByRole("table")).toBeInTheDocument();
     // The failed report cannot date the links, the surviving from/to report (data quality) does.
     await waitFor(() =>
       expect(within(tile("Data quality")).getByRole("link", { name: "Data quality" })).toHaveAttribute("href", expect.stringContaining("from=2026-07-02")),
     );
   });
 
-  test("the velocity tile shows its report's failure and no table", async () => {
+  test("the commitments tile shows its report's failure and no table", async () => {
     serve(mockFetch, { "sprint-consistency": () => jsonResponse(503, { title: "Down", status: 503 }) });
     renderHome();
-    const velocity = await screen.findByRole("region", { name: "Velocity and throughput" });
-    expect(await within(velocity).findByRole("alert")).toHaveTextContent("Load failed (503)");
-    expect(within(velocity).queryByRole("table")).not.toBeInTheDocument();
-    expect(within(velocity).queryByRole("link", { name: "Throughput report" })).not.toBeInTheDocument();
+    const commitments = await screen.findByRole("region", { name: "Commitments and velocity" });
+    expect(await within(commitments).findByRole("alert")).toHaveTextContent("Load failed (503)");
+    expect(within(commitments).queryByRole("table")).not.toBeInTheDocument();
+    expect(within(commitments).queryByRole("link", { name: "Throughput report" })).not.toBeInTheDocument();
   });
 
   test("a report that has not answered yet leaves that tile busy while the others render; one polite live region says so", async () => {
@@ -350,10 +350,10 @@ describe("Home page — the unit overview", () => {
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(""));
   });
 
-  test("a closed-sprint-free unit says so in the velocity tile", async () => {
+  test("a closed-sprint-free unit says so in the commitments tile", async () => {
     serve(mockFetch, { "sprint-consistency": () => jsonResponse(200, CONSISTENCY_EMPTY) });
     renderHome();
-    expect(await within(await screen.findByRole("region", { name: "Velocity and throughput" })).findByText("No closed sprint yet.")).toBeInTheDocument();
+    expect(await within(await screen.findByRole("region", { name: "Commitments and velocity" })).findByText("No closed sprint yet.")).toBeInTheDocument();
   });
 
   describe("when nothing has been derived yet", () => {

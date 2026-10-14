@@ -24,7 +24,7 @@
    is the same shape the server's `DerivedStubFixture` derives. It then puts one stub person on
    the team's roster, so the cost matrix has a real author-team row.
 3. It creates the regular user, then polls the report API (bounded, ~240s each) until the team's
-   velocity lists the golden sprint — the proof that a DERIVE has run under the mapping — and
+   commitments list the golden sprint — the proof that a DERIVE has run under the mapping — and
    until the cost matrix names the team as an author team — the proof that a DERIVE has read the
    roster too. The figures the batch-1 scenarios assert are `sample-data/jira/expected.json`'s
    `golden.sprint` (**FLO Sprint 4**), and the epic scenario's are its `golden.epic` (**FLO-33**),
@@ -45,18 +45,21 @@ finished in autumn 2025, before the six-month window opens.
 Every report's filter bar is collapsible and starts folded; a scenario that drives a filter control
 unfolds it first (`openFilters`, which leaves an already unfolded bar alone).
 
-## Scenario: a regular user reads the golden sprint's velocity
+## Scenario: a regular user reads the golden sprint's commitments
 
 1. The regular user signs in and opens **Delivery** from the sidebar.
-   - *Expected*: the **Velocity** report loads (there is no admin gate on reports).
+   - *Expected*: the **Commitments** report loads (there is no admin gate on reports).
 2. They pick the seeded team, the period "One sprint" and the sprint "FLO Sprint 4".
    - *Expected*: the URL carries `sprintId` and `teamId` (the page starts on a team of its own —
-     velocity never reads the whole unit); a "Derived … · configuration revision N" line and the
+     commitments never read the whole unit); a "Derived … · configuration revision N" line and the
      initial-vs-final chart are shown.
 3. They read the sprint's row.
    - *Expected*: sprint name, the team, and **Initial** = the golden committed MD and items,
      **Final** = the golden final MD and items; no drift badge (nothing moved since the sprint
      closed); the table also has **Capacity (MD)** and **Load** columns.
+4. They open the report's old address, `/reports/velocity?lastSprints=3`.
+   - *Expected*: they land on `/reports/commitments` with `lastSprints=3` still in the URL and the
+     **Commitments** heading shown.
 
 ## Scenario: the user regroups throughput by month
 
@@ -76,9 +79,9 @@ unfolds it first (`openFilters`, which leaves an already unfolded bar alone).
 
 ## Scenario: a user folds and unfolds the report filters and the choice is remembered
 
-1. The regular user signs in and opens **Delivery** (Velocity).
+1. The regular user signs in and opens **Delivery** (Commitments).
    - *Expected*: the filter bar is folded — a "Filters" toggle (`aria-expanded` false, no badge)
-     and no Period control; the URL already carries a `teamId` (velocity requires a team, and a
+     and no Period control; the URL already carries a `teamId` (commitments require a team, and a
      required team is not a narrowing, so it never counts on the badge).
 2. They unfold it and pick the period "Last 30 days".
    - *Expected*: `aria-expanded` is true and the controls show; the URL carries `from` and `to`;
@@ -205,14 +208,14 @@ unfolds it first (`openFilters`, which leaves an already unfolded bar alone).
 ## Scenario: the user sees the four overview tiles on Home and follows one into its report
 
 1. The user signs in and lands on Home, the whole-unit overview.
-   - *Expected*: the four tiles — Velocity and throughput, Cycle time, Work in progress, Data
-     quality — are shown, none still loading, each with its title as a link; the velocity tile
+   - *Expected*: the four tiles — Commitments and velocity, Cycle time, Work in progress, Data
+     quality — are shown, none still loading, each with its title as a link; the commitments tile
      lists the seeded team with its last closed sprint.
 2. They follow the **Cycle time** tile's title.
    - *Expected*: the Cycle time report opens with the tile's own period in the URL (`from`/`to`
      dates) — a tile link is never bare, since a bare link would apply the remembered team.
-3. They go back Home and follow the **Velocity and throughput** tile's title.
-   - *Expected*: the Velocity report opens with `lastSprints=1` in the URL.
+3. They go back Home and follow the **Commitments and velocity** tile's title.
+   - *Expected*: the Commitments report opens with `lastSprints=1` in the URL.
 
 ## Scenario: the user reads epic estimation accuracy against each epic's own estimate
 
@@ -349,7 +352,7 @@ unfolds it first (`openFilters`, which leaves an already unfolded bar alone).
 ## Scenario: the populated Home overview and data-quality page have no WCAG A/AA violations
 
 1. The user signs in, lands on Home and waits for its four tiles to finish loading, then scans it.
-   - *Expected*: an axe scan (same tags, no waivers) reports zero violations — including the velocity
+   - *Expected*: an axe scan (same tags, no waivers) reports zero violations — including the commitments
      tile's sideways-scrolling table, which is a focusable, named scroll region.
 2. They open **Data quality** for this spec's connection (deep link, fixed window), wait for the
    findings and scan it.

@@ -5,7 +5,7 @@ import { MAX_ACCOUNTS } from "../utils/reportFilter";
 const INPUT_MIN_WIDTH = 48;
 
 /**
- * The bar's multiple-choice sibling of `ReportFilterSelect` (velocity's members): searchable, clearable with a named
+ * The bar's multiple-choice sibling of `ReportFilterSelect` (commitments' members): searchable, clearable with a named
  * clear button, at most `MAX_ACCOUNTS` picks (Mantine's `maxValues` — a click past the cap adds nothing, so the field
  * says so in its description once the cap is reached and stays quiet before), and the picked options leave the list so
  * the dropdown only offers what can still be added. The search input may shrink to `INPUT_MIN_WIDTH` (Mantine's own floor

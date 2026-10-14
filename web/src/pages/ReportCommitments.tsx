@@ -13,18 +13,18 @@ import ReportGroupsTable, { type GroupColumn } from "../components/ReportGroupsT
 import ReportMetaNote from "../components/ReportMetaNote";
 import ReportSprintsTable, { type SprintColumn } from "../components/ReportSprintsTable";
 import ReportTabs from "../components/ReportTabs";
-import VelocityUserTables from "../components/VelocityUserTables";
+import CommitmentsUserTables from "../components/CommitmentsUserTables";
 import { useReportPage } from "../hooks/useReportPage";
 import type { ReportControls } from "../utils/reportFilter";
 import { formatMd, formatPercent } from "../utils/reportFormat";
 import { DELIVERY_TABS } from "../utils/reportLinks";
-import { loadFraction, velocityChartRows, velocityFigureColumns, velocityUserChart } from "../utils/velocityReport";
+import { loadFraction, commitmentsChartRows, commitmentsFigureColumns, commitmentsUserChart } from "../utils/commitmentsReport";
 
 // The chart (and with it recharts) rides its own lazy chunk.
-const VelocityChart = lazy(() => import("../components/VelocityChart"));
+const CommitmentsChart = lazy(() => import("../components/CommitmentsChart"));
 
 /**
- * Velocity is read per team (the capacity and the per-person split are team figures): the team is required — never the
+ * Commitments are read per team (the capacity and the per-person split are team figures): the team is required — never the
  * whole unit — and the member control picks several people. A module-level constant: the hook reads its identity.
  */
 const CONTROLS: ReportControls = { teamRequired: true, multiMember: true };
@@ -40,18 +40,18 @@ function CapacityCell({ sprint }: { sprint: CommitmentsSprint }) {
       </Text>
       {sprint.capacitySource === "DEFAULT" && (
         <Badge color="gray" variant="light" size="sm">
-          {t("reports.velocity.defaultBadge")}
+          {t("reports.commitments.defaultBadge")}
         </Badge>
       )}
     </Group>
   );
 }
 
-/** Report 1 — velocity: each sprint's committed (initial) scope against its final scope and the team's capacity; with people picked, their shares. */
-export default function ReportVelocity() {
+/** Report 1 — commitments: each sprint's committed (initial) scope against its final scope and the team's capacity; with people picked, their shares. */
+export default function ReportCommitments() {
   const { t } = useTranslation();
   const { filtersQuery, filters, filter, setFilter, query, storageKey } = useReportPage(
-    "velocity",
+    "commitments",
     getCommitmentsReport,
     undefined,
     CONTROLS,
@@ -61,16 +61,16 @@ export default function ReportVelocity() {
   const userMode = report?.meta.level === "USER";
   const noTeams = filters !== undefined && filters.teams.length === 0;
 
-  const groupColumns: GroupColumn<CommitmentsGroup>[] = velocityFigureColumns<CommitmentsGroup>(t, (group) => group);
+  const groupColumns: GroupColumn<CommitmentsGroup>[] = commitmentsFigureColumns<CommitmentsGroup>(t, (group) => group);
   const sprintColumns: SprintColumn<CommitmentsSprint>[] = [
-    ...velocityFigureColumns<CommitmentsSprint>(t, (sprint) => sprint),
+    ...commitmentsFigureColumns<CommitmentsSprint>(t, (sprint) => sprint),
     ...(userMode
       ? []
       : [
-          { key: "capacityMd", header: t("reports.velocity.column.capacityMd"), render: (sprint: CommitmentsSprint) => <CapacityCell sprint={sprint} /> },
+          { key: "capacityMd", header: t("reports.commitments.column.capacityMd"), render: (sprint: CommitmentsSprint) => <CapacityCell sprint={sprint} /> },
           {
             key: "load",
-            header: t("reports.velocity.column.load"),
+            header: t("reports.commitments.column.load"),
             render: (sprint: CommitmentsSprint) => {
               const load = loadFraction(sprint.initialMd, sprint.capacityMd);
               return load === null ? "—" : formatPercent(load);
@@ -81,12 +81,12 @@ export default function ReportVelocity() {
 
   return (
     <Stack gap="md">
-      <PageHeader title={t("reports.velocity.title")} description={t("reports.velocity.description")} />
+      <PageHeader title={t("reports.commitments.title")} description={t("reports.commitments.description")} />
       <ReportTabs tabs={DELIVERY_TABS} />
       <ReportFiltersStatus query={filtersQuery} />
       {noTeams && (
         <Paper withBorder p="md">
-          <EmptyState icon={IconUsers} label={t("reports.velocity.noTeams")} />
+          <EmptyState icon={IconUsers} label={t("reports.commitments.noTeams")} />
         </Paper>
       )}
       {filters && !noTeams && (
@@ -94,7 +94,7 @@ export default function ReportVelocity() {
           <ReportFilterBar storageKey={storageKey} filters={filters} filter={filter} onChange={setFilter} controls={CONTROLS} />
           {report && <ReportMetaNote meta={report.meta} timeZone={filters.timeZone} />}
           <ReportChartCard
-            title={t(userMode ? "reports.velocity.chartTitleUsers" : "reports.velocity.chartTitle")}
+            title={t(userMode ? "reports.commitments.chartTitleUsers" : "reports.commitments.chartTitle")}
             isPending={query.isPending}
             isRefreshing={query.isPlaceholderData}
             error={query.error}
@@ -104,9 +104,9 @@ export default function ReportVelocity() {
               <Stack gap="md">
                 <Suspense fallback={<LoadingBlock />}>
                   {userMode ? (
-                    <VelocityChart mode="user" {...velocityUserChart(report.sprints, filters)} />
+                    <CommitmentsChart mode="user" {...commitmentsUserChart(report.sprints, filters)} />
                   ) : (
-                    <VelocityChart mode="team" rows={velocityChartRows(report.sprints, filters)} />
+                    <CommitmentsChart mode="team" rows={commitmentsChartRows(report.sprints, filters)} />
                   )}
                 </Suspense>
                 <ReportSprintsTable
@@ -116,7 +116,7 @@ export default function ReportVelocity() {
                   minWidth={userMode ? 760 : 960}
                   driftDetail={(sprint) =>
                     sprint.snapshot &&
-                    t("reports.velocity.snapshot", {
+                    t("reports.commitments.snapshot", {
                       initialMd: formatMd(sprint.snapshot.initialMd),
                       finalMd: formatMd(sprint.snapshot.finalMd),
                     })
@@ -124,7 +124,7 @@ export default function ReportVelocity() {
                 />
                 {!userMode && report.sprints.some((sprint) => sprint.capacityMd !== null) && (
                   <Text size="xs" c="dimmed">
-                    {t("reports.velocity.loadNote")}
+                    {t("reports.commitments.loadNote")}
                   </Text>
                 )}
               </Stack>
@@ -132,7 +132,7 @@ export default function ReportVelocity() {
           </ReportChartCard>
           {report &&
             (userMode ? (
-              <VelocityUserTables sprints={report.sprints} groups={report.groups} filters={filters} />
+              <CommitmentsUserTables sprints={report.sprints} groups={report.groups} filters={filters} />
             ) : (
               <ReportGroupsTable level={report.meta.level} filters={filters} groups={report.groups} columns={groupColumns} />
             ))}

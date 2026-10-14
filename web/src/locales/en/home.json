@@ -6,9 +6,9 @@
   "emptyAdminLink": "Add a data source",
   "emptyAdminSettingsLink": "Metrics settings",
   "tilesLabel": "Unit overview",
-  "velocity": {
-    "title": "Velocity and throughput",
-    "caption": "Each team's last closed sprint, in man-days: initial and final scope against what it delivered.",
+  "commitments": {
+    "title": "Commitments and velocity",
+    "caption": "Each team's last closed sprint, in man-days: initial and final scope against what it delivered (its velocity).",
     "throughputLink": "Throughput report",
     "empty": "No closed sprint yet.",
     "chartLabel": "Chart: initial scope, final scope and delivered scope of each team's last closed sprint",
@@ -24,7 +24,7 @@
       "closed": "Closed",
       "initial": "Initial (MD)",
       "final": "Final (MD)",
-      "delivered": "Delivered (MD)"
+      "delivered": "Delivered (velocity, MD)"
     },
     "consistencyLink": "Sprint consistency report"
   },

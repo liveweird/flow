@@ -17,12 +17,12 @@ vi.mock("@mantine/charts", () => ({
 
 type FetchMock = ReturnType<typeof vi.fn>;
 
-function serve(mockFetch: FetchMock, velocity?: (url: string) => Response) {
+function serve(mockFetch: FetchMock, override?: (url: string) => Response) {
   mockFetch.mockImplementation((url: string) => {
     if (url === "/api/v1/reports/filters") return Promise.resolve(jsonResponse(200, FILTERS));
     if (url.startsWith("/api/v1/reports/throughput?")) {
       return Promise.resolve(
-        velocity?.(url) ??
+        override?.(url) ??
           jsonResponse(200, new URL(url, "http://x").searchParams.get("bucket") === "MONTH" ? THROUGHPUT_MONTHS : THROUGHPUT_UNIT),
       );
     }

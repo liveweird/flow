@@ -5,10 +5,10 @@ import ReportBacklog from "./ReportBacklog";
 import { jsonResponse } from "../test/http";
 import {
   BACKLOG,
-  BACKLOG_NO_VELOCITY,
+  BACKLOG_NO_PACE,
   BACKLOG_NOT_DERIVED,
   BACKLOG_PARTIAL_WINDOW,
-  BACKLOG_ZERO_VELOCITY,
+  BACKLOG_ZERO_PACE,
   FILTERS,
 } from "../test/reportFixtures";
 import { openReportFilters } from "../test/reportFilters";
@@ -152,8 +152,8 @@ describe("ReportBacklog page", () => {
     expect(await screen.findByText("≈ 1 sprint ahead")).toBeInTheDocument();
   });
 
-  test("no velocity (no closed sprint, or an unowned/domain scope): a dash and the reason", async () => {
-    serve(mockFetch, BACKLOG_NO_VELOCITY);
+  test("no pace (no closed sprint, or an unowned/domain scope): a dash and the reason", async () => {
+    serve(mockFetch, BACKLOG_NO_PACE);
     renderPage();
     const sprints = await screen.findByRole("group", { name: "Backlog in sprints" });
     expect(within(sprints).getByText("—")).toBeInTheDocument();
@@ -164,7 +164,7 @@ describe("ReportBacklog page", () => {
   });
 
   test("a mean of zero: a dash, and it says the sprints delivered nothing", async () => {
-    serve(mockFetch, BACKLOG_ZERO_VELOCITY);
+    serve(mockFetch, BACKLOG_ZERO_PACE);
     renderPage();
     const sprints = await screen.findByRole("group", { name: "Backlog in sprints" });
     expect(within(sprints).getByText("—")).toBeInTheDocument();

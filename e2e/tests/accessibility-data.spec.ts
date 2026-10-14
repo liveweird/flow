@@ -41,7 +41,7 @@ test.describe("pages over synced data", () => {
     try {
       ({ id: dataSourceId, name: dataSourceName } = await syncStubDataSourceViaApi(api, "e2e-axe-ds"));
       ({ teamId } = await configureMetricsViaApi(api, dataSourceId, uniqueText("e2e-axe-data-team")));
-      // The golden sprint (FLO Sprint 4, id 3003) appearing in the team's velocity proves a DERIVE ran under the mapping.
+      // The golden sprint (FLO Sprint 4, id 3003) appearing in the team's commitments proves a DERIVE ran under the mapping.
       await awaitDerivedSprint(api, teamId, 3003);
       // Paused once derived: every config bump elsewhere in the suite re-derives an ENABLED connection
       // (a further full-stub derive on the worker), while a paused one keeps what it derived and stays
@@ -75,7 +75,7 @@ test.describe("pages over synced data", () => {
 
   // Fact reports read the seeded team (its By-member level), the rest the whole connection; the
   // epic-progress plan panel of the golden epic is scanned by reports.spec.ts.
-  const teamScoped = new Set(["velocity", "throughput", "sprint-consistency", "cycle-time", "task-estimation-accuracy", "wip", "backlog", "aging-wip", "blocked-time"]);
+  const teamScoped = new Set(["commitments", "throughput", "sprint-consistency", "cycle-time", "task-estimation-accuracy", "wip", "backlog", "aging-wip", "blocked-time"]);
   const DATA_PAGES: { name: string; path: () => string; settled: (page: Page) => Promise<void> }[] = [
     ...REPORT_PAGES.map(({ path, heading }) => ({
       name: path,

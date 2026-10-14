@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { Route, Routes } from "react-router-dom";
-import ReportVelocity from "./ReportVelocity";
+import ReportCommitments from "./ReportCommitments";
 import { jsonResponse } from "../test/http";
-import { FILTERS, VELOCITY_EMPTY, VELOCITY_TEAM, VELOCITY_USER, VELOCITY_USERS } from "../test/reportFixtures";
+import { FILTERS, COMMITMENTS_EMPTY, COMMITMENTS_TEAM, COMMITMENTS_USER, COMMITMENTS_USERS } from "../test/reportFixtures";
 import { openReportFilters } from "../test/reportFilters";
 import { renderWithProviders, screen, waitFor, within } from "../test/render";
 
@@ -19,7 +19,7 @@ type FetchMock = ReturnType<typeof vi.fn>;
 
 interface Serve {
   filters?: () => Response;
-  velocity?: (url: string) => Response;
+  commitments?: (url: string) => Response;
 }
 
 function serve(mockFetch: FetchMock, overrides: Serve = {}) {
@@ -28,26 +28,26 @@ function serve(mockFetch: FetchMock, overrides: Serve = {}) {
     if (url.startsWith("/api/v1/reports/commitments?")) {
       const params = new URL(url, "http://x").searchParams;
       const accounts = params.getAll("accountId").length;
-      const report = accounts > 1 ? VELOCITY_USERS : accounts === 1 ? VELOCITY_USER : VELOCITY_TEAM;
-      return Promise.resolve(overrides.velocity?.(url) ?? jsonResponse(200, report));
+      const report = accounts > 1 ? COMMITMENTS_USERS : accounts === 1 ? COMMITMENTS_USER : COMMITMENTS_TEAM;
+      return Promise.resolve(overrides.commitments?.(url) ?? jsonResponse(200, report));
     }
     return Promise.resolve(jsonResponse(404, { title: "Not Found", status: 404 }));
   });
 }
 
-function renderPage(route = "/reports/velocity") {
+function renderPage(route = "/reports/commitments") {
   return renderWithProviders(
     <Routes>
-      <Route path="/reports/velocity" element={<ReportVelocity />} />
+      <Route path="/reports/commitments" element={<ReportCommitments />} />
     </Routes>,
     { route },
   );
 }
 
-const velocityCalls = (mockFetch: FetchMock) =>
+const commitmentsCalls = (mockFetch: FetchMock) =>
   mockFetch.mock.calls.map((c) => c[0] as string).filter((url) => url.startsWith("/api/v1/reports/commitments"));
 
-describe("ReportVelocity page", () => {
+describe("ReportCommitments page", () => {
   let mockFetch: FetchMock;
 
   beforeEach(() => {
@@ -66,7 +66,7 @@ describe("ReportVelocity page", () => {
     serve(mockFetch);
     renderPage();
 
-    expect(await screen.findByRole("heading", { level: 2, name: "Velocity" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { level: 2, name: "Commitments" })).toBeInTheDocument();
     const chart = await screen.findByTestId("composite-chart");
     // Completion order; one team, so the label is the sprint's name.
     expect(chart.getAttribute("data-labels")).toBe("Alpha 1|Alpha 2");
@@ -109,12 +109,12 @@ describe("ReportVelocity page", () => {
     expect(screen.getByRole("heading", { name: "By member" })).toBeInTheDocument();
 
     // A bare link is never read for the unit: the page starts on the first team by name and asks for that once.
-    expect(velocityCalls(mockFetch)).toEqual(["/api/v1/reports/commitments?teamId=1"]);
+    expect(commitmentsCalls(mockFetch)).toEqual(["/api/v1/reports/commitments?teamId=1"]);
   });
 
   test("a sprint without a capacity shows dashes and no marker, and no load", async () => {
-    const sprint = { ...VELOCITY_TEAM.sprints[0], capacityMd: null, capacitySource: null } as const;
-    serve(mockFetch, { velocity: () => jsonResponse(200, { ...VELOCITY_TEAM, sprints: [sprint] }) });
+    const sprint = { ...COMMITMENTS_TEAM.sprints[0], capacityMd: null, capacitySource: null } as const;
+    serve(mockFetch, { commitments: () => jsonResponse(200, { ...COMMITMENTS_TEAM, sprints: [sprint] }) });
     renderPage();
     await screen.findByTestId("composite-chart");
     expect(screen.getByTestId("composite-chart").getAttribute("data-series")).toBe("initialMd,finalMd");
@@ -140,7 +140,7 @@ describe("ReportVelocity page", () => {
     expect(screen.queryByRole("option", { name: "All teams" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("option", { name: "Alpha" }));
     expect((screen.getByRole("combobox", { name: "Team" }) as HTMLInputElement).value).toBe("Alpha");
-    expect(velocityCalls(mockFetch)).toEqual(["/api/v1/reports/commitments?teamId=1"]);
+    expect(commitmentsCalls(mockFetch)).toEqual(["/api/v1/reports/commitments?teamId=1"]);
   });
 
   test("switching team asks for that team", async () => {
@@ -151,7 +151,7 @@ describe("ReportVelocity page", () => {
     await openReportFilters(user);
     await user.click(screen.getByRole("combobox", { name: "Team" }));
     await user.click(await screen.findByRole("option", { name: "Beta" }));
-    await waitFor(() => expect(velocityCalls(mockFetch)).toContain("/api/v1/reports/commitments?teamId=2"));
+    await waitFor(() => expect(commitmentsCalls(mockFetch)).toContain("/api/v1/reports/commitments?teamId=2"));
   });
 
   test("a bare link starts on the remembered team, else the first team by name when the remembered one is gone", async () => {
@@ -159,7 +159,7 @@ describe("ReportVelocity page", () => {
     serve(mockFetch);
     const first = renderPage();
     await screen.findByTestId("composite-chart");
-    await waitFor(() => expect(velocityCalls(mockFetch)).toEqual(["/api/v1/reports/commitments?teamId=2"]));
+    await waitFor(() => expect(commitmentsCalls(mockFetch)).toEqual(["/api/v1/reports/commitments?teamId=2"]));
     first.unmount();
 
     mockFetch.mockReset();
@@ -167,14 +167,14 @@ describe("ReportVelocity page", () => {
     serve(mockFetch);
     renderPage();
     await screen.findByTestId("composite-chart");
-    await waitFor(() => expect(velocityCalls(mockFetch)).toEqual(["/api/v1/reports/commitments?teamId=1"]));
+    await waitFor(() => expect(commitmentsCalls(mockFetch)).toEqual(["/api/v1/reports/commitments?teamId=1"]));
   });
 
   test("a link with only a period gets a team too, once, and keeps the period", async () => {
     serve(mockFetch);
-    renderPage("/reports/velocity?lastSprints=3");
+    renderPage("/reports/commitments?lastSprints=3");
     await screen.findByTestId("composite-chart");
-    expect(velocityCalls(mockFetch)).toEqual(["/api/v1/reports/commitments?lastSprints=3&teamId=1"]);
+    expect(commitmentsCalls(mockFetch)).toEqual(["/api/v1/reports/commitments?lastSprints=3&teamId=1"]);
     await openReportFilters();
     expect((screen.getByRole("combobox", { name: "Team" }) as HTMLInputElement).value).toBe("Alpha");
   });
@@ -182,9 +182,9 @@ describe("ReportVelocity page", () => {
   test("a sprint link without a team lands on the team that lists the sprint, even with another remembered", async () => {
     localStorage.setItem("flow.viewSettings.reports.teamId", "1");
     serve(mockFetch);
-    renderPage("/reports/velocity?sprintId=21");
+    renderPage("/reports/commitments?sprintId=21");
     await screen.findByTestId("composite-chart");
-    expect(velocityCalls(mockFetch)).toEqual(["/api/v1/reports/commitments?sprintId=21&teamId=2"]);
+    expect(commitmentsCalls(mockFetch)).toEqual(["/api/v1/reports/commitments?sprintId=21&teamId=2"]);
     await openReportFilters();
     expect((screen.getByRole("combobox", { name: "Sprint" }) as HTMLInputElement).value).toBe("Beta 1");
     expect((screen.getByRole("combobox", { name: "Team" }) as HTMLInputElement).value).toBe("Beta");
@@ -195,9 +195,9 @@ describe("ReportVelocity page", () => {
     ["the unassigned bucket", "0"],
   ])("a link naming %s is rewritten to the first team by name, once, and drops the picked people", async (_name, teamId) => {
     serve(mockFetch);
-    renderPage(`/reports/velocity?teamId=${teamId}&accountId=acc-ann&lastSprints=3`);
+    renderPage(`/reports/commitments?teamId=${teamId}&accountId=acc-ann&lastSprints=3`);
     await screen.findByTestId("composite-chart");
-    expect(velocityCalls(mockFetch)).toEqual(["/api/v1/reports/commitments?lastSprints=3&teamId=1"]);
+    expect(commitmentsCalls(mockFetch)).toEqual(["/api/v1/reports/commitments?lastSprints=3&teamId=1"]);
     await openReportFilters();
     expect((screen.getByRole("combobox", { name: "Team" }) as HTMLInputElement).value).toBe("Alpha");
   });
@@ -206,23 +206,23 @@ describe("ReportVelocity page", () => {
     serve(mockFetch, { filters: () => jsonResponse(200, { ...FILTERS, teams: [] }) });
     renderPage();
     expect(await screen.findByText(/there is no team yet/)).toBeInTheDocument();
-    expect(velocityCalls(mockFetch)).toEqual([]);
+    expect(commitmentsCalls(mockFetch)).toEqual([]);
     expect(screen.queryByTestId("composite-chart")).not.toBeInTheDocument();
   });
 
   test("the member control picks several people: repeated accountId in the request, then stacked columns per person", async () => {
     serve(mockFetch);
     const user = userEvent.setup();
-    renderPage("/reports/velocity?teamId=1");
+    renderPage("/reports/commitments?teamId=1");
     await screen.findByTestId("composite-chart");
     await openReportFilters(user);
 
     await user.click(screen.getByRole("combobox", { name: "Member" }));
     await user.click(await screen.findByRole("option", { name: "Ann Author" }));
-    await waitFor(() => expect(velocityCalls(mockFetch)).toContain("/api/v1/reports/commitments?teamId=1&accountId=acc-ann"));
+    await waitFor(() => expect(commitmentsCalls(mockFetch)).toContain("/api/v1/reports/commitments?teamId=1&accountId=acc-ann"));
     await user.click(await screen.findByRole("option", { name: "Bob Builder" }));
     await waitFor(() =>
-      expect(velocityCalls(mockFetch)).toContain("/api/v1/reports/commitments?teamId=1&accountId=acc-ann&accountId=acc-bob"),
+      expect(commitmentsCalls(mockFetch)).toContain("/api/v1/reports/commitments?teamId=1&accountId=acc-ann&accountId=acc-bob"),
     );
 
     // User mode: two stacks, one segment per person, committed first.
@@ -253,9 +253,9 @@ describe("ReportVelocity page", () => {
 
   test("a link with repeated accountId selects those people and requests them in that order", async () => {
     serve(mockFetch);
-    renderPage("/reports/velocity?teamId=1&accountId=acc-bob&accountId=acc-ann&accountId=acc-bob");
+    renderPage("/reports/commitments?teamId=1&accountId=acc-bob&accountId=acc-ann&accountId=acc-bob");
     await screen.findByTestId("bar-chart");
-    expect(velocityCalls(mockFetch)).toEqual(["/api/v1/reports/commitments?teamId=1&accountId=acc-bob&accountId=acc-ann"]);
+    expect(commitmentsCalls(mockFetch)).toEqual(["/api/v1/reports/commitments?teamId=1&accountId=acc-bob&accountId=acc-ann"]);
     await openReportFilters();
     const pills = screen.getByRole("group", { name: "Report filters" });
     expect(within(pills).getByText("Bob Builder")).toBeInTheDocument();
@@ -264,7 +264,7 @@ describe("ReportVelocity page", () => {
 
   test("one person is the same view with one segment per stack and no per-person share table", async () => {
     serve(mockFetch);
-    renderPage("/reports/velocity?teamId=1&accountId=acc-ann");
+    renderPage("/reports/commitments?teamId=1&accountId=acc-ann");
     const chart = await screen.findByTestId("bar-chart");
     expect(chart.getAttribute("data-series")).toBe("c0,f0");
     const row = within(screen.getAllByRole("table")[0]).getByRole("row", { name: /^Alpha 2 / });
@@ -275,34 +275,34 @@ describe("ReportVelocity page", () => {
     // "By member" is the team level's drill table: nothing is below a person.
     expect(screen.queryByRole("heading", { name: "By member" })).not.toBeInTheDocument();
     expect(screen.queryByRole("table", { name: "Each person's initial and final scope per sprint" })).not.toBeInTheDocument();
-    expect(velocityCalls(mockFetch)).toEqual(["/api/v1/reports/commitments?teamId=1&accountId=acc-ann"]);
+    expect(commitmentsCalls(mockFetch)).toEqual(["/api/v1/reports/commitments?teamId=1&accountId=acc-ann"]);
   });
 
   test("changing the team drops the picked people", async () => {
     serve(mockFetch);
     const user = userEvent.setup();
-    renderPage("/reports/velocity?teamId=1&accountId=acc-ann&accountId=acc-bob");
+    renderPage("/reports/commitments?teamId=1&accountId=acc-ann&accountId=acc-bob");
     await screen.findByTestId("bar-chart");
     await openReportFilters(user);
     await user.click(screen.getByRole("combobox", { name: "Team" }));
     await user.click(await screen.findByRole("option", { name: "Beta" }));
-    await waitFor(() => expect(velocityCalls(mockFetch)).toContain("/api/v1/reports/commitments?teamId=2"));
+    await waitFor(() => expect(commitmentsCalls(mockFetch)).toContain("/api/v1/reports/commitments?teamId=2"));
   });
 
   test("drilling into a member from the team table narrows to that person", async () => {
     serve(mockFetch);
     const user = userEvent.setup();
-    renderPage("/reports/velocity?teamId=1");
+    renderPage("/reports/commitments?teamId=1");
     await user.click(await screen.findByRole("link", { name: "Show Ann Author" }));
-    await waitFor(() => expect(velocityCalls(mockFetch)).toContain("/api/v1/reports/commitments?teamId=1&accountId=acc-ann"));
+    await waitFor(() => expect(commitmentsCalls(mockFetch)).toContain("/api/v1/reports/commitments?teamId=1&accountId=acc-ann"));
     expect(await screen.findByTestId("bar-chart")).toBeInTheDocument();
   });
 
   test("the URL's filter drives the request", async () => {
     serve(mockFetch);
-    renderPage("/reports/velocity?lastSprints=3&teamId=2");
+    renderPage("/reports/commitments?lastSprints=3&teamId=2");
     await screen.findByTestId("composite-chart");
-    expect(velocityCalls(mockFetch)).toEqual(["/api/v1/reports/commitments?lastSprints=3&teamId=2"]);
+    expect(commitmentsCalls(mockFetch)).toEqual(["/api/v1/reports/commitments?lastSprints=3&teamId=2"]);
   });
 
   test("offers no report-specific controls — no bucket, domain view, domain, activity type or category", async () => {
@@ -318,7 +318,7 @@ describe("ReportVelocity page", () => {
   });
 
   test("an empty period shows the empty state and no groups", async () => {
-    serve(mockFetch, { velocity: () => jsonResponse(200, VELOCITY_EMPTY) });
+    serve(mockFetch, { commitments: () => jsonResponse(200, COMMITMENTS_EMPTY) });
     renderPage();
     expect(await screen.findByText("No data in this period")).toBeInTheDocument();
     expect(screen.queryByTestId("composite-chart")).not.toBeInTheDocument();
@@ -326,7 +326,7 @@ describe("ReportVelocity page", () => {
   });
 
   test("a report failure is an inline alert, the filter bar stays usable", async () => {
-    serve(mockFetch, { velocity: () => jsonResponse(500, { title: "boom", status: 500 }) });
+    serve(mockFetch, { commitments: () => jsonResponse(500, { title: "boom", status: 500 }) });
     renderPage();
     expect(await screen.findByRole("alert")).toHaveTextContent("Load failed (500)");
     await openReportFilters();
@@ -337,7 +337,7 @@ describe("ReportVelocity page", () => {
     serve(mockFetch, { filters: () => jsonResponse(500, { title: "boom", status: 500 }) });
     renderPage();
     expect(await screen.findByRole("alert")).toHaveTextContent("Load failed (500)");
-    expect(velocityCalls(mockFetch)).toEqual([]);
+    expect(commitmentsCalls(mockFetch)).toEqual([]);
     expect(screen.queryByRole("button", { name: /^Filters/ })).not.toBeInTheDocument();
   });
 
@@ -348,7 +348,7 @@ describe("ReportVelocity page", () => {
     await screen.findByTestId("composite-chart");
     // Give any stray refetch (URL rewrite changing the key) a chance to show up.
     await waitFor(() => expect(screen.getByRole("link", { name: "Show Ann Author" })).toBeInTheDocument());
-    expect(velocityCalls(mockFetch)).toEqual(["/api/v1/reports/commitments?teamId=1"]);
+    expect(commitmentsCalls(mockFetch)).toEqual(["/api/v1/reports/commitments?teamId=1"]);
   });
 
   test("changing the period keeps the previous rows on screen, dimmed and busy, until the new report lands", async () => {
@@ -359,7 +359,7 @@ describe("ReportVelocity page", () => {
     mockFetch.mockImplementation((url: string) => {
       if (url === "/api/v1/reports/filters") return Promise.resolve(jsonResponse(200, FILTERS));
       if (url.includes("lastSprints=6")) return deferred;
-      return Promise.resolve(jsonResponse(200, VELOCITY_TEAM));
+      return Promise.resolve(jsonResponse(200, COMMITMENTS_TEAM));
     });
     const user = userEvent.setup();
     renderPage();
@@ -372,12 +372,12 @@ describe("ReportVelocity page", () => {
     await user.click(await screen.findByRole("option", { name: "Last 6 sprints" }));
 
     // The new request is in flight; the old report is still what the page shows.
-    await waitFor(() => expect(velocityCalls(mockFetch)).toContain("/api/v1/reports/commitments?lastSprints=6&teamId=1"));
+    await waitFor(() => expect(commitmentsCalls(mockFetch)).toContain("/api/v1/reports/commitments?lastSprints=6&teamId=1"));
     expect(busy()).toHaveAttribute("aria-busy", "true");
     expect(screen.getAllByText("Alpha 2").length).toBeGreaterThan(0);
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
 
-    release?.(jsonResponse(200, VELOCITY_EMPTY));
+    release?.(jsonResponse(200, COMMITMENTS_EMPTY));
     expect(await screen.findByText("No data in this period")).toBeInTheDocument();
     expect(screen.queryByTestId("composite-chart")).not.toBeInTheDocument();
   });

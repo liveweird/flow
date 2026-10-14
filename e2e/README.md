@@ -151,7 +151,7 @@ the same commit** — this list is the coverage map, the scenario file is the de
   over an API-seeded, synced-and-derived Jira-stub connection with the FLO board mapped to a
   throwaway team (`helpers.ts`'s `syncStubDataSourceViaApi`/`configureMetricsViaApi`/
   `awaitDerivedSprint`/`awaitDerivedTeamCost`, plus one API-seeded stub person on the team's roster,
-  removed before the team): the golden FLO sprint's figures in Velocity (a team is always selected; its table has the Capacity and Load columns), Throughput (regrouped by
+  removed before the team): the golden FLO sprint's figures in Commitments (a team is always selected; its table has the Capacity and Load columns; the old `/reports/velocity` address redirects to it with its filters), Throughput (regrouped by
   month — URL and table follow) and Sprint consistency; Cycle time (plus its Epics card over a
   year-long window, drilled by owner team) and Task estimation accuracy
   show their distributions (or the minimum-sample notice) with their accounting; Epic estimation
@@ -160,7 +160,7 @@ the same commit** — this list is the coverage map, the scenario file is the de
   team → member), Reported time beside flow efficiency (reached through the Estimation tab; domain and
   domain-view controls, the team drill) and the Estimated backlog (a team's tiles and trend, the unit's
   pace note, a domain's empty pace, a team replacing the domain). Batch 2 (M5): the
-  last three sprints and the team → member drill on Velocity; WIP by stage/status (URL and table
+  last three sprints and the team → member drill on Commitments; WIP by stage/status (URL and table
   follow), Aging WIP and Blocked time; Epic progress drilled unit → FLO domain → the golden epic
   (`golden.epic`'s budget and dates, the daily table); Data quality (tiles equal their cards, a
   regular user gets no admin config link); the Cost matrix (totals add up, drill to a team); the Home
@@ -171,7 +171,7 @@ the same commit** — this list is the coverage map, the scenario file is the de
   styles the unit tests cannot see (scroll margins, halos, the tooltip's height cap). Period-bound reads use a fixed window around the
   stub's reference date and narrow to the spec's own connection through the URL. Every report's filter bar is collapsible
   (folded by default; scenarios unfold it with `openFilters`), and one scenario folds and unfolds it: the toggle's
-  `aria-expanded` and active-filter badge (on Velocity the period counts, the always-present team does not), the choice remembered per report across a reload.
+  `aria-expanded` and active-filter badge (on Commitments the period counts, the always-present team does not), the choice remembered per report across a reload.
 - [`teams.spec.ts`](scenarios/teams.md) — the flat-teams registry: create through the modal →
   add a member from the searchable picker → rename → remove the member → delete from the list;
   a regular user's read-only list and roster (no New team, no row menu, no picker).

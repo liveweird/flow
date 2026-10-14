@@ -274,8 +274,8 @@ TypeScript peer is).
   changed prop contract. The `web-minor-patch` Dependabot group already batches every `@mantine/*`
   bump into one PR, so they move together; check the resulting lockfile diff shows one Mantine version.
 - `recharts` (`^3.10.1`) — `@mantine/charts`' rendering engine (a peer it does not bundle). ~400 kB:
-  it must only ever enter **lazy chunks** (`components/VelocityChart.tsx` is dynamically imported by
-  its page; `npm run build` shows it as its own `VelocityChart-*.js` chunk, and the main `index-*.js`
+  it must only ever enter **lazy chunks** (`components/CommitmentsChart.tsx` is dynamically imported by
+  its page; `npm run build` shows it as its own `CommitmentsChart-*.js` chunk, and the main `index-*.js`
   stays free of it). Each chart component imports `@mantine/charts/styles.css` itself — without it
   the tooltip renders unstyled.
 - `@mantine/dates` (**`9.6.2`, exact**) — the reports' custom-range `DatePickerInput` (phase-3 plan

@@ -11,7 +11,7 @@ describe("visibleSections", () => {
     ]);
     const paths = sections.flatMap((s) => s.items.map((l) => l.to));
     expect(paths).toContain("/teams");
-    expect(paths).toContain("/reports/velocity");
+    expect(paths).toContain("/reports/commitments");
     expect(paths).not.toContain("/users");
     expect(paths).not.toContain("/feature-flags");
     expect(paths).not.toContain("/data-sources");
@@ -27,7 +27,7 @@ describe("visibleSections", () => {
     for (const admin of [false, true]) {
       const reports = visibleSections(admin).find((s) => s.label === "appShell.section.reports");
       expect(reports?.items.map((l) => l.to)).toEqual([
-        "/reports/velocity",
+        "/reports/commitments",
         "/reports/task-estimation-accuracy",
         "/reports/wip",
         "/reports/data-quality",
@@ -35,7 +35,7 @@ describe("visibleSections", () => {
         "/reports/deep-dive",
       ]);
       expect(reports?.items[0].activeFor).toEqual([
-        "/reports/velocity",
+        "/reports/commitments",
         "/reports/throughput",
         "/reports/sprint-consistency",
         "/reports/cycle-time",
@@ -65,7 +65,7 @@ describe("visibleSections", () => {
 
   test("every report tab is a palette-only leaf, never a sidebar leaf", () => {
     expect(REPORT_PALETTE_LEAVES.map((l) => l.to)).toEqual([
-      "/reports/velocity",
+      "/reports/commitments",
       "/reports/throughput",
       "/reports/sprint-consistency",
       "/reports/cycle-time",
@@ -114,13 +114,13 @@ describe("activeNavPath", () => {
     expect(activeNavPath("/users/3/edit", leaves)).toBe("/users");
     expect(activeNavPath("/feature-flags", leaves)).toBe("/feature-flags");
     expect(activeNavPath("/teams/3", leaves)).toBe("/teams");
-    expect(activeNavPath("/reports/velocity", leaves)).toBe("/reports/velocity");
+    expect(activeNavPath("/reports/commitments", leaves)).toBe("/reports/commitments");
   });
 
   test("a leaf stays highlighted on every route it lists in activeFor, and still links to its own", () => {
-    expect(activeNavPath("/reports/throughput", leaves)).toBe("/reports/velocity");
-    expect(activeNavPath("/reports/sprint-consistency", leaves)).toBe("/reports/velocity");
-    expect(activeNavPath("/reports/sprint-consistency/extra", leaves)).toBe("/reports/velocity");
+    expect(activeNavPath("/reports/throughput", leaves)).toBe("/reports/commitments");
+    expect(activeNavPath("/reports/sprint-consistency", leaves)).toBe("/reports/commitments");
+    expect(activeNavPath("/reports/sprint-consistency/extra", leaves)).toBe("/reports/commitments");
     // The Estimation leaf likewise covers its whole group.
     expect(activeNavPath("/reports/task-estimation-accuracy", leaves)).toBe("/reports/task-estimation-accuracy");
     expect(activeNavPath("/reports/epic-estimation-accuracy", leaves)).toBe("/reports/task-estimation-accuracy");
@@ -134,7 +134,7 @@ describe("activeNavPath", () => {
     expect(activeNavPath("/reports/data-quality", leaves)).toBe("/reports/data-quality");
     expect(activeNavPath("/reports/cost-matrix", leaves)).toBe("/reports/cost-matrix");
     expect(activeNavPath("/reports/deep-dive", leaves)).toBe("/reports/deep-dive");
-    expect(activeNavPath("/reports/cycle-time", leaves)).toBe("/reports/velocity");
+    expect(activeNavPath("/reports/cycle-time", leaves)).toBe("/reports/commitments");
     expect(activeNavPath("/reports/reported-time-ratio", leaves)).toBe("/reports/task-estimation-accuracy");
     // The longest match still wins across leaves.
     const custom = [

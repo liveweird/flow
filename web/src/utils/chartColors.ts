@@ -19,7 +19,7 @@
  *
  * Adjacent series in one chart must also be tellable apart with full colour vision (the dataviz
  * skill's ΔE ≥ 15 floor), which a same-hue pair of blues is not — so no chart here plots
- * committed and final side by side except velocity's (see the note there); stacked partitions
+ * committed and final side by side except commitments' (see the note there); stacked partitions
  * order their segments so orange and red never touch.
  */
 export const CHART_COLORS = {
@@ -34,7 +34,7 @@ export const CHART_COLORS = {
   /** Trend lines: the median is the blue primary, the p90 tail the neutral gray — and it is dashed. */
   trendMedian: "flow.6",
   trendTail: "gray.6",
-  /** Velocity's sprint capacity: a neutral reference line (gray, DASHED, with dots) over the plan-blue bars. */
+  /** Commitments' sprint capacity: a neutral reference line (gray, DASHED, with dots) over the plan-blue bars. */
   capacity: "gray.6",
   /** The backlog is planned work nobody has started: the plan blue. */
   backlog: "flow.6",
@@ -78,13 +78,13 @@ export const CHART_COLORS = {
 export const DEEP_DIVE_FILL_ALPHA = 0.32;
 
 /**
- * The bands of a WIP chart keyed by status or board column — and velocity's per-person segments, equally arbitrary
+ * The bands of a WIP chart keyed by status or board column — and commitments' per-person segments, equally arbitrary
  * names — must not wear a colour that MEANS something (teal = success, orange = waived, red = blocked). The neutral
  * palette left is blue and gray, and only three of their shades clear 3:1 on every chart surface
  * (flow.6, flow.7, gray.6; flow.5 and gray.5 fail on white, flow.8 and gray.7 on dark paper). So the
  * cycle ALTERNATES the two hues — bands are coloured by position among those shown, so neighbours
  * never share a hue — and beyond two bands a hue (or a shade) repeats. The limit is hard: only THREE
- * distinguishable shades exist, so from the fourth band on one repeats exactly (velocity's per-person
+ * distinguishable shades exist, so from the fourth band on one repeats exactly (commitments' per-person
  * segments allow up to eight). A chart on this cycle must therefore carry identity without colour: the
  * legend, the tooltip and the tables beside the chart, and — where bands are people, who can be eight —
  * a position NUMBER in every label ("2. Bob", `personLabel`). Stage keyings do not use this:

@@ -22,11 +22,11 @@ describe("ReportGroupsTable", () => {
   test("a team row's name narrows teamId and keeps the rest of the filter", async () => {
     const user = userEvent.setup();
     renderWithProviders(<Table level="UNIT" groups={[{ teamId: 2, label: "Beta", md: 7 }]} />, {
-      route: "/reports/velocity?lastSprints=3&domain=FLO",
+      route: "/reports/commitments?lastSprints=3&domain=FLO",
     });
     expect(screen.getByRole("heading", { name: "By team" })).toBeInTheDocument();
     const link = screen.getByRole("link", { name: "Show Beta" });
-    expect(link).toHaveAttribute("href", "/reports/velocity?lastSprints=3&teamId=2&domain=FLO");
+    expect(link).toHaveAttribute("href", "/reports/commitments?lastSprints=3&teamId=2&domain=FLO");
     await user.click(link);
     expect(screen.getByTestId("search").textContent).toContain("teamId=2");
   });
@@ -46,12 +46,12 @@ describe("ReportGroupsTable", () => {
           { accountId: null, label: null, md: 1 },
         ]}
       />,
-      { route: "/reports/velocity?teamId=1" },
+      { route: "/reports/commitments?teamId=1" },
     );
     expect(screen.getByRole("heading", { name: "By member" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Show Ann Author" })).toHaveAttribute(
       "href",
-      "/reports/velocity?teamId=1&accountId=acc-ann",
+      "/reports/commitments?teamId=1&accountId=acc-ann",
     );
     // A missing label resolves through the team rosters.
     expect(screen.getByRole("link", { name: "Show Bob Builder" })).toBeInTheDocument();
@@ -87,7 +87,7 @@ describe("ReportGroupsTable", () => {
 
   test("USER level and an empty list render nothing", () => {
     const { container, rerender } = renderWithProviders(<Table level="USER" groups={[{ teamId: 1, md: 1 }]} />, {
-      route: "/reports/velocity?teamId=1&accountId=a",
+      route: "/reports/commitments?teamId=1&accountId=a",
     });
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
     rerender(<Table level="UNIT" groups={[]} />);

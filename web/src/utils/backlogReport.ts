@@ -12,7 +12,7 @@ export function backlogRows(trend: readonly BacklogPoint[]): BacklogRow[] {
 }
 
 /** Why the "in sprints" figure is missing, when it is (the wording is the tile's hint). */
-export type SprintsGap = "noVelocity" | "zeroVelocity";
+export type SprintsGap = "noPace" | "zeroPace";
 
 /**
  * `null` when the figure is there. No mean at all = no closed sprint, or a scope with no velocity of
@@ -20,7 +20,7 @@ export type SprintsGap = "noVelocity" | "zeroVelocity";
  */
 export function sprintsGap(current: BacklogCurrent): SprintsGap | null {
   if (current.backlogInSprints != null) return null;
-  return current.meanDeliveredMd == null ? "noVelocity" : "zeroVelocity";
+  return current.meanDeliveredMd == null ? "noPace" : "zeroPace";
 }
 
 /** Sprints ahead with one decimal, as a number (the tile's plural key needs a number). */

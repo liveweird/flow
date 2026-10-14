@@ -2,7 +2,7 @@
 // the Delivery and Estimation reports over a synced-and-derived Jira-stub connection and finds the
 // golden FLO sprint's figures (`sample-data/jira/expected.json` `golden.sprint`) exactly; batch 2
 // adds the Flow metrics group (WIP, aging, blocked time, epic progress), Data quality, the Cost
-// matrix, Home's unit overview and Velocity's last-N-sprints and member drill; the checkup's A15
+// matrix, Home's unit overview and Commitments' last-N-sprints and member drill; the checkup's A15
 // closes the last four pages (epic accuracy, estimate adjustments, reported time, estimated backlog). The
 // admin side is API-seeded (a synced stub connection, a team, the FLO board mapped to it — the
 // same shape the server's `DerivedStubFixture` uses) so the journeys stay fast; the sync + DERIVE
@@ -621,14 +621,21 @@ async function diveIntoGoldenSprint(page: Page): Promise<void> {
   await expect(page.locator("[data-window]").first()).toBeVisible();
 }
 
+/** The report's old address (it was called Velocity) still opens it, keeping the filters. */
+async function expectLegacyVelocityRedirect(page: Page): Promise<void> {
+  await page.goto("/reports/velocity?lastSprints=3");
+  await expect(page).toHaveURL(/\/reports\/commitments\?.*lastSprints=3/);
+  await expect(page.getByRole("heading", { level: 2, name: "Commitments", exact: true })).toBeVisible();
+}
+
 /** The collapsible filter bar journey: folded by default, the badge counts a narrowing, the choice is remembered per report. */
 async function foldAndUnfoldFilters(page: Page): Promise<void> {
   await openGroup(page, "Delivery");
-  await expect(page.getByRole("heading", { level: 2, name: "Velocity", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 2, name: "Commitments", exact: true })).toBeVisible();
   const toggle = page.getByRole("button", { name: /^Filters/ });
   const period = page.getByRole("combobox", { name: "Period", exact: true });
 
-  // The bar starts folded: just the toggle, no badge, no controls — and the page already sits on a team (velocity never reads the whole unit).
+  // The bar starts folded: just the toggle, no badge, no controls — and the page already sits on a team (commitments never read the whole unit).
   await expect(page).toHaveURL(/teamId=\d+/);
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
   await expect(toggle).toHaveAccessibleName("Filters");
@@ -638,7 +645,7 @@ async function foldAndUnfoldFilters(page: Page): Promise<void> {
   await toggle.click();
   await expect(toggle).toHaveAttribute("aria-expanded", "true");
   await expect(period).toBeVisible();
-  // Velocity always has a team (it is required, so the bar offers no "all teams" to compare it with and the badge never counts it):
+  // Commitments always has a team (it is required, so the bar offers no "all teams" to compare it with and the badge never counts it):
   // the narrowing that shows on the toggle here is the period.
   await period.click();
   await page.getByRole("option", { name: "Last 30 days", exact: true }).click();
@@ -707,17 +714,16 @@ test.describe("reports, read by a regular user", () => {
     await api?.dispose();
   });
 
-  test("a regular user reads the golden sprint's velocity", async ({ page }) => {
+  test("a regular user reads the golden sprint's commitments", async ({ page }) => {
     await openGroup(page, "Delivery");
-    await expect(page.getByRole("heading", { level: 2, name: "Velocity", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { level: 2, name: "Commitments", exact: true })).toBeVisible();
     await pickGoldenSprint(page);
 
     await expect(page.getByText(/^Derived .* · configuration revision \d+$/)).toBeVisible();
     await expect(page.getByRole("group", { name: "Chart: initial and final scope by sprint" })).toBeVisible();
     // The team level adds the sprint's capacity and the load it puts on it (this team has no sprint capacity configured, so the figures are computed defaults).
     const sprintTable = page.getByRole("table", { name: "Sprints and their figures" });
-    await expect(sprintTable.getByRole("columnheader", { name: "Capacity (MD)", exact: true })).toBeVisible();
-    await expect(sprintTable.getByRole("columnheader", { name: "Load", exact: true })).toBeVisible();
+    for (const name of ["Capacity (MD)", "Load"]) await expect(sprintTable.getByRole("columnheader", { name, exact: true })).toBeVisible();
 
     // Initial = the committed scope, final = the final scope (A17) — the generator's own figures.
     const cells = goldenRow(page).getByRole("cell");
@@ -729,6 +735,7 @@ test.describe("reports, read by a regular user", () => {
     await expect(cells.nth(6)).toHaveText(String(GOLDEN.finalItems));
     // Nothing moved since the sprint closed, so no drift badge.
     await expect(page.getByText("Drift", { exact: true })).toHaveCount(0);
+    await expectLegacyVelocityRedirect(page);
   });
 
   test("the user regroups throughput by month", async ({ page }) => {
@@ -927,13 +934,13 @@ test.describe("reports, read by a regular user", () => {
 
     // The four tiles of the whole unit, each with its title as the way into the report.
     const overview = page.getByRole("group", { name: "Unit overview" });
-    for (const title of ["Velocity and throughput", "Cycle time", "Work in progress", "Data quality"]) {
+    for (const title of ["Commitments and velocity", "Cycle time", "Work in progress", "Data quality"]) {
       const tile = overview.getByRole("region", { name: title, exact: true });
       await expect(tile).toBeVisible();
       await expect(tile).toHaveAttribute("aria-busy", "false");
       await expect(tile.getByRole("link", { name: title, exact: true })).toBeVisible();
     }
-    // The velocity tile lists this spec's team with its last closed sprint.
+    // The commitments tile lists this spec's team with its last closed sprint.
     await expect(
       overview.getByRole("table", { name: "Each team's last closed sprint, as a table" }).getByRole("row", { name: new RegExp(`^${teamName} FLO Sprint \\d+`) }),
     ).toBeVisible();
@@ -944,9 +951,9 @@ test.describe("reports, read by a regular user", () => {
     await expect(page.getByRole("heading", { level: 2, name: "Cycle time", exact: true })).toBeVisible();
 
     await page.getByRole("link", { name: "Home", exact: true }).click();
-    await overview.getByRole("link", { name: "Velocity and throughput", exact: true }).click();
-    await expect(page).toHaveURL(/\/reports\/velocity\?.*lastSprints=1/);
-    await expect(page.getByRole("heading", { level: 2, name: "Velocity", exact: true })).toBeVisible();
+    await overview.getByRole("link", { name: "Commitments and velocity", exact: true }).click();
+    await expect(page).toHaveURL(/\/reports\/commitments\?.*lastSprints=1/);
+    await expect(page.getByRole("heading", { level: 2, name: "Commitments", exact: true })).toBeVisible();
   });
 
   test("the user reads epic estimation accuracy against each epic's own estimate", async ({ page }) => {
@@ -980,13 +987,13 @@ test.describe("reports, read by a regular user", () => {
     ).toEqual({});
   });
 
-  // Home is scanned once its four tiles loaded; its velocity tile's table scrolls sideways in the
+  // Home is scanned once its four tiles loaded; its commitments tile's table scrolls sideways in the
   // half-width tile (a focusable, named scroll region), and the drift table's "reconstructed" badge
   // is the orange light badge — both were findings of this very scan.
   test("the populated Home overview and data-quality page have no WCAG A/AA violations", async ({ page }) => {
     await login(page, reader.email, reader.password);
     // Home first: the session lands there. Its four tiles must have loaded before the scan.
-    for (const title of ["Velocity and throughput", "Cycle time", "Work in progress", "Data quality"]) {
+    for (const title of ["Commitments and velocity", "Cycle time", "Work in progress", "Data quality"]) {
       await expect(page.getByRole("region", { name: title, exact: true })).toHaveAttribute("aria-busy", "false");
     }
     const home = await axeViolations(page);

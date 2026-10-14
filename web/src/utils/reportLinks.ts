@@ -2,7 +2,7 @@ import type { ParseKeys } from "i18next";
 import { REPORT_SPECIFIC_KEYS, type ReportSpecificKey } from "./reportFilter";
 
 /** The ONE place the reports route family is spelled out — never hand-assemble a report URL. */
-export const velocityPath = "/reports/velocity";
+export const commitmentsPath = "/reports/commitments";
 export const throughputPath = "/reports/throughput";
 export const sprintConsistencyPath = "/reports/sprint-consistency";
 export const cycleTimePath = "/reports/cycle-time";
@@ -22,9 +22,9 @@ export const deepDiveBasePath = "/reports/deep-dive";
 
 export type ReportTabDef = { to: string; label: ParseKeys };
 
-/** The Delivery group's tabs (plan §8: velocity · throughput · sprint consistency · cycle time). */
+/** The Delivery group's tabs (plan §8: commitments · throughput · sprint consistency · cycle time). */
 export const DELIVERY_TABS: ReadonlyArray<ReportTabDef> = [
-  { to: velocityPath, label: "reports.tabs.velocity" },
+  { to: commitmentsPath, label: "reports.tabs.commitments" },
   { to: throughputPath, label: "reports.tabs.throughput" },
   { to: sprintConsistencyPath, label: "reports.tabs.sprintConsistency" },
   { to: cycleTimePath, label: "reports.tabs.cycleTime" },
@@ -49,10 +49,10 @@ export const FLOW_TABS: ReadonlyArray<ReportTabDef> = [
 
 /**
  * The report-specific params each report has a control for. Switching tabs must not carry a param
- * the target report cannot show or clear (a hidden `domain` filter silently narrowing Velocity).
+ * the target report cannot show or clear (a hidden `domain` filter silently narrowing Commitments).
  */
 const REPORT_SPECIFIC_PARAMS: Readonly<Record<string, readonly ReportSpecificKey[]>> = {
-  [velocityPath]: [],
+  [commitmentsPath]: [],
   [throughputPath]: ["domainView", "domain", "activityType", "workCategory", "bucket"],
   [sprintConsistencyPath]: [],
   [taskAccuracyPath]: ["domainView", "domain", "activityType", "workCategory"],
@@ -84,13 +84,13 @@ export function reportSpecificKeep(path: string): ReadonlySet<ReportSpecificKey>
 
 /**
  * A report route carrying the current filter query, so switching tabs keeps the period/team/member —
- * minus the report-specific params the target's controls do not use. Only velocity picks several members: leaving it
+ * minus the report-specific params the target's controls do not use. Only commitments picks several members: leaving it
  * keeps the FIRST `accountId` (what a single-member page reads from the repeats), so the address bar says what the page shows.
  */
 export function reportHref(path: string, search: string): string {
   const params = new URLSearchParams(search);
   const accounts = params.getAll("accountId");
-  if (path !== velocityPath && accounts.length > 1) params.set("accountId", accounts[0]);
+  if (path !== commitmentsPath && accounts.length > 1) params.set("accountId", accounts[0]);
   const keep = reportSpecificKeep(path);
   for (const key of REPORT_SPECIFIC_KEYS) {
     if (!keep.has(key)) params.delete(key);
