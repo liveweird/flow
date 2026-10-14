@@ -7,12 +7,16 @@ import ch.nokillswit.jira.HttpJiraClient
 import ch.nokillswit.jira.JiraChangelogPage
 import ch.nokillswit.jira.JiraChangelogStream
 import ch.nokillswit.jira.JiraClient
+import ch.nokillswit.jira.JiraFetchException
 import ch.nokillswit.jira.JiraRawStore
 import ch.nokillswit.jira.JiraWorklogStream
 import ch.nokillswit.jira.RawIssueInput
+import ch.nokillswit.jira.SkipBudget
+import ch.nokillswit.jira.halvedBatchSize
 import com.github.tomakehurst.wiremock.client.MappingBuilder
 import com.github.tomakehurst.wiremock.client.ResponseDefinitionBuilder
 import com.github.tomakehurst.wiremock.client.WireMock.aResponse
+import com.github.tomakehurst.wiremock.client.WireMock.equalTo
 import com.github.tomakehurst.wiremock.client.WireMock.equalToJson
 import com.github.tomakehurst.wiremock.client.WireMock.get
 import com.github.tomakehurst.wiremock.client.WireMock.matchingJsonPath
@@ -27,12 +31,16 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.r2dbc.deleteWhere
 import org.jetbrains.exposed.v1.r2dbc.select
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
+import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 private const val RESPONSE_CAP_BYTES = 3_000L
 private const val PADDING_BYTES = 5_000
@@ -72,9 +80,26 @@ class JiraOversizedBatchTest {
     private val store = SyncedStubFixture.rawStore()
     private val cursors = SyncedStubFixture.cursors()
 
+    private val connections = mutableListOf<UInt>()
+
     private suspend fun connection(): UInt {
         SyncedStubFixture.ensureMigrated()
         return SyncedStubFixture.createConnection(namePrefix = "jira-oversized", enabled = false, projectKeys = listOf("FLO"))
+            .also { connections += it }
+    }
+
+    /** Each test owns its connection (testing.md: a test removes its own rows): its raw rows go, the connection is soft-deleted. */
+    @AfterTest
+    fun dropConnections() = runBlocking {
+        connections.forEach { connId ->
+            suspendTransaction(sharedDatabaseForTests()) {
+                JiraRawStore.Changelogs.deleteWhere { JiraRawStore.Changelogs.connectionId eq connId }
+                JiraRawStore.Worklogs.deleteWhere { JiraRawStore.Worklogs.connectionId eq connId }
+                JiraRawStore.Issues.deleteWhere { JiraRawStore.Issues.connectionId eq connId }
+            }
+            SyncedStubFixture.dataSources().delete(connId)
+        }
+        connections.clear()
     }
 
     private suspend fun seedIssues(connId: UInt, vararg ids: Long) = ids.forEach { id ->
@@ -254,6 +279,117 @@ class JiraOversizedBatchTest {
         }
     }
 
+    @Test
+    fun `a bulk failure that is not an oversized response propagates unchanged and skips nothing`() = runBlocking {
+        val connId = connection()
+        seedIssues(connId, 1, 2)
+        val client = recordingClient()
+        val mappings = listOf(override(bulkFor(listOf(1, 2)).willReturn(aResponse().withStatus(500))))
+        try {
+            val failure = assertFailsWith<JiraFetchException> { runChangelogs(connId, client, bulkSize = 2) }
+            assertEquals("UPSTREAM_UNAVAILABLE", failure.code)
+            assertEquals(500, failure.status)
+            assertEquals(listOf(2), client.bulkSizes, "no halving, no retry within the stream")
+            assertTrue(client.perIssueChangelogs.isEmpty(), "and no per-issue fallback")
+            assertNull(changelogSyncedAt(connId, 1))
+            assertEquals(0L, store.countChangelogs(connId))
+        } finally {
+            mappings.forEach(JiraStubServer::removeOverride)
+        }
+    }
+
+    @Test
+    fun `a per-issue changelog failure that is not an oversized response propagates unchanged`() = runBlocking {
+        val connId = connection()
+        seedIssues(connId, 1)
+        val client = recordingClient()
+        val mappings = listOf(
+            override(bulkFor(listOf(1)).willReturn(aResponse().withStatus(404))),
+            perIssueChangelog(1, aResponse().withStatus(401)),
+        )
+        try {
+            val failure = assertFailsWith<JiraFetchException> { runChangelogs(connId, client, bulkSize = 1) }
+            assertEquals("AUTHENTICATION_FAILED", failure.code)
+            assertNull(changelogSyncedAt(connId, 1))
+        } finally {
+            mappings.forEach(JiraStubServer::removeOverride)
+        }
+    }
+
+    @Test
+    fun `an oversized second bulk page discards the first page, the halved re-ask stores each history once`() = runBlocking {
+        val connId = connection()
+        seedIssues(connId, 1, 2)
+        val client = recordingClient()
+        val firstPage = override(
+            bulkFor(listOf(1, 2)).willReturn(
+                json("""{"issueChangeLogs":[{"issueId":"1","changeHistories":[${history(99)}]}],"nextPageToken":"t2"}"""),
+            ),
+        )
+        // Registered after the page-1 stub, so it wins for the request that carries the token.
+        val secondPage = override(
+            bulkFor(listOf(1, 2)).withRequestBody(matchingJsonPath("$.nextPageToken", equalTo("t2"))).willReturn(oversized),
+        )
+        val mappings = listOf(firstPage, secondPage, bulkOk(1), bulkOk(2))
+        try {
+            val context = runChangelogs(connId, client, bulkSize = 2)
+            assertEquals(listOf(2, 2, 1, 1), client.bulkSizes, "page 1, the oversized page 2, then one issue per ask")
+            assertEquals(2L, store.countChangelogs(connId), "the discarded page-1 history (99) was never stored: one history per issue")
+            assertEquals(2L, context.progressSnapshot()["changelogs"])
+            assertNull(context.progressSnapshot()["changelogsSkipped"])
+            (1L..2L).forEach { assertNotNull(changelogSyncedAt(connId, it)) }
+        } finally {
+            mappings.forEach(JiraStubServer::removeOverride)
+        }
+    }
+
+    @Test
+    fun `a run that skips more than max of 10 and a tenth of its issues fails LIMIT_EXCEEDED instead of succeeding`() = runBlocking {
+        val connId = connection()
+        seedIssues(connId, *LongArray(12) { it + 1L })
+        val client = recordingClient()
+        val mappings = listOf(
+            override(post(urlPathMatching(".*/rest/api/3/changelog/bulkfetch")).willReturn(oversized)),
+            override(get(urlPathMatching(".*/rest/api/3/issue/\\d+/changelog")).willReturn(oversized)),
+        )
+        try {
+            val context = context(connId)
+            val failure = assertFailsWith<JiraFetchException> { JiraChangelogStream(client, store, 12).run(context) }
+            assertEquals("LIMIT_EXCEEDED", failure.code)
+            assertTrue("CHANGELOGS skipped 11 of 11 issues over jira.maxResponseBytes" in failure.message.orEmpty(), failure.message)
+            assertEquals(11L, context.progressSnapshot()["changelogsSkipped"], "the 11th skip is the one past the allowance of 10")
+            assertEquals(0L, store.countChangelogs(connId))
+        } finally {
+            mappings.forEach(JiraStubServer::removeOverride)
+        }
+    }
+
+    @Test
+    fun `halvedBatchSize halves the smaller of the run size and the attempted batch, never below one`() {
+        assertEquals(25, halvedBatchSize(current = 50, attempted = 50))
+        assertEquals(12, halvedBatchSize(current = 25, attempted = 25))
+        assertEquals(2, halvedBatchSize(current = 50, attempted = 5), "a short tail batch halves its own size, not the run's")
+        assertEquals(1, halvedBatchSize(current = 50, attempted = 3))
+        assertEquals(1, halvedBatchSize(current = 2, attempted = 2))
+        assertEquals(1, halvedBatchSize(current = 1, attempted = 1), "the floor is one id")
+        assertEquals(1, halvedBatchSize(current = 3, attempted = 1))
+    }
+
+    @Test
+    fun `the skip budget allows ten skips, then a tenth of the ids attempted`() {
+        val small = SkipBudget("CHANGELOGS", "issues")
+        repeat(10) { small.skip() }
+        val failure = assertFailsWith<JiraFetchException> { small.skip() }
+        assertEquals("LIMIT_EXCEEDED", failure.code)
+        assertTrue("CHANGELOGS skipped 11 of 11 issues" in failure.message.orEmpty())
+
+        val large = SkipBudget("WORKLOGS", "issues")
+        large.settled(200)
+        repeat(22) { large.skip() } // 22 of 222 is under a tenth (22.2): still fine
+        val over = assertFailsWith<JiraFetchException> { large.skip() } // 23 of 223 is over the 22 allowed
+        assertTrue("WORKLOGS skipped 23 of 223 issues" in over.message.orEmpty(), over.message)
+    }
+
     // --- WORKLOGS -----------------------------------------------------------------------------------------------
 
     private fun worklog(id: Long, issueId: Long) = """{"id":"$id","issueId":"$issueId","updated":"2026-05-20T10:00:00.000+0000"}"""
@@ -352,6 +488,74 @@ class JiraOversizedBatchTest {
             assertNull(worklogsSyncedAt(connId, 2), "still unsynced: the next run retries it")
             assertNotNull(worklogsSyncedAt(connId, 3))
             Unit
+        } finally {
+            mappings.forEach(JiraStubServer::removeOverride)
+        }
+    }
+
+    @Test
+    fun `a worklog list failure that is not an oversized response propagates unchanged and moves no cursor`() = runBlocking {
+        val connId = connection()
+        seedWorklogSyncedIssue(connId, 7)
+        val client = recordingClient()
+        val mappings = feeds(11, 12) + listOf(override(listFor(listOf(11, 12)).willReturn(aResponse().withStatus(401))))
+        try {
+            val failure = assertFailsWith<JiraFetchException> { runWorklogs(connId, client) }
+            assertEquals("AUTHENTICATION_FAILED", failure.code)
+            assertEquals(listOf(2), client.listSizes, "no halving")
+            assertNull(cursors.get(connId, "worklogs"))
+            assertEquals(0L, store.countWorklogs(connId))
+        } finally {
+            mappings.forEach(JiraStubServer::removeOverride)
+        }
+    }
+
+    @Test
+    fun `a per-issue worklog failure that is not an oversized response propagates unchanged`() = runBlocking {
+        val connId = connection()
+        seedIssues(connId, 1)
+        val client = recordingClient()
+        val mappings = feeds() + override(get(urlPathMatching(".*/rest/api/3/issue/1/worklog")).willReturn(aResponse().withStatus(500)))
+        try {
+            val failure = assertFailsWith<JiraFetchException> { runWorklogs(connId, client) }
+            assertEquals("UPSTREAM_UNAVAILABLE", failure.code)
+            assertNull(worklogsSyncedAt(connId, 1))
+        } finally {
+            mappings.forEach(JiraStubServer::removeOverride)
+        }
+    }
+
+    @Test
+    fun `backfill skipping more than max of 10 and a tenth of its issues fails LIMIT_EXCEEDED`() = runBlocking {
+        val connId = connection()
+        seedIssues(connId, *LongArray(12) { it + 1L })
+        val client = recordingClient()
+        val mappings = feeds() + override(get(urlPathMatching(".*/rest/api/3/issue/\\d+/worklog")).willReturn(oversized))
+        try {
+            val context = context(connId)
+            val failure = assertFailsWith<JiraFetchException> { JiraWorklogStream(client, store).run(context) }
+            assertEquals("LIMIT_EXCEEDED", failure.code)
+            assertTrue("WORKLOGS skipped 11 of 11 issues over jira.maxResponseBytes" in failure.message.orEmpty(), failure.message)
+            assertEquals(11L, context.progressSnapshot()["worklogsIssuesSkipped"])
+        } finally {
+            mappings.forEach(JiraStubServer::removeOverride)
+        }
+    }
+
+    @Test
+    fun `a feed whose listed worklogs are mostly over the cap fails LIMIT_EXCEEDED instead of advancing the cursor`() = runBlocking {
+        val connId = connection()
+        seedWorklogSyncedIssue(connId, 7)
+        val client = recordingClient()
+        val mappings = feeds(*LongArray(12) { it + 11L }) +
+            override(post(urlPathMatching(".*/rest/api/3/worklog/list")).willReturn(oversized))
+        try {
+            val context = context(connId)
+            val failure = assertFailsWith<JiraFetchException> { JiraWorklogStream(client, store).run(context) }
+            assertEquals("LIMIT_EXCEEDED", failure.code)
+            assertTrue("WORKLOGS skipped 11 of 11 listed worklogs over jira.maxResponseBytes" in failure.message.orEmpty(), failure.message)
+            assertEquals(11L, context.progressSnapshot()["worklogsSkipped"])
+            assertNull(cursors.get(connId, "worklogs"), "the page did not commit, so the feed will be re-read")
         } finally {
             mappings.forEach(JiraStubServer::removeOverride)
         }

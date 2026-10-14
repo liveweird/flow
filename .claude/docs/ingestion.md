@@ -497,7 +497,13 @@ calls). Any OTHER `JiraFetchException` status propagates rather than triggering 
 
 **Oversized batch.** A bulk answer over `jira.maxResponseBytes` (`LIMIT_EXCEEDED`) halves the batch (claimed afresh at the
 smaller run-local size, never persisted); a batch of one issue goes to the per-issue endpoint, and an issue over the cap
-there too is skipped for the run (`changelogsSkipped`, stays stale, retried next run) — `jira-integration.md` "Oversized
+there too is skipped for the run (`changelogsSkipped`, one WARN per issue, stays stale, retried next run) — unless the run
+skips more than `max(10, 10% of the issues it attempted)`, which fails the stream `LIMIT_EXCEEDED` (a too-small
+`jira.maxResponseBytes` must not SUCCEED having skipped everything). **PROCESS does not wait for a skipped issue**: with no
+history it normalizes as one open interval in its CURRENT status since creation (no anomaly flagged: it looks as if it never
+changed status, skewing cycle time/flow efficiency); with an outdated history it tiles the old chain
+(`STATUS_MISMATCH_WITH_CURRENT` only if the current status differs). A later run that fetches the changelog re-flags and
+rebuilds it. The batch size only shrinks within a run (no regrow) and is not persisted — `jira-integration.md` "Oversized
 changelog/worklog batch".
 
 **Why the bulk-unavailable flag is decided ONCE at run start, not re-checked per batch.** A 24-hour

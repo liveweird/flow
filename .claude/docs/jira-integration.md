@@ -314,10 +314,35 @@ progress counter and left out of THIS run. What "left out" costs differs by path
 | WORKLOGS backfill, an issue whose per-issue worklog page is over the cap | `worklogsIssuesSkipped` | Same: stays unsynced, retried next run. |
 | WORKLOGS incremental, one worklog over the cap on `worklog/list` | `worklogsSkipped` | The feed cursor advances past the page, so that worklog is missing until Jira lists it as updated again. |
 
-The job still ends SUCCEEDED; the counters on the sync status are the operator's signal. The per-issue endpoints have no page-size
-parameter in the client (`startAt` only), so an oversized per-issue page is isolated rather than halved. Persisting the
-reduced size has the same trade-off as the ISSUES page (up to ~log2(size) discarded oversized responses per run on a tenant
-whose batches are always oversized; not worth cursor state until a real tenant shows it).
+Under the threshold the job still ends SUCCEEDED; the counters on the sync status are the operator's signal.
+
+**Fail-safe: too many skips is a too-small cap, not an outlier.** A stream that skips MORE than `max(10, 10% of the ids it
+attempted this run)` stops and fails with the existing `LIMIT_EXCEEDED` (`JiraFetchException`, so the job ends FAILED and
+`sync_jobs.error_detail` reads e.g. `Jira fetch failed: LIMIT_EXCEEDED: CHANGELOGS skipped 37 of 120 issues over
+jira.maxResponseBytes - is the cap too small?`). Without it a mis-set `jira.maxResponseBytes` (where every response is
+oversized) would skip everything and the job would SUCCEED. "Attempted" is the ids that finished plus the ones skipped, so a
+halving's repeated asks never count twice, and each counted unit has its own budget (`SkipBudget` in `JiraOversized.kt`,
+run-local): CHANGELOGS issues; WORKLOGS backfilled issues; WORKLOGS listed worklogs (across the feed's pages of one run).
+The run-local exclusion set of the claim scans can therefore never hold more ids than that threshold. A skip is checked as it
+happens, so a run that opens with 11 oversized issues fails even if thousands of fine ones would follow: that is deliberate
+(an operator who really has that many giant issues raises the cap).
+
+**What a skipped changelog does downstream (PROCESS).** A skipped issue's `changelog_synced_at` stays `NULL` (never fetched) or
+old, and PROCESS does not wait for it: the issue is flagged `needs_processing` by ISSUES and is normalized from whatever
+`raw.jira_changelogs` rows exist. `Tiling.statusIntervals` with NO history yields ONE open interval in the issue's CURRENT
+status since `created_at` (source `CREATED`) and raises no anomaly: the issue looks as if it never changed status, so its
+cycle time, flow efficiency and stage times are skewed (a Done issue reads as Done since creation) until a later run fetches
+its changelog (the stamp then sets `needs_processing` and the next PROCESS rebuilds it). With an OUTDATED history (the issue
+changed after an earlier fetch) PROCESS tiles the old chain: `STATUS_MISMATCH_WITH_CURRENT` is flagged when the issue's current
+status differs from the chain's last, and is silent when only non-status fields changed. No migration or new flag marks the
+row; the signals are one WARN per skipped issue (issue id and data source id) and the job's `changelogsSkipped` counter.
+The same holds for a worklog-skipped issue (no worklog time until fetched).
+
+The per-issue endpoints have no page-size
+parameter in the client (`startAt` only), so an oversized per-issue page is isolated rather than halved. The reduced size is
+never regrown within the run (it only shrinks, even if the batches that follow would have fit) and is not persisted: the
+next run starts at the configured size, the same trade-off as the ISSUES page (up to ~log2(size) discarded oversized
+responses per run on a tenant whose batches are always oversized; not worth cursor state until a real tenant shows it).
 
 Pinned by `JiraOversizedBatchTest` (real HTTP over `JiraStubServer` overrides on the exact id lists and a tiny `maxResponseBytes`).
 
@@ -524,8 +549,11 @@ never hold the `jira.maxConcurrentRequests` `Semaphore` permit indefinitely.
 - `JiraOversizedBatchTest` — the CHANGELOGS/WORKLOGS halving over real HTTP against `JiraStubServer` overrides keyed on the
   exact id list: a batch over the cap halved and the size kept for the run, a normal batch untouched, a single issue
   through the per-issue endpoint, an issue over the cap on both endpoints skipped (stays stale, `changelogsSkipped`), the
-  same under bulk-unavailable, `worklog/list` halved and a single oversized worklog skipped, and an oversized per-issue
-  worklog page skipped (`worklogsIssuesSkipped`).
+  same under bulk-unavailable, `worklog/list` halved and a single oversized worklog skipped, an oversized per-issue
+  worklog page skipped (`worklogsIssuesSkipped`), a `LIMIT_EXCEEDED` on page 2 of a bulk answer discarding page 1, a
+  non-oversized failure (500/401) propagating from every call unchanged, `halvedBatchSize` (short tail, floor 1) and the
+  skip threshold (`SkipBudget`; a tiny cap where everything is oversized fails `LIMIT_EXCEEDED` for CHANGELOGS, the WORKLOGS
+  backfill and the `worklog/list` feed).
 - `JiraSyncPipelineTest` — the full `JiraConnector.run(SYNC)` (REFERENCE → ISSUES → CHANGELOGS →
   WORKLOGS) against `JiraStubServer`, asserting in-scope-reachable counts (never the whole-dataset
   `expected.json` figures, see `.claude/docs/ingestion.md` "Jira stub"): the omitted bulkfetch

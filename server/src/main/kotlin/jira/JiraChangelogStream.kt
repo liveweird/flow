@@ -63,7 +63,8 @@ private enum class BulkOutcome { DONE, UNAVAILABLE, TOO_LARGE }
  * Oversized batch (`.claude/docs/jira-integration.md` "Oversized changelog/worklog batch"): a bulk response over
  * `jira.maxResponseBytes` (`LIMIT_EXCEEDED`) is re-asked as a batch of half the size (floor 1) for the rest of this
  * invocation (not persisted); a single issue still over the cap goes to the per-issue endpoint, and an issue that
- * is over the cap there too is skipped for this run (`changelogsSkipped`) rather than stalling the stream.
+ * is over the cap there too is skipped for this run (`changelogsSkipped`) rather than stalling the stream — unless the
+ * run skips more than `max(10, 10% of the issues it attempted)`, which fails the stream `LIMIT_EXCEEDED` ([SkipBudget]).
  */
 class JiraChangelogStream(
     private val client: JiraClient,
@@ -82,13 +83,14 @@ class JiraChangelogStream(
         // response still exceeds the cap are left stale for the next run but not claimed again by this one.
         var size = bulkSize
         val gaveUp = mutableSetOf<Long>()
+        val skips = SkipBudget("CHANGELOGS", "issues")
 
         while (true) {
             val batch = rawStore.staleChangelogIssueIds(context.connectionId, size, gaveUp)
             if (batch.isEmpty()) break
 
             when (if (skipBulkThisRun) BulkOutcome.UNAVAILABLE else tryBulk(context, batch)) {
-                BulkOutcome.DONE -> Unit
+                BulkOutcome.DONE -> skips.settled(batch.size)
                 BulkOutcome.TOO_LARGE ->
                     if (batch.size > 1) {
                         val halved = halvedBatchSize(size, batch.size)
@@ -99,7 +101,7 @@ class JiraChangelogStream(
                         size = halved
                     } else {
                         // One issue's bulk answer is over the cap: the per-issue endpoint pages it in smaller pieces.
-                        perIssueFallback(context, batch, gaveUp)
+                        perIssueFallback(context, batch, gaveUp, skips)
                     }
                 BulkOutcome.UNAVAILABLE -> {
                     if (!cursorWritten) {
@@ -107,7 +109,7 @@ class JiraChangelogStream(
                         context.transaction { context.putCursor(name, encode(ChangelogsCursor(bulkUnavailableUntil))) }
                         cursorWritten = true
                     }
-                    perIssueFallback(context, batch, gaveUp)
+                    perIssueFallback(context, batch, gaveUp, skips)
                 }
             }
         }
@@ -164,17 +166,22 @@ class JiraChangelogStream(
      * (the stub's per-issue changelog pages are deliberately small, `sample-data/README.md`). An issue whose own
      * response is over the byte cap (`LIMIT_EXCEEDED`, the client has no page size to shrink) is isolated: it stays
      * stale for the next run, joins [gaveUp] so this run does not claim it again, ticks `changelogsSkipped` and logs
-     * one WARN; the rest of the batch and of the stream carry on.
+     * one WARN; the rest of the batch and of the stream carry on, until [skips] says the run has skipped too many to be
+     * outliers (more than max(10, 10% of the issues attempted) — the stream then fails `LIMIT_EXCEEDED`).
      */
-    private suspend fun perIssueFallback(context: StreamContext, issueIds: List<Long>, gaveUp: MutableSet<Long>) {
+    private suspend fun perIssueFallback(context: StreamContext, issueIds: List<Long>, gaveUp: MutableSet<Long>, skips: SkipBudget) {
         for (issueId in issueIds) {
             val histories = try {
                 fetchIssueHistories(issueId)
             } catch (cause: JiraFetchException) {
                 if (!cause.isOversized()) throw cause
-                log.warn("CHANGELOGS issue {} over the response cap, data source {}: skipped this run", issueId, context.connectionId)
+                log.warn(
+                    "CHANGELOGS issue {} over the response cap, data source {}: skipped this run, its history stays unfetched",
+                    issueId, context.connectionId,
+                )
                 gaveUp += issueId
                 context.incrementProgress("changelogsSkipped")
+                skips.skip()
                 continue
             }
             context.transaction {
@@ -183,6 +190,7 @@ class JiraChangelogStream(
                 context.incrementProgress("changelogs", histories.size.toLong())
             }
             context.heartbeat()
+            skips.settled()
         }
     }
 
