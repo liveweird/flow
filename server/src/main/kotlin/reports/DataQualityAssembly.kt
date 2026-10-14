@@ -105,7 +105,9 @@ internal suspend fun lateLoggingOf(input: DataQualityInput): LateLogging {
         over1Day = input.worklogs.sumOf { it.over1Day },
         over7Days = input.worklogs.sumOf { it.over7Days },
         distribution = buildDistribution(
-            fetchLatenessMs(input.worklogScope).map { it.toDouble() / MILLIS_PER_DAY }, input.settings.minSampleSize,
+            fetchLatenessMs(input.worklogScope).map { it.toDouble() / MILLIS_PER_DAY },
+            input.settings.minSampleSize,
+            input.filter.tailPercent,
         ),
         worst = worst.map { w ->
             val label = labels[w.connectionId to w.issueId]

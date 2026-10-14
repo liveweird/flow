@@ -243,6 +243,13 @@ connection still due" and enqueue an extra retry in between:
   enqueue a fresh job at once. It is applied after the scan, in ascending connection id (see "Claiming"). The close is
   logged at WARN after the claim transaction commits (no audit event: the row's `status`/`error_code` and the
   connection's `last_sync_error_code`, `RETRIES_EXHAUSTED` for SYNC, carry it).
+  **`error_detail` of that close.** A job closed while still `RUNNING` (its lease expired on the last attempt — the worker JVM
+  died mid-job, e.g. an OOM under `-XX:+ExitOnOutOfMemoryError`) gets the fixed text `Lease expired on attempt N of M (the worker
+  stopped mid-job — restarted or out of memory?)` (`leaseExpiredDetail`: two integers, never exception text, so no stack trace,
+  URL or token). A `PENDING` job at `max_attempts` (a shutdown `release` gave it back) lost no lease and records no detail. An
+  expired attempt that is re-claimed with attempts left records nothing (the job may still succeed, and `finish` does not clear
+  `error_detail`); only the terminal close writes it. A normal failure keeps its own `<ExceptionClass>: <message>` from
+  `onFailed` (a terminal row is never touched by a later claim). The data source details page's jobs table shows the detail under the `error_code` (dimmed, two-line clamp, the full text in the cell's `title`, plain text).
 
 **Only a job of the connection's current `config_revision` records a failure back-off** (compared under the lock): a job that
 started before a config PUT and fails, or is found exhausted, afterwards must not re-impose the back-off the PUT just

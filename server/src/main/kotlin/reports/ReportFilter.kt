@@ -81,6 +81,12 @@ data class ReportFilter(
     val activityType: String?,
     val workCategory: String?,
     val connectionId: UInt?,
+    /**
+     * The share (percent, `0..`[MAX_TAIL_PERCENT]) of the largest values every [Distribution] this report builds folds into
+     * its histogram's final open bucket (`buildDistribution`); `0` keeps the plain equal-width histogram. A report with no
+     * distribution ignores it.
+     */
+    val tailPercent: Int = DEFAULT_TAIL_PERCENT,
 ) {
     /** The first picked account — the single `accountId` every single-account report reads; `null` when none is picked. */
     val accountId: String? get() = accountIds.firstOrNull()
@@ -130,7 +136,15 @@ fun Parameters.parseReportFilter(
         activityType = optionalString("activityType"),
         workCategory = optionalString("workCategory"),
         connectionId = optionalUInt("connectionId"),
+        tailPercent = parseTailPercent(optionalString("tailPercent")),
     )
+}
+
+private fun parseTailPercent(raw: String?): Int {
+    if (raw == null) return DEFAULT_TAIL_PERCENT
+    val percent = raw.toIntOrNull() ?: throw BadRequestException("tailPercent must be an integer")
+    if (percent !in 0..MAX_TAIL_PERCENT) throw BadRequestException("tailPercent must be between 0 and $MAX_TAIL_PERCENT")
+    return percent
 }
 
 private fun Parameters.parsePeriod(calendar: WorkingCalendar, nowMs: Long): ReportPeriod {

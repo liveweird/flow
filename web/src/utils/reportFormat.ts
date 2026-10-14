@@ -76,14 +76,15 @@ export const formatSignedPercent: ValueFormat = (fraction, extraDecimals = 0) =>
 /**
  * The histogram's range labels ("0.5 – 1"). Written at the measure's normal precision, widened one
  * decimal at a time (up to four) until every range reads differently and no range collapses to
- * "1 – 1" — a tight distribution must not print two identical rows.
+ * "1 – 1" — a tight distribution must not print two identical rows. The final open tail bucket (`to` null) reads "≥ X".
  */
-export function histogramLabels(buckets: ReadonlyArray<{ from: number; to: number }>, format: ValueFormat): string[] {
+export function histogramLabels(buckets: ReadonlyArray<{ from: number; to: number | null }>, format: ValueFormat): string[] {
   let labels: string[] = [];
   for (let extra = 0; extra <= 4; extra++) {
-    labels = buckets.map((b) => `${format(b.from, extra)} – ${format(b.to, extra)}`);
+    // A null `to` is the final open tail bucket: "≥ X".
+    labels = buckets.map((b) => (b.to == null ? `≥ ${format(b.from, extra)}` : `${format(b.from, extra)} – ${format(b.to, extra)}`));
     const distinct = new Set(labels).size === labels.length;
-    const collapsed = buckets.some((b) => format(b.from, extra) === format(b.to, extra));
+    const collapsed = buckets.some((b) => b.to != null && format(b.from, extra) === format(b.to, extra));
     if (distinct && !collapsed) return labels;
   }
   return labels;

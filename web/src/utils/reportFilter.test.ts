@@ -40,6 +40,18 @@ describe("parseReportFilter / serializeReportFilter", () => {
     expect(parseReportFilter(serializeReportFilter(filter))).toEqual(filter);
   });
 
+  test("the long tail is an integer 0..25 and the default 5 is never stored: out of range or malformed is dropped", () => {
+    expect(parse("tailPercent=10")).toEqual({ tailPercent: 10 });
+    expect(parse("tailPercent=0")).toEqual({ tailPercent: 0 });
+    expect(parse("tailPercent=25")).toEqual({ tailPercent: 25 });
+    expect(parse("tailPercent=5")).toEqual({});
+    for (const bad of ["26", "-1", "2.5", "abc", ""]) expect(parse(`tailPercent=${bad}`), bad).toEqual({});
+    // Canonical: last in the key order, and absent for the default — so the default is never in the request or the query key.
+    expect(reportQuery({ tailPercent: 0, teamId: 2 })).toBe("teamId=2&tailPercent=0");
+    expect(reportQuery({})).toBe("");
+    expect(parseReportFilter(serializeReportFilter({ tailPercent: 15 }))).toEqual({ tailPercent: 15 });
+  });
+
   test("an epic key is text: kept as written, a blank one dropped, and serialized right after the domain", () => {
     expect(parse("epicId=FLO-33")).toEqual({ epicId: "FLO-33" });
     expect(parse("epicId=%20%20")).toEqual({});
@@ -195,10 +207,18 @@ describe("dropReportSpecific", () => {
     bucket: "WEEK",
     by: "STATUS",
     itemKind: "EPIC",
+    tailPercent: 10,
   };
 
   test("drops every report-specific param except the kept ones, and never the shared ones", () => {
     expect(dropReportSpecific(all, new Set())).toEqual({ teamId: 1, accountId: "a1", lastSprints: 3, connectionId: 2 });
+    expect(dropReportSpecific(all, new Set(["tailPercent"]))).toEqual({
+      teamId: 1,
+      accountId: "a1",
+      lastSprints: 3,
+      connectionId: 2,
+      tailPercent: 10,
+    });
     expect(dropReportSpecific(all, new Set(["domain", "epicId"]))).toEqual({
       teamId: 1,
       accountId: "a1",

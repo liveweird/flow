@@ -307,6 +307,62 @@ class ReportCycleTimeTest {
         }
     }
 
+    /**
+     * `tailPercent` end to end on six hand-built cycles. Working days 0 2 3 3 4 6 and elapsed days 1 2 3 4 5 6 (all n = 6, min sample 2):
+     *  - default 5: working X = 4 + 0.75 * 2 = 5.5, elapsed X = 5 + 0.75 = 5.75; the lone 6 is the open bucket of both;
+     *  - 0: the plain ten equal-width buckets over [0, 6] / [1, 6];
+     *  - 10: working X = 5 (rank 0.9 * 5 = 4.5, midway between 4 and 6), the 6 is again the tail.
+     */
+    @Test
+    fun `tailPercent folds the top values into one open bucket and 0 restores the plain histogram`() = testApplication {
+        usePostgresTestcontainer()
+        val connId = SyncedStubFixture.createConnection(namePrefix = "cycle-time-tail", enabled = false)
+        val store = MetricsStore(sharedDatabaseForTests())
+        val s = noonUtc("2026-01-02")
+        val rows = listOf(
+            handTask(1, s, noonUtc("2026-01-06"), cycleMs = 2 * DAY_MS, cycleWorkingDays = 2.0),
+            handTask(2, s, noonUtc("2026-01-07"), cycleMs = 5 * DAY_MS, cycleWorkingDays = 3.0),
+            handTask(3, s, noonUtc("2026-01-08"), cycleMs = DAY_MS, cycleWorkingDays = 0.0),
+            handTask(4, s, noonUtc("2026-01-14"), cycleMs = 3 * DAY_MS, cycleWorkingDays = 3.0),
+            handTask(6, s, noonUtc("2026-01-28"), cycleMs = 4 * DAY_MS, cycleWorkingDays = 4.0),
+            handTask(7, s, noonUtc("2026-01-29"), cycleMs = 6 * DAY_MS, cycleWorkingDays = 6.0),
+        )
+        suspendTransaction(sharedDatabaseForTests()) { store.replaceFactTaskDelivery(connId, rows, configRevision = 1L) }
+        try {
+            val client = seededClient("reports-cycle-time-tail")
+            val query = "connectionId=$connId&from=2026-01-01&to=2026-01-31"
+            fun List<ch.nokillswit.reports.HistogramBucket>.counts() = map { it.count }
+
+            val default = withMinSampleSize(2) { client.cycleTime(query) }
+            // Working days, default 5%: ten buckets of 0.55 over [0, 5.5] (0 -> 0, 2 -> 3, 3 3 -> 5, 4 -> 7) then the open bucket {6}.
+            assertEquals(listOf<Long>(1, 0, 0, 1, 0, 2, 0, 1, 0, 0, 1), default.workingDays.histogram.counts())
+            assertNull(default.workingDays.histogram.last().to)
+            assertEquals(5.5, default.workingDays.histogram.last().from, 1e-9)
+            assertEquals(5.5, default.workingDays.histogram[9].to!!, 1e-9)
+            // Elapsed days, default 5%: ten buckets of 0.475 over [1, 5.75] (1 -> 0, 2 -> 2, 3 -> 4, 4 -> 6, 5 -> 8) then {6}.
+            assertEquals(listOf<Long>(1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1), default.elapsedDays.histogram.counts())
+            assertEquals(5.75, default.elapsedDays.histogram.last().from, 1e-9)
+            // The summary figures are over all six values whatever the tail.
+            assertEquals(6L, default.workingDays.n)
+            assertEquals(3.0, default.workingDays.mean!!, 1e-9)
+            assertEquals(6.0, default.workingDays.max!!, 1e-9)
+
+            // tailPercent=0 is the plain histogram: ten buckets of 0.6 over [0, 6], the 6 in the closed last one, no open bucket.
+            val plain = withMinSampleSize(2) { client.cycleTime("$query&tailPercent=0") }
+            assertEquals(listOf<Long>(1, 0, 0, 1, 0, 2, 1, 0, 0, 1), plain.workingDays.histogram.counts())
+            assertTrue(plain.workingDays.histogram.all { it.to != null })
+            assertEquals(6.0, plain.workingDays.histogram.last().to!!, 1e-9)
+            assertEquals(default.workingDays.copy(histogram = emptyList()), plain.workingDays.copy(histogram = emptyList()))
+
+            // tailPercent=10: X = 5 (rank 4.5 between 4 and 6), ten buckets of 0.5 over [0, 5] (0 -> 0, 2 -> 4, 3 3 -> 6, 4 -> 8) then {6}.
+            val ten = withMinSampleSize(2) { client.cycleTime("$query&tailPercent=10") }
+            assertEquals(listOf<Long>(1, 0, 0, 0, 1, 0, 2, 0, 1, 0, 1), ten.workingDays.histogram.counts())
+            assertEquals(5.0, ten.workingDays.histogram.last().from, 1e-9)
+        } finally {
+            suspendTransaction(sharedDatabaseForTests()) { store.deleteFactTaskDelivery(connId) }
+        }
+    }
+
     @Test
     fun `bad filters are 400`() = testApplication {
         usePostgresTestcontainer()
@@ -317,5 +373,8 @@ class ReportCycleTimeTest {
         assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/cycle-time?accountId=abc").status)
         assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/cycle-time?connectionId=999999").status)
         assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/cycle-time?teamId=999999").status)
+        for (bad in listOf("26", "-1", "x", "2.5", "5&tailPercent=6")) {
+            assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/cycle-time?tailPercent=$bad").status, "tailPercent=$bad")
+        }
     }
 }

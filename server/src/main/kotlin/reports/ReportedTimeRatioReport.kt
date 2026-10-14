@@ -87,9 +87,9 @@ suspend fun ReportService.reportedTimeRatio(filter: ReportFilter, nowMs: Long): 
         val (efficiency, efficiencyExcluded) = flowEfficiencyOf(tasks)
         ReportedTimeRatioReport(
             meta = scope.meta,
-            ratio = buildDistribution(ratios, minSample),
+            ratio = buildDistribution(ratios, minSample, filter.tailPercent),
             excluded = excluded,
-            flowEfficiency = buildDistribution(efficiency, minSample),
+            flowEfficiency = buildDistribution(efficiency, minSample, filter.tailPercent),
             flowEfficiencyExcluded = efficiencyExcluded,
             groups = orgGroups(filter.level, tasks, { it.creditTeamId }, { it.accountId }).map { (key, rows) ->
                 val (groupRatios, groupExcluded) = ratioOf(rows)
@@ -98,9 +98,9 @@ suspend fun ReportService.reportedTimeRatio(filter: ReportFilter, nowMs: Long): 
                     teamId = key.teamId,
                     accountId = key.accountId,
                     label = key.label,
-                    ratio = buildDistribution(groupRatios, minSample),
+                    ratio = buildDistribution(groupRatios, minSample, filter.tailPercent),
                     excluded = groupExcluded,
-                    flowEfficiency = buildDistribution(groupEfficiency, minSample),
+                    flowEfficiency = buildDistribution(groupEfficiency, minSample, filter.tailPercent),
                     flowEfficiencyExcluded = groupEfficiencyExcluded,
                 )
             },
