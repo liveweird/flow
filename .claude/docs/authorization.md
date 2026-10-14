@@ -123,6 +123,10 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     open, until the token's expiry (`jwt.accessExpiresInSeconds`, default 900 s); only the
     refresh (`user_gone`, current roles) re-reads the user, so the session ends at the next refresh.
     A known, bounded trade-off of stateless access tokens.
+  - **The team-manager grant is the exception: it is checked in the database on every request.**
+    `requireTeamManagerOrAdmin` asks `TeamService.isActiveManager` (an ACTIVE team whose `manager_user_id` is the caller
+    AND an ACTIVE user) per request, so assigning, clearing or soft-deleting a manager takes effect on the very next
+    request; only its ADMIN short-circuit rides the JWT like every other role. Never cache the verdict in a claim.
 - **Existence disclosure (403 vs 404) — deliberate policy (API-ERR-006)**: two sanctioned idioms,
   and every new resource picks one consciously rather than mixing them. **Guard-before-read**
   (`GET /users/{id}`): a forbidden caller gets a uniform 403 whether or not the id exists — use it
