@@ -76,6 +76,29 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   - the filters can be hidden, like in Lettuce;
   - the team filter has no "All teams": a specific team must be chosen;
   - the user filter allows picking more than one user, and the chart's bars then stack per user.
+- [new] **Task Accuracy report filters and measures** (Estimation → Task Accuracy, `/reports/task-estimation-accuracy`):
+  - the filters can be hidden, like in Lettuce;
+  - the team filter has no "All teams": a specific team must be chosen;
+  - the user filter allows picking more than one user, and the chart's bars then stack per user;
+  - remove the measures that don't say anything about accuracy: p90 and p95;
+  - add accuracy measures, for example:
+    - PRED(x), the share of tasks estimated within x% (PRED(10), PRED(25) and PRED(50));
+    - IQR, the interquartile range;
+    - IDR, the interdecile range;
+    - MAD, the median absolute deviation;
+    - MdMRE, the median magnitude of relative error;
+    - sMAPE, the symmetric mean absolute percentage error;
+    - kurtosis, the heaviness of the tails beyond two standard deviations.
+- [new] **Epic Accuracy report filters and measures** (Estimation → Epic Accuracy, `/reports/epic-estimation-accuracy`):
+  - the filters can be hidden, like in Lettuce;
+  - the team filter has no "All teams": a specific team must be chosen;
+  - no user filter;
+  - remove p90 and p95, and add the same accuracy measures as the Task Accuracy item above (PRED(10/25/50), IQR, IDR,
+    MAD, MdMRE, sMAPE, kurtosis).
+- [new] **Adjustments report filters** (Estimation → Adjustments, `/reports/estimate-adjustments`):
+  - the filters can be hidden, like in Lettuce;
+  - the team filter has no "All teams": a specific team must be chosen;
+  - the user filter allows picking more than one user, and the chart's bars then stack per user.
 
 ## Engineering follow-ups
 
