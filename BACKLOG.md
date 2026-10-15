@@ -95,6 +95,10 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   - no user filter;
   - remove p90 and p95, and add the same accuracy measures as the Task Accuracy item above (PRED(10/25/50), IQR, IDR,
     MAD, MdMRE, sMAPE, kurtosis).
+- [new] **Adjustments report filters** (Estimation → Adjustments, `/reports/estimate-adjustments`):
+  - the filters can be hidden, like in Lettuce;
+  - the team filter has no "All teams": a specific team must be chosen;
+  - the user filter allows picking more than one user, and the chart's bars then stack per user.
 
 ## Engineering follow-ups
 
