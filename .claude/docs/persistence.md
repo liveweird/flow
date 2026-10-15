@@ -545,7 +545,7 @@ ONE GiST index — `btree_gist` is what makes `=` available inside a GiST index 
 - **`metrics.team_sprint_capacity` is LEGACY since V24** (domain-model A32): nothing reads or writes it any more (the metrics-config
   API dropped `sprintCapacities`, DERIVE resolves capacity from V24's tables); PURGE still drains it and `IngestWorkerTest` keeps proving
   that, until a cleanup migration drops it. Its `MetricsConfigService.TeamSprintCapacity` table object stays for that drain only.
-- **`metrics.status_stage_map`/`field_config`/`domain_map`/`board_team_map`/`team_sprint_capacity`/
+- **`metrics.status_stage_map`/`field_config`/`domain_map`/`board_team_map`/
   `activity_type_map`/`work_category_map`/`blocked_statuses`** — the per-connection configuration
   tables the v0.3.0 plan's commit 4 (`GET/PUT /api/v1/data-sources/{id}/metrics-config`) reads and
   writes; created here (priority item 1 of commit 3) so no later migration needs to add them.
@@ -831,9 +831,12 @@ otherwise.
 - **The seed.** Each team's `TEAM_DEFAULT` is seeded from its most recent configured per-sprint figure in
   `metrics.team_sprint_capacity` (via `norm.sprints` → `board_team_map`, ACTIVE teams on ACTIVE connections only; a start_at tie takes
   the highest sprint id, a sprint without a start ranks last — `CapacitySeedMigrationTest` runs the seed SELECT over hand-built rows).
-  `team_sprint_capacity` itself stays, unread since B4 (its drain on PURGE stays too). Historical sprints that had an explicit figure therefore read `TEAM_DEFAULT`/`DEFAULT`
-  after their next DERIVE, while their frozen `fact_sprint_snapshot.capacity_md` keeps the old figure — Data quality's
-  snapshot-drift card flags the difference, by design.
+  `team_sprint_capacity` itself stays, unread since B4 (its drain on PURGE stays too). The seeded figure applies to EVERY sprint of
+  that team after the next DERIVE, not only to the sprints that had a figure of their own: historical capacity flattens to it, and a
+  snapshotted closed sprint whose capacity/load now differs from its frozen `fact_sprint_snapshot.capacity_md` shows in Data quality's
+  snapshot-drift card (capped at 50 items), by design. A legacy 0 seeds 0 (a null load). On the dev database all legacy rows were
+  20 MD for one team, so the seed reproduces them. Operator note: V24 does NOT bump `config_revision`, so the re-derive happens on the
+  next scheduled DERIVE (or "Derive now").
 
 The carry-forward read (`SprintCalendarService.carryForward`) orders `sprint_start_ms DESC, sprint_id DESC, connection_id ASC` over
 the team's calendars on ACTIVE connections. V24 was edited once before reaching any persistent database (the seed's connection join,

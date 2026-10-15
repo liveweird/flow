@@ -137,8 +137,8 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
   membership CRUD (`metrics/TeamMembershipRoutes.kt`). `GET /api/v1/jira-users` is read-only, so it
   emits nothing.
 - `team.capacity_default_updated` (byUserId/teamId/defaultCapacityMdFrom/defaultCapacityMd, both nullable = none/cleared; authorizedBy) and
-  `team.sprint_calendar_updated` (byUserId/teamId/sprintId/connectionId/capacityMdFrom — the previously stored calendar's capacity, null
-  when none was stored/capacityMd — the saved calendar's capacity/replacedTeamId — set when the write removed another team's leftover
+  `team.sprint_calendar_updated` (byUserId/teamId/sprintId/connectionId/capacityMdFrom — the previously STORED calendar re-projected onto the sprint's current window and roster (not the previous
+  effective figure, which may have been a team default), null on the first save/capacityMd — the saved calendar's capacity/replacedTeamId — set when the write removed another team's leftover
   row of a re-mapped board, else null/authorizedBy) — domain-model A32's capacity edits (`metrics/SprintCalendarRoutes.kt`), ADMIN or the
   team's own manager; `authorizedBy` is `ADMIN` or `MANAGER`, the grant that let the write through. Emitted only when the
   PUT actually changed something (a canonically equal re-PUT bumps no revision and audits nothing); a denied write is the

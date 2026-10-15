@@ -80,7 +80,9 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     `metrics/SprintCalendarRoutes.kt`) → **reads any authenticated** (a conscious D12 extension: the grid is a per-person
     per-day availability, effectively an absence calendar — visible to everyone; each person's productivity `coefficient` is
     shown only to editors, i.e. the team's active manager and ADMINs, and is `null` for every other reader; the team coefficient
-    and the totals stay visible. A safe default the user can loosen), **writes (the two `PUT`s) ADMIN or the team's own ACTIVE
+    and the totals stay visible. The coefficient privacy is best-effort: non-editors still see `capacityMd`, the team coefficient, the
+    enabled flags and the cells, from which a single counted person's coefficient can be derived — an accepted leak the user can
+    tighten later by withholding `capacityMd` from non-editors. A safe default the user can loosen), **writes (the two `PUT`s) ADMIN or the team's own ACTIVE
     manager**. The write order is `requireTeamManagerOrAdmin` FIRST — before the team lookup, the sprint lookup, the body
     decode and any validation — so a plain user, a manager of ANOTHER team, a cleared grant, a soft-deleted manager and the
     manager of a soft-deleted team all get a uniform 403 (a malformed body or an unknown id included); then `404` (an ADMIN

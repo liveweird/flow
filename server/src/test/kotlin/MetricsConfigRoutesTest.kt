@@ -37,7 +37,9 @@ import io.ktor.client.call.body
 import io.ktor.client.request.get
 import io.ktor.client.request.put
 import io.ktor.client.request.setBody
+import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.contentType
 import io.ktor.server.testing.testApplication
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import java.io.File
@@ -384,6 +386,22 @@ class MetricsConfigRoutesTest {
             assertNotNull(event, "PUT must audit metrics_config.updated")
             assertTrue(event.keyValuePairs.any { it.key == "configRevision" })
         }
+    }
+
+    @Test
+    fun `a PUT still carrying the dropped sprintCapacities is 400 - the V24 breaking change`() = testApplication {
+        usePostgresTestcontainer()
+        val admin = seededClient("metricssprintcap", UserRole.ADMIN)
+        val connId = runBlocking {
+            val id = createConnection(dataSources())
+            seedNormFixture(id)
+            id
+        }
+        val response = admin.put("/api/v1/data-sources/$connId/metrics-config") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"sprintCapacities":[{"sprintId":1,"capacityMd":5.0}]}""")
+        }
+        assertEquals(HttpStatusCode.BadRequest, response.status)
     }
 
     @Test

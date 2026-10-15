@@ -59,7 +59,7 @@ internal data class SprintRow(
     /** `null` only for an ACTIVE/future sprint, reachable through an explicit `sprintId` (measures.md conventions). */
     val completedAt: Long?,
     val live: CommitmentsSnapshot,
-    /** `fact_sprint.capacity_md` / `dim_sprint.capacity_source` (`CONFIGURED`/`DEFAULT`); both `null` without a capacity (A3). */
+    /** Stored `capacity_md` / `capacity_source` (`CALENDAR`/`TEAM_DEFAULT`/`DEFAULT`; pre-V24 `CONFIGURED`); `null` without one. */
     val capacityMd: Double?,
     val capacitySource: String?,
     val delivered: ThroughputSnapshot,
