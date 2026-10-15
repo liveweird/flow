@@ -36,6 +36,8 @@ import {
   CYCLE_TIME_MONTHS,
   CONSISTENCY_SLICED,
   CONSISTENCY_TEAM,
+  CYCLE_TIME_USER,
+  CYCLE_TIME_USERS,
   CONSISTENCY_UNIT,
   EPIC_ACCURACY,
   EPIC_ACCURACY_EMPTY,
@@ -219,7 +221,7 @@ describe("estimation fixtures hold the documented partitions", () => {
 
 describe("cycle time and reported time fixtures hold the documented partitions", () => {
   test("cycle time: both views measure population − neverStarted, groups sum to the whole, hidden ⇔ below the minimum", () => {
-    for (const report of [CYCLE_TIME, CYCLE_TIME_ALL_HIDDEN, CYCLE_TIME_MONTHS, CYCLE_TIME_EMPTY]) {
+    for (const report of [CYCLE_TIME, CYCLE_TIME_ALL_HIDDEN, CYCLE_TIME_MONTHS, CYCLE_TIME_EMPTY, CYCLE_TIME_USERS, CYCLE_TIME_USER]) {
       const measured = report.excluded.population - report.excluded.neverStarted;
       expect(report.workingDays.n).toBe(measured);
       expect(report.elapsedDays.n).toBe(measured);
@@ -234,6 +236,18 @@ describe("cycle time and reported time fixtures hold the documented partitions",
         expect(report.groups.reduce((s, g) => s + g.workingDays.n, 0)).toBe(report.workingDays.n);
         expect(report.groups.reduce((s, g) => s + g.excluded.population, 0)).toBe(report.excluded.population);
         expect(report.groups.reduce((s, g) => s + g.excluded.neverStarted, 0)).toBe(report.excluded.neverStarted);
+      }
+    }
+  });
+
+  test("cycle time per person: the shares add up to every bucket and to each person's group n", () => {
+    for (const report of [CYCLE_TIME_USERS, CYCLE_TIME_USER]) {
+      for (const view of ["workingDays", "elapsedDays"] as const) {
+        const distribution = report[view];
+        const shares = distribution.byUser ?? [];
+        expect(shares.map((share) => share.accountId)).toEqual(report.groups.map((g) => g.accountId));
+        distribution.histogram.forEach((bucket, i) => expect(shares.reduce((sum, share) => sum + share.counts[i], 0)).toBe(bucket.count));
+        shares.forEach((share, i) => expect(share.counts.reduce((sum, count) => sum + count, 0)).toBe(report.groups[i][view].n));
       }
     }
   });

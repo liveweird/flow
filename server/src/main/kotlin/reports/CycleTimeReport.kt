@@ -32,7 +32,7 @@ data class CycleTimeTrendBucket(val bucketStart: String, val p50: Double?, val p
 
 /**
  * One org-drill entry — a credit team at UNIT level (`teamId` null = UNASSIGNED), an assignee at done at TEAM
- * level; always empty at USER level.
+ * level, and at USER level one entry per picked account (an empty one when it has no task).
  */
 @Serializable
 data class CycleTimeGroup(
@@ -95,24 +95,35 @@ internal suspend fun fetchDoneCycleTasks(filter: ReportFilter, connectionIds: Li
 /** The measurable tasks: `cycle_ms` set, i.e. started. */
 private fun measurable(tasks: List<DoneCycleTask>): List<DoneCycleTask> = tasks.filter { it.cycleMs != null && it.cycleWorkingDays != null }
 
-private fun cycleDistributions(
-    tasks: List<DoneCycleTask>,
-    minSample: Int,
-    tailPercent: Int,
-): Triple<Distribution, Distribution, CycleTimeExcluded> {
-    val rows = measurable(tasks)
-    return Triple(
-        buildDistribution(rows.map { it.cycleMs!! / MS_PER_DAY }, minSample, tailPercent),
-        buildDistribution(rows.map { it.cycleWorkingDays!!.toDouble() }, minSample, tailPercent),
-        CycleTimeExcluded(population = tasks.size, neverStarted = tasks.size - rows.size),
-    )
+private fun elapsedValues(tasks: List<DoneCycleTask>): List<Double> = measurable(tasks).map { it.cycleMs!! / MS_PER_DAY }
+
+private fun workingValues(tasks: List<DoneCycleTask>): List<Double> = measurable(tasks).map { it.cycleWorkingDays!!.toDouble() }
+
+private fun excludedOf(tasks: List<DoneCycleTask>): CycleTimeExcluded =
+    CycleTimeExcluded(population = tasks.size, neverStarted = tasks.size - measurable(tasks).size)
+
+/** Builds this report's distributions: [drawn] splits per picked person at USER level, [plain] never does (a group's own). */
+private class CycleTimeDistributions(private val picked: PickedAccounts, private val minSample: Int, private val tailPercent: Int) {
+    fun plain(tasks: List<DoneCycleTask>, valuesOf: (List<DoneCycleTask>) -> List<Double>): Distribution =
+        buildDistribution(valuesOf(tasks), minSample, tailPercent)
+
+    fun drawn(tasks: List<DoneCycleTask>, valuesOf: (List<DoneCycleTask>) -> List<Double>): Distribution {
+        if (picked.ids.isEmpty()) return plain(tasks, valuesOf)
+        val byAccount = tasks.groupBy { it.accountId }
+        return buildDistributionByUser(
+            picked.ids.map { UserValues(it, picked.label(it), valuesOf(byAccount[it].orEmpty())) },
+            minSample,
+            tailPercent,
+        )
+    }
 }
 
 /**
  * `GET /api/v1/reports/cycle-time` (v0.3.0 M4 commit 12b, Report 7, `.claude/docs/measures.md` "Reports 7, 8"):
  * level-0 DONE tasks by `done_at`, `cycle_ms` (wall-clock days) and `cycle_working_days` as [Distribution]s plus a
- * per-bucket p50/p90 trend on working days, and an `epics` block (DONE epics' cycle by owner team). See
- * `.claude/docs/reports.md`.
+ * per-bucket p50/p90 trend on working days, and an `epics` block (DONE epics' cycle by owner team). At USER level the report
+ * takes several `accountId`s: both distributions read the union of the picks and carry a [Distribution.byUser] split of every
+ * histogram bucket, `groups` lists each pick, and the trend and the epics stay the union. See `.claude/docs/reports.md`.
  */
 suspend fun ReportService.cycleTime(filter: ReportFilter, bucket: ThroughputBucket, nowMs: Long): CycleTimeReport =
     reportTransaction {
@@ -121,16 +132,28 @@ suspend fun ReportService.cycleTime(filter: ReportFilter, bucket: ThroughputBuck
         val zone = WorkingCalendar.zoneOf(scope.settings.timeZone)
         val window = scope.window
         val tasks = window?.let { fetchDoneCycleTasks(filter, scope.connectionIds, it) }.orEmpty()
-        val (elapsed, working, excluded) = cycleDistributions(tasks, minSample, filter.tailPercent)
+        val picked = pickedAccounts(filter)
+        val distributions = CycleTimeDistributions(picked, minSample, filter.tailPercent)
+        val groupRows = if (filter.level == ReportLevel.USER) {
+            pickedGroups(picked, tasks) { it.accountId }
+        } else {
+            orgGroups(filter.level, tasks, { it.creditTeamId }, { it.accountId })
+        }
         CycleTimeReport(
             meta = scope.meta,
-            elapsedDays = elapsed,
-            workingDays = working,
-            excluded = excluded,
+            elapsedDays = distributions.drawn(tasks, ::elapsedValues),
+            workingDays = distributions.drawn(tasks, ::workingValues),
+            excluded = excludedOf(tasks),
             trend = window?.let { trend(tasks, it, zone, bucket, minSample) }.orEmpty(),
-            groups = orgGroups(filter.level, tasks, { it.creditTeamId }, { it.accountId }).map { (key, rows) ->
-                val (groupElapsed, groupWorking, groupExcluded) = cycleDistributions(rows, minSample, filter.tailPercent)
-                CycleTimeGroup(key.teamId, key.accountId, key.label, groupElapsed, groupWorking, groupExcluded)
+            groups = groupRows.map { (key, rows) ->
+                CycleTimeGroup(
+                    key.teamId,
+                    key.accountId,
+                    key.label,
+                    distributions.plain(rows, ::elapsedValues),
+                    distributions.plain(rows, ::workingValues),
+                    excludedOf(rows),
+                )
             },
             epics = epicCycleTime(filter, scope.connectionIds, window, minSample),
         )

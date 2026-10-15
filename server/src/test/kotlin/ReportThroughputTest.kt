@@ -748,8 +748,8 @@ class ReportThroughputTest {
 
         assertEquals(HttpStatusCode.OK, client.get(url("throughput", 8)).status)
         assertEquals(HttpStatusCode.BadRequest, client.get(url("throughput", 9)).status)
-        assertEquals(HttpStatusCode.OK, client.get(url("cycle-time", 1)).status)
-        assertEquals(HttpStatusCode.BadRequest, client.get(url("cycle-time", 2)).status, "cycle time stays single-account")
+        assertEquals(HttpStatusCode.OK, client.get(url("blocked-time", 1)).status)
+        assertEquals(HttpStatusCode.BadRequest, client.get(url("blocked-time", 2)).status, "blocked time stays single-account")
         assertEquals(HttpStatusCode.BadRequest, client.get("/api/v1/reports/throughput?connectionId=$connId&accountId=a").status)
     }
 

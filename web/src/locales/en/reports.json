@@ -355,6 +355,7 @@
     "workingCaption": "Primary view — days on the configured working calendar.",
     "elapsedTitle": "Elapsed days",
     "elapsedCaption": "Second view — wall-clock days, weekends and holidays included.",
+    "noTeams": "Cycle time is read per team and there is no team yet. An administrator adds teams on the Teams page.",
     "workingAxis": "working days",
     "elapsedAxis": "elapsed days",
     "excluded": {

@@ -95,7 +95,7 @@ data actually lives.
   alone -> `TEAM` (groups by user); `teamId` AND `accountId` together -> `USER` (the one user).
   `accountId` without `teamId` is `400` -- a user-level read always needs to know within which
   team's roster it is being read. `accountId` REPEATS (1..8 distinct, `parseReportFilter(..., multipleAccounts = true)`) on
-  commitments, throughput and reported time only; on every other report a repeat is a `400`. `teamId = 0` is the UNASSIGNED sentinel bucket, a real value, not
+  commitments, throughput, cycle time and reported time only; on every other report a repeat is a `400`. `teamId = 0` is the UNASSIGNED sentinel bucket, a real value, not
   "absent" -- never rejected here (a real check that a POSITIVE `teamId` names an actual team is a
   report service's own job, downstream).
 - **Group order.** The org drill (`groups`) of commitments, throughput, sprint consistency and the DONE-item reports is built by
@@ -641,7 +641,7 @@ the raw fact rows -- whole population, per group (`Σ group n == n`), per user, 
 pins the buckets, the ratios, the hidden state (`minSampleSize` pinned with `withMinSampleSize`), the 200-row cap and
 the estimated-late separation on hand-built rows in a fresh DISABLED connection with hand-computed answers.
 
-**The per-person split (`byUser`, `buildDistributionByUser`).** A report that lets the user pick several people (reported time today) draws
+**The per-person split (`byUser`, `buildDistributionByUser`).** A report that lets the user pick several people (cycle time and reported time today) draws
 ONE stacked histogram per `Distribution`: `buildDistributionByUser(valuesByUser, minSampleSize, tailPercent)` builds the union
 exactly as `buildDistribution` over the flattened values, then adds `byUser` -- one `DistributionShare {accountId, label, counts}` per
 picked person in REQUEST order, `counts` index-aligned with `histogram` (the open tail bucket included), an all-zero share for a
@@ -685,9 +685,16 @@ CycleTimeReport {
   throughput report's own `bucketStart`/`bucketStarts` math, in the configured zone -- placing each measurable task
   by `done_at`, on **working days**. `p50`/`p90` come from the same `buildDistribution` and are `null` when the
   bucket's `n` is below `minSampleSize` (`n` always set; an empty bucket has `n` 0), so hiding is per bucket.
-- **Levels**: UNIT `groups` per credit team, TEAM per assignee at done, USER none; each group has its own two
-  distributions (hidden below the minimum, `n` always set, so `Σ group n == n`) and `excluded`; groups are ordered by
-  label (null last), then team id, then account id.
+- **Levels**: UNIT `groups` per credit team, TEAM per assignee at done, USER one per picked account (a pick with no task an
+  empty entry); each group has its own two distributions (hidden below the minimum, `n` always set, so `Σ group n == n`) and
+  `excluded`; groups are ordered by label (null last), then team id, then account id.
+- **USER level takes several `accountId`s** (1..8 distinct, `multipleAccounts = true`, like commitments, throughput and reported time; the
+  web page also requires a team, the server keeps `teamId` optional because Home reads this report at UNIT level). `elapsedDays` and
+  `workingDays` read the UNION of the picked people (their done tasks, assignee at done) and carry `byUser`: every histogram bucket split
+  per picked person (`buildDistributionByUser`, `Distribution` above), in request order, a zero share for a pick with no task. `excluded`
+  stays over the union; `groups` lists each pick (the TEAM-level rule per person, ordered label then account id) with its own PLAIN
+  distributions. **The `trend` stays the union of the picked people (one p50/p90 per bucket, never a line per person), and `epics` is
+  unchanged** (the all-zero USER block). One `accountId` is today's figures plus a one-entry `byUser`; UNIT and TEAM are unchanged.
 - **`epics`** (`reports/CycleTimeEpics.kt`): the same measure over the epics DONE by their OWN status (D11) with `done_at`
   in the same window, read from `fact_epic_delivery.cycle_ms` / `cycle_working_days` (the same `done_at - started_at` rule;
   `neverStarted` is again the only exclusion, `workingDays.n == elapsedDays.n == population - neverStarted`). The block is
@@ -714,7 +721,7 @@ ReportedTimeRatioReport { meta, ratio: Distribution,             // actual_md / 
   in this order: `noWorklogs` (D14 -- `has_worklogs = false` or `actual_md` of 0.00, as in report 3), `neverStarted`
   (no cycle), `zeroCycle` (`cycle_working_days = 0`). So `ratio.n + noWorklogs + neverStarted + zeroCycle ==
   population`. Levels and groups as report 7, except USER level (below).
-- **USER level takes several `accountId`s** (1..8 distinct, `multipleAccounts = true`, like commitments and throughput; the web page also
+- **USER level takes several `accountId`s** (1..8 distinct, `multipleAccounts = true`, like commitments, throughput and cycle time; the web page also
   requires a team). Both `ratio` and `flowEfficiency` read the UNION of the picked people (their done tasks, assignee at done) and carry
   `byUser`: every histogram bucket split per picked person (`buildDistributionByUser`, `Distribution` above), in request order, a zero
   share for a pick with no task. `excluded`/`flowEfficiencyExcluded` stay over the union; `groups` lists each pick (the TEAM-level
@@ -735,7 +742,8 @@ Code: `reports/CycleTimeReport.kt` (+ `reports/CycleTimeEpics.kt`, the `epics` b
 `DerivedStubFixture`, with the independent oracle of `ReportEstimationTestSupport.kt`: `ReportCycleTimeTest`
 (distributions, per-group at every level, `teamId=0`, slices, the sprint envelope, and **every trend bucket's p50/p90/n
 against an independent bucketing** -- WEEK and MONTH, zero-filled, hidden per bucket -- plus hand-built rows with
-exact hand-computed numbers incl. a zero-working-day cycle), `ReportCycleTimeEpicsTest` (the `epics` block: the fixture's
+exact hand-computed numbers incl. a zero-working-day cycle, and the per-person split: several `accountId`s against an independent bucketing of each person's
+raw values into the union's edges, one `accountId`, the trend staying the union, and the eight-account bound), `ReportCycleTimeEpicsTest` (the `epics` block: the fixture's
 distributions and owner groups against an independent read of `fact_epic_delivery`, TEAM / `teamId=0` / USER, the
 `domain`/`workCategory` slices and the ignored `activityType`, the sprint envelope, and hand-built epics with exact numbers
 incl. the never-started exclusion and a zero-working-day cycle) and `ReportReportedTimeRatioTest` (the partition, groups,

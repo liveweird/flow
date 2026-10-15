@@ -136,16 +136,26 @@ unfolds it first (`openFilters`, which leaves an already unfolded bar alone).
      "Of N finished in this period" accounting, and each either a percentile strip or the
      counts-only minimum-sample notice.
    - *Expected*: the per-period trend table is present (the team finished work in the window).
-2. They open the same report over a year-long window, which holds the stub's finished epics.
+   - *Expected*: the URL carries the picked team (cycle time is always read for one team).
+2. They open the same report over a year-long window (deep link carrying the spec's own team), which
+   holds the stub's finished epics.
    - *Expected*: an "Epics" card shows "Epics: working days" and "Epics: elapsed days", each with
      its own accounting; with the tasks' two, every accounting adds up.
-3. They follow the "Epics by owner team" row of the golden team.
-   - *Expected*: the report narrows to that team, the epics card stays, and the owner table is
-     gone (epics split by owner team, never by person).
+   - *Expected*: at team level the epics card stays and there is no "Epics by owner team" table
+     (epics split by owner team, never by person).
+3. They open the **Team** filter.
+   - *Expected*: it shows the seeded team, has no clear button and offers no "All teams" option.
+4. They pick the seeded team's roster person in the **Member** filter.
+   - *Expected*: the URL gains `accountId` and keeps the team; the "By member" table is replaced by a
+     "Totals per person" table with one row naming the person; the epics histograms give way to the
+     "not per person" note. (The seeded team has one stub person, who may have too few finished
+     tasks for a histogram, so the "1." numbering and the two-person stacking are covered by the
+     page's unit tests only.)
 
 ## Scenario: a user widens the cycle time histogram's long tail
 
-1. The user opens the **Cycle time** report for this spec's connection over the default fixed window.
+1. The user opens the **Cycle time** report for this spec's connection over the default fixed window
+   (deep link carrying the spec's own team).
    - *Expected*: the "Long tail" control reads 5% and the URL has no `tailPercent`; the "Elapsed
      days" histogram table already ends in an open row "≥ X (long tail)".
 2. They set the long tail to 25%.

@@ -59,6 +59,7 @@ declared inline on that path as `type: array` with `style: form`, `explode: true
 `singleValue` and a repeat is a `400`. The third consumer is `GET /api/v1/reports/throughput`'s `accountId`, the very same opt-in and inline
 declaration (`MAX_PICKED_ACCOUNTS` = 8 in `reports/ReportFilter.kt`). The fourth is `GET /api/v1/reports/reported-time-ratio`'s `accountId`
 (the same opt-in and inline declaration), whose `Distribution` histograms then split per picked person (`byUser`).
+The fifth is `GET /api/v1/reports/cycle-time`'s `accountId`, the same again (`elapsedDays` and `workingDays` split; its `trend` stays the union).
 
 **Sub-collections and facets** are not implemented yet — a record's own unbounded sub-collection
 (e.g. a future audit-trail read) should be paged like any other list; reserve the plain `{items}`
