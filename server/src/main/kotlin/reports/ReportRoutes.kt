@@ -165,8 +165,8 @@ fun Application.configureReportRoutes() {
  * ONE report endpoint: the `call.caller()` guard FIRST (403/401 before any parameter is read, so 403 wins over 400), the shared
  * filter parse against the configured working calendar ([defaultView] is the report's own `domainView` default), then
  * [respond] with the filter, the raw query parameters (for a report's own extras — parsed AFTER the filter, so the shared
- * `400`s keep their order) and the request's `now`. [multipleAccounts] is the opt-in (commitments, throughput, cycle time, reported
- * time, adjustments) to a repeated `accountId`.
+ * `400`s keep their order) and the request's `now`. [multipleAccounts] is the per-route opt-in to a repeated `accountId`
+ * (the routes passing `multipleAccounts = true`).
  */
 private inline fun <reified R : Any> Route.reportGet(
     metricsSettings: MetricsSettingsService,
@@ -187,8 +187,8 @@ private inline fun <reified R : Any> Route.reportGet(
 /** The sprint, estimation, cycle-time and reported-time reports (1–8), in report order. */
 private fun Route.deliveryRoutes(reportService: ReportService, metricsSettings: MetricsSettingsService) {
     // Commitments (report 1) carries no domain slice (measures.md's Report 1 rows: domain "—"), so the TASK/EPIC default is a
-    // harmless placeholder — every response still echoes it in `meta`. Commitments, throughput, cycle time, reported
-    // time and adjustments alone take several `accountId`s (1..8).
+    // harmless placeholder — every response still echoes it in `meta`. Only the routes registered with
+    // `multipleAccounts = true` below take several `accountId`s (1..8).
     reportGet<ReportCommitmentsRoute>(metricsSettings, DomainView.TASK, multipleAccounts = true) { filter, _, _ ->
         reportService.commitments(filter)
     }
@@ -200,7 +200,8 @@ private fun Route.deliveryRoutes(reportService: ReportService, metricsSettings: 
     // Estimation accuracy (reports 3, 4) and adjustments (report 5). Tasks default to the TASK domain view (D3); epic
     // accuracy is PV/EV/AC-shaped (plan §7) so it defaults to EPIC — which for an epic is always its own space either way,
     // the view is only echoed in `meta`.
-    reportGet<ReportTaskEstimationAccuracyRoute>(metricsSettings, DomainView.TASK) { filter, _, nowMs ->
+    // Task accuracy also takes several `accountId`s (1..8): its histograms split per picked person; the measures stay the union.
+    reportGet<ReportTaskEstimationAccuracyRoute>(metricsSettings, DomainView.TASK, multipleAccounts = true) { filter, _, nowMs ->
         reportService.taskEstimationAccuracy(filter, nowMs)
     }
     reportGet<ReportEpicEstimationAccuracyRoute>(metricsSettings, DomainView.EPIC) { filter, _, nowMs ->

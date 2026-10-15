@@ -50,6 +50,8 @@ import {
   TASK_ACCURACY,
   TASK_ACCURACY_EMPTY,
   TASK_ACCURACY_HIDDEN,
+  TASK_ACCURACY_USER,
+  TASK_ACCURACY_USERS,
   THROUGHPUT_MONTHS,
   THROUGHPUT_TEAM,
   THROUGHPUT_UNIT,
@@ -152,7 +154,7 @@ function expectWellFormed(d: Distribution) {
 
 describe("estimation fixtures hold the documented partitions", () => {
   test("task accuracy: n + exclusions == population per view, groups sum to the whole, hidden ⇔ below the minimum", () => {
-    for (const report of [TASK_ACCURACY, TASK_ACCURACY_HIDDEN, TASK_ACCURACY_EMPTY]) {
+    for (const report of [TASK_ACCURACY, TASK_ACCURACY_HIDDEN, TASK_ACCURACY_EMPTY, TASK_ACCURACY_USERS, TASK_ACCURACY_USER]) {
       const x = report.excluded;
       expect(report.atStart.n + x.noWorklogs + x.neverStarted + x.unestimatedAtStart).toBe(x.population);
       expect(report.atDone.n + x.noWorklogs + x.unestimatedAtDone).toBe(x.population);
@@ -171,6 +173,26 @@ describe("estimation fixtures hold the documented partitions", () => {
           expect(sum((g) => g.excluded[key])).toBe(x[key]);
         }
       }
+    }
+  });
+
+  test("task accuracy per person: the shares add up to every bucket and to each person's group n; the measures are null exactly when hidden", () => {
+    for (const report of [TASK_ACCURACY_USERS, TASK_ACCURACY_USER]) {
+      for (const [view, measures] of [
+        ["atStart", report.accuracyAtStart],
+        ["atDone", report.accuracyAtDone],
+      ] as const) {
+        const distribution = report[view];
+        const shares = distribution.byUser ?? [];
+        expect(shares.map((share) => share.accountId)).toEqual(report.groups.map((g) => g.accountId));
+        distribution.histogram.forEach((bucket, i) => expect(shares.reduce((sum, share) => sum + share.counts[i], 0)).toBe(bucket.count));
+        shares.forEach((share, i) => expect(share.counts.reduce((sum, count) => sum + count, 0)).toBe(report.groups[i][view].n));
+        expect(measures === null).toBe(distribution.hidden);
+      }
+    }
+    for (const report of [TASK_ACCURACY, TASK_ACCURACY_HIDDEN, TASK_ACCURACY_EMPTY]) {
+      expect(report.accuracyAtStart === null).toBe(report.atStart.hidden);
+      expect(report.accuracyAtDone === null).toBe(report.atDone.hidden);
     }
   });
 

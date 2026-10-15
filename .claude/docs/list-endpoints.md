@@ -61,6 +61,7 @@ declaration (`MAX_PICKED_ACCOUNTS` = 8 in `reports/ReportFilter.kt`). The fourth
 (the same opt-in and inline declaration), whose `Distribution` histograms then split per picked person (`byUser`).
 The fifth is `GET /api/v1/reports/cycle-time`'s `accountId`, the same again (`elapsedDays` and `workingDays` split; its `trend` stays the union).
 The sixth is `GET /api/v1/reports/estimate-adjustments`'s `accountId`, the same again (the tasks' `changeDistribution` splits; its `epics` block stays the all-zero USER block).
+The seventh is `GET /api/v1/reports/task-estimation-accuracy`'s `accountId`, the same again (`atStart` and `atDone` split; the accuracy measures stay the union).
 
 **Sub-collections and facets** are not implemented yet — a record's own unbounded sub-collection
 (e.g. a future audit-trail read) should be paged like any other list; reserve the plain `{items}`

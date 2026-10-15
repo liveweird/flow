@@ -280,12 +280,43 @@
     "axis": "koszt rzeczywisty ÷ szacunek",
     "hint": "Stosunek 1 oznacza, że koszt rzeczywisty równa się szacunkowi; powyżej 1 kosztowało więcej."
   },
+  "accuracy": {
+    "title": "Miary trafności",
+    "column": {
+      "measure": "Miara",
+      "value": "Wartość",
+      "meaning": "Co to mówi"
+    },
+    "label": {
+      "pred10": "PRED(10)",
+      "pred25": "PRED(25)",
+      "pred50": "PRED(50)",
+      "mdmre": "MdMRE",
+      "smape": "sMAPE",
+      "iqr": "IQR",
+      "idr": "IDR",
+      "mad": "MAD",
+      "tailShare": "Udział ogona (poza ±2σ)"
+    },
+    "meaning": {
+      "pred10": "Udział zadań, w których szacunek pomylił się o najwyżej 10% kosztu rzeczywistego (błąd liczymy względem kosztu rzeczywistego).",
+      "pred25": "Udział zadań, w których szacunek pomylił się o najwyżej 25% kosztu rzeczywistego (błąd liczymy względem kosztu rzeczywistego).",
+      "pred50": "Udział zadań, w których szacunek pomylił się o najwyżej 50% kosztu rzeczywistego (błąd liczymy względem kosztu rzeczywistego).",
+      "mdmre": "Mediana błędu względnego: typowa pomyłka jako ułamek kosztu rzeczywistego, |rzeczywisty − szacunek| ÷ rzeczywisty.",
+      "smape": "Symetryczny średni błąd procentowy: przeciętna pomyłka względem średniej z kosztu rzeczywistego i szacunku, więc zawyżenia i zaniżenia ważą tak samo (0%–200%).",
+      "iqr": "Rozstęp ćwiartkowy ilorazu (p75 − p25): jak szeroko rozkłada się środkowa połowa zadań.",
+      "idr": "Rozstęp decylowy ilorazu (p90 − p10): jak szeroko rozkłada się środkowe 80% zadań.",
+      "mad": "Mediana bezwzględnych odchyleń ilorazu od jego mediany, bez skalowania: typowa odległość od mediany ilorazu.",
+      "tailShare": "Udział zadań oddalonych od średniego ilorazu o więcej niż dwa odchylenia standardowe. Rozkład normalny ma ok. 4,6% poza ±2σ; wyższy udział oznacza cięższe ogony. Pokazujemy —, gdy zadań jest mniej niż sześć (w mniejszej próbie żaden punkt nie może być tak daleko) albo wszystkie ilorazy są równe."
+    }
+  },
   "groupsCaption": {
     "distribution": "Grupy poniżej minimalnej próby pokazują tylko liczby."
   },
   "taskAccuracy": {
     "title": "Trafność szacowania zadań",
     "description": "Jak koszt rzeczywisty zakończonych zadań ma się do ich szacunku: rzeczywiste osobodni ÷ szacunek. Podstawowy jest szacunek na starcie; drugi — szacunek w chwili zakończenia.",
+    "noTeams": "Trafność szacowania zadań liczymy dla zespołu, a nie ma jeszcze żadnego zespołu. Administrator/ka dodaje zespoły na stronie Zespoły.",
     "startTitle": "Względem szacunku na starcie",
     "startCaption": "Widok podstawowy — szacunek, do którego zespół się zobowiązał na początku pracy.",
     "doneTitle": "Względem szacunku przy zakończeniu",

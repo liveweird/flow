@@ -129,10 +129,11 @@ describe("reportHref — the long tail", () => {
 describe("reportHref — several members", () => {
   const search = "teamId=2&accountId=a&accountId=b&accountId=c&lastSprints=3";
 
-  test("commitments, throughput, cycle time, reported time and adjustments keep every picked member, so moving between them keeps all the picks", () => {
+  test("commitments, throughput, cycle time, reported time, adjustments and task accuracy keep every picked member, so moving between them keeps all the picks", () => {
     expect(reportHref("/reports/commitments", search)).toBe(`/reports/commitments?${search}`);
     expect(reportHref("/reports/throughput", search)).toBe(`/reports/throughput?${search}`);
     expect(reportHref("/reports/cycle-time", search)).toBe(`/reports/cycle-time?${search}`);
+    expect(reportHref("/reports/task-estimation-accuracy", search)).toBe(`/reports/task-estimation-accuracy?${search}`);
     expect(reportHref("/reports/reported-time-ratio", search)).toBe(`/reports/reported-time-ratio?${search}`);
     expect(reportHref("/reports/estimate-adjustments", search)).toBe(`/reports/estimate-adjustments?${search}`);
   });

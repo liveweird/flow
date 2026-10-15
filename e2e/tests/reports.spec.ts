@@ -517,6 +517,67 @@ async function readCycleTime(page: Page): Promise<void> {
   await expect(page.getByRole("heading", { name: "Epics: working days", exact: true })).toHaveCount(0);
 }
 
+/**
+ * The task-accuracy journey: the golden sprint's two views, each either a distribution (a median/mean/items strip with no p90 or
+ * p95, and an "Accuracy measures" table) or the counts-only notice; a required team (no "All teams") and a one-person pick.
+ */
+async function readTaskAccuracy(page: Page): Promise<void> {
+  await openGroup(page, "Estimation");
+  await expect(page.getByRole("heading", { level: 2, name: "Task estimation accuracy", exact: true })).toBeVisible();
+  await pickGoldenSprint(page);
+
+  // Two views — at start (primary) and at done — each with its own "left out" accounting.
+  await expect(page.getByRole("heading", { name: "Against the estimate at start" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Against the estimate at done" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Left out of this distribution" })).toHaveCount(2);
+  await expect(page.getByText(/^Of \d+ finished in this period:$/).first()).toBeVisible();
+  // A distribution (percentile strip) or, below the minimum sample, the counts-only notice.
+  await expect(percentilesOrNotice(page).first()).toBeVisible();
+  await expectCentreStripAndMeasures(page);
+  // Task accuracy is read for one team: the picked team stays in the URL.
+  await expect(page).toHaveURL(new RegExp(`teamId=${teamId}`));
+
+  // A team is required: no "All teams", no clear button.
+  const team = page.getByRole("combobox", { name: "Team", exact: true });
+  await expect(team).toHaveValue(teamName);
+  await expect(page.getByLabel("Clear Team", { exact: true })).toHaveCount(0);
+  await team.click();
+  await expect(page.getByRole("option", { name: teamName, exact: true })).toBeVisible();
+  await expect(page.getByRole("option", { name: "All teams", exact: true })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+
+  // One person picked: the URL gains the account and "Totals per person" lists them in one row. (The stub person may have too few
+  // finished tasks for a histogram, so the "1." numbering is not asserted here; the two-person stacking is the page's unit tests'.)
+  await pickFilter(page, "Member", memberName);
+  await page.keyboard.press("Escape");
+  await expect(page).toHaveURL(/accountId=/);
+  await expect(page).toHaveURL(new RegExp(`teamId=${teamId}`));
+  const totals = page.getByRole("table", { name: "Totals per person", exact: true });
+  await expect(totals.getByRole("row")).toHaveCount(2);
+  await expect(totals.getByRole("row").nth(1).getByRole("cell").first()).toContainText(memberName);
+  await expectCentreStripAndMeasures(page);
+}
+
+/**
+ * Every shown view has the median/mean/items strip — never a p90 or p95 — and its own nine-row "Accuracy measures" table; a view
+ * below the minimum sample has neither (the counts-only notice stands instead).
+ */
+async function expectCentreStripAndMeasures(page: Page): Promise<void> {
+  const strips = page.getByRole("group", { name: "Percentiles", exact: true });
+  const measures = page.getByRole("table", { name: /^Accuracy measures — / });
+  // Every shown view has exactly one measures table beside its strip. A polled difference (never a one-off count snapshot, which a
+  // stale previous report could supply) settles on 0 once the page shows one coherent report: both counts are 0 (the notice) or equal.
+  await expect.poll(async () => (await measures.count()) - (await strips.count())).toBe(0);
+  await expect(page.getByText("p90", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("p95", { exact: true })).toHaveCount(0);
+  for (let i = 0; i < (await strips.count()); i++) {
+    await expect(strips.nth(i).getByText("Median (p50)", { exact: true })).toBeVisible();
+    await expect(strips.nth(i).getByText("Mean", { exact: true })).toBeVisible();
+    await expect(strips.nth(i).getByText("Items", { exact: true })).toBeVisible();
+    await expect(measures.nth(i).getByRole("row")).toHaveCount(10);
+  }
+}
+
 /** The cycle-time long-tail journey: the default 5% open bucket, widened to 25%, switched off with 0, and back to the default. */
 async function widenCycleTimeTail(page: Page): Promise<void> {
   // Cycle time is read per team, so the link carries this spec's OWN team (a bare link would start on the first team by name,
@@ -1014,19 +1075,7 @@ test.describe("reports, read by a regular user", () => {
 
   test("a user widens the cycle time histogram's long tail", ({ page }) => widenCycleTimeTail(page));
 
-  test("the user reads task estimation accuracy", async ({ page }) => {
-    await openGroup(page, "Estimation");
-    await expect(page.getByRole("heading", { level: 2, name: "Task estimation accuracy", exact: true })).toBeVisible();
-    await pickGoldenSprint(page);
-
-    // Two views — at start (primary) and at done — each with its own "left out" accounting.
-    await expect(page.getByRole("heading", { name: "Against the estimate at start" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Against the estimate at done" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Left out of this distribution" })).toHaveCount(2);
-    await expect(page.getByText(/^Of \d+ finished in this period:$/).first()).toBeVisible();
-    // A distribution (percentile strip) or, below the minimum sample, the counts-only notice.
-    await expect(percentilesOrNotice(page).first()).toBeVisible();
-  });
+  test("the user reads task estimation accuracy", ({ page }) => readTaskAccuracy(page));
 
   test("the user reads the last three sprints and drills to a member", async ({ page }) => {
     await openGroup(page, "Delivery");

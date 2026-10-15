@@ -1,10 +1,11 @@
 import { lazy, Suspense } from "react";
 import { useTranslation } from "react-i18next";
 import { Box, Group, Stack, Text, Title } from "@mantine/core";
-import type { Distribution } from "../api/reports";
+import type { AccuracyMeasures, Distribution } from "../api/reports";
 import { personLabel } from "../utils/commitmentsReport";
 import { histogramRowsWithShares, type DistributionPerson, type HistogramRowWithShares } from "../utils/distributionPeople";
 import { histogramLabels, type ValueFormat } from "../utils/reportFormat";
+import AccuracyMeasuresTable from "./AccuracyMeasuresTable";
 import ColumnTable, { type ColumnDef } from "./ColumnTable";
 import LoadingBlock from "./LoadingBlock";
 import MinSampleNotice from "./MinSampleNotice";
@@ -17,7 +18,9 @@ const MISSING = "—";
 
 /**
  * One distribution: a percentile strip (median, p90, p95, mean, item count), the histogram and — the
- * chart's numbers — the histogram as a table. `hidden` (fewer items than the minimum sample
+ * chart's numbers — the histogram as a table. `strip="centre"` keeps only the median, the mean and the item count (the accuracy
+ * pages read the spread from [accuracy] instead of the upper percentiles); `accuracy`, when given, adds the accuracy-measures table
+ * between the strip and the histogram. `hidden` (fewer items than the minimum sample
  * size) replaces all of it with the MinSampleNotice: percentiles of three items would be noise.
  * `format` renders a value in the measure's own unit (a ratio, a percentage). In people mode (`people` = the distribution's
  * per-person split, numbered) the histogram stacks per person and its table gains one column per person beside the total.
@@ -30,6 +33,8 @@ export default function DistributionPanel({
   format,
   axisLabel,
   people = [],
+  strip: stripKind = "full",
+  accuracy,
 }: {
   title: string;
   caption?: string;
@@ -39,6 +44,10 @@ export default function DistributionPanel({
   /** The x-axis title of the histogram: what the ranges measure ("actual ÷ estimate"). */
   axisLabel: string;
   people?: readonly DistributionPerson[];
+  /** `full` (default): median, p90, p95, mean, items; `centre`: median, mean, items. */
+  strip?: "full" | "centre";
+  /** The distribution's accuracy measures (estimate-vs-actual reports); none (or null while hidden) = no table. */
+  accuracy?: AccuracyMeasures | null;
 }) {
   const { t } = useTranslation();
   const show = (value: number | null | undefined) => (value == null ? MISSING : format(value));
@@ -71,8 +80,12 @@ export default function DistributionPanel({
   ];
   const strip: [string, string][] = [
     [t("reports.distribution.p50"), show(distribution.p50)],
-    [t("reports.distribution.p90"), show(distribution.p90)],
-    [t("reports.distribution.p95"), show(distribution.p95)],
+    ...(stripKind === "full"
+      ? ([
+          [t("reports.distribution.p90"), show(distribution.p90)],
+          [t("reports.distribution.p95"), show(distribution.p95)],
+        ] satisfies [string, string][])
+      : []),
     [t("reports.distribution.mean"), show(distribution.mean)],
     [t("reports.distribution.n"), String(distribution.n)],
   ];
@@ -102,6 +115,7 @@ export default function DistributionPanel({
               </Box>
             ))}
           </Group>
+          {accuracy && <AccuracyMeasuresTable measures={accuracy} name={title} />}
           <Suspense fallback={<LoadingBlock />}>
             <DistributionHistogram rows={rows} name={title} xAxisLabel={axisLabel} people={people} />
           </Suspense>

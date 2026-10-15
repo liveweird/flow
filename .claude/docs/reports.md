@@ -95,7 +95,7 @@ data actually lives.
   alone -> `TEAM` (groups by user); `teamId` AND `accountId` together -> `USER` (the one user).
   `accountId` without `teamId` is `400` -- a user-level read always needs to know within which
   team's roster it is being read. `accountId` REPEATS (1..8 distinct, `parseReportFilter(..., multipleAccounts = true)`) on
-  commitments, throughput, cycle time, reported time and adjustments only; on every other report a repeat is a `400`. `teamId = 0` is the UNASSIGNED sentinel bucket, a real value, not
+  commitments, throughput, cycle time, reported time, adjustments and task accuracy only; on every other report a repeat is a `400`. `teamId = 0` is the UNASSIGNED sentinel bucket, a real value, not
   "absent" -- never rejected here (a real check that a POSITIVE `teamId` names an actual team is a
   report service's own job, downstream).
 - **Group order.** The org drill (`groups`) of commitments, throughput, sprint consistency and the DONE-item reports is built by
@@ -552,7 +552,10 @@ TaskEstimationAccuracyReport {
   atDone:  Distribution          // actual_md / estimate_at_done_md    (the second view)
   excluded: { population, noWorklogs, neverStarted, unestimatedAtStart, unestimatedAtDone }
   groups: [{ teamId?, accountId?, label?, atStart, atDone, excluded }]
+  accuracyAtStart: AccuracyMeasures?   // over the ratios atStart summarises; null while it is hidden
+  accuracyAtDone:  AccuracyMeasures?   // over the ratios atDone summarises; null while it is hidden
 }
+AccuracyMeasures { pred10, pred25, pred50, mdmre, smape, iqr, idr, mad, tailShare? }   // unrounded; tailShare nullable
 ```
 
 - **Population** = DONE level-0 tasks with `done_at` in the window. Each is in a distribution or in exactly ONE
@@ -565,9 +568,26 @@ TaskEstimationAccuracyReport {
   no start has no @start estimate, which is not a reason to drop it from the @done view -- it is not applied
   there, and the measures.md cell says so.) An estimate of 0 is stored as `null` = unestimated (domain-model.md).
 - **Levels.** UNIT: `groups` one per credit team (`teamId` null = UNASSIGNED); TEAM: one per assignee at done
-  (`accountId` null = unassigned); USER: none. Each group carries its own two distributions -- **hidden below
-  `minSampleSize`, `n` always set**, so `Σ group n == n` -- and its own `excluded`.
+  (`accountId` null = unassigned); USER: one per picked account (a pick with no task an empty entry). Each group carries its own two
+  distributions -- **hidden below `minSampleSize`, `n` always set**, so `Σ group n == n` -- and its own `excluded`.
+- **USER level takes several `accountId`s** (1..8 distinct, `multipleAccounts = true`, like commitments, throughput, cycle time,
+  reported time and adjustments; the web page also requires a team, the server keeps `teamId` optional). `atStart` and `atDone` read the UNION of the picked
+  people (their done tasks, assignee at done) and carry `byUser`: every histogram bucket split per picked person
+  (`buildDistributionByUser`, request order, a zero share for a pick with no task). `excluded` and the accuracy measures stay over the union;
+  `groups` lists each pick (the TEAM-level rule per person, ordered label then account id) with its own PLAIN distributions. One `accountId`
+  is today's figures plus a one-entry `byUser`; UNIT and TEAM are unchanged.
 - Reading: ratio `1.0` = actual cost equals the estimate, above = it cost more.
+- **Accuracy measures** (`reports/AccuracyMeasures.kt`, the pure `accuracyMeasures(ratios, minSampleSize)`; to be reused by Report 4). Over the SAME
+  ratios `r = actual ÷ estimate` the view's `Distribution` summarises (the union at USER level, never per person) and `null` under the same
+  `minSampleSize` rule; unrounded on the wire. **The relative error is taken against the ACTUAL** (Conte et al.):
+  `MRE = abs(actual − estimate) ÷ actual = abs(1 − 1/r)` (`actual > 0` is guaranteed by the `noWorklogs` exclusion), so a ratio of exactly 1 is a
+  perfect estimate. `pred10`/`pred25`/`pred50` = the share of items with MRE ≤ 0.10/0.25/0.50 (an item exactly on the threshold counts as
+  within, with a 1e-9 slack for float noise); `mdmre` = the median MRE (`percentile_cont` 0.5, the same function as `p50`); `smape` = the mean of
+  `2·abs(r − 1) ÷ (r + 1)` (0..2); `iqr` = p75 − p25 and `idr` = p90 − p10 of the ratios; `mad` = the median of `abs(r − median r)`, unscaled;
+  `tailShare` = the share of ratios with `abs(r − mean) > 2·s`, `s` the SAMPLE standard deviation (n − 1) -- the chosen reading of "kurtosis"
+  (a normal distribution has about 4.6% there) -- `null` for n < 6 (with the sample SD no point lies more than (n − 1) ÷ √n SDs from the mean, under 2 for n ≤ 5, so a smaller view would always read a misleading 0%) or a constant sample. The web page hides p90/p95 (`DistributionPanel
+  strip="centre"`), the `Distribution` schema is unchanged. Tests: `AccuracyMeasuresTest` (hand-computed set, PRED boundary, r ≡ 1, tail
+  share null cases (n < 6, constant), the minimum) and the report test against `assertAccuracyMeasures` (its own `quantile`, MRE written `abs(r − 1) ÷ r`).
 
 ### Report 4 -- `GET /api/v1/reports/epic-estimation-accuracy`
 
@@ -629,8 +649,8 @@ AdjustmentFigures { started, changedAfterStart, share?, estimatedLate,
 - **Levels.** UNIT: `groups` one per team, tasks and epics side by side (a null-team group is UNASSIGNED tasks /
   UNOWNED epics together); TEAM: one per assignee (at done / now, A25), tasks only (`epics` null); USER: `tasks` narrowed to the
   picked accounts, `epics` all zero, `groups` one per pick (tasks only, `epics` null -- the TEAM rule; a pick with no task an empty entry).
-- **USER level takes several `accountId`s** (1..8 distinct, `multipleAccounts = true`, like commitments, throughput, cycle time and reported
-  time; the web page also requires a team, the server keeps `teamId` optional). `tasks` reads the UNION of the picked people (A25: assignee at
+- **USER level takes several `accountId`s** (1..8 distinct, `multipleAccounts = true`, like commitments, throughput, cycle time, reported
+  time and task accuracy; the web page also requires a team, the server keeps `teamId` optional). `tasks` reads the UNION of the picked people (A25: assignee at
   done once done, assignee now while open): the started counts, `share`, `changeExcluded` and every `changeDistribution` figure are over the
   union, and `tasks.changeDistribution` alone carries `byUser` -- every histogram bucket split per picked person
   (`buildDistributionByUser`, `Distribution` below), request order, a zero share for a pick with no change. `groups` lists each pick with
@@ -649,7 +669,7 @@ the raw fact rows -- whole population, per group (`Σ group n == n`), per user, 
 pins the buckets, the ratios, the hidden state (`minSampleSize` pinned with `withMinSampleSize`), the 200-row cap and
 the estimated-late separation on hand-built rows in a fresh DISABLED connection with hand-computed answers.
 
-**The per-person split (`byUser`, `buildDistributionByUser`).** A report that lets the user pick several people (cycle time, reported time and adjustments today) draws
+**The per-person split (`byUser`, `buildDistributionByUser`).** A report that lets the user pick several people (task accuracy, cycle time, reported time and adjustments today) draws
 ONE stacked histogram per `Distribution`: `buildDistributionByUser(valuesByUser, minSampleSize, tailPercent)` builds the union
 exactly as `buildDistribution` over the flattened values, then adds `byUser` -- one `DistributionShare {accountId, label, counts}` per
 picked person in REQUEST order, `counts` index-aligned with `histogram` (the open tail bucket included), an all-zero share for a
@@ -696,7 +716,7 @@ CycleTimeReport {
 - **Levels**: UNIT `groups` per credit team, TEAM per assignee at done, USER one per picked account (a pick with no task an
   empty entry); each group has its own two distributions (hidden below the minimum, `n` always set, so `Σ group n == n`) and
   `excluded`; groups are ordered by label (null last), then team id, then account id.
-- **USER level takes several `accountId`s** (1..8 distinct, `multipleAccounts = true`, like commitments, throughput, reported time and adjustments; the
+- **USER level takes several `accountId`s** (1..8 distinct, `multipleAccounts = true`, like commitments, throughput, reported time, adjustments and task accuracy; the
   web page also requires a team, the server keeps `teamId` optional because Home reads this report at UNIT level). `elapsedDays` and
   `workingDays` read the UNION of the picked people (their done tasks, assignee at done) and carry `byUser`: every histogram bucket split
   per picked person (`buildDistributionByUser`, `Distribution` above), in request order, a zero share for a pick with no task. `excluded`
@@ -729,7 +749,7 @@ ReportedTimeRatioReport { meta, ratio: Distribution,             // actual_md / 
   in this order: `noWorklogs` (D14 -- `has_worklogs = false` or `actual_md` of 0.00, as in report 3), `neverStarted`
   (no cycle), `zeroCycle` (`cycle_working_days = 0`). So `ratio.n + noWorklogs + neverStarted + zeroCycle ==
   population`. Levels and groups as report 7, except USER level (below).
-- **USER level takes several `accountId`s** (1..8 distinct, `multipleAccounts = true`, like commitments, throughput, cycle time and adjustments; the web page also
+- **USER level takes several `accountId`s** (1..8 distinct, `multipleAccounts = true`, like commitments, throughput, cycle time, adjustments and task accuracy; the web page also
   requires a team). Both `ratio` and `flowEfficiency` read the UNION of the picked people (their done tasks, assignee at done) and carry
   `byUser`: every histogram bucket split per picked person (`buildDistributionByUser`, `Distribution` above), in request order, a zero
   share for a pick with no task. `excluded`/`flowEfficiencyExcluded` stay over the union; `groups` lists each pick (the TEAM-level

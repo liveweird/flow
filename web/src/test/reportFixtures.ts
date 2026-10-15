@@ -2,6 +2,7 @@
 // commitments responses (UNIT and TEAM level). Typed against the generated schema so a spec drift
 // breaks the fixtures, not just the page.
 import type {
+  AccuracyMeasures,
   AdjustmentFigures,
   AgingWipReport,
   BacklogReport,
@@ -526,11 +527,37 @@ const shownDistributionWithTail = (
   return { ...body, n: body.n + tail, max: from + step * 3, histogram: [...body.histogram, { from, to: null, count: tail }] };
 };
 
+/** Accuracy measures for the shown fixtures: the at-start sample has a defined tail share, the at-done one has none (null → "—"). */
+const MEASURES_AT_START: AccuracyMeasures = {
+  pred10: 0.25,
+  pred25: 0.5,
+  pred50: 0.75,
+  mdmre: 0.18,
+  smape: 0.2145,
+  iqr: 0.45,
+  idr: 1.2,
+  mad: 0.25,
+  tailShare: 0.0833,
+};
+const MEASURES_AT_DONE: AccuracyMeasures = {
+  pred10: 0.3,
+  pred25: 0.6,
+  pred50: 0.9,
+  mdmre: 0.15,
+  smape: 0.18,
+  iqr: 0.4,
+  idr: 1,
+  mad: 0.2,
+  tailShare: null,
+};
+
 export const TASK_ACCURACY: TaskEstimationAccuracyReport = {
   meta: META,
   atStart: shownDistribution([1, 3, 5, 2, 1], 0.5, 0.5, { p50: 1.1, p90: 1.9, p95: 2.2, mean: 1.25 }),
   atDone: shownDistribution([0, 4, 6, 3, 1], 0.5, 0.5, { p50: 1.05, p90: 1.7, p95: 2, mean: 1.15 }),
   excluded: { population: 20, noWorklogs: 3, neverStarted: 2, unestimatedAtStart: 3, unestimatedAtDone: 3 },
+  accuracyAtStart: MEASURES_AT_START,
+  accuracyAtDone: MEASURES_AT_DONE,
   groups: [
     {
       teamId: 1,
@@ -562,6 +589,8 @@ export const TASK_ACCURACY_HIDDEN: TaskEstimationAccuracyReport = {
   atStart: hiddenDistribution(3),
   atDone: hiddenDistribution(4),
   excluded: { population: 9, noWorklogs: 1, neverStarted: 1, unestimatedAtStart: 4, unestimatedAtDone: 4 },
+  accuracyAtStart: null,
+  accuracyAtDone: null,
   groups: [],
 };
 
@@ -570,7 +599,46 @@ export const TASK_ACCURACY_EMPTY: TaskEstimationAccuracyReport = {
   atStart: hiddenDistribution(0),
   atDone: hiddenDistribution(0),
   excluded: { population: 0, noWorklogs: 0, neverStarted: 0, unestimatedAtStart: 0, unestimatedAtDone: 0 },
+  accuracyAtStart: null,
+  accuracyAtDone: null,
   groups: [],
+};
+
+/**
+ * Two people picked (Ann, then Bob) at USER level: both distributions are the union (`TASK_ACCURACY`'s) and carry `byUser` (shares
+ * summing to each bucket); the accounting and the accuracy measures stay the union and `groups` lists the two people.
+ */
+export const TASK_ACCURACY_USERS: TaskEstimationAccuracyReport = {
+  ...TASK_ACCURACY,
+  meta: { ...META, level: "USER" },
+  atStart: { ...TASK_ACCURACY.atStart, byUser: [{ ...ANN, counts: [1, 2, 3, 1, 0] }, { ...BOB, counts: [0, 1, 2, 1, 1] }] },
+  atDone: { ...TASK_ACCURACY.atDone, byUser: [{ ...ANN, counts: [0, 3, 4, 2, 0] }, { ...BOB, counts: [0, 1, 2, 1, 1] }] },
+  groups: [
+    {
+      teamId: null,
+      ...ANN,
+      atStart: shownDistribution([1, 2, 3, 1, 0], 0.5, 0.5, { p50: 1.1, p90: 1.8, p95: 2, mean: 1.2 }),
+      atDone: shownDistribution([0, 3, 4, 2, 0], 0.5, 0.5, { p50: 1.0, p90: 1.6, p95: 1.9, mean: 1.1 }),
+      excluded: { population: 12, noWorklogs: 1, neverStarted: 1, unestimatedAtStart: 3, unestimatedAtDone: 2 },
+    },
+    {
+      teamId: null,
+      ...BOB,
+      atStart: shownDistribution([0, 1, 2, 1, 1], 0.5, 0.5, { p50: 1.3, p90: 2, p95: 2.2, mean: 1.4 }),
+      atDone: shownDistribution([0, 1, 2, 1, 1], 0.5, 0.5, { p50: 1.3, p90: 2, p95: 2.2, mean: 1.4 }),
+      excluded: { population: 8, noWorklogs: 2, neverStarted: 1, unestimatedAtStart: 0, unestimatedAtDone: 1 },
+    },
+  ],
+};
+
+/** One person picked: that person's own figures as the union, a one-entry `byUser` (the whole histogram) and their own group. */
+export const TASK_ACCURACY_USER: TaskEstimationAccuracyReport = {
+  ...TASK_ACCURACY,
+  meta: { ...META, level: "USER" },
+  atStart: { ...TASK_ACCURACY_USERS.groups[0].atStart, byUser: [{ ...ANN, counts: TASK_ACCURACY_USERS.groups[0].atStart.histogram.map((b) => b.count) }] },
+  atDone: { ...TASK_ACCURACY_USERS.groups[0].atDone, byUser: [{ ...ANN, counts: TASK_ACCURACY_USERS.groups[0].atDone.histogram.map((b) => b.count) }] },
+  excluded: TASK_ACCURACY_USERS.groups[0].excluded,
+  groups: [TASK_ACCURACY_USERS.groups[0]],
 };
 
 /** Ten DONE epics whose per-row ratios agree with the distributions' n (6 at start, 8 at done). */

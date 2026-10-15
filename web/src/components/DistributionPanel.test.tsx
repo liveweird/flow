@@ -144,4 +144,42 @@ describe("DistributionPanel — people mode", () => {
     const table = screen.getByRole("table", { name: "Histogram, as a table — At start" });
     expect(within(table).getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Range", "Items"]);
   });
+
+  test('strip="centre" keeps the median, the mean and the items and drops p90 and p95', () => {
+    renderWithProviders(
+      <DistributionPanel
+        title="At start"
+        distribution={TASK_ACCURACY.atStart}
+        minSampleSize={5}
+        format={formatRatio}
+        axisLabel="x"
+        strip="centre"
+      />,
+    );
+    const strip = screen.getByRole("group", { name: "Percentiles" });
+    expect(within(strip).getByText("Median (p50)").nextElementSibling).toHaveTextContent("1.1");
+    expect(within(strip).getByText("Mean").nextElementSibling).toHaveTextContent("1.25");
+    expect(within(strip).getByText("Items").nextElementSibling).toHaveTextContent("12");
+    expect(within(strip).queryByText("p90")).not.toBeInTheDocument();
+    expect(within(strip).queryByText("p95")).not.toBeInTheDocument();
+  });
+
+  test("accuracy measures render between the strip and the histogram; none (or null) renders no table", () => {
+    const { unmount } = renderWithProviders(
+      <DistributionPanel
+        title="At start"
+        distribution={TASK_ACCURACY.atStart}
+        minSampleSize={5}
+        format={formatRatio}
+        axisLabel="x"
+        accuracy={TASK_ACCURACY.accuracyAtStart}
+      />,
+    );
+    expect(screen.getByRole("table", { name: "Accuracy measures — At start" })).toBeInTheDocument();
+    unmount();
+    renderWithProviders(
+      <DistributionPanel title="At start" distribution={TASK_ACCURACY.atStart} minSampleSize={5} format={formatRatio} axisLabel="x" accuracy={null} />,
+    );
+    expect(screen.queryByRole("table", { name: /^Accuracy measures/ })).not.toBeInTheDocument();
+  });
 });
