@@ -136,6 +136,13 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
   `.removed` (same fields, the row's values just before deletion) — D1's dated Jira-user team
   membership CRUD (`metrics/TeamMembershipRoutes.kt`). `GET /api/v1/jira-users` is read-only, so it
   emits nothing.
+- `team.capacity_default_updated` (byUserId/teamId/defaultCapacityMdFrom/defaultCapacityMd, both nullable = none/cleared; authorizedBy) and
+  `team.sprint_calendar_updated` (byUserId/teamId/sprintId/connectionId/capacityMdFrom — the previously STORED calendar re-projected onto the sprint's current window and roster (not the previous
+  effective figure, which may have been a team default), null on the first save/capacityMd — the saved calendar's capacity/replacedTeamId — set when the write removed another team's leftover
+  row of a re-mapped board, else null/authorizedBy) — domain-model A32's capacity edits (`metrics/SprintCalendarRoutes.kt`), ADMIN or the
+  team's own manager; `authorizedBy` is `ADMIN` or `MANAGER`, the grant that let the write through. Emitted only when the
+  PUT actually changed something (a canonically equal re-PUT bumps no revision and audits nothing); a denied write is the
+  generic `authz.denied`. The GETs are read-only and emit nothing.
 - `metrics_config.updated` (byUserId/dataSourceId/configRevision) — a per-connection metrics-config
   full-replace PUT that actually changed something (v0.3.0 M1 commit 4,
   `metrics/MetricsConfigRoutes.kt`); a no-op re-PUT (byte-for-byte identical to what is already

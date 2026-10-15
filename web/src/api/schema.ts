@@ -496,6 +496,85 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/teams/{id}/capacity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Read a team's default capacity figure (A32)
+         * @description Any authenticated user. The team's ONE default sprint capacity in man-days (`defaultCapacityMd`, null = no default) that DERIVE uses for a sprint without a calendar (`TEAM_DEFAULT`, ahead of the members × working days default). `canEdit` tells the caller whether `PUT` would be accepted (ADMIN, or the team's own active manager). A missing or soft-deleted team is `404`.
+         */
+        get: operations["getTeamCapacity"];
+        /**
+         * Set or clear a team's default capacity figure (A32)
+         * @description ADMIN or the team's own active manager (`requireTeamManagerOrAdmin`), checked FIRST — before the team lookup, the body decode and any validation — so any other caller gets a uniform `403` whether or not the team exists (and a manager of ANOTHER team gets `403`); then `404` for a missing or soft-deleted team, then `400` for an invalid body (`defaultCapacityMd` null or 0 to 999999.99 with at most two decimals). A full replace (`null` clears the figure). A change bumps the shared `config_revision` (every enabled connection re-derives) and audits `team.capacity_default_updated`; re-sending the stored figure is a no-op `204`.
+         */
+        put: operations["updateTeamCapacity"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/teams/{id}/sprint-calendars": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * List a team's sprints with their capacity-calendar state (A32)
+         * @description Any authenticated user. The sprints DERIVE mapped to this team (via the board → team map) on active connections —
+         *     an unbounded synced sub-collection, hence the paged envelope. A missing or soft-deleted team is `404`.
+         *
+         *     - Sortable fields: `id` (the sprint id), `startAt`. Default `id` ascending.
+         *     - `hasCalendar` says whether a calendar is stored; `capacityMd`/`capacitySource` are the figures as of the last DERIVE.
+         */
+        get: operations["listTeamSprintCalendars"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/teams/{id}/sprint-calendars/{sprintId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                sprintId: number;
+            };
+            cookie?: never;
+        };
+        /**
+         * Read a team's person × day capacity calendar for one sprint (A32)
+         * @description Any authenticated user (a conscious D12 extension: the grid is a per-person per-day availability, i.e. an absence calendar). The rows are the team's Jira members overlapping the sprint; the columns the sprint's calendar days in the configured zone. Defaults are materialized on read when nothing is stored (`hasCalendar: false`: working days counted, weekends/holidays off, every cell 1, coefficients carried from the team's most recent earlier calendar); a stored calendar is re-projected onto the sprint's CURRENT window and roster, so `capacityMd` is the capacity of THIS grid if saved (`derivedCapacityMd`/`derivedCapacitySource` are the figure reports use now). Each person's `coefficient` is shown to the team's manager and ADMINs only (`null` otherwise); `canEdit` says which. A sprint without a start date, or one spanning over 60 days, answers `window: null` with a `note` and an empty grid. A missing or soft-deleted team, or a sprint that is not this team's, is `404`.
+         */
+        get: operations["getTeamSprintCalendar"];
+        /**
+         * Replace a team's capacity calendar for one sprint (A32)
+         * @description ADMIN or the team's own active manager (`requireTeamManagerOrAdmin`), checked FIRST — before any lookup or the body decode — so any other caller (a manager of ANOTHER team included) gets a uniform `403` whether or not the team or sprint exists. Then `404` (team missing/soft-deleted, or the sprint is not this team's — nothing is modified), `400` (an invalid body, a window over 60 days, an unknown Jira account id), `409` (the sprint has no start date). The body is the whole document (a full replace): `days` must be exactly the sprint's window and every person's `cells` too; coefficients 0 to 2, availability 0 to 1, at most two decimals; a non-member account is allowed. A change bumps the shared `config_revision` (every enabled connection re-derives) and audits `team.sprint_calendar_updated`; a canonically equal document is a no-op `204`.
+         */
+        put: operations["updateTeamSprintCalendar"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/data-sources": {
         parameters: {
             query?: never;
@@ -784,12 +863,12 @@ export interface paths {
          *     nothing is stored yet — every field is a COMPUTED default (status → stage from Jira's
          *     status category; the profile-detected story-points field for both estimate roles;
          *     `duedate` for the epic due date; 1:1 project → domain and issue type → activity type; no
-         *     board → team mappings, blocked statuses, work categories or sprint capacities).
+         *     board → team mappings, blocked statuses or work categories).
          */
         get: operations["getDataSourceMetricsConfig"];
         /**
          * Replace a data source's metrics configuration
-         * @description ADMIN only, guard before the body decode. A full replace over all eight per-connection config tables in one transaction — every id is validated against this connection's own `norm` reference rows (statuses, boards, sprints, project keys, issue types) and its stored data profile (field ids), else `400`; a board mapped to a team already mapped elsewhere is `409` (D10: one board per team); a `domainStatusStages` override must name a domain the same request defines and a known status, once per (domain, status). Bumps the shared `configRevision` unless the request is byte-for-byte identical to what is already stored.
+         * @description ADMIN only, guard before the body decode. A full replace over all seven per-connection config tables in one transaction — every id is validated against this connection's own `norm` reference rows (statuses, boards, project keys, issue types) and its stored data profile (field ids), else `400`; a board mapped to a team already mapped elsewhere is `409` (D10: one board per team); a `domainStatusStages` override must name a domain the same request defines and a known status, once per (domain, status). Bumps the shared `configRevision` unless the request is byte-for-byte identical to what is already stored.
          */
         put: operations["updateDataSourceMetricsConfig"];
         post?: never;
@@ -811,7 +890,7 @@ export interface paths {
         /**
          * Get the reference data for a data source's metrics configuration
          * @description ADMIN only, read-only. Statuses (with category), custom fields (with the profile's
-         *     detected role), project keys, boards, issue types and sprints per board — the picklists
+         *     detected role), project keys, boards and issue types — the picklists
          *     the metrics-config editor uses. `workCategoryValues` is populated only when
          *     `?workCategoryField=` names a field id, from that field's own distinct observed values
          *     across this connection's live work items, capped at 200 (`workCategoryValuesTruncated:
@@ -907,8 +986,8 @@ export interface paths {
          *     snapshot scope by the same rule as the live ones; null when the sprint has no snapshot);
          *     `byUser` splits each sprint into one entry per picked account in request order (live
          *     figures, zeros included; empty at UNIT/TEAM level) and `groups` lists each picked account's
-         *     period totals. `capacityMd`/`capacitySource` are the team's sprint capacity (A3: a configured
-         *     override, else members × working days; null when the sprint has none) at UNIT and TEAM
+         *     period totals. `capacityMd`/`capacitySource` are the team's sprint capacity (A3, A32: the sprint's
+         *     calendar, else the team's default figure, else members × working days; null when the sprint has none) at UNIT and TEAM
          *     level, always null at USER level (capacity is team-only). `teamId=0` (UNASSIGNED) is always empty — a
          *     sprint always carries a real team or is excluded from this report. Commitments carries no
          *     domain slice, so `domainView` is echoed in `meta` but never changes the result. An active or
@@ -2346,15 +2425,6 @@ export interface components {
             valueName?: string | null;
             category: string;
         };
-        MetricsSprintCapacity: {
-            /** Format: int64 */
-            sprintId: number;
-            /**
-             * Format: double
-             * @description Man-days, at most two decimals (`NUMERIC(8, 2)`).
-             */
-            capacityMd: number;
-        };
         DataSourceMetricsConfig: {
             /** @description False means every field below is a COMPUTED default, nothing is stored yet. */
             configured: boolean;
@@ -2367,7 +2437,6 @@ export interface components {
             activityTypes: components["schemas"]["MetricsActivityTypeMapping"][];
             workCategories: components["schemas"]["MetricsWorkCategoryMapping"][];
             blockedStatuses: string[];
-            sprintCapacities: components["schemas"]["MetricsSprintCapacity"][];
         };
         DataSourceMetricsConfigRequest: {
             statusStages?: components["schemas"]["MetricsStatusStage"][];
@@ -2379,7 +2448,6 @@ export interface components {
             activityTypes?: components["schemas"]["MetricsActivityTypeMapping"][];
             workCategories?: components["schemas"]["MetricsWorkCategoryMapping"][];
             blockedStatuses?: string[];
-            sprintCapacities?: components["schemas"]["MetricsSprintCapacity"][];
         };
         MetricsStatusOption: {
             statusId: string;
@@ -2419,14 +2487,6 @@ export interface components {
             name: string;
             projectKey?: string | null;
         };
-        MetricsSprintOption: {
-            /** Format: int64 */
-            sprintId: number;
-            /** Format: int64 */
-            boardId?: number | null;
-            name: string;
-            state: string;
-        };
         MetricsFieldValueOption: {
             valueId: string;
             valueName?: string | null;
@@ -2440,7 +2500,6 @@ export interface components {
             workCategoryValues: components["schemas"]["MetricsFieldValueOption"][];
             /** @description True when the field carries more than 200 distinct values — the response shows only the first 200 (by id). */
             workCategoryValuesTruncated: boolean;
-            sprints: components["schemas"]["MetricsSprintOption"][];
         };
         MetricsSettingsResponse: {
             /** Format: int64 */
@@ -2486,6 +2545,158 @@ export interface components {
         };
         JiraUserPage: {
             items: components["schemas"]["JiraUserResponse"][];
+            page: number;
+            pageSize: number;
+            /** Format: int64 */
+            total: number;
+        };
+        TeamCapacityResponse: {
+            /** Format: int32 */
+            teamId: number;
+            /**
+             * Format: double
+             * @description The team's default sprint capacity in man-days; null = no default.
+             */
+            defaultCapacityMd: number | null;
+            /** @description Whether the caller may PUT (ADMIN, or the team's active manager). */
+            canEdit: boolean;
+            /**
+             * Format: int64
+             * @description Epoch millis of the last change; null when never set.
+             */
+            updatedAt: number | null;
+        };
+        TeamCapacityRequest: {
+            /**
+             * Format: double
+             * @description Man-days, at most two decimals. An explicit null clears the default; an omitted field is a 400, so a client bug never clears it silently.
+             */
+            defaultCapacityMd: number | null;
+        };
+        SprintCalendarDay: {
+            /**
+             * Format: date
+             * @description A calendar day of the sprint's window in the configured zone.
+             */
+            day: string;
+            /** @description Counted in the capacity (off = weekend, holiday or a day nobody works). */
+            enabled: boolean;
+        };
+        SprintCalendarCell: {
+            /** Format: date */
+            day: string;
+            /**
+             * Format: double
+             * @description Man-days the person gives that day, 0 to 1, at most two decimals.
+             */
+            availability: number;
+        };
+        SprintCalendarPerson: {
+            /** @description A Jira account id known to norm.people. */
+            accountId: string;
+            /** @description Counted in the capacity (off = the person is out for the whole sprint). */
+            enabled: boolean;
+            /**
+             * Format: double
+             * @description The person's productivity factor (default 1), at most two decimals.
+             */
+            coefficient: number;
+            cells: components["schemas"]["SprintCalendarCell"][];
+        };
+        /** @description The whole calendar, stored and sent as one document. capacity = teamCoefficient × Σ over enabled people of (coefficient × Σ over enabled days of the person's cell), rounded half-up to two decimals. */
+        SprintCalendarDocument: {
+            /**
+             * Format: double
+             * @description The team's productivity factor (default 1), at most two decimals.
+             */
+            teamCoefficient: number;
+            days: components["schemas"]["SprintCalendarDay"][];
+            people: components["schemas"]["SprintCalendarPerson"][];
+        };
+        SprintCalendarWindow: {
+            /** Format: date */
+            from: string;
+            /** Format: date */
+            to: string;
+        };
+        SprintCalendarPersonView: {
+            accountId: string;
+            /** @description The Jira display name; the account id when no connection knows it. */
+            displayName: string;
+            /** @description Whether the person is a member of the team during the sprint now (false = a stored row of a former member). */
+            member: boolean;
+            enabled: boolean;
+            /**
+             * Format: double
+             * @description The person's productivity coefficient — only for the team's manager or an ADMIN (null for everyone else; the availability grid itself is visible to every authenticated user).
+             */
+            coefficient: number | null;
+            cells: components["schemas"]["SprintCalendarCell"][];
+        };
+        SprintCalendarResponse: {
+            /** Format: int32 */
+            teamId: number;
+            /** Format: int64 */
+            sprintId: number;
+            /** Format: int32 */
+            connectionId: number;
+            sprintName: string;
+            sprintState: string;
+            /** @description The calendar days the grid covers; null when the sprint has no start date or spans over 60 days (see note). */
+            window: components["schemas"]["SprintCalendarWindow"] | null;
+            /** @description Why there is no window; null otherwise. */
+            note: string | null;
+            /** @description False = the grid shows computed defaults, nothing is stored yet. */
+            hasCalendar: boolean;
+            canEdit: boolean;
+            /**
+             * Format: double
+             * @description The capacity of THIS grid if saved: the formula over the grid as shown; null without a window. The figure reports currently use is derivedCapacityMd.
+             */
+            capacityMd: number | null;
+            /** Format: double */
+            teamCoefficient: number;
+            days: components["schemas"]["SprintCalendarDay"][];
+            people: components["schemas"]["SprintCalendarPersonView"][];
+            /**
+             * Format: double
+             * @description The EFFECTIVE capacity reports currently use, as of the last DERIVE (the calendar, the team default or members × working days); may lag a save.
+             */
+            derivedCapacityMd: number | null;
+            /**
+             * @description Where the last DERIVE took the capacity from; CONFIGURED is the pre-V24 per-sprint override of a row not yet re-derived.
+             * @enum {string|null}
+             */
+            derivedCapacitySource: "CALENDAR" | "TEAM_DEFAULT" | "DEFAULT" | "CONFIGURED" | null;
+            /** Format: int64 */
+            updatedAt: number | null;
+            /** Format: int32 */
+            updatedByUserId: number | null;
+        };
+        SprintCalendarSummary: {
+            /** Format: int64 */
+            sprintId: number;
+            /** Format: int32 */
+            connectionId: number;
+            name: string;
+            state: string;
+            /** Format: int64 */
+            startAt: number | null;
+            /** Format: int64 */
+            endAt: number | null;
+            /** Format: int64 */
+            completeAt: number | null;
+            hasCalendar: boolean;
+            /**
+             * Format: double
+             * @description As of the last DERIVE.
+             */
+            capacityMd: number | null;
+            /** @enum {string|null} */
+            capacitySource: "CALENDAR" | "TEAM_DEFAULT" | "DEFAULT" | "CONFIGURED" | null;
+        };
+        SprintCalendarPage: {
+            items: components["schemas"]["SprintCalendarSummary"][];
             page: number;
             pageSize: number;
             /** Format: int64 */
@@ -2668,14 +2879,14 @@ export interface components {
             drift: boolean;
             /**
              * Format: double
-             * @description The team's sprint capacity in man-days (A3). Null when the sprint has none, and always null at USER level (capacity is team-only).
+             * @description The team's sprint capacity in man-days (A3, A32). Null when the sprint has none, and always null at USER level (capacity is team-only).
              */
             capacityMd: number | null;
             /**
-             * @description CONFIGURED = an admin-set override, DEFAULT = members × working days. Null exactly when capacityMd is null.
+             * @description CALENDAR = the sprint's calendar, TEAM_DEFAULT = the team's default figure, DEFAULT = members × working days (A3); CONFIGURED is the pre-V24 per-sprint override, read back only from rows not yet re-derived. Null exactly when capacityMd is null.
              * @enum {string|null}
              */
-            capacitySource: "CONFIGURED" | "DEFAULT" | null;
+            capacitySource: "CALENDAR" | "TEAM_DEFAULT" | "DEFAULT" | "CONFIGURED" | null;
             /** @description USER level only: one entry per picked account, in request order, zeros included; empty at UNIT/TEAM level. */
             byUser: components["schemas"]["CommitmentsUserShare"][];
         };
@@ -5127,6 +5338,161 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getTeamCapacity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The team's default figure */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamCapacityResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    updateTeamCapacity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TeamCapacityRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated (or unchanged) */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            413: components["responses"]["PayloadTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    listTeamSprintCalendars: {
+        parameters: {
+            query?: {
+                /** @description 1-based page index. Defaults to 1. */
+                page?: components["parameters"]["Page"];
+                /** @description Rows per page. Defaults to 20, maximum 100. */
+                pageSize?: components["parameters"]["PageSize"];
+                /**
+                 * @description Sort spec. Format: `field` (ascending) or `-field` (descending). Multiple fields are
+                 *     comma-separated, leftmost wins: `sort=-updatedAt,name`. The endpoint declares its
+                 *     sortable-field whitelist; unknown fields are rejected with `400`. `id` ascending is
+                 *     always appended as a deterministic tiebreaker.
+                 */
+                sort?: components["parameters"]["Sort"];
+            };
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of the team's sprints */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SprintCalendarPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getTeamSprintCalendar: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                sprintId: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The sprint's calendar */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SprintCalendarResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    updateTeamSprintCalendar: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                sprintId: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SprintCalendarDocument"];
+            };
+        };
+        responses: {
+            /** @description Updated (or unchanged) */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            413: components["responses"]["PayloadTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
             500: components["responses"]["InternalServerError"];
         };
     };

@@ -137,6 +137,19 @@ class TeamMembershipService(
             .map { it[TeamMembership.accountId] }.toList().toSet()
     }
 
+    /**
+     * The accounts with a membership of [teamId] overlapping `[startMs, endMs)` — A3's own predicate (`validFrom < end && (validTo == null
+     * || validTo > start)`), the roster of a sprint's capacity calendar. Runs in the caller's transaction when there is one.
+     */
+    suspend fun memberAccountIds(teamId: UInt, startMs: Long, endMs: Long): Set<String> = suspendTransaction(database) {
+        TeamMembership.select(TeamMembership.accountId)
+            .where {
+                (TeamMembership.teamId eq teamId) and (TeamMembership.validFrom less endMs) and
+                    ((TeamMembership.validTo.isNull()) or (TeamMembership.validTo greater startMs))
+            }
+            .map { it[TeamMembership.accountId] }.toList().toSet()
+    }
+
     /** Every account id that has EVER held a membership row, any team, any date — `/jira-users`' UNIT-scope input. */
     suspend fun everMemberedAccountIds(): Set<String> = suspendTransaction(database) {
         TeamMembership.select(TeamMembership.accountId).withDistinct()

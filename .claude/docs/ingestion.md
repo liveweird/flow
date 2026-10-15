@@ -108,10 +108,11 @@ PROFILE) and a RECONCILE job's (`reconcile` → PROCESS) are unchanged — `DERI
 their OWN steps, it is a SEPARATE job kind chained AFTER the whole job succeeds (above). A `DERIVE`
 job runs the ONE `derive` stream. **PURGE**, updated: after the connector's own `purgeSteps` and the
 generic per-connection `metrics.*` config drain (`MetricsConfigService.purgeConnectionConfig`,
-already documented above; both drains are `PurgeStep`s registered by `registerMetricsHandlers` and run
-by the worker in registration order), a THIRD generic step drains the derived star and `derive_runs`
-(`MetricsStore.purgeAll`, `.claude/docs/persistence.md` "The `metrics` schema — the derived star
-(V16)") — snapshot rows through the `SET LOCAL metrics.allow_snapshot_delete = 'on'` bypass.
+already documented above; the drains are `PurgeStep`s registered by `registerMetricsHandlers` and run
+by the worker in registration order), a THIRD generic step drains the connection's sprint calendars
+(`SprintCalendarService.purgeConnection`, V24 — `metrics.team_capacity_defaults` is per team and is never purged), and a
+FOURTH drains the derived star and `derive_runs` (`MetricsStore.purgeAll`, `.claude/docs/persistence.md` "The `metrics`
+schema — the derived star (V16)") — snapshot rows through the `SET LOCAL metrics.allow_snapshot_delete = 'on'` bypass.
 
 **Coalescing.** `uq_sync_jobs_open_per_kind` (a partial unique index over `(connection_id, kind)
 WHERE status IN ('PENDING','RUNNING')`) makes "at most one open job per (connection, kind)"
@@ -298,8 +299,8 @@ computed profile stays visible until it either resyncs or is deleted outright). 
 connector-agnostic PURGE step runs AFTER the connector's own `purgeSteps`** (v0.3.0 M1 commit 4,
 `ingest/IngestWorker.kt`'s `runJob`, gated on `claim.kind == PURGE`, running the `PurgeStep`s
 `metrics/` registered in `ingest/JobHandlers.kt`'s registry):
-`MetricsConfigService.purgeConnectionConfig` drains this connection's eight per-connection
-`metrics.*` configuration tables (V15, `.claude/docs/persistence.md` "The `metrics` schema —
+`MetricsConfigService.purgeConnectionConfig` drains this connection's per-connection
+`metrics.*` configuration tables (seven live ones plus the legacy capacity table) (V15, `.claude/docs/persistence.md` "The `metrics` schema —
 configuration (V15)", `.claude/docs/metrics.md` "PURGE and the metrics config") — small tables,
 rebuilt wholesale on every config PUT already, cleared outright rather than batched. Deliberately
 NOT part of `JiraConnector.purgeSteps`: the config it drains holds no Jira-specific shape, so it

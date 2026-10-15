@@ -195,8 +195,9 @@ team membership landed in M2 commit 5, and the per-connection `metrics-config` p
   against the last-loaded/last-saved one — `utils/metricsConfigForm.ts`'s `changedBoardIds`),
   Activity types (issue type → activity type) and Work categories (value → category, fetched with
   `?workCategoryField=` the moment a work-category field is chosen on the Fields tab — shown only
-  once one is). Capacities (one `NumberInput` per sprint, blank = the computed default) rounds out
-  the seven. GET returns computed defaults when `configured: false` — a banner says so ("Showing
+  once one is). That is six tabs: the per-sprint Capacities tab is gone (capacity is the team's default
+  figure and per-sprint calendars now, domain-model A32; the metrics-config API carries no `sprintCapacities`
+  and the options no `sprints`). GET returns computed defaults when `configured: false` — a banner says so ("Showing
   computed defaults — save to confirm them") until the first save. ONE Save does a full-replace
   PUT of every tab's current state (even an untouched tab still submits its own default), a
   success toast reads the same "reports re-derive shortly" wording as `MetricsSettings.tsx`, and a
@@ -273,9 +274,10 @@ completed · the report's figures · the orange drift badge with the frozen figu
   requested with that array as repeated keys (`reportQuery`), and a team change drops the people. **Two modes, decided by the SHOWN report's
   `meta.level`** (so a refetch over kept data never mixes shapes). *Team mode* (no people picked: TEAM level): `CommitmentsChart` is a Mantine `CompositeChart` on ONE
   MD axis — the committed (`flow.6`) and final (`flow.8`/`flow.4`) bars as ever plus the sprint's capacity as a dashed neutral line (`CHART_COLORS.capacity`,
-  `gray.6`) with 8 px dots; a sprint without a capacity is a gap (`connectNulls` off), and with none at all the series is left out. A DEFAULT capacity
-  (members × working days) is told from a configured one in words, never by colour: the tooltip says so and the table cell carries a gray "default"
-  `Badge`. The sprints table adds **Capacity (MD)** and **Load** (initial MD ÷ capacity as a percentage — over 100% is shown as is — a dash when the
+  `gray.6`) with 8 px dots; a sprint without a capacity is a gap (`connectNulls` off), and with none at all the series is left out. The capacity's
+  source (`CALENDAR` / `TEAM_DEFAULT` / `DEFAULT`, plus the legacy `CONFIGURED` of a not-yet-re-derived row) is told in words, never by colour: the
+  tooltip names it, and the table cell carries a gray "team default" or "default" (members × working days) `Badge` — none for a calendar (or
+  a legacy configured figure). The sprints table adds **Capacity (MD)** and **Load** (initial MD ÷ capacity as a percentage — over 100% is shown as is — a dash when the
   capacity is null or 0; `loadFraction`), with a one-line note under the table. *User mode* (one or more people, `level === "USER"`): no capacity (it is a
   team figure, null at this level); `CommitmentsChart` is a `BarChart` with two stacked columns per sprint — `stackId` "committed" (left; a translucent
   fill, `DEEP_DIVE_FILL_ALPHA`, inside a solid 2 px edge, the Deep dive's idiom) and "final" (right; solid, ringed in the surface) — each cut into one

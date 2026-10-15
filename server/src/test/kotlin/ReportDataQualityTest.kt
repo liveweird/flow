@@ -4,10 +4,13 @@ import ch.nokillswit.metrics.DimDomainRow
 import ch.nokillswit.metrics.DimEpicRow
 import ch.nokillswit.metrics.FactWorklogRow
 import ch.nokillswit.metrics.MetricsConfigService
-import ch.nokillswit.metrics.MetricsSprintCapacity
 import ch.nokillswit.metrics.MetricsStore
 import ch.nokillswit.metrics.MetricsTables
+import ch.nokillswit.metrics.SprintCalendarCell
+import ch.nokillswit.metrics.SprintCalendarDocument
+import ch.nokillswit.metrics.SprintCalendarPerson
 import ch.nokillswit.metrics.TeamMembershipService
+import ch.nokillswit.metrics.WorkingCalendar
 import ch.nokillswit.metrics.asRequest
 import ch.nokillswit.metrics.inPvHorizon
 import ch.nokillswit.norm.IntervalSource
@@ -389,11 +392,11 @@ class ReportDataQualityTest {
         }
 
     /** A private, disabled, FLO-board-mapped processed clone of the synced fixture — `DerivedStubFixture`'s own setup. */
-    private suspend fun derivedClone(): UInt {
+    private suspend fun derivedClone(): Pair<UInt, UInt> {
         val connId = SyncedStubFixture.createConnection(namePrefix = "dq-clone", enabled = false)
         SyncedStubFixture.cloneProcessedData(SyncedStubFixture.connectionId(), connId)
-        DerivedStubFixture.mapFloBoardToNewTeam(connId, DerivedStubFixture.metricsConfig(), "dq-clone-team")
-        return connId
+        val teamId = DerivedStubFixture.mapFloBoardToNewTeam(connId, DerivedStubFixture.metricsConfig(), "dq-clone-team")
+        return connId to teamId
     }
 
     /** One expected drift figure as an independent comparison of the stored rows sees it. */
@@ -454,10 +457,10 @@ class ReportDataQualityTest {
         val metricsSettings = DerivedStubFixture.metricsSettings()
         val snapshot = MetricsTables.FactSprintSnapshot
         val live = MetricsTables.FactSprint
-        val connId = runBlocking {
-            val id = derivedClone()
-            DerivedStubFixture.withPinnedSettings(metricsSettings) { DerivedStubFixture.derivePinned(id, jobId = 1u) }
-            id
+        val (connId, cloneTeamId) = runBlocking {
+            val clone = derivedClone()
+            DerivedStubFixture.withPinnedSettings(metricsSettings) { DerivedStubFixture.derivePinned(clone.first, jobId = 1u) }
+            clone
         }
         try {
         val frozenRows = runBlocking {
@@ -476,8 +479,9 @@ class ReportDataQualityTest {
             assertEquals(0, before.unmappedStatuses.total)
         }
 
-        // Change the configuration the way an admin would — a capacity override for one sprint, and no stage for "Waiting" — and
+        // Change the configuration the way an admin would — a calendar for one sprint, and no stage for "Waiting" — and
         // re-derive: the LIVE rows follow the new configuration, the FROZEN ones never move (D13).
+        var expectedCapacity = 0.0
         val waitingId = runBlocking {
             val waiting = suspendTransaction(sharedDatabaseForTests()) {
                 val s = WorkItemStore.Statuses
@@ -488,9 +492,24 @@ class ReportDataQualityTest {
                 connId,
                 current.copy(
                     statusStages = current.statusStages.filter { it.statusId != waiting },
-                    sprintCapacities = listOf(MetricsSprintCapacity(sprintId, 77.0)),
                 ),
             )
+            // The sprint's calendar (a team default would move every sprint of the team — and drift is capped at 50 items): one known
+            // account on every day the default calendar counts, team coefficient 2.
+            val capacity = CapacityFixtures.service()
+            val calendar = WorkingCalendar.of(metricsSettings.read())
+            val defaults = capacity.read(cloneTeamId, sprintId, calendar, canEdit = true)
+            val peopleConnection = SyncedStubFixture.createConnection(namePrefix = "dq-capacity-people", enabled = false)
+            val account = CapacityFixtures.people(peopleConnection, 1).single()
+            capacity.replace(
+                cloneTeamId, sprintId,
+                SprintCalendarDocument(
+                    teamCoefficient = 2.0, days = defaults.days,
+                    people = listOf(SprintCalendarPerson(account, true, 1.0, defaults.days.map { SprintCalendarCell(it.day, 1.0) })),
+                ),
+                TestUsers.seed(uniqueEmail("dq-capacity"), "pw"), callerIsAdmin = true, calendar = calendar,
+            )
+            expectedCapacity = 2.0 * defaults.days.count { it.enabled }
             DerivedStubFixture.withPinnedSettings(metricsSettings) { DerivedStubFixture.derivePinned(connId, jobId = 2u) }
             waiting
         }
@@ -498,7 +517,7 @@ class ReportDataQualityTest {
         withClient("dq-drift-after") { client ->
             val afterDerive = client.dq(fixtureQuery(connId))
             val capacity = afterDerive.snapshotDrift.items.single { it.sprintId == sprintId && it.field == "capacityMd" }
-            assertEquals(77.0, capacity.live!!, EPS)
+            assertEquals(expectedCapacity, capacity.live!!, EPS)
             assertEquals(frozen[snapshot.capacityMd]?.toDouble(), capacity.frozen)
             assertNotEquals(capacity.live, capacity.frozen)
             // Exactly the figures an independent comparison of the stored live and frozen rows flags — no more, no fewer.

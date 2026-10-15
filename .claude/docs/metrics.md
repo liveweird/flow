@@ -23,8 +23,8 @@ lives in `MetricsConfigService.kt`, the editor options in `MetricsConfigOptions.
 - **Per-connection configuration** (`GET/PUT /api/v1/data-sources/{id}/metrics-config`, v0.3.0 M1
   commit 4) — everything that is specific to one Jira connection's own data shape: status → stage,
   the estimate/epic-date/work-category field choices, project → domain, board → team, activity
-  type and work-category maps, blocked statuses and per-sprint capacity overrides. This section
-  covers that resource.
+  type and work-category maps and blocked statuses. This section covers that resource. (Capacity is
+  no longer part of it: the team default and the per-sprint calendars are `metrics/SprintCalendar*.kt`, A32.)
 
 Both `metrics/TeamMembership*.kt`'s dated Jira-user team membership (D1, v0.3.0 M1 commit 3, its
 own doc coverage in `.claude/docs/domain-model.md` "Configuration") and the per-connection resource
@@ -35,8 +35,8 @@ configuration revision").
 
 ### Per-connection metrics configuration (`GET/PUT /api/v1/data-sources/{id}/metrics-config`)
 
-**ONE composite resource, not eight paired endpoints** (API-RES-004, the features-PUT idiom
-`metrics/MetricsSettings.kt` already established): a PUT is a full replace over all eight
+**ONE composite resource, not seven paired endpoints** (API-RES-004, the features-PUT idiom
+`metrics/MetricsSettings.kt` already established): a PUT is a full replace over all seven
 per-connection `metrics.*` config tables (`.claude/docs/persistence.md` "V15") in ONE transaction —
 `metrics/MetricsConfigService.kt`'s `replaceConfig`. The composite shape
 (`metrics/DataSourceMetricsConfig.kt`):
@@ -52,7 +52,6 @@ DataSourceMetricsConfig {
   activityTypes: [{ issueType, activityType }]      // metrics.activity_type_map
   workCategories: [{ valueId, valueName, category }]// metrics.work_category_map
   blockedStatuses: [statusId]                       // metrics.blocked_statuses
-  sprintCapacities: [{ sprintId, capacityMd }]       // metrics.team_sprint_capacity
 }
 ```
 
@@ -73,7 +72,6 @@ a `404` and never an empty shell an admin has to fill in from scratch before rep
 | `activityTypes` | 1:1 — one row per issue type observed in `norm.work_items` (D6: activity types are standard issue types) |
 | `workCategories` | empty |
 | `blockedStatuses` | empty — only the Flagged field counts as "blocked" until an admin adds statuses here |
-| `sprintCapacities` | empty — DERIVE (commit 8) falls back to a computed default (A3: members × working days) when no row exists for a sprint |
 
 **Validation — the client-supplied-FK idiom, `400` never `404`** (there is no path id inside the
 body): every id `DataSourceMetricsConfigRequest` carries is checked against exactly this
@@ -106,8 +104,6 @@ computed by `MetricsConfigService.replaceConfig`/`.referenceData`; the editor's 
   the REQUEST's OWN `fields.workCategory` field id (`WorkItemStore.distinctCustomFieldValues`) —
   never validated against a field the request doesn't itself choose; submitting `workCategories`
   while `fields.workCategory` is `null` is itself a `400`.
-- `sprintCapacities[].sprintId` → `norm.sprints` (`WorkItemStore.allSprintRefs`); `capacityMd` must
-  be finite, `0..999999.99` with at most two decimals (the `NUMERIC(8, 2)` column — Postgres would round the rest silently).
 - **Column widths** (`validateColumnBounds`, run first; the over-long value would be a 500): `domains[].domainKey` and a
   `domainStatusStages[].domainKey` at most 50 characters, `domains[].domainName` and `workCategories[].category` at most 100 —
   the same constants (`DOMAIN_KEY_MAX_LENGTH`, ...) size the Exposed tables, and the strings are trimmed first
@@ -124,7 +120,7 @@ the database (above), never pre-empted by this check.
 **The no-op-PUT precedent** (the features-PUT idiom, `MetricsSettingsService.replace`'s own rule):
 a PUT byte-for-byte identical to what is already stored writes nothing, bumps no revision, and the
 route emits no `metrics_config.updated` audit line. `MetricsConfigService.readStoredConfig` returns
-`null` when NOTHING is stored across all eight tables — that `null` is what flips `configured` to
+`null` when NOTHING is stored across all seven tables — that `null` is what flips `configured` to
 `false` and is also the "nothing to compare against, this PUT is a real first write" signal. The
 comparison is order-INSENSITIVE (`DataSourceMetricsConfigRequest.canonicalized()` sorts every list
 by its own natural key before comparing): a plain `SELECT` with no `ORDER BY` gives no row-order
@@ -191,10 +187,12 @@ per-connection `metrics.*` config rows through a GENERIC, connector-agnostic wor
 `metrics/MetricsJobHandlers.kt` and run by `ingest/IngestWorker.kt`'s `runJob` (through
 `ingest/JobHandlers.kt`'s registry — `ingest/` never imports `metrics/`) right after the connector's
 own `purgeSteps` finish. This is deliberately NOT wired into
-`JiraConnector.purgeSteps`: the eight tables it drains hold no Jira-specific shape at all (a future
+`JiraConnector.purgeSteps`: the tables it drains hold no Jira-specific shape at all (a future
 GitLab connector's connection would purge through the exact same call), so the cleanup lives beside
 the OTHER connector-agnostic PURGE work the worker itself already owns, not duplicated per
-connector kind.
+connector kind. The capacity calendars have their own third step (`SprintCalendarService.purgeConnection`, between this drain and
+`MetricsStore.purgeAll`; `.claude/docs/ingestion.md` "Job orders"); the legacy `metrics.team_sprint_capacity` is still drained here, unread,
+until a cleanup migration drops it.
 
 ### Per-domain stage overrides
 
@@ -493,23 +491,37 @@ or close figure already recorded.
 exactly this function's output as the `fact_sprint` row; each item's MD is rounded half-up to two decimals
 (`sumMd`) BEFORE the exact sum, matching the two-decimal value `fact_sprint_scope` stores per item, so
 Σ scope rows and every per-user report group equal the team figure to the cent) plus `capacity_md`/`capacity_source`/`load`
-(below); it is always the LIVE recomputation, rebuilt wholesale on every DERIVE.
+(below, "Sprint capacity"); it is always the LIVE recomputation, rebuilt wholesale on every DERIVE.
 
-### Default sprint capacity (A3)
+### Sprint capacity (A3, A32)
 
-`DeriveSprintStep.kt`'s `sprintCapacity` resolves `(capacity_md, capacity_source)` per sprint:
+`DeriveSprintStep.kt`'s `sprintCapacity` resolves `(capacity_md, capacity_source)` per sprint, first match wins. DERIVE reads
+`SprintCalendarService.forDerive(connectionId)` once per run (`SprintCapacityInputs`: the connection's stored calendars and every
+ACTIVE team's non-null default figure; the service is handed to `runSprintStep`, not to `DeriveContext`):
 
-1. **`CONFIGURED`** — a `metrics.team_sprint_capacity` row for this sprint always wins, verbatim.
-2. **`DEFAULT`** — absent a configured row, AND the sprint's board maps to a team (`board_team_map`)
-   AND it has a known `start_at`: `capacity_md = (member count) × (working days in the sprint
-   window)`. Member count is every `metrics.team_membership` account whose interval overlaps
-   `[sprintStart, sprintEnd)` for THIS team (`endAt = end_at ?? complete_at ?? start_at`); working
-   days come from the SAME `WorkingCalendar` (global settings — time zone, weekend days, holidays)
-   every other calendar computation uses. This is the doc's own "members × working days − absence"
-   default, minus absence data Flow does not have (`.claude/docs/domain-model.md`'s Configuration
-   table) — an admin edits the sprint's capacity via the per-connection config PUT instead.
-3. **Neither** — no team mapped, or no `start_at` known: `(null, null)`. No capacity means no
-   `load` either (`load = committed_md / capacity_md` only when `capacity_md > 0`).
+1. **`CALENDAR`** — the sprint has a stored calendar (`metrics.sprint_calendars`) for its CURRENT mapped team (a row saved for
+   another team after a board re-map is ignored) AND a window (`sprintWindow`: a `start_at`, at most 60 calendar days). The figure is
+   `calendarCapacityMd(projectCalendar(stored, window, members, calendar, carry = null))`: the stored document re-projected onto the
+   sprint's CURRENT window and roster exactly as `GET` shows it, so the page's total equals what is stored here (`carry` only seeds a
+   sprint with no stored calendar, in the service's GET defaults). `capacity = teamCoefficient × Σ_{counted people}(coefficient ×
+   Σ_{counted days} cell)`, exact decimals rounded half-up to two (`CapacityKernels.kt`).
+2. **`TEAM_DEFAULT`** — the team's one default figure (`metrics.team_capacity_defaults`), verbatim. It needs a team but NOT a
+   `start_at`: a sprint without a start still gets it (the old `CONFIGURED` semantics); `CALENDAR` and `DEFAULT` need a window.
+3. **`DEFAULT`** — the sprint's board maps to a team AND it has a known `start_at`: `capacity_md = (member count) × (working days in
+   the sprint window)`. Member count is every `metrics.team_membership` account whose interval overlaps `[sprintStart, sprintEnd)`
+   for THIS team (`sprintMemberAccountIds`; `endAt = end_at ?? complete_at ?? start_at`); working days come from the SAME
+   `WorkingCalendar` (global settings — time zone, weekend days, holidays) every other calendar computation uses. The A3 rule,
+   unchanged.
+4. **None** — no team mapped, or no figure the sprint qualifies for (no `start_at` and no team default): `(null, null)`. No capacity
+   means no `load` either. `load = committed_md / capacity_md` is `null` when `capacity_md` is null or 0, AND when the ratio would
+   exceed 9999.9999 (`sprintLoad`; `fact_sprint.load` and `fact_sprint_snapshot.load` are `NUMERIC(8, 4)` and a manager can set a team
+   default as small as 0.01 — an overflowing insert would fail the whole connection's DERIVE).
+
+The window is `dayOf(start_at)` … `dayOf(max(start_at, end − 1 ms))` in the configured zone (`end` as in 3), so a midnight end adds no
+day and a DST change still counts calendar days. A soft-deleted team's rows are not read (they feed nothing once its GET/PUT are 404). The
+legacy `metrics.team_sprint_capacity` (`CONFIGURED`) is no longer read; rows already derived keep `CONFIGURED` until their connection's
+next DERIVE. `fact_sprint_snapshot.capacity_md` is frozen and keeps the old figures. The stub has no capacity rows, so the derived
+digests never move.
 
 ### The snapshot rule (D13)
 

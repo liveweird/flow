@@ -106,6 +106,7 @@ class MetricsDeriver(
     private val metricsConfig: MetricsConfigService,
     private val domainOwners: DomainOwnerResolver,
     private val teamMembership: TeamMembershipService,
+    private val sprintCalendars: SprintCalendarService,
     private val metricsStore: MetricsStore,
     private val database: R2dbcDatabase,
     private val jobRetentionDays: Long = DEFAULT_JOB_RETENTION_DAYS,
@@ -234,7 +235,7 @@ class MetricsDeriver(
         val epicCount =
             runPass3(connectionId, modelItems, context, derivedById, blockedByIssue, factTasksByIssueId, factEpicsByIssueId, configRevision)
         val sprintFieldId = metricsConfig.detectedSprintFieldId(connectionId)
-        val sprintOutcome = runSprintStep(connectionId, modelItems, context, config, derivedById, graceMs, configRevision, sprintFieldId)
+        val sprintOutcome = runSprintStep(connectionId, modelItems, context, derivedById, graceMs, configRevision, sprintFieldId)
         val worklogCount = runWorklogStep(connectionId, workItems, context, derivedById, configRevision)
         val epicPlanCount = runEpicPlanStep(connectionId, modelItems, context, derivedById, factEpicsByIssueId, configRevision)
         widenDimDate(connectionId, calendar, createdMin, now, configRevision)
@@ -621,13 +622,12 @@ class MetricsDeriver(
         connectionId: UInt,
         workItems: List<WorkItemStore.DerivationWorkItemRow>,
         context: DeriveContext,
-        config: DataSourceMetricsConfig,
         derivedById: Map<Long, ItemDerived>,
         graceMs: Long,
         configRevision: Long,
         sprintFieldId: String?,
     ): SprintStepOutcome = ch.nokillswit.metrics.runSprintStep(
-        workItemStore, metricsStore, connectionId, workItems, context, config, derivedById, graceMs, configRevision, sprintFieldId,
+        workItemStore, metricsStore, connectionId, workItems, context, sprintCalendars, derivedById, graceMs, configRevision, sprintFieldId,
     )
 
     /**

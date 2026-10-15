@@ -49,7 +49,7 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
   throw `UnauthorizedException`) and then invokes the relevant guard: `isAdmin(caller)`,
   `requireAdmin(caller)`, `requireSelfOrAdmin(caller, targetUserId)`, `requireTeamManagerOrAdmin(caller, teamId,
   isManager)` (V23: ADMIN, or the team's ACTIVE manager via the injected `TeamService.isActiveManager` lookup, which
-  answers false for a missing team so the 403 is uniform — awaiting its first consumer, the capacity routes), plus
+  answers false for a missing team so the 403 is uniform — consumed by the capacity writes, V24), plus
   `requireFeatureEnabled` (awaiting its first area-gating consumer); new guards join this file so the whole policy stays
   in one place.
 - **Resource rules**:
@@ -76,6 +76,28 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     record itself (still ADMIN only) — only the capacity edits, via `requireTeamManagerOrAdmin`.
     Mutations audit `team.created/updated/deleted`, `team.manager_changed` (only on an actual change) and
     `team.member_added/member_removed`. Tests: `TeamTest`, `GuardsTest`.
+  - `/api/v1/teams/{id}/capacity` and `/api/v1/teams/{id}/sprint-calendars[/{sprintId}]` (V24, domain-model A32,
+    `metrics/SprintCalendarRoutes.kt`) → **reads any authenticated** (a conscious D12 extension: the grid is a per-person
+    per-day availability, effectively an absence calendar — visible to everyone; each person's productivity `coefficient` is
+    shown only to editors, i.e. the team's active manager and ADMINs, and is `null` for every other reader; the team coefficient
+    and the totals stay visible. The coefficient privacy is best-effort: non-editors still see `capacityMd`, the team coefficient, the
+    enabled flags and the cells, from which a single counted person's coefficient can be derived — an accepted leak the user can
+    tighten later by withholding `capacityMd` from non-editors. A safe default the user can loosen), **writes (the two `PUT`s) ADMIN or the team's own ACTIVE
+    manager**. The write order is `requireTeamManagerOrAdmin` FIRST — before the team lookup, the sprint lookup, the body
+    decode and any validation — so a plain user, a manager of ANOTHER team, a cleared grant, a soft-deleted manager and the
+    manager of a soft-deleted team all get a uniform 403 (a malformed body or an unknown id included); then `404` (an ADMIN
+    on a missing/soft-deleted team; a sprint that is not THIS team's — nothing is modified), `400` (shape: ranges, scales,
+    duplicates; window: `days`/`cells` must be exactly the sprint's window; an unknown Jira account id — one that no ACTIVE connection's `norm.people` knows and that is neither on the stored document nor the
+    current roster, so the page's own document is always saveable), `409` (the sprint
+    has no start date). The path's `teamId` is bound once and handed to both the guard and the service; every write
+    predicate carries `team_id = teamId`. The service re-checks a NON-admin caller's grant inside its write transaction after
+    `TeamService.Teams.lockActiveForUpdate(teamId)` (the `TeamMembershipService.create` precedent; `TeamService.update`'s
+    manager change blocks on the same row lock), so a grant cleared a moment ago cannot ride a request that passed the route
+    guard. Bodies carry no team identity and no manager/roster fields. **Reads of a soft-deleted team are `404`** (the
+    `TeamService.read` posture — unlike `/jira-memberships`, whose history stays visible); a sprint of another team under
+    this team's id is `404` too. `canEdit` on the GET responses is the same predicate the PUT guard evaluates. Every actual
+    change bumps `config_revision` and audits `team.capacity_default_updated`/`team.sprint_calendar_updated` with
+    `authorizedBy` ADMIN|MANAGER. Tests: `SprintCalendarAuthorizationTest` (the guard matrix), `SprintCalendarRoutesTest`.
   - `PUT /api/v1/users/{id}/features` → ADMIN only; **self allowed** (an admin adjusting their own
     flags is a feature, and the users routes are never gated, so a fully self-disabled admin can
     always get back); unknown/soft-deleted target → 404; unknown feature name → 400 (enum

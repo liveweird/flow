@@ -103,7 +103,7 @@ object MetricsTables {
         val endAt = long("end_at").nullable()
         val completeAt = long("complete_at").nullable()
         val capacityMd = decimal("capacity_md", precision = 8, scale = 2).nullable()
-        val capacitySource = varchar("capacity_source", 10).nullable()
+        val capacitySource = varchar("capacity_source", 20).nullable()
         val configRevision = long("config_revision")
         override val primaryKey = PrimaryKey(connectionId, sprintId)
     }

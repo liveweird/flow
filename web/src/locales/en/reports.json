@@ -115,11 +115,14 @@
       "final": "{{name}} · final"
     },
     "capacitySource": {
+      "CALENDAR": "Capacity: sprint calendar",
+      "TEAM_DEFAULT": "Capacity: team default",
       "DEFAULT": "Capacity: default (members × working days)",
-      "CONFIGURED": "Capacity: configured"
+      "CONFIGURED": "Capacity: configured (legacy)"
     },
     "defaultBadge": "default",
-    "loadNote": "Load is the initial scope divided by the capacity; a dash means the sprint has no capacity, or a capacity of 0. A default capacity is the members times the working days of the sprint.",
+    "teamDefaultBadge": "team default",
+    "loadNote": "Load is the initial scope divided by the capacity; a dash means the sprint has no capacity, or a capacity of 0. The capacity is the sprint's calendar; without one, the team's default figure; without that, the members times the working days of the sprint.",
     "personTotalsTitle": "Totals per person",
     "sharesTitle": "Each person's share of each sprint",
     "sharesAria": "Each person's initial and final scope per sprint",

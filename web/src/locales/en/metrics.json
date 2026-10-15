@@ -105,8 +105,7 @@
       "domains": "Domains",
       "boards": "Boards",
       "activityTypes": "Activity types",
-      "workCategories": "Work categories",
-      "capacities": "Capacities"
+      "workCategories": "Work categories"
     },
     "statuses": {
       "columnStatus": "Status",
@@ -196,12 +195,6 @@
       "empty": "No values observed yet for this field.",
       "chooseField": "Choose a work-category field on the Fields tab first.",
       "truncated": "Only the first 200 distinct values are shown."
-    },
-    "capacities": {
-      "columnCapacity": "Capacity (MD)",
-      "capacityAria": "Capacity for {{sprint}}",
-      "capacityHint": "Blank uses the computed default (members × working days).",
-      "empty": "No sprints observed yet — sync this connection first."
     }
   }
 }
