@@ -2,6 +2,8 @@ import { lazy, Suspense } from "react";
 import { useTranslation } from "react-i18next";
 import { Box, Group, Stack, Text, Title } from "@mantine/core";
 import type { Distribution } from "../api/reports";
+import { personLabel } from "../utils/commitmentsReport";
+import { histogramRowsWithShares, type DistributionPerson, type HistogramRowWithShares } from "../utils/distributionPeople";
 import { histogramLabels, type ValueFormat } from "../utils/reportFormat";
 import ColumnTable, { type ColumnDef } from "./ColumnTable";
 import LoadingBlock from "./LoadingBlock";
@@ -17,7 +19,8 @@ const MISSING = "—";
  * One distribution: a percentile strip (median, p90, p95, mean, item count), the histogram and — the
  * chart's numbers — the histogram as a table. `hidden` (fewer items than the minimum sample
  * size) replaces all of it with the MinSampleNotice: percentiles of three items would be noise.
- * `format` renders a value in the measure's own unit (a ratio, a percentage).
+ * `format` renders a value in the measure's own unit (a ratio, a percentage). In people mode (`people` = the distribution's
+ * per-person split, numbered) the histogram stacks per person and its table gains one column per person beside the total.
  */
 export default function DistributionPanel({
   title,
@@ -26,6 +29,7 @@ export default function DistributionPanel({
   minSampleSize,
   format,
   axisLabel,
+  people = [],
 }: {
   title: string;
   caption?: string;
@@ -34,13 +38,14 @@ export default function DistributionPanel({
   format: ValueFormat;
   /** The x-axis title of the histogram: what the ranges measure ("actual ÷ estimate"). */
   axisLabel: string;
+  people?: readonly DistributionPerson[];
 }) {
   const { t } = useTranslation();
   const show = (value: number | null | undefined) => (value == null ? MISSING : format(value));
   const labels = histogramLabels(distribution.histogram, format);
   // The final open bucket (`to` null) is the long tail: its row and bar say so in words, not only in a gray tone.
-  const rows = distribution.histogram.map((bucket, index) => ({ label: labels[index], count: bucket.count, open: bucket.to == null }));
-  const columns: ColumnDef<(typeof rows)[number]>[] = [
+  const rows = histogramRowsWithShares(distribution, labels);
+  const columns: ColumnDef<HistogramRowWithShares>[] = [
     {
       key: "range",
       header: t("reports.distribution.range"),
@@ -56,6 +61,12 @@ export default function DistributionPanel({
           row.label
         ),
     },
+    ...people.map((person, index) => ({
+      key: `person-${index}`,
+      header: personLabel(person.position, person.label),
+      render: (row: HistogramRowWithShares) => row.shares?.[index] ?? 0,
+      align: "right" as const,
+    })),
     { key: "count", header: t("reports.distribution.count"), render: (row) => row.count, align: "right" },
   ];
   const strip: [string, string][] = [
@@ -92,7 +103,7 @@ export default function DistributionPanel({
             ))}
           </Group>
           <Suspense fallback={<LoadingBlock />}>
-            <DistributionHistogram rows={rows} name={title} xAxisLabel={axisLabel} />
+            <DistributionHistogram rows={rows} name={title} xAxisLabel={axisLabel} people={people} />
           </Suspense>
           <ScrollRegion label={`${t("reports.distribution.histogramTable")} — ${title}`} minWidth={260}>
             <ColumnTable

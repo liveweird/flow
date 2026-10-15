@@ -94,10 +94,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   - the filters can be hidden, like in Lettuce;
   - the team filter has no "All teams": a specific team must be chosen;
   - the user filter allows picking more than one user, and the chart's bars then stack per user.
-- [todo] **Reported Time report filters** (Estimation → Reported Time, `/reports/reported-time-ratio`):
-  - the filters can be hidden, like in Lettuce;
-  - the team filter has no "All teams": a specific team must be chosen;
-  - the user filter allows picking more than one user, and the chart's bars then stack per user.
 
 ## Engineering follow-ups
 

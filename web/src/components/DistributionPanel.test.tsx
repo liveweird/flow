@@ -106,3 +106,42 @@ describe("DistributionPanel", () => {
     expect(within(strip).getByText("Mean").nextElementSibling).toHaveTextContent("—");
   });
 });
+
+describe("DistributionPanel — people mode", () => {
+  const people = [
+    { accountId: "acc-ann", label: "Ann", position: 1 },
+    { accountId: "acc-bob", label: "Bob", position: 2 },
+  ];
+  const split = {
+    ...TASK_ACCURACY.atStart,
+    byUser: [
+      { accountId: "acc-ann", label: "Ann", counts: [1, 2, 3, 0, 1] },
+      { accountId: "acc-bob", label: "Bob", counts: [0, 1, 2, 2, 0] },
+    ],
+  };
+
+  test("the histogram table gains a right-aligned column per person beside the total, and the cells are the shares", () => {
+    renderWithProviders(
+      <DistributionPanel title="At start" distribution={split} minSampleSize={5} format={formatRatio} axisLabel="x" people={people} />,
+    );
+    const table = screen.getByRole("table", { name: "Histogram, as a table — At start" });
+    expect(within(table).getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Range", "1. Ann", "2. Bob", "Items"]);
+    const rows = within(table).getAllByRole("row").slice(1).map((r) => within(r).getAllByRole("cell").map((c) => c.textContent));
+    expect(rows.map((cells) => cells.slice(1))).toEqual([
+      ["1", "0", "1"],
+      ["2", "1", "3"],
+      ["3", "2", "5"],
+      ["0", "2", "2"],
+      ["1", "0", "1"],
+    ]);
+    for (const header of within(table).getAllByRole("columnheader").slice(1)) expect(header).toHaveStyle({ textAlign: "right" });
+  });
+
+  test("without people the panel is exactly the plain one", () => {
+    renderWithProviders(
+      <DistributionPanel title="At start" distribution={TASK_ACCURACY.atStart} minSampleSize={5} format={formatRatio} axisLabel="x" />,
+    );
+    const table = screen.getByRole("table", { name: "Histogram, as a table — At start" });
+    expect(within(table).getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Range", "Items"]);
+  });
+});

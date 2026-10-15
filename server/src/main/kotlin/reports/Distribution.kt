@@ -44,7 +44,22 @@ data class Distribution(
     val p90: Double? = null,
     val p95: Double? = null,
     val histogram: List<HistogramBucket> = emptyList(),
+    /**
+     * One entry per picked person at USER level (see [buildDistributionByUser]); empty everywhere else, and then OMITTED on the
+     * wire (`encodeDefaults = false`), so the spec lists it as optional.
+     */
+    val byUser: List<DistributionShare> = emptyList(),
 )
+
+/**
+ * One picked person's slice of [Distribution.histogram]: [counts] is index-aligned with the histogram's buckets (the open tail
+ * bucket included), so over the shares `Σ counts[i] == histogram[i].count` and `Σ counts == that person's n`.
+ */
+@Serializable
+data class DistributionShare(val accountId: String, val label: String, val counts: List<Long>)
+
+/** One picked person's raw values, the input of [buildDistributionByUser]. */
+data class UserValues(val accountId: String, val label: String, val values: List<Double>)
 
 /**
  * Builds a [Distribution] from an already-fetched list of values.
@@ -87,14 +102,40 @@ fun buildDistribution(
     minSampleSize: Int,
     tailPercent: Int,
     histogramBuckets: Int = DEFAULT_HISTOGRAM_BUCKETS,
+): Distribution = distributionWithLayout(values, minSampleSize, tailPercent, histogramBuckets).first
+
+/**
+ * The [Distribution] of every picked person's values together (exactly [buildDistribution] over the flattened values), plus
+ * [Distribution.byUser]: one [DistributionShare] per user in the GIVEN order (the request order), each a bucket count of that user's
+ * values over the UNION's own bucket layout — the same edges, the open tail bucket included — so the shares add up to the
+ * union's `histogram` by construction. A user with no values is an all-zero share. A hidden union carries no shares (a person's
+ * slice of a distribution too small to show must not leak what the union hides).
+ */
+fun buildDistributionByUser(
+    valuesByUser: List<UserValues>,
+    minSampleSize: Int,
+    tailPercent: Int,
+    histogramBuckets: Int = DEFAULT_HISTOGRAM_BUCKETS,
 ): Distribution {
+    val (union, layout) = distributionWithLayout(valuesByUser.flatMap { it.values }, minSampleSize, tailPercent, histogramBuckets)
+    if (layout == null) return union
+    return union.copy(byUser = valuesByUser.map { DistributionShare(it.accountId, it.label, layout.counts(it.values).toList()) })
+}
+
+private fun distributionWithLayout(
+    values: List<Double>,
+    minSampleSize: Int,
+    tailPercent: Int,
+    histogramBuckets: Int,
+): Pair<Distribution, BucketLayout?> {
     require(tailPercent in 0..MAX_TAIL_PERCENT) { "tailPercent must be between 0 and $MAX_TAIL_PERCENT" }
     val n = values.size.toLong()
-    if (values.size < minSampleSize) return Distribution(n = n, hidden = true)
+    if (values.size < minSampleSize) return Distribution(n = n, hidden = true) to null
 
     val sorted = values.sorted()
     val (p50, p90, p95) = REPORTED_PERCENTILES.map { percentileContinuous(sorted, it) }
-    return Distribution(
+    val layout = bucketLayout(sorted, tailPercent, histogramBuckets)
+    val distribution = Distribution(
         n = n,
         hidden = false,
         mean = sorted.average(),
@@ -103,8 +144,9 @@ fun buildDistribution(
         p50 = p50,
         p90 = p90,
         p95 = p95,
-        histogram = histogramWithTail(sorted, tailPercent, histogramBuckets),
+        histogram = layout.histogram(sorted),
     )
+    return distribution to layout
 }
 
 /** PostgreSQL's `percentile_cont(fraction) WITHIN GROUP (ORDER BY …)` — linear interpolation between the two closest ranks. */
@@ -118,34 +160,69 @@ internal fun percentileContinuous(sorted: List<Double>, fraction: Double): Doubl
     return sorted[lower] + weight * (sorted[upper] - sorted[lower])
 }
 
+private const val PERCENT = 100.0
+
 /**
- * The histogram of [sorted] with the values above the (100 − [tailPercent])th percentile folded into a final open bucket
- * (see [buildDistribution]).
+ * The ONE bucket layout of a distribution's histogram (see [buildDistribution]): [bodyBuckets] equal-width buckets from [min] by
+ * [width] (a single-valued dataset is one zero-width bucket), [edges] their boundaries, and — when [tailFrom] is set — the open
+ * tail bucket after them holding every value strictly above it. [indexOf] is the only place a value is assigned to a bucket, for
+ * the union's histogram and for each person's share alike.
  */
-private fun histogramWithTail(sorted: List<Double>, tailPercent: Int, buckets: Int): List<HistogramBucket> {
-    if (tailPercent == 0) return histogram(sorted, sorted.first(), sorted.last(), buckets)
+private class BucketLayout(
+    private val min: Double,
+    private val width: Double,
+    private val edges: List<Double>,
+    private val tailFrom: Double?,
+) {
+    private val bodyBuckets = edges.size - 1
+
+    /** The index of the bucket [value] falls into; the open tail bucket, when there is one, is the last. */
+    fun indexOf(value: Double): Int {
+        if (tailFrom != null && value > tailFrom) return bodyBuckets
+        if (width == 0.0) return 0
+        return ((value - min) / width).toInt().coerceIn(0, bodyBuckets - 1)
+    }
+
+    /** Per-bucket counts of [values], index-aligned with [histogram]. */
+    fun counts(values: Collection<Double>): LongArray {
+        val counts = LongArray(bodyBuckets + if (tailFrom != null) 1 else 0)
+        values.forEach { counts[indexOf(it)]++ }
+        return counts
+    }
+
+    fun histogram(values: Collection<Double>): List<HistogramBucket> {
+        val counts = counts(values)
+        val body = (0 until bodyBuckets).map { HistogramBucket(edges[it], edges[it + 1], counts[it]) }
+        return if (tailFrom == null) body else body + HistogramBucket(tailFrom, null, counts[bodyBuckets])
+    }
+
+    companion object {
+        /**
+         * Equal-width buckets over `[min, top]`; the last edge is [top] itself when [tailFrom] is set (`min + buckets * width`
+         * can miss it by an ulp).
+         */
+        fun body(min: Double, top: Double, buckets: Int, tailFrom: Double?): BucketLayout {
+            if (min == top) return BucketLayout(min, 0.0, listOf(min, top), null)
+            val width = (top - min) / buckets
+            val edges = (0..buckets).map { min + it * width }
+            return BucketLayout(min, width, if (tailFrom == null) edges else edges.dropLast(1) + top, tailFrom)
+        }
+    }
+}
+
+/**
+ * The layout of [sorted]: with a [tailPercent] the values above the (100 − [tailPercent])th percentile fold into a final open
+ * bucket (see [buildDistribution]).
+ */
+private fun bucketLayout(sorted: List<Double>, tailPercent: Int, buckets: Int): BucketLayout {
+    require(buckets > 0) { "histogramBuckets must be positive" }
+    val plain = BucketLayout.body(sorted.first(), sorted.last(), buckets, tailFrom = null)
+    if (tailPercent == 0) return plain
     val cut = percentileContinuous(sorted, (100 - tailPercent) / PERCENT)
     // `sorted` is ascending, so the tail is a suffix: it starts at the first value strictly above the cut.
     val tailStart = sorted.indexOfFirst { it > cut }
     // A cut AT the minimum (more than (100 - N)% of the values tied there, e.g. mostly-zero blocked time) would squash
     // the body into one zero-width bucket and hide the real signal in the tail: show the plain histogram instead.
-    if (tailStart < 0 || cut == sorted.first()) return histogram(sorted, sorted.first(), sorted.last(), buckets)
-    val body = histogram(sorted.subList(0, tailStart), sorted.first(), cut, buckets)
-    // The last body edge is the cut itself (min + buckets * width can miss it by an ulp), so the tail starts where the body ends.
-    return body.dropLast(1) + body.last().copy(to = cut) + HistogramBucket(cut, null, (sorted.size - tailStart).toLong())
-}
-
-private const val PERCENT = 100.0
-
-private fun histogram(sorted: List<Double>, min: Double, max: Double, buckets: Int): List<HistogramBucket> {
-    require(buckets > 0) { "histogramBuckets must be positive" }
-    if (min == max) return listOf(HistogramBucket(min, max, sorted.size.toLong()))
-    val width = (max - min) / buckets
-    val edges = (0..buckets).map { min + it * width }
-    val counts = LongArray(buckets)
-    sorted.forEach { value ->
-        val index = ((value - min) / width).toInt().coerceIn(0, buckets - 1)
-        counts[index]++
-    }
-    return (0 until buckets).map { i -> HistogramBucket(edges[i], edges[i + 1], counts[i]) }
+    if (tailStart < 0 || cut == sorted.first()) return plain
+    return BucketLayout.body(sorted.first(), cut, buckets, tailFrom = cut)
 }

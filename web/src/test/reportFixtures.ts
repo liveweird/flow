@@ -864,6 +864,59 @@ export const REPORTED_TIME: ReportedTimeRatioReport = {
   ],
 };
 
+/**
+ * USER level, two accounts (Ann then Bob, request order): both distributions read the union of the two and split every histogram
+ * bucket per person (`byUser`, index-aligned), `groups` lists each pick with its own plain distributions.
+ */
+export const REPORTED_TIME_USERS: ReportedTimeRatioReport = {
+  ...REPORTED_TIME,
+  meta: { ...META, level: "USER" },
+  ratio: {
+    ...REPORTED_TIME.ratio,
+    byUser: [
+      { ...ANN, counts: [4, 3, 1, 1, 0] },
+      { ...BOB, counts: [2, 1, 1, 0, 1] },
+    ],
+  },
+  flowEfficiency: {
+    ...REPORTED_TIME.flowEfficiency,
+    byUser: [
+      { ...ANN, counts: [3, 3, 2, 2, 0] },
+      { ...BOB, counts: [1, 3, 2, 0, 1] },
+    ],
+  },
+  groups: [
+    {
+      teamId: null,
+      ...ANN,
+      ratio: shownDistribution([4, 3, 1, 1, 0], 0, 0.5, { p50: 0.5, p90: 1.7, p95: 1.9, mean: 0.8 }),
+      excluded: { population: 11, noWorklogs: 1, neverStarted: 1, zeroCycle: 0 },
+      flowEfficiency: shownDistribution([3, 3, 2, 2, 0], 0, 0.2, { p50: 0.35, p90: 0.75, p95: 0.8, mean: 0.4 }),
+      flowEfficiencyExcluded: { population: 11, neverStarted: 1, zeroCycle: 0 },
+    },
+    {
+      teamId: null,
+      ...BOB,
+      ratio: shownDistribution([2, 1, 1, 0, 1], 0, 0.5, { p50: 0.7, p90: 2, p95: 2.2, mean: 1 }),
+      excluded: { population: 9, noWorklogs: 2, neverStarted: 1, zeroCycle: 1 },
+      flowEfficiency: shownDistribution([1, 3, 2, 0, 1], 0, 0.2, { p50: 0.45, p90: 0.85, p95: 0.9, mean: 0.5 }),
+      flowEfficiencyExcluded: { population: 9, neverStarted: 1, zeroCycle: 1 },
+    },
+  ],
+};
+
+/** USER level, one account: today's figures plus a one-entry `byUser` (the whole histogram) and its own group. */
+export const REPORTED_TIME_USER: ReportedTimeRatioReport = {
+  ...REPORTED_TIME,
+  meta: { ...META, level: "USER" },
+  ratio: { ...REPORTED_TIME.ratio, byUser: [{ ...ANN, counts: REPORTED_TIME.ratio.histogram.map((bucket) => bucket.count) }] },
+  flowEfficiency: {
+    ...REPORTED_TIME.flowEfficiency,
+    byUser: [{ ...ANN, counts: REPORTED_TIME.flowEfficiency.histogram.map((bucket) => bucket.count) }],
+  },
+  groups: [{ ...REPORTED_TIME_USERS.groups[0], ratio: REPORTED_TIME.ratio, flowEfficiency: REPORTED_TIME.flowEfficiency }],
+};
+
 export const REPORTED_TIME_HIDDEN: ReportedTimeRatioReport = {
   meta: META,
   ratio: hiddenDistribution(3),

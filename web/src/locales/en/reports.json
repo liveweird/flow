@@ -82,7 +82,8 @@
     "member": "Member",
     "unassigned": "Unassigned",
     "drillAria": "Show {{name}}",
-    "noOwner": "No owner team"
+    "noOwner": "No owner team",
+    "personTotals": "Totals per person"
   },
   "commitments": {
     "title": "Commitments",
@@ -250,6 +251,8 @@
     "stripLabel": "Percentiles",
     "tailSeries": "Long tail (top values)",
     "tailRow": "long tail",
+    "histogramByPerson": "Histogram: number of items per range, stacked by person",
+    "personLegend": "Chart legend",
     "tail": {
       "label": "Long tail",
       "help": "Values above the (100 − N)th percentile, roughly the top N%, are shown as one final bucket (≥ X), so a few outliers don't squash the rest. 0 shows the plain histogram."
@@ -396,6 +399,7 @@
     "ratioTitle": "Reported time ÷ cycle time",
     "ratioCaption": "Man-days logged per working day of cycle time — 1 means a full day logged for every working day.",
     "ratioAxis": "actual MD ÷ cycle working days",
+    "noTeams": "Reported time is read per team and there is no team yet. An administrator adds teams on the Teams page.",
     "outlierNote": "Very short cycles give very large ratios. They are real and never dropped, so read the median (p50) first — the mean, p95 and the top of the histogram can be dominated by them.",
     "flowTitle": "Flow efficiency",
     "flowCaption": "Active time ÷ cycle time: time in progress and not blocked, as a share of the whole cycle. Time in a waiting status counts as waiting, not as active. Logged time plays no part.",

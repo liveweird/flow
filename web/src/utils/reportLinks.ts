@@ -91,7 +91,7 @@ const PAGE_PARAMS: Readonly<Record<string, readonly string[]>> = {
 };
 
 /** The reports whose member control picks several people (repeated `accountId`); every other report keeps the FIRST. */
-const MULTI_ACCOUNT_PATHS: ReadonlySet<string> = new Set([commitmentsPath, throughputPath]);
+const MULTI_ACCOUNT_PATHS: ReadonlySet<string> = new Set([commitmentsPath, throughputPath, reportedTimePath]);
 
 /** The reports with no member control (always the whole team): leaving for one drops the `accountId`s, so the address bar says what the page shows. */
 const NO_MEMBER_PATHS: ReadonlySet<string> = new Set([sprintConsistencyPath, epicProgressPath]);
@@ -103,8 +103,8 @@ export function reportSpecificKeep(path: string): ReadonlySet<ReportSpecificKey>
 
 /**
  * A report route carrying the current filter query, so switching tabs keeps the period/team/member —
- * minus the report-specific and page-local params the target does not use. Only commitments and throughput pick several
- * members: moving between them keeps every `accountId`, leaving them keeps the FIRST (what a single-member page reads from
+ * minus the report-specific and page-local params the target does not use. Only commitments, throughput and reported time
+ * pick several members: moving between them keeps every `accountId`, leaving them keeps the FIRST (what a single-member page reads from
  * the repeats), so the address bar says what the page shows.
  */
 export function reportHref(path: string, search: string): string {

@@ -64,6 +64,39 @@ internal fun assertDistribution(label: String, expected: List<Double>, actual: D
     assertEquals(expected.size.toLong(), actual.histogram.sumOf { it.count }, "$label histogram counts must sum to n")
 }
 
+/**
+ * Asserts [actual]'s `byUser` against each person's RAW values, bucketed independently into the union's own `[from, to)` edges
+ * (the last equal-width bucket closed, the open tail bucket `v > from`; never the production `indexOf`): one share per entry of
+ * [rawByUser] in that order, `Σ counts == the person's n`, `Σ shares == histogram[i].count`. A value within [DIST_TOLERANCE] of
+ * an edge may legitimately land on either side (the production buckets by `floor((v - min) / width)`), so a bucket's share may
+ * exceed the strict count by those ambiguous values only.
+ */
+internal fun assertSharesInUnionEdges(label: String, rawByUser: List<Triple<String, String, List<Double>>>, actual: Distribution) {
+    assertEquals(rawByUser.map { it.first }, actual.byUser.map { it.accountId }, "$label share order")
+    assertEquals(rawByUser.map { it.second }, actual.byUser.map { it.label }, "$label share labels")
+    val histogram = actual.histogram
+    fun candidates(v: Double): List<Int> = histogram.indices.filter { i ->
+        val bucket = histogram[i]
+        v >= bucket.from - DIST_TOLERANCE && (bucket.to == null || v <= bucket.to + DIST_TOLERANCE)
+    }
+    for ((raw, share) in rawByUser.zip(actual.byUser)) {
+        assertEquals(histogram.size, share.counts.size, "$label ${share.accountId} counts align with the histogram")
+        assertEquals(raw.third.size.toLong(), share.counts.sum(), "$label ${share.accountId} n")
+        val sets = raw.third.map(::candidates)
+        histogram.indices.forEach { i ->
+            val strict = sets.count { it == listOf(i) }
+            val ambiguous = sets.count { i in it && it.size > 1 }
+            assertTrue(
+                share.counts[i] in strict.toLong()..(strict + ambiguous).toLong(),
+                "$label ${share.accountId} bucket $i: ${share.counts[i]} not within $strict..${strict + ambiguous}",
+            )
+        }
+    }
+    histogram.forEachIndexed { i, bucket ->
+        assertEquals(bucket.count, actual.byUser.sumOf { it.counts[i] }, "$label bucket $i is the sum of its shares")
+    }
+}
+
 /** A `MetricsSettingsService` over the shared test database — `DerivedStubFixture`'s own construction. */
 private fun estimationMetricsSettings() = MetricsSettingsService(
     sharedDatabaseForTests(),

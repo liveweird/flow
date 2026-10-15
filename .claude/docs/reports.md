@@ -95,7 +95,7 @@ data actually lives.
   alone -> `TEAM` (groups by user); `teamId` AND `accountId` together -> `USER` (the one user).
   `accountId` without `teamId` is `400` -- a user-level read always needs to know within which
   team's roster it is being read. `accountId` REPEATS (1..8 distinct, `parseReportFilter(..., multipleAccounts = true)`) on
-  commitments and throughput only; on every other report a repeat is a `400`. `teamId = 0` is the UNASSIGNED sentinel bucket, a real value, not
+  commitments, throughput and reported time only; on every other report a repeat is a `400`. `teamId = 0` is the UNASSIGNED sentinel bucket, a real value, not
   "absent" -- never rejected here (a real check that a POSITIVE `teamId` names an actual team is a
   report service's own job, downstream).
 - **Group order.** The org drill (`groups`) of commitments, throughput, sprint consistency and the DONE-item reports is built by
@@ -124,7 +124,7 @@ data actually lives.
 ## `Distribution` (`reports/Distribution.kt`)
 
 The shared shape every per-item measure (cycle time, estimation accuracy, blocked time, ...)
-returns: `{n, hidden, mean, min, max, p50, p90, p95, histogram[{from, to, count}]}` (`to` is `null` on the one final open bucket). `hidden = n <
+returns: `{n, hidden, mean, min, max, p50, p90, p95, histogram[{from, to, count}], byUser?[{accountId, label, counts}]}` (`to` is `null` on the one final open bucket; `byUser` is described below and is omitted whenever it is empty). `hidden = n <
 minSampleSize` (`metrics.settings.min_sample_size`) -- when hidden, only `n` is populated, every
 other field stays `null`/empty (`.claude/docs/domain-model.md` "Distributions": "Groups smaller
 than the minimum sample size show counts only, with a note").
@@ -641,6 +641,16 @@ the raw fact rows -- whole population, per group (`Σ group n == n`), per user, 
 pins the buckets, the ratios, the hidden state (`minSampleSize` pinned with `withMinSampleSize`), the 200-row cap and
 the estimated-late separation on hand-built rows in a fresh DISABLED connection with hand-computed answers.
 
+**The per-person split (`byUser`, `buildDistributionByUser`).** A report that lets the user pick several people (reported time today) draws
+ONE stacked histogram per `Distribution`: `buildDistributionByUser(valuesByUser, minSampleSize, tailPercent)` builds the union
+exactly as `buildDistribution` over the flattened values, then adds `byUser` -- one `DistributionShare {accountId, label, counts}` per
+picked person in REQUEST order, `counts` index-aligned with `histogram` (the open tail bucket included), an all-zero share for a
+person with no values. Union and shares use ONE private bucket layout (`BucketLayout.indexOf`, the single place a value meets a bucket), so
+`Σ shares[i] == histogram[i].count` and `Σ counts == that person's n` hold by construction. A HIDDEN union carries no shares, and
+a plain `buildDistribution` never does (the field is empty and so omitted on the wire). The percentile strip, mean and the exclusion
+accounting stay over the union; per-person n and median come from `groups`. The picks (`PickedAccounts.kt`: `pickedAccounts`,
+`pickedGroups`) are shared by every report that splits per person.
+
 ## Reports 7, 8 -- Cycle time and reported time ratio
 
 Two endpoints (v0.3.0 M4 commit 12b, `.claude/docs/measures.md` "Reports 7, 8") over `fact_task_delivery`, on the
@@ -703,7 +713,13 @@ ReportedTimeRatioReport { meta, ratio: Distribution,             // actual_md / 
 - Man-days logged per working day of cycle time. Each task is in the distribution or in exactly ONE bucket, checked
   in this order: `noWorklogs` (D14 -- `has_worklogs = false` or `actual_md` of 0.00, as in report 3), `neverStarted`
   (no cycle), `zeroCycle` (`cycle_working_days = 0`). So `ratio.n + noWorklogs + neverStarted + zeroCycle ==
-  population`. Levels and groups as report 7.
+  population`. Levels and groups as report 7, except USER level (below).
+- **USER level takes several `accountId`s** (1..8 distinct, `multipleAccounts = true`, like commitments and throughput; the web page also
+  requires a team). Both `ratio` and `flowEfficiency` read the UNION of the picked people (their done tasks, assignee at done) and carry
+  `byUser`: every histogram bucket split per picked person (`buildDistributionByUser`, `Distribution` above), in request order, a zero
+  share for a pick with no task. `excluded`/`flowEfficiencyExcluded` stay over the union; `groups` lists each pick (the TEAM-level
+  rule per person, a pick with no task an empty entry, ordered label then account id) with its own PLAIN distributions -- shares are drawn
+  on the two top-level distributions only. One `accountId` is today's figures plus a one-entry `byUser`; UNIT and TEAM are unchanged.
 - **The ratio's mean, p95 and histogram can be dominated by very short cycles** -- dividing by a cycle of a fraction
   of a working day produces a very large ratio. That is a real outlier and is never dropped (only a cycle of exactly
   zero working days is excluded, as `zeroCycle`); read the p50 first.
@@ -723,7 +739,8 @@ exact hand-computed numbers incl. a zero-working-day cycle), `ReportCycleTimeEpi
 distributions and owner groups against an independent read of `fact_epic_delivery`, TEAM / `teamId=0` / USER, the
 `domain`/`workCategory` slices and the ignored `activityType`, the sprint envelope, and hand-built epics with exact numbers
 incl. the never-started exclusion and a zero-working-day cycle) and `ReportReportedTimeRatioTest` (the partition, groups,
-slices, hand-built bucket precedence and hidden state).
+slices, hand-built bucket precedence and hidden state, and the per-person split: several `accountId`s against an independent
+bucketing of each person's raw values into the union's edges, one `accountId`, and the eight-account bound).
 
 ## Reports 9, 10, 13 -- WIP and the estimated backlog
 
