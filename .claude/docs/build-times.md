@@ -163,6 +163,17 @@ limit, it was stop-gapped to 45, and #51 brought it down to 25 together with the
 25 is over 3x the 7-8 min master median). Re-check the margin with `ci-times.mjs --branch master` whenever the suite grows — the same
 "measurement first" rule as `budgets.json`.
 
+## Status check, 2026-10-15 (milestone: capacity management, before 0.4.0)
+
+Source: `ci-times.mjs --branch master`, 30 successful master runs 10-06 → 10-15. `server` median of the last 5
+**6m36s** (previous 5: 8m52s; min 5m31s, max 10m13s, one run over the 10-min alarm), `web` 2m19s, `images` 3m19s —
+all three over target, none at alarm on the median; no trend jump to investigate. **The nightly `e2e` was red
+2026-10-07 → 10-15 with no test failing**: the runner image's newer Compose builds through `buildx bake`, which
+refuses the local `cache_from`/`cache_to` directory (`/tmp/buildx-cache`, outside the build context) without
+`--allow=fs.read/fs.write`, so "Build images" died and the Trivy re-scan found no `flow-app`. Fixed by
+`BUILDX_BAKE_ENTITLEMENTS_FS: "0"` on that step (`e2e.yml`); the first green dispatch took 12m37s (job wall,
+target 7 min — WHY 7's data now resumes from here).
+
 ## Known causes and open WHY questions
 
 Sources: the 2026-09-29 profiling of the server suite (local, 18 cores, 782 tests, instrumented,
