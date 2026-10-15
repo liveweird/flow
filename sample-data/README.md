@@ -79,8 +79,9 @@ timelines, the omitted bulkfetch chunk or the day2 scenario shift:
   as a never-started TODO issue: D9's "future sprints count as backlog too" case, as opposed to a
   genuinely unscheduled backlog item.
 - **A deterministic 30-user roster** over the 4 Atlassian Teams (2 users left on no team),
-  `expected.json` → `teams.roster` — the source data for D1's dated team membership, entered
-  through the metrics-config API in a later commit (phase-3 plan §2 decision 6).
+  `expected.json` → `teams.roster` — the source data for D1's dated team membership, entered by hand through the
+  memberships API (phase-3 plan §2 decision 6) or seeded from the issues' Team field (the "Seed from Jira Team field"
+  dialog; note the stub assigns the Team field to issues at random, independent of this roster).
 - **Two golden fixtures**, computed by the generator from its own simulated timeline (never
   hand-authored) — `expected.json` → `golden.sprint` (one closed FLO sprint's committed/added/
   removed/final/delivered/carried-over/dropped MD and item counts, grace 0, 1 SP = 1 MD) and

@@ -75,6 +75,7 @@ describe("TeamJiraMembers", () => {
     expect(screen.getByText("2024-01-01")).toBeInTheDocument();
     expect(screen.getByText("2023-07-01")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /add jira member/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /seed from jira team field/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /operations for/i })).not.toBeInTheDocument();
   });
 
@@ -275,6 +276,65 @@ describe("TeamJiraMembers", () => {
     renderWithProviders(<TeamJiraMembers teamId={5} />);
 
     expect(await screen.findByText(/Only the first 5000 of 10000 people could be loaded/)).toBeInTheDocument();
+  });
+
+  test("an admin seeds the roster from the Jira Team field — the roster is re-fetched afterwards", async () => {
+    const seedDay = Date.UTC(2024, 2, 5, 12);
+    const candidates = {
+      items: [
+        { accountId: "acc-3", displayName: "Cara New", issueCount: 3, firstSeen: seedDay, lastSeen: seedDay, validFrom: seedDay, conflict: null },
+      ],
+    };
+    mockFetch.mockImplementation((url: string, init?: RequestInit) => {
+      const method = init?.method ?? "GET";
+      if (url === "/api/v1/reports/filters") return Promise.resolve(jsonResponse(200, { timeZone: "Europe/Warsaw", teams: [] }));
+      if (url === "/api/v1/teams/5/jira-memberships") return Promise.resolve(jsonResponse(200, MEMBERSHIPS));
+      if (url.startsWith("/api/v1/jira-users")) return Promise.resolve(jsonResponse(200, DIRECTORY));
+      if (url === "/api/v1/jira-teams") return Promise.resolve(jsonResponse(200, { items: [{ id: "atl-1", name: "Payments", issueCount: 7 }] }));
+      if (url === "/api/v1/teams/5/jira-memberships/seed-candidates?atlassianTeamId=atl-1") return Promise.resolve(jsonResponse(200, candidates));
+      if (method === "POST" && url === "/api/v1/teams/5/jira-memberships/seed") {
+        return Promise.resolve(jsonResponse(200, { created: [{ accountId: "acc-3", validFrom: seedDay }], skipped: [] }));
+      }
+      return Promise.resolve(jsonResponse(404, { title: "Not Found", status: 404 }));
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<TeamJiraMembers teamId={5} />);
+
+    await screen.findByText("Alice Admin");
+    const seedButton = screen.getByRole("button", { name: /seed from jira team field/i });
+    await waitFor(() => expect(seedButton).toBeEnabled());
+    await user.click(seedButton);
+    await user.click(await screen.findByRole("combobox", { name: /atlassian team/i }));
+    await user.click(await screen.findByRole("option", { name: "Payments (7)" }));
+    await user.click(await screen.findByRole("button", { name: "Seed selected (1)" }));
+
+    await waitFor(() => expect(findCall(mockFetch, "POST", "/api/v1/teams/5/jira-memberships/seed")).toBeDefined());
+    await waitFor(() => expect(mockFetch.mock.calls.filter(([u]) => u === "/api/v1/teams/5/jira-memberships")).toHaveLength(2));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  test("a row's own displayName wins over the directory, so a departed member is named", async () => {
+    mockFetch.mockImplementation((url: string) => {
+      if (url === "/api/v1/reports/filters") return Promise.resolve(jsonResponse(200, { timeZone: "Europe/Warsaw", teams: [] }));
+      if (url === "/api/v1/teams/5/jira-memberships") {
+        return Promise.resolve(
+          jsonResponse(200, {
+            items: [
+              { id: 10, accountId: "gone-1", displayName: "Departed Dev", validFrom: Date.UTC(2024, 0, 1), validTo: null, createdAt: 1, updatedAt: 1 },
+              { id: 11, accountId: "acc-2", displayName: null, validFrom: Date.UTC(2023, 0, 1), validTo: null, createdAt: 1, updatedAt: 1 },
+            ],
+          }),
+        );
+      }
+      if (url.startsWith("/api/v1/jira-users")) return Promise.resolve(jsonResponse(200, DIRECTORY));
+      return Promise.resolve(jsonResponse(404, { title: "Not Found", status: 404 }));
+    });
+    renderWithProviders(<TeamJiraMembers teamId={5} />);
+
+    // The directory does not know the departed account; the row's own name does. A row without one falls back to the directory.
+    expect(await screen.findByText("Departed Dev")).toBeInTheDocument();
+    expect(await screen.findByText("Bob Basic")).toBeInTheDocument();
+    expect(screen.queryByText("gone-1")).not.toBeInTheDocument();
   });
 
   test("unmounting aborts the directory walk", async () => {

@@ -2,7 +2,7 @@ import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert, Badge, Button, Group, Menu, Stack, Table, Text } from "@mantine/core";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { IconCalendarOff, IconUserPlus, IconUsersGroup } from "@tabler/icons-react";
+import { IconCalendarOff, IconUserPlus, IconUsersGroup, IconUsersPlus } from "@tabler/icons-react";
 import {
   deleteTeamJiraMembership,
   listAllJiraUsers,
@@ -18,6 +18,7 @@ import { showSuccessToast } from "../utils/toast";
 import ConfirmDeleteModal from "./ConfirmDeleteModal";
 import EmptyState from "./EmptyState";
 import JiraMemberModal from "./JiraMemberModal";
+import JiraSeedModal from "./JiraSeedModal";
 import LoadingBlock from "./LoadingBlock";
 import RowActionsMenu from "./RowActionsMenu";
 import ScrollRegion from "./ScrollRegion";
@@ -40,6 +41,7 @@ export default function TeamJiraMembers({ teamId }: { teamId: number }) {
   const admin = useAdmin();
   const queryClient = useQueryClient();
   const [adding, setAdding] = useState(false);
+  const [seeding, setSeeding] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const memberships = useQuery({
@@ -48,7 +50,8 @@ export default function TeamJiraMembers({ teamId }: { teamId: number }) {
     enabled: Number.isFinite(teamId),
   });
 
-  // Best-effort display-name resolution: every account that ever held a membership row is
+  // Display names: the roster read carries each row's own `displayName` (norm.people, departed people included) and wins. The
+  // directory below is only the fallback for a row without one. Best-effort resolution: every account that ever held a membership row is
   // UNIT-relevant (JiraUsersRoutes.kt's `everMemberedAccountIds`), so the UNIT directory, paged
   // through to its end (`listAllJiraUsers`), covers this team's whole history however large the
   // unit has grown — an unresolved account simply falls back to its raw accountId below.
@@ -60,6 +63,7 @@ export default function TeamJiraMembers({ teamId }: { teamId: number }) {
     staleTime: 60_000,
   });
   const namesByAccountId = new Map((directory.data?.people ?? []).map((person) => [person.accountId, person.displayName]));
+  const nameOf = (row: TeamMembershipResponse) => row.displayName ?? namesByAccountId.get(row.accountId) ?? row.accountId;
 
   async function refresh() {
     await queryClient.invalidateQueries({ queryKey: ["team-jira-memberships", teamId] });
@@ -125,9 +129,21 @@ export default function TeamJiraMembers({ teamId }: { teamId: number }) {
           {t("metrics.teamMembers.title")}
         </Text>
         {admin && (
-          <Button size="xs" variant="default" leftSection={<IconUserPlus size={14} />} onClick={() => setAdding(true)}>
-            {t("metrics.teamMembers.addMember")}
-          </Button>
+          <Group gap="xs">
+            <Button
+              size="xs"
+              variant="default"
+              leftSection={<IconUsersPlus size={14} />}
+              disabled={zone == null}
+              aria-describedby={zoneFailed ? zoneAlertId : undefined}
+              onClick={() => setSeeding(true)}
+            >
+              {t("metrics.teamSeed.button")}
+            </Button>
+            <Button size="xs" variant="default" leftSection={<IconUserPlus size={14} />} onClick={() => setAdding(true)}>
+              {t("metrics.teamMembers.addMember")}
+            </Button>
+          </Group>
         )}
       </Group>
       {zoneFailed && <ZoneUnavailableAlert id={zoneAlertId} error={filters.error} onRetry={() => void filters.refetch()} />}
@@ -159,7 +175,7 @@ export default function TeamJiraMembers({ teamId }: { teamId: number }) {
             <Table.Tbody>
               {rows.map((row) => {
                 const current = isCurrent(row, now);
-                const displayName = namesByAccountId.get(row.accountId) ?? row.accountId;
+                const displayName = nameOf(row);
                 return (
                   <Table.Tr key={row.id}>
                     <Table.Td>
@@ -227,11 +243,25 @@ export default function TeamJiraMembers({ teamId }: { teamId: number }) {
         />
       )}
 
+      {seeding && zone != null && (
+        <JiraSeedModal
+          teamId={teamId}
+          timeZone={zone}
+          onClose={() => setSeeding(false)}
+          onSeeded={async () => {
+            setSeeding(false);
+            // Seeded people are assignees, so already UNIT-relevant (and the roster read names them itself): only the
+            // roster needs a refresh, before the dialog's mutation settles.
+            await refresh();
+          }}
+        />
+      )}
+
       <ConfirmDeleteModal
         confirm={remove}
         title={t("metrics.teamMembers.removeTitle")}
         errorTitle={t("metrics.teamMembers.removeFailed")}
-        body={(row) => t("metrics.teamMembers.removeBody", { name: namesByAccountId.get(row.accountId) ?? row.accountId })}
+        body={(row) => t("metrics.teamMembers.removeBody", { name: nameOf(row) })}
       />
     </Stack>
   );

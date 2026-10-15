@@ -160,6 +160,16 @@ place:
   trying to lock the SAME row) — and queries `norm/WorkItemStore.People` directly (an unknown Jira
   account id is `400` — the client-supplied-FK idiom `TeamService.requireActiveUsers` already uses
   for Flow user ids), all inside its own transactions.
+- `metrics/TeamMembershipSeedService` (D1 seeding from the Atlassian Team field; `GET /api/v1/jira-teams`, `GET`/`POST
+  /api/v1/teams/{id}/jira-memberships/seed[-candidates]`) reads `norm` only through the `WorkItemStore` facade
+  (`atlassianTeams`, `teamAssignees` in `norm/NormPickerReads.kt`: `norm.work_items` ⋈ `Connections.active()` on the
+  `team_value` JSONB's `id`/`name`, live rows only, plus `norm.people` for display names) and writes only through
+  `TeamMembershipService` (`insertMembership`, one `bumpRevision` per batch). Through `TeamMembershipService` it also reads
+  `teams/TeamService.Teams` (the active-team check/lock, and `membershipsOfAccounts`' join for the conflicting team's name —
+  soft-deleted teams included: their history stays), all inside its own transactions. The task-level filter is the A31
+  `hierarchyBucket` rule (`norm/Hierarchy.kt`) applied over `(…, hierarchy_level)`-grouped rows, never re-stated in SQL.
+  `metrics/TeamMembershipRoutes.kt`'s list read also calls `WorkItemStore.displayNames` (`norm.people` ⋈ `Connections.active()`,
+  `MIN(display_name)` per account, the person's `active` flag ignored) to fill each row's `displayName`.
 - `norm/WorkItemStore` reads `ingest/DataSourceService.Connections` directly: every `norm.*` table
   carries a `connection_id` FK to it, and `listPeople`, `distinctAssigneeAccountIds` and
   `distinctWorklogAuthorAccountIds` inner-join it under `Connections.active()`, so people, assignees

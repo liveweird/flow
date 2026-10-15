@@ -9,8 +9,8 @@
   changed; a throwaway Jira-stub data source per test that needs one (unique `e2e-metrics-ds-*`
   names) and a throwaway team per test that needs one (unique `e2e-metrics-team-*` names), all
   removed by the end of their own test (the cleanup hook deletes them through the API even when a step fails first); a
-  throwaway user in the third test. The second and third
-  tests each sync their OWN connection rather than sharing one — see "Not covered here".
+  throwaway user in the third test; ONE seeded membership row of a stub person in the fourth test (removed before its team). The
+  second, third and fourth tests each sync their OWN connection rather than sharing one — see "Not covered here".
 
 ## Scenario: admin adjusts metrics settings
 
@@ -74,8 +74,28 @@
 6. The admin signs back in and deletes the throwaway user; the cleanup hook removes the membership, team and data
    source through the API (and the user too, had a step failed before this one).
 
+## Scenario: admin seeds a team's Jira roster from the Atlassian Team field
+
+1. The test syncs its own throwaway Jira-stub data source through the API (the stub carries four Atlassian Teams on ~30% of its
+   issues), creates a throwaway team, and — through the API, to keep the UI steps deterministic — picks ONE assignee of the stub's
+   "Payments" issues who has no conflicting membership and whom no other spec uses.
+2. The admin opens the team and clicks **Seed from Jira Team field**, then picks **Payments** in the **Atlassian team** select.
+   - *Expected*: the select lists the team with its issue count; a table of the Payments assignees appears with a ticked checkbox
+     per non-conflicting person, their issue count, first/last issue day and the **Starts** day the seed would store.
+3. They untick everybody but the chosen person (a membership is global per person, so the test seeds exactly one) and read that
+   person's **Starts** day.
+   - *Expected*: the button reads **Seed selected (1)** and is enabled.
+4. They click it.
+   - *Expected*: the dialog closes and the team's Jira members table, re-fetched, shows the person as a **current**, open-ended member
+     whose **Valid from** is the Starts day they read.
+5. The seeded membership row is registered for cleanup straight after the apply request (before any UI assertion), and removed
+   first, then the team and the data source, by the cleanup hook through the API (a team's soft-delete would only close the row,
+   leaving the person occupied for every other spec).
+
 ## Not covered here (and why)
 
+- **Conflicts, the 100-person cap, skipped people and the one-time revision bump** — pinned by `TeamMembershipSeedRoutesTest` (server) and
+  `JiraSeedModal.test.tsx`; the journey drives the one happy path against real stub data.
 - **The reports half of v0.3.0** — this file covers configuration only; the report pages are read by
   `reports.spec.ts` ([reports.md](reports.md)).
 - **Sharing one synced connection between the second and third tests.** Each test syncs its own

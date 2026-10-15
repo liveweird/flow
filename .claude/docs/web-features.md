@@ -115,14 +115,26 @@ team membership landed in M2 commit 5, and the per-connection `metrics-config` p
 - **`components/TeamJiraMembers.tsx`**, mounted on `pages/TeamDetails.tsx` below the Flow-login
   roster — D1's dated Jira-user team membership (`GET/POST /api/v1/teams/{id}/jira-memberships`,
   `PUT/DELETE …/{membershipId}`): any authenticated user reads the table (person name resolved
-  against `GET /api/v1/jira-users?scope=UNIT` — every account that ever held a membership row is
+  against its own `displayName` (filled by the list read, departed people included) and, for a row without one,
+  `GET /api/v1/jira-users?scope=UNIT` — every account that ever held a membership row is
   UNIT-relevant, so the directory, paged through at pageSize 100 to its `total` (`api/metrics.ts`'s
   `listAllJiraUsers`, capped at 50 pages, `staleTime` 60 s, abortable — React Query's `signal` reaches every
   page fetch, so an unmount ends the walk), names this team's whole history however large the unit
   is; an unresolved account falls back to its raw `accountId`; a failed walk renders its load error inline
   and one the page cap cut short shows a gray `directoryCut` notice; adding a member also invalidates
   `["jira-users","directory"]` so a newly added SITE person is named at once), a "current" badge when `now ∈ [validFrom, validTo)`.
-  ADMIN-only mutations: "Add Jira member" opens `components/JiraMemberModal.tsx` (a searchable
+  ADMIN-only mutations: "Seed from Jira Team field" opens `components/JiraSeedModal.tsx` (D1 seeding: a searchable
+  Select of the Atlassian Teams from `GET /api/v1/jira-teams` — "name (issue count)" — then, from
+  `…/seed-candidates?atlassianTeamId=`, a table of the team's issue ASSIGNEES with a checkbox, issue count and the first/last
+  issue day (read in the configured zone, like every membership date); people without a conflict start ticked, a person with an
+  overlapping OPEN membership shows an orange "Already in {team}" badge and a disabled, unticked box; a **Starts** column shows the
+  day the seed stores (the first issue's day, or the day a team mover left their previous team); the ticked people are stored
+  EXPLICITLY per team (everyone without a conflict is ticked on the FIRST load of a team's candidates only, so a refetch never
+  auto-ticks someone new); the candidates query has `gcTime: 0` — a decision aid is never served from
+  an earlier opening. Apply POSTs `…/seed` with the ticked ids (disabled at 0 or above 100 ticked, with a red hint), toasts
+  "Seeded N, skipped M" and the parent re-fetches the roster and the name directory in the background; a failure — the race `409`
+  included — renders inline in the dialog. The button waits for the metrics zone like "End membership"), and
+  "Add Jira member" opens `components/JiraMemberModal.tsx` (a searchable
   person `Select` over `GET /api/v1/jira-users?scope=SITE` — the whole site directory, since a
   brand-new member may not yet be UNIT-relevant; **server-side search**: the typed term, debounced
   300 ms, is the `q` param (display name OR account id, case/accent-insensitive), the query key

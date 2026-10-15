@@ -146,7 +146,9 @@ the same commit** — this list is the coverage map, the scenario file is the de
   the API; a synced Jira-stub connection's per-connection Metrics configuration (preselected
   stages, a per-domain stage override saved with the rest and still there after a reload, a board → team mapping, a second board mapped to the same team marked `409`); D1's
   dated Jira-user team membership on a throwaway team (an overlapping second membership refused
-  inline) and a regular user's read-only view of it, with no Metrics settings nav access.
+  inline) and a regular user's read-only view of it, with no Metrics settings nav access; and seeding a throwaway team's Jira
+  roster from the stub's Atlassian Team field (pick the Payments team in the "Seed from Jira Team field" dialog, tick one assignee,
+  apply — the roster shows them as a current member from their earliest issue's day; the seeded row is removed before the team).
 - [`reports.spec.ts`](scenarios/reports.md) — the v0.3.0 reports, read by a NON-ADMIN user (D12)
   over an API-seeded, synced-and-derived Jira-stub connection with the FLO board mapped to a
   throwaway team (`helpers.ts`'s `syncStubDataSourceViaApi`/`configureMetricsViaApi`/

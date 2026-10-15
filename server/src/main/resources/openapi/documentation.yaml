@@ -780,6 +780,82 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/teams/{id}/jira-memberships/seed-candidates:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    get:
+      tags: [metrics]
+      operationId: listTeamJiraMembershipSeedCandidates
+      summary: Preview the people a team's Jira roster could be seeded with from an Atlassian Team
+      description: |
+        ADMIN only, guard before the id lookup and the query. The candidates are the ASSIGNEES of the live
+        task-level issues (not deleted, not moved out of scope, on an active connection; epics and issues above them
+        are not counted — the one epic/task rule) whose Atlassian Team field (`norm.work_items.team_value`) equals
+        `atlassianTeamId` — site-global, so it matches across connections.
+        Per person: the number of such issues, `firstSeen`/`lastSeen` (creation instants of the earliest and latest
+        one) and `validFrom`, what seeding would store: the first instant of `firstSeen`'s calendar day in the
+        configured metrics zone (membership dates are zone days), moved forward to the end of the person's latest
+        CLOSED membership that reaches past it. `conflict` is non-null when an existing membership of the account
+        (any team, this one included) still overlaps `[validFrom, ∞)` — in practice an OPEN one — and the apply would
+        skip it. An assignee with no `norm.people` row is left out; an inactive person is listed. A missing `atlassianTeamId` is `400`; a missing or soft-deleted team
+        is `404`. Read-only, so no audit event.
+      parameters:
+        - name: atlassianTeamId
+          in: query
+          required: true
+          description: The Atlassian Team id, as listed by `GET /api/v1/jira-teams`.
+          schema: { type: string, minLength: 1, maxLength: 200 }
+      responses:
+        '200':
+          description: The candidates, ordered by display name
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SeedCandidateListResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/teams/{id}/jira-memberships/seed:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    post:
+      tags: [metrics]
+      operationId: seedTeamJiraMemberships
+      summary: Seed a team's Jira memberships from an Atlassian Team's assignees
+      description: |
+        ADMIN only, guard before the id lookup and the body decode. ONE transaction: the team is locked active
+        (`404` otherwise), the candidates are RECOMPUTED server-side for `atlassianTeamId` (the client's list is
+        only the selection) and each requested account is created as an open-ended membership starting at its
+        candidate `validFrom` — through the same insert as `POST …/jira-memberships` — or skipped:
+        `NOT_A_CANDIDATE` (not an assignee of that Atlassian Team's issues) or `CONFLICT` (an existing membership
+        overlaps its start). `accountIds` holds 1 to 100 distinct ids. A concurrent write that slips an overlapping
+        membership in between the recompute and the insert is `409` (the exclusion constraint; nothing is created).
+        The rows are inserted in account-id order, so concurrent seeds cannot deadlock. The shared `config_revision`
+        bumps exactly once, and only when something was created; that case is audited `team.jira_memberships_seeded`
+        (counts, no names).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TeamMembershipSeedRequest'
+      responses:
+        '200':
+          description: What was created and what was skipped
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeamMembershipSeedResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/teams/{id}/capacity:
     parameters:
       - $ref: '#/components/parameters/ResourceId'
@@ -1426,6 +1502,26 @@ paths:
               schema:
                 $ref: '#/components/schemas/JiraUserPage'
         '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/jira-teams:
+    get:
+      tags: [metrics]
+      operationId: listJiraTeams
+      summary: List the Atlassian Teams seen on issues (the team-seeding picker)
+      description: >-
+        ADMIN only (guard before any read). Every distinct Atlassian Team (`team_value.id`, site-global) on a live
+        work item of an active connection, with the number of such issues; a team renamed in Jira shows under the
+        name of its most recently updated issue. A bounded set — a plain `{items}`, ordered by name. Read-only,
+        so no audit event.
+      responses:
+        '200':
+          description: The Atlassian Teams
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JiraTeamListResponse'
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalServerError' }
@@ -3934,6 +4030,13 @@ components:
         validTo: { type: integer, format: int64, nullable: true, description: "Epoch millis; null = open-ended (the current membership)." }
         createdAt: { type: integer, format: int64 }
         updatedAt: { type: integer, format: int64 }
+        displayName:
+          type: string
+          nullable: true
+          description: >-
+            The person's name from `norm.people` (active connections; the person's own `active` flag ignored, so a
+            departed member keeps a name). Filled by the list only; null on a create response and for an account with
+            no people row.
     TeamMembershipCreateRequest:
       type: object
       required: [accountId, validFrom]
@@ -3947,6 +4050,89 @@ components:
       properties:
         validFrom: { type: integer, format: int64 }
         validTo: { type: integer, format: int64, nullable: true }
+    JiraTeamResponse:
+      type: object
+      required: [id, name, issueCount]
+      properties:
+        id: { type: string, description: The Atlassian Team id — site-global. }
+        name: { type: string }
+        issueCount: { type: integer, format: int64, minimum: 0, description: Live issues carrying this team. }
+    JiraTeamListResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/JiraTeamResponse'
+    SeedConflictResponse:
+      type: object
+      required: [teamId, teamName]
+      properties:
+        teamId: { type: integer, format: int32, minimum: 0 }
+        teamName: { type: string }
+    SeedCandidateResponse:
+      type: object
+      required: [accountId, displayName, issueCount, firstSeen, lastSeen, validFrom, conflict]
+      properties:
+        accountId: { type: string }
+        displayName: { type: string }
+        issueCount: { type: integer, format: int64, minimum: 1, description: The person's live issues for the Atlassian Team. }
+        firstSeen: { type: integer, format: int64, description: Epoch millis — creation of the person's earliest such issue. }
+        lastSeen: { type: integer, format: int64, description: Epoch millis — creation of the person's latest such issue. }
+        validFrom:
+          type: integer
+          format: int64
+          description: Epoch millis — what seeding would store, the first instant of `firstSeen`'s day in the configured metrics zone.
+        conflict:
+          allOf: [{ $ref: '#/components/schemas/SeedConflictResponse' }]
+          nullable: true
+          description: The existing membership overlapping `[validFrom, ∞)`; null when the person can be seeded.
+    SeedCandidateListResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SeedCandidateResponse'
+    TeamMembershipSeedRequest:
+      type: object
+      required: [atlassianTeamId, accountIds]
+      properties:
+        atlassianTeamId: { type: string, minLength: 1, maxLength: 200 }
+        accountIds:
+          type: array
+          minItems: 1
+          maxItems: 100
+          uniqueItems: true
+          items: { type: string, minLength: 1, maxLength: 100 }
+    SeededMembershipResponse:
+      type: object
+      required: [accountId, validFrom]
+      properties:
+        accountId: { type: string }
+        validFrom: { type: integer, format: int64, description: Epoch millis of the created open-ended membership's start. }
+    SkippedSeedResponse:
+      type: object
+      required: [accountId, reason]
+      properties:
+        accountId: { type: string }
+        reason:
+          type: string
+          enum: [CONFLICT, NOT_A_CANDIDATE]
+    TeamMembershipSeedResponse:
+      type: object
+      required: [created, skipped]
+      properties:
+        created:
+          type: array
+          items:
+            $ref: '#/components/schemas/SeededMembershipResponse'
+        skipped:
+          type: array
+          items:
+            $ref: '#/components/schemas/SkippedSeedResponse'
 
     # — reports (v0.3.0 M4 commit 10a) —
 

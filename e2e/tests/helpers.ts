@@ -308,7 +308,7 @@ export async function awaitDerivedSprint(api: APIRequestContext, teamId: number,
  * Stub people who logged work in the sample data's window (`sample-data/jira/expected.json`'s
  * `teams.roster`), in the order `addStubMemberViaApi` tries them.
  */
-const STUB_MEMBER_CANDIDATES = [
+export const STUB_MEMBER_CANDIDATES = [
   { accountId: "5f8a1b2c3d4e5f6a7b8c9d16", displayName: "Sample User 16" },
   { accountId: "5f8a1b2c3d4e5f6a7b8c9d22", displayName: "Sample User 22" },
   { accountId: "5f8a1b2c3d4e5f6a7b8c9d24", displayName: "Sample User 24" },

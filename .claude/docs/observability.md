@@ -135,7 +135,10 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
   (byUserId/teamId/accountId/validFrom/validTo) / `.updated` (same fields, the row's NEW values) /
   `.removed` (same fields, the row's values just before deletion) — D1's dated Jira-user team
   membership CRUD (`metrics/TeamMembershipRoutes.kt`). `GET /api/v1/jira-users` is read-only, so it
-  emits nothing.
+  emits nothing. `team.jira_memberships_seeded` (byUserId/teamId/atlassianTeamId/requested/created/skipped — counts and
+  opaque ids, never a person's or a team's name; `POST /api/v1/teams/{id}/jira-memberships/seed`, emitted only when at
+  least one membership was created, the features-PUT precedent) — the batch counterpart of `.jira_membership_added`
+  (`metrics/TeamMembershipSeedRoutes.kt`); `GET /api/v1/jira-teams` and `…/seed-candidates` are read-only and emit nothing.
 - `team.capacity_default_updated` (byUserId/teamId/defaultCapacityMdFrom/defaultCapacityMd, both nullable = none/cleared; authorizedBy) and
   `team.sprint_calendar_updated` (byUserId/teamId/sprintId/connectionId/capacityMdFrom — the previously STORED calendar re-projected onto the sprint's current window and roster (not the previous
   effective figure, which may have been a team default), null on the first save/capacityMd — the saved calendar's capacity/replacedTeamId — set when the write removed another team's leftover

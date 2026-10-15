@@ -496,6 +496,69 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/teams/{id}/jira-memberships/seed-candidates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Preview the people a team's Jira roster could be seeded with from an Atlassian Team
+         * @description ADMIN only, guard before the id lookup and the query. The candidates are the ASSIGNEES of the live
+         *     task-level issues (not deleted, not moved out of scope, on an active connection; epics and issues above them
+         *     are not counted — the one epic/task rule) whose Atlassian Team field (`norm.work_items.team_value`) equals
+         *     `atlassianTeamId` — site-global, so it matches across connections.
+         *     Per person: the number of such issues, `firstSeen`/`lastSeen` (creation instants of the earliest and latest
+         *     one) and `validFrom`, what seeding would store: the first instant of `firstSeen`'s calendar day in the
+         *     configured metrics zone (membership dates are zone days), moved forward to the end of the person's latest
+         *     CLOSED membership that reaches past it. `conflict` is non-null when an existing membership of the account
+         *     (any team, this one included) still overlaps `[validFrom, ∞)` — in practice an OPEN one — and the apply would
+         *     skip it. An assignee with no `norm.people` row is left out; an inactive person is listed. A missing `atlassianTeamId` is `400`; a missing or soft-deleted team
+         *     is `404`. Read-only, so no audit event.
+         */
+        get: operations["listTeamJiraMembershipSeedCandidates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/teams/{id}/jira-memberships/seed": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Seed a team's Jira memberships from an Atlassian Team's assignees
+         * @description ADMIN only, guard before the id lookup and the body decode. ONE transaction: the team is locked active
+         *     (`404` otherwise), the candidates are RECOMPUTED server-side for `atlassianTeamId` (the client's list is
+         *     only the selection) and each requested account is created as an open-ended membership starting at its
+         *     candidate `validFrom` — through the same insert as `POST …/jira-memberships` — or skipped:
+         *     `NOT_A_CANDIDATE` (not an assignee of that Atlassian Team's issues) or `CONFLICT` (an existing membership
+         *     overlaps its start). `accountIds` holds 1 to 100 distinct ids. A concurrent write that slips an overlapping
+         *     membership in between the recompute and the insert is `409` (the exclusion constraint; nothing is created).
+         *     The rows are inserted in account-id order, so concurrent seeds cannot deadlock. The shared `config_revision`
+         *     bumps exactly once, and only when something was created; that case is audited `team.jira_memberships_seeded`
+         *     (counts, no names).
+         */
+        post: operations["seedTeamJiraMemberships"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/teams/{id}/capacity": {
         parameters: {
             query?: never;
@@ -928,6 +991,26 @@ export interface paths {
          *       (that team's CURRENT membership only — combined with `scope` by set intersection).
          */
         get: operations["listJiraUsers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/jira-teams": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the Atlassian Teams seen on issues (the team-seeding picker)
+         * @description ADMIN only (guard before any read). Every distinct Atlassian Team (`team_value.id`, site-global) on a live work item of an active connection, with the number of such issues; a team renamed in Jira shows under the name of its most recently updated issue. A bounded set — a plain `{items}`, ordered by name. Read-only, so no audit event.
+         */
+        get: operations["listJiraTeams"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2724,6 +2807,8 @@ export interface components {
             createdAt: number;
             /** Format: int64 */
             updatedAt: number;
+            /** @description The person's name from `norm.people` (active connections; the person's own `active` flag ignored, so a departed member keeps a name). Filled by the list only; null on a create response and for an account with no people row. */
+            displayName?: string | null;
         };
         TeamMembershipCreateRequest: {
             accountId: string;
@@ -2737,6 +2822,74 @@ export interface components {
             validFrom: number;
             /** Format: int64 */
             validTo?: number | null;
+        };
+        JiraTeamResponse: {
+            /** @description The Atlassian Team id — site-global. */
+            id: string;
+            name: string;
+            /**
+             * Format: int64
+             * @description Live issues carrying this team.
+             */
+            issueCount: number;
+        };
+        JiraTeamListResponse: {
+            items: components["schemas"]["JiraTeamResponse"][];
+        };
+        SeedConflictResponse: {
+            /** Format: int32 */
+            teamId: number;
+            teamName: string;
+        };
+        SeedCandidateResponse: {
+            accountId: string;
+            displayName: string;
+            /**
+             * Format: int64
+             * @description The person's live issues for the Atlassian Team.
+             */
+            issueCount: number;
+            /**
+             * Format: int64
+             * @description Epoch millis — creation of the person's earliest such issue.
+             */
+            firstSeen: number;
+            /**
+             * Format: int64
+             * @description Epoch millis — creation of the person's latest such issue.
+             */
+            lastSeen: number;
+            /**
+             * Format: int64
+             * @description Epoch millis — what seeding would store, the first instant of `firstSeen`'s day in the configured metrics zone.
+             */
+            validFrom: number;
+            /** @description The existing membership overlapping `[validFrom, ∞)`; null when the person can be seeded. */
+            conflict: components["schemas"]["SeedConflictResponse"] | null;
+        };
+        SeedCandidateListResponse: {
+            items: components["schemas"]["SeedCandidateResponse"][];
+        };
+        TeamMembershipSeedRequest: {
+            atlassianTeamId: string;
+            accountIds: string[];
+        };
+        SeededMembershipResponse: {
+            accountId: string;
+            /**
+             * Format: int64
+             * @description Epoch millis of the created open-ended membership's start.
+             */
+            validFrom: number;
+        };
+        SkippedSeedResponse: {
+            accountId: string;
+            /** @enum {string} */
+            reason: "CONFLICT" | "NOT_A_CANDIDATE";
+        };
+        TeamMembershipSeedResponse: {
+            created: components["schemas"]["SeededMembershipResponse"][];
+            skipped: components["schemas"]["SkippedSeedResponse"][];
         };
         HistogramBucket: {
             /** Format: double */
@@ -5341,6 +5494,70 @@ export interface operations {
             500: components["responses"]["InternalServerError"];
         };
     };
+    listTeamJiraMembershipSeedCandidates: {
+        parameters: {
+            query: {
+                /** @description The Atlassian Team id, as listed by `GET /api/v1/jira-teams`. */
+                atlassianTeamId: string;
+            };
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The candidates, ordered by display name */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SeedCandidateListResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    seedTeamJiraMemberships: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TeamMembershipSeedRequest"];
+            };
+        };
+        responses: {
+            /** @description What was created and what was skipped */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamMembershipSeedResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            413: components["responses"]["PayloadTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
     getTeamCapacity: {
         parameters: {
             query?: never;
@@ -6045,6 +6262,29 @@ export interface operations {
                 };
             };
             400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    listJiraTeams: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The Atlassian Teams */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JiraTeamListResponse"];
+                };
+            };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             500: components["responses"]["InternalServerError"];
