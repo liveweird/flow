@@ -43,7 +43,7 @@ class SprintCalendarRoutesTest {
     private fun SprintCalendarResponse.asDocument() = SprintCalendarDocument(
         teamCoefficient = teamCoefficient,
         days = days,
-        people = people.map { SprintCalendarPerson(it.accountId, it.enabled, it.coefficient, it.cells) },
+        people = people.map { SprintCalendarPerson(it.accountId, it.enabled, it.coefficient!!, it.cells) },
     )
 
     private fun SprintCalendarDocument.withPerson(index: Int, change: (SprintCalendarPerson) -> SprintCalendarPerson) =

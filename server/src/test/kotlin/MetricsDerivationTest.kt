@@ -11,9 +11,13 @@ import ch.nokillswit.metrics.MetricsBoardTeamMapping
 import ch.nokillswit.metrics.MetricsConfigService
 import ch.nokillswit.metrics.MetricsDeriver
 import ch.nokillswit.metrics.MetricsSettingsService
-import ch.nokillswit.metrics.MetricsSprintCapacity
 import ch.nokillswit.metrics.MetricsStore
 import ch.nokillswit.metrics.MetricsTables
+import ch.nokillswit.metrics.SprintCalendarCell
+import ch.nokillswit.metrics.SprintCalendarDay
+import ch.nokillswit.metrics.SprintCalendarDocument
+import ch.nokillswit.metrics.SprintCalendarPerson
+import ch.nokillswit.metrics.TeamCapacityRequest
 import ch.nokillswit.metrics.TeamMembershipCreateRequest
 import ch.nokillswit.metrics.TeamMembershipResponse
 import ch.nokillswit.metrics.TeamMembershipService
@@ -625,7 +629,6 @@ class MetricsDerivationTest {
                 activityTypes = current.activityTypes,
                 workCategories = current.workCategories,
                 blockedStatuses = current.blockedStatuses,
-                sprintCapacities = current.sprintCapacities,
             ),
         )
         return teamId
@@ -633,7 +636,8 @@ class MetricsDerivationTest {
 
     private fun deriver() =
         MetricsDeriver(
-            workItems(), metricsSettings(), metricsConfig(), domainOwners(), teamMembership(), metricsStore(), sharedDatabaseForTests(),
+            workItems(), metricsSettings(), metricsConfig(), domainOwners(), teamMembership(), CapacityFixtures.service(), metricsStore(),
+            sharedDatabaseForTests(),
         )
 
     private fun deriveClaim(id: UInt, connId: UInt) = SyncJobClaim(
@@ -1023,7 +1027,7 @@ class MetricsDerivationTest {
         }
 
     @Test
-    fun `sprint capacity defaults to Sigma members x working days (A3), then honors a configured override`() = runBlocking {
+    fun `sprint capacity resolves CALENDAR over TEAM_DEFAULT over the A3 DEFAULT`() = runBlocking {
         val connId = clonedProcessedConnection()
         val config = metricsConfig()
         val teamId = mapFloBoardToTeam(connId, config)
@@ -1077,41 +1081,63 @@ class MetricsDerivationTest {
                     "(expected $expectedDefaultCapacity, got ${dimRowDefault[MetricsTables.DimSprint.capacityMd]})",
             )
 
-            // An admin now configures an explicit override for this one sprint.
-            val current = config.effectiveConfig(connId)
-            config.replaceConfig(
-                connId,
-                DataSourceMetricsConfigRequest(
-                    statusStages = current.statusStages,
-                    fields = current.fields,
-                    domains = current.domains,
-                    boards = listOf(MetricsBoardTeamMapping(1L, teamId)),
-                    activityTypes = current.activityTypes,
-                    workCategories = current.workCategories,
-                    blockedStatuses = current.blockedStatuses,
-                    sprintCapacities = listOf(MetricsSprintCapacity(sprintId, CONFIGURED_CAPACITY_MD)),
-                ),
-            )
-            deriver().derive(SyncJobRunContext(deriveClaim(21u, connId), clock = { PINNED_NOW }) { _, _ -> true })
-
-            val dimRowConfigured = suspendTransaction(sharedDatabaseForTests()) {
-                MetricsTables.DimSprint.selectAll()
+            suspend fun sprintRows() = suspendTransaction(sharedDatabaseForTests()) {
+                val dim = MetricsTables.DimSprint.selectAll()
                     .where { (MetricsTables.DimSprint.connectionId eq connId) and (MetricsTables.DimSprint.sprintId eq sprintId) }
                     .toList().single()
-            }
-            val factRowConfigured = suspendTransaction(sharedDatabaseForTests()) {
-                MetricsTables.FactSprint.selectAll()
+                val fact = MetricsTables.FactSprint.selectAll()
                     .where { (MetricsTables.FactSprint.connectionId eq connId) and (MetricsTables.FactSprint.sprintId eq sprintId) }
                     .toList().single()
+                dim to fact
             }
-            assertEquals("CONFIGURED", dimRowConfigured[MetricsTables.DimSprint.capacitySource])
-            assertEquals(CONFIGURED_CAPACITY_MD, dimRowConfigured[MetricsTables.DimSprint.capacityMd]!!.toDouble())
-            assertEquals(CONFIGURED_CAPACITY_MD, factRowConfigured[MetricsTables.FactSprint.capacityMd]!!.toDouble())
-            val expectedLoad = factRowConfigured[MetricsTables.FactSprint.committedMd].toDouble() / CONFIGURED_CAPACITY_MD
-            assertTrue(
-                abs(expectedLoad - factRowConfigured[MetricsTables.FactSprint.load]!!.toDouble()) < CAPACITY_TOLERANCE,
-                "load must equal committed / capacity",
+
+            suspend fun assertCapacity(source: String, expectedMd: Double, claimId: UInt) {
+                val (dim, fact) = sprintRows()
+                assertEquals(source, dim[MetricsTables.DimSprint.capacitySource], "claim $claimId")
+                val storedDim = dim[MetricsTables.DimSprint.capacityMd]!!.toDouble()
+                val storedFact = fact[MetricsTables.FactSprint.capacityMd]!!.toDouble()
+                assertTrue(abs(expectedMd - storedDim) < CAPACITY_TOLERANCE, "dim_sprint $source")
+                assertTrue(abs(expectedMd - storedFact) < CAPACITY_TOLERANCE, "fact_sprint $source")
+                val expectedLoad = fact[MetricsTables.FactSprint.committedMd].toDouble() / expectedMd
+                assertTrue(
+                    abs(expectedLoad - fact[MetricsTables.FactSprint.load]!!.toDouble()) < CAPACITY_TOLERANCE,
+                    "load must equal committed / capacity",
+                )
+            }
+
+            // The team's default figure beats the A3 default.
+            val admin = TestUsers.seed(email = uniqueEmail("capacity-admin"), password = "pw")
+            val capacity = CapacityFixtures.service()
+            val request = TeamCapacityRequest(TEAM_DEFAULT_CAPACITY_MD)
+            val setDefault = capacity.replaceTeamCapacity(teamId, request, admin, callerIsAdmin = true)
+            assertTrue(setDefault.changed)
+            deriver().derive(SyncJobRunContext(deriveClaim(21u, connId), clock = { PINNED_NOW }) { _, _ -> true })
+            assertCapacity("TEAM_DEFAULT", TEAM_DEFAULT_CAPACITY_MD, 21u)
+
+            // A stored calendar beats the team default: the window's days over the SAME working calendar (WorkingCalendarTest owns that
+            // math), a hand-built document — member B off, the sprint's second working day off, member A at 0.8 with a half cell on the
+            // first working day, team coefficient 1.2 — and the figure computed by hand: 1.2 x 0.8 x ((n - 2) + 0.5) for n working days.
+            val window = generateSequence(calendar.dayOf(sprintStartAt)) { it.plusDays(1) }
+                .takeWhile { !it.isAfter(calendar.dayOf(maxOf(sprintStartAt, endAt - 1))) }.toList()
+            val working = window.filter { calendar.isWorkingDay(it) }
+            assertTrue(working.size >= 3, "the golden sprint spans at least three working days")
+            val document = SprintCalendarDocument(
+                teamCoefficient = 1.2,
+                days = window.map { SprintCalendarDay(it.toString(), it in working && it != working[1]) },
+                people = listOf(
+                    SprintCalendarPerson(
+                        accountA, enabled = true, coefficient = 0.8,
+                        cells = window.map { SprintCalendarCell(it.toString(), if (it == working[0]) 0.5 else 1.0) },
+                    ),
+                    SprintCalendarPerson(
+                        accountB, enabled = false, coefficient = 1.0, cells = window.map { SprintCalendarCell(it.toString(), 1.0) },
+                    ),
+                ),
             )
+            capacity.replace(teamId, sprintId, document, admin, callerIsAdmin = true, calendar = calendar)
+            deriver().derive(SyncJobRunContext(deriveClaim(22u, connId), clock = { PINNED_NOW }) { _, _ -> true })
+            assertCapacity("CALENDAR", 1.2 * 0.8 * ((working.size - 2) + 0.5), 22u)
+
         } finally {
             membershipService.delete(teamId, membershipA.id)
             membershipService.delete(teamId, membershipB.id)
@@ -1676,8 +1702,7 @@ class MetricsDerivationTest {
                     activityTypes = current.activityTypes,
                     workCategories = current.workCategories,
                     blockedStatuses = current.blockedStatuses,
-                    sprintCapacities = current.sprintCapacities,
-                ),
+                    ),
             )
 
             // Written directly rather than through the now-existing PUT (v0.3.0 M3 commit 9e,
@@ -2765,7 +2790,7 @@ class MetricsDerivationTest {
     private companion object {
         const val PINNED_NOW = 1_772_668_800_000L // 2026-03-05T00:00:00Z, per the v0.3.0 plan's pinned-clock convention
         const val THIRTY_DAYS_MS = 30L * 24 * 60 * 60 * 1000
-        const val CONFIGURED_CAPACITY_MD = 42.0
+        const val TEAM_DEFAULT_CAPACITY_MD = 42.0
         const val CAPACITY_TOLERANCE = 0.01
         const val HOURS_PER_DAY = 8.0
         const val FLO_BOARD_ID = 1L

@@ -26,7 +26,8 @@ const val DEFAULT_AVAILABILITY = 1.0
  * (A3) is evaluated over.
  */
 data class SprintWindow(val fromDay: LocalDate, val toDay: LocalDate, val startMs: Long, val endMs: Long) {
-    val dayCount: Int get() = (ChronoUnit.DAYS.between(fromDay, toDay) + 1).toInt()
+    // Clamped, never wrapped: an absurd end instant must read as "far over the cap", not overflow back under MAX_CALENDAR_DAYS.
+    val dayCount: Int get() = (ChronoUnit.DAYS.between(fromDay, toDay) + 1).coerceIn(0, Int.MAX_VALUE.toLong()).toInt()
 
     /** Every day, first to last — call only on a window [resolveSprintWindow] accepted (at most [MAX_CALENDAR_DAYS]). */
     val days: List<LocalDate> get() = (0 until dayCount).map { fromDay.plusDays(it.toLong()) }

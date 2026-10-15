@@ -36,7 +36,6 @@ const OPTIONS: DataSourceMetricsConfigOptions = {
   issueTypes: ["Story"],
   workCategoryValues: [],
   workCategoryValuesTruncated: false,
-  sprints: [],
 };
 
 function baseConfig(configured: boolean) {
@@ -50,7 +49,6 @@ function baseConfig(configured: boolean) {
     activityTypes: [{ issueType: "Story", activityType: "Story" }],
     workCategories: [],
     blockedStatuses: [],
-    sprintCapacities: [],
   };
 }
 
@@ -165,8 +163,7 @@ describe("DataSourceMetricsConfig page", () => {
       activityTypes: [{ issueType: "Story", activityType: "Story" }],
       workCategories: [],
       blockedStatuses: [],
-      sprintCapacities: [],
-    });
+      });
   });
 
   test("a board-team 409 marks the offending board row inline", async () => {
@@ -326,10 +323,9 @@ describe("DataSourceMetricsConfig page", () => {
     ]);
   });
 
-  test("editing domains, activity types, a chosen work category and a sprint capacity updates the PUT body", async () => {
+  test("editing domains, activity types, and a chosen work category updates the PUT body", async () => {
     serve(mockFetch, {
       config: { ...baseConfig(true), workCategories: [{ valueId: "v1", valueName: "Bug", category: "Stored default" }] },
-      optionsOverride: { sprints: [{ sprintId: 11, boardId: 1, name: "Sprint 1", state: "active" }] },
       workCategoryValuesByField: { customfield_10002: [{ valueId: "v1", valueName: "Bug" }] },
     });
     const user = userEvent.setup();
@@ -366,10 +362,6 @@ describe("DataSourceMetricsConfig page", () => {
     await user.clear(categoryInput);
     await user.type(categoryInput, "Defect");
 
-    await user.click(screen.getByRole("tab", { name: "Capacities" }));
-    const capacityInput = screen.getByLabelText("Capacity for Sprint 1") as HTMLInputElement;
-    await user.type(capacityInput, "10");
-
     await user.click(screen.getByRole("button", { name: /^save$/i }));
 
     const putCall = await waitFor(() => {
@@ -382,7 +374,6 @@ describe("DataSourceMetricsConfig page", () => {
     expect(body.activityTypes).toEqual([{ issueType: "Story", activityType: "Feature work" }]);
     expect(body.fields.workCategory).toBe("customfield_10002");
     expect(body.workCategories).toEqual([{ valueId: "v1", valueName: "Bug", category: "Defect" }]);
-    expect(body.sprintCapacities).toEqual([{ sprintId: 11, capacityMd: 10 }]);
   }, 20_000); // a long multi-tab editing journey: well under a second locally, but past vitest's 5 s default on a loaded CI runner
 
   function putBodyOf(): { domainStatusStages: unknown } {

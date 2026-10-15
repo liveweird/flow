@@ -82,7 +82,7 @@
   throwaway connection instead, trading a second ~1-2 minute stub sync for full per-test
   independence (no test relies on another test's connection surviving or running first) — the
   same "each spec/test owns its own state" rule the rest of the suite follows.
-- **Every metrics-config tab** (Fields, Domains, Activity types, Work categories, Capacities) and
+- **Every metrics-config tab** (Fields, Domains, Activity types, Work categories) and
   every settings field — pinned by the server's `MetricsConfigRoutesTest`/`MetricsSettingsRoutesTest`
   and the SPA's `DataSourceMetricsConfig.test.tsx`/`MetricsSettings.test.tsx`; the journey drives
   the Boards/Statuses tabs and a couple of settings fields as its representative path.

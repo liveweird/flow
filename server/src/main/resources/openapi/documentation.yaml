@@ -874,8 +874,9 @@ paths:
         calendar). The rows are the team's Jira members overlapping the sprint; the columns the sprint's calendar days in the
         configured zone. Defaults are materialized on read when nothing is stored (`hasCalendar: false`: working days counted,
         weekends/holidays off, every cell 1, coefficients carried from the team's most recent earlier calendar); a stored
-        calendar is re-projected onto the sprint's CURRENT window and roster, so `capacityMd` is always what the next DERIVE
-        stores. A sprint without a start date, or one spanning over 60 days, answers `window: null` with a `note` and an empty
+        calendar is re-projected onto the sprint's CURRENT window and roster, so `capacityMd` is the capacity of THIS grid if
+        saved (`derivedCapacityMd`/`derivedCapacitySource` are the figure reports use now). Each person's `coefficient` is
+        shown to the team's manager and ADMINs only (`null` otherwise); `canEdit` says which. A sprint without a start date, or one spanning over 60 days, answers `window: null` with a `note` and an empty
         grid. A missing or soft-deleted team, or a sprint that is not this team's, is `404`.
       responses:
         '200':
@@ -1313,7 +1314,7 @@ paths:
         nothing is stored yet — every field is a COMPUTED default (status → stage from Jira's
         status category; the profile-detected story-points field for both estimate roles;
         `duedate` for the epic due date; 1:1 project → domain and issue type → activity type; no
-        board → team mappings, blocked statuses, work categories or sprint capacities).
+        board → team mappings, blocked statuses or work categories).
       responses:
         '200':
           description: The connection's effective metrics configuration
@@ -1331,9 +1332,9 @@ paths:
       operationId: updateDataSourceMetricsConfig
       summary: Replace a data source's metrics configuration
       description: >-
-        ADMIN only, guard before the body decode. A full replace over all eight per-connection
+        ADMIN only, guard before the body decode. A full replace over all seven per-connection
         config tables in one transaction — every id is validated against this connection's own
-        `norm` reference rows (statuses, boards, sprints, project keys, issue types) and its
+        `norm` reference rows (statuses, boards, project keys, issue types) and its
         stored data profile (field ids), else `400`; a board mapped to a team already mapped
         elsewhere is `409` (D10: one board per team); a `domainStatusStages` override must name a
         domain the same request defines and a known status, once per (domain, status). Bumps the shared `configRevision` unless
@@ -1364,7 +1365,7 @@ paths:
       summary: Get the reference data for a data source's metrics configuration
       description: |
         ADMIN only, read-only. Statuses (with category), custom fields (with the profile's
-        detected role), project keys, boards, issue types and sprints per board — the picklists
+        detected role), project keys, boards and issue types — the picklists
         the metrics-config editor uses. `workCategoryValues` is populated only when
         `?workCategoryField=` names a field id, from that field's own distinct observed values
         across this connection's live work items, capped at 200 (`workCategoryValuesTruncated:
@@ -1471,8 +1472,8 @@ paths:
         snapshot scope by the same rule as the live ones; null when the sprint has no snapshot);
         `byUser` splits each sprint into one entry per picked account in request order (live
         figures, zeros included; empty at UNIT/TEAM level) and `groups` lists each picked account's
-        period totals. `capacityMd`/`capacitySource` are the team's sprint capacity (A3: a configured
-        override, else members × working days; null when the sprint has none) at UNIT and TEAM
+        period totals. `capacityMd`/`capacitySource` are the team's sprint capacity (A3, A32: the sprint's
+        calendar, else the team's default figure, else members × working days; null when the sprint has none) at UNIT and TEAM
         level, always null at USER level (capacity is team-only). `teamId=0` (UNASSIGNED) is always empty — a
         sprint always carries a real team or is excluded from this report. Commitments carries no
         domain slice, so `domainView` is echoed in `meta` but never changes the result. An active or
@@ -3561,15 +3562,9 @@ components:
         valueId: { type: string }
         valueName: { type: string, nullable: true }
         category: { type: string, maxLength: 100 }
-    MetricsSprintCapacity:
-      type: object
-      required: [sprintId, capacityMd]
-      properties:
-        sprintId: { type: integer, format: int64 }
-        capacityMd: { type: number, format: double, minimum: 0, maximum: 999999.99, description: "Man-days, at most two decimals (`NUMERIC(8, 2)`)." }
     DataSourceMetricsConfig:
       type: object
-      required: [configured, statusStages, domainStatusStages, fields, domains, boards, activityTypes, workCategories, blockedStatuses, sprintCapacities]
+      required: [configured, statusStages, domainStatusStages, fields, domains, boards, activityTypes, workCategories, blockedStatuses]
       properties:
         configured: { type: boolean, description: "False means every field below is a COMPUTED default, nothing is stored yet." }
         statusStages:
@@ -3596,9 +3591,6 @@ components:
         blockedStatuses:
           type: array
           items: { type: string }
-        sprintCapacities:
-          type: array
-          items: { $ref: '#/components/schemas/MetricsSprintCapacity' }
     DataSourceMetricsConfigRequest:
       type: object
       properties:
@@ -3626,9 +3618,6 @@ components:
         blockedStatuses:
           type: array
           items: { type: string }
-        sprintCapacities:
-          type: array
-          items: { $ref: '#/components/schemas/MetricsSprintCapacity' }
     MetricsStatusOption:
       type: object
       required: [statusId, name, category, inWorkflow, seenInHistory, inEpicWorkflow, inTaskWorkflow]
@@ -3659,14 +3648,6 @@ components:
         boardId: { type: integer, format: int64 }
         name: { type: string }
         projectKey: { type: string, nullable: true }
-    MetricsSprintOption:
-      type: object
-      required: [sprintId, name, state]
-      properties:
-        sprintId: { type: integer, format: int64 }
-        boardId: { type: integer, format: int64, nullable: true }
-        name: { type: string }
-        state: { type: string }
     MetricsFieldValueOption:
       type: object
       required: [valueId]
@@ -3675,7 +3656,7 @@ components:
         valueName: { type: string, nullable: true }
     DataSourceMetricsConfigOptions:
       type: object
-      required: [statuses, fields, projects, boards, issueTypes, workCategoryValues, workCategoryValuesTruncated, sprints]
+      required: [statuses, fields, projects, boards, issueTypes, workCategoryValues, workCategoryValuesTruncated]
       properties:
         statuses:
           type: array
@@ -3698,9 +3679,6 @@ components:
         workCategoryValuesTruncated:
           type: boolean
           description: "True when the field carries more than 200 distinct values — the response shows only the first 200 (by id)."
-        sprints:
-          type: array
-          items: { $ref: '#/components/schemas/MetricsSprintOption' }
 
     MetricsSettingsResponse:
       type: object
@@ -3803,6 +3781,7 @@ components:
         updatedAt: { type: integer, format: int64, nullable: true, description: "Epoch millis of the last change; null when never set." }
     TeamCapacityRequest:
       type: object
+      required: [defaultCapacityMd]
       properties:
         defaultCapacityMd:
           type: number
@@ -3810,7 +3789,7 @@ components:
           minimum: 0
           maximum: 999999.99
           nullable: true
-          description: "Man-days, at most two decimals; null or omitted clears the default."
+          description: "Man-days, at most two decimals. An explicit null clears the default; an omitted field is a 400, so a client bug never clears it silently."
     SprintCalendarDay:
       type: object
       required: [day, enabled]
@@ -3867,7 +3846,7 @@ components:
         displayName: { type: string, description: "The Jira display name; the account id when no connection knows it." }
         member: { type: boolean, description: "Whether the person is a member of the team during the sprint now (false = a stored row of a former member)." }
         enabled: { type: boolean }
-        coefficient: { type: number, format: double }
+        coefficient: { type: number, format: double, nullable: true, description: "The person's productivity coefficient — only for the team's manager or an ADMIN (null for everyone else; the availability grid itself is visible to every authenticated user)." }
         cells:
           type: array
           items:
@@ -3888,7 +3867,7 @@ components:
         note: { type: string, nullable: true, description: "Why there is no window; null otherwise." }
         hasCalendar: { type: boolean, description: "False = the grid shows computed defaults, nothing is stored yet." }
         canEdit: { type: boolean }
-        capacityMd: { type: number, format: double, nullable: true, description: "The formula over the grid as shown (what the next DERIVE stores); null without a window." }
+        capacityMd: { type: number, format: double, nullable: true, description: "The capacity of THIS grid if saved: the formula over the grid as shown; null without a window. The figure reports currently use is derivedCapacityMd." }
         teamCoefficient: { type: number, format: double }
         days:
           type: array
@@ -3898,7 +3877,7 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/SprintCalendarPersonView'
-        derivedCapacityMd: { type: number, format: double, nullable: true, description: "The sprint's capacity as of the last DERIVE; may lag a save." }
+        derivedCapacityMd: { type: number, format: double, nullable: true, description: "The EFFECTIVE capacity reports currently use, as of the last DERIVE (the calendar, the team default or members × working days); may lag a save." }
         derivedCapacitySource:
           type: string
           enum: [CALENDAR, TEAM_DEFAULT, DEFAULT, CONFIGURED]
@@ -4117,12 +4096,12 @@ components:
           allOf: [{ $ref: '#/components/schemas/CommitmentsSnapshot' }]
           nullable: true
         drift: { type: boolean }
-        capacityMd: { type: number, format: double, nullable: true, description: "The team's sprint capacity in man-days (A3). Null when the sprint has none, and always null at USER level (capacity is team-only)." }
+        capacityMd: { type: number, format: double, nullable: true, description: "The team's sprint capacity in man-days (A3, A32). Null when the sprint has none, and always null at USER level (capacity is team-only)." }
         capacitySource:
           type: string
-          enum: [CONFIGURED, DEFAULT]
+          enum: [CALENDAR, TEAM_DEFAULT, DEFAULT, CONFIGURED]
           nullable: true
-          description: "CONFIGURED = an admin-set override, DEFAULT = members × working days. Null exactly when capacityMd is null."
+          description: "CALENDAR = the sprint's calendar, TEAM_DEFAULT = the team's default figure, DEFAULT = members × working days (A3); CONFIGURED is the pre-V24 per-sprint override, read back only from rows not yet re-derived. Null exactly when capacityMd is null."
         byUser:
           type: array
           description: "USER level only: one entry per picked account, in request order, zeros included; empty at UNIT/TEAM level."

@@ -29,7 +29,10 @@ const CommitmentsChart = lazy(() => import("../components/CommitmentsChart"));
  */
 const CONTROLS: ReportControls = { teamRequired: true, multiMember: true };
 
-/** The capacity cell: the MD, and a neutral "default" badge when it is the computed default (members × working days) — words, not colour. */
+/**
+ * The capacity cell: the MD, and a neutral badge when it is not the sprint's own calendar — "team default" (the team's figure) or
+ * "default" (members × working days) — words, not colour. A legacy CONFIGURED row (not yet re-derived) shows the figure bare.
+ */
 function CapacityCell({ sprint }: { sprint: CommitmentsSprint }) {
   const { t } = useTranslation();
   if (sprint.capacityMd === null) return "—";
@@ -38,9 +41,9 @@ function CapacityCell({ sprint }: { sprint: CommitmentsSprint }) {
       <Text span size="sm">
         {formatMd(sprint.capacityMd)}
       </Text>
-      {sprint.capacitySource === "DEFAULT" && (
+      {(sprint.capacitySource === "DEFAULT" || sprint.capacitySource === "TEAM_DEFAULT") && (
         <Badge color="gray" variant="light" size="sm">
-          {t("reports.commitments.defaultBadge")}
+          {t(sprint.capacitySource === "DEFAULT" ? "reports.commitments.defaultBadge" : "reports.commitments.teamDefaultBadge")}
         </Badge>
       )}
     </Group>

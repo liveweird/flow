@@ -41,8 +41,8 @@ const tiltedAxis = (rows: readonly unknown[]) =>
 /**
  * Committed + final bars and the capacity as a dashed gray line with dots (one marker per sprint, ≥ 8 px): ONE axis, all
  * MD. A sprint with no capacity has no marker (`connectNulls` off — a gap, never a zero), and the whole series stays out
- * when no sprint has one. A DEFAULT capacity is told from a configured one by words, not colour: the tooltip says it is
- * members × working days (and the table beside the chart carries a "default" badge).
+ * when no sprint has one. Where the capacity comes from (the calendar, the team default, members × working days) is told by words,
+ * not colour: the tooltip names the source (and the table beside the chart carries a "default"/"team default" badge).
  */
 function TeamChart({ rows }: { rows: CommitmentsChartRow[] }) {
   const { t } = useTranslation();

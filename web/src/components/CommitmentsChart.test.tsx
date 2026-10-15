@@ -98,7 +98,7 @@ describe("CommitmentsChart — team mode", () => {
     expect(attr("composite-chart", "data-series").map((s: { name: string }) => s.name)).toEqual(["initialMd", "finalMd"]);
   });
 
-  test("the tooltip names a default capacity in words, a configured one too, and drops the capacity entry of a sprint without one", () => {
+  test("the tooltip names the capacity source in words (calendar, team default, default, legacy configured), and drops the capacity entry of a sprint without one", () => {
     renderWithProviders(<CommitmentsChart mode="team" rows={[row("S1", { capacityMd: 25, capacitySource: "DEFAULT" })]} />);
     const payload = (capacityMd: number | null, capacitySource: CommitmentsChartRow["capacitySource"]) => [
       { name: "initialMd", payload: row("S1", { capacityMd, capacitySource }) },
@@ -108,7 +108,9 @@ describe("CommitmentsChart — team mode", () => {
     expect(content({ label: "S1", payload: payload(25, "DEFAULT") }).props.label).toBe(
       "S1 · Capacity: default (members × working days)",
     );
-    expect(content({ label: "S1", payload: payload(12, "CONFIGURED") }).props.label).toBe("S1 · Capacity: configured");
+    expect(content({ label: "S1", payload: payload(12, "CONFIGURED") }).props.label).toBe("S1 · Capacity: configured (legacy)");
+    expect(content({ label: "S1", payload: payload(12, "CALENDAR") }).props.label).toBe("S1 · Capacity: sprint calendar");
+    expect(content({ label: "S1", payload: payload(12, "TEAM_DEFAULT") }).props.label).toBe("S1 · Capacity: team default");
     const none = content({ label: "S1", payload: payload(null, null) });
     expect(none.props.label).toBe("S1");
     expect(none.props.payload.map((entry) => entry.name)).toEqual(["initialMd"]);

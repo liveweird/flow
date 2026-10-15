@@ -105,8 +105,7 @@
       "domains": "Domeny",
       "boards": "Tablice",
       "activityTypes": "Typy aktywności",
-      "workCategories": "Kategorie pracy",
-      "capacities": "Pojemności"
+      "workCategories": "Kategorie pracy"
     },
     "statuses": {
       "columnStatus": "Status",
@@ -196,12 +195,6 @@
       "empty": "Nie widzimy jeszcze żadnych wartości dla tego pola.",
       "chooseField": "Najpierw wybierz pole kategorii pracy na karcie Pola.",
       "truncated": "Pokazujemy tylko pierwsze 200 różnych wartości."
-    },
-    "capacities": {
-      "columnCapacity": "Pojemność (osobodni)",
-      "capacityAria": "Pojemność dla {{sprint}}",
-      "capacityHint": "Puste pole używa wyliczonej wartości domyślnej (członkowie/kinie × dni robocze).",
-      "empty": "Nie widzimy jeszcze żadnych sprintów — najpierw zsynchronizuj to połączenie."
     }
   }
 }

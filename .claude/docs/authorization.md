@@ -78,12 +78,15 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     `team.member_added/member_removed`. Tests: `TeamTest`, `GuardsTest`.
   - `/api/v1/teams/{id}/capacity` and `/api/v1/teams/{id}/sprint-calendars[/{sprintId}]` (V24, domain-model A32,
     `metrics/SprintCalendarRoutes.kt`) → **reads any authenticated** (a conscious D12 extension: the grid is a per-person
-    per-day availability, effectively an absence calendar), **writes (the two `PUT`s) ADMIN or the team's own ACTIVE
+    per-day availability, effectively an absence calendar — visible to everyone; each person's productivity `coefficient` is
+    shown only to editors, i.e. the team's active manager and ADMINs, and is `null` for every other reader; the team coefficient
+    and the totals stay visible. A safe default the user can loosen), **writes (the two `PUT`s) ADMIN or the team's own ACTIVE
     manager**. The write order is `requireTeamManagerOrAdmin` FIRST — before the team lookup, the sprint lookup, the body
     decode and any validation — so a plain user, a manager of ANOTHER team, a cleared grant, a soft-deleted manager and the
     manager of a soft-deleted team all get a uniform 403 (a malformed body or an unknown id included); then `404` (an ADMIN
     on a missing/soft-deleted team; a sprint that is not THIS team's — nothing is modified), `400` (shape: ranges, scales,
-    duplicates; window: `days`/`cells` must be exactly the sprint's window; an unknown Jira account id), `409` (the sprint
+    duplicates; window: `days`/`cells` must be exactly the sprint's window; an unknown Jira account id — one that no ACTIVE connection's `norm.people` knows and that is neither on the stored document nor the
+    current roster, so the page's own document is always saveable), `409` (the sprint
     has no start date). The path's `teamId` is bound once and handed to both the guard and the service; every write
     predicate carries `team_id = teamId`. The service re-checks a NON-admin caller's grant inside its write transaction after
     `TeamService.Teams.lockActiveForUpdate(teamId)` (the `TeamMembershipService.create` precedent; `TeamService.update`'s

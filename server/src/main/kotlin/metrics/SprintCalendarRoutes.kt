@@ -80,11 +80,13 @@ private fun Route.teamCapacityRoutes(service: SprintCalendarService, teams: Team
         service.requireTeam(route.id)
         val request = call.receive<TeamCapacityRequest>()
         validateTeamCapacity(request)
-        if (service.replaceTeamCapacity(route.id, request, caller.userId, caller.isAdmin())) {
+        val outcome = service.replaceTeamCapacity(route.id, request, caller.userId, caller.isAdmin())
+        if (outcome.changed) {
             audit(
                 "team.capacity_default_updated",
                 "byUserId" to caller.userId.toLong(),
                 "teamId" to route.id.toLong(),
+                "defaultCapacityMdFrom" to outcome.from,
                 "defaultCapacityMd" to request.defaultCapacityMd,
                 "authorizedBy" to caller.authorizedBy(),
             )
@@ -121,7 +123,9 @@ private fun Route.sprintCalendarRoutes(service: SprintCalendarService, teams: Te
                 "teamId" to teamId.toLong(),
                 "sprintId" to route.sprintId,
                 "connectionId" to outcome.connectionId.toLong(),
+                "capacityMdFrom" to outcome.capacityMdFrom,
                 "capacityMd" to outcome.capacityMd,
+                "replacedTeamId" to outcome.replacedTeamId?.toLong(),
                 "authorizedBy" to caller.authorizedBy(),
             )
         }

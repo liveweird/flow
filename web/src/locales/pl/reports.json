@@ -117,11 +117,14 @@
       "final": "{{name}} · końcowy"
     },
     "capacitySource": {
+      "CALENDAR": "Pojemność: kalendarz sprintu",
+      "TEAM_DEFAULT": "Pojemność: domyślna zespołu",
       "DEFAULT": "Pojemność: domyślna (liczba osób × dni robocze)",
-      "CONFIGURED": "Pojemność: skonfigurowana"
+      "CONFIGURED": "Pojemność: skonfigurowana (stara)"
     },
     "defaultBadge": "domyślna",
-    "loadNote": "Obciążenie to zakres początkowy podzielony przez pojemność; myślnik oznacza sprint bez pojemności albo z pojemnością 0. Pojemność domyślna to liczba osób razy liczba dni roboczych sprintu.",
+    "teamDefaultBadge": "domyślna zespołu",
+    "loadNote": "Obciążenie to zakres początkowy podzielony przez pojemność; myślnik oznacza sprint bez pojemności albo z pojemnością 0. Pojemnością jest kalendarz sprintu, a bez niego domyślna wartość zespołu, a bez niej liczba osób razy liczba dni roboczych sprintu.",
     "personTotalsTitle": "Sumy według osób",
     "sharesTitle": "Udział każdej osoby w każdym sprincie",
     "sharesAria": "Zakres początkowy i końcowy każdej osoby w sprintach",

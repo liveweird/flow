@@ -15,7 +15,6 @@ import type {
 export const DOMAIN_KEY_MAX_LENGTH = 50;
 export const DOMAIN_NAME_MAX_LENGTH = 100;
 export const CATEGORY_MAX_LENGTH = 100;
-export const CAPACITY_MD_MAX = 999999.99;
 
 export type MetricsStage = "NOT_STARTED" | "IN_PROGRESS" | "WAITING" | "DONE";
 export const METRICS_STAGES: MetricsStage[] = ["NOT_STARTED", "IN_PROGRESS", "WAITING", "DONE"];
@@ -72,15 +71,6 @@ export interface WorkCategoryRowState {
   category: string;
 }
 
-export interface CapacityRowState {
-  sprintId: number;
-  boardId: number | null;
-  name: string;
-  state: string;
-  /** "" means unset — DERIVE falls back to the computed default. Carried as text for the NumberInput. */
-  capacityMd: string;
-}
-
 export interface FieldsState {
   estimateTask: string;
   estimateEpic: string;
@@ -98,7 +88,6 @@ export interface MetricsConfigFormState {
   boards: BoardRowState[];
   activityTypes: ActivityRowState[];
   workCategories: WorkCategoryRowState[];
-  sprintCapacities: CapacityRowState[];
 }
 
 /**
@@ -158,15 +147,6 @@ export function buildInitialState(
     activityType: activityTypeByIssueType.get(issueType) ?? issueType,
   }));
 
-  const capacityBySprintId = new Map(config.sprintCapacities.map((c) => [c.sprintId, c.capacityMd]));
-  const sprintCapacities: CapacityRowState[] = options.sprints.map((s) => ({
-    sprintId: s.sprintId,
-    boardId: s.boardId ?? null,
-    name: s.name,
-    state: s.state,
-    capacityMd: capacityBySprintId.has(s.sprintId) ? String(capacityBySprintId.get(s.sprintId)) : "",
-  }));
-
   // workCategories starts empty — it only has rows once a work-category field is chosen and its
   // own values query resolves (mergeWorkCategoryValues below), same as the stored config's own
   // "empty until a field is chosen" default (`.claude/docs/metrics.md`).
@@ -176,7 +156,7 @@ export function buildInitialState(
     stage: o.stage,
   }));
 
-  return { statuses, domainStages, fields, domains, boards, activityTypes, workCategories: [], sprintCapacities };
+  return { statuses, domainStages, fields, domains, boards, activityTypes, workCategories: [] };
 }
 
 /**
@@ -226,9 +206,6 @@ export function buildRequest(state: MetricsConfigFormState): DataSourceMetricsCo
           .map((w) => ({ valueId: w.valueId, valueName: w.valueName, category: w.category }))
       : [],
     blockedStatuses: state.statuses.filter((s) => s.blocked).map((s) => s.statusId),
-    sprintCapacities: state.sprintCapacities
-      .filter((c) => c.capacityMd !== "")
-      .map((c) => ({ sprintId: c.sprintId, capacityMd: Number(c.capacityMd) })),
   };
 }
 

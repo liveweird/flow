@@ -243,7 +243,7 @@ export async function syncStubDataSourceViaApi(api: APIRequestContext, namePrefi
  * board mapped to it (D10 — a sprint is a team's sprint only through its board). Every other
  * setting keeps the COMPUTED defaults (the config PUT is a full replace, so the current effective
  * config is read first and written back with only `boards` changed). The caller owns the team.
- * Sprint capacities and the Jira-user roster are deliberately not seeded — the commitments,
+ * Team capacity and the Jira-user roster are deliberately not seeded — the commitments,
  * throughput, sprint-consistency, estimation and cycle-time figures do not read them.
  */
 export async function configureMetricsViaApi(
@@ -274,7 +274,6 @@ export async function configureMetricsViaApi(
         activityTypes: current.activityTypes,
         workCategories: current.workCategories,
         blockedStatuses: current.blockedStatuses,
-        sprintCapacities: current.sprintCapacities,
       },
     });
     expect(saved.ok(), await saved.text()).toBeTruthy();

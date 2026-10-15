@@ -61,7 +61,7 @@ class SourceFileSizeTest {
             "reports/ReportSupport.kt" to 491,
             "jira/JiraNormalizer.kt" to 463,
             "metrics/DeriveTaskRows.kt" to 439,
-            "metrics/MetricsConfigService.kt" to 432,
+            "metrics/MetricsConfigService.kt" to 418,
             "metrics/MetricsTables.kt" to 406,
         )
     }

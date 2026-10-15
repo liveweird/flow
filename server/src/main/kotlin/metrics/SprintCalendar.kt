@@ -55,14 +55,16 @@ data class SprintCalendarPersonView(
     val displayName: String,
     val member: Boolean,
     val enabled: Boolean,
-    val coefficient: Double,
+    /** Null unless the caller can edit the team's capacity: a person's coefficient is shown to the manager or an ADMIN only. */
+    val coefficient: Double?,
     val cells: List<SprintCalendarCell>,
 )
 
 /**
  * One sprint's calendar as the page shows it. [window] is null (and [days]/[people] empty, [note] says why) for a sprint without a
- * start date or one spanning over [MAX_CALENDAR_DAYS] days. [capacityMd] is the formula over the PROJECTED document (current window and
- * roster, what the next DERIVE stores); [derivedCapacityMd]/[derivedCapacitySource] are `dim_sprint` as of the last DERIVE and may lag.
+ * start date or one spanning over [MAX_CALENDAR_DAYS] days. [capacityMd] is the capacity of THIS grid if saved: the formula over the
+ * PROJECTED document (current window and roster). [derivedCapacityMd]/[derivedCapacitySource] are the EFFECTIVE figure and where it came
+ * from, `dim_sprint` as of the last DERIVE (the calendar, the team default or members × working days) — they may lag and differ.
  */
 @Serializable
 data class SprintCalendarResponse(
@@ -106,9 +108,9 @@ data class SprintCalendarListResult(val items: List<SprintCalendarSummary>, val 
 @Serializable
 data class TeamCapacityResponse(val teamId: UInt, val defaultCapacityMd: Double?, val canEdit: Boolean, val updatedAt: Long?)
 
-/** The team's one default figure; null clears it ("no default"). */
+/** The team's one default figure; an explicit null clears it ("no default"), an omitted field is a 400 (never a silent clear). */
 @Serializable
-data class TeamCapacityRequest(val defaultCapacityMd: Double? = null)
+data class TeamCapacityRequest(val defaultCapacityMd: Double?)
 
 /** Trims every account id (a control character is a 400); idempotent. */
 fun sanitizedSprintCalendar(document: SprintCalendarDocument): SprintCalendarDocument =

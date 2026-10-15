@@ -57,7 +57,7 @@ fun Application.configureMetrics() {
     val teamMembership = TeamMembershipService(database, metricsSettings)
     attributes.put(TeamMembershipServiceKey, teamMembership)
     // Capacity management (A32): the team default + per-sprint calendars. Its routes are `SprintCalendarRoutes.kt`; its DERIVE input
-    // and PURGE drain are plugged in below (the deriver takes it in B3).
+    // and PURGE drain are plugged in below.
     val sprintCalendars = SprintCalendarService(database, metricsSettings, teamMembership, attributes[TeamServiceKey])
     attributes.put(SprintCalendarServiceKey, sprintCalendars)
     val metricsStore = MetricsStore(database)
@@ -71,7 +71,8 @@ fun Application.configureMetrics() {
     // still needs the handlers present). Harmless under `web`: the registry is only read by the worker.
     jobHandlerRegistry().registerMetricsHandlers(
         deriver = MetricsDeriver(
-            workItemStore, metricsSettings, metricsConfig, domainOwners, teamMembership, metricsStore, database, jobRetentionDays,
+            workItemStore, metricsSettings, metricsConfig, domainOwners, teamMembership, sprintCalendars, metricsStore, database,
+            jobRetentionDays,
         ),
         metricsConfig = metricsConfig,
         sprintCalendars = sprintCalendars,

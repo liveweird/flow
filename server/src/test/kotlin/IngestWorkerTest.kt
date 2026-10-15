@@ -162,6 +162,7 @@ class IngestWorkerTest {
         metricsConfig(dataSources),
         domainOwners(),
         TeamMembershipService(sharedDatabaseForTests(), metricsSettings(dataSources)),
+        sprintCalendars(dataSources),
         metricsStore(),
         sharedDatabaseForTests(),
     )

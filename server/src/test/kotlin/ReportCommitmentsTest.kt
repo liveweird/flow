@@ -1,8 +1,11 @@
 package ch.nokillswit
 
-import ch.nokillswit.metrics.MetricsSprintCapacity
 import ch.nokillswit.metrics.MetricsTables
-import ch.nokillswit.metrics.asRequest
+import ch.nokillswit.metrics.SprintCalendarCell
+import ch.nokillswit.metrics.SprintCalendarDocument
+import ch.nokillswit.metrics.SprintCalendarPerson
+import ch.nokillswit.metrics.TeamCapacityRequest
+import ch.nokillswit.metrics.WorkingCalendar
 import ch.nokillswit.reports.CommitmentsReport
 import ch.nokillswit.reports.frozenContributionsOf
 import io.ktor.client.call.body
@@ -463,27 +466,44 @@ class ReportCommitmentsTest {
     }
 
     @Test
-    fun `a configured sprint capacity overrides the default at UNIT and TEAM level`() = testApplication {
+    fun `a sprint calendar and a team default override the default at UNIT and TEAM level`() = testApplication {
         usePostgresTestcontainer()
         val sprintId = reportCommitmentsGolden.sprintId
         val (connId, teamId) = FrozenScopeFixtures.derivedDisabledClone("jira-commitments-capacity", "commitments-capacity-team")
-        val configured = 42.5
-        val config = DerivedStubFixture.metricsConfig()
-        val current = config.effectiveConfig(connId)
-        config.replaceConfig(connId, current.asRequest().copy(sprintCapacities = listOf(MetricsSprintCapacity(sprintId, configured))))
-        DerivedStubFixture.withPinnedSettings(DerivedStubFixture.metricsSettings()) { DerivedStubFixture.derivePinned(connId, jobId = 2u) }
+        val admin = TestUsers.seed(uniqueEmail("commitments-capacity"), "pw")
+        val capacity = CapacityFixtures.service()
         val client = seededClient("reports-commitments-capacity-configured")
 
-        // The expectation is what the admin configured, cross-checked against the stored row — not the report.
-        assertEquals(configured to "CONFIGURED", storedCapacities(connId).getValue(sprintId))
-        val unit = client.get("/api/v1/reports/commitments?connectionId=$connId&sprintId=$sprintId")
-            .body<CommitmentsReport>().sprints.single()
-        assertEquals(configured, unit.capacityMd)
-        assertEquals("CONFIGURED", unit.capacitySource)
-        val team = client.get("/api/v1/reports/commitments?connectionId=$connId&teamId=$teamId&sprintId=$sprintId")
-            .body<CommitmentsReport>().sprints.single()
-        assertEquals(configured, team.capacityMd)
-        assertEquals("CONFIGURED", team.capacitySource)
+        suspend fun assertSource(expectedMd: Double, source: String, jobId: UInt) {
+            DerivedStubFixture.withPinnedSettings(DerivedStubFixture.metricsSettings()) { DerivedStubFixture.derivePinned(connId, jobId) }
+            // The expectation is the stored row, not the report.
+            assertEquals(expectedMd to source, storedCapacities(connId).getValue(sprintId))
+            val unit = client.get("/api/v1/reports/commitments?connectionId=$connId&sprintId=$sprintId")
+                .body<CommitmentsReport>().sprints.single()
+            assertEquals(expectedMd, unit.capacityMd)
+            assertEquals(source, unit.capacitySource)
+            val team = client.get("/api/v1/reports/commitments?connectionId=$connId&teamId=$teamId&sprintId=$sprintId")
+                .body<CommitmentsReport>().sprints.single()
+            assertEquals(expectedMd, team.capacityMd)
+            assertEquals(source, team.capacitySource)
+        }
+
+        val teamDefault = 42.5
+        assertTrue(capacity.replaceTeamCapacity(teamId, TeamCapacityRequest(teamDefault), admin, callerIsAdmin = true).changed)
+        assertSource(teamDefault, "TEAM_DEFAULT", jobId = 2u)
+
+        // The calendar: one known account counted on every enabled day at the default cell, team coefficient 2 (the team has no members).
+        val peopleConnection = SyncedStubFixture.createConnection(namePrefix = "commitments-capacity-people", enabled = false)
+        val account = CapacityFixtures.people(peopleConnection, 1).single()
+        val calendar = WorkingCalendar.of(DerivedStubFixture.metricsSettings().read())
+        val stored = capacity.read(teamId, sprintId, calendar, canEdit = true)
+        val document = SprintCalendarDocument(
+            teamCoefficient = 2.0,
+            days = stored.days,
+            people = listOf(SprintCalendarPerson(account, true, 1.0, stored.days.map { SprintCalendarCell(it.day, 1.0) })),
+        )
+        capacity.replace(teamId, sprintId, document, admin, callerIsAdmin = true, calendar = calendar)
+        assertSource(2.0 * stored.days.count { it.enabled }, "CALENDAR", jobId = 3u)
     }
 
     private data class PickedAccounts(val connId: UInt, val teamId: UInt, val sprintId: Long, val accounts: List<String>)
