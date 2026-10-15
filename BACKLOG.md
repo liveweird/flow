@@ -77,9 +77,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
     - the CI timeout is 25 min.
   - Budgets, history and the open WHY questions are in `.claude/docs/build-times.md`. Local runs use
     `scripts/gates.sh`.
-- [new] **App memory headroom at scale 20 is under 60 MiB.** DERIVE peaked at 712-731 MiB of the 768 MiB container
-  (`-Xmx512m`) on 2026-10-09, alone and in pairs (617 MiB on 10-07). No OOM, but check what grew (metaspace, direct
-  buffers, the A31 or later code) before the next scale step.
 - [parked] **Data profile: multi-project boards.** A board whose filter spans several projects shows no observed or
   unmapped statuses, because `BoardRef` carries a single project key. Revisit if real boards span projects.
 - [parked] **Two connections to one Jira site are allowed** (with different project scopes). Confirm this is the wanted
