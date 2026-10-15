@@ -1774,9 +1774,15 @@ export interface paths {
          *     time was logged — a `Distribution`, hidden below `minSampleSize`. Each task lands in exactly ONE
          *     exclusion bucket (`excluded`, checked in this order): `noWorklogs` (D14 — none logged, or `actual_md` of
          *     0.00), `neverStarted` (no `started_at`, so no cycle), `zeroCycle` (`cycle_working_days = 0`, nothing to
-         *     divide by). So `ratio.n + noWorklogs + neverStarted + zeroCycle = population`. Levels as cycle time:
-         *     UNIT `groups` per credit team, TEAM per assignee at done, USER none; each group carries its own
-         *     distribution and exclusion counts. Sprint-relative periods use the resolved sprints' envelope.
+         *     divide by). So `ratio.n + noWorklogs + neverStarted + zeroCycle = population`. Levels: UNIT `groups` per
+         *     credit team, TEAM per assignee at done; `teamId` AND `accountId` narrow to USER level — `accountId` repeats
+         *     here (and on commitments and throughput too, no other report), 1 to 8 distinct accounts, more is a 400.
+         *     At USER level both distributions read the UNION of the picked people (tasks whose assignee at done is one of
+         *     them) and carry `byUser`, one share per picked account in request order, splitting every histogram bucket
+         *     (the open tail bucket included) per person, so the shares sum to each bucket's count; `groups` lists each
+         *     picked account (assignee at done) with its own plain distributions, an empty entry when it has no task.
+         *     Each group carries its own distribution and exclusion counts. Sprint-relative periods use the resolved
+         *     sprints' envelope.
          *     Beside the ratio, `flowEfficiency` is the status-based flow efficiency (A18) `active_ms ÷ cycle_ms` over
          *     the same population — active time is the time in IN_PROGRESS stages (WAITING time is wait, A30) minus blocked time while in progress;
          *     `flowEfficiencyExcluded` puts each task that is not measurable in exactly ONE bucket (`neverStarted`, then
@@ -2987,7 +2993,7 @@ export interface components {
             /** Format: int64 */
             count: number;
         };
-        /** @description `hidden = true` (fewer than `minSampleSize` items) means only `n` is meaningful — every other field is null/empty. `histogram` is equal-width buckets over `[min, X]` (each `[from, to)`, the last equal-width one closed at its `to`), where X is the `(100 − tailPercent)`th percentile, followed by ONE final open bucket `{from: X, to: null, count}` holding every value strictly above X (the long tail). With no value above X (`tailPercent=0`, or ties at the top) there is no open bucket and the buckets span `[min, max]`. The counts always sum to `n`; `n`, `mean`, `min`, `max` and the percentiles are over ALL values. */
+        /** @description `hidden = true` (fewer than `minSampleSize` items) means only `n` is meaningful — every other field is null/empty. `histogram` is equal-width buckets over `[min, X]` (each `[from, to)`, the last equal-width one closed at its `to`), where X is the `(100 − tailPercent)`th percentile, followed by ONE final open bucket `{from: X, to: null, count}` holding every value strictly above X (the long tail). With no value above X (`tailPercent=0`, or ties at the top) there is no open bucket and the buckets span `[min, max]`. The counts always sum to `n`; `n`, `mean`, `min`, `max` and the percentiles are over ALL values. `byUser` (only on a report that splits per picked person, at USER level, and never on a hidden distribution) lists one `DistributionShare` per picked account in request order, each index-aligned with `histogram`. */
         Distribution: {
             /** Format: int64 */
             n: number;
@@ -3005,6 +3011,14 @@ export interface components {
             /** Format: double */
             p95?: number | null;
             histogram: components["schemas"]["HistogramBucket"][];
+            byUser?: components["schemas"]["DistributionShare"][];
+        };
+        /** @description One picked person's slice of a `Distribution.histogram`: `counts[i]` is how many of the person's values fall in `histogram[i]` (the open tail bucket included), so over the shares Σ `counts[i]` is that bucket's `count` and Σ `counts` is the person's own item count. All zeros for a person with no values. */
+        DistributionShare: {
+            accountId: string;
+            /** @description The Jira display name, the account id when none is known. */
+            label: string;
+            counts: number[];
         };
         ResolvedSprintGroup: {
             /** Format: int32 */
@@ -4560,7 +4574,7 @@ export interface components {
             neverStarted: number;
             zeroCycle: number;
         };
-        /** @description A credit team (UNIT level; `teamId` null = UNASSIGNED, `accountId` null) or an assignee at done (TEAM level; a null `accountId` with a null `label` is the unassigned bucket) — always empty at USER level. */
+        /** @description A credit team (UNIT level; `teamId` null = UNASSIGNED, `accountId` null) or an assignee at done (TEAM level; a null `accountId` with a null `label` is the unassigned bucket) or, at USER level, one picked account (an empty entry when it has no task). */
         ReportedTimeGroup: {
             /** Format: int32 */
             teamId: number | null;
@@ -7310,8 +7324,8 @@ export interface operations {
                 sprintId?: components["parameters"]["ReportSprintId"];
                 /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
                 teamId?: components["parameters"]["ReportTeamId"];
-                /** @description One Jira account id — sets the level to USER. Requires `teamId`. */
-                accountId?: components["parameters"]["ReportAccountId"];
+                /** @description Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`. */
+                accountId?: string[];
                 /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
                 domainView?: components["parameters"]["ReportDomainView"];
                 /** @description Restricts to one domain key. */

@@ -57,7 +57,8 @@ as `?sprintId=1&sprintId=2`, documented in the spec as `type: array` with `style
 The second consumer is `GET /api/v1/reports/commitments`'s `accountId` (`repeatedStrings`, 1..8, opt-in through `parseReportFilter(..., multipleAccounts = true)`,
 declared inline on that path as `type: array` with `style: form`, `explode: true`, `maxItems: 8`): on every other report `accountId` stays a
 `singleValue` and a repeat is a `400`. The third consumer is `GET /api/v1/reports/throughput`'s `accountId`, the very same opt-in and inline
-declaration (`MAX_PICKED_ACCOUNTS` = 8 in `reports/ReportFilter.kt`).
+declaration (`MAX_PICKED_ACCOUNTS` = 8 in `reports/ReportFilter.kt`). The fourth is `GET /api/v1/reports/reported-time-ratio`'s `accountId`
+(the same opt-in and inline declaration), whose `Distribution` histograms then split per picked person (`byUser`).
 
 **Sub-collections and facets** are not implemented yet — a record's own unbounded sub-collection
 (e.g. a future audit-trail read) should be paged like any other list; reserve the plain `{items}`

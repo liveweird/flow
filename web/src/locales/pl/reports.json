@@ -84,7 +84,8 @@
     "member": "Osoba",
     "unassigned": "Nieprzypisane",
     "drillAria": "Pokaż: {{name}}",
-    "noOwner": "Brak zespołu właściciela"
+    "noOwner": "Brak zespołu właściciela",
+    "personTotals": "Sumy według osób"
   },
   "commitments": {
     "title": "Zobowiązania",
@@ -260,6 +261,8 @@
     "stripLabel": "Percentyle",
     "tailSeries": "Długi ogon (najwyższe wartości)",
     "tailRow": "długi ogon",
+    "histogramByPerson": "Histogram: liczba pozycji w przedziale, ułożony według osób",
+    "personLegend": "Legenda wykresu",
     "tail": {
       "label": "Długi ogon",
       "help": "Wartości powyżej (100 − N)-tego percentyla, czyli mniej więcej górne N%, trafiają do jednego ostatniego przedziału (≥ X), dzięki czemu kilka odstających wartości nie ściska reszty. Wartość 0 pokazuje zwykły histogram."
@@ -409,6 +412,7 @@
     "ratioTitle": "Zalogowany czas ÷ czas cyklu",
     "ratioCaption": "Zalogowane osobodni na dzień roboczy cyklu — 1 oznacza pełny dzień zalogowany na każdy dzień roboczy.",
     "ratioAxis": "zalogowane MD ÷ dni robocze cyklu",
+    "noTeams": "Zalogowany czas liczymy dla zespołu, a nie ma jeszcze żadnego zespołu. Administrator/ka dodaje zespoły na stronie Zespoły.",
     "outlierNote": "Bardzo krótkie cykle dają bardzo duże stosunki. Są prawdziwe i nigdy ich nie pomijamy, więc zacznij od mediany (p50) — średnia, p95 i prawy koniec histogramu mogą być przez nie zdominowane.",
     "flowTitle": "Efektywność przepływu",
     "flowCaption": "Czas aktywny ÷ czas cyklu: czas w toku i niezablokowany jako udział całego cyklu. Czas w statusie oczekującym liczy się jako czekanie, nie jako czas aktywny. Zalogowany czas nie ma znaczenia.",

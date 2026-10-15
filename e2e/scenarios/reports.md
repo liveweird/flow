@@ -301,21 +301,29 @@ unfolds it first (`openFilters`, which leaves an already unfolded bar alone).
 
 ## Scenario: the user reads reported time beside flow efficiency
 
-1. The user opens Epic estimation accuracy (deep link) and switches to the **Reported time** tab.
-   - *Expected*: the URL is the `reported-time-ratio` route and still carries the spec's connection;
-     the **Reported time** report loads.
+1. The user opens Epic estimation accuracy (deep link, carrying the spec's own team) and switches to the **Reported time** tab.
+   - *Expected*: the URL is the `reported-time-ratio` route and still carries the spec's connection
+     and team (reported time is always read for one team); the **Reported time** report loads.
 2. They read the two views.
    - *Expected*: "Reported time ÷ cycle time" and "Flow efficiency" are both shown, each a percentile
      strip with its own accounting (the partitions differ) that adds up; the very-short-cycles
      outlier note is shown; the ratio's histogram is available as a table.
 3. They narrow **Domain** to FLO, then clear it.
    - *Expected*: the URL gains `domain=FLO` and the population ("Of N finished in this period")
-     shrinks; after the clear it is back.
+     does not grow (the team's work is mostly FLO's); after the clear it is back.
 4. They switch the **Domain view** to "Earned in".
    - *Expected*: the URL gains `domainView=EPIC` and the report still renders.
-5. They follow the seeded team's name link in the "By team" table.
-   - *Expected*: the URL gains the team, a "By member" table appears, and the team's finished work
-     is a part of the unit's.
+5. They open the **Team** filter.
+   - *Expected*: it shows the seeded team, has no clear button and offers no "All teams" option; the
+     team's members are the "By member" table.
+6. They pick the seeded team's roster person in the **Member** filter.
+   - *Expected*: the URL gains `accountId` and keeps the team; the "By member" table is replaced by a
+     "Totals per person" table with one row, the person's name (prefixed "1." when the distributions
+     are shown); the Flow efficiency histogram table gains a "1." column for that person, or — when the
+     person's sample is below the minimum sample size, as the small stub roster may be — the "Only N
+     items in this selection" note stands in for it; the person's finished work is a part
+     of the team's. (The seeded team has one stub person, so two-person stacking is covered by the
+     page's unit tests only.)
 
 ## Scenario: the user reads the estimated backlog and what it means in sprints
 

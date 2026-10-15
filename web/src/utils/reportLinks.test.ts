@@ -129,9 +129,10 @@ describe("reportHref — the long tail", () => {
 describe("reportHref — several members", () => {
   const search = "teamId=2&accountId=a&accountId=b&accountId=c&lastSprints=3";
 
-  test("commitments and throughput keep every picked member, so moving between them keeps all the picks", () => {
+  test("commitments, throughput and reported time keep every picked member, so moving between them keeps all the picks", () => {
     expect(reportHref("/reports/commitments", search)).toBe(`/reports/commitments?${search}`);
     expect(reportHref("/reports/throughput", search)).toBe(`/reports/throughput?${search}`);
+    expect(reportHref("/reports/reported-time-ratio", search)).toBe(`/reports/reported-time-ratio?${search}`);
   });
 
   test("any other report keeps only the FIRST member, in place, so the address bar matches what that page shows", () => {

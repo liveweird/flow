@@ -478,12 +478,17 @@ async function widenCycleTimeTail(page: Page): Promise<void> {
   await expect(lastRange).toHaveText(/^≥ /);
 }
 
-/** The reported-time journey: the Estimation tab hop, both distributions, the domain and domain-view controls, the team drill. */
+/**
+ * The reported-time journey: the Estimation tab hop, both distributions, the domain and domain-view controls, a required team
+ * (no "All teams") and a one-person pick (the spec's team has ONE stub person, so the two-person stacking is vitest's).
+ */
 async function readReportedTime(page: Page): Promise<void> {
-  // Reached through the Estimation tabs: the route is `reported-time-ratio`, the tab "Reported time".
-  await openReport(page, "/reports/epic-estimation-accuracy");
+  // Reached through the Estimation tabs: the route is `reported-time-ratio`, the tab "Reported time". The link carries the spec's OWN
+  // team: reported time is read per team and a bare link would start on the first team by name, which other specs' teams can precede.
+  await openReport(page, "/reports/epic-estimation-accuracy", `&teamId=${teamId}`);
   await page.getByRole("tab", { name: "Reported time", exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/reports/reported-time-ratio\\?.*connectionId=${dataSourceId}`));
+  await expect(page).toHaveURL(new RegExp(`teamId=${teamId}`));
   await expect(page.getByRole("heading", { level: 2, name: "Reported time", exact: true })).toBeVisible();
 
   // Two measures, two distributions, each with its OWN accounting (the partitions differ).
@@ -495,12 +500,12 @@ async function readReportedTime(page: Page): Promise<void> {
   await expect(page.getByText(/^Very short cycles give very large ratios/)).toBeVisible();
   await expect(page.getByRole("table", { name: /^Histogram, as a table — Reported time ÷ cycle time$/ })).toBeVisible();
 
-  // The domain narrows what finished: fewer items in the population, the filter in the URL.
+  // The domain narrows what finished (the team's work is mostly FLO, so it may not shrink): the filter is in the URL.
   const all = await finishedInPeriod(page);
   await openFilters(page);
   await pickFilter(page, "Domain", "FLO");
   await expect(page).toHaveURL(/domain=FLO/);
-  await expect.poll(() => finishedInPeriod(page)).toBeLessThan(all);
+  await expect.poll(() => finishedInPeriod(page)).toBeLessThanOrEqual(all);
   await clearFilter(page, "Domain");
   await expect.poll(() => finishedInPeriod(page)).toBe(all);
 
@@ -509,11 +514,34 @@ async function readReportedTime(page: Page): Promise<void> {
   await expect(page).toHaveURL(/domainView=EPIC/);
   await expect(page.getByRole("heading", { name: "Flow efficiency", exact: true })).toBeVisible();
 
-  // The team row is the way in; its members follow.
-  await page.getByRole("table", { name: "By team", exact: true }).getByRole("link", { name: `Show ${teamName}`, exact: true }).click();
-  await expect(page).toHaveURL(new RegExp(`teamId=${teamId}`));
+  // A team is required: the Team select shows it, cannot be cleared and offers no "All teams"; the team's members are the drill table.
+  await openFilters(page);
+  const team = page.getByRole("combobox", { name: "Team", exact: true });
+  await expect(team).toHaveValue(teamName);
+  await expect(page.getByLabel("Clear Team", { exact: true })).toHaveCount(0);
+  await team.click();
+  await expect(page.getByRole("option", { name: teamName, exact: true })).toBeVisible();
+  await expect(page.getByRole("option", { name: "All teams", exact: true })).toHaveCount(0);
+  await page.keyboard.press("Escape");
   await expect(page.getByRole("heading", { level: 3, name: "By member", exact: true })).toBeVisible();
-  expect(await finishedInPeriod(page), "the team's finished work is part of the unit's").toBeLessThan(all);
+
+  // One person picked: the URL gains the account, Totals per person has one row, and the flow-efficiency histogram carries a
+  // "1. <name>" column. A small stub sample (below minSampleSize) hides the distribution — then the min-sample note stands in
+  // for the histogram and the Totals row shows the bare name — so those two assertions accept both outcomes.
+  await pickFilter(page, "Member", memberName);
+  await page.keyboard.press("Escape");
+  await expect(page).toHaveURL(/accountId=/);
+  await expect(page).toHaveURL(new RegExp(`teamId=${teamId}`));
+  await expect(page.getByRole("heading", { level: 3, name: "By member", exact: true })).toHaveCount(0);
+  const totals = page.getByRole("table", { name: "Totals per person", exact: true });
+  await expect(totals.getByRole("row")).toHaveCount(2);
+  await expect(totals.getByRole("row").nth(1).getByRole("cell").first()).toHaveText(new RegExp(`^(1\\. )?${memberName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`));
+  const personColumn = page
+    .getByRole("table", { name: "Histogram, as a table — Flow efficiency", exact: true })
+    .getByRole("columnheader", { name: `1. ${memberName}`, exact: true });
+  const minSampleNote = page.getByRole("note").filter({ hasText: /^Only \d+ items? in this selection/ });
+  await expect(personColumn.or(minSampleNote).first()).toBeVisible();
+  expect(await finishedInPeriod(page), "one person's finished work is part of the team's").toBeLessThan(all);
 }
 
 /** The estimated-backlog journey: a team's tiles and trend, the unit's pace note, a domain's empty pace, team replacing domain. */

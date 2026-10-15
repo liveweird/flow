@@ -24,7 +24,7 @@ failing test re-syncs only this file. The registered template-title exception (s
    connection (`connectionId`) and to the year before the stub's reference date through a week
    after it (so the stub's 2025 sprints and epics are inside), with the seeded team on the
    team-scoped ones (commitments, throughput, sprint consistency, cycle time, task accuracy, WIP,
-   backlog, aging WIP, blocked time); then the data source's details page (the raw-issue count shows
+   backlog, aging WIP, blocked time, reported time); then the data source's details page (the raw-issue count shows
    the full dataset), its data profile, the raw issue inspector on `FLO-1` and its metrics
    configuration — and waits for the page to settle (the title, no spinner left, no error alert).
    - *Expected*: an axe scan (same tags, no waivers) reports zero violations — charts, histograms,

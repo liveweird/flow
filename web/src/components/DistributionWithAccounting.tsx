@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Stack } from "@mantine/core";
 import type { Distribution } from "../api/reports";
+import type { DistributionPerson } from "../utils/distributionPeople";
 import type { ValueFormat } from "../utils/reportFormat";
 import DistributionPanel from "./DistributionPanel";
 import ExcludedList, { type ExcludedItem } from "./ExcludedList";
@@ -21,6 +22,7 @@ export default function DistributionWithAccounting({
   population,
   items,
   note,
+  people,
 }: {
   title: string;
   caption?: string;
@@ -31,6 +33,8 @@ export default function DistributionWithAccounting({
   population: number;
   items: ReadonlyArray<ExcludedItem>;
   note?: ReactNode;
+  /** The distribution's per-person split (numbered), forwarded to the panel; none = a plain histogram. */
+  people?: readonly DistributionPerson[];
 }) {
   return (
     <Stack gap="lg">
@@ -41,6 +45,7 @@ export default function DistributionWithAccounting({
         minSampleSize={minSampleSize}
         format={format}
         axisLabel={axisLabel}
+        people={people}
       />
       {note}
       <ExcludedList population={population} measured={distribution.n} items={items} />

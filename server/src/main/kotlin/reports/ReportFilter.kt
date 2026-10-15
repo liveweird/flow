@@ -22,7 +22,7 @@ private const val MIN_LAST_SPRINTS = 1
 private const val MIN_SPRINT_ID = 1L
 private const val MAX_LAST_SPRINTS = 52
 
-/** How many `accountId` values a multi-account report's repeated key takes (commitments, throughput; `maxItems` in the spec). */
+/** How many `accountId` values a multi-account report's repeated key takes (commitments, throughput, reported time; spec `maxItems`). */
 private const val MAX_PICKED_ACCOUNTS = 8
 
 /**
@@ -70,10 +70,11 @@ data class ReportFilter(
     val level: ReportLevel,
     val teamId: UInt?,
     /**
-     * Every picked account, in request order, distinct: empty unless [level] is USER. Every report but commitments and throughput takes one
-     * `accountId` (a repeat is a `400`), so for them it is one element; those two ([parseReportFilter]'s `multipleAccounts`)
-     * take 1..[MAX_PICKED_ACCOUNTS]. This is the ONLY stored form: [accountId] is derived from it, so a `copy(...)` can
-     * never leave the two disagreeing (narrowing to no account is `copy(accountIds = emptyList())`).
+     * Every picked account, in request order, distinct: empty unless [level] is USER. Every report but commitments, throughput and
+     * reported time takes one `accountId` (a repeat is a `400`), so for them it is one element; those three
+     * ([parseReportFilter]'s `multipleAccounts`) take 1..[MAX_PICKED_ACCOUNTS]. This is the ONLY stored form: [accountId] is
+     * derived from it, so a `copy(...)` can never leave the two disagreeing (narrowing to no account is
+     * `copy(accountIds = emptyList())`).
      */
     val accountIds: List<String> = emptyList(),
     val domainView: DomainView,
@@ -101,7 +102,7 @@ data class ReportFilter(
  * only has the zone at hand. [nowMs] anchors the default 90-day window and is always caller-supplied
  * (never `System.currentTimeMillis()`) so both routes and tests can pin it. [defaultDomainView] is
  * per-report (plan §7: "EPIC for PV/EV/AC-shaped measures … TASK elsewhere") — the caller's own
- * default, never guessed here. [multipleAccounts] is the commitments and throughput reports' opt-in: `accountId` repeats
+ * default, never guessed here. [multipleAccounts] is the commitments, throughput and reported-time reports' opt-in: `accountId` repeats
  * (`?accountId=a&accountId=b`, at most [MAX_PICKED_ACCOUNTS] distinct values, a `400` above) instead of being strictly
  * single-valued like on every other report.
  */

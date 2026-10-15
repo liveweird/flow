@@ -1,7 +1,9 @@
 package ch.nokillswit
 
 import ch.nokillswit.reports.HistogramBucket
+import ch.nokillswit.reports.UserValues
 import ch.nokillswit.reports.buildDistribution
+import ch.nokillswit.reports.buildDistributionByUser
 import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.floor
@@ -288,6 +290,92 @@ class DistributionTest {
                 assertTrue(abs(histogram.first().from - sorted.first()) < 1e-9)
             }
         }
+    }
+
+    // --- the per-person split: buildDistributionByUser stacks each person over the union's own bucket layout ---
+
+    @Test
+    fun `per-user shares sum to each bucket's count and to each user's n`() {
+        val random = Random(20261016)
+        var withTail = 0
+        var withTies = 0
+        repeat(300) { round ->
+            val perUser = List(random.nextInt(1, 6)) { u ->
+                UserValues(
+                    "acc-$u", "User $u",
+                    List(random.nextInt(0, 40)) {
+                        // Mixed shapes: heavy-tailed, negatives, and (every third round) rounded values that tie.
+                        val v = random.nextDouble(-10.0, 40.0) * if (random.nextInt(8) == 0) 30 else 1
+                        if (round % 3 == 0) Math.round(v).toDouble() else v
+                    },
+                )
+            }
+            val all = perUser.flatMap { it.values }
+            if (all.isEmpty()) return@repeat
+            val tailPercent = if (round % 2 == 0) 0 else random.nextInt(1, 26)
+            val buckets = random.nextInt(1, 12)
+            val split = buildDistributionByUser(perUser, 1, tailPercent, buckets)
+            if (split.histogram.last().to == null) withTail++
+            if (all.distinct().size < all.size) withTies++
+            // The union is exactly the plain distribution of the flattened values, bar the shares.
+            assertEquals(buildDistribution(all, 1, tailPercent, buckets), split.copy(byUser = emptyList()), "round $round union")
+            assertEquals(perUser.map { it.accountId }, split.byUser.map { it.accountId }, "round $round request order")
+            assertEquals(perUser.map { it.label }, split.byUser.map { it.label }, "round $round labels")
+            split.byUser.forEach { assertEquals(split.histogram.size, it.counts.size, "round $round counts align with the histogram") }
+            split.histogram.forEachIndexed { i, bucket ->
+                assertEquals(bucket.count, split.byUser.sumOf { it.counts[i] }, "round $round bucket $i")
+            }
+            perUser.zip(split.byUser).forEach { (user, share) ->
+                assertEquals(user.values.size.toLong(), share.counts.sum(), "round $round ${user.accountId} n")
+            }
+        }
+        assertTrue(withTail > 20 && withTies > 20, "the random rounds must cover a tail and ties ($withTail, $withTies)")
+    }
+
+    @Test
+    fun `hand-built shares split the body buckets and the open tail bucket per person`() {
+        // 1..10 plus 100 (tail), tailPercent 10, 3 buckets: bodies {1-3} {4-6} {7-10} and the open bucket {100} (see the outlier test).
+        val ann = UserValues("ann", "Ann", listOf(1.0, 2.0, 5.0, 10.0, 100.0))
+        val bob = UserValues("bob", "Bob", listOf(3.0, 4.0, 6.0, 7.0, 8.0, 9.0))
+        val split = buildDistributionByUser(listOf(bob, ann), minSampleSize = 1, tailPercent = 10, histogramBuckets = 3)
+        assertEquals(listOf(3L, 3L, 4L, 1L), split.histogram.map { it.count })
+        assertEquals(listOf("bob", "ann"), split.byUser.map { it.accountId })
+        assertEquals(listOf(1L, 2L, 3L, 0L), split.byUser[0].counts)
+        assertEquals(listOf(2L, 1L, 1L, 1L), split.byUser[1].counts)
+    }
+
+    @Test
+    fun `a hidden union carries no shares`() {
+        val split = buildDistributionByUser(
+            listOf(UserValues("a", "A", listOf(1.0, 2.0)), UserValues("b", "B", listOf(3.0))),
+            minSampleSize = 4,
+            tailPercent = 5,
+        )
+        assertTrue(split.hidden)
+        assertEquals(3L, split.n)
+        assertEquals(emptyList(), split.byUser)
+        assertEquals(buildDistribution(listOf(1.0, 2.0, 3.0), 4, 5), split)
+        // A plain distribution never carries shares either.
+        assertEquals(emptyList(), buildDistribution(listOf(1.0, 2.0, 3.0, 4.0), 1, 0).byUser)
+    }
+
+    @Test
+    fun `a user with no values is an all-zero share`() {
+        val split = buildDistributionByUser(
+            listOf(UserValues("idle", "Idle", emptyList()), UserValues("busy", "Busy", listOf(1.0, 2.0, 3.0, 9.0))),
+            minSampleSize = 1,
+            tailPercent = 0,
+            histogramBuckets = 4,
+        )
+        val idle = split.byUser.first()
+        assertEquals("idle", idle.accountId)
+        assertEquals(split.histogram.size, idle.counts.size)
+        assertTrue(idle.counts.all { it == 0L })
+        assertEquals(split.histogram.map { it.count }, split.byUser.last().counts)
+        // Even if EVERY user is empty the union is hidden (n = 0 < any minimum) and carries no shares.
+        val none = buildDistributionByUser(listOf(UserValues("idle", "Idle", emptyList())), minSampleSize = 1, tailPercent = 5)
+        assertTrue(none.hidden)
+        assertEquals(emptyList(), none.byUser)
     }
 
     private fun equalWidth(values: List<Double>, min: Double, max: Double, buckets: Int): List<HistogramBucket> {
