@@ -166,7 +166,8 @@ development mode.
 
 **Accepted exposure — capacity writes carry no bucket of their own** (domain-model A32). The two capacity `PUT`s
 (`/api/v1/teams/{id}/capacity`, `.../sprint-calendars/{sprintId}`) are open to the team's MANAGER, not only ADMIN, and each REAL change
-bumps the global `config_revision`, which enqueues a DERIVE per enabled connection. The amplification is bounded: the queue holds at
+bumps the global `config_revision`, which enqueues a DERIVE per enabled connection (the team default) or for the
+sprint's own connection (a sprint calendar; `metrics.md` "DERIVE fan-out per config change"). The amplification is bounded: the queue holds at
 most one open DERIVE job per connection (further bumps coalesce into it), a no-op re-PUT bumps nothing, and every accepted write is
 attributable and audited (`team.capacity_default_updated` / `team.sprint_calendar_updated`, with the previous figure and the grant
 used). No per-user bucket is added; revisit if managers become numerous.

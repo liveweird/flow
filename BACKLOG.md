@@ -79,11 +79,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 - [new] **App memory headroom at scale 20 is under 60 MiB.** DERIVE peaked at 712-731 MiB of the 768 MiB container
   (`-Xmx512m`) on 2026-10-09, alone and in pairs (617 MiB on 10-07). No OOM, but check what grew (metaspace, direct
   buffers, the A31 or later code) before the next scale step.
-- [new] **One connection's metrics-config save re-derives every connection.** Seen in the 2026-10-09 perf run and
-  confirmed in code: the PUT calls the shared `MetricsSettingsService.bumpRevision()` (`MetricsConfigService.kt:267`),
-  which enqueues DERIVE for every enabled connection. Decide whether that is wanted (board → team mapping is unique
-  across connections, so a save can move another connection's team) or only the saved connection, plus any whose
-  mapping it changed, should re-derive. At scale 20 an extra DERIVE costs 30-50 s per connection.
 - [parked] **Data profile: multi-project boards.** A board whose filter spans several projects shows no observed or
   unmapped statuses, because `BoardRef` carries a single project key. Revisit if real boards span projects.
 - [parked] **Two connections to one Jira site are allowed** (with different project scopes). Confirm this is the wanted

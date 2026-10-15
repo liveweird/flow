@@ -541,7 +541,8 @@ ONE GiST index — `btree_gist` is what makes `=` available inside a GiST index 
   EVERY config mutation's own transaction — this row's own PUT, `metrics/TeamMembershipService.kt`'s
   create/update/delete (nested into the SAME transaction via `MetricsSettingsService.bumpRevision`,
   since both live in the `metrics` package — not a cross-feature read), and, from a later commit on,
-  every per-connection config PUT.
+  every per-connection config PUT (which DERIVEs only its own connection: `metrics.md` "DERIVE fan-out per
+  config change").
 - **`metrics.team_sprint_capacity` is LEGACY since V24** (domain-model A32): nothing reads or writes it any more (the metrics-config
   API dropped `sprintCapacities`, DERIVE resolves capacity from V24's tables); PURGE still drains it and `IngestWorkerTest` keeps proving
   that, until a cleanup migration drops it. Its `MetricsConfigService.TeamSprintCapacity` table object stays for that drain only.

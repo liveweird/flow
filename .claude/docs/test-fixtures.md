@@ -93,8 +93,9 @@ maps the FLO board (id 1) to one freshly seeded team, and derives ONCE under a p
   clones its OWN connection via `SyncedStubFixture.cloneProcessedData` (PROCESS/PROFILE-free, same
   as any other processed-clone test) and derives it itself as many times as the test needs.
 - **A connection a metrics test derives itself is created DISABLED**
-  (`SyncedStubFixture.createConnection(enabled = false)`): every config change anywhere in the suite
-  (`MetricsSettingsService.bumpRevision`) enqueues a DERIVE for every ENABLED connection, and a worker
+  (`SyncedStubFixture.createConnection(enabled = false)`): every global config change anywhere in the suite
+  (`MetricsSettingsService.bumpRevision()`: settings, membership, team capacity) enqueues a DERIVE for every ENABLED connection
+  (a per-connection config or calendar save only for its own), and a worker
   running inside another test's `testApplication` would re-derive it with the REAL clock between
   this test's own pinned-clock DERIVE and its assertions — a flake that only shows up in full-suite
   order.
