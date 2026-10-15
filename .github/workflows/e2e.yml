@@ -98,6 +98,10 @@ jobs:
       - name: Build images
         env:
           CACHE_HIT: ${{ steps.buildx-cache.outputs.cache-hit }}
+          # Compose builds through `buildx bake`, which since the 2026-10-07 runner image demands fs
+          # entitlements for a local cache outside the context (the nightly failed until 10-15); the cache
+          # dir is this job's own runner-local path, so the check guards nothing here.
+          BUILDX_BAKE_ENTITLEMENTS_FS: "0"
         run: |
           mkdir -p "$BUILDX_CACHE_DIR"
           if [ "$CACHE_HIT" = "true" ]; then
