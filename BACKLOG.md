@@ -49,32 +49,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   - The Statuses tab now badges each status Epic/Task (#115). Decide after reviewing them whether any shared status
     differs.
   - If one does, this needs a domain-model amendment plus config, DERIVE and UI changes.
-- [new] **Proper capacity management: a per-person, per-day sprint calendar.** The user's feedback, 2026-10-15:
-  - **Its own feature.** Today capacity is one MD figure per sprint, on the data source's metrics configuration
-    (the Capacities tab, `metrics.team_sprint_capacity`). It becomes a separate "Capacity" entry under
-    Administration in the sidebar.
-  - **A sprint calendar per team.** For each sprint of a team: one row per team member, one column per day of the
-    sprint. Each cell holds that person's availability that day, any value from 0 to 1 MD.
-  - **Turning things off.** Whole people and whole days can be turned off, so they are excluded from capacity
-    (a holiday, or someone unavailable).
-  - **Coefficients:**
-    - a **person coefficient** per person (default 1), multiplied by their daily availability; for example 0.5 for
-      someone counted as half-productive;
-    - a **team coefficient** (default 1), multiplied by the whole team's capacity.
-  - **Capacity** =
-    - for each person who is not turned off: the sum of their cells over the days that are not turned off, times
-      their person coefficient;
-    - add those up over the people;
-    - multiply by the team coefficient.
-  - **Team managers.** A team has at most one manager (optional), a Flow user; one user can manage several teams;
-    ADMINs assign them. Only the team's manager or an ADMIN edits its capacity; any signed-in user reads it.
-  - **Precedence (decided 2026-10-15):** the sprint's calendar (`CALENDAR`), else ONE configured MD figure per TEAM, a
-    default override that lives in capacity management (`TEAM_DEFAULT`), else members × working days (`DEFAULT`, A3).
-    The old per-sprint Capacities tab on the data source is removed.
-  - **Grid defaults:** rows are the team's Jira members whose membership overlaps the sprint; cells start at 1 MD on
-    working days, weekends and holidays start turned off; both coefficients default to 1 (range 0–2).
-  - Port Lettuce's holidays and its "Days off" calendar views for the grid.
-  - Commitments' capacity line and Load column then read the new figure.
 - [new] **Sprint capacities from Jira Plans.** Probed 2026-10-08: the Plans REST API (`/rest/api/3/plans/plan`, then
   `…/team/atlassian/{id}` for `capacity`, `planningStyle`, `sprintLength` and `issueSourceId`) returns 403 to the sync
   service account: "You do not have the Administer Jira global permission". Every Plans endpoint needs it, reads included.

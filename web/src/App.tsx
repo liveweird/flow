@@ -20,6 +20,7 @@ const Login = lazy(() => import("./pages/Login"));
 const Home = lazy(() => import("./pages/Home"));
 const Teams = lazy(() => import("./pages/Teams"));
 const TeamDetails = lazy(() => import("./pages/TeamDetails"));
+const Capacity = lazy(() => import("./pages/Capacity"));
 const ResetPassword = lazy(() => import("./pages/ResetPassword"));
 const Users = lazy(() => import("./pages/Users"));
 const UserFeatures = lazy(() => import("./pages/UserFeatures"));
@@ -223,6 +224,8 @@ export default function App() {
             <Route index element={<Home />} />
             <Route path="teams" element={<Teams />} />
             <Route path="teams/:id" element={<TeamDetails />} />
+            {/* Capacity: everyone reads it, the server decides who edits (the team's manager or an ADMIN) — never inside RequireAdmin. */}
+            <Route path="capacity" element={<Capacity />} />
             {/* Reports: any signed-in user (D12) — never inside the RequireAdmin group. */}
             <Route path="reports/commitments" element={<ReportCommitments />} />
             {/* Report 1's old address, kept alive for bookmarks and shared links. */}

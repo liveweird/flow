@@ -213,6 +213,56 @@ team membership landed in M2 commit 5, and the per-connection `metrics-config` p
   rule; its override helpers (`setDomainStage`, `currentDomainKeys`, `orphanOverrideDomains`) keep the list free of
   duplicate (domain, status) rows.
 
+## Capacity (`pages/Capacity.tsx`, `components/SprintCalendarGrid.tsx`)
+
+Administration > Capacity (A32): how many man-days a team has in a sprint. **Every signed-in user reads it** (the leaf is not
+`adminOnly`, the route is outside `RequireAdmin`); editing is the team's manager or an ADMIN, and the server says which per team and
+document (`canEdit` on `GET /teams/{id}/capacity` and on the sprint calendar) — the page only disables the inputs, the server is the rule.
+**The URL is the selection** (`utils/capacityLinks.ts`: `/capacity?teamId=…&sprintId=…`, read with `parseCapacitySelection`, written with
+`navigate(…, { replace: true })`): a team `Select` over the first 100 teams and a sprint `Select` over the team's first 100 sprints,
+newest first (`sort=-startAt`; label `name · from → to` with the dates in the configured zone from `/reports/filters` and the last day
+read at `end - 1`, the grid's rule; a gray "calendar" badge on a sprint that has a stored calendar; a "first N of M" hint under either
+picker when its list is cut). Nothing is auto-picked: the empty state is the picker state; picking another team drops the sprint.
+
+Two surfaces for the picked team. **`components/TeamCapacityDefaultCard.tsx`**: the team's ONE default MD figure (`TEAM_DEFAULT`),
+with the precedence sentence. Blank is an explicit clear and saves `null`; text that is not a finite number, or a figure outside
+0..999999.99, is an inline error with Save disabled — never sent as `null` (`parseFigure`); no negative sign, "," is read as the
+decimal separator. It is keyed by team only: a reload that brings a new stored figure is adopted while the field is untouched and never
+replaces what is being typed. **`components/SprintCalendarEditor.tsx`** (keyed by team and sprint, NEVER by `updatedAt`): the team
+coefficient, the grid, two clearly separate figures — "Capacity in reports" (the effective `derivedCapacityMd` + source as of the last
+DERIVE) and "This calendar" (the live formula over the grid as shown, deliberately not an `aria-live` region; the "Saving it makes
+reports use it" hint appears while the calendar is unstored or edited) — and Save (a full-replace PUT of the document without the
+grid-only person fields, then `refreshQueriesAfterMutation(queryClient, ["capacity"])` and the fixed-vocabulary toast) / Reset.
+Save and the team coefficient are disabled when the roster is empty (a save would store a zero calendar that overrides the team default).
+
+**The draft is re-seeded explicitly, never by remounting.** The editor keeps a `base` (the document the draft started from) beside the
+`draft`. After a successful save the sent document becomes the `base` (edits typed during the request stay unsaved). When a NEW loaded
+document arrives (a focus refetch — the query hands back the same object while nothing changed): a clean draft adopts it; a dirty draft is
+kept and an orange "This calendar changed elsewhere — Reset to load the latest" alert shows when the editable content differs; Reset
+adopts the latest. Dirtiness is a cheap structural compare that short-cuts on identity (`sameDraft`: an edit replaces only the person it
+touches), not a serialisation. **Unsaved edits are guarded**: both surfaces report dirtiness to the page (`onDirtyChange`), whose
+pickers ask through `ConfirmActionModal` ("Discard changes?", `common.discard.*`) before dropping a dirty draft, and
+`hooks/useBeforeUnloadGuard.ts` (ported from Lettuce) triggers the browser's own prompt on reload/close. In-app navigation through the
+sidebar or the back button is NOT blocked: Lettuce's `useDiscardGuard` does that with the data router's `useBlocker`, and Flow runs on a
+plain `BrowserRouter`, so it stays unported. A `403`/`404`/`409`/`400` renders a fixed message (`capacity.error.*`), never the server's
+text; a `400`/`404`/`409` also refetches so Reset loads the current sprint. After a save the re-derive is asynchronous, so the editor
+re-reads the calendar up to four times (1.5, 3, 6, 12 s, cleared on unmount) until "Capacity in reports" moves, then stops.
+`window: null` (no start date, or over 60 days) renders a note and no grid.
+
+**The grid** is ported from Lettuce's `DaysOffMonthGrid` (the real `<table>` with scoped headers, the sticky name column, the legend; the
+holiday tint, today marker, share/team lines and month logic were dropped). Rows = people, columns = the sprint's `days`; a `Checkbox`
+turns a whole day or person off (shading follows `enabled === false` from the data, never the weekday), a person's coefficient and
+each cell are `CapacityNumberInput`s (0..2, 0..1, two decimals, no minus sign, "," or "." as the separator — a field that keeps its own
+text while typing and commits the parsed, clamped number, so "0." survives). The footer is the per-day sum of the counted cells. **The server withholds per-person coefficients
+from a caller who cannot edit** (`coefficient: null`): the column is not rendered at all and the total is the server's `capacityMd`.
+`utils/capacity.ts` mirrors the server kernel (`CapacityKernels.kt` `calendarCapacityMd`) in integer hundredths with `roundScaled`, and
+is tested against the same hand-built document as `CapacityKernelsTest`; the grid is a pure renderer (callers own the draft). **Every
+edit is a function of the previous draft** (`onChange(prev => withCell(prev, …))`, the grid never closes over `draft`), so two commits in
+one tick both land; `DayHeader`, `PersonRow` and `AvailabilityCell` are `memo`ised on their own slice (cells indexed per person by day in a
+`Map`, the footer totals one pass `dayCapacityTotals`, one `Intl.DateTimeFormat` per language), so a keystroke re-renders one cell. The
+weekday initials are `aria-hidden` (the day checkbox names the day). Legacy
+sprints and pre-V24 `CONFIGURED` figures read as a source label only.
+
 ## Reports (`pages/ReportCommitments.tsx`, `components/Report*.tsx`, `utils/reportFilter.ts`)
 
 The v0.3.0 report pages (`.claude/docs/reports.md` is the API; every report is any-authenticated,
