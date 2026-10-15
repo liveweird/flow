@@ -1,0 +1,85 @@
+/* The sprint capacity grid (ported from Lettuce's DaysOffMonthGrid): one row per person, one narrow
+   column per calendar day of the sprint. Hand-rolled (no calendar dependency); a per-component module
+   because the theme cannot express a sticky first column and narrow day cells. */
+
+.grid {
+  border-collapse: separate;
+  border-spacing: 0;
+  width: 100%;
+}
+
+.grid th,
+.grid td {
+  border-bottom: 1px solid var(--mantine-color-default-border);
+  padding: 0;
+}
+
+.nameCell {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--mantine-color-body);
+  padding: 4px 12px 4px 4px;
+  text-align: left;
+  width: 200px;
+  min-width: 180px;
+  max-width: 240px;
+  white-space: normal;
+  overflow-wrap: break-word;
+  font-weight: 500;
+  font-size: var(--mantine-font-size-sm);
+  line-height: 1.25;
+}
+
+.coefficientCell {
+  min-width: 76px;
+  padding: 3px 8px 3px 0;
+  text-align: left;
+  font-weight: 400;
+  font-size: var(--mantine-font-size-xs);
+  color: var(--mantine-color-dimmed);
+}
+
+.dayHeader {
+  min-width: 52px;
+  text-align: center;
+  font-weight: 400;
+  font-size: var(--mantine-font-size-xs);
+  color: var(--mantine-color-dimmed);
+  padding: 2px 1px 6px;
+  line-height: 1.2;
+}
+
+.dayCell {
+  min-width: 52px;
+  height: 38px;
+  padding: 3px 2px;
+}
+
+/* A day or a person that is turned off: shaded, never hidden — the server decides what the default is,
+   so the shading follows the data, not the weekday. The -light variant var reads in both schemes. */
+.offDay {
+  background: var(--mantine-color-gray-light);
+}
+
+.offRow .nameCell {
+  color: var(--mantine-color-dimmed);
+}
+
+.offRow .dayCell {
+  background: var(--mantine-color-gray-light);
+}
+
+.footerCell {
+  text-align: center;
+  font-size: var(--mantine-font-size-xs);
+  padding: 6px 2px;
+}
+
+.legendSwatch {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  vertical-align: middle;
+}

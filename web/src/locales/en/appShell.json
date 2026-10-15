@@ -10,6 +10,7 @@
     "featureFlags": "Feature flags",
     "changelog": "Changelog",
     "teams": "Teams",
+    "capacity": "Capacity",
     "dataSources": "Data sources",
     "metricsSettings": "Metrics settings",
     "reportsDelivery": "Delivery",

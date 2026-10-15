@@ -212,6 +212,36 @@ team membership landed in M2 commit 5, and the per-connection `metrics-config` p
   rule; its override helpers (`setDomainStage`, `currentDomainKeys`, `orphanOverrideDomains`) keep the list free of
   duplicate (domain, status) rows.
 
+## Capacity (`pages/Capacity.tsx`, `components/SprintCalendarGrid.tsx`)
+
+Administration > Capacity (A32): how many man-days a team has in a sprint. **Every signed-in user reads it** (the leaf is not
+`adminOnly`, the route is outside `RequireAdmin`); editing is the team's manager or an ADMIN, and the server says which per team and
+document (`canEdit` on `GET /teams/{id}/capacity` and on the sprint calendar) — the page only disables the inputs, the server is the rule.
+**The URL is the selection** (`utils/capacityLinks.ts`: `/capacity?teamId=…&sprintId=…`, read with `parseCapacitySelection`, written with
+`navigate(…, { replace: true })`): a team `Select` over the first 100 teams and a sprint `Select` over the team's first 100 sprints,
+newest first (`sort=-startAt`; label `name · from → to` with the dates in the configured zone from `/reports/filters`, a gray "calendar"
+badge on a sprint that has a stored calendar; a hint when the list is cut). Nothing is auto-picked: the empty state is the picker state.
+
+Two surfaces for the picked team. **`components/TeamCapacityDefaultCard.tsx`**: the team's ONE default MD figure (`TEAM_DEFAULT`, blank =
+none), with the precedence sentence. **`components/SprintCalendarEditor.tsx`** (mounted per team, sprint and `updatedAt`, so a refetch that
+changes nothing never clobbers an edit): the team coefficient, the grid, two clearly separate figures — "Capacity in reports" (the
+effective `derivedCapacityMd` + source as of the last DERIVE; it may lag a save) and "This calendar" (the live formula over the grid as
+shown; the "Saving it makes reports use it" hint appears while the calendar is unstored or edited) — and Save (a full-replace PUT of
+the document without the grid-only person fields, then `refreshQueriesAfterMutation(queryClient, ["capacity"])` and the fixed-vocabulary
+toast) / Reset (back to the loaded document). A `403`/`404`/`409`/`400` renders a fixed message (`capacity.error.*`), never the server's
+text; a `400`/`404`/`409` also refetches so Reset loads the current sprint. No discard guard (`useDiscardGuard` is not ported).
+`window: null` (no start date, or over 60 days) renders a note and no grid.
+
+**The grid** is ported from Lettuce's `DaysOffMonthGrid` (the real `<table>` with scoped headers, the sticky name column, the legend; the
+holiday tint, today marker, share/team lines and month logic were dropped). Rows = people, columns = the sprint's `days`; a `Checkbox`
+turns a whole day or person off (shading follows `enabled === false` from the data, never the weekday), a person's coefficient and
+each cell are `CapacityNumberInput`s (0..2, 0..1, two decimals — a field that keeps its own text while typing and commits the parsed,
+clamped number, so "0." survives). The footer is the per-day sum of the counted cells. **The server withholds per-person coefficients
+from a caller who cannot edit** (`coefficient: null`): the column is not rendered at all and the total is the server's `capacityMd`.
+`utils/capacity.ts` mirrors the server kernel (`CapacityKernels.kt` `calendarCapacityMd`) in integer hundredths with `roundScaled`, and
+is tested against the same hand-built document as `CapacityKernelsTest`; the grid is a pure renderer (callers own the draft). Legacy
+sprints and pre-V24 `CONFIGURED` figures read as a source label only.
+
 ## Reports (`pages/ReportCommitments.tsx`, `components/Report*.tsx`, `utils/reportFilter.ts`)
 
 The v0.3.0 report pages (`.claude/docs/reports.md` is the API; every report is any-authenticated,

@@ -102,7 +102,7 @@ the same commit** — this list is the coverage map, the scenario file is the de
 
 - [`accessibility.spec.ts`](scenarios/accessibility.md) — axe WCAG A/AA smoke: login + the
   authenticated list/form pages (`/`, `/teams`, `/users`, `/users/new`, `/feature-flags`,
-  `/data-sources`, `/metrics-settings`, all sixteen `/reports/*` routes (the Deep dive without a selection, so its explainer) — each scanned once settled —
+  `/data-sources`, `/metrics-settings`, `/capacity` (the pickers' empty state), all sixteen `/reports/*` routes (the Deep dive without a selection, so its explainer) — each scanned once settled —
   `/change-password`, `/changelog`), the detail pages of an API-seeded fixture team (its roster page,
   the admin's own edit-user and user-features pages), `/reset-password`, the not-found page, and a
   registry editor modal scoped to its dialog; the app shell at a mobile width (390x844, the burger present), light and dark; the login screen and the list/form/report pages again in
@@ -172,6 +172,13 @@ the same commit** — this list is the coverage map, the scenario file is the de
   stub's reference date and narrow to the spec's own connection through the URL. Every report's filter bar is collapsible
   (folded by default; scenarios unfold it with `openFilters`), and one scenario folds and unfolds it: the toggle's
   `aria-expanded` and active-filter badge (on Commitments the period counts, the always-present team does not), the choice remembered per report across a reload.
+- [`capacity.spec.ts`](scenarios/capacity.md) — the Administration > Capacity page (A32), over its own API-seeded, synced Jira-stub
+  connection (`e2e-capacity-ds-*`, not paused: a calendar save must re-derive it) with the FLO board mapped to a throwaway team (`e2e-capacity-team-*`)
+  and one stub person on its roster: the admin picks the team and the golden sprint, saves a team default, reads the computed day/person
+  defaults, turns a day off, sets a half cell and a 0.8 coefficient, sees the live total equal the hand-computed figure, saves, reloads
+  (every edit kept, a clean axe scan of the grid), and Commitments then shows exactly that figure as the sprint's capacity with no "default"
+  badge once the connection re-derives; a regular user only reads (every control disabled, no coefficient column), the admin assigns a
+  throwaway user as the team's manager through the Teams editor, and the manager edits the team default and a cell, kept across a reload.
 - [`teams.spec.ts`](scenarios/teams.md) — the flat-teams registry: create through the modal →
   add a member from the searchable picker → rename → assign the member as the team's manager (the Manager picker; the
   details page reads "Manager: …") → remove the member → delete from the list;

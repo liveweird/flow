@@ -1,0 +1,68 @@
+{
+  "title": "Pojemność",
+  "description": "Ile osobodni zespół ma w sprincie. Każdy/a może ją przeglądać; edytować mogą tylko kierownik/czka zespołu i administratorzy/rki.",
+  "team": {
+    "label": "Zespół",
+    "placeholder": "Wybierz zespół",
+    "none": "Nie ma jeszcze żadnego zespołu. Administrator/ka dodaje zespoły na stronie Zespoły."
+  },
+  "sprint": {
+    "label": "Sprint",
+    "placeholder": "Wybierz sprint",
+    "calendarBadge": "kalendarz",
+    "truncated": "Pokazano pierwsze {{shown}} z {{total}} sprintów.",
+    "none": "Ten zespół nie ma jeszcze sprintów. Pojawią się po następnej synchronizacji."
+  },
+  "pick": "Wybierz zespół i sprint, aby zobaczyć kalendarz pojemności.",
+  "default": {
+    "title": "Domyślna pojemność zespołu",
+    "intro": "Jedna wartość w osobodniach dla każdego sprintu tego zespołu bez kalendarza. Kolejność: kalendarz sprintu, potem ta wartość, potem członkowie/kinie × dni robocze.",
+    "field": "Domyślna pojemność (MD)",
+    "save": "Zapisz wartość domyślną",
+    "readOnly": "Pojemność zespołu może edytować tylko kierownik/czka zespołu lub administrator/ka."
+  },
+  "calendar": {
+    "title": "Kalendarz sprintu",
+    "total": "Ten kalendarz: {{md}} MD",
+    "teamCoefficient": "Współczynnik zespołu",
+    "teamCoefficientHint": "Mnoży pojemność całego zespołu (od 0 do 2).",
+    "defaults": "Pokazano wyliczone wartości domyślne. Zapisz, aby zachować ten kalendarz.",
+    "derived": "Pojemność w raportach: {{md}} MD ({{source}})",
+    "derivedNone": "Pojemność w raportach: brak dla tego sprintu",
+    "noWindow": "Ten sprint nie ma daty rozpoczęcia lub trwa ponad 60 dni, więc nie ma kalendarza.",
+    "readOnly": "Pojemność zespołu może edytować tylko kierownik/czka zespołu lub administrator/ka.",
+    "save": "Zapisz kalendarz",
+    "reset": "Cofnij zmiany",
+    "noPeople": "Żaden członek/kini zespołu nie pracuje w tym sprincie, więc nie ma kogo planować.",
+    "totalHint": "Po zapisaniu raporty będą go używać."
+  },
+  "grid": {
+    "tableAria": "Dostępność każdej osoby w każdym dniu sprintu",
+    "personColumn": "Osoba",
+    "coefficientColumn": "Współczynnik",
+    "footer": "Liczone na dzień",
+    "countDayAria": "Licz dzień {{day}}",
+    "countPersonAria": "Licz osobę: {{name}}",
+    "coefficientAria": "Współczynnik osoby: {{name}}",
+    "cellAria": "Dostępność osoby {{name}} w dniu {{day}}",
+    "notMember": "nie jest w zespole",
+    "legendOff": "Nieliczone (wyłączony dzień lub wyłączona osoba)"
+  },
+  "source": {
+    "CALENDAR": "kalendarz sprintu",
+    "TEAM_DEFAULT": "wartość domyślna zespołu",
+    "DEFAULT": "członkowie/kinie × dni robocze",
+    "CONFIGURED": "ustawiona ręcznie, wersja dawna"
+  },
+  "toast": {
+    "saved": "Zapisano — raporty przeliczą się wkrótce"
+  },
+  "error": {
+    "forbidden": "Nie możesz już edytować pojemności tego zespołu.",
+    "notFound": "Ten zespół lub sprint już nie istnieje.",
+    "conflict": "Ten sprint nie ma daty rozpoczęcia, więc nie ma kalendarza.",
+    "invalidCalendar": "Kalendarz nie pasuje już do sprintu (zmieniły się jego dni lub osoby). Kliknij „Cofnij zmiany”, aby wczytać aktualny, i wprowadź zmiany ponownie.",
+    "invalidDefault": "Domyślna pojemność została odrzucona. Wpisz wartość od 0 do 999999,99.",
+    "failed": "Nie udało się zapisać pojemności."
+  }
+}

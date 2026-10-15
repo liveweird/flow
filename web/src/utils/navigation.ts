@@ -1,6 +1,7 @@
 import type { ParseKeys } from "i18next";
 import {
   IconAdjustments,
+  IconCalendarStats,
   IconChartAreaLine,
   IconChartBar,
   IconChecklist,
@@ -16,6 +17,7 @@ import {
   IconZoomScan,
   type Icon,
 } from "@tabler/icons-react";
+import { capacityPath } from "./capacityLinks";
 import { dataSourcesPath } from "./dataSourceLinks";
 import { commitmentsPath, costMatrixPath, dataQualityPath, deepDiveBasePath, DELIVERY_TABS, ESTIMATION_TABS, FLOW_TABS, taskAccuracyPath, wipPath } from "./reportLinks";
 import { teamsPath } from "./teamLinks";
@@ -49,9 +51,10 @@ export const homePath = "/";
  * always-open blocks (never collapsible groups): every leaf is always in the DOM, so tests and
  * deep links address the links directly, and a static label costs less vertical space than a
  * toggle. Home and Reports are visible to everyone (every signed-in user sees every report, D12); the Administration section holds Teams (everyone reads
- * the flat teams list; only its create/edit/delete are ADMIN) alongside the ADMIN-only Users,
- * Feature flags, Data sources and Metrics settings leaves — a non-admin session sees just Teams
- * there.
+ * the flat teams list; only its create/edit/delete are ADMIN) and Capacity (everyone reads it; the page
+ * enables editing only for the team's manager or an ADMIN, and the server is the rule) alongside the
+ * ADMIN-only Users, Feature flags, Data sources and Metrics settings leaves — a non-admin session sees
+ * just Teams and Capacity there.
  */
 const NAV_SECTIONS: ReadonlyArray<NavSection> = [
   {
@@ -91,6 +94,7 @@ const NAV_SECTIONS: ReadonlyArray<NavSection> = [
     label: "appShell.section.administration",
     items: [
       { to: teamsPath, label: "appShell.nav.teams", icon: IconUsersGroup },
+      { to: capacityPath, label: "appShell.nav.capacity", icon: IconCalendarStats },
       { to: usersPath, label: "appShell.nav.users", icon: IconUsers, adminOnly: true },
       { to: "/feature-flags", label: "appShell.nav.featureFlags", icon: IconToggleLeft, adminOnly: true },
       { to: dataSourcesPath, label: "appShell.nav.dataSources", icon: IconPlugConnected, adminOnly: true },

@@ -41,6 +41,8 @@ const AUTHED_PAGES: { path: string; heading: string; settled?: (page: Page) => P
   { path: "/feature-flags", heading: "Feature flags" },
   { path: "/data-sources", heading: "Data sources" },
   { path: "/metrics-settings", heading: "Metrics settings" },
+  // Capacity in its picker state (no team picked); the populated grid is scanned in capacity.spec.ts.
+  { path: "/capacity", heading: "Capacity" },
   // A report is scanned once it settled (title, no spinner, no alert), not the moment its heading paints.
   ...REPORT_PAGES.map(({ path, heading }) => ({ path, heading, settled: reportSettled(heading) })),
   // The Deep dive without a selection: the panel and the explainer (the matrix is scanned in accessibility-data.spec.ts).
