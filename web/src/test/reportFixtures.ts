@@ -116,7 +116,7 @@ export const COMMITMENTS_UNIT: CommitmentsReport = {
   ],
 };
 
-/** TEAM level (Alpha): two closed sprints with a capacity each — a computed default and a configured override; Σ groups == Σ sprints. */
+/** TEAM level (Alpha): two closed sprints with a capacity each — a computed default and a sprint calendar; Σ groups == Σ sprints. */
 export const COMMITMENTS_TEAM: CommitmentsReport = {
   meta: { ...META, level: "TEAM" },
   sprints: [
@@ -133,7 +133,7 @@ export const COMMITMENTS_TEAM: CommitmentsReport = {
       snapshot: { initialMd: 15, initialItems: 6, finalMd: 16, finalItems: 6 },
       drift: false,
       capacityMd: 12,
-      capacitySource: "CONFIGURED",
+      capacitySource: "CALENDAR",
       byUser: [],
     },
   ],

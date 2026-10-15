@@ -164,6 +164,13 @@ is pinnable via `security.rateLimit.refreshPerMinute` (`$REFRESH_RATE_LIMIT_PER_
 `RateLimitResponseTest` and `LoginTest` pin the value to `10` explicitly, since tests run in
 development mode.
 
+**Accepted exposure — capacity writes carry no bucket of their own** (domain-model A32). The two capacity `PUT`s
+(`/api/v1/teams/{id}/capacity`, `.../sprint-calendars/{sprintId}`) are open to the team's MANAGER, not only ADMIN, and each REAL change
+bumps the global `config_revision`, which enqueues a DERIVE per enabled connection. The amplification is bounded: the queue holds at
+most one open DERIVE job per connection (further bumps coalesce into it), a no-op re-PUT bumps nothing, and every accepted write is
+attributable and audited (`team.capacity_default_updated` / `team.sprint_calendar_updated`, with the previous figure and the grant
+used). No per-user bucket is added; revisit if managers become numerous.
+
 **Email MFA (opt-in)** (`auth/MfaChallenges.kt` + `auth/MfaEmail.kt`, wired in
 `configureAuthRoutes`): a per-user second factor behind the `MFA` feature flag — **the one
 inverted-default flag**: `V5` seeds every existing user as MFA-disabled and `UserService.create`

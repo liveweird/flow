@@ -26,7 +26,6 @@ const BASE_OPTIONS: DataSourceMetricsConfigOptions = {
   issueTypes: ["Story"],
   workCategoryValues: [],
   workCategoryValuesTruncated: false,
-  sprints: [],
 };
 
 function baseConfig(fields: Record<string, string | null> = {}) {
@@ -40,7 +39,6 @@ function baseConfig(fields: Record<string, string | null> = {}) {
     activityTypes: [{ issueType: "Story", activityType: "Story" }],
     workCategories: [],
     blockedStatuses: [] as string[],
-    sprintCapacities: [],
   };
 }
 

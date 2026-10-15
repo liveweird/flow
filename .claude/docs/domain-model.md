@@ -6,7 +6,7 @@ reports it serves, its invariants, and how known data imperfections are handled.
 contract the metrics layer and every dashboard are built against. **Status: agreed 2026-09-27
 (D1–D16), validated against the target reports; amended 2026-09-28 (A17–A21, see "Amendments"
 below); implemented in v0.3.0** (the configuration, DERIVE and the star: `.claude/docs/metrics.md`;
-the sixteen reports: `.claude/docs/reports.md`; the deep dive, report 17, is A29 below; the WAITING stage is A30; issues above the epic level are A31). The per-measure operational contract — each
+the sixteen reports: `.claude/docs/reports.md`; the deep dive, report 17, is A29 below; the WAITING stage is A30; issues above the epic level are A31; capacity is a team default and a sprint calendar, A32). The per-measure operational contract — each
 report number's grain, time anchor, attribution, estimate snapshot, missing-data rule,
 frozen/live source and the test that pins it — is `.claude/docs/measures.md`.
 
@@ -87,7 +87,8 @@ below).
   epic's start and due dates into a cumulative PV curve PV(t); later budget or date changes create
   a new baseline, and the drift is reported rather than overwriting the original plan.
 - *Capacity:* team × sprint capacity in MD is configured in Flow (Jira exposes no reliable capacity
-  API). **Load** = committed scope ÷ capacity.
+  API): a per-sprint person × day calendar, else the team's default figure, else members × working days (A3, A32).
+  **Load** = committed scope ÷ capacity.
 
 **Delivery — EV (earned value).** From the configured status stages, for tasks and epics alike:
 
@@ -143,7 +144,7 @@ Flow's vocabulary now matches common Scrum usage:
 
 See `.claude/docs/metrics.md` "Sprint scope, facts and snapshots" for how committed/added/
 removed/final/delivered/carried-over/dropped are actually computed and stored (`fact_sprint_scope`/
-`fact_sprint`), the default sprint capacity (A3), and the `fact_sprint_snapshot`/`reconstructed`
+`fact_sprint`), the sprint capacity (A3, A32), and the `fact_sprint_snapshot`/`reconstructed`
 rule this section's D13 describes.
 - **Activity type / work category** — see Entities.
 
@@ -160,7 +161,7 @@ layer (the same idea as `PROCESSING_VERSION` for `norm`): history is always read
 | Epic start/due fields | two field ids | "Start date" + `duedate`, or Jira Plans' "Target start"/"Target end" |
 | Project → domain (+ owner team, A19) | map | 1:1; owner = the team of the one mapped board on that project, else none |
 | Board → team | 1:1 map (makes a sprint a team's sprint, and owns its backlog — D10) | none — must be set |
-| Team × sprint capacity | MD | members × working days − absence, editable per sprint |
+| Team capacity (A32) | MD | per-sprint calendar (person × day) > the team's default figure > members × working days (A3); editable by the team's manager or an ADMIN |
 | `hoursPerDay`, working calendar, time zone | number; weekends + holidays; zone | Jira time-tracking setting; Mon–Fri; the unit's zone |
 | Commitment grace | duration after sprint start | 0 |
 | Issue type → activity type | map | 1:1 |
@@ -178,7 +179,7 @@ A Kimball-style star whose storage is **intervals** (`tstzrange`, GiST-indexed).
 counts and sums only.
 
 - **Configuration tables:** `status_stage_map`, `estimate_field`, `epic_date_fields`, `domain_map`,
-  `board_team_map`, `team_sprint_capacity`, `calendar`, `activity_type_map`,
+  `board_team_map`, `team_capacity_defaults`, `sprint_calendars` (A32; `team_sprint_capacity` is legacy, unread), `calendar`, `activity_type_map`,
   `work_category_field`, `work_category_map`, `blocked_statuses`, `report_windows`,
   `config_revision`.
 - **Dimensions:** `dim_org` (unit → team → user, effective-dated through `team_membership`),
@@ -253,7 +254,7 @@ user, and slices by domain, activity type and work category.
 
 | # | Report | Source | Definition |
 |---|---|---|---|
-| 1 | **Commitments** | `fact_sprint_snapshot` (+ live `fact_sprint`) | initial = committed SP; final = final-scope SP at completion; plus the team's capacity; per user via `assignee_at_commitment` in `fact_sprint_scope` |
+| 1 | **Commitments** | `fact_sprint_snapshot` (+ live `fact_sprint`) | initial = committed SP; final = final-scope SP at completion; plus the team's capacity (A32); per user via `assignee_at_commitment` in `fact_sprint_scope` |
 | 2 | **Throughput** | `fact_sprint` (sprint view), `fact_task_delivery` (period view) | delivered SP; for a calendar period: SP of tasks with `done_at` in it |
 | 3 | **Task estimation accuracy** | `fact_task_delivery`, DONE tasks with an estimate and worklogs | `actual_md ÷ estimate at start` (D15; vs estimate at done as a second view); full distribution; unestimated or worklog-less DONE tasks counted beside it, never in it |
 | 4 | **Epic estimation accuracy** | `fact_epic_delivery`, DONE epics | `actual_md ÷ own estimate at start` (D15; at done as a second view); the child-sum estimate shown alongside |
@@ -502,6 +503,35 @@ carries the per-measure detail).
     counts, not table sizes, so they stay out of the ANALYZE-path comparison (`statisticsRowCounts`).
   - **No forced re-derive and no migration.** Nothing persisted changes shape (a new JSON key only); the next SYNC chains a
     DERIVE, and "Derive now" (the data source's "Re-derive metrics") applies it at once.
+
+- **A32 — Capacity is a team default and a per-sprint calendar** (agreed with the user 2026-10-14; the old per-sprint figure is
+  gone). The `metrics.team_sprint_capacity` override (one admin-typed MD per connection and sprint, the "Capacities" tab) is replaced by
+  two things, stored in V24 and edited on the Capacity page by the team's manager or an ADMIN (any signed-in user reads):
+  - **A team default** — one MD figure per team (`metrics.team_capacity_defaults`), or none.
+  - **A sprint calendar** — a person × day grid per (connection, sprint) (`metrics.sprint_calendars`, one jsonb document read and
+    written whole). Columns are the sprint's calendar days in the configured zone, `dayOf(start_at)` … `dayOf(max(start_at, end − 1 ms))`
+    with `end = end_at ?? complete_at ?? start_at` (a window over 60 days, or a sprint without `start_at`, has no calendar). A day is
+    counted by default when `WorkingCalendar.isWorkingDay` (weekends and the settings' holidays start off — one "working day" truth);
+    a person is counted by default; a cell is the person's availability that day, 0..1 MD, default 1. A person has a coefficient
+    (0..2, default 1) and the team has one (0..2, default 1):
+    `capacity = teamCoefficient × Σ_{counted people}(coefficient × Σ_{counted days} cell)`, exact decimals rounded half-up to two.
+  - **Precedence** (DERIVE, `dim_sprint.capacity_source`): `CALENDAR` (the sprint's calendar for its CURRENT mapped team) >
+    `TEAM_DEFAULT` > `DEFAULT` (A3: members × working days) > none. `CONFIGURED` (pre-V24) stays an accepted value only on rows not yet
+    re-derived; the writer never emits it. Soft-deleted teams feed nothing.
+  - **Defaults are materialized on read and persisted on write.** `GET` of a sprint without a stored calendar answers the computed
+    defaults (`hasCalendar: false`), the team and person coefficients carried forward from the team's most recent EARLIER stored
+    calendar (greatest `sprint_start_ms`, ties by highest sprint id then lowest connection id, active connections only) — turn-offs and
+    cells never carry. Nothing is stored until a `PUT`.
+  - **Re-projection.** A stored calendar is laid over the sprint's CURRENT window and CURRENT roster (the team's `team_membership` rows
+    overlapping `[start, end)`, A3's predicate) by both `GET` and DERIVE, so the page's total always equals what DERIVE stores: new
+    members appear counted, dropped days vanish, a person no longer a member stays (flagged `member: false`).
+  - **Managers.** A team has at most one manager, a Flow user the ADMIN assigns (V23); the manager or an ADMIN edits that team's capacity,
+    everyone else reads (a person's coefficient only for editors — `authorization.md`).
+  - **Legacy figures.** V24 seeds each team's default from its most recent configured per-sprint figure (active teams and connections);
+    the old table stays, unread. Historical sprints that had an explicit figure read `TEAM_DEFAULT`/`DEFAULT` after their next DERIVE
+    while their frozen `fact_sprint_snapshot.capacity_md` keeps the old one, so Data quality's snapshot-drift card flags them — honest,
+    visible, and by design (the snapshot never moves).
+  - Operational detail: `.claude/docs/metrics.md` "Sprint capacity", `.claude/docs/persistence.md` "Capacity management (V24)".
 
 ## Gaps in `norm` (closed in v0.3.0)
 

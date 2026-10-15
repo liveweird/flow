@@ -100,6 +100,13 @@ class CapacityKernelsTest {
     }
 
     @Test
+    fun `an absurd end instant is far over the cap, never wrapped back under it`() {
+        val tooLong = assertIs<SprintWindowOutcome.TooLong>(resolveSprintWindow(0L, Long.MAX_VALUE, null, warsaw))
+        assertEquals(Int.MAX_VALUE, tooLong.days)
+        assertNull(sprintWindow(0L, Long.MAX_VALUE, null, warsaw))
+    }
+
+    @Test
     fun `the default calendar counts working days and members only, coefficients alone carry`() {
         val window = sprintWindow(ms("2026-03-06T09:00:00Z"), ms("2026-03-10T15:00:00Z"), null, warsaw)!!
         val plain = defaultCalendar(window, listOf("m2", "m1"), warsaw, carry = null)

@@ -3,7 +3,6 @@ package ch.nokillswit.metrics
 import ch.nokillswit.infra.validation.sanitizeSingleLine
 import ch.nokillswit.norm.StatusCategory
 import io.ktor.server.plugins.BadRequestException
-import java.math.BigDecimal
 import kotlinx.serialization.Serializable
 
 /**
@@ -67,14 +66,10 @@ data class MetricsActivityTypeMapping(val issueType: String, val activityType: S
 @Serializable
 data class MetricsWorkCategoryMapping(val valueId: String, val valueName: String? = null, val category: String)
 
-/** One `metrics.team_sprint_capacity` row — an admin override; DERIVE falls back to a computed default (A3) when absent. */
-@Serializable
-data class MetricsSprintCapacity(val sprintId: Long, val capacityMd: Double)
-
 /**
  * The per-connection metrics configuration (v0.3.0 M1 commit 4, `.claude/docs/domain-model.md`
  * "Configuration"): ONE composite resource — `GET/PUT /api/v1/data-sources/{id}/metrics-config` —
- * instead of eight paired endpoints (API-RES-004, the features-PUT idiom, `MetricsSettings`'
+ * instead of seven paired endpoints (API-RES-004, the features-PUT idiom, `MetricsSettings`'
  * precedent). `configured = false` means nothing is stored yet and every field below is a COMPUTED
  * default (`MetricsConfigService.effectiveConfig`); a later commit's DERIVE reads exactly this same
  * effective shape, so reports work before an admin touches anything (team attribution excepted).
@@ -90,7 +85,6 @@ data class DataSourceMetricsConfig(
     val activityTypes: List<MetricsActivityTypeMapping> = emptyList(),
     val workCategories: List<MetricsWorkCategoryMapping> = emptyList(),
     val blockedStatuses: List<String> = emptyList(),
-    val sprintCapacities: List<MetricsSprintCapacity> = emptyList(),
 )
 
 /** The PUT body — a full replace; `configured` is excluded (server-computed, never client-supplied). */
@@ -104,7 +98,6 @@ data class DataSourceMetricsConfigRequest(
     val activityTypes: List<MetricsActivityTypeMapping> = emptyList(),
     val workCategories: List<MetricsWorkCategoryMapping> = emptyList(),
     val blockedStatuses: List<String> = emptyList(),
-    val sprintCapacities: List<MetricsSprintCapacity> = emptyList(),
 )
 
 /** The stored response reshaped back into request form — [MetricsConfigService]'s own no-op comparison (the features-PUT precedent). */
@@ -117,7 +110,6 @@ internal fun DataSourceMetricsConfig.asRequest(): DataSourceMetricsConfigRequest
     activityTypes = activityTypes,
     workCategories = workCategories,
     blockedStatuses = blockedStatuses,
-    sprintCapacities = sprintCapacities,
 )
 
 /**
@@ -135,7 +127,6 @@ internal fun DataSourceMetricsConfigRequest.canonicalized(): DataSourceMetricsCo
     activityTypes = activityTypes.sortedBy { it.issueType },
     workCategories = workCategories.sortedBy { it.valueId },
     blockedStatuses = blockedStatuses.sorted(),
-    sprintCapacities = sprintCapacities.sortedBy { it.sprintId },
 )
 
 /**
@@ -171,7 +162,6 @@ data class MetricsConfigReferenceData(
     val projectKeys: Set<String>,
     val boardIds: Set<Long>,
     val issueTypes: Set<String>,
-    val sprintIds: Set<Long>,
     val activeTeamIds: Set<UInt>,
     /** Null when no `WORK_CATEGORY` field is configured yet — any [MetricsWorkCategoryMapping] is then a 400. */
     val workCategoryValueIds: Set<String>?,
@@ -195,7 +185,6 @@ fun validateDataSourceMetricsConfig(request: DataSourceMetricsConfigRequest, ref
     requireNoDuplicateKeys(request.activityTypes.map { it.issueType }, "issueType in activityTypes")
     requireNoDuplicateKeys(request.workCategories.map { it.valueId }, "valueId in workCategories")
     requireNoDuplicateKeys(request.blockedStatuses, "statusId in blockedStatuses")
-    requireNoDuplicateKeys(request.sprintCapacities.map { it.sprintId }, "sprintId in sprintCapacities")
 
     request.statusStages.forEach { entry ->
         if (entry.statusId !in ref.statusIds) throw BadRequestException("Unknown status id: ${entry.statusId}")
@@ -227,9 +216,6 @@ fun validateDataSourceMetricsConfig(request: DataSourceMetricsConfigRequest, ref
     request.blockedStatuses.forEach { statusId ->
         if (statusId !in ref.statusIds) throw BadRequestException("Unknown status id: $statusId")
     }
-    request.sprintCapacities.forEach { capacity ->
-        if (capacity.sprintId !in ref.sprintIds) throw BadRequestException("Unknown sprint id: ${capacity.sprintId}")
-    }
 }
 
 /**
@@ -247,13 +233,6 @@ private fun validateColumnBounds(request: DataSourceMetricsConfigRequest) {
     }
     request.domainStatusStages.forEach { requireMaxLength(it.domainKey, DOMAIN_KEY_MAX_LENGTH, "domainKey") }
     request.workCategories.forEach { requireMaxLength(it.category, WORK_CATEGORY_MAX_LENGTH, "category") }
-    request.sprintCapacities.forEach { capacity ->
-        val md = capacity.capacityMd
-        if (!md.isFinite() || md < 0 || md > CAPACITY_MD_MAX) throw BadRequestException("capacityMd must be between 0 and $CAPACITY_MD_MAX")
-        if (BigDecimal.valueOf(md).stripTrailingZeros().scale() > CAPACITY_MD_SCALE) {
-            throw BadRequestException("capacityMd must have at most $CAPACITY_MD_SCALE decimal places")
-        }
-    }
 }
 
 private fun requireMaxLength(value: String, max: Int, field: String) {
@@ -367,9 +346,6 @@ data class MetricsFieldOption(
 @Serializable
 data class MetricsBoardOption(val boardId: Long, val name: String, val projectKey: String?)
 
-@Serializable
-data class MetricsSprintOption(val sprintId: Long, val boardId: Long?, val name: String, val state: String)
-
 /** One distinct value observed in the configured `WORK_CATEGORY` field, across this connection's live work items. */
 @Serializable
 data class MetricsFieldValueOption(val valueId: String, val valueName: String?)
@@ -391,5 +367,4 @@ data class DataSourceMetricsConfigOptions(
     val issueTypes: List<String> = emptyList(),
     val workCategoryValues: List<MetricsFieldValueOption> = emptyList(),
     val workCategoryValuesTruncated: Boolean = false,
-    val sprints: List<MetricsSprintOption> = emptyList(),
 )

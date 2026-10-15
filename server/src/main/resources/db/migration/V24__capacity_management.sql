@@ -28,11 +28,13 @@ ALTER TABLE metrics.dim_sprint ADD CONSTRAINT dim_sprint_capacity_source_check
     CHECK (capacity_source IN ('CALENDAR', 'TEAM_DEFAULT', 'DEFAULT', 'CONFIGURED')) NOT VALID;
 ALTER TABLE metrics.dim_sprint VALIDATE CONSTRAINT dim_sprint_capacity_source_check;
 
--- Seed each team's TEAM_DEFAULT from its most recent configured per-sprint figure; metrics.team_sprint_capacity stays, unread.
+-- Seed each team's TEAM_DEFAULT from its most recent configured per-sprint figure (ACTIVE teams and connections only; a tie on
+-- start_at takes the highest sprint id, a sprint with no start_at ranks last); metrics.team_sprint_capacity stays, unread.
 INSERT INTO metrics.team_capacity_defaults (team_id, default_capacity_md, updated_at, updated_by_user_id)
 SELECT DISTINCT ON (btm.team_id) btm.team_id, c.capacity_md, (EXTRACT(EPOCH FROM now()) * 1000)::BIGINT, NULL
 FROM metrics.team_sprint_capacity c
 JOIN norm.sprints s ON s.connection_id = c.connection_id AND s.sprint_id = c.sprint_id
 JOIN metrics.board_team_map btm ON btm.connection_id = s.connection_id AND btm.board_id = s.board_id
 JOIN teams t ON t.id = btm.team_id AND NOT t.marked_as_deleted
-ORDER BY btm.team_id, s.start_at DESC NULLS LAST, s.sprint_id DESC;
+JOIN public.source_connections sc ON sc.id = c.connection_id AND NOT sc.marked_as_deleted
+ORDER BY btm.team_id, s.start_at DESC NULLS LAST, s.sprint_id DESC, s.connection_id ASC;

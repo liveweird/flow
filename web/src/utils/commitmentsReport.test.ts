@@ -69,18 +69,20 @@ describe("commitmentsChartRows", () => {
     const rows = commitmentsChartRows(
       [
         sprint({ sprintId: 1, completedAt: 1000, capacityMd: 25, capacitySource: "DEFAULT" }),
-        sprint({ sprintId: 2, completedAt: 2000, capacityMd: 18.5, capacitySource: "CONFIGURED" }),
+        sprint({ sprintId: 2, completedAt: 2000, capacityMd: 18.5, capacitySource: "CALENDAR" }),
+        sprint({ sprintId: 4, completedAt: 4000, capacityMd: 9, capacitySource: "TEAM_DEFAULT" }),
         sprint({ sprintId: 3, completedAt: 3000 }),
       ],
       filters,
     );
     expect(rows.map((r) => [r.capacityMd, r.capacitySource])).toEqual([
       [25, "DEFAULT"],
-      [18.5, "CONFIGURED"],
+      [18.5, "CALENDAR"],
       [null, null],
+      [9, "TEAM_DEFAULT"],
     ]);
     expect(hasCapacity(rows)).toBe(true);
-    expect(hasCapacity(rows.slice(2))).toBe(false);
+    expect(hasCapacity(rows.slice(2, 3))).toBe(false);
     expect(hasCapacity([])).toBe(false);
   });
 });

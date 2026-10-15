@@ -253,7 +253,7 @@ CommitmentsReport {
     initialMd, initialItems, finalMd, finalItems,
     snapshot: { initialMd, initialItems, finalMd, finalItems } | null,
     drift: boolean,
-    capacityMd: number | null, capacitySource: "CONFIGURED" | "DEFAULT" | null,
+    capacityMd: number | null, capacitySource: "CALENDAR" | "TEAM_DEFAULT" | "DEFAULT" | "CONFIGURED" | null,
     byUser: [{ accountId, label, initialMd, initialItems, finalMd, finalItems }]
   }]
   groups: [{ teamId?, accountId?, label?, initialMd, initialItems, finalMd, finalItems }]
@@ -265,9 +265,11 @@ CommitmentsReport {
   a DERIVE run -- D13); `drift` compares the two LIVE-vs-FROZEN figures with a 0.005 MD tolerance
   (item counts compared exactly) -- `true` whenever any of the four differs, always `false` when no
   snapshot exists yet.
-- **Capacity.** `capacityMd`/`capacitySource` are the sprint's capacity (A3, `.claude/docs/metrics.md` "Default sprint capacity"):
+- **Capacity.** `capacityMd`/`capacitySource` are the sprint's capacity (A3, A32, `.claude/docs/metrics.md` "Sprint capacity"):
   `fact_sprint.capacity_md` and `dim_sprint.capacity_source`, read by the same join that reads the sprint (no extra query per sprint) --
-  `CONFIGURED` (a per-sprint override) or `DEFAULT` (members x working days); both `null` when the sprint has none. Filled at UNIT and
+  `CALENDAR` (the sprint's calendar), `TEAM_DEFAULT` (the team's one figure) or `DEFAULT` (members x working days); `CONFIGURED`
+  (the pre-V24 per-sprint override) is still in the enum for rows not yet re-derived and is never written again; both `null` when
+  the sprint has none. Filled at UNIT and
   TEAM level; always `null` at USER level -- capacity is a team figure, so it is hidden when users are picked. Load
   (`committed / capacity`) stays on `fact_sprint`, not in this shape.
 - **Levels, from the parsed filter** (`reports/ReportFilter.kt`'s own `ReportLevel`):
@@ -331,7 +333,7 @@ unassigned bucket to the team snapshot", "USER level snapshot is null for a spri
 drift stays false", "USER level frozen figures come from the stored snapshot scope not the live
 rows, per connection", "frozen scope parsing fails loudly on a malformed row and keeps a null estimate
 null"), the capacity ("capacity is the stored fact_sprint capacity and source at UNIT and TEAM level, and null at
-USER level", "a configured sprint capacity overrides the default at UNIT and TEAM level"), several accounts
+USER level", "a sprint calendar and a team default override the default at UNIT and TEAM level"), several accounts
 ("several accountIds sum the sprint and split it per user in request order", "one accountId keeps the figures
 with a one-entry byUser and a user with no scope is a zero entry", "at most eight accountIds on
 commitments, and a repeated accountId on another report stays 400"), `400` for `from > to` and an unknown `sprintId`; every request runs
@@ -1015,7 +1017,7 @@ Code: `reports/DataQualityReport.kt` (DTOs, `dataQuality`), `DataQualityTasks.kt
 the drill). Tests: `ReportDataQualityTest` -- the stub fixture graded section by section against independent counts over the raw fact
 rows (populations, coverage, every task finding, late logging against the generator's 1..5-day delays, teamless authors, epic
 findings, unmapped boards and the ownerless domains) and its UNIT/TEAM/USER/`teamId=0`/domain-sliced/sprint-relative drill; a private
-DERIVED clone whose configuration is changed and re-derived (a capacity override moves the live capacity and load away from the frozen
+DERIVED clone whose configuration is changed and re-derived (a sprint calendar moves the live capacity and load away from the frozen
 snapshot; removing `Waiting` from the stage map makes it an unmapped status) plus hand-moved live figures for the delta arithmetic;
 hand-built rows for the populations and every task finding with hand-computed numbers, the member-days against plain weekday
 arithmetic, epics incl. the horizon cut around the connection's DERIVE clock, the owner drill and the domains, and hand-inserted

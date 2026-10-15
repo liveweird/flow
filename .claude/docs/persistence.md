@@ -216,7 +216,7 @@ place:
 - `metrics/SprintCalendarService` (V24, capacity management; `GET`/`PUT /api/v1/teams/{id}/capacity|sprint-calendars`) reads
   `teams/TeamService.Teams` (the active-team check on every call, `lockActiveForUpdate` on the write paths) and, through
   `TeamService.isActiveManager`, `Teams` ⋈ `users/UserService.Users` (the non-admin grant re-check inside the write
-  transaction); `norm/WorkItemStore.People` (display names, the known-account check); `ingest/DataSourceService.Connections`
+  transaction); `norm/WorkItemStore.People` (display names, the known-account check — of ACTIVE connections only); `ingest/DataSourceService.Connections`
   (active connections only, joined to the sprint rows) and `metrics.dim_sprint` (a sprint's dates, team and last-derived
   figure — read only). It WRITES only its own two tables, and bumps `MetricsSettingsService.bumpRevision` (same package).
   `TeamMembershipService.memberAccountIds` serves it the roster overlapping a sprint.
@@ -237,7 +237,7 @@ place:
   `norm/WorkItemStore.Statuses`/`Boards`/`Sprints` (the mapping-gap findings) and `WorkItems` (`DataQualityHierarchy.kt`: the live
   `hierarchy_level >= 2` rows of the items-above-the-epic finding, A31, read with their key and summary directly), the per-connection config tables
   `metrics/MetricsConfigService.StatusStageMap`/`BoardTeamMap`/`FieldConfig` (plus a distinct-connection existence probe of
-  `DomainMap`/`ActivityTypeMap`/`WorkCategoryMap`/`BlockedStatuses`/`TeamSprintCapacity`, `readConnectionMappings` -- the light
+  `DomainMap`/`ActivityTypeMap`/`WorkCategoryMap`/`BlockedStatuses`, `readConnectionMappings` -- the light
   counterpart of `effectiveConfig`'s stored-else-defaults rule) and the `metrics` tables `FactTaskDelivery`, `FactEpicDelivery`, `FactWorklog`,
   `FactSprint`, `FactSprintSnapshot`, `DimEpic`, `DimDomain`, `ItemStage` and `DeriveRuns` (incl. its `row_counts` JSON).
 List each new cross-feature read/write here as it lands — the list IS the permission.
@@ -542,6 +542,9 @@ ONE GiST index — `btree_gist` is what makes `=` available inside a GiST index 
   create/update/delete (nested into the SAME transaction via `MetricsSettingsService.bumpRevision`,
   since both live in the `metrics` package — not a cross-feature read), and, from a later commit on,
   every per-connection config PUT.
+- **`metrics.team_sprint_capacity` is LEGACY since V24** (domain-model A32): nothing reads or writes it any more (the metrics-config
+  API dropped `sprintCapacities`, DERIVE resolves capacity from V24's tables); PURGE still drains it and `IngestWorkerTest` keeps proving
+  that, until a cleanup migration drops it. Its `MetricsConfigService.TeamSprintCapacity` table object stays for that drain only.
 - **`metrics.status_stage_map`/`field_config`/`domain_map`/`board_team_map`/`team_sprint_capacity`/
   `activity_type_map`/`work_category_map`/`blocked_statuses`** — the per-connection configuration
   tables the v0.3.0 plan's commit 4 (`GET/PUT /api/v1/data-sources/{id}/metrics-config`) reads and
@@ -811,7 +814,7 @@ otherwise.
 - **`metrics.team_capacity_defaults`** — PK `team_id` (FK `teams`), `default_capacity_md NUMERIC(8, 2)` nullable (`CHECK >= 0`; a
   row with a null figure = "no default", the same as no row), `updated_at`, `updated_by_user_id`. One MD figure per team —
   DERIVE's `TEAM_DEFAULT`. Per team, never per connection: PURGE does not touch it (a soft-deleted team's row is harmless, the
-  FK stays valid).
+  FK stays valid; `forDerive` reads ACTIVE teams only, so a deleted team's figure stops feeding DERIVE with its GET/PUT 404).
 - **`metrics.sprint_calendars`** — PK `(connection_id, sprint_id)`, `team_id` (the team it was saved for — a reader that finds
   another team here after a board re-map ignores the row, a write replaces it), `sprint_start_ms` (the sprint's `start_at` at
   save time: orders "the team's most recent EARLIER calendar", the coefficient carry-forward), `calendar JSONB`
@@ -826,10 +829,15 @@ otherwise.
   `IN ('CALENDAR', 'TEAM_DEFAULT', 'DEFAULT', 'CONFIGURED')`. `CONFIGURED` stays accepted: a row written before V24 keeps it until
   its connection's next DERIVE rebuilds `dim_sprint`; the writer never emits it again.
 - **The seed.** Each team's `TEAM_DEFAULT` is seeded from its most recent configured per-sprint figure in
-  `metrics.team_sprint_capacity` (via `norm.sprints` → `board_team_map`, active teams only). `team_sprint_capacity` itself stays,
-  now unread (its drain on PURGE stays too). Historical sprints that had an explicit figure therefore read `TEAM_DEFAULT`/`DEFAULT`
+  `metrics.team_sprint_capacity` (via `norm.sprints` → `board_team_map`, ACTIVE teams on ACTIVE connections only; a start_at tie takes
+  the highest sprint id, a sprint without a start ranks last — `CapacitySeedMigrationTest` runs the seed SELECT over hand-built rows).
+  `team_sprint_capacity` itself stays, unread since B4 (its drain on PURGE stays too). Historical sprints that had an explicit figure therefore read `TEAM_DEFAULT`/`DEFAULT`
   after their next DERIVE, while their frozen `fact_sprint_snapshot.capacity_md` keeps the old figure — Data quality's
   snapshot-drift card flags the difference, by design.
+
+The carry-forward read (`SprintCalendarService.carryForward`) orders `sprint_start_ms DESC, sprint_id DESC, connection_id ASC` over
+the team's calendars on ACTIVE connections. V24 was edited once before reaching any persistent database (the seed's connection join,
+the tie-break) and its pin re-taken; from here on it is immutable like every applied migration.
 
 `MigrationChecksumTest` gains V24's pin.
 

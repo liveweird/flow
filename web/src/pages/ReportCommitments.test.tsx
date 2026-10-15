@@ -96,7 +96,7 @@ describe("ReportCommitments page", () => {
     expect(within(alpha2).getByText("Drift")).toBeInTheDocument();
     expect(within(alpha2).getByText("Frozen at completion: initial 20 MD, final 22 MD")).toBeInTheDocument();
     expect(screen.getAllByText("Drift")).toHaveLength(1);
-    // A configured capacity (12) carries no badge: 15 / 12 = 125%.
+    // A calendar capacity (12) carries no badge: 15 / 12 = 125%.
     const alpha1 = within(sprints).getByRole("row", { name: /^Alpha 1 / });
     expect(within(alpha1).getByText("12")).toBeInTheDocument();
     expect(within(alpha1).getByText("125%")).toBeInTheDocument();
@@ -110,6 +110,23 @@ describe("ReportCommitments page", () => {
 
     // A bare link is never read for the unit: the page starts on the first team by name and asks for that once.
     expect(commitmentsCalls(mockFetch)).toEqual(["/api/v1/reports/commitments?teamId=1"]);
+  });
+
+  test("a team-default capacity is badged in words; a legacy configured one shows the bare figure", async () => {
+    const [first, second] = COMMITMENTS_TEAM.sprints;
+    serve(mockFetch, {
+      commitments: () =>
+        jsonResponse(200, {
+          ...COMMITMENTS_TEAM,
+          sprints: [{ ...first, capacityMd: 30, capacitySource: "TEAM_DEFAULT" }, { ...second, capacityMd: 12, capacitySource: "CONFIGURED" }],
+        }),
+    });
+    renderPage();
+    await screen.findByTestId("composite-chart");
+    const sprints = screen.getAllByRole("table")[0];
+    expect(within(within(sprints).getByRole("row", { name: /^Alpha 2 / })).getByText("team default")).toBeInTheDocument();
+    expect(within(within(sprints).getByRole("row", { name: /^Alpha 1 / })).queryByText(/default/)).not.toBeInTheDocument();
+    expect(screen.queryByText("default")).not.toBeInTheDocument();
   });
 
   test("a sprint without a capacity shows dashes and no marker, and no load", async () => {

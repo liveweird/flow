@@ -53,7 +53,7 @@ class SprintCalendarAuthorizationTest {
 
     private suspend fun HttpClient.document(s: CapacityFixtures.Seeded): SprintCalendarDocument =
         get(url(s.teamId, s.sprintId)).body<SprintCalendarResponse>().let { c ->
-            val people = c.people.map { SprintCalendarPerson(it.accountId, it.enabled, it.coefficient, it.cells) }
+            val people = c.people.map { SprintCalendarPerson(it.accountId, it.enabled, it.coefficient!!, it.cells) }
             SprintCalendarDocument(c.teamCoefficient, c.days, people)
         }
 
@@ -208,6 +208,6 @@ class SprintCalendarAuthorizationTest {
         val denied = runCatching { service.replaceTeamCapacity(s.teamId, TeamCapacityRequest(12.0), stranger, callerIsAdmin = false) }
         assertTrue(denied.exceptionOrNull() is ForbiddenException, "a non-manager reaching the service directly is refused")
         assertEquals(null, service.readTeamCapacity(s.teamId, canEdit = false).defaultCapacityMd)
-        assertTrue(service.replaceTeamCapacity(s.teamId, TeamCapacityRequest(12.0), stranger, callerIsAdmin = true))
+        assertTrue(service.replaceTeamCapacity(s.teamId, TeamCapacityRequest(12.0), stranger, callerIsAdmin = true).changed)
     }
 }

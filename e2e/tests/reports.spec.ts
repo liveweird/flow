@@ -803,7 +803,7 @@ test.describe("reports, read by a regular user", () => {
 
     await expect(page.getByText(/^Derived .* · configuration revision \d+$/)).toBeVisible();
     await expect(page.getByRole("group", { name: "Chart: initial and final scope by sprint" })).toBeVisible();
-    // The team level adds the sprint's capacity and the load it puts on it (this team has no sprint capacity configured, so the figures are computed defaults).
+    // The team level adds the sprint's capacity and the load it puts on it (this team has no calendar or default figure, so the figures are the computed members × working days).
     const sprintTable = page.getByRole("table", { name: "Sprints and their figures" });
     for (const name of ["Capacity (MD)", "Load"]) await expect(sprintTable.getByRole("columnheader", { name, exact: true })).toBeVisible();
 

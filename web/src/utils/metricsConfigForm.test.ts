@@ -31,7 +31,6 @@ const EMPTY_CONFIG: DataSourceMetricsConfigResponse = {
   activityTypes: [],
   workCategories: [],
   blockedStatuses: [],
-  sprintCapacities: [],
 };
 
 const OPTIONS: DataSourceMetricsConfigOptions = {
@@ -45,7 +44,6 @@ const OPTIONS: DataSourceMetricsConfigOptions = {
   issueTypes: ["Story"],
   workCategoryValues: [],
   workCategoryValuesTruncated: false,
-  sprints: [{ sprintId: 11, boardId: 1, name: "Sprint 1", state: "active" }],
 };
 
 describe("buildInitialState", () => {
@@ -58,7 +56,6 @@ describe("buildInitialState", () => {
     expect(state.domains).toEqual([{ projectKey: "ENG", domainKey: "ENG", domainName: "ENG", ownerTeamId: "" }]);
     expect(state.boards).toEqual([{ boardId: 1, name: "Board A", projectKey: "ENG", teamId: "" }]);
     expect(state.activityTypes).toEqual([{ issueType: "Story", activityType: "Story" }]);
-    expect(state.sprintCapacities).toEqual([{ sprintId: 11, boardId: 1, name: "Sprint 1", state: "active", capacityMd: "" }]);
     expect(state.workCategories).toEqual([]);
     expect(state.domainStages).toEqual([]);
   });
@@ -81,7 +78,6 @@ describe("buildInitialState", () => {
       domains: [{ projectKey: "ENG", domainKey: "ENGINEERING", domainName: "Engineering", ownerTeamId: 5 }],
       boards: [{ boardId: 1, teamId: 5 }],
       activityTypes: [{ issueType: "Story", activityType: "Feature work" }],
-      sprintCapacities: [{ sprintId: 11, capacityMd: 12.5 }],
     };
     const state = buildInitialState(config, OPTIONS);
     expect(state.statuses[0]).toEqual({ statusId: "3", name: "In Progress", category: "IN_PROGRESS", stage: "IN_PROGRESS", blocked: true, inWorkflow: true, seenInHistory: true, inEpicWorkflow: false, inTaskWorkflow: false });
@@ -93,18 +89,15 @@ describe("buildInitialState", () => {
     });
     expect(state.boards[0].teamId).toBe("5");
     expect(state.activityTypes[0].activityType).toBe("Feature work");
-    expect(state.sprintCapacities[0].capacityMd).toBe("12.5");
   });
 
-  test("carries a null projectKey/boardId through unchanged (a Kanban board, a boardless sprint)", () => {
+  test("carries a null projectKey through unchanged (a Kanban board)", () => {
     const options: DataSourceMetricsConfigOptions = {
       ...OPTIONS,
       boards: [{ boardId: 2, name: "Board B", projectKey: null }],
-      sprints: [{ sprintId: 12, boardId: null, name: "Sprint 2", state: "future" }],
     };
     const state = buildInitialState(EMPTY_CONFIG, options);
     expect(state.boards).toEqual([{ boardId: 2, name: "Board B", projectKey: null, teamId: "" }]);
-    expect(state.sprintCapacities).toEqual([{ sprintId: 12, boardId: null, name: "Sprint 2", state: "future", capacityMd: "" }]);
   });
 });
 
@@ -147,10 +140,6 @@ describe("buildRequest", () => {
       { valueId: "v1", valueName: "Bug", category: "Defect" },
       { valueId: "v2", valueName: "Task", category: "" },
     ],
-    sprintCapacities: [
-      { sprintId: 11, boardId: 1, name: "Sprint 1", state: "active", capacityMd: "10" },
-      { sprintId: 12, boardId: 1, name: "Sprint 2", state: "future", capacityMd: "" },
-    ],
   };
 
   test("omits unmapped statuses, boards and uncategorized/blank values", () => {
@@ -164,7 +153,6 @@ describe("buildRequest", () => {
       activityTypes: [{ issueType: "Story", activityType: "Story" }],
       workCategories: [{ valueId: "v1", valueName: "Bug", category: "Defect" }],
       blockedStatuses: ["3"],
-      sprintCapacities: [{ sprintId: 11, capacityMd: 10 }],
     });
   });
 
