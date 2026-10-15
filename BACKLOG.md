@@ -72,6 +72,10 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   - the team filter has no "All teams": a specific team must be chosen;
   - no user filter: the report always covers every member of the chosen team;
   - add the missing "Activity type" and "Work category" filters.
+- [new] **Cycle Time report filters** (Delivery → Cycle Time, `/reports/cycle-time`):
+  - the filters can be hidden, like in Lettuce;
+  - the team filter has no "All teams": a specific team must be chosen;
+  - the user filter allows picking more than one user, and the chart's bars then stack per user.
 
 ## Engineering follow-ups
 
