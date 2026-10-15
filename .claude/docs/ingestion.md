@@ -250,7 +250,9 @@ connection still due" and enqueue an extra retry in between:
   URL or token). A `PENDING` job at `max_attempts` (a shutdown `release` gave it back) lost no lease and records no detail. An
   expired attempt that is re-claimed with attempts left records nothing (the job may still succeed, and `finish` does not clear
   `error_detail`); only the terminal close writes it. A normal failure keeps its own `<ExceptionClass>: <message>` from
-  `onFailed` (a terminal row is never touched by a later claim). The data source details page's jobs table shows the detail under the `error_code` (dimmed, two-line clamp, the full text in the cell's `title`, plain text).
+  `onFailed` (a terminal row is never touched by a later claim), with any U+0000 in the message replaced by U+FFFD
+  (`replaceNul`, `persistence.md` "jsonb") — a database exception quotes the offending value, and a NUL in a `text` column
+  would make this very write fail and hang the job RUNNING until its lease expired. The data source details page's jobs table shows the detail under the `error_code` (dimmed, two-line clamp, the full text in the cell's `title`, plain text).
 
 **Only a job of the connection's current `config_revision` records a failure back-off** (compared under the lock): a job that
 started before a config PUT and fails, or is found exhausted, afterwards must not re-impose the back-off the PUT just
@@ -385,7 +387,7 @@ above).
 **Per-page transaction with the cursor advance.** Every page (or, for REFERENCE's single-shot
 steps, every whole step) writes its raw-store rows and its own `sync_cursors` row inside the SAME
 `context.transaction {}` block, so a crash between them is impossible: a committed cursor always
-describes a committed page. `context.heartbeat()` is called once per page, AFTER that transaction
+describes a committed page. The one deliberate exception is ISSUES' skip-a-bad-issue fallback ("ISSUES: a bad issue is skipped, loudly" below): it stores the surviving issues and then writes the cursor in separate transactions, but the cursor still only advances after every issue it covers is stored or skipped. `context.heartbeat()` is called once per page, AFTER that transaction
 commits — a lost lease is caught here, never before the write.
 
 **Resume semantics.**
@@ -474,6 +476,40 @@ with `maxResults` halved, down to 1, and logs a WARN per halving (data source id
 smaller size is a local variable of the stream invocation: it holds for the rest of that run, is NOT written to the
 cursor, and the next run starts at `jira.pageSize` again. One issue still over the cap fails the run with
 `LIMIT_EXCEEDED` as before. Assumption and the sibling streams: `jira-integration.md` "Oversized issue page (`LIMIT_EXCEEDED`)". A `CURSOR_EXPIRED` right after a halving restarts without using up the restart budget.
+
+**ISSUES: a bad issue is skipped, loudly (decision 2026-10-15).** The first real SYNC stopped at the page holding an issue
+with a NUL in its text: the page's one transaction failed, the cursor never moved past it, and every retry failed the same way
+(the connection could never complete a SYNC). The NUL itself is now replaced on the way in (`persistence.md` "jsonb"), but the
+class of failure must not pin a stream forever either. Two classifiers, both in `jira/JiraDataErrors.kt` and shared with PROCESS:
+`isBadValueError` (SQLSTATE class 22, or Exposed's client-side `varchar(n)` check such as an `issue_key` over 20 characters — retrying
+the same value cannot succeed) and the wider `isDataError` (that plus integrity violations, class 23). When a page's transaction
+fails with a **data error** (the trigger), `JiraIssuesStream.writePage` redoes the page issue by issue, each in its own transaction:
+- an issue that fails with a **bad value** is SKIPPED: one WARN with the issue key (cut at 40 characters, control characters
+  replaced), id and data source id, plus the exception class and SQLSTATE or "client-side length/value check", **never the payload or
+  the exception message**; counted in the `issuesSkipped` progress counter (absent when zero);
+- a **class-23 failure that survives the isolated retry is rethrown, not skipped**: a PK race heals on the retry, and a NOT NULL or
+  CHECK failure is a writer bug that must fail loudly; any other failure (an outage such as SQLSTATE 08xxx, a parse error) is
+  rethrown too, and a page failure that is not a data error is rethrown at once, without the redo;
+- the others land, and the cursor advances in its own transaction exactly as the page transaction would have written it
+  (`issuesUpserted` counts what was stored);
+- **if EVERY issue of a page of more than one issue is skipped, the run FAILS** (`IllegalStateException`, the cursor does not
+  advance): that is systemic (a wrong column, a migration gap), not one bad row. A page of one bad issue is skipped normally.
+
+Lease loss and cancellation are never swallowed (`catchingFailures`). A skip emits no audit event: like every stream-level signal
+it lives in `sync_jobs.progress` plus the log (`observability.md`).
+*The trade-off:* a skipped issue is a DATA GAP (it is absent from `raw.jira_issues` and so from every report) against a
+connection that never completes a SYNC and is stuck on its first bad issue; the gap is the lesser evil, and it is loud (a WARN per
+issue, a counter on the job). *Self-healing:* a skipped issue that was never stored is re-fetched whenever Jira lists it again —
+the next SYNC's `updated`-ordered window returns it as soon as it is next edited, and a full resync (a fresh connection or an
+earlier `backfillFrom`) returns it regardless; it stays missing for as long as the data error persists. **RECONCILE's index-gap
+phase applies the same rule**: it fetches an id the sweep sees but the raw store lacks, and an issue that fails there with a bad value
+is skipped with the same WARN shape and counted as `indexGapSkipped` (a persistently bad issue that ISSUES skipped would otherwise
+fail every RECONCILE, never stamping `last_reconcile_at`); any other failure there still fails the pass. **When an issue that is
+ALREADY stored is the one whose update fails**, the old row simply stays — stale, not missing — and RECONCILE sees no gap (the id is
+stored), so only a later edit of the issue or a full resync heals it. The other FETCH streams do NOT get this rule: CHANGELOGS,
+WORKLOGS and REFERENCE still fail the page on a database error (their only per-row skips are the `LIMIT_EXCEEDED` ones in
+`jira-integration.md`). `JiraIssuesSkipTest` pins it (incl. the RECONCILE case, an outage-class and a class-23 failure being
+rethrown, and the all-skipped page).
 
 **Lease loss.** Every stream (REFERENCE, ISSUES, CHANGELOGS, WORKLOGS, PROCESS, PROFILE) lets
 `context.heartbeat()`'s `LeaseLostException` propagate uncaught after every committed
@@ -640,7 +676,7 @@ wasn't looking, both keyed off the now-complete `raw.jira_reconcile_seen` set fo
   or a scope catch-up is pending). Then "seen but not stored" just means the ISSUES stream has not
   downloaded that part yet, and fetching it one `GET /issue/{id}` at a time would duplicate its bulk
   work slowly; the skip is logged at INFO and counted as the `indexGapSkipped` progress counter (the
-  number of ids left alone). The deleted/moved-out phase above always runs. When no `PROJECT` reference
+  number of ids left alone). A fetched issue the database rejects as a bad value is skipped and counted in the same counter ("ISSUES: a bad issue is skipped, loudly"). The deleted/moved-out phase above always runs. When no `PROJECT` reference
   entities exist at all (no SYNC has completed), the scope-not-resolved message is INFO too, not the
   rename/mistype WARN.
 
@@ -930,12 +966,13 @@ commits its raw-store write and cursor advance but then crashes before its heart
 
 The counter names in use today (all stream-local, not enumerated anywhere — a new stream is free to
 name its own): `pages` (REFERENCE per-step-or-page, ISSUES per page, RECONCILE per id-sweep page),
-`entities` (REFERENCE, per entity upserted), `issuesUpserted` (ISSUES per page, and RECONCILE's own
-index-gap fetch), `movedOutOfScope` (ISSUES, once per run: rows tombstoned because their project
+`entities` (REFERENCE, per entity upserted), `issuesUpserted` (ISSUES per page — the issues actually stored — and RECONCILE's own
+index-gap fetch), `issuesSkipped` (ISSUES: issues the database rejected as a bad value or row, skipped with a WARN so the cursor can
+advance — absent when zero, see "ISSUES: a bad issue is skipped, loudly"), `movedOutOfScope` (ISSUES, once per run: rows tombstoned because their project
 left `projectKeys`), `changelogs` (CHANGELOGS, per history inserted), `worklogs` (WORKLOGS, per worklog
 upserted), `worklogsOutOfScope` (WORKLOGS, A1's scope-filter drop count), `changelogsSkipped` (CHANGELOGS, an issue over `jira.maxResponseBytes` even alone, left stale for the next run), `worklogsSkipped` (WORKLOGS, one `worklog/list` worklog over the cap) and `worklogsIssuesSkipped` (WORKLOGS, a backfilled issue whose per-issue page is over the cap, left unsynced) — see `jira-integration.md` "Oversized changelog/worklog batch", `tombstoned` (RECONCILE,
 per issue flagged `deleted_at`/`moved_out_at`), `indexGapSkipped` (RECONCILE: ids left unfetched because the
-ISSUES stream has not yet covered the scope), `projectFieldsSkipped` (REFERENCE, one per project whose optional `PROJECT_FIELDS` step was skipped),
+ISSUES stream has not yet covered the scope, or whose fetched issue the database rejected as a bad value), `projectFieldsSkipped` (REFERENCE, one per project whose optional `PROJECT_FIELDS` step was skipped),
 `issuesProcessed`/`issuesFailed` (PROCESS, per issue
 in a batch — see "Normalized layer" above), `referenceRowsSkipped` (PROCESS, once per run: reference rows left out, see
 "Reference-row robustness"), `profileComputed` (PROFILE, always `1` — a single

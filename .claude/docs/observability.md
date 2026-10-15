@@ -117,7 +117,7 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
   (`ingest/SyncJobRoutes.kt`); `.started` (jobId/dataSourceId/kind/attempt/workerId — a job the
   worker just claimed) / `.succeeded` (jobId/dataSourceId/kind) / `.failed`
   (jobId/dataSourceId/kind/errorCode — always `RUN_FAILED` today; the exception message itself
-  goes to `error_detail` on the row as `<ExceptionClass>: <message>`, not the audit line; the worker also logs a
+  goes to `error_detail` on the row as `<ExceptionClass>: <message>` (U+0000 replaced by U+FFFD: PostgreSQL `text` cannot store it), not the audit line; the worker also logs a
   WARN `Sync job {id} ({kind}) for data source {id} failed` with the stack trace, each cause reduced to its class name
   by `LoggedFailure`, because a transport cause's message can embed a request URL with its query string) / `.released`
   (jobId/dataSourceId/workerId — a still-RUNNING job put back to `PENDING` on
@@ -181,5 +181,6 @@ lives entirely in `sync_jobs.progress`/`current_stream`** (`StreamContext.increm
 `GET …/{id}/status` — see `.claude/docs/ingestion.md` "Progress counters"/"Sync status endpoint"),
 **not the audit trail**: it is a best-effort operational signal (a page count, which stream is
 active), not a security-relevant event, so it deliberately does not go through `audit(...)`. PROCESS
-and PROFILE follow the same rule (`issuesProcessed`/`issuesFailed`, `profileComputed`). Any FUTURE stream-level
+and PROFILE follow the same rule (`issuesProcessed`/`issuesFailed`, `profileComputed`), and so does the ISSUES stream's skip of a bad
+issue (`issuesSkipped` plus a WARN naming the issue key and id, never the payload — `ingestion.md` "ISSUES: a bad issue is skipped, loudly"). Any FUTURE stream-level
 audit trail (as opposed to progress) arrives with a later commit and gets its own paragraph here.

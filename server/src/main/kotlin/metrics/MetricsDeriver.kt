@@ -2,6 +2,7 @@ package ch.nokillswit.metrics
 
 import ch.nokillswit.infra.catchingFailures
 import ch.nokillswit.infra.db.active
+import ch.nokillswit.infra.json.replaceNul
 import ch.nokillswit.infra.time.MILLIS_PER_DAY
 import ch.nokillswit.infra.time.MILLIS_PER_MINUTE
 import ch.nokillswit.ingest.SyncJobRunContext
@@ -324,12 +325,11 @@ class MetricsDeriver(
 
     private suspend fun markRunFailed(runId: Int, failure: Exception, finishedAt: Long) = withContext(NonCancellable) {
         suspendTransaction(database) {
-            // Only while still RUNNING: a newer DERIVE of the same connection may already have swept this run
-            // FAILED as abandoned (a lease-expired zombie) — its late write must not overwrite that.
+            // Only while still RUNNING: a newer DERIVE may have swept this run FAILED as abandoned; its late write must not overwrite that.
             MetricsTables.DeriveRuns.update({ (MetricsTables.DeriveRuns.id eq runId) and (MetricsTables.DeriveRuns.status eq "RUNNING") }) {
                 it[status] = "FAILED"
                 it[MetricsTables.DeriveRuns.finishedAt] = finishedAt
-                it[errorDetail] = failure.message?.take(MAX_ERROR_DETAIL_LENGTH)
+                it[errorDetail] = failure.message?.replaceNul()?.take(MAX_ERROR_DETAIL_LENGTH)
             }
         }
         Unit

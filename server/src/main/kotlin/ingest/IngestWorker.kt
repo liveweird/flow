@@ -1,6 +1,7 @@
 package ch.nokillswit.ingest
 
 import ch.nokillswit.audit.audit
+import ch.nokillswit.infra.json.replaceNul
 import ch.nokillswit.infra.time.MILLIS_PER_DAY
 import ch.nokillswit.plugins.runsWorker
 import io.ktor.server.application.Application
@@ -322,7 +323,9 @@ class IngestWorker internal constructor(
 
     private suspend fun onFailed(claim: SyncJobClaim, cause: Exception) {
         val errorCode = "RUN_FAILED"
-        val detail = "${cause.javaClass.simpleName}: ${cause.message}".take(MAX_ERROR_DETAIL_LENGTH)
+        // A NUL in the message (a database exception inlines the offending value's text) cannot be stored in the `text`
+        // column: the failure write itself would fail with 22021 and the job would hang RUNNING until its lease expired.
+        val detail = "${cause.javaClass.simpleName}: ${cause.message}".replaceNul().take(MAX_ERROR_DETAIL_LENGTH)
         // `fail` also records the SYNC/RECONCILE back-off in the same transaction, so a closed job never leaves the connection due.
         if (!syncJobs.fail(claim.id, claim.attempt, errorCode, detail, clock())) {
             logStale(claim, "fail")

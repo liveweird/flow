@@ -933,9 +933,20 @@ recognizes any `IColumnType` implementing it (binding a null via `Statement.bind
 Json::class)`, a `String` via `Statement.bind(index, Json.of(value))` —
 `io.r2dbc.postgresql.codec.Json`) — implementing the marker IS the whole binding. Values are the
 caller's JSON text verbatim; PostgreSQL's own `jsonb` storage reformats regardless (whitespace, key
-order), so "round-trips" means the same VALUES survive, not the same bytes. Covered by
+order), so "round-trips" means the same VALUES survive, not the same bytes. **The one exception to "same values" is U+0000**:
+PostgreSQL `jsonb` and `text` cannot store a NUL (`unsupported Unicode escape sequence`, SQLSTATE 22P05 for jsonb; `22021` for
+text), and one in a pasted Jira description used to fail an ISSUES page — and so every retry of the SYNC — forever. Every
+payload that goes through `canonicalJson` (`infra/json/CanonicalJson.kt`: the four raw Jira writers, `settings`, `profile`, the
+sprint calendar) therefore has each U+0000 in a string value AND in an object key replaced with U+FFFD, before the text is
+hashed, so the stored text and its sha256 agree (U+FFFD marks that something was there and cannot merge the tokens around it,
+which dropping the character would). Every other character, control characters included, is kept; a payload without a NUL
+canonicalizes byte-for-byte as before. A payload with a NUL could never be stored, so no stored hash moves. The helper
+`String.replaceNul()` (same file) applies the same rule to free text bound for a `text` column that is not a canonical JSON
+payload — today the two exception-message columns, `sync_jobs.error_detail` (`IngestWorker.onFailed`) and
+`metrics.derive_runs.error_detail` (`MetricsDeriver.markRunFailed`): a database exception's message can quote the offending
+value, and a NUL there made the failure write itself fail, leaving the job RUNNING until its lease expired. Covered by
 `JsonbColumnTest` (insert/select/update, null, nested objects/arrays, through Exposed R2DBC against
-Testcontainers PG).
+Testcontainers PG); the NUL rule by `CanonicalJsonTest` and `JiraRawStoreTest`.
 
 **`source_connections.profile` (V8's `jsonb` column, populated as of plan commit 9).** `profile` was
 declared nullable in the V8 migration alongside `settings` but stayed unwritten until the PROFILE
@@ -958,7 +969,8 @@ does not normalize number spelling (`1`, `1.0` and `1e0` parse to the same numer
 distinct token text, so they canonicalize to different strings and hash differently). The Jira raw
 store's per-payload hash (plan §4, V10) is the next consumer, over payloads Jira itself serializes
 consistently. Covered by `CanonicalJsonTest` (key-order independence, recursive sorting, array
-order preserved, numbers/strings/unicode stable and idempotent, stable `sha256Hex`).
+order preserved, numbers/strings/unicode stable and idempotent, stable `sha256Hex`, the NUL → U+FFFD rule for values, array
+elements and keys, other control characters kept).
 
 ### Sync jobs and cursors (V9)
 
