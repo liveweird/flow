@@ -235,8 +235,8 @@ class DataSourceService(private val database: R2dbcDatabase, private val cipher:
 
     /**
      * Every enabled, active connection's id and CURRENT `config_revision` (v0.3.0 M3 commit 7) —
-     * `MetricsSettingsService.bumpRevision`'s own read, since a metrics-config mutation enqueues
-     * `DERIVE` for every one of them, not just the connection the mutation targeted.
+     * `MetricsSettingsService.bumpRevision`'s own read: a global config mutation (settings, membership, team
+     * capacity) enqueues `DERIVE` for every one of them; a per-connection one narrows it to its own connection.
      */
     suspend fun enabledActiveConnections(): List<DueConnection> = suspendTransaction(database) {
         Connections.selectAll().where { Connections.active() and (Connections.enabled eq true) }.toList()

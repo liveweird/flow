@@ -151,7 +151,7 @@ rule this section's D13 describes.
 ## Configuration
 
 Each configuration change records a new revision and triggers a full re-derive of the `metrics`
-layer (the same idea as `PROCESSING_VERSION` for `norm`): history is always read through the
+layer (of the connections it affects — `metrics.md` "DERIVE fan-out per config change") (the same idea as `PROCESSING_VERSION` for `norm`): history is always read through the
 *current* configuration, and every derived number names the revision it came from.
 
 | Setting | Shape | Default |

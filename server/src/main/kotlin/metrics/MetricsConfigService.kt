@@ -156,7 +156,7 @@ class MetricsConfigService(
      * features-PUT precedent: an idempotent re-PUT is a no-op, no write/bump/audit). A board →
      * team clash (this connection's own request, or a team another connection already claims)
      * raises `23505` on `uq_metrics_board_team_map_team_id`, propagated uncaught to
-     * `plugins/ErrorHandling.kt`'s central 409 mapping.
+     * `plugins/ErrorHandling.kt`'s central 409 mapping. Only THIS connection's DERIVE is enqueued (`bumpRevision`'s KDoc).
      */
     suspend fun replaceConfig(connectionId: UInt, request: DataSourceMetricsConfigRequest): MetricsConfigUpdateOutcome =
         suspendTransaction(database) {
@@ -256,7 +256,7 @@ class MetricsConfigService(
                 }
             }
 
-            settings.bumpRevision()
+            settings.bumpRevision(onlyConnectionId = connectionId)
             val updated = readStoredConfig(connectionId) ?: defaultConfig(connectionId)
             MetricsConfigUpdateOutcome(updated, changed = true)
         }

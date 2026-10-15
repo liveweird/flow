@@ -98,10 +98,10 @@ if one is already open); a `DERIVE` run itself enqueues nothing UNLESS the share
 already-open job rather than getting its own — review round 1 fix, `derive()`'s return value is the
 revision the run actually used, the handler's return value, compared in `onSucceeded` against the registry's
 `ConfigRevisionSource` — `MetricsSettingsService.currentRevision`).
-`MetricsSettingsService.bumpRevision` — every global-settings PUT, team-membership mutation, and
-per-connection metrics-config PUT — separately enqueues a `DERIVE` for EVERY enabled, active
-connection (not just the one edited), since a configuration change must reach every connection's
-derived numbers.
+`MetricsSettingsService.bumpRevision` separately enqueues a `DERIVE`: for EVERY enabled, active
+connection on a global-settings PUT, a team-membership mutation or a team default capacity change
+(every connection's DERIVE reads those), and for the SAVED connection only on a per-connection
+metrics-config PUT or a sprint-calendar save (`.claude/docs/metrics.md` "DERIVE fan-out per config change").
 
 **Job orders, updated.** A SYNC job's list (REFERENCE → ISSUES → CHANGELOGS → WORKLOGS → PROCESS →
 PROFILE) and a RECONCILE job's (`reconcile` → PROCESS) are unchanged — `DERIVE` is never one of

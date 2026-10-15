@@ -171,7 +171,7 @@ class SprintCalendarService(
     /**
      * A full-replace PUT of the sprint's calendar (409 without a start date, 400 for a window over [MAX_CALENDAR_DAYS] days or an invalid
      * document). A canonically equal document is a no-op: no write, no revision bump. A real change bumps `config_revision`
-     * (enqueues DERIVE).
+     * (enqueues DERIVE for the sprint's own connection only).
      */
     suspend fun replace(
         teamId: UInt,
@@ -232,7 +232,9 @@ class SprintCalendarService(
                 it[updatedByUserId] = byUserId.toLong()
             }
         }
-        metricsSettings.bumpRevision()
+        // Scoped: a calendar is keyed by connection and DERIVE reads only its own connection's (`forDerive`); the carry-forward
+        // seed is a GET-projection concern (`carry = null` in DERIVE), so no other connection's derived numbers move.
+        metricsSettings.bumpRevision(onlyConnectionId = sprint.connectionId)
         SprintCalendarReplaceOutcome(changed = true, sprint.connectionId, derived, derivedFrom, replacedTeamId)
     }
 
