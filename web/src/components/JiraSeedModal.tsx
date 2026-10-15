@@ -23,6 +23,10 @@ const MAX_SEED_ACCOUNTS = 100;
  * with the conflicting team, unticked and disabled. The server recomputes the candidates on apply, so a stale list can
  * never create anything the preview would not.
  */
+// Dates and the conflicting team's name stay on one line; the ScrollRegion scrolls sideways on a narrow screen.
+const NO_WRAP = { whiteSpace: "nowrap" } as const;
+const BADGE_FULL_LABEL = { root: { overflow: "visible" }, label: { overflow: "visible" } } as const;
+
 export default function JiraSeedModal({
   teamId,
   timeZone,
@@ -106,7 +110,7 @@ export default function JiraSeedModal({
       opened
       onClose={onClose}
       title={t("metrics.teamSeed.title")}
-      size="xl"
+      size={1000}
       centered
     >
       <Stack>
@@ -129,7 +133,7 @@ export default function JiraSeedModal({
         {candidates.isError && <ErrorAlert error={candidates.error} />}
         {candidates.isSuccess && rows.length === 0 && <EmptyState icon={IconUsersGroup} label={t("metrics.teamSeed.noCandidates")} />}
         {rows.length > 0 && (
-          <ScrollRegion label={t("metrics.teamSeed.tableAria")} minWidth={700} maxHeight={360}>
+          <ScrollRegion label={t("metrics.teamSeed.tableAria")} minWidth={900} maxHeight={360}>
             <Table aria-label={t("metrics.teamSeed.tableAria")}>
               <Table.Thead>
                 <Table.Tr>
@@ -160,17 +164,23 @@ export default function JiraSeedModal({
                       <Text size="sm">{row.issueCount}</Text>
                     </Table.Td>
                     <Table.Td>
-                      <Text size="sm">{epochMillisToIsoDateInZone(row.firstSeen, timeZone)}</Text>
+                      <Text size="sm" style={NO_WRAP}>
+                        {epochMillisToIsoDateInZone(row.firstSeen, timeZone)}
+                      </Text>
                     </Table.Td>
                     <Table.Td>
-                      <Text size="sm">{epochMillisToIsoDateInZone(row.lastSeen, timeZone)}</Text>
+                      <Text size="sm" style={NO_WRAP}>
+                        {epochMillisToIsoDateInZone(row.lastSeen, timeZone)}
+                      </Text>
                     </Table.Td>
                     <Table.Td>
-                      <Text size="sm">{epochMillisToIsoDateInZone(row.validFrom, timeZone)}</Text>
+                      <Text size="sm" style={NO_WRAP}>
+                        {epochMillisToIsoDateInZone(row.validFrom, timeZone)}
+                      </Text>
                     </Table.Td>
                     <Table.Td>
                       {row.conflict != null && (
-                        <Badge size="xs" variant="light" color="orange">
+                        <Badge size="xs" variant="light" color="orange" styles={BADGE_FULL_LABEL}>
                           {t("metrics.teamSeed.conflict", { team: row.conflict.teamName })}
                         </Badge>
                       )}
