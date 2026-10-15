@@ -338,6 +338,7 @@
   "adjustments": {
     "title": "Korekty szacunków",
     "description": "Jak często szacunek zmienia się po rozpoczęciu pracy i o ile między startem a zakończeniem. Szacunek, który pojawił się dopiero po starcie, liczymy osobno — nigdy jako nieskończoną zmianę.",
+    "noTeams": "Korekty szacunków liczymy dla zespołu, a nie ma jeszcze żadnego zespołu. Administrator/ka dodaje zespoły na stronie Zespoły.",
     "tasksTitle": "Zadania",
     "epicsTitle": "Epiki",
     "started": "Rozpoczęte",

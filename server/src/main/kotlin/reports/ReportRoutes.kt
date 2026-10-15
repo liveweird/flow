@@ -166,7 +166,7 @@ fun Application.configureReportRoutes() {
  * filter parse against the configured working calendar ([defaultView] is the report's own `domainView` default), then
  * [respond] with the filter, the raw query parameters (for a report's own extras — parsed AFTER the filter, so the shared
  * `400`s keep their order) and the request's `now`. [multipleAccounts] is the opt-in (commitments, throughput, cycle time, reported
- * time) to a repeated `accountId`.
+ * time, adjustments) to a repeated `accountId`.
  */
 private inline fun <reified R : Any> Route.reportGet(
     metricsSettings: MetricsSettingsService,
@@ -187,8 +187,8 @@ private inline fun <reified R : Any> Route.reportGet(
 /** The sprint, estimation, cycle-time and reported-time reports (1–8), in report order. */
 private fun Route.deliveryRoutes(reportService: ReportService, metricsSettings: MetricsSettingsService) {
     // Commitments (report 1) carries no domain slice (measures.md's Report 1 rows: domain "—"), so the TASK/EPIC default is a
-    // harmless placeholder — every response still echoes it in `meta`. Commitments, throughput, cycle time and reported
-    // time alone take several `accountId`s (1..8).
+    // harmless placeholder — every response still echoes it in `meta`. Commitments, throughput, cycle time, reported
+    // time and adjustments alone take several `accountId`s (1..8).
     reportGet<ReportCommitmentsRoute>(metricsSettings, DomainView.TASK, multipleAccounts = true) { filter, _, _ ->
         reportService.commitments(filter)
     }
@@ -206,7 +206,8 @@ private fun Route.deliveryRoutes(reportService: ReportService, metricsSettings: 
     reportGet<ReportEpicEstimationAccuracyRoute>(metricsSettings, DomainView.EPIC) { filter, _, nowMs ->
         reportService.epicEstimationAccuracy(filter, nowMs)
     }
-    reportGet<ReportEstimateAdjustmentsRoute>(metricsSettings, DomainView.TASK) { filter, _, nowMs ->
+    // Adjustments also takes several `accountId`s (1..8): the tasks' change histogram splits per picked person.
+    reportGet<ReportEstimateAdjustmentsRoute>(metricsSettings, DomainView.TASK, multipleAccounts = true) { filter, _, nowMs ->
         reportService.estimateAdjustments(filter, nowMs)
     }
     // Sprint consistency (reports 6.1-6.3) is sprint-scoped like commitments: no domain slice, so the TASK/EPIC default is a

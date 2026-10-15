@@ -712,6 +712,72 @@ export const ADJUSTMENTS_EMPTY: EstimateAdjustmentsReport = {
   groups: [],
 };
 
+/**
+ * USER level, two accounts (Ann then Bob, request order): the tasks' change distribution reads the union of the two and splits
+ * every histogram bucket per person (`byUser`, index-aligned), `groups` lists each pick (tasks only, `epics` null) with its own
+ * plain figures; the epics block is empty by design (no user on an epic).
+ */
+export const ADJUSTMENTS_USERS: EstimateAdjustmentsReport = {
+  meta: { ...META, level: "USER" },
+  tasks: {
+    started: 12,
+    changedAfterStart: 5,
+    share: 5 / 12,
+    estimatedLate: 1,
+    changeDistribution: {
+      ...shownDistribution([1, 3, 2, 1], -0.25, 0.25, { p50: 0.1, p90: 0.6, p95: 0.7, mean: 0.15 }),
+      byUser: [
+        { ...ANN, counts: [1, 2, 1, 1] },
+        { ...BOB, counts: [0, 1, 1, 0] },
+      ],
+    },
+    changeExcluded: { population: 11, estimatedLate: 1, unestimated: 3 },
+  },
+  epics: noAdjustments(),
+  groups: [
+    {
+      teamId: null,
+      ...ANN,
+      tasks: {
+        started: 8,
+        changedAfterStart: 3,
+        share: 3 / 8,
+        estimatedLate: 1,
+        changeDistribution: shownDistribution([1, 2, 1, 1], -0.25, 0.25, { p50: 0.1, p90: 0.6, p95: 0.7, mean: 0.17 }),
+        changeExcluded: { population: 7, estimatedLate: 1, unestimated: 1 },
+      },
+      epics: null,
+    },
+    {
+      teamId: null,
+      ...BOB,
+      tasks: {
+        started: 4,
+        changedAfterStart: 2,
+        share: null,
+        estimatedLate: 0,
+        changeDistribution: hiddenDistribution(2),
+        changeExcluded: { population: 4, estimatedLate: 0, unestimated: 2 },
+      },
+      epics: null,
+    },
+  ],
+};
+
+/** One person: today's figures plus a one-entry `byUser` (the whole histogram) and their own group; the epics block is empty. */
+export const ADJUSTMENTS_USER: EstimateAdjustmentsReport = {
+  meta: { ...META, level: "USER" },
+  tasks: {
+    ...ADJUSTMENTS.tasks,
+    changeDistribution: {
+      ...ADJUSTMENTS.tasks.changeDistribution,
+      byUser: [{ ...ANN, counts: ADJUSTMENTS.tasks.changeDistribution.histogram.map((bucket) => bucket.count) }],
+    },
+  },
+  epics: noAdjustments(),
+  groups: [{ teamId: null, ...ANN, tasks: ADJUSTMENTS.tasks, epics: null }],
+};
+
 // ---- Cycle time and reported time (reports 7, 8) ------------------------------------------------
 // Partitions (checked by reportFixtures.test.ts): cycle time — workingDays.n == elapsedDays.n ==
 // population − neverStarted, trend n's sum to it, a bucket's p50/p90 are null exactly when its n is

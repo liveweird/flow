@@ -293,21 +293,26 @@ unfolds it first (`openFilters`, which leaves an already unfolded bar alone).
 
 ## Scenario: the user reads how estimates were adjusted
 
-1. The user opens **Estimate adjustments** over the year-long window (deep link).
+1. The user opens **Estimate adjustments** over the year-long window (deep link carrying the spec's own team).
    - *Expected*: the report loads with the note that the domain view applies to tasks while epics
-     read their own space.
+     read their own space; the URL carries the picked team (the report is always read for one team).
 2. They read the "Tasks" and "Epics" blocks.
-   - *Expected*: each block shows started (more than zero), changed after start (at most started),
-     estimated late (at most changed) and a share changed written as a percentage; each has a
-     "Change from start to done" percentile strip and its accounting line adds up.
+   - *Expected*: each block shows started, changed after start (at most started) and estimated late
+     (at most changed); each has a "Change from start to done" percentile strip or the counts-only
+     minimum-sample notice (the seeded team is small), and its accounting line adds up; a "By
+     member" table lists the team's people.
 3. They narrow **Activity type** to Bug, then clear it.
-   - *Expected*: the URL gains `activityType=Bug` and the tasks started figure drops; after the
-     clear it is back to the unfiltered figure.
-4. They follow the seeded team's name link in the "By team" table.
-   - *Expected*: the URL gains the team and a "By member" table appears.
+   - *Expected*: the report is requested again with `activityType=Bug` and the URL gains it; the tasks
+     started figure is at most the unfiltered figure; after the clear the URL loses the parameter and
+     the tasks started figure is back to the unfiltered figure.
+4. They open the **Team** filter.
+   - *Expected*: it shows the seeded team, has no clear button and offers no "All teams" option.
 5. They pick the roster person in the **Member** dropdown.
-   - *Expected*: the URL gains `accountId`; the Epics block is replaced by the note that epics are not
-     attributed to individual people; the Tasks block is still shown.
+   - *Expected*: the URL gains `accountId` and keeps the team; the "By member" table is replaced by a
+     "Totals per person" table with one row naming the person; the Epics block is replaced by the note
+     that epics are not attributed to individual people; the Tasks block is still shown. (The seeded
+     team has one stub person, who may have too few changes for a histogram, so the "1." numbering
+     and the two-person stacking are covered by the page's unit tests only.)
 
 ## Scenario: the user reads reported time beside flow efficiency
 

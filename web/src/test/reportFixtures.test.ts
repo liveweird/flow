@@ -17,6 +17,8 @@ import {
   BACKLOG_PARTIAL_WINDOW,
   BACKLOG_ZERO_PACE,
   ADJUSTMENTS_EMPTY,
+  ADJUSTMENTS_USER,
+  ADJUSTMENTS_USERS,
   COST_MATRIX_EMPTY,
   COST_MATRIX_NO_SHARE,
   COST_MATRIX_SPRINTS,
@@ -201,7 +203,7 @@ describe("estimation fixtures hold the documented partitions", () => {
       report.epics,
       ...report.groups.flatMap((g) => (g.epics ? [g.tasks, g.epics] : [g.tasks])),
     ];
-    for (const f of [...kinds(ADJUSTMENTS), ...kinds(ADJUSTMENTS_EMPTY)]) {
+    for (const f of [...kinds(ADJUSTMENTS), ...kinds(ADJUSTMENTS_EMPTY), ...kinds(ADJUSTMENTS_USERS), ...kinds(ADJUSTMENTS_USER)]) {
       expect(f.changeDistribution.n + f.changeExcluded.estimatedLate + f.changeExcluded.unestimated).toBe(f.changeExcluded.population);
       expectWellFormed(f.changeDistribution);
       expect(f.estimatedLate).toBeLessThanOrEqual(f.changedAfterStart);
@@ -216,6 +218,24 @@ describe("estimation fixtures hold the documented partitions", () => {
       expect(ADJUSTMENTS.groups.reduce((s, g) => s + (g.epics?.[key] ?? 0), 0)).toBe(ADJUSTMENTS.epics[key]);
     }
     expect(ADJUSTMENTS.groups.reduce((s, g) => s + g.tasks.changeExcluded.population, 0)).toBe(ADJUSTMENTS.tasks.changeExcluded.population);
+  });
+
+  test("adjustments per person: the groups sum to the tasks block and the shares add up to every bucket and to each person's n", () => {
+    for (const report of [ADJUSTMENTS_USERS, ADJUSTMENTS_USER]) {
+      for (const key of ["started", "changedAfterStart", "estimatedLate"] as const) {
+        expect(report.groups.reduce((s, g) => s + g.tasks[key], 0)).toBe(report.tasks[key]);
+      }
+      expect(report.groups.reduce((s, g) => s + g.tasks.changeExcluded.population, 0)).toBe(report.tasks.changeExcluded.population);
+      expect(report.groups.reduce((s, g) => s + g.tasks.changeDistribution.n, 0)).toBe(report.tasks.changeDistribution.n);
+      expect(report.groups.every((g) => g.epics === null)).toBe(true);
+      const distribution = report.tasks.changeDistribution;
+      const shares = distribution.byUser ?? [];
+      expect(shares.map((share) => share.accountId)).toEqual(report.groups.map((g) => g.accountId));
+      distribution.histogram.forEach((bucket, i) => expect(shares.reduce((sum, share) => sum + share.counts[i], 0)).toBe(bucket.count));
+      shares.forEach((share, i) =>
+        expect(share.counts.reduce((sum, count) => sum + count, 0)).toBe(report.groups[i].tasks.changeDistribution.n),
+      );
+    }
   });
 });
 

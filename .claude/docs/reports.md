@@ -95,7 +95,7 @@ data actually lives.
   alone -> `TEAM` (groups by user); `teamId` AND `accountId` together -> `USER` (the one user).
   `accountId` without `teamId` is `400` -- a user-level read always needs to know within which
   team's roster it is being read. `accountId` REPEATS (1..8 distinct, `parseReportFilter(..., multipleAccounts = true)`) on
-  commitments, throughput, cycle time and reported time only; on every other report a repeat is a `400`. `teamId = 0` is the UNASSIGNED sentinel bucket, a real value, not
+  commitments, throughput, cycle time, reported time and adjustments only; on every other report a repeat is a `400`. `teamId = 0` is the UNASSIGNED sentinel bucket, a real value, not
   "absent" -- never rejected here (a real check that a POSITIVE `teamId` names an actual team is a
   report service's own job, downstream).
 - **Group order.** The org drill (`groups`) of commitments, throughput, sprint consistency and the DONE-item reports is built by
@@ -284,7 +284,7 @@ CommitmentsReport {
     "Sprint scope, facts and snapshots"), so `Σ groups == the team total` (both buckets, both
     MD and items, exactly -- see "Rounding" under Report 6). A `null` `accountId`/`label` group is the unassigned-at-commitment
     bucket, listed last -- never a stored sentinel, the `credit_team_id` convention.
-  - **USER** (`teamId` AND `accountId`, which REPEATS on this report and on throughput only: `?accountId=a&accountId=b`, 1..8 distinct values, a
+  - **USER** (`teamId` AND `accountId`, which REPEATS on this report and on the other multi-account reports (`multipleAccounts = true`, listed under "The shared filter parser"): `?accountId=a&accountId=b`, 1..8 distinct values, a
     ninth is a `400`; every other report keeps `accountId` strictly single-valued, a repeat is a `400` there) -- `sprints` itself
     narrows to the picked accounts' own contribution per sprint, SUMMED over them (the SAME committed/final predicates as the
     TEAM-level groups, applied per sprint instead of summed). Each sprint's `byUser` splits that sum: one entry per picked account
@@ -395,7 +395,7 @@ Throughput is what is delivered over any time unit by any group of people, in MD
 - **Levels.** UNIT: `groups` are one per credit team (a `teamId: null` group is UNASSIGNED, `label`
   the team name); TEAM (`teamId`): `bySprint` narrows to that team's sprints, the period view to tasks
   credited to it, and `groups` become one per assignee at done (`null` `accountId`/`label` =
-  unassigned); USER (`teamId` + `accountId`, which REPEATS on this report and on commitments only:
+  unassigned); USER (`teamId` + `accountId`, which REPEATS on this report and on the other multi-account reports (`multipleAccounts = true`, listed under "The shared filter parser"):
   `?accountId=a&accountId=b`, 1..8 distinct values in request order, a ninth is a `400`; every other report keeps
   `accountId` strictly single-valued): the period view narrows to tasks whose `assignee_account_id_at_done` is IN the
   picked accounts and SUMS over them, `groups` lists each picked account's period totals (the TEAM-level rule, label-then-id
@@ -628,7 +628,15 @@ AdjustmentFigures { started, changedAfterStart, share?, estimatedLate,
   predicates.
 - **Levels.** UNIT: `groups` one per team, tasks and epics side by side (a null-team group is UNASSIGNED tasks /
   UNOWNED epics together); TEAM: one per assignee (at done / now, A25), tasks only (`epics` null); USER: `tasks` narrowed to the
-  account, `epics` all zero, no groups.
+  picked accounts, `epics` all zero, `groups` one per pick (tasks only, `epics` null -- the TEAM rule; a pick with no task an empty entry).
+- **USER level takes several `accountId`s** (1..8 distinct, `multipleAccounts = true`, like commitments, throughput, cycle time and reported
+  time; the web page also requires a team, the server keeps `teamId` optional). `tasks` reads the UNION of the picked people (A25: assignee at
+  done once done, assignee now while open): the started counts, `share`, `changeExcluded` and every `changeDistribution` figure are over the
+  union, and `tasks.changeDistribution` alone carries `byUser` -- every histogram bucket split per picked person
+  (`buildDistributionByUser`, `Distribution` below), request order, a zero share for a pick with no change. `groups` lists each pick with
+  its own PLAIN figures (ordered label then account id), so `Σ group` counts equal the `tasks` block. The `epics` block stays the all-zero
+  USER block (epics carry no user, so it is never split per person). One `accountId` is today's figures plus a one-entry `byUser`; UNIT and
+  TEAM are unchanged.
 
 Code: `reports/TaskAccuracyReport.kt`, `reports/EpicAccuracyReport.kt`, `reports/EstimateAdjustmentsReport.kt`
 (DTOs, the pure partition/ratio functions, the queries as extensions on `ReportService`). The distributions are
@@ -641,7 +649,7 @@ the raw fact rows -- whole population, per group (`Σ group n == n`), per user, 
 pins the buckets, the ratios, the hidden state (`minSampleSize` pinned with `withMinSampleSize`), the 200-row cap and
 the estimated-late separation on hand-built rows in a fresh DISABLED connection with hand-computed answers.
 
-**The per-person split (`byUser`, `buildDistributionByUser`).** A report that lets the user pick several people (cycle time and reported time today) draws
+**The per-person split (`byUser`, `buildDistributionByUser`).** A report that lets the user pick several people (cycle time, reported time and adjustments today) draws
 ONE stacked histogram per `Distribution`: `buildDistributionByUser(valuesByUser, minSampleSize, tailPercent)` builds the union
 exactly as `buildDistribution` over the flattened values, then adds `byUser` -- one `DistributionShare {accountId, label, counts}` per
 picked person in REQUEST order, `counts` index-aligned with `histogram` (the open tail bucket included), an all-zero share for a
@@ -688,7 +696,7 @@ CycleTimeReport {
 - **Levels**: UNIT `groups` per credit team, TEAM per assignee at done, USER one per picked account (a pick with no task an
   empty entry); each group has its own two distributions (hidden below the minimum, `n` always set, so `Σ group n == n`) and
   `excluded`; groups are ordered by label (null last), then team id, then account id.
-- **USER level takes several `accountId`s** (1..8 distinct, `multipleAccounts = true`, like commitments, throughput and reported time; the
+- **USER level takes several `accountId`s** (1..8 distinct, `multipleAccounts = true`, like commitments, throughput, reported time and adjustments; the
   web page also requires a team, the server keeps `teamId` optional because Home reads this report at UNIT level). `elapsedDays` and
   `workingDays` read the UNION of the picked people (their done tasks, assignee at done) and carry `byUser`: every histogram bucket split
   per picked person (`buildDistributionByUser`, `Distribution` above), in request order, a zero share for a pick with no task. `excluded`
@@ -721,7 +729,7 @@ ReportedTimeRatioReport { meta, ratio: Distribution,             // actual_md / 
   in this order: `noWorklogs` (D14 -- `has_worklogs = false` or `actual_md` of 0.00, as in report 3), `neverStarted`
   (no cycle), `zeroCycle` (`cycle_working_days = 0`). So `ratio.n + noWorklogs + neverStarted + zeroCycle ==
   population`. Levels and groups as report 7, except USER level (below).
-- **USER level takes several `accountId`s** (1..8 distinct, `multipleAccounts = true`, like commitments, throughput and cycle time; the web page also
+- **USER level takes several `accountId`s** (1..8 distinct, `multipleAccounts = true`, like commitments, throughput, cycle time and adjustments; the web page also
   requires a team). Both `ratio` and `flowEfficiency` read the UNION of the picked people (their done tasks, assignee at done) and carry
   `byUser`: every histogram bucket split per picked person (`buildDistributionByUser`, `Distribution` above), in request order, a zero
   share for a pick with no task. `excluded`/`flowEfficiencyExcluded` stay over the union; `groups` lists each pick (the TEAM-level

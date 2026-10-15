@@ -325,6 +325,7 @@
   "adjustments": {
     "title": "Estimate adjustments",
     "description": "How often an estimate changes after work has started, and by how much between start and done. An estimate that only appeared after start is counted separately, never as an infinite change.",
+    "noTeams": "Estimate adjustments are read per team and there is no team yet. An administrator adds teams on the Teams page.",
     "tasksTitle": "Tasks",
     "epicsTitle": "Epics",
     "started": "Started",

@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { Box, Group, Stack, Text, Title } from "@mantine/core";
 import type { AdjustmentFigures } from "../api/reports";
+import type { DistributionPerson } from "../utils/distributionPeople";
 import { formatPercent, formatSignedPercent } from "../utils/reportFormat";
 import DistributionPanel from "./DistributionPanel";
 import ExcludedList from "./ExcludedList";
@@ -9,16 +10,19 @@ import MinSampleNotice from "./MinSampleNotice";
 /**
  * One item kind's adjustment figures (tasks or epics): how many started, how many changed after
  * start (with the share, withheld below the minimum sample), how many were estimated late, and the
- * fractional change start → done as a distribution with its counted exclusions.
+ * fractional change start → done as a distribution with its counted exclusions. [people] (the tasks block at USER level) stacks
+ * that histogram per picked person; the counts above and the exclusions stay over everyone together.
  */
 export default function AdjustmentsBlock({
   title,
   figures,
   minSampleSize,
+  people,
 }: {
   title: string;
   figures: AdjustmentFigures;
   minSampleSize: number;
+  people?: readonly DistributionPerson[];
 }) {
   const { t } = useTranslation();
   const stats: [string, string][] = [
@@ -60,6 +64,7 @@ export default function AdjustmentsBlock({
         distribution={figures.changeDistribution}
         minSampleSize={minSampleSize}
         format={formatSignedPercent}
+        people={people}
         axisLabel={t("reports.adjustments.axis")}
       />
       <ExcludedList

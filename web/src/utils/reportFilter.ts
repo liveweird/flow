@@ -34,7 +34,7 @@ export interface ReportFilterState {
   teamId?: number;
   accountId?: string;
   /**
-   * Several members at once (USER level, commitments, throughput, cycle time and reported time only — `ReportControls.multiMember`): REPEATED `accountId` URL keys, distinct,
+   * Several members at once (USER level, commitments, throughput, cycle time, reported time and adjustments only — `ReportControls.multiMember`): REPEATED `accountId` URL keys, distinct,
    * at most `MAX_ACCOUNTS`, in the order picked. Only a multi-member page parses them (`parseReportFilter`'s `multiAccount`);
    * everywhere else a repeated `accountId` reads as its first value, as ever, and this stays unset.
    */
@@ -131,7 +131,7 @@ function distinctAccounts(values: readonly string[]): string[] {
   return picked.slice(0, MAX_ACCOUNTS);
 }
 
-/** What a page opts into when reading the URL — only the commitments, throughput, cycle-time and reported-time pages read several members. */
+/** What a page opts into when reading the URL — only the commitments, throughput, cycle-time, reported-time and adjustments pages read several members. */
 export interface ReportFilterParseOptions {
   multiAccount?: boolean;
 }
@@ -253,12 +253,12 @@ export interface ReportControls {
   /** Narrow to one Jira connection (data quality); shown only when there is more than one to choose from. */
   connection?: boolean;
   /**
-   * The report cannot answer for the whole unit (commitments' capacity and per-user split are team figures, and so are the per-person splits of throughput, cycle time and reported time): the team
+   * The report cannot answer for the whole unit (commitments' capacity and per-user split are team figures, and so are the per-person splits of throughput, cycle time, reported time and adjustments): the team
    * control is not clearable and offers no "All teams", and a URL without a team is normalized to one
    * (`requiredTeamId`, applied by `useReportFilter`).
    */
   teamRequired?: boolean;
-  /** The member control picks up to `MAX_ACCOUNTS` people (`ReportFilterState.accountIds`) instead of one (commitments, throughput, cycle time, reported time). */
+  /** The member control picks up to `MAX_ACCOUNTS` people (`ReportFilterState.accountIds`) instead of one (commitments, throughput, cycle time, reported time, adjustments). */
   multiMember?: boolean;
 }
 
