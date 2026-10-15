@@ -67,16 +67,16 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 
 ## Report follow-ups
 
-- [new] **Sprint Consistency report filters** (Delivery → Sprint Consistency, `/reports/sprint-consistency`):
+- [todo] **Sprint Consistency report filters** (Delivery → Sprint Consistency, `/reports/sprint-consistency`):
   - the filters can be hidden, like in Lettuce;
   - the team filter has no "All teams": a specific team must be chosen;
   - no user filter: the report always covers every member of the chosen team;
   - add the missing "Activity type" and "Work category" filters.
-- [new] **Cycle Time report filters** (Delivery → Cycle Time, `/reports/cycle-time`):
+- [todo] **Cycle Time report filters** (Delivery → Cycle Time, `/reports/cycle-time`):
   - the filters can be hidden, like in Lettuce;
   - the team filter has no "All teams": a specific team must be chosen;
   - the user filter allows picking more than one user, and the chart's bars then stack per user.
-- [new] **Task Accuracy report filters and measures** (Estimation → Task Accuracy, `/reports/task-estimation-accuracy`):
+- [todo] **Task Accuracy report filters and measures** (Estimation → Task Accuracy, `/reports/task-estimation-accuracy`):
   - the filters can be hidden, like in Lettuce;
   - the team filter has no "All teams": a specific team must be chosen;
   - the user filter allows picking more than one user, and the chart's bars then stack per user;
@@ -89,17 +89,17 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
     - MdMRE, the median magnitude of relative error;
     - sMAPE, the symmetric mean absolute percentage error;
     - kurtosis, the heaviness of the tails beyond two standard deviations.
-- [new] **Epic Accuracy report filters and measures** (Estimation → Epic Accuracy, `/reports/epic-estimation-accuracy`):
+- [todo] **Epic Accuracy report filters and measures** (Estimation → Epic Accuracy, `/reports/epic-estimation-accuracy`):
   - the filters can be hidden, like in Lettuce;
   - the team filter has no "All teams": a specific team must be chosen;
   - no user filter;
   - remove p90 and p95, and add the same accuracy measures as the Task Accuracy item above (PRED(10/25/50), IQR, IDR,
     MAD, MdMRE, sMAPE, kurtosis).
-- [new] **Adjustments report filters** (Estimation → Adjustments, `/reports/estimate-adjustments`):
+- [todo] **Adjustments report filters** (Estimation → Adjustments, `/reports/estimate-adjustments`):
   - the filters can be hidden, like in Lettuce;
   - the team filter has no "All teams": a specific team must be chosen;
   - the user filter allows picking more than one user, and the chart's bars then stack per user.
-- [new] **Reported Time report filters** (Estimation → Reported Time, `/reports/reported-time-ratio`):
+- [todo] **Reported Time report filters** (Estimation → Reported Time, `/reports/reported-time-ratio`):
   - the filters can be hidden, like in Lettuce;
   - the team filter has no "All teams": a specific team must be chosen;
   - the user filter allows picking more than one user, and the chart's bars then stack per user.
