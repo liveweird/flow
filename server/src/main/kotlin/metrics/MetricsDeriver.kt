@@ -131,10 +131,10 @@ class MetricsDeriver(
         val connectionId = context.claim.connectionId
         val jobId = context.claim.id
         val now = context.clock()
-        val (settings, config) = suspendTransaction(database) {
-            metricsSettings.read() to metricsConfig.effectiveConfig(connectionId)
+        val (loaded, config) = suspendTransaction(database) {
+            metricsSettings.readWithCalendar() to metricsConfig.effectiveConfig(connectionId)
         }
-        val calendar = WorkingCalendar.of(settings)
+        val (settings, calendar) = loaded
 
         // Hard-deletes old terminal derive_runs rows on every DERIVE (review round 2b) — the
         // `SyncJobsService.prune` shape, `.claude/docs/persistence.md` "Soft delete (convention)".

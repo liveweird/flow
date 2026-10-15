@@ -6,10 +6,11 @@ import ch.nokillswit.ingest.SyncJobListFilter
 import ch.nokillswit.ingest.SyncJobStatus
 import ch.nokillswit.ingest.SyncJobsService
 import ch.nokillswit.metrics.DataSourceMetricsConfigRequest
+import ch.nokillswit.metrics.PublicHolidayCreateRequest
+import ch.nokillswit.metrics.SprintCalendarDay
 import ch.nokillswit.metrics.SprintCalendarDocument
 import ch.nokillswit.metrics.SprintCalendarPerson
 import ch.nokillswit.metrics.TeamCapacityRequest
-import ch.nokillswit.metrics.WorkingCalendar
 import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -110,16 +111,35 @@ class MetricsDeriveFanOutTest {
         withPair("fanout-calendar") { p ->
             val admin = TestUsers.seed(uniqueEmail("fanout-calendar"), "pw")
             val service = CapacityFixtures.service()
-            val calendar = WorkingCalendar.of(settings.read())
+            val calendar = settings.readCalendar()
             val grid = service.read(p.teamId, p.sprintId, calendar, canEdit = true)
             val document = SprintCalendarDocument(
-                grid.teamCoefficient + 0.5, grid.days,
+                grid.teamCoefficient + 0.5, grid.days.map { SprintCalendarDay(it.day, it.enabled) },
                 grid.people.map { SprintCalendarPerson(it.accountId, it.enabled, it.coefficient!!, it.cells) },
             )
             val outcome = service.replace(p.teamId, p.sprintId, document, admin, callerIsAdmin = true, calendar = calendar)
             assertTrue(outcome.changed)
             assertEquals(1, pendingDerive(p.x), "the sprint's connection re-derives")
             assertEquals(0, pendingDerive(p.y), "another enabled connection does not")
+        }
+    }
+
+    @Test
+    fun `adding and removing a public holiday each enqueue DERIVE for every enabled connection`() = runBlocking {
+        withPair("fanout-holiday") { p ->
+            val before = settings.currentRevision()
+            val created = TestHolidays.service.create(PublicHolidayCreateRequest("2091-04-04", "Fan-out day"))
+            try {
+                assertEquals(before + 1, settings.currentRevision(), "the shared revision moves")
+                assertEquals(1, pendingDerive(p.x))
+                assertEquals(1, pendingDerive(p.y))
+            } finally {
+                drain(p)
+                TestHolidays.service.delete(created.id)
+            }
+            assertEquals(before + 2, settings.currentRevision())
+            assertEquals(1, pendingDerive(p.x), "a delete re-derives too")
+            assertEquals(1, pendingDerive(p.y))
         }
     }
 

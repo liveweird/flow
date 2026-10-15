@@ -139,6 +139,10 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
   opaque ids, never a person's or a team's name; `POST /api/v1/teams/{id}/jira-memberships/seed`, emitted only when at
   least one membership was created, the features-PUT precedent) — the batch counterpart of `.jira_membership_added`
   (`metrics/TeamMembershipSeedRoutes.kt`); `GET /api/v1/jira-teams` and `…/seed-candidates` are read-only and emit nothing.
+- `public_holiday.created` (byUserId/holidayId/date/name) / `public_holiday.deleted` (same fields, the removed row's values) — the
+  public-holiday dictionary's `POST`/`DELETE /api/v1/public-holidays[/{id}]` (V25, `metrics/PublicHolidayRoutes.kt`); `GET` is read-only
+  and emits nothing. Both also bump the shared `config_revision` (DERIVE for every enabled connection), which is state of the audited
+  mutation and adds no event of its own. The names are admin-curated labels, not personal data.
 - `team.capacity_default_updated` (byUserId/teamId/defaultCapacityMdFrom/defaultCapacityMd, both nullable = none/cleared; authorizedBy) and
   `team.sprint_calendar_updated` (byUserId/teamId/sprintId/connectionId/capacityMdFrom — the previously STORED calendar re-projected onto the sprint's current window and roster (not the previous
   effective figure, which may have been a team default), null on the first save/capacityMd — the saved calendar's capacity/replacedTeamId — set when the write removed another team's leftover

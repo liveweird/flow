@@ -4,7 +4,6 @@ import io.ktor.server.plugins.BadRequestException
 import kotlinx.serialization.Serializable
 import java.time.DateTimeException
 import java.time.ZoneId
-import java.time.format.DateTimeParseException
 
 /** ISO weekday numbers Jira/Java both use: 1 = Monday .. 7 = Sunday. */
 private val VALID_WEEKDAYS = 1..7
@@ -14,9 +13,6 @@ private val VALID_PERCENTILE = 1..99
 
 /** Report 11 (aging WIP) reads `p85` off this list by name — the A9 overview relies on it always being present. */
 private const val REQUIRED_AGING_PERCENTILE = 85
-
-/** A generous ceiling, not a real-world expectation — a fixed holiday calendar in a JSONB array needs SOME bound. */
-private const val MAX_HOLIDAYS = 366
 
 private const val MIN_HOURS_PER_DAY = 0.0
 private const val MAX_HOURS_PER_DAY = 24.0
@@ -34,7 +30,6 @@ data class MetricsSettingsResponse(
     val hoursPerDay: Double,
     val timeZone: String,
     val weekendDays: List<Int>,
-    val holidays: List<String>,
     val commitmentGraceMinutes: Int,
     val minSampleSize: Int,
     val agingWindowItems: Int,
@@ -51,7 +46,6 @@ data class MetricsSettingsRequest(
     val hoursPerDay: Double,
     val timeZone: String,
     val weekendDays: List<Int>,
-    val holidays: List<String>,
     val commitmentGraceMinutes: Int,
     val minSampleSize: Int,
     val agingWindowItems: Int,
@@ -68,7 +62,6 @@ internal fun MetricsSettingsResponse.asRequest(): MetricsSettingsRequest = Metri
     hoursPerDay = hoursPerDay,
     timeZone = timeZone,
     weekendDays = weekendDays,
-    holidays = holidays,
     commitmentGraceMinutes = commitmentGraceMinutes,
     minSampleSize = minSampleSize,
     agingWindowItems = agingWindowItems,
@@ -77,14 +70,10 @@ internal fun MetricsSettingsResponse.asRequest(): MetricsSettingsRequest = Metri
     epicDriftDays = epicDriftDays,
 )
 
-/** Dedupes `holidays` (a client resubmitting the same date twice is not itself an error) — the sanitizer convention. */
-fun sanitizedMetricsSettings(request: MetricsSettingsRequest): MetricsSettingsRequest =
-    request.copy(holidays = request.holidays.distinct())
-
 /**
  * Enforced by the route AND re-checked by the service (the `validateTeam` idiom) — mirrors every
  * CHECK constraint `V15__create_metrics_config.sql` declares on `metrics.settings`, plus the
- * checks no CHECK constraint can express (`ZoneId.of`, `LocalDate.parse`, the all-weekend and
+ * checks no CHECK constraint can express (`ZoneId.of`, the all-weekend and
  * percentile-set rules below).
  */
 fun validateMetricsSettings(request: MetricsSettingsRequest) {
@@ -101,16 +90,6 @@ fun validateMetricsSettings(request: MetricsSettingsRequest) {
     }
     if (request.weekendDays.toSet() == VALID_WEEKDAYS.toSet()) {
         throw BadRequestException("weekendDays must not mark every day of the week as non-working")
-    }
-    if (request.holidays.size > MAX_HOLIDAYS) {
-        throw BadRequestException("holidays must have at most $MAX_HOLIDAYS entries")
-    }
-    request.holidays.forEach { iso ->
-        try {
-            java.time.LocalDate.parse(iso)
-        } catch (e: DateTimeParseException) {
-            throw BadRequestException("holidays must be ISO dates (YYYY-MM-DD): $iso", e)
-        }
     }
     if (request.commitmentGraceMinutes < 0) throw BadRequestException("commitmentGraceMinutes must be >= 0")
     if (request.minSampleSize < 1) throw BadRequestException("minSampleSize must be >= 1")

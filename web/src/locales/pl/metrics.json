@@ -7,8 +7,6 @@
       "hoursPerDayHint": "Przelicza zalogowane sekundy z worklogów na osobodni.",
       "timeZone": "Strefa czasowa",
       "weekendDays": "Dni weekendu",
-      "holidays": "Dni świąteczne",
-      "holidaysHint": "Daty ISO (RRRR-MM-DD) wyłączone z każdego wyliczenia dni roboczych.",
       "commitmentGraceMinutes": "Okres karencji zobowiązania (minuty)",
       "minSampleSize": "Minimalna liczebność próby",
       "agingWindowItems": "Okno starzenia WIP (elementy)",
@@ -17,6 +15,8 @@
       "backlogWindowSprints": "Okno zaległości (sprinty)",
       "epicDriftDays": "Próg dryfu epika (dni)"
     },
+    "holidaysNote": "Święta są zawsze dniami wolnymi od pracy. Mają własną listę — nie są ustawieniem.",
+    "holidaysLink": "Otwórz Święta państwowe",
     "weekday": {
       "1": "Pon",
       "2": "Wt",
@@ -36,8 +36,6 @@
       "timeZone": "Musi być prawidłową strefą czasową, np. Europe/Warsaw",
       "weekendDaysInvalid": "Dni weekendu muszą mieścić się między poniedziałkiem a niedzielą",
       "weekendDaysAllWeek": "Dni weekendu nie mogą oznaczać każdego dnia tygodnia jako niepracującego",
-      "holidaysCount": "Dozwolone jest najwyżej {{max}} dni świątecznych",
-      "holidaysInvalid": "Dni świąteczne muszą być datami ISO (RRRR-MM-DD): {{date}}",
       "commitmentGraceMinutes": "Okres karencji musi wynosić 0 lub więcej",
       "minSampleSize": "Minimalna liczebność próby musi wynosić co najmniej 1",
       "agingWindowItems": "Okno starzenia WIP musi wynosić co najmniej 1",

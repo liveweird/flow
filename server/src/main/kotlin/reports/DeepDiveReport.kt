@@ -187,8 +187,7 @@ private class DeepDiveSeries(val tasks: List<TaskSeries>, val epicOwn: Map<Long,
  * [NOT_DERIVED_NOTE] (never a validation `400` against dimensions that do not exist yet).
  */
 internal suspend fun ReportService.deepDive(request: DeepDiveRequest, nowMs: Long): DeepDiveReport = reportTransaction {
-    val settings = metricsSettings.read()
-    val calendar = WorkingCalendar.of(settings)
+    val (settings, calendar) = metricsSettings.readWithCalendar()
     val connectionIds = resolveConnectionScope(request.connectionId)
     val stamp = deriveStamp(connectionIds)
     val clocks = deriveClocks(connectionIds)

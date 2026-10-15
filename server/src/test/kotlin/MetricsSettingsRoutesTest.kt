@@ -26,7 +26,6 @@ class MetricsSettingsRoutesTest {
         hoursPerDay = 8.0,
         timeZone = "Europe/Warsaw",
         weekendDays = listOf(6, 7),
-        holidays = emptyList(),
         commitmentGraceMinutes = 0,
         minSampleSize = 5,
         agingWindowItems = 50,
@@ -82,7 +81,6 @@ class MetricsSettingsRoutesTest {
             hoursPerDay = 7.5,
             timeZone = "UTC",
             weekendDays = listOf(7),
-            holidays = listOf("2026-12-25"),
             commitmentGraceMinutes = 60,
             minSampleSize = 10,
             agingWindowItems = 25,
@@ -97,7 +95,6 @@ class MetricsSettingsRoutesTest {
             assertEquals(7.5, after.hoursPerDay)
             assertEquals("UTC", after.timeZone)
             assertEquals(listOf(7), after.weekendDays)
-            assertEquals(listOf("2026-12-25"), after.holidays)
             assertEquals(60, after.commitmentGraceMinutes)
             assertEquals(10, after.minSampleSize)
             assertEquals(25, after.agingWindowItems)
@@ -111,10 +108,9 @@ class MetricsSettingsRoutesTest {
     }
 
     @Test
-    fun `validation - bad zone, bad holiday, out-of-range numbers are 400`() = testApplication {
+    fun `validation - bad zone, out-of-range numbers are 400`() = testApplication {
         usePostgresTestcontainer()
         val admin = seededClient("metricsbad", UserRole.ADMIN)
-        val tooManyHolidays = (0 until 367).map { java.time.LocalDate.of(2020, 1, 1).plusDays(it.toLong()).toString() }
         val cases: List<Pair<MetricsSettingsRequest, String>> = listOf(
             defaults.copy(hoursPerDay = 0.0) to "hoursPerDay = 0",
             defaults.copy(hoursPerDay = 25.0) to "hoursPerDay = 25",
@@ -122,8 +118,6 @@ class MetricsSettingsRoutesTest {
             defaults.copy(weekendDays = listOf(0)) to "weekendDays out of range (0)",
             defaults.copy(weekendDays = listOf(8)) to "weekendDays out of range (8)",
             defaults.copy(weekendDays = (1..7).toList()) to "all seven days marked non-working",
-            defaults.copy(holidays = listOf("not-a-date")) to "bad holiday date",
-            defaults.copy(holidays = tooManyHolidays) to "more than 366 distinct holidays",
             defaults.copy(commitmentGraceMinutes = -1) to "negative commitmentGraceMinutes",
             defaults.copy(minSampleSize = 0) to "minSampleSize = 0",
             defaults.copy(agingWindowItems = 0) to "agingWindowItems = 0",

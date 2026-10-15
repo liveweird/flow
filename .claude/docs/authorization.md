@@ -201,6 +201,10 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     reads (`.claude/docs/domain-model.md` "Configuration"); `requireAdmin` runs before `call.receive()`
     on the PUT (guard-before-body). A full-replace PUT bumps `config_revision` in the same
     transaction, audited `metrics_settings.updated`. Tests: `MetricsSettingsRoutesTest`.
+  - `/api/v1/public-holidays` (V25, `metrics/PublicHolidayRoutes.kt`, Lettuce's dictionary without its feature flag) → **`GET` any
+    authenticated, `POST`/`DELETE` ADMIN only**, guard before the body decode and before the id lookup (a non-admin probe of a missing id
+    is `403`, not `404`). `POST` is `201` + `Location` (`400` shape, `409` duplicate date via the central unique-violation mapping),
+    `DELETE` `204`/`404`; both audited (`public_holiday.created`/`.deleted`) and both bump `config_revision`. Tests: `PublicHolidayTest`.
   - `/api/v1/teams/{id}/jira-memberships` (D1, `metrics/TeamMembershipRoutes.kt`) → **reads any
     authenticated** (the team-reads posture above), **writes ADMIN only**, guard before the id
     lookup/body decode. **`GET` is read-before-guard, not guard-before-read**: the team need only

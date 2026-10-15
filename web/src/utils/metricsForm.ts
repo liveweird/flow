@@ -1,6 +1,5 @@
 import type { TFunction } from "i18next";
 import type { MetricsSettingsRequest, MetricsSettingsResponse } from "../api/metrics";
-import { isValidIsoDate } from "./isoDate";
 import { saveErrorMessage } from "./saveError";
 
 // Server limits (metrics/MetricsSettings.kt's validateMetricsSettings) mirrored client-side.
@@ -8,8 +7,6 @@ const MIN_HOURS_PER_DAY = 0;
 const MAX_HOURS_PER_DAY = 24;
 /** ISO weekday numbers Jira/Java both use: 1 = Monday .. 7 = Sunday. */
 const VALID_WEEKDAY_NUMBERS = [1, 2, 3, 4, 5, 6, 7] as const;
-/** A generous ceiling, not a real-world expectation — mirrors the server's JSONB array bound. */
-const MAX_HOLIDAYS = 366;
 const VALID_PERCENTILE_MIN = 1;
 const VALID_PERCENTILE_MAX = 99;
 /** Report 11 (aging WIP) reads `p85` off this list by name — the overview relies on it always being present. */
@@ -45,8 +42,6 @@ export type MetricsSettingsFormValues = {
   timeZone: string;
   /** Chip.Group values (strings) for ISO weekday numbers 1..7. */
   weekendDays: string[];
-  /** TagsInput values — ISO dates (`YYYY-MM-DD`). */
-  holidays: string[];
   commitmentGraceMinutes: number;
   minSampleSize: number;
   agingWindowItems: number;
@@ -60,7 +55,6 @@ export const EMPTY_METRICS_SETTINGS_FORM: MetricsSettingsFormValues = {
   hoursPerDay: DEFAULT_HOURS_PER_DAY,
   timeZone: DEFAULT_TIME_ZONE,
   weekendDays: ["6", "7"],
-  holidays: [],
   commitmentGraceMinutes: 0,
   minSampleSize: 5,
   agingWindowItems: 50,
@@ -74,7 +68,6 @@ export function fromMetricsSettingsResponse(data: MetricsSettingsResponse): Metr
     hoursPerDay: data.hoursPerDay,
     timeZone: data.timeZone,
     weekendDays: data.weekendDays.map(String),
-    holidays: [...data.holidays],
     commitmentGraceMinutes: data.commitmentGraceMinutes,
     minSampleSize: data.minSampleSize,
     agingWindowItems: data.agingWindowItems,
@@ -84,13 +77,11 @@ export function fromMetricsSettingsResponse(data: MetricsSettingsResponse): Metr
   };
 }
 
-/** Dedupes holidays (a client resubmitting the same date twice is not itself an error) — mirrors `sanitizedMetricsSettings`. */
 export function toMetricsSettingsRequest(values: MetricsSettingsFormValues): MetricsSettingsRequest {
   return {
     hoursPerDay: values.hoursPerDay,
     timeZone: values.timeZone,
     weekendDays: values.weekendDays.map(Number),
-    holidays: [...new Set(values.holidays)],
     commitmentGraceMinutes: values.commitmentGraceMinutes,
     minSampleSize: values.minSampleSize,
     agingWindowItems: values.agingWindowItems,
@@ -113,11 +104,6 @@ export function metricsSettingsFormValidation(t: TFunction) {
       }
       if (new Set(numbers).size === VALID_WEEKDAY_NUMBERS.length) return t("metrics.settings.validation.weekendDaysAllWeek");
       return null;
-    },
-    holidays: (value: string[]) => {
-      if (value.length > MAX_HOLIDAYS) return t("metrics.settings.validation.holidaysCount", { max: MAX_HOLIDAYS });
-      const bad = value.find((iso) => !isValidIsoDate(iso));
-      return bad ? t("metrics.settings.validation.holidaysInvalid", { date: bad }) : null;
     },
     commitmentGraceMinutes: (value: number) => (value >= 0 ? null : t("metrics.settings.validation.commitmentGraceMinutes")),
     minSampleSize: (value: number) => (value >= 1 ? null : t("metrics.settings.validation.minSampleSize")),

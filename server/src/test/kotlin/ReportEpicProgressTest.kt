@@ -408,7 +408,9 @@ class ReportEpicProgressTest {
             assertEquals(listOf(3.0, 6.0, 9.0, 12.0, 15.0), one.series.map { it.pv })
             assertEquals(listOf(2.0, 6.0, 6.0, 12.0, 12.0), one.series.map { it.ev })
             assertEquals(listOf(4.5, 4.5, 8.0, 8.0, 8.0), one.series.map { it.ac })
-            assertEquals(listOf(2.0, 4.0, 6.0, 8.0, 10.0), one.series.map { it.pvOriginal }, "the FIRST baseline, redrawn")
+            // Tue 2026-01-06 (Epiphany) is a seeded public holiday (V25): the first baseline spreads its 10 MD over four
+            // working days, not five.
+            assertEquals(listOf(2.5, 2.5, 5.0, 7.5, 10.0), one.series.map { it.pvOriginal }, "the FIRST baseline, redrawn")
             assertEquals(d.last(), one.asOf.day)
             assertEquals(15.0, one.asOf.pv)
             assertEquals(12.0, one.asOf.ev)

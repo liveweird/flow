@@ -7,10 +7,10 @@ import ch.nokillswit.metrics.MetricsConfigService
 import ch.nokillswit.metrics.MetricsStore
 import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.metrics.SprintCalendarCell
+import ch.nokillswit.metrics.SprintCalendarDay
 import ch.nokillswit.metrics.SprintCalendarDocument
 import ch.nokillswit.metrics.SprintCalendarPerson
 import ch.nokillswit.metrics.TeamMembershipService
-import ch.nokillswit.metrics.WorkingCalendar
 import ch.nokillswit.metrics.asRequest
 import ch.nokillswit.metrics.inPvHorizon
 import ch.nokillswit.norm.IntervalSource
@@ -497,14 +497,14 @@ class ReportDataQualityTest {
             // The sprint's calendar (a team default would move every sprint of the team — and drift is capped at 50 items): one known
             // account on every day the default calendar counts, team coefficient 2.
             val capacity = CapacityFixtures.service()
-            val calendar = WorkingCalendar.of(metricsSettings.read())
+            val calendar = metricsSettings.readCalendar()
             val defaults = capacity.read(cloneTeamId, sprintId, calendar, canEdit = true)
             val peopleConnection = SyncedStubFixture.createConnection(namePrefix = "dq-capacity-people", enabled = false)
             val account = CapacityFixtures.people(peopleConnection, 1).single()
             capacity.replace(
                 cloneTeamId, sprintId,
                 SprintCalendarDocument(
-                    teamCoefficient = 2.0, days = defaults.days,
+                    teamCoefficient = 2.0, days = defaults.days.map { SprintCalendarDay(it.day, it.enabled) },
                     people = listOf(SprintCalendarPerson(account, true, 1.0, defaults.days.map { SprintCalendarCell(it.day, 1.0) })),
                 ),
                 TestUsers.seed(uniqueEmail("dq-capacity"), "pw"), callerIsAdmin = true, calendar = calendar,
@@ -800,7 +800,7 @@ class ReportDataQualityTest {
         val settingsConfig = DerivedStubFixture.metricsSettings()
         val settings = settingsConfig.read()
         val weekend = settings.weekendDays.toSet()
-        val holidays = settings.holidays.map { LocalDate.parse(it) }.toSet()
+        val holidays = TestHolidays.dates()
         suspendTransaction(sharedDatabaseForTests()) {
             store.replaceFactTaskDelivery(connId, tasks, configRevision = 1L)
             store.insertFactWorklog(connId, worklogs, configRevision = 1L)
@@ -1010,7 +1010,7 @@ class ReportDataQualityTest {
                     client.dq("from=2026-01-01&to=2026-01-31")
                 }
                 val silent = body.groups.single { it.teamId == team }
-                val holidays = settings.holidays.map { LocalDate.parse(it) }.toSet()
+                val holidays = TestHolidays.dates()
                 val days = workingDays("2026-01-01", "2026-02-01", settings.weekendDays.toSet(), holidays)
                 assertEquals(days.toDouble(), silent.worklogs.memberDays, 1e-6)
                 assertEquals(0, silent.worklogs.worklogs)

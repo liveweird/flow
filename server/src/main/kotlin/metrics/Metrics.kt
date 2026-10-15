@@ -34,7 +34,8 @@ class MetricsSettingsRoute
  * `WorkItemStoreKey`/`DataSourceServiceKey` dependencies below), [DomainOwnerResolver] (the A19/A22
  * owner-team resolution both `MetricsConfigService` and `MetricsDeriver` use; checkup D3 split the
  * former all-in-one config service into these four) and [TeamMembershipService] (D1's
- * dated Jira-user membership), then — since the settings resource is a tiny ADMIN singleton with
+ * dated Jira-user membership), [PublicHolidayService] (the public-holiday dictionary that feeds the working calendar), then — since
+ * the settings resource is a tiny ADMIN singleton with
  * no id of its own — registers its GET/PUT routes right here (the `plugins/Health.kt` shape: an
  * infra module that is also its own small route surface). `TeamMembershipService`'s,
  * `JiraUsersRoutes.kt`'s and `MetricsConfigRoutes.kt`'s richer per-resource surfaces get their own
@@ -50,6 +51,7 @@ fun Application.configureMetrics() {
     val dataSources = attributes[DataSourceServiceKey]
     val metricsSettings = MetricsSettingsService(database, dataSources, attributes[SyncJobsServiceKey])
     attributes.put(MetricsSettingsServiceKey, metricsSettings)
+    attributes.put(PublicHolidayServiceKey, PublicHolidayService(database, metricsSettings))
     val domainOwners = DomainOwnerResolver(database, workItemStore)
     val metricsConfig = MetricsConfigService(database, workItemStore, dataSources, metricsSettings, domainOwners)
     attributes.put(MetricsConfigServiceKey, metricsConfig)
@@ -93,7 +95,7 @@ fun Application.configureMetrics() {
             put<MetricsSettingsRoute> {
                 val caller = call.caller()
                 requireAdmin(caller)
-                val request = sanitizedMetricsSettings(call.receive())
+                val request = call.receive<MetricsSettingsRequest>()
                 validateMetricsSettings(request)
                 val outcome = metricsSettings.replace(request, caller.userId)
                 if (outcome.changed) {

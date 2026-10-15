@@ -1,6 +1,5 @@
 package ch.nokillswit.reports
 
-import ch.nokillswit.metrics.WorkingCalendar
 import kotlinx.serialization.Serializable
 
 /** The most entries any list of the data-quality report carries; the `total` beside it says how many matched. */
@@ -156,7 +155,7 @@ data class DataQualityReport(
  */
 suspend fun ReportService.dataQuality(filter: ReportFilter, nowMs: Long): DataQualityReport = reportTransaction {
     val scope = resolveReportScope(filter, nowMs)
-    val calendar = WorkingCalendar.of(scope.settings)
+    val calendar = scope.calendar
     val connectionIds = scope.connectionIds
     val mappings = readConnectionMappings(connectionIds)
     val clocks = deriveClocks(connectionIds)

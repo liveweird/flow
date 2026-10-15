@@ -6,7 +6,7 @@ reports it serves, its invariants, and how known data imperfections are handled.
 contract the metrics layer and every dashboard are built against. **Status: agreed 2026-09-27
 (D1–D16), validated against the target reports; amended 2026-09-28 (A17–A21, see "Amendments"
 below); implemented in v0.3.0** (the configuration, DERIVE and the star: `.claude/docs/metrics.md`;
-the sixteen reports: `.claude/docs/reports.md`; the deep dive, report 17, is A29 below; the WAITING stage is A30; issues above the epic level are A31; capacity is a team default and a sprint calendar, A32). The per-measure operational contract — each
+the sixteen reports: `.claude/docs/reports.md`; the deep dive, report 17, is A29 below; the WAITING stage is A30; issues above the epic level are A31; capacity is a team default and a sprint calendar, A32; public holidays are a dictionary and locked off in capacity, A33). The per-measure operational contract — each
 report number's grain, time anchor, attribution, estimate snapshot, missing-data rule,
 frozen/live source and the test that pins it — is `.claude/docs/measures.md`.
 
@@ -162,7 +162,7 @@ layer (of the connections it affects — `metrics.md` "DERIVE fan-out per config
 | Project → domain (+ owner team, A19) | map | 1:1; owner = the team of the one mapped board on that project, else none |
 | Board → team | 1:1 map (makes a sprint a team's sprint, and owns its backlog — D10) | none — must be set |
 | Team capacity (A32) | MD | per-sprint calendar (person × day) > the team's default figure > members × working days (A3); editable by the team's manager or an ADMIN |
-| `hoursPerDay`, working calendar, time zone | number; weekends + holidays; zone | Jira time-tracking setting; Mon–Fri; the unit's zone |
+| `hoursPerDay`, working calendar, time zone | number; weekends + the public-holiday dictionary (A33); zone | Jira time-tracking setting; Mon–Fri; the unit's zone |
 | Commitment grace | duration after sprint start | 0 |
 | Issue type → activity type | map | 1:1 |
 | Work-category field + value → category | one field id + map | none (field must be chosen); 1:1 |
@@ -521,7 +521,7 @@ carries the per-measure detail).
   - **A sprint calendar** — a person × day grid per (connection, sprint) (`metrics.sprint_calendars`, one jsonb document read and
     written whole). Columns are the sprint's calendar days in the configured zone, `dayOf(start_at)` … `dayOf(max(start_at, end − 1 ms))`
     with `end = end_at ?? complete_at ?? start_at` (a window over 60 days, or a sprint without `start_at`, has no calendar). A day is
-    counted by default when `WorkingCalendar.isWorkingDay` (weekends and the settings' holidays start off — one "working day" truth);
+    counted by default when `WorkingCalendar.isWorkingDay` (weekends and the public holidays start off — one "working day" truth; a public holiday is locked off, A33);
     a person is counted by default; a cell is the person's availability that day, 0..1 MD, default 1. A person has a coefficient
     (0..2, default 1) and the team has one (0..2, default 1):
     `capacity = teamCoefficient × Σ_{counted people}(coefficient × Σ_{counted days} cell)`, exact decimals rounded half-up to two.
@@ -545,6 +545,15 @@ carries the per-measure detail).
     database every legacy row was 20 MD for one team, so the seed reproduces them exactly. V24 does not bump `config_revision`: the
     re-derive happens on the next scheduled DERIVE (or "Derive now"), not at migration time.
   - Operational detail: `.claude/docs/metrics.md` "Sprint capacity", `.claude/docs/persistence.md` "Capacity management (V24)".
+
+- **A33 — Public holidays are a dictionary and are always non-working** (agreed with the user 2026-10-15; V25). The free-form
+  `metrics.settings.holidays` list is replaced by `metrics.public_holidays` (ADMIN-curated, UNIQUE per date, seeded with the Polish
+  statutory holidays 2017–2030; the old list's dates were carried over as `'Holiday'`). The working calendar reads the dictionary, so a
+  holiday is never a working day anywhere (`dim_date`, DEFAULT capacity, the reports, the deep dive's plan). **In capacity management a
+  holiday is LOCKED OFF**: a sprint calendar's holiday day always projects `enabled = false`, including in calendars saved earlier or
+  sent `enabled: true` (the stored choice is kept and returns if the holiday is removed). Every dictionary change bumps the global
+  `config_revision` and re-derives every enabled connection. Operational detail: `.claude/docs/metrics.md` "Public holidays",
+  `.claude/docs/persistence.md` "Public holidays (V25)".
 
 ## Gaps in `norm` (closed in v0.3.0)
 

@@ -128,6 +128,31 @@ class CapacityKernelsTest {
     }
 
     @Test
+    fun `a public holiday is always off - in a fresh calendar and over a stored enabled day - and comes back with the stored choice`() {
+        val window = sprintWindow(ms("2026-03-06T09:00:00Z"), ms("2026-03-10T15:00:00Z"), null, warsaw)!!
+        val withHoliday = WorkingCalendar(
+            ZoneId.of("Europe/Warsaw"), setOf(6, 7), mapOf(java.time.LocalDate.of(2026, 3, 9) to "Test holiday"),
+        )
+        assertEquals(true, withHoliday.isHoliday(java.time.LocalDate.of(2026, 3, 9)))
+
+        val fresh = defaultCalendar(window, listOf("m1"), withHoliday, carry = null)
+        assertEquals(listOf(true, false, false, false, true), fresh.days.map { it.enabled }, "Mon 03-09 is a weekday but a holiday")
+        assertEquals(2.0, calendarCapacityMd(fresh))
+
+        // The same stored document (the holiday day saved ENABLED) projects off with the holiday and on without it.
+        val stored = SprintCalendarDocument(
+            1.0, window.days.map { SprintCalendarDay(it.toString(), true) },
+            listOf(person("m1", 1.0, *window.days.map { it.toString() to 1.0 }.toTypedArray())),
+        )
+        val locked = projectCalendar(stored, window, listOf("m1"), withHoliday, carry = null)
+        assertEquals(listOf(true, true, true, false, true), locked.days.map { it.enabled }, "only the holiday is forced off")
+        assertEquals(4.0, calendarCapacityMd(locked))
+        val free = projectCalendar(stored, window, listOf("m1"), warsaw, carry = null)
+        assertEquals(listOf(true, true, true, true, true), free.days.map { it.enabled }, "without the holiday the stored choice stands")
+        assertEquals(5.0, calendarCapacityMd(free))
+    }
+
+    @Test
     fun `projection keeps the stored values, adds the new member and day, drops a vanished day and keeps a former member`() {
         // The sprint moved: now Tue 03-03 .. Mon 03-09 (07 and 08 are the weekend), D1 vanished, 07..09 are new.
         val window = sprintWindow(ms("2026-03-03T09:00:00Z"), ms("2026-03-09T15:00:00Z"), null, warsaw)!!

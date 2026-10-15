@@ -62,12 +62,18 @@
   background: var(--mantine-color-gray-light);
 }
 
+/* A public holiday: the off shade plus the diagonal hatch the Deep dive uses for non-working columns (gray.6, the
+   neutral that clears 3:1 on the surface in both schemes) — the locked, always-off day, not merely a turned-off one. */
+.holidayDay {
+  background-image: repeating-linear-gradient(135deg, transparent 0 5px, var(--mantine-color-gray-6) 5px 6px);
+}
+
 .offRow .nameCell {
   color: var(--mantine-color-dimmed);
 }
 
 .offRow .dayCell {
-  background: var(--mantine-color-gray-light);
+  background-color: var(--mantine-color-gray-light);
 }
 
 .footerCell {

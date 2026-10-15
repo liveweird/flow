@@ -1,7 +1,6 @@
 package ch.nokillswit.reports
 
 import ch.nokillswit.metrics.MetricsTables
-import ch.nokillswit.metrics.WorkingCalendar
 import java.math.BigDecimal
 import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.Serializable
@@ -65,7 +64,7 @@ private data class BacklogDay(val items: Int, val md: BigDecimal)
 suspend fun ReportService.backlog(filter: ReportFilter, nowMs: Long): BacklogReport = reportTransaction {
     val scope = resolveReportScope(filter, nowMs)
     val snapshotScope = snapshotScopeOf(filter)
-    val calendar = WorkingCalendar.of(scope.settings)
+    val calendar = scope.calendar
     val plan = planSnapshotDays(scope, filter, calendar, USER_LEVEL_NOTE)
     val days = plan.days
     val perDay = if (days.isEmpty()) {

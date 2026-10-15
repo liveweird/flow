@@ -75,7 +75,10 @@ from Lettuce, that any new or edited spec must satisfy:
   team: a person belongs to one team at a time, globally, and a deleted team keeps its rows) — and
   every report it reads is narrowed to ITS team or, unit-level, to ITS connection (`connectionId` in
   the URL), since an unnarrowed UNIT-level report would also count the other specs' synced
-  connections.
+  connections; `public-holidays` owns its own synced Jira-stub connection (`e2e-holidays-ds-*`), team
+  (`e2e-holidays-team-*`, one stub person on its roster) and throwaway user, plus ONE `E2E Holiday-*` row of the GLOBAL
+  public-holiday dictionary at a time (added and deleted inside its one test, swept by name), on a non-golden sprint so the
+  concurrent `capacity` spec's golden window is untouched.
 - **The Teams registry is shared, append-only state.** Several specs create teams concurrently
   (`teams`, `accessibility`, `list-mutation-refresh`), so a spec only ever appends and removes its
   OWN uniquely named `e2e-*` rows, never edits or deletes another's or a shared seed — and every
@@ -102,7 +105,7 @@ the same commit** — this list is the coverage map, the scenario file is the de
 
 - [`accessibility.spec.ts`](scenarios/accessibility.md) — axe WCAG A/AA smoke: login + the
   authenticated list/form pages (`/`, `/teams`, `/users`, `/users/new`, `/feature-flags`,
-  `/data-sources`, `/metrics-settings`, `/capacity` (the pickers' empty state), all sixteen `/reports/*` routes (the Deep dive without a selection, so its explainer) — each scanned once settled —
+  `/data-sources`, `/metrics-settings`, `/capacity` (the pickers' empty state), `/public-holidays`, all sixteen `/reports/*` routes (the Deep dive without a selection, so its explainer) — each scanned once settled —
   `/change-password`, `/changelog`), the detail pages of an API-seeded fixture team (its roster page,
   the admin's own edit-user and user-features pages), `/reset-password`, the not-found page, and a
   registry editor modal scoped to its dialog; the app shell at a mobile width (390x844, the burger present), light and dark; the login screen and the list/form/report pages again in
@@ -181,6 +184,12 @@ the same commit** — this list is the coverage map, the scenario file is the de
   (every edit kept, a clean axe scan of the grid), and Commitments then shows exactly that figure as the sprint's capacity with no "default"
   badge once the connection re-derives; a regular user only reads (every control disabled, no coefficient column), the admin assigns a
   throwaway user as the team's manager through the Teams editor, and the manager edits the team default and a cell, kept across a reload.
+- [`public-holidays.spec.ts`](scenarios/public-holidays.md) — the Administration > Public holidays dictionary (Polish statutory holidays 2017-2030 are seeded),
+  over its own API-seeded, synced Jira-stub connection (`e2e-holidays-ds-*`) with the FLO board mapped to a throwaway team (`e2e-holidays-team-*`) and one
+  stub person on its roster: the admin adds an `E2E Holiday-*` on a weekday of a non-golden sprint's calendar window (a duplicate date is refused inline),
+  the Capacity grid then shows that day's column locked off, named and one working day lower, deleting the holiday behind its confirmation frees the day
+  again (the dictionary is global: stranded `E2E Holiday*` rows are swept by name); a regular user finds the page in the sidebar, reads the seeded year
+  and has no add strip and no delete (a clean axe scan).
 - [`teams.spec.ts`](scenarios/teams.md) — the flat-teams registry: create through the modal →
   add a member from the searchable picker → rename → assign the member as the team's manager (the Manager picker; the
   details page reads "Manager: …") → remove the member → delete from the list;

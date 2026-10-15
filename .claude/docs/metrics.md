@@ -14,7 +14,7 @@ lives in `MetricsConfigService.kt`, the editor options in `MetricsConfigOptions.
 `DomainOwnerResolver.kt` — the checkup-D3 split of the former all-in-one config service):
 
 - **Global settings** (`GET/PUT /api/v1/metrics-settings`, v0.3.0 M1 commit 3) — the ONE
-  `metrics.settings` singleton: the calendar (time zone, weekend days, holidays), `hoursPerDay`,
+  `metrics.settings` singleton: the calendar (time zone, weekend days — the holidays are NOT here, see "Public holidays" below), `hoursPerDay`,
   commitment grace, minimum sample size, the aging-WIP window/percentiles, the backlog-in-sprints
   window and the epic-drift threshold. See `MetricsSettingsResponse`/`Request` in
   `metrics/MetricsSettings.kt`. A PUT that changes anything bumps the revision through
@@ -44,6 +44,7 @@ inactive — a disabled connection is never derived). The rule per caller:
 |---|---|---|
 | Global settings PUT (`MetricsSettingsService.replace`) | every enabled connection | calendar, thresholds, windows: every DERIVE reads them |
 | Team membership create/update/delete (`TeamMembershipService`) | every enabled connection | the roster is global (`allMembershipsByAccount`) |
+| Public holiday create/delete (`PublicHolidayService`) | every enabled connection | the dictionary is part of the one global working calendar |
 | Team default capacity (`SprintCalendarService.replaceTeamCapacity`) | every enabled connection | keyed by TEAM, and a team's sprints may sit on any connection |
 | Per-connection config PUT (`MetricsConfigService.replaceConfig`) | the saved connection only | its seven `metrics.*` tables are keyed by `connection_id` |
 | Per-sprint calendar save (`SprintCalendarService.replace`) | the sprint's connection only | `metrics.sprint_calendars` is keyed by `(connection_id, sprint_id, team_id)` |
@@ -376,10 +377,31 @@ surrogate-id table), changes the digest, so the digest cannot be vacuous. Both d
 derived row carries the revision, and each wrapper call would bump it. A red digest is a real
 nondeterminism bug (ordering, rounding, a clock read), never something to loosen.
 
+## Public holidays (`metrics/PublicHoliday*.kt`, V25, domain-model A33)
+
+The holidays are a dictionary, not a settings field: `metrics.public_holidays` (date UNIQUE, name), `GET /api/v1/public-holidays` (any
+authenticated, unpaged), `POST` (ADMIN, `201` + `Location`, duplicate date `409`) and `DELETE …/{id}` (ADMIN, `204`, missing `404`), audited
+as `public_holiday.created`/`.deleted` (`observability.md`). Seeded with the Polish statutory holidays 2017–2030 by V25 (persistence.md
+"Public holidays (V25)"). **One calendar builder:** `MetricsSettingsService.readWithCalendar()` (and `readCalendar()`) reads the settings
+row and the dictionary in one transaction and returns the `WorkingCalendar` — DERIVE (`MetricsDeriver.derive`), `ReportScope.calendar`
+(every item-anchored report), the deep dive, the report routes' period parsing and the capacity page's GET/PUT all go through it, so none
+of them can see a different calendar. Every create and delete bumps the shared revision through `bumpRevision()` in the same transaction
+(a global change: the DERIVE fan-out table below), so `dim_date.is_working_day`, DEFAULT capacity and the daily aggregates follow at the
+next DERIVE, exactly like a settings PUT.
+
+**Holidays are locked off in capacity calendars.** `CapacityKernels.projectCalendar` — shared by the GET and DERIVE's `sprintCapacity`
+— projects a holiday day `enabled = false` whatever the stored document says (and `defaultCalendar` starts it off). The PUT accepts a
+holiday day sent `enabled: true` (no `400`; the dictionary can change after a save, and the stored choice is kept as sent), canonical
+no-op comparison compares the stored and the sent document, not the projections — but a holiday day sent `enabled: false` (what a re-saved
+GET-shaped document says) first takes the STORED `enabled` back (`SprintCalendarService.keepingStoredHolidayChoices`), so an unchanged
+re-save is still a no-op and never overwrites a stored `true`. The GET response's day view
+(`SprintCalendarDayView`) adds `holiday` (the dictionary name, null elsewhere) and carries the projected `enabled`; the stored/PUT
+`SprintCalendarDay` is unchanged. Deleting a holiday gives a stored `enabled = true` day back.
+
 ## Calendar math (`metrics/WorkingCalendar.kt`)
 
 Pure, timezone-aware: `dayOf(instant)` folds an epoch millis into an ISO date string in the
-configured zone; `isWorkingDay(day)` checks the configured weekend-day set and holiday set;
+configured zone; `isWorkingDay(day)` checks the configured weekend-day set and the public-holiday dictionary (`isHoliday(day)`/`holidayName(day)` expose the latter);
 `workingDaysBetween(a, b)` counts working days in `[a, b)`, additive
 (`wd(a,b) + wd(b,c) = wd(a,c)`); `dimDateRows(from, to)` emits one `DimDateRow` per calendar day in
 range, each carrying its own UTC-millis day boundaries and working-day flag — `metrics.dim_date`'s
@@ -536,7 +558,7 @@ ACTIVE team's non-null default figure; the service is handed to `runSprintStep`,
 3. **`DEFAULT`** — the sprint's board maps to a team AND it has a known `start_at`: `capacity_md = (member count) × (working days in
    the sprint window)`. Member count is every `metrics.team_membership` account whose interval overlaps `[sprintStart, sprintEnd)`
    for THIS team (`sprintMemberAccountIds`; `endAt = end_at ?? complete_at ?? start_at`); working days come from the SAME
-   `WorkingCalendar` (global settings — time zone, weekend days, holidays) every other calendar computation uses. The A3 rule,
+   `WorkingCalendar` (global settings — time zone, weekend days — plus the public-holiday dictionary) every other calendar computation uses. The A3 rule,
    unchanged.
 4. **None** — no team mapped, or no figure the sprint qualifies for (no `start_at` and no team default): `(null, null)`. No capacity
    means no `load` either. `load = committed_md / capacity_md` is `null` when `capacity_md` is null or 0, AND when the ratio would

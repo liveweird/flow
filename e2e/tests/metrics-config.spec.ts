@@ -55,11 +55,9 @@ test("admin adjusts metrics settings", async ({ page }) => {
   const newAgingWindow = original.agingWindowItems + 7;
   await agingWindowInput.fill(String(newAgingWindow));
 
-  const newHoliday = "2031-06-15";
-  const holidaysInput = page.getByRole("combobox", { name: "Holidays" });
-  await holidaysInput.click();
-  await holidaysInput.pressSequentially(newHoliday);
-  await holidaysInput.press("Enter");
+  // Holidays are no longer a setting here: no field, a pointer to the dictionary page instead.
+  await expect(page.getByRole("combobox", { name: "Holidays" })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Open Public holidays", exact: true })).toHaveAttribute("href", "/public-holidays");
 
   await Promise.all([
     page.waitForResponse((r) => r.url().endsWith("/api/v1/metrics-settings") && r.request().method() === "PUT" && r.ok()),
@@ -67,11 +65,10 @@ test("admin adjusts metrics settings", async ({ page }) => {
   ]);
   await expect(page.getByText("Saved — reports re-derive shortly")).toBeVisible();
 
-  // Persisted: a fresh load shows both changes.
+  // Persisted: a fresh load shows the change.
   await page.reload();
   await expect(page.getByRole("heading", { name: "Metrics settings" })).toBeVisible();
   await expect(page.getByLabel("Aging-WIP window (items)")).toHaveValue(String(newAgingWindow));
-  await expect(page.getByText(newHoliday)).toBeVisible();
 
   // Invalid: marking every day of the week as weekend is refused inline, client-side — no request
   // is ever sent for it. Mantine's Chip input is moved off-screen (not just `opacity: 0`), so
@@ -90,7 +87,6 @@ test("admin adjusts metrics settings", async ({ page }) => {
       hoursPerDay: original.hoursPerDay,
       timeZone: original.timeZone,
       weekendDays: original.weekendDays,
-      holidays: original.holidays,
       commitmentGraceMinutes: original.commitmentGraceMinutes,
       minSampleSize: original.minSampleSize,
       agingWindowItems: original.agingWindowItems,

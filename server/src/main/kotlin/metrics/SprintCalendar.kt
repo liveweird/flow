@@ -26,6 +26,14 @@ const val CAPACITY_MD_SCALE = 2
 @Serializable
 data class SprintCalendarDay(val day: String, val enabled: Boolean)
 
+/**
+ * A day as the GET response shows it: [enabled] is the PROJECTED value (always false on a public holiday, whatever the stored document
+ * says) and [holiday] the dictionary name of the holiday, null on any other day. Response-only: the stored/PUT [SprintCalendarDay]
+ * is unchanged.
+ */
+@Serializable
+data class SprintCalendarDayView(val day: String, val enabled: Boolean, val holiday: String?)
+
 @Serializable
 data class SprintCalendarCell(val day: String, val availability: Double)
 
@@ -79,7 +87,7 @@ data class SprintCalendarResponse(
     val canEdit: Boolean,
     val capacityMd: Double?,
     val teamCoefficient: Double,
-    val days: List<SprintCalendarDay>,
+    val days: List<SprintCalendarDayView>,
     val people: List<SprintCalendarPersonView>,
     val derivedCapacityMd: Double?,
     val derivedCapacitySource: String?,

@@ -421,7 +421,8 @@ class ReportWipTest {
             // STAGE, BOTH: zero-filled across the whole week, weekend flagged.
             val stage = client.wip("$both&teamId=$teamX")
             assertEquals(isoDays(d5, "2026-01-11"), stage.series.map { it.day })
-            assertEquals(listOf(true, true, true, true, true, false, false), stage.series.map { it.isWorkingDay })
+            // Tue 2026-01-06 (Epiphany) is a seeded public holiday (V25), so it is flagged non-working beside the weekend.
+            assertEquals(listOf(true, false, true, true, true, false, false), stage.series.map { it.isWorkingDay })
             fun WipReport.day(day: String) = series.single { it.day == day }.counts
             assertEquals(mapOf("NOT_STARTED" to 3, "IN_PROGRESS" to 3, "WAITING" to 0, "DONE" to 0, "UNMAPPED" to 1), stage.day(d5))
             assertEquals(STAGES.associateWith { 0 }, stage.day("2026-01-06"))
