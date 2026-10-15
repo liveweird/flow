@@ -527,7 +527,7 @@ const shownDistributionWithTail = (
   return { ...body, n: body.n + tail, max: from + step * 3, histogram: [...body.histogram, { from, to: null, count: tail }] };
 };
 
-/** Accuracy measures for the shown fixtures: the at-start sample has a defined tail share, the at-done one has none (null → "—"). */
+/** Accuracy measures for the shown fixtures: the at-start sample (12 tasks) has a defined tail share, the at-done one has none (null → "—", as below six items or a constant sample). */
 const MEASURES_AT_START: AccuracyMeasures = {
   pred10: 0.25,
   pred25: 0.5,
@@ -641,13 +641,13 @@ export const TASK_ACCURACY_USER: TaskEstimationAccuracyReport = {
   groups: [TASK_ACCURACY_USERS.groups[0]],
 };
 
-/** Ten DONE epics whose per-row ratios agree with the distributions' n (6 at start, 8 at done). */
-function epicRows(): EpicAccuracyRow[] {
-  const base = { summary: null, ownerTeamId: 1, childSumMd: 12 };
-  const row = (i: number, own: Partial<EpicAccuracyRow>): EpicAccuracyRow => ({
-    ...base,
-    issueKey: `FLO-${100 + i}`,
+/** One finished epic: owned by team 1, a 20 MD own estimate at start, 22 at done, 24 MD actual (ratios 1.2 and 1.09), `own` overriding. */
+function epicRow(i: number, own: Partial<EpicAccuracyRow>): EpicAccuracyRow {
+  return {
     summary: i === 5 ? "Checkout revamp" : null,
+    ownerTeamId: 1,
+    childSumMd: 12,
+    issueKey: `FLO-${100 + i}`,
     doneAt: Date.UTC(2026, 8, 20 - i),
     ownEstimateAtStartMd: 20,
     ownEstimateAtDoneMd: 22,
@@ -655,47 +655,69 @@ function epicRows(): EpicAccuracyRow[] {
     ratio: 1.2,
     ratioAtDone: 1.09,
     ...own,
-  });
+  };
+}
+
+const NO_START: Partial<EpicAccuracyRow> = { ownEstimateAtStartMd: null, ratio: null };
+const NO_DONE: Partial<EpicAccuracyRow> = { ownEstimateAtDoneMd: null, ratioAtDone: null };
+
+/** Ten DONE epics whose per-row ratios agree with the distributions' n (6 at start, 5 at done). */
+function epicRows(): EpicAccuracyRow[] {
   return [
-    row(0, { actualMd: 0, ratio: null, ratioAtDone: null }), // noActual
-    row(1, { ownEstimateAtStartMd: null, ratio: null }), // neverStarted
-    row(2, { ownEstimateAtStartMd: null, ratio: null }), // unestimatedAtStart
-    row(3, { ownEstimateAtStartMd: null, ratio: null }), // unestimatedAtStart
-    row(4, { ownEstimateAtDoneMd: null, ratioAtDone: null }), // unestimatedAtDone
-    row(5, {}),
-    row(6, {}),
-    row(7, {}),
-    row(8, {}),
-    row(9, {}),
+    epicRow(0, { actualMd: 0, ratio: null, ratioAtDone: null }), // noActual
+    epicRow(1, NO_START), // neverStarted
+    epicRow(2, NO_START), // unestimatedAtStart
+    epicRow(3, NO_START), // unestimatedAtStart
+    epicRow(4, NO_DONE), // unestimatedAtDone
+    epicRow(5, {}),
+    epicRow(6, {}),
+    epicRow(7, NO_DONE), // unestimatedAtDone
+    epicRow(8, NO_DONE), // unestimatedAtDone
+    epicRow(9, NO_DONE), // unestimatedAtDone
   ];
 }
 
+/** Nine DONE epics for the hidden fixture: 3 in the start view, 4 in the done view (one noActual, one neverStarted, four unestimated each way). */
+function hiddenEpicRows(): EpicAccuracyRow[] {
+  return [
+    epicRow(0, { actualMd: 0, ratio: null, ratioAtDone: null }), // noActual
+    epicRow(1, NO_START), // neverStarted
+    epicRow(2, NO_START), // unestimatedAtStart
+    epicRow(3, NO_START), // unestimatedAtStart
+    epicRow(4, NO_START), // unestimatedAtStart
+    epicRow(5, { ...NO_START, ...NO_DONE }), // unestimatedAtStart and at done
+    epicRow(6, NO_DONE),
+    epicRow(7, NO_DONE),
+    epicRow(8, NO_DONE),
+  ];
+}
+
+/** Epic accuracy is read per team (the page requires one), so the fixture is a TEAM read: owner-team groups only exist at UNIT level. */
 export const EPIC_ACCURACY: EpicEstimationAccuracyReport = {
-  meta: { ...META, domainView: "EPIC" },
+  meta: { ...META, level: "TEAM", domainView: "EPIC" },
   atStart: shownDistribution([0, 2, 3, 1], 0.5, 0.5, { p50: 1.2, p90: 1.8, p95: 1.9, mean: 1.25 }),
-  atDone: shownDistribution([1, 3, 3, 1], 0.5, 0.5, { p50: 1.1, p90: 1.7, p95: 1.8, mean: 1.15 }),
-  excluded: { population: 10, noActual: 1, neverStarted: 1, unestimatedAtStart: 2, unestimatedAtDone: 1 },
+  atDone: shownDistribution([1, 2, 1, 1], 0.5, 0.5, { p50: 1.1, p90: 1.7, p95: 1.8, mean: 1.15 }),
+  excluded: { population: 10, noActual: 1, neverStarted: 1, unestimatedAtStart: 2, unestimatedAtDone: 4 },
   epics: epicRows(),
   epicsTruncated: false,
-  groups: [
-    {
-      teamId: 1,
-      label: "Alpha",
-      atStart: shownDistribution([0, 1, 3, 1], 0.5, 0.5, { p50: 1.2, p90: 1.7, p95: 1.8, mean: 1.2 }),
-      atDone: shownDistribution([1, 1, 2, 1], 0.5, 0.5, { p50: 1.1, p90: 1.7, p95: 1.8, mean: 1.1 }),
-      excluded: { population: 7, noActual: 1, neverStarted: 0, unestimatedAtStart: 1, unestimatedAtDone: 1 },
-    },
-    {
-      teamId: null,
-      label: null,
-      atStart: hiddenDistribution(1),
-      atDone: hiddenDistribution(3),
-      excluded: { population: 3, noActual: 0, neverStarted: 1, unestimatedAtStart: 1, unestimatedAtDone: 0 },
-    },
-  ],
+  groups: [],
+  // Six epics at start (the tail share is defined from six), five at done (the minimum sample, but under six: no tail share).
+  accuracyAtStart: { ...MEASURES_AT_START, tailShare: 1 / 6 },
+  accuracyAtDone: MEASURES_AT_DONE,
 };
 
 export const EPIC_ACCURACY_TRUNCATED: EpicEstimationAccuracyReport = { ...EPIC_ACCURACY, epicsTruncated: true };
+
+/** Both views below the minimum sample size (3 and 4 of 5): counts only, and no accuracy measures. */
+export const EPIC_ACCURACY_HIDDEN: EpicEstimationAccuracyReport = {
+  ...EPIC_ACCURACY,
+  atStart: hiddenDistribution(3),
+  atDone: hiddenDistribution(4),
+  excluded: { population: 9, noActual: 1, neverStarted: 1, unestimatedAtStart: 4, unestimatedAtDone: 4 },
+  epics: hiddenEpicRows(),
+  accuracyAtStart: null,
+  accuracyAtDone: null,
+};
 
 export const EPIC_ACCURACY_EMPTY: EpicEstimationAccuracyReport = {
   meta: META,
@@ -705,6 +727,8 @@ export const EPIC_ACCURACY_EMPTY: EpicEstimationAccuracyReport = {
   epics: [],
   epicsTruncated: false,
   groups: [],
+  accuracyAtStart: null,
+  accuracyAtDone: null,
 };
 
 const noAdjustments = (): AdjustmentFigures => ({

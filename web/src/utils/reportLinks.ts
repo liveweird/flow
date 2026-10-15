@@ -94,7 +94,7 @@ const PAGE_PARAMS: Readonly<Record<string, readonly string[]>> = {
 const MULTI_ACCOUNT_PATHS: ReadonlySet<string> = new Set([commitmentsPath, throughputPath, cycleTimePath, reportedTimePath, estimateAdjustmentsPath, taskAccuracyPath]);
 
 /** The reports with no member control (always the whole team): leaving for one drops the `accountId`s, so the address bar says what the page shows. */
-const NO_MEMBER_PATHS: ReadonlySet<string> = new Set([sprintConsistencyPath, epicProgressPath]);
+const NO_MEMBER_PATHS: ReadonlySet<string> = new Set([sprintConsistencyPath, epicAccuracyPath, epicProgressPath]);
 
 /** The report-specific params a report route has a control for — what its own filter normalizer keeps. */
 export function reportSpecificKeep(path: string): ReadonlySet<ReportSpecificKey> {

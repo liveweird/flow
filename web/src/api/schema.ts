@@ -1293,7 +1293,11 @@ export interface paths {
          *     matched); `ratio`/`ratioAtDone` are null for an excluded epic. Levels: UNIT (default) — `groups` one
          *     per owner team; TEAM narrows to that owner team and has no groups (epics carry no user); USER
          *     (`teamId` AND `accountId`) is always empty. Sprint-relative periods use the resolved sprints'
-         *     envelope, as in throughput.
+         *     envelope, as in throughput. `accuracyAtStart` / `accuracyAtDone` are the accuracy measures
+         *     (`AccuracyMeasures`) over the very ratios `atStart` / `atDone` summarise (each epic's `ratio` /
+         *     `ratioAtDone`), null while that distribution is hidden. The relative error of a PRED / MdMRE / sMAPE
+         *     reading is taken against the ACTUAL (`MRE = |actual − estimate| ÷ actual`), and a ratio of exactly 1
+         *     is a perfect estimate.
          */
         get: operations["getReportEpicEstimationAccuracy"];
         put?: never;
@@ -3454,6 +3458,10 @@ export interface components {
             /** @description True when more than 200 epics matched. */
             epicsTruncated: boolean;
             groups: components["schemas"]["EpicAccuracyGroup"][];
+            /** @description The accuracy measures over the ratios `atStart` summarises; null while it is hidden. */
+            accuracyAtStart: components["schemas"]["AccuracyMeasures"] | null;
+            /** @description The accuracy measures over the ratios `atDone` summarises; null while it is hidden. */
+            accuracyAtDone: components["schemas"]["AccuracyMeasures"] | null;
         };
         /** @description DONE items (by `done_at`) the change distribution could not take, each in ONE bucket: `estimatedLate` (never a `+∞` change), else `unestimated` (either estimate missing, incl. never started). `changeDistribution.n + estimatedLate + unestimated = population`. */
         AdjustmentChangeExcluded: {

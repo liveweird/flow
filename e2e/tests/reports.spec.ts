@@ -313,23 +313,31 @@ async function readCostMatrix(page: Page): Promise<void> {
   await expect(authors.getByRole("row", { name: /^Show Sample User \d+ / }).first()).toBeVisible();
 }
 
-/** The epic-accuracy journey: empty default window, both views, the golden epic's ratio, then domain → team → member. */
+/**
+ * The epic-accuracy journey: empty default window, both views (each a median/mean/items strip with no p90/p95 and an "Accuracy
+ * measures" table, or the counts-only notice), the golden epic's ratio, the domain, then the required team (no "All teams") and no
+ * Member control. Every deep link carries the spec's OWN team: the page is read per team, and a bare link would start on the first
+ * team by name, which other specs' teams can precede.
+ */
 async function readEpicAccuracy(page: Page): Promise<void> {
+  const teamLink = `&teamId=${teamId}`;
   // The default window holds no finished epic: the empty state, not a block of zeros.
-  await openReport(page, "/reports/epic-estimation-accuracy");
+  await openReport(page, "/reports/epic-estimation-accuracy", teamLink);
   await expect(page.getByRole("heading", { level: 2, name: "Epic estimation accuracy", exact: true })).toBeVisible();
   await expect(page.getByText("No data in this period")).toBeVisible();
   const epics = page.getByRole("table", { name: "Finished epics", exact: true });
   await expect(epics).toHaveCount(0);
 
   // The year-long window holds the stub's finished epics: both views, each a distribution with its accounting.
-  await page.goto(`/reports/epic-estimation-accuracy?connectionId=${dataSourceId}&${EPIC_WINDOW}`);
+  await page.goto(`/reports/epic-estimation-accuracy?connectionId=${dataSourceId}&${EPIC_WINDOW}${teamLink}`);
   await expect(page.getByRole("heading", { name: "Against the own estimate at start", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Against the own estimate at done", exact: true })).toBeVisible();
-  await expect(page.getByText("Median (p50)", { exact: true })).toHaveCount(2);
   await expect(page.getByRole("heading", { name: "Left out of this distribution" })).toHaveCount(2);
   await expectAccountingToReconcile(page, 2);
   await expect(page.getByText(/^Derived .* · configuration revision \d+$/)).toBeVisible();
+  // The team's few epics may sit under the minimum sample: a view is then the counts-only notice, with neither strip nor measures.
+  await expect(percentilesOrNotice(page).first()).toBeVisible();
+  await expectCentreStripAndMeasures(page);
 
   // One row per finished epic, as many as the accounting's population.
   const golden = epics.getByRole("row", { name: new RegExp(`^${GOLDEN_EPIC.issueKey}\\b`) });
@@ -347,29 +355,28 @@ async function readEpicAccuracy(page: Page): Promise<void> {
   expect(actual).toBeGreaterThan(0);
   expect(Math.abs(ratio - actual / GOLDEN_EPIC.budgetMd), "ratio = actual ÷ own estimate").toBeLessThan(0.006);
   expect(Math.abs(ratio - actual / GOLDEN_EPIC.childSumMd), "not actual ÷ child sum").toBeGreaterThan(0.05);
+  // The read is the picked team's: no other team's epics.
+  await expect(epics.getByRole("row", { name: /^(GTM|OPS|PLT)-\d+/ })).toHaveCount(0);
 
-  // The domain narrows the epics: GTM's only, the golden FLO epic gone; clearing it brings it back.
+  // The domain narrows the epics: the seeded team owns no GTM epic, so GTM leaves nothing; clearing it brings the golden FLO epic back.
   await openFilters(page);
   await pickFilter(page, "Domain", "GTM");
   await expect(page).toHaveURL(/domain=GTM/);
-  await expect(epics.getByRole("row", { name: /^GTM-\d+/ }).first()).toBeVisible();
-  await expect(epics.getByRole("row", { name: /^(FLO|OPS|PLT)-\d+/ })).toHaveCount(0);
+  await expect(page.getByText("No data in this period")).toBeVisible();
+  await expect(epics).toHaveCount(0);
   await clearFilter(page, "Domain");
   await expect(golden).toBeVisible();
 
-  // The team level: the By team row is the way in; the team's few epics fall below the minimum sample.
-  await page.getByRole("table", { name: "By team", exact: true }).getByRole("link", { name: `Show ${teamName}`, exact: true }).click();
+  // A team is required and there is no Member control: epics belong to a team, not a person.
   await expect(page).toHaveURL(new RegExp(`teamId=${teamId}`));
-  await expect(golden).toBeVisible();
-  await expect(epics.getByRole("row", { name: /^(GTM|OPS|PLT)-\d+/ })).toHaveCount(0);
-  await expect(page.getByRole("note").filter({ hasText: /^Only \d+ items in this selection/ })).toHaveCount(2);
-  await expect(page.getByText("Median (p50)", { exact: true })).toHaveCount(0);
-
-  // A single person has no epics of their own: one note, no table.
-  await pickFilter(page, "Member", memberName);
-  await expect(page).toHaveURL(/accountId=/);
-  await expect(page.getByRole("note").filter({ hasText: "Epics aren't attributed to individual people" })).toBeVisible();
-  await expect(epics).toHaveCount(0);
+  const team = page.getByRole("combobox", { name: "Team", exact: true });
+  await expect(team).toHaveValue(teamName);
+  await expect(page.getByLabel("Clear Team", { exact: true })).toHaveCount(0);
+  await team.click();
+  await expect(page.getByRole("option", { name: teamName, exact: true })).toBeVisible();
+  await expect(page.getByRole("option", { name: "All teams", exact: true })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("combobox", { name: "Member", exact: true })).toHaveCount(0);
 }
 
 /**
@@ -560,11 +567,18 @@ async function readTaskAccuracy(page: Page): Promise<void> {
 
 /**
  * Every shown view has the median/mean/items strip — never a p90 or p95 — and its own nine-row "Accuracy measures" table; a view
- * below the minimum sample has neither (the counts-only notice stands instead).
+ * below the minimum sample has neither and the counts-only notice ("Only N items in this selection") stands instead. The page has
+ * two views (at start, at done), so strips + notices must account for both — unless the selection holds nothing at all, when the
+ * page shows its one "No data in this period" state instead of either view. The check never passes on a page that shows none of these.
  */
 async function expectCentreStripAndMeasures(page: Page): Promise<void> {
   const strips = page.getByRole("group", { name: "Percentiles", exact: true });
   const measures = page.getByRole("table", { name: /^Accuracy measures — / });
+  const notices = page.getByRole("note").filter({ hasText: /^(Only \d+ items? in this selection|Nothing to measure in this selection)/ });
+  const empty = page.getByText("No data in this period", { exact: true });
+  await expect
+    .poll(async () => (await empty.count()) > 0 || (await strips.count()) + (await notices.count()) === 2)
+    .toBe(true);
   // Every shown view has exactly one measures table beside its strip. A polled difference (never a one-off count snapshot, which a
   // stale previous report could supply) settles on 0 once the page shows one coherent report: both counts are 0 (the notice) or equal.
   await expect.poll(async () => (await measures.count()) - (await strips.count())).toBe(0);

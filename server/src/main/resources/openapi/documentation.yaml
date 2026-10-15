@@ -1871,7 +1871,11 @@ paths:
         matched); `ratio`/`ratioAtDone` are null for an excluded epic. Levels: UNIT (default) — `groups` one
         per owner team; TEAM narrows to that owner team and has no groups (epics carry no user); USER
         (`teamId` AND `accountId`) is always empty. Sprint-relative periods use the resolved sprints'
-        envelope, as in throughput.
+        envelope, as in throughput. `accuracyAtStart` / `accuracyAtDone` are the accuracy measures
+        (`AccuracyMeasures`) over the very ratios `atStart` / `atDone` summarise (each epic's `ratio` /
+        `ratioAtDone`), null while that distribution is hidden. The relative error of a PRED / MdMRE / sMAPE
+        reading is taken against the ACTUAL (`MRE = |actual − estimate| ÷ actual`), and a ratio of exactly 1
+        is a perfect estimate.
       parameters:
         - { $ref: '#/components/parameters/ReportFrom' }
         - { $ref: '#/components/parameters/ReportTo' }
@@ -4788,7 +4792,7 @@ components:
         excluded: { $ref: '#/components/schemas/EpicAccuracyExcluded' }
     EpicEstimationAccuracyReport:
       type: object
-      required: [meta, atStart, atDone, excluded, epics, epicsTruncated, groups]
+      required: [meta, atStart, atDone, excluded, epics, epicsTruncated, groups, accuracyAtStart, accuracyAtDone]
       properties:
         meta: { $ref: '#/components/schemas/ReportMeta' }
         atStart:
@@ -4807,6 +4811,14 @@ components:
         groups:
           type: array
           items: { $ref: '#/components/schemas/EpicAccuracyGroup' }
+        accuracyAtStart:
+          allOf: [{ $ref: '#/components/schemas/AccuracyMeasures' }]
+          nullable: true
+          description: The accuracy measures over the ratios `atStart` summarises; null while it is hidden.
+        accuracyAtDone:
+          allOf: [{ $ref: '#/components/schemas/AccuracyMeasures' }]
+          nullable: true
+          description: The accuracy measures over the ratios `atDone` summarises; null while it is hidden.
 
     AdjustmentChangeExcluded:
       type: object

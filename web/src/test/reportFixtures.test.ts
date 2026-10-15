@@ -43,6 +43,7 @@ import {
   CONSISTENCY_UNIT,
   EPIC_ACCURACY,
   EPIC_ACCURACY_EMPTY,
+  EPIC_ACCURACY_HIDDEN,
   FILTERS,
   REPORTED_TIME,
   REPORTED_TIME_EMPTY,
@@ -197,7 +198,7 @@ describe("estimation fixtures hold the documented partitions", () => {
   });
 
   test("epic accuracy: the same partitions, and the listed rows agree with the distributions", () => {
-    for (const report of [EPIC_ACCURACY, EPIC_ACCURACY_EMPTY]) {
+    for (const report of [EPIC_ACCURACY, EPIC_ACCURACY_HIDDEN, EPIC_ACCURACY_EMPTY]) {
       const x = report.excluded;
       expect(report.atStart.n + x.noActual + x.neverStarted + x.unestimatedAtStart).toBe(x.population);
       expect(report.atDone.n + x.noActual + x.unestimatedAtDone).toBe(x.population);
@@ -217,6 +218,16 @@ describe("estimation fixtures hold the documented partitions", () => {
         }
       }
     }
+    // The measures follow their view's Distribution: present exactly when it is shown.
+    for (const report of [EPIC_ACCURACY, EPIC_ACCURACY_HIDDEN, EPIC_ACCURACY_EMPTY]) {
+      expect(report.accuracyAtStart === null).toBe(report.atStart.hidden);
+      expect(report.accuracyAtDone === null).toBe(report.atDone.hidden);
+    }
+    // Tail share rule (AccuracyMeasures.kt): null below six items; the shown epic fixture has six at start and five at done.
+    expect(EPIC_ACCURACY.atStart.n).toBe(6);
+    expect(EPIC_ACCURACY.accuracyAtStart?.tailShare).not.toBeNull();
+    expect(EPIC_ACCURACY.atDone.n).toBe(5);
+    expect(EPIC_ACCURACY.accuracyAtDone?.tailShare).toBeNull();
   });
 
   test("adjustments: change n + estimated late + unestimated == population, late ≤ changed ≤ started, share = changed ÷ started", () => {
