@@ -323,8 +323,18 @@ Agreed with the user on 2026-09-27.
 - **D1 — Team membership is Flow-owned and effective-dated.** Admins maintain which Jira user is in
   which team, with valid-from/valid-to dates; Jira keeps no membership history, and the ≤1-team rule
   needs one. The existing `teams` registry stays; its `team_members` join links *Flow logins*, so a
-  new dated membership of *Jira users* is added beside it. It may be seeded once from Atlassian
-  Teams or the issues' Team field.
+  new dated membership of *Jira users* is added beside it. **Seeding from the issues' Team field is
+  built** (the Atlassian Team custom field, `norm.work_items.team_value`): an admin picks an Atlassian Team, previews its
+  *assignees* (the people assigned to the live issues carrying it, any connection — team ids are site-global) and ticks
+  who to seed. The candidates come from **task-level issues only** (the one epic/task rule of A31, `norm/Hierarchy.kt`: an
+  epic's assignee — often a lead — and anyone above is no candidate, and such issues are not counted); inactive people are
+  included (a departed developer is a legitimate historic member). The rule per seeded person: **start = the first instant of
+  the calendar day, in the configured metrics zone, of the creation of their earliest live task for that team; open-ended
+  (`valid_to` null)**. A *team mover* can still be seeded: when the only existing memberships (any team, this one included)
+  overlapping `[start, ∞)` are CLOSED (`valid_to` set), the start moves forward to the latest such `valid_to` and the preview shows
+  that day; an OPEN membership stays a conflict — the person is shown with the conflicting team and cannot be seeded. The
+  server recomputes the candidates on apply. Nothing is automatic — the Team field only proposes, the admin decides
+  (`POST /api/v1/teams/{id}/jira-memberships/seed`, `.claude/docs/authorization.md`).
 - **D2 — Epics are only EPICs; sub-tasks roll up.** An epic is never a TASK. A sub-task's
   estimate, delivery and worklogs roll up into its parent task (no double counting), and it stays
   visible for drill-down.

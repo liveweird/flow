@@ -1117,8 +1117,16 @@ Extra cases, same method: `epic-progress` at EPIC level (`epicId=FLO-10`, wide) 
 The metrics layer is complete for v0.3.0: the configuration, DERIVE, the star and its aggregates,
 and the re-derive/REPROCESS check ("Reproducibility (invariant 12)" above) are all shipped, and the
 scale-20 performance check is recorded above. The report API and pages that read it are documented
-in `.claude/docs/reports.md`; what is deliberately not built yet is listed in `BACKLOG.md` (seeding
-memberships from Jira's Team field, reading `hoursPerDay` from Jira's time-tracking configuration).
+in `.claude/docs/reports.md`; what is deliberately not built yet is listed in `BACKLOG.md` (reading
+`hoursPerDay` from Jira's time-tracking configuration).
+
+**Seeding memberships from the Team field (D1) is built** (`metrics/TeamMembershipSeedService.kt`, v0.4.0): the candidates are
+the assignees of the live TASK-level issues of one Atlassian Team (`NormPickerReads.teamAssignees`, `team_value->>'id'`; the A31
+`hierarchyBucket` rule, so epics and above are out), each seeded as an open-ended membership starting at the zone-day of their
+earliest such issue — moved forward to the end of their latest CLOSED membership that reaches past it, so a team mover is seedable
+(an open one is a conflict) — written through `TeamMembershipService.insertMembership`
+(the same insert, account check and `EXCLUDE` guard as the single add) and ONE `config_revision` bump per batch. It adds no
+column or table, so nothing in DERIVE changes; the seeded rows are ordinary `metrics.team_membership` rows.
 
 **Membership history is permanent (by design).** Deleting a team closes its members' open
 memberships at that moment (so they can join another team from then on), but the history before

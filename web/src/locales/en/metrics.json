@@ -89,6 +89,40 @@
       "validToBeforeFrom": "Valid to must be after valid from"
     }
   },
+  "teamSeed": {
+    "button": "Seed from Jira Team field",
+    "title": "Seed members from the Jira Team field",
+    "intro": "Pick an Atlassian team. The people assigned to its issues are offered as members, each starting on the day of their earliest issue for that team.",
+    "pickTeam": "Pick an Atlassian team…",
+    "teamOption": "{{name}} ({{count}})",
+    "noTeams": "No Atlassian team has been seen on an issue yet",
+    "noCandidates": "Nobody is assigned to issues of this team",
+    "field": {
+      "team": "Atlassian team",
+      "teamHint": "The number of issues carrying the team is shown in brackets.",
+      "pick": "Select",
+      "person": "Person",
+      "issues": "Issues",
+      "firstSeen": "First issue",
+      "startsOn": "Starts",
+      "lastSeen": "Last issue"
+    },
+    "tableAria": "People assigned to the team's issues",
+    "pickAria": "Seed {{name}}",
+    "conflict": "Already in {{team}}",
+    "hint": "Memberships are open-ended and start on the first issue's day — or, for someone who left another team after that day, on the day they left it. People with a current (open) membership are shown but cannot be selected.",
+    "tooMany": "At most {{max}} people can be seeded at once — untick some.",
+    "apply": "Seed selected ({{count}})",
+    "toast": {
+      "seeded": "Seeded {{created}}, skipped {{skipped}}"
+    },
+    "error": {
+      "forbidden": "Only administrators can seed members.",
+      "notFound": "This team no longer exists.",
+      "conflict": "A membership changed in the meantime — close this dialog and open it again.",
+      "invalid": "The selection is not valid — close this dialog and open it again."
+    }
+  },
   "config": {
     "title": "Metrics configuration",
     "notConfiguredBanner": "Showing computed defaults — save to confirm them",

@@ -183,6 +183,18 @@ class WorkItemStore(database: R2dbcDatabase) {
 
     data class PersonListResult(val items: List<PersonRow>, val total: Long)
 
+    /** One Atlassian Team (the `team_value` JSONB's `id`/`name`) and the live work items carrying it — the team-seeding picker. */
+    data class AtlassianTeamRow(val id: String, val name: String, val issueCount: Long)
+
+    /** One assignee of an Atlassian Team's issues: how many, and the creation instants (epoch millis) of the earliest and latest. */
+    data class TeamAssigneeRow(
+        val accountId: String,
+        val displayName: String,
+        val issueCount: Long,
+        val firstCreatedAt: Long,
+        val lastCreatedAt: Long,
+    )
+
     /** One issue's PROFILE-relevant `norm.work_items` columns (v0.2.0 plan §8/§12 item 9) — `jira/JiraProfile.kt`'s bulk read. */
     data class ProfileWorkItemRow(
         val issueId: Long,
@@ -319,6 +331,9 @@ class WorkItemStore(database: R2dbcDatabase) {
         pickers.listPeople(paging, q, accountIds)
     suspend fun distinctAssigneeAccountIds(): Set<String> = pickers.distinctAssigneeAccountIds()
     suspend fun distinctWorklogAuthorAccountIds(): Set<String> = pickers.distinctWorklogAuthorAccountIds()
+    suspend fun atlassianTeams(): List<AtlassianTeamRow> = pickers.atlassianTeams()
+    suspend fun teamAssignees(atlassianTeamId: String): List<TeamAssigneeRow> = pickers.teamAssignees(atlassianTeamId)
+    suspend fun displayNames(accountIds: Collection<String>): Map<String, String> = pickers.displayNames(accountIds)
     suspend fun distinctProjectKeys(connectionId: UInt): Set<String> = pickers.distinctProjectKeys(connectionId)
     suspend fun distinctIssueTypes(connectionId: UInt): Set<String> = pickers.distinctIssueTypes(connectionId)
     suspend fun distinctIntervalStatusIds(connectionId: UInt): Set<String> = pickers.distinctIntervalStatusIds(connectionId)

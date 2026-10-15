@@ -89,6 +89,40 @@
       "validToBeforeFrom": "Ważne do musi być późniejsze niż ważne od"
     }
   },
+  "teamSeed": {
+    "button": "Wypełnij z pola Team w Jirze",
+    "title": "Wypełnij członków/kinie z pola Team w Jirze",
+    "intro": "Wybierz zespół Atlassian. Osoby przypisane do jego zadań są proponowane jako członkowie/kinie, każda/y od dnia swojego najwcześniejszego zadania tego zespołu.",
+    "pickTeam": "Wybierz zespół Atlassian…",
+    "teamOption": "{{name}} ({{count}})",
+    "noTeams": "Żadne zadanie nie ma jeszcze zespołu Atlassian",
+    "noCandidates": "Nikt nie jest przypisany do zadań tego zespołu",
+    "field": {
+      "team": "Zespół Atlassian",
+      "teamHint": "W nawiasie podajemy liczbę zadań z tym zespołem.",
+      "pick": "Wybierz",
+      "person": "Osoba",
+      "issues": "Zadania",
+      "firstSeen": "Pierwsze zadanie",
+      "startsOn": "Początek",
+      "lastSeen": "Ostatnie zadanie"
+    },
+    "tableAria": "Osoby przypisane do zadań zespołu",
+    "pickAria": "Dodaj: {{name}}",
+    "conflict": "Już w zespole {{team}}",
+    "hint": "Członkostwa są otwarte (bez daty końca) i zaczynają się w dniu pierwszego zadania — a dla osoby, która opuściła inny zespół po tym dniu, w dniu opuszczenia. Osoby z bieżącym (otwartym) członkostwem pokazujemy, ale nie można ich wybrać.",
+    "tooMany": "Naraz można dodać najwyżej {{max}} osób — odznacz część.",
+    "apply": "Dodaj wybrane ({{count}})",
+    "toast": {
+      "seeded": "Dodano: {{created}}, pominięto: {{skipped}}"
+    },
+    "error": {
+      "forbidden": "Tylko administratorzy/rki mogą wypełniać członków/kinie.",
+      "notFound": "Ten zespół już nie istnieje.",
+      "conflict": "W międzyczasie zmieniło się członkostwo — zamknij to okno i otwórz je ponownie.",
+      "invalid": "Wybór jest nieprawidłowy — zamknij to okno i otwórz je ponownie."
+    }
+  },
   "config": {
     "title": "Konfiguracja metryk",
     "notConfiguredBanner": "Pokazujemy wyliczone wartości domyślne — zapisz, aby je potwierdzić",

@@ -1,6 +1,7 @@
 package ch.nokillswit.metrics
 
 import ch.nokillswit.authz.NotFoundException
+import ch.nokillswit.infra.db.active
 import ch.nokillswit.infra.db.lockActiveForUpdate
 import ch.nokillswit.infra.db.nowMillis
 import ch.nokillswit.infra.db.orVanished
@@ -31,7 +32,9 @@ data class TeamMembershipUpdateOutcome(val response: TeamMembershipResponse, val
  * queries `norm/WorkItemStore.People` directly (an unknown Jira account id is a 400 — the
  * client-supplied-FK idiom `teams/TeamService.kt`'s `requireActiveUsers` already uses for Flow
  * user ids). `teams/TeamService.kt`'s own `delete` makes the THIRD cross-feature reference, the
- * other direction: it closes/removes this table's rows for a team it just soft-deleted.
+ * other direction: it closes/removes this table's rows for a team it just soft-deleted. [membershipsOfAccounts] joins
+ * `teams/TeamService.Teams` for the team name (the seeding preview's conflict), and [lockActiveTeam]/[requireActiveTeam]/
+ * [insertMembership] are the pieces `TeamMembershipSeedService` shares with [create].
  *
  * **Read-before-guard for reads, active-required for writes.** [list] only requires the team to
  * EXIST (`requireKnownTeam`, any activation state) — a soft-deleted team keeps its membership
@@ -76,10 +79,36 @@ class TeamMembershipService(
      */
     suspend fun create(teamId: UInt, request: TeamMembershipCreateRequest): TeamMembershipResponse = suspendTransaction(database) {
         validateTeamMembershipCreate(request) // re-checked service-side so direct callers stay guarded
+        lockActiveTeam(teamId)
+        val id = insertMembership(teamId, request)
+        metricsSettings.bumpRevision()
+        readRow(teamId, id).orVanished("Team membership", id)
+    }
+
+    /**
+     * Locks the ACTIVE team row for the rest of the caller's transaction (`TeamService.Teams.lockActiveForUpdate`, race-free against
+     * a concurrent `TeamService.delete`); a missing/soft-deleted team is `404`. [create] and `TeamMembershipSeedService.seed` share it.
+     */
+    internal suspend fun lockActiveTeam(teamId: UInt) {
         if (!TeamService.Teams.lockActiveForUpdate(teamId)) throw NotFoundException("Team not found")
+    }
+
+    /** `404` unless the team exists and is ACTIVE — a read-only twin of [lockActiveTeam] (no row lock), for the seeding preview. */
+    internal suspend fun requireActiveTeam(teamId: UInt) {
+        val active = TeamService.Teams.select(TeamService.Teams.id)
+            .where { (TeamService.Teams.id eq teamId) and TeamService.Teams.active() }.count() > 0
+        if (!active) throw NotFoundException("Team not found")
+    }
+
+    /**
+     * The insert behind [create] and the seeding: the account must be known to `norm.people` (400), the exclusion constraint answers an
+     * overlap (23P01 → the central 409). The caller owns the transaction, the (already validated) request, the team lock and the
+     * revision bump — [create] bumps once per row, the seeding once per batch.
+     */
+    internal suspend fun insertMembership(teamId: UInt, request: TeamMembershipCreateRequest): UInt {
         requireKnownAccount(request.accountId)
         val stamp = nowMillis()
-        val id = TeamMembership.insert {
+        return TeamMembership.insert {
             it[accountId] = request.accountId
             it[TeamMembership.teamId] = teamId
             it[validFrom] = request.validFrom
@@ -87,8 +116,26 @@ class TeamMembershipService(
             it[createdAt] = stamp
             it[updatedAt] = stamp
         }[TeamMembership.id].value
-        metricsSettings.bumpRevision()
-        readRow(teamId, id).orVanished("Team membership", id)
+    }
+
+    /** One membership row with its team's name — the seeding preview's conflict input (the team may be soft-deleted: history stays). */
+    data class NamedMembership(val accountId: String, val teamId: UInt, val teamName: String, val validFrom: Long, val validTo: Long?)
+
+    /** Every membership row (any team, any date) of the given accounts, with the team name. Empty input short-circuits. */
+    internal suspend fun membershipsOfAccounts(accountIds: Collection<String>): List<NamedMembership> = suspendTransaction(database) {
+        if (accountIds.isEmpty()) return@suspendTransaction emptyList()
+        TeamMembership.innerJoin(TeamService.Teams)
+            .select(
+                TeamMembership.accountId, TeamMembership.teamId, TeamService.Teams.name, TeamMembership.validFrom, TeamMembership.validTo,
+            )
+            .where { TeamMembership.accountId inList accountIds }
+            .map {
+                NamedMembership(
+                    it[TeamMembership.accountId], it[TeamMembership.teamId].value, it[TeamService.Teams.name],
+                    it[TeamMembership.validFrom], it[TeamMembership.validTo],
+                )
+            }
+            .toList()
     }
 
     /**

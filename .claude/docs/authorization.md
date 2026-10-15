@@ -222,8 +222,27 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     it can never end, permanently blocking that account's `EXCLUDE` constraint from ever admitting
     a new team. Every ACTUAL change (not a no-op PUT re-submitting the same dates) bumps the shared
     `config_revision` (the same singleton `/metrics-settings` reads) and audits
-    `team.jira_membership_added`/`.updated`/`.removed`. Tests: `TeamMembershipRoutesTest`,
+    `team.jira_membership_added`/`.updated`/`.removed`. The list read carries each row's `displayName` (`norm.people` of active
+    connections, the person's own `active` flag ignored, so a departed member keeps a name) via `WorkItemStore.displayNames`.
+    Tests: `TeamMembershipRoutesTest`,
     `TeamTest` (the team-delete membership-closing case).
+  - `GET /api/v1/jira-teams`, `GET /api/v1/teams/{id}/jira-memberships/seed-candidates?atlassianTeamId=` and
+    `POST /api/v1/teams/{id}/jira-memberships/seed` (D1 seeding from the Atlassian Team field,
+    `metrics/TeamMembershipSeedRoutes.kt`) → **ADMIN only, all three, reads included**: the seed prepares and performs
+    `/jira-memberships` writes (ADMIN only), and the preview pairs a person with per-team issue counts and first/last-seen
+    days, which no any-authenticated surface shows. `requireAdmin` runs BEFORE the id lookup, the query and the body decode
+    (a non-admin gets a uniform 403 for an unknown team, a missing/blank `atlassianTeamId` or a malformed body). Then, in the
+    `POST /jira-memberships` order: `400` shape (blank/overlong team id, `accountIds` not 1..100 distinct non-blank ids,
+    control characters — before the team lookup), `404` (the team must be ACTIVE for the preview AND the apply; the apply
+    locks it like `create`). The apply recomputes the candidates in its own transaction and creates each requested account
+    through `TeamMembershipService.insertMembership` or skips it (`CONFLICT` / `NOT_A_CANDIDATE`) — a skip is `200`, never
+    an error; nothing created means no revision bump and no audit line. A concurrent write that slips an overlap between the
+    recompute and the insert answers the central `409` (declared on the operation) and rolls the whole batch back — pinned
+    deterministically by holding an overlapping raw insert open until the seed waits on it (`pg_stat_activity`), then committing.
+    The rows are inserted in account-id order, so two concurrent seeds cannot deadlock (`40P01` would be a `500`). The candidates
+    are TASK-level issues only (the A31 epic/task rule); a CLOSED membership reaching past the first issue moves the start
+    forward instead of conflicting, an OPEN one is the `CONFLICT`. One `config_revision` bump per batch; audited
+    `team.jira_memberships_seeded`. Tests: `TeamMembershipSeedRoutesTest`.
   - `GET /api/v1/jira-users` (v0.3.0 M1 commit 3, `metrics/JiraUsersRoutes.kt`) — **`scope=UNIT`
     (default), any authenticated**: restricted to accounts already relevant to this unit's own data
     (an assignee or worklog author on an ACTIVE connection's live work items, or one that ever held

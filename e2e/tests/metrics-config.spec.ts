@@ -16,6 +16,8 @@ import {
   openFilters,
   rowOperation,
   signOut,
+  STUB_MEMBER_CANDIDATES,
+  syncStubDataSourceViaApi,
   test,
   uniqueText,
 } from "./helpers";
@@ -346,4 +348,80 @@ test("admin adds a dated Jira member to a team; a regular user sees it read-only
   await login(page);
   await deleteUserRow(page, reader.name);
   await api.dispose();
+});
+
+/**
+ * Stub people other specs put on a team of their own (`helpers.ts`'s `STUB_MEMBER_CANDIDATES`) and the person the previous test
+ * uses: a membership is global per person, so the seeding test never picks one of them (and seeds exactly ONE person, removed again).
+ */
+const OTHER_SPECS_PEOPLE = new Set([...STUB_MEMBER_CANDIDATES.map((candidate) => candidate.accountId), SAMPLE_PERSON.accountId]);
+
+test("admin seeds a team's Jira roster from the Atlassian Team field", async ({ page }) => {
+  // The sync poll alone can run close to 340s under load; the UI steps after it are quick.
+  test.setTimeout(420_000);
+  await login(page);
+  const { api } = await apiAsAdmin();
+  try {
+    // A synced connection carries the stub's four Atlassian Teams on ~30% of its issues (`customfield_10001`).
+    const dataSource = await syncStubDataSourceViaApi(api, "e2e-metrics-ds");
+    teardown.push(`/api/v1/data-sources/${dataSource.id}`);
+    const teamName = uniqueText("e2e-metrics-team");
+    const createdTeam = await api.post("/api/v1/teams", { data: { name: teamName } });
+    expect(createdTeam.ok(), await createdTeam.text()).toBeTruthy();
+    const teamId = (await createdTeam.json()).id as number;
+    teardown.push(`/api/v1/teams/${teamId}`);
+
+    // Pick the one person to seed through the API (so the UI steps stay deterministic): an assignee of the stub's "Payments"
+    // issues with no conflicting membership, who no other spec uses.
+    const jiraTeams = (await (await api.get("/api/v1/jira-teams")).json()).items as { id: string; name: string }[];
+    const payments = jiraTeams.find((team) => team.name === "Payments");
+    expect(payments, "the stub's Payments Atlassian team").toBeDefined();
+    const candidates = (
+      await (await api.get(`/api/v1/teams/${teamId}/jira-memberships/seed-candidates?atlassianTeamId=${payments!.id}`)).json()
+    ).items as { accountId: string; displayName: string; conflict: unknown }[];
+    const person = candidates.find((candidate) => candidate.conflict === null && !OTHER_SPECS_PEOPLE.has(candidate.accountId));
+    expect(person, "a seedable Payments assignee").toBeDefined();
+
+    await page.goto(`/teams/${teamId}`);
+    await expect(page.getByRole("heading", { name: teamName })).toBeVisible();
+    await page.getByRole("button", { name: "Seed from Jira Team field" }).click();
+    const modal = page.getByRole("dialog");
+    await modal.getByRole("combobox", { name: "Atlassian team" }).click();
+    // The options render in a portal, a sibling of the dialog.
+    await page.getByRole("option", { name: /^Payments \(\d+\)$/ }).click();
+
+    const personRow = modal.getByRole("row").filter({ has: page.getByText(person!.displayName, { exact: true }) });
+    await expect(personRow).toBeVisible();
+    // Everyone without a conflict starts ticked — untick all but the chosen person (a membership is global per person).
+    const checkboxes = await modal.getByRole("checkbox").all();
+    for (const box of checkboxes) {
+      const label = await box.getAttribute("aria-label");
+      if (label !== `Seed ${person!.displayName}` && (await box.isEnabled()) && (await box.isChecked())) await box.uncheck();
+    }
+    await expect(modal.getByRole("checkbox", { name: `Seed ${person!.displayName}` })).toBeChecked();
+    await expect(modal.getByRole("button", { name: "Seed selected (1)" })).toBeEnabled();
+    // The Starts cell (column 5) is the day the seed stores: the first issue's day, as nobody here has an earlier membership.
+    const startsDay = (await personRow.getByRole("cell").nth(5).innerText()).trim();
+    expect(startsDay).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+
+    await Promise.all([
+      page.waitForResponse((r) => /\/jira-memberships\/seed$/.test(r.url()) && r.request().method() === "POST" && r.ok()),
+      modal.getByRole("button", { name: "Seed selected (1)" }).click(),
+    ]);
+    // The seeded row is registered for teardown straight after the POST, before any UI assertion, and BEFORE the team (the
+    // afterEach deletes in reverse): a team's soft-delete would only close it, and a lingering row would keep this person off
+    // every other spec's roster.
+    const roster = (await (await api.get(`/api/v1/teams/${teamId}/jira-memberships`)).json()).items as { id: number; accountId: string }[];
+    const seeded = roster.find((row) => row.accountId === person!.accountId);
+    expect(seeded, "the seeded membership row").toBeDefined();
+    teardown.push(`/api/v1/teams/${teamId}/jira-memberships/${seeded!.id}`);
+    await expect(modal).toHaveCount(0);
+
+    // The roster re-fetched: the person is a current, open-ended member starting on the seeded day.
+    const rosterRow = page.getByRole("row").filter({ has: page.getByText(person!.displayName, { exact: true }) });
+    await expect(rosterRow).toContainText(startsDay);
+    await expect(rosterRow).toContainText("current");
+  } finally {
+    await api.dispose();
+  }
 });
