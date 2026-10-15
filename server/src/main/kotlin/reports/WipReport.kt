@@ -2,7 +2,6 @@ package ch.nokillswit.reports
 
 import ch.nokillswit.metrics.MetricsConfigService
 import ch.nokillswit.metrics.MetricsTables
-import ch.nokillswit.metrics.WorkingCalendar
 import ch.nokillswit.norm.WorkItemStore
 import io.ktor.server.plugins.BadRequestException
 import kotlinx.coroutines.flow.toList
@@ -82,7 +81,7 @@ suspend fun ReportService.wip(filter: ReportFilter, by: WipBy, itemKind: WipItem
         val scope = resolveReportScope(filter, nowMs)
         val snapshotScope = snapshotScopeOf(filter)
         val mapping = if (by == WipBy.COLUMN) columnMappingFor(snapshotScope, scope.connectionIds) else null
-        val calendar = WorkingCalendar.of(scope.settings)
+        val calendar = scope.calendar
         val plan = planSnapshotDays(scope, filter, calendar, USER_LEVEL_NOTE)
         val days = plan.days
         val cells = if (days.isEmpty()) {

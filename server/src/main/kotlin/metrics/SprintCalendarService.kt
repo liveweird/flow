@@ -22,6 +22,7 @@ import org.jetbrains.exposed.v1.core.*
 import org.jetbrains.exposed.v1.r2dbc.*
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import java.math.BigDecimal
+import java.time.LocalDate
 
 val SprintCalendarServiceKey = AttributeKey<SprintCalendarService>("SprintCalendarService")
 
@@ -137,7 +138,9 @@ class SprintCalendarService(
                     teamId = teamId, sprintId = sprintId, connectionId = sprint.connectionId, sprintName = sprint.name,
                     sprintState = sprint.state, window = window, note = note, hasCalendar = row != null, canEdit = canEdit,
                     capacityMd = document?.let(::calendarCapacityMd), teamCoefficient = document?.teamCoefficient ?: DEFAULT_COEFFICIENT,
-                    days = document?.days.orEmpty(), people = people,
+                    days = document?.days.orEmpty()
+                        .map { SprintCalendarDayView(it.day, it.enabled, calendar.holidayName(LocalDate.parse(it.day))) },
+                    people = people,
                     derivedCapacityMd = sprint.capacityMd, derivedCapacitySource = sprint.capacitySource,
                     updatedAt = row?.get(SprintCalendars.updatedAt), updatedByUserId = row?.get(SprintCalendars.updatedByUserId)?.toUInt(),
                 )
@@ -192,10 +195,13 @@ class SprintCalendarService(
         // Validate the sanitized request BEFORE rounding it, so 0.125 is a 400 and never silently becomes 0.13.
         val sanitized = sanitizedSprintCalendar(request)
         validateSprintCalendar(sanitized, window)
-        val document = canonicalSprintCalendar(sanitized)
+        val sent = canonicalSprintCalendar(sanitized)
         val members = teamMembership.memberAccountIds(teamId, window.startMs, window.endMs)
         val existing = storedRow(sprint, teamId)
         val stored = existing?.let { decode(it[SprintCalendars.calendar]) }
+        // GET shows a holiday day OFF whatever is stored (A33), so a re-saved GET-shaped document says false there: keep the stored
+        // choice instead, or an unchanged re-save would be a real write that destroys it (it must return if the holiday is removed).
+        val document = sent.keepingStoredHolidayChoices(stored, calendar)
         // An account must be known to norm.people unless the page itself handed it out: it is on the stored document or the roster.
         requireKnownAccounts(document.people.map { it.accountId }, except = members + stored?.people.orEmpty().map { it.accountId })
         val derived = calendarCapacityMd(projectCalendar(document, window, members, calendar, carry = null))
@@ -341,6 +347,21 @@ class SprintCalendarService(
 
     private suspend fun storedRow(sprint: SprintRow, teamId: UInt): ResultRow? =
         SprintCalendars.selectAll().where { rowOf(sprint, teamId) }.toList().singleOrNull()
+
+    /** A `false` sent on a holiday day takes the stored `enabled` back (when the stored document has that day); `true` stays as sent. */
+    private fun SprintCalendarDocument.keepingStoredHolidayChoices(
+        stored: SprintCalendarDocument?,
+        calendar: WorkingCalendar,
+    ): SprintCalendarDocument {
+        val storedDays = stored?.days.orEmpty().associate { it.day to it.enabled }
+        return copy(
+            days = days.map { day ->
+                val keep = !day.enabled && calendar.isHoliday(LocalDate.parse(day.day))
+                // No stored choice yet (a first save, or a moved window): store the day as if it were no holiday.
+                if (keep) day.copy(enabled = storedDays[day.day] ?: !calendar.isWeekend(LocalDate.parse(day.day))) else day
+            },
+        )
+    }
 
     /** A malformed stored document is an invariant violation: fail loudly (the `FrozenScope.kt` precedent), never repair silently. */
     private fun decode(json: String): SprintCalendarDocument = Json.decodeFromString(json)

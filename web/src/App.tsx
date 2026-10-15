@@ -31,6 +31,7 @@ const DataSourceProfile = lazy(() => import("./pages/DataSourceProfile"));
 const RawIssueInspector = lazy(() => import("./pages/RawIssueInspector"));
 const DataSourceMetricsConfig = lazy(() => import("./pages/DataSourceMetricsConfig"));
 const MetricsSettings = lazy(() => import("./pages/MetricsSettings"));
+const PublicHolidays = lazy(() => import("./pages/PublicHolidays"));
 const ReportCommitments = lazy(() => import("./pages/ReportCommitments"));
 const ReportThroughput = lazy(() => import("./pages/ReportThroughput"));
 const ReportSprintConsistency = lazy(() => import("./pages/ReportSprintConsistency"));
@@ -226,6 +227,8 @@ export default function App() {
             <Route path="teams/:id" element={<TeamDetails />} />
             {/* Capacity: everyone reads it, the server decides who edits (the team's manager or an ADMIN) — never inside RequireAdmin. */}
             <Route path="capacity" element={<Capacity />} />
+            {/* Public holidays: everyone reads, the page shows add/delete to an ADMIN only and the server is the rule — never inside RequireAdmin. */}
+            <Route path="public-holidays" element={<PublicHolidays />} />
             {/* Reports: any signed-in user (D12) — never inside the RequireAdmin group. */}
             <Route path="reports/commitments" element={<ReportCommitments />} />
             {/* Report 1's old address, kept alive for bookmarks and shared links. */}

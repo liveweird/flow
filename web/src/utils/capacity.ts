@@ -13,6 +13,9 @@ export interface CalendarDraft {
   people: ReadonlyArray<Omit<SprintCalendar["people"][number], "coefficient"> & { coefficient: number | null }>;
 }
 
+/** A day of the calendar as the formula reads it: a public holiday (`holiday` set) is never counted, whatever `enabled` says. */
+type CountedDay = { day: string; enabled: boolean; holiday?: string | null };
+
 /** The slice of a person the formula reads (the grid's person view and the PUT body's person both fit). */
 interface CountedPerson {
   enabled: boolean;
@@ -34,10 +37,11 @@ const hundredths = (value: number) => Math.round(value * 100);
  * counted people of (coefficient × Σ over counted days of the person's cell)`, rounded half-up to two
  * decimals once, at the end ([roundScaled] — the one rounding rule, which returns hundredths). A counted day with no cell for a
  * person counts 0, exactly like the server. Every input has at most two decimals, so the integer sum is exact.
+ * A public holiday is locked off (the server projects it off whatever was stored), so it never counts here either.
  * Null when a counted person's coefficient is withheld (a read-only caller): the figure is then the server's `capacityMd`.
  */
-export function calendarCapacityMd(doc: { teamCoefficient: number; days: ReadonlyArray<{ day: string; enabled: boolean }>; people: ReadonlyArray<CountedPerson> }): number | null {
-  const counted = new Set(doc.days.filter((d) => d.enabled).map((d) => d.day));
+export function calendarCapacityMd(doc: { teamCoefficient: number; days: ReadonlyArray<CountedDay>; people: ReadonlyArray<CountedPerson> }): number | null {
+  const counted = new Set(doc.days.filter(isCounted).map((d) => d.day));
   let perPerson = 0;
   for (const person of doc.people) {
     if (!person.enabled) continue;
@@ -79,8 +83,17 @@ export function clampTo(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, hundredths(value) / 100));
 }
 
+/** Whether a day is counted in the capacity: switched on and not a public holiday (holidays are always non-working). */
+export const isCounted = (day: { enabled: boolean; holiday?: string | null }): boolean => day.enabled && !day.holiday;
+
+/**
+ * The draft a loaded calendar starts from. The server already answers a holiday day `enabled: false`;
+ * the draft states it again so a document that somehow said otherwise still compares equal to itself
+ * (the base is built the same way) and never reads as an unsaved edit.
+ */
 export function toDraft(calendar: SprintCalendar): CalendarDraft {
-  return { teamCoefficient: calendar.teamCoefficient, days: calendar.days, people: calendar.people };
+  const days = calendar.days.some((d) => d.holiday && d.enabled) ? calendar.days.map((d) => (d.holiday ? { ...d, enabled: false } : d)) : calendar.days;
+  return { teamCoefficient: calendar.teamCoefficient, days, people: calendar.people };
 }
 
 /**
@@ -117,7 +130,7 @@ export function sameDraft(a: CalendarDraft, b: CalendarDraft): boolean {
   return (
     a === b ||
     (a.teamCoefficient === b.teamCoefficient &&
-      sameList(a.days, b.days, (x, y) => x.day === y.day && x.enabled === y.enabled) &&
+      sameList(a.days, b.days, (x, y) => x.day === y.day && x.enabled === y.enabled && (x.holiday ?? null) === (y.holiday ?? null)) &&
       sameList(
         a.people,
         b.people,
@@ -134,9 +147,10 @@ export function sameDraft(a: CalendarDraft, b: CalendarDraft): boolean {
 
 export const withTeamCoefficient = (draft: CalendarDraft, teamCoefficient: number): CalendarDraft => ({ ...draft, teamCoefficient });
 
+/** Turns a day on or off; a public holiday is locked off and stays as it is. */
 export const withDayEnabled = (draft: CalendarDraft, day: string, enabled: boolean): CalendarDraft => ({
   ...draft,
-  days: draft.days.map((d) => (d.day === day ? { ...d, enabled } : d)),
+  days: draft.days.map((d) => (d.day === day && !d.holiday ? { ...d, enabled } : d)),
 });
 
 function withPerson(draft: CalendarDraft, accountId: string, change: (person: CalendarDraft["people"][number]) => CalendarDraft["people"][number]): CalendarDraft {

@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import { ACCOUNT_NAV, activeNavPath, homePath, REPORT_PALETTE_LEAVES, visibleSections } from "./navigation";
 
 describe("visibleSections", () => {
-  test("a regular session sees Overview, Reports and Administration — Teams and Capacity stay, the admin-only leaves drop", () => {
+  test("a regular session sees Overview, Reports and Administration — Teams, Capacity and Public holidays stay, the admin-only leaves drop", () => {
     const sections = visibleSections(false);
     expect(sections.map((s) => s.label)).toEqual([
       "appShell.section.overview",
@@ -12,6 +12,7 @@ describe("visibleSections", () => {
     const paths = sections.flatMap((s) => s.items.map((l) => l.to));
     expect(paths).toContain("/teams");
     expect(paths).toContain("/capacity");
+    expect(paths).toContain("/public-holidays");
     expect(paths).toContain("/reports/commitments");
     expect(paths).not.toContain("/users");
     expect(paths).not.toContain("/feature-flags");
@@ -19,9 +20,9 @@ describe("visibleSections", () => {
     expect(paths).not.toContain("/metrics-settings");
   });
 
-  test("an admin session gets Teams, Capacity, Users, Feature flags, Data sources and Metrics settings in the Administration section", () => {
+  test("an admin session gets Teams, Capacity, Public holidays, Users, Feature flags, Data sources and Metrics settings in the Administration section", () => {
     const admin = visibleSections(true).find((s) => s.label === "appShell.section.administration");
-    expect(admin?.items.map((l) => l.to)).toEqual(["/teams", "/capacity", "/users", "/feature-flags", "/data-sources", "/metrics-settings"]);
+    expect(admin?.items.map((l) => l.to)).toEqual(["/teams", "/capacity", "/public-holidays", "/users", "/feature-flags", "/data-sources", "/metrics-settings"]);
   });
 
   test("Reports is visible to everyone — an admin sees the same leaves there", () => {

@@ -62,7 +62,7 @@ function calendar(overrides: Record<string, unknown> = {}) {
     canEdit: true,
     capacityMd: 3.6,
     teamCoefficient: 1,
-    days: DAYS.map((day, i) => ({ day, enabled: i === 0 || i === 3 })),
+    days: DAYS.map((day, i) => ({ day, enabled: i === 0 || i === 3, holiday: null as string | null })),
     people: [person("ada", "Ada Lovelace", 1), person("bob", "Bob Builder", 0.8, false)],
     derivedCapacityMd: 20,
     derivedCapacitySource: "TEAM_DEFAULT",

@@ -95,7 +95,7 @@ endpoint (`requireAdmin` server-side).
 The v0.3.0 metrics-configuration surfaces: the global settings singleton and D1's dated Jira-user
 team membership landed in M2 commit 5, and the per-connection `metrics-config` page in commit 6.
 `api/metrics.ts` mirrors `api/teams.ts`'s thin-wrapper shape: `getMetricsSettings`/
-`updateMetricsSettings`, the `/jira-memberships` CRUD, `listJiraUsers`, and
+`updateMetricsSettings`, the `/jira-memberships` CRUD, the public-holiday dictionary (`listPublicHolidays`/`createPublicHoliday`/`deletePublicHoliday`), `listJiraUsers`, and
 `getDataSourceMetricsConfig`/`updateDataSourceMetricsConfig`/`getDataSourceMetricsConfigOptions`
 — every type derived from `schema.ts`.
 
@@ -105,7 +105,8 @@ team membership landed in M2 commit 5, and the per-connection `metrics-config` p
   maw={FORM_MAX_WIDTH}`, `form.initialize` guarded by `!form.initialized`, a full-replace PUT,
   `showSuccessToast` on save, an inline Alert on failure). `utils/metricsForm.ts` mirrors
   `metrics/MetricsSettings.kt`'s `validateMetricsSettings` field for field (including the
-  aging-percentiles-must-include-85 rule and the all-weekend rejection) and holds the form's own
+  aging-percentiles-must-include-85 rule and the all-weekend rejection; there is NO holidays field any more — the holiday list is the
+  Public holidays dictionary below, and the form shows a one-line note with an "Open Public holidays" link where the field used to be) and holds the form's own
   string-array reshaping: `weekendDays`/`agingPercentiles` travel as `Chip.Group`/`TagsInput`
   string values client-side, mapped to `number[]` only in `toMetricsSettingsRequest`. The zone
   picker is a searchable `Select` over `Intl.supportedValuesOf("timeZone")`
@@ -262,7 +263,7 @@ re-reads the calendar up to four times (1.5, 3, 6, 12 s, cleared on unmount) unt
 `window: null` (no start date, or over 60 days) renders a note and no grid.
 
 **The grid** is ported from Lettuce's `DaysOffMonthGrid` (the real `<table>` with scoped headers, the sticky name column, the legend; the
-holiday tint, today marker, share/team lines and month logic were dropped). Rows = people, columns = the sprint's `days`; a `Checkbox`
+today marker, share/team lines and month logic were dropped; the public-holiday lock below is Flow's own). Rows = people, columns = the sprint's `days`; a `Checkbox`
 turns a whole day or person off (shading follows `enabled === false` from the data, never the weekday), a person's coefficient and
 each cell are `CapacityNumberInput`s (0..2, 0..1, two decimals, no minus sign, "," or "." as the separator — a field that keeps its own
 text while typing and commits the parsed, clamped number, so "0." survives). The footer is the per-day sum of the counted cells. **The server withholds per-person coefficients
@@ -274,6 +275,32 @@ one tick both land; `DayHeader`, `PersonRow` and `AvailabilityCell` are `memo`is
 `Map`, the footer totals one pass `dayCapacityTotals`, one `Intl.DateTimeFormat` per language), so a keystroke re-renders one cell. The
 weekday initials are `aria-hidden` (the day checkbox names the day). Legacy
 sprints and pre-V24 `CONFIGURED` figures read as a source label only.
+
+**Public holidays are locked off** (the `/api/v1/public-holidays` dictionary, below). The server answers a holiday day `{day, enabled: false,
+holiday: "<name>"}` whatever was stored and projects a PUT's `enabled: true` on a holiday back off, so the grid never edits one: the day's
+`DayHeader` shows an unticked, disabled checkbox whose label is "<day> is a public holiday: <name>" (`capacity.grid.holidayDayAria`), a
+`title` tooltip "Public holiday: <name>" and the hatched shade (`classes.holidayDay`: the off shade plus the Deep dive's diagonal non-working
+hatch, gray.6), its cells are disabled, and the legend gains a "Public holiday (always not counted)" entry only when the sprint has one.
+`utils/capacity.ts` mirrors the lock: `isCounted(day)` (on AND not a holiday) feeds `calendarCapacityMd` and the footer, `withDayEnabled` leaves
+a holiday day alone, `toDraft` states a holiday day `enabled: false` (so a document that somehow said otherwise is still clean against the base
+built the same way), and `sameDraft` also compares `holiday` (a dictionary change while a clean draft is open is adopted; under a dirty one it
+raises the "changed elsewhere" alert). The PUT body keeps `{day, enabled}`; a holiday goes out as `enabled: false`.
+
+## Public holidays (`pages/PublicHolidays.tsx`)
+
+Administration > Public holidays (`/public-holidays`, `IconCalendarOff`, next to Capacity): the global dictionary of days nobody works
+(Lettuce's page, ported; Lettuce's `DAYS_OFF` feature gate is NOT ported). **Every signed-in user reads it** (the leaf is not `adminOnly`, the
+route is outside `RequireAdmin`); the add strip and the delete buttons render for `useAdmin()` only and the server is the rule (`403` shows
+a fixed message). A holiday is always a non-working day: locked off in capacity calendars (above), and left out of the default capacity and
+of every report's working days, so an add or delete re-derives the metrics (the toasts say "reports re-derive shortly"; both mutations also
+refresh `["capacity"]`). The endpoint is unpaged and spans many years (the migration seeds the Polish statutory holidays 2017-2030), so the
+page filters CLIENT-side to ONE year at a time: a `Year` `Select` defaulting to the current year in the BROWSER's local time (`localYear`, not the UTC `todayIsoDate`) whose options are the years in the data plus
+the current and the viewed one (`utils/publicHolidays.ts`'s `holidayYears`/`holidaysOfYear`), and adding a holiday moves the picker to the
+new row's year. The table is a `ColumnTable` (date, weekday in the UI language via `weekdayName`, name, an admin-only delete icon button
+"Delete the holiday <name>" behind `ConfirmDeleteModal`). The add strip is a `<form>` of plain `TextInput`s (Enter submits; date `YYYY-MM-DD`, validated with
+`isValidIsoDate`; name 1..100 characters), Add disabled until both are valid; a failed delete answers "Delete failed (<status>)" (its own `error.deleteFailed*` keys, never the save wording); a `409` is "A holiday already exists on this date." and a `400`
+the fixed invalid message, inline, never a toast. The route is `utils/publicHolidayLinks.ts`'s `publicHolidaysPath`; the API wrappers live
+in `api/metrics.ts`; the copy in `locales/*/publicHolidays.json`.
 
 ## Reports (`pages/ReportCommitments.tsx`, `components/Report*.tsx`, `utils/reportFilter.ts`)
 

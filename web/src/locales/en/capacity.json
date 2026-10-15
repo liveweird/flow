@@ -49,7 +49,10 @@
     "coefficientAria": "Coefficient of {{name}}",
     "cellAria": "Availability of {{name}} on {{day}}",
     "notMember": "not a member",
-    "legendOff": "Not counted (a day or a person turned off)"
+    "legendOff": "Not counted (a day or a person turned off)",
+    "legendHoliday": "Public holiday (always not counted)",
+    "holidayDayAria": "{{day}} is a public holiday: {{name}}",
+    "holidayTooltip": "Public holiday: {{name}}"
   },
   "source": {
     "CALENDAR": "the sprint's calendar",

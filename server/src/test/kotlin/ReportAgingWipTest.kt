@@ -153,10 +153,12 @@ class ReportAgingWipTest {
             // Team X's DONE window (N = 5): cycles 1..5 in January; the oldest, 100, is outside the window.
             done(1, "2025-12-10", 100.0), done(2, "2026-01-05", 1.0), done(3, "2026-01-06", 2.0), done(4, "2026-01-07", 3.0),
             done(5, "2026-01-08", 4.0), done(6, "2026-01-09", 5.0),
-            // Open in-progress tasks of X at the fixed clock: ages 1, 2, 3, 4, 5, 8 working days.
+            // Open in-progress tasks of X at the fixed clock: ages 1, 2, 3, 4, 5 and 7 working days (Tue 2026-01-06 is a seeded public
+            // holiday, V25: task 16, started Fri 01-02, would be 8 without it).
             open(11, "2026-01-13", account = "acc-1"), open(12, "2026-01-12"), open(13, "2026-01-09"), open(14, "2026-01-08"),
             open(15, "2026-01-07"), open(16, "2026-01-02"),
-            // A WAITING task (A30) ages from its started_at like an in-progress one, flagged `waiting`: age 6.
+            // A WAITING task (A30) ages from its started_at like an in-progress one, flagged `waiting`: age 5 + 13/24 (it started at
+            // 13:00 Warsaw on the holiday, so that rest of the day counts for nothing; the clock day adds 13/24).
             open(17, "2026-01-06", stage = "WAITING"),
             // Never listed: another team, not in progress, never started, a sub-task.
             open(21, "2026-01-02", team = teamY), open(22, "2026-01-02", stage = "NOT_STARTED"), open(23, null),
@@ -195,7 +197,7 @@ class ReportAgingWipTest {
             val taskItems = body.items.filter { it.itemKind == "TASK" }
             assertEquals(listOf(16L, 17L, 15L, 14L, 13L, 12L, 11L), taskItems.map { it.issueKey.toLong() })
             val ages = body.items.filter { it.itemKind == "TASK" }.map { it.ageWorkingDays }
-            listOf(8.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0).zip(ages).forEach { (want, got) -> assertEquals(want, got, 1e-6) }
+            listOf(7.0, 5.0 + 13.0 / 24, 5.0, 4.0, 3.0, 2.0, 1.0).zip(ages).forEach { (want, got) -> assertEquals(want, got, 1e-6) }
             // The window keeps the newest five done tasks: 1..5 → p50 3, p85 4.4, p95 4.8; the older 100 is outside.
             assertEquals(5, body.thresholds.n)
             assertEquals(listOf(3.0, 4.4, 4.8), body.thresholds.percentiles.map { it.workingDays!! })

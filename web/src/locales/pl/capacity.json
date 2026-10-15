@@ -49,7 +49,10 @@
     "coefficientAria": "Współczynnik osoby: {{name}}",
     "cellAria": "Dostępność osoby {{name}} w dniu {{day}}",
     "notMember": "nie jest w zespole",
-    "legendOff": "Nieliczone (wyłączony dzień lub wyłączona osoba)"
+    "legendOff": "Nieliczone (wyłączony dzień lub wyłączona osoba)",
+    "legendHoliday": "Święto (zawsze nieliczone)",
+    "holidayDayAria": "{{day}} jest świętem: {{name}}",
+    "holidayTooltip": "Święto: {{name}}"
   },
   "source": {
     "CALENDAR": "kalendarz sprintu",

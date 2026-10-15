@@ -65,7 +65,8 @@ fun sprintWindow(startAtMs: Long?, endAtMs: Long?, completeAtMs: Long?, calendar
     (resolveSprintWindow(startAtMs, endAtMs, completeAtMs, calendar) as? SprintWindowOutcome.Window)?.window
 
 /**
- * A fresh calendar: a day is counted when [WorkingCalendar.isWorkingDay], every member is counted with a full cell on every day.
+ * A fresh calendar: a day is counted when [WorkingCalendar.isWorkingDay] (so never on a public holiday), every member is counted
+ * with a full cell on every day.
  * [carry] (decision 2) seeds ONLY the team coefficient and each person's coefficient — turn-offs and cells never carry; a person
  * absent from [carry] gets 1.
  */
@@ -80,7 +81,10 @@ fun defaultCalendar(
 
 /**
  * The document a sprint shows and DERIVE sums (decision 4): the CURRENT [window] and the CURRENT roster laid over [stored].
- * Days are the window's (a stored `enabled` is kept, a new day takes the working-day default); people are [stored] ∪ members,
+ * Days are the window's (a stored `enabled` is kept, a new day takes the working-day default) — EXCEPT a public holiday
+ * ([WorkingCalendar.isHoliday]), which is ALWAYS off whatever is stored: a saved `enabled = true` on a holiday is accepted
+ * and projected off, here, so GET and DERIVE (both call this) can never disagree, and removing the holiday from the dictionary
+ * gives the stored choice back; people are [stored] ∪ members,
  * sorted by account id (a stored non-member stays, the service flags it); a person's cells are the window's (a stored availability
  * is kept, a new day gets a full cell). A person not in [stored] is new: counted, coefficient from [carry] else 1. A null [stored]
  * is the pure default.
@@ -108,7 +112,10 @@ fun projectCalendar(
     }
     return SprintCalendarDocument(
         teamCoefficient = stored?.teamCoefficient ?: carry?.teamCoefficient ?: DEFAULT_COEFFICIENT,
-        days = days.map { SprintCalendarDay(it.toString(), storedDays[it.toString()] ?: calendar.isWorkingDay(it)) },
+        days = days.map { day ->
+            val enabled = !calendar.isHoliday(day) && (storedDays[day.toString()] ?: calendar.isWorkingDay(day))
+            SprintCalendarDay(day.toString(), enabled)
+        },
         people = people,
     )
 }

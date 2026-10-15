@@ -22,7 +22,7 @@ function person(accountId: string, displayName: string, coefficient: number, mem
 // Fri + Mon counted, the weekend off (the server decides that default); Ada at 1, Bob at 0.8 and no longer a member.
 const DRAFT: CalendarDraft = {
   teamCoefficient: 1,
-  days: DAYS.map((day, i) => ({ day, enabled: i === 0 || i === 3 })),
+  days: DAYS.map((day, i) => ({ day, enabled: i === 0 || i === 3, holiday: null })),
   people: [person("ada", "Ada Lovelace", 1), person("bob", "Bob Builder", 0.8, false)],
 };
 
@@ -192,5 +192,44 @@ describe("SprintCalendarGrid", () => {
     for (const input of screen.getAllByRole("textbox")) expect(input).toBeDisabled();
     await user.click(screen.getByRole("checkbox", { name: "Count 2026-03-07" }));
     expect(total()).toBe("3.6");
+  });
+  describe("a public holiday column", () => {
+    // Monday 2026-03-09 is a holiday: off whatever was stored (the server projects it off), named, and locked.
+    const HOLIDAY: CalendarDraft = {
+      ...DRAFT,
+      days: DAYS.map((day, i) => ({ day, enabled: i === 0, holiday: i === 3 ? "Test Holiday" : null })),
+    };
+
+    test("is unticked and disabled, named in the checkbox label and as the header tooltip, and its cells are disabled", () => {
+      const { container } = renderWithProviders(<Harness initial={HOLIDAY} />);
+      const box = screen.getByRole("checkbox", { name: "2026-03-09 is a public holiday: Test Holiday" });
+      expect(box).not.toBeChecked();
+      expect(box).toBeDisabled();
+      expect(container.querySelector('th[title="Public holiday: Test Holiday"]')).toBeInTheDocument();
+      expect(cell("Ada Lovelace", "2026-03-09")).toBeDisabled();
+      // The other days keep their ordinary label and stay editable.
+      expect(screen.getByRole("checkbox", { name: "Count 2026-03-06" })).toBeEnabled();
+      expect(screen.queryByRole("checkbox", { name: "Count 2026-03-09" })).not.toBeInTheDocument();
+    });
+
+    test("never counts, even when the draft says enabled, and cannot be switched on", async () => {
+      const user = userEvent.setup();
+      const stored: CalendarDraft = { ...HOLIDAY, days: HOLIDAY.days.map((d) => (d.holiday ? { ...d, enabled: true } : d)) };
+      renderWithProviders(<Harness initial={stored} />);
+      expect(screen.getByRole("checkbox", { name: "2026-03-09 is a public holiday: Test Holiday" })).not.toBeChecked();
+      // Only Friday counts: Ada 1 + Bob 0.8.
+      expect(total()).toBe("1.8");
+      expect(cell("Ada Lovelace", "2026-03-09")).toBeDisabled();
+      await user.click(screen.getByRole("checkbox", { name: "2026-03-09 is a public holiday: Test Holiday" }));
+      expect(total()).toBe("1.8");
+    });
+
+    test("shows a legend entry for holidays only when the sprint has one", () => {
+      const { unmount } = renderWithProviders(<Harness initial={HOLIDAY} />);
+      expect(screen.getByText("Public holiday (always not counted)")).toBeInTheDocument();
+      unmount();
+      renderWithProviders(<Harness />);
+      expect(screen.queryByText("Public holiday (always not counted)")).not.toBeInTheDocument();
+    });
   });
 });

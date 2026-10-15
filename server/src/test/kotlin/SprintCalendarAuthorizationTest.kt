@@ -2,6 +2,7 @@ package ch.nokillswit
 
 import ch.nokillswit.authz.ForbiddenException
 import ch.nokillswit.metrics.MetricsSettingsResponse
+import ch.nokillswit.metrics.SprintCalendarDay
 import ch.nokillswit.metrics.SprintCalendarDocument
 import ch.nokillswit.metrics.SprintCalendarPerson
 import ch.nokillswit.metrics.SprintCalendarResponse
@@ -54,7 +55,7 @@ class SprintCalendarAuthorizationTest {
     private suspend fun HttpClient.document(s: CapacityFixtures.Seeded): SprintCalendarDocument =
         get(url(s.teamId, s.sprintId)).body<SprintCalendarResponse>().let { c ->
             val people = c.people.map { SprintCalendarPerson(it.accountId, it.enabled, it.coefficient!!, it.cells) }
-            SprintCalendarDocument(c.teamCoefficient, c.days, people)
+            SprintCalendarDocument(c.teamCoefficient, c.days.map { SprintCalendarDay(it.day, it.enabled) }, people)
         }
 
     private suspend fun HttpClient.revision() = get("/api/v1/metrics-settings").body<MetricsSettingsResponse>().configRevision

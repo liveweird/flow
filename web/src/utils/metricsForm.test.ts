@@ -55,20 +55,6 @@ describe("metricsSettingsFormValidation", () => {
     expect(rules.weekendDays([])).toBeNull();
   });
 
-  test("holidays: rejects over the count ceiling", () => {
-    const tooMany = Array.from({ length: 367 }, (_, i) => `2024-01-${String((i % 28) + 1).padStart(2, "0")}`);
-    expect(rules.holidays(tooMany)).toBe("At most 366 holidays are allowed");
-  });
-
-  test("holidays: rejects a malformed or impossible calendar date", () => {
-    expect(rules.holidays(["not-a-date"])).toBe("Holidays must be ISO dates (YYYY-MM-DD): not-a-date");
-    expect(rules.holidays(["2024-02-30"])).toBe("Holidays must be ISO dates (YYYY-MM-DD): 2024-02-30");
-  });
-
-  test("holidays: accepts real ISO dates", () => {
-    expect(rules.holidays(["2024-01-01", "2024-12-25"])).toBeNull();
-  });
-
   test("commitmentGraceMinutes: rejects negative, accepts 0 and positive", () => {
     expect(rules.commitmentGraceMinutes(-1)).toBe("Commitment grace must be 0 or more");
     expect(rules.commitmentGraceMinutes(0)).toBeNull();
@@ -131,7 +117,6 @@ describe("fromMetricsSettingsResponse / toMetricsSettingsRequest", () => {
     hoursPerDay: 8,
     timeZone: "Europe/Warsaw",
     weekendDays: [6, 7],
-    holidays: ["2024-01-01"],
     commitmentGraceMinutes: 0,
     minSampleSize: 5,
     agingWindowItems: 50,
@@ -152,7 +137,6 @@ describe("fromMetricsSettingsResponse / toMetricsSettingsRequest", () => {
       hoursPerDay: 8,
       timeZone: "Europe/Warsaw",
       weekendDays: [6, 7],
-      holidays: ["2024-01-01"],
       commitmentGraceMinutes: 0,
       minSampleSize: 5,
       agingWindowItems: 50,
@@ -162,10 +146,8 @@ describe("fromMetricsSettingsResponse / toMetricsSettingsRequest", () => {
     });
   });
 
-  test("toMetricsSettingsRequest dedupes holidays (the sanitizedMetricsSettings precedent)", () => {
-    const form = fromMetricsSettingsResponse(response);
-    form.holidays = ["2024-01-01", "2024-01-01", "2024-12-25"];
-    expect(toMetricsSettingsRequest(form).holidays).toEqual(["2024-01-01", "2024-12-25"]);
+  test("the request carries no holidays: they are the public-holiday dictionary, not a setting", () => {
+    expect(toMetricsSettingsRequest(fromMetricsSettingsResponse(response))).not.toHaveProperty("holidays");
   });
 });
 

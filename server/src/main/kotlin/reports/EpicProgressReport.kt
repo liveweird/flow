@@ -134,7 +134,7 @@ suspend fun ReportService.epicProgress(filter: ReportFilter, epicKey: String?, n
     reportTransaction {
         val target = progressTargetOf(filter, epicKey)
         val scope = resolveReportScope(filter, nowMs)
-        val calendar = WorkingCalendar.of(scope.settings)
+        val calendar = scope.calendar
         val coverage = derivedCoverage(scope.connectionIds, calendar)
         val notes = snapshotNotes(scope, filter, coverage).toMutableList()
         val coveredThrough = coverage.day

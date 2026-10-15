@@ -187,3 +187,24 @@ export async function listAllJiraUsers(query: Pick<JiraUserListQuery, "scope">, 
   }
   return { people, total, truncated: true };
 }
+
+// The public-holiday dictionary (`/api/v1/public-holidays`): every authenticated user reads; add and delete are ADMIN only.
+// Holidays are always non-working days — in the capacity calendars, the default capacity and every report's working days.
+export type PublicHoliday =
+  paths["/api/v1/public-holidays"]["get"]["responses"]["200"]["content"]["application/json"]["items"][number];
+export type PublicHolidayCreateBody = paths["/api/v1/public-holidays"]["post"]["requestBody"]["content"]["application/json"];
+
+/** The whole dictionary, oldest date first — unpaged (a bounded, admin-curated set). */
+export async function listPublicHolidays(): Promise<PublicHoliday[]> {
+  return (await jsonRequest<{ items: PublicHoliday[] }>("/api/v1/public-holidays")).items;
+}
+
+/** ADMIN only; a second holiday on one date is a `409`. */
+export async function createPublicHoliday(body: PublicHolidayCreateBody): Promise<PublicHoliday> {
+  return jsonRequest<PublicHoliday>("/api/v1/public-holidays", { method: "POST", body: JSON.stringify(body) });
+}
+
+/** ADMIN only; a hard delete (`204`, `404` once it is gone). */
+export async function deletePublicHoliday(id: number): Promise<void> {
+  await voidRequest(`/api/v1/public-holidays/${id}`, { method: "DELETE" });
+}

@@ -359,7 +359,7 @@ class MetricsDerivationTest {
         // seed default, only hoursPerDay is overridden there) and re-runs the ALREADY-unit-tested
         // pvCurve kernel over the PERSISTED baseline — an end-to-end check that the stored row wires
         // correctly into a real PV curve, not a re-proof of the kernel's own math (DeriveKernelsTest).
-        val calendar = WorkingCalendar(ZoneId.of("Europe/Warsaw"), setOf(6, 7), emptySet())
+        val calendar = WorkingCalendar(ZoneId.of("Europe/Warsaw"), setOf(6, 7), TestHolidays.dates())
         val baseline = ch.nokillswit.metrics.EpicPlanBaseline(
             baselinedAtMs = current[MetricsTables.FactEpicPlan.baselinedAt],
             startAtMs = current[MetricsTables.FactEpicPlan.startAt]!!,
@@ -1068,7 +1068,7 @@ class MetricsDerivationTest {
             val calendar = WorkingCalendar(
                 ZoneId.of(settings.timeZone),
                 settings.weekendDays.toSet(),
-                settings.holidays.mapNotNull { runCatching { LocalDate.parse(it) }.getOrNull() }.toSet(),
+                TestHolidays.dates(),
             )
             val sprintStartAt = sprintBefore.startAtMs!!
             val endAt = sprintBefore.endAtMs ?: sprintBefore.completeAtMs ?: sprintStartAt
@@ -1171,7 +1171,7 @@ class MetricsDerivationTest {
         val days = capacity.read(teamId, sprintId, calendar, canEdit = true).days
         return SprintCalendarDocument(
             teamCoefficient = 1.0,
-            days = days,
+            days = days.map { SprintCalendarDay(it.day, it.enabled) },
             people = accounts.sorted().map { a -> SprintCalendarPerson(a, true, 1.0, days.map { SprintCalendarCell(it.day, 1.0) }) },
         )
     }
@@ -1244,7 +1244,7 @@ class MetricsDerivationTest {
         val sprintId = metricsDerivationGoldenSprint.sprintId
         val admin = TestUsers.seed(email = uniqueEmail("capacity-remap"), password = "pw")
         val capacity = CapacityFixtures.service()
-        val calendar = WorkingCalendar.of(metricsSettings().read())
+        val calendar = metricsSettings().readCalendar()
         deriveAt(connId, 53u)
         capacity.replace(teamA, sprintId, calendarDocument(capacity, teamA, sprintId, calendar, emptyList()), admin, true, calendar)
         deriveAt(connId, 54u)
@@ -1266,7 +1266,7 @@ class MetricsDerivationTest {
         val sprintId = metricsDerivationGoldenSprint.sprintId
         val admin = TestUsers.seed(email = uniqueEmail("capacity-window"), password = "pw")
         val capacity = CapacityFixtures.service()
-        val calendar = WorkingCalendar.of(metricsSettings().read())
+        val calendar = metricsSettings().readCalendar()
         capacity.replaceTeamCapacity(teamId, TeamCapacityRequest(TEAM_DEFAULT_CAPACITY_MD), admin, callerIsAdmin = true)
         deriveAt(connId, 56u)
         capacity.replace(teamId, sprintId, calendarDocument(capacity, teamId, sprintId, calendar, emptyList()), admin, true, calendar)
@@ -1292,7 +1292,7 @@ class MetricsDerivationTest {
         val sprintId = metricsDerivationGoldenSprint.sprintId
         val admin = TestUsers.seed(email = uniqueEmail("capacity-roster"), password = "pw")
         val capacity = CapacityFixtures.service()
-        val calendar = WorkingCalendar.of(metricsSettings().read())
+        val calendar = metricsSettings().readCalendar()
         val accounts = CapacityFixtures.people(SyncedStubFixture.createConnection(namePrefix = "capacity-roster", enabled = false), 2)
         val membershipStart = workItems().allSprintRefs(connId).single { it.sprintId == sprintId }.startAtMs!! - THIRTY_DAYS_MS
         val membershipService = teamMembership()
@@ -1316,6 +1316,76 @@ class MetricsDerivationTest {
         } finally {
             membershipService.delete(teamId, first.id)
             second?.let { membershipService.delete(teamId, it.id) }
+        }
+    }
+
+    @Test
+    fun `a public holiday in the sprint is non-working in dim_date, DEFAULT and a saved calendar`() = runBlocking {
+        val connId = clonedProcessedConnection()
+        val teamId = mapFloBoardToTeam(connId, metricsConfig())
+        val sprintId = metricsDerivationGoldenSprint.sprintId
+        val admin = TestUsers.seed(email = uniqueEmail("capacity-holiday"), password = "pw")
+        val capacity = CapacityFixtures.service()
+        val sprint = workItems().allSprintRefs(connId).single { it.sprintId == sprintId }
+        val startAt = sprint.startAtMs!!
+        val endAt = sprint.endAtMs ?: sprint.completeAtMs ?: startAt
+        val peopleConnection = SyncedStubFixture.createConnection(namePrefix = "capacity-holiday", enabled = false)
+        val account = CapacityFixtures.people(peopleConnection, 1).single()
+        val membership = teamMembership().create(teamId, TeamMembershipCreateRequest(account, startAt - THIRTY_DAYS_MS, null))
+        val plain = TestHolidays.calendar()
+        // A working day strictly inside the window (a whole day of the interval, so DEFAULT loses exactly 1.0), not already a holiday.
+        val holiday = generateSequence(plain.dayOf(startAt).plusDays(1)) { it.plusDays(1) }
+            .takeWhile { plain.dayBoundsMs(it).second < endAt }.first { plain.isWorkingDay(it) }
+        val dimRowBefore = suspendTransaction(sharedDatabaseForTests()) {
+            MetricsTables.DimDate.selectAll().where { MetricsTables.DimDate.day eq holiday.toString() }.toList().singleOrNull()
+        }
+        try {
+            deriveAt(connId, 61u)
+            val baseline = assertNotNull(storedSprintCapacity(connId, sprintId).first)
+            assertEquals("DEFAULT", storedSprintCapacity(connId, sprintId).second)
+
+            TestHolidays.with(holiday.toString(), "Derive holiday") {
+                // DEFAULT capacity and dim_date: the holiday is one whole working day less than the baseline.
+                deriveAt(connId, 62u)
+                val (defaultMd, defaultSource) = storedSprintCapacity(connId, sprintId)
+                assertEquals("DEFAULT", defaultSource)
+                assertTrue(abs((baseline - 1.0) - assertNotNull(defaultMd)) < CAPACITY_TOLERANCE, "DEFAULT loses the holiday's whole day")
+                assertEquals(false, suspendTransaction(sharedDatabaseForTests()) {
+                    MetricsTables.DimDate.selectAll().where { MetricsTables.DimDate.day eq holiday.toString() }.toList()
+                        .single()[MetricsTables.DimDate.isWorkingDay]
+                }, "dim_date marks the holiday non-working")
+
+                // A saved calendar that sends the holiday ENABLED is accepted and derives it OFF: one full cell per other working day.
+                val calendar = TestHolidays.calendar()
+                val grid = calendarDocument(capacity, teamId, sprintId, calendar, listOf(account))
+                val sentEnabled = grid.copy(days = grid.days.map { if (it.day == holiday.toString()) it.copy(enabled = true) else it })
+                capacity.replace(teamId, sprintId, sentEnabled, admin, true, calendar)
+                assertTrue(capacity.forDerive(connId).calendarsBySprintId.getValue(sprintId).document.days
+                    .single { it.day == holiday.toString() }.enabled, "stored as sent")
+                deriveAt(connId, 63u)
+                val (calendarMd, source) = storedSprintCapacity(connId, sprintId)
+                assertEquals("CALENDAR", source)
+                val expectedDays = grid.days.count { it.enabled && it.day != holiday.toString() }
+                assertEquals(expectedDays.toDouble(), calendarMd, "the holiday day counts for nothing")
+                assertTrue(expectedDays >= 2, "the sprint has other enabled days, so the assertion is not vacuous")
+            }
+        } finally {
+            teamMembership().delete(teamId, membership.id)
+            // dim_date is global: put the holiday's row back exactly as it was (the next DERIVE of any connection would too).
+            dimRowBefore?.let {
+                DerivedStubFixture.stampDimDate(
+                    listOf(
+                        WorkingCalendar.DimDateRow(
+                            it[MetricsTables.DimDate.day], it[MetricsTables.DimDate.dayStartMs], it[MetricsTables.DimDate.dayEndMs],
+                            it[MetricsTables.DimDate.isWorkingDay],
+                        ),
+                    ),
+                    it[MetricsTables.DimDate.configRevision],
+                )
+            } ?: suspendTransaction(sharedDatabaseForTests()) {
+                // No row existed before: the derive wrote it, so remove it rather than leave it in the shared table.
+                MetricsTables.DimDate.deleteWhere { MetricsTables.DimDate.day eq holiday.toString() }
+            }
         }
     }
 
@@ -2750,7 +2820,7 @@ class MetricsDerivationTest {
     fun `agg_daily_flow - epic PV matches pvCurve of the current baseline day by day`() = runBlocking {
         val connId = DerivedStubFixture.connectionId()
         val flowRows = flowRowsByKey(connId)
-        val calendar = WorkingCalendar(ZoneId.of("Europe/Warsaw"), setOf(6, 7), emptySet())
+        val calendar = WorkingCalendar(ZoneId.of("Europe/Warsaw"), setOf(6, 7), TestHolidays.dates())
         suspendTransaction(sharedDatabaseForTests()) {
             val plan = MetricsTables.FactEpicPlan
             val flow = MetricsTables.AggDailyFlow

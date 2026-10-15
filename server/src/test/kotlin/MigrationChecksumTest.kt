@@ -44,6 +44,7 @@ class MigrationChecksumTest {
         "V22__waiting_stage.sql" to 133169169,
         "V23__team_manager.sql" to -1082559543,
         "V24__capacity_management.sql" to -1133453843,
+        "V25__public_holidays.sql" to -626956396,
     )
 
     @Test

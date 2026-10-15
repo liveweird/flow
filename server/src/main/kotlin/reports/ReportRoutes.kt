@@ -310,4 +310,4 @@ private fun Route.deepDiveRoutes(reportService: ReportService) {
  * every later report's route reuses rather than re-deriving the calendar itself.
  */
 private suspend fun reportsWorkingCalendar(metricsSettings: MetricsSettingsService): WorkingCalendar =
-    WorkingCalendar.of(metricsSettings.read())
+    metricsSettings.readCalendar()

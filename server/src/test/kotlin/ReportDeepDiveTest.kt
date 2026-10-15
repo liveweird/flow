@@ -87,7 +87,7 @@ private class DdStored(
 )
 
 private suspend fun ddReadStored(connId: UInt): DdStored {
-    val calendar = WorkingCalendar.of(DerivedStubFixture.metricsSettings().read())
+    val calendar = DerivedStubFixture.metricsSettings().readCalendar()
     return suspendTransaction(sharedDatabaseForTests()) {
         val t = MetricsTables.FactTaskDelivery
         val tasks = t.selectAll().where { t.connectionId eq connId }.toList().associate {
@@ -654,7 +654,8 @@ class ReportDeepDiveTest {
     private suspend fun assertCalendarAssumption() {
         val settings = DerivedStubFixture.metricsSettings().read()
         assertEquals(listOf(6, 7), settings.weekendDays.sorted(), "the hand-built weeks assume the default Saturday/Sunday weekend")
-        assertTrue(settings.holidays.none { it.startsWith("2026-02") || it.startsWith("2026-03-02") }, "and no holiday in February")
+        val holidays = TestHolidays.dates().map { it.toString() }
+        assertTrue(holidays.none { it.startsWith("2026-02") || it == "2026-03-02" }, "and no holiday in February")
         assertEquals("Europe/Warsaw", settings.timeZone)
     }
 
@@ -1006,7 +1007,7 @@ class ReportDeepDiveTest {
             client.assertBadRequest("connectionId=$connId&epicId=DDX-3&from=2020-01-01&to=2024-01-01")
 
             // A task IN_PROGRESS since 2020: the range is its last 1100 days, the totals are whole-life, the series only the range.
-            val calendar = WorkingCalendar.of(DerivedStubFixture.metricsSettings().read())
+            val calendar = DerivedStubFixture.metricsSettings().readCalendar()
             val clockMs = ddNoonZ("2026-02-17")
             val years = client.dive("connectionId=$connId&epicId=DDX-4")
             assertTrue(assertNotNull(years.note).startsWith("RANGE_CLAMPED"))

@@ -105,7 +105,7 @@ private fun Route.sprintCalendarRoutes(service: SprintCalendarService, teams: Te
     get<TeamSprintCalendarsRoute.Sprint> { route ->
         val caller = call.caller()
         val teamId = route.parent.id
-        val calendar = WorkingCalendar.of(metricsSettings.read())
+        val calendar = metricsSettings.readCalendar()
         call.respond(HttpStatusCode.OK, service.read(teamId, route.sprintId, calendar, canEdit(caller, teamId, teams)))
     }
     put<TeamSprintCalendarsRoute.Sprint> { route ->
@@ -114,7 +114,7 @@ private fun Route.sprintCalendarRoutes(service: SprintCalendarService, teams: Te
         service.requireSprint(teamId, route.sprintId)
         val request = sanitizedSprintCalendar(call.receive())
         validateSprintCalendarShape(request)
-        val calendar = WorkingCalendar.of(metricsSettings.read())
+        val calendar = metricsSettings.readCalendar()
         val outcome = service.replace(teamId, route.sprintId, request, caller.userId, caller.isAdmin(), calendar)
         if (outcome.changed) {
             audit(

@@ -1,13 +1,13 @@
 package ch.nokillswit
 
 import ch.nokillswit.metrics.MetricsTables
+import ch.nokillswit.metrics.SprintCalendarDay
 import ch.nokillswit.metrics.SprintCalendarDocument
 import ch.nokillswit.metrics.SprintCalendarPerson
 import ch.nokillswit.metrics.SprintCalendarResponse
 import ch.nokillswit.metrics.SprintCalendarService
 import ch.nokillswit.metrics.SprintCalendarSummaryPage
 import ch.nokillswit.metrics.TeamCapacityRequest
-import ch.nokillswit.metrics.WorkingCalendar
 import ch.nokillswit.teams.TeamUpdateRequest
 import ch.nokillswit.users.UserRole
 import io.ktor.client.HttpClient
@@ -60,7 +60,8 @@ class SprintCalendarEdgeCasesTest {
 
     /** The GET turned back into a PUT body; needs an editor's view (coefficients present). */
     private fun SprintCalendarResponse.asDocument() = SprintCalendarDocument(
-        teamCoefficient, days, people.map { SprintCalendarPerson(it.accountId, it.enabled, it.coefficient!!, it.cells) },
+        teamCoefficient, days.map { SprintCalendarDay(it.day, it.enabled) },
+        people.map { SprintCalendarPerson(it.accountId, it.enabled, it.coefficient!!, it.cells) },
     )
 
     private suspend fun rawPut(client: HttpClient, url: String, body: String) = client.put(url) {
@@ -105,10 +106,11 @@ class SprintCalendarEdgeCasesTest {
         val s = CapacityFixtures.seed("cal-edge-team-gone")
         val admin = TestUsers.seed(uniqueEmail("cal-edge-team-gone"), "pw")
         val service = CapacityFixtures.service()
-        val calendar = WorkingCalendar.of(DerivedStubFixture.metricsSettings().read())
+        val calendar = DerivedStubFixture.metricsSettings().readCalendar()
         val grid = service.read(s.teamId, s.sprintId, calendar, canEdit = true)
         val document = SprintCalendarDocument(
-            grid.teamCoefficient, grid.days, grid.people.map { SprintCalendarPerson(it.accountId, it.enabled, it.coefficient!!, it.cells) },
+            grid.teamCoefficient, grid.days.map { SprintCalendarDay(it.day, it.enabled) },
+            grid.people.map { SprintCalendarPerson(it.accountId, it.enabled, it.coefficient!!, it.cells) },
         )
         service.replace(s.teamId, s.sprintId, document, admin, callerIsAdmin = true, calendar = calendar)
         service.replaceTeamCapacity(s.teamId, TeamCapacityRequest(33.0), admin, callerIsAdmin = true)
@@ -205,10 +207,10 @@ class SprintCalendarEdgeCasesTest {
             val s = CapacityFixtures.seed("cal-edge-service")
             val admin = TestUsers.seed(uniqueEmail("cal-edge-service"), "pw")
             val service = CapacityFixtures.service()
-            val calendar = WorkingCalendar.of(DerivedStubFixture.metricsSettings().read())
+            val calendar = DerivedStubFixture.metricsSettings().readCalendar()
             val read = service.read(s.teamId, s.sprintId, calendar, canEdit = true)
             val document = SprintCalendarDocument(
-                read.teamCoefficient, read.days,
+                read.teamCoefficient, read.days.map { SprintCalendarDay(it.day, it.enabled) },
                 read.people.map { SprintCalendarPerson(it.accountId, it.enabled, it.coefficient!!, it.cells) },
             )
 

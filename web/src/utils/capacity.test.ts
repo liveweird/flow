@@ -3,7 +3,9 @@ import {
   calendarCapacityMd,
   clampTo,
   dayCapacityTotals,
+  isCounted,
   sameDraft,
+  toDraft,
   toCalendarBody,
   withCell,
   withDayEnabled,
@@ -29,7 +31,7 @@ function person(accountId: string, coefficient: number, availability: number[], 
 // The SAME document as the server's CapacityKernelsTest: five days with D2 off, two counted people and one off person.
 const DOC: CalendarDraft = {
   teamCoefficient: 1.2,
-  days: DAYS.map((day, i) => ({ day, enabled: i !== 1 })),
+  days: DAYS.map((day, i) => ({ day, enabled: i !== 1, holiday: null })),
   people: [
     person("a", 0.8, [1, 1, 0.5, 1, 0.5]),
     person("b", 1.2, [0.5, 0.5, 1, 0.25, 1]),
@@ -124,6 +126,48 @@ describe("draft updaters", () => {
     expect(body.days).toHaveLength(5);
     expect(body.days[1]).toEqual({ day: DAYS[1], enabled: false });
     expect(body.people[2].enabled).toBe(false);
+  });
+
+  describe("public holidays (always non-working, locked off)", () => {
+    // DOC with D4 (a counted day) a holiday: the draft says enabled, the formula must not count it anyway.
+    const withHoliday = (enabled: boolean): CalendarDraft => ({
+      ...DOC,
+      days: DOC.days.map((d, i) => (i === 3 ? { ...d, enabled, holiday: "Constitution Day" } : d)),
+    });
+
+    test("isCounted: on and not a holiday", () => {
+      expect(isCounted({ enabled: true, holiday: null })).toBe(true);
+      expect(isCounted({ enabled: true })).toBe(true);
+      expect(isCounted({ enabled: false, holiday: null })).toBe(false);
+      expect(isCounted({ enabled: true, holiday: "New Year" })).toBe(false);
+    });
+
+    test("the capacity never counts a holiday day, even if the draft says enabled", () => {
+      // D4 (a: 1, b: 0.25) dropped: a = 0.8 x (1 + 0.5 + 0.5) = 1.6; b = 1.2 x (0.5 + 1 + 1) = 3.0; 1.2 x 4.6 = 5.52.
+      expect(String(calendarCapacityMd(withHoliday(true)))).toBe("5.52");
+      expect(String(calendarCapacityMd(withHoliday(false)))).toBe("5.52");
+    });
+
+    test("withDayEnabled leaves a holiday day off", () => {
+      const locked = withHoliday(false);
+      expect(withDayEnabled(locked, DAYS[3], true).days[3].enabled).toBe(false);
+      expect(sameDraft(locked, withDayEnabled(locked, DAYS[3], true))).toBe(true);
+    });
+
+    test("toDraft states a holiday day off, so a loaded calendar is never dirty against itself", () => {
+      const calendar = { teamCoefficient: 1, days: withHoliday(true).days, people: DOC.people } as Parameters<typeof toDraft>[0];
+      const draft = toDraft(calendar);
+      expect(draft.days[3]).toMatchObject({ enabled: false, holiday: "Constitution Day" });
+      expect(sameDraft(draft, toDraft(calendar))).toBe(true);
+      // A calendar the server already projected is passed through untouched.
+      const projected = { ...calendar, days: withHoliday(false).days };
+      expect(toDraft(projected).days).toBe(projected.days);
+    });
+
+    test("sameDraft sees a holiday appearing or disappearing, and the PUT body sends enabled=false for it", () => {
+      expect(sameDraft(DOC, withHoliday(false))).toBe(false);
+      expect(toCalendarBody(withHoliday(false)).days[3]).toEqual({ day: DAYS[3], enabled: false });
+    });
   });
 
   test("clampTo holds a value to its range and to two decimals", () => {

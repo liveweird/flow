@@ -106,7 +106,7 @@ internal suspend fun workItemLabels(items: Collection<Pair<UInt, Long>>): Map<Pa
  */
 suspend fun ReportService.agingWip(filter: ReportFilter, nowMs: Long): AgingWipReport = reportTransaction {
     val scope = resolveReportScope(filter, nowMs)
-    val calendar = WorkingCalendar.of(scope.settings)
+    val calendar = scope.calendar
     val percentiles = scope.settings.agingPercentiles.sorted()
     val window = scope.settings.agingWindowItems
     val minSample = scope.settings.minSampleSize

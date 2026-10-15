@@ -5,6 +5,7 @@ import {
   AVAILABILITY_MAX,
   COEFFICIENT_MAX,
   dayCapacityTotals,
+  isCounted,
   withCell,
   withDayEnabled,
   withPersonCoefficient,
@@ -36,7 +37,9 @@ function weekdayInitial(language: string, iso: string): string {
   return formatter.format(new Date(`${iso}T00:00:00Z`));
 }
 
-const offClass = (base: string, enabled: boolean) => `${base}${enabled ? "" : ` ${classes.offDay}`}`;
+/** A column that is not counted wears the off shade; a public holiday additionally wears the hatch (non-working, locked). */
+const offClass = (base: string, counted: boolean, holiday = false) =>
+  `${base}${counted ? "" : ` ${classes.offDay}`}${holiday ? ` ${classes.holidayDay}` : ""}`;
 
 function LegendItem({ swatch, label }: { swatch: string; label: string }) {
   return (
@@ -59,8 +62,13 @@ const DayHeader = memo(function DayHeader({
   onToggle: (day: string, enabled: boolean) => void;
 }) {
   const { t, i18n } = useTranslation();
+  const holiday = day.holiday ?? null;
   return (
-    <th scope="col" className={offClass(classes.dayHeader, day.enabled)} title={day.day}>
+    <th
+      scope="col"
+      className={offClass(classes.dayHeader, isCounted(day), holiday !== null)}
+      title={holiday === null ? day.day : t("capacity.grid.holidayTooltip", { name: holiday })}
+    >
       {Number(day.day.slice(8))}
       <br />
       {/* The checkbox below names the day in full; the initial is decoration. */}
@@ -69,9 +77,10 @@ const DayHeader = memo(function DayHeader({
       <Checkbox
         size="xs"
         style={{ display: "inline-flex" }}
-        checked={day.enabled}
-        disabled={!canEdit}
-        aria-label={t("capacity.grid.countDayAria", { day: day.day })}
+        checked={isCounted(day)}
+        // A public holiday is locked off: unticked and disabled, named by the holiday so the lock is explained.
+        disabled={!canEdit || holiday !== null}
+        aria-label={holiday === null ? t("capacity.grid.countDayAria", { day: day.day }) : t("capacity.grid.holidayDayAria", { day: day.day, name: holiday })}
         onChange={(event) => onToggle(day.day, event.currentTarget.checked)}
       />
     </th>
@@ -82,6 +91,7 @@ const AvailabilityCell = memo(function AvailabilityCell({
   name,
   day,
   dayEnabled,
+  holiday,
   value,
   disabled,
   onCommit,
@@ -89,6 +99,7 @@ const AvailabilityCell = memo(function AvailabilityCell({
   name: string;
   day: string;
   dayEnabled: boolean;
+  holiday: boolean;
   value: number;
   disabled: boolean;
   onCommit: (day: string, value: number) => void;
@@ -96,7 +107,7 @@ const AvailabilityCell = memo(function AvailabilityCell({
   const { t } = useTranslation();
   const commit = useCallback((next: number) => onCommit(day, next), [onCommit, day]);
   return (
-    <td className={offClass(classes.dayCell, dayEnabled)}>
+    <td className={offClass(classes.dayCell, dayEnabled, holiday)}>
       <CapacityNumberInput
         size="xs"
         min={0}
@@ -180,9 +191,10 @@ const PersonRow = memo(function PersonRow({
           key={day.day}
           name={displayName}
           day={day.day}
-          dayEnabled={day.enabled}
+          dayEnabled={isCounted(day)}
+          holiday={!!day.holiday}
           value={availabilityByDay.get(day.day) ?? 0}
-          disabled={!canEdit || !person.enabled || !day.enabled}
+          disabled={!canEdit || !person.enabled || !isCounted(day)}
           onCommit={setCell}
         />
       ))}
@@ -195,7 +207,9 @@ const PersonRow = memo(function PersonRow({
  * Lettuce's `DaysOffMonthGrid` — the real `<table>`, the sticky name column, the legend — with
  * controlled inputs instead of read-only fills). Whole people and whole days are turned off with a
  * checkbox; a cell is 0..1 man-days, a person's coefficient 0..2. Off columns and rows are shaded
- * from the DATA (`enabled === false`), never from the weekday: the server decides the defaults.
+ * from the DATA (`enabled === false`), never from the weekday: the server decides the defaults. A public
+ * holiday (`day.holiday`, the dictionary's name) is the one day that cannot be switched on: its column is
+ * hatched, its checkbox unticked and disabled, and the name is its tooltip and part of the checkbox's label.
  * A pure renderer — the caller owns the draft and the permission (`canEdit`); every edit goes up
  * through `onChange` as a function of the previous draft, and each row and cell is memoised on
  * its own slice (an edit replaces only the person it touches), so a keystroke re-renders one cell.
@@ -207,6 +221,7 @@ export default function SprintCalendarGrid({ draft, canEdit, onChange }: { draft
   const toggleDay = useCallback((day: string, enabled: boolean) => onChange((prev) => withDayEnabled(prev, day, enabled)), [onChange]);
   const totals = useMemo(() => dayCapacityTotals(draft.people), [draft.people]);
   // The server withholds per-person coefficients from a caller who cannot edit: no column at all, not a column of blanks.
+  const hasHoliday = draft.days.some((day) => day.holiday);
   const showCoefficients = canEdit && draft.people.every((person) => person.coefficient !== null);
 
   return (
@@ -248,8 +263,8 @@ export default function SprintCalendarGrid({ draft, canEdit, onChange }: { draft
               </th>
               {showCoefficients && <td />}
               {draft.days.map((day) => (
-                <td key={day.day} className={offClass(classes.footerCell, day.enabled)}>
-                  {day.enabled ? formatMd(totals.get(day.day) ?? 0) : "–"}
+                <td key={day.day} className={offClass(classes.footerCell, isCounted(day), !!day.holiday)}>
+                  {isCounted(day) ? formatMd(totals.get(day.day) ?? 0) : "–"}
                 </td>
               ))}
             </tr>
@@ -258,6 +273,7 @@ export default function SprintCalendarGrid({ draft, canEdit, onChange }: { draft
       </ScrollRegion>
       <Group gap="lg" wrap="wrap">
         <LegendItem swatch={classes.offDay} label={t("capacity.grid.legendOff")} />
+        {hasHoliday && <LegendItem swatch={`${classes.offDay} ${classes.holidayDay}`} label={t("capacity.grid.legendHoliday")} />}
       </Group>
     </Stack>
   );

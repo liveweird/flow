@@ -2,11 +2,15 @@ package ch.nokillswit
 
 import ch.nokillswit.metrics.MetricsSettingsResponse
 import ch.nokillswit.metrics.SprintCalendarCell
+import ch.nokillswit.metrics.SprintCalendarDay
 import ch.nokillswit.metrics.SprintCalendarDocument
 import ch.nokillswit.metrics.SprintCalendarPerson
 import ch.nokillswit.metrics.SprintCalendarResponse
 import ch.nokillswit.metrics.SprintCalendarSummaryPage
 import ch.nokillswit.metrics.TeamCapacityRequest
+import ch.nokillswit.metrics.calendarCapacityMd
+import ch.nokillswit.metrics.projectCalendar
+import ch.nokillswit.metrics.sprintWindow
 import ch.nokillswit.metrics.TeamCapacityResponse
 import ch.nokillswit.metrics.TeamMembershipListResponse
 import ch.nokillswit.metrics.TeamMembershipUpdateRequest
@@ -16,6 +20,7 @@ import io.ktor.client.call.body
 import io.ktor.client.request.get
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.testApplication
+import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -42,7 +47,7 @@ class SprintCalendarRoutesTest {
     /** The GET response turned back into a PUT body — what the page sends on Save. */
     private fun SprintCalendarResponse.asDocument() = SprintCalendarDocument(
         teamCoefficient = teamCoefficient,
-        days = days,
+        days = days.map { SprintCalendarDay(it.day, it.enabled) },
         people = people.map { SprintCalendarPerson(it.accountId, it.enabled, it.coefficient!!, it.cells) },
     )
 
@@ -78,15 +83,118 @@ class SprintCalendarRoutesTest {
     }
 
     @Test
-    fun `a holiday from the metrics settings starts disabled`() = testApplication {
+    fun `a public holiday starts disabled and is named`() = testApplication {
         usePostgresTestcontainer()
         val admin = seededClient("cal-holiday", UserRole.ADMIN)
         val s = CapacityFixtures.seed("cal-holiday")
-        withMetricsSettings(DerivedStubFixture.metricsSettings(), { it.copy(holidays = it.holidays + "2026-03-09") }) {
+        TestHolidays.with("2026-03-09", "Test holiday") {
             val c = admin.calendar(s)
             assertEquals(listOf(true, false, false, false, true), c.days.map { it.enabled })
+            assertEquals(listOf(null, null, null, "Test holiday", null), c.days.map { it.holiday }, "only the holiday day is named")
             assertEquals(4.0, c.capacityMd, "2 people x Fri + Tue")
         }
+        assertTrue(admin.calendar(s).days.all { it.holiday == null }, "and the name is gone with the holiday")
+    }
+
+    @Test
+    fun `a holiday day saved enabled is accepted and projected off, the stored choice returns with the holiday gone`() = testApplication {
+        usePostgresTestcontainer()
+        val admin = seededClient("cal-holiday-lock", UserRole.ADMIN)
+        val s = CapacityFixtures.seed("cal-holiday-lock")
+        val url = calendarUrl(s)
+        fun SprintCalendarDocument.mondayEnabled(enabled: Boolean) =
+            copy(days = days.map { if (it.day == "2026-03-09") it.copy(enabled = enabled) else it })
+        val base = admin.calendar(s).asDocument()
+        assertEquals(HttpStatusCode.NoContent, admin.putJson(url, base.mondayEnabled(false)).status)
+
+        TestHolidays.with("2026-03-09", "Test holiday") {
+            // Sent enabled on a holiday: no 400, a real change (the stored value moves), projected off everywhere.
+            val enabledMonday = base.mondayEnabled(true)
+            val before = admin.revision()
+            assertEquals(HttpStatusCode.NoContent, admin.putJson(url, enabledMonday).status)
+            assertEquals(before + 1, admin.revision(), "the stored document changed, so the revision bumps")
+            val shown = admin.calendar(s)
+            assertFalse(shown.days.single { it.day == "2026-03-09" }.enabled, "GET projects the holiday off")
+            assertEquals("Test holiday", shown.days.single { it.day == "2026-03-09" }.holiday)
+            assertEquals(4.0, shown.capacityMd, "2 people x Fri + Tue")
+
+            // DERIVE reads the same kernel: the stored document still says enabled, the projection does not.
+            val stored = CapacityFixtures.service().forDerive(s.connectionId).calendarsBySprintId.getValue(s.sprintId).document
+            assertTrue(stored.days.single { it.day == "2026-03-09" }.enabled, "the stored choice is kept as sent")
+            val window = sprintWindow(CapacityFixtures.FRIDAY_MORNING, CapacityFixtures.TUESDAY_AFTERNOON, null, TestHolidays.calendar())!!
+            val projected = projectCalendar(stored, window, s.members, TestHolidays.calendar(), carry = null)
+            assertEquals(4.0, calendarCapacityMd(projected))
+
+            // A byte-equal re-PUT is still a no-op.
+            assertEquals(HttpStatusCode.NoContent, admin.putJson(url, enabledMonday).status)
+            assertEquals(before + 1, admin.revision())
+        }
+        val restored = admin.calendar(s)
+        assertTrue(restored.days.single { it.day == "2026-03-09" }.enabled, "the stored enabled=true returns once the holiday is gone")
+        assertNull(restored.days.single { it.day == "2026-03-09" }.holiday)
+        assertEquals(6.0, restored.capacityMd)
+    }
+
+    @Test
+    fun `re-saving the GET-shaped document of a calendar stored before the holiday existed is a no-op and keeps the stored choice`() =
+        testApplication {
+            usePostgresTestcontainer()
+            val admin = seededClient("cal-holiday-resave", UserRole.ADMIN)
+            val s = CapacityFixtures.seed("cal-holiday-resave")
+            val url = calendarUrl(s)
+            fun storedMonday() = runBlocking {
+                CapacityFixtures.service().forDerive(s.connectionId).calendarsBySprintId.getValue(s.sprintId).document
+                    .days.single { it.day == "2026-03-09" }.enabled
+            }
+            // Saved before the holiday exists: Monday is a normal enabled working day.
+            assertEquals(HttpStatusCode.NoContent, admin.putJson(url, admin.calendar(s).asDocument()).status)
+            assertTrue(storedMonday())
+
+            TestHolidays.with("2026-03-09", "Test holiday") {
+                withAuditCapture { capture ->
+                    val shown = admin.calendar(s)
+                    assertFalse(shown.days.single { it.day == "2026-03-09" }.enabled, "GET projects the holiday off")
+                    val before = admin.revision()
+                    val audits = capture.events.count { it.message == "team.sprint_calendar_updated" }
+
+                    // The UI re-saves the document it was shown, unchanged: a no-op, not a write that flips the stored true to false.
+                    assertEquals(HttpStatusCode.NoContent, admin.putJson(url, shown.asDocument()).status)
+                    assertEquals(before, admin.revision(), "no revision bump")
+                    assertEquals(audits, capture.events.count { it.message == "team.sprint_calendar_updated" }, "no audit")
+                    assertTrue(storedMonday(), "the stored choice is kept")
+
+                    // A real change elsewhere keeps the held-back choice too.
+                    assertEquals(HttpStatusCode.NoContent, admin.putJson(url, shown.asDocument().copy(teamCoefficient = 1.5)).status)
+                    assertEquals(before + 1, admin.revision())
+                    assertTrue(storedMonday(), "and a real write elsewhere does not overwrite it either")
+                }
+            }
+            val restored = admin.calendar(s)
+            assertTrue(restored.days.single { it.day == "2026-03-09" }.enabled, "the stored enabled=true returns with the holiday gone")
+            assertNull(restored.days.single { it.day == "2026-03-09" }.holiday)
+        }
+
+    @Test
+    fun `a first save over a holiday stores the day as a working day so it returns when the holiday is removed`() = testApplication {
+        usePostgresTestcontainer()
+        val admin = seededClient("cal-holiday-first", UserRole.ADMIN)
+        val s = CapacityFixtures.seed("cal-holiday-first")
+        val url = calendarUrl(s)
+        fun stored(day: String) = runBlocking {
+            CapacityFixtures.service().forDerive(s.connectionId).calendarsBySprintId.getValue(s.sprintId).document
+                .days.single { it.day == day }.enabled
+        }
+        TestHolidays.with("2026-03-09", "Test holiday") {
+            val shown = admin.calendar(s)
+            assertFalse(shown.hasCalendar)
+            assertFalse(shown.days.single { it.day == "2026-03-09" }.enabled, "GET projects the holiday off")
+            // The first save of a never-saved calendar sends the holiday day off, as shown.
+            assertEquals(HttpStatusCode.NoContent, admin.putJson(url, shown.asDocument()).status)
+            assertTrue(stored("2026-03-09"), "a weekday holiday is stored as the working day it would otherwise be")
+            assertFalse(stored("2026-03-07"), "a weekend day stays off")
+            assertFalse(admin.calendar(s).days.single { it.day == "2026-03-09" }.enabled, "and is still projected off")
+        }
+        assertTrue(admin.calendar(s).days.single { it.day == "2026-03-09" }.enabled, "the day returns with the holiday gone")
     }
 
     @Test
@@ -98,7 +206,7 @@ class SprintCalendarRoutesTest {
         val url = calendarUrl(s)
         // Tue off; A: coefficient 0.8 with a half Monday; B off; team coefficient 1.2.
         val document = admin.calendar(s).asDocument().copy(teamCoefficient = 1.2)
-            .copy(days = admin.calendar(s).days.map { if (it.day == "2026-03-10") it.copy(enabled = false) else it })
+            .copy(days = admin.calendar(s).days.map { SprintCalendarDay(it.day, it.enabled && it.day != "2026-03-10") })
             .withPerson(0) { it.copy(coefficient = 0.8).withCell("2026-03-09", 0.5) }
             .withPerson(1) { it.copy(enabled = false) }
 

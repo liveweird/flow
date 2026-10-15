@@ -2,10 +2,10 @@ package ch.nokillswit
 
 import ch.nokillswit.metrics.MetricsTables
 import ch.nokillswit.metrics.SprintCalendarCell
+import ch.nokillswit.metrics.SprintCalendarDay
 import ch.nokillswit.metrics.SprintCalendarDocument
 import ch.nokillswit.metrics.SprintCalendarPerson
 import ch.nokillswit.metrics.TeamCapacityRequest
-import ch.nokillswit.metrics.WorkingCalendar
 import ch.nokillswit.reports.CommitmentsReport
 import ch.nokillswit.reports.frozenContributionsOf
 import io.ktor.client.call.body
@@ -496,11 +496,11 @@ class ReportCommitmentsTest {
         // The calendar: one known account counted on every enabled day at the default cell, team coefficient 2 (the team has no members).
         val peopleConnection = SyncedStubFixture.createConnection(namePrefix = "commitments-capacity-people", enabled = false)
         val account = CapacityFixtures.people(peopleConnection, 1).single()
-        val calendar = WorkingCalendar.of(DerivedStubFixture.metricsSettings().read())
+        val calendar = DerivedStubFixture.metricsSettings().readCalendar()
         val stored = capacity.read(teamId, sprintId, calendar, canEdit = true)
         val document = SprintCalendarDocument(
             teamCoefficient = 2.0,
-            days = stored.days,
+            days = stored.days.map { SprintCalendarDay(it.day, it.enabled) },
             people = listOf(SprintCalendarPerson(account, true, 1.0, stored.days.map { SprintCalendarCell(it.day, 1.0) })),
         )
         capacity.replace(teamId, sprintId, document, admin, callerIsAdmin = true, calendar = calendar)

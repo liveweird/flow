@@ -703,7 +703,7 @@ migration — the persistence.md cross-feature list above is unchanged.
 
 `MigrationChecksumTest` gains V17's pin.
 
-Current migrations are `V1`–`V24`:
+Current migrations are `V1`–`V25`:
 
 - `V1__init` — the `users` table: `name` (≤50), `email` (≤254), `password_hash`, `role` with
   `CHECK ("role" IN ('ADMIN', 'USER'))` (single-column role storage; the wire shape stays a
@@ -812,6 +812,8 @@ Current migrations are `V1`–`V24`:
   `MigrationChecksumTest` pins it.
 - `V24__capacity_management` — see "Capacity management (V24)" below: `metrics.team_capacity_defaults`,
   `metrics.sprint_calendars`, the widened `dim_sprint.capacity_source` and the legacy-figure seed. `MigrationChecksumTest` pins it.
+- `V25__public_holidays` — see "Public holidays (V25)" below: `metrics.public_holidays`, the Polish seed 2017–2030, the carry-over of
+  the old `metrics.settings.holidays` and its drop, the revision bump and the DERIVE fan-out. `MigrationChecksumTest` pins it.
 
 The `users`/`teams` tables follow Toadie's dialect (`SERIAL`/`INTEGER` ids, epoch-millis `BIGINT`
 timestamps, `marked_as_deleted` + partial unique indexes over active rows) and its idioms: a
@@ -855,12 +857,48 @@ the tie-break) and its pin re-taken; from here on it is immutable like every app
 
 `MigrationChecksumTest` gains V24's pin.
 
+### Public holidays (V25)
+
+`V25__public_holidays.sql` (Lettuce's V39/V41 dictionary, ported; domain-model A33; `metrics/PublicHolidayService.kt`):
+
+- **`metrics.public_holidays`** — `id SERIAL` PK (Toadie's dialect), `holiday_date VARCHAR(10) NOT NULL UNIQUE` (ISO `YYYY-MM-DD`, lexicographic ==
+  chronological), `name VARCHAR(100)`, `created_at` (epoch millis). **Hard-deleting, a documented exception to the soft-delete
+  convention** (like Lettuce's registry): a holiday is a bare dated label that nothing references by foreign key, a removed row is
+  simply re-added, and `UNIQUE (holiday_date)` must free the date again on delete (a soft-delete flag would need a partial unique
+  index for no benefit). A duplicate date is SQLSTATE `23505` on `public_holidays_holiday_date_key`, named in
+  `plugins/ErrorHandling.kt`'s `UNIQUE_CONSTRAINT_DETAILS` for the friendly `409`.
+- **The seed** — the Polish statutory holidays 2017–2030 as LITERAL rows (13 a year before 2025, 14 from 2025 when Christmas Eve became statutory; 188 rows in all), proven by
+  `PublicHolidaySeedTest` against an independent Meeus/Jones/Butcher generator (`PolishHolidays` in the tests).
+- **The carry-over** — every date of the old free-form `metrics.settings.holidays` array survives as `'Holiday'` (the seed ran first,
+  so its name wins on a shared date; only well-formed ISO dates are carried), then the column is DROPPED. The settings API lost its
+  `holidays` field in the same release. `PublicHolidayMigrationTest` runs the carry-over and the fan-out statements, read from the file,
+  in a rolled-back transaction.
+- **The re-derive after the upgrade** — the seeded holidays change working days, so the migration does by hand what
+  `MetricsSettingsService.bumpRevision()` does for a settings PUT: `config_revision + 1`, and one scheduler-priority `DERIVE`
+  (`priority 10`, `max_attempts 3` = the `ingest.maxAttempts` default) per enabled, active connection, stamped with the connection's own
+  `config_revision`, `ON CONFLICT DO NOTHING` (coalescing into an open DERIVE). The first DERIVE running at the new revision rewrites
+  `dim_date` (`ensureDimDate`); DEFAULT capacity, the daily aggregates and every report follow from that DERIVE. Unlike V24, no wait for the next
+  scheduled sync. A fresh database has no connection, so it only moves the revision.
+- **Cross-feature access** — `metrics/MetricsSettingsService.readWithCalendar` reads `PublicHolidayService.PublicHolidays` (same
+  package) in the settings read's own transaction: the ONE builder of `WorkingCalendar`. `PublicHolidayService` writes only its own
+  table and calls `bumpRevision` (same package) inside the same transaction.
+
+- **The upgrade is stop-the-world.** V25 `DROP COLUMN`s `metrics.settings.holidays`, and a pod of the previous release selects that
+  column explicitly, so an old replica still running when the new one migrates starts failing its settings reads. Every old web AND
+  worker pod must be gone before the new release migrates. `k8s/web-deployment.yaml` and `k8s/worker-deployment.yaml` are both
+  `strategy: Recreate`, which guarantees no old/new overlap WITHIN each Deployment, but they are two Deployments and both run Flyway:
+  rolling one while the other still runs the old image leaves exactly that overlap, so the operator scales the other Deployment to 0
+  (or applies both together) before the first new pod starts. A browser tab opened before the upgrade also sends the dropped
+  `holidays` key, and the strict-JSON `PUT /api/v1/metrics-settings` answers `400` until the tab is reloaded.
+
+`MigrationChecksumTest` gains V25's pin.
+
 ### Soft delete (convention)
 
 `users` and `teams` are **soft-deleted** — rows are flagged, never physically removed; every
 business entity follows the same convention. Only join/token tables (today: `revoked_tokens`, a
 pure token registry, `user_disabled_features`, a pure flag join whose PUT is a wholesale replace,
-`team_members`, a pure membership join, and `metrics.team_membership` (V15, D1) — a pure DATED
+`team_members`, a pure membership join, `metrics.public_holidays` (V25, "Public holidays (V25)") and `metrics.team_membership` (V15, D1) — a pure DATED
 join: the deletable action is "this interval was entered by mistake", not "this person left" (which
 is already modeled by closing the interval — `validTo`), and a soft-delete flag would need a
 partial `WHERE NOT marked_as_deleted` exclusion constraint instead of the simpler table-wide one,

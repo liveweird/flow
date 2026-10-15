@@ -133,6 +133,28 @@ describe("Capacity page", () => {
     await waitFor(() => expect(mockFetch.mock.calls.filter(([url]) => url === "/api/v1/teams/3/sprint-calendars/11").length).toBeGreaterThan(1));
   });
 
+  test("a public holiday day is shaded, named and locked; the total skips it, it is not an unsaved edit, and Save sends it off", async () => {
+    // Monday is a holiday: the server answers it off and named (here, deliberately, still stored on).
+    const days = DAYS.map((day, i) => ({ day, enabled: i === 0 || i === 3, holiday: i === 3 ? "Test Holiday" : null }));
+    serve(mockFetch, { calendar: { days, capacityMd: 1.8 } });
+    const user = userEvent.setup();
+    renderPage("/capacity?teamId=3&sprintId=11");
+    // Friday only: Ada 1 + Bob 0.8.
+    await screen.findByText("This calendar: 1.8 MD");
+    const lock = screen.getByRole("checkbox", { name: "2026-03-09 is a public holiday: Test Holiday" });
+    expect(lock).not.toBeChecked();
+    expect(lock).toBeDisabled();
+    expect(screen.getByRole("textbox", { name: "Availability of Ada Lovelace on 2026-03-09" })).toBeDisabled();
+    expect(screen.getByText("Public holiday (always not counted)")).toBeInTheDocument();
+    // A fresh calendar is not dirty, even though the stored day said "on".
+    expect(screen.getByRole("button", { name: "Reset" })).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: "Save calendar" }));
+    await waitFor(() => expect(putCalls(mockFetch)).toHaveLength(1));
+    const sent = putBody(mockFetch, "/api/v1/teams/3/sprint-calendars/11") as { days: unknown[] };
+    expect(sent.days).toEqual(DAYS.map((day, i) => ({ day, enabled: i === 0 })));
+  });
+
   test("an unstored sprint says the grid shows computed defaults", async () => {
     serve(mockFetch, { calendar: { hasCalendar: false, updatedAt: null, derivedCapacityMd: null, derivedCapacitySource: null } });
     renderPage("/capacity?teamId=3&sprintId=12");

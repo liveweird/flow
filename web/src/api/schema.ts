@@ -623,16 +623,69 @@ export interface paths {
         };
         /**
          * Read a team's person × day capacity calendar for one sprint (A32)
-         * @description Any authenticated user (a conscious D12 extension: the grid is a per-person per-day availability, i.e. an absence calendar). The rows are the team's Jira members overlapping the sprint; the columns the sprint's calendar days in the configured zone. Defaults are materialized on read when nothing is stored (`hasCalendar: false`: working days counted, weekends/holidays off, every cell 1, coefficients carried from the team's most recent earlier calendar); a stored calendar is re-projected onto the sprint's CURRENT window and roster, so `capacityMd` is the capacity of THIS grid if saved (`derivedCapacityMd`/`derivedCapacitySource` are the figure reports use now). Each person's `coefficient` is shown to the team's manager and ADMINs only (`null` otherwise); `canEdit` says which. A sprint without a start date, or one spanning over 60 days, answers `window: null` with a `note` and an empty grid. A missing or soft-deleted team, or a sprint that is not this team's, is `404`.
+         * @description Any authenticated user (a conscious D12 extension: the grid is a per-person per-day availability, i.e. an absence calendar). The rows are the team's Jira members overlapping the sprint; the columns the sprint's calendar days in the configured zone. Public holidays (the `/api/v1/public-holidays` dictionary) are ALWAYS off: a day's `holiday` names it and its `enabled` is false whatever was stored. Defaults are materialized on read when nothing is stored (`hasCalendar: false`: working days counted, weekends/holidays off, every cell 1, coefficients carried from the team's most recent earlier calendar); a stored calendar is re-projected onto the sprint's CURRENT window and roster, so `capacityMd` is the capacity of THIS grid if saved (`derivedCapacityMd`/`derivedCapacitySource` are the figure reports use now). Each person's `coefficient` is shown to the team's manager and ADMINs only (`null` otherwise); `canEdit` says which. A sprint without a start date, or one spanning over 60 days, answers `window: null` with a `note` and an empty grid. A missing or soft-deleted team, or a sprint that is not this team's, is `404`.
          */
         get: operations["getTeamSprintCalendar"];
         /**
          * Replace a team's capacity calendar for one sprint (A32)
-         * @description ADMIN or the team's own active manager (`requireTeamManagerOrAdmin`), checked FIRST — before any lookup or the body decode — so any other caller (a manager of ANOTHER team included) gets a uniform `403` whether or not the team or sprint exists. Then `404` (team missing/soft-deleted, or the sprint is not this team's — nothing is modified), `400` (an invalid body, a window over 60 days, an unknown Jira account id), `409` (the sprint has no start date). The body is the whole document (a full replace): `days` must be exactly the sprint's window and every person's `cells` too; coefficients 0 to 2, availability 0 to 1, at most two decimals; a non-member account is allowed. A change bumps the shared `config_revision` (every enabled connection re-derives) and audits `team.sprint_calendar_updated`; a canonically equal document is a no-op `204`.
+         * @description ADMIN or the team's own active manager (`requireTeamManagerOrAdmin`), checked FIRST — before any lookup or the body decode — so any other caller (a manager of ANOTHER team included) gets a uniform `403` whether or not the team or sprint exists. Then `404` (team missing/soft-deleted, or the sprint is not this team's — nothing is modified), `400` (an invalid body, a window over 60 days, an unknown Jira account id), `409` (the sprint has no start date). The body is the whole document (a full replace): `days` must be exactly the sprint's window and every person's `cells` too; coefficients 0 to 2, availability 0 to 1, at most two decimals; a non-member account is allowed; a public-holiday day sent `enabled: true` is accepted (no `400`) and counts as off. A change bumps the shared `config_revision` (every enabled connection re-derives) and audits `team.sprint_calendar_updated`; a canonically equal document is a no-op `204`.
          */
         put: operations["updateTeamSprintCalendar"];
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/public-holidays": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the public-holiday dictionary
+         * @description Any authenticated caller. The whole dictionary (`metrics.public_holidays`), oldest date first — **unpaged**: it is an
+         *     admin-curated, intrinsically small set (the team-memberships posture). A public holiday is never a working day: it
+         *     feeds the one working calendar (`dim_date`, DEFAULT capacity, every report) and is locked off in capacity calendars.
+         */
+        get: operations["listPublicHolidays"];
+        put?: never;
+        /**
+         * Add a public holiday
+         * @description ADMIN only, guard before the body decode. A strict zero-padded ISO `YYYY-MM-DD` date and a non-blank name of at most
+         *     100 characters (trimmed; control characters are a `400`). At most one holiday per date: a duplicate is `409` (the unique
+         *     index, no pre-check). Bumps the shared `config_revision` (every enabled connection re-derives, like a settings PUT) and
+         *     audits `public_holiday.created`.
+         */
+        post: operations["createPublicHoliday"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/public-holidays/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete a public holiday
+         * @description ADMIN only, guard before the id lookup (a non-admin probe gets a uniform `403`). Hard-deletes the row (a registry
+         *     exception to the soft-delete convention, `.claude/docs/persistence.md`), bumps the shared `config_revision` and audits
+         *     `public_holiday.deleted`. An unknown id is `404`.
+         */
+        delete: operations["deletePublicHoliday"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1746,7 +1799,8 @@ export interface paths {
          * Get the global metrics settings singleton
          * @description ADMIN only. The ONE `metrics.settings` row every DERIVE run reads under its
          *     `configRevision` — the calendar/thresholds the whole metrics layer is built against
-         *     (`.claude/docs/domain-model.md` "Configuration"). `timeZone` defaults to `Europe/Warsaw`.
+         *     (`.claude/docs/domain-model.md` "Configuration"). `timeZone` defaults to `Europe/Warsaw`. The holidays are NOT
+         *     part of the settings: they are the public-holiday dictionary (`/api/v1/public-holidays`).
          */
         get: operations["getMetricsSettings"];
         /**
@@ -2593,7 +2647,6 @@ export interface components {
             timeZone: string;
             /** @description ISO weekday numbers, 1 (Monday) .. 7 (Sunday). */
             weekendDays: number[];
-            holidays: string[];
             commitmentGraceMinutes: number;
             minSampleSize: number;
             agingWindowItems: number;
@@ -2613,14 +2666,30 @@ export interface components {
             hoursPerDay: number;
             timeZone: string;
             weekendDays: number[];
-            /** @description ISO dates (YYYY-MM-DD); duplicates collapse. */
-            holidays: string[];
             commitmentGraceMinutes: number;
             minSampleSize: number;
             agingWindowItems: number;
             agingPercentiles: number[];
             backlogWindowSprints: number;
             epicDriftDays: number;
+        };
+        PublicHoliday: {
+            /** Format: int32 */
+            id: number;
+            /** Format: date */
+            date: string;
+            name: string;
+        };
+        PublicHolidayList: {
+            items: components["schemas"]["PublicHoliday"][];
+        };
+        PublicHolidayCreateRequest: {
+            /**
+             * Format: date
+             * @description Strict zero-padded ISO YYYY-MM-DD; at most one holiday per date (409).
+             */
+            date: string;
+            name: string;
         };
         JiraUserResponse: {
             accountId: string;
@@ -2662,8 +2731,19 @@ export interface components {
              * @description A calendar day of the sprint's window in the configured zone.
              */
             day: string;
-            /** @description Counted in the capacity (off = weekend, holiday or a day nobody works). */
+            /** @description Counted in the capacity (off = weekend or a day nobody works). Public holidays are ALWAYS off: a holiday day sent enabled=true is accepted and projected off (the dictionary can change after the save). */
             enabled: boolean;
+        };
+        SprintCalendarDayView: {
+            /**
+             * Format: date
+             * @description A calendar day of the sprint's window in the configured zone.
+             */
+            day: string;
+            /** @description The PROJECTED value counted in the capacity: always false on a public holiday, whatever was stored. */
+            enabled: boolean;
+            /** @description The public-holiday dictionary name of this day; null on any other day. Locked off in the capacity calendar. */
+            holiday: string | null;
         };
         SprintCalendarCell: {
             /** Format: date */
@@ -2739,7 +2819,7 @@ export interface components {
             capacityMd: number | null;
             /** Format: double */
             teamCoefficient: number;
-            days: components["schemas"]["SprintCalendarDay"][];
+            days: components["schemas"]["SprintCalendarDayView"][];
             people: components["schemas"]["SprintCalendarPersonView"][];
             /**
              * Format: double
@@ -5710,6 +5790,86 @@ export interface operations {
             409: components["responses"]["Conflict"];
             413: components["responses"]["PayloadTooLarge"];
             415: components["responses"]["UnsupportedMediaType"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    listPublicHolidays: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description All public holidays, oldest first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicHolidayList"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    createPublicHoliday: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PublicHolidayCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Created - the new holiday */
+            201: {
+                headers: {
+                    /** @description URL of the new holiday resource */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicHoliday"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            413: components["responses"]["PayloadTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    deletePublicHoliday: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
             500: components["responses"]["InternalServerError"];
         };
     };
