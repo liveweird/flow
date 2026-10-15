@@ -870,10 +870,33 @@ evidence and recorded here as a dated entry (finding + fix, or "measured, intend
      on a first derive 383 ms — but that one holds its locks to the commit (~33 s here), blocking another connection's first
      derive meanwhile. Two post-commit ANALYZEs plus autovacuum on the same tables collided once: 3.8 s / 4.1 s.
    - **Memory headroom shrank:** app peak 712-731 MiB of the 768 MiB limit (617 MiB on 10-07), alone and in pairs alike, no
-     OOM — under 60 MiB left. Open: `[new]` BACKLOG item.
+     OOM — under 60 MiB left. Answered by WHY 17: the heap reaching its cap, not growth.
    - Seen on the way: autovacuum works `agg_daily_wip`, `item_stage` and `task_assignee` hard (each ~50 % dead after a derive), and
      one pair's `DELETE FROM metrics.dim_task` took 3.1 s in both connections at the same millisecond (a shared lock holder,
      likely autovacuum truncating — inferred, not measured).
+
+17. **The app peaked at 712-731 MiB of its 768 MiB at scale 20 (617 MiB on 10-07): what grew? — ANSWERED 2026-10-15 (master `2321048`, a measurement, no code change): the heap's COMMITTED size reached its `-Xmx512m` cap; nothing leaks and the live data did not grow.**
+   Same machine and `docker-compose.perf.yaml` sizing (`-Xmx512m` in 768 MiB), 24,001 issues, two connections with their own teams, the
+   board mapped and 30 seeded memberships; 3 single DERIVEs, then 3 pairs. Sampled every 5 s: the cgroup (`memory.current`, `memory.stat`
+   anon/file) and Native Memory Tracking (`-XX:NativeMemoryTracking=summary` added to `JAVA_OPTS`; the runtime image is a JRE, so `jcmd`
+   comes from the JDK image copied into the container: `docker cp` its `/opt/java/openjdk` to `/tmp/jdk`, then
+   `docker exec flow-perf-app /tmp/jdk/bin/jcmd 1 VM.native_memory summary scale=MB`; GC logging at runtime: `jcmd 1 VM.log output=/tmp/gc.log what=gc`).
+   - **The heap committed in steps, 262 → 352 → 436 → 512 MB**, the last two during the pairs. SerialGC expands the old generation when
+     a young collection's promotions don't fit, and shrinks it only slowly after a Full GC.
+   - **The live set did not grow:** after a Full GC 26-213 MB in the pairs (10-07: 230 MB in pairs, 275 MB for a cold first derive). A31,
+     the WIP joins and the capacity work added no retained data.
+   - **The JVM's non-heap is flat at ~150 MB** over all nine derives: metaspace 55, class space 10, code 22 (C1 only), symbols 25, thread
+     stacks 12 (~105 threads), the rest ≤ 5 each (NIO/Netty direct memory 4-5). Memory outside NMT (glibc malloc, native libraries) was 30 MB at
+     most (anon minus NMT committed).
+   - **The budget is therefore fixed, not a trend:** 512 (heap at its cap) + ~150 (non-heap) + ≤ ~30 ≈ 690 MiB of private memory at worst;
+     measured peak **667 MiB anon**. The cgroup's own peak (`memory.peak` 745 MiB, docker stats ~720) also counts ~50 MiB of page
+     cache, which the kernel reclaims before it OOM-kills. Real headroom under the 768 MiB limit is ~80-100 MiB, not < 60. 617 MiB on
+     10-07 was simply a run whose heap had not yet expanded to its cap.
+   - **What to watch at the next scale step:** the live set after a Full GC against `-Xmx` (213 / 512 MB at scale 20 in pairs), not the
+     container RSS. The heap is the part that scales with data. If it outgrows the cap, `-XX:+ExitOnOutOfMemoryError` restarts the
+     process cleanly; the container limit is reached only if non-heap grows, and it didn't. Doubling the data (scale 40) projects
+     to ~430 MB live in pairs, which is too close to 512: raise `-Xmx` and the container limit together then (+256 each), or run one
+     worker slot.
 
 **What the suite is made of (local, pre-fix run, 782 tests, 12m30s of class time):**
 `MetricsDerivationTest` 5m55s (47 %), `MetricsDigestTest` 2m00s (16 %), `NormalizationPipelineTest`
