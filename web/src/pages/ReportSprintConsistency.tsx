@@ -1,7 +1,9 @@
 import { lazy, Suspense, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { Stack } from "@mantine/core";
+import { Paper, Stack, Text } from "@mantine/core";
+import { IconUsers } from "@tabler/icons-react";
 import { getSprintConsistencyReport, type SprintConsistencyGroup, type SprintConsistencySprint } from "../api/reports";
+import EmptyState from "../components/EmptyState";
 import LoadingBlock from "../components/LoadingBlock";
 import PageHeader from "../components/PageHeader";
 import ReportChartCard from "../components/ReportChartCard";
@@ -12,6 +14,7 @@ import ReportMetaNote from "../components/ReportMetaNote";
 import ReportSprintsTable, { type SprintColumn } from "../components/ReportSprintsTable";
 import ReportTabs from "../components/ReportTabs";
 import { useReportPage } from "../hooks/useReportPage";
+import { dropMember, type ReportControls } from "../utils/reportFilter";
 import { formatMd } from "../utils/reportFormat";
 import { DELIVERY_TABS } from "../utils/reportLinks";
 import { sprintConsistencyRows } from "../utils/sprintConsistencyReport";
@@ -26,11 +29,25 @@ type FigureRow = { [K in Figure as `${K}Md`]: number } & { [K in Figure as `${K}
 
 const mdItems = (row: FigureRow, figure: Figure): ReactNode => `${formatMd(row[`${figure}Md`])} (${row[`${figure}Items`]})`;
 
+/**
+ * Sprint consistency is read per team (the required team, no "All teams"), always for every member of it (no member control; a pasted
+ * `accountId` is dropped by `dropMember`), and may be sliced by activity type and work category — live, without the frozen snapshot.
+ * A module-level constant: the hook reads its identity.
+ */
+const CONTROLS: ReportControls = { teamRequired: true, noMember: true, activityType: true, workCategory: true };
+
 /** Reports 6.1–6.3 — sprint consistency: how a sprint's scope moved and where its final scope ended. */
 export default function ReportSprintConsistency() {
   const { t } = useTranslation();
-  const { filtersQuery, filters, filter, setFilter, query, storageKey } = useReportPage("sprint-consistency", getSprintConsistencyReport);
+  const { filtersQuery, filters, filter, setFilter, query, storageKey } = useReportPage(
+    "sprint-consistency",
+    getSprintConsistencyReport,
+    dropMember,
+    CONTROLS,
+  );
   const report = query.data;
+  const noTeams = filters !== undefined && filters.teams.length === 0;
+  const sliced = filter.activityType !== undefined || filter.workCategory !== undefined;
 
   const groupColumns: GroupColumn<SprintConsistencyGroup>[] = FIGURES.map((figure) => ({
     key: figure,
@@ -70,10 +87,20 @@ export default function ReportSprintConsistency() {
       <PageHeader title={t("reports.sprintConsistency.title")} description={t("reports.sprintConsistency.description")} />
       <ReportTabs tabs={DELIVERY_TABS} />
       <ReportFiltersStatus query={filtersQuery} />
-      {filters && (
+      {noTeams && (
+        <Paper withBorder p="md">
+          <EmptyState icon={IconUsers} label={t("reports.sprintConsistency.noTeams")} />
+        </Paper>
+      )}
+      {filters && !noTeams && (
         <>
-          <ReportFilterBar storageKey={storageKey} filters={filters} filter={filter} onChange={setFilter} />
+          <ReportFilterBar storageKey={storageKey} filters={filters} filter={filter} onChange={setFilter} controls={CONTROLS} />
           {report && <ReportMetaNote meta={report.meta} timeZone={filters.timeZone} />}
+          {sliced && (
+            <Text size="sm" c="dimmed">
+              {t("reports.sprintConsistency.sliceNote")}
+            </Text>
+          )}
           {showing ? (
             <>
               {card(t("reports.sprintConsistency.scopeTitle"), undefined, chart("scope"))}
@@ -113,7 +140,7 @@ export default function ReportSprintConsistency() {
             </ReportChartCard>
           )}
           {report && (
-            <ReportGroupsTable level={report.meta.level} filters={filters} groups={report.groups} columns={groupColumns} />
+            <ReportGroupsTable level={report.meta.level} filters={filters} groups={report.groups} columns={groupColumns} drill={false} />
           )}
         </>
       )}

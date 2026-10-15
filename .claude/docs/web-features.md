@@ -336,7 +336,7 @@ completed · the report's figures · the orange drift badge with the frozen figu
 - **`components/ReportFilterBar.tsx`** is a controlled component (`filters`, `filter`, `onChange`);
   optional controls (domain view "delivered in / earned in", domain, activity type, work category,
   and the week/month `bucket` `SegmentedControl`) render ONLY where the report passes them
-  in `controls` — sprint consistency passes none, commitments passes only the two scope flags below, throughput passes those two plus domain view, domain,
+  in `controls` — sprint consistency passes `teamRequired`, `noMember`, activity type and work category (it is read per team, always for every member — `dropMember` drops a pasted `accountId`, and `NO_MEMBER_PATHS` in `reportLinks.ts` drops it from tab links; its `ReportGroupsTable` takes `drill={false}`, so the per-assignee names are plain text; with a slice set the page notes the figures are live, without the frozen snapshot or drift badge), commitments passes only the two scope flags below, throughput passes those two plus domain view, domain,
   activity type, work category and bucket. Every report is also a
   command-palette entry (`REPORT_PALETTE_LEAVES`, palette-only: the sidebar carries one Delivery leaf).
   **The bar is collapsible** (`FilterPanel`, the list pages' component — not re-ported): the controls sit in its body, which is unmounted

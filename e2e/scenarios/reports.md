@@ -118,6 +118,15 @@ unfolds it first (`openFilters`, which leaves an already unfolded bar alone).
 2. They read the "All figures" table's row for the sprint.
    - *Expected*: committed, added, removed, final, delivered, carried over and dropped each show
      the golden `MD (items)` pair — the A17 partition the report exists to make visible.
+3. They look at the filter bar.
+   - *Expected*: the URL names the report's team, the Team control is there and there is no
+     Member control (the report always covers every member of the team).
+4. They pick Activity type **Bug**.
+   - *Expected*: the URL gains `activityType=Bug`, a note says the figures are sliced and live, the
+     sprint's committed figure changes, and there is no drift badge.
+5. They clear Activity type.
+   - *Expected*: the URL drops `activityType`, the note is gone and the golden committed figure
+     is back.
 
 ## Scenario: the user reads cycle time
 

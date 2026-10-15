@@ -416,6 +416,28 @@ async function readEstimateAdjustments(page: Page): Promise<void> {
   await expect(tasks).toBeVisible();
 }
 
+/** Sprint consistency, on the golden sprint: one team and no Member control, then sliced by Activity type (live figures, no drift) and back. */
+async function sliceSprintConsistency(page: Page): Promise<void> {
+  const cells = goldenRow(page).getByRole("cell");
+  // The page always reads ONE team (the tab switch carried it) and every member of it: no Member control.
+  await expect(page).toHaveURL(new RegExp(`teamId=${teamId}`));
+  await openFilters(page);
+  await expect(page.getByRole("combobox", { name: "Team", exact: true })).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "Member", exact: true })).toHaveCount(0);
+
+  // Sliced by activity type the figures are live and smaller, with no frozen snapshot (so no drift badge) and the page says so.
+  await pickFilter(page, "Activity type", "Bug");
+  await expect(page).toHaveURL(/activityType=Bug/);
+  await expect(page.getByText(/^Sliced by activity type or work category/)).toBeVisible();
+  await expect(cells.nth(3)).not.toHaveText(mdItems(GOLDEN.committedMd, GOLDEN.committedItems));
+  await expect(page.getByText("Drift", { exact: true })).toHaveCount(0);
+  // Cleared, the golden figures are back.
+  await clearFilter(page, "Activity type");
+  await expect(page).not.toHaveURL(/activityType/);
+  await expect(page.getByText(/^Sliced by activity type or work category/)).toHaveCount(0);
+  await expect(cells.nth(3)).toHaveText(mdItems(GOLDEN.committedMd, GOLDEN.committedItems));
+}
+
 /** The cycle-time long-tail journey: the default 5% open bucket, widened to 25%, switched off with 0, and back to the default. */
 async function widenCycleTimeTail(page: Page): Promise<void> {
   await openReport(page, "/reports/cycle-time");
@@ -873,6 +895,8 @@ test.describe("reports, read by a regular user", () => {
     await expect(cells.nth(7)).toHaveText(mdItems(GOLDEN.deliveredMd, GOLDEN.deliveredItems));
     await expect(cells.nth(8)).toHaveText(mdItems(GOLDEN.carriedOverMd, GOLDEN.carriedOverItems));
     await expect(cells.nth(9)).toHaveText(mdItems(GOLDEN.droppedMd, GOLDEN.droppedItems));
+
+    await sliceSprintConsistency(page);
   });
 
   test("the user reads cycle time", async ({ page }) => {

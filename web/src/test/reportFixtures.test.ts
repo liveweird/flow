@@ -34,6 +34,8 @@ import {
   CYCLE_TIME_ALL_HIDDEN,
   CYCLE_TIME_EMPTY,
   CYCLE_TIME_MONTHS,
+  CONSISTENCY_SLICED,
+  CONSISTENCY_TEAM,
   CONSISTENCY_UNIT,
   EPIC_ACCURACY,
   EPIC_ACCURACY_EMPTY,
@@ -87,6 +89,21 @@ describe("report fixtures hold the server's invariants", () => {
       const groupsTotal = CONSISTENCY_UNIT.groups.reduce((sum, g) => sum + (g[key as keyof typeof g] as number), 0);
       expect(groupsTotal).toBeCloseTo(sprintsTotal, 6);
     }
+  });
+
+  test("the TEAM-level consistency fixtures hold the partition and their assignee groups sum to the sprint", () => {
+    for (const report of [CONSISTENCY_TEAM, CONSISTENCY_SLICED]) {
+      const [sprint] = report.sprints;
+      expectPartition(sprint);
+      if (sprint.snapshot) expectPartition(sprint.snapshot);
+      const keys = Object.keys(sprint).filter((key) => /(Md|Items)$/.test(key)) as (keyof Figures)[];
+      for (const key of keys) {
+        const groupsTotal = report.groups.reduce((sum, g) => sum + (g[key as keyof typeof g] as number), 0);
+        expect(groupsTotal).toBeCloseTo(sprint[key] as number, 6);
+      }
+    }
+    // A sliced figure is live-only.
+    expect(CONSISTENCY_SLICED.sprints.every((s) => s.snapshot === null && !s.drift)).toBe(true);
   });
 
   test("throughput groups sum to the period buckets (and the month variant is its own consistent set)", () => {

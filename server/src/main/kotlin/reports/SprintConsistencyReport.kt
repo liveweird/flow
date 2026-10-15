@@ -8,10 +8,12 @@ import ch.nokillswit.metrics.sprintTotals
 import ch.nokillswit.metrics.sumMd
 import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.Serializable
+import org.jetbrains.exposed.v1.core.JoinType
 import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.inList
+import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.r2dbc.selectAll
 
 /**
@@ -160,6 +162,10 @@ private data class ScopeEntry(val connectionId: UInt, val sprintId: Long, val it
  * figure; TEAM `groups` per `assignee_at_commitment` (Σ groups == the team figures for every
  * bucket); USER narrows `sprints` to that account's own rows (`snapshot`/`drift` from the sprint's stored
  * scope JSON, `groups` empty). `teamId = 0` (UNASSIGNED) is always empty. See `.claude/docs/reports.md`.
+ *
+ * With `activityType` / `workCategory` set the report is SLICED and live-only: every figure is re-derived from the
+ * `fact_sprint_scope` rows joined to `fact_task_delivery` (the item's activity type / work category), at every level, with
+ * `snapshot = null` and `drift = false` (the frozen snapshot is unsliced). Unsliced requests take the original path.
  */
 suspend fun ReportService.sprintConsistency(filter: ReportFilter): SprintConsistencyReport = reportTransaction {
     // A sprint-anchored report reads no time window, so `nowMs` only feeds the scope's unused `window`.
@@ -168,11 +174,16 @@ suspend fun ReportService.sprintConsistency(filter: ReportFilter): SprintConsist
     val sprintRows = scope.sprintRows.sortedWith(compareBy<SprintRow, Long?>(nullsLast()) { it.completedAt }.thenBy { it.sprintId })
     val meta = scope.meta.copy(resolvedSprints = resolvedSprintGroups(filter.period, sprintRows))
 
+    val slice = ScopeSlice(filter.activityType, filter.workCategory)
     when (filter.level) {
         ReportLevel.USER -> {
             val accountId = requireNotNull(filter.accountId) { "USER level always carries an accountId (ReportFilter's own invariant)" }
-            val entries = fetchScopeEntries(sprintRows, accountId).groupBy { it.connectionId to it.sprintId }
-            val frozen = fetchFrozenScopes(sprintRows, listOf(accountId), ::frozenScopeItemsOf) { it.assigneeAtCommitment }
+            val entries = fetchScopeEntries(sprintRows, accountId, slice).groupBy { it.connectionId to it.sprintId }
+            val frozen = if (slice.active) {
+                emptyMap()
+            } else {
+                fetchFrozenScopes(sprintRows, listOf(accountId), ::frozenScopeItemsOf) { it.assigneeAtCommitment }
+            }
             val sprints = sprintRows.map { row ->
                 val items = entries[row.connectionId to row.sprintId].orEmpty().map { it.item }
                 val live = sprintTotals(items).toFigures()
@@ -181,7 +192,7 @@ suspend fun ReportService.sprintConsistency(filter: ReportFilter): SprintConsist
             }
             SprintConsistencyReport(meta, sprints, emptyList())
         }
-        else -> {
+        else -> if (slice.active) slicedConsistency(filter, meta, sprintRows, slice) else {
             val snapshots = fetchSnapshots(sprintRows).associateBy { it.connectionId to it.sprintId }
             val sprints = sprintRows.map { row ->
                 val frozen = snapshots[row.connectionId to row.sprintId]?.full
@@ -190,24 +201,72 @@ suspend fun ReportService.sprintConsistency(filter: ReportFilter): SprintConsist
             val groups = if (filter.level == ReportLevel.UNIT) {
                 teamConsistencyGroups(sprintRows)
             } else {
-                userConsistencyGroups(fetchScopeEntries(sprintRows, accountId = null))
+                userConsistencyGroups(fetchScopeEntries(sprintRows, accountId = null, slice))
             }
             SprintConsistencyReport(meta, sprints, groups)
         }
     }
 }
 
-/** [accountId] `null` fetches every user's own rows (TEAM-level groups); non-null narrows to one (USER level). */
-private suspend fun fetchScopeEntries(sprintRows: List<SprintRow>, accountId: String?): List<ScopeEntry> {
+/**
+ * The sliced UNIT / TEAM report: each sprint's figures from the sliced scope rows (a sprint with none reads zeros), no
+ * snapshot, no drift. UNIT `groups` sum the sliced sprint figures per team; TEAM `groups` split the sliced rows per assignee.
+ */
+private suspend fun slicedConsistency(
+    filter: ReportFilter,
+    meta: ReportMeta,
+    sprintRows: List<SprintRow>,
+    slice: ScopeSlice,
+): SprintConsistencyReport {
+    val entries = fetchScopeEntries(sprintRows, accountId = null, slice)
+    val byKey = entries.groupBy { it.connectionId to it.sprintId }
+    val figures = sprintRows.associateWith { row ->
+        sprintTotals(byKey[row.connectionId to row.sprintId].orEmpty().map { it.item }).toFigures()
+    }
+    val sprints = sprintRows.map { row -> row.toConsistencySprint(figures.getValue(row), snapshot = null, drift = false) }
+    val groups = if (filter.level == ReportLevel.UNIT) {
+        orgGroups(ReportLevel.UNIT, sprintRows, { it.teamId }, { null }).map { (key, rows) ->
+            rows.map { figures.getValue(it) }.fold(NO_FIGURES, SprintFigures::sum).toGroup(key.teamId, null, key.label)
+        }
+    } else {
+        userConsistencyGroups(entries)
+    }
+    return SprintConsistencyReport(meta, sprints, groups)
+}
+
+/** The report's `activityType` / `workCategory` slice of the scope rows; `UNCATEGORIZED` = a task with no work category. */
+private data class ScopeSlice(val activityType: String?, val workCategory: String?) {
+    val active: Boolean get() = activityType != null || workCategory != null
+}
+
+/**
+ * [accountId] `null` fetches every user's own rows (TEAM-level groups); non-null narrows to one (USER level). An [active][ScopeSlice.active]
+ * [slice] inner-joins `fact_task_delivery` on `(connection, issue)` and keeps the rows whose task matches (an item with no task row has no
+ * activity type or category, so a sliced read drops it).
+ */
+private suspend fun fetchScopeEntries(sprintRows: List<SprintRow>, accountId: String?, slice: ScopeSlice): List<ScopeEntry> {
     if (sprintRows.isEmpty()) return emptyList()
     val s = MetricsTables.FactSprintScope
+    val t = MetricsTables.FactTaskDelivery
     var predicate: Op<Boolean> = (s.connectionId inList sprintRows.map { it.connectionId }.distinct()) and
         (s.sprintId inList sprintRows.map { it.sprintId }.distinct())
     accountId?.let { predicate = predicate and (s.assigneeAtCommitment eq it) }
+    slice.activityType?.let { predicate = predicate and (t.activityType eq it) }
+    slice.workCategory?.let { category ->
+        predicate = predicate and if (category == UNCATEGORIZED) t.workCategory.isNull() else (t.workCategory eq category)
+    }
+    val source = if (slice.active) {
+        s.join(
+            t, JoinType.INNER, onColumn = s.connectionId, otherColumn = t.connectionId,
+            additionalConstraint = { s.issueId eq t.issueId },
+        )
+    } else {
+        s
+    }
     // connection IN (...) AND sprint IN (...) is a cross product: keep exactly the (connection, sprint) pairs
     // in scope, since two connections to one Jira site share sprint ids.
     val inScope = sprintRows.map { it.connectionId to it.sprintId }.toSet()
-    return s.selectAll().where { predicate }.toList().filter { (it[s.connectionId].value to it[s.sprintId]) in inScope }.map {
+    return source.selectAll().where { predicate }.toList().filter { (it[s.connectionId].value to it[s.sprintId]) in inScope }.map {
         ScopeEntry(
             connectionId = it[s.connectionId].value,
             sprintId = it[s.sprintId],

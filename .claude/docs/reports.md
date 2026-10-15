@@ -441,7 +441,7 @@ pins the pure bucket math across Europe/Warsaw's DST change.
 committed, added, removed, final, delivered, carried over, dropped, MD beside items -- straight off
 `metrics.fact_sprint` (+ `fact_sprint_snapshot`). Takes commitments' shared parameters (`from`/`to`,
 `lastSprints`, `sprintId`, `teamId`/`accountId`, `connectionId`; `domainView` echoed, never changes
-the result). Period resolution, connection scope, the `400` existence checks, `teamId = 0` (always
+the result; `activityType`/`workCategory` slice the figures, see "Sliced mode"). Period resolution, connection scope, the `400` existence checks, `teamId = 0` (always
 empty) and the open-sprint handling (`sprintId` only, `completedAt` null, live figures, no snapshot) are
 commitments' own -- the shared `reports/ReportSupport.kt`, whose `SprintRow`/`SnapshotRow` now carry all
 fourteen figures (`full`).
@@ -490,6 +490,15 @@ SprintConsistencyReport {
     as the live figures; zeros for a snapshotted sprint where the account had no items, `null` for a sprint with no
     snapshot (D13); `drift` is the report's own `figuresDrift` over the two. `groups` is empty. The unassigned bucket has no USER-level query -- it is the
     remainder Σ named users + unassigned == team.
+- **Sliced mode (`activityType` / `workCategory`).** With either parameter set (`UNCATEGORIZED` = a task with no work category;
+  both AND together) the report is LIVE-ONLY at every level: each sprint's fourteen figures are `sprintTotals` over its
+  `fact_sprint_scope` rows inner-joined to `fact_task_delivery` on `(connection, issue)` and filtered by the task's `activity_type` /
+  `work_category` (an item with no task row has neither attribute and drops out), `snapshot` is `null` and `drift` `false` (the frozen
+  snapshot is unsliced, so it would be an apples-to-pears comparison), and a sprint with no matching row reads zeros. UNIT `groups` sum the
+  sliced sprint figures per team, TEAM `groups` split the sliced rows per assignee at commitment, USER narrows by the account as usual, so
+  Σ groups == Σ sprints still holds. Σ over every activity type (and over every named category plus `UNCATEGORIZED`) equals the unsliced
+  figures. Unsliced requests take the original path unchanged. The web page requires a team (no unit-level view, no member control), but
+  the server keeps `teamId` optional -- Home reads `sprint-consistency?lastSprints=1` at UNIT level.
 - **Rounding.** Every MD figure of a sprint is `Σ round2(item)`: `sprintTotals` rounds each
   item's estimate half-up to two decimals (`sumMd`, `metrics/DeriveSprintKernels.kt`) BEFORE the exact sum, which is
   exactly what `fact_sprint_scope` stores per item, and the per-user groups here and in commitments re-sum the
@@ -506,7 +515,7 @@ per named account equal to that account's TEAM group, and Σ users + the unassig
 hand-built case (the stub fixture has no removed scope and no estimated added scope: a fresh DISABLED
 connection with hand-inserted `dim_sprint`/`fact_sprint`/`fact_sprint_scope` rows) asserting the per-user
 removed/added figures exactly and that a second connection's stale scope rows never leak in; an
-open sprint by `sprintId` (`completedAt` null, no snapshot -- its USER `snapshot` is `null` too); the USER-level frozen
+open sprint by `sprintId` (`completedAt` null, no snapshot -- its USER `snapshot` is `null` too); sliced mode ("activityType and workCategory slice every figure live from the scope rows, with no snapshot and no drift": Σ activity types and Σ categories + `UNCATEGORIZED` == the unsliced figures at UNIT and TEAM level, Σ groups == Σ sprints, the golden sprint against an independent join); the USER-level frozen
 figures ("USER level snapshot equals the stored scope and sums to the team snapshot": every account's fourteen figures
 equal an independent computation over the stored JSON, Σ users + unassigned == the team snapshot; "USER level snapshot
 reads the stored scope per connection, with drift": hand-built snapshots on two disabled clones sharing one sprint id --

@@ -226,7 +226,9 @@
       "carriedOver": "Przeniesione",
       "dropped": "Porzucone"
     },
-    "snapshot": "Zamrożone przy zakończeniu: zobowiązane {{committed}} · końcowe {{final}} · dostarczone {{delivered}} MD"
+    "snapshot": "Zamrożone przy zakończeniu: zobowiązane {{committed}} · końcowe {{final}} · dostarczone {{delivered}} MD",
+    "noTeams": "Spójność sprintów liczymy dla zespołu, a nie ma jeszcze żadnego zespołu. Administrator/ka dodaje zespoły na stronie Zespoły.",
+    "sliceNote": "Wycinek według typu aktywności lub kategorii pracy: liczby pochodzą na żywo z zakresu każdego sprintu, bez zamrożonego zrzutu, więc nie ma znacznika dryfu."
   },
   "minSample": {
     "distribution_one": "Tylko {{count}} pozycja w tym wycinku — do pokazania percentyli i histogramu potrzeba co najmniej {{min}}.",

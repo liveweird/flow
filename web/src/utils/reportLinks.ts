@@ -56,7 +56,8 @@ export const FLOW_TABS: ReadonlyArray<ReportTabDef> = [
 const REPORT_SPECIFIC_PARAMS: Readonly<Record<string, readonly ReportSpecificKey[]>> = {
   [commitmentsPath]: [],
   [throughputPath]: ["domainView", "domain", "activityType", "workCategory", "bucket"],
-  [sprintConsistencyPath]: [],
+  // The scope rows' task slice: live-only figures, no snapshot.
+  [sprintConsistencyPath]: ["activityType", "workCategory"],
   [taskAccuracyPath]: ["domainView", "domain", "activityType", "workCategory", "tailPercent"],
   // Epics carry no activity type, and their domain is their own space under either view.
   [epicAccuracyPath]: ["domain", "workCategory", "tailPercent"],
@@ -92,6 +93,9 @@ const PAGE_PARAMS: Readonly<Record<string, readonly string[]>> = {
 /** The reports whose member control picks several people (repeated `accountId`); every other report keeps the FIRST. */
 const MULTI_ACCOUNT_PATHS: ReadonlySet<string> = new Set([commitmentsPath, throughputPath]);
 
+/** The reports with no member control (always the whole team): leaving for one drops the `accountId`s, so the address bar says what the page shows. */
+const NO_MEMBER_PATHS: ReadonlySet<string> = new Set([sprintConsistencyPath, epicProgressPath]);
+
 /** The report-specific params a report route has a control for — what its own filter normalizer keeps. */
 export function reportSpecificKeep(path: string): ReadonlySet<ReportSpecificKey> {
   return new Set(REPORT_SPECIFIC_PARAMS[path] ?? []);
@@ -107,6 +111,7 @@ export function reportHref(path: string, search: string): string {
   const params = new URLSearchParams(search);
   const accounts = params.getAll("accountId");
   if (!MULTI_ACCOUNT_PATHS.has(path) && accounts.length > 1) params.set("accountId", accounts[0]);
+  if (NO_MEMBER_PATHS.has(path)) params.delete("accountId");
   const own = PAGE_PARAMS[path] ?? [];
   for (const key of Object.values(PAGE_PARAMS).flat()) {
     if (!own.includes(key)) params.delete(key);

@@ -113,6 +113,8 @@ A17: final = delivered + carried + dropped, always; final = committed + added in
 item was re-estimated between its commitment/entry and the close — committed/added are priced at entry,
 the rest at close); removed is beside them.
 
+Sliced by `activityType` / `workCategory` every figure below is LIVE-ONLY: the same bucket predicates over the scope rows of the matching tasks, never the frozen snapshot (`snapshot` null, `drift` false). Pinned by `ReportSprintConsistencyTest` "activityType and workCategory slice every figure live from the scope rows, with no snapshot and no drift".
+
 | Measure | Grain | Anchor | Team | User | Domain | Estimate | Unit | Missing data | Frozen/live | Source | Pinned by |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | Committed | sprint | `complete_at` | sprint | assignee@commit | — | @commit | MD + items | in scope at start + grace AND at close | frozen + live | `committed_md/_items`; per user `fact_sprint_snapshot.scope` JSON (frozen) | golden FLO; `MetricsGoldenTest`; `ReportSprintConsistencyTest` "golden FLO sprint buckets match expected json exactly", "TEAM level groups sum to the team figures for every bucket", "USER level sums over the golden sprint's accounts plus the unassigned remainder to the team"; `ReportSprintConsistencyTest` "USER level snapshot equals the stored scope and sums to the team snapshot", "USER level snapshot reads the stored scope per connection, with drift" |

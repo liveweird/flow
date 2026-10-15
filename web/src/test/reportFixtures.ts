@@ -416,49 +416,74 @@ export const CONSISTENCY_UNIT: SprintConsistencyReport = {
   ],
 };
 
-/** USER level: one account's own sprint row — its frozen figures and drift ride along like the team level's. */
-export const CONSISTENCY_USER: SprintConsistencyReport = {
-  meta: { ...META, level: "USER" },
+/** TEAM level (the page always reads one team): that team's sprint row, `groups` per assignee at commitment — Σ groups == the sprint. */
+export const CONSISTENCY_TEAM: SprintConsistencyReport = {
+  meta: { ...META, level: "TEAM" },
   sprints: [
+    { sprintId: 12, name: "Alpha 2", teamId: 1, completedAt: Date.UTC(2026, 8, 10), ...ALPHA_LIVE, snapshot: ALPHA_FROZEN, drift: true },
+  ],
+  groups: [
     {
-      sprintId: 12,
-      name: "Alpha 2",
-      teamId: 1,
-      completedAt: Date.UTC(2026, 8, 10),
-      committedMd: 8,
-      committedItems: 3,
-      addedMd: 1,
-      addedItems: 1,
-      removedMd: 0,
-      removedItems: 0,
-      finalMd: 9,
-      finalItems: 4,
-      deliveredMd: 6,
-      deliveredItems: 3,
+      accountId: "acc-ann",
+      label: "Ann Author",
+      committedMd: 12,
+      committedItems: 5,
+      addedMd: 4.5,
+      addedItems: 2,
+      removedMd: 1,
+      removedItems: 1,
+      finalMd: 15,
+      finalItems: 6,
+      deliveredMd: 11,
+      deliveredItems: 5,
       carriedOverMd: 2,
       carriedOverItems: 1,
-      droppedMd: 1,
+      droppedMd: 2,
       droppedItems: 0,
-      snapshot: {
-        committedMd: 8,
-        committedItems: 3,
-        addedMd: 1,
-        addedItems: 1,
-        removedMd: 0,
-        removedItems: 0,
-        finalMd: 9,
-        finalItems: 4,
-        deliveredMd: 5,
-        deliveredItems: 3,
-        carriedOverMd: 3,
-        carriedOverItems: 1,
-        droppedMd: 1,
-        droppedItems: 0,
-      },
-      drift: true,
+    },
+    {
+      accountId: "acc-bob",
+      label: "Bob Builder",
+      committedMd: 8,
+      committedItems: 3,
+      addedMd: 0,
+      addedItems: 0,
+      removedMd: 0,
+      removedItems: 0,
+      finalMd: 9.5,
+      finalItems: 4,
+      deliveredMd: 7,
+      deliveredItems: 2,
+      carriedOverMd: 2,
+      carriedOverItems: 1,
+      droppedMd: 0.5,
+      droppedItems: 1,
     },
   ],
-  groups: [],
+};
+
+const ALPHA_SLICED = {
+  committedMd: 5,
+  committedItems: 2,
+  addedMd: 0,
+  addedItems: 0,
+  removedMd: 0,
+  removedItems: 0,
+  finalMd: 5,
+  finalItems: 2,
+  deliveredMd: 3,
+  deliveredItems: 1,
+  carriedOverMd: 2,
+  carriedOverItems: 1,
+  droppedMd: 0,
+  droppedItems: 0,
+};
+
+/** The same team sliced by activity type or work category: live figures only — no snapshot, no drift. */
+export const CONSISTENCY_SLICED: SprintConsistencyReport = {
+  meta: { ...META, level: "TEAM" },
+  sprints: [{ sprintId: 12, name: "Alpha 2", teamId: 1, completedAt: Date.UTC(2026, 8, 10), ...ALPHA_SLICED, snapshot: null, drift: false }],
+  groups: [{ accountId: "acc-ann", label: "Ann Author", ...ALPHA_SLICED }],
 };
 
 export const CONSISTENCY_EMPTY: SprintConsistencyReport = { meta: META, sprints: [], groups: [] };

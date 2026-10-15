@@ -222,7 +222,9 @@
       "carriedOver": "Carried over",
       "dropped": "Dropped"
     },
-    "snapshot": "Frozen at completion: committed {{committed}} · final {{final}} · delivered {{delivered}} MD"
+    "snapshot": "Frozen at completion: committed {{committed}} · final {{final}} · delivered {{delivered}} MD",
+    "noTeams": "Sprint consistency is read per team and there is no team yet. An administrator adds teams on the Teams page.",
+    "sliceNote": "Sliced by activity type or work category: these figures are read live from each sprint's scope, without the frozen snapshot, so there is no drift badge."
   },
   "minSample": {
     "distribution_one": "Only {{count}} item in this selection — at least {{min}} are needed to show percentiles and a histogram.",

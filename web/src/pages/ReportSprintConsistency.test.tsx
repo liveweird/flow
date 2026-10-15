@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { Route, Routes } from "react-router-dom";
 import ReportSprintConsistency from "./ReportSprintConsistency";
 import { jsonResponse } from "../test/http";
-import { CONSISTENCY_EMPTY, CONSISTENCY_UNIT, CONSISTENCY_USER, FILTERS } from "../test/reportFixtures";
+import { CONSISTENCY_EMPTY, CONSISTENCY_SLICED, CONSISTENCY_TEAM, FILTERS } from "../test/reportFixtures";
 import { openReportFilters } from "../test/reportFilters";
 import { renderWithProviders, screen, waitFor, within } from "../test/render";
 
@@ -24,7 +24,11 @@ type FetchMock = ReturnType<typeof vi.fn>;
 function serve(mockFetch: FetchMock, report?: () => Response) {
   mockFetch.mockImplementation((url: string) => {
     if (url === "/api/v1/reports/filters") return Promise.resolve(jsonResponse(200, FILTERS));
-    if (url.startsWith("/api/v1/reports/sprint-consistency?")) return Promise.resolve(report?.() ?? jsonResponse(200, CONSISTENCY_UNIT));
+    if (url.startsWith("/api/v1/reports/sprint-consistency?")) {
+      const params = new URL(url, "http://x").searchParams;
+      const sliced = params.has("activityType") || params.has("workCategory");
+      return Promise.resolve(report?.() ?? jsonResponse(200, sliced ? CONSISTENCY_SLICED : CONSISTENCY_TEAM));
+    }
     return Promise.resolve(jsonResponse(404, { title: "Not Found", status: 404 }));
   });
 }
@@ -74,7 +78,7 @@ describe("ReportSprintConsistency page", () => {
     ]);
     // Only the partition is stacked; sprints in completion order, the team named as two teams share it.
     expect(charts.map((c) => c.getAttribute("data-type"))).toEqual(["default", "stacked", "default"]);
-    expect(charts[0].getAttribute("data-labels")).toBe("Beta · Beta 1|Alpha · Alpha 2");
+    expect(charts[0].getAttribute("data-labels")).toBe("Alpha 2");
     expect(screen.getByText("Final scope = delivered + carried over + dropped, so each bar's height is the sprint's final scope.")).toBeInTheDocument();
 
     // The ten-column table scrolls sideways on a normal screen: its scroller is a focusable, named region (axe: scrollable-region-focusable).
@@ -89,42 +93,85 @@ describe("ReportSprintConsistency page", () => {
     expect(within(row).getByText("Frozen at completion: committed 20 · final 22 · delivered 16.5 MD")).toBeInTheDocument();
     expect(screen.getAllByText("Drift")).toHaveLength(1);
 
-    expect(screen.getByRole("link", { name: "Show Alpha" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Show Beta" })).toBeInTheDocument();
-    expect(calls(mockFetch)).toEqual(["/api/v1/reports/sprint-consistency?"]);
+    // The page is always one team: a bare link starts on the first team by name, and the members below it are names, not drill links.
+    expect(calls(mockFetch)).toEqual(["/api/v1/reports/sprint-consistency?teamId=1"]);
+    const members = screen.getByRole("table", { name: "By member" });
+    expect(within(members).getByText("Ann Author")).toBeInTheDocument();
+    expect(within(members).getByText("Bob Builder")).toBeInTheDocument();
+    expect(within(members).queryByRole("link")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Sliced by activity type or work category/)).not.toBeInTheDocument();
   });
 
-  test("at user level the sprint row shows the account's frozen figures and the drift badge", async () => {
-    serve(mockFetch, () => jsonResponse(200, CONSISTENCY_USER));
+  test("the team control has no 'All teams' option and no clear button", async () => {
+    serve(mockFetch);
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findAllByTestId("bar-chart");
+    await openReportFilters(user);
+
+    const team = screen.getByRole("combobox", { name: "Team" }) as HTMLInputElement;
+    expect(team.value).toBe("Alpha");
+    expect(screen.queryByRole("button", { name: "Clear Team" })).not.toBeInTheDocument();
+    await user.click(team);
+    expect((await screen.findAllByRole("option")).map((o) => o.textContent)).toEqual(["Alpha", "Beta", "Gamma"]);
+    expect(screen.queryByRole("option", { name: "All teams" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("option", { name: "Beta" }));
+    await waitFor(() => expect(calls(mockFetch)).toContain("/api/v1/reports/sprint-consistency?teamId=2"));
+  });
+
+  test("offers no member control and a pasted accountId is dropped from the URL", async () => {
+    serve(mockFetch);
     renderPage("/reports/sprint-consistency?teamId=1&accountId=acc-ann");
     await screen.findAllByTestId("bar-chart");
-
-    const table = screen.getByRole("heading", { name: "All figures" }).closest("div[class*=Paper]") as HTMLElement;
-    const row = within(table).getByRole("row", { name: /Alpha 2/ });
-    expect(within(row).getByText("8 (3)")).toBeInTheDocument();
-    expect(within(row).getByText("Drift")).toBeInTheDocument();
-    expect(within(row).getByText("Frozen at completion: committed 8 · final 9 · delivered 5 MD")).toBeInTheDocument();
-    expect(calls(mockFetch)).toEqual(["/api/v1/reports/sprint-consistency?teamId=1&accountId=acc-ann"]);
+    await openReportFilters();
+    expect(screen.queryByRole("combobox", { name: "Member" })).not.toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Team" })).toBeInTheDocument();
+    // Never asked for with the member: the page reads the whole team.
+    expect(calls(mockFetch).every((url) => !url.includes("accountId"))).toBe(true);
+    expect(calls(mockFetch)).toContain("/api/v1/reports/sprint-consistency?teamId=1");
   });
 
-  test("offers no report-specific controls — no bucket, domain view, domain, activity type or category", async () => {
+  test("offers activity type and work category, not bucket, domain view or domain", async () => {
     serve(mockFetch);
     renderPage();
     await screen.findAllByTestId("bar-chart");
     await openReportFilters();
     expect(screen.queryByRole("radio", { name: "Week" })).not.toBeInTheDocument();
     expect(screen.queryByRole("radio", { name: "Delivered in" })).not.toBeInTheDocument();
-    for (const name of ["Domain", "Activity type", "Work category"]) {
-      expect(screen.queryByRole("combobox", { name })).not.toBeInTheDocument();
-    }
+    expect(screen.queryByRole("combobox", { name: "Domain" })).not.toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Activity type" })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Work category" })).toBeInTheDocument();
   });
 
-  test("drilling into a team narrows the URL and refetches", async () => {
+  test("slicing by activity type or work category asks for it, says the figures are live, and clearing it brings the snapshot back", async () => {
     serve(mockFetch);
     const user = userEvent.setup();
     renderPage();
-    await user.click(await screen.findByRole("link", { name: "Show Alpha" }));
-    await waitFor(() => expect(calls(mockFetch)).toContain("/api/v1/reports/sprint-consistency?teamId=1"));
+    await screen.findAllByTestId("bar-chart");
+    await openReportFilters(user);
+    expect(screen.getAllByText("Drift")).toHaveLength(1);
+
+    await user.click(screen.getByRole("combobox", { name: "Activity type" }));
+    await user.click(await screen.findByRole("option", { name: "Bug" }));
+    await waitFor(() => expect(calls(mockFetch)).toContain("/api/v1/reports/sprint-consistency?teamId=1&activityType=Bug"));
+    expect(await screen.findByText(/Sliced by activity type or work category/)).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("Drift")).not.toBeInTheDocument());
+    expect(screen.queryByText(/Frozen at completion/)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("combobox", { name: "Work category" }));
+    await user.click(await screen.findByRole("option", { name: "Maintenance" }));
+    await waitFor(() =>
+      expect(calls(mockFetch)).toContain("/api/v1/reports/sprint-consistency?teamId=1&activityType=Bug&workCategory=Maintenance"),
+    );
+
+    // Clicking the picked option again clears it (allowDeselect).
+    await user.click(screen.getByRole("combobox", { name: "Activity type" }));
+    await user.click(await screen.findByRole("option", { name: "Bug" }));
+    await user.click(screen.getByRole("combobox", { name: "Work category" }));
+    await user.click(await screen.findByRole("option", { name: "Maintenance" }));
+    await waitFor(() => expect(screen.queryByText(/Sliced by activity type or work category/)).not.toBeInTheDocument());
+    expect(await screen.findByText("Drift")).toBeInTheDocument();
+    expect(calls(mockFetch).at(-1)).toBe("/api/v1/reports/sprint-consistency?teamId=1");
   });
 
   test("an empty period is ONE empty state, not one per chart", async () => {
@@ -162,7 +209,7 @@ describe("ReportSprintConsistency page", () => {
     mockFetch.mockImplementation((url: string) => {
       if (url === "/api/v1/reports/filters") return Promise.resolve(jsonResponse(200, FILTERS));
       if (url.includes("lastSprints=6")) return deferred;
-      return Promise.resolve(jsonResponse(200, CONSISTENCY_UNIT));
+      return Promise.resolve(jsonResponse(200, CONSISTENCY_TEAM));
     });
     const user = userEvent.setup();
     renderPage();
@@ -171,7 +218,7 @@ describe("ReportSprintConsistency page", () => {
     await user.click(screen.getByRole("combobox", { name: "Period" }));
     await user.click(await screen.findByRole("option", { name: "Last 6 sprints" }));
 
-    await waitFor(() => expect(calls(mockFetch)).toContain("/api/v1/reports/sprint-consistency?lastSprints=6"));
+    await waitFor(() => expect(calls(mockFetch)).toContain("/api/v1/reports/sprint-consistency?lastSprints=6&teamId=1"));
     expect(screen.getAllByTestId("bar-chart")[0].closest("[aria-busy]")).toHaveAttribute("aria-busy", "true");
 
     release?.(jsonResponse(200, CONSISTENCY_EMPTY));

@@ -1211,6 +1211,11 @@ export interface paths {
          *     figures, computed from the sprint's stored snapshot scope by the same bucket predicates as the live
          *     ones — null when the sprint has no snapshot — and `drift` compares the two) and `groups` is empty. `teamId=0` (UNASSIGNED) is always empty. An active or future sprint
          *     (`completedAt` null) is reachable only by an explicit `sprintId`: its live figures, `snapshot` null.
+         *     `activityType` / `workCategory` (`UNCATEGORIZED` = no category) SLICE every figure at every level: the
+         *     figures are re-derived live from the sprint's scope rows joined to the task (an item with no task row
+         *     has neither attribute and drops out), through the same bucket predicates, so the slices over every
+         *     activity type sum to the unsliced figures. The frozen snapshot is unsliced, so a sliced response always
+         *     has `snapshot` null and `drift` false at every level. Without either parameter the response is unchanged.
          */
         get: operations["getReportSprintConsistency"];
         put?: never;
@@ -6577,6 +6582,10 @@ export interface operations {
                 accountId?: components["parameters"]["ReportAccountId"];
                 /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
                 domainView?: components["parameters"]["ReportDomainView"];
+                /** @description Restricts to one activity type (a standard Jira issue type name). */
+                activityType?: components["parameters"]["ReportActivityType"];
+                /** @description Restricts to one work category, or the literal `UNCATEGORIZED`. */
+                workCategory?: components["parameters"]["ReportWorkCategory"];
                 /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
                 connectionId?: components["parameters"]["ReportConnectionId"];
             };
