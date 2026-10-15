@@ -4,15 +4,24 @@ import { deepDiveBasePath, reportHref } from "./reportLinks";
 describe("reportHref", () => {
   test("keeps the shared params (period, team, member, connection) on every report", () => {
     const search = "lastSprints=3&teamId=2&accountId=a&connectionId=1";
-    for (const path of ["/reports/commitments", "/reports/throughput", "/reports/sprint-consistency"]) {
+    for (const path of ["/reports/commitments", "/reports/throughput", "/reports/cycle-time"]) {
       expect(reportHref(path, search)).toBe(`${path}?${search}`);
     }
+  });
+
+  test("sprint consistency and epic progress are read for the whole team: the member is dropped, the rest kept", () => {
+    const search = "lastSprints=3&teamId=2&accountId=a&connectionId=1";
+    for (const path of ["/reports/sprint-consistency", "/reports/epic-progress"]) {
+      expect(reportHref(path, search)).toBe(`${path}?lastSprints=3&teamId=2&connectionId=1`);
+    }
+    expect(reportHref("/reports/sprint-consistency", "teamId=2&accountId=a&accountId=b")).toBe("/reports/sprint-consistency?teamId=2");
   });
 
   test("drops the report-specific params the target has no control for", () => {
     const search = "teamId=2&domainView=EPIC&domain=FLO&activityType=Bug&workCategory=X&bucket=MONTH";
     expect(reportHref("/reports/commitments", search)).toBe("/reports/commitments?teamId=2");
-    expect(reportHref("/reports/sprint-consistency", search)).toBe("/reports/sprint-consistency?teamId=2");
+    // Sprint consistency slices by activity type and work category only.
+    expect(reportHref("/reports/sprint-consistency", search)).toBe("/reports/sprint-consistency?teamId=2&activityType=Bug&workCategory=X");
     // Throughput keeps its own five.
     expect(reportHref("/reports/throughput", search)).toBe(
       "/reports/throughput?teamId=2&domainView=EPIC&domain=FLO&activityType=Bug&workCategory=X&bucket=MONTH",
@@ -126,7 +135,6 @@ describe("reportHref — several members", () => {
   });
 
   test("any other report keeps only the FIRST member, in place, so the address bar matches what that page shows", () => {
-    expect(reportHref("/reports/sprint-consistency", search)).toBe("/reports/sprint-consistency?teamId=2&accountId=a&lastSprints=3");
     expect(reportHref("/reports/cycle-time", search)).toBe("/reports/cycle-time?teamId=2&accountId=a&lastSprints=3");
   });
 

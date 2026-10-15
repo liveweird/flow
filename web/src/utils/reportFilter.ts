@@ -248,7 +248,7 @@ export interface ReportControls {
   domainExcludesTeam?: boolean;
   /** The report is "as of now" and ignores the period (aging WIP): no period control at all. */
   noPeriod?: boolean;
-  /** The report has no user level (epic progress answers `400` to `accountId`): no member control. */
+  /** The report is read for the whole team, never one member (epic progress answers `400` to `accountId`; sprint consistency): no member control. */
   noMember?: boolean;
   /** Narrow to one Jira connection (data quality); shown only when there is more than one to choose from. */
   connection?: boolean;
@@ -311,6 +311,18 @@ export function dropDomainWithTeam(filter: ReportFilterState): ReportFilterState
   if (filter.teamId === undefined || filter.domain === undefined) return filter;
   const next = { ...filter };
   delete next.domain;
+  return next;
+}
+
+/**
+ * The filter of a `noMember` report that is ALWAYS read for every member of the team: no `accountId` (one) nor `accountIds` (several),
+ * so a pasted link's member is dropped and the URL rewritten to say so (a `normalize` for `useReportPage`).
+ */
+export function dropMember(filter: ReportFilterState): ReportFilterState {
+  if (filter.accountId === undefined && filter.accountIds === undefined) return filter;
+  const next = { ...filter };
+  delete next.accountId;
+  delete next.accountIds;
   return next;
 }
 

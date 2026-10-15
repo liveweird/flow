@@ -8,7 +8,7 @@ import { renderWithProviders, screen } from "../test/render";
 type Row = GroupIdentity & { md: number };
 const COLUMNS: GroupColumn<Row>[] = [{ key: "md", header: "MD", render: (g) => g.md }];
 
-function Table(props: { level: "UNIT" | "TEAM" | "USER"; groups: Row[] }) {
+function Table(props: { level: "UNIT" | "TEAM" | "USER"; groups: Row[]; drill?: boolean }) {
   const { search } = useLocation();
   return (
     <>
@@ -29,6 +29,24 @@ describe("ReportGroupsTable", () => {
     expect(link).toHaveAttribute("href", "/reports/commitments?lastSprints=3&teamId=2&domain=FLO");
     await user.click(link);
     expect(screen.getByTestId("search").textContent).toContain("teamId=2");
+  });
+
+  test("drill={false} shows every name as plain text — no link, the unassigned bucket still dimmed", () => {
+    renderWithProviders(
+      <Table
+        level="TEAM"
+        drill={false}
+        groups={[
+          { accountId: "acc-ann", label: "Ann Author", md: 3 },
+          { accountId: "acc-bob", md: 2 },
+          { accountId: null, label: null, md: 1 },
+        ]}
+      />,
+      { route: "/reports/sprint-consistency?teamId=1" },
+    );
+    expect(screen.queryByRole("link")).not.toBeInTheDocument();
+    expect(screen.getByText("Ann Author")).toBeInTheDocument();
+    expect(screen.getByText("Unassigned")).toBeInTheDocument();
   });
 
   test("a team name falls back to the reference data when the row has no label", () => {

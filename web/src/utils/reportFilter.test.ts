@@ -4,6 +4,7 @@ import {
   activePeriodChoice,
   applyReportFilter,
   dropDomainWithTeam,
+  dropMember,
   dropReportSpecific,
   hasReportFilterParams,
   normalizeWipFilter,
@@ -302,5 +303,17 @@ describe("requiredTeamId", () => {
 
   test("no teams, no team", () => {
     expect(requiredTeamId({}, [], undefined)).toBeUndefined();
+  });
+});
+
+describe("dropMember", () => {
+  test("drops the one and the several members, keeping everything else", () => {
+    expect(dropMember({ teamId: 1, accountId: "a", lastSprints: 3 })).toEqual({ teamId: 1, lastSprints: 3 });
+    expect(dropMember({ teamId: 1, accountIds: ["a", "b"], activityType: "Bug" })).toEqual({ teamId: 1, activityType: "Bug" });
+  });
+
+  test("returns the same object when there is no member (a stable identity, so nothing rewrites the URL)", () => {
+    const filter = { teamId: 1, lastSprints: 3 };
+    expect(dropMember(filter)).toBe(filter);
   });
 });
