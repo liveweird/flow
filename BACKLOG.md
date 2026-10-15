@@ -70,6 +70,8 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 
 - [todo] **CI duration: check the trend at every milestone.** Run `node scripts/timings/ci-times.mjs --branch master`.
   A trend jump gets an investigation, never a raised budget.
+  - Last checked 2026-10-15: `server` median-5 6m36s, `web` 2m19s, `images` 3m19s; no jump. The nightly `e2e`
+    had been red since 10-07 on a runner change (buildx bake fs entitlements), fixed the same day.
   - It is within budget today:
     - `server` takes 7–8 min (from ~30 on 2026-09-30);
     - `web` takes ~1–2 min;
