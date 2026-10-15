@@ -20,9 +20,9 @@ data class CommitmentsSnapshot(val initialMd: Double, val initialItems: Int, val
  * (`null` until the sprint was closed AND team-mapped at some past DERIVE — D13); [drift] compares
  * the two, `false` whenever no snapshot exists yet. At USER level every figure, the snapshot included, is the SUM over the
  * picked accounts (the snapshot: their frozen share of the sprint's stored scope, see [buildUserSprints]) and [byUser] splits it
- * per picked account; [byUser] is empty at UNIT/TEAM level. [capacityMd]/[capacitySource] (`CONFIGURED`/`DEFAULT`, A3) are the
- * TEAM's sprint capacity — `null` when the sprint has none, and always `null` at USER level (capacity is team-only; picking
- * users hides it).
+ * per picked account; [byUser] is empty at UNIT/TEAM level. [capacityMd]/[capacitySource] (`CALENDAR`/`TEAM_DEFAULT`/`DEFAULT`, A3/A32;
+ * `CONFIGURED` only on a row not yet re-derived since V24) are the TEAM's sprint capacity — `null` when the sprint has none, and
+ * always `null` at USER level (capacity is team-only; picking users hides it).
  */
 @Serializable
 data class CommitmentsSprint(

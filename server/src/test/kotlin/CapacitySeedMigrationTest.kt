@@ -5,8 +5,10 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.sql.Connection
 import java.sql.DriverManager
+import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 /**
  * V24's TEAM_DEFAULT seed (domain-model A32), run as the migration's own SELECT (read from the file, so the test can never drift from
@@ -42,16 +44,33 @@ class CapacitySeedMigrationTest {
         )
     }
 
+    private val teamsToClean = mutableListOf<UInt>()
+    private val connectionsToClean = mutableListOf<UInt>()
+
+    private suspend fun connection(prefix: String): UInt =
+        SyncedStubFixture.createConnection(namePrefix = prefix, enabled = false).also { connectionsToClean += it }
+
+    private suspend fun team(prefix: String): UInt = TestTeams.seed(SyncedStubFixture.unique(prefix)).also { teamsToClean += it }
+
+    /** The rows the seed test committed (the teams and connections; the legacy rows themselves are rolled back) leave with it. */
+    @AfterTest
+    fun cleanUp() = runBlocking {
+        teamsToClean.forEach { TestTeams.service.delete(it) }
+        connectionsToClean.forEach { SyncedStubFixture.dataSources().delete(it) }
+        teamsToClean.clear()
+        connectionsToClean.clear()
+    }
+
     @Test
     fun `the seed takes each active team's latest figure - ties by sprint id, no start last, deleted teams and connections skipped`() =
         runBlocking {
-            val live = SyncedStubFixture.createConnection(namePrefix = "seed-live", enabled = false)
-            val dead = SyncedStubFixture.createConnection(namePrefix = "seed-dead", enabled = false)
-            val tied = TestTeams.seed(SyncedStubFixture.unique("seed-tied"))
-            val undated = TestTeams.seed(SyncedStubFixture.unique("seed-undated"))
-            val onlyUndated = TestTeams.seed(SyncedStubFixture.unique("seed-only-undated"))
-            val deletedTeam = TestTeams.seed(SyncedStubFixture.unique("seed-deleted-team"))
-            val onDeadConnection = TestTeams.seed(SyncedStubFixture.unique("seed-dead-conn"))
+            val live = connection("seed-live")
+            val dead = connection("seed-dead")
+            val tied = team("seed-tied")
+            val undated = team("seed-undated")
+            val onlyUndated = team("seed-only-undated")
+            val deletedTeam = team("seed-deleted-team")
+            val onDeadConnection = team("seed-dead-conn")
 
             val seeded = rolledBack { c ->
                 c.run("UPDATE teams SET marked_as_deleted = TRUE WHERE id = $deletedTeam")
@@ -85,4 +104,27 @@ class CapacitySeedMigrationTest {
             }
             assertEquals(mapOf(tied to 11.0, undated to 20.0, onlyUndated to 30.0), seeded)
         }
+
+    @Test
+    fun `a team mapped on two connections with the same start and sprint id seeds from the lower connection id`() = runBlocking {
+        val low = connection("seed-tie-low")
+        val high = connection("seed-tie-high")
+        val tied = team("seed-tie")
+        assertTrue(low < high)
+
+        val seeded = rolledBack { c ->
+            // D10's UNIQUE(team_id) forbids one team on two boards; the constraint is dropped inside the rolled-back transaction only,
+            // so the seed's final `connection_id ASC` tie-break is exercised for real.
+            c.run("ALTER TABLE metrics.board_team_map DROP CONSTRAINT uq_metrics_board_team_map_team_id")
+            c.run("INSERT INTO metrics.board_team_map (connection_id, board_id, team_id) VALUES ($high, 100, $tied), ($low, 100, $tied)")
+            c.sprint(high, 10, 100, 1_000, "88.00")
+            c.sprint(low, 10, 100, 1_000, "77.00")
+            c.createStatement().use { st ->
+                st.executeQuery("SELECT capacity_md FROM ($seedSelect) seed WHERE team_id = $tied").use { rs ->
+                    buildList { while (rs.next()) add(rs.getBigDecimal(1).toDouble()) }
+                }
+            }
+        }
+        assertEquals(listOf(77.0), seeded)
+    }
 }

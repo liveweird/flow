@@ -384,6 +384,24 @@ class SprintCalendarRoutesTest {
     }
 
     @Test
+    fun `a pre-V24 CONFIGURED dim_sprint row is served by the sprint list and the calendar`() = testApplication {
+        usePostgresTestcontainer()
+        val admin = seededClient("cal-legacy", UserRole.ADMIN)
+        val s = CapacityFixtures.seed("cal-legacy")
+        CapacityFixtures.insertSprint(
+            s.connectionId, s.teamId, 2L, CapacityFixtures.FRIDAY_MORNING, CapacityFixtures.TUESDAY_AFTERNOON,
+            capacityMd = 20.0, capacitySource = "CONFIGURED",
+        )
+        val legacy = admin.get("/api/v1/teams/${s.teamId}/sprint-calendars").body<SprintCalendarSummaryPage>()
+            .items.single { it.sprintId == 2L }
+        assertEquals(20.0, legacy.capacityMd)
+        assertEquals("CONFIGURED", legacy.capacitySource)
+        val detail = admin.calendar(s, 2L)
+        assertEquals(20.0, detail.derivedCapacityMd)
+        assertEquals("CONFIGURED", detail.derivedCapacitySource)
+    }
+
+    @Test
     fun `DERIVE's input and the PURGE drain see the stored calendars and defaults`() = testApplication {
         usePostgresTestcontainer()
         val admin = seededClient("cal-derive-input", UserRole.ADMIN)

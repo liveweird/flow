@@ -52,7 +52,16 @@ object CapacityFixtures {
         membershipService().create(teamId, TeamMembershipCreateRequest(accountId, validFrom = 0L))
     }
 
-    suspend fun insertSprint(connectionId: UInt, teamId: UInt?, sprintId: Long, startAt: Long?, endAt: Long?, completeAt: Long? = null) {
+    suspend fun insertSprint(
+        connectionId: UInt,
+        teamId: UInt?,
+        sprintId: Long,
+        startAt: Long?,
+        endAt: Long?,
+        completeAt: Long? = null,
+        capacityMd: Double? = null,
+        capacitySource: String? = null,
+    ) {
         suspendTransaction(sharedDatabaseForTests()) {
             MetricsTables.DimSprint.insert {
                 it[MetricsTables.DimSprint.connectionId] = connectionId
@@ -63,6 +72,8 @@ object CapacityFixtures {
                 it[MetricsTables.DimSprint.startAt] = startAt
                 it[MetricsTables.DimSprint.endAt] = endAt
                 it[MetricsTables.DimSprint.completeAt] = completeAt
+                it[MetricsTables.DimSprint.capacityMd] = capacityMd?.toBigDecimal()
+                it[MetricsTables.DimSprint.capacitySource] = capacitySource
                 it[configRevision] = 1L
             }
         }

@@ -528,9 +528,12 @@ carries the per-measure detail).
   - **Managers.** A team has at most one manager, a Flow user the ADMIN assigns (V23); the manager or an ADMIN edits that team's capacity,
     everyone else reads (a person's coefficient only for editors — `authorization.md`).
   - **Legacy figures.** V24 seeds each team's default from its most recent configured per-sprint figure (active teams and connections);
-    the old table stays, unread. Historical sprints that had an explicit figure read `TEAM_DEFAULT`/`DEFAULT` after their next DERIVE
-    while their frozen `fact_sprint_snapshot.capacity_md` keeps the old one, so Data quality's snapshot-drift card flags them — honest,
-    visible, and by design (the snapshot never moves).
+    the old table stays, unread. The seeded figure then applies to EVERY sprint of that team after the next DERIVE (not only to the
+    sprints that had a figure of their own), so historical capacity flattens to it; a snapshotted closed sprint whose capacity (and so
+    load) now differs from its frozen `fact_sprint_snapshot` is flagged by Data quality's snapshot-drift card (capped at 50 items) —
+    honest, visible, and by design (the snapshot never moves). A legacy figure of 0 seeds 0, which yields a null load. On the dev
+    database every legacy row was 20 MD for one team, so the seed reproduces them exactly. V24 does not bump `config_revision`: the
+    re-derive happens on the next scheduled DERIVE (or "Derive now"), not at migration time.
   - Operational detail: `.claude/docs/metrics.md` "Sprint capacity", `.claude/docs/persistence.md` "Capacity management (V24)".
 
 ## Gaps in `norm` (closed in v0.3.0)

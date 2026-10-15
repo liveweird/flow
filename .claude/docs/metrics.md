@@ -505,14 +505,17 @@ ACTIVE team's non-null default figure; the service is handed to `runSprintStep`,
    sprint's CURRENT window and roster exactly as `GET` shows it, so the page's total equals what is stored here (`carry` only seeds a
    sprint with no stored calendar, in the service's GET defaults). `capacity = teamCoefficient × Σ_{counted people}(coefficient ×
    Σ_{counted days} cell)`, exact decimals rounded half-up to two (`CapacityKernels.kt`).
-2. **`TEAM_DEFAULT`** — the team's one default figure (`metrics.team_capacity_defaults`), verbatim.
+2. **`TEAM_DEFAULT`** — the team's one default figure (`metrics.team_capacity_defaults`), verbatim. It needs a team but NOT a
+   `start_at`: a sprint without a start still gets it (the old `CONFIGURED` semantics); `CALENDAR` and `DEFAULT` need a window.
 3. **`DEFAULT`** — the sprint's board maps to a team AND it has a known `start_at`: `capacity_md = (member count) × (working days in
    the sprint window)`. Member count is every `metrics.team_membership` account whose interval overlaps `[sprintStart, sprintEnd)`
    for THIS team (`sprintMemberAccountIds`; `endAt = end_at ?? complete_at ?? start_at`); working days come from the SAME
    `WorkingCalendar` (global settings — time zone, weekend days, holidays) every other calendar computation uses. The A3 rule,
    unchanged.
-4. **None** — no team mapped, or no `start_at` known: `(null, null)`. No capacity means no `load` either (`load = committed_md /
-   capacity_md` only when `capacity_md > 0`).
+4. **None** — no team mapped, or no figure the sprint qualifies for (no `start_at` and no team default): `(null, null)`. No capacity
+   means no `load` either. `load = committed_md / capacity_md` is `null` when `capacity_md` is null or 0, AND when the ratio would
+   exceed 9999.9999 (`sprintLoad`; `fact_sprint.load` and `fact_sprint_snapshot.load` are `NUMERIC(8, 4)` and a manager can set a team
+   default as small as 0.01 — an overflowing insert would fail the whole connection's DERIVE).
 
 The window is `dayOf(start_at)` … `dayOf(max(start_at, end − 1 ms))` in the configured zone (`end` as in 3), so a midnight end adds no
 day and a DST change still counts calendar days. A soft-deleted team's rows are not read (they feed nothing once its GET/PUT are 404). The

@@ -11,6 +11,7 @@ import ch.nokillswit.metrics.calendarCapacityMd
 import ch.nokillswit.metrics.defaultCalendar
 import ch.nokillswit.metrics.projectCalendar
 import ch.nokillswit.metrics.resolveSprintWindow
+import ch.nokillswit.metrics.sprintLoad
 import ch.nokillswit.metrics.sprintWindow
 import java.time.Instant
 import java.time.ZoneId
@@ -151,5 +152,14 @@ class CapacityKernelsTest {
         // Counted days: 03-04, 03-05, 03-06, 03-09. a: 0.8 x (0.5 + 1 + 0.5 + 1) = 2.4; b: 1.2 x (1 + 0.25 + 1 + 1) = 3.9;
         // new: 1 x 4 full cells = 4; b and c: c is off. (2.4 + 3.9 + 4) x 1.2 = 12.36.
         assertEquals(12.36, calendarCapacityMd(projected))
+    }
+
+    @Test
+    fun `the load is null without a capacity, with a zero one or past the NUMERIC(8,4) maximum, and exact at the maximum`() {
+        assertEquals(2.5, sprintLoad(10.0, 4.0))
+        assertNull(sprintLoad(10.0, null))
+        assertNull(sprintLoad(10.0, 0.0))
+        assertEquals(9999.9999, sprintLoad(9999.9999, 1.0))
+        assertNull(sprintLoad(100.0, 0.01), "10000 does not fit NUMERIC(8, 4)")
     }
 }

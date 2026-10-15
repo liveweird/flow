@@ -88,7 +88,7 @@ internal suspend fun runSprintStep(
             sprint.startAtMs, sprint.endAtMs, sprint.completeAtMs, capacityMd, capacitySource,
         )
         val totals = sprintTotals(scopeItemsBySprint[sprint.sprintId].orEmpty())
-        val load = if (capacityMd != null && capacityMd > 0.0) totals.committedMd / capacityMd else null
+        val load = sprintLoad(totals.committedMd, capacityMd)
         val factRow = FactSprintRow(sprint.sprintId, teamId, sprint.completeAtMs, totals, capacityMd, load)
         factRows += factRow
 
@@ -141,11 +141,26 @@ private fun itemSprintScopeRows(
 }
 
 /**
+ * `committed_md / capacity_md`, or `null` where no honest ratio fits the column: no capacity, a capacity of 0, or a ratio above
+ * [MAX_LOAD] (`fact_sprint.load` and `fact_sprint_snapshot.load` are `NUMERIC(8, 4)`; a manager can set a team default as small as
+ * 0.01, and an overflowing insert would fail the whole connection's DERIVE).
+ */
+internal fun sprintLoad(committedMd: Double, capacityMd: Double?): Double? {
+    if (capacityMd == null || capacityMd <= 0.0) return null
+    val ratio = committedMd / capacityMd
+    return ratio.takeIf { it <= MAX_LOAD }
+}
+
+/** The largest value `NUMERIC(8, 4)` holds. */
+internal const val MAX_LOAD = 9999.9999
+
+/**
  * (capacityMd, capacitySource) for one sprint (A3, A32), first match wins: `CALENDAR` — the sprint's stored calendar, only while it
  * belongs to the sprint's CURRENT team and the sprint has a window, re-projected onto the current window and roster exactly as the
- * GET shows it (no carry: that seeds only a sprint with no stored calendar); `TEAM_DEFAULT` — the team's default figure; `DEFAULT` —
- * members x working days over `[startAt, endAt ?: completeAt ?: startAt)`, no per-member absence data. No team, or neither a figure
- * nor a start, maps to no capacity at all (`null`, `null`).
+ * GET shows it (no carry: that seeds only a sprint with no stored calendar); `TEAM_DEFAULT` — the team's default figure, which needs
+ * a team but NOT a start (a sprint without one still gets it); `DEFAULT` — members x working days over
+ * `[startAt, endAt ?: completeAt ?: startAt)`, no per-member absence data (CALENDAR and DEFAULT both need a start). No team, or no
+ * figure the sprint qualifies for, maps to no capacity at all (`null`, `null`).
  */
 private fun sprintCapacity(
     sprint: SprintRef,
@@ -153,16 +168,20 @@ private fun sprintCapacity(
     capacity: SprintCapacityInputs,
     context: DeriveContext,
 ): Pair<Double?, String?> {
+    if (teamId == null) return null to null
     val startAt = sprint.startAtMs
-    if (teamId == null || startAt == null) return null to null
-    val endAt = sprint.endAtMs ?: sprint.completeAtMs ?: startAt
     val stored = capacity.calendarsBySprintId[sprint.sprintId]?.takeIf { it.teamId == teamId }
-    val window = sprintWindow(startAt, sprint.endAtMs, sprint.completeAtMs, context.calendar)
-    if (stored != null && window != null) {
-        val members = sprintMemberAccountIds(teamId, startAt, endAt, context)
-        return calendarCapacityMd(projectCalendar(stored.document, window, members, context.calendar, carry = null)) to "CALENDAR"
+    if (startAt != null && stored != null) {
+        val window = sprintWindow(startAt, sprint.endAtMs, sprint.completeAtMs, context.calendar)
+        if (window != null) {
+            val endAt = sprint.endAtMs ?: sprint.completeAtMs ?: startAt
+            val members = sprintMemberAccountIds(teamId, startAt, endAt, context)
+            return calendarCapacityMd(projectCalendar(stored.document, window, members, context.calendar, carry = null)) to "CALENDAR"
+        }
     }
     capacity.teamDefaultMdByTeamId[teamId]?.let { return it to "TEAM_DEFAULT" }
+    if (startAt == null) return null to null
+    val endAt = sprint.endAtMs ?: sprint.completeAtMs ?: startAt
     val workingDays = context.calendar.workingDaysBetween(startAt, endAt)
     return (sprintMemberAccountIds(teamId, startAt, endAt, context).size * workingDays) to "DEFAULT"
 }

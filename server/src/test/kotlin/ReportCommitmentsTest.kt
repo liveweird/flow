@@ -35,6 +35,7 @@ import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
+import org.jetbrains.exposed.v1.r2dbc.update
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -504,6 +505,33 @@ class ReportCommitmentsTest {
         )
         capacity.replace(teamId, sprintId, document, admin, callerIsAdmin = true, calendar = calendar)
         assertSource(2.0 * stored.days.count { it.enabled }, "CALENDAR", jobId = 3u)
+    }
+
+    @Test
+    fun `a pre-V24 CONFIGURED row is served as stored at UNIT and TEAM level`() = testApplication {
+        usePostgresTestcontainer()
+        val sprintId = reportCommitmentsGolden.sprintId
+        val (connId, teamId) = FrozenScopeFixtures.derivedDisabledClone("jira-commitments-legacy", "commitments-legacy-team")
+        val client = seededClient("reports-commitments-legacy")
+        suspendTransaction(sharedDatabaseForTests()) {
+            MetricsTables.DimSprint.update({
+                (MetricsTables.DimSprint.connectionId eq connId) and (MetricsTables.DimSprint.sprintId eq sprintId)
+            }) {
+                it[capacitySource] = "CONFIGURED"
+                it[capacityMd] = BigDecimal("33.00")
+            }
+            MetricsTables.FactSprint.update({
+                (MetricsTables.FactSprint.connectionId eq connId) and (MetricsTables.FactSprint.sprintId eq sprintId)
+            }) { it[capacityMd] = BigDecimal("33.00") }
+        }
+        for (url in listOf(
+            "/api/v1/reports/commitments?connectionId=$connId&sprintId=$sprintId",
+            "/api/v1/reports/commitments?connectionId=$connId&teamId=$teamId&sprintId=$sprintId",
+        )) {
+            val sprint = client.get(url).body<CommitmentsReport>().sprints.single()
+            assertEquals(33.0, sprint.capacityMd, url)
+            assertEquals("CONFIGURED", sprint.capacitySource, url)
+        }
     }
 
     private data class PickedAccounts(val connId: UInt, val teamId: UInt, val sprintId: Long, val accounts: List<String>)
