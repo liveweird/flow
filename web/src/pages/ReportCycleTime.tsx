@@ -1,11 +1,12 @@
 import { lazy, Suspense } from "react";
 import { useTranslation } from "react-i18next";
-import { Alert, SimpleGrid, Stack, Text } from "@mantine/core";
-import { IconInfoCircle } from "@tabler/icons-react";
+import { Alert, Paper, SimpleGrid, Stack, Text } from "@mantine/core";
+import { IconInfoCircle, IconUsers } from "@tabler/icons-react";
 import { getCycleTimeReport, type CycleTimeGroup } from "../api/reports";
 import ColumnTable, { type ColumnDef } from "../components/ColumnTable";
 import CycleTimeEpics from "../components/CycleTimeEpics";
 import DistributionWithAccounting from "../components/DistributionWithAccounting";
+import EmptyState from "../components/EmptyState";
 import LoadingBlock from "../components/LoadingBlock";
 import PageHeader from "../components/PageHeader";
 import ReportChartCard from "../components/ReportChartCard";
@@ -13,10 +14,12 @@ import ReportFilterBar, { type ReportControls } from "../components/ReportFilter
 import ReportFiltersStatus from "../components/ReportFiltersStatus";
 import ReportGroupsTable, { type GroupColumn } from "../components/ReportGroupsTable";
 import ReportMetaNote from "../components/ReportMetaNote";
+import ReportPersonTotals from "../components/ReportPersonTotals";
 import ReportTailControl from "../components/ReportTailControl";
 import ReportTabs from "../components/ReportTabs";
 import { useReportPage } from "../hooks/useReportPage";
 import { cycleTrendRows, trendHasPoints, type CycleTrendRow } from "../utils/cycleTimeReport";
+import { distributionPeople } from "../utils/distributionPeople";
 import { formatDays, formatMedian } from "../utils/reportFormat";
 import { DELIVERY_TABS } from "../utils/reportLinks";
 import ScrollRegion from "../components/ScrollRegion";
@@ -24,9 +27,20 @@ import ScrollRegion from "../components/ScrollRegion";
 // The trend chart (and with it recharts) rides its own lazy chunk.
 const CycleTimeTrendChart = lazy(() => import("../components/CycleTimeTrendChart"));
 
-// Cycle time honours the domain view (delivered in — the default), domain, activity type and work
-// category, and trends by week or month.
-const CONTROLS: ReportControls = { domainView: "TASK", domain: true, activityType: true, workCategory: true, bucket: true };
+/**
+ * Cycle time is read per team — never the whole unit — and the member control picks several people, whose two histograms stack
+ * per person (the trend and the epics stay the whole selection). It honours the domain view (delivered in — the default),
+ * domain, activity type and work category, and trends by week or month. A module-level constant: the hook reads its identity.
+ */
+const CONTROLS: ReportControls = {
+  teamRequired: true,
+  multiMember: true,
+  domainView: "TASK",
+  domain: true,
+  activityType: true,
+  workCategory: true,
+  bucket: true,
+};
 
 const MISSING = "—";
 
@@ -38,11 +52,23 @@ export default function ReportCycleTime() {
   const { t } = useTranslation();
   // The report travels with the bucket that produced it (the throughput page's rule): a refetch over
   // kept data never labels the old buckets with the new resolution.
-  const { filtersQuery, filters, filter, setFilter, query, storageKey } = useReportPage("cycle-time", async (requested) => ({
-    ...(await getCycleTimeReport(requested)),
-    bucket: requested.bucket ?? "WEEK",
-  }));
+  const { filtersQuery, filters, filter, setFilter, query, storageKey } = useReportPage(
+    "cycle-time",
+    async (requested) => ({
+      ...(await getCycleTimeReport(requested)),
+      bucket: requested.bucket ?? "WEEK",
+    }),
+    undefined,
+    CONTROLS,
+  );
   const report = query.data;
+  // The shown report decides the mode (not the filter): a refetch over kept data never mixes the two shapes.
+  const userMode = report?.meta.level === "USER";
+  const noTeams = filters !== undefined && filters.teams.length === 0;
+  // Each histogram's own split numbers the people (request order); a hidden distribution has none, so the other one may.
+  const workingPeople = report ? distributionPeople(report.workingDays) : [];
+  const elapsedPeople = report ? distributionPeople(report.elapsedDays) : [];
+  const totalsPeople = workingPeople.length > 0 ? workingPeople : elapsedPeople;
   const rows = report ? cycleTrendRows(report.trend, report.bucket) : [];
 
   const bucket = report?.bucket ?? "WEEK";
@@ -76,7 +102,12 @@ export default function ReportCycleTime() {
       <PageHeader title={t("reports.cycleTime.title")} description={t("reports.cycleTime.description")} />
       <ReportTabs tabs={DELIVERY_TABS} />
       <ReportFiltersStatus query={filtersQuery} />
-      {filters && (
+      {noTeams && (
+        <Paper withBorder p="md">
+          <EmptyState icon={IconUsers} label={t("reports.cycleTime.noTeams")} />
+        </Paper>
+      )}
+      {filters && !noTeams && (
         <>
           <ReportFilterBar storageKey={storageKey} filters={filters} filter={filter} onChange={setFilter} controls={CONTROLS} />
           {report && <ReportMetaNote meta={report.meta} timeZone={filters.timeZone} />}
@@ -97,6 +128,7 @@ export default function ReportCycleTime() {
                   distribution={report.workingDays}
                   minSampleSize={report.meta.minSampleSize}
                   format={formatDays}
+                  people={workingPeople}
                   axisLabel={t("reports.cycleTime.workingAxis")}
                   population={report.excluded.population}
                   items={[{ label: t("reports.cycleTime.excluded.neverStarted"), count: report.excluded.neverStarted }]}
@@ -107,6 +139,7 @@ export default function ReportCycleTime() {
                   distribution={report.elapsedDays}
                   minSampleSize={report.meta.minSampleSize}
                   format={formatDays}
+                  people={elapsedPeople}
                   axisLabel={t("reports.cycleTime.elapsedAxis")}
                   population={report.excluded.population}
                   items={[{ label: t("reports.cycleTime.excluded.neverStarted"), count: report.excluded.neverStarted }]}
@@ -148,7 +181,11 @@ export default function ReportCycleTime() {
           )}
           {report && report.groups.length > 0 && (
             <Stack gap="xs">
-              <ReportGroupsTable level={report.meta.level} filters={filters} groups={report.groups} columns={groupColumns} />
+              {userMode ? (
+                <ReportPersonTotals groups={report.groups} people={totalsPeople} columns={groupColumns} />
+              ) : (
+                <ReportGroupsTable level={report.meta.level} filters={filters} groups={report.groups} columns={groupColumns} />
+              )}
               <Text size="xs" c="dimmed">
                 {t("reports.groupsCaption.distribution")}
               </Text>

@@ -821,11 +821,62 @@ export const CYCLE_TIME_EMPTY: CycleTimeReport = {
 /** Tasks finished but no epic did: the epics card says so in its own words. */
 export const CYCLE_TIME_NO_EPICS: CycleTimeReport = { ...CYCLE_TIME, epics: NO_EPICS };
 
-/** One person: the tasks narrow to them, the epics block is empty by design (no user on an epic). */
+/**
+ * USER level, two accounts (Ann then Bob, request order): both task distributions read the union of the two and split every
+ * histogram bucket per person (`byUser`, index-aligned), `groups` lists each pick with its own plain distributions; the trend
+ * stays the union and the epics block is empty by design (no user on an epic).
+ */
+export const CYCLE_TIME_USERS: CycleTimeReport = {
+  ...CYCLE_TIME,
+  meta: { ...META, level: "USER" },
+  workingDays: {
+    ...CYCLE_TIME.workingDays,
+    byUser: [
+      { ...ANN, counts: [2, 4, 3, 2, 1] },
+      { ...BOB, counts: [1, 2, 2, 1, 0] },
+    ],
+  },
+  elapsedDays: {
+    ...CYCLE_TIME.elapsedDays,
+    byUser: [
+      { ...ANN, counts: [1, 4, 4, 2, 1] },
+      { ...BOB, counts: [1, 1, 2, 1, 1] },
+    ],
+  },
+  groups: [
+    {
+      teamId: null,
+      ...ANN,
+      workingDays: shownDistribution([2, 4, 3, 2, 1], 0, 2, { p50: 3.4, p90: 7.2, p95: 8.6, mean: 4 }),
+      elapsedDays: shownDistribution([1, 4, 4, 2, 1], 0, 3, { p50: 5.2, p90: 10.5, p95: 12.4, mean: 5.9 }),
+      excluded: { population: 13, neverStarted: 1 },
+    },
+    {
+      teamId: null,
+      ...BOB,
+      workingDays: shownDistribution([1, 2, 2, 1, 0], 0, 2, { p50: 3.6, p90: 6.4, p95: 7, mean: 4.3 }),
+      elapsedDays: shownDistribution([1, 1, 2, 1, 1], 0, 3, { p50: 5.4, p90: 11, p95: 12.8, mean: 6.4 }),
+      excluded: { population: 7, neverStarted: 1 },
+    },
+  ],
+  epics: NO_EPICS,
+};
+
+/** One person: today's figures plus a one-entry `byUser` (the whole histogram) and their own group; the epics block is empty by design. */
 export const CYCLE_TIME_USER: CycleTimeReport = {
   ...CYCLE_TIME,
   meta: { ...META, level: "USER" },
-  groups: [],
+  workingDays: { ...CYCLE_TIME.workingDays, byUser: [{ ...ANN, counts: CYCLE_TIME.workingDays.histogram.map((bucket) => bucket.count) }] },
+  elapsedDays: { ...CYCLE_TIME.elapsedDays, byUser: [{ ...ANN, counts: CYCLE_TIME.elapsedDays.histogram.map((bucket) => bucket.count) }] },
+  groups: [
+    {
+      teamId: null,
+      ...ANN,
+      workingDays: CYCLE_TIME.workingDays,
+      elapsedDays: CYCLE_TIME.elapsedDays,
+      excluded: CYCLE_TIME.excluded,
+    },
+  ],
   epics: NO_EPICS,
 };
 

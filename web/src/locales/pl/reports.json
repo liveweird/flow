@@ -368,6 +368,7 @@
     "workingCaption": "Widok podstawowy — dni wg skonfigurowanego kalendarza pracy.",
     "elapsedTitle": "Dni kalendarzowe",
     "elapsedCaption": "Widok drugi — dni zegarowe, z weekendami i świętami.",
+    "noTeams": "Czas cyklu liczymy dla zespołu, a nie ma jeszcze żadnego zespołu. Administrator/ka dodaje zespoły na stronie Zespoły.",
     "workingAxis": "dni robocze",
     "elapsedAxis": "dni kalendarzowe",
     "excluded": {

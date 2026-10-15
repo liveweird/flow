@@ -438,9 +438,65 @@ async function sliceSprintConsistency(page: Page): Promise<void> {
   await expect(cells.nth(3)).toHaveText(mdItems(GOLDEN.committedMd, GOLDEN.committedItems));
 }
 
+/**
+ * The cycle-time journey: the golden sprint's two views and trend, the epics beside them at team level, a required team (no
+ * "All teams") and a one-person pick.
+ */
+async function readCycleTime(page: Page): Promise<void> {
+  await openGroup(page, "Delivery");
+  await pickGoldenSprint(page);
+  await page.getByRole("tab", { name: "Cycle time", exact: true }).click();
+  await expect(page.getByRole("heading", { level: 2, name: "Cycle time", exact: true })).toBeVisible();
+
+  // Both views state their own accounting, and each is either a distribution or the counts-only notice.
+  await expect(page.getByRole("heading", { name: "Working days", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Elapsed days", exact: true })).toBeVisible();
+  await expect(page.getByText(/^Of \d+ finished in this period:$/).first()).toBeVisible();
+  await expect(percentilesOrNotice(page).first()).toBeVisible();
+  // The golden sprint's team finished work in the window, so the per-period trend has its table.
+  await expect(page.getByRole("table", { name: "Trend, as a table" })).toBeVisible();
+  // Cycle time is read for one team: the picked team stays in the URL.
+  await expect(page).toHaveURL(new RegExp(`teamId=${teamId}`));
+
+  // The epics beside the tasks: the stub's epics all finished before the sprint-narrowed window, so a year-long
+  // window reads them — two views of their own, each with its own accounting, next to the tasks' two.
+  await page.goto(`/reports/cycle-time?connectionId=${dataSourceId}&${EPIC_WINDOW}&teamId=${teamId}`);
+  await expect(page.getByRole("heading", { level: 3, name: "Epics", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Epics: working days", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Epics: elapsed days", exact: true })).toBeVisible();
+  await expectAccountingToReconcile(page, 4);
+  // At team level the epics card stays (the team's own epics) and there is no owner table: epics split by owner team, never by person.
+  await expect(page.getByRole("table", { name: "Epics by owner team", exact: true })).toHaveCount(0);
+
+  // A team is required: no "All teams", no clear button.
+  await openFilters(page);
+  const team = page.getByRole("combobox", { name: "Team", exact: true });
+  await expect(team).toHaveValue(teamName);
+  await expect(page.getByLabel("Clear Team", { exact: true })).toHaveCount(0);
+  await team.click();
+  await expect(page.getByRole("option", { name: teamName, exact: true })).toBeVisible();
+  await expect(page.getByRole("option", { name: "All teams", exact: true })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+
+  // One person picked: the URL gains the account and "Totals per person" replaces the by-member table with one row. (The stub person may
+  // have too few finished tasks for a histogram, so the "1." numbering is optional here; the stacking itself is the page's unit tests'.)
+  await pickFilter(page, "Member", memberName);
+  await page.keyboard.press("Escape");
+  await expect(page).toHaveURL(/accountId=/);
+  await expect(page).toHaveURL(new RegExp(`teamId=${teamId}`));
+  await expect(page.getByRole("heading", { level: 3, name: "By member", exact: true })).toHaveCount(0);
+  const totals = page.getByRole("table", { name: "Totals per person", exact: true });
+  await expect(totals.getByRole("row")).toHaveCount(2);
+  await expect(totals.getByRole("row").nth(1).getByRole("cell").first()).toContainText(memberName);
+  // The epics are not per person: one note replaces the epics' histograms.
+  await expect(page.getByRole("heading", { name: "Epics: working days", exact: true })).toHaveCount(0);
+}
+
 /** The cycle-time long-tail journey: the default 5% open bucket, widened to 25%, switched off with 0, and back to the default. */
 async function widenCycleTimeTail(page: Page): Promise<void> {
-  await openReport(page, "/reports/cycle-time");
+  // Cycle time is read per team, so the link carries this spec's OWN team (a bare link would start on the first team by name,
+  // which other specs' teams can precede).
+  await openReport(page, "/reports/cycle-time", `&teamId=${teamId}`);
   await expect(page.getByRole("heading", { name: "Elapsed days", exact: true })).toBeVisible();
   // Elapsed days are continuous (milliseconds), so the top values are never tied: the tail bucket is certain to exist at any share above 0.
   const lastRange = page
@@ -928,32 +984,7 @@ test.describe("reports, read by a regular user", () => {
   });
 
   test("the user reads cycle time", async ({ page }) => {
-    await openGroup(page, "Delivery");
-    await pickGoldenSprint(page);
-    await page.getByRole("tab", { name: "Cycle time", exact: true }).click();
-    await expect(page.getByRole("heading", { level: 2, name: "Cycle time", exact: true })).toBeVisible();
-
-    // Both views state their own accounting, and each is either a distribution or the counts-only notice.
-    await expect(page.getByRole("heading", { name: "Working days", exact: true })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Elapsed days", exact: true })).toBeVisible();
-    await expect(page.getByText(/^Of \d+ finished in this period:$/).first()).toBeVisible();
-    await expect(percentilesOrNotice(page).first()).toBeVisible();
-    // The golden sprint's team finished work in the window, so the per-period trend has its table.
-    await expect(page.getByRole("table", { name: "Trend, as a table" })).toBeVisible();
-
-    // The epics beside the tasks: the stub's epics all finished before the sprint-narrowed window, so a year-long
-    // window reads them — two views of their own, each with its own accounting, next to the tasks' two.
-    await page.goto(`/reports/cycle-time?connectionId=${dataSourceId}&${EPIC_WINDOW}`);
-    await expect(page.getByRole("heading", { level: 3, name: "Epics", exact: true })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Epics: working days", exact: true })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Epics: elapsed days", exact: true })).toBeVisible();
-    await expectAccountingToReconcile(page, 4);
-    // Owner team, never a person: the table's team row is the way in, and the narrowed read keeps the block without the table.
-    const owners = page.getByRole("table", { name: "Epics by owner team", exact: true });
-    await owners.getByRole("link", { name: `Show ${teamName}`, exact: true }).click();
-    await expect(page).toHaveURL(new RegExp(`teamId=${teamId}`));
-    await expect(page.getByRole("heading", { name: "Epics: working days", exact: true })).toBeVisible();
-    await expect(owners).toHaveCount(0);
+    await readCycleTime(page);
   });
 
   test("a user widens the cycle time histogram's long tail", ({ page }) => widenCycleTimeTail(page));
