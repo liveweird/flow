@@ -423,6 +423,32 @@ class IngestWorkerTest {
     }
 
     @Test
+    fun `a NUL in the failure message is replaced so the failure write lands and the job ends FAILED`() = runBlocking {
+        val ds = dataSources()
+        val jobs = syncJobs()
+        val connId = createConnection(ds, syncIntervalMinutes = 30, enabled = true)
+        // A database exception inlines the offending value's text; a NUL there used to make `error_detail`'s own write fail
+        // (22021) and leave the job RUNNING until its lease expired.
+        val connector = FakeConnector { throw IllegalStateException("bad text: before\u0000after") }
+        val worker = IngestWorker(
+            jobs,
+            ds,
+            handlers(ds),
+            mapOf(DataSourceKind.JIRA_CLOUD to connector),
+            testConfig(workerSlots = 500),
+            fixedEarlyMorningClock(),
+        )
+
+        withOnlyConnections(setOf(connId), TICK_CLOCK_MILLIS) { coroutineScope { worker.tick(this) } }
+
+        val job = jobs.list(connId, SyncJobListFilter(), pagingAll()).items.single()
+        assertEquals(SyncJobStatus.FAILED, job.status)
+        assertEquals("RUN_FAILED", job.errorCode)
+        assertEquals("IllegalStateException: bad text: before�after", job.errorDetail)
+        assertEquals(1, assertNotNull(ds.read(connId)).status.consecutiveFailures)
+    }
+
+    @Test
     fun `a stream's heartbeat writes progress and current_stream onto the sync job`() = runBlocking {
         val ds = dataSources()
         val jobs = syncJobs()

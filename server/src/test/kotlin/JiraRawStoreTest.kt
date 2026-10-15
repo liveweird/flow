@@ -6,6 +6,8 @@ import ch.nokillswit.ingest.DataSourceRequest
 import ch.nokillswit.ingest.DataSourceService
 import ch.nokillswit.ingest.JiraAuthScheme
 import ch.nokillswit.ingest.JiraConnectionRequest
+import ch.nokillswit.infra.json.canonicalJson
+import ch.nokillswit.infra.json.sha256Hex
 import ch.nokillswit.ingest.defaultBackfillFrom
 import ch.nokillswit.jira.JiraRawStore
 import ch.nokillswit.jira.RawIssueInput
@@ -23,6 +25,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 /**
  * `jira/JiraRawStore.kt` (v0.2.0 plan §7 "REFERENCE"/"ISSUES"): the sha256 diff rule shared by
@@ -117,6 +120,57 @@ class JiraRawStoreTest {
         assertEquals(2_000L, row[JiraRawStore.Issues.fetchedAt])
         assertEquals(true, row[JiraRawStore.Issues.needsProcessing])
         assertEquals(2_000L, row[JiraRawStore.Issues.issueUpdatedAt])
+    }
+
+    // A NUL is not storable in PostgreSQL jsonb: canonicalJson replaces it with U+FFFD before the text is hashed and stored.
+    private fun nulPayload(issueId: Long) =
+        """{"id":"$issueId","key":"ENG-$issueId","k\u0000ey":1,""" +
+            """"fields":{"description":"before\u0000after","project":{"id":"1","key":"ENG"}}}"""
+
+    @Test
+    fun `an issue whose payload holds a NUL is stored with U+FFFD, and the same payload again is UNCHANGED`() = runBlocking {
+        val connId = createConnection()
+        val store = rawStore()
+        val input = issue(30, 1_000).copy(payloadJson = nulPayload(30))
+
+        assertEquals(RawUpsertOutcome.INSERTED, store.upsertIssue(connId, input, now = 1_000))
+        assertEquals(RawUpsertOutcome.UNCHANGED, store.upsertIssue(connId, input, now = 2_000), "the stored hash is stable across fetches")
+
+        val row = suspendTransaction(sharedDatabaseForTests()) {
+            JiraRawStore.Issues.selectAll()
+                .where { (JiraRawStore.Issues.connectionId eq connId) and (JiraRawStore.Issues.issueId eq 30L) }
+                .toList().single()
+        }
+        val payload = row[JiraRawStore.Issues.payload]
+        assertTrue(payload.contains("before�after"), payload)
+        assertTrue(payload.contains("\"k�ey\""), "object keys are replaced too: $payload")
+        // jsonb reformats what it stores, so the hash is checked against the canonical text it was taken from.
+        val replacedForm = nulPayload(30).replace("\\u0000", "\\uFFFD")
+        assertEquals(sha256Hex(canonicalJson(nulPayload(30))), row[JiraRawStore.Issues.sha256], "the stored text and its hash agree")
+        assertEquals(sha256Hex(canonicalJson(replacedForm)), row[JiraRawStore.Issues.sha256], "a NUL hashes as its replacement")
+        assertEquals(1_000L, row[JiraRawStore.Issues.changedAt])
+    }
+
+    @Test
+    fun `an entity, a worklog and a changelog history with a NUL are stored, and re-writing them is a no-op`() = runBlocking {
+        val connId = createConnection()
+        val store = rawStore()
+        val entity = """{"id":"summary","name":"Sum\u0000mary"}"""
+        assertEquals(RawUpsertOutcome.INSERTED, store.upsertEntity(connId, "FIELD", "summary", entity, now = 1_000))
+        assertEquals(RawUpsertOutcome.UNCHANGED, store.upsertEntity(connId, "FIELD", "summary", entity, now = 2_000))
+
+        val worklog = """{"id":"700300","issueId":"8","comment":"a\u0000b"}"""
+        assertEquals(RawUpsertOutcome.INSERTED, store.upsertWorklog(connId, 8L, 700_300L, 1_000, worklog, now = 1_000))
+        assertEquals(RawUpsertOutcome.UNCHANGED, store.upsertWorklog(connId, 8L, 700_300L, 1_000, worklog, now = 2_000))
+
+        val history = """{"id":"500300","items":[{"toString":"x\u0000y"}]}"""
+        repeat(2) {
+            store.insertChangelog(connId, 500_300L, 8L, 1_000L, "acc-1", history, now = 1_000)
+        }
+        assertEquals(1L, store.countChangelogs(connId))
+        assertEquals(1L, store.countWorklogs(connId))
+        val stored = store.changelogPayloadsForIssue(connId, 8L).single()
+        assertTrue(stored.contains("x�y"), stored)
     }
 
     @Test

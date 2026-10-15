@@ -1,5 +1,6 @@
 package ch.nokillswit.jira
 
+import ch.nokillswit.infra.catchingFailures
 import ch.nokillswit.infra.time.MILLIS_PER_MINUTE
 import ch.nokillswit.ingest.Stream
 import ch.nokillswit.ingest.StreamContext
@@ -202,20 +203,29 @@ class JiraReconcileStream(
         val issue = client.issue(issueId.toString())
         val fields = issue.getValue("fields").jsonObject
         val project = fields.getValue("project").jsonObject
-        context.transaction {
-            rawStore.upsertIssue(
-                context.connectionId,
-                RawIssueInput(
-                    issueId = issueId,
-                    issueKey = issue.getValue("key").jsonPrimitive.content,
-                    projectId = project.getValue("id").jsonPrimitive.content.toLong(),
-                    projectKey = project.getValue("key").jsonPrimitive.content,
-                    issueUpdatedAt = parseJiraInstantEpochMillis(fields.getValue("updated").jsonPrimitive.content),
-                    payloadJson = issue.toString(),
-                ),
-                context.clock(),
-            )
+        val input = RawIssueInput(
+            issueId = issueId,
+            issueKey = issue.getValue("key").jsonPrimitive.content,
+            projectId = project.getValue("id").jsonPrimitive.content.toLong(),
+            projectKey = project.getValue("key").jsonPrimitive.content,
+            issueUpdatedAt = parseJiraInstantEpochMillis(fields.getValue("updated").jsonPrimitive.content),
+            payloadJson = issue.toString(),
+        )
+        // The ISSUES stream's "skip, loudly" rule: an issue the database rejects as a bad VALUE (and so ISSUES left out) must not
+        // fail every RECONCILE too - it is logged and counted as `indexGapSkipped`, not retried within this pass.
+        val failure = catchingFailures<Exception?>(
+            block = {
+                context.transaction { rawStore.upsertIssue(context.connectionId, input, context.clock()) }
+                null
+            },
+            onFailure = { it },
+        )
+        if (failure == null) {
             context.incrementProgress("issuesUpserted")
+        } else {
+            if (!failure.isBadValueError()) throw failure
+            log.warnSkippedIssue("RECONCILE index-gap fetch", context.connectionId, input.issueId, input.issueKey, failure)
+            context.incrementProgress("indexGapSkipped")
         }
         context.heartbeat()
     }

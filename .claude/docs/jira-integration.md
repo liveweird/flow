@@ -546,6 +546,14 @@ never hold the `jira.maxConcurrentRequests` `Semaphore` permit indefinitely.
   `maxResponseBytes`: 8 to 4 to 2 on the same token, the size kept for the run and reset for the next, a first page
   halved with no size in the persisted cursor, the 1-issue failure leaving the cursor at the last good page, and a
   `CURSOR_EXPIRED` right after a halving (restart at the smaller size, not counted against `MAX_CURSOR_RESTARTS`).
+- `JiraIssuesSkipTest` — the ISSUES stream's "skip, loudly" rule over real HTTP against `JiraStubServer` overrides: a page with
+  an issue the database rejects (an over-long `issue_key`) lands its other issues and the next page, advances the cursor and counts
+  `issuesSkipped` (WARN names key and id, never the payload); the skipped issue is stored by a later run once Jira serves it fine;
+  an issue with a NUL in its description is stored (U+FFFD), not skipped; a non-data failure (an unparseable `updated`) still fails
+  the run with the cursor untouched; an outage-class (SQLSTATE 08006) and a surviving class-23 failure are rethrown rather than skipped; a
+  page of several issues that are ALL rejected fails the run; a control character in a skipped key never reaches the log; and RECONCILE's
+  index-gap fetch skips the same still-bad issue (`indexGapSkipped`) and completes. An already-stored issue whose update fails keeps
+  its old row (stale) until a later edit or a full resync.
 - `JiraOversizedBatchTest` — the CHANGELOGS/WORKLOGS halving over real HTTP against `JiraStubServer` overrides keyed on the
   exact id list: a batch over the cap halved and the size kept for the run, a normal batch untouched, a single issue
   through the per-issue endpoint, an issue over the cap on both endpoints skipped (stays stale, `changelogsSkipped`), the
@@ -566,7 +574,8 @@ never hold the `jira.maxConcurrentRequests` `Semaphore` permit indefinitely.
   tombstone correctly, flag `needs_processing`, and a second RECONCILE pass over the same drift is a
   no-op (idempotence); plus the index-gap case (an id the sweep sees that `raw.jira_issues` never
   stored gets fetched and upserted).
-- `JiraRawStoreTest` — `JiraRawStore`'s own write paths in isolation: the append-only changelog
+- `JiraRawStoreTest` — `JiraRawStore`'s own write paths in isolation (incl. a NUL in an issue, entity, worklog or changelog payload: stored with U+FFFD, a re-write
+  `UNCHANGED`): the append-only changelog
   dedup (`ON CONFLICT DO NOTHING` on a re-inserted history id), the worklog sha256 diff/tombstone/
   resurrection cycle, `staleChangelogIssueIds`/`staleWorklogIssueIds`'s claim-scan predicates, and
   `knownInScopeIssueIds`'s scope filter.
