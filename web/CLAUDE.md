@@ -329,4 +329,4 @@ Rendering & UI wiring (details: `.claude/docs/web-internals.md`): `pages/Changel
 
 ## Not yet ported from Toadie / Lettuce (port, don't reinvent)
 
-When a feature needs a Lettuce or Covenant `web/` building block (`safeBackParam`, `StatusPill`/`MetaStrip`/`FormFooter`/`ListToolbar`, `useDiscardGuard`, the catalog filter-set/facets, the CodeMirror editor), port the sibling's `web/` implementation and its `web/CLAUDE.md` section wholesale — the list is in `.claude/docs/web-internals.md`.
+When a feature needs a Lettuce or Covenant `web/` building block (`safeBackParam`, `StatusPill`/`MetaStrip`/`FormFooter`/`ListToolbar`, `useDiscardGuard` (only `hooks/useBeforeUnloadGuard.ts` is ported — see web-internals), the catalog filter-set/facets, the CodeMirror editor), port the sibling's `web/` implementation and its `web/CLAUDE.md` section wholesale — the list is in `.claude/docs/web-internals.md`.

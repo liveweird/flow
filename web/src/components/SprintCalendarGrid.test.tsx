@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { describe, expect, test } from "vitest";
 import userEvent from "@testing-library/user-event";
-import { screen, within } from "@testing-library/react";
+import { act, fireEvent, screen, within } from "@testing-library/react";
 import SprintCalendarGrid from "./SprintCalendarGrid";
 import { calendarCapacityMd, type CalendarDraft } from "../utils/capacity";
 import { renderWithProviders } from "../test/render";
@@ -136,6 +136,48 @@ describe("SprintCalendarGrid", () => {
     // The footer is plain cell sums, so it needs no coefficient either.
     const footer = screen.getByRole("rowheader", { name: "Counted per day" }).closest("tr") as HTMLElement;
     expect(within(footer).getAllByRole("cell").map((c) => c.textContent)).toEqual(["2", "–", "–", "2"]);
+  });
+
+  test("two edits committed in the same tick both survive (every edit is a function of the previous draft)", () => {
+    renderWithProviders(<Harness />);
+    // One act = one batch: with a closure over the rendered draft the second commit would overwrite the first.
+    act(() => {
+      fireEvent.change(cell("Ada Lovelace", "2026-03-06"), { target: { value: "0.5" } });
+      fireEvent.change(cell("Bob Builder", "2026-03-09"), { target: { value: "0.25" } });
+      fireEvent.click(screen.getByRole("checkbox", { name: "Count 2026-03-07" }));
+    });
+    // Saturday on: Ada 1 x (0.5 + 1 + 1) + Bob 0.8 x (1 + 1 + 0.25) = 2.5 + 1.8.
+    expect(total()).toBe("4.3");
+    expect(cell("Ada Lovelace", "2026-03-06")).toHaveValue("0.5");
+    expect(cell("Bob Builder", "2026-03-09")).toHaveValue("0.25");
+    expect(screen.getByRole("checkbox", { name: "Count 2026-03-07" })).toBeChecked();
+  });
+
+  test("a comma is a decimal separator", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Harness />);
+    const friday = cell("Ada Lovelace", "2026-03-06");
+    await user.clear(friday);
+    await user.type(friday, "0,5");
+    expect(friday).toHaveValue("0.5");
+    expect(total()).toBe("3.1");
+  });
+
+  test("a negative number cannot be typed", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Harness />);
+    const friday = cell("Ada Lovelace", "2026-03-06");
+    await user.clear(friday);
+    await user.type(friday, "-1");
+    expect(friday).toHaveValue("1");
+  });
+
+  test("the weekday initial is decoration, hidden from the accessibility tree", () => {
+    const { container } = renderWithProviders(<Harness />);
+    const initial = container.querySelector('th[title="2026-03-06"] span[aria-hidden="true"]');
+    expect(initial).toHaveTextContent(/^\S$/);
+    // The checkbox still names the day in full.
+    expect(screen.getByRole("checkbox", { name: "Count 2026-03-06" })).toBeInTheDocument();
   });
 
   test("an editor sees the coefficient column", () => {

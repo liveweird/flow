@@ -27,6 +27,9 @@ export async function listTeamSprintCalendars(teamId: number, q: SprintCalendarL
   return jsonRequest<SprintCalendarPage>(`/api/v1/teams/${teamId}/sprint-calendars?${params}`);
 }
 
+/** The one cache key of a sprint's calendar (the page reads it, the editor polls it after a save). */
+export const sprintCalendarQueryKey = (teamId: number, sprintId: number) => ["capacity", "calendar", teamId, sprintId] as const;
+
 export async function getSprintCalendar(teamId: number, sprintId: number): Promise<SprintCalendar> {
   return jsonRequest<SprintCalendar>(`/api/v1/teams/${teamId}/sprint-calendars/${sprintId}`);
 }

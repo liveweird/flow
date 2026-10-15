@@ -59,6 +59,6 @@
 ## Not covered here (and why)
 
 - The grid mechanics (toggles, the typed-number handling, the exact totals against hand computations, `403`/`409` messages) are
-  unit-tested in `web/src/components/SprintCalendarGrid.test.tsx` and `web/src/pages/Capacity.test.tsx`; the page's pickers-only
+  unit-tested in `web/src/components/SprintCalendarGrid.test.tsx` and `web/src/pages/Capacity.test.tsx`; the unsaved-edit handling (a refetch under a dirty draft, the discard confirm on the pickers, the post-save re-read of "Capacity in reports") in `web/src/pages/CapacityEdits.test.tsx`; the page's pickers-only
   state is scanned by `accessibility.spec.ts`.
 - The server-side rules (who may write, the validation, DERIVE's precedence) are covered by the server suite.

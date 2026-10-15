@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import {
   calendarCapacityMd,
   clampTo,
-  dayCapacityMd,
+  dayCapacityTotals,
   sameDraft,
   toCalendarBody,
   withCell,
@@ -40,31 +40,35 @@ const DOC: CalendarDraft = {
 describe("calendarCapacityMd (the server kernel's formula)", () => {
   test("equals the server's figure on the shared hand-built document", () => {
     // a: 0.8 x (1 + 0.5 + 1 + 0.5) = 2.4; b: 1.2 x (0.5 + 1 + 0.25 + 1) = 3.3; c is off, D2 is off; 1.2 x 5.7 = 6.84.
-    expect(calendarCapacityMd(DOC)).toBeCloseTo(6.84, 10);
+    expect(String(calendarCapacityMd(DOC))).toBe("6.84");
   });
 
   test("is exact decimal arithmetic rounded half-up to two decimals at the end", () => {
     const half = { teamCoefficient: 1, days: [{ day: DAYS[0], enabled: true }], people: [{ ...person("a", 1.05, [0.5, 0, 0, 0, 0]) }] };
-    expect(calendarCapacityMd(half)).toBeCloseTo(0.53, 10);
+    expect(String(calendarCapacityMd(half))).toBe("0.53");
     const drift = {
       teamCoefficient: 1,
       days: DAYS.slice(0, 2).map((day) => ({ day, enabled: true })),
       people: [person("a", 1, [0.1, 0.2, 0, 0, 0])],
     };
-    expect(calendarCapacityMd(drift)).toBeCloseTo(0.3, 10);
+    expect(String(calendarCapacityMd(drift))).toBe("0.3");
     expect(calendarCapacityMd({ teamCoefficient: 1, days: [], people: [] })).toBe(0);
   });
 
   test("a counted day with no cell for a person counts zero", () => {
     const gap = { ...DOC, people: [{ ...person("a", 1, [1, 0, 0, 0, 0]), cells: [{ day: DAYS[0], availability: 1 }] }] };
-    expect(calendarCapacityMd(gap)).toBeCloseTo(1.2, 10);
+    expect(String(calendarCapacityMd(gap))).toBe("1.2");
   });
 });
 
-describe("dayCapacityMd", () => {
-  test("is the counted people's cells of one day, before any coefficient", () => {
-    expect(dayCapacityMd(DOC.people, DAYS[0])).toBeCloseTo(1.5, 10);
-    expect(dayCapacityMd(DOC.people, "2099-01-01")).toBe(0);
+describe("dayCapacityTotals", () => {
+  test("is the counted people's cells of every day, before any coefficient", () => {
+    const totals = dayCapacityTotals(DOC.people);
+    // c is off; D2 is a day like any other here (the day toggle is the caller's concern).
+    expect(String(totals.get(DAYS[0]))).toBe("1.5");
+    expect(String(totals.get(DAYS[1]))).toBe("1.5");
+    expect(String(totals.get(DAYS[3]))).toBe("1.25");
+    expect(totals.get("2099-01-01")).toBeUndefined();
   });
 });
 
@@ -79,7 +83,7 @@ describe("withheld coefficients (a read-only caller)", () => {
   });
 
   test("the footer sums cells and never needs a coefficient", () => {
-    expect(dayCapacityMd(withheld.people, DAYS[0])).toBeCloseTo(1.5, 10);
+    expect(String(dayCapacityTotals(withheld.people).get(DAYS[0]))).toBe("1.5");
   });
 
   test("a body cannot be built from a draft with withheld coefficients", () => {
@@ -89,22 +93,29 @@ describe("withheld coefficients (a read-only caller)", () => {
 
 describe("draft updaters", () => {
   test("each returns a new draft with exactly one thing changed", () => {
-    expect(calendarCapacityMd(withTeamCoefficient(DOC, 1))).toBeCloseTo(5.7, 10);
+    expect(String(calendarCapacityMd(withTeamCoefficient(DOC, 1)))).toBe("5.7");
     // D2 on: a +0.8 and b +0.6 -> 1.2 x 7.1.
-    expect(calendarCapacityMd(withDayEnabled(DOC, DAYS[1], true))).toBeCloseTo(8.52, 10);
+    expect(String(calendarCapacityMd(withDayEnabled(DOC, DAYS[1], true)))).toBe("8.52");
     // c on: four counted days of 1 -> 1.2 x 9.7.
-    expect(calendarCapacityMd(withPersonEnabled(DOC, "c", true))).toBeCloseTo(11.64, 10);
+    expect(String(calendarCapacityMd(withPersonEnabled(DOC, "c", true)))).toBe("11.64");
     // a at 1: 3 + 3.3 = 6.3.
-    expect(calendarCapacityMd(withPersonCoefficient(DOC, "a", 1))).toBeCloseTo(7.56, 10);
+    expect(String(calendarCapacityMd(withPersonCoefficient(DOC, "a", 1)))).toBe("7.56");
     // a's D1 cell at 0.5: a = 0.8 x 2.5 = 2.0, b = 3.3.
-    expect(calendarCapacityMd(withCell(DOC, "a", DAYS[0], 0.5))).toBeCloseTo(6.36, 10);
-    expect(DOC.teamCoefficient).toBeCloseTo(1.2, 10);
+    expect(String(calendarCapacityMd(withCell(DOC, "a", DAYS[0], 0.5)))).toBe("6.36");
+    expect(String(DOC.teamCoefficient)).toBe("1.2");
     expect(DOC.people[0].cells[0].availability).toBe(1);
   });
 
-  test("sameDraft compares by content", () => {
+  test("sameDraft compares by content, and an edit that changes nothing is the same draft", () => {
     expect(sameDraft(DOC, withTeamCoefficient(DOC, 1.2))).toBe(true);
     expect(sameDraft(DOC, withTeamCoefficient(DOC, 1))).toBe(false);
+    expect(sameDraft(DOC, JSON.parse(JSON.stringify(DOC)) as CalendarDraft)).toBe(true);
+    expect(sameDraft(DOC, withCell(DOC, "a", DAYS[0], 1))).toBe(true);
+    expect(sameDraft(DOC, withCell(DOC, "a", DAYS[0], 0.5))).toBe(false);
+    expect(sameDraft(DOC, withDayEnabled(DOC, DAYS[1], true))).toBe(false);
+    expect(sameDraft(DOC, withPersonEnabled(DOC, "c", true))).toBe(false);
+    expect(sameDraft(DOC, withPersonCoefficient(DOC, "a", 0.9))).toBe(false);
+    expect(sameDraft(DOC, { ...DOC, people: DOC.people.slice(1) })).toBe(false);
   });
 
   test("the PUT body is the whole document without the grid-only person fields", () => {
@@ -118,6 +129,6 @@ describe("draft updaters", () => {
   test("clampTo holds a value to its range and to two decimals", () => {
     expect(clampTo(2.5, 0, 2)).toBe(2);
     expect(clampTo(-1, 0, 1)).toBe(0);
-    expect(clampTo(0.456, 0, 1)).toBeCloseTo(0.46, 10);
+    expect(String(clampTo(0.456, 0, 1))).toBe("0.46");
   });
 });

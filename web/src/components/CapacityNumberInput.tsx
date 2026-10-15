@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { NumberInput, type NumberInputProps } from "@mantine/core";
-import { clampTo } from "../utils/capacity";
+import { clampTo, DECIMAL_SEPARATORS } from "../utils/capacity";
 
 type Props = Omit<NumberInputProps, "value" | "onChange" | "min" | "max" | "decimalScale"> & {
   /** The committed value; the caller owns it. */
@@ -32,6 +32,8 @@ export default function CapacityNumberInput({ value, min, max, onCommit, ...rest
       min={min}
       max={max}
       decimalScale={2}
+      allowNegative={false}
+      allowedDecimalSeparators={DECIMAL_SEPARATORS}
       value={text}
       onChange={(next) => {
         setText(next);

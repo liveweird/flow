@@ -1,17 +1,20 @@
+import { useCallback, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Badge, Group, Select, Stack, Text } from "@mantine/core";
 import { IconCalendarStats, IconUsersGroup } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { getSprintCalendar, getTeamCapacity, listTeamSprintCalendars, type SprintCalendarSummary } from "../api/capacity";
+import { getSprintCalendar, getTeamCapacity, listTeamSprintCalendars, sprintCalendarQueryKey, type SprintCalendarSummary } from "../api/capacity";
 import { getReportFilters } from "../api/reports";
 import { listTeams } from "../api/teams";
+import ConfirmActionModal from "../components/ConfirmActionModal";
 import EmptyState from "../components/EmptyState";
 import ErrorAlert from "../components/ErrorAlert";
 import LoadingBlock from "../components/LoadingBlock";
 import PageHeader from "../components/PageHeader";
 import SprintCalendarEditor from "../components/SprintCalendarEditor";
 import TeamCapacityDefaultCard from "../components/TeamCapacityDefaultCard";
+import { useBeforeUnloadGuard } from "../hooks/useBeforeUnloadGuard";
 import { capacityPath, capacitySprintPath, capacityTeamPath, parseCapacitySelection } from "../utils/capacityLinks";
 import { formatDate } from "../utils/formatDate";
 
@@ -21,7 +24,8 @@ const PICKER_PAGE_SIZE = 100;
 function sprintLabel(sprint: SprintCalendarSummary, timeZone: string): string {
   if (sprint.startAt === null) return sprint.name;
   const end = sprint.endAt ?? sprint.completeAt;
-  return `${sprint.name} · ${formatDate(sprint.startAt, "—", timeZone)} → ${formatDate(end, "—", timeZone)}`;
+  // The last day is the one holding the final millisecond (`end - 1`) — the grid's rule, so a sprint ending at midnight does not show the day after it.
+  return `${sprint.name} · ${formatDate(sprint.startAt, "—", timeZone)} → ${formatDate(end === null ? null : end - 1, "—", timeZone)}`;
 }
 
 /**
@@ -29,13 +33,26 @@ function sprintLabel(sprint: SprintCalendarSummary, timeZone: string): string {
  * selection (`?teamId=&sprintId=`, deep-linkable; changes `replace`). Everyone reads; the server says
  * per team whether the caller may edit (`canEdit`: the team's manager or an ADMIN) and the inputs
  * follow it. Two surfaces for the picked team: its default figure (`TEAM_DEFAULT`) and, once a sprint
- * is picked, that sprint's person x day calendar (`components/SprintCalendarGrid.tsx`).
+ * is picked, that sprint's person x day calendar (`components/SprintCalendarGrid.tsx`). Both report
+ * whether they hold unsaved edits; the pickers ask before discarding them and a reload/close is
+ * guarded by the browser's own prompt (`useBeforeUnloadGuard`). In-app links elsewhere are not
+ * blocked: the app runs on a plain `BrowserRouter`, and `useBlocker` needs a data router.
  */
 export default function Capacity() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const { teamId, sprintId } = parseCapacitySelection(params);
+  // Which surfaces hold unsaved edits (refs: the pickers read them at click time, nothing renders from them).
+  const dirtySurfaces = useRef(new Set<string>());
+  const reportDirty = useCallback((surface: string, dirty: boolean) => {
+    if (dirty) dirtySurfaces.current.add(surface);
+    else dirtySurfaces.current.delete(surface);
+  }, []);
+  const reportCalendarDirty = useCallback((dirty: boolean) => reportDirty("calendar", dirty), [reportDirty]);
+  const reportDefaultDirty = useCallback((dirty: boolean) => reportDirty("default", dirty), [reportDirty]);
+  useBeforeUnloadGuard(() => dirtySurfaces.current.size > 0);
+  const [pendingNavigation, setPendingNavigation] = useState<(() => void) | null>(null);
 
   const teams = useQuery({
     queryKey: ["teams", "capacity-picker"],
@@ -56,7 +73,7 @@ export default function Capacity() {
     enabled: teamId !== undefined,
   });
   const calendar = useQuery({
-    queryKey: ["capacity", "calendar", teamId, sprintId],
+    queryKey: sprintCalendarQueryKey(teamId as number, sprintId as number),
     queryFn: () => getSprintCalendar(teamId as number, sprintId as number),
     enabled: teamId !== undefined && sprintId !== undefined,
   });
@@ -66,14 +83,22 @@ export default function Capacity() {
   const sprintOptions = sprintItems.map((sprint) => ({ value: String(sprint.sprintId), label: sprintLabel(sprint, timeZone) }));
   const hasCalendar = new Set(sprintItems.filter((sprint) => sprint.hasCalendar).map((sprint) => String(sprint.sprintId)));
   const truncated = sprints.data !== undefined && sprints.data.total > sprintItems.length;
+  const teamsTruncated = teams.data !== undefined && teams.data.total > teams.data.items.length;
+
+  /** Go now when nothing is unsaved, else ask first: the pickers replace the editors, which drops their drafts. */
+  function navigateGuarded(to: string) {
+    const go = () => navigate(to, { replace: true });
+    if (dirtySurfaces.current.size === 0) go();
+    else setPendingNavigation(() => go);
+  }
 
   function pickTeam(value: string | null) {
-    navigate(value === null ? capacityPath : capacityTeamPath(Number(value)), { replace: true });
+    navigateGuarded(value === null ? capacityPath : capacityTeamPath(Number(value)));
   }
 
   function pickSprint(value: string | null) {
     if (teamId === undefined) return;
-    navigate(value === null ? capacityTeamPath(teamId) : capacitySprintPath(teamId, Number(value)), { replace: true });
+    navigateGuarded(value === null ? capacityTeamPath(teamId) : capacitySprintPath(teamId, Number(value)));
   }
 
   const toolbar = (
@@ -87,6 +112,7 @@ export default function Capacity() {
         searchable
         w={260}
         disabled={teams.data === undefined}
+        description={teamsTruncated ? t("capacity.team.truncated", { shown: teams.data?.items.length, total: teams.data?.total }) : undefined}
       />
       <Select
         label={t("capacity.sprint.label")}
@@ -125,7 +151,7 @@ export default function Capacity() {
         <>
           {teamCapacity.isError && <ErrorAlert error={teamCapacity.error} />}
           {teamCapacity.data && (
-            <TeamCapacityDefaultCard key={`${teamCapacity.data.teamId}-${teamCapacity.data.updatedAt ?? "none"}`} capacity={teamCapacity.data} />
+            <TeamCapacityDefaultCard key={teamCapacity.data.teamId} capacity={teamCapacity.data} onDirtyChange={reportDefaultDirty} />
           )}
           {sprints.isError && <ErrorAlert error={sprints.error} />}
           {sprints.data?.total === 0 && <EmptyState icon={IconCalendarStats} label={t("capacity.sprint.none")} />}
@@ -133,13 +159,22 @@ export default function Capacity() {
           {sprintId !== undefined && calendar.isLoading && <LoadingBlock />}
           {sprintId !== undefined && calendar.isError && <ErrorAlert error={calendar.error} />}
           {calendar.data && sprintId !== undefined && (
-            <SprintCalendarEditor
-              key={`${calendar.data.teamId}-${calendar.data.sprintId}-${calendar.data.updatedAt ?? "none"}`}
-              calendar={calendar.data}
-            />
+            <SprintCalendarEditor key={`${calendar.data.teamId}-${calendar.data.sprintId}`} calendar={calendar.data} onDirtyChange={reportCalendarDirty} />
           )}
         </>
       )}
+      <ConfirmActionModal
+        opened={pendingNavigation !== null}
+        onClose={() => setPendingNavigation(null)}
+        title={t("common.discard.title")}
+        message={t("common.discard.message")}
+        cancelLabel={t("common.action.keepEditing")}
+        confirmLabel={t("common.action.discard")}
+        onConfirm={() => {
+          pendingNavigation?.();
+          setPendingNavigation(null);
+        }}
+      />
     </Stack>
   );
 }

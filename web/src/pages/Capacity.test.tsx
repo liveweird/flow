@@ -1,125 +1,20 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { screen, waitFor, within } from "@testing-library/react";
-import { useLocation } from "react-router-dom";
-import Capacity from "./Capacity";
 import { headingOutline } from "../test/headings";
-import { jsonResponse } from "../test/http";
-import { renderWithProviders } from "../test/render";
-
-const DAYS = ["2026-03-06", "2026-03-07", "2026-03-08", "2026-03-09"];
-const FRIDAY_8AM = Date.UTC(2026, 2, 6, 8);
-const MONDAY_5PM = Date.UTC(2026, 2, 9, 16);
-
-const TEAMS = {
-  items: [
-    { id: 3, name: "Payments", description: null, managerUserId: 7, managerName: "Mia Manager", memberCount: 2, createdAt: 1, updatedAt: 2 },
-    { id: 4, name: "Identity", description: null, managerUserId: null, managerName: null, memberCount: 0, createdAt: 1, updatedAt: 2 },
-  ],
-  page: 1,
-  pageSize: 100,
-  total: 2,
-};
-
-function sprintSummary(sprintId: number, name: string, hasCalendar: boolean) {
-  return {
-    sprintId,
-    connectionId: 1,
-    name,
-    state: "CLOSED",
-    startAt: FRIDAY_8AM,
-    endAt: MONDAY_5PM,
-    completeAt: MONDAY_5PM,
-    hasCalendar,
-    capacityMd: 20,
-    capacitySource: "TEAM_DEFAULT",
-  };
-}
-
-const SPRINTS = {
-  items: [sprintSummary(12, "Sprint 12", false), sprintSummary(11, "Sprint 11", true)],
-  page: 1,
-  pageSize: 100,
-  total: 2,
-};
-
-function person(accountId: string, displayName: string, coefficient: number, member = true) {
-  return { accountId, displayName, member, enabled: true, coefficient, cells: DAYS.map((day) => ({ day, availability: 1 })) };
-}
-
-// Fri + Mon counted, the weekend off; Ada at 1, Bob at 0.8 and no longer a member: 1 x (2 + 0.8 x 2)... = (2 + 1.6) = 3.6.
-function calendar(overrides: Record<string, unknown> = {}) {
-  return {
-    teamId: 3,
-    sprintId: 11,
-    connectionId: 1,
-    sprintName: "Sprint 11",
-    sprintState: "CLOSED",
-    window: { from: DAYS[0], to: DAYS[3] },
-    note: null,
-    hasCalendar: true,
-    canEdit: true,
-    capacityMd: 3.6,
-    teamCoefficient: 1,
-    days: DAYS.map((day, i) => ({ day, enabled: i === 0 || i === 3 })),
-    people: [person("ada", "Ada Lovelace", 1), person("bob", "Bob Builder", 0.8, false)],
-    derivedCapacityMd: 20,
-    derivedCapacitySource: "TEAM_DEFAULT",
-    updatedAt: 1000,
-    updatedByUserId: 7,
-    ...overrides,
-  };
-}
-
-type Reply = { status: number; body?: unknown };
-
-interface Api {
-  calendar?: Record<string, unknown>;
-  capacity?: Record<string, unknown>;
-  sprints?: unknown;
-  teams?: unknown;
-  puts?: Record<string, Reply>;
-}
-
-type FetchMock = ReturnType<typeof vi.fn>;
-
-function serve(mockFetch: FetchMock, api: Api = {}) {
-  mockFetch.mockImplementation((url: string, init?: RequestInit) => {
-    const method = init?.method ?? "GET";
-    const put = api.puts?.[`${method} ${url}`];
-    if (put) return Promise.resolve(put.body === undefined ? new Response(null, { status: put.status }) : jsonResponse(put.status, put.body));
-    if (method === "PUT") return Promise.resolve(new Response(null, { status: 204 }));
-    if (url.startsWith("/api/v1/teams?")) return Promise.resolve(jsonResponse(200, api.teams ?? TEAMS));
-    if (url === "/api/v1/reports/filters") return Promise.resolve(jsonResponse(200, { timeZone: "Europe/Warsaw" }));
-    if (/^\/api\/v1\/teams\/\d+\/sprint-calendars\?/.test(url)) return Promise.resolve(jsonResponse(200, api.sprints ?? SPRINTS));
-    if (/^\/api\/v1\/teams\/\d+\/sprint-calendars\/\d+$/.test(url)) return Promise.resolve(jsonResponse(200, calendar(api.calendar)));
-    if (/^\/api\/v1\/teams\/\d+\/capacity$/.test(url)) {
-      return Promise.resolve(jsonResponse(200, { teamId: 3, defaultCapacityMd: 40, canEdit: true, updatedAt: 500, ...api.capacity }));
-    }
-    return Promise.resolve(jsonResponse(404, { title: "Not Found", status: 404 }));
-  });
-}
-
-function Probe() {
-  const { pathname, search } = useLocation();
-  return <p data-testid="at">{pathname + search}</p>;
-}
-
-function renderPage(route = "/capacity") {
-  return renderWithProviders(
-    <>
-      <Capacity />
-      <Probe />
-    </>,
-    { route },
-  );
-}
-
-const putCalls = (mockFetch: FetchMock) => mockFetch.mock.calls.filter(([, init]) => (init as RequestInit | undefined)?.method === "PUT");
-const putBody = (mockFetch: FetchMock, url: string): unknown => {
-  const call = putCalls(mockFetch).find(([u]) => u === url);
-  return JSON.parse((call?.[1] as RequestInit).body as string);
-};
+import {
+  calendarGets,
+  person,
+  putBody,
+  putCalls,
+  renderPage,
+  serve,
+  sprintSummary,
+  DAYS,
+  SPRINTS,
+  TEAMS,
+  type FetchMock,
+} from "../test/capacityKit";
 
 describe("Capacity page", () => {
   let mockFetch: FetchMock;
@@ -276,10 +171,10 @@ describe("Capacity page", () => {
   test("a non-manager reads: every input and Save are disabled and the note says why", async () => {
     // The server withholds the per-person coefficients from a caller who cannot edit.
     const people = [person("ada", "Ada Lovelace", 1), person("bob", "Bob Builder", 0.8, false)].map((p) => ({ ...p, coefficient: null }));
-    serve(mockFetch, { calendar: { canEdit: false, people }, capacity: { canEdit: false } });
+    serve(mockFetch, { calendar: { canEdit: false, people, capacityMd: 7.77 }, capacity: { canEdit: false } });
     renderPage("/capacity?teamId=3&sprintId=11");
-    // The total is the server's figure (the formula needs the coefficients), and the coefficient column is gone.
-    await screen.findByText("This calendar: 3.6 MD");
+    // The total is the server's figure (the formula needs the coefficients, which are null), and the coefficient column is gone.
+    await screen.findByText("This calendar: 7.77 MD");
     expect(screen.queryByRole("columnheader", { name: "Coefficient" })).not.toBeInTheDocument();
     expect(screen.queryByRole("textbox", { name: /Coefficient of/ })).not.toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "Team coefficient" })).toHaveValue("1");
@@ -307,6 +202,9 @@ describe("Capacity page", () => {
     await user.click(screen.getByRole("button", { name: "Save calendar" }));
     expect(await screen.findByText(message)).toBeInTheDocument();
     expect(screen.queryByText(/SERVER-SIDE DETAIL/)).not.toBeInTheDocument();
+    // A rejected, vanished or conflicting document means the loaded one is stale: those three refetch, 403 and 500 do not.
+    if ([400, 404, 409].includes(status)) await waitFor(() => expect(calendarGets(mockFetch)).toBeGreaterThan(1));
+    else expect(calendarGets(mockFetch)).toBe(1);
   });
 
   test("the team default saves its figure, and clearing it saves null", async () => {
@@ -325,6 +223,26 @@ describe("Capacity page", () => {
     await user.click(screen.getByRole("button", { name: "Save default" }));
     await waitFor(() => expect(putCalls(mockFetch)).toHaveLength(2));
     expect(JSON.parse((putCalls(mockFetch)[1][1] as RequestInit).body as string)).toEqual({ defaultCapacityMd: null });
+  });
+
+  test("the team default takes a comma, refuses a negative sign and flags a non-number instead of sending null", async () => {
+    serve(mockFetch);
+    const user = userEvent.setup();
+    renderPage("/capacity?teamId=3");
+    const field = await screen.findByRole("textbox", { name: "Default capacity (MD)" });
+    await user.clear(field);
+    await user.type(field, "-7,5");
+    expect(field).toHaveValue("7.5");
+    await user.clear(field);
+    await user.type(field, ".");
+    expect(screen.getByText("Enter a figure from 0 to 999999.99, or leave it blank for none.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save default" })).toBeDisabled();
+    await user.clear(field);
+    await user.type(field, "12,25");
+    expect(screen.queryByText(/Enter a figure from 0/)).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Save default" }));
+    await waitFor(() => expect(putCalls(mockFetch)).toHaveLength(1));
+    expect(putBody(mockFetch, "/api/v1/teams/3/capacity")).toEqual({ defaultCapacityMd: 12.25 });
   });
 
   test("a rejected team default shows the fixed message", async () => {
@@ -352,5 +270,49 @@ describe("Capacity page", () => {
     serve(mockFetch, { teams: { items: [], page: 1, pageSize: 100, total: 0 } });
     renderPage();
     expect(await screen.findByText("There is no team yet. An administrator adds teams on the Teams page.")).toBeInTheDocument();
+  });
+
+  test("picking another team drops the sprint from the URL", async () => {
+    serve(mockFetch);
+    const user = userEvent.setup();
+    renderPage("/capacity?teamId=3&sprintId=11");
+    await screen.findByText("This calendar: 3.6 MD");
+    await user.click(screen.getByRole("combobox", { name: "Team" }));
+    await user.click(await screen.findByRole("option", { name: "Identity" }));
+    await waitFor(() => expect(screen.getByTestId("at")).toHaveTextContent(/^\/capacity\?teamId=4$/));
+  });
+
+  test("a long team list says it is cut, like the sprint list", async () => {
+    serve(mockFetch, { teams: { ...TEAMS, total: 130 } });
+    renderPage();
+    expect(await screen.findByText("Showing the first 2 of 130 teams.")).toBeInTheDocument();
+  });
+
+  test("the sprint picker ends a sprint on its last day, as the grid does", async () => {
+    // The sprint ends at Warsaw midnight (exclusive): its last day is the 9th, not the 10th.
+    const midnight = Date.UTC(2026, 2, 9, 23);
+    serve(mockFetch, { sprints: { ...SPRINTS, items: [{ ...sprintSummary(13, "Sprint 13", false), endAt: midnight, completeAt: midnight }], total: 1 } });
+    const user = userEvent.setup();
+    renderPage("/capacity?teamId=3");
+    await user.click(await screen.findByRole("combobox", { name: "Sprint" }));
+    expect(await screen.findByRole("option", { name: /Sprint 13/ })).toHaveTextContent("Sprint 13 · 2026-03-06 → 2026-03-09");
+  });
+
+  test("the total is not a live region (it changes on every keystroke)", async () => {
+    serve(mockFetch);
+    renderPage("/capacity?teamId=3&sprintId=11");
+    const total = await screen.findByText("This calendar: 3.6 MD");
+    expect(total.closest("[aria-live]")).toBeNull();
+  });
+
+  test("a sprint whose team has nobody to plan cannot be saved or given a coefficient", async () => {
+    serve(mockFetch, { calendar: { people: [], capacityMd: 0, hasCalendar: false, updatedAt: null } });
+    renderPage("/capacity?teamId=3&sprintId=12");
+    expect(await screen.findByText("No team member overlaps this sprint, so there is nobody to plan.")).toBeInTheDocument();
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+    // A save would store a zero calendar that overrides the team default.
+    expect(screen.getByRole("button", { name: "Save calendar" })).toBeDisabled();
+    expect(screen.getByRole("textbox", { name: "Team coefficient" })).toBeDisabled();
+    expect(putCalls(mockFetch)).toHaveLength(0);
   });
 });

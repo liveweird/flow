@@ -23,6 +23,8 @@ interface CountedPerson {
 export const COEFFICIENT_MAX = 2;
 export const AVAILABILITY_MAX = 1;
 export const TEAM_DEFAULT_MD_MAX = 999_999.99;
+/** A Polish keyboard types "," — a number field reads it as the dot (react-number-format converts it). */
+export const DECIMAL_SEPARATORS = [",", "."];
 
 /** Two-decimal values as whole hundredths: the server sums exact decimals, so the sum is done in integers too. */
 const hundredths = (value: number) => Math.round(value * 100);
@@ -47,15 +49,29 @@ export function calendarCapacityMd(doc: { teamCoefficient: number; days: Readonl
   return roundScaled((hundredths(doc.teamCoefficient) * perPerson) / 1_000_000) / 100;
 }
 
-/** The footer figure of one day: the man-days the counted people give that day, before any coefficient. */
-export function dayCapacityMd(people: ReadonlyArray<Pick<CountedPerson, "enabled" | "cells">>, day: string): number {
-  let total = 0;
+/**
+ * The footer figures: for every day, the man-days the counted people give that day, before any
+ * coefficient — one pass over the cells (the grid recomputes it per edit, so no per-day `find`).
+ */
+export function dayCapacityTotals(people: ReadonlyArray<Pick<CountedPerson, "enabled" | "cells">>): Map<string, number> {
+  const totals = new Map<string, number>();
   for (const person of people) {
     if (!person.enabled) continue;
-    const cell = person.cells.find((c) => c.day === day);
-    if (cell) total += hundredths(cell.availability);
+    for (const cell of person.cells) totals.set(cell.day, (totals.get(cell.day) ?? 0) + hundredths(cell.availability));
   }
-  return total / 100;
+  for (const [day, total] of totals) totals.set(day, total / 100);
+  return totals;
+}
+
+/**
+ * What the field holds as a figure: a number, `null` for an explicitly cleared (blank) field, and
+ * `undefined` for anything else — text that is not a finite number, or a number outside 0..max. An
+ * invalid field is never sent as null (that would clear the stored default by accident).
+ */
+export function parseFigure(value: string | number): number | null | undefined {
+  if (value === "") return null;
+  const figure = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(figure) && figure >= 0 && figure <= TEAM_DEFAULT_MD_MAX ? figure : undefined;
 }
 
 /** A typed-in number held to a field's range and to two decimals — the server rejects anything else. */
@@ -88,8 +104,32 @@ function failMissingCoefficient(accountId: string): never {
   throw new Error(`coefficient of ${accountId} is withheld`);
 }
 
+function sameList<T>(a: ReadonlyArray<T>, b: ReadonlyArray<T>, same: (x: T, y: T) => boolean): boolean {
+  return a === b || (a.length === b.length && a.every((x, i) => x === b[i] || same(x, b[i])));
+}
+
+/**
+ * Content equality that short-cuts on identity: an edit replaces only the person (and the cell)
+ * it touched, so comparing a draft with the document it was seeded from costs one pass over the
+ * people plus the changed rows — never a serialisation of the whole document.
+ */
 export function sameDraft(a: CalendarDraft, b: CalendarDraft): boolean {
-  return JSON.stringify(a) === JSON.stringify(b);
+  return (
+    a === b ||
+    (a.teamCoefficient === b.teamCoefficient &&
+      sameList(a.days, b.days, (x, y) => x.day === y.day && x.enabled === y.enabled) &&
+      sameList(
+        a.people,
+        b.people,
+        (x, y) =>
+          x.accountId === y.accountId &&
+          x.displayName === y.displayName &&
+          x.member === y.member &&
+          x.enabled === y.enabled &&
+          x.coefficient === y.coefficient &&
+          sameList(x.cells, y.cells, (c, d) => c.day === d.day && c.availability === d.availability),
+      ))
+  );
 }
 
 export const withTeamCoefficient = (draft: CalendarDraft, teamCoefficient: number): CalendarDraft => ({ ...draft, teamCoefficient });

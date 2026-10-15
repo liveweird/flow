@@ -4,7 +4,8 @@
   "team": {
     "label": "Team",
     "placeholder": "Pick a team",
-    "none": "There is no team yet. An administrator adds teams on the Teams page."
+    "none": "There is no team yet. An administrator adds teams on the Teams page.",
+    "truncated": "Showing the first {{shown}} of {{total}} teams."
   },
   "sprint": {
     "label": "Sprint",
@@ -18,6 +19,7 @@
     "title": "Team default capacity",
     "intro": "One figure in man-days for every sprint of this team that has no calendar. Precedence: the sprint's calendar, then this figure, then the members times the working days.",
     "field": "Default capacity (MD)",
+    "invalid": "Enter a figure from 0 to 999999.99, or leave it blank for none.",
     "save": "Save default",
     "readOnly": "Only the team's manager or an administrator can edit the team's capacity."
   },
@@ -34,6 +36,7 @@
     "save": "Save calendar",
     "reset": "Reset",
     "noPeople": "No team member overlaps this sprint, so there is nobody to plan.",
+    "changedElsewhere": "This calendar changed elsewhere — Reset to load the latest. Saving now overwrites it.",
     "totalHint": "Saving it makes reports use it."
   },
   "grid": {
