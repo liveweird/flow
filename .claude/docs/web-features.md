@@ -531,7 +531,29 @@ completed · the report's figures · the orange drift badge with the frozen figu
   thresholds of the item's own kind: the top threshold red ("above p95"), the next orange ("above p85"), the
   rest gray — the text always names the threshold, colour is never the only carrier. Blocked is a red outline
   badge with the word; Waiting (`item.waiting`, A30) is a light grape badge with the word in its own "Waiting"
-  column, rendered only when some listed item waits (waiting items keep aging). The Home WIP tile's total is
+  column, rendered only when some listed item waits (waiting items keep aging).
+  **The aging chart** (`components/AgingChartSection.tsx` — the card body: switch, notice, legend, truncation note — over the lazy
+  `AgingScatterChart.tsx`, `ScatterChart` of `@mantine/charts`; pure logic in `utils/agingChart.ts`, marks in `AgingDotMark.tsx`) is a
+  `ReportChartCard` between the thresholds and the table, absent when nothing is in progress: one dot per listed item, x = where it is in the
+  workflow (the report's `positions`, in the server's order, never re-sorted: a team's board columns or the statuses), y = its age in working
+  days from 0, extended (6% headroom, rounded up) to the oldest item or the highest threshold — **an outlier is never clipped**; a "Log scale" `Switch`
+  (off by default, remembered per viewer under `flow.viewSettings.reports.agingWip.logScale`) turns the y axis logarithmic from 0.5 working days
+  with 1-2-5 ticks — ages under half a day are PLOTTED on the 0.5 line (tooltip and table keep the true age, the axis label and a note say the scale). **Tasks and epics are never on one plot** (different threshold scales): tasks by default, a
+  "Tasks | Epics" `SegmentedControl` (the WIP `itemKind` labels, local state) appears only when the list holds both, and each plot has only the
+  positions its own items hold. The x axis is a NUMBER axis (the category index plus a deterministic jitter inside the category band —
+  `jitterOf`, an FNV-1a hash of `itemKind:issueKey`, never `Math.random()`) whose ticks are the category indexes, labelled by `tickFormatter`
+  with the position names (shortened to 12 characters from 7 categories on; the tooltip and table carry the full name) — the category-axis
+  route `@mantine/charts` does not offer, since the library hard-codes `type="number"`. The thresholds are dashed `referenceLines`, one per
+  configured percentile, labelled "p85 · 12 wd" in the TEXT colour (the line wears its band's hue by rank: gray / orange / red); hidden
+  thresholds draw no line and show the `MinSampleNotice` above the chart, the dots still render (gray, no band). **Dots** (a custom
+  `scatterProps.shape`): the server's `band` read through `bandTone` — red.7 the top threshold, orange.8 the next, gray.6 the rest, from
+  `chartColors.ts`, no new hue — as a 12 px dot with a 2 px surface ring; **waiting** is a second channel, a HOLLOW dot (surface fill, band-coloured
+  outline); **blocked** a red outer ring with a gap; the selected dot a thin text-colour ring; each dot has a ~26 px transparent hit target. A page-built
+  legend (`ChartLegendList`) names the bands by threshold ("Above p95", "Above p85", "At or below p85"), hollow = waiting, outer ring = blocked; the
+  tooltip names key, summary, position, age, band, assignee, waiting and blocked in words. **Clicking a dot** selects it (page state, a second click
+  lets go): `AgingItemsTable` marks that row (`data-selected`, the primary tint) and scrolls it into view. The dots are a pointer affordance only;
+  the keyboard and screen-reader route is the table, which is the chart's text alternative (every item, every number). A truncated list is plotted
+  as listed and repeats the truncation note. The Home WIP tile's total is
   the count of listed tasks, so it includes waiting ones with no extra code. Flow efficiency's caption on Reported time
   says time in a waiting status counts as waiting. Issue keys are plain text (no page links to Jira). Blocked time composes
   `DistributionWithAccounting` twice (blocked working days over EVERY finished item, so no exclusions and a

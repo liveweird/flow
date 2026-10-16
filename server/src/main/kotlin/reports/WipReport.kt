@@ -67,10 +67,10 @@ data class WipReport(
 internal const val STAGE_DONE = "DONE"
 
 /** The stages `item_stage` carries, in flow order — also the fixed key set of `by=STAGE`. */
-private val WIP_STAGES = listOf("NOT_STARTED", "IN_PROGRESS", "WAITING", "DONE", "UNMAPPED")
+internal val WIP_STAGES = listOf("NOT_STARTED", "IN_PROGRESS", "WAITING", "DONE", "UNMAPPED")
 
 /** The `by=COLUMN` key of a status no column of the board holds. */
-private const val NO_COLUMN_KEY = "(no column)"
+internal const val NO_COLUMN_KEY = "(no column)"
 
 /** USER level counts the picked people's tasks only: an epic has no assignee (D2), so `itemKind=EPIC` is empty and `BOTH` is `TASK`. */
 private const val USER_EPICS_NOTE = "USER level counts the picked people's tasks only: an epic has no assignee, so epics are left out"
@@ -82,7 +82,7 @@ private const val USER_EPICS_NOTE = "USER level counts the picked people's tasks
 internal data class WipCell(val day: String, val statusId: String, val stage: String, val count: Int, val accountId: String? = null)
 
 /** A team's board resolved for `by=COLUMN`: the connections it lives on and its columns' status membership. */
-private class ColumnMapping(val connectionIds: List<UInt>, val columns: List<String>, val columnOfStatus: Map<String, String>)
+internal class ColumnMapping(val connectionIds: List<UInt>, val columns: List<String>, val columnOfStatus: Map<String, String>)
 
 private fun WipItemKind.storedKinds(): List<String> = when (this) {
     WipItemKind.TASK -> listOf(WIP_KIND_TASK)
@@ -189,10 +189,16 @@ private suspend fun fetchWipCells(
 private suspend fun columnMappingFor(scope: SnapshotScope, connectionIds: List<UInt>): ColumnMapping {
     val teamId = (scope as? SnapshotScope.Team)?.teamId
         ?: throw BadRequestException("by=COLUMN needs a teamId naming a real team: a board column belongs to one team's board")
+    return boardColumnMappingOrNull(teamId, connectionIds)
+        ?: throw BadRequestException("Team $teamId has no board mapped in the connections in scope; by=COLUMN needs one")
+}
+
+/** [columnMappingFor]'s read, `null` instead of a `400` when the team has no board in [connectionIds] (the aging x-axis). */
+internal suspend fun boardColumnMappingOrNull(teamId: UInt, connectionIds: List<UInt>): ColumnMapping? {
     val map = MetricsConfigService.BoardTeamMap
     val boards = map.selectAll().where { (map.teamId eq teamId) and (map.connectionId inList connectionIds) }.toList()
         .map { it[map.connectionId].value to it[map.boardId] }
-    if (boards.isEmpty()) throw BadRequestException("Team $teamId has no board mapped in the connections in scope; by=COLUMN needs one")
+    if (boards.isEmpty()) return null
     val columns = WorkItemStore.BoardColumns
     val rows = boards.flatMap { (connectionId, boardId) ->
         columns.selectAll().where { (columns.connectionId eq connectionId) and (columns.boardId eq boardId) }
@@ -239,18 +245,16 @@ private suspend fun wipKeys(by: WipBy, cells: List<WipCell>, mapping: ColumnMapp
         val rankOfStatus = cells.groupBy { it.statusId }
             .mapValues { (_, group) -> group.minOf { WIP_STAGES.indexOf(it.stage) } }
         val names = statusNames(rankOfStatus.keys, connectionIds)
-        rankOfStatus.keys
-            .sortedWith(
-                compareBy<String> { rankOfStatus.getValue(it) }
-                    .thenBy { names[it] ?: it }
-                    .thenBy { it },
-            )
-            .map { WipKey(it, names[it] ?: it) }
+        sortStatusIds(rankOfStatus, names).map { WipKey(it, names[it] ?: it) }
     }
 }
 
+/** The `by=STATUS` legend order, shared with the aging chart's x-axis: earliest-stage rank, then name, then id. */
+internal fun sortStatusIds(rankOfStatus: Map<String, Int>, names: Map<String, String>): List<String> =
+    rankOfStatus.keys.sortedWith(compareBy<String> { rankOfStatus.getValue(it) }.thenBy { names[it] ?: it }.thenBy { it })
+
 /** `norm.statuses` names by status id — the lowest connection id's name wins when a status id repeats across connections. */
-private suspend fun statusNames(statusIds: Collection<String>, connectionIds: List<UInt>): Map<String, String> {
+internal suspend fun statusNames(statusIds: Collection<String>, connectionIds: List<UInt>): Map<String, String> {
     if (statusIds.isEmpty() || connectionIds.isEmpty()) return emptyMap()
     val s = WorkItemStore.Statuses
     return s.select(s.statusId, s.name)

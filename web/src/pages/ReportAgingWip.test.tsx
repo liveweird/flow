@@ -1,10 +1,39 @@
-import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import type { ReactElement } from "react";
+import { afterEach, beforeEach, describe, expect, onTestFinished, test, vi } from "vitest";
+import userEvent from "@testing-library/user-event";
 import { Route, Routes } from "react-router-dom";
 import ReportAgingWip from "./ReportAgingWip";
 import { jsonResponse } from "../test/http";
-import { AGING_EMPTY, AGING_HIDDEN, AGING_TEAM, AGING_TRUNCATED, AGING_UNIT, FILTERS } from "../test/reportFixtures";
+import { AGING_BOARD, AGING_EMPTY, AGING_HIDDEN, AGING_TEAM, AGING_TRUNCATED, AGING_UNIT, FILTERS } from "../test/reportFixtures";
 import { openReportFilters } from "../test/reportFilters";
 import { renderWithProviders, screen, waitFor, within } from "../test/render";
+
+interface Point {
+  x: number;
+  y: number;
+  i: number;
+}
+
+// recharts draws nothing under happy-dom: the chart is a probe of its props that also draws each point's own shape.
+vi.mock("@mantine/charts", () => ({
+  ScatterChart: (props: {
+    data: { data: Point[] }[];
+    xAxisProps: { ticks: number[]; tickFormatter: (value: number) => string };
+    scatterProps: { shape: (props: { cx: number; cy: number; payload: Point }) => ReactElement };
+  }) => (
+    <div
+      data-testid="scatter"
+      data-count={props.data[0].data.length}
+      data-labels={props.xAxisProps.ticks.map((tick) => props.xAxisProps.tickFormatter(tick)).join("|")}
+    >
+      <svg>
+        {props.data[0].data.map((point) => (
+          <g key={point.i}>{props.scatterProps.shape({ cx: 1, cy: 1, payload: point })}</g>
+        ))}
+      </svg>
+    </div>
+  ),
+}));
 
 type FetchMock = ReturnType<typeof vi.fn>;
 const URL_PREFIX = "/api/v1/reports/aging-wip";
@@ -113,7 +142,11 @@ describe("ReportAgingWip page", () => {
   test("hidden thresholds: the note says why, no tiles, no item banded, and no epic row when there are no epics", async () => {
     serve(mockFetch, AGING_HIDDEN);
     renderPage();
-    expect(await screen.findByText(/Only 3 finished items in the window — at least 5 are needed to show thresholds, so no item is banded/)).toBeInTheDocument();
+    // Once in the thresholds card and once above the chart (the dots still render, unbanded).
+    await waitFor(() =>
+      expect(screen.getAllByText(/Only 3 finished items in the window — at least 5 are needed to show thresholds, so no item is banded/)).toHaveLength(2),
+    );
+    expect(await screen.findByTestId("scatter")).toHaveAttribute("data-count", "4");
     expect(screen.queryByRole("group", { name: "Tasks" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Epics" })).not.toBeInTheDocument();
     const table = screen.getByRole("table", { name: "Open work, oldest first" });
@@ -126,7 +159,7 @@ describe("ReportAgingWip page", () => {
   test("an empty thresholds window says no item is banded, in words that do not read as 'nothing to measure'", async () => {
     serve(mockFetch, { ...AGING_HIDDEN, thresholds: { ...AGING_HIDDEN.thresholds, n: 0 } });
     renderPage();
-    expect(await screen.findByText("No finished item in the window yet, so there are no thresholds and no item is banded.")).toBeInTheDocument();
+    expect(await screen.findAllByText("No finished item in the window yet, so there are no thresholds and no item is banded.")).toHaveLength(2);
     expect(screen.queryByText("Nothing to measure in this selection.")).not.toBeInTheDocument();
   });
 
@@ -179,7 +212,9 @@ describe("ReportAgingWip page", () => {
   test("a truncated list says so and how to narrow it", async () => {
     serve(mockFetch, AGING_TRUNCATED);
     renderPage();
-    expect(await screen.findByText("Showing the oldest 5 items; more match. Narrow the team or the domain to see the rest.")).toBeInTheDocument();
+    // The note sits under the table and under the chart; both plot and list the same items.
+    expect(await screen.findAllByText("Showing the oldest 5 items; more match. Narrow the team or the domain to see the rest.")).toHaveLength(2);
+    expect(await screen.findByTestId("scatter")).toHaveAttribute("data-count", "4");
   });
 
   test("nothing in progress is said plainly, the thresholds still shown", async () => {
@@ -187,7 +222,56 @@ describe("ReportAgingWip page", () => {
     renderPage();
     expect(await screen.findByText("Nothing is in progress right now.")).toBeInTheDocument();
     expect(screen.queryByRole("table", { name: "Open work, oldest first" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Aging chart" })).not.toBeInTheDocument();
     expect(screen.getByRole("group", { name: "Tasks" })).toBeInTheDocument();
+  });
+
+  test("the aging chart sits between the thresholds and the table it is the picture of", async () => {
+    serve(mockFetch);
+    renderPage();
+    const chart = await screen.findByTestId("scatter");
+    expect(screen.getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent)).toEqual([
+      "Thresholds",
+      "Aging chart",
+      "Open work, oldest first",
+    ]);
+    // One dot per task (the epic is on its own plot), over the statuses the tasks hold, in the server's order.
+    expect(chart).toHaveAttribute("data-count", "4");
+    expect(chart).toHaveAttribute("data-labels", "In progress|In review|On hold");
+    expect(screen.getByRole("radio", { name: "Tasks" })).toBeChecked();
+    await userEvent.click(screen.getByRole("radio", { name: "Epics" }));
+    await waitFor(() => expect(screen.getByTestId("scatter")).toHaveAttribute("data-count", "1"));
+  });
+
+  test("one team with a board: the x axis is its columns in board order", async () => {
+    serve(mockFetch, AGING_BOARD);
+    renderPage("/reports/aging-wip?teamId=1");
+    expect(await screen.findByTestId("scatter")).toHaveAttribute("data-labels", "Doing|Review|(no column)");
+  });
+
+  test("clicking a dot highlights its table row and scrolls to it; clicking it again lets go", async () => {
+    const scrollIntoView = vi.fn();
+    const original = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = scrollIntoView;
+    onTestFinished(() => {
+      Element.prototype.scrollIntoView = original;
+    });
+    serve(mockFetch);
+    const { container } = renderPage();
+    const table = await screen.findByRole("table", { name: "Open work, oldest first" });
+    await screen.findByTestId("scatter");
+    const row = (key: string) => within(table).getByText(key).closest("tr") as HTMLElement;
+    const dot = (key: string) => container.querySelector(`[data-item="${key}"]`) as Element;
+    expect(table.querySelector("[data-selected]")).toBeNull();
+    await userEvent.click(dot("TASK:FLO-2"));
+    expect(row("FLO-2")).toHaveAttribute("data-selected", "true");
+    expect(table.querySelectorAll("[data-selected]")).toHaveLength(1);
+    expect(scrollIntoView).toHaveBeenCalled();
+    await userEvent.click(dot("TASK:FLO-4"));
+    expect(row("FLO-4")).toHaveAttribute("data-selected", "true");
+    expect(row("FLO-2")).not.toHaveAttribute("data-selected");
+    await userEvent.click(dot("TASK:FLO-4"));
+    expect(table.querySelector("[data-selected]")).toBeNull();
   });
 
   test("Aging WIP is the third tab of the Flow group", async () => {

@@ -2160,7 +2160,9 @@ paths:
         is the highest threshold its age is above (`P85` = above p85 but not above the next), `WITHIN` when above none,
         null when its thresholds are hidden. Thresholds belong to the team, so `accountId` narrows the listed items
         only; at UNIT level they span the whole unit. `blocked` = blocked as of the connection's last DERIVE (a blocked spell covers its clock); `waiting` = the item's
-        current stage is WAITING (started, nothing actively worked on). Levels:
+        current stage is WAITING (started, nothing actively worked on). Each item also says where it sits — `statusId`/`statusName`/`stage`
+        from its OPEN `item_stage` row (the same DERIVE as the stage that lists it) and `position`, a key of the top-level `positions`, the
+        chart's x-axis (board columns for one team with a mapped board, statuses otherwise). Levels:
         UNIT (default), `teamId` (`0` = UNASSIGNED tasks / UNOWNED epics), USER (`teamId` and `accountId` — tasks only,
         epics have no user). `domain`, `activityType` and `workCategory` slice as elsewhere.
       parameters:
@@ -5125,7 +5127,7 @@ components:
 
     AgingItem:
       type: object
-      required: [issueKey, itemKind, startedAt, ageWorkingDays, blocked, waiting]
+      required: [issueKey, itemKind, startedAt, ageWorkingDays, blocked, waiting, stage, position]
       properties:
         issueKey: { type: string }
         summary: { type: string, nullable: true }
@@ -5141,10 +5143,23 @@ components:
           type: string
           nullable: true
           description: 'The highest threshold the age is above (`P50`, `P85`, ...), `WITHIN` when above none, null when the thresholds are hidden.'
+        statusId: { type: string, nullable: true, description: "The Jira status the item is in now, from its OPEN `metrics.item_stage` row; null only if it has none (a DERIVE invariant says it has)." }
+        statusName: { type: string, nullable: true, description: The `norm.statuses` name of `statusId`. }
+        stage: { type: string, enum: [IN_PROGRESS, WAITING], description: "The stage of that same open row, so it always agrees with `waiting` and with the band." }
+        position: { type: string, description: "The `positions` key the item is plotted at: its board column (one team with a mapped board, `(no column)` when its status is on none) or its status id." }
+
+    AgingPosition:
+      type: object
+      description: One x-axis category of the aging chart.
+      required: [key, label, kind]
+      properties:
+        key: { type: string, description: 'An item''s `position`: a board column name (`kind` COLUMN) or a status id (`kind` STATUS).' }
+        label: { type: string }
+        kind: { type: string, enum: [STATUS, COLUMN] }
 
     AgingWipReport:
       type: object
-      required: [meta, thresholds, epicThresholds, items, itemsTruncated]
+      required: [meta, thresholds, epicThresholds, items, itemsTruncated, positions]
       properties:
         meta: { $ref: '#/components/schemas/ReportMeta' }
         thresholds: { $ref: '#/components/schemas/AgingThresholds' }
@@ -5154,6 +5169,13 @@ components:
           description: Every in-progress task and epic, oldest first, at most 500.
           items: { $ref: '#/components/schemas/AgingItem' }
         itemsTruncated: { type: boolean, description: True when more than 500 items matched. }
+        positions:
+          type: array
+          description: >-
+            The aging chart's x-axis in workflow order, over the LISTED items only (so after the 500 cap). One team with a board mapped in the
+            scope's connections: that board's columns in board order, `(no column)` last. Otherwise the statuses, ordered by their earliest
+            stage (IN_PROGRESS before WAITING), then name, then id. Only positions holding at least one listed item.
+          items: { $ref: '#/components/schemas/AgingPosition' }
 
     BlockedShareExcluded:
       type: object

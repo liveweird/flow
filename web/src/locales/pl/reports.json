@@ -594,6 +594,30 @@
     "band": {
       "within": "W normie",
       "above": "Powyżej {{p}}"
+    },
+    "chart": {
+      "title": "Wykres starzenia się",
+      "caption": "Jedna kropka na każdy element w toku: gdzie jest w procesie i ile ma dni roboczych. Przerywane linie to progi czasu cyklu zespołu. Tabela poniżej wymienia każdy element.",
+      "label": "Wykres: wiek w dniach roboczych każdego elementu w toku, według jego miejsca w procesie",
+      "xAxis": "Miejsce w procesie",
+      "yAxis": "Wiek (dni robocze)",
+      "yAxisLog": "Wiek (dni robocze, skala logarytmiczna)",
+      "logScale": "Skala logarytmiczna",
+      "logHint": "Skala logarytmiczna: każdy krok w górę mnoży wiek. Wiek poniżej pół dnia leży na linii 0,5; podpowiedź i tabela pokazują prawdziwy wiek.",
+      "flooredNote": "Poniżej pół dnia: kropka leży na linii 0,5",
+      "kindAria": "Elementy pokazane na wykresie",
+      "legendLabel": "Legenda kropek",
+      "legend": {
+        "upTo": "Do {{p}} włącznie",
+        "noBand": "Bez pasma (progi ukryte)",
+        "waiting": "Pusta kropka: oczekuje",
+        "blocked": "Czerwona obwódka zewnętrzna: zablokowane"
+      },
+      "lineLabel": "{{p}} · {{days}} dr",
+      "hint": "Kliknij kropkę, aby znaleźć jej wiersz w tabeli poniżej. Kropki w jednej kolumnie są rozsunięte tylko na boki, żeby się nie przesłaniały.",
+      "tooltip": {
+        "position": "Miejsce"
+      }
     }
   },
   "blockedTime": {
