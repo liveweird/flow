@@ -141,17 +141,17 @@ describe("CommitmentsChart — user mode", () => {
   ];
   const rows: CommitmentsUserRow[] = [{ label: "S1", c0: 1, f0: 2, c1: 3, f1: 4, c2: 5, f2: 6 }];
 
-  test("two stacks per sprint, committed then final, one segment per person in the neutral blue/gray cycle — no capacity", () => {
+  test("two stacks per sprint, committed then final, one segment per person in the categorical palette — no capacity", () => {
     renderWithProviders(<CommitmentsChart mode="user" users={users} rows={rows} />);
     expect(screen.getByRole("group", { name: "Chart: initial and final scope by sprint, stacked by person" })).toBeInTheDocument();
     const series = attr("bar-chart", "data-series");
     expect(series).toEqual([
       { name: "c0", label: "1. Ann Author · initial", color: "flow.6", stackId: "committed" },
-      { name: "c1", label: "2. Bob Builder · initial", color: "gray.6", stackId: "committed" },
-      { name: "c2", label: "3. Cy Coder · initial", color: "flow.7", stackId: "committed" },
+      { name: "c1", label: "2. Bob Builder · initial", color: "violet.5", stackId: "committed" },
+      { name: "c2", label: "3. Cy Coder · initial", color: "cyan.7", stackId: "committed" },
       { name: "f0", label: "1. Ann Author · final", color: "flow.6", stackId: "final" },
-      { name: "f1", label: "2. Bob Builder · final", color: "gray.6", stackId: "final" },
-      { name: "f2", label: "3. Cy Coder · final", color: "flow.7", stackId: "final" },
+      { name: "f1", label: "2. Bob Builder · final", color: "violet.5", stackId: "final" },
+      { name: "f2", label: "3. Cy Coder · final", color: "cyan.7", stackId: "final" },
     ]);
     expect(screen.getByTestId("bar-chart").getAttribute("data-formatted")).toBe("12.35");
     expect(screen.queryByTestId("composite-chart")).not.toBeInTheDocument();

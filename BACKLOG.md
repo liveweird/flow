@@ -67,13 +67,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 
 ## Report follow-ups
 
-- [new] **A wider palette for stacked bar charts.** Stacked bars by status, board column or person draw from
-  `BAND_CYCLE` (`web/src/utils/chartColors.ts`), which is only blue and gray shades and repeats from the fourth band,
-  so neighbouring segments are hard to tell apart and the reader leans on the numbered labels. Expand it to a
-  categorical palette of more distinct hues (every mark still ≥ 3:1 against the surface, in light and dark; colour still
-  never the only carrier), keeping the semantic colours (red blocked, orange unmapped, teal done, grape waiting) for the
-  stage keyings. Applies to WIP by status/column, Commitments and the per-person histograms (cycle time, reported time,
-  adjustments, task accuracy, WIP by person).
 - [new] **Drill from a bar to the items behind it.** In bar and stacked-bar charts whose bars (or segments) aggregate
   work planned, work done or worklogs, a double-click on a bar or segment opens the list of the items it sums (issue
   key, summary, figure), filtered exactly as that bar is (period/sprint/day, team, person, stage or status). The list

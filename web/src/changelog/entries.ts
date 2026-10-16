@@ -17,6 +17,20 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "0.20.0",
+    date: "2026-10-17",
+    en: `**Stacked bars by status, board column or person are easier to tell apart.**
+
+- Bars split by status or board column (WIP), and by person (Commitments, Throughput, WIP by person and the per-person histograms), now use seven distinct colours — blue, violet, cyan, indigo, pink, gray and green-lime — instead of alternating blue and gray, so neighbouring segments never look alike.
+- WIP by stage is unchanged: a stage keeps the colour that means it (teal done, red blocked, orange unmapped, purple waiting).
+- Every colour stays readable in the light and dark themes, and people are still numbered in labels, legends and tables, so colour is never the only cue.`,
+    pl: `**Słupki skumulowane według statusu, kolumny tablicy albo osoby łatwiej odróżnić.**
+
+- Słupki dzielone według statusu albo kolumny tablicy (WIP) i według osoby (Zobowiązania, Przepustowość, WIP według osoby i histogramy dla poszczególnych osób) używają teraz siedmiu wyraźnie różnych kolorów — niebieskiego, fioletowego, cyjanowego, indygo, różowego, szarego i limonkowego — zamiast naprzemiennie niebieskiego i szarego, więc sąsiednie segmenty nigdy nie wyglądają podobnie.
+- WIP według etapu się nie zmienia: etap zachowuje kolor, który go oznacza (morski — ukończone, czerwony — zablokowane, pomarańczowy — niezmapowane, purpurowy — oczekujące).
+- Każdy kolor pozostaje czytelny w jasnym i ciemnym motywie, a osoby nadal mają numery w etykietach, legendach i tabelach, więc kolor nigdy nie jest jedyną wskazówką.`,
+  },
+  {
     version: "0.19.0",
     date: "2026-10-17",
     en: `**Task and Epic accuracy are more compact: each measure's explanation is now behind an info icon.**

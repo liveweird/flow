@@ -36,8 +36,8 @@ export interface ThroughputFigures {
 }
 
 /**
- * A picked person of the people view. `position` (1-based, bottom of the stack first) is their number: the neutral colour
- * cycle repeats from the fourth person on, so the number — `personLabel` — is what tells them apart. `key` is their chart
+ * A picked person of the people view. `position` (1-based, bottom of the stack first) is their number: the categorical
+ * palette repeats from the eighth person on, so the number — `personLabel` — is what tells them apart. `key` is their chart
  * data key (account ids are not safe data keys).
  */
 export interface ThroughputPerson {

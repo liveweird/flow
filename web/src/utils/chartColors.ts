@@ -14,13 +14,13 @@
  *   dropped    red.7     3.84 / 3.58 | 3.53 / 4.29   (also the WIP stage band of blocked work, `stageBlocked`)
  *   removed    gray.6    3.32 / 3.10 | 4.09 / 4.96
  *   waiting    grape.6   4.02 / 3.75 | 3.37 / 4.10   (the WIP band of started work with nothing active)
- *   band 3rd   flow.7    4.20 / 3.91 | 3.24 / 3.93   (the WIP band cycle's extra blue: flow.5 fails on white, flow.8 on dark paper)
  *   final      flow.8    5.02 / 4.68 (light)   ·   flow.4  5.49 / 6.66 (dark; flow.8 is 2.70:1 on dark paper)
  *
  * Adjacent series in one chart must also be tellable apart with full colour vision (the dataviz
  * skill's ΔE ≥ 15 floor), which a same-hue pair of blues is not — so no chart here plots
  * committed and final side by side except commitments' (see the note there); stacked partitions
- * order their segments so orange and red never touch.
+ * order their segments so orange and red never touch. The seven neutral hues for arbitrary names (statuses, columns, people)
+ * are `CATEGORY_PALETTE` below, with their own figures.
  */
 export const CHART_COLORS = {
   committed: "flow.6",
@@ -89,19 +89,44 @@ export const CHART_COLORS = {
 export const DEEP_DIVE_FILL_ALPHA = 0.32;
 
 /**
- * The bands of a WIP chart keyed by status or board column — and commitments' per-person segments, equally arbitrary
- * names — must not wear a colour that MEANS something (teal = success, orange = waived, red = blocked). The neutral
- * palette left is blue and gray, and only three of their shades clear 3:1 on every chart surface
- * (flow.6, flow.7, gray.6; flow.5 and gray.5 fail on white, flow.8 and gray.7 on dark paper). So the
- * cycle ALTERNATES the two hues — bands are coloured by position among those shown, so neighbours
- * never share a hue — and beyond two bands a hue (or a shade) repeats. The limit is hard: only THREE
- * distinguishable shades exist, so from the fourth band on one repeats exactly (commitments' per-person
- * segments allow up to eight). A chart on this cycle must therefore carry identity without colour: the
- * legend, the tooltip and the tables beside the chart, and — where bands are people, who can be eight —
- * a position NUMBER in every label ("2. Bob", `personLabel`). Stage keyings do not use this:
- * a stage has a meaning, and wears its vocabulary colour (`stage*` above).
+ * The categorical palette: the colour of the Nth band/segment of a chart whose series are arbitrary NAMES — a WIP chart keyed by
+ * status or board column, and the per-person segments of commitments, throughput and the per-person histograms. Such a name
+ * must not wear a colour that MEANS something (teal = done, orange = unmapped/carried, red = blocked/dropped, grape = waiting),
+ * so those four hues are excluded; what is left is the plan blue (`flow`), cyan, indigo, violet, pink, lime and gray. Each
+ * entry is the ONE shade of its hue that clears 3:1 on all four chart surfaces (a hue with no such shade is out: yellow, and
+ * green, whose passing shade sits 9 CIEDE2000 from the done teal), so there is no per-scheme pair. Bands are coloured by
+ * position among those shown (`palette[index % length]`), and the order is the point: it maximises the CIEDE2000 distance
+ * between NEIGHBOURS (dataviz floor ≥ 15; the closest neighbours here are 22.9 apart, the wrap-around lime → blue 60.8),
+ * and never puts the near-neighbour cool hues (blue, indigo, violet) next to each other. `chartColors.test.ts`
+ * recomputes every ratio and distance from the theme (white / canvas | dark paper / dark canvas | ΔE to the next entry):
+ *
+ *   flow.6    3.56 / 3.32 | 3.82 / 4.63   ΔE 22.9
+ *   violet.5  4.26 / 3.98 | 3.18 / 3.87   ΔE 30.4
+ *   cyan.7    3.43 / 3.20 | 3.96 / 4.80   ΔE 25.4
+ *   indigo.5  3.67 / 3.42 | 3.70 / 4.49   ΔE 35.4
+ *   pink.6    3.73 / 3.48 | 3.64 / 4.42   ΔE 29.9
+ *   gray.6    3.32 / 3.10 | 4.09 / 4.96   ΔE 33.1
+ *   lime.9    3.69 / 3.44 | 3.68 / 4.47   ΔE 60.8   (to the first entry again)
+ *
+ * Every entry is also at least ΔE 15 from the four semantic colours (teal.8, orange.8, red.7, grape.6) with ONE accepted exception:
+ * violet.5 is 11.9 from the waiting grape (grape.6). That is fine because the palette and the stage keyings never share a chart
+ * (`paintBands` uses `STAGE_COLORS` only for by=STAGE and the palette for status/column; only an UNKNOWN stage key falls back to the palette) — a future chart mixing a stage
+ * colour with palette colours must revisit it. `chartColors.test.ts` lists the exception explicitly.
+ *
+ * Seven is all the passing hues give; commitments allow up to eight people, so from the 8th person on the first colour repeats.
+ * A chart on this palette therefore still carries identity without colour: the legend, the tooltip and the tables beside the
+ * chart, and — where bands are people — a position NUMBER in every label ("2. Bob", `personLabel`). Stage keyings do not use
+ * this: a stage has a meaning, and wears its vocabulary colour (`stage*` above).
  */
-export const BAND_CYCLE: ReadonlyArray<string> = ["flow.6", "gray.6", "flow.7", "gray.6"];
+export const CATEGORY_PALETTE: ReadonlyArray<string> = [
+  "flow.6",
+  "violet.5",
+  "cyan.7",
+  "indigo.5",
+  "pink.6",
+  "gray.6",
+  "lime.9",
+];
 
 /** The final-scope blue: the deeper step in the light scheme, a lighter one in the dark. */
 export const FINAL_COLOR = { light: "flow.8", dark: "flow.4" } as const;

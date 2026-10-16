@@ -30,19 +30,19 @@ describe("wipBands and paintBands", () => {
     ]);
   });
 
-  test("an unknown stage falls back to the server's label and the neutral cycle", () => {
+  test("an unknown stage falls back to the server's label and the first palette colour", () => {
     const bands = wipBands("STAGE", [{ key: "MYSTERY", label: "Mystery" }], t);
     expect(paintBands("STAGE", bands)[0]).toMatchObject({ label: "Mystery", color: "flow.6" });
   });
 
-  test("statuses and columns walk the neutral blue/gray cycle by position among the bands SHOWN, so neighbours never share a hue", () => {
-    const keys = Array.from({ length: 6 }, (_, i) => ({ key: `s${i}`, label: `Status ${i}` }));
+  test("statuses and columns walk the categorical palette by position among the bands SHOWN, so neighbours never share a hue", () => {
+    const keys = Array.from({ length: 8 }, (_, i) => ({ key: `s${i}`, label: `Status ${i}` }));
     const bands = wipBands("STATUS", keys, t);
     const colors = paintBands("STATUS", bands).map((b) => b.color);
-    expect(colors).toEqual(["flow.6", "gray.6", "flow.7", "gray.6", "flow.6", "gray.6"]);
-    // Hiding the first two re-colours the rest by their new position — still alternating hues.
+    expect(colors).toEqual(["flow.6", "violet.5", "cyan.7", "indigo.5", "pink.6", "gray.6", "lime.9", "flow.6"]);
+    // Hiding the first two re-colours the rest by their new position — still all different hues.
     const remaining = paintBands("STATUS", bands.slice(2)).map((b) => b.color);
-    expect(remaining).toEqual(["flow.6", "gray.6", "flow.7", "gray.6"]);
+    expect(remaining).toEqual(["flow.6", "violet.5", "cyan.7", "indigo.5", "pink.6", "gray.6"]);
     for (const list of [colors, remaining]) {
       for (let i = 1; i < list.length; i++) expect(list[i].split(".")[0]).not.toBe(list[i - 1].split(".")[0]);
     }
@@ -105,11 +105,11 @@ describe("the per-person view of a USER-level series", () => {
     expect(wipPeople([])).toEqual([]);
   });
 
-  test("they are painted on the neutral cycle by position and named with their number", () => {
+  test("they are painted on the categorical palette by position and named with their number", () => {
     const painted = paintPeople(wipPeople(WIP_USER.series));
     expect(painted.map((p) => [p.name, p.label, p.color])).toEqual([
       ["p0", "1. Ann Author", "flow.6"],
-      ["p1", "2. Bob Builder", "gray.6"],
+      ["p1", "2. Bob Builder", "violet.5"],
     ]);
   });
 

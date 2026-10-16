@@ -1,6 +1,6 @@
 import type { ParseKeys, TFunction } from "i18next";
 import type { WipKey, WipPoint, WipReport } from "../api/reports";
-import { BAND_CYCLE, CHART_COLORS } from "./chartColors";
+import { CATEGORY_PALETTE, CHART_COLORS } from "./chartColors";
 import { personLabel } from "./commitmentsReport";
 import { formatOneDecimal } from "./reportFormat";
 
@@ -65,13 +65,13 @@ export function wipBands(by: WipReport["by"], keys: readonly WipKey[], t: TFunct
 
 /**
  * Colours the bands being drawn. A stage keeps ITS colour (the app's vocabulary: gray not started,
- * blue in progress, grape waiting, red blocked, teal done, orange unmapped). Statuses and columns walk the neutral cycle by
- * position among the bands SHOWN, so neighbouring bands never share a hue whichever are ticked.
+ * blue in progress, grape waiting, red blocked, teal done, orange unmapped). Statuses and columns walk the categorical palette
+ * (`CATEGORY_PALETTE`) by position among the bands SHOWN, so neighbouring bands are always distinct whichever are ticked.
  */
 export function paintBands(by: WipReport["by"], shown: readonly WipBand[]): PaintedWipBand[] {
   return shown.map((band, index) => ({
     ...band,
-    color: (by === "STAGE" ? STAGE_COLORS[band.key] : undefined) ?? BAND_CYCLE[index % BAND_CYCLE.length],
+    color: (by === "STAGE" ? STAGE_COLORS[band.key] : undefined) ?? CATEGORY_PALETTE[index % CATEGORY_PALETTE.length],
   }));
 }
 
@@ -109,7 +109,7 @@ export function wipBandSummary(series: readonly WipPoint[], key: string): WipBan
 
 /**
  * A picked person of the per-person view. `position` (1-based, the request order the server's `byUser` follows) is their number:
- * the neutral colour cycle repeats from the fourth person on, so the number — `personLabel` — is what tells them apart.
+ * the categorical palette repeats from the eighth person on, so the number — `personLabel` — is what tells them apart.
  * `name` is their chart data key (account ids are not safe data keys).
  */
 export interface WipPerson {
@@ -129,13 +129,13 @@ export function wipPeople(series: readonly WipPoint[]): WipPerson[] {
   }));
 }
 
-/** The people as chart series — "2. Bob" — on the neutral cycle by position (their number carries identity once it repeats). */
+/** The people as chart series — "2. Bob" — on the categorical palette by position (their number carries identity once it repeats). */
 export function paintPeople(people: readonly WipPerson[]): PaintedWipBand[] {
   return people.map((person, index) => ({
     key: person.accountId,
     name: person.name,
     label: personLabel(person.position, person.label),
-    color: BAND_CYCLE[index % BAND_CYCLE.length],
+    color: CATEGORY_PALETTE[index % CATEGORY_PALETTE.length],
   }));
 }
 

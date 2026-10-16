@@ -2,7 +2,7 @@ import "@mantine/charts/styles.css";
 import { AreaChart, BarChart, ChartTooltip } from "@mantine/charts";
 import { Box } from "@mantine/core";
 import { useTranslation } from "react-i18next";
-import { BAND_CYCLE, CHART_COLORS } from "../utils/chartColors";
+import { CATEGORY_PALETTE, CHART_COLORS } from "../utils/chartColors";
 import { personLabel } from "../utils/commitmentsReport";
 import { formatMd } from "../utils/reportFormat";
 import type { ThroughputPerson, ThroughputPlotRow } from "../utils/throughputReport";
@@ -23,8 +23,7 @@ export interface ThroughputChartProps {
 /**
  * Delivered MD on ONE axis — per week/month or per sprint. Whole team: one teal series (delivery teal), so no legend (the
  * card title names it). People picked: one stacked segment per person; people are arbitrary names, so they wear the
- * neutral `BAND_CYCLE` by position (neighbouring segments alternate blue and gray, never a semantic hue) and — since only
- * three shades are distinguishable — are NUMBERED ("2. Bob") in the page's own legend and the tooltip, so identity never
+ * categorical `CATEGORY_PALETTE` by position (never a semantic hue) and are NUMBERED ("2. Bob") in the page's own legend and the tooltip, so identity never
  * rests on colour. `cumulative` draws the same series as running totals, stacked areas whose top edge is the team's total.
  * A lazy chunk: recharts never enters the main bundle. The tooltip adds the item count, so an unestimated task (an item
  * worth 0 MD) is never invisible.
@@ -38,7 +37,7 @@ export default function ThroughputChart({ scope, cumulative, rows, people }: Thr
         label: t(cumulative ? "reports.throughput.userSeries.cumulative" : "reports.throughput.userSeries.delivered", {
           name: personLabel(person.position, person.label),
         }),
-        color: BAND_CYCLE[index % BAND_CYCLE.length],
+        color: CATEGORY_PALETTE[index % CATEGORY_PALETTE.length],
       }))
     : [
         {
@@ -81,7 +80,7 @@ export default function ThroughputChart({ scope, cumulative, rows, people }: Thr
           label={t("reports.throughput.userLegendLabel")}
           entries={people.map((person, index) => ({
             key: person.accountId,
-            glyph: <PersonSwatch colour={BAND_CYCLE[index % BAND_CYCLE.length]} />,
+            glyph: <PersonSwatch colour={CATEGORY_PALETTE[index % CATEGORY_PALETTE.length]} />,
             text: personLabel(person.position, person.label),
           }))}
         />
