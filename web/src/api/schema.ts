@@ -1188,6 +1188,36 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/reports/throughput/items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The tasks behind one bar of the throughput period chart (drill to items)
+         * @description Any authenticated user (D12), read-only — `.claude/docs/reports.md` "Drill to items". Takes the parent report's
+         *     parameters (`GET /api/v1/reports/throughput`) plus the bar's identity: `bucketStart` (required — the bucket's first
+         *     day, ISO date, exactly as `byBucket[].bucketStart` spells it) under the same `bucket` resolution. The list is produced
+         *     by the report's own fetch and its own bucket rule, so `bar` is the report's bar recomputed over exactly the listed
+         *     set: `bar.count` equals `byBucket[].deliveredItems` and `bar.sumMd` its `deliveredMd` (the unestimated tasks are items
+         *     worth 0 MD: their `figure` is null). `figure` is the task's estimate at done in MD; `anchorAt` its `done_at`;
+         *     `teamId` its credit team. Items are sorted by `figure` descending (nulls last), newest `anchorAt` first, then issue
+         *     key, and at most 500 are listed — `total` (always equal to `bar.count`) says how many are behind the bar and
+         *     `truncated` is true when that is more than were listed. `segmentAccountId` narrows the list AND the bar to one picked
+         *     account's share (`byUser`); it needs USER level and must be one of the picked `accountId`s, else 400. A missing
+         *     `bucketStart` is a 400 ("bucketStart or a sprintId period is required"), and so is one that is not the first day of a bucket the report draws inside the period.
+         */
+        get: operations["getReportThroughputItems"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/reports/sprint-consistency": {
         parameters: {
             query?: never;
@@ -3288,6 +3318,57 @@ export interface components {
             byBucket: components["schemas"]["ThroughputBucketRow"][];
             groups: components["schemas"]["ThroughputGroup"][];
         };
+        /** @description The bar a drill list adds up to, recomputed by the server over the listed set. Fields a bar kind does not have are null. */
+        ReportDrillBar: {
+            count: number;
+            /**
+             * Format: double
+             * @description Σ MD of the items (MD bars; an unestimated item adds 0).
+             */
+            sumMd: number | null;
+            /**
+             * Format: double
+             * @description Lower edge of a histogram bucket.
+             */
+            from: number | null;
+            /**
+             * Format: double
+             * @description Upper edge of a histogram bucket; null on the open tail bucket.
+             */
+            to: number | null;
+        };
+        ReportDrillItem: {
+            issueKey: string;
+            summary: string | null;
+            /** @enum {string} */
+            itemKind: "TASK" | "EPIC" | "WORKLOG";
+            accountId: string | null;
+            /** @description Display name of `accountId` (the id itself when no name is known). */
+            assignee: string | null;
+            /** Format: int32 */
+            teamId: number | null;
+            /**
+             * Format: int64
+             * @description Epoch millis of the instant the report anchors the item to (e.g. `done_at`).
+             */
+            anchorAt: number | null;
+            /**
+             * Format: double
+             * @description The bar's own per-item value (MD, days, a ratio, …); null = unestimated (counted as 0 MD).
+             */
+            figure: number | null;
+        };
+        /**
+         * @description A drill list: the report's `meta`, the recomputed `bar`, at most 500 `items` (largest figure first) and the `total` behind
+         *     the bar (equal to `bar.count`); `truncated` when `total` exceeds the listed items.
+         */
+        ReportDrillItems: {
+            meta: components["schemas"]["ReportMeta"];
+            bar: components["schemas"]["ReportDrillBar"];
+            items: components["schemas"]["ReportDrillItem"][];
+            total: number;
+            truncated: boolean;
+        };
         /** @description The fourteen sprint figures (MD beside items), live or frozen. */
         SprintFigures: {
             /** Format: double */
@@ -4949,6 +5030,8 @@ export interface components {
         ReportTailPercent: number;
         /** @description The time resolution of a report's bucketed series; weeks start Monday, buckets in the configured zone. */
         ReportBucket: "WEEK" | "MONTH";
+        /** @description Narrows a drill list (and its bar) to ONE person's share of a stacked bar; USER level only, one of the picked `accountId`s (400 otherwise). */
+        ReportDrillSegmentAccountId: string;
         /** @description What the WIP report keys its counts by; COLUMN needs a `teamId` with a mapped board. */
         ReportWipBy: "STATUS" | "STAGE" | "COLUMN";
         /** @description Which items the WIP report counts — level-0 tasks (default) or epics (a different grain); never both summed. */
@@ -6781,6 +6864,58 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ThroughputReport"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getReportThroughputItems: {
+        parameters: {
+            query?: {
+                /** @description Period start, inclusive, in the configured zone. Defaults to 90 days before `to` (or today). Mutually exclusive with `lastSprints`/`sprintId`. */
+                from?: components["parameters"]["ReportFrom"];
+                /** @description Period end, inclusive, in the configured zone. Defaults to today. Must not be before `from`; the span must not exceed 1100 days. */
+                to?: components["parameters"]["ReportTo"];
+                /** @description Each team's own last N closed sprints (union at unit level). Mutually exclusive with `from`/`to`/`sprintId`. */
+                lastSprints?: components["parameters"]["ReportLastSprints"];
+                /** @description One specific sprint's own period. Mutually exclusive with `from`/`to`/`lastSprints`. */
+                sprintId?: components["parameters"]["ReportSprintId"];
+                /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
+                teamId?: components["parameters"]["ReportTeamId"];
+                /** @description Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`. */
+                accountId?: string[];
+                /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
+                domainView?: components["parameters"]["ReportDomainView"];
+                /** @description Restricts to one domain key. */
+                domain?: components["parameters"]["ReportDomain"];
+                /** @description Restricts to one activity type (a standard Jira issue type name). */
+                activityType?: components["parameters"]["ReportActivityType"];
+                /** @description Restricts to one work category, or the literal `UNCATEGORIZED`. */
+                workCategory?: components["parameters"]["ReportWorkCategory"];
+                /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
+                connectionId?: components["parameters"]["ReportConnectionId"];
+                /** @description The time resolution of a report's bucketed series; weeks start Monday, buckets in the configured zone. */
+                bucket?: components["parameters"]["ReportBucket"];
+                /** @description The bucket's first day (ISO date, as `byBucket[].bucketStart`). Required in this version (400 without it). */
+                bucketStart?: string;
+                /** @description Narrows a drill list (and its bar) to ONE person's share of a stacked bar; USER level only, one of the picked `accountId`s (400 otherwise). */
+                segmentAccountId?: components["parameters"]["ReportDrillSegmentAccountId"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The items behind the bar */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportDrillItems"];
                 };
             };
             400: components["responses"]["BadRequest"];

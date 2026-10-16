@@ -330,7 +330,7 @@ completed · the report's figures · the orange drift badge with the frozen figu
   `lastSprints` > dates), serialized in one canonical key order (that string is also the page query
   key). Params this module does not own survive `applyReportFilter`; switching report tabs
   (`reportHref`) drops the report-specific params (`domainView`, `domain`, `activityType`,
-  `workCategory`, `bucket`, `tailPercent`) the target report has no control for — and the page-local `view` (throughput's chart switch, `PAGE_PARAMS`: no filter, never sent or keyed) anywhere but throughput — so a filter the user
+  `workCategory`, `bucket`, `tailPercent`) the target report has no control for — and the page-local `view` (throughput's chart switch, `PAGE_PARAMS`: no filter, never sent or keyed) anywhere but throughput, and the page-local `drill` (the open drill drawer — "Drill to items" under Chart rules) on every hop — so a filter the user
   cannot see or clear never follows them (`REPORT_SPECIFIC_PARAMS` in `utils/reportLinks.ts`; `epicId` is one of them, kept only by epic progress; a page's normalizer drops the rest through `dropReportSpecific(filter, reportSpecificKeep(path))`, so the table stays the one source). A team id the reference data no longer lists prints `#<id>` through `teamLabel` (`utils/reportFormat.ts`). Presets are stored as
   absolute `from`/`to` dates (calendar days in the configured zone) and recognised again by
   `activePeriodChoice`. **The last team is remembered** (`useStoredState`, `reports.teamId`): a report
@@ -391,6 +391,7 @@ completed · the report's figures · the orange drift badge with the frozen figu
   `throughputPlot` picks per-slot or running figures for the chart. *Whole team*: per period one teal (`CHART_COLORS.delivered`) bar series, cumulative ONE teal stacked area (running total), no legend. *People mode*: stacked bars (each person a segment ringed in the surface) or stacked areas (translucent fill, solid edge), people on the categorical `CATEGORY_PALETTE` by position and
   NUMBERED ("2. Bob", `personLabel`; the page's own `ChartLegendList` from two people, the tooltip "2. Bob · delivered" / "· delivered, cumulative"), so identity never rests on colour. The tooltip adds the slot's items ("5 items", cumulative "5 items so far"). Tables carry every number: the bucket table (cumulative view: two more columns), the sprint table (the same), and in people mode `ThroughputUserTables`:
   "Totals per person" (`groups`, plain numbered text — the team level's "By member" drill table is replaced), and with two or more people "Each person's share of each period" and "of each sprint" (one row per slot and person, running totals in the cumulative view).
+  **The period card drills** ("Drill to items" below): a double-click on a bar — in people mode on one person's segment — or a row's **Items** button (the bucket table in BOTH chart views, and each person's row of "Each person's share of each period") opens `ThroughputDrillDrawer` with the tasks behind that week/month (`GET /reports/throughput/items`); the cumulative areas are not bars and have no double-click, the sprint card has no drill yet. Chart rows carry an `id` (a bucket's first day; a sprint's `<teamId>:<sprintId>`), which is what the drill is keyed by; the drawer is compared with the row the chart drew (a segment with that person's `byUser` count).
 
 - **Distributions** (`components/DistributionPanel.tsx`): a `Distribution` renders as a percentile
   strip (median p50, p90, p95, mean, item count), a lazy `DistributionHistogram` (single blue series,
@@ -747,6 +748,29 @@ completed · the report's figures · the orange drift badge with the frozen figu
   managed filter param, serialized into the query key; a page that must label data by the request
   that produced it returns that request's param WITH the report (throughput's `bucket`), so a
   refetch over kept data never mislabels the old rows.
+- **Drill to items** (server: `.claude/docs/reports.md` "Drill to items"; a bar's number is always one click from the work behind it).
+  *State*: ONE page-local URL param, `drill` (`utils/reportDrill.ts`: `DRILL_PARAM`, `serializeDrill`/`parseDrill` — `bucket:2026-03-02`, plus
+  `;s=<accountId>` for one person's segment; a hand-edited value that does not parse is ignored), owned by `hooks/useReportDrill(filterKey, anchor)`. Like
+  throughput's `view` it is no filter — never sent with the report request, never in a query key — and `reportHref` drops it on EVERY tab hop (a bar means
+  nothing on another report). Opening is a history PUSH (location state `drillOpened`), so the page stays mounted and the filters, scroll position and chart
+  view are untouched; the drawer's Back button, its X and Escape call `close()` — `navigate(-1)` when this page opened it, else (a deep link) the param is dropped
+  in place — and browser Back pops the entry. A person narrowing (`setSegment`) is a REPLACE; a change of the serialized filter closes an open drill (replace),
+  because the bar no longer exists. A bar of kept (placeholder) data never opens a drill under the new filter (`drillable`). *Focus*: the hook records what had
+  focus when the drill opened and restores it when the param goes (whichever way), else focuses the element carrying `data-drill-anchor="<anchor>"` — the
+  `ReportChartCard` with `drillAnchor` (`tabIndex={-1}`), the pointer route's return target; the Drawer is rendered with `returnFocus={false}` so the hook is the one owner.
+  *Surface*: `components/ReportDrillDrawer.tsx` — a right-hand `Drawer` (`size="xl"`, the X labelled, `trapFocus`) titled with the bar ("2026-09-07 · Delivered");
+  inside, the SERVER's own bar line ("5 items · 12.5 MD", the recomputed `bar`), an orange light `Alert` "The data changed since the chart was drawn." when the
+  chart's count for that bar differs from `bar.count` (`chartCount`), a person `Select` ("Everyone" / "1. Ann" …, from two people on) in people mode, the items in a
+  `ScrollRegion` (max 60vh; Issue · Summary · Assignee · Done · the bar's figure — `drillItemColumns`, a dash is an unestimated item; issue keys are plain text), a
+  dimmed "Showing the N largest of M items" when `truncated`, a loader or `ErrorAlert` (no `placeholderData`: a new bar is a loader), and a footer **Back to the chart**.
+  Each report supplies a thin `<Name>DrillDrawer` (the query `["reports", <report>, "items", reportQuery(filter), serializeDrill(target)]` over `api/reportDrill.ts`'s wrapper, the
+  title, the chart's count). *Triggers*: a double-click on a bar or stacked segment — each drillable chart takes `onBarDoubleClick({ rowId, series })` and
+  gives every `<Bar>` `barDoubleClickProps(series.name, handler)` (`utils/chartDrill.ts`: a pointer cursor and recharts' `onDoubleClick`, `entry.payload.id` = the plotted
+  row's string `id`) through the `barProps(series)` function form, and its wrapper is `user-select: none` so the dblclick selects no label — AND, as the keyboard and
+  screen-reader route, an **Items** column in the chart's table (`components/DrillColumn.tsx`: an icon `ActionIcon` named "Show the items of {{name}}"). A chart table
+  and its chart always agree on the bar's identity (the row `id`). The hint under the card ("Double-click a bar to list the items behind it — or use a row's Items
+  button.") is `ReportChartCard`'s `hint`. Tests: the chart mock probe resolves `barProps(series)` and fires its `onDoubleClick`; the hook, the drawer, the codec and each
+  page pin the URL, the request and the focus.
 - **Dates are days in the configured zone**: `GET /reports/filters` returns `timeZone`
   (`metrics.settings.time_zone`), the zone the server reads `from`/`to` in; the bar's "today", presets
   and date-picker maximum come from `todayIsoDate(filters.timeZone)`, and dates render through

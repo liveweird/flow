@@ -77,7 +77,9 @@ from Lettuce, that any new or edited spec must satisfy:
   team: a person belongs to one team at a time, globally, and a deleted team keeps its rows) — and
   every report it reads is narrowed to ITS team or, unit-level, to ITS connection (`connectionId` in
   the URL), since an unnarrowed UNIT-level report would also count the other specs' synced
-  connections; `public-holidays` owns its own synced Jira-stub connection (`e2e-holidays-ds-*`), team
+  connections; `reports-drill` owns its own synced Jira-stub connection (`e2e-drill-ds-*`), team (`e2e-drill-team-*`, no
+  roster) and throwaway regular user, created and deleted through the API, and narrows every report it opens to its team and connection;
+  `public-holidays` owns its own synced Jira-stub connection (`e2e-holidays-ds-*`), team
   (`e2e-holidays-team-*`, one stub person on its roster) and throwaway user, plus ONE `E2E Holiday-*` row of the GLOBAL
   public-holiday dictionary at a time (added and deleted inside its one test, swept by name), on a non-golden sprint so the
   concurrent `capacity` spec's golden window is untouched.
@@ -181,6 +183,11 @@ the same commit** — this list is the coverage map, the scenario file is the de
   stub's reference date and narrow to the spec's own connection through the URL. Every report's filter bar is collapsible
   (folded by default; scenarios unfold it with `openFilters`), and one scenario folds and unfolds it: the toggle's
   `aria-expanded` and active-filter badge (on Commitments the period counts, the always-present team does not), the choice remembered per report across a reload.
+- [`reports-drill.spec.ts`](scenarios/reports-drill.md) — the drill from a bar to the items behind it, read by a NON-ADMIN user over its own
+  API-seeded, synced Jira-stub connection (`e2e-drill-ds-*`) with the FLO board mapped to a throwaway team (`e2e-drill-team-*`): on Throughput a week's
+  **Items** button (the keyboard route) opens a drawer whose server-recomputed summary line equals the table row, whose listed tasks and figures add up to it
+  (a clean axe scan with the dialog open); Back to the chart, the browser's Back and Escape close it with focus back on the button, the URL losing `drill`;
+  a double-click on the same week's bar opens it again and closing returns focus to the chart's card. Each chart family adds its scenario here as its drill lands.
 - [`capacity.spec.ts`](scenarios/capacity.md) — the Administration > Capacity page (A32), over its own API-seeded, synced Jira-stub
   connection (`e2e-capacity-ds-*`, not paused: a calendar save must re-derive it) with the FLO board mapped to a throwaway team (`e2e-capacity-team-*`)
   and one stub person on its roster: the admin picks the team and the golden sprint, saves a team default, reads the computed day/person

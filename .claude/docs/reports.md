@@ -236,6 +236,49 @@ composes services `configureDatabase`/`configureJira`/`configureMetrics` have AL
 -- which runs BEFORE `configureMetrics` and so cannot see those keys yet. Registered in
 `application.yaml` in the "-- features" group, after the metrics feature routes it reads from.
 
+## Drill to items (`…/items`)
+
+A bar of a report's chart is a number over a set of items; the drill lists that set. Each drillable report has a read-only
+sub-resource `GET /api/v1/reports/<report>/items` (any signed-in user, no audit, `call.caller()` first, like every report) that takes
+the PARENT report's full parameter list (the same `$ref`s; `accountId` repeats wherever the parent allows it) plus the bar's
+identity, and answers the one report-shaped list every drill shares -- a deliberate exception to the paged-list envelope
+(`.claude/docs/list-endpoints.md`):
+
+```
+ReportDrillItems { meta: ReportMeta, bar: ReportDrillBar, items: [ReportDrillItem], total, truncated }
+ReportDrillBar   { count, sumMd: number|null, from: number|null, to: number|null }  // sumMd for MD bars, from/to for a histogram bucket
+ReportDrillItem  { issueKey, summary|null, itemKind: TASK|EPIC|WORKLOG, accountId|null, assignee|null, teamId|null, anchorAt|null, figure|null }
+```
+
+- **One computation, not two.** The drill runs the report's OWN fetch over the same filter and applies the report's OWN per-item
+  assignment to keep the rows of one bar -- `bar` is the report's bar recomputed over exactly the listed set, so `bar.count` equals the
+  bar's item count and `bar.sumMd` its MD (to the two-decimal rounding), and `total == bar.count` always. `figure` is the bar's own
+  per-item value (MD at done for throughput; `null` = unestimated, counted as 0 MD); `anchorAt` the instant the report anchors the
+  item to (`done_at`); `assignee` the Jira display name of `accountId` (the id when unknown). Sorted `figure` descending (nulls last),
+  newest `anchorAt`, then issue key; at most `DRILL_MAX_ITEMS` = 500 are listed (`truncated`), `total`/`bar` always cover every item.
+  Labels (key, summary, names) are fetched for the LISTED items only (`workItemLabels`, `accountDisplayNames`).
+- **`segmentAccountId`** narrows a STACKED bar to one picked person's share (USER level only; it must be one of the request's
+  `accountId`s, else `400`): the listed items AND the `bar`/`total` are that person's, so the segment's count equals the parent's
+  `byUser` entry and the segments of a bar add up to the whole bar.
+- **Reconciliation is a gate.** Each drill ships a server test that, for EVERY bar the parent report returns on the derived fixture,
+  asserts `drill.bar` == the bar (count and Σ MD), the listed items add up to it, every item lies in the bar by an independent
+  re-derivation, and the segments equal `byUser`; a failing reconciliation is a real divergence, never grounds to loosen the test.
+- **`400`s** (after `call.caller()` and the parent's own parser `400`s): a missing identity parameter, a `segmentAccountId` below
+  USER level or outside the picks. Declared statuses per path: `200`, `400`, `401`, `500`.
+- **Code**: `reports/ReportDrill.kt` (the DTOs, `DRILL_MAX_ITEMS`, `drillItems`, `requireSegment`), `reports/ReportDrillRoutes.kt` (the
+  `@Resource` classes and `drillRoutes`, registered beside the report routes), one `<Name>Drill.kt` beside each drillable report.
+  The web side (drawer, URL state, Items buttons): `.claude/docs/web-features.md` "Drill to items".
+
+| Path | Identity parameters | Items | `figure` |
+|---|---|---|---|
+| `/throughput/items` | `bucketStart` (the bucket's first day, ISO date; required) with `bucket` | the `fetchThroughputTasks` rows whose `bucketStart(done_at)` is it | `estimate_at_done_md` |
+
+`/throughput/items` runs `fetchThroughputTasks` (the rows `byBucket` aggregates) and the same pure `bucketStart(doneAt, zone, bucket)`
+the report groups by, in the configured zone (a task done Monday 00:30 local is that Monday's, whatever the UTC date). A request
+without `bucketStart` is `400` ("bucketStart or a sprintId period is required"). Tests: `ReportDrillThroughputTest` (every bucket at UNIT,
+TEAM and USER with two picks -- union and both segments -- for WEEK and MONTH; the bucket-zone rule and the 501-item truncation on
+hand-built rows; the `400`s).
+
 ## Report 1 -- Commitments
 
 `GET /api/v1/reports/commitments` (v0.3.0 M4 commit 10b, `.claude/docs/measures.md` "Report 1 --
@@ -412,6 +455,8 @@ Throughput is what is delivered over any time unit by any group of people, in MD
   and `drift` is the team level's own `deliveredDrift` over the two. The unassigned bucket has no USER-level query.
   **Σ `groups` == Σ `byBucket`** (MD and items) at UNIT and TEAM level.
 - **Two separate measures.** Never expect Σ `bySprint` == Σ `byBucket` (see the two-views note above).
+- **Drill.** `GET /api/v1/reports/throughput/items?...&bucketStart=<day>` lists the tasks behind ONE bar of the period chart (and one
+  person's segment of it with `segmentAccountId`), produced by the same fetch and bucket rule as `byBucket` -- "Drill to items" above.
 
 Code: `reports/ThroughputReport.kt` (DTOs, pure bucket math, the queries) over `reports/
 ReportSupport.kt` (the connection scope / team-existence / sprint-row / snapshot readers extracted

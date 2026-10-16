@@ -64,6 +64,11 @@ The sixth is `GET /api/v1/reports/estimate-adjustments`'s `accountId`, the same 
 The seventh is `GET /api/v1/reports/task-estimation-accuracy`'s `accountId`, the same again (`atStart` and `atDone` split; the accuracy measures stay the union).
 The eighth is `GET /api/v1/reports/wip`'s `accountId`, the same again (USER level is computed at query time and every `series` point carries a `byUser` split; `counts` stays the union).
 
+**The report drill lists are the one report-shaped exception.** `GET /api/v1/reports/<report>/items` (the items behind one bar of a
+chart, `.claude/docs/reports.md` "Drill to items") answers `{meta, bar, items[<=500], total, truncated}`, not the paged envelope: the
+fixed `{items, page, pageSize, total}` cannot carry the `meta` and the server-recomputed `bar` the page prints and reconciles against,
+the full fetch and assignment run in the JVM regardless, and the bound is a hard cap with a `truncated` flag, so paging buys nothing.
+
 **Sub-collections and facets** are not implemented yet — a record's own unbounded sub-collection
 (e.g. a future audit-trail read) should be paged like any other list; reserve the plain `{items}`
 wrapper for genuinely bounded, admin-curated sets. Facet counts (`GET .../facets` alongside a

@@ -10,6 +10,7 @@ import {
   type ThroughputShareRow,
 } from "../utils/throughputReport";
 import ColumnTable, { type ColumnDef } from "./ColumnTable";
+import { drillColumn } from "./DrillColumn";
 import ScrollRegion from "./ScrollRegion";
 
 /** Each person's share of every week/month or sprint — where a stacked chart's numbers live. */
@@ -19,12 +20,14 @@ function SharesTable({
   slotHeader,
   series,
   cumulative,
+  onDrill,
 }: {
   title: string;
   aria: string;
   slotHeader: string;
   series: ThroughputSeries;
   cumulative: boolean;
+  onDrill?: (row: ThroughputShareRow, trigger: HTMLElement) => void;
 }) {
   const { t } = useTranslation();
   const columns: ColumnDef<ThroughputShareRow>[] = [
@@ -34,6 +37,9 @@ function SharesTable({
       ...throughputFigureColumns<ThroughputShareRow>(t, (row) => row.figures),
       ...(cumulative ? throughputCumulativeColumns<ThroughputShareRow>(t, (row) => row.figures) : []),
     ].map((column) => ({ ...column, align: "right" as const })),
+    ...(onDrill
+      ? [drillColumn<ThroughputShareRow>(t, (row) => `${row.label} · ${personLabel(row.person.position, row.person.label)}`, onDrill)]
+      : []),
   ];
   return (
     <Stack gap="xs">
@@ -59,12 +65,15 @@ export default function ThroughputUserTables({
   sprints,
   bucket,
   cumulative,
+  onDrillPeriodShare,
 }: {
   groups: readonly ThroughputGroup[];
   buckets: ThroughputSeries;
   sprints: ThroughputSeries;
   bucket: "WEEK" | "MONTH";
   cumulative: boolean;
+  /** Opens the tasks behind one person's share of one week/month (the share table's Items button). */
+  onDrillPeriodShare?: (row: ThroughputShareRow, trigger: HTMLElement) => void;
 }) {
   const { t } = useTranslation();
   // A sprintId period for a sprint not yet started has an empty period window, so its people come from the sprint series.
@@ -105,6 +114,7 @@ export default function ThroughputUserTables({
           slotHeader={t(`reports.throughput.column.bucket${bucket}`)}
           series={buckets}
           cumulative={cumulative}
+          onDrill={onDrillPeriodShare}
         />
       )}
       {severalPeople && sprints.rows.length > 0 && (

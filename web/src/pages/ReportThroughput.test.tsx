@@ -346,6 +346,7 @@ describe("ReportThroughput page", () => {
         "Delivered (items)",
         "Cumulative (MD)",
         "Cumulative (items)",
+        "Items",
       ]);
       expect(within(period).getAllByRole("row").slice(1).map((r) => r.textContent)).toEqual([
         "2026-09-0712.5512.55",

@@ -278,7 +278,9 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     level"), no `requireAdmin` guard anywhere in this package (unlike every other `metrics/`
     surface above, all of which are ADMIN-gated). No mutation exists or ever will in this package
     (reports only ever read `norm`/`metrics.*` rows another feature already wrote), so no audit
-    event of its own — see `.claude/docs/observability.md`. `GET /reports/filters` (this commit)
+    event of its own — see `.claude/docs/observability.md`. The drill lists (`GET /reports/<report>/items`, `reports/ReportDrillRoutes.kt`)
+    are reports like the rest: any authenticated user, read-only, `call.caller()` first (the same `reportGet` registrar), no audit.
+    `GET /reports/filters` (this commit)
     takes no query parameters and declares no `400`; a later report's own filter parameters are
     validated by `reports/ReportFilter.kt`'s shared parser (`400`, the client-supplied-FK idiom:
     structural checks only — mutual exclusion, ranges, ISO date syntax — never a DB existence

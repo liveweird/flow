@@ -27,6 +27,7 @@ import type {
   CommitmentsReport,
   WipReport,
 } from "../api/reports";
+import type { ReportDrillItems } from "../api/reportDrill";
 
 export const FILTERS: ReportFilters = {
   teams: [
@@ -2138,4 +2139,21 @@ export const COST_MATRIX_EMPTY: CostMatrixReport = {
   totalMd: 0,
   foreignMd: 0,
   foreignShare: null,
+};
+
+const DONE_AT = Date.UTC(2026, 8, 9, 10);
+
+/** The tasks behind throughput's 2026-09-07 bar at TEAM level (5 items, 12.5 MD; the last one unestimated), as the drill serves them. */
+export const THROUGHPUT_ITEMS: ReportDrillItems = {
+  meta: { ...META, level: "TEAM" },
+  bar: { count: 5, sumMd: 12.5, from: null, to: null },
+  items: [
+    { issueKey: "FLO-1", summary: "Build the login page", itemKind: "TASK", accountId: "acc-ann", assignee: "Ann Author", teamId: 1, anchorAt: DONE_AT, figure: 5 },
+    { issueKey: "FLO-2", summary: "Fix the export", itemKind: "TASK", accountId: "acc-bob", assignee: "Bob Builder", teamId: 1, anchorAt: DONE_AT, figure: 4 },
+    { issueKey: "FLO-3", summary: null, itemKind: "TASK", accountId: "acc-ann", assignee: "Ann Author", teamId: 1, anchorAt: DONE_AT, figure: 2 },
+    { issueKey: "FLO-4", summary: "Tidy the readme", itemKind: "TASK", accountId: null, assignee: null, teamId: 1, anchorAt: DONE_AT, figure: 1.5 },
+    { issueKey: "FLO-5", summary: "Spike the importer", itemKind: "TASK", accountId: "acc-bob", assignee: "Bob Builder", teamId: 1, anchorAt: DONE_AT, figure: null },
+  ],
+  total: 5,
+  truncated: false,
 };

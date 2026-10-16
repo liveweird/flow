@@ -1742,6 +1742,61 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/reports/throughput/items:
+    get:
+      tags: [reports]
+      operationId: getReportThroughputItems
+      summary: The tasks behind one bar of the throughput period chart (drill to items)
+      description: |
+        Any authenticated user (D12), read-only — `.claude/docs/reports.md` "Drill to items". Takes the parent report's
+        parameters (`GET /api/v1/reports/throughput`) plus the bar's identity: `bucketStart` (required — the bucket's first
+        day, ISO date, exactly as `byBucket[].bucketStart` spells it) under the same `bucket` resolution. The list is produced
+        by the report's own fetch and its own bucket rule, so `bar` is the report's bar recomputed over exactly the listed
+        set: `bar.count` equals `byBucket[].deliveredItems` and `bar.sumMd` its `deliveredMd` (the unestimated tasks are items
+        worth 0 MD: their `figure` is null). `figure` is the task's estimate at done in MD; `anchorAt` its `done_at`;
+        `teamId` its credit team. Items are sorted by `figure` descending (nulls last), newest `anchorAt` first, then issue
+        key, and at most 500 are listed — `total` (always equal to `bar.count`) says how many are behind the bar and
+        `truncated` is true when that is more than were listed. `segmentAccountId` narrows the list AND the bar to one picked
+        account's share (`byUser`); it needs USER level and must be one of the picked `accountId`s, else 400. A missing
+        `bucketStart` is a 400 ("bucketStart or a sprintId period is required"), and so is one that is not the first day of a bucket the report draws inside the period.
+      parameters:
+        - { $ref: '#/components/parameters/ReportFrom' }
+        - { $ref: '#/components/parameters/ReportTo' }
+        - { $ref: '#/components/parameters/ReportLastSprints' }
+        - { $ref: '#/components/parameters/ReportSprintId' }
+        - { $ref: '#/components/parameters/ReportTeamId' }
+        - name: accountId
+          in: query
+          required: false
+          style: form
+          explode: true
+          schema:
+            type: array
+            maxItems: 8
+            items: { type: string }
+          description: Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`.
+        - { $ref: '#/components/parameters/ReportDomainView' }
+        - { $ref: '#/components/parameters/ReportDomain' }
+        - { $ref: '#/components/parameters/ReportActivityType' }
+        - { $ref: '#/components/parameters/ReportWorkCategory' }
+        - { $ref: '#/components/parameters/ReportConnectionId' }
+        - { $ref: '#/components/parameters/ReportBucket' }
+        - name: bucketStart
+          in: query
+          required: false
+          schema: { type: string, format: date }
+          description: The bucket's first day (ISO date, as `byBucket[].bucketStart`). Required in this version (400 without it).
+        - { $ref: '#/components/parameters/ReportDrillSegmentAccountId' }
+      responses:
+        '200':
+          description: The items behind the bar
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportDrillItems'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/reports/sprint-consistency:
     get:
       tags: [reports]
@@ -2861,6 +2916,12 @@ components:
       required: false
       schema: { type: string, enum: [WEEK, MONTH], default: WEEK }
       description: The time resolution of a report's bucketed series; weeks start Monday, buckets in the configured zone.
+    ReportDrillSegmentAccountId:
+      name: segmentAccountId
+      in: query
+      required: false
+      schema: { type: string }
+      description: Narrows a drill list (and its bar) to ONE person's share of a stacked bar; USER level only, one of the picked `accountId`s (400 otherwise).
     ReportWipBy:
       name: by
       in: query
@@ -4646,6 +4707,42 @@ components:
         groups:
           type: array
           items: { $ref: '#/components/schemas/ThroughputGroup' }
+    ReportDrillBar:
+      type: object
+      description: The bar a drill list adds up to, recomputed by the server over the listed set. Fields a bar kind does not have are null.
+      required: [count, sumMd, from, to]
+      properties:
+        count: { type: integer }
+        sumMd: { type: number, format: double, nullable: true, description: "Σ MD of the items (MD bars; an unestimated item adds 0)." }
+        from: { type: number, format: double, nullable: true, description: "Lower edge of a histogram bucket." }
+        to: { type: number, format: double, nullable: true, description: "Upper edge of a histogram bucket; null on the open tail bucket." }
+    ReportDrillItem:
+      type: object
+      required: [issueKey, summary, itemKind, accountId, assignee, teamId, anchorAt, figure]
+      properties:
+        issueKey: { type: string }
+        summary: { type: string, nullable: true }
+        itemKind: { type: string, enum: [TASK, EPIC, WORKLOG] }
+        accountId: { type: string, nullable: true }
+        assignee: { type: string, nullable: true, description: "Display name of `accountId` (the id itself when no name is known)." }
+        teamId: { type: integer, format: int32, minimum: 0, nullable: true }
+        anchorAt: { type: integer, format: int64, nullable: true, description: "Epoch millis of the instant the report anchors the item to (e.g. `done_at`)." }
+        figure: { type: number, format: double, nullable: true, description: "The bar's own per-item value (MD, days, a ratio, …); null = unestimated (counted as 0 MD)." }
+    ReportDrillItems:
+      type: object
+      description: |
+        A drill list: the report's `meta`, the recomputed `bar`, at most 500 `items` (largest figure first) and the `total` behind
+        the bar (equal to `bar.count`); `truncated` when `total` exceeds the listed items.
+      required: [meta, bar, items, total, truncated]
+      properties:
+        meta: { $ref: '#/components/schemas/ReportMeta' }
+        bar: { $ref: '#/components/schemas/ReportDrillBar' }
+        items:
+          type: array
+          maxItems: 500
+          items: { $ref: '#/components/schemas/ReportDrillItem' }
+        total: { type: integer }
+        truncated: { type: boolean }
 
     SprintFigures:
       type: object

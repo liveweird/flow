@@ -157,6 +157,7 @@ fun Application.configureReportRoutes() {
             flowRoutes(reportService, metricsSettings)
             qualityEpicAndCostRoutes(reportService, metricsSettings)
             deepDiveRoutes(reportService)
+            drillRoutes(reportService, metricsSettings)
         }
     }
 }
@@ -168,7 +169,7 @@ fun Application.configureReportRoutes() {
  * `400`s keep their order) and the request's `now`. [multipleAccounts] is the per-route opt-in to a repeated `accountId`
  * (the routes passing `multipleAccounts = true`).
  */
-private inline fun <reified R : Any> Route.reportGet(
+internal inline fun <reified R : Any> Route.reportGet(
     metricsSettings: MetricsSettingsService,
     defaultView: DomainView,
     multipleAccounts: Boolean = false,
@@ -316,5 +317,5 @@ private fun Route.deepDiveRoutes(reportService: ReportService) {
  * dates into UTC-millis bounds ([parseReportFilter]'s own doc comment), so this is the ONE place
  * every later report's route reuses rather than re-deriving the calendar itself.
  */
-private suspend fun reportsWorkingCalendar(metricsSettings: MetricsSettingsService): WorkingCalendar =
+internal suspend fun reportsWorkingCalendar(metricsSettings: MetricsSettingsService): WorkingCalendar =
     metricsSettings.readCalendar()

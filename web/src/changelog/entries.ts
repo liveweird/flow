@@ -17,6 +17,22 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "0.24.0",
+    date: "2026-10-17",
+    en: `**Delivery → Throughput: open the tasks behind any bar.**
+
+- Double-click a bar of the delivered-per-period chart — or a person's segment of it — to list the tasks it sums: key, summary, assignee, done date and man-days, with the bar's own count and total on top.
+- Every row of the table under the chart has an **Items** button that opens the same list, so it works from the keyboard and with a screen reader too.
+- The list opens in a side panel and the chart stays exactly as it was: **Back to the chart**, Escape or the browser's Back button closes it. The link carries the open list, so you can share it.
+- More charts get the same drill-down in the next releases.`,
+    pl: `**Dostarczanie → Przepustowość: otwórz zadania kryjące się za dowolnym słupkiem.**
+
+- Kliknij dwukrotnie słupek wykresu dostarczonej pracy w okresie — albo segment jednej osoby — aby zobaczyć listę zadań, które sumuje: klucz, podsumowanie, osobę przypisaną, datę zakończenia i osobodni, a nad nimi liczbę i sumę samego słupka.
+- Każdy wiersz tabeli pod wykresem ma przycisk **Zadania**, który otwiera tę samą listę, więc działa to też z klawiatury i z czytnikiem ekranu.
+- Lista otwiera się w panelu bocznym, a wykres zostaje dokładnie taki, jaki był: **Wróć do wykresu**, Escape albo przycisk Wstecz przeglądarki ją zamyka. Link zawiera otwartą listę, więc możesz go udostępnić.
+- Kolejne wykresy dostaną to samo w następnych wydaniach.`,
+  },
+  {
     version: "0.23.0",
     date: "2026-10-17",
     en: `**Adjustments charts only the estimates that changed.**

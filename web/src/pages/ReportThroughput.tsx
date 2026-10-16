@@ -14,10 +14,12 @@ import ReportMetaNote from "../components/ReportMetaNote";
 import ReportSprintsTable, { type SprintColumn } from "../components/ReportSprintsTable";
 import ReportTabs from "../components/ReportTabs";
 import ThroughputBucketTable from "../components/ThroughputBucketTable";
+import ThroughputDrillDrawer from "../components/ThroughputDrillDrawer";
 import ThroughputUserTables from "../components/ThroughputUserTables";
 import { useReportPage } from "../hooks/useReportPage";
+import { useReportDrill } from "../hooks/useReportDrill";
 import { useThroughputView, type ThroughputView } from "../hooks/useThroughputView";
-import type { ReportControls } from "../utils/reportFilter";
+import { reportQuery, type ReportControls } from "../utils/reportFilter";
 import { formatMd } from "../utils/reportFormat";
 import { DELIVERY_TABS } from "../utils/reportLinks";
 import {
@@ -31,6 +33,9 @@ import {
 
 // The chart (and with it recharts) rides its own lazy chunk.
 const ThroughputChart = lazy(() => import("../components/ThroughputChart"));
+
+/** The period card's focus-return anchor for a drill opened by a chart double-click (`ReportChartCard`'s `drillAnchor`). */
+const DRILL_ANCHOR = "throughput-period";
 
 /**
  * Throughput is read per team — never the whole unit — and the member control picks several people. It honours the domain
@@ -63,7 +68,12 @@ export default function ReportThroughput() {
   );
   const { view, setView } = useThroughputView();
   const cumulative = view === "CUMULATIVE";
+  const drill = useReportDrill(reportQuery(filter), DRILL_ANCHOR);
   const report = query.data;
+  // A bar of kept (placeholder) data belongs to the PREVIOUS filter: it must not open a drill under the new one.
+  const drillable = !query.isPlaceholderData;
+  const openBucket = (bucketStart: string, segmentAccountId?: string, trigger?: HTMLElement) =>
+    drill.open(segmentAccountId ? { kind: "bucket", bucketStart, segmentAccountId } : { kind: "bucket", bucketStart }, trigger);
   // The shown report decides the mode (not the filter): a refetch over kept data never mixes the two shapes.
   const userMode = report?.meta.level === "USER";
   const noTeams = filters !== undefined && filters.teams.length === 0;
@@ -111,6 +121,8 @@ export default function ReportThroughput() {
             isRefreshing={query.isPlaceholderData}
             error={query.error}
             empty={totals?.items === 0}
+            hint={t(cumulative ? "reports.drill.hintRows" : "reports.drill.hint")}
+            drillAnchor={DRILL_ANCHOR}
           >
             {report && totals && buckets && (
               <Stack gap="xs">
@@ -121,9 +133,24 @@ export default function ReportThroughput() {
                   })}
                 </Text>
                 <Suspense fallback={<LoadingBlock />}>
-                  <ThroughputChart scope="period" cumulative={cumulative} rows={throughputPlot(buckets, cumulative)} people={buckets.people} />
+                  <ThroughputChart
+                    scope="period"
+                    cumulative={cumulative}
+                    rows={throughputPlot(buckets, cumulative)}
+                    people={buckets.people}
+                    onBarDoubleClick={
+                      drillable
+                        ? ({ rowId, series }) => openBucket(rowId, buckets.people.find((person) => person.key === series)?.accountId)
+                        : undefined
+                    }
+                  />
                 </Suspense>
-                <ThroughputBucketTable series={buckets} bucket={report.bucket} cumulative={cumulative} />
+                <ThroughputBucketTable
+                  series={buckets}
+                  bucket={report.bucket}
+                  cumulative={cumulative}
+                  onDrill={drillable ? (row, trigger) => openBucket(row.id, undefined, trigger) : undefined}
+                />
               </Stack>
             )}
           </ReportChartCard>
@@ -163,10 +190,30 @@ export default function ReportThroughput() {
             buckets &&
             sprints &&
             (userMode ? (
-              <ThroughputUserTables groups={report.groups} buckets={buckets} sprints={sprints} bucket={report.bucket} cumulative={cumulative} />
+              <ThroughputUserTables
+                groups={report.groups}
+                buckets={buckets}
+                sprints={sprints}
+                bucket={report.bucket}
+                cumulative={cumulative}
+                onDrillPeriodShare={drillable ? (row, trigger) => openBucket(row.slotId, row.person.accountId, trigger) : undefined}
+              />
             ) : (
               <ReportGroupsTable level={report.meta.level} filters={filters} groups={report.groups} columns={groupColumns} />
             ))}
+          {report && (
+            <ThroughputDrillDrawer
+              opened={drill.target !== null}
+              target={drill.shown}
+              filter={filter}
+              bucket={report.bucket}
+              byBucket={report.byBucket}
+              people={buckets?.people ?? []}
+              timeZone={filters.timeZone}
+              onClose={drill.close}
+              onSegmentChange={drill.setSegment}
+            />
+          )}
         </>
       )}
     </Stack>
