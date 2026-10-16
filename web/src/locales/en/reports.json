@@ -273,9 +273,9 @@
     "title": "Accuracy measures",
     "column": {
       "measure": "Measure",
-      "value": "Value",
-      "meaning": "What it says"
+      "value": "Value"
     },
+    "about": "About {{measure}}",
     "label": {
       "pred10": "PRED(10)",
       "pred25": "PRED(25)",

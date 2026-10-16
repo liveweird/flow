@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
-import { Stack, Text, Title } from "@mantine/core";
+import { ActionIcon, Group, Stack, Title, Tooltip } from "@mantine/core";
+import { IconInfoCircle } from "@tabler/icons-react";
 import type { AccuracyMeasures } from "../api/reports";
 import { formatPercent, formatRatio, type ValueFormat } from "../utils/reportFormat";
 import ColumnTable, { type ColumnDef } from "./ColumnTable";
@@ -21,7 +22,8 @@ const MEASURES: ReadonlyArray<{ key: keyof AccuracyMeasures; format: ValueFormat
 ];
 
 /**
- * The accuracy measures of one estimate-vs-actual distribution as a three-column table (measure, value, what it says). Fractions
+ * The accuracy measures of one estimate-vs-actual distribution as a two-column table (measure, value). Each measure's one-line
+ * meaning sits behind an info icon beside its name (a tooltip on hover and keyboard focus), not in the row. Fractions
  * read as percentages and the spreads as ratios; the tail share is null for a sample with no spread and reads "—". [name] is the
  * distribution's title, so the two views of a page are told apart by their table names.
  */
@@ -29,7 +31,23 @@ export default function AccuracyMeasuresTable({ measures, name }: { measures: Ac
   const { t } = useTranslation();
   const title = `${t("reports.accuracy.title")} — ${name}`;
   const columns: ColumnDef<(typeof MEASURES)[number]>[] = [
-    { key: "measure", header: t("reports.accuracy.column.measure"), render: (row) => t(`reports.accuracy.label.${row.key}`) },
+    {
+      key: "measure",
+      header: t("reports.accuracy.column.measure"),
+      render: (row) => {
+        const label = t(`reports.accuracy.label.${row.key}`);
+        return (
+          <Group gap={4} wrap="nowrap">
+            {label}
+            <Tooltip label={t(`reports.accuracy.meaning.${row.key}`)} multiline w={320} events={{ hover: true, focus: true, touch: true }}>
+              <ActionIcon variant="subtle" color="gray" size={24} aria-label={t("reports.accuracy.about", { measure: label })}>
+                <IconInfoCircle size={16} />
+              </ActionIcon>
+            </Tooltip>
+          </Group>
+        );
+      },
+    },
     {
       key: "value",
       header: t("reports.accuracy.column.value"),
@@ -38,15 +56,6 @@ export default function AccuracyMeasuresTable({ measures, name }: { measures: Ac
         return value === null ? MISSING : row.format(value);
       },
       align: "right",
-    },
-    {
-      key: "meaning",
-      header: t("reports.accuracy.column.meaning"),
-      render: (row) => (
-        <Text size="sm" c="dimmed">
-          {t(`reports.accuracy.meaning.${row.key}`)}
-        </Text>
-      ),
     },
   ];
   return (

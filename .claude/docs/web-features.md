@@ -456,9 +456,9 @@ completed · the report's figures · the orange drift badge with the frozen figu
   activity type, work category; the no-teams `EmptyState`, `MULTI_ACCOUNT_PATHS`, `distributionPeople` per view, `ReportPersonTotals` at `USER` level). Its two
   panels pass `strip="centre"` to `DistributionPanel` — the strip shows the median, the mean and the item count only, since p90/p95 say nothing about
   accuracy (cycle time and the other distribution reports keep the default `full` strip) — and `accuracy`, which renders
-  `components/AccuracyMeasuresTable.tsx` between the strip and the histogram: "Accuracy measures — <view title>", Measure · Value · What it says,
+  `components/AccuracyMeasuresTable.tsx` between the strip and the histogram: "Accuracy measures — <view title>", Measure · Value (two columns),
   nine rows (PRED(10/25/50), MdMRE, sMAPE as percentages via `formatPercent`; IQR, IDR, MAD as ratios via `formatRatio`; the tail share beyond ±2σ as a
-  percentage, "—" when the server sends null), each with its one-line meaning under `reports.accuracy.*`. The measures are over the whole selection
+  percentage, "—" when the server sends null), each with its one-line meaning (`reports.accuracy.meaning.*`) on demand behind a small info `ActionIcon` beside the measure name (`aria-label` "About {measure}"): a `Tooltip` opening on hover, keyboard focus and touch, so the rows stay compact; the open tooltip is the icon's `aria-describedby`. The measures are over the whole selection
   (never per person); a hidden view has neither strip nor table.
   **Epic accuracy is read per team, never per person** (`pages/ReportEpicAccuracy.tsx`; `CONTROLS` = `teamRequired`, `noMember`, domain, work category):
   the Team select has no "All teams" (the no-teams `EmptyState`, `useReportPage` holding the query until a team is set), there is no Member control, and the

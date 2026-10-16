@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "0.19.0",
+    date: "2026-10-17",
+    en: `**Task and Epic accuracy are more compact: each measure's explanation is now behind an info icon.**
+
+- The accuracy table lists each measure with its value only, so the rest of the page moves up.
+- To read what a measure means, point at the ⓘ icon beside its name, or reach it with Tab — the explanation opens in a tooltip.`,
+    pl: `**Trafność szacowania zadań i epików jest bardziej zwarta: wyjaśnienie każdej miary kryje się teraz pod ikoną informacji.**
+
+- Tabela trafności pokazuje przy każdej mierze tylko jej wartość, więc reszta strony przesuwa się wyżej.
+- Aby przeczytać, co znaczy miara, wskaż ikonę ⓘ obok jej nazwy albo dojdź do niej klawiszem Tab — wyjaśnienie otwiera się w podpowiedzi.`,
+  },
+  {
     version: "0.18.0",
     date: "2026-10-16",
     en: `**Epic progress reads a domain, team or the unit over the period, with a weekly SPI and CPI trend.**
