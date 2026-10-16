@@ -17,6 +17,20 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "0.21.0",
+    date: "2026-10-17",
+    en: `**Aging WIP shows tasks or epics, one at a time, across the whole page.**
+
+- A **Tasks | Epics** switch under the filters now drives the whole page: the age thresholds, the aging chart and the open-work table all show the chosen kind, since tasks and epics age on very different scales. It replaces the switch that sat on the chart alone.
+- The choice is kept in the link, so a shared or bookmarked page opens on the same kind. Tasks is the default.
+- When epics aren't available (a single person's view, or no open epics), the switch is hidden and the page shows tasks.`,
+    pl: `**Wiek WIP pokazuje zadania albo epiki, jedne naraz, na całej stronie.**
+
+- Przełącznik **Zadania | Epiki** pod filtrami steruje teraz całą stroną: progi wieku, wykres starzenia się i tabela otwartej pracy pokazują wybrany rodzaj, bo zadania i epiki starzeją się w zupełnie innej skali. Zastępuje przełącznik, który był tylko przy wykresie.
+- Wybór zapisuje się w linku, więc udostępniona albo zapisana strona otwiera się na tym samym rodzaju. Domyślnie pokazujemy zadania.
+- Gdy epiki nie są dostępne (widok jednej osoby albo brak otwartych epików), przełącznik się chowa, a strona pokazuje zadania.`,
+  },
+  {
     version: "0.20.0",
     date: "2026-10-17",
     en: `**Stacked bars by status, board column or person are easier to tell apart.**

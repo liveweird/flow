@@ -1033,11 +1033,30 @@ async function readAgingChart(page: Page): Promise<void> {
   await expect(chart.getByText("Age (working days)", { exact: true })).toBeVisible();
   for (const position of report.positions) await expect(chart.getByText(position.label, { exact: true })).toBeVisible();
 
-  // One dot per task; the table below lists the same work (epics ride their own plot behind the Tasks | Epics switch).
+  // One dot per task; the table below lists the same work (epics are behind the page's Tasks | Epics switch).
   const tasks = report.items.filter((item) => item.itemKind === "TASK").length;
   expect(tasks).toBeGreaterThan(0);
   await expect(chart.locator("[data-item]")).toHaveCount(tasks);
-  await expect(page.getByRole("table", { name: "Open work, oldest first" }).getByRole("row")).toHaveCount(report.items.length + 1);
+  const openWork = page.getByRole("table", { name: "Open work, oldest first" });
+  await expect(openWork.getByRole("row")).toHaveCount(tasks + 1);
+
+  // The switch shows the other kind (it exists wherever epics are offered, so only assert it when epics are listed).
+  const epics = report.items.length - tasks;
+  if (epics > 0) {
+    // Mantine's radio inputs are 0x0: click the visible label, scoped to the group; the radio itself only carries the checked state.
+    const kind = page.getByRole("radiogroup", { name: "Items shown: tasks or epics" });
+    await expect(kind.getByRole("radio", { name: "Tasks", exact: true })).toBeChecked();
+    await kind.getByText("Epics", { exact: true }).click();
+    await expect(page).toHaveURL(/[?&]kind=epics\b/);
+    await expect(kind.getByRole("radio", { name: "Epics", exact: true })).toBeChecked();
+    await expect(openWork.getByRole("row")).toHaveCount(epics + 1);
+    await kind.getByText("Tasks", { exact: true }).click();
+    await expect(page).not.toHaveURL(/[?&]kind=/);
+    await expect(openWork.getByRole("row")).toHaveCount(tasks + 1);
+  } else {
+    // The stub's open work holds no epic, so the switch is not exercised here (the vitest page tests cover it).
+    test.info().annotations.push({ type: "note", description: "Aging WIP: the stub lists no in-progress epic; the Tasks | Epics switch was not exercised." });
+  }
 
   // Without the team the axis is the statuses.
   await page.goto(`/reports/aging-wip?connectionId=${dataSourceId}&${WINDOW}`);

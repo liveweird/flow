@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Anchor, Badge, Stack, Text } from "@mantine/core";
 import { Link as RouterLink, useLocation, useSearchParams } from "react-router-dom";
 import type { AgingItem, AgingWipReport, ReportFilters } from "../api/reports";
-import { agingItemKey } from "../utils/agingChart";
+import { agingItemKey, type AgingKind } from "../utils/agingChart";
 import { bandPercentileLabel, bandTone, thresholdsFor } from "../utils/agingReport";
 import { formatDate } from "../utils/formatDate";
 import { formatDays, teamLabel } from "../utils/reportFormat";
@@ -23,10 +23,13 @@ const MISSING = "—";
  */
 export default function AgingItemsTable({
   report,
+  kind,
   filters,
   selectedKey = null,
 }: {
   report: AgingWipReport;
+  /** The kind the page's Tasks | Epics switch picked: only its items are listed (the order stays the server's). */
+  kind: AgingKind;
   filters: ReportFilters;
   /** The item a click on the chart selected (`agingItemKey`): its row is highlighted and scrolled into view. */
   selectedKey?: string | null;
@@ -35,8 +38,8 @@ export default function AgingItemsTable({
   const { pathname } = useLocation();
   const [params] = useSearchParams();
   const level = report.meta.level;
-  const showKind = report.items.some((item) => item.itemKind === "EPIC");
-  const showWaiting = report.items.some((item) => item.waiting);
+  const items = report.items.filter((item) => item.itemKind === kind);
+  const showWaiting = items.some((item) => item.waiting);
   const root = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (selectedKey !== null) root.current?.querySelector('[data-selected="true"]')?.scrollIntoView?.({ block: "nearest" });
@@ -107,15 +110,6 @@ export default function AgingItemsTable({
         </>
       ),
     },
-    ...(showKind
-      ? [
-          {
-            key: "kind",
-            header: t("reports.agingWip.column.kind"),
-            render: (item: AgingItem) => t(`reports.kind.${item.itemKind}`),
-          },
-        ]
-      : []),
     { key: "team", header: t("reports.agingWip.column.team"), render: teamCell },
     { key: "assignee", header: t("reports.agingWip.column.assignee"), render: assigneeCell },
     {
@@ -171,7 +165,7 @@ export default function AgingItemsTable({
         <ColumnTable
           aria-label={t("reports.agingWip.tableLabel")}
           columns={columns}
-          rows={report.items}
+          rows={items}
           rowKey={agingItemKey}
           rowProps={(item) =>
             agingItemKey(item) === selectedKey
@@ -182,7 +176,7 @@ export default function AgingItemsTable({
       </ScrollRegion>
       {report.itemsTruncated && (
         <Text size="xs" c="dimmed">
-          {t("reports.agingWip.truncated", { count: report.items.length })}
+          {t("reports.agingWip.truncated", { count: items.length })}
         </Text>
       )}
     </Stack>

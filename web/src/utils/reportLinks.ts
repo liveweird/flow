@@ -87,8 +87,11 @@ const REPORT_SPECIFIC_PARAMS: Readonly<Record<string, readonly ReportSpecificKey
  * the page that reads them.
  */
 export const THROUGHPUT_VIEW_PARAM = "view";
+/** Aging WIP's Tasks | Epics switch (`kind=epics`; the Tasks default is the absent param). */
+export const AGING_KIND_PARAM = "kind";
 const PAGE_PARAMS: Readonly<Record<string, readonly string[]>> = {
   [throughputPath]: [THROUGHPUT_VIEW_PARAM],
+  [agingWipPath]: [AGING_KIND_PARAM],
 };
 
 /** The reports whose member control picks several people (repeated `accountId`); every other report keeps the FIRST. */

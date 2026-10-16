@@ -87,9 +87,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
     within that window, so long-dead items stop inflating the estimated backlog. Decide what "last change" reads (the
     item's last update, or its last status/estimate change) and whether the cut-off is applied per day of the trend or
     only as of today; say in a note how many items the slider hides.
-- [new] **Aging WIP: one Tasks | Epics switch for the whole page.** The open-work table mixes tasks and epics, which age
-  on different scales (separate thresholds). The aging chart already has a Tasks | Epics switch (0.15.0); lift it to the
-  page so the thresholds row, the chart and the table all show one kind at a time, the choice in the URL.
 - [new] **Cost matrix: individual capacity and a time split.** Two questions to settle, then build:
   - A column with each person's capacity for the period (from the sprint calendars' per-person days and coefficients,
     A32), so logged cost reads against what the person had available. Coefficients are editor-only today; decide who

@@ -28,3 +28,11 @@ export function bandPercentileLabel(band: string): string {
 export function thresholdsFor(item: AgingItem, report: Pick<AgingWipReport, "thresholds" | "epicThresholds">): AgingThresholds {
   return item.itemKind === "EPIC" ? report.epicThresholds : report.thresholds;
 }
+
+/**
+ * Whether the page offers the Epics side of its Tasks | Epics switch: not at USER level (that assignee's tasks only — an epic has
+ * no assignee), and only where there are epics to list or an epic window to read thresholds from. Otherwise the page is tasks only.
+ */
+export function offersEpics(report: Pick<AgingWipReport, "meta" | "epicThresholds" | "items">): boolean {
+  return report.meta.level !== "USER" && (report.epicThresholds.n > 0 || report.items.some((item) => item.itemKind === "EPIC"));
+}
