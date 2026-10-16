@@ -124,15 +124,15 @@ describe("ThroughputChart — cumulative, whole team", () => {
 });
 
 describe("ThroughputChart — people", () => {
-  test("per period: one stacked bar segment per person, numbered series labels, neutral cycle colours, ringed in the surface", () => {
+  test("per period: one stacked bar segment per person, numbered series labels, categorical palette colours, ringed in the surface", () => {
     renderWithProviders(<ThroughputChart scope="period" cumulative={false} rows={peopleRows} people={PEOPLE} />);
     expect(screen.getByRole("group", { name: "Chart: delivered scope by period, stacked by person" })).toBeInTheDocument();
     expect(attr("bar-chart", "data-type")).toBe("stacked");
     expect(series("bar-chart")).toEqual([
       { name: "p0", label: "1. Ann · delivered", color: "flow.6" },
-      { name: "p1", label: "2. Bob · delivered", color: "gray.6" },
-      { name: "p2", label: "3. Cy · delivered", color: "flow.7" },
-      { name: "p3", label: "4. Di · delivered", color: "gray.6" },
+      { name: "p1", label: "2. Bob · delivered", color: "violet.5" },
+      { name: "p2", label: "3. Cy · delivered", color: "cyan.7" },
+      { name: "p3", label: "4. Di · delivered", color: "indigo.5" },
     ]);
     expect(JSON.parse(attr("bar-chart", "data-bar-props")!)).toEqual({
       maxBarSize: 28,
@@ -145,7 +145,7 @@ describe("ThroughputChart — people", () => {
     expect(tooltip("a", [{ payload: { items: 3 } }])).toBe("a · 3 items");
   });
 
-  test("the legend numbers every person, so identity never rests on colour (the cycle repeats from the fourth)", () => {
+  test("the legend numbers every person, so identity never rests on colour", () => {
     renderWithProviders(<ThroughputChart scope="period" cumulative={false} rows={peopleRows} people={PEOPLE} />);
     const legend = screen.getByRole("list", { name: "Chart legend" });
     expect(within(legend).getAllByRole("listitem").map((item) => item.textContent)).toEqual(["1. Ann", "2. Bob", "3. Cy", "4. Di"]);

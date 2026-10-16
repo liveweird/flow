@@ -2,7 +2,7 @@ import "@mantine/charts/styles.css";
 import { BarChart, type BarChartSeries } from "@mantine/charts";
 import { Box } from "@mantine/core";
 import { useTranslation } from "react-i18next";
-import { BAND_CYCLE, CHART_COLORS } from "../utils/chartColors";
+import { CATEGORY_PALETTE, CHART_COLORS } from "../utils/chartColors";
 import { personLabel } from "../utils/commitmentsReport";
 import type { DistributionPerson } from "../utils/distributionPeople";
 import ChartLegendList, { PersonSwatch } from "./ChartLegendList";
@@ -24,7 +24,7 @@ export interface HistogramRow {
  *
  * People mode (`people` given, each row carrying `shares`): one stacked segment per picked person over the same ranges, the open
  * tail bucket split too (so it is no longer a gray series — its "≥" label and table row name it). People are arbitrary names, so
- * they wear the neutral `BAND_CYCLE` by position and — only three shades being distinguishable — are NUMBERED ("2. Bob") in the
+ * they wear the categorical `CATEGORY_PALETTE` by position and — colour never being the only cue — are NUMBERED ("2. Bob") in the
  * legend (from two people) and the tooltip; identity never rests on colour (the throughput chart's rule). A lazy chunk —
  * recharts never enters the main bundle.
  */
@@ -53,7 +53,7 @@ export default function DistributionHistogram({
     ? people.map((person, index) => ({
         name: `p${index}`,
         label: personLabel(person.position, person.label),
-        color: BAND_CYCLE[index % BAND_CYCLE.length],
+        color: CATEGORY_PALETTE[index % CATEGORY_PALETTE.length],
       }))
     : [{ name: "count", label: t("reports.distribution.count"), color: CHART_COLORS.estimate }];
   if (hasTail) series.push({ name: "tail", label: t("reports.distribution.tailSeries"), color: CHART_COLORS.longTail });
@@ -65,7 +65,7 @@ export default function DistributionHistogram({
           label={t("reports.distribution.personLegend")}
           entries={people.map((person, index) => ({
             key: person.accountId,
-            glyph: <PersonSwatch colour={BAND_CYCLE[index % BAND_CYCLE.length]} />,
+            glyph: <PersonSwatch colour={CATEGORY_PALETTE[index % CATEGORY_PALETTE.length]} />,
             text: personLabel(person.position, person.label),
           }))}
         />

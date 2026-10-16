@@ -65,7 +65,7 @@ describe("DistributionHistogram", () => {
       { label: "≥ 4", count: 3, open: true, shares: [1, 2] },
     ];
 
-    test("one stacked, outlined series per person in the neutral cycle, numbered in the legend and the tooltip, the tail bucket split too", () => {
+    test("one stacked, outlined series per person in the categorical palette, numbered in the legend and the tooltip, the tail bucket split too", () => {
       renderWithProviders(<DistributionHistogram rows={stacked} name="Ratio" xAxisLabel="x" people={people} />);
       expect(
         screen.getByRole("group", { name: "Histogram: number of items per range, stacked by person — Ratio" }),
@@ -74,7 +74,7 @@ describe("DistributionHistogram", () => {
       expect(chart.getAttribute("data-type")).toBe("stacked");
       expect(JSON.parse(chart.getAttribute("data-series")!)).toEqual([
         { name: "p0", label: "1. Bob", color: "flow.6" },
-        { name: "p1", label: "2. Ann", color: "gray.6" },
+        { name: "p1", label: "2. Ann", color: "violet.5" },
       ]);
       expect(JSON.parse(chart.getAttribute("data-rows")!)).toEqual([
         { label: "0 – 2", p0: 3, p1: 1 },

@@ -375,8 +375,8 @@ completed · the report's figures · the orange drift badge with the frozen figu
   team figure, null at this level); `CommitmentsChart` is a `BarChart` with two stacked columns per sprint — `stackId` "committed" (left; a translucent
   fill, `DEEP_DIVE_FILL_ALPHA`, inside a solid 2 px edge, the Deep dive's idiom) and "final" (right; solid, ringed in the surface) — each cut into one
   segment per picked person (`commitmentsUserChart`: data keys `c<i>`/`f<i>`, since account ids are not safe data keys). People are arbitrary names, so they wear
-  the neutral `BAND_CYCLE` by position (neighbouring segments alternate blue and gray, never a semantic hue) — but it has only three distinguishable shades, so from the
-  fourth person on a colour repeats. **People are therefore numbered by stack position** (`personLabel`: "2. Bob"): in the page's own legend (a list), the
+  the categorical `CATEGORY_PALETTE` by position (seven hues, neighbours at least ΔE2000 22.9 apart, never a semantic hue) — but it has seven entries, so the
+  8th person (the cap allows eight) repeats the first colour. **People are therefore numbered by stack position** (`personLabel`: "2. Bob"): in the page's own legend (a list), the
   tooltip ("2. Bob · initial"), the per-person totals and the per-sprint share table, so identity never rests on colour. The legend's two treatment
   entries are neutral text-colour glyphs (tall columns, outlined = committed, solid = final), never a swatch in a person's hue; committed vs final is told by
   fill, position and the legend. One person is the same shape with one segment per stack. The tables: the sprints table (the picked people's SUM, drift
@@ -388,7 +388,7 @@ completed · the report's figures · the orange drift badge with the frozen figu
   Commitments'; the page shows what the REPORT's `meta.level` says, `USER` = people mode). **Per period or cumulative**: a `SegmentedControl` ("Chart view": Per period · Cumulative) sits between the meta note and the first card — beside the charts, NOT in the filter bar, so it never counts on the toggle's badge — and
   is the URL's `view=cumulative` (`hooks/useThroughputView`; the per-period default is the absent param). It is no filter: not in `ReportFilterState`, not in the request or the query key, so switching refetches nothing; `reportHref` keeps it only for throughput (`PAGE_PARAMS`). Both views have a chart in both cards: the period card (per week/month) and the sprint card (per sprint, completion order, the table with the drift badge below it).
   `throughputSeries` (pure, tested) turns time-ordered slots into rows holding each slot's own figures, the running totals (`cumulativeMd`/`cumulativeItems`, noise-cleaned) and — people mode — the same per person (`shares`, index-aligned with `people`, first-seen = request order, a person a slot omits counts 0);
-  `throughputPlot` picks per-slot or running figures for the chart. *Whole team*: per period one teal (`CHART_COLORS.delivered`) bar series, cumulative ONE teal stacked area (running total), no legend. *People mode*: stacked bars (each person a segment ringed in the surface) or stacked areas (translucent fill, solid edge), people on the neutral `BAND_CYCLE` by position and
+  `throughputPlot` picks per-slot or running figures for the chart. *Whole team*: per period one teal (`CHART_COLORS.delivered`) bar series, cumulative ONE teal stacked area (running total), no legend. *People mode*: stacked bars (each person a segment ringed in the surface) or stacked areas (translucent fill, solid edge), people on the categorical `CATEGORY_PALETTE` by position and
   NUMBERED ("2. Bob", `personLabel`; the page's own `ChartLegendList` from two people, the tooltip "2. Bob · delivered" / "· delivered, cumulative"), so identity never rests on colour. The tooltip adds the slot's items ("5 items", cumulative "5 items so far"). Tables carry every number: the bucket table (cumulative view: two more columns), the sprint table (the same), and in people mode `ThroughputUserTables`:
   "Totals per person" (`groups`, plain numbered text — the team level's "By member" drill table is replaced), and with two or more people "Each person's share of each period" and "of each sprint" (one row per slot and person, running totals in the cumulative view).
 
@@ -477,7 +477,7 @@ completed · the report's figures · the orange drift badge with the frozen figu
   `meta.level` says: `USER` = **people mode**. `utils/distributionPeople.ts` (pure, tested) turns a distribution's `byUser` into the numbered
   people (`distributionPeople`, 1-based in request order) and the histogram rows with each bucket's per-person counts
   (`histogramRowsWithShares`); the page passes each of the two distributions its OWN people to `DistributionWithAccounting` → `DistributionPanel`
-  → `DistributionHistogram`. People mode stacks one outlined segment per person on the neutral `BAND_CYCLE` (the open tail bucket split too, so no
+  → `DistributionHistogram`. People mode stacks one outlined segment per person on the categorical `CATEGORY_PALETTE` (the open tail bucket split too, so no
   gray tail series), numbers people ("2. Bob") in the page legend (from two people), the tooltip and the table, whose histogram table gains a
   right-aligned column per person beside the total; with no `people` every panel renders as before. `ReportPersonTotals` (generic over
   `GroupIdentity`) is the USER-level "Totals per person" table over `groups` with the page's own `GroupColumn`s, replacing the drill table. The
@@ -505,18 +505,18 @@ completed · the report's figures · the orange drift badge with the frozen figu
   STAGE), and a `400` for a request that WAS for columns of one team is the "no board mapped" note, not a
   failure (any other 400 is the normal failure alert). The chart is a stacked `AreaChart` of end-of-day counts with band
   toggles (`Chip.Group`, local state): stages keep their vocabulary colours (gray/blue/**grape = Waiting**, `CHART_COLORS.stageWaiting` grape.6, visible by default/**red = Blocked**, `CHART_COLORS.stageBlocked` red.7 — the very shade of `dropped`, so no new hue — also visible by default (A36: an impediment is exactly what the chart should not hide)/teal/orange; band order Not started, In progress, Waiting, Blocked, Done, Unmapped is the server's `keys`); statuses
-  and columns are arbitrary names, so they never wear a semantic hue: `BAND_CYCLE` alternates blue and gray
-  (flow.6, gray.6, flow.7, gray.6 — the only neutral shades that clear 3:1 on all four surfaces), assigned by
-  position among the bands SHOWN (`paintBands`) so neighbours never share a hue; beyond two bands a hue/shade
-  repeats and the legend, tooltip and tables carry identity. The ticked-bands state is per keying (and per team
+  and columns are arbitrary names, so they never wear a semantic hue: `CATEGORY_PALETTE` is a seven-hue categorical
+  palette (flow.6, violet.5, cyan.7, indigo.5, pink.6, gray.6, lime.9 — one shade per hue, each clearing 3:1 on all four surfaces, in an order that keeps
+  every neighbour at least ΔE2000 22.9 apart; `chartColors.ts` has the figures and `chartColors.test.ts` recomputes them), assigned by
+  position among the bands SHOWN (`paintBands`) so neighbours are always distinct; from the eighth band the palette repeats and the legend, tooltip and tables carry identity. The ticked-bands state is per keying (and per team
   for columns); STAGE starts with Not started and Done hidden (Done only
   grows, Not started is the whole backlog). Its text alternatives are a per-band summary table and the full
   daily table behind `DailyTableDisclosure` (a series can run to ~1100 rows). **WIP takes people** (`CONTROLS.multiMember`, `wipPath` in `MULTI_ACCOUNT_PATHS`; the Member control is the same multi-select as cycle time's, up to eight, offered
   under a team and so never in a domain read): the server computes a person's WIP at query time inside the picked team (`reports.md` "Report 9",
   USER level) and each point carries `byUser`. The chart stays the union stacked by band (a note under the toggle says whose tasks it counts and that epics are left out;
   `EPIC`/`BOTH` show the server's `note`); from TWO people a `SegmentedControl` (page-local state, "By band" · "By person") adds the per-person view — the same `WipChart` with one stack
-  segment per person (`utils/wipReport.ts`: `wipPeople`, `paintPeople`, `wipPeopleChartRows`), each segment that person's items over the TICKED bands, people numbered "2. Bob" on the neutral
-  `BAND_CYCLE` (their number, not the hue, carries identity from the fourth person on — Commitments' and Throughput's rule). The text alternatives follow the view: per-person summary
+  segment per person (`utils/wipReport.ts`: `wipPeople`, `paintPeople`, `wipPeopleChartRows`), each segment that person's items over the TICKED bands, people numbered "2. Bob" on the categorical
+  `CATEGORY_PALETTE` (their number, not the hue, carries identity — Commitments' and Throughput's rule). The text alternatives follow the view: per-person summary
   (`WipPeopleSummaryTable`) and daily table (`WipPeopleDailyTable`, a column per person) in person view, the band tables otherwise. One person IS the union, so there is no view switch. The backlog page is three tiles
   (MD, items, "≈ N sprints ahead" — a dash plus the reason when there is no pace (no delivered mean) or the mean is 0,
   "< 0.1" instead of "≈ 0"; at UNIT level the wording says "at least N closed sprints per team", since the pace
@@ -723,7 +723,8 @@ completed · the report's figures · the orange drift badge with the frozen figu
   `ThroughputBucketTable`). Colour is never the only carrier of identity — legend, tooltip and table are. Tests mock `@mantine/charts` (recharts draws nothing under happy-dom) and assert
   the props. **Colour vocabulary, no new hue** — concrete shades in `utils/chartColors.ts`: blue `flow.6` =
   plan/committed, teal `teal.8` = delivered, orange `orange.8` = carried over/added scope, red
-  `red.7` = dropped/blocked, gray `gray.6` = removed/neutral; the final-scope blue is per scheme
+  `red.7` = dropped/blocked, gray `gray.6` = removed/neutral; series that are arbitrary NAMES (statuses, board columns, people) wear no
+  meaning and draw from the seven-hue `CATEGORY_PALETTE` instead (never teal/orange/red/grape); the final-scope blue is per scheme
   (`useComputedColorScheme`: `flow.8` light, `flow.4` dark). Every mark must clear WCAG 1.4.11
   (≥ 3:1) on white and the `#f5f7fb` canvas (light) and the `#2e2e2e` paper and `#1f1f1f` canvas
   (dark); `chartColors.test.ts` recomputes the ratios from the theme (the file's comment holds the

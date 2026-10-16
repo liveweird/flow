@@ -16,7 +16,7 @@ export function PersonSwatch({ colour }: { colour: string }) {
 
 /**
  * The page's own chart legend, a list (used where the chart's own legend cannot carry the identity — people wear a
- * repeating neutral cycle, so they are numbered): a glyph and a label per entry, wrapping.
+ * finite categorical palette, so they are numbered): a glyph and a label per entry, wrapping.
  */
 export default function ChartLegendList({ label, entries }: { label: string; entries: readonly LegendEntry[] }) {
   return (

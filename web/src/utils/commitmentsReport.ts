@@ -61,7 +61,7 @@ export function loadFraction(initialMd: number, capacityMd: number | null): numb
 
 /**
  * One picked person of the user-mode chart; `committedKey`/`finalKey` are the data keys of their two segments. `position`
- * (1-based, bottom of the stack first) is the person's number: with more than three people the neutral palette repeats, so
+ * (1-based, bottom of the stack first) is the person's number: with more than seven people the categorical palette repeats, so
  * the number — `personLabel` — is what tells the segments apart in the legend, the tooltip and the tables.
  */
 export interface CommitmentsChartUser {

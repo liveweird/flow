@@ -2,7 +2,7 @@ import "@mantine/charts/styles.css";
 import { BarChart, ChartTooltip, CompositeChart } from "@mantine/charts";
 import { Box, useComputedColorScheme } from "@mantine/core";
 import { useTranslation } from "react-i18next";
-import { BAND_CYCLE, CHART_COLORS, DEEP_DIVE_FILL_ALPHA, FINAL_COLOR } from "../utils/chartColors";
+import { CATEGORY_PALETTE, CHART_COLORS, DEEP_DIVE_FILL_ALPHA, FINAL_COLOR } from "../utils/chartColors";
 import { formatMd } from "../utils/reportFormat";
 import { hasCapacity, personLabel, type CommitmentsChartRow, type CommitmentsChartUser, type CommitmentsUserRow } from "../utils/commitmentsReport";
 import ChartLegendList, { PersonSwatch } from "./ChartLegendList";
@@ -99,16 +99,16 @@ function TeamChart({ rows }: { rows: CommitmentsChartRow[] }) {
 
 /**
  * Two stacks per sprint, `committed` (left; translucent fill inside a solid edge) and `final` (right; solid, ringed in the
- * surface so stacked segments never touch), one segment per person. People are arbitrary names, so they wear the neutral
- * blue/gray cycle by position (`BAND_CYCLE`, neighbours alternate hue) — never a semantic hue. Known limit: that cycle has
- * three distinct shades, so from the fourth person on a colour repeats (and the 8-person cap allows up to eight). Identity
- * therefore never rests on colour: each person is NUMBERED by stack position (bottom first) — "2. Bob" — in the legend, the
+ * surface so stacked segments never touch), one segment per person. People are arbitrary names, so they wear the categorical
+ * `CATEGORY_PALETTE` by position (never a semantic hue). Known limit: it has seven entries, so the 8th person (the cap allows eight)
+ * repeats the first colour. Identity therefore never
+ * rests on colour: each person is NUMBERED by stack position (bottom first) — "2. Bob" — in the legend, the
  * tooltip ("2. Bob · initial") and the per-person tables. Committed vs final is told by fill, position and the legend's
  * neutral glyphs, never by colour. No capacity here: it is a team figure.
  */
 function UserChart({ users, rows }: { users: CommitmentsChartUser[]; rows: CommitmentsUserRow[] }) {
   const { t } = useTranslation();
-  const colour = (index: number) => BAND_CYCLE[index % BAND_CYCLE.length];
+  const colour = (index: number) => CATEGORY_PALETTE[index % CATEGORY_PALETTE.length];
   const series = [
     ...users.map((user, index) => ({
       name: user.committedKey,

@@ -200,11 +200,11 @@ describe("ReportWip page", () => {
     await user.click(screen.getByText("Status"));
     await waitFor(() => expect(calls(mockFetch)).toContain(`${URL_PREFIX}teamId=1&by=STATUS&itemKind=TASK`));
     await waitFor(() => expect(chartSeries().map((s) => s.label)).toEqual(["To Do", "In Progress", "Done"]));
-    // Arbitrary status names wear neutral blue/gray, alternating by position — never teal/orange/red.
-    expect(chartSeries().map((s) => s.color)).toEqual(["flow.6", "gray.6", "flow.7"]);
-    // Colours follow the bands SHOWN: hide the first and the rest move up, still alternating hues.
+    // Arbitrary status names wear the categorical palette by position — never teal/orange/red/grape.
+    expect(chartSeries().map((s) => s.color)).toEqual(["flow.6", "violet.5", "cyan.7"]);
+    // Colours follow the bands SHOWN: hide the first and the rest move up, still all different hues.
     await user.click(screen.getByRole("checkbox", { name: "To Do" }));
-    await waitFor(() => expect(chartSeries().map((s) => [s.label, s.color])).toEqual([["In Progress", "flow.6"], ["Done", "gray.6"]]));
+    await waitFor(() => expect(chartSeries().map((s) => [s.label, s.color])).toEqual([["In Progress", "flow.6"], ["Done", "violet.5"]]));
     expect(screen.getByRole("radio", { name: "Status" })).toBeChecked();
   });
 
@@ -581,7 +581,7 @@ describe("ReportWip page — several people", () => {
 
     await user.click(screen.getByRole("radio", { name: "By person" }));
     await waitFor(() => expect(chartSeries().map((s) => s.label)).toEqual(["1. Ann Author", "2. Bob Builder"]));
-    expect(chartSeries().map((s) => s.color)).toEqual(["flow.6", "gray.6"]);
+    expect(chartSeries().map((s) => s.color)).toEqual(["flow.6", "violet.5"]);
     // Each person's items over the ticked bands (In progress + Waiting): Ann 2 then 4, Bob 2 then 2.
     expect(chartRows()).toEqual([
       { day: "2026-09-28", p0: 2, p1: 2 },
