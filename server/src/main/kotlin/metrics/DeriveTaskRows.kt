@@ -23,7 +23,7 @@ private fun ownEstimateTimeline(
 
 private fun ownEstimateSnapshots(timeline: List<EstimatePoint>, startedAt: Long?, doneAt: Long?): EstimateSnapshots =
     if (timeline.isEmpty()) {
-        EstimateSnapshots(null, null, null, false, 0)
+        EstimateSnapshots(null, null, null, false, false, 0)
     } else {
         estimateSnapshots(timeline, startedAt, doneAt)
     }
@@ -115,6 +115,8 @@ internal fun buildEpicRow(
         ownEstimateAtDoneMd = derived.ownSnapshots.atDoneMd,
         ownEstimateCurrentMd = ownCurrent,
         estimateChangesAfterStart = derived.ownSnapshots.changesAfterStart,
+        estimatedLate = derived.ownSnapshots.estimatedLate,
+        estimatedAfterDone = derived.ownSnapshots.estimatedAfterDone,
         childSumEstimateMd = childSum,
         budgetSource = if (ownCurrent != null) "OWN" else "CHILDREN",
         actualMd = actualMd,
@@ -128,41 +130,6 @@ internal fun buildEpicRow(
         ownerTeamId = context.ownerTeamByDomain[domainKey],
     )
     return dim to fact
-}
-
-/**
- * The task's composite estimate (review round 2a fix): OWN wins outright; otherwise SUBTASKS
- * sums its sub-tasks' OWN timelines AS-OF the PARENT's own `startedAt`/`doneAt`
- * ([mergeEstimateTimelines]) — never their CURRENT sum reused at both snapshots,
- * which silently ignored every subtask estimate change and reported `estimatedLate`/
- * `changesAfterStart` off the (usually estimate-less, hence always-false) parent's OWN timeline
- * instead of the subtasks' actual history.
- */
-private fun taskEstimate(
-    derived: ItemDerived,
-    childSubtasks: List<WorkItemStore.DerivationWorkItemRow>,
-    derivedById: Map<Long, ItemDerived>,
-    startedAt: Long?,
-    doneAt: Long?,
-): EstimateComposite {
-    val ownCurrent = derived.ownSnapshots.currentMd
-    if (ownCurrent != null) {
-        return EstimateComposite(
-            derived.ownSnapshots.atStartMd,
-            derived.ownSnapshots.atDoneMd,
-            ownCurrent,
-            "OWN",
-            derived.ownSnapshots.estimatedLate,
-            derived.ownSnapshots.changesAfterStart,
-        )
-    }
-    val merged = mergeEstimateTimelines(childSubtasks.map { derivedById.getValue(it.issueId).estimateTimeline })
-    val current = merged.lastOrNull()?.estimateMd
-    if (current == null) return EstimateComposite(null, null, null, "NONE", false, 0)
-    val snapshots = estimateSnapshots(merged, startedAt, doneAt)
-    return EstimateComposite(
-        snapshots.atStartMd, snapshots.atDoneMd, current, "SUBTASKS", snapshots.estimatedLate, snapshots.changesAfterStart,
-    )
 }
 
 internal fun buildTaskRow(
@@ -227,6 +194,7 @@ internal fun buildTaskRow(
         estimateSource = estimate.source,
         estimateChangesAfterStart = estimate.changesAfterStart,
         estimatedLate = estimate.estimatedLate,
+        estimatedAfterDone = estimate.estimatedAfterDone,
         actualMd = actualMd,
         hasWorklogs = actualMd > 0.0,
         blockedMs = blockedMs,
@@ -272,14 +240,6 @@ internal fun taskAssigneeHistory(item: WorkItemStore.DerivationWorkItemRow, cont
         TaskAssigneeRow(item.issueId, it.valueId, it.fromAtMs, it.toAtMs)
     }
 
-private data class EstimateComposite(
-    val atStart: Double?,
-    val atDone: Double?,
-    val current: Double?,
-    val source: String,
-    val estimatedLate: Boolean,
-    val changesAfterStart: Int,
-)
 internal data class TaskComposition(val dim: DimTaskRow, val fact: FactTaskDeliveryRow)
 
 internal fun buildEstimateBridge(

@@ -238,6 +238,8 @@ describe("estimation fixtures hold the documented partitions", () => {
     ];
     for (const f of [...kinds(ADJUSTMENTS), ...kinds(ADJUSTMENTS_EMPTY), ...kinds(ADJUSTMENTS_USERS), ...kinds(ADJUSTMENTS_USER)]) {
       expect(f.changeDistribution.n + f.changeExcluded.estimatedLate + f.changeExcluded.unestimated).toBe(f.changeExcluded.population);
+      // The backfill is a breakout of the unestimated, not a fourth bucket.
+      expect(f.changeExcluded.estimatedAfterDone).toBeLessThanOrEqual(f.changeExcluded.unestimated);
       expectWellFormed(f.changeDistribution);
       expect(f.estimatedLate).toBeLessThanOrEqual(f.changedAfterStart);
       expect(f.changedAfterStart).toBeLessThanOrEqual(f.started);
@@ -426,6 +428,8 @@ describe("cycle time and reported time fixtures hold the documented partitions",
         report.missing.noEpic,
         report.missing.noWorkCategory,
         report.missing.unassigned,
+        report.missing.estimatedLate,
+        report.missing.estimatedAfterDone,
         report.outsideSprint,
         report.crossDomain,
       ];
@@ -462,6 +466,9 @@ describe("cycle time and reported time fixtures hold the documented partitions",
       expect(sum((g) => g.tasks.noEpic.open)).toBe(report.missing.noEpic.open);
       expect(sum((g) => g.tasks.noWorkCategory.done + g.tasks.noWorkCategory.open)).toBe(report.missing.noWorkCategory.total);
       expect(sum((g) => g.tasks.unassigned)).toBe(report.missing.unassigned.total);
+      expect(sum((g) => g.tasks.estimatedLate.done + g.tasks.estimatedLate.open)).toBe(report.missing.estimatedLate.total);
+      expect(sum((g) => g.tasks.estimatedAfterDone)).toBe(report.missing.estimatedAfterDone.done);
+      expect(report.missing.estimatedAfterDone.open).toBe(0);
       expect(sum((g) => g.tasks.outsideSprint)).toBe(report.outsideSprint.total);
       expect(sum((g) => g.worklogs.worklogs)).toBe(report.populations.worklogs);
       expect(sum((g) => g.worklogs.over1Day)).toBe(report.lateLogging.over1Day);

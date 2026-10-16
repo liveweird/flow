@@ -65,7 +65,13 @@ timelines, the omitted bulkfetch chunk or the day2 scenario shift:
   In Progress transition): ~15% get a story-point value change dated after that transition; a
   further ~5% are "estimated late" (no story points at the start, gaining their eventual value only
   via that later changelog entry) — see `expected.json` → `estimates.taskEstimateChangedAfterStartCount`/
-  `taskEstimatedLateCount`.
+  `taskEstimatedLateCount`. Both are counted against each story's FINAL done_at (domain-model A35): a change or a "late" estimate
+  that lands AFTER the story was done is a backfill, not an adjustment, so those cohort members moved out of the two counts into
+  `taskEstimatedLateBecameAfterDoneCount` / `taskEstimateChangedAfterDoneCount`. A small **after-done backfill cohort** (~4% of the
+  done stories with no adjustment, drawn from its own third PRNG stream `rng3`, run after the future-sprint placement so no `rng2`
+  draw shifts) gets its eventual story points only 1–30 days after it was done: `taskEstimateBackfillCohortCount`, and
+  `taskEstimatedAfterDoneCount` = the cohort + the late members that landed after done. Only the changelog histories grow
+  (`changelog.inScopeHistories`/`allProjectsHistories`, +9); no issue, id, golden fixture or roster moves.
 - **Work category** (`customfield_10030`, `schema.custom` `…:select`, options "Product
   Development"/"Maintenance"/"Cost of Poor Quality") — every epic, and ~60% of every other issue
   (D8's task-else-epic fallback needs both populated).

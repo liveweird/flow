@@ -6,7 +6,7 @@ reports it serves, its invariants, and how known data imperfections are handled.
 contract the metrics layer and every dashboard are built against. **Status: agreed 2026-09-27
 (D1–D16), validated against the target reports; amended 2026-09-28 (A17–A21, see "Amendments"
 below); implemented in v0.3.0** (the configuration, DERIVE and the star: `.claude/docs/metrics.md`;
-the sixteen reports: `.claude/docs/reports.md`; the deep dive, report 17, is A29 below; the WAITING stage is A30; issues above the epic level are A31; capacity is a team default and a sprint calendar, A32; public holidays are a dictionary and locked off in capacity, A33; report 9's DONE band is computed at query time and attributed as at done, A34). The per-measure operational contract — each
+the sixteen reports: `.claude/docs/reports.md`; the deep dive, report 17, is A29 below; the WAITING stage is A30; issues above the epic level are A31; capacity is a team default and a sprint calendar, A32; public holidays are a dictionary and locked off in capacity, A33; report 9's DONE band is computed at query time and attributed as at done, A34; an estimate entered after an item is done is a backfill, not an adjustment, A35). The per-measure operational contract — each
 report number's grain, time anchor, attribution, estimate snapshot, missing-data rule,
 frozen/live source and the test that pins it — is `.claude/docs/measures.md`.
 
@@ -69,8 +69,11 @@ time-tracking setting is a backlog item).
 
 **Estimate snapshots.** Every task and epic keeps its estimate at four moments — at
 **commitment** (per sprint), at **start** (`started_at`), at **done** (`done_at`) and **current** —
-plus the number of estimate changes after start. An item with no estimate at start that gains one
-later is **estimated late**: counted separately, never as a +∞% change. An estimate of **0 SP
+plus the number of estimate changes after start. An estimate change counts as an **adjustment** only while
+the item is being worked on: after `started_at` and at or before `done_at` (no upper bound while it is open, A35). An item
+with no estimate at start that gains one by the time it is done is **estimated late**: counted separately, never as a +∞%
+change. An estimate that first appears **after** `done_at` is a **backfill**: the item stays unestimated for every start → done
+measure and is flagged `estimated_after_done` (A35). An estimate of **0 SP
 counts as unestimated**. A task with no estimate of its own but estimated sub-tasks takes the sum
 of its sub-tasks' estimates, marked `estimate_source = SUBTASKS` (the mirror of the epic fallback
 below).
@@ -258,7 +261,7 @@ user, and slices by domain, activity type and work category.
 | 2 | **Throughput** | `fact_sprint` (sprint view), `fact_task_delivery` (period view) | delivered SP; for a calendar period: SP of tasks with `done_at` in it |
 | 3 | **Task estimation accuracy** | `fact_task_delivery`, DONE tasks with an estimate and worklogs | `actual_md ÷ estimate at start` (D15; vs estimate at done as a second view); full distribution; unestimated or worklog-less DONE tasks counted beside it, never in it |
 | 4 | **Epic estimation accuracy** | `fact_epic_delivery`, DONE epics | `actual_md ÷ own estimate at start` (D15; at done as a second view); the child-sum estimate shown alongside |
-| 5 | **Estimate adjustments** | `fact_task_delivery`, `fact_epic_delivery` | share of started items whose estimate changed after start, and the change start → done as a fraction (`0.25` = +25 %, a distribution); estimated-late items counted separately |
+| 5 | **Estimate adjustments** | `fact_task_delivery`, `fact_epic_delivery` | share of started items whose estimate changed while they were worked on (after start, up to done, A35), and the change start → done as a fraction (`0.25` = +25 %, a distribution); estimated-late items counted separately, and the estimates entered only after done (a backfill, A35) as a breakout of the unestimated |
 | 6.1 | **Commitments vs velocity** | `fact_sprint` | committed and final vs delivered SP (velocity), sprint over sprint |
 | 6.2 | **Carry-over** | `fact_sprint` | carried-over SP (and dropped SP) per sprint |
 | 6.3 | **Added scope** | `fact_sprint` | SP added after sprint start (and removed) |
@@ -269,7 +272,7 @@ user, and slices by domain, activity type and work category.
 | 11 | **Aging WIP** | `item_stage` + `fact_task_delivery` | the current age of every IN_PROGRESS or WAITING task and epic (A30; waiting ones marked) against the team's cycle-time p50/p85/p95 over its last N done items; items past p85 highlighted |
 | 12 | **Blocked time** | `fact_task_delivery`, `fact_epic_delivery` | blocked time per item, as a share of cycle time, and as a distribution |
 | 13 | **Throughput in items; backlog in sprints** | `fact_sprint`, `agg_daily_*` | item counts beside SP in reports 1, 2, 6 and 10; backlog in sprints = estimated backlog SP ÷ mean delivered SP over the team's last N sprints |
-| 14 | **Data quality** | all facts | per team and domain: worklog coverage (DONE tasks with worklogs; logged hours per member per working day vs `hoursPerDay`), late logging (worklog created vs `started`), tasks without an estimate, epic or work category, epic drift (D11), unmapped statuses, issues above the epic level (A31: left out of the model, listed with their own logged MD), work done outside any sprint, sprint-snapshot drift (D13) |
+| 14 | **Data quality** | all facts | per team and domain: worklog coverage (DONE tasks with worklogs; logged hours per member per working day vs `hoursPerDay`), late logging (worklog created vs `started`), tasks without an estimate, epic or work category, tasks estimated late or only after they were done (A35), epic drift (D11), unmapped statuses, issues above the epic level (A31: left out of the model, listed with their own logged MD), work done outside any sprint, sprint-snapshot drift (D13) |
 | 15 | **Epic progress (EVM)** | `agg_daily_flow` (per-day PV/EV/AC increments, summed at query time), `fact_epic_plan` | PV, EV and AC in man-days as cumulative curves with SV/SPI/CV/CPI as of a day, at epic, domain and team level (A7, A20); superseded baselines redraw the "as originally planned" curve |
 | 16 | **Cost matrix and foreign work** | `fact_worklog` | man-days logged in the period as an author-team × domain matrix, with the foreign-work share beside every row (A8, D3) |
 | 17 | **Deep dive** | `fact_sprint_scope`, `fact_task_delivery`, `item_stage`, `fact_worklog`, `fact_epic_plan` | PV, Execution and AC in man-days on one epic/task × time matrix (daily series; the client drills month → week → day), for a domain's tasks in chosen sprints, chosen epics, or handpicked tasks of one epic; reads the facts directly, with no aggregate (A29) |
@@ -311,7 +314,7 @@ Flagged and counted, never silently "fixed" (the same rule `norm` applies to its
 - **Missing data** — a task with no epic (a per-domain `(no epic)` bucket), no estimate (counted in
   throughput, excluded from PV/EV and accuracy, listed), an epic with no estimate (budget from its
   children, flagged) or no dates (no PV curve), an unassigned task, a worklog author in no team, an
-  estimate added only after start (estimated late), a sprint whose board maps to no team, a backlog
+  estimate added only after start (estimated late) or only after the item was done (a backfill, A35), a sprint whose board maps to no team, a backlog
   item no mapped board covers, an unmapped status, a task with no work category, a DONE task with
   no worklogs (D14), work done outside any sprint (D10), an epic whose status disagrees with its
   children (D11). All of them surface in the data-quality report (14).
@@ -581,6 +584,49 @@ carries the per-measure detail).
   - **What does not move.** The unit-wide DONE band (every TEAM scope summed) counts the very same items per day and status as before;
     only its split by team and by domain moves. The four stored bands are byte-for-byte what they were. Operational detail:
     `.claude/docs/metrics.md` "Daily WIP aggregate", `.claude/docs/measures.md` "Report 9", `.claude/docs/reports.md` "Report 9".
+
+- **A35 — An estimate entered after the item is done is a backfill, not an adjustment** (agreed with the user 2026-10-16;
+  V28). Found on the real data: on both connections the estimate field was first filled on one day
+  (2025-11-29, a bulk fill), giving 1,953 long-finished tasks an estimate a median of ~80 days (TOPUP) and ~2 years (ONLINE)
+  after they started. The old rules called each of them **estimated late** (no estimate at start, one now) and **changed after
+  start** (every estimate-timeline point after `started_at`, even one after `done_at`), so report 5 was dominated by a one-off data
+  migration: on ONLINE 1,824 of 1,828 "changed after start" done tasks were these, and 161 of TOPUP's 186 and 1,765 of ONLINE's 1,824
+  done estimated-late tasks got their estimate after `done_at`; real re-estimation during the work was rare (6 and 3 tasks).
+
+  **The rule.** An estimate change is an adjustment only if it happens after `started_at` and **at or before `done_at`**
+  (no upper bound while the item is open). An estimate that first appears after `done_at` is a backfill: the item stays
+  unestimated for the start → done measures and is flagged `estimated_after_done`.
+
+  | | Before | Now |
+  |---|---|---|
+  | `changes_after_start`, done item | timeline points with `atMs > started_at` | points with `started_at < atMs <= done_at` |
+  | `changes_after_start`, open item | points after `started_at` | unchanged |
+  | `estimated_late`, done item | no estimate at start AND an estimate **now** | no estimate at start AND an estimate **at done** |
+  | `estimated_late`, open item | no estimate at start AND one now | unchanged |
+  | `estimated_after_done` (new) | — | done item, no estimate at start, none at done, one now |
+  | `estimate_at_start_md` / `_at_done_md` / `_current_md` | — | unchanged (already read at those instants) |
+
+  **Consequences, by design.** A correction after closing (5 → 8 a week after done) is no adjustment; the estimate at done stays 5.
+  A reopened task uses its FINAL `done_at`, so changes made while it was reopened count. A true late estimate (set between start and
+  done) stays estimated late. Reports 3/4 (accuracy at start / at done), throughput MD and PV/EV do not move: a task's accuracy, throughput
+  and PV/EV read the estimate at start, at done or at commitment (already empty for a backfilled item), and an epic's budget reads
+  the CURRENT estimate, which the rule never touches. A never-started done item that was estimated only afterwards is
+  flagged `estimated_after_done` all the same (the flag needs no start), but it is not "estimated late" (that needs a start).
+  - **One kernel.** `estimateSnapshots` (`metrics/DeriveTimelineKernels.kt`) is the only implementation; the task's own estimate, the
+    `SUBTASKS` roll-up (read against the PARENT's `started_at`/`done_at`) and the epic's own estimate all go through it.
+    `fact_task_delivery` AND `fact_epic_delivery` store both flags (`estimated_late`, `estimated_after_done`; the epic fact had no
+    `estimated_late` column and report 5 re-derived it with the old rule, now deleted).
+  - **Reports.** Report 5's `changeExcluded` gains `estimatedAfterDone`, a breakout of `unestimated` (the identity
+    `changeDistribution.n + estimatedLate + unestimated = population` is unchanged). Note `AdjustmentFigures.estimatedLate` counts
+    STARTED items while `changeExcluded.estimatedLate` counts DONE ones; both keep their meaning. Data quality (report 14) lists two
+    task findings, "estimated late" (done/open) and "estimated after done" (done only; `md` and the list carry the backfilled
+    estimate).
+  - **Frozen sprint snapshots are unaffected** (D13): `fact_sprint_snapshot` keeps the estimate as of commitment, which this rule
+    never touches. Live `fact_sprint` and its scope rows read estimates at entry/close, also untouched.
+  - **Applying it.** A DERIVE semantics change, so existing `metrics.*` rows hold the old values until the next DERIVE. There is no
+    metrics derive-version stamp (`derive_runs.processing_version` is `norm`'s and nothing compares it), so V28 does what a
+    settings PUT does: it bumps the global `config_revision` and enqueues one DERIVE per enabled, active connection (the V25
+    precedent). Operational detail: `.claude/docs/persistence.md` "Estimate after done (V28)", `.claude/docs/metrics.md`.
 
 ## Gaps in `norm` (closed in v0.3.0)
 

@@ -121,12 +121,13 @@ describe("ReportEstimateAdjustments page", () => {
     expect(within(tasks).getAllByRole("listitem").map((i) => i.textContent?.replace(/\s+/g, " ").trim())).toEqual([
       "10 in the distribution",
       "2 Estimated late — no estimate at start",
-      "3 No estimate at start or at done (or never started)",
+      "3 No estimate at start or at done (or never started)Of these, 1: estimate entered only after the item was done (a backfill)",
     ]);
     // … and the accounting reconciles: n + late + unestimated = population.
     expect(within(tasks).getByText("10 + 2 + 3 = 15")).toBeInTheDocument();
     // An estimated-late item is also a change after start — said where the counts are.
-    expect(within(tasks).getByText("Estimated late is included in Changed after start.")).toBeInTheDocument();
+    expect(within(tasks).getByText(/^Estimated late is included in Changed after start\./)).toBeInTheDocument();
+    expect(within(tasks).getByText(/an estimate entered after an item was done is a backfill, not an adjustment/)).toBeInTheDocument();
   });
 
   test("epics block below the minimum: the share is withheld behind the notice, the distribution too — counts stay", async () => {

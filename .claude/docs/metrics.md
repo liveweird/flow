@@ -477,7 +477,14 @@ timelines, PV baselines/curve/horizon, `dimDateRange`); the tests stay in `Deriv
   history from its raw changelog changes (falling back to the text pair, since a real Jira number
   field carries its changelog value only in `fromString`/`toString`) plus the CURRENT value as the
   timeline's last, ground-truth point; `0` or missing both mean unestimated. Snapshots read the
-  timeline at start/done; "estimated late" = no estimate at start but one exists now.
+  timeline at start/done/now. **The A35 rule** (an estimate entered after the item is done is a backfill, not an adjustment):
+  `changesAfterStart` counts timeline points with `startedAt < atMs <= doneAt` (an open item has no upper bound, a reopened one uses
+  its final `done_at`); `estimatedLate` = no estimate at start and an estimate AT DONE (an open item: now); `estimatedAfterDone` = a
+  done item with no estimate at start, none at done, one now. The task's own estimate, the `SUBTASKS` roll-up (against the PARENT's
+  `startedAt`/`doneAt`, `DeriveEstimateComposite.taskEstimate`) and the epic's own estimate (`buildEpicRow`) all call this one kernel; both
+  facts store both flags (`estimated_late`, `estimated_after_done`, V28). A frozen `fact_sprint_snapshot` is unaffected (it holds
+  commitment-time estimates, which the rule never reads). Existing rows are rewritten by the DERIVE V28 enqueues (`persistence.md`
+  "Estimate after done (V28)"). `EstimateSnapshotsTest` pins the kernel.
   **`mergeEstimateTimelines`** sums several sub-tasks' OWN timelines at every distinct change
   instant (SUBTASKS roll-up) rather than reusing each one's CURRENT sum at every past point.
 - **`sprintMembership`** diffs the Sprint field's comma-joined id-list changelog text into

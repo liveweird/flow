@@ -120,12 +120,14 @@ class ReportDataQualityTest {
         label: String,
         finding: TaskFinding,
         fixture: FixtureRead,
+        currentEstimate: Boolean = false,
         pick: (ResultRow) -> Boolean,
     ) {
         val t = MetricsTables.FactTaskDelivery
         val d = fixture.done.filter(pick)
         val o = fixture.open.filter(pick)
-        fun estimate(row: ResultRow) = (if (row[t.doneAt] == null) row[t.estimateCurrentMd] else row[t.estimateAtDoneMd])?.toDouble() ?: 0.0
+        fun estimate(row: ResultRow) =
+            (if (row[t.doneAt] == null || currentEstimate) row[t.estimateCurrentMd] else row[t.estimateAtDoneMd])?.toDouble() ?: 0.0
         assertEquals(d.size, finding.done, "$label done")
         assertEquals(o.size, finding.open, "$label open")
         assertEquals(d.size + o.size, finding.total, "$label total")
@@ -172,6 +174,21 @@ class ReportDataQualityTest {
         assertTrue(body.outsideSprint.done > 0, "the OPS Kanban project's DONE tasks are outside any sprint")
         assertEquals(0, body.outsideSprint.open)
         assertTaskFinding("crossDomain", body.crossDomain, fixture) { it[t.doneAt] != null && it[t.crossDomain] }
+
+        // A35: the estimate findings. Estimated late counts DONE and open; the backfill is DONE-only and reports the backfilled estimate.
+        assertTaskFinding("estimatedLate", body.missing.estimatedLate, fixture) { it[t.estimatedLate] }
+        assertTrue(body.missing.estimatedLate.done > 0, "the stub carries tasks estimated between start and done")
+        assertTaskFinding("estimatedAfterDone", body.missing.estimatedAfterDone, fixture, currentEstimate = true) {
+            it[t.doneAt] != null && it[t.estimatedAfterDone]
+        }
+        assertEquals(0, body.missing.estimatedAfterDone.open)
+        assertEquals(
+            generatorEstimates.taskEstimatedAfterDoneCount,
+            body.missing.estimatedAfterDone.done,
+            "backfilled tasks vs sample-data/jira/expected.json taskEstimatedAfterDoneCount",
+        )
+        assertTrue(body.missing.estimatedAfterDone.md > 0.0, "the list carries the backfilled estimates, not the empty at-done ones")
+        assertTrue(body.missing.estimatedAfterDone.items.all { it.estimateMd != null })
     }
 
     @Test
@@ -308,6 +325,9 @@ class ReportDataQualityTest {
             assertEquals(done.count { !it[t.hasWorklogs] }, group.tasks.withoutWorklogs, "no worklogs of $label")
             assertEquals(done.count { it[t.sprintIdAtDone] == null }, group.tasks.outsideSprint, "outside of $label")
             assertEquals(done.count { it[t.estimateSource] == "NONE" }, group.tasks.noEstimate.done, "no estimate of $label")
+            assertEquals(done.count { it[t.estimatedLate] }, group.tasks.estimatedLate.done, "estimated late (done) of $label")
+            assertEquals(open.count { it[t.estimatedLate] }, group.tasks.estimatedLate.open, "estimated late (open) of $label")
+            assertEquals(done.count { it[t.estimatedAfterDone] }, group.tasks.estimatedAfterDone, "estimated after done of $label")
             assertEquals(open.count { it[t.epicId] == null }, group.tasks.noEpic.open, "open no epic of $label")
             val logs = rows.worklogs.filter { it[w.authorTeamId]?.value == group.teamId }
             assertEquals(logs.size, group.worklogs.worklogs)
@@ -323,6 +343,8 @@ class ReportDataQualityTest {
         assertEquals(unit.missing.noEstimate.done, unit.groups.sumOf { it.tasks.noEstimate.done })
         assertEquals(unit.missing.noEstimate.open, unit.groups.sumOf { it.tasks.noEstimate.open })
         assertEquals(unit.outsideSprint.total, unit.groups.sumOf { it.tasks.outsideSprint })
+        assertEquals(unit.missing.estimatedAfterDone.done, unit.groups.sumOf { it.tasks.estimatedAfterDone })
+        assertEquals(unit.missing.estimatedLate.total, unit.groups.sumOf { it.tasks.estimatedLate.done + it.tasks.estimatedLate.open })
         assertEquals(unit.populations.worklogs, unit.groups.sumOf { it.worklogs.worklogs })
         assertEquals(unit.populations.epics, unit.groups.sumOf { it.epics!!.epics })
         assertEquals(unit.lateLogging.over1Day, unit.groups.sumOf { it.worklogs.over1Day })

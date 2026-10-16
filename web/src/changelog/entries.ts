@@ -17,6 +17,24 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "0.16.0",
+    date: "2026-10-16",
+    en: `**An estimate entered after a task was done is a backfill, not an adjustment.**
+
+- An estimate change now counts as an adjustment only while the item is being worked on: after it started and up to the moment it was done. An estimate that first appears after done is a backfill: for start → done measures the item stays unestimated, and the backfill is shown separately. Real data had a one-off bulk fill that set estimates on thousands of long-finished tasks; it dominated Estimation → Adjustments, which now shows the real re-estimation during the work.
+- **Adjustments** shows how many of the unestimated items got their estimate only after done. Its figures for epics now follow the same rule as tasks.
+- **Data quality** has two new findings: items estimated late (no estimate at start, one at done) and items estimated after done, each with its list.
+- When a task's estimate is the sum of its sub-tasks, adding a sub-task no longer counts as an estimate change on its own.
+- Accuracy, throughput and the plan figures do not move: they read the estimate at start, at done or at commitment, which a backfill never had. The metrics recalculate once after the update.`,
+    pl: `**Szacunek wpisany po zakończeniu zadania to uzupełnienie, a nie korekta.**
+
+- Zmiana szacunku liczy się teraz jako korekta tylko wtedy, gdy nad pozycją trwa praca: po jej rozpoczęciu i do chwili zakończenia. Szacunek, który pojawia się dopiero po zakończeniu, to uzupełnienie: w miarach od startu do zakończenia pozycja zostaje bez szacunku, a uzupełnienie pokazujemy osobno. W prawdziwych danych jednorazowe masowe uzupełnienie nadało szacunki tysiącom dawno zakończonych zadań; dominowało ono w Szacowanie → Korekty, które teraz pokazują rzeczywiste zmiany szacunków w trakcie pracy.
+- **Korekty** pokazują, ile pozycji bez szacunku dostało go dopiero po zakończeniu. Liczby dla epików stosują teraz tę samą regułę co zadania.
+- **Jakość danych** ma dwa nowe wyniki: pozycje oszacowane z opóźnieniem (bez szacunku na starcie, z szacunkiem przy zakończeniu) i pozycje oszacowane po zakończeniu, każdy z listą.
+- Gdy szacunek zadania jest sumą jego podzadań, samo dodanie podzadania nie liczy się już jako zmiana szacunku.
+- Trafność, przepustowość i wartości planu się nie zmieniają: czytają szacunek na starcie, przy zakończeniu albo w chwili zobowiązania, którego uzupełnienie nigdy nie miało. Metryki przeliczają się raz po aktualizacji.`,
+  },
+  {
     version: "0.15.0",
     date: "2026-10-16",
     en: `**Aging WIP gets the aging chart: every open item by where it is in the workflow and how old it is.**

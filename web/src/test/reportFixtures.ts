@@ -737,7 +737,7 @@ const noAdjustments = (): AdjustmentFigures => ({
   share: null,
   estimatedLate: 0,
   changeDistribution: hiddenDistribution(0),
-  changeExcluded: { population: 0, estimatedLate: 0, unestimated: 0 },
+  changeExcluded: { population: 0, estimatedLate: 0, estimatedAfterDone: 0, unestimated: 0 },
 });
 
 export const ADJUSTMENTS: EstimateAdjustmentsReport = {
@@ -748,7 +748,7 @@ export const ADJUSTMENTS: EstimateAdjustmentsReport = {
     share: 0.2,
     estimatedLate: 2,
     changeDistribution: shownDistribution([1, 4, 3, 2], -0.25, 0.25, { p50: 0.1, p90: 0.6, p95: 0.7, mean: 0.15 }),
-    changeExcluded: { population: 15, estimatedLate: 2, unestimated: 3 },
+    changeExcluded: { population: 15, estimatedLate: 2, estimatedAfterDone: 1, unestimated: 3 },
   },
   epics: {
     started: 3,
@@ -756,7 +756,7 @@ export const ADJUSTMENTS: EstimateAdjustmentsReport = {
     share: null,
     estimatedLate: 0,
     changeDistribution: hiddenDistribution(2),
-    changeExcluded: { population: 4, estimatedLate: 0, unestimated: 2 },
+    changeExcluded: { population: 4, estimatedLate: 0, estimatedAfterDone: 0, unestimated: 2 },
   },
   groups: [
     {
@@ -769,7 +769,7 @@ export const ADJUSTMENTS: EstimateAdjustmentsReport = {
         share: 0.25,
         estimatedLate: 1,
         changeDistribution: shownDistribution([1, 3, 2, 1], -0.25, 0.25, { p50: 0.1, p90: 0.5, p95: 0.7, mean: 0.15 }),
-        changeExcluded: { population: 10, estimatedLate: 1, unestimated: 2 },
+        changeExcluded: { population: 10, estimatedLate: 1, estimatedAfterDone: 1, unestimated: 2 },
       },
       epics: {
         started: 3,
@@ -777,7 +777,7 @@ export const ADJUSTMENTS: EstimateAdjustmentsReport = {
         share: null,
         estimatedLate: 0,
         changeDistribution: hiddenDistribution(2),
-        changeExcluded: { population: 4, estimatedLate: 0, unestimated: 2 },
+        changeExcluded: { population: 4, estimatedLate: 0, estimatedAfterDone: 0, unestimated: 2 },
       },
     },
     {
@@ -790,7 +790,7 @@ export const ADJUSTMENTS: EstimateAdjustmentsReport = {
         share: 0.1,
         estimatedLate: 1,
         changeDistribution: hiddenDistribution(3),
-        changeExcluded: { population: 5, estimatedLate: 1, unestimated: 1 },
+        changeExcluded: { population: 5, estimatedLate: 1, estimatedAfterDone: 0, unestimated: 1 },
       },
       epics: noAdjustments(),
     },
@@ -823,7 +823,7 @@ export const ADJUSTMENTS_USERS: EstimateAdjustmentsReport = {
         { ...BOB, counts: [0, 1, 1, 0] },
       ],
     },
-    changeExcluded: { population: 11, estimatedLate: 1, unestimated: 3 },
+    changeExcluded: { population: 11, estimatedLate: 1, estimatedAfterDone: 1, unestimated: 3 },
   },
   epics: noAdjustments(),
   groups: [
@@ -836,7 +836,7 @@ export const ADJUSTMENTS_USERS: EstimateAdjustmentsReport = {
         share: 3 / 8,
         estimatedLate: 1,
         changeDistribution: shownDistribution([1, 2, 1, 1], -0.25, 0.25, { p50: 0.1, p90: 0.6, p95: 0.7, mean: 0.17 }),
-        changeExcluded: { population: 7, estimatedLate: 1, unestimated: 1 },
+        changeExcluded: { population: 7, estimatedLate: 1, estimatedAfterDone: 1, unestimated: 1 },
       },
       epics: null,
     },
@@ -849,7 +849,7 @@ export const ADJUSTMENTS_USERS: EstimateAdjustmentsReport = {
         share: null,
         estimatedLate: 0,
         changeDistribution: hiddenDistribution(2),
-        changeExcluded: { population: 4, estimatedLate: 0, unestimated: 2 },
+        changeExcluded: { population: 4, estimatedLate: 0, estimatedAfterDone: 0, unestimated: 2 },
       },
       epics: null,
     },
@@ -1602,6 +1602,8 @@ const dqCounts = (
   noEstimate: { done: 0, open: 0 },
   noEpic: { done: 0, open: 0 },
   noWorkCategory: { done: 0, open: 0 },
+  estimatedLate: { done: 0, open: 0 },
+  estimatedAfterDone: 0,
   ...extra,
 });
 
@@ -1640,6 +1642,8 @@ export const DATA_QUALITY: DataQualityReport = {
         noEstimate: { done: 2, open: 1 },
         noEpic: { done: 3, open: 1 },
         noWorkCategory: { done: 1, open: 1 },
+        estimatedLate: { done: 1, open: 1 },
+        estimatedAfterDone: 2,
       }),
       worklogs: dqLogged(17, 9, 2, 90, 15),
       epics: { epics: 2, withoutEstimate: 1, withoutDates: 1, outsidePvHorizon: 0, drifting: 1 },
@@ -1655,6 +1659,7 @@ export const DATA_QUALITY: DataQualityReport = {
         noEstimate: { done: 1, open: 0 },
         noEpic: { done: 2, open: 1 },
         noWorkCategory: { done: 1, open: 0 },
+        estimatedAfterDone: 1,
       }),
       worklogs: dqLogged(10, 6, 1, 40, 10),
       epics: { epics: 1, withoutEstimate: 1, withoutDates: 0, outsidePvHorizon: 1, drifting: 0 },
@@ -1710,6 +1715,8 @@ export const DATA_QUALITY: DataQualityReport = {
     noWorkCategory: dqFinding(2, 1, 6, [dqTask("FLO-6")]),
     workCategoryConfigured: true,
     unassigned: dqFinding(2, 0, 4, [dqTask("FLO-7", { teamId: null, assigneeAccountId: null, assignee: null })]),
+    estimatedLate: dqFinding(1, 1, 8, [dqTask("FLO-12"), dqTask("FLO-13", { doneAt: null })]),
+    estimatedAfterDone: dqFinding(3, 0, 11, [dqTask("FLO-14"), dqTask("FLO-15"), dqTask("FLO-16")]),
     epicsWithoutEstimate: { total: 2, items: [dqEpic("FLO-E1"), dqEpic("FLO-E2", { ownerTeamId: 2 })] },
     epicsWithoutDates: { total: 2, items: [dqEpic("FLO-E3", { ownerTeamId: null, startAt: null, dueAt: null }), dqEpic("FLO-E1", { dueAt: null })] },
     epicsOutsidePvHorizon: {
@@ -1777,6 +1784,8 @@ export const DATA_QUALITY_CLEAN: DataQualityReport = {
     noWorkCategory: DQ_NO_TASKS,
     workCategoryConfigured: true,
     unassigned: DQ_NO_TASKS,
+    estimatedLate: DQ_NO_TASKS,
+    estimatedAfterDone: DQ_NO_TASKS,
     epicsWithoutEstimate: { total: 0, items: [] },
     epicsWithoutDates: { total: 0, items: [] },
     epicsOutsidePvHorizon: { total: 0, items: [] },

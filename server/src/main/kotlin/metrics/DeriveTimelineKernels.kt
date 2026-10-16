@@ -9,6 +9,7 @@ data class EstimateSnapshots(
     val atDoneMd: Double?,
     val currentMd: Double?,
     val estimatedLate: Boolean,
+    val estimatedAfterDone: Boolean,
     val changesAfterStart: Int,
 )
 
@@ -51,21 +52,36 @@ fun estimateTimeline(createdAtMs: Long, changes: List<FieldChangeRow>, currentVa
 fun estimateAt(timeline: List<EstimatePoint>, atMs: Long): Double? = timeline.lastOrNull { it.atMs <= atMs }?.estimateMd
 
 /**
- * At-start/at-done/current snapshots (`.claude/docs/domain-model.md` "Estimate snapshots"):
- * **estimated late** = the item had NO estimate when it started but has gained one since (only
- * meaningful for an item that has actually started); **changes after start** = every timeline
- * point strictly AFTER `startedAtMs` (the item's own creation point is never "after start").
+ * At-start/at-done/current snapshots (`.claude/docs/domain-model.md` "Estimate snapshots", amendment A35). An estimate
+ * change is an ADJUSTMENT only while the item is being worked on: after `startedAtMs` and at or before `doneAtMs` (no upper
+ * bound while the item is open). An estimate that is missing at start AND at done but present now is a BACKFILL.
+ *
+ * - **estimated late** = no estimate at start but one by the end of the work: for a done item the estimate AT DONE, for an open
+ *   one the CURRENT estimate (only meaningful for an item that has started);
+ * - **estimated after done** = a done item with no estimate at start, none at done, but one now (the backfill; the item
+ *   stays unestimated for every start → done measure). Needs no start: a done item that never started and has an estimate
+ *   only now is a backfill all the same;
+ * - **changes after start** = every timeline point with `startedAtMs < atMs <= doneAtMs` (the item's own creation point is never
+ *   "after start"; an open item has no upper bound). A reopened item's `doneAtMs` is its FINAL done, so changes made while it
+ *   was reopened count.
+ *
  * Sub-task `SUBTASKS` roll-up and epic `CHILDREN` fallback are applied by the CALLER at fact
- * time (`metrics/MetricsDeriver.kt`), not here — this kernel only ever sees one item's own
- * timeline.
+ * time (`metrics/DeriveEstimateComposite.kt`), not here — this kernel only ever sees one item's own
+ * timeline (the roll-up caller passes the PARENT's `startedAtMs`/`doneAtMs`).
  */
 fun estimateSnapshots(timeline: List<EstimatePoint>, startedAtMs: Long?, doneAtMs: Long?): EstimateSnapshots {
     val current = timeline.last().estimateMd
     val atStart = startedAtMs?.let { estimateAt(timeline, it) }
     val atDone = doneAtMs?.let { estimateAt(timeline, it) }
-    val estimatedLate = startedAtMs != null && atStart == null && current != null
-    val changesAfterStart = if (startedAtMs == null) 0 else timeline.count { it.atMs > startedAtMs }
-    return EstimateSnapshots(atStart, atDone, current, estimatedLate, changesAfterStart)
+    val estimatedByEnd = if (doneAtMs != null) atDone else current
+    val estimatedLate = startedAtMs != null && atStart == null && estimatedByEnd != null
+    val estimatedAfterDone = doneAtMs != null && atStart == null && atDone == null && current != null
+    val changesAfterStart = if (startedAtMs == null) {
+        0
+    } else {
+        timeline.count { it.atMs > startedAtMs && (doneAtMs == null || it.atMs <= doneAtMs) }
+    }
+    return EstimateSnapshots(atStart, atDone, current, estimatedLate, estimatedAfterDone, changesAfterStart)
 }
 
 /**
@@ -77,15 +93,20 @@ fun estimateSnapshots(timeline: List<EstimatePoint>, startedAtMs: Long?, doneAtM
  * present-day estimate. A merged point whose sum is exactly `0.0` collapses to `null` (the same
  * "0 = unestimated" rule [estimateTimeline] applies per subtask, generalized to the aggregate) so
  * [estimateSnapshots]' `estimatedLate` check still fires correctly for a parent whose subtasks
- * were ALL unestimated at start and gained estimates only later.
+ * were ALL unestimated at start and gained estimates only later. A point that leaves the sum unchanged (a sub-task created
+ * with no estimate, say; before the first point the sum is "unestimated") is dropped, so it never counts as a change after start (A35).
  */
 fun mergeEstimateTimelines(timelines: List<List<EstimatePoint>>): List<EstimatePoint> {
     if (timelines.isEmpty()) return emptyList()
     val allTimes = timelines.flatMap { timeline -> timeline.map { it.atMs } }.distinct().sorted()
-    return allTimes.map { at ->
-        val sum = timelines.sumOf { timeline -> estimateAt(timeline, at) ?: 0.0 }
-        EstimatePoint(at, sum.asEstimateOrNull())
+    val merged = mutableListOf<EstimatePoint>()
+    for (at in allTimes) {
+        val sum = timelines.sumOf { timeline -> estimateAt(timeline, at) ?: 0.0 }.asEstimateOrNull()
+        // A point whose sum equals the previous one (before the first point: unestimated) is no change -- a sub-task merely created,
+        // or re-estimated to the same total. Keeping it would count as an estimate change after start in [estimateSnapshots].
+        if (merged.lastOrNull()?.estimateMd != sum) merged += EstimatePoint(at, sum)
     }
+    return merged
 }
 
 /** `ingest/DataSource.kt`'s own `PROJECT_KEY_PATTERN`, duplicated here (pure-kernel package boundary) — a real Jira project key. */

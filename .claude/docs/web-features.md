@@ -430,7 +430,10 @@ completed · the report's figures · the orange drift badge with the frozen figu
   the TASKS block's change histogram its OWN people (`distributionPeople(report.tasks.changeDistribution)`, forwarded by `AdjustmentsBlock`'s `people` prop to
   `DistributionPanel`) for the stacked histogram and its table column per person, and `ReportPersonTotals` replaces the by-team/by-member drill table (the page's
   own tasks/epics columns; the epics ones read "—"). The started counts, the share and the exclusions stay over everyone picked together, and the epics
-  block stays the `EpicsPerPersonNote` (epics carry no user, so they are never split).
+  block stays the `EpicsPerPersonNote` (epics carry no user, so they are never split). The exclusion list under each block
+  (`ExcludedList`) shows the estimates entered only after the item was done (A35, `changeExcluded.estimatedAfterDone`) as an "Of these, N: ..."
+  line under the unestimated bucket (`ExcludedItem.ofWhich`): a breakout that stays out of the closing equation. The "Estimated late"
+  note also says that only changes made while the work was going on count.
 - **Cycle time and reported time**: `DistributionWithAccounting` (panel + its own `n + Σ = population`
   list) is the unit every distribution page composes. Cycle time shows working days (primary) and
   elapsed days, then the trend — a `LineChart` of p50 (solid `flow.6`) and p90 (`gray.6`, DASHED, so
@@ -587,7 +590,7 @@ completed · the report's figures · the orange drift badge with the frozen figu
   `Not measured`, none for the logged-hours figure — and `CappedTable`, which says "and N more" when `total > items.length`), in the order
   logging (`DataQualityLogging`) → missing data and epics (`DataQualityMissing`) → sprint/drift (`DataQualitySprint`) → configuration
   (`DataQualityConfig`, incl. A31's "Issues above the epic level" card: plain connection name, not a config link; the `info` state (no badge) because it is a figure about the model's boundary, not a finding to fix, and therefore NOT one of Home's quality highlights (`homeOverview.ts`); its "Logged MD" column is all time, not period-bound), the overview tiles (`DataQualitySummary`, each a link that scrolls to and focuses its card — no hash in the URL)
-  first and the groups table last. A clean finding keeps its card (users see it was checked). The bar offers period, team/member, domain,
+  first and the groups table last. A clean finding keeps its card (users see it was checked). Two estimate findings (domain-model A35) sit after "Done tasks without an assignee": "Tasks estimated late" (done and open) and "Tasks estimated after they were done" (done only, `showOpen={false}`; its Estimate (MD) figure and Estimate column are the BACKFILLED estimate, since such a task has none at done), each with an overview tile, a groups-table column and a Home highlight (`homeOverview.ts`). The bar offers period, team/member, domain,
   domain view and — only with more than one connection — `connection` (`ReportControls.connection`); `normalizeDataQualityFilter` drops
   every param the page has no control for (activity type, work category, bucket, by, item kind, epic) off the request AND the
   URL. What the API returns is rendered as is: a real team sees no domains/authors without a team (the card says a team's view lists none),

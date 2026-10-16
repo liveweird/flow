@@ -154,7 +154,8 @@ class ReportThroughputTest {
     ) = FactTaskDeliveryRow(
         issueId = issueId, issueKey = "HB-$issueId", createdAt = 0, startedAt = null, doneAt = doneAt, reopenCount = 0,
         estimateAtStartMd = null, estimateAtDoneMd = estimateAtDoneMd, estimateCurrentMd = null, estimateSource = "OWN",
-        estimateChangesAfterStart = 0, estimatedLate = false, actualMd = 0.0, hasWorklogs = false, blockedMs = 0,
+        estimateChangesAfterStart = 0, estimatedLate = false, estimatedAfterDone = false, actualMd = 0.0, hasWorklogs = false,
+        blockedMs = 0,
         blockedWorkingDays = 0.0, cycleMs = null, cycleWorkingDays = null, leadMs = null, leadWorkingDays = null,
         activeMs = 0, waitMs = 0, assigneeAccountIdAtDone = null, assigneeTeamIdAtDone = null, sprintIdAtDone = null,
         sprintTeamIdAtDone = null, creditTeamId = null, currentTeamId = null, currentAssigneeAccountId = null,
