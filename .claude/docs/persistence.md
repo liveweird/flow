@@ -209,7 +209,10 @@ place:
   series itself. `reports/BacklogReport.kt` (`GET /api/v1/reports/backlog`) reads `metrics/MetricsTables.AggDailyFlow`
   (the backlog trend) and `metrics/MetricsTables.FactSprint` (the mean `delivered_md` behind the backlog in sprints)
   the same way. `reports/SnapshotSupport.kt`, shared by both, reads `metrics/MetricsTables.DeriveRuns` (the per-connection
-  newest successful run, via SQL `max()`) for the last-derived-day cut-off.
+  newest successful run, via SQL `max()`) for the last-derived-day cut-off, and `ingest/DataSourceService.Connections.backfillFrom`
+  (`backfillStart`: the connections in scope that have derived, read-only) for report 9's series start. `metrics/DeriveWipStep.kt`
+  reads the same column straight off `public.source_connections` in its `day_range` SQL (a scalar sub-select on the primary key), so the
+  WIP aggregate starts no earlier than the connection's `backfill_from`.
 - `reports/AgingWipReport.kt` and `reports/BlockedTimeReport.kt` (v0.3.0 M5 commit 15 part b, `GET /api/v1/reports/aging-wip`
   and `/blocked-time`) read `norm/WorkItemStore.WorkItems` (issue key and summary, via the shared `workItemLabels`) and
   `norm/WorkItemStore.People`/`teams/TeamService.Teams` (through `orgGroups`/`accountDisplayNames`) directly, plus the

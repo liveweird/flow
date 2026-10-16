@@ -42,11 +42,14 @@ data class WipReport(
     val itemKind: WipItemKind,
     /** The legend: every key a point's `counts` uses, in display order. */
     val keys: List<WipKey>,
-    /** One point per calendar day of the period (cut off after the last derived day), oldest first. */
+    /**
+     * One point per calendar day of the period, oldest first — cut off after the last derived day and starting no earlier
+     * than the latest `backfill_from` of the connections in scope (decision C).
+     */
     val series: List<WipPoint>,
     /**
      * Why the series is empty or partial (USER level, not derived yet, no sprint resolved, connections left out of the
-     * cut-off); `null` otherwise.
+     * cut-off, a period that begins before the backfill window); `null` otherwise.
      */
     val note: String?,
 )
@@ -82,7 +85,7 @@ suspend fun ReportService.wip(filter: ReportFilter, by: WipBy, itemKind: WipItem
         val snapshotScope = snapshotScopeOf(filter)
         val mapping = if (by == WipBy.COLUMN) columnMappingFor(snapshotScope, scope.connectionIds) else null
         val calendar = scope.calendar
-        val plan = planSnapshotDays(scope, filter, calendar, USER_LEVEL_NOTE)
+        val plan = planSnapshotDays(scope, filter, calendar, USER_LEVEL_NOTE, startAtBackfill = true)
         val days = plan.days
         val cells = if (days.isEmpty()) {
             emptyList()

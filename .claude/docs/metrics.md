@@ -885,7 +885,18 @@ same resolved owner).
 `metrics.agg_daily_wip` row per `(scope_kind, scope_id, day, item_kind, status_id, stage)`,
 `item_count` the number of items whose `item_stage` interval covers the END of that day
 (`valid_from < day_end_ms AND (valid_to IS NULL OR valid_to >= day_end_ms)`), for every calendar day
-from the connection's earliest `created_at` day through the day of the run's own `now`.
+from the LATER of the connection's earliest `created_at` day and its `backfill_from` day through the day of the run's own `now`.
+
+**The start (decision C, `briefs/03-STORAGE-OPTIMIZATION.md`).** `dayRangeCte(…, fromBackfill = true)` — the WIP statements only — floors
+`day_range` at `source_connections.backfill_from` (V8, an ISO `YYYY-MM-DD` the column validates; compared with the ISO `dim_date.day` text,
+read by a scalar sub-select on the connection's primary key, so no new parameter travels through the derive model and the statements keep
+their signatures). Before the backfill window a connection's history is incomplete by construction: an issue finished long before and not
+updated since was never fetched, so those days' counts are partial however they are computed — they are not stored, and report 9 does not
+list them (`measures.md` "Report 9", `reports.md` "Reports 9, 10, 13"). `backfill_from` is `NOT NULL`, so every connection has one; a value
+earlier than the first `created_at` day (the stub's is 2025-09-01, exactly its first day) changes nothing. The estimated backlog
+(`agg_daily_flow`, `backlogFlowSql`) shares `dayRangeCte` but keeps its creation-based start: the decision covers `agg_daily_wip` only.
+A connection whose `backfill_from` is moved LATER leaves the older rows in place until its next DERIVE rewrites the table, and the report
+cuts at the CURRENT `backfill_from` regardless, so a stale row set is never listed.
 
 **Raw SQL, not the batched Kotlin loop every other step uses.** A per-item-per-day WIP join over
 `item_stage`/`dim_task`/`dim_epic`/`task_domain`/`task_epic`/`task_assignee`/`dim_sprint`/
@@ -940,7 +951,10 @@ DOMAIN both sum to exactly, over evenly-spread sampled days; an independent per-
 of the TEAM split on one sampled day, straight off the `norm` SPRINT/ASSIGNEE intervals and
 `team_membership`; and a bundled check that no sub-task is ever counted, that a day predating the
 connection's own history carries no rows at all, and that the LAST `agg_daily_wip` day equals the
-day of `DerivedStubFixture.PINNED_NOW` in `Europe/Warsaw` (the derive run's own zone).
+day of `DerivedStubFixture.PINNED_NOW` in `Europe/Warsaw` (the derive run's own zone); `MetricsWipBackfillTest` derives private clones of the
+stub with a later and with a much earlier `backfill_from` (no row before the date, the first day exactly the date, every later DOMAIN/EPIC row
+equal to the uncut derive's, the backlog untouched, and an early date changing nothing) and pins that the stub's own first WIP day IS its
+backfill date — which is why the fixture digests did not move.
 `DerivedStubFixture`'s own tripwire digest folds in `agg_daily_wip`
 (`scope_kind, scope_id, day, item_kind, status_id, stage` order, its own natural key — no surrogate
 id — the same rule every other bridge/fact's digest line already follows).

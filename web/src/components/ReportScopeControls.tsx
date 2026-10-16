@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
 import type { ReportFilters } from "../api/reports";
-import { withFilterKey, withPeriod, type ReportControls, type ReportFilterState } from "../utils/reportFilter";
+import { domainStandsForTeam, withFilterKey, withPeriod, type ReportControls, type ReportFilterState } from "../utils/reportFilter";
 import ReportFilterMultiSelect from "./ReportFilterMultiSelect";
 import ReportFilterSelect from "./ReportFilterSelect";
 
@@ -52,15 +52,19 @@ export default function ReportScopeControls({
     onChange(next);
   };
 
+  // A `teamOrDomain` report read for a domain alone: the team control shows no team (and still no "All teams", nothing to clear).
+  const byDomain = domainStandsForTeam(controls, filter);
+
   return (
     <>
       <ReportFilterSelect
         label={t("reports.filters.team")}
-        placeholder={t("reports.filters.allTeams")}
+        placeholder={byDomain ? t("reports.filters.noTeam") : t("reports.filters.allTeams")}
         data={filters.teams.map((candidate) => ({ value: String(candidate.id), label: candidate.name }))}
         value={filter.teamId === undefined ? null : String(filter.teamId)}
         onChange={changeTeam}
-        required={controls.teamRequired}
+        required={controls.teamRequired && !byDomain}
+        clearable={!controls.teamRequired}
       />
       {team && !controls.noMember && (
         controls.multiMember ? (

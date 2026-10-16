@@ -208,6 +208,9 @@ unfolds it first (`openFilters`, which leaves an already unfolded bar alone).
    - *Expected*: the URL gains `by=STATUS`; the caption says the bands are by status; the table now
      lists the workflow's own statuses (To Do, In Progress, Done) and no longer the "Not started"
      stage; the chart is still shown.
+3. They open the **Team** control.
+   - *Expected*: it shows the seeded team, has no clear button and offers no "All teams" option (WIP is read
+     for one team or one domain, never the whole unit).
 
 ## Scenario: the user reads aging work in progress and blocked time
 

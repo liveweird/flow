@@ -3,6 +3,7 @@ import { useLocation, useSearchParams } from "react-router-dom";
 import type { ReportFilters } from "../api/reports";
 import {
   applyReportFilter,
+  domainStandsForTeam,
   hasReportFilterParams,
   parseReportFilter,
   reportQuery,
@@ -48,7 +49,8 @@ const isRememberedTeam = (v: unknown): v is number | null => v === null || (type
  * only a period — is given one (`requiredTeamId`: the team listing a linked sprint, else the remembered team, else the first
  * by name) and the URL is rewritten (replace) like the remembered-team case; so is a `teamId` the loaded team list does
  * not know (a deleted team, `0`), whose members are dropped with it. With no team at all the filter stays teamless
- * and the page says so. `multiMember` makes the URL's repeated `accountId` read as `accountIds`.
+ * and the page says so. With `teamOrDomain` a URL naming a domain and no team is left alone (the domain stands in for the team, and
+ * the remembered team survives it). `multiMember` makes the URL's repeated `accountId` read as `accountIds`.
  *
  * `clearRememberedTeam` is for a link that must land on the WHOLE UNIT: a bare URL would otherwise
  * re-apply the remembered team, so such a link clears the memory as it is followed.
@@ -56,7 +58,7 @@ const isRememberedTeam = (v: unknown): v is number | null => v === null || (type
 export function useReportFilter(
   filters: ReportFilters | undefined,
   normalize: (filter: ReportFilterState) => ReportFilterState = identity,
-  controls: Pick<ReportControls, "teamRequired" | "multiMember"> = {},
+  controls: Pick<ReportControls, "teamRequired" | "teamOrDomain" | "multiMember"> = {},
 ): {
   filter: ReportFilterState;
   setFilter: (next: ReportFilterState) => void;
@@ -71,7 +73,9 @@ export function useReportFilter(
   const rememberedListed =
     rememberedTeam !== null && (filters?.teams.some((team) => team.id === rememberedTeam) ?? false) ? rememberedTeam : undefined;
   const requiredTeam =
-    controls.teamRequired && filters ? requiredTeamId(parsed, filters.teams, rememberedListed) : undefined;
+    controls.teamRequired && filters && !domainStandsForTeam(controls, parsed)
+      ? requiredTeamId(parsed, filters.teams, rememberedListed)
+      : undefined;
   const teamToApply = (hasReportFilterParams(params) ? undefined : rememberedListed) ?? requiredTeam;
   const requested = useMemo(
     () => (teamToApply === undefined ? parsed : onTeam(parsed, teamToApply)),
@@ -93,7 +97,8 @@ export function useReportFilter(
   }, [teamToApply, parseOptions, setParams, state]);
 
   const setFilter = (next: ReportFilterState) => {
-    if (next.teamId !== filter.teamId) setRememberedTeam(next.teamId !== undefined && next.teamId > 0 ? next.teamId : null);
+    // A domain standing in for the team (`teamOrDomain`) does not wipe the memory: clearing the domain returns to that team.
+    if (next.teamId !== filter.teamId && !domainStandsForTeam(controls, next)) setRememberedTeam(next.teamId !== undefined && next.teamId > 0 ? next.teamId : null);
     setParams((prev) => applyReportFilter(prev, next), { state });
   };
 

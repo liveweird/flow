@@ -87,7 +87,8 @@ describe("ReportWip page", () => {
     renderPage();
     expect(await screen.findByRole("heading", { level: 2, name: "WIP" })).toBeInTheDocument();
     const chart = await screen.findByTestId("area-chart");
-    expect(calls(mockFetch)).toEqual([`${URL_PREFIX}by=STAGE&itemKind=TASK`]);
+    // A bare link is never read for the whole unit: it starts on the first team by name.
+    expect(calls(mockFetch)).toEqual([`${URL_PREFIX}teamId=1&by=STAGE&itemKind=TASK`]);
 
     expect(chart.getAttribute("data-type")).toBe("stacked");
     // Stage colours are the app's vocabulary: blue in progress, grape waiting (shown by default), orange unmapped.
@@ -191,7 +192,7 @@ describe("ReportWip page", () => {
     await openReportFilters();
     expect(screen.getByRole("radio", { name: "Stage" })).toBeChecked();
     await user.click(screen.getByText("Status"));
-    await waitFor(() => expect(calls(mockFetch)).toContain(`${URL_PREFIX}by=STATUS&itemKind=TASK`));
+    await waitFor(() => expect(calls(mockFetch)).toContain(`${URL_PREFIX}teamId=1&by=STATUS&itemKind=TASK`));
     await waitFor(() => expect(chartSeries().map((s) => s.label)).toEqual(["To Do", "In Progress", "Done"]));
     // Arbitrary status names wear neutral blue/gray, alternating by position — never teal/orange/red.
     expect(chartSeries().map((s) => s.color)).toEqual(["flow.6", "gray.6", "flow.7"]);
@@ -201,10 +202,10 @@ describe("ReportWip page", () => {
     expect(screen.getByRole("radio", { name: "Status" })).toBeChecked();
   });
 
-  test("the board column key needs one team: disabled at unit level with the reason, enabled for a team", async () => {
+  test("the board column key needs one team: disabled while a domain is read with the reason, enabled for a team", async () => {
     serve(mockFetch);
     const user = userEvent.setup();
-    renderPage();
+    renderPage("/reports/wip?domain=FLO");
     await screen.findByTestId("area-chart");
     await openReportFilters();
     expect(screen.getByRole("radio", { name: "Board column" })).toBeDisabled();
@@ -220,9 +221,9 @@ describe("ReportWip page", () => {
 
   test("a link asking for columns without a team is asked as stage, never a doomed 400", async () => {
     serve(mockFetch);
-    renderPage("/reports/wip?lastSprints=3&by=COLUMN");
+    renderPage("/reports/wip?domain=FLO&by=COLUMN");
     await screen.findByTestId("area-chart");
-    expect(calls(mockFetch)).toEqual([`${URL_PREFIX}lastSprints=3&by=STAGE&itemKind=TASK`]);
+    expect(calls(mockFetch)).toEqual([`${URL_PREFIX}domain=FLO&by=STAGE&itemKind=TASK`]);
     await openReportFilters();
     expect(screen.getByRole("radio", { name: "Stage" })).toBeChecked();
   });
@@ -251,33 +252,20 @@ describe("ReportWip page", () => {
   test("a column keying the filter cannot honour leaves the URL too, so a later team pick does not revive it", async () => {
     serve(mockFetch);
     const user = userEvent.setup();
-    renderPage("/reports/wip?lastSprints=3&by=COLUMN");
+    renderPage("/reports/wip?domain=FLO&by=COLUMN");
     await screen.findByTestId("area-chart");
     await waitFor(() => expect(search().has("by")).toBe(false));
     await openReportFilters();
     await user.click(screen.getByRole("combobox", { name: "Team" }));
     await user.click(await screen.findByRole("option", { name: "Alpha" }));
-    await waitFor(() => expect(calls(mockFetch)).toContain(`${URL_PREFIX}lastSprints=3&teamId=1&by=STAGE&itemKind=TASK`));
+    await waitFor(() => expect(calls(mockFetch)).toContain(`${URL_PREFIX}teamId=1&by=STAGE&itemKind=TASK`));
     expect(calls(mockFetch).some((url) => url.includes("by=COLUMN"))).toBe(false);
     expect(screen.getByRole("radio", { name: "Stage" })).toBeChecked();
   });
 
-  test("clearing the team under a column keying drops the keying from the URL, and picking one again stays on stage", async () => {
-    serve(mockFetch);
-    const user = userEvent.setup();
-    renderPage("/reports/wip?teamId=1&by=COLUMN");
-    await waitFor(() => expect(chartSeries().map((s) => s.label)).toEqual(["Backlog", "Doing", "(no column)"]));
-    await openReportFilters();
-    await user.click(screen.getByLabelText("Clear Team"));
-    await waitFor(() => expect(search().has("by")).toBe(false));
-    await user.click(screen.getByRole("combobox", { name: "Team" }));
-    await user.click(await screen.findByRole("option", { name: "Beta" }));
-    await waitFor(() => expect(calls(mockFetch).at(-1)).toBe(`${URL_PREFIX}teamId=2&by=STAGE&itemKind=TASK`));
-  });
-
   test("a 400 that is not a column request is a plain failure, even when the link once asked for columns", async () => {
     serve(mockFetch, () => jsonResponse(400, { title: "Bad Request", status: 400, detail: "unknown sprint" }));
-    renderPage("/reports/wip?sprintId=999&by=COLUMN");
+    renderPage("/reports/wip?domain=FLO&sprintId=999&by=COLUMN");
     expect(await screen.findByRole("alert")).toHaveTextContent("Load failed (400)");
     expect(screen.queryByText(/This team has no board mapped/)).not.toBeInTheDocument();
   });
@@ -319,9 +307,9 @@ describe("ReportWip page", () => {
     expect(screen.getByRole("radio", { name: "Tasks" })).toBeChecked();
     expect(screen.queryByText(/different grains/)).not.toBeInTheDocument();
     await user.click(screen.getByText("Epics"));
-    await waitFor(() => expect(calls(mockFetch)).toContain(`${URL_PREFIX}by=STAGE&itemKind=EPIC`));
+    await waitFor(() => expect(calls(mockFetch)).toContain(`${URL_PREFIX}teamId=1&by=STAGE&itemKind=EPIC`));
     await user.click(screen.getByText("Tasks and epics"));
-    await waitFor(() => expect(calls(mockFetch)).toContain(`${URL_PREFIX}by=STAGE&itemKind=BOTH`));
+    await waitFor(() => expect(calls(mockFetch)).toContain(`${URL_PREFIX}teamId=1&by=STAGE&itemKind=BOTH`));
     expect(await screen.findByText(/different grains/)).toBeInTheDocument();
   });
 
@@ -388,5 +376,157 @@ describe("ReportWip page", () => {
     serve(mockFetch, () => jsonResponse(500, { title: "boom", status: 500 }));
     renderPage();
     expect(await screen.findByRole("alert")).toHaveTextContent("Load failed (500)");
+  });
+});
+
+/** The scope rule (`teamRequired` + `teamOrDomain`): exactly one of a specific team or a specific domain, never neither. */
+describe("ReportWip page — a team or a domain", () => {
+  let mockFetch: FetchMock;
+
+  beforeEach(() => {
+    mockFetch = vi.fn();
+    vi.stubGlobal("fetch", mockFetch);
+    localStorage.setItem("flow.auth.token", "fake-token");
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+    localStorage.clear();
+  });
+
+  test("a link naming neither a team nor a domain gets the default team, URL included, and never asks for the whole unit", async () => {
+    serve(mockFetch);
+    renderPage("/reports/wip?lastSprints=3");
+    await screen.findByTestId("area-chart");
+    await waitFor(() => expect(search().get("teamId")).toBe("1"));
+    expect(calls(mockFetch).every((url) => url.includes("teamId=1"))).toBe(true);
+    // The unassigned bucket (teamId=0) is no specific team either.
+    expect(calls(mockFetch).some((url) => url.includes("teamId=0"))).toBe(false);
+  });
+
+  test("an unassigned-bucket link (teamId=0) is read for the default team instead", async () => {
+    serve(mockFetch);
+    renderPage("/reports/wip?teamId=0");
+    await screen.findByTestId("area-chart");
+    await waitFor(() => expect(search().get("teamId")).toBe("1"));
+    expect(calls(mockFetch).some((url) => url.includes("teamId=0"))).toBe(false);
+  });
+
+  test("the team control offers no All teams and cannot be cleared", async () => {
+    serve(mockFetch);
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByTestId("area-chart");
+    await openReportFilters();
+    const team = screen.getByRole("combobox", { name: /^Team/ });
+    expect((team as HTMLInputElement).value).toBe("Alpha");
+    expect(screen.queryByLabelText("Clear Team")).not.toBeInTheDocument();
+    expect(team).not.toHaveAttribute("placeholder");
+    await user.click(team);
+    expect((await screen.findAllByRole("option")).map((option) => option.textContent)).toEqual(["Alpha", "Beta", "Gamma"]);
+    expect(screen.queryByRole("option", { name: "All teams" })).not.toBeInTheDocument();
+  });
+
+  test("a domain alone is a valid scope: the request names no team, and the team control shows none", async () => {
+    serve(mockFetch);
+    renderPage("/reports/wip?domain=FLO");
+    await screen.findByTestId("area-chart");
+    expect(calls(mockFetch)).toEqual([`${URL_PREFIX}domain=FLO&by=STAGE&itemKind=TASK`]);
+    expect(search().has("teamId")).toBe(false);
+    await openReportFilters();
+    const team = screen.getByRole("combobox", { name: "Team" });
+    expect((team as HTMLInputElement).value).toBe("");
+    expect(team).toHaveAttribute("placeholder", "No team: a domain is picked");
+    expect(screen.queryByLabelText("Clear Team")).not.toBeInTheDocument();
+    expect((screen.getByRole("combobox", { name: "Domain" }) as HTMLInputElement).value).toBe("Flow");
+  });
+
+  test("picking a team replaces the domain, and clearing the domain falls back to the default team", async () => {
+    serve(mockFetch);
+    const user = userEvent.setup();
+    renderPage("/reports/wip?domain=FLO&lastSprints=3");
+    await screen.findByTestId("area-chart");
+    await openReportFilters();
+    // Clearing the domain returns to a team — the first by name, as nothing is remembered.
+    await user.click(screen.getByLabelText("Clear Domain"));
+    await waitFor(() => expect(search().get("teamId")).toBe("1"));
+    expect(search().has("domain")).toBe(false);
+    await waitFor(() => expect(calls(mockFetch).at(-1)).toBe(`${URL_PREFIX}lastSprints=3&teamId=1&by=STAGE&itemKind=TASK`));
+    // ... and a domain picked again drops the team (no team x domain split).
+    await user.click(screen.getByRole("combobox", { name: "Domain" }));
+    await user.click(await screen.findByRole("option", { name: "Flow" }));
+    await waitFor(() => expect(calls(mockFetch).at(-1)).toBe(`${URL_PREFIX}lastSprints=3&domain=FLO&by=STAGE&itemKind=TASK`));
+    expect(search().has("teamId")).toBe(false);
+  });
+
+  test("a domain stands in for the remembered team without erasing it: clearing the domain returns to that team", async () => {
+    localStorage.setItem("flow.viewSettings.reports.teamId", "2");
+    serve(mockFetch);
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByTestId("area-chart");
+    await waitFor(() => expect(search().get("teamId")).toBe("2"));
+    await openReportFilters();
+    await user.click(screen.getByRole("combobox", { name: "Domain" }));
+    await user.click(await screen.findByRole("option", { name: "Flow" }));
+    await waitFor(() => expect(search().get("domain")).toBe("FLO"));
+    expect(search().has("teamId")).toBe(false);
+    expect(localStorage.getItem("flow.viewSettings.reports.teamId")).toBe("2");
+    await user.click(screen.getByLabelText("Clear Domain"));
+    await waitFor(() => expect(search().get("teamId")).toBe("2"));
+    expect(search().has("domain")).toBe(false);
+  });
+
+  test("with no team and no domain at all there is nothing to read: the empty state, no request", async () => {
+    mockFetch.mockImplementation((url: string) =>
+      Promise.resolve(
+        url === "/api/v1/reports/filters"
+          ? jsonResponse(200, { ...FILTERS, teams: [], domains: [] })
+          : jsonResponse(404, { title: "Not Found", status: 404 }),
+      ),
+    );
+    renderPage();
+    expect(await screen.findByText(/WIP is read for one team or one domain/)).toBeInTheDocument();
+    expect(calls(mockFetch)).toEqual([]);
+    expect(screen.queryByRole("button", { name: /^Filters/ })).not.toBeInTheDocument();
+  });
+
+  test("with domains but no team the bar stays up and asks for a pick instead of a request", async () => {
+    mockFetch.mockImplementation((url: string) =>
+      Promise.resolve(
+        url === "/api/v1/reports/filters"
+          ? jsonResponse(200, { ...FILTERS, teams: [] })
+          : url.startsWith(URL_PREFIX)
+            ? jsonResponse(200, WIP_STAGE)
+            : jsonResponse(404, { title: "Not Found", status: 404 }),
+      ),
+    );
+    const user = userEvent.setup();
+    renderPage();
+    expect(await screen.findByText("Pick a team or a domain to read WIP for.")).toBeInTheDocument();
+    expect(calls(mockFetch)).toEqual([]);
+    await openReportFilters();
+    await user.click(screen.getByRole("combobox", { name: "Domain" }));
+    await user.click(await screen.findByRole("option", { name: "Flow" }));
+    expect(await screen.findByTestId("area-chart")).toBeInTheDocument();
+    expect(calls(mockFetch)).toEqual([`${URL_PREFIX}domain=FLO&by=STAGE&itemKind=TASK`]);
+  });
+
+  test("picking a domain under a column keying drops the team and the keying, and picking a team again stays on stage", async () => {
+    serve(mockFetch);
+    const user = userEvent.setup();
+    renderPage("/reports/wip?teamId=1&by=COLUMN");
+    await waitFor(() => expect(chartSeries().map((s) => s.label)).toEqual(["Backlog", "Doing", "(no column)"]));
+    await openReportFilters();
+    await user.click(screen.getByRole("combobox", { name: "Domain" }));
+    await user.click(await screen.findByRole("option", { name: "Flow" }));
+    await waitFor(() => expect(search().has("by")).toBe(false));
+    expect(search().has("teamId")).toBe(false);
+    expect(search().get("domain")).toBe("FLO");
+    await user.click(screen.getByRole("combobox", { name: "Team" }));
+    await user.click(await screen.findByRole("option", { name: "Beta" }));
+    await waitFor(() => expect(calls(mockFetch).at(-1)).toBe(`${URL_PREFIX}teamId=2&by=STAGE&itemKind=TASK`));
+    expect(search().has("domain")).toBe(false);
   });
 });

@@ -820,6 +820,16 @@ aggregate has no row for are ZERO (the rows are sparse) -- but only days the agg
   `max()` per connection) -- so a lagging connection's missing days are never read as zeros. A period reaching past it lists
   nothing for those days; a period entirely past it is an empty series. A connection with no successful run is ignored for
   the cut-off (it has no rows either) but its id is named in `note`.
+- **The backfill start (WIP only, decision C).** Report 9's series starts no earlier than the LATEST `source_connections.backfill_from`
+  among the connections in scope that have derived (`backfillStart`, `planSnapshotDays(…, startAtBackfill = true)`): before it a
+  connection's history is incomplete by construction (an item finished long before and not updated since was never fetched), and DERIVE
+  writes no WIP row for those days either (`metrics.md` "Daily WIP aggregate"). With several connections every shown day counts every
+  connection, so the later date wins; a connection that never derived does not move it (it has no rows either). A period that begins
+  before the start lists nothing for those days and says so in `note` — "Before <date> the connection's history is incomplete (backfill
+  window)", or, with several connections, "Before <date> the history of at least one connection in scope is incomplete (backfill window:
+  the latest of their backfill dates)"; a period entirely before the start is an empty series with that note. The estimated backlog (reports
+  10, 13) does not opt in: its aggregate keeps the creation-based start. The cut reads the CURRENT `backfill_from`, so rows an older DERIVE
+  left before it are never listed.
 - **Not derived yet.** When NO connection in scope has a successful DERIVE run the answer is an empty series/trend with
   `note` "Not derived yet: ..." -- never a period's worth of zeros.
 - **`note`** carries whatever makes an empty or partial answer explicable: USER level (below), not derived yet, no sprint

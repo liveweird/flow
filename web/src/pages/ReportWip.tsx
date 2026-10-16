@@ -1,10 +1,11 @@
 import { lazy, Suspense, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Alert, Box, Chip, Group, Stack, Switch, Text } from "@mantine/core";
-import { IconInfoCircle } from "@tabler/icons-react";
+import { Alert, Box, Chip, Group, Paper, Stack, Switch, Text } from "@mantine/core";
+import { IconInfoCircle, IconUsers } from "@tabler/icons-react";
 import { getWipReport } from "../api/reports";
 import { ApiError } from "../api/http";
 import DailyTableDisclosure from "../components/DailyTableDisclosure";
+import EmptyState from "../components/EmptyState";
 import LoadingBlock from "../components/LoadingBlock";
 import PageHeader from "../components/PageHeader";
 import ReportChartCard from "../components/ReportChartCard";
@@ -23,8 +24,9 @@ import { DEFAULT_HIDDEN_BANDS, paintBands, wipBands, wipChartRows } from "../uti
 const WipChart = lazy(() => import("../components/WipChart"));
 
 // WIP reads the task's own domain (no domain view), takes a domain but never one WITH a team (the
-// daily aggregate has no team × domain split), and answers 400 to an activity type or work category.
-const CONTROLS: ReportControls = { domain: true, domainExcludesTeam: true, wipBy: true, itemKind: true };
+// daily aggregate has no team × domain split), and answers 400 to an activity type or work category. It is never read for
+// the whole unit either: exactly one of a specific team or a specific domain (`teamRequired` + `teamOrDomain`).
+const CONTROLS: ReportControls = { teamRequired: true, teamOrDomain: true, domain: true, domainExcludesTeam: true, wipBy: true, itemKind: true };
 
 /** Off the request and the URL: what the page has no control for (a `400` for an activity type or work category), then team-over-domain and the column rule. */
 const normalizeWipPage = (filter: ReportFilterState) => normalizeWipFilter(dropReportSpecific(filter, reportSpecificKeep(wipPath)));
@@ -34,11 +36,12 @@ export default function ReportWip() {
   const { t } = useTranslation();
   // The request is always explicit — what to key by and which items. `normalizeWipPage` (URL
   // included) already dropped what the server would answer 400: params the page has no control for, a domain
-  // beside a team, a column keying without one team.
+  // beside a team, a column keying without one team; `CONTROLS` gives a link naming neither a team (the default one).
   const { filtersQuery, filters, filter, setFilter, query, storageKey } = useReportPage(
     "wip",
     (requested) => getWipReport({ ...requested, by: requested.by ?? "STAGE", itemKind: requested.itemKind ?? "TASK" }),
     normalizeWipPage,
+    CONTROLS,
   );
   const report = query.data;
   // The ticked bands: local to the page, remembered per keying — and, for columns, per team (a status
@@ -57,17 +60,31 @@ export default function ReportWip() {
   const noBoard =
     query.error instanceof ApiError && query.error.status === 400 && filter.by === "COLUMN" && wipColumnAvailable(filter);
 
+  // Neither a team nor a domain exists to read (the hook gives a team whenever there is one): nothing to pick; a domain but no
+  // team yet leaves the bar up with a prompt, since the query waits for a pick.
+  const nothingToRead = filters !== undefined && filters.teams.length === 0 && filters.domains.length === 0;
+  const needsPick = filters !== undefined && !nothingToRead && filter.teamId === undefined && filter.domain === undefined;
+
   return (
     <Stack gap="md">
       <PageHeader title={t("reports.wip.title")} description={t("reports.wip.description")} />
       <ReportTabs tabs={FLOW_TABS} />
       <ReportFiltersStatus query={filtersQuery} />
-      {filters && (
+      {nothingToRead && (
+        <Paper withBorder p="md">
+          <EmptyState icon={IconUsers} label={t("reports.wip.noTeams")} />
+        </Paper>
+      )}
+      {filters && !nothingToRead && (
         <>
           <ReportFilterBar storageKey={storageKey} filters={filters} filter={filter} onChange={setFilter} controls={CONTROLS} />
           {report && <ReportMetaNote meta={report.meta} timeZone={filters.timeZone} />}
           {report?.note && <ReportNote note={report.note} derivedAt={report.meta.derivedAt} />}
-          {noBoard ? (
+          {needsPick ? (
+            <Alert color="gray" variant="light" icon={<IconInfoCircle size={16} />} role="note">
+              {t("reports.wip.pickScope")}
+            </Alert>
+          ) : noBoard ? (
             <Alert color="gray" variant="light" icon={<IconInfoCircle size={16} />} role="note">
               {t("reports.wip.columnNeedsBoard")}
             </Alert>

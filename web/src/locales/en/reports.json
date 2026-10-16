@@ -43,6 +43,7 @@
     "sprint": "Sprint",
     "team": "Team",
     "allTeams": "All teams",
+    "noTeam": "No team: a domain is picked",
     "member": "Member",
     "wholeTeam": "Whole team",
     "memberCap": "Up to {{max}} people",
@@ -65,7 +66,7 @@
       "STATUS": "Status",
       "COLUMN": "Board column"
     },
-    "wipByColumnHint": "Board columns need one team: pick a team (not All teams or Unassigned) and clear the domain.",
+    "wipByColumnHint": "Board columns need one team: pick a team instead of a domain.",
     "itemKind": "Count",
     "itemKindOption": {
       "TASK": "Tasks",
@@ -457,7 +458,7 @@
   },
   "wip": {
     "title": "WIP",
-    "description": "How many items sit in each stage, status or board column at the end of every day. The bands are stacked, so the top edge is their total.",
+    "description": "How many items sit in each stage, status or board column at the end of every day. The bands are stacked, so the top edge is their total. Read for one team or one domain.",
     "chartTitle": "Items at the end of each day",
     "caption": {
       "STAGE": "By stage. Not started and Done are hidden at first: Not started holds the whole backlog and Done only ever grows. Tick them to see all the work. Waiting is work that has started with nothing actively worked on.",
@@ -486,6 +487,8 @@
       "average": "Daily average",
       "peak": "Peak"
     },
+    "noTeams": "WIP is read for one team or one domain, and there is neither yet. An administrator adds teams on the Teams page.",
+    "pickScope": "Pick a team or a domain to read WIP for.",
     "columnNeedsBoard": "This team has no board mapped, so its items cannot be counted by board column. Count by stage or status instead, or map a board in the data source configuration.",
     "summaryNote": "These figures cover every calendar day of the period, whatever the chart shows."
   },

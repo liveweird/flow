@@ -1423,7 +1423,10 @@ export interface paths {
          *     the last derived day is cut off there rather than read as zero — the OLDEST, over the connections in scope
          *     that have derived, of each one's last successful DERIVE day, so a lagging connection's missing days are not
          *     zeros. No successful DERIVE for any connection in scope gives an empty `series` with a `note` ("Not derived
-         *     yet"); connections that never derived are ignored for the cut-off but named in the `note`. `domainView` is
+         *     yet"); connections that never derived are ignored for the cut-off but named in the `note`. The series also
+         *     starts no earlier than the LATEST `backfill_from` date among the connections in scope that have derived: before
+         *     it a connection's history is incomplete by construction (items finished long before and not updated since were
+         *     never fetched), so no earlier day is listed, and a period that begins earlier says so in the `note`. `domainView` is
          *     accepted but the report always reads the task's own domain, so `meta.domainView` is always TASK.
          */
         get: operations["getReportWip"];
@@ -3585,9 +3588,9 @@ export interface components {
             itemKind: "TASK" | "EPIC" | "BOTH";
             /** @description The legend, in display order — the five stages for STAGE, the statuses seen (ordered by stage, then name) for STATUS, the board's columns in board order (plus "(no column)" when used) for COLUMN. */
             keys: components["schemas"]["WipKey"][];
-            /** @description One point per calendar day of the period, oldest first, cut off after the last derived day. Empty at USER level (see `note`), for a period with nothing to read, and for a period entirely past the last derived day. */
+            /** @description One point per calendar day of the period, oldest first, cut off after the last derived day and starting no earlier than the latest `backfill_from` of the connections in scope. Empty at USER level (see `note`), for a period with nothing to read, and for a period entirely past the last derived day or before the backfill start. */
             series: components["schemas"]["WipPoint"][];
-            /** @description Why the series is empty or partial — USER level, not derived yet, no sprint resolved (incl. `teamId=0` with a sprint-relative period), connections that never derived and were left out of the cut-off; null otherwise. */
+            /** @description Why the series is empty or partial — USER level, not derived yet, no sprint resolved (incl. `teamId=0` with a sprint-relative period), connections that never derived and were left out of the cut-off, a period that begins before the backfill window ("Before <date> the connection's history is incomplete"); null otherwise. */
             note?: string | null;
         };
         /** @description The estimated backlog at the END of one calendar day. */

@@ -45,6 +45,7 @@
     "sprint": "Sprint",
     "team": "Zespół",
     "allTeams": "Wszystkie zespoły",
+    "noTeam": "Brak zespołu: wybrano domenę",
     "member": "Osoba",
     "wholeTeam": "Cały zespół",
     "memberCap": "Najwyżej {{max}} osób",
@@ -67,7 +68,7 @@
       "STATUS": "Status",
       "COLUMN": "Kolumna tablicy"
     },
-    "wipByColumnHint": "Kolumny tablicy wymagają jednego zespołu: wybierz zespół (nie „Wszystkie zespoły” ani „Nieprzypisane”) i wyczyść domenę.",
+    "wipByColumnHint": "Kolumny tablicy wymagają jednego zespołu: wybierz zespół zamiast domeny.",
     "itemKind": "Licz",
     "itemKindOption": {
       "TASK": "Zadania",
@@ -470,7 +471,7 @@
   },
   "wip": {
     "title": "WIP",
-    "description": "Ile pozycji znajduje się w każdym etapie, statusie lub kolumnie tablicy na koniec każdego dnia. Pasma są ułożone jedno na drugim, więc górna krawędź to ich suma.",
+    "description": "Ile pozycji znajduje się w każdym etapie, statusie lub kolumnie tablicy na koniec każdego dnia. Pasma są ułożone jedno na drugim, więc górna krawędź to ich suma. Liczone dla jednego zespołu lub jednej domeny.",
     "chartTitle": "Pozycje na koniec każdego dnia",
     "caption": {
       "STAGE": "Według etapu. „Nierozpoczęte” i „Zakończone” są na początku ukryte: „Nierozpoczęte” to cały backlog, a „Zakończone” tylko rośnie. Zaznacz je, aby zobaczyć całą pracę. „Oczekujące” to praca rozpoczęta, przy której nic się teraz aktywnie nie dzieje.",
@@ -499,6 +500,8 @@
       "average": "Średnia dzienna",
       "peak": "Szczyt"
     },
+    "noTeams": "WIP liczymy dla jednego zespołu lub jednej domeny, a nie ma jeszcze żadnego z nich. Administrator/ka dodaje zespoły na stronie Zespoły.",
+    "pickScope": "Wybierz zespół lub domenę, dla których pokazać WIP.",
     "columnNeedsBoard": "Ten zespół nie ma przypisanej tablicy, więc jego pozycji nie można policzyć według kolumn tablicy. Licz według etapu lub statusu albo przypisz tablicę w konfiguracji źródła danych.",
     "summaryNote": "Te wartości obejmują każdy dzień kalendarzowy okresu, niezależnie od tego, co pokazuje wykres."
   },

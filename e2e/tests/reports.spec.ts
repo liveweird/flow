@@ -1143,6 +1143,15 @@ test.describe("reports, read by a regular user", () => {
     }
     await expect(bands.getByRole("cell", { name: "Not started", exact: true })).toHaveCount(0);
     await expect(page.getByRole("group", { name: "Chart: items at the end of each day, stacked by band" })).toBeVisible();
+
+    // WIP is read for one team or one domain, never the whole unit: no "All teams", no clear button.
+    const team = page.getByRole("combobox", { name: "Team", exact: true });
+    await expect(team).toHaveValue(teamName);
+    await expect(page.getByLabel("Clear Team", { exact: true })).toHaveCount(0);
+    await team.click();
+    await expect(page.getByRole("option", { name: teamName, exact: true })).toBeVisible();
+    await expect(page.getByRole("option", { name: "All teams", exact: true })).toHaveCount(0);
+    await page.keyboard.press("Escape");
   });
 
   test("the user reads aging work in progress and blocked time", async ({ page }) => {
