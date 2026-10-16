@@ -9,12 +9,14 @@ describe("reportHref", () => {
     }
   });
 
-  test("sprint consistency and epic progress are read for the whole team: the member is dropped, the rest kept", () => {
+  test("sprint consistency, epic accuracy and epic progress are read for the whole team: the member is dropped, the rest kept", () => {
     const search = "lastSprints=3&teamId=2&accountId=a&connectionId=1";
-    for (const path of ["/reports/sprint-consistency", "/reports/epic-progress"]) {
+    for (const path of ["/reports/sprint-consistency", "/reports/epic-estimation-accuracy", "/reports/epic-progress"]) {
       expect(reportHref(path, search)).toBe(`${path}?lastSprints=3&teamId=2&connectionId=1`);
     }
-    expect(reportHref("/reports/sprint-consistency", "teamId=2&accountId=a&accountId=b")).toBe("/reports/sprint-consistency?teamId=2");
+    for (const path of ["/reports/sprint-consistency", "/reports/epic-estimation-accuracy", "/reports/epic-progress"]) {
+      expect(reportHref(path, "teamId=2&accountId=a&accountId=b"), path).toBe(`${path}?teamId=2`);
+    }
   });
 
   test("drops the report-specific params the target has no control for", () => {

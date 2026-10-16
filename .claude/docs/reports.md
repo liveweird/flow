@@ -577,7 +577,7 @@ AccuracyMeasures { pred10, pred25, pred50, mdmre, smape, iqr, idr, mad, tailShar
   `groups` lists each pick (the TEAM-level rule per person, ordered label then account id) with its own PLAIN distributions. One `accountId`
   is today's figures plus a one-entry `byUser`; UNIT and TEAM are unchanged.
 - Reading: ratio `1.0` = actual cost equals the estimate, above = it cost more.
-- **Accuracy measures** (`reports/AccuracyMeasures.kt`, the pure `accuracyMeasures(ratios, minSampleSize)`; to be reused by Report 4). Over the SAME
+- **Accuracy measures** (`reports/AccuracyMeasures.kt`, the pure `accuracyMeasures(ratios, minSampleSize)`; Report 4 reuses it). Over the SAME
   ratios `r = actual ÷ estimate` the view's `Distribution` summarises (the union at USER level, never per person) and `null` under the same
   `minSampleSize` rule; unrounded on the wire. **The relative error is taken against the ACTUAL** (Conte et al.):
   `MRE = abs(actual − estimate) ÷ actual = abs(1 − 1/r)` (`actual > 0` is guaranteed by the `noWorklogs` exclusion), so a ratio of exactly 1 is a
@@ -598,7 +598,8 @@ EpicEstimationAccuracyReport {
   epics: [{ issueKey, summary?, ownerTeamId?, doneAt, ownEstimateAtStartMd?, ownEstimateAtDoneMd?,
             childSumMd, actualMd, ratio?, ratioAtDone? }],   // <= 200 rows
   epicsTruncated: boolean,
-  groups: [{ teamId?, label?, atStart, atDone, excluded }]   // UNIT only: one per owner team
+  groups: [{ teamId?, label?, atStart, atDone, excluded }],  // UNIT only: one per owner team
+  accuracyAtStart: AccuracyMeasures?, accuracyAtDone: AccuracyMeasures?   // over the ratios atStart / atDone summarise; null while hidden
 }
 ```
 
@@ -612,6 +613,15 @@ EpicEstimationAccuracyReport {
   -- **newest `doneAt` first, then connection and issue id**, at most 200 (`EPIC_ACCURACY_MAX_ROWS`);
   `epicsTruncated` is true when more matched. The distributions and groups always count every epic, not just the
   listed 200. `issueKey`/`summary` come from `dim_epic`.
+- **Accuracy measures** are Report 3's, from the same `accuracyMeasures` kernel (above): `accuracyAtStart` over every epic's non-null `ratio`
+  and `accuracyAtDone` over every non-null `ratioAtDone` -- the very ratios `atStart` / `atDone` summarise, so the same exclusions, `null`
+  under the same `minSampleSize` rule; `tailShare` is also `null` for fewer than six epics or a constant sample (the Report 3 rule, one kernel).
+  The relative error is taken against the ACTUAL (`actual_md > 0` is guaranteed by `noActual`), so the
+  child sum never enters. The groups carry none. There is no `multipleAccounts`: an epic has an owner team and no user. The web page
+  needs a specific team (page-level only, D1 -- the server keeps `teamId` optional), has no member control (`noMember`; a pasted `accountId` is
+  dropped from the URL) and hides p90/p95 (`strip="centre"`).
+  Consequence: epics with no owner team (`teamId = 0`, the "No owner team" group) cannot be reached from the web report once a team is required;
+  that is the accepted price of the item, and the unit-wide read stays available through the API.
 
 ### Report 5 -- `GET /api/v1/reports/estimate-adjustments`
 

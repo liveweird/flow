@@ -65,15 +65,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
     is overstated.
   - Number the amendment A28 (A23 is taken).
 
-## Report follow-ups
-
-- [todo] **Epic Accuracy report filters and measures** (Estimation → Epic Accuracy, `/reports/epic-estimation-accuracy`):
-  - the filters can be hidden, like in Lettuce;
-  - the team filter has no "All teams": a specific team must be chosen;
-  - no user filter;
-  - remove p90 and p95, and add the same accuracy measures as the Task Accuracy report (PRED(10/25/50), IQR, IDR,
-    MAD, MdMRE, sMAPE, kurtosis).
-
 ## Engineering follow-ups
 
 - [todo] **CI duration: check the trend at every milestone.** Run `node scripts/timings/ci-times.mjs --branch master`.

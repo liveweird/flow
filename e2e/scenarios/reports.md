@@ -278,29 +278,33 @@ unfolds it first (`openFilters`, which leaves an already unfolded bar alone).
 
 ## Scenario: the user reads epic estimation accuracy against each epic's own estimate
 
+Epic estimation accuracy is read for one team (the epic's owner team), so every deep link carries the
+spec's own team.
+
 1. The user opens **Epic estimation accuracy** for this spec's connection over the default fixed
-   window (deep link).
+   window (deep link with the team).
    - *Expected*: the report loads and, since the stub's epics all finished before that window
      opens, shows the "No data in this period" empty state — no "Finished epics" table.
 2. They open the same report over the year-long window (`EPIC_WINDOW`, from 365 days before the
    reference date), where the stub's epics finished.
    - *Expected*: the "Against the own estimate at start" and "… at done" views are both shown, each
-     a percentile strip with its own "Left out of this distribution" accounting, and each
-     accounting's closing "n + reasons = population" line adds up; a "Derived … · configuration
-     revision N" line is shown; the "Finished epics" table has one row per epic in the population.
-3. They read the golden epic's row (`golden.epic`).
-   - *Expected*: the own estimate at start and at done equal the golden budget, the child sum is the
-     golden child sum, and the ratio is actual ÷ the OWN estimate — not actual ÷ the child sum.
+     with its own "Left out of this distribution" accounting, and each accounting's closing "n +
+     reasons = population" line adds up; a "Derived … · configuration revision N" line is shown. Each
+     view shows either a centre strip (the median, the mean and the items — no p90 or p95) and its
+     nine-row "Accuracy measures" table, or the minimum-sample notice ("Only N items in this
+     selection …") with neither — and every view is one of the two (the seeded team's few epics may
+     leave either or both under the minimum sample).
+3. They read the golden epic's row (`golden.epic`) in the "Finished epics" table.
+   - *Expected*: there is one row per epic in the population; the own estimate at start and at done
+     equal the golden budget, the child sum is the golden child sum, and the ratio is actual ÷ the
+     OWN estimate — not actual ÷ the child sum. No other team's (GTM, OPS, PLT) epic is listed.
 4. They narrow the **Domain** to GTM, then clear it.
-   - *Expected*: the URL gains `domain=GTM` and only GTM epics remain (no FLO, OPS or PLT row); after
-     the clear the golden FLO epic is back.
-5. They follow the seeded team's name link in the "By team" table.
-   - *Expected*: the URL gains the team; only the team's epics remain (the golden one among them, no
-     GTM/OPS/PLT row); the team has fewer epics than the minimum sample, so each view shows the
-     counts-only note ("Only N items in this selection …") instead of percentiles.
-6. They pick the roster person in the **Member** dropdown.
-   - *Expected*: the URL gains `accountId`; one note says epics are not attributed to individual
-     people; the "Finished epics" table is gone.
+   - *Expected*: the URL gains `domain=GTM` and, the seeded team owning no GTM epic, the report
+     shows "No data in this period" with no "Finished epics" table; after the clear the golden FLO
+     epic is back.
+5. They open the **Team** filter.
+   - *Expected*: the URL carries the seeded team, the filter shows it, has no clear button and
+     offers no "All teams" option, and there is no **Member** control on the page.
 
 ## Scenario: the user reads how estimates were adjusted
 

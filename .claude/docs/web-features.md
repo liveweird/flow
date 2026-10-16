@@ -359,7 +359,7 @@ completed · the report's figures · the orange drift badge with the frozen figu
   **Several members**: the member control is a `MultiSelect` (`ReportFilterMultiSelect`, max `MAX_ACCOUNTS` = 8, searchable, clearable, shown once a team
   is set; once 8 are picked its description says "Up to 8 people", and its search input may shrink to 48 px so one pill and the input share a line) over the same options as the single select, and `ReportFilterState.accountIds` is the REPEATED `accountId` URL key (`?accountId=a&accountId=b`), distinct,
   capped at 8, order preserved. Only a multi-member page parses it that way (`parseReportFilter(params, { multiAccount: true })`, passed by `useReportFilter`
-  from the same flags): every other page keeps reading `accountId` as its first value and the server answers a repeat with `400` there — so `reportHref` (the tab links) keeps only the FIRST `accountId` when leaving a `MULTI_ACCOUNT_PATHS` report (commitments, throughput, cycle time, reported time, adjustments, task accuracy; moving between those six keeps every pick). The report is
+  from the same flags): every other page keeps reading `accountId` as its first value and the server answers a repeat with `400` there — so `reportHref` (the tab links) keeps only the FIRST `accountId` when leaving a `MULTI_ACCOUNT_PATHS` report (commitments, throughput, cycle time, reported time, adjustments, task accuracy; moving between those six keeps every pick), and drops them entirely when arriving at sprint consistency, epic accuracy or epic progress (`NO_MEMBER_PATHS`). The report is
   requested with that array as repeated keys (`reportQuery`), and a team change drops the people. **Two modes, decided by the SHOWN report's
   `meta.level`** (so a refetch over kept data never mixes shapes). *Team mode* (no people picked: TEAM level): `CommitmentsChart` is a Mantine `CompositeChart` on ONE
   MD axis — the committed (`flow.6`) and final (`flow.8`/`flow.4`) bars as ever plus the sprint's capacity as a dashed neutral line (`CHART_COLORS.capacity`,
@@ -419,8 +419,8 @@ completed · the report's figures · the orange drift badge with the frozen figu
   tooltip name the series, and the histogram table's range cell reads "≥ X (long tail)" (`reports.distribution.tailRow`). The counts still sum to `n`.
   Task and epic accuracy show the at-start view first (D15: the primary view) and the at-done view
   beside it; an epic's own estimate is never replaced by its child sum (both are columns). The epic
-  accuracy page offers only domain and work category (an epic's domain is its own space under either
-  domain view, and it has no activity type); the other two estimation pages offer the domain view too.
+  accuracy page offers team (required), domain and work category (an epic's domain is its own space under either
+  domain view, and it has no activity type; it has no member control either, see below); the other two estimation pages offer the domain view too.
   **Adjustments is read per team and takes several people** (`pages/ReportEstimateAdjustments.tsx`; `CONTROLS` = `teamRequired`, `multiMember`, domain view,
   domain, activity type, work category; the no-teams `EmptyState`, the normalization and the 8-person cap are Throughput's): at `USER` level the page gives
   the TASKS block's change histogram its OWN people (`distributionPeople(report.tasks.changeDistribution)`, forwarded by `AdjustmentsBlock`'s `people` prop to
@@ -453,6 +453,13 @@ completed · the report's figures · the orange drift badge with the frozen figu
   nine rows (PRED(10/25/50), MdMRE, sMAPE as percentages via `formatPercent`; IQR, IDR, MAD as ratios via `formatRatio`; the tail share beyond ±2σ as a
   percentage, "—" when the server sends null), each with its one-line meaning under `reports.accuracy.*`. The measures are over the whole selection
   (never per person); a hidden view has neither strip nor table.
+  **Epic accuracy is read per team, never per person** (`pages/ReportEpicAccuracy.tsx`; `CONTROLS` = `teamRequired`, `noMember`, domain, work category):
+  the Team select has no "All teams" (the no-teams `EmptyState`, `useReportPage` holding the query until a team is set), there is no Member control, and the
+  page's `normalize` is `dropMember` (`utils/reportFilter.ts`, deletes `accountId` / `accountIds`), so a pasted link's member is dropped and the URL
+  rewritten; `NO_MEMBER_PATHS` (`utils/reportLinks.ts`: sprint consistency, epic accuracy, epic progress) makes `reportHref` drop the `accountId`s on the way in from a
+  tab. Both panels pass `strip="centre"` and `accuracy` (Task accuracy's `AccuracyMeasuresTable`, the same nine rows over the epics' own ratios). The server keeps `teamId`
+  optional (D1), and the owner-team "By team" drill and `EpicsPerPersonNote` are no longer reachable on this page (a team is always picked, an epic has no user).
+  Consequently, epics with no owner team (the server's `teamId = 0`, the "No owner team" group) cannot be reached from this report at all: it is the accepted price of requiring a team.
   Reported time explains in its description that the ratio is "how much of
   the elapsed working time was logged" (actual MD ÷ cycle working days), distinct from flow
   efficiency (active ÷ cycle time, shown as %, no "no time logged" bucket — so the two panels keep

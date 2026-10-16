@@ -286,15 +286,15 @@
       "tailShare": "Tail share (beyond ±2σ)"
     },
     "meaning": {
-      "pred10": "Share of tasks whose estimate missed the actual cost by no more than 10% (the error is relative to the actual).",
-      "pred25": "Share of tasks whose estimate missed the actual cost by no more than 25% (the error is relative to the actual).",
-      "pred50": "Share of tasks whose estimate missed the actual cost by no more than 50% (the error is relative to the actual).",
+      "pred10": "Share of items whose estimate missed the actual cost by no more than 10% (the error is relative to the actual).",
+      "pred25": "Share of items whose estimate missed the actual cost by no more than 25% (the error is relative to the actual).",
+      "pred50": "Share of items whose estimate missed the actual cost by no more than 50% (the error is relative to the actual).",
       "mdmre": "Median relative error: the typical miss as a share of the actual cost, |actual − estimate| ÷ actual.",
       "smape": "Symmetric mean percentage error: the average miss against the mean of actual and estimate, so over- and underestimates weigh alike (0%–200%).",
-      "iqr": "Interquartile range of the ratio (p75 − p25): how wide the middle half of the tasks spreads.",
-      "idr": "Interdecile range of the ratio (p90 − p10): how wide the middle 80% of the tasks spreads.",
+      "iqr": "Interquartile range of the ratio (p75 − p25): how wide the middle half of the items spreads.",
+      "idr": "Interdecile range of the ratio (p90 − p10): how wide the middle 80% of the items spreads.",
       "mad": "Median absolute deviation of the ratio from its median, unscaled: the typical distance from the median ratio.",
-      "tailShare": "Share of tasks more than two standard deviations from the mean ratio. A normal distribution has about 4.6% beyond ±2σ; a higher share means heavier tails. Shown as — with fewer than six tasks (a smaller sample cannot have a point that far out) or when every ratio is equal."
+      "tailShare": "Share of items more than two standard deviations from the mean ratio. A normal distribution has about 4.6% beyond ±2σ; a higher share means heavier tails. Shown as — with fewer than six items (a smaller sample cannot have a point that far out) or when every ratio is equal."
     }
   },
   "groupsCaption": {
@@ -325,6 +325,7 @@
   "epicAccuracy": {
     "title": "Epic estimation accuracy",
     "description": "How the actual cost of finished epics compares with their OWN estimate: actual man-days ÷ own estimate. The sum of the child estimates is shown beside it, never used as the estimate.",
+    "noTeams": "Epic estimation accuracy is read per team and there is no team yet. An administrator adds teams on the Teams page.",
     "startTitle": "Against the own estimate at start",
     "startCaption": "Primary view.",
     "doneTitle": "Against the own estimate at done",
@@ -345,12 +346,7 @@
       "childSum": "Child sum (MD)",
       "actual": "Actual (MD)",
       "ratioStart": "Ratio at start",
-      "ratioDone": "Ratio at done",
-      "startN": "At start (items)",
-      "startMedian": "At start (median)",
-      "doneN": "At done (items)",
-      "doneMedian": "At done (median)",
-      "population": "Finished"
+      "ratioDone": "Ratio at done"
     }
   },
   "adjustments": {

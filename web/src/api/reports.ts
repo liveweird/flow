@@ -31,7 +31,6 @@ export type AccuracyMeasures = NonNullable<TaskEstimationAccuracyReport["accurac
 export type EpicEstimationAccuracyReport =
   paths["/api/v1/reports/epic-estimation-accuracy"]["get"]["responses"]["200"]["content"]["application/json"];
 export type EpicAccuracyRow = EpicEstimationAccuracyReport["epics"][number];
-export type EpicAccuracyGroup = EpicEstimationAccuracyReport["groups"][number];
 export type EstimateAdjustmentsReport =
   paths["/api/v1/reports/estimate-adjustments"]["get"]["responses"]["200"]["content"]["application/json"];
 export type AdjustmentFigures = EstimateAdjustmentsReport["tasks"];
