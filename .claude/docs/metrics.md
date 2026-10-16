@@ -887,6 +887,19 @@ same resolved owner).
 (`valid_from < day_end_ms AND (valid_to IS NULL OR valid_to >= day_end_ms)`), for every calendar day
 from the LATER of the connection's earliest `created_at` day and its `backfill_from` day through the day of the run's own `now`.
 
+**No `stage = DONE` row (decision B, `briefs/03-STORAGE-OPTIMIZATION.md`; domain-model A34).** A finished item used to be counted again on
+every later day, forever — 60 % of the table on real data (298k of 495k rows) — so every statement joins `item_stage` with
+`s.stage <> 'DONE'` (`NOT_DONE`, `DeriveWipStep.kt`) and the table holds NOT_STARTED, IN_PROGRESS, WAITING and UNMAPPED only.
+Report 9 computes the DONE band at query time from the DONE-stage `item_stage` intervals, attributed as at the item's done time
+(`reports/WipDoneBand.kt`: the credit team / the fact's done-time domain; `reports.md` "Report 9", `measures.md` "Report 9"), in
+ONE set-based statement per request that shares `coveringAt` with the WIP step. The report ignores any `stage = DONE` row (`fetchWipCells` filters it) so the rows an
+older DERIVE left in place are never read; the next DERIVE of each connection drops them (the table is rewritten whole), and
+`derive_runs.row_counts.aggWipRows` shrinks accordingly. `wipStatements` lists the four statements (a test strips the filter to
+prove it is the only change). Measured cost of the query-time read (`EXPLAIN (ANALYZE)` on a synthetic connection of 6,000 tasks,
+4,500 of them done, `dim_date` 757 days): the unit-wide read over 186 days 63 ms (644k (day, item) pairs through one nested loop with
+the covering predicate as its join filter, hash-aggregated by `(day, status_id)`), 211 ms over the whole 757 days; a team, UNASSIGNED
+or a domain 8-13 ms, because the team/domain predicate filters before the aggregate.
+
 **The start (decision C, `briefs/03-STORAGE-OPTIMIZATION.md`).** `dayRangeCte(…, fromBackfill = true)` — the WIP statements only — floors
 `day_range` at `source_connections.backfill_from` (V8, an ISO `YYYY-MM-DD` the column validates; compared with the ISO `dim_date.day` text,
 read by a scalar sub-select on the connection's primary key, so no new parameter travels through the derive model and the statements keep
@@ -946,7 +959,7 @@ Sub-tasks are excluded throughout (D2): every scope's SQL joins `metrics.dim_tas
 writes one for every item, sub-tasks included) never reaches any `agg_daily_wip` row.
 
 Tests: `MetricsDerivationTest`'s three `agg_daily_wip -` cases — an independent per-stage TASK-count
-oracle (`item_stage` + `dim_task`, end-of-day predicate) that TEAM (including `UNASSIGNED`) and
+oracle (`item_stage` + `dim_task`, end-of-day predicate, the DONE stage excluded: it is not stored) that TEAM (including `UNASSIGNED`) and
 DOMAIN both sum to exactly, over evenly-spread sampled days; an independent per-team re-derivation
 of the TEAM split on one sampled day, straight off the `norm` SPRINT/ASSIGNEE intervals and
 `team_membership`; and a bundled check that no sub-task is ever counted, that a day predating the

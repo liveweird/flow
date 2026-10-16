@@ -1403,10 +1403,12 @@ export interface paths {
         };
         /**
          * Report 9 — work in progress per status, stage or board column over time
-         * @description Any authenticated user (D12), read-only — `.claude/docs/measures.md` "Report 9 — WIP". Straight off the
-         *     daily aggregate `agg_daily_wip`: `series` has one point per calendar day of the period (in the configured
-         *     zone), each the END-of-day snapshot of how many items sat in each status / stage / board column — items
-         *     the aggregate has no row for count as zero, and every point carries every key of `keys`. `itemKind` (default
+         * @description Any authenticated user (D12), read-only — `.claude/docs/measures.md` "Report 9 — WIP". Off the daily
+         *     aggregate `agg_daily_wip` for the NOT_STARTED, IN_PROGRESS, WAITING and UNMAPPED stages, and computed at query time
+         *     from the item stage intervals for the DONE stage, which is attributed as at the item's done time (the
+         *     delivery-credit team, the domain in effect at done; domain-model A34): `series` has one point per calendar day of
+         *     the period (in the configured zone), each the END-of-day snapshot of how many items sat in each status / stage /
+         *     board column — items the aggregate has no row for count as zero, and every point carries every key of `keys`. `itemKind` (default
          *     TASK) counts level-0 tasks, `EPIC` the epics (a different grain, D2) and `BOTH` the two added together. `by`
          *     (default STAGE) keys `counts` by `STAGE` (the five stages NOT_STARTED, IN_PROGRESS, WAITING, DONE, UNMAPPED — WAITING is work
          *     that has started with nothing actively worked on, an admin-mapped stage (A30); UNMAPPED, a status with no stage

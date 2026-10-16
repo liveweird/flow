@@ -2394,8 +2394,9 @@ class MetricsDerivationTest {
 
                 days.forEach { day ->
                     val dayEndMs = dayEndMsByDay.getValue(day)
+                    // DONE is not stored (decision B): report 9 computes it at query time, so the aggregate holds the other stages.
                     val expected = taskIds.mapNotNull { valueAtDayEnd(stageRowsByIssue[it].orEmpty(), dayEndMs) }
-                        .groupingBy { it }.eachCount()
+                        .filter { it != "DONE" }.groupingBy { it }.eachCount()
                     assertEquals(expected, wipStageCounts(connId, "TEAM", day), "TEAM must partition the per-stage TASK count on $day")
                     assertEquals(expected, wipStageCounts(connId, "DOMAIN", day), "DOMAIN must partition the per-stage TASK count on $day")
                 }
@@ -2422,7 +2423,11 @@ class MetricsDerivationTest {
                             it[MetricsTables.ItemStage.stage], it[MetricsTables.ItemStage.validFrom], it[MetricsTables.ItemStage.validTo],
                         )
                     }
-                val coveredTaskIds = taskIds.filter { valueAtDayEnd(stageRowsByIssue[it].orEmpty(), dayEndMs) != null }
+                // DONE items are not in the aggregate (decision B), so they are not in the split either.
+                val coveredTaskIds = taskIds.filter {
+                    val stage = valueAtDayEnd(stageRowsByIssue[it].orEmpty(), dayEndMs)
+                    stage != null && stage != "DONE"
+                }
 
                 // The norm SPRINT field interval covering the instant — NOT metrics.task_sprint, whose
                 // carried-over rows overlap (WIP-report §12's own rule, `DeriveWipStep.kt`).
@@ -2502,7 +2507,10 @@ class MetricsDerivationTest {
                 val allTaskRows = MetricsTables.DimTask.selectAll().where { MetricsTables.DimTask.connectionId eq connId }.toList()
                 val nonSubtaskIds = allTaskRows.filterNot { it[MetricsTables.DimTask.isSubtask] }.map { it[MetricsTables.DimTask.issueId] }
                 val subtaskIds = allTaskRows.filter { it[MetricsTables.DimTask.isSubtask] }.map { it[MetricsTables.DimTask.issueId] }
-                fun coveredCount(ids: List<Long>) = ids.count { valueAtDayEnd(stageRowsByIssue[it].orEmpty(), dayEndMs) != null }
+                fun coveredCount(ids: List<Long>) = ids.count {
+                    val stage = valueAtDayEnd(stageRowsByIssue[it].orEmpty(), dayEndMs)
+                    stage != null && stage != "DONE"
+                }
                 val nonSubtaskCovered = coveredCount(nonSubtaskIds)
                 assertTrue(coveredCount(subtaskIds) > 0, "the fixture must have covered sub-tasks on $lastDay, else this proves nothing")
 
@@ -2510,7 +2518,10 @@ class MetricsDerivationTest {
                     (MetricsTables.AggDailyWip.connectionId eq connId) and (MetricsTables.AggDailyWip.scopeKind eq "TEAM") and
                         (MetricsTables.AggDailyWip.itemKind eq "TASK") and (MetricsTables.AggDailyWip.day eq lastDay)
                 }.toList().sumOf { it[MetricsTables.AggDailyWip.itemCount] }
-                assertEquals(nonSubtaskCovered, actualTotal, "TEAM's TASK total on $lastDay must equal the non-subtask covering count")
+                assertEquals(
+                    nonSubtaskCovered, actualTotal,
+                    "TEAM's TASK total on $lastDay must equal the non-subtask, not-DONE covering count",
+                )
 
                 // A day with no WIP has no rows: a day whose own end predates the connection's earliest
                 // created_at (item_stage's own first interval always starts at created_at).

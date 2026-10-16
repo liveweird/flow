@@ -15,7 +15,9 @@ import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.greaterEq
 import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.lessEq
+import org.jetbrains.exposed.v1.core.neq
 import org.jetbrains.exposed.v1.core.sum
+import org.jetbrains.exposed.v1.r2dbc.R2dbcTransaction
 import org.jetbrains.exposed.v1.r2dbc.select
 import org.jetbrains.exposed.v1.r2dbc.selectAll
 
@@ -54,7 +56,9 @@ data class WipReport(
     val note: String?,
 )
 
-/** The stages `item_stage`/`agg_daily_wip` carry, in flow order — also the fixed key set of `by=STAGE`. */
+private const val STAGE_DONE = "DONE"
+
+/** The stages `item_stage` carries, in flow order — also the fixed key set of `by=STAGE`. */
 private val WIP_STAGES = listOf("NOT_STARTED", "IN_PROGRESS", "WAITING", "DONE", "UNMAPPED")
 
 /** The `by=COLUMN` key of a status no column of the board holds. */
@@ -76,8 +80,10 @@ private fun WipItemKind.storedKinds(): List<String> = when (this) {
 
 /**
  * `GET /api/v1/reports/wip` (v0.3.0 M5 commit 15, Report 9, `.claude/docs/measures.md` "Report 9 — WIP"): items in
- * parallel per status / stage / board column over time, straight off `metrics.agg_daily_wip` (each day's END-of-day
- * snapshot, one row per non-zero cell — a missing cell is zero). See `.claude/docs/reports.md` "Reports 9, 10, 13".
+ * parallel per status / stage / board column over time (each day's END-of-day snapshot, a missing cell is zero). The four
+ * work-in-progress stages come off `metrics.agg_daily_wip`, one row per non-zero cell; the DONE band is computed AT QUERY
+ * TIME from `item_stage` (decision B: DERIVE stores no DONE row), attributed as at the item's done time
+ * ([readWipDoneBand]). See `.claude/docs/reports.md` "Reports 9, 10, 13".
  */
 suspend fun ReportService.wip(filter: ReportFilter, by: WipBy, itemKind: WipItemKind, nowMs: Long): WipReport =
     reportTransaction {
@@ -91,7 +97,10 @@ suspend fun ReportService.wip(filter: ReportFilter, by: WipBy, itemKind: WipItem
             emptyList()
         } else {
             val connectionIds = mapping?.connectionIds ?: scope.connectionIds
-            fetchWipCells(connectionIds, snapshotScope, itemKind, days.first().toString(), days.last().toString())
+            val first = days.first().toString()
+            val last = days.last().toString()
+            val stored = fetchWipCells(connectionIds, snapshotScope, itemKind, first, last)
+            stored + fetchDoneCells(connectionIds, snapshotScope, itemKind, first, last)
         }
         val keys = wipKeys(by, cells, mapping, scope.connectionIds)
         val countsByDay = countsByDay(by, cells, mapping)
@@ -102,6 +111,25 @@ suspend fun ReportService.wip(filter: ReportFilter, by: WipBy, itemKind: WipItem
         WipReport(scope.meta.forTaskDomain(), by, itemKind, keys, series, plan.note)
     }
 
+private suspend fun R2dbcTransaction.fetchDoneCells(
+    connectionIds: List<UInt>,
+    scope: SnapshotScope,
+    itemKind: WipItemKind,
+    firstDay: String,
+    lastDay: String,
+): List<WipCell> {
+    val request = WipDoneRequest(
+        connectionIds = connectionIds,
+        scope = scope,
+        includeTasks = itemKind != WipItemKind.EPIC,
+        includeEpics = itemKind != WipItemKind.TASK,
+        firstDay = firstDay,
+        lastDay = lastDay,
+    )
+    return readWipDoneBand(request).map { WipCell(it.day, it.statusId, STAGE_DONE, it.count) }
+}
+
+/** The four stages `agg_daily_wip` stores (never DONE — [fetchDoneCells] computes that band). */
 private suspend fun fetchWipCells(
     connectionIds: List<UInt>,
     scope: SnapshotScope,
@@ -115,7 +143,7 @@ private suspend fun fetchWipCells(
     return w.select(w.day, w.statusId, w.stage, total)
         .where {
             (w.connectionId inList connectionIds) and wipScopePredicate(scope) and (w.itemKind inList itemKind.storedKinds()) and
-                (w.day greaterEq firstDay) and (w.day lessEq lastDay)
+                (w.day greaterEq firstDay) and (w.day lessEq lastDay) and (w.stage neq STAGE_DONE)
         }
         .groupBy(w.day, w.statusId, w.stage)
         .orderBy(w.day to SortOrder.ASC, w.statusId to SortOrder.ASC, w.stage to SortOrder.ASC)

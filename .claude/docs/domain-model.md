@@ -6,7 +6,7 @@ reports it serves, its invariants, and how known data imperfections are handled.
 contract the metrics layer and every dashboard are built against. **Status: agreed 2026-09-27
 (D1–D16), validated against the target reports; amended 2026-09-28 (A17–A21, see "Amendments"
 below); implemented in v0.3.0** (the configuration, DERIVE and the star: `.claude/docs/metrics.md`;
-the sixteen reports: `.claude/docs/reports.md`; the deep dive, report 17, is A29 below; the WAITING stage is A30; issues above the epic level are A31; capacity is a team default and a sprint calendar, A32; public holidays are a dictionary and locked off in capacity, A33). The per-measure operational contract — each
+the sixteen reports: `.claude/docs/reports.md`; the deep dive, report 17, is A29 below; the WAITING stage is A30; issues above the epic level are A31; capacity is a team default and a sprint calendar, A32; public holidays are a dictionary and locked off in capacity, A33; report 9's DONE band is computed at query time and attributed as at done, A34). The per-measure operational contract — each
 report number's grain, time anchor, attribution, estimate snapshot, missing-data rule,
 frozen/live source and the test that pins it — is `.claude/docs/measures.md`.
 
@@ -210,7 +210,7 @@ counts and sums only.
 | `fact_sprint_snapshot` | sprint (→ team) | the same figures (and the sprint's scope rows) frozen when the sprint completes, with the configuration revision and a `reconstructed` flag for sprints completed before Flow first processed them (D13) — never updated afterwards |
 | `fact_worklog` | worklog | author + **author's team at `started`**, task + its activity type/work category, **task's domain + epic + epic's domain at `started`**, MD |
 | `fact_epic_plan` | epic × baseline | start, due, budget MD, `budget_source` — PV curves can be redrawn "as originally planned" |
-| `agg_daily_{team,domain,epic}` | scope × working day | WIP per status and per stage (tasks and epics), estimated-backlog count and SP, PV(t), EV(t), AC(t), throughput — item counts beside every SP figure |
+| `agg_daily_{team,domain,epic}` | scope × working day | WIP per status and per stage (tasks and epics; the DONE band is not stored, A34), estimated-backlog count and SP, PV(t), EV(t), AC(t), throughput — item counts beside every SP figure |
 
 **Organization and periods.** Sprint facts attach to a team through the sprint's board; task and
 worklog facts attach to a user and, through `team_membership` at the relevant instant, to a team
@@ -264,7 +264,7 @@ user, and slices by domain, activity type and work category.
 | 6.3 | **Added scope** | `fact_sprint` | SP added after sprint start (and removed) |
 | 7 | **Cycle time** | `fact_task_delivery` | per task; elapsed and working days; distribution |
 | 8 | **Reported time ÷ cycle time** | `fact_task_delivery` | `actual_md ÷ cycle time in working days` — how much of the elapsed working time was logged; distinct from the status-based flow efficiency (active ÷ total time in stages) |
-| 9 | **WIP** | `agg_daily_*` over `item_status`/`item_stage` | items in parallel per status (or stage, or board column) over time — tasks and epics; by stage, IN_PROGRESS and WAITING are separate bands and work in progress is their sum (A30) |
+| 9 | **WIP** | `agg_daily_*` over `item_status`/`item_stage` | items in parallel per status (or stage, or board column) over time — tasks and epics; by stage, IN_PROGRESS and WAITING are separate bands and work in progress is their sum (A30); the DONE band is computed at query time and attributed as at done (A34) |
 | 10 | **Estimated backlog depth** | `agg_daily_*` | count and SP of estimated tasks ready for planning (D9), now and as a trend; owned by the owner team of the task's domain (A19), `(unowned)` otherwise |
 | 11 | **Aging WIP** | `item_stage` + `fact_task_delivery` | the current age of every IN_PROGRESS or WAITING task and epic (A30; waiting ones marked) against the team's cycle-time p50/p85/p95 over its last N done items; items past p85 highlighted |
 | 12 | **Blocked time** | `fact_task_delivery`, `fact_epic_delivery` | blocked time per item, as a share of cycle time, and as a distribution |
@@ -554,6 +554,33 @@ carries the per-measure detail).
   sent `enabled: true` (the stored choice is kept and returns if the holiday is removed). Every dictionary change bumps the global
   `config_revision` and re-derives every enabled connection. Operational detail: `.claude/docs/metrics.md` "Public holidays",
   `.claude/docs/persistence.md` "Public holidays (V25)".
+
+- **A34 — Report 9's DONE band is computed at query time and a done item is attributed as at its done time** (agreed with the user
+  2026-10-16, `briefs/03-STORAGE-OPTIMIZATION.md` decision B). `agg_daily_wip` counted every finished item again on every later day,
+  forever (60 % of the table on real data), so DERIVE now writes NO `stage = DONE` row and report 9 reads the band off
+  `metrics.item_stage` in one set-based statement per request (`reports/WipDoneBand.kt`, sharing the WIP step's `coveringAt`
+  predicate). The band's attribution **changes the measure**: the stored bands (NOT_STARTED, IN_PROGRESS, WAITING, UNMAPPED) still
+  follow the as-was D5 team / domain of each day (D5, A22), but a DONE item is frozen from its done time on.
+  - **TEAM scope.** A task belongs to `fact_task_delivery.credit_team_id` (D5's delivery credit: the sprint's team, else the assignee's
+    team, at `done_at`; null -> `UNASSIGNED`), an epic to its domain's owner team (A19, as before; no owner -> `UNOWNED`). A team change
+    after done no longer moves the item between teams.
+  - **DOMAIN scope.** A task belongs to `fact_task_delivery.domain_key` — the `task_domain` row DERIVE resolved at `done_at` (`domainRowAt`,
+    `[from, to)`, so a move and a Done in the same changelog entry counts under the NEW domain; else the current domain, the WIP step's
+    `COALESCE`), an epic to its own domain. A domain change after done no longer moves the item.
+  - **Counting and keying.** An item is in the band on day `d` when a DONE-stage `item_stage` interval covers the END of `d` (the WIP
+    covering rule, `(from, to]`); its status / column key is that interval's, so Done -> Closed still moves it between status keys,
+    and a reopened item leaves the band while it is reopened. The band honours decision C's start (no day before the backfill window).
+  - **Known gap.** `done_at` (and so `credit_team_id`) is set only while the item is CURRENTLY done (`startedDoneAt`: the start of the
+    trailing DONE run). A reopened item that is still open has neither, so its earlier DONE days are attributed `UNASSIGNED` (TEAM) and
+    to its current domain (DOMAIN); an item reopened and done again carries the attribution of its LAST done run for all its DONE days.
+  - **Why the team split moves.** The as-was rule reads a sprint's team only WHILE the sprint is open, so a task done in a sprint that
+    has since closed fell to the assignee's team (memberships) or `UNASSIGNED` on every later day; the credit team is the sprint team
+    at done. Measured on the stub clone with the FLO board mapped to one team and no memberships: of 30,891 DONE task-day counts, the
+    old rule put 30,681 (99 %) in `UNASSIGNED` and 210 in the board's team; the new rule puts 11,186 (36 %) in the board's team and
+    19,705 in `UNASSIGNED` (work in sprints of no mapped board). The DOMAIN split did not move on the stub (no domain changed after done).
+  - **What does not move.** The unit-wide DONE band (every TEAM scope summed) counts the very same items per day and status as before;
+    only its split by team and by domain moves. The four stored bands are byte-for-byte what they were. Operational detail:
+    `.claude/docs/metrics.md` "Daily WIP aggregate", `.claude/docs/measures.md` "Report 9", `.claude/docs/reports.md` "Report 9".
 
 ## Gaps in `norm` (closed in v0.3.0)
 

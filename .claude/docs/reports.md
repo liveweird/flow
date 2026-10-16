@@ -792,7 +792,7 @@ bucketing of each person's raw values into the union's edges, one `accountId`, a
 
 Two endpoints (v0.3.0 M5 commit 15, `.claude/docs/measures.md` "Report 9", "Reports 10, 13") that read the DAILY
 AGGREGATES the DERIVE run writes (`.claude/docs/metrics.md` "Daily WIP aggregate", "Daily flow aggregate") instead of the
-fact tables, so they share their own preamble (`resolveReportScope`, then `snapshotScopeOf` and `planSnapshotDays` in
+fact tables (WIP's DONE band alone is computed at query time, A34), so they share their own preamble (`resolveReportScope`, then `snapshotScopeOf` and `planSnapshotDays` in
 `reports/SnapshotSupport.kt`). Both take the shared `from`/`to`/`lastSprints`/`sprintId`, `teamId`/`accountId`, `domain`
 and `connectionId` parameters. `domainView` is accepted and changes nothing, but **`meta.domainView` is
 always `TASK`**: both reports read the task's own domain (D3 flow view; the epic side of WIP is the epic's own space), so an
@@ -804,7 +804,8 @@ scope only: never per user, never team x domain. So:
 - **UNIT** (no `teamId`) sums every TEAM scope -- including the `UNASSIGNED` (tasks) and `UNOWNED` (epics, backlog)
   scopes -- or, with `domain`, reads that DOMAIN scope (a task's as-was domain, an epic's own space).
 - **TEAM** (`teamId`) reads that team's TEAM scope. For WIP a task is in the team of D5 as of each day and an epic in
-  its domain's owner team (A19); the backlog's TEAM scope is the owner team (A19).
+  its domain's owner team (A19) -- except the DONE band, where a done task is in its done-time team (`credit_team_id`, A34);
+  the backlog's TEAM scope is the owner team (A19).
 - **`teamId=0`** is `UNASSIGNED` on the task side and `UNOWNED` on the epic side of WIP (so an explicit `itemKind=BOTH` adds the two),
   and `UNOWNED` for the backlog.
 - **USER** (`teamId` and `accountId`) has no storage: the answer is an EMPTY series with a `note`, never a team-wide
@@ -857,8 +858,20 @@ WipReport {
   (`norm.board_columns`, read at query time so a board edit needs no re-derive), plus `(no column)` when a status no column
   holds has items in the period.
 - **The counts are end-of-day snapshots**: the number of items whose `item_stage` interval covers the END of that day, all
-  stages (the `DONE` count only grows -- a chart that wants "work in progress" sums the `IN_PROGRESS` and `WAITING` keys, A30). Invariant 9's
+  stages (a chart that wants "work in progress" sums the `IN_PROGRESS` and `WAITING` keys, A30). Invariant 9's
   other half lives in DERIVE's tests: the backlog never exceeds the NOT_STARTED WIP of its domain/day.
+- **The DONE band is computed at query time, attributed as at done (decision B, A34).** DERIVE stores no `stage = DONE` row (a
+  stored one -- an older DERIVE's leftover -- is never read): `reports/WipDoneBand.kt` (`wipDoneBandSql` / `readWipDoneBand`, one
+  set-based statement per request over the period's `dim_date` days, never a per-day loop) counts an item on day `d` when a
+  DONE-stage `item_stage` interval covers the end of `d` (`coveringAt`, the WIP step's own predicate), so a reopened item leaves the band while it is
+  reopened. The status / column key is that interval's `status_id` (Done -> Closed moves the item between status keys). TEAM scope: a
+  task is in `fact_task_delivery.credit_team_id` (null -> `UNASSIGNED`), an epic in its domain's owner team (else `UNOWNED`);
+  DOMAIN scope: the task's `fact_task_delivery.domain_key` (the `task_domain` row DERIVE resolved at `done_at`, `[from, to)`; else its current domain), an epic's own domain. So the DONE band
+  can differ from the as-was split the aggregate used to hold whenever a team or domain changed after done; the unit-wide band is
+  unchanged. A reopened item that is still open has no `done_at`/`credit_team_id`: its earlier DONE days read `UNASSIGNED` /
+  its current domain. The same helper takes an optional account filter (`WipDoneRequest.accountIds`, tasks only, by
+  `assignee_account_id_at_done`) for the per-person WIP read. The band honours the backfill start like the other bands (its days
+  are the plan's days).
 - **`by=COLUMN` needs one team's board**: `400` at UNIT level, with `domain`, for `teamId=0` and for a team with no board
   mapped in the connections in scope (a team has at most one board, D10). It reads only the board's connection's rows. A
   USER-level request still validates the team's board, then answers empty.
@@ -894,9 +907,11 @@ BacklogReport {
   `teamId=0` (UNOWNED) have no velocity of their own: `meanDeliveredMd` and `backlogInSprints` are `null`.
 
 Code: `reports/WipReport.kt`, `reports/BacklogReport.kt`, over `reports/SnapshotSupport.kt` (the scope predicates, the
-working calendar builder, the derived coverage, the day plan and its note). Tests -- `ReportWipTest` and `ReportBacklogTest` on
+working calendar builder, the derived coverage, the day plan and its note) and `reports/WipDoneBand.kt` (the DONE band). Tests -- `ReportWipTest` and `ReportBacklogTest` on
 `DerivedStubFixture`, plus `ReportSnapshotTestSupport.kt` (independent readers of `agg_daily_wip`/`agg_daily_flow`/
-`fact_sprint`, hand-row inserters): every day of every series against a sum taken straight off the aggregate rows (per
+`fact_sprint`, hand-row inserters) and `ReportWipDoneSupport.kt` (the independent DONE-band oracle `ReportWipTest` merges into the stored rows;
+`ReportWipDoneBandTest` pins its rule: stub per scope/kind/day, the four stored bands against the unfiltered statements, hand-built team-at-done / reopen / Done -> Closed / domain-at-done rows, the account filter):
+every day of every series against a sum taken straight off the aggregate rows plus that oracle (per
 stage, status and board column; `BOTH` = `TASK` + `EPIC`; the DOMAIN scopes; a team; `teamId=0`; the sprint-id envelope; the
 cut-off at the last derived day, incl. two connections with differing derive days and one that never derived; "not derived yet";
 the `teamId=0` sprint-relative note; `meta.domainView` forced to TASK; weekends), the mean against an independent computation over `fact_sprint` at several

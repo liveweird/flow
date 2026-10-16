@@ -213,6 +213,10 @@ place:
   (`backfillStart`: the connections in scope that have derived, read-only) for report 9's series start. `metrics/DeriveWipStep.kt`
   reads the same column straight off `public.source_connections` in its `day_range` SQL (a scalar sub-select on the primary key), so the
   WIP aggregate starts no earlier than the connection's `backfill_from`.
+  `reports/WipDoneBand.kt` (the DONE band of report 9, computed at query time, decision B / A34) reads, read-only in the report's
+  transaction and as raw SQL (`exec`, the `JiraRawViewReads` precedent: it joins the global `metrics.dim_date` with the interval tables
+  in one statement), the `metrics` tables `ItemStage`, `DimTask`, `DimEpic`, `DimDomain`, `FactTaskDelivery` (`credit_team_id`, `domain_key`,
+  `assignee_account_id_at_done`), and `DimDate`; it imports `coveringAt` from `metrics/DeriveWipStep.kt`.
 - `reports/AgingWipReport.kt` and `reports/BlockedTimeReport.kt` (v0.3.0 M5 commit 15 part b, `GET /api/v1/reports/aging-wip`
   and `/blocked-time`) read `norm/WorkItemStore.WorkItems` (issue key and summary, via the shared `workItemLabels`) and
   `norm/WorkItemStore.People`/`teams/TeamService.Teams` (through `orgGroups`/`accountDisplayNames`) directly, plus the
