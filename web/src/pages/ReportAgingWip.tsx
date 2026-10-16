@@ -1,6 +1,8 @@
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Stack, Text } from "@mantine/core";
 import { getAgingWipReport } from "../api/reports";
+import AgingChartSection from "../components/AgingChartSection";
 import AgingItemsTable from "../components/AgingItemsTable";
 import AgingThresholdsRow from "../components/AgingThresholdsRow";
 import PageHeader from "../components/PageHeader";
@@ -25,6 +27,8 @@ export default function ReportAgingWip() {
     getAgingWipReport(withPeriod(requested, {})),
   );
   const report = query.data;
+  // The item a click on a chart dot picked: its table row is highlighted (clicking the same dot again lets go).
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
   // USER level lists that assignee's tasks and never epics, so no epic row there.
   const showEpics = report !== undefined && report.meta.level !== "USER" && (report.epicThresholds.n > 0 || report.items.some((item) => item.itemKind === "EPIC"));
 
@@ -73,6 +77,21 @@ export default function ReportAgingWip() {
             )}
           </ReportChartCard>
           {/* A failure is reported ONCE, by the first card. */}
+          {!query.isError && report && report.items.length > 0 && (
+            <ReportChartCard
+              title={t("reports.agingWip.chart.title")}
+              caption={t("reports.agingWip.chart.caption")}
+              isPending={query.isPending}
+              isRefreshing={query.isPlaceholderData}
+              empty={false}
+            >
+              <AgingChartSection
+                report={report}
+                selectedKey={selectedKey}
+                onSelect={(key) => setSelectedKey((current) => (current === key ? null : key))}
+              />
+            </ReportChartCard>
+          )}
           {!query.isError && (
             <ReportChartCard
               title={t("reports.agingWip.openTitle")}
@@ -87,7 +106,7 @@ export default function ReportAgingWip() {
                     {t("reports.agingWip.empty")}
                   </Text>
                 ) : (
-                  <AgingItemsTable report={report} filters={filters} />
+                  <AgingItemsTable report={report} filters={filters} selectedKey={selectedKey} />
                 ))}
             </ReportChartCard>
           )}

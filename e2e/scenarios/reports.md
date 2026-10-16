@@ -234,6 +234,17 @@ unfolds it first (`openFilters`, which leaves an already unfolded bar alone).
      a percentile strip or the counts-only notice, with the "N of M finished items were blocked at
      all" line and the "Most blocked items" block.
 
+## Scenario: the user reads the aging chart with the team's board columns on its workflow axis
+
+1. The user opens **Aging WIP** for the seeded team (the FLO board is mapped to it).
+   - *Expected*: the "Aging chart" card is shown above the "Open work, oldest first" table; its x axis
+     is titled "Workflow position" and lists the team's board columns (the report's `positions` are all
+     of kind COLUMN, every one printed as an axis label); its y axis is titled "Age (working days)";
+     there is one dot per task, and the table below has one row per listed item.
+2. They open the same report without a team.
+   - *Expected*: the chart is still shown with its axis title and at least one dot (the axis is the
+     statuses now).
+
 ## Scenario: the user drills from a domain into the golden epic's progress
 
 1. The user opens **Epic progress** for this spec's connection (deep link, fixed window).

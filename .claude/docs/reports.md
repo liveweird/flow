@@ -974,8 +974,10 @@ AgingWipReport {
   thresholds:     { n, hidden, percentiles: [{ percentile, workingDays? }] },   // tasks
   epicThresholds: { n, hidden, percentiles: [...] },                            // epics
   items: [{ issueKey, summary?, itemKind: TASK|EPIC, teamId?, assigneeAccountId?, assignee?, startedAt,
-            ageWorkingDays, blocked, waiting, band? }],                         // oldest first, <= 500
-  itemsTruncated
+            ageWorkingDays, blocked, waiting, band?,
+            statusId?, statusName?, stage: IN_PROGRESS|WAITING, position }],    // oldest first, <= 500
+  itemsTruncated,
+  positions: [{ key, label, kind: STATUS|COLUMN }]                              // the aging chart's x axis, in workflow order
 }
 ```
 
@@ -999,6 +1001,19 @@ AgingWipReport {
   with `teamId` for a team's own thresholds). Hidden below `minSampleSize` (`n` set, every `workingDays` null).
 - **`band`** = the highest configured threshold the age is strictly above (`"P85"` = above p85 but not above the next),
   `"WITHIN"` when above none, `null` when that kind's thresholds are hidden.
+- **Where an item sits** (`reports/AgingPositions.kt`; the web's aging chart plots it, `.claude/docs/web-features.md`). `statusId`/`statusName`
+  (the `norm.statuses` name, WIP's `statusNames` helper) and `stage` (`IN_PROGRESS`|`WAITING`, agreeing with `waiting`) come from the item's
+  OPEN `metrics.item_stage` row (`valid_to IS NULL`) -- the same DERIVE as `fact_task_delivery.current_stage` / `dim_epic.current_stage`, so
+  status, stage and band never contradict each other; `norm.work_items.status_id` is deliberately NOT read (PROCESS runs later than the last
+  derive). Tiling leaves exactly one open interval per item but no DB constraint says so, so `ReportAgingWipPositionsTest` pins it over the whole
+  fixture connection; an item with no open row (cannot happen after a DERIVE) has null `statusId`/`statusName`, the stage from `waiting` and
+  position `(no status)`/`(no column)`. `position` is a key of the top-level **`positions`**, the chart's x axis in workflow order, computed over the
+  LISTED items (after the 500 cap, so chart and table agree) and only the positions holding one: with ONE real team (`teamId` > 0, TEAM or USER
+  level) that has a board mapped in the scope's connections, the board's columns in board order (`kind: COLUMN`, `key` = the column name, exactly as
+  WIP `by=COLUMN` resolves them -- `boardColumnMappingOrNull`, the non-throwing half of `columnMappingFor`), a status on no column under `(no
+  column)` last (an epic is placed the same way through its own status); otherwise (UNIT, `teamId=0`, a team with no board) the statuses
+  (`kind: STATUS`, `key` = the status id), ordered like WIP `by=STATUS` (`sortStatusIds`: earliest stage in `IN_PROGRESS`, `WAITING` order, then name,
+  then id). Tasks and epics share the one list; the web draws one kind per plot.
 
 ### Report 12 -- `GET /api/v1/reports/blocked-time`
 

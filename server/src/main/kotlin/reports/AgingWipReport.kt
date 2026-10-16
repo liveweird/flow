@@ -56,6 +56,13 @@ data class AgingItem(
     val blocked: Boolean,
     val waiting: Boolean,
     val band: String?,
+    /** The Jira status the item is in now (its OPEN `item_stage` row); null only if it has none (a DERIVE invariant says it has). */
+    val statusId: String?,
+    val statusName: String?,
+    /** `IN_PROGRESS` or `WAITING` — the stage of that same row, so it agrees with [waiting] and the band. */
+    val stage: String,
+    /** The [AgingWipReport.positions] key the item is plotted at: its board column (one team with a board) or its status. */
+    val position: String,
 )
 
 @Serializable
@@ -68,9 +75,11 @@ data class AgingWipReport(
     /** Oldest first, at most [AGING_MAX_ITEMS]. */
     val items: List<AgingItem>,
     val itemsTruncated: Boolean,
+    /** The x-axis categories in workflow order — only those holding a listed item (`agingPlaces`). */
+    val positions: List<AgingPosition>,
 )
 
-private data class OpenItem(
+internal data class OpenItem(
     val kind: String,
     val connectionId: UInt,
     val issueId: Long,
@@ -121,6 +130,7 @@ suspend fun ReportService.agingWip(filter: ReportFilter, nowMs: Long): AgingWipR
     val labels = workItemLabels(listed.map { it.first.connectionId to it.first.issueId })
     val blocked = openBlocked(listed.map { it.first })
     val names = accountDisplayNames(listed.mapNotNull { it.first.account }.distinct())
+    val places = agingPlaces(filter, scope.connectionIds, listed.map { it.first })
     AgingWipReport(
         meta = scope.meta,
         thresholds = taskThresholds.first,
@@ -128,6 +138,7 @@ suspend fun ReportService.agingWip(filter: ReportFilter, nowMs: Long): AgingWipR
         items = listed.map { (item, age) ->
             val label = labels[item.connectionId to item.issueId]
             val thresholds = if (item.kind == KIND_EPIC) epicThresholds else taskThresholds
+            val place = places.byItem.getValue(item.connectionId to item.issueId)
             AgingItem(
                 issueKey = label?.first ?: item.issueId.toString(),
                 summary = label?.second,
@@ -140,9 +151,14 @@ suspend fun ReportService.agingWip(filter: ReportFilter, nowMs: Long): AgingWipR
                 blocked = (item.connectionId to item.issueId) in blocked,
                 waiting = item.waiting,
                 band = bandOf(age, thresholds.second),
+                statusId = place.statusId,
+                statusName = place.statusName,
+                stage = place.stage,
+                position = place.position,
             )
         },
         itemsTruncated = aged.size > AGING_MAX_ITEMS,
+        positions = places.positions,
     )
 }
 

@@ -573,6 +573,30 @@
     "band": {
       "within": "Within",
       "above": "Above {{p}}"
+    },
+    "chart": {
+      "title": "Aging chart",
+      "caption": "One dot per item in progress: where it is in the workflow, against its age in working days. The dashed lines are the team's cycle-time thresholds. The table below lists every item.",
+      "label": "Chart: age in working days of each item in progress, by its position in the workflow",
+      "xAxis": "Workflow position",
+      "yAxis": "Age (working days)",
+      "yAxisLog": "Age (working days, log scale)",
+      "logScale": "Log scale",
+      "logHint": "Log scale: each step up multiplies the age. Ages under half a day sit on the 0.5 line; the tooltip and the table show the true age.",
+      "flooredNote": "Under half a day: plotted on the 0.5 line",
+      "kindAria": "Items shown in the chart",
+      "legendLabel": "Dot legend",
+      "legend": {
+        "upTo": "At or below {{p}}",
+        "noBand": "No band (thresholds hidden)",
+        "waiting": "Hollow dot: waiting",
+        "blocked": "Outer red ring: blocked"
+      },
+      "lineLabel": "{{p}} · {{days}} wd",
+      "hint": "Click a dot to find its row in the table below. Dots in one column are spread sideways only so that they do not hide each other.",
+      "tooltip": {
+        "position": "Position"
+      }
     }
   },
   "blockedTime": {

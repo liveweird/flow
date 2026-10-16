@@ -55,6 +55,7 @@ export type BacklogPoint = BacklogReport["trend"][number];
 export type AgingWipReport = paths["/api/v1/reports/aging-wip"]["get"]["responses"]["200"]["content"]["application/json"];
 export type AgingItem = AgingWipReport["items"][number];
 export type AgingThresholds = AgingWipReport["thresholds"];
+export type AgingPosition = AgingWipReport["positions"][number];
 export type BlockedTimeReport = paths["/api/v1/reports/blocked-time"]["get"]["responses"]["200"]["content"]["application/json"];
 export type BlockedTopItem = BlockedTimeReport["topItems"][number];
 export type BlockedGroup = BlockedTimeReport["groups"][number];

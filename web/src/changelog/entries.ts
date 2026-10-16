@@ -17,6 +17,24 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "0.15.0",
+    date: "2026-10-16",
+    en: `**Aging WIP gets the aging chart: every open item by where it is in the workflow and how old it is.**
+
+- A new chart above the open-work table puts one dot per item: across, where the item sits in the workflow; up, its age in working days. The team's cycle-time percentiles (p50, p85, p95) are dashed lines with their values, so an item high up and far left — old and still early in the workflow — stands out.
+- With a team whose board is mapped, the workflow axis is the board's columns in board order; otherwise it is the statuses, in-progress ones before waiting ones.
+- Dots take the table's colours (red above the top percentile, orange above the next); a hollow dot is waiting, a ringed one blocked; the tooltip names all three. Click a dot to find its row in the table. Tasks and epics have separate charts, each with its own percentiles.
+- The report now says each item's status and stage too, and the outliers are never cut off: the age axis reaches the oldest item.
+- **Log scale**: a switch puts the age axis on a log scale, so a few very old items no longer squash the rest. Ages under half a day sit on the 0.5 line; the tooltip and the table keep the true age. Your choice is remembered.`,
+    pl: `**Wiek WIP dostaje wykres starzenia: każda otwarta pozycja według miejsca w przepływie pracy i wieku.**
+
+- Nowy wykres nad tabelą otwartej pracy pokazuje jedną kropkę na pozycję: w poziomie miejsce pozycji w przepływie pracy, w pionie jej wiek w dniach roboczych. Percentyle czasu cyklu zespołu (p50, p85, p95) są liniami przerywanymi z wartościami, więc pozycja wysoko i daleko z lewej — stara i wciąż na początku przepływu — od razu się wyróżnia.
+- Dla zespołu ze zmapowaną tablicą oś przepływu to kolumny tablicy w jej kolejności; w przeciwnym razie to statusy, najpierw te w toku, potem oczekujące.
+- Kropki mają kolory z tabeli (czerwony powyżej najwyższego percentyla, pomarańczowy powyżej kolejnego); pusta w środku kropka oznacza oczekiwanie, kropka z obwódką blokadę; podpowiedź nazywa wszystkie trzy. Kliknij kropkę, aby znaleźć jej wiersz w tabeli. Zadania i epiki mają osobne wykresy, każdy z własnymi percentylami.
+- Raport podaje teraz też status i etap każdej pozycji, a wartości odstające nigdy nie są obcinane: oś wieku sięga najstarszej pozycji.
+- **Skala logarytmiczna**: przełącznik ustawia oś wieku w skali logarytmicznej, więc kilka bardzo starych pozycji nie spłaszcza już reszty. Wiek poniżej pół dnia leży na linii 0,5; podpowiedź i tabela pokazują prawdziwy wiek. Twój wybór zostaje zapamiętany.`,
+  },
+  {
     version: "0.14.0",
     date: "2026-10-16",
     en: `**WIP can be read for up to eight people, day by day.**

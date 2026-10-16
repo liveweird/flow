@@ -988,6 +988,33 @@ async function expectOnePersonsWip(page: Page): Promise<void> {
   await expect(page.getByRole("radio", { name: "By person", exact: true })).toHaveCount(0);
 }
 
+/** Aging WIP's chart: the team's board columns on the workflow axis, one dot per task, statuses without the team. */
+async function readAgingChart(page: Page): Promise<void> {
+  // The FLO board is mapped to this spec's team, so the x axis is that board's columns (the API says so: kind COLUMN).
+  const aging = page.waitForResponse((r) => r.url().includes("/api/v1/reports/aging-wip") && r.url().includes(`teamId=${teamId}`) && r.ok());
+  await openReport(page, "/reports/aging-wip", `&teamId=${teamId}`);
+  const report = (await (await aging).json()) as { positions: { label: string; kind: string }[]; items: { itemKind: string }[] };
+  expect(report.positions.length, "the team has work in progress").toBeGreaterThan(0);
+  expect(report.positions.every((position) => position.kind === "COLUMN")).toBe(true);
+
+  await expect(page.getByRole("heading", { level: 3, name: "Aging chart", exact: true })).toBeVisible();
+  const chart = page.getByRole("group", { name: /^Chart: age in working days of each item in progress/ });
+  await expect(chart.getByText("Workflow position", { exact: true })).toBeVisible();
+  await expect(chart.getByText("Age (working days)", { exact: true })).toBeVisible();
+  for (const position of report.positions) await expect(chart.getByText(position.label, { exact: true })).toBeVisible();
+
+  // One dot per task; the table below lists the same work (epics ride their own plot behind the Tasks | Epics switch).
+  const tasks = report.items.filter((item) => item.itemKind === "TASK").length;
+  expect(tasks).toBeGreaterThan(0);
+  await expect(chart.locator("[data-item]")).toHaveCount(tasks);
+  await expect(page.getByRole("table", { name: "Open work, oldest first" }).getByRole("row")).toHaveCount(report.items.length + 1);
+
+  // Without the team the axis is the statuses.
+  await page.goto(`/reports/aging-wip?connectionId=${dataSourceId}&${WINDOW}`);
+  await expect(chart.getByText("Workflow position", { exact: true })).toBeVisible();
+  await expect(chart.locator("[data-item]").first()).toBeVisible();
+}
+
 test.describe("reports, read by a regular user", () => {
   test.beforeAll(async () => {
     // A full stub sync (~1,200 issues) plus the derivation that follows it: the two waits below
@@ -1211,6 +1238,10 @@ test.describe("reports, read by a regular user", () => {
     await expect(page.getByText(/^\d+ of \d+ finished items? (was|were) blocked at all/)).toBeVisible();
     await expect(percentilesOrNotice(page).first()).toBeVisible();
     await expect(page.getByRole("heading", { name: "Most blocked items", exact: true })).toBeVisible();
+  });
+
+  test("the user reads the aging chart with the team's board columns on its workflow axis", async ({ page }) => {
+    await readAgingChart(page);
   });
 
   test("the user drills from a domain into the golden epic's progress", async ({ page }) => {

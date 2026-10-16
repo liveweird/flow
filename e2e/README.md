@@ -168,7 +168,8 @@ the same commit** — this list is the coverage map, the scenario file is the de
   domain-view controls, no "All teams" on the required team, a one-person pick: the URL account, the "1. <name>" histogram column — or the min-sample note when the stub sample is too small — and the one-row Totals per person) and the Estimated backlog (a team's tiles and trend, the unit's
   pace note, a domain's empty pace, a team replacing the domain). Batch 2 (M5): the
   last three sprints and the team → member drill on Commitments; WIP by stage/status (URL and table
-  follow; a required team with no "All teams" — WIP is read for one team or one domain) and one person's WIP inside the team (the URL account, a USER-level answer with a non-empty series and a one-entry `byUser`, no per-person view for one person), Aging WIP and Blocked time; Epic progress drilled unit → FLO domain → the golden epic
+  follow; a required team with no "All teams" — WIP is read for one team or one domain) and one person's WIP inside the team (the URL account, a USER-level answer with a non-empty series and a one-entry `byUser`, no per-person view for one person), Aging WIP (its thresholds and open-work table) with its aging chart (the card, the "Workflow position" and "Age (working days)" axes, the
+  seeded team's board columns on the x axis and one dot per task, statuses without a team) and Blocked time; Epic progress drilled unit → FLO domain → the golden epic
   (`golden.epic`'s budget and dates, the daily table); Data quality (tiles equal their cards, a
   regular user gets no admin config link); the Cost matrix (totals add up, drill to a team); the Home
   overview's four tiles and a tile link landing on its report with the period in the URL; and an axe
