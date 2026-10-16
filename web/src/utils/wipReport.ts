@@ -22,6 +22,7 @@ const STAGE_LABELS: Readonly<Record<string, ParseKeys>> = {
   NOT_STARTED: "reports.wip.stage.NOT_STARTED",
   IN_PROGRESS: "reports.wip.stage.IN_PROGRESS",
   WAITING: "reports.wip.stage.WAITING",
+  BLOCKED: "reports.wip.stage.BLOCKED",
   DONE: "reports.wip.stage.DONE",
   UNMAPPED: "reports.wip.stage.UNMAPPED",
 };
@@ -30,6 +31,7 @@ const STAGE_COLORS: Readonly<Record<string, string>> = {
   NOT_STARTED: CHART_COLORS.stageNotStarted,
   IN_PROGRESS: CHART_COLORS.stageInProgress,
   WAITING: CHART_COLORS.stageWaiting,
+  BLOCKED: CHART_COLORS.stageBlocked,
   DONE: CHART_COLORS.stageDone,
   UNMAPPED: CHART_COLORS.stageUnmapped,
 };
@@ -63,7 +65,7 @@ export function wipBands(by: WipReport["by"], keys: readonly WipKey[], t: TFunct
 
 /**
  * Colours the bands being drawn. A stage keeps ITS colour (the app's vocabulary: gray not started,
- * blue in progress, grape waiting, teal done, orange unmapped). Statuses and columns walk the neutral cycle by
+ * blue in progress, grape waiting, red blocked, teal done, orange unmapped). Statuses and columns walk the neutral cycle by
  * position among the bands SHOWN, so neighbouring bands never share a hue whichever are ticked.
  */
 export function paintBands(by: WipReport["by"], shown: readonly WipBand[]): PaintedWipBand[] {

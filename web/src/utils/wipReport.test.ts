@@ -12,6 +12,7 @@ import {
   wipPersonSummary,
   wipPersonTotal,
 } from "./wipReport";
+import { CHART_COLORS } from "./chartColors";
 import { WIP_COLUMN, WIP_STAGE, WIP_STATUS, WIP_USER } from "../test/reportFixtures";
 
 const t = i18n.t.bind(i18n);
@@ -23,8 +24,9 @@ describe("wipBands and paintBands", () => {
       ["b0", "Not started", "gray.6"],
       ["b1", "In progress", "flow.6"],
       ["b2", "Waiting", "grape.6"],
-      ["b3", "Done", "teal.8"],
-      ["b4", "Unmapped status", "orange.8"],
+      ["b3", "Blocked", "red.7"],
+      ["b4", "Done", "teal.8"],
+      ["b5", "Unmapped status", "orange.8"],
     ]);
   });
 
@@ -76,8 +78,14 @@ describe("wipChartRows and wipBandSummary", () => {
     expect(wipBandSummary([], "IN_PROGRESS")).toEqual({ latest: 0, average: "0", peak: 0 });
   });
 
-  test("WAITING is a visible band by default: only Not started and Done start hidden", () => {
+  test("WAITING and BLOCKED are visible bands by default: only Not started and Done start hidden", () => {
     expect(DEFAULT_HIDDEN_BANDS.STAGE).not.toContain("WAITING");
+    expect(DEFAULT_HIDDEN_BANDS.STAGE).not.toContain("BLOCKED");
+  });
+
+  test("the blocked band wears the app's blocked red, the very token the dropped scope uses (A36)", () => {
+    expect(CHART_COLORS.stageBlocked).toBe("red.7");
+    expect(CHART_COLORS.stageBlocked).toBe(CHART_COLORS.dropped);
   });
 
   test("only the stage keying starts with bands hidden", () => {
@@ -86,7 +94,7 @@ describe("wipChartRows and wipBandSummary", () => {
 });
 
 describe("the per-person view of a USER-level series", () => {
-  const WORK = ["IN_PROGRESS", "WAITING"];
+  const WORK = ["IN_PROGRESS", "WAITING", "BLOCKED"];
 
   test("the people are the first point's byUser, numbered in request order; none below USER level", () => {
     expect(wipPeople(WIP_USER.series)).toEqual([

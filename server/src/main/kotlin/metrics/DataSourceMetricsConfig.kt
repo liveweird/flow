@@ -15,9 +15,12 @@ internal const val DOMAIN_KEY_MAX_LENGTH = 50
 internal const val DOMAIN_NAME_MAX_LENGTH = 100
 internal const val WORK_CATEGORY_MAX_LENGTH = 100
 
-/** The `status_stage_map.stage` CHECK (V15, V22); `WAITING` (A30) is mapped by hand, [toDefaultStage] never yields it. */
+/**
+ * The `status_stage_map.stage` CHECK (V15, V22, V29); `WAITING` (A30, a queue) and `BLOCKED` (A36, an impediment) are mapped by
+ * hand, [toDefaultStage] never yields either.
+ */
 @Serializable
-enum class MetricsStage { NOT_STARTED, IN_PROGRESS, WAITING, DONE }
+enum class MetricsStage { NOT_STARTED, IN_PROGRESS, WAITING, BLOCKED, DONE }
 
 /** One `metrics.status_stage_map` row for the `domain_key = ''` (every-domain) mapping. */
 @Serializable
@@ -84,7 +87,6 @@ data class DataSourceMetricsConfig(
     val boards: List<MetricsBoardTeamMapping> = emptyList(),
     val activityTypes: List<MetricsActivityTypeMapping> = emptyList(),
     val workCategories: List<MetricsWorkCategoryMapping> = emptyList(),
-    val blockedStatuses: List<String> = emptyList(),
 )
 
 /** The PUT body — a full replace; `configured` is excluded (server-computed, never client-supplied). */
@@ -97,7 +99,6 @@ data class DataSourceMetricsConfigRequest(
     val boards: List<MetricsBoardTeamMapping> = emptyList(),
     val activityTypes: List<MetricsActivityTypeMapping> = emptyList(),
     val workCategories: List<MetricsWorkCategoryMapping> = emptyList(),
-    val blockedStatuses: List<String> = emptyList(),
 )
 
 /** The stored response reshaped back into request form — [MetricsConfigService]'s own no-op comparison (the features-PUT precedent). */
@@ -109,7 +110,6 @@ internal fun DataSourceMetricsConfig.asRequest(): DataSourceMetricsConfigRequest
     boards = boards,
     activityTypes = activityTypes,
     workCategories = workCategories,
-    blockedStatuses = blockedStatuses,
 )
 
 /**
@@ -126,7 +126,6 @@ internal fun DataSourceMetricsConfigRequest.canonicalized(): DataSourceMetricsCo
     boards = boards.sortedBy { it.boardId },
     activityTypes = activityTypes.sortedBy { it.issueType },
     workCategories = workCategories.sortedBy { it.valueId },
-    blockedStatuses = blockedStatuses.sorted(),
 )
 
 /**
@@ -184,7 +183,6 @@ fun validateDataSourceMetricsConfig(request: DataSourceMetricsConfigRequest, ref
     requireNoDuplicateKeys(request.boards.map { it.boardId }, "boardId in boards")
     requireNoDuplicateKeys(request.activityTypes.map { it.issueType }, "issueType in activityTypes")
     requireNoDuplicateKeys(request.workCategories.map { it.valueId }, "valueId in workCategories")
-    requireNoDuplicateKeys(request.blockedStatuses, "statusId in blockedStatuses")
 
     request.statusStages.forEach { entry ->
         if (entry.statusId !in ref.statusIds) throw BadRequestException("Unknown status id: ${entry.statusId}")
@@ -212,9 +210,6 @@ fun validateDataSourceMetricsConfig(request: DataSourceMetricsConfigRequest, ref
         if (ref.workCategoryValueIds?.let { mapping.valueId !in it } == true) {
             throw BadRequestException("Unknown work category value id: ${mapping.valueId}")
         }
-    }
-    request.blockedStatuses.forEach { statusId ->
-        if (statusId !in ref.statusIds) throw BadRequestException("Unknown status id: $statusId")
     }
 }
 

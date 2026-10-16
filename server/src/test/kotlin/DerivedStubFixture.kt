@@ -126,7 +126,6 @@ object DerivedStubFixture {
                 boards = listOf(MetricsBoardTeamMapping(FLO_BOARD_ID, teamId)),
                 activityTypes = current.activityTypes,
                 workCategories = current.workCategories,
-                blockedStatuses = current.blockedStatuses,
             ),
         )
         return teamId

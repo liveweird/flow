@@ -38,11 +38,11 @@
   },
   "wip": {
     "title": "Praca w toku",
-    "caption": "Zadania rozpoczęte i jeszcze niezakończone (w toku lub oczekujące) w tej chwili, ich wiek w dniach roboczych na tle ostatnio zakończonych zadań jednostki.",
+    "caption": "Zadania rozpoczęte i jeszcze niezakończone (w toku, oczekujące lub zablokowane) w tej chwili, ich wiek w dniach roboczych na tle ostatnio zakończonych zadań jednostki.",
     "statsLabel": "Praca w toku i jej wiek",
-    "inProgress": "W toku lub oczekujące",
+    "inProgress": "W toku, oczekujące lub zablokowane",
     "past": "Powyżej p{{percentile}}",
-    "empty": "W tej chwili nic nie jest w toku ani nie oczekuje.",
+    "empty": "W tej chwili nic nie jest w toku, nie oczekuje ani nie jest zablokowane.",
     "hidden": "Za mało zakończonych zadań na progi wieku ({{n}} z wymaganych {{min}}).",
     "truncated": "Lista zawiera 500 najstarszych pozycji, więc te liczby to minimum."
   },

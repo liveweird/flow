@@ -100,6 +100,20 @@ describe("ReportAgingWip page", () => {
     expect(within(within(table).getByText("FLO-1").closest("tr") as HTMLElement).queryByText("Waiting")).not.toBeInTheDocument();
   });
 
+  test("a BLOCKED-stage item wears the Blocked badge and is never read as waiting (A36)", async () => {
+    const held = {
+      issueKey: "FLO-5", summary: "Held by a customer", itemKind: "TASK" as const, teamId: 2, assigneeAccountId: "acc-cy", assignee: "Cy Coder",
+      startedAt: Date.UTC(2026, 8, 10), ageWorkingDays: 12, blocked: true, waiting: false, band: "P50", statusId: "s-prog", statusName: "In progress",
+      stage: "BLOCKED" as const, position: "s-prog",
+    };
+    serve(mockFetch, { ...AGING_UNIT, items: [...AGING_UNIT.items, held] });
+    renderPage();
+    const table = await screen.findByRole("table", { name: "Open work, oldest first" });
+    expect(rowsOf(table).at(-1)).toEqual(["FLO-5Held by a customer", "Task", "Beta", "Cy Coder", "2026-09-10", "12", "Blocked", "—", "Above p50"]);
+    // Still only FLO-3 waits: the header and its badge.
+    expect(within(table).getAllByText("Waiting")).toHaveLength(2);
+  });
+
   test("with nothing waiting the table keeps its familiar columns", async () => {
     serve(mockFetch, { ...AGING_UNIT, items: AGING_UNIT.items.map((item) => ({ ...item, waiting: false })) });
     renderPage();

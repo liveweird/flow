@@ -87,17 +87,14 @@ function StatusesTab({
         placeholder: t("metrics.config.statuses.stagePlaceholder"),
         onChange: (value) => onChange(row.statusId, { stage: (value as StatusRowState["stage"]) || "" }),
       },
-      {
-        type: "checkbox",
-        ariaLabel: t("metrics.config.statuses.blockedAria", { name: row.name }),
-        checked: row.blocked,
-        onChange: (checked) => onChange(row.statusId, { blocked: checked }),
-      },
     ] satisfies MappingField[],
   }));
   const showWorkflowHint = statuses.some((row) => row.inEpicWorkflow || row.inTaskWorkflow);
   return (
     <Stack gap="xs">
+      <Text size="xs" c="dimmed">
+        {t("metrics.config.statuses.stageHint")}
+      </Text>
       {showWorkflowHint && (
         <Text size="xs" c="dimmed">
           {t("metrics.config.statuses.workflow.hint")}
@@ -106,7 +103,7 @@ function StatusesTab({
       <MappingTable
         label={t("metrics.config.tab.statuses")}
         idColumnLabel={t("metrics.config.statuses.columnStatus")}
-        fieldColumnLabels={[t("metrics.config.statuses.columnStage"), t("metrics.config.statuses.columnBlocked")]}
+        fieldColumnLabels={[t("metrics.config.statuses.columnStage")]}
         rows={rows}
         emptyMessage={t("metrics.config.statuses.empty")}
       />

@@ -1184,9 +1184,9 @@ test.describe("reports, read by a regular user", () => {
     await expect(page.getByRole("heading", { level: 2, name: "WIP", exact: true })).toBeVisible();
     await expect(page.getByRole("group", { name: "Chart: items at the end of each day, stacked by band" })).toBeVisible();
 
-    // By stage (the default): the five stages (WAITING included, A30), as the chart's text alternative.
+    // By stage (the default): the six stages (WAITING and BLOCKED included, A30, A36), as the chart's text alternative.
     const bands = page.getByRole("table", { name: "Latest day, average and peak per band, as a table" });
-    for (const stage of ["Not started", "In progress", "Waiting", "Done", "Unmapped status"]) {
+    for (const stage of ["Not started", "In progress", "Waiting", "Blocked", "Done", "Unmapped status"]) {
       await expect(bands.getByRole("cell", { name: stage, exact: true })).toBeVisible();
     }
 

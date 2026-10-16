@@ -634,6 +634,8 @@ class ReportDeepDiveTest {
                     ItemStageRow(2, DD_STAGE, "10", ddNoonZ("2026-02-13"), null),
                     // T4 waited in WAITING (A30) for three days: execution is IN_PROGRESS time only, so it adds none.
                     ItemStageRow(4, "WAITING", "20", ddNoonZ("2026-02-03"), ddNoonZ("2026-02-06")),
+                    // ... and then sat in BLOCKED (A36) for three more: an impediment is not execution either.
+                    ItemStageRow(4, "BLOCKED", "21", ddNoonZ("2026-02-06"), ddNoonZ("2026-02-09")),
                 ),
             )
             store.insertFactWorklog(
@@ -732,7 +734,7 @@ class ReportDeepDiveTest {
             assertEquals(DeepDiveNoPlanReason.NO_ESTIMATE, t4.noPlanReason)
             assertNull(t4.planBasisMd)
             assertTrue(t4.pv.isEmpty())
-            assertTrue(t4.exec.isEmpty(), "a WAITING interval is not execution (A30)")
+            assertTrue(t4.exec.isEmpty(), "a WAITING (A30) or BLOCKED (A36) interval is not execution")
             assertEquals(0.0, t4.totals.execTaskDays, 1e-6)
             // T7 has no epic: the key-less row; E1 carries its CURRENT baseline (Feb 2 - Feb 13, 20.0), never the superseded one.
             assertNull(sprints.tasks.first { it.key == "DDT-7" }.epicKey)

@@ -142,10 +142,9 @@
     "statuses": {
       "columnStatus": "Status",
       "columnStage": "Etap",
-      "columnBlocked": "Zablokowany",
       "stageAria": "Etap dla {{name}}",
-      "blockedAria": "Zablokowany dla {{name}}",
       "stagePlaceholder": "Niezmapowany",
+      "stageHint": "Oczekujący to kolejka: czekanie na przegląd, test lub wdrożenie. Zablokowany to przeszkoda: zablokowane, wstrzymane, czekanie na klienta. Oba liczą się jako praca w toku, ale nigdy jako czas aktywny. Znacznik Flagged z Jiry nadal oznacza zadanie jako zablokowane, niezależnie od statusu.",
       "workflow": {
         "epic": "Epik",
         "task": "Zadanie",
@@ -157,6 +156,7 @@
         "NOT_STARTED": "Nierozpoczęty",
         "IN_PROGRESS": "W trakcie",
         "WAITING": "Oczekujący",
+        "BLOCKED": "Zablokowany",
         "DONE": "Zakończony"
       },
       "empty": "Nie widzimy jeszcze żadnych statusów — najpierw zsynchronizuj to połączenie.",

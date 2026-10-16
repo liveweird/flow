@@ -178,7 +178,7 @@ team membership landed in M2 commit 5, and the per-connection `metrics-config` p
   `RequireAdmin` group, reached from a "Metrics configuration" toolbar link on
   `DataSourceDetails.tsx` beside Profile/Inspect) edits the ONE composite
   `DataSourceMetricsConfig` resource (`.claude/docs/metrics.md` "Per-connection metrics
-  configuration") over `Tabs`: Statuses (stage `Select` — `METRICS_STAGES`: Not started, In progress, **Waiting** (A30: started, nothing actively worked on; never a category default, so choosing it is a user choice and keeps the status listed; the per-domain `DomainStageOverrides` select offers it too), Done — + a Blocked `Checkbox` per status, the
+  configuration") over `Tabs`: Statuses (stage `Select` — `METRICS_STAGES`: Not started, In progress, **Waiting** (A30: started, nothing actively worked on, a queue), **Blocked** (A36: started, held by an impediment; replaces the former Blocked `Checkbox` column, gone with `blockedStatuses`) — neither is ever a category default, so choosing it is a user choice and keeps the status listed; the per-domain `DomainStageOverrides` select offers both — Done; a one-line `metrics.config.statuses.stageHint` above the table tells a queue (review, test, deploy) from an impediment (blocked, on hold, waiting for a customer) and notes that Jira's Flagged marker still marks an item as blocked whatever its status — the
   Jira category as a `Badge`, plus a gray outline "Epic" and/or "Task" `Badge` for the workflow(s) that use it — options
   `inEpicWorkflow`/`inTaskWorkflow` (a status of both workflows shows both; none while the split is unknown, and then
   the one-line explanation above the table is hidden too); **by default only the relevant statuses are listed** — `inWorkflow || seenInHistory`
@@ -221,7 +221,7 @@ team membership landed in M2 commit 5, and the per-connection `metrics-config` p
   `400`/`409` renders the SERVER'S OWN `detail` message inline (not a fixed-vocabulary mapping —
   these messages are admin-facing by design, `.claude/docs/metrics.md`'s validation/conflict
   rules). **`components/MappingTable.tsx`** is the one generic id → editable-cell table every
-  mapping-shaped tab reuses (a `Select`/`TextInput`/`Checkbox` per field column, the row's own
+  mapping-shaped tab reuses (a `Select`/`TextInput` per field column, the row's own
   identity in a fixed left column) — callers own all state, MappingTable is a pure renderer.
   **`utils/metricsConfigForm.ts`** holds the pure state-shaping: `buildInitialState` merges the GET
   response with the options endpoint's reference lists into one row per reference item (mapped or
@@ -504,7 +504,7 @@ completed · the report's figures · the orange drift badge with the frozen figu
   option is disabled with a hint otherwise and a stray `by=COLUMN` is dropped from the URL (falls back to
   STAGE), and a `400` for a request that WAS for columns of one team is the "no board mapped" note, not a
   failure (any other 400 is the normal failure alert). The chart is a stacked `AreaChart` of end-of-day counts with band
-  toggles (`Chip.Group`, local state): stages keep their vocabulary colours (gray/blue/**grape = Waiting**, `CHART_COLORS.stageWaiting` grape.6, visible by default/teal/orange; band order Not started, In progress, Waiting, Done, Unmapped is the server's `keys`); statuses
+  toggles (`Chip.Group`, local state): stages keep their vocabulary colours (gray/blue/**grape = Waiting**, `CHART_COLORS.stageWaiting` grape.6, visible by default/**red = Blocked**, `CHART_COLORS.stageBlocked` red.7 — the very shade of `dropped`, so no new hue — also visible by default (A36: an impediment is exactly what the chart should not hide)/teal/orange; band order Not started, In progress, Waiting, Blocked, Done, Unmapped is the server's `keys`); statuses
   and columns are arbitrary names, so they never wear a semantic hue: `BAND_CYCLE` alternates blue and gray
   (flow.6, gray.6, flow.7, gray.6 — the only neutral shades that clear 3:1 on all four surfaces), assigned by
   position among the bands SHOWN (`paintBands`) so neighbours never share a hue; beyond two bands a hue/shade
@@ -533,8 +533,9 @@ completed · the report's figures · the orange drift badge with the frozen figu
   recomputed from the age; `utils/agingReport.ts`'s `bandTone` only reads its RANK among the configured
   thresholds of the item's own kind: the top threshold red ("above p95"), the next orange ("above p85"), the
   rest gray — the text always names the threshold, colour is never the only carrier. Blocked is a red outline
-  badge with the word; Waiting (`item.waiting`, A30) is a light grape badge with the word in its own "Waiting"
-  column, rendered only when some listed item waits (waiting items keep aging).
+  badge with the word (`item.blocked`: a Flagged or BLOCKED-stage item, A36); Waiting (`item.waiting`, A30) is a light grape badge with the word in its own "Waiting"
+  column, rendered only when some listed item waits (waiting items keep aging). A BLOCKED-stage item shows the Blocked badge and is never read as
+  waiting (`waiting` is false for it, the chart's hollow dot keys on `stage === "WAITING"`).
   **The aging chart** (`components/AgingChartSection.tsx` — the card body: switch, notice, legend, truncation note — over the lazy
   `AgingScatterChart.tsx`, `ScatterChart` of `@mantine/charts`; pure logic in `utils/agingChart.ts`, marks in `AgingDotMark.tsx`) is a
   `ReportChartCard` between the thresholds and the table, absent when nothing is in progress: one dot per listed item, x = where it is in the
@@ -557,8 +558,8 @@ completed · the report's figures · the orange drift badge with the frozen figu
   lets go): `AgingItemsTable` marks that row (`data-selected`, the primary tint) and scrolls it into view. The dots are a pointer affordance only;
   the keyboard and screen-reader route is the table, which is the chart's text alternative (every item, every number). A truncated list is plotted
   as listed and repeats the truncation note. The Home WIP tile's total is
-  the count of listed tasks, so it includes waiting ones with no extra code. Flow efficiency's caption on Reported time
-  says time in a waiting status counts as waiting. Issue keys are plain text (no page links to Jira). Blocked time composes
+  the count of listed tasks, so it includes waiting and blocked ones with no extra code (its label reads "In progress, waiting or blocked"). Flow efficiency's caption on Reported time
+  says time in a waiting or blocked status counts as waiting. Issue keys are plain text (no page links to Jira). Blocked time composes
   `DistributionWithAccounting` twice (blocked working days over EVERY finished item, so no exclusions and a
   "N of M were blocked at all" line; share of cycle with `neverStarted`/`zeroCycle`), the top-20 table and the
   groups table; `itemKind` (default TASK, always sent) reuses the WIP bar control, and at TEAM level with epics

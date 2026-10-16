@@ -200,21 +200,48 @@ class DeriveKernelsTest {
         assertEquals(1, result.reopenCount, "DONE -> WAITING is a reopen")
     }
 
+    @Test
+    fun `startedDoneAt starts an item at its first entry into BLOCKED and counts DONE to BLOCKED as a reopen (A36)`() {
+        val stageMap = mapOf("1" to ItemStage.NOT_STARTED, "2" to ItemStage.IN_PROGRESS, "3" to ItemStage.BLOCKED, "4" to ItemStage.DONE)
+        val first = startedDoneAt(
+            stageIntervals(
+                listOf(statusInterval("1", 0, 10, 1), statusInterval("3", 10, 20, 2), statusInterval("2", 20, null, 3)),
+                stageMap,
+            ),
+        )
+        assertEquals(10, first.startedAtMs, "BLOCKED is a started stage: its first entry wins over the later IN_PROGRESS")
+        assertNull(first.doneAtMs)
+
+        val blockedOnly = startedDoneAt(stageIntervals(listOf(statusInterval("1", 0, 10, 1), statusInterval("3", 10, null, 2)), stageMap))
+        assertEquals(10, blockedOnly.startedAtMs)
+        assertNull(blockedOnly.doneAtMs, "BLOCKED is not DONE")
+
+        val reopened = startedDoneAt(
+            stageIntervals(
+                listOf(statusInterval("2", 0, 10, 1), statusInterval("4", 10, 20, 2), statusInterval("3", 20, null, 3)),
+                stageMap,
+            ),
+        )
+        assertEquals(0, reopened.startedAtMs)
+        assertNull(reopened.doneAtMs, "a reopened item sitting in BLOCKED is not delivered")
+        assertEquals(1, reopened.reopenCount, "DONE -> BLOCKED is a reopen")
+    }
+
     // ---- blockedIntervals --------------------------------------------------------------------
 
     @Test
-    fun `blockedIntervals unions FLAGGED-true and blocked-status spans, merges overlaps, and clips to the cycle window`() {
+    fun `blockedIntervals unions FLAGGED-true and BLOCKED-stage spans, merges overlaps, and clips to the cycle window`() {
         val flagged = listOf(
             NormalizedFieldInterval(TrackedField.FLAGGED, 1, "true", null, 5, 15),
             NormalizedFieldInterval(TrackedField.FLAGGED, 2, "false", null, 15, null),
         )
-        val statusIntervals = listOf(
-            statusInterval("BLOCKED", 10, 20, 1),
-            statusInterval("OPEN", 20, null, 2),
+        val stages = listOf(
+            StageInterval(ItemStage.BLOCKED, "BLOCKED", 10, 20),
+            StageInterval(ItemStage.IN_PROGRESS, "OPEN", 20, null),
         )
-        val result = blockedIntervals(flagged, statusIntervals, setOf("BLOCKED"), windowFromMs = 0, windowToMs = 100)
+        val result = blockedIntervals(flagged, stages, windowFromMs = 0, windowToMs = 100)
 
-        // [5,15) (flagged) and [10,20) (blocked status) overlap and must merge into one [5,20) interval,
+        // [5,15) (flagged) and [10,20) (BLOCKED stage) overlap and must merge into one [5,20) interval,
         // whose reason must carry the STATUS source through the merge (review round 2b fix — it used
         // to always report "FLAGGED", silently losing the status source once the two overlapped).
         assertEquals(1, result.size)
@@ -226,31 +253,56 @@ class DeriveKernelsTest {
     @Test
     fun `blockedIntervals is empty when the item never started`() {
         val flagged = listOf(NormalizedFieldInterval(TrackedField.FLAGGED, 1, "true", null, 0, null))
-        val result = blockedIntervals(flagged, emptyList(), emptySet(), windowFromMs = null, windowToMs = 100)
+        val result = blockedIntervals(flagged, emptyList(), windowFromMs = null, windowToMs = 100)
         assertTrue(result.isEmpty())
     }
 
     @Test
     fun `blockedIntervals clips an open-ended blocked span to the window end`() {
         val flagged = listOf(NormalizedFieldInterval(TrackedField.FLAGGED, 1, "true", null, 50, null))
-        val result = blockedIntervals(flagged, emptyList(), emptySet(), windowFromMs = 0, windowToMs = 100)
+        val result = blockedIntervals(flagged, emptyList(), windowFromMs = 0, windowToMs = 100)
         assertEquals(50L to 100L, result.single().fromAtMs to result.single().toAtMs)
         assertEquals("FLAGGED", result.single().reason)
     }
 
     @Test
-    fun `blockedIntervals reports STATUS for a blocked-status-only span, never defaulting to FLAGGED`() {
-        val statusIntervals = listOf(statusInterval("BLOCKED", 10, 30, 1))
-        val result = blockedIntervals(emptyList(), statusIntervals, setOf("BLOCKED"), windowFromMs = 0, windowToMs = 100)
+    fun `blockedIntervals reports STATUS for a BLOCKED-stage-only span, never defaulting to FLAGGED`() {
+        val stages = listOf(StageInterval(ItemStage.BLOCKED, "BLOCKED", 10, 30))
+        val result = blockedIntervals(emptyList(), stages, windowFromMs = 0, windowToMs = 100)
         assertEquals(10L to 30L, result.single().fromAtMs to result.single().toAtMs)
+        assertEquals("STATUS", result.single().reason)
+    }
+
+    @Test
+    fun `blockedIntervals takes only BLOCKED stages, clipped to the window, an open one closed at its end (A36)`() {
+        val stages = listOf(
+            StageInterval(ItemStage.WAITING, "W", 0, 10),
+            StageInterval(ItemStage.IN_PROGRESS, "P", 10, 20),
+            StageInterval(ItemStage.BLOCKED, "B", 20, 40),
+            StageInterval(ItemStage.DONE, "D", 40, 50),
+            StageInterval(ItemStage.BLOCKED, "B", 50, null),
+        )
+        val result = blockedIntervals(emptyList(), stages, windowFromMs = 30, windowToMs = 70)
+        assertEquals(listOf(30L to 40L, 50L to 70L), result.map { it.fromAtMs to it.toAtMs }, "WAITING/IN_PROGRESS/DONE add nothing")
+    }
+
+    @Test
+    fun `blockedIntervals merges adjacent BLOCKED spans and a Flagged span lying inside one without double counting (A36)`() {
+        val flagged = listOf(NormalizedFieldInterval(TrackedField.FLAGGED, 1, "true", null, 12, 18))
+        val stages = listOf(
+            StageInterval(ItemStage.BLOCKED, "B1", 10, 20),
+            StageInterval(ItemStage.BLOCKED, "B2", 20, 30),
+        )
+        val result = blockedIntervals(flagged, stages, windowFromMs = 0, windowToMs = 100)
+        assertEquals(listOf(10L to 30L), result.map { it.fromAtMs to it.toAtMs }, "one merged span: 20 ms, not 28")
         assertEquals("STATUS", result.single().reason)
     }
 
     @Test
     fun `blockedIntervals reports FLAGGED for a disjoint flagged-only span (no merge, no status source)`() {
         val flagged = listOf(NormalizedFieldInterval(TrackedField.FLAGGED, 1, "true", null, 5, 15))
-        val statusIntervals = listOf(statusInterval("BLOCKED", 40, 50, 1))
-        val result = blockedIntervals(flagged, statusIntervals, setOf("BLOCKED"), windowFromMs = 0, windowToMs = 100)
+        val stages = listOf(StageInterval(ItemStage.BLOCKED, "BLOCKED", 40, 50))
+        val result = blockedIntervals(flagged, stages, windowFromMs = 0, windowToMs = 100)
         assertEquals(2, result.size, "two disjoint spans must stay separate, never merged")
         assertEquals("FLAGGED", result.first { it.fromAtMs == 5L }.reason)
         assertEquals("STATUS", result.first { it.fromAtMs == 40L }.reason)
@@ -395,6 +447,28 @@ class DeriveKernelsTest {
         val result = activeWaitMs(stages, blocked, startedAtMs = 10, doneAtMs = 80)
         assertEquals(20, result.activeMs, "IN_PROGRESS 30 minus the 10 blocked inside it; the WAITING-and-blocked span subtracts nothing")
         assertEquals(50, result.waitMs, "cycle 70 - active 20")
+    }
+
+    @Test
+    fun `activeWaitMs counts BLOCKED time as wait and subtracts only a Flagged span from IN_PROGRESS time (A36)`() {
+        // BLOCKED [10,50) -> IN_PROGRESS [50,90) -> DONE [90, null); started = 10 via BLOCKED. The BLOCKED span is in `blocked`
+        // (item_blocked) and so is a Flagged span [60,70) inside the IN_PROGRESS stretch: only the Flagged one is subtracted.
+        val stages = listOf(
+            StageInterval(ItemStage.NOT_STARTED, "1", 0, 10),
+            StageInterval(ItemStage.BLOCKED, "6", 10, 50),
+            StageInterval(ItemStage.IN_PROGRESS, "2", 50, 90),
+            StageInterval(ItemStage.DONE, "3", 90, null),
+        )
+        val blocked = listOf(BlockedInterval(10, 50, "STATUS"), BlockedInterval(60, 70, "FLAGGED"))
+        val result = activeWaitMs(stages, blocked, startedAtMs = 10, doneAtMs = 90)
+        assertEquals(30, result.activeMs, "IN_PROGRESS 40 minus the 10 Flagged ms inside it; the BLOCKED stage subtracts nothing more")
+        assertEquals(50, result.waitMs, "cycle 80 - active 30: the 40 ms of BLOCKED plus the 10 ms flagged")
+    }
+
+    @Test
+    fun `epicDriftFlags treats a BLOCKED epic as started (A36)`() {
+        val children = listOf(ch.nokillswit.metrics.ChildDeliveryStatus(startedAtMs = 100, doneAtMs = null))
+        assertTrue(epicDriftFlags(ItemStage.BLOCKED, children, epicDriftDays = 14, nowMs = 1_000_000).isEmpty())
     }
 
     @Test

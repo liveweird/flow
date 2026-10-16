@@ -380,7 +380,6 @@ class MetricsDeriver(
             domainByProject = config.domains.associate { it.projectKey to it.domainKey },
             activityTypeByIssueType = config.activityTypes.associate { it.issueType to it.activityType },
             workCategoryMap = config.workCategories.associate { it.valueId to it.category },
-            blockedStatusIds = config.blockedStatuses.toSet(),
             boardTeamByBoardId = config.boards.associate { it.boardId to it.teamId },
             workCategoryFieldId = config.fields.workCategory,
             epicDriftDays = epicDriftDays,

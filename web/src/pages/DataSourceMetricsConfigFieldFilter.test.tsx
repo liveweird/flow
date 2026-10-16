@@ -38,7 +38,6 @@ function baseConfig(fields: Record<string, string | null> = {}) {
     boards: [],
     activityTypes: [{ issueType: "Story", activityType: "Story" }],
     workCategories: [],
-    blockedStatuses: [] as string[],
   };
 }
 

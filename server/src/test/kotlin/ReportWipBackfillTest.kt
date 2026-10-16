@@ -66,7 +66,7 @@ class ReportWipBackfillTest {
             val before = client.wip("$base&from=2026-01-05&to=2026-01-06")
             assertTrue(before.series.isEmpty())
             assertEquals(early.note, before.note)
-            assertEquals(5, before.keys.size, "the legend is still the five stages")
+            assertEquals(6, before.keys.size, "the legend is still the six stages")
         } finally {
             deleteWipRows(connId)
             deleteDeriveRuns(connId)

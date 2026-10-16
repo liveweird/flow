@@ -447,7 +447,7 @@
     "noTeams": "Zalogowany czas liczymy dla zespołu, a nie ma jeszcze żadnego zespołu. Administrator/ka dodaje zespoły na stronie Zespoły.",
     "outlierNote": "Bardzo krótkie cykle dają bardzo duże stosunki. Są prawdziwe i nigdy ich nie pomijamy, więc zacznij od mediany (p50) — średnia, p95 i prawy koniec histogramu mogą być przez nie zdominowane.",
     "flowTitle": "Efektywność przepływu",
-    "flowCaption": "Czas aktywny ÷ czas cyklu: czas w toku i niezablokowany jako udział całego cyklu. Czas w statusie oczekującym liczy się jako czekanie, nie jako czas aktywny. Zalogowany czas nie ma znaczenia.",
+    "flowCaption": "Czas aktywny ÷ czas cyklu: czas w toku i niezablokowany jako udział całego cyklu. Czas w statusie oczekującym lub zablokowanym liczy się jako czekanie, nie jako czas aktywny. Zalogowany czas nie ma znaczenia.",
     "flowAxis": "czas aktywny ÷ czas cyklu",
     "excluded": {
       "noWorklogs": "Nie zalogowano czasu",
@@ -476,7 +476,7 @@
     "description": "Ile pozycji znajduje się w każdym etapie, statusie lub kolumnie tablicy na koniec każdego dnia. Pasma są ułożone jedno na drugim, więc górna krawędź to ich suma. Liczone dla jednego zespołu lub jednej domeny; w zespole można wskazać do ośmiu osób, aby policzyć tylko zadania, które mają.",
     "chartTitle": "Pozycje na koniec każdego dnia",
     "caption": {
-      "STAGE": "Według etapu. „Nierozpoczęte” i „Zakończone” są na początku ukryte: „Nierozpoczęte” to cały backlog, a „Zakończone” tylko rośnie. Zaznacz je, aby zobaczyć całą pracę. „Oczekujące” to praca rozpoczęta, przy której nic się teraz aktywnie nie dzieje.",
+      "STAGE": "Według etapu. „Nierozpoczęte” i „Zakończone” są na początku ukryte: „Nierozpoczęte” to cały backlog, a „Zakończone” tylko rośnie. Zaznacz je, aby zobaczyć całą pracę. „Oczekujące” to praca rozpoczęta, przy której nic się teraz aktywnie nie dzieje (kolejka). „Zablokowane” to praca wstrzymana przez przeszkodę.",
       "STATUS": "Według statusu, w kolejności etapów, a potem nazw.",
       "COLUMN": "Według kolumn tablicy zespołu, w kolejności z tablicy."
     },
@@ -500,6 +500,7 @@
       "NOT_STARTED": "Nierozpoczęte",
       "IN_PROGRESS": "W toku",
       "WAITING": "Oczekujące",
+      "BLOCKED": "Zablokowane",
       "DONE": "Zakończone",
       "UNMAPPED": "Status bez przypisanego etapu"
     },
@@ -565,7 +566,7 @@
     "title": "Wiek WIP",
     "description": "Praca w toku w tej chwili i jak długo trwa każda pozycja: dni robocze od pierwszego rozpoczęcia do teraz. Wiek liczymy na teraz, więc okres nie ma tu zastosowania; pasma porównują każdy wiek z ostatnio zakończonymi pozycjami zespołu.",
     "openTitle": "Otwarta praca, od najstarszej",
-    "caption": "Wiek liczymy według skonfigurowanego kalendarza roboczego. Stan blokady bierzemy z ostatniego wyliczenia. Pozycje oczekujące są już rozpoczęte, ale nic się przy nich aktywnie nie dzieje; nadal się starzeją.",
+    "caption": "Wiek liczymy według skonfigurowanego kalendarza roboczego. Stan blokady bierzemy z ostatniego wyliczenia: pozycja w etapie „Zablokowany” albo oflagowana w Jirze. Pozycje oczekujące są już rozpoczęte, ale nic się przy nich aktywnie nie dzieje; nadal się starzeją, tak samo jak zablokowane.",
     "thresholdsTitle": "Progi",
     "thresholdsCaption": "Czas cyklu w dniach roboczych ostatnio zakończonych pozycji zespołu. Pozycję przypisujemy do pasma według najwyższego progu, który jej wiek przekracza.",
     "tasksTitle": "Zadania",
@@ -624,7 +625,7 @@
   },
   "blockedTime": {
     "title": "Czas zablokowania",
-    "description": "Jak długo zakończone pozycje były zablokowane — oflagowane lub w statusie blokady — w dniach roboczych i jako udział ich cyklu. Pozycja, która nigdy nie była zablokowana, to prawdziwe zero i zostaje w pierwszym rozkładzie.",
+    "description": "Jak długo zakończone pozycje były zablokowane — oflagowane lub w etapie „Zablokowany” — w dniach roboczych i jako udział ich cyklu. Pozycja, która nigdy nie była zablokowana, to prawdziwe zero i zostaje w pierwszym rozkładzie.",
     "daysTitle": "Zablokowane dni robocze",
     "daysCaption": "Każda zakończona pozycja w okresie; pozycja nigdy niezablokowana liczy się jako zero.",
     "daysAxis": "zablokowane dni robocze",

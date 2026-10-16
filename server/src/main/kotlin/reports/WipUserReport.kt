@@ -40,7 +40,7 @@ internal data class WipUserRequest(
 )
 
 /**
- * The four open bands (`NOT_STARTED`, `IN_PROGRESS`, `WAITING`, `UNMAPPED`) as one statement: rows are
+ * The five open bands (`NOT_STARTED`, `IN_PROGRESS`, `WAITING`, `BLOCKED`, `UNMAPPED`) as one statement: rows are
  * `(day, status_id, stage, account_id, count)`. Set-based like the DERIVE step — the sprint and the assignee's team are LEFT JOINs
  * onto the (day, task) rows, never a correlated sub-select (`build-times.md` WHY 16; `WipPlanShapeTest` pins the plan). The two
  * `MATERIALIZED` CTEs fix the join ORDER on purpose: pair the picks' assignee intervals with their tasks' stage intervals first (a few
@@ -88,7 +88,7 @@ internal fun wipUserOpenBandSql(request: WipUserRequest): WipUserSql {
 internal class WipUserSql(val sql: String, val arguments: List<String>)
 
 /**
- * The picked people's WIP cells for the period, inside the caller's report transaction: the four open bands ([wipUserOpenBandSql],
+ * The picked people's WIP cells for the period, inside the caller's report transaction: the five open bands ([wipUserOpenBandSql],
  * ONE statement for all picks) plus the DONE band, which is the shared query-time read ([readWipDoneBand]) run once per pick with
  * its account filter (at most eight small statements; the helper's cells carry no account, so the pick is the loop variable).
  * No zero cells; the report zero-fills.

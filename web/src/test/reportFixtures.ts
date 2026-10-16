@@ -1148,7 +1148,7 @@ export const REPORTED_TIME_EMPTY: ReportedTimeRatioReport = {
 
 const NOT_DERIVED = "Not derived yet: no connection in scope has a successful DERIVE run.";
 
-const STAGE_KEYS = ["NOT_STARTED", "IN_PROGRESS", "WAITING", "DONE", "UNMAPPED"].map((key) => ({ key, label: key }));
+const STAGE_KEYS = ["NOT_STARTED", "IN_PROGRESS", "WAITING", "BLOCKED", "DONE", "UNMAPPED"].map((key) => ({ key, label: key }));
 
 /** Fri–Tue: the weekend days are not working days; every point carries every key, zero-filled. */
 export const WIP_STAGE: WipReport = {
@@ -1157,11 +1157,11 @@ export const WIP_STAGE: WipReport = {
   itemKind: "TASK",
   keys: STAGE_KEYS,
   series: [
-    { day: "2026-09-25", isWorkingDay: true, counts: { NOT_STARTED: 40, IN_PROGRESS: 6, WAITING: 2, DONE: 100, UNMAPPED: 1 } },
-    { day: "2026-09-26", isWorkingDay: false, counts: { NOT_STARTED: 40, IN_PROGRESS: 6, WAITING: 2, DONE: 100, UNMAPPED: 1 } },
-    { day: "2026-09-27", isWorkingDay: false, counts: { NOT_STARTED: 40, IN_PROGRESS: 6, WAITING: 2, DONE: 100, UNMAPPED: 1 } },
-    { day: "2026-09-28", isWorkingDay: true, counts: { NOT_STARTED: 39, IN_PROGRESS: 8, WAITING: 3, DONE: 101, UNMAPPED: 1 } },
-    { day: "2026-09-29", isWorkingDay: true, counts: { NOT_STARTED: 38, IN_PROGRESS: 9, WAITING: 4, DONE: 102, UNMAPPED: 1 } },
+    { day: "2026-09-25", isWorkingDay: true, counts: { NOT_STARTED: 40, IN_PROGRESS: 6, WAITING: 2, BLOCKED: 1, DONE: 100, UNMAPPED: 1 } },
+    { day: "2026-09-26", isWorkingDay: false, counts: { NOT_STARTED: 40, IN_PROGRESS: 6, WAITING: 2, BLOCKED: 1, DONE: 100, UNMAPPED: 1 } },
+    { day: "2026-09-27", isWorkingDay: false, counts: { NOT_STARTED: 40, IN_PROGRESS: 6, WAITING: 2, BLOCKED: 1, DONE: 100, UNMAPPED: 1 } },
+    { day: "2026-09-28", isWorkingDay: true, counts: { NOT_STARTED: 39, IN_PROGRESS: 8, WAITING: 3, BLOCKED: 2, DONE: 101, UNMAPPED: 1 } },
+    { day: "2026-09-29", isWorkingDay: true, counts: { NOT_STARTED: 38, IN_PROGRESS: 9, WAITING: 4, BLOCKED: 3, DONE: 102, UNMAPPED: 1 } },
   ],
   note: null,
 };
@@ -1176,19 +1176,19 @@ export const WIP_USER: WipReport = {
     {
       day: "2026-09-28",
       isWorkingDay: true,
-      counts: { NOT_STARTED: 3, IN_PROGRESS: 3, WAITING: 1, DONE: 5, UNMAPPED: 0 },
+      counts: { NOT_STARTED: 3, IN_PROGRESS: 3, WAITING: 1, BLOCKED: 0, DONE: 5, UNMAPPED: 0 },
       byUser: [
-        { accountId: "acc-ann", label: "Ann Author", counts: { NOT_STARTED: 1, IN_PROGRESS: 2, WAITING: 0, DONE: 3, UNMAPPED: 0 } },
-        { accountId: "acc-bob", label: "Bob Builder", counts: { NOT_STARTED: 2, IN_PROGRESS: 1, WAITING: 1, DONE: 2, UNMAPPED: 0 } },
+        { accountId: "acc-ann", label: "Ann Author", counts: { NOT_STARTED: 1, IN_PROGRESS: 2, WAITING: 0, BLOCKED: 0, DONE: 3, UNMAPPED: 0 } },
+        { accountId: "acc-bob", label: "Bob Builder", counts: { NOT_STARTED: 2, IN_PROGRESS: 1, WAITING: 1, BLOCKED: 0, DONE: 2, UNMAPPED: 0 } },
       ],
     },
     {
       day: "2026-09-29",
       isWorkingDay: true,
-      counts: { NOT_STARTED: 2, IN_PROGRESS: 4, WAITING: 2, DONE: 6, UNMAPPED: 0 },
+      counts: { NOT_STARTED: 2, IN_PROGRESS: 4, WAITING: 2, BLOCKED: 0, DONE: 6, UNMAPPED: 0 },
       byUser: [
-        { accountId: "acc-ann", label: "Ann Author", counts: { NOT_STARTED: 0, IN_PROGRESS: 3, WAITING: 1, DONE: 3, UNMAPPED: 0 } },
-        { accountId: "acc-bob", label: "Bob Builder", counts: { NOT_STARTED: 2, IN_PROGRESS: 1, WAITING: 1, DONE: 3, UNMAPPED: 0 } },
+        { accountId: "acc-ann", label: "Ann Author", counts: { NOT_STARTED: 0, IN_PROGRESS: 3, WAITING: 1, BLOCKED: 0, DONE: 3, UNMAPPED: 0 } },
+        { accountId: "acc-bob", label: "Bob Builder", counts: { NOT_STARTED: 2, IN_PROGRESS: 1, WAITING: 1, BLOCKED: 0, DONE: 3, UNMAPPED: 0 } },
       ],
     },
   ],

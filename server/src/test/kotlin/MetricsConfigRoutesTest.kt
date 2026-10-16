@@ -210,7 +210,6 @@ class MetricsConfigRoutesTest {
             assertEquals(expectedStages, config.statusStages.associate { it.statusId to it.stage })
             assertEquals(emptyList(), config.boards)
             assertEquals(emptyList(), config.workCategories)
-            assertEquals(emptyList(), config.blockedStatuses)
             assertEquals(null, config.fields.workCategory)
         }
     }
@@ -344,14 +343,12 @@ class MetricsConfigRoutesTest {
                 MetricsDomainMapping(seeded.projectKey, "domain-a", "Domain A"),
                 MetricsDomainMapping(secondProjectKey, "domain-b", "Domain B"),
             ),
-            blockedStatuses = listOf("10001", "10002"),
         )
         assertEquals(HttpStatusCode.NoContent, admin.putJson("/api/v1/data-sources/$connId/metrics-config", forward).status)
 
         val reversed = forward.copy(
             statusStages = forward.statusStages.reversed(),
             domains = forward.domains.reversed(),
-            blockedStatuses = forward.blockedStatuses.reversed(),
         )
 
         withAuditCapture { capture ->
@@ -379,7 +376,7 @@ class MetricsConfigRoutesTest {
                 HttpStatusCode.NoContent,
                 admin.putJson(
                     "/api/v1/data-sources/$connId/metrics-config",
-                    DataSourceMetricsConfigRequest(blockedStatuses = listOf("10001")),
+                    DataSourceMetricsConfigRequest(statusStages = listOf(MetricsStatusStage("10001", MetricsStage.BLOCKED))),
                 ).status,
             )
             val event = capture.awaitEvent { it.message == "metrics_config.updated" && it.hasKeyValue("dataSourceId", connId.toLong()) }
@@ -405,6 +402,22 @@ class MetricsConfigRoutesTest {
     }
 
     @Test
+    fun `a PUT still carrying the dropped blockedStatuses is 400 - the V29 breaking change`() = testApplication {
+        usePostgresTestcontainer()
+        val admin = seededClient("metricsblockedgone", UserRole.ADMIN)
+        val connId = runBlocking {
+            val id = createConnection(dataSources())
+            seedNormFixture(id)
+            id
+        }
+        val response = admin.put("/api/v1/data-sources/$connId/metrics-config") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"blockedStatuses":["10001"]}""")
+        }
+        assertEquals(HttpStatusCode.BadRequest, response.status)
+    }
+
+    @Test
     fun `an unknown status, board, project or sprint id is 400`() = testApplication {
         usePostgresTestcontainer()
         val admin = seededClient("metricsunknown", UserRole.ADMIN)
@@ -420,13 +433,6 @@ class MetricsConfigRoutesTest {
             admin.putJson(
                 "/api/v1/data-sources/$connId/metrics-config",
                 DataSourceMetricsConfigRequest(statusStages = listOf(MetricsStatusStage("nonexistent-status", MetricsStage.DONE))),
-            ).status,
-        )
-        assertEquals(
-            HttpStatusCode.BadRequest,
-            admin.putJson(
-                "/api/v1/data-sources/$connId/metrics-config",
-                DataSourceMetricsConfigRequest(blockedStatuses = listOf("nonexistent-status")),
             ).status,
         )
         assertEquals(
@@ -553,6 +559,27 @@ class MetricsConfigRoutesTest {
         val changed = request.copy(statusStages = listOf(MetricsStatusStage("10001", MetricsStage.IN_PROGRESS), request.statusStages[1]))
         assertEquals(HttpStatusCode.NoContent, admin.putJson(url, changed).status)
         assertEquals(before + 1, admin.configRevision(), "moving a status out of WAITING is a real change")
+    }
+
+    @Test
+    fun `BLOCKED is a mappable stage - every-domain and per-domain - and defaults never produce it (A36)`() = testApplication {
+        usePostgresTestcontainer()
+        val admin = seededClient("metricsblocked", UserRole.ADMIN)
+        val connId = runBlocking { createConnection(dataSources()) }
+        val seeded = runBlocking { seedNormFixture(connId, "PLT", "Task") }
+        val url = "/api/v1/data-sources/$connId/metrics-config"
+
+        assertTrue(admin.getConfig(connId).statusStages.none { it.stage == MetricsStage.BLOCKED }, "no Jira category defaults to BLOCKED")
+
+        val request = DataSourceMetricsConfigRequest(
+            statusStages = listOf(MetricsStatusStage("10001", MetricsStage.BLOCKED), MetricsStatusStage("10003", MetricsStage.DONE)),
+            domains = listOf(MetricsDomainMapping(seeded.projectKey, "platform", "Platform")),
+            domainStatusStages = listOf(MetricsDomainStatusStage("platform", "10003", MetricsStage.BLOCKED)),
+        )
+        assertEquals(HttpStatusCode.NoContent, admin.putJson(url, request).status)
+        val fetched = admin.getConfig(connId)
+        assertEquals(request.statusStages.toSet(), fetched.statusStages.toSet(), "the every-domain BLOCKED row round-trips")
+        assertEquals(request.domainStatusStages, fetched.domainStatusStages, "the per-domain BLOCKED override round-trips")
     }
 
     @Test

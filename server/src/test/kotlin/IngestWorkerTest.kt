@@ -168,7 +168,7 @@ class IngestWorkerTest {
     )
 
     /**
-     * One row in EACH of the eight per-connection `metrics.*` config tables (v0.3.0 M1 commit 4
+     * One row in EACH of the seven per-connection `metrics.*` config tables (v0.3.0 M1 commit 4
      * review fix) — a direct Exposed insert against `MetricsConfigService`'s own nested table
      * objects (the `TeamService.Teams`/`DataSourceService.Connections` precedent: accessed via the
      * class name, no instance needed), bypassing `replaceConfig`'s reference-data validation
@@ -214,14 +214,10 @@ class IngestWorkerTest {
                 it[valueName] = "Product"
                 it[category] = "Product Development"
             }
-            MetricsConfigService.BlockedStatuses.insert {
-                it[connectionId] = connId
-                it[statusId] = "10002"
-            }
         }
     }
 
-    /** The total row count across all eight per-connection `metrics.*` config tables for [connId]. */
+    /** The total row count across all seven per-connection `metrics.*` config tables for [connId]. */
     private suspend fun countAllMetricsConfigRows(connId: UInt): Long = suspendTransaction(sharedDatabaseForTests()) {
         MetricsConfigService.StatusStageMap.selectAll().where { MetricsConfigService.StatusStageMap.connectionId eq connId }.count() +
             MetricsConfigService.FieldConfig.selectAll().where { MetricsConfigService.FieldConfig.connectionId eq connId }.count() +
@@ -230,8 +226,7 @@ class IngestWorkerTest {
             MetricsConfigService.TeamSprintCapacity.selectAll()
                 .where { MetricsConfigService.TeamSprintCapacity.connectionId eq connId }.count() +
             MetricsConfigService.ActivityTypeMap.selectAll().where { MetricsConfigService.ActivityTypeMap.connectionId eq connId }.count() +
-            MetricsConfigService.WorkCategoryMap.selectAll().where { MetricsConfigService.WorkCategoryMap.connectionId eq connId }.count() +
-            MetricsConfigService.BlockedStatuses.selectAll().where { MetricsConfigService.BlockedStatuses.connectionId eq connId }.count()
+            MetricsConfigService.WorkCategoryMap.selectAll().where { MetricsConfigService.WorkCategoryMap.connectionId eq connId }.count()
     }
 
     private fun syncJobs(maxAttempts: Int = SYNC_JOB_MAX_ATTEMPTS, clock: () -> Long = System::currentTimeMillis) =
@@ -500,14 +495,14 @@ class IngestWorkerTest {
     }
 
     @Test
-    fun `a PURGE job drains all eight metrics config tables, and a second PURGE is a no-op`() = runBlocking {
+    fun `a PURGE job drains all seven metrics config tables, and a second PURGE is a no-op`() = runBlocking {
         val ds = dataSources()
         val jobs = syncJobs()
         val metrics = metricsConfig(ds)
         val connId = createConnection(ds)
         val teamId = TestTeams.seed(unique("purge-team"))
         seedAllMetricsConfigTables(connId, teamId)
-        assertEquals(8L, countAllMetricsConfigRows(connId), "fixture must seed exactly one row per table")
+        assertEquals(7L, countAllMetricsConfigRows(connId), "fixture must seed exactly one row per table")
         seedSprintCalendar(connId, teamId)
         assertEquals(1L, countSprintCalendars(connId))
 
@@ -781,7 +776,7 @@ class IngestWorkerTest {
 
         assertEquals(SyncJobStatus.FAILED, jobs.read(connId, jobId)?.status, "retry-safe: the job must be retryable, not silently lost")
         assertEquals(
-            8L,
+            7L,
             countAllMetricsConfigRows(connId),
             "the generic drain must never run when the connector's OWN purge step throws first",
         )

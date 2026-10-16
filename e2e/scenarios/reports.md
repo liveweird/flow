@@ -203,7 +203,7 @@ unfolds it first (`openFilters`, which leaves an already unfolded bar alone).
 
 1. The user opens the **WIP** report for the seeded team (deep link, fixed window).
    - *Expected*: the stacked-bands chart is shown, and its text alternative — the per-band table —
-     lists the five stages (Not started, In progress, Waiting, Done, Unmapped status).
+     lists the six stages (Not started, In progress, Waiting, Blocked, Done, Unmapped status).
 2. They change **Count by** to **Status**.
    - *Expected*: the URL gains `by=STATUS`; the caption says the bands are by status; the table now
      lists the workflow's own statuses (To Do, In Progress, Done) and no longer the "Not started"

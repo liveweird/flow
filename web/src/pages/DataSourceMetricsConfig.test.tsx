@@ -48,7 +48,6 @@ function baseConfig(configured: boolean) {
     boards: [],
     activityTypes: [{ issueType: "Story", activityType: "Story" }],
     workCategories: [],
-    blockedStatuses: [],
   };
 }
 
@@ -162,7 +161,6 @@ describe("DataSourceMetricsConfig page", () => {
       boards: [],
       activityTypes: [{ issueType: "Story", activityType: "Story" }],
       workCategories: [],
-      blockedStatuses: [],
       });
   });
 
@@ -241,7 +239,7 @@ describe("DataSourceMetricsConfig page", () => {
     await waitFor(() => expect(screen.queryByText("Showing computed defaults — save to confirm them")).not.toBeInTheDocument());
   });
 
-  test("picking a stage and toggling blocked updates the PUT body", async () => {
+  test("picking a stage, Blocked included, updates the PUT body and there is no Blocked checkbox", async () => {
     serve(mockFetch);
     const user = userEvent.setup();
     renderPage();
@@ -249,7 +247,9 @@ describe("DataSourceMetricsConfig page", () => {
     await screen.findByText("Showing computed defaults — save to confirm them");
     await user.click(await screen.findByRole("combobox", { name: "Stage for Done" }));
     await user.click(await screen.findByRole("option", { name: "Done" }));
-    await user.click(screen.getByLabelText("Blocked for In Progress"));
+    expect(screen.queryByRole("checkbox", { name: /^Blocked for / })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("combobox", { name: "Stage for In Progress" }));
+    await user.click(await screen.findByRole("option", { name: "Blocked" }));
 
     await user.click(screen.getByRole("button", { name: /^save$/i }));
 
@@ -261,11 +261,20 @@ describe("DataSourceMetricsConfig page", () => {
     const body = JSON.parse((putCall[1] as RequestInit).body as string);
     expect(body.statusStages).toEqual(
       expect.arrayContaining([
-        { statusId: "3", stage: "IN_PROGRESS" },
+        { statusId: "3", stage: "BLOCKED" },
         { statusId: "10", stage: "DONE" },
       ]),
     );
-    expect(body.blockedStatuses).toEqual(["3"]);
+    expect(body).not.toHaveProperty("blockedStatuses");
+  });
+
+  test("the Statuses tab tells a queue (Waiting) from an impediment (Blocked) and notes that Jira's Flagged marker still blocks", async () => {
+    serve(mockFetch);
+    renderPage();
+
+    const hint = await screen.findByText(/Waiting is a queue: waiting for review, test or deploy\. Blocked is an impediment/);
+    expect(hint).toHaveTextContent("Jira's Flagged marker still marks an item as blocked whatever its status.");
+    expect(screen.queryByRole("columnheader", { name: "Blocked" })).not.toBeInTheDocument();
   });
 
   test("shows the stored owner team for a domain", async () => {

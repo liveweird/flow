@@ -83,7 +83,7 @@ describe("ReportWip page", () => {
     localStorage.clear();
   });
 
-  test("asks for tasks by stage explicitly and stacks the in-progress and waiting work, hiding Done and Not started at first", async () => {
+  test("asks for tasks by stage explicitly and stacks the in-progress, waiting and blocked work, hiding Done and Not started at first", async () => {
     serve(mockFetch);
     renderPage();
     expect(await screen.findByRole("heading", { level: 2, name: "WIP" })).toBeInTheDocument();
@@ -92,17 +92,19 @@ describe("ReportWip page", () => {
     expect(calls(mockFetch)).toEqual([`${URL_PREFIX}teamId=1&by=STAGE&itemKind=TASK`]);
 
     expect(chart.getAttribute("data-type")).toBe("stacked");
-    // Stage colours are the app's vocabulary: blue in progress, grape waiting (shown by default), orange unmapped.
+    // Stage colours are the app's vocabulary: blue in progress, grape waiting and red blocked (both shown by default), orange unmapped.
     expect(chartSeries()).toEqual([
       { name: "b1", label: "In progress", color: "flow.6" },
       { name: "b2", label: "Waiting", color: "grape.6" },
-      { name: "b4", label: "Unmapped status", color: "orange.8" },
+      { name: "b3", label: "Blocked", color: "red.7" },
+      { name: "b5", label: "Unmapped status", color: "orange.8" },
     ]);
     expect(chart.getAttribute("data-legend")).toBe("true");
-    expect(JSON.parse(chart.getAttribute("data-rows")!)[4]).toEqual({ day: "2026-09-29", b1: 9, b2: 4, b4: 1 });
+    expect(JSON.parse(chart.getAttribute("data-rows")!)[4]).toEqual({ day: "2026-09-29", b1: 9, b2: 4, b3: 3, b5: 1 });
     expect(screen.getByRole("group", { name: "Show in chart" })).toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: "In progress" })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: "Waiting" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Blocked" })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: "Done" })).not.toBeChecked();
     expect(screen.getByRole("checkbox", { name: "Not started" })).not.toBeChecked();
     expect(screen.getByText(/Not started and Done are hidden at first/)).toBeInTheDocument();
@@ -114,11 +116,12 @@ describe("ReportWip page", () => {
     renderPage();
     await screen.findByTestId("area-chart");
     await user.click(screen.getByRole("checkbox", { name: "Done" }));
-    await waitFor(() => expect(chartSeries().map((s) => s.label)).toEqual(["In progress", "Waiting", "Done", "Unmapped status"]));
-    expect(chartSeries()[2].color).toBe("teal.8");
+    await waitFor(() => expect(chartSeries().map((s) => s.label)).toEqual(["In progress", "Waiting", "Blocked", "Done", "Unmapped status"]));
+    expect(chartSeries()[3].color).toBe("teal.8");
 
     await user.click(screen.getByRole("checkbox", { name: "In progress" }));
     await user.click(screen.getByRole("checkbox", { name: "Waiting" }));
+    await user.click(screen.getByRole("checkbox", { name: "Blocked" }));
     await user.click(screen.getByRole("checkbox", { name: "Done" }));
     await user.click(screen.getByRole("checkbox", { name: "Unmapped status" }));
     expect(await screen.findByText("Tick at least one band to draw the chart.")).toBeInTheDocument();
@@ -133,6 +136,7 @@ describe("ReportWip page", () => {
     renderPage();
     await screen.findByTestId("area-chart");
     await user.click(screen.getByRole("checkbox", { name: "Waiting" }));
+    await user.click(screen.getByRole("checkbox", { name: "Blocked" }));
     await user.click(screen.getByRole("checkbox", { name: "Unmapped status" }));
     await waitFor(() => expect(screen.getByTestId("area-chart").getAttribute("data-legend")).toBe("false"));
   });
@@ -162,6 +166,7 @@ describe("ReportWip page", () => {
       ["Not started", "38", "39.4", "40"],
       ["In progress", "9", "7", "9"],
       ["Waiting", "4", "2.6", "4"],
+      ["Blocked", "3", "1.6", "3"],
       ["Done", "102", "100.6", "102"],
       ["Unmapped status", "1", "1", "1"],
     ]);
@@ -181,7 +186,7 @@ describe("ReportWip page", () => {
     // A table that can outgrow its box scrolls in a focusable, labelled region (axe: scrollable-region-focusable).
     expect(table.closest('[role="region"]')).toHaveAttribute("tabindex", "0");
     const rows = within(table).getAllByRole("row").slice(1).map((r) => within(r).getAllByRole("cell").map((c) => c.textContent));
-    expect(rows[0]).toEqual(["2026-09-29", "38", "9", "4", "102", "1"]);
+    expect(rows[0]).toEqual(["2026-09-29", "38", "9", "4", "3", "102", "1"]);
     expect(rows).toHaveLength(5);
   });
 
@@ -569,9 +574,9 @@ describe("ReportWip page — several people", () => {
     renderPage("/reports/wip?teamId=1&accountId=acc-ann&accountId=acc-bob");
     await screen.findByTestId("area-chart");
     expect(calls(mockFetch)).toEqual([`${URL_PREFIX}teamId=1&accountId=acc-ann&accountId=acc-bob&by=STAGE&itemKind=TASK`]);
-    // By band (the default): the union, exactly as at the other levels (In progress + Waiting + Unmapped ticked).
-    expect(chartSeries().map((s) => s.label)).toEqual(["In progress", "Waiting", "Unmapped status"]);
-    expect(chartRows()[1]).toEqual({ day: "2026-09-29", b1: 4, b2: 2, b4: 0 });
+    // By band (the default): the union, exactly as at the other levels (In progress + Waiting + Blocked + Unmapped ticked).
+    expect(chartSeries().map((s) => s.label)).toEqual(["In progress", "Waiting", "Blocked", "Unmapped status"]);
+    expect(chartRows()[1]).toEqual({ day: "2026-09-29", b1: 4, b2: 2, b3: 0, b5: 0 });
     expect(screen.getByText(/Counts the tasks the picked people hold at the end of each day/)).toBeInTheDocument();
 
     await user.click(screen.getByRole("radio", { name: "By person" }));
@@ -602,7 +607,7 @@ describe("ReportWip page — several people", () => {
     await waitFor(() => expect(chartRows()[1]).toEqual({ day: "2026-09-29", p0: 7, p1: 5 }));
     // Back to the bands.
     await user.click(screen.getByRole("radio", { name: "By band" }));
-    await waitFor(() => expect(chartSeries().map((s) => s.label)).toEqual(["In progress", "Waiting", "Done", "Unmapped status"]));
+    await waitFor(() => expect(chartSeries().map((s) => s.label)).toEqual(["In progress", "Waiting", "Blocked", "Done", "Unmapped status"]));
   });
 
   test("one person is the union itself: no view switch, the page reads as at TEAM level", async () => {

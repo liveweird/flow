@@ -254,7 +254,7 @@ place:
   `norm/WorkItemStore.Statuses`/`Boards`/`Sprints` (the mapping-gap findings) and `WorkItems` (`DataQualityHierarchy.kt`: the live
   `hierarchy_level >= 2` rows of the items-above-the-epic finding, A31, read with their key and summary directly), the per-connection config tables
   `metrics/MetricsConfigService.StatusStageMap`/`BoardTeamMap`/`FieldConfig` (plus a distinct-connection existence probe of
-  `DomainMap`/`ActivityTypeMap`/`WorkCategoryMap`/`BlockedStatuses`, `readConnectionMappings` -- the light
+  `DomainMap`/`ActivityTypeMap`/`WorkCategoryMap`, `readConnectionMappings` -- the light
   counterpart of `effectiveConfig`'s stored-else-defaults rule) and the `metrics` tables `FactTaskDelivery`, `FactEpicDelivery`, `FactWorklog`,
   `FactSprint`, `FactSprintSnapshot`, `DimEpic`, `DimDomain`, `ItemStage` and `DeriveRuns` (incl. its `row_counts` JSON).
 List each new cross-feature read/write here as it lands — the list IS the permission.
@@ -581,7 +581,7 @@ ONE GiST index — `btree_gist` is what makes `=` available inside a GiST index 
   API dropped `sprintCapacities`, DERIVE resolves capacity from V24's tables); PURGE still drains it and `IngestWorkerTest` keeps proving
   that, until a cleanup migration drops it. Its `MetricsConfigService.TeamSprintCapacity` table object stays for that drain only.
 - **`metrics.status_stage_map`/`field_config`/`domain_map`/`board_team_map`/
-  `activity_type_map`/`work_category_map`/`blocked_statuses`** — the per-connection configuration
+  `activity_type_map`/`work_category_map`** (and `blocked_statuses` until V29 dropped it, A36) — the per-connection configuration
   tables the v0.3.0 plan's commit 4 (`GET/PUT /api/v1/data-sources/{id}/metrics-config`) reads and
   writes; created here (priority item 1 of commit 3) so no later migration needs to add them.
   `status_stage_map`'s `domain_key` column holds the per-domain overrides (`''` = every domain; written since the stage-override UI, `.claude/docs/metrics.md` "Per-domain stage overrides"). `board_team_map` carries `CONSTRAINT uq_metrics_board_team_map_team_id UNIQUE (team_id)` — D10's
@@ -729,7 +729,7 @@ migration — the persistence.md cross-feature list above is unchanged.
 
 `MigrationChecksumTest` gains V17's pin.
 
-Current migrations are `V1`–`V28`:
+Current migrations are `V1`–`V29`:
 
 - `V1__init` — the `users` table: `name` (≤50), `email` (≤254), `password_hash`, `role` with
   `CHECK ("role" IN ('ADMIN', 'USER'))` (single-column role storage; the wire shape stays a
@@ -849,6 +849,8 @@ Current migrations are `V1`–`V28`:
   is a filter over the partial index's open rows. `MigrationChecksumTest` pins it.
 - `V28__estimate_after_done` — see "Estimate after done (V28)" below: `estimated_after_done` on both delivery facts, `estimated_late` on
   the epic fact, the revision bump and the DERIVE fan-out. `MigrationChecksumTest` pins it.
+- `V29__blocked_stage` — see "BLOCKED stage (V29)" below: the 5th status stage `BLOCKED` (domain-model A36), the conversion of every
+  `metrics.blocked_statuses` tick into it, and `DROP TABLE metrics.blocked_statuses`.
 
 The `users`/`teams` tables follow Toadie's dialect (`SERIAL`/`INTEGER` ids, epoch-millis `BIGINT`
 timestamps, `marked_as_deleted` + partial unique indexes over active rows) and its idioms: a
@@ -891,6 +893,41 @@ the team's calendars on ACTIVE connections. V24 was edited once before reaching 
 the tie-break) and its pin re-taken; from here on it is immutable like every applied migration.
 
 `MigrationChecksumTest` gains V24's pin.
+
+### BLOCKED stage (V29)
+
+`V29__blocked_stage.sql` (domain-model A36; `briefs/07-BLOCKED-STAGE.md`) replaces the per-connection "Blocked" status tick with a stage. In one
+transaction, in this order:
+
+1. **Widen the five stage CHECKs** (`status_stage_map_stage_check`, `dim_epic_current_stage_check`, `item_stage_stage_check`,
+   `fact_task_delivery_current_stage_check`, `agg_daily_wip_stage_check`) with `'BLOCKED'` — drop, then `ADD ... NOT VALID` and `VALIDATE`, V22's
+   two-step. Purely widening.
+2. **Convert the ticks** (`metrics.blocked_statuses` is read here for the last time). Per ticked `(connection_id, status_id)`:
+   (a) a global (`domain_key = ''`) `status_stage_map` row of IN_PROGRESS or WAITING becomes BLOCKED; (b) a per-domain override row of IN_PROGRESS
+   or WAITING becomes BLOCKED (each row judged on its own stage); (c) with no global row and an IN_PROGRESS `norm.statuses` category a
+   global BLOCKED row is inserted — with any other category nothing is; (d) a NOT_STARTED or DONE row is left
+   alone and only the tick goes away (it only mattered after a reopen into that status). Note on (c): a connection holding ANY stored
+   configuration (a tick counted) reads its stage map as stored, so a status with no row was effectively UNMAPPED, not category-defaulted;
+   keeping the behaviour equivalent would have dropped the tick, but the insert deliberately gives a ticked IN_PROGRESS-category status its
+   BLOCKED stage (the admin's tick said "this means blocked"). Flyway runs the file in one transaction, so the CHECK re-adds hold their
+   locks until it commits.
+3. **Re-derive, only if a tick existed**: the shared `metrics.settings.config_revision` is bumped and one scheduler-priority DERIVE
+   (priority 10, `max_attempts` 3, `not_before` left NULL = due at once, `ON CONFLICT DO NOTHING` into an open one) is enqueued for each
+   enabled, active connection that had a tick — V25's fan-out, narrowed. A disabled connection re-derives on its next enable.
+4. **`DROP TABLE metrics.blocked_statuses`.** Code: `MetricsConfigService.BlockedStatuses`, the `blockedStatuses` request/response field and the
+   `reports/DataQualityConfig.kt` existence probe (the cross-feature list above) are removed in the same commit; `ConfigMaps.blockedStatusIds`
+   became the BLOCKED-stage spans of `blockedIntervals`.
+
+The user's live install has no ticked status, so it converts nothing and bumps nothing. `BlockedStageMigrationTest` runs the migration's own
+statements (extracted from the file) against a re-created `blocked_statuses` inside a rolled-back transaction and reads back every case above, the
+revision bump and the fan-out (and that nothing moves without a tick). `MigrationChecksumTest` gains V29's pin.
+
+- **The upgrade is stop-the-world** (like V25). A pod of the previous release reads `metrics.blocked_statuses` on every metrics-config GET
+  and every DERIVE, so once V29 has dropped the table it fails, and it also throws on a `BLOCKED` stage row it does not know. Every old
+  web AND worker pod must be gone before the new release migrates: both Deployments are `strategy: Recreate` (no overlap within each), but
+  they are two Deployments and both run Flyway, so the operator scales the other Deployment to 0 (or applies both together) before the first
+  new pod starts. A browser tab opened before the upgrade still sends `blockedStatuses`, and the strict-JSON
+  `PUT /api/v1/data-sources/{id}/metrics-config` answers `400` until the tab is reloaded.
 
 ### Public holidays (V25)
 

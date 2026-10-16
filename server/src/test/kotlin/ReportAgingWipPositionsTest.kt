@@ -102,7 +102,7 @@ class ReportAgingWipPositionsTest {
             connId,
             listOf(
                 "10" to "In Dev", "20" to "Review", "30" to "Parked", "40" to "Epic Doing", "50" to "Epic Hold", "99" to "Zeta",
-                "5" to "Backlog",
+                "5" to "Backlog", "60" to "Impeded",
             ),
         )
         fun open(id: Long, startedDay: String, team: UInt = teamX, stage: String = "IN_PROGRESS", account: String? = null) =
@@ -110,6 +110,7 @@ class ReportAgingWipPositionsTest {
         val tasks = listOf(
             open(11, "2026-01-13", account = "acc-1"), open(12, "2026-01-12"), open(13, "2026-01-09"),
             open(14, "2026-01-08", stage = "WAITING"), open(15, "2026-01-07"), open(21, "2026-01-02", team = teamY),
+            open(16, "2026-01-06", stage = "BLOCKED"),
         )
         val epics = listOf(31L, 33L).map { handEpic(it, noonUtc("2026-01-12"), null, ownerTeamId = teamX) }
         val dims = listOf(
@@ -121,7 +122,7 @@ class ReportAgingWipPositionsTest {
             ItemStageRow(11, "NOT_STARTED", "5", noonUtc("2026-01-02"), noonUtc("2026-01-05")), current(11, "IN_PROGRESS", "10"),
             current(12, "IN_PROGRESS", "20"), current(13, "IN_PROGRESS", "20"), current(14, "WAITING", "30"),
             current(15, "IN_PROGRESS", "99"), current(21, "IN_PROGRESS", "10"), current(31, "IN_PROGRESS", "40"),
-            current(33, "WAITING", "50"),
+            current(33, "WAITING", "50"), current(16, "BLOCKED", "60"),
         )
         suspendTransaction(sharedDatabaseForTests()) {
             store.replaceFactTaskDelivery(connId, tasks, configRevision = 1L)
@@ -130,10 +131,13 @@ class ReportAgingWipPositionsTest {
             store.insertItemStage(connId, itemStages)
         }
         try {
-            // No board for team X yet: STATUS mode, ordered by earliest stage (IN_PROGRESS before WAITING), then name.
+            // No board for team X yet: STATUS mode, ordered by earliest stage (IN_PROGRESS before WAITING before BLOCKED), then name.
             val statusMode = service().agingWip(filter(connId, teamX), now)
-            assertEquals(listOf("40", "10", "20", "99", "50", "30"), statusMode.positions.map { it.key })
-            assertEquals(listOf("Epic Doing", "In Dev", "Review", "Zeta", "Epic Hold", "Parked"), statusMode.positions.map { it.label })
+            assertEquals(listOf("40", "10", "20", "99", "50", "30", "60"), statusMode.positions.map { it.key })
+            assertEquals(
+                listOf("Epic Doing", "In Dev", "Review", "Zeta", "Epic Hold", "Parked", "Impeded"),
+                statusMode.positions.map { it.label },
+            )
             assertTrue(statusMode.positions.all { it.kind == AgingPositionKind.STATUS })
             val byKey = statusMode.items.associateBy { it.issueKey }
             assertEquals("10", byKey.getValue("11").statusId, "the open row, not the closed 'Backlog' one")
@@ -145,7 +149,10 @@ class ReportAgingWipPositionsTest {
             assertEquals("IN_PROGRESS", byKey.getValue("12").stage)
             assertEquals("40", byKey.getValue("EP-31").position, "an epic follows its own status")
             assertEquals("WAITING", byKey.getValue("EP-33").stage)
-            assertTrue(statusMode.items.all { it.stage == (if (it.waiting) "WAITING" else "IN_PROGRESS") }, "stage and waiting agree")
+            assertEquals("BLOCKED", byKey.getValue("16").stage)
+            assertEquals(false, byKey.getValue("16").waiting, "a BLOCKED-stage item is not a queued one (A36)")
+            assertEquals("Impeded", byKey.getValue("16").statusName)
+            assertTrue(statusMode.items.all { it.waiting == (it.stage == "WAITING") }, "stage and waiting agree")
             // UNIT level sees team Y's task too (same status 10, one position); a team with no board stays in STATUS mode.
             assertEquals(statusMode.positions, service().agingWip(filter(connId), now).positions)
             val boardless = service().agingWip(filter(connId, teamY), now)
@@ -176,7 +183,8 @@ class ReportAgingWipPositionsTest {
             assertTrue(columnMode.positions.all { it.kind == AgingPositionKind.COLUMN && it.label == it.key })
             assertEquals(
                 mapOf(
-                    "11" to "Doing", "12" to "Review", "13" to "Review", "14" to "Hold", "15" to "(no column)", "EP-31" to "Doing",
+                    "11" to "Doing", "12" to "Review", "13" to "Review", "14" to "Hold", "15" to "(no column)", "16" to "(no column)",
+                    "EP-31" to "Doing",
                     "EP-33" to "(no column)",
                 ),
                 columnMode.items.associate { it.issueKey to it.position },

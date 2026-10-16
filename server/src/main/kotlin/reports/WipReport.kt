@@ -67,7 +67,7 @@ data class WipReport(
 internal const val STAGE_DONE = "DONE"
 
 /** The stages `item_stage` carries, in flow order — also the fixed key set of `by=STAGE`. */
-internal val WIP_STAGES = listOf("NOT_STARTED", "IN_PROGRESS", "WAITING", "DONE", "UNMAPPED")
+internal val WIP_STAGES = listOf("NOT_STARTED", "IN_PROGRESS", "WAITING", "BLOCKED", "DONE", "UNMAPPED")
 
 /** The `by=COLUMN` key of a status no column of the board holds. */
 internal const val NO_COLUMN_KEY = "(no column)"
@@ -92,9 +92,9 @@ private fun WipItemKind.storedKinds(): List<String> = when (this) {
 
 /**
  * `GET /api/v1/reports/wip` (v0.3.0 M5 commit 15, Report 9, `.claude/docs/measures.md` "Report 9 — WIP"): items in
- * parallel per status / stage / board column over time (each day's END-of-day snapshot, a missing cell is zero). The four
- * work-in-progress stages come off `metrics.agg_daily_wip`, one row per non-zero cell; the DONE band is computed AT QUERY
- * TIME from `item_stage` (decision B: DERIVE stores no DONE row), attributed as at the item's done time
+ * parallel per status / stage / board column over time (each day's END-of-day snapshot, a missing cell is zero). The five
+ * work-in-progress stages (the DONE band apart) come off `metrics.agg_daily_wip`, one row per non-zero cell; the DONE band
+ * is computed AT QUERY TIME from `item_stage` (decision B: DERIVE stores no DONE row), attributed as at the item's done time
  * ([readWipDoneBand]). USER level (`teamId` + 1..8 `accountId`s) is not stored either: it is read at query time too, from the
  * same `item_stage` intervals joined to the assignee ones ([readWipUserCells]), and each point carries a `byUser` split. See
  * `.claude/docs/reports.md` "Reports 9, 10, 13".
@@ -160,7 +160,7 @@ private suspend fun R2dbcTransaction.fetchDoneCells(
     return readWipDoneBand(request).map { WipCell(it.day, it.statusId, STAGE_DONE, it.count) }
 }
 
-/** The four stages `agg_daily_wip` stores (never DONE — [fetchDoneCells] computes that band). */
+/** The five stages `agg_daily_wip` stores (never DONE — [fetchDoneCells] computes that band). */
 private suspend fun fetchWipCells(
     connectionIds: List<UInt>,
     scope: SnapshotScope,
@@ -231,7 +231,7 @@ private fun countsByDayAndAccount(by: WipBy, cells: List<WipCell>, mapping: Colu
         }
     }
 
-/** The legend: STAGE is the fixed five stages, COLUMN the board's columns (plus "(no column)" when used), STATUS every status seen. */
+/** The legend: STAGE is the fixed six stages, COLUMN the board's columns (plus "(no column)" when used), STATUS every status seen. */
 private suspend fun wipKeys(by: WipBy, cells: List<WipCell>, mapping: ColumnMapping?, connectionIds: List<UInt>): List<WipKey> = when (by) {
     WipBy.STAGE -> WIP_STAGES.map { WipKey(it, it) }
     WipBy.COLUMN -> {

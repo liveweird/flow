@@ -41,7 +41,6 @@ class DataSourceMetricsConfigTest {
             boards = listOf(MetricsBoardTeamMapping(500L, 1u)),
             activityTypes = listOf(MetricsActivityTypeMapping("Story", "Story")),
             workCategories = listOf(MetricsWorkCategoryMapping("opt-1", "Option 1", "Product Development")),
-            blockedStatuses = listOf("10002"),
         )
         validateDataSourceMetricsConfig(request, ref())
     }
@@ -168,12 +167,6 @@ class DataSourceMetricsConfigTest {
     }
 
     @Test
-    fun `an unknown status id in blockedStatuses is 400`() {
-        val request = DataSourceMetricsConfigRequest(blockedStatuses = listOf("nope"))
-        assertFailsWith<BadRequestException> { validateDataSourceMetricsConfig(request, ref()) }
-    }
-
-    @Test
     fun `domainKey, domainName and category are bounded by their column widths`() {
         fun domain(key: String, name: String) = DataSourceMetricsConfigRequest(domains = listOf(MetricsDomainMapping("ENG", key, name)))
         assertFailsWith<BadRequestException> { validateDataSourceMetricsConfig(domain("k".repeat(51), "n"), ref()) }
@@ -240,11 +233,5 @@ class DataSourceMetricsConfigTest {
         assertFailsWith<BadRequestException> {
             validateDataSourceMetricsConfig(request, ref(workCategoryValueIds = setOf("opt-1")))
         }
-    }
-
-    @Test
-    fun `a duplicate statusId within blockedStatuses is 400`() {
-        val request = DataSourceMetricsConfigRequest(blockedStatuses = listOf("10001", "10001"))
-        assertFailsWith<BadRequestException> { validateDataSourceMetricsConfig(request, ref()) }
     }
 }

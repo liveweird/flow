@@ -18,9 +18,10 @@ const val AGING_MAX_ITEMS = 500
 
 private const val STAGE_IN_PROGRESS = "IN_PROGRESS"
 private const val STAGE_WAITING = "WAITING"
+private const val STAGE_BLOCKED = "BLOCKED"
 
-/** The stages an item is "in progress" in for aging: started and not done (A30: waiting work is still aging). */
-private val AGING_STAGES = listOf(STAGE_IN_PROGRESS, STAGE_WAITING)
+/** The stages an item is "in progress" in for aging: started and not done (A30/A36: waiting and blocked work is still aging). */
+private val AGING_STAGES = listOf(STAGE_IN_PROGRESS, STAGE_WAITING, STAGE_BLOCKED)
 
 /** `band` of an item at or below the lowest configured threshold. */
 private const val BAND_WITHIN = "WITHIN"
@@ -38,10 +39,11 @@ data class AgingPercentile(val percentile: Int, val workingDays: Double?)
 data class AgingThresholds(val n: Long, val hidden: Boolean, val percentiles: List<AgingPercentile>)
 
 /**
- * One IN_PROGRESS or WAITING item: [ageWorkingDays] = working days from `started_at` to the request's clock. [band] is the highest
+ * One IN_PROGRESS, WAITING or BLOCKED item: [ageWorkingDays] = working days from `started_at` to the request's clock. [band] is the highest
  * configured threshold the age passes (`"P85"` = above p85 but not above the next one), [BAND_WITHIN] when it passes none,
  * null when the matching thresholds are hidden. [blocked] = it is blocked as of the connection's last DERIVE (a blocked
- * spell covers that clock). [waiting] = its current stage is WAITING (started, nothing actively worked on — A30).
+ * spell covers that clock: a Flagged span or, A36, a BLOCKED-stage span). [waiting] = its current stage is WAITING (started,
+ * nothing actively worked on, a queue — A30); a BLOCKED-stage item is [blocked], never [waiting].
  */
 @Serializable
 data class AgingItem(
@@ -59,7 +61,7 @@ data class AgingItem(
     /** The Jira status the item is in now (its OPEN `item_stage` row); null only if it has none (a DERIVE invariant says it has). */
     val statusId: String?,
     val statusName: String?,
-    /** `IN_PROGRESS` or `WAITING` — the stage of that same row, so it agrees with [waiting] and the band. */
+    /** `IN_PROGRESS`, `WAITING` or `BLOCKED` — the stage of that same row, so it agrees with [waiting] and the band. */
     val stage: String,
     /** The [AgingWipReport.positions] key the item is plotted at: its board column (one team with a board) or its status. */
     val position: String,
@@ -86,7 +88,8 @@ internal data class OpenItem(
     val teamId: UInt?,
     val account: String?,
     val startedAt: Long,
-    val waiting: Boolean,
+    /** The item's current stage (one of [AGING_STAGES]) — also the fallback when the open `item_stage` row is missing. */
+    val stage: String,
 )
 
 /**
@@ -110,7 +113,7 @@ internal suspend fun workItemLabels(items: Collection<Pair<UInt, Long>>): Map<Pa
 
 /**
  * `GET /api/v1/reports/aging-wip` (v0.3.0 M5 commit 15, Report 11, `.claude/docs/measures.md` "Report 11"): every
- * IN_PROGRESS or WAITING task and epic with its age in working days at the request's clock ([nowMs]) against the cycle-time
+ * IN_PROGRESS, WAITING or BLOCKED task and epic with its age in working days at the request's clock ([nowMs]) against the cycle-time
  * percentiles of the last N DONE items. See `.claude/docs/reports.md`.
  */
 suspend fun ReportService.agingWip(filter: ReportFilter, nowMs: Long): AgingWipReport = reportTransaction {
@@ -149,7 +152,7 @@ suspend fun ReportService.agingWip(filter: ReportFilter, nowMs: Long): AgingWipR
                 startedAt = item.startedAt,
                 ageWorkingDays = age,
                 blocked = (item.connectionId to item.issueId) in blocked,
-                waiting = item.waiting,
+                waiting = item.stage == STAGE_WAITING,
                 band = bandOf(age, thresholds.second),
                 statusId = place.statusId,
                 statusName = place.statusName,
@@ -208,7 +211,7 @@ private suspend fun fetchDoneCycles(filter: ReportFilter, connectionIds: List<UI
         .toList().map { it[e.cycleWorkingDays]!!.toDouble() }
 }
 
-/** Open level-0 tasks in an IN_PROGRESS or WAITING stage (A25: attributed to the CURRENT team and assignee). */
+/** Open level-0 tasks in an IN_PROGRESS, WAITING or BLOCKED stage (A25: attributed to the CURRENT team and assignee). */
 private suspend fun fetchOpenTasks(filter: ReportFilter, connectionIds: List<UInt>): List<OpenItem> {
     if (connectionIds.isEmpty()) return emptyList()
     val t = MetricsTables.FactTaskDelivery
@@ -219,12 +222,12 @@ private suspend fun fetchOpenTasks(filter: ReportFilter, connectionIds: List<UIn
             val team = it[t.currentTeamId]?.value
             OpenItem(
                 KIND_TASK, it[t.connectionId].value, it[t.issueId], team, it[t.currentAssigneeAccountId], it[t.startedAt]!!,
-                it[t.currentStage] == STAGE_WAITING,
+                it[t.currentStage],
             )
         }
 }
 
-/** Open epics whose own stage is IN_PROGRESS or WAITING, attributed to the owner team; epics carry no user, so a user read has none. */
+/** Open epics in an IN_PROGRESS, WAITING or BLOCKED stage, attributed to the owner team; epics carry no user, so a user read has none. */
 private suspend fun fetchOpenEpics(filter: ReportFilter, connectionIds: List<UInt>): List<OpenItem> {
     if (connectionIds.isEmpty() || filter.accountId != null) return emptyList()
     val e = MetricsTables.FactEpicDelivery
@@ -237,18 +240,18 @@ private suspend fun fetchOpenEpics(filter: ReportFilter, connectionIds: List<UIn
             (d.connectionId inList candidates.map { it[e.connectionId].value }.distinct()) and
                 (d.issueId inList candidates.map { it[e.issueId] }.distinct()) and (d.currentStage inList AGING_STAGES)
         }
-        .toList().associate { (it[d.connectionId].value to it[d.issueId]) to (it[d.currentStage] == STAGE_WAITING) }
+        .toList().associate { (it[d.connectionId].value to it[d.issueId]) to it[d.currentStage] }
     return candidates.filter { (it[e.connectionId].value to it[e.issueId]) in started }
         .map {
-            val waiting = started.getValue(it[e.connectionId].value to it[e.issueId])
-            OpenItem(KIND_EPIC, it[e.connectionId].value, it[e.issueId], it[e.ownerTeamId]?.value, null, it[e.startedAt]!!, waiting)
+            val stage = started.getValue(it[e.connectionId].value to it[e.issueId])
+            OpenItem(KIND_EPIC, it[e.connectionId].value, it[e.issueId], it[e.ownerTeamId]?.value, null, it[e.startedAt]!!, stage)
         }
 }
 
 /**
  * The (connection, issue) pairs among [items] that are blocked "right now": an `item_blocked` row covering the connection's
  * DERIVE clock C (its newest successful run's start) — `valid_from <= C AND (valid_to IS NULL OR valid_to >= C)`. The deriver
- * never writes an open row: it closes a still-open Flagged/blocked-status interval AT the derive clock
+ * never writes an open row: it closes a still-open Flagged/BLOCKED-stage interval AT the derive clock
  * (`blockedIntervals`, `windowToMs = doneAtMs ?: now`), so "blocked now" is "blocked as of the last derive".
  * A connection that never derived has no rows and no clock: nothing is blocked.
  */
