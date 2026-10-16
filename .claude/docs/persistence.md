@@ -430,8 +430,8 @@ the tiling invariants and stream mechanics — this section is the schema/persis
   through ~15+ sprints overflowed 500 chars — Exposed's client-side varchar length check threw before
   any SQL ran, failing its PROCESS write forever
   (`NormalizationPipelineTest` "PROCESS stores a sprint name list longer than 500 characters in full").
-  `idx_norm_work_item_field_intervals_issue` (`connection_id, issue_id, field`) backs the same kind
-  of per-issue/per-field replay.
+  V26 (`V26__drop_redundant_field_interval_index.sql`) dropped the former `idx_norm_work_item_field_intervals_issue`
+  (`connection_id, issue_id, field`): a strict prefix of the unique key, so the unique index serves every per-issue/per-field replay it served (~1.7 MB saved).
 - **`norm.work_item_field_changes`** — every tracked changelog item kept VERBATIM (never tiled):
   status, assignee, Sprint, Flagged, Rank, priority, resolution, issuetype, project, Key and story
   points. This is the only normalized record for the fields with no interval table of their own
@@ -703,7 +703,7 @@ migration — the persistence.md cross-feature list above is unchanged.
 
 `MigrationChecksumTest` gains V17's pin.
 
-Current migrations are `V1`–`V25`:
+Current migrations are `V1`–`V26`:
 
 - `V1__init` — the `users` table: `name` (≤50), `email` (≤254), `password_hash`, `role` with
   `CHECK ("role" IN ('ADMIN', 'USER'))` (single-column role storage; the wire shape stays a
@@ -814,6 +814,9 @@ Current migrations are `V1`–`V25`:
   `metrics.sprint_calendars`, the widened `dim_sprint.capacity_source` and the legacy-figure seed. `MigrationChecksumTest` pins it.
 - `V25__public_holidays` — see "Public holidays (V25)" below: `metrics.public_holidays`, the Polish seed 2017–2030, the carry-over of
   the old `metrics.settings.holidays` and its drop, the revision bump and the DERIVE fan-out. `MigrationChecksumTest` pins it.
+- `V26__drop_redundant_field_interval_index` — drops `norm.idx_norm_work_item_field_intervals_issue (connection_id, issue_id, field)`,
+  a strict prefix of the table's unique key `(connection_id, issue_id, field, seq)`, which serves every query it served (~1.7 MB on
+  real data). No data change, no digest moves. `MigrationChecksumTest` pins it.
 
 The `users`/`teams` tables follow Toadie's dialect (`SERIAL`/`INTEGER` ids, epoch-millis `BIGINT`
 timestamps, `marked_as_deleted` + partial unique indexes over active rows) and its idioms: a
