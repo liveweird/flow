@@ -22,9 +22,16 @@ export const EPIC_BASES: readonly EpicBasis[] = ["PERIOD", "CUMULATIVE"];
 export type WipBy = "STATUS" | "STAGE" | "COLUMN";
 export const WIP_BYS: readonly WipBy[] = ["STAGE", "STATUS", "COLUMN"];
 
-/** Which items the WIP report counts (report 9); the server defaults to TASK. */
-export type WipItemKind = "TASK" | "EPIC" | "BOTH";
-export const WIP_ITEM_KINDS: readonly WipItemKind[] = ["TASK", "EPIC", "BOTH"];
+/**
+ * Which items a report counts (WIP, report 9, and blocked time, report 12); the server defaults to TASK. A parsed URL may name any
+ * of the three; what a page OFFERS is its `ReportControls.itemKind` list.
+ */
+export type ReportItemKind = "TASK" | "EPIC" | "BOTH";
+const ITEM_KINDS: readonly ReportItemKind[] = ["TASK", "EPIC", "BOTH"];
+/** WIP counts tasks or epics, never the two summed (an epic and its tasks in one band count the same work twice): `BOTH` is a 400 there. */
+export const WIP_ITEM_KINDS: readonly ReportItemKind[] = ["TASK", "EPIC"];
+/** Blocked time (report 12) also reads the two kinds together. */
+export const BLOCKED_ITEM_KINDS: readonly ReportItemKind[] = ITEM_KINDS;
 
 const DOMAIN_VIEWS: readonly DomainView[] = ["TASK", "EPIC"];
 
@@ -55,8 +62,8 @@ export interface ReportFilterState {
   basis?: EpicBasis;
   /** What the WIP report keys its counts by. */
   by?: WipBy;
-  /** Which items the WIP report counts. */
-  itemKind?: WipItemKind;
+  /** Which items the WIP and blocked-time reports count. */
+  itemKind?: ReportItemKind;
   connectionId?: number;
   /**
    * The share (integer 0..25) of the largest values the distribution reports fold into their histogram's final open
@@ -203,7 +210,7 @@ export function parseReportFilter(params: URLSearchParams, options: ReportFilter
   if (basis !== undefined) filter.basis = basis;
   const by = parseEnum(params.get("by"), WIP_BYS);
   if (by !== undefined) filter.by = by;
-  const itemKind = parseEnum(params.get("itemKind"), WIP_ITEM_KINDS);
+  const itemKind = parseEnum(params.get("itemKind"), ITEM_KINDS);
   if (itemKind !== undefined) filter.itemKind = itemKind;
   const connectionId = parseBoundedInteger(params.get("connectionId"), 1);
   if (connectionId !== undefined) filter.connectionId = connectionId;
@@ -249,8 +256,8 @@ export interface ReportControls {
   bucket?: boolean;
   /** What the WIP report keys its counts by (stage, status, board column). */
   wipBy?: boolean;
-  /** Which items the WIP report counts (tasks, epics, both). */
-  itemKind?: boolean;
+  /** The item kinds the report offers in its Count control (WIP: tasks and epics; blocked time: and both); absent = no control. */
+  itemKind?: readonly ReportItemKind[];
   /**
    * The report's aggregate has no team × domain split (the server answers `400` for both together),
    * so the last of the two controls touched wins: picking a team clears the domain and vice versa.
@@ -348,17 +355,21 @@ export function dropMember(filter: ReportFilterState): ReportFilterState {
 }
 
 /**
- * WIP's whole filter, made consistent: the team wins over a domain, and a board-column keying the
+ * WIP's whole filter, made consistent: the team wins over a domain, an `itemKind=BOTH` (no longer a WIP kind, the server answers `400`)
+ * falls back to the default, TASK, and a board-column keying the
  * filter cannot honour is dropped (so it falls back to the default, STAGE, and — being gone from the
  * URL too — cannot come back by itself when a team is picked later). (Picked people need no rule here: the parser
  * only reads `accountId`s under a `teamId`, so a domain read never carries one.)
  */
 export function normalizeWipFilter(filter: ReportFilterState): ReportFilterState {
   const next = dropDomainWithTeam(filter);
-  if (next.by !== "COLUMN" || wipColumnAvailable(next)) return next;
-  const withoutBy = { ...next };
-  delete withoutBy.by;
-  return withoutBy;
+  const dropKind = next.itemKind !== undefined && !WIP_ITEM_KINDS.includes(next.itemKind);
+  const dropBy = next.by === "COLUMN" && !wipColumnAvailable(next);
+  if (!dropKind && !dropBy) return next;
+  const trimmed = { ...next };
+  if (dropKind) delete trimmed.itemKind;
+  if (dropBy) delete trimmed.by;
+  return trimmed;
 }
 
 // ---- the period control -------------------------------------------------------------------

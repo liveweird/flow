@@ -12,11 +12,12 @@ import ReportMetaNote from "../components/ReportMetaNote";
 import ReportTailControl from "../components/ReportTailControl";
 import ReportTabs from "../components/ReportTabs";
 import { useReportPage } from "../hooks/useReportPage";
+import { BLOCKED_ITEM_KINDS } from "../utils/reportFilter";
 import { formatDays, formatMedian, formatPercent } from "../utils/reportFormat";
 import { FLOW_TABS } from "../utils/reportLinks";
 
 // Blocked time slices by domain, activity type and work category, and counts tasks, epics or both.
-const CONTROLS: ReportControls = { domain: true, activityType: true, workCategory: true, itemKind: true };
+const CONTROLS: ReportControls = { domain: true, activityType: true, workCategory: true, itemKind: BLOCKED_ITEM_KINDS };
 
 /** Report 12 — blocked time: working days and share of cycle that finished items spent blocked. */
 export default function ReportBlockedTime() {

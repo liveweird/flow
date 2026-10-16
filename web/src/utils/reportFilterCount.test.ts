@@ -9,7 +9,7 @@ const count = (filter: ReportFilterState, controls: ReportControls = {}, connect
 describe("activeReportFilterCount", () => {
   test("nothing in the filter is nothing active", () => {
     expect(count({})).toBe(0);
-    expect(count({}, { domainView: "EPIC", domain: true, bucket: true, wipBy: true, itemKind: true })).toBe(0);
+    expect(count({}, { domainView: "EPIC", domain: true, bucket: true, wipBy: true, itemKind: ["TASK", "EPIC"] })).toBe(0);
   });
 
   test("the long tail is no narrowing: it never counts", () => {
@@ -65,8 +65,8 @@ describe("activeReportFilterCount", () => {
     expect(count({ bucket: "WEEK" }, { bucket: true })).toBe(0);
     expect(count({ bucket: "MONTH" }, { bucket: true })).toBe(1);
     expect(count({ bucket: "MONTH" })).toBe(0);
-    expect(count({ itemKind: "TASK" }, { itemKind: true })).toBe(0);
-    expect(count({ itemKind: "BOTH" }, { itemKind: true })).toBe(1);
+    expect(count({ itemKind: "TASK" }, { itemKind: ["TASK", "EPIC"] })).toBe(0);
+    expect(count({ itemKind: "EPIC" }, { itemKind: ["TASK", "EPIC"] })).toBe(1);
     expect(count({ by: "STATUS" }, { wipBy: true })).toBe(1);
     expect(count({ by: "STAGE" }, { wipBy: true })).toBe(0);
   });

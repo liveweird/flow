@@ -6,14 +6,13 @@ import {
   BUCKETS,
   withFilterKey,
   WIP_BYS,
-  WIP_ITEM_KINDS,
   wipColumnAvailable,
   type Bucket,
   type ReportControls,
   type DomainView,
   type ReportFilterState,
   type WipBy,
-  type WipItemKind,
+  type ReportItemKind,
 } from "../utils/reportFilter";
 import ReportFilterSelect from "./ReportFilterSelect";
 
@@ -75,6 +74,7 @@ export default function ReportSliceControls({ filter, controls, onChange }: Slic
   const { t } = useTranslation();
   if (controls.domainView === undefined && !controls.bucket && !controls.wipBy && !controls.itemKind) return null;
   const columnAvailable = wipColumnAvailable(filter);
+  const itemKinds = controls.itemKind;
   return (
     <Group gap="lg" align="flex-end" wrap="wrap">
       {controls.domainView !== undefined && (
@@ -128,14 +128,14 @@ export default function ReportSliceControls({ filter, controls, onChange }: Slic
           )}
         </ToggleField>
       )}
-      {controls.itemKind && (
+      {itemKinds && (
         <ToggleField id="report-item-kind" label={t("reports.filters.itemKind")}>
           {(labelledBy) => (
             <SegmentedControl
               aria-labelledby={labelledBy}
-              data={WIP_ITEM_KINDS.map((value) => ({ value, label: t(`reports.filters.itemKindOption.${value}`) }))}
+              data={itemKinds.map((value) => ({ value, label: t(`reports.filters.itemKindOption.${value}`) }))}
               value={filter.itemKind ?? "TASK"}
-              onChange={(value) => onChange(withFilterKey(filter, "itemKind", value as WipItemKind))}
+              onChange={(value) => onChange(withFilterKey(filter, "itemKind", value as ReportItemKind))}
             />
           )}
         </ToggleField>

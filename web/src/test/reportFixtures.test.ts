@@ -59,7 +59,6 @@ import {
   THROUGHPUT_USER,
   THROUGHPUT_USERS,
   COMMITMENTS_UNIT,
-  WIP_BOTH,
   WIP_COLUMN,
   WIP_EPICS,
   WIP_NOT_DERIVED,
@@ -352,7 +351,7 @@ describe("cycle time and reported time fixtures hold the documented partitions",
   });
 
   test("WIP: every point carries every key of the legend, days ascend, and nothing is listed for a report that never derived", () => {
-    for (const report of [WIP_STAGE, WIP_STATUS, WIP_COLUMN, WIP_EPICS, WIP_BOTH, WIP_NOT_DERIVED]) {
+    for (const report of [WIP_STAGE, WIP_STATUS, WIP_COLUMN, WIP_EPICS, WIP_NOT_DERIVED]) {
       const keys = report.keys.map((k) => k.key).sort();
       for (const point of report.series) expect(Object.keys(point.counts).sort()).toEqual(keys);
       const days = report.series.map((p) => p.day);

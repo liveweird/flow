@@ -1413,7 +1413,7 @@ export interface paths {
          *     delivery-credit team, the domain in effect at done; domain-model A34): `series` has one point per calendar day of
          *     the period (in the configured zone), each the END-of-day snapshot of how many items sat in each status / stage /
          *     board column — items the aggregate has no row for count as zero, and every point carries every key of `keys`. `itemKind` (default
-         *     TASK) counts level-0 tasks, `EPIC` the epics (a different grain, D2) and `BOTH` the two added together. `by`
+         *     TASK) counts level-0 tasks, `EPIC` the epics (a different grain, D2); the two are never summed (any other value, `BOTH` included, is a `400`). `by`
          *     (default STAGE) keys `counts` by `STAGE` (the six stages NOT_STARTED, IN_PROGRESS, WAITING, BLOCKED, DONE, UNMAPPED — WAITING is work
          *     that has started with nothing actively worked on, a queue, and BLOCKED the same held by an impediment, both admin-mapped stages (A30, A36); UNMAPPED, a status with no stage
          *     mapping, is its own key; work in progress is IN_PROGRESS plus WAITING plus BLOCKED), `STATUS` (the Jira status id, labelled with its name) or `COLUMN` (the mapped
@@ -1428,7 +1428,7 @@ export interface paths {
          *     counts when its as-was team (the sprint's, else the assignee's, D5) is `teamId`, a done one when its delivery-credit team
          *     is — so a person's numbers agree with the other USER-level reports. `counts` is the union of the picks and
          *     each point's `byUser` splits it per picked account in request order, every key zero-filled. An epic has no assignee: at USER level
-         *     `itemKind=EPIC` is an empty `series` and `BOTH` counts the tasks only, both with a `note`. `by=COLUMN` needs a `teamId` naming a team with a mapped board (`400` otherwise, and at UNIT level).
+         *     `itemKind=EPIC` is an empty `series` with a `note`. `by=COLUMN` needs a `teamId` naming a team with a mapped board (`400` otherwise, and at UNIT level).
          *     `400` too: `domain` together with `teamId` (no team × domain split, so USER level has no `domain` either) and `activityType` / `workCategory`
          *     (not stored per day). Sprint-relative periods use the resolved sprints' envelope. A period reaching past
          *     the last derived day is cut off there rather than read as zero — the OLDEST, over the connections in scope
@@ -3621,7 +3621,7 @@ export interface components {
              * @description Which items were counted (the request's `itemKind`, default TASK).
              * @enum {string}
              */
-            itemKind: "TASK" | "EPIC" | "BOTH";
+            itemKind: "TASK" | "EPIC";
             /** @description The legend, in display order — the six stages for STAGE, the statuses seen (ordered by stage, then name) for STATUS, the board's columns in board order (plus "(no column)" when used) for COLUMN. */
             keys: components["schemas"]["WipKey"][];
             /** @description One point per calendar day of the period, oldest first, cut off after the last derived day and starting no earlier than the latest `backfill_from` of the connections in scope. Empty at USER level with `itemKind=EPIC` (see `note`), for a period with nothing to read, and for a period entirely past the last derived day or before the backfill start. */
@@ -4947,8 +4947,8 @@ export interface components {
         ReportBucket: "WEEK" | "MONTH";
         /** @description What the WIP report keys its counts by; COLUMN needs a `teamId` with a mapped board. */
         ReportWipBy: "STATUS" | "STAGE" | "COLUMN";
-        /** @description Which items the WIP report counts — level-0 tasks (default), epics (a different grain), or both added together. */
-        ReportWipItemKind: "TASK" | "EPIC" | "BOTH";
+        /** @description Which items the WIP report counts — level-0 tasks (default) or epics (a different grain); never both summed. */
+        ReportWipItemKind: "TASK" | "EPIC";
         /** @description Which DONE items the blocked-time report counts — level-0 tasks (default), epics (a different grain), or both. */
         ReportBlockedItemKind: "TASK" | "EPIC" | "BOTH";
     };
@@ -7047,7 +7047,7 @@ export interface operations {
                 connectionId?: components["parameters"]["ReportConnectionId"];
                 /** @description What the WIP report keys its counts by; COLUMN needs a `teamId` with a mapped board. */
                 by?: components["parameters"]["ReportWipBy"];
-                /** @description Which items the WIP report counts — level-0 tasks (default), epics (a different grain), or both added together. */
+                /** @description Which items the WIP report counts — level-0 tasks (default) or epics (a different grain); never both summed. */
                 itemKind?: components["parameters"]["ReportWipItemKind"];
             };
             header?: never;

@@ -76,10 +76,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   measurable items whose estimate did not change (a 0 % change), and that one tall bar dwarfs the real adjustments.
   Plot only the items that changed; keep the unchanged count visible as a figure beside the chart (and in the
   accounting line) so the population still adds up. Applies to tasks and epics, and to the per-person split.
-- [new] **WIP: drop the "Tasks and epics" count option.** Flow metrics → WIP's Count control offers Tasks, Epics and
-  Tasks and epics; remove the combined option, so the page counts tasks or epics, never both summed (an epic and its
-  tasks in one band double-count the same work). Check what a link or a stored filter with `itemKind=BOTH` falls back
-  to (Tasks), and whether the API keeps `BOTH` for other callers or drops it.
 - [new] **Estimated backlog: no User filter, and a staleness slider.** Flow metrics → Estimated backlog:
   - Remove the User (member) filter: the backlog is owned by a team, not a person (D9), so it adds nothing. Drop it the
     way Sprint consistency and Epic accuracy did (`NO_MEMBER_PATHS`; a member in a pasted link is dropped from the URL).

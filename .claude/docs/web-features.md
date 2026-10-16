@@ -499,8 +499,8 @@ completed · the report's figures · the orange drift badge with the frozen figu
   The domain select stays clearable; picking a team clears the domain. With neither team nor domain in the unit the page is the
   "nothing to read" empty state, with domains but no team the bar stays up over a "pick a team or a domain" note (no request). The
   Backlog page keeps the unit level. WIP adds two
-  managed params, `by` (stage · status · board column) and `itemKind` (tasks · epics · both), both always SENT
-  explicitly (`by=STAGE&itemKind=TASK` by default); `by=COLUMN` needs one team (`wipColumnAvailable`) so the
+  managed params, `by` (stage · status · board column) and `itemKind` (tasks · epics; never both summed -- `ReportControls.itemKind` lists the kinds a page offers, blocked time adds `BOTH`), both always SENT
+  explicitly (`by=STAGE&itemKind=TASK` by default; a link or stored `itemKind=BOTH` is dropped by `normalizeWipFilter`, falling back to TASK); `by=COLUMN` needs one team (`wipColumnAvailable`) so the
   option is disabled with a hint otherwise and a stray `by=COLUMN` is dropped from the URL (falls back to
   STAGE), and a `400` for a request that WAS for columns of one team is the "no board mapped" note, not a
   failure (any other 400 is the normal failure alert). The chart is a stacked `AreaChart` of end-of-day counts with band
@@ -514,7 +514,7 @@ completed · the report's figures · the orange drift badge with the frozen figu
   daily table behind `DailyTableDisclosure` (a series can run to ~1100 rows). **WIP takes people** (`CONTROLS.multiMember`, `wipPath` in `MULTI_ACCOUNT_PATHS`; the Member control is the same multi-select as cycle time's, up to eight, offered
   under a team and so never in a domain read): the server computes a person's WIP at query time inside the picked team (`reports.md` "Report 9",
   USER level) and each point carries `byUser`. The chart stays the union stacked by band (a note under the toggle says whose tasks it counts and that epics are left out;
-  `EPIC`/`BOTH` show the server's `note`); from TWO people a `SegmentedControl` (page-local state, "By band" · "By person") adds the per-person view — the same `WipChart` with one stack
+  `EPIC` shows the server's `note`); from TWO people a `SegmentedControl` (page-local state, "By band" · "By person") adds the per-person view — the same `WipChart` with one stack
   segment per person (`utils/wipReport.ts`: `wipPeople`, `paintPeople`, `wipPeopleChartRows`), each segment that person's items over the TICKED bands, people numbered "2. Bob" on the categorical
   `CATEGORY_PALETTE` (their number, not the hue, carries identity — Commitments' and Throughput's rule). The text alternatives follow the view: per-person summary
   (`WipPeopleSummaryTable`) and daily table (`WipPeopleDailyTable`, a column per person) in person view, the band tables otherwise. One person IS the union, so there is no view switch. The backlog page is three tiles
@@ -568,7 +568,7 @@ completed · the report's figures · the orange drift badge with the frozen figu
   says time in a waiting or blocked status counts as waiting. Issue keys are plain text (no page links to Jira). Blocked time composes
   `DistributionWithAccounting` twice (blocked working days over EVERY finished item, so no exclusions and a
   "N of M were blocked at all" line; share of cycle with `neverStarted`/`zeroCycle`), the top-20 table and the
-  groups table; `itemKind` (default TASK, always sent) reuses the WIP bar control, and at TEAM level with epics
+  groups table; `itemKind` (default TASK, always sent) reuses the WIP bar control with a third `BOTH` option (`BLOCKED_ITEM_KINDS`), and at TEAM level with epics
   a line says the per-assignee groups cover tasks only.
 - **Epic progress (EVM)** (`pages/ReportEpicProgress.tsx`, the fifth tab of `FLOW_TABS`; `.claude/docs/reports.md` "Report 15").
   The URL carries at most ONE scope — `epicId` (an epic's issue key, a report-specific managed param that only this

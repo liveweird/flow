@@ -16,7 +16,7 @@ import ReportNote from "../components/ReportNote";
 import ReportTabs from "../components/ReportTabs";
 import { WipDailyTable, WipPeopleDailyTable, WipPeopleSummaryTable, WipSummaryTable } from "../components/WipTables";
 import { useReportPage } from "../hooks/useReportPage";
-import { dropReportSpecific, normalizeWipFilter, wipColumnAvailable, type ReportFilterState } from "../utils/reportFilter";
+import { dropReportSpecific, normalizeWipFilter, wipColumnAvailable, WIP_ITEM_KINDS, type ReportFilterState } from "../utils/reportFilter";
 import { FLOW_TABS, reportSpecificKeep, wipPath } from "../utils/reportLinks";
 import { DEFAULT_HIDDEN_BANDS, paintBands, paintPeople, wipBands, wipChartRows, wipPeople, wipPeopleChartRows } from "../utils/wipReport";
 
@@ -34,7 +34,7 @@ const CONTROLS: ReportControls = {
   domainExcludesTeam: true,
   multiMember: true,
   wipBy: true,
-  itemKind: true,
+  itemKind: WIP_ITEM_KINDS,
 };
 
 /** The USER-level chart: the union of the ticked bands (stacked by band) or one stack segment per picked person. */
@@ -108,7 +108,7 @@ export default function ReportWip() {
           ) : (
             <ReportChartCard
               title={t("reports.wip.chartTitle")}
-              caption={report && `${t(`reports.wip.caption.${report.by}`)}${report.itemKind === "BOTH" ? ` ${t("reports.wip.bothNote")}` : ""}`}
+              caption={report && t(`reports.wip.caption.${report.by}`)}
               isPending={query.isPending}
               isRefreshing={query.isPlaceholderData}
               error={query.error}

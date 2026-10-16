@@ -814,7 +814,7 @@ scope only: never per user, never team x domain. So:
 - **TEAM** (`teamId`) reads that team's TEAM scope. For WIP a task is in the team of D5 as of each day and an epic in
   its domain's owner team (A19) -- except the DONE band, where a done task is in its done-time team (`credit_team_id`, A34);
   the backlog's TEAM scope is the owner team (A19).
-- **`teamId=0`** is `UNASSIGNED` on the task side and `UNOWNED` on the epic side of WIP (so an explicit `itemKind=BOTH` adds the two),
+- **`teamId=0`** is `UNASSIGNED` on the task side and `UNOWNED` on the epic side of WIP (read with `itemKind=TASK` and `itemKind=EPIC` respectively),
   and `UNOWNED` for the backlog.
 - **USER** (`teamId` and `accountId`): the daily aggregates have no per-user scope, so the **backlog** answers an EMPTY series with a
   `note` (never a team-wide number posing as a user's) and **WIP computes the level at query time** (Report 9 below).
@@ -851,7 +851,7 @@ aggregate has no row for are ZERO (the rows are sparse) -- but only days the agg
 
 ```
 WipReport {
-  meta, by: STATUS|STAGE|COLUMN, itemKind: TASK|EPIC|BOTH,
+  meta, by: STATUS|STAGE|COLUMN, itemKind: TASK|EPIC,
   keys:   [{ key, label }],                                   // the legend, in display order
   series: [{ day, isWorkingDay, counts: { <key>: n },         // counts carries EVERY key, zero-filled
              byUser?: [{ accountId, label, counts: { <key>: n } }] }],   // USER level only, one per pick in request order
@@ -859,8 +859,9 @@ WipReport {
 }
 ```
 
-- `itemKind` (default `TASK`) counts level-0 tasks; `EPIC` counts epics and `BOTH` adds the two -- tasks and epics are different
-  grains (D2), so mixing them is an explicit choice; `by` (default `STAGE`)
+- `itemKind` (default `TASK`) counts level-0 tasks; `EPIC` counts epics -- tasks and epics are different
+  grains (D2) and an epic's tasks would count the same work twice, so the two are never summed: `itemKind=BOTH` is a `400` like any unknown value
+  (the combined option was dropped; blocked time, report 12, keeps its `BOTH`); `by` (default `STAGE`)
   keys `counts`. `STAGE`: the six stages `NOT_STARTED`, `IN_PROGRESS`, `WAITING`, `BLOCKED`, `DONE`, `UNMAPPED` -- always all six; `WAITING` (A30: started,
   nothing actively worked on, a queue) and `BLOCKED` (A36: started, held by an impediment) are admin-mapped stages that no Jira category defaults
   to, each its own band, and `UNMAPPED` (a
@@ -908,8 +909,8 @@ WipReport {
     `byUser` — one `{accountId, label, counts}` per pick in request order (label = the Jira display name, else the account id), every key
     zero-filled, a pick with no task all zeros, a duplicate `accountId` collapsed — and omits it below USER level (`encodeDefaults = false`, like
     `Distribution.byUser`). One `accountId` is today's shape plus a one-entry `byUser`. `keys` is the legend over the union.
-  - **Item kinds**: an epic has no assignee (D2; Aging WIP's USER level lists tasks only). `itemKind=EPIC` answers an EMPTY series, `BOTH` counts the tasks only,
-    and both say so in `note` ("USER level counts the picked people's tasks only: an epic has no assignee, so epics are left out"); never a `400`.
+  - **Item kinds**: an epic has no assignee (D2; Aging WIP's USER level lists tasks only). `itemKind=EPIC` answers an EMPTY series
+    and says so in `note` ("USER level counts the picked people's tasks only: an epic has no assignee, so epics are left out"); never a `400`.
   - **Cost**: one statement for the open bands (two `MATERIALIZED` CTEs fix the join order — pair the picks' assignee intervals with their tasks' stage
     intervals, keep the (day, pair) rows both cover, then resolve the team of those few thousand rows) plus one `readWipDoneBand` per pick (at most eight).
     Measured with `EXPLAIN ANALYZE` on a synthetic connection of the real size (6,600 tasks, 33,000 stage intervals, 13,200 assignee intervals, 45
@@ -956,18 +957,18 @@ working calendar builder, the derived coverage, the day plan and its note) and `
 `fact_sprint`, hand-row inserters) and `ReportWipDoneSupport.kt` (the independent DONE-band oracle `ReportWipTest` merges into the stored rows;
 `ReportWipDoneBandTest` pins its rule: stub per scope/kind/day, the four stored bands against the unfiltered statements, hand-built team-at-done / reopen / Done -> Closed / domain-at-done rows, the account filter):
 every day of every series against a sum taken straight off the aggregate rows plus that oracle (per
-stage, status and board column; `BOTH` = `TASK` + `EPIC`; the DOMAIN scopes; a team; `teamId=0`; the sprint-id envelope; the
+stage, status and board column; `TASK` and `EPIC` each; the DOMAIN scopes; a team; `teamId=0`; the sprint-id envelope; the
 cut-off at the last derived day, incl. two connections with differing derive days and one that never derived; "not derived yet";
 the `teamId=0` sprint-relative note; `meta.domainView` forced to TASK; weekends), the mean against an independent computation over `fact_sprint` at several
 period ends (window full, fewer than N, one sprint), and hand-built rows in fresh DISABLED connections with hand-computed
 answers (the zero-fill, keys and their order, `(no column)`, the UNASSIGNED/UNOWNED split incl. an epic never being
 UNASSIGNED, scope isolation, the window, fewer than N, a mean of zero, no sprint at all, the UNIT sum). `400`s: a bad
-`by`/`itemKind`, `domain` with `teamId`, `activityType`, `workCategory`, an unknown team/connection/sprint, `by=COLUMN` at
+`by`/`itemKind` (`BOTH` included), `domain` with `teamId`, `activityType`, `workCategory`, an unknown team/connection/sprint, `by=COLUMN` at
 UNIT level / for `teamId=0` / for a team with no board. USER level: `ReportWipUserTest` — the invariant on the stub (per team, per day and stage: Σ over
 every assignee account in requests of up to 8 + the independent count of the tasks nobody holds, `independentUnassignedWip` in `ReportSnapshotTestSupport.kt`
 written as correlated `EXISTS`, = the TEAM aggregate plus the independent DONE oracle, for the stub's team and for `teamId=0`) and hand-built rows (a reassignment exactly at a day-end
-instant, a sub-task, an epic, a null-assignee interval, the sprint's team over the assignee's, the DONE band at its done-time assignee/credit team, `EPIC`/`BOTH`
-notes, `byUser` order and zero-fill, STATUS and COLUMN keys); `400`s: nine accounts, `accountId` without `teamId`, `domain`/`activityType`/`workCategory` with an account.
+instant, a sub-task, an epic, a null-assignee interval, the sprint's team over the assignee's, the DONE band at its done-time assignee/credit team, `EPIC`
+note, `byUser` order and zero-fill, STATUS and COLUMN keys); `400`s: nine accounts, `accountId` without `teamId`, `domain`/`activityType`/`workCategory` with an account.
 
 ## Reports 11, 12 -- Aging WIP and blocked time
 
