@@ -5,13 +5,17 @@ import ReportEpicProgress from "./ReportEpicProgress";
 import { jsonResponse } from "../test/http";
 import {
   EPIC_PROGRESS_DOMAIN,
+  EPIC_PROGRESS_DOMAIN_PERIOD,
   EPIC_PROGRESS_EPIC,
+  EPIC_PROGRESS_EPIC_PERIOD,
   EPIC_PROGRESS_NO_CURVE,
   EPIC_PROGRESS_NO_PLAN,
   EPIC_PROGRESS_NOT_DERIVED,
   EPIC_PROGRESS_TEAM,
   EPIC_PROGRESS_TEAM_NO_COST,
+  EPIC_PROGRESS_TEAM_PERIOD,
   EPIC_PROGRESS_UNIT,
+  EPIC_PROGRESS_UNIT_PERIOD,
   FILTERS,
 } from "../test/reportFixtures";
 import { openReportFilters } from "../test/reportFilters";
@@ -19,10 +23,17 @@ import { renderWithProviders, screen, waitFor, within } from "../test/render";
 
 // recharts renders nothing under happy-dom (no layout), so the chart is a probe carrying its props.
 vi.mock("@mantine/charts", () => ({
-  LineChart: (props: { data: { date: string }[]; series: { name: string; strokeDasharray?: string }[]; withLegend?: boolean }) => (
+  LineChart: (props: {
+    data: { date?: string; day?: string }[];
+    series: { name: string; strokeDasharray?: string }[];
+    withLegend?: boolean;
+    referenceLines?: { y?: number }[];
+  }) => (
     <div
       data-testid="line-chart"
-      data-days={props.data.map((r) => r.date).join("|")}
+      data-days={props.data.map((r) => r.date ?? r.day).join("|")}
+      data-rows={JSON.stringify(props.data)}
+      data-reference={(props.referenceLines ?? []).map((line) => line.y).join(",")}
       data-series={props.series.map((s) => s.name).join(",")}
       data-dashed={props.series.filter((s) => s.strokeDasharray).map((s) => s.name).join(",")}
       data-legend={String(props.withLegend ?? false)}
@@ -461,5 +472,225 @@ describe("ReportEpicProgress page", () => {
     await screen.findByRole("group", { name: "PV (MD)" });
     expect(screen.getByRole("tab", { name: "Epic progress" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getAllByRole("tab")).toHaveLength(5);
+  });
+});
+
+describe("ReportEpicProgress page: the basis, this period or since the start (A37)", () => {
+  let mockFetch: FetchMock;
+
+  beforeEach(() => {
+    mockFetch = vi.fn();
+    vi.stubGlobal("fetch", mockFetch);
+    localStorage.setItem("flow.auth.token", "fake-token");
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+    localStorage.clear();
+  });
+  /** Answers with the report of the basis the request names; a request without `basis` gets the level's default (the `fallback`). */
+  function serveByBasis(fallback: unknown, byBasis: { PERIOD: unknown; CUMULATIVE: unknown }) {
+    mockFetch.mockImplementation((url: string) => {
+      if (url === "/api/v1/reports/filters") return Promise.resolve(jsonResponse(200, FILTERS));
+      if (url.startsWith(URL_PREFIX)) {
+        const basis = new URLSearchParams(url.slice(URL_PREFIX.length)).get("basis");
+        return Promise.resolve(jsonResponse(200, basis === "PERIOD" ? byBasis.PERIOD : basis === "CUMULATIVE" ? byBasis.CUMULATIVE : fallback));
+      }
+      return Promise.resolve(jsonResponse(404, { title: "Not Found", status: 404 }));
+    });
+  }
+
+  const trendChart = () => screen.getAllByTestId("line-chart").find((chart) => chart.getAttribute("data-series") === "spi,cpi")!;
+  const mdChart = () => screen.getAllByTestId("line-chart").find((chart) => chart.getAttribute("data-series")!.startsWith("pv"))!;
+
+  test("a domain opens on the period the server picked: the control says so, the URL stays bare and the request names no basis", async () => {
+    serveByBasis(EPIC_PROGRESS_DOMAIN_PERIOD, { PERIOD: EPIC_PROGRESS_DOMAIN_PERIOD, CUMULATIVE: EPIC_PROGRESS_DOMAIN });
+    renderPage("/reports/epic-progress?domain=FLO");
+    const control = await screen.findByRole("radiogroup", { name: "Measured over" });
+    expect(within(control).getByRole("radio", { name: "This period" })).toBeChecked();
+    expect(within(control).getByRole("radio", { name: "Since start" })).not.toBeChecked();
+    expect(search().has("basis")).toBe(false);
+    expect(calls(mockFetch)).toEqual([`${URL_PREFIX}domain=FLO`]);
+    expect(screen.getByText("2026-09-27 to 2026-09-29")).toBeInTheDocument();
+  });
+
+  test("touching the toggle makes the basis explicit: it lands in the URL and the request, and the figures follow", async () => {
+    serveByBasis(EPIC_PROGRESS_DOMAIN_PERIOD, { PERIOD: EPIC_PROGRESS_DOMAIN_PERIOD, CUMULATIVE: EPIC_PROGRESS_DOMAIN });
+    const user = userEvent.setup();
+    renderPage("/reports/epic-progress?domain=FLO");
+    await user.click(await screen.findByRole("radio", { name: "Since start" }));
+    await waitFor(() => expect(search().get("basis")).toBe("CUMULATIVE"));
+    expect(calls(mockFetch).at(-1)).toBe(`${URL_PREFIX}domain=FLO&basis=CUMULATIVE`);
+    await waitFor(() => expect(within(tile("PV (MD)")).getByText("12")).toBeInTheDocument());
+    expect(screen.getByRole("radio", { name: "Since start" })).toBeChecked();
+    expect(await screen.findByRole("heading", { level: 3, name: "Cumulative PV, EV and AC" })).toBeInTheDocument();
+    await user.click(screen.getByRole("radio", { name: "This period" }));
+    await waitFor(() => expect(search().get("basis")).toBe("PERIOD"));
+    expect(calls(mockFetch).at(-1)).toBe(`${URL_PREFIX}domain=FLO&basis=PERIOD`);
+  });
+
+  test("a pasted ?basis=CUMULATIVE is explicit from the first request; an unknown basis is dropped", async () => {
+    serveByBasis(EPIC_PROGRESS_DOMAIN_PERIOD, { PERIOD: EPIC_PROGRESS_DOMAIN_PERIOD, CUMULATIVE: EPIC_PROGRESS_DOMAIN });
+    renderPage("/reports/epic-progress?domain=FLO&basis=CUMULATIVE");
+    expect(await screen.findByRole("radio", { name: "Since start" })).toBeChecked();
+    expect(calls(mockFetch)).toEqual([`${URL_PREFIX}domain=FLO&basis=CUMULATIVE`]);
+  });
+
+  test("an unknown basis never reaches the request", async () => {
+    serveByBasis(EPIC_PROGRESS_DOMAIN_PERIOD, { PERIOD: EPIC_PROGRESS_DOMAIN_PERIOD, CUMULATIVE: EPIC_PROGRESS_DOMAIN });
+    renderPage("/reports/epic-progress?domain=FLO&basis=WEEKLY");
+    await screen.findByRole("radiogroup", { name: "Measured over" });
+    expect(calls(mockFetch)).toEqual([`${URL_PREFIX}domain=FLO`]);
+  });
+
+  test("one epic opens since its start, and asking for the period rebases the curves and the original plan", async () => {
+    serveByBasis(EPIC_PROGRESS_EPIC, { PERIOD: EPIC_PROGRESS_EPIC_PERIOD, CUMULATIVE: EPIC_PROGRESS_EPIC });
+    const user = userEvent.setup();
+    renderPage("/reports/epic-progress?epicId=FLO-33");
+    expect(await screen.findByRole("radio", { name: "Since start" })).toBeChecked();
+    expect(JSON.parse(mdChart().getAttribute("data-rows")!)[0]).toMatchObject({ pv: 8, pvOriginal: 10 });
+    await user.click(screen.getByRole("radio", { name: "This period" }));
+    await waitFor(() => expect(JSON.parse(mdChart().getAttribute("data-rows")!)[0]).toMatchObject({ pv: 2, ev: 2, ac: 2, pvOriginal: 4 }));
+    expect(calls(mockFetch).at(-1)).toBe(`${URL_PREFIX}epicId=FLO-33&basis=PERIOD`);
+  });
+
+  test("PERIOD: the curves start near 0 and carry the period's title; the numbers are in the table", async () => {
+    serve(mockFetch, EPIC_PROGRESS_DOMAIN_PERIOD);
+    renderPage("/reports/epic-progress?domain=FLO");
+    expect(await screen.findByRole("heading", { level: 3, name: "PV, EV and AC in the period" })).toBeInTheDocument();
+    const rowsOf = JSON.parse(mdChart().getAttribute("data-rows")!) as { pv: number; ev: number; ac: number }[];
+    expect(rowsOf.map((r) => [r.pv, r.ev, r.ac])).toEqual([
+      [2, 2, 2],
+      [4, 4, 4],
+      [6, 7, 6],
+    ]);
+    await userEvent.setup().click(screen.getByRole("button", { name: "Show daily figures" }));
+    const daily = screen.getByRole("table", { name: "PV, EV and AC in the period by day, as a table" });
+    expect(bodyRows(daily)[0]).toEqual(["2026-09-29", "6", "7", "6"]);
+  });
+
+  test("PERIOD tiles: the period's figures are primary, the cumulative ones a small line under each", async () => {
+    serve(mockFetch, EPIC_PROGRESS_DOMAIN_PERIOD);
+    renderPage("/reports/epic-progress?domain=FLO");
+    await screen.findByRole("group", { name: "PV (MD)" });
+    const pv = tile("PV (MD)");
+    expect(within(pv).getByText("6")).toBeInTheDocument();
+    expect(within(pv).getByText("Since start: 12")).toBeInTheDocument();
+    expect(within(tile("EV (MD)")).getByText("7")).toBeInTheDocument();
+    expect(within(tile("SV (MD)")).getByText("+1")).toBeInTheDocument();
+    expect(within(tile("SV (MD)")).getByText("Since start: −3")).toBeInTheDocument();
+    const spi = tile("SPI");
+    expect(within(spi).getByText("1.17")).toBeInTheDocument();
+    expect(within(spi).getByText("Ahead of plan")).toBeInTheDocument();
+    expect(within(spi).getByText("Since start: 0.75")).toBeInTheDocument();
+    expect(within(tile("CPI")).getByText("Since start: 0.90")).toBeInTheDocument();
+  });
+
+  test("CUMULATIVE tiles: the other basis is the small line (\"This period: …\")", async () => {
+    serve(mockFetch, EPIC_PROGRESS_DOMAIN);
+    renderPage("/reports/epic-progress?domain=FLO&basis=CUMULATIVE");
+    await screen.findByRole("group", { name: "PV (MD)" });
+    expect(within(tile("PV (MD)")).getByText("12")).toBeInTheDocument();
+    expect(within(tile("PV (MD)")).getByText("This period: 6")).toBeInTheDocument();
+    expect(within(tile("CPI")).getByText("0.90")).toBeInTheDocument();
+    expect(within(tile("CPI")).getByText("This period: 1.17")).toBeInTheDocument();
+  });
+
+  test("a hidden period index is a dash with its reason, and the cumulative index stays beside it", async () => {
+    serve(mockFetch, {
+      ...EPIC_PROGRESS_DOMAIN_PERIOD,
+      period: { firstDay: "2026-09-27", pv: 0.5, ev: 3, ac: 0.25, sv: 2.5, spi: null, cv: 2.75, cpi: null },
+    });
+    renderPage("/reports/epic-progress?domain=FLO");
+    const spi = await screen.findByRole("group", { name: "SPI" });
+    expect(within(spi).getByText("—")).toBeInTheDocument();
+    expect(within(spi).getByText(/Too little planned in this period/)).toBeInTheDocument();
+    expect(within(spi).getByText("Since start: 0.75")).toBeInTheDocument();
+    const cpi = tile("CPI");
+    expect(within(cpi).getByText("—")).toBeInTheDocument();
+    expect(within(cpi).getByText(/Too little spent in this period/)).toBeInTheDocument();
+  });
+
+  test("the weekly trend: SPI and CPI on one index axis with a 1.0 reference line, and its numbers in a table beside it", async () => {
+    serve(mockFetch, EPIC_PROGRESS_DOMAIN_PERIOD);
+    renderPage("/reports/epic-progress?domain=FLO");
+    expect(await screen.findByRole("heading", { level: 3, name: "SPI and CPI trend" })).toBeInTheDocument();
+    expect(screen.getByText(/over the trailing 28 days/)).toBeInTheDocument();
+    const chart = await waitFor(() => {
+      const found = trendChart();
+      expect(found).toBeDefined();
+      return found;
+    });
+    expect(chart.getAttribute("data-days")).toBe("2026-09-27|2026-09-29");
+    expect(chart.getAttribute("data-reference")).toBe("1");
+    expect(chart.getAttribute("data-legend")).toBe("true");
+    expect(chart.getAttribute("data-dashed")).toBe("cpi");
+    const table = screen.getByRole("table", { name: "SPI and CPI per week, as a table" });
+    expect(bodyRows(table)).toEqual([
+      ["2026-09-29", "1.10", "0.95"],
+      ["2026-09-27", "—", "0.80"],
+    ]);
+  });
+
+  test("the unit on the period has the trend but no MD chart; a basis without a trend shows no trend card", async () => {
+    serve(mockFetch, EPIC_PROGRESS_UNIT_PERIOD);
+    renderPage("/reports/epic-progress");
+    expect(await screen.findByRole("heading", { level: 3, name: "SPI and CPI trend" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { level: 3, name: "PV, EV and AC in the period" })).not.toBeInTheDocument();
+  });
+
+  test("no trend card when the answer has no trend", async () => {
+    serve(mockFetch, EPIC_PROGRESS_DOMAIN);
+    renderPage("/reports/epic-progress?domain=FLO&basis=CUMULATIVE");
+    await screen.findByRole("group", { name: "PV (MD)" });
+    expect(screen.queryByRole("heading", { level: 3, name: "SPI and CPI trend" })).not.toBeInTheDocument();
+  });
+
+  test("the drill table follows the basis: the period's columns, a hidden index as a dash; cumulative otherwise", async () => {
+    serve(mockFetch, { ...EPIC_PROGRESS_UNIT_PERIOD, rows: EPIC_PROGRESS_UNIT.rows });
+    renderPage("/reports/epic-progress");
+    const domains = await screen.findByRole("table", { name: "Domains" });
+    expect(bodyRows(domains)).toEqual([["Flow", "6", "7", "6", "+1", "1.17", "+1", "1.17"]]);
+    const teams = screen.getByRole("table", { name: "Teams (sprint view)" });
+    expect(bodyRows(teams).map((r) => [r[0], r[1], r[5], r[7]])).toEqual([
+      ["Alpha", "10", "0.90", "1.00"],
+      ["Old team Deleted team", "0", "—", "0.00"],
+      ["Unassigned", "0", "—", "0.00"],
+    ]);
+  });
+
+  test("the drill table of a domain shows its epics' period figures on the period basis", async () => {
+    serve(mockFetch, EPIC_PROGRESS_DOMAIN_PERIOD);
+    renderPage("/reports/epic-progress?domain=FLO");
+    const epics = await screen.findByRole("table", { name: "Epics" });
+    expect(bodyRows(epics).map((r) => r.slice(1))).toEqual([
+      ["4", "5", "4", "+1", "1.25", "+1", "1.25"],
+      ["2", "2", "2", "0", "1.00", "0", "1.00"],
+    ]);
+  });
+
+  test("a team on the period shows the period's foreign-work share, matching the shown CPI, and the cumulative share beside it", async () => {
+    serve(mockFetch, EPIC_PROGRESS_TEAM_PERIOD);
+    renderPage("/reports/epic-progress?teamId=1");
+    const foreign = await screen.findByRole("group", { name: "Foreign work share" });
+    expect(within(foreign).getByText("40%")).toBeInTheDocument();
+    expect(within(foreign).getByText(/in this period that went into other teams' work/)).toBeInTheDocument();
+    expect(within(foreign).getByText("Since start: 12.5%")).toBeInTheDocument();
+  });
+
+  test("a team since the start keeps the cumulative share, the period's beside it", async () => {
+    serve(mockFetch, EPIC_PROGRESS_TEAM);
+    renderPage("/reports/epic-progress?teamId=1&basis=CUMULATIVE");
+    const foreign = await screen.findByRole("group", { name: "Foreign work share" });
+    expect(within(foreign).getByText("12.5%")).toBeInTheDocument();
+    expect(within(foreign).getByText("This period: 40%")).toBeInTheDocument();
+  });
+
+  test("a drill keeps an explicit basis", async () => {
+    serveByScope(mockFetch);
+    renderPage("/reports/epic-progress?lastSprints=3&basis=CUMULATIVE");
+    const href = (await screen.findByRole("link", { name: "Show Flow" })).getAttribute("href");
+    expect(href).toBe("/reports/epic-progress?lastSprints=3&domain=FLO&basis=CUMULATIVE");
   });
 });

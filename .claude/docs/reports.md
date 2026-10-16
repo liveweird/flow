@@ -1192,23 +1192,28 @@ a bad `domainView`.
 ## Report 15 -- Epic progress (EVM)
 
 `GET /api/v1/reports/epic-progress` (v0.3.0 M5 commit 15c, `.claude/docs/measures.md` "Report 15 -- EVM"): planned value
-(PV), earned value (EV) and actual cost (AC) in man-days as CUMULATIVE curves, with SV/SPI/CV/CPI as of a day. Any signed-in
+(PV), earned value (EV) and actual cost (AC) in man-days as curves, with SV/SPI/CV/CPI as of a day. Any signed-in
 user, read-only, no audit (D12). It reads `agg_daily_flow`'s per-day INCREMENTS (A23, `.claude/docs/metrics.md`) and sums
-them at query time **from the beginning of time** -- the running sum is not reset at `from`, so a series point is everything
-planned/earned/spent up to the end of that day. Takes the shared `from`/`to`/`lastSprints`/`sprintId` period, `connectionId`,
-and its own `epicId`; `domainView` defaults to (and only accepts) `EPIC`.
+them at query time. `asOf` is **CUMULATIVE** -- from the beginning of time, the running sum is not reset at `from`; a series
+point is everything planned/earned/spent up to the end of that day under `basis=CUMULATIVE`, or (A37) rebased to the period's first
+day under `basis=PERIOD`. Takes the shared `from`/`to`/`lastSprints`/`sprintId` period, `connectionId`, and its own `epicId`,
+`basis` and `trendWindowDays`; `domainView` defaults to (and only accepts) `EPIC`.
 
 ```
 EpicProgressReport {
   meta: ReportMeta                     // domainView always EPIC; level is the shared UNIT/TEAM/USER of teamId
   level: UNIT | DOMAIN | EPIC | TEAM   // what the report is about
   scope: { kind: EPIC|DOMAIN|TEAM, id?, key?, name } | null        // null at UNIT
-  series: [{ date, pv, ev, ac, pvOriginal? }]                      // cumulative, one point per calendar day; empty at UNIT
-  asOf: { day?, pv, ev, ac, sv, spi?, cv, cpi? }
+  basis: PERIOD | CUMULATIVE           // the EFFECTIVE basis of `series` (A37)
+  series: [{ date, pv, ev, ac, pvOriginal? }]                      // on `basis`, one point per calendar day; empty at UNIT
+  asOf: { day?, pv, ev, ac, sv, spi?, cv, cpi? }                   // always CUMULATIVE
+  period: { firstDay?, pv, ev, ac, sv, spi?, cv, cpi? }            // always the figures inside [firstDay, asOf.day] (A37)
+  trend: [{ day, spi?, cpi? }]                                     // per week end over the trailing trendWindowDays (A37)
   epic?: { budgetMd?, budgetSource?, startAt?, dueAt?, inPvHorizon, hasPvCurve,
            baselines: [{ effectiveFrom, supersededAt?, startAt?, dueAt?, budgetMd? }], drift: { dates, budget } }   // EPIC only
-  foreignWorkShare?: number            // TEAM only
-  rows: [{ kind: EPIC|DOMAIN|TEAM, id?, key?, name, pv, ev, ac, sv, spi?, cv, cpi?, active? }]   // active: TEAM rows only
+  foreignWorkShare?: number            // TEAM only, cumulative window
+  foreignWorkSharePeriod?: number      // TEAM only, worklogs started inside the period (A37)
+  rows: [{ kind: EPIC|DOMAIN|TEAM, id?, key?, name, pv, ev, ac, sv, spi?, cv, cpi?, period: { pv, ev, ac, sv, spi?, cv, cpi? }, active? }]   // active: TEAM rows only
   note?: string
 }
 ```
@@ -1222,13 +1227,34 @@ EpicProgressReport {
   - **TEAM**: the `TEAM` scope -- PV = the team's sprints' committed scope on each sprint's start day, EV = what those sprints
     delivered on the done day (A20), AC = the author's-team worklogs; `teamId=0` is the `UNASSIGNED` scope (AC only, so PV = 0 and SPI
     is `null`). **`foreignWorkShare`** = Σ `fact_worklog.md` with `foreign_work` for the team's authors ÷ Σ their `md`, over the
-    SAME cumulative window as CPI -- from the beginning of time to the end of `asOf.day`, never just the requested period (a fraction
+    SAME cumulative window as the cumulative CPI -- from the beginning of time to the end of `asOf.day` (`foreignWorkSharePeriod` is the period's, A37) (a fraction
     0..1, `null` when they logged nothing; the authors in no team of `teamId=0` are never foreign, so `0.0`): A20 -- read team CPI
     with it.
   - **UNIT**: every `DOMAIN` scope summed -- the epic basis, consistent with `domainView=EPIC`, and free of the double counting of
     an item that sits in overlapping sprints (a sprint sum would count it once per sprint). So the UNIT headline is epic-attributed
     work only, exactly what the domain rows below add up to. No series; `rows` is the drill.
-- **`400`s**, checked before any data is read: more than one scope, `accountId` (there is no user-level EVM), an explicit
+- **`basis`, `period`, `trend` and the thin-index rule (A37, `reports/EpicProgressPeriod.kt`).** `basis` is `PERIOD` or `CUMULATIVE`
+  (an unknown value is `400`); absent it defaults per level -- EPIC `CUMULATIVE` (an epic's whole life is the right scale), DOMAIN, TEAM
+  and UNIT `PERIOD` -- and the EFFECTIVE value is echoed in the response (also in the empty answers). It only picks what `series` shows:
+  `CUMULATIVE` points are the running sums from the beginning of time (the old series, unchanged); `PERIOD` points are `running(d) -
+  running(firstDay - 1)`, so the curves start near 0 (at EPIC level `pvOriginal` is rebased by the same day's value, `null` staying
+  `null`). `asOf` and every row's top-level figures are cumulative whatever the basis, and the `period` block is always returned:
+  `firstDay` is the period's first listed day (the first day of the series, also at UNIT level where no series is listed), the figures are
+  the deltas `ΔPV`/`ΔEV`/`ΔAC` over `[firstDay, asOf.day]` with `sv = ΔEV - ΔPV`, `cv = ΔEV - ΔAC`; a period that starts AFTER `asOf.day`
+  has `firstDay` null and every figure 0. **`spi` / `cpi` of the `period` block, of every row's `period` and of every `trend` point are `null`
+  while their denominator (`ΔPV` for SPI, `ΔAC` for CPI) is under `MIN_PERIOD_DENOMINATOR_MD` = 1.0 man-day** (EV arrives in lumps, so a
+  ratio over a sliver is noise; a zero or negative delta is hidden too, exactly 1.0 is shown). The constant is not a `metrics.settings`
+  value (no per-install tuning is expected, and a setting costs a migration and a settings-API change). The cumulative `asOf` / row indices
+  keep the old rule (`null` only at PV or AC exactly 0). `trend` has one point per WEEK END of the period -- Monday-start weeks in the
+  configured zone, the throughput report's week rule -- the last one cut at `asOf.day` (so a period of one day has one point), each
+  `ΔEV ÷ ΔPV` and `ΔEV ÷ ΔAC` over the trailing `(day - trendWindowDays, day]`; `trendWindowDays` defaults to 28 and is bounded 7..182
+  (`400` outside, not an integer, or repeated). The window reaches before the period start when it must (the cumulative fetch already
+  holds those days), and the trend comes from the ONE fetch of the increments, in Kotlin -- never a query per point. It is present at every
+  level, an empty list when the period lies after `asOf.day`. **Rows:** each row's `period` is its own `[firstDay, asOf.day]` delta (a second
+  grouped read with `day >= firstDay`); the UNIT's domain rows sum to the UNIT headline's `period` exactly as they sum to its `asOf`.
+  **`foreignWorkSharePeriod`** (TEAM) is the same share over the worklogs with `started_at` inside `[firstDay start, asOf.day end)`, the
+  window of the period CPI; `foreignWorkShare` keeps the cumulative one -- the page shows the share that matches the CPI it shows.
+- **`400`s**, checked before any data is read: an unknown `basis`, a `trendWindowDays` outside 7..182, more than one scope, `accountId` (there is no user-level EVM), an explicit
   `domainView=TASK` (EVM is always the EPIC view, D3), `activityType` / `workCategory` (not stored per day -- the WIP/backlog
   reports' precedent), a blank `epicId` (a present-but-empty value is a mistake, not "the whole unit"), and an unknown epic key, domain, team, sprint or connection -- always `400`, never `404`. An epic key that
   exists in several connections in scope is ambiguous (`400`, narrow with `connectionId`).
@@ -1273,7 +1299,13 @@ Code: `reports/EpicProgressReport.kt` (the DTOs, the `epicProgress` entry as an 
 assembly; `snapshotNotes` in `reports/SnapshotSupport.kt` is shared with WIP/backlog), split by concern like `DataQuality*`:
 `EpicProgressTargets.kt` (`ProgressTarget`/`ResolvedTarget`, the `400` combination checks `progressTargetOf`, `resolveTarget`),
 `EpicProgressEvm.kt` (the `Evm` triple, `aggPredicate`/`fetchIncrements`/`totalsThrough`, the EPIC-level plan block and curve replay
-`epicDetail`, `foreignWorkShare`) and `EpicProgressRows.kt` (the `domainRows`/`unitRows` drill tables). Tests -- `ReportEpicProgressTest`: on the shared derived fixture every
+`epicDetail`, `foreignWorkShare`), `EpicProgressRows.kt` (the `domainRows`/`unitRows` drill tables, cumulative and period) and
+`EpicProgressPeriod.kt` (A37: the `basis`/`trendWindowDays` options, the pure period delta, series rebase, trend and thin-index arithmetic).
+Tests -- `EpicProgressPeriodKernelsTest` (the pure period/trend arithmetic and the options parser) and `ReportEpicProgressPeriodTest` (on the
+derived fixture every level's PERIOD series, `period` block, trend, rows and the foreign-work share of the period against an INDEPENDENT read
+of the persisted `agg_daily_flow` / `fact_worklog` rows, the UNIT identity on both bases, the per-level defaults and `400`s; on hand-built rows in
+a fresh disabled connection the hand-computed deltas, the exactly-1.0 boundary, thin windows, a window reaching before the period, the derive
+cut-off and a period after `asOf`); `ReportEpicProgressTest` stays the cumulative path (its level reads ask `basis=CUMULATIVE`): on the shared derived fixture every
 level's `asOf`, every series point (monotone, ending at `asOf`), the DOMAIN/UNIT drill rows and the sum of DOMAIN epic rows against
 an INDEPENDENT running sum of the persisted `agg_daily_flow` rows (UNIT against the DOMAIN scopes, the domain rows summing to it);
 the golden epic's PV reaching its budget on its due date, its exactly-one baseline and its plan block against `expected.json`; sprint-relative and past-the-derive periods; and, on hand-built rows in fresh disabled connections,

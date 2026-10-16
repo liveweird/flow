@@ -170,7 +170,8 @@ the same commit** — this list is the coverage map, the scenario file is the de
   last three sprints and the team → member drill on Commitments; WIP by stage/status (URL and table
   follow; a required team with no "All teams" — WIP is read for one team or one domain) and one person's WIP inside the team (the URL account, a USER-level answer with a non-empty series and a one-entry `byUser`, no per-person view for one person), Aging WIP (its thresholds and open-work table) with its aging chart (the card, the "Workflow position" and "Age (working days)" axes, the
   seeded team's board columns on the x axis and one dot per task, statuses without a team) and Blocked time; Epic progress drilled unit → FLO domain → the golden epic
-  (`golden.epic`'s budget and dates, the daily table); Data quality (tiles equal their cards, a
+  (`golden.epic`'s budget and dates, the daily table) and the FLO domain's period view (opens on "This period" with no `basis` in the URL, the weekly SPI/CPI trend chart and its
+  table, then "Since start" in the URL); Data quality (tiles equal their cards, a
   regular user gets no admin config link); the Cost matrix (totals add up, drill to a team); the Home
   overview's four tiles and a tile link landing on its report with the period in the URL; and an axe
   scan of the populated WIP, Epic progress, Cost matrix, Home and Data quality pages; and the Deep dive (report 17): pick the golden

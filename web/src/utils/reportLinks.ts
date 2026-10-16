@@ -73,7 +73,8 @@ const REPORT_SPECIFIC_PARAMS: Readonly<Record<string, readonly ReportSpecificKey
   [agingWipPath]: ["domain", "activityType", "workCategory"],
   [blockedTimePath]: ["domain", "activityType", "workCategory", "itemKind", "tailPercent"],
   // EVM is always the epic view and has no per-day activity type/work category; its scope is ONE of epic, domain or team.
-  [epicProgressPath]: ["domain", "epicId"],
+  // Its one control of its own is the basis (this period / since start).
+  [epicProgressPath]: ["domain", "epicId", "basis"],
   // Data quality takes the domain and its view, but has no control for an activity type or work category.
   [dataQualityPath]: ["domain", "domainView", "tailPercent"],
   // The cost matrix slices the worklogs by every one of these; its rows and columns are the org drill and the domains.

@@ -1566,8 +1566,13 @@ export interface paths {
          * Report 15 — epic progress / EVM (PV, EV, AC as cumulative curves with SV, SPI, CV, CPI)
          * @description Any authenticated user (D12), read-only — `.claude/docs/measures.md` "Report 15 — EVM". Planned value, earned
          *     value and actual cost in man-days, read off the per-day INCREMENTS in `agg_daily_flow` (A23) and summed at query
-         *     time from the beginning of time — a series point is the CUMULATIVE value at the end of that day, including
-         *     everything before the period. Select the scope with AT MOST ONE of `epicId` (an epic's issue key, level EPIC),
+         *     time. `asOf` and every row's top-level figures are CUMULATIVE (from the beginning of time); `period` and every
+         *     row's `period` are the same figures inside the period `[period.firstDay, asOf.day]` (A37), and `basis` (the
+         *     request's, else the level's default — PERIOD at DOMAIN, TEAM and UNIT, CUMULATIVE at EPIC) picks what `series`
+         *     shows: CUMULATIVE points include everything before the period, PERIOD points are rebased to start near 0.
+         *     `period`'s and the rows' `spi` / `cpi` are `null` while ΔPV / ΔAC is under 1 man-day (EV arrives in lumps, so a
+         *     ratio over a sliver is noise). `trend` is SPI and CPI per week end (Monday-start weeks, the last one cut at
+         *     `asOf.day`) over the trailing `trendWindowDays`, null under the same minimum. Select the scope with AT MOST ONE of `epicId` (an epic's issue key, level EPIC),
          *     `domain` (level DOMAIN — epic-attributed work only), `teamId` (level TEAM, sprint and author based, A20;
          *     `0` = UNASSIGNED) — none is the whole UNIT: its `asOf` is the sum of every DOMAIN scope (the epic basis, consistent
          *     with the EPIC domain view; the domain rows add up to it), it lists no `series`, and `rows` drills into the domains
@@ -1587,7 +1592,8 @@ export interface paths {
          *     horizon AND the window holds a working day, so PV is actually spread). `pvOriginal` uses the working days DERIVE
          *     stamped in `dim_date` where they cover the window, else the current calendar. At TEAM level `foreignWorkShare` is
          *     the share of the team authors' logged MD from the beginning of time up to `asOf.day` — the same cumulative window
-         *     as CPI — that was foreign work (A20 — read team CPI with it). `rows` is the drill table as of `asOf.day`: at DOMAIN
+         *     as CPI — that was foreign work (A20 — read team CPI with it), and `foreignWorkSharePeriod` the same over the
+         *     worklogs started inside the period (the window of the period CPI). `rows` is the drill table as of `asOf.day`: at DOMAIN
          *     level one row per epic of that domain with a current baseline or any EV/AC; at UNIT level one row per domain
          *     (epic basis, summing to the unit's `asOf`) and one per team (sprint/author basis — a different view that does NOT
          *     sum to the unit headline; `active` is false for a soft-deleted team, whose own drill answers 400), told apart by
@@ -3816,7 +3822,7 @@ export interface components {
             /** @description The epic summary (its key when none), the domain name or the team name. */
             name: string;
         };
-        /** @description One calendar day of the series (configured zone) — CUMULATIVE values at the end of the day. */
+        /** @description One calendar day of the series (configured zone) — running values at the end of the day, from the beginning of time (`basis` CUMULATIVE) or minus the sum before the period's first day (`basis` PERIOD). */
         EpicProgressPoint: {
             /**
              * Format: date
@@ -3825,24 +3831,90 @@ export interface components {
             date: string;
             /**
              * Format: double
-             * @description Cumulative planned value in man-days.
+             * @description Running planned value in man-days.
              */
             pv: number;
             /**
              * Format: double
-             * @description Cumulative earned value in man-days.
+             * @description Running earned value in man-days.
              */
             ev: number;
             /**
              * Format: double
-             * @description Cumulative actual cost in man-days.
+             * @description Running actual cost in man-days.
              */
             ac: number;
             /**
              * Format: double
-             * @description EPIC level: the epic's first baseline redrawn (cumulative man-days); null elsewhere and when that baseline has no curve.
+             * @description EPIC level: the epic's first baseline redrawn (running man-days, rebased like `pv`); null elsewhere and when that baseline has no curve.
              */
             pvOriginal: number | null;
+        };
+        /** @description The figures inside the period `[firstDay, asOf.day]` (A37): ΔPV, ΔEV and ΔAC, man-days at two decimals. `spi` and `cpi` are null while their denominator (ΔPV, ΔAC) is under 1 man-day. */
+        EpicProgressPeriod: {
+            /**
+             * Format: date
+             * @description The period's first listed day; null (every figure 0) when the period lies after `asOf.day`.
+             */
+            firstDay: string | null;
+            /** Format: double */
+            pv: number;
+            /** Format: double */
+            ev: number;
+            /** Format: double */
+            ac: number;
+            /**
+             * Format: double
+             * @description ΔEV − ΔPV.
+             */
+            sv: number;
+            /**
+             * Format: double
+             * @description ΔEV ÷ ΔPV; null when ΔPV is under 1 man-day.
+             */
+            spi: number | null;
+            /**
+             * Format: double
+             * @description ΔEV − ΔAC.
+             */
+            cv: number;
+            /**
+             * Format: double
+             * @description ΔEV ÷ ΔAC; null when ΔAC is under 1 man-day.
+             */
+            cpi: number | null;
+        };
+        /** @description A drill row's figures inside the period (the same rule as `EpicProgressPeriod`, without the day). */
+        EpicProgressRowPeriod: {
+            /** Format: double */
+            pv: number;
+            /** Format: double */
+            ev: number;
+            /** Format: double */
+            ac: number;
+            /** Format: double */
+            sv: number;
+            /** Format: double */
+            spi: number | null;
+            /** Format: double */
+            cv: number;
+            /** Format: double */
+            cpi: number | null;
+        };
+        /** @description SPI and CPI over the trailing `trendWindowDays` ending at `day` (a week end; the last one is `asOf.day`). */
+        EpicProgressTrendPoint: {
+            /** Format: date */
+            day: string;
+            /**
+             * Format: double
+             * @description ΔEV ÷ ΔPV over the window; null when ΔPV is under 1 man-day.
+             */
+            spi: number | null;
+            /**
+             * Format: double
+             * @description ΔEV ÷ ΔAC over the window; null when ΔAC is under 1 man-day.
+             */
+            cpi: number | null;
         };
         /** @description The figures at `day`, man-days at two decimals. */
         EpicProgressAsOf: {
@@ -3878,7 +3950,7 @@ export interface components {
              */
             cpi: number | null;
         };
-        /** @description One drill row, its figures as of the response's `asOf.day`. */
+        /** @description One drill row, its CUMULATIVE figures as of the response's `asOf.day` and its `period` figures beside them. */
         EpicProgressRow: {
             /** @enum {string} */
             kind: "EPIC" | "DOMAIN" | "TEAM";
@@ -3906,6 +3978,7 @@ export interface components {
             cv: number;
             /** Format: double */
             cpi: number | null;
+            period: components["schemas"]["EpicProgressRowPeriod"];
         };
         /** @description One `fact_epic_plan` baseline, in effect from `effectiveFrom` until `supersededAt` (null = the current one). */
         EpicProgressBaseline: {
@@ -3972,9 +4045,17 @@ export interface components {
             level: "UNIT" | "DOMAIN" | "EPIC" | "TEAM";
             /** @description The epic, domain or team; null at UNIT level. */
             scope: components["schemas"]["EpicProgressScope"] | null;
-            /** @description One point per calendar day of the period up to `asOf.day`; empty at UNIT level. */
+            /**
+             * @description The EFFECTIVE basis of `series`: the request's, else the level's default (PERIOD at DOMAIN, TEAM and UNIT, CUMULATIVE at EPIC).
+             * @enum {string}
+             */
+            basis: "PERIOD" | "CUMULATIVE";
+            /** @description One point per calendar day of the period up to `asOf.day`, on `basis`; empty at UNIT level. */
             series: components["schemas"]["EpicProgressPoint"][];
             asOf: components["schemas"]["EpicProgressAsOf"];
+            period: components["schemas"]["EpicProgressPeriod"];
+            /** @description SPI and CPI per week end over the trailing `trendWindowDays`; empty when the period lies after `asOf.day`. */
+            trend: components["schemas"]["EpicProgressTrendPoint"][];
             /** @description EPIC level only. */
             epic: components["schemas"]["EpicProgressEpic"] | null;
             /**
@@ -3982,6 +4063,11 @@ export interface components {
              * @description TEAM level only: the team authors' foreign-work MD ÷ their logged MD from the beginning of time up to asOf.day (0..1, A20 — the same cumulative window as CPI); null when they logged none.
              */
             foreignWorkShare: number | null;
+            /**
+             * Format: double
+             * @description TEAM level only: the same share over the worklogs started inside the period (0..1) — the window of the period CPI; null when they logged none or the period lies after asOf.day.
+             */
+            foreignWorkSharePeriod: number | null;
             /** @description The drill table as of `asOf.day`: a domain's epics (DOMAIN), the domains then the teams (UNIT); empty at EPIC and TEAM level. */
             rows: components["schemas"]["EpicProgressRow"][];
             /** @description Why the answer is empty or partial — nothing derived yet, no sprint resolved (incl. `teamId=0` with a sprint-relative period), connections that never derived and were left out of the cut-off, a period that lies after `asOf.day`; null otherwise. */
@@ -4837,6 +4923,10 @@ export interface components {
         ReportTeamId: number;
         /** @description One epic's issue key (as `issueKey` lists it, e.g. `FLO-33`) — selects epic progress at level EPIC. Mutually exclusive with `domain` and `teamId`. */
         ReportEpicId: string;
+        /** @description Epic progress only: what the `series` (and its `pvOriginal`) is measured over. `CUMULATIVE` sums from the beginning of time; `PERIOD` rebases every point to what was planned, earned and spent inside the period. Defaults per level — CUMULATIVE at EPIC, PERIOD at DOMAIN, TEAM and UNIT; the effective value is echoed as `basis`. An unknown value is `400`. */
+        ReportEpicProgressBasis: "PERIOD" | "CUMULATIVE";
+        /** @description Epic progress only: the trailing window (days) each `trend` point's SPI and CPI are measured over. Outside `7..182` or not an integer is `400`. */
+        ReportTrendWindowDays: number;
         /** @description One Jira account id — sets the level to USER. Requires `teamId`. */
         ReportAccountId: string;
         /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
@@ -7149,6 +7239,10 @@ export interface operations {
                 workCategory?: components["parameters"]["ReportWorkCategory"];
                 /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
                 connectionId?: components["parameters"]["ReportConnectionId"];
+                /** @description Epic progress only: what the `series` (and its `pvOriginal`) is measured over. `CUMULATIVE` sums from the beginning of time; `PERIOD` rebases every point to what was planned, earned and spent inside the period. Defaults per level — CUMULATIVE at EPIC, PERIOD at DOMAIN, TEAM and UNIT; the effective value is echoed as `basis`. An unknown value is `400`. */
+                basis?: components["parameters"]["ReportEpicProgressBasis"];
+                /** @description Epic progress only: the trailing window (days) each `trend` point's SPI and CPI are measured over. Outside `7..182` or not an integer is `400`. */
+                trendWindowDays?: components["parameters"]["ReportTrendWindowDays"];
             };
             header?: never;
             path?: never;

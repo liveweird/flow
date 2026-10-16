@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Anchor, Badge, Stack, Text, Title } from "@mantine/core";
 import { Link as RouterLink, useSearchParams } from "react-router-dom";
 import type { EpicProgressReport, EpicProgressRow, ReportFilters } from "../api/reports";
-import { scopedSearch, type EpicScope } from "../utils/epicProgressReport";
+import { scopedSearch, type EpicScope, type EvmFigures } from "../utils/epicProgressReport";
 import { parseReportFilter } from "../utils/reportFilter";
 import { formatIndex, formatMd, formatSignedMd } from "../utils/reportFormat";
 import { epicProgressPath } from "../utils/reportLinks";
@@ -17,17 +17,24 @@ export interface EpicDrillState {
 
 const MISSING = "—";
 
+const index = (value: number | null) => (value == null ? MISSING : formatIndex(value));
+
+/** A row's figures on the basis the report shows: its `period` block, or the cumulative figures it carries itself. */
+const shown = (row: EpicProgressRow, period: boolean): EvmFigures => (period ? row.period : row);
+
 function FiguresTable({
   title,
   caption,
   firstColumn,
   rows,
+  period,
   nameCell,
 }: {
   title: string;
   caption?: string;
   firstColumn: string;
   rows: readonly EpicProgressRow[];
+  period: boolean;
   nameCell: (row: EpicProgressRow) => ReactNode;
 }) {
   const { t } = useTranslation();
@@ -39,13 +46,13 @@ function FiguresTable({
   });
   const columns: ColumnDef<EpicProgressRow>[] = [
     { key: "name", header: firstColumn, render: nameCell },
-    figure("pv", (row) => formatMd(row.pv)),
-    figure("ev", (row) => formatMd(row.ev)),
-    figure("ac", (row) => formatMd(row.ac)),
-    figure("sv", (row) => formatSignedMd(row.sv)),
-    figure("spi", (row) => (row.spi == null ? MISSING : formatIndex(row.spi))),
-    figure("cv", (row) => formatSignedMd(row.cv)),
-    figure("cpi", (row) => (row.cpi == null ? MISSING : formatIndex(row.cpi))),
+    figure("pv", (row) => formatMd(shown(row, period).pv)),
+    figure("ev", (row) => formatMd(shown(row, period).ev)),
+    figure("ac", (row) => formatMd(shown(row, period).ac)),
+    figure("sv", (row) => formatSignedMd(shown(row, period).sv)),
+    figure("spi", (row) => index(shown(row, period).spi)),
+    figure("cv", (row) => formatSignedMd(shown(row, period).cv)),
+    figure("cpi", (row) => index(shown(row, period).cpi)),
   ];
   return (
     <Stack gap="xs">
@@ -85,6 +92,7 @@ function FiguresTable({
 export default function EpicProgressRows({ report, filters }: { report: EpicProgressReport; filters: ReportFilters }) {
   const { t } = useTranslation();
   const [params] = useSearchParams();
+  const period = report.basis === "PERIOD";
   // A one-sprint period survives a drill only into a team that lists that sprint (the bar's `changeTeam` rule).
   const sprintId = parseReportFilter(params).sprintId;
   const teamListsSprint = (teamId: number) =>
@@ -114,6 +122,7 @@ export default function EpicProgressRows({ report, filters }: { report: EpicProg
           caption={t("reports.epicProgress.domainsCaption")}
           firstColumn={t("reports.epicProgress.column.domain")}
           rows={domains}
+          period={period}
           nameCell={(row) => (row.key === null ? row.name : link({ domain: row.key }, row.name))}
         />
         <FiguresTable
@@ -121,6 +130,7 @@ export default function EpicProgressRows({ report, filters }: { report: EpicProg
           caption={t("reports.epicProgress.teamsCaption")}
           firstColumn={t("reports.epicProgress.column.team")}
           rows={teams}
+          period={period}
           nameCell={(row) =>
             row.active === false || row.id === null ? (
               <Text size="sm" component="span">
@@ -144,6 +154,7 @@ export default function EpicProgressRows({ report, filters }: { report: EpicProg
         caption={t("reports.epicProgress.epicsCaption")}
         firstColumn={t("reports.epicProgress.column.epic")}
         rows={report.rows}
+        period={period}
         nameCell={(row) =>
           row.key === null ? (
             row.name

@@ -573,7 +573,21 @@ completed · the report's figures · the orange drift badge with the frozen figu
   level) and the page routes its changes through `applyBarChange`, so the LAST scope touched wins, epic included.
   Levels are drilled by the row NAME links (`scopedSearch` re-scopes the same report, the period travelling along); a
   domain → epic drill carries the domain in the router `state` so the breadcrumb (`EpicProgressBreadcrumb`) can offer the
-  way back — a directly opened epic simply has only the unit above it. Tiles: PV/EV/AC, SV/CV signed
+  way back — a directly opened epic simply has only the unit above it. **The basis (A37):** a segmented control "This period | Since
+  start" (`EpicProgressBasisControl`, in the first card above the tiles) writes `basis` — a report-specific managed filter param that only
+  this report keeps (`ReportFilterState.basis`, `REPORT_SPECIFIC_KEYS`) — to the URL and the request; absent, the server defaults per level
+  (one epic since its start, a domain, a team and the unit on the period) and the control shows the EFFECTIVE `report.basis`, so the default
+  is never written until the user touches it. Everything on the page follows `report.basis`: the tiles' primary value is the period block or
+  `asOf` (`figuresByBasis`) with the OTHER basis as one small line under it ("Since start: 0.94" / "This period: 1.17",
+  `ReportTile`'s `secondary`); a period index the server sends as `null` (under 1 MD planned or spent) is a dash plus "Too little planned/
+  spent in this period"; the TEAM foreign-work share tile shows `foreignWorkSharePeriod` on the period and `foreignWorkShare` otherwise
+  (the one matching the CPI shown); the MD chart and its table plot `series` as the server rebased it (its own title, caption and
+  accessible names per basis; the y axis is anchored at 0 but follows a negative value down), and the drill tables show each row's
+  `period` block on the period basis (a dash for a hidden index). **The trend card** ("SPI and CPI trend", present whenever `trend` is not
+  empty, i.e. every level incl. a single epic) is a second, separate lazy chart (`EpicProgressTrendChart`: SPI in the plan blue, CPI in the
+  cost gray DASHED — `CHART_COLORS.evmTrendSpi/Cpi`, one index axis, never a second axis on the MD chart — a labelled reference line at 1.0, a
+  legend, `connectNulls` off so a hidden week is a gap) with its numbers in `EpicProgressTrendTable` beside it (newest week first); the window
+  is the server's default 28 days (`TREND_WINDOW_DAYS`, the page has no control for it). Tiles: PV/EV/AC, SV/CV signed
   (`formatSignedMd`), SPI/CPI at two decimals (`formatIndex`) — a dash plus the reason when the server sends `null`
   (PV 0 / AC 0), and above/below 1 said in WORDS (`indexVerdict`, read at the printed precision), never red or green:
   an index under 1 is a fact about the plan, not a blocking failure. TEAM adds the foreign-work share beside CPI (A20).

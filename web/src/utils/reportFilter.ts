@@ -14,6 +14,10 @@ export type DomainView = "TASK" | "EPIC";
 export type Bucket = "WEEK" | "MONTH";
 export const BUCKETS: readonly Bucket[] = ["WEEK", "MONTH"];
 
+/** What the epic progress report measures over (A37): the period alone or from the beginning of time; the server defaults per level. */
+export type EpicBasis = "PERIOD" | "CUMULATIVE";
+export const EPIC_BASES: readonly EpicBasis[] = ["PERIOD", "CUMULATIVE"];
+
 /** What the WIP report keys its counts by (report 9); the server defaults to STAGE. */
 export type WipBy = "STATUS" | "STAGE" | "COLUMN";
 export const WIP_BYS: readonly WipBy[] = ["STAGE", "STATUS", "COLUMN"];
@@ -47,6 +51,8 @@ export interface ReportFilterState {
   workCategory?: string;
   /** Time resolution of a bucketed series (throughput); the server defaults to WEEK. */
   bucket?: Bucket;
+  /** What the epic progress report measures over; absent = the server's per-level default (PERIOD, but CUMULATIVE for one epic). */
+  basis?: EpicBasis;
   /** What the WIP report keys its counts by. */
   by?: WipBy;
   /** Which items the WIP report counts. */
@@ -80,6 +86,7 @@ const MANAGED_KEYS = [
   "activityType",
   "workCategory",
   "bucket",
+  "basis",
   "by",
   "itemKind",
   "connectionId",
@@ -94,6 +101,7 @@ export const REPORT_SPECIFIC_KEYS = [
   "activityType",
   "workCategory",
   "bucket",
+  "basis",
   "by",
   "itemKind",
   "tailPercent",
@@ -191,6 +199,8 @@ export function parseReportFilter(params: URLSearchParams, options: ReportFilter
   if (workCategory !== undefined) filter.workCategory = workCategory;
   const bucket = parseEnum(params.get("bucket"), BUCKETS);
   if (bucket !== undefined) filter.bucket = bucket;
+  const basis = parseEnum(params.get("basis"), EPIC_BASES);
+  if (basis !== undefined) filter.basis = basis;
   const by = parseEnum(params.get("by"), WIP_BYS);
   if (by !== undefined) filter.by = by;
   const itemKind = parseEnum(params.get("itemKind"), WIP_ITEM_KINDS);
