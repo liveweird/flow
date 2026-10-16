@@ -302,6 +302,12 @@ holds the fetch-stubbing helpers. The shared setup also forces the reduced-motio
 makes every Mantine test provider honor it: `Transition` invokes its animation hook even with
 `env="test"`, so synchronous reduced-motion transitions prevent callbacks from outliving happy-dom
 teardown. Other media queries retain their normal behavior; the application theme is unchanged.
+`setup.ts` also raises testing-library's `asyncUtilTimeout` to 4 s (and `vite.config.ts` the `testTimeout` to 10 s): the
+module registry is cleared per file, so the first test of a shuffled file to touch a lazy chart chunk pays its cold
+import, which exceeds the 1 s `findBy`/`waitFor` default on a contended machine. A chart read is still always awaited
+(`findBy…`/`waitFor`) — a synchronous `getBy…` after the page's own controls appear is the bug, not the timeout. To
+reproduce shuffle flakes run several `npx vitest run --sequence.shuffle --sequence.seed=N src/pages src/components`
+in parallel (a quiet single run hides them).
 
 **The suite runs with `isolate: false`** (`web/vite.config.ts` — a worker reuses its module registry and
 globals across files; the measured gain is in `build-times.md`, WHY 6). Vitest already scopes `vi.mock`
