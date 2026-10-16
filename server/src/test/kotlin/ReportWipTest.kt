@@ -56,8 +56,10 @@ private fun expectedCounts(rows: List<WipRow>, key: (WipRow) -> String): Map<Str
 /**
  * `GET /api/v1/reports/wip` (v0.3.0 M5 commit 15, Report 9, `.claude/docs/measures.md` "Report 9 — WIP"). The stub
  * fixture grades every day of every series against a SUM taken straight off the persisted `agg_daily_wip` rows (for the
- * scope, item kind and grouping under test); the zero-fill, the stage/status/column keys, the UNASSIGNED/UNOWNED split and
- * the scope isolation are pinned exactly on hand-built rows in a fresh DISABLED connection.
+ * scope, item kind and grouping under test) plus the independently re-derived DONE band (`ReportWipDoneSupport.kt`: DERIVE
+ * stores no DONE row since decision B, the report computes that band at query time; `ReportWipDoneBandTest` pins its rule);
+ * the zero-fill, the stage/status/column keys, the UNASSIGNED/UNOWNED split and the scope isolation are pinned exactly on
+ * hand-built rows in a fresh DISABLED connection.
  */
 class ReportWipTest {
 
@@ -92,7 +94,7 @@ class ReportWipTest {
         usePostgresTestcontainer()
         val connId = DerivedStubFixture.connectionId()
         val client = seededClient("reports-wip-stage")
-        val rows = readWipRows(connId).filter { it.scopeKind == "TEAM" }
+        val rows = readWipRowsWithDone(connId).filter { it.scopeKind == "TEAM" }
         val zone = reportZone()
         assertEquals(dayOfInstant(DerivedStubFixture.PINNED_NOW, zone), to, "the test range must end on the pinned DERIVE day")
 
@@ -132,7 +134,7 @@ class ReportWipTest {
         usePostgresTestcontainer()
         val connId = DerivedStubFixture.connectionId()
         val client = seededClient("reports-wip-status")
-        val rows = readWipRows(connId).filter { it.scopeKind == "TEAM" && it.day in isoDays(from, to) }
+        val rows = readWipRowsWithDone(connId).filter { it.scopeKind == "TEAM" && it.day in isoDays(from, to) }
         val body = client.wip("connectionId=$connId&from=$from&to=$to&by=STATUS&itemKind=BOTH")
 
         body.assertCounts("STATUS", expectedCounts(rows) { it.statusId })
@@ -158,7 +160,7 @@ class ReportWipTest {
         usePostgresTestcontainer()
         val connId = DerivedStubFixture.connectionId()
         val client = seededClient("reports-wip-domain")
-        val all = readWipRows(connId)
+        val all = readWipRowsWithDone(connId)
         val inRange = all.filter { it.day in isoDays(from, to) }
         val domain = inRange.filter { it.scopeKind == "DOMAIN" && it.itemKind == "TASK" }
             .groupBy { it.scopeId }.maxBy { (_, group) -> group.sumOf { it.count } }.key
@@ -179,7 +181,7 @@ class ReportWipTest {
         usePostgresTestcontainer()
         val connId = DerivedStubFixture.connectionId()
         val client = seededClient("reports-wip-team")
-        val inRange = readWipRows(connId).filter { it.day in isoDays(from, to) }
+        val inRange = readWipRowsWithDone(connId).filter { it.day in isoDays(from, to) }
         val teamId = fixtureTeamId(inRange)
         val teamRows = inRange.filter { it.scopeKind == "TEAM" && it.scopeId == teamId }
 
@@ -227,7 +229,7 @@ class ReportWipTest {
         usePostgresTestcontainer()
         val connId = DerivedStubFixture.connectionId()
         val client = seededClient("reports-wip-unassigned")
-        val rows = readWipRows(connId).filter { it.scopeKind == "TEAM" && it.day in isoDays(from, to) }
+        val rows = readWipRowsWithDone(connId).filter { it.scopeKind == "TEAM" && it.day in isoDays(from, to) }
         val tasks = rows.filter { it.itemKind == "TASK" && it.scopeId == "UNASSIGNED" }
         val epics = rows.filter { it.itemKind == "EPIC" && it.scopeId == "UNOWNED" }
         assertTrue(tasks.isNotEmpty() && epics.isNotEmpty(), "the fixture must carry unassigned tasks and unowned epics")
@@ -268,7 +270,7 @@ class ReportWipTest {
         assertNull(body.meta.from)
         val envelope = isoDays(dayOfInstant(sprint.startAt ?: sprint.completeAt, zone), dayOfInstant(sprint.completeAt, zone))
         assertEquals(envelope, body.series.map { it.day })
-        val rows = readWipRows(connId).filter { it.scopeKind == "TEAM" && it.itemKind == "TASK" }
+        val rows = readWipRowsWithDone(connId).filter { it.scopeKind == "TEAM" && it.itemKind == "TASK" }
         body.assertCounts("sprintId", expectedCounts(rows) { it.stage })
         assertTrue(body.series.sumOf { it.counts.values.sum() } > 0)
     }
@@ -416,6 +418,7 @@ class ReportWipTest {
                 cell("TEAM", "UNOWNED", d5, "EPIC", "s1", "NOT_STARTED", 5),
                 cell("TEAM", "UNASSIGNED", d5, "EPIC", "s1", "NOT_STARTED", 100), // an epic is never UNASSIGNED
                 cell("DOMAIN", "AAA", d5, "TASK", "s2", "IN_PROGRESS", 7),
+                // a DONE row (what a DERIVE from before decision B left behind) is never read: the DONE band comes from item_stage
                 cell("DOMAIN", "AAA", d5, "EPIC", "s2", "DONE", 3),
             ),
         )
@@ -478,7 +481,7 @@ class ReportWipTest {
             )
             // A domain reads its own scope only.
             val domain = client.wip("$both&domain=AAA")
-            assertEquals(mapOf("NOT_STARTED" to 0, "IN_PROGRESS" to 7, "WAITING" to 0, "DONE" to 3, "UNMAPPED" to 0), domain.day(d5))
+            assertEquals(mapOf("NOT_STARTED" to 0, "IN_PROGRESS" to 7, "WAITING" to 0, "DONE" to 0, "UNMAPPED" to 0), domain.day(d5))
             assertEquals(7, client.wip("$base&domain=AAA&itemKind=TASK").day(d5).getValue("IN_PROGRESS"))
             assertEquals(STAGES.associateWith { 0 }, client.wip("$both&domain=NOPE").day(d5))
 
@@ -501,9 +504,10 @@ class ReportWipTest {
 
     /**
      * A per-domain stage override lets ONE status carry two stages in a scope. The STATUS legend ranks it by its earliest
-     * stage in `NOT_STARTED, IN_PROGRESS, WAITING, DONE, UNMAPPED` order, whatever order the cells come back in: "Alpha" is both
-     * IN_PROGRESS and DONE (alphabetically DONE sorts first, so a first-seen rule would rank it 3rd) and must precede
-     * "Beta" (IN_PROGRESS); "Zero" (NOT_STARTED) leads; counts of the two-stage status sum.
+     * stage in `NOT_STARTED, IN_PROGRESS, WAITING, DONE, UNMAPPED` order, whatever order the cells come back in: "Xray" is both
+     * NOT_STARTED and IN_PROGRESS (alphabetically IN_PROGRESS sorts first, so a first-seen rule would rank it by IN_PROGRESS, tie
+     * "Beta" and lose on its name) and must precede "Beta" (IN_PROGRESS); "Alpha" (WAITING) closes; counts of the two-stage
+     * status sum. (No DONE cell here: DERIVE stores none since decision B.)
      */
     @Test
     fun `a status carrying two stages in one scope is ranked by its earliest stage, deterministically`() = testApplication {
@@ -518,17 +522,17 @@ class ReportWipTest {
             connId,
             listOf(
                 WipRow("TEAM", t, day, "TASK", "b", "IN_PROGRESS", 4),
-                WipRow("TEAM", t, day, "TASK", "a", "DONE", 2),
-                WipRow("TEAM", t, day, "TASK", "a", "IN_PROGRESS", 3),
-                WipRow("TEAM", t, day, "TASK", "z", "NOT_STARTED", 1),
+                WipRow("TEAM", t, day, "TASK", "x", "NOT_STARTED", 2),
+                WipRow("TEAM", t, day, "TASK", "x", "IN_PROGRESS", 3),
+                WipRow("TEAM", t, day, "TASK", "w", "WAITING", 1),
             ),
         )
         suspendTransaction(sharedDatabaseForTests()) {
             store.replaceStatuses(
                 connId,
                 listOf(
-                    StatusRef("a", "Alpha", StatusCategory.IN_PROGRESS), StatusRef("b", "Beta", StatusCategory.IN_PROGRESS),
-                    StatusRef("z", "Zero", StatusCategory.TODO),
+                    StatusRef("x", "Xray", StatusCategory.IN_PROGRESS), StatusRef("b", "Beta", StatusCategory.IN_PROGRESS),
+                    StatusRef("w", "Alpha", StatusCategory.IN_PROGRESS),
                 ),
             )
         }
@@ -536,8 +540,8 @@ class ReportWipTest {
             val client = seededClient("reports-wip-two-stage")
             repeat(3) {
                 val body = client.wip("connectionId=$connId&from=$day&to=$day&teamId=$team&by=STATUS")
-                assertEquals(listOf("z", "a", "b"), body.keys.map { it.key })
-                assertEquals(mapOf("z" to 1, "a" to 5, "b" to 4), body.series.single().counts)
+                assertEquals(listOf("x", "b", "w"), body.keys.map { it.key })
+                assertEquals(mapOf("x" to 5, "b" to 4, "w" to 1), body.series.single().counts)
             }
         } finally {
             deleteWipRows(connId)

@@ -898,6 +898,13 @@ evidence and recorded here as a dated entry (finding + fix, or "measured, intend
      to ~430 MB live in pairs, which is too close to 512: raise `-Xmx` and the container limit together then (+256 each), or run one
      worker slot.
 
+   - **2026-10-16 follow-up (brief 03 decision B, branch `feat/wip-done-band-at-query-time`):** the WIP step no longer writes `stage = DONE`
+     rows (60 % of `agg_daily_wip` on real data), and report 9 reads that band at query time (`reports/WipDoneBand.kt`, one set-based
+     statement, `WipPlanShapeTest` pins "no SubPlan"). `EXPLAIN (ANALYZE, BUFFERS)` on a synthetic connection of 6,000 tasks (4,500
+     done, `dim_date` 757 days, stats analyzed, stub-sized Docker Postgres): unit-wide 186 days **63 ms** (a nested loop of days x DONE
+     intervals with the covering predicate as join filter, 644k pairs, hash-aggregated), all 757 days **211 ms**, a team / UNASSIGNED /
+     a domain **8-13 ms**. The DERIVE side (fewer rows to insert) was not re-measured at scale 20.
+
 **What the suite is made of (local, pre-fix run, 782 tests, 12m30s of class time):**
 `MetricsDerivationTest` 5m55s (47 %), `MetricsDigestTest` 2m00s (16 %), `NormalizationPipelineTest`
 1m16s, `ReportDataQualityTest` 47 s, `DataProfileTest` 35 s — 24 tests over 5 s account for 87 % of

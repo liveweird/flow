@@ -1,6 +1,9 @@
 package ch.nokillswit
 
 import ch.nokillswit.metrics.teamTaskWipSql
+import ch.nokillswit.reports.SnapshotScope
+import ch.nokillswit.reports.WipDoneRequest
+import ch.nokillswit.reports.wipDoneBandSql
 import kotlinx.coroutines.runBlocking
 import java.sql.DriverManager
 import kotlin.test.Test
@@ -32,5 +35,31 @@ class WipPlanShapeTest {
             Regex("\"Parent Relationship\":\\s*\"SubPlan\"").containsMatchIn(plan),
             "a correlated sub-select (SubPlan) is back in the WIP team/task statement:\n$plan",
         )
+    }
+
+    /**
+     * The report 9 DONE band (`reports/WipDoneBand.kt`, decision B) is ONE statement over the period's days, never a per-day loop and
+     * never a correlated sub-select per (day, item): no `SubPlan` node in its plan for any scope, and the `task_domain` lookup of a
+     * DOMAIN scope is a join. (Its timing — 63 ms for 4,500 done items over 186 days, 8-13 ms for a team or a domain — was
+     * measured with `EXPLAIN ANALYZE` on a synthetic 6,000-task connection; `build-times.md` WHY 16.)
+     */
+    @Test
+    fun `the DONE band statement has no per-row sub-select for any scope`() = runBlocking {
+        val connId = DerivedStubFixture.connectionId()
+        val scopes = listOf(SnapshotScope.AllTeams, SnapshotScope.Team(1u), SnapshotScope.Unassigned, SnapshotScope.Domain("AAA"))
+        DriverManager.getConnection(PostgresTestSupport.jdbcUrl, PostgresTestSupport.user, PostgresTestSupport.password).use { conn ->
+            for (scope in scopes) {
+                val built = wipDoneBandSql(WipDoneRequest(listOf(connId), scope, true, true, "2025-09-01", "2026-03-05", accountIds = null))
+                val plan = conn.prepareStatement("EXPLAIN (FORMAT JSON) " + built.sql).use { st ->
+                    built.arguments.forEachIndexed { index, value -> st.setString(index + 1, value) }
+                    st.executeQuery().use { rs -> buildString { while (rs.next()) append(rs.getString(1)) } }
+                }
+                assertTrue(plan.contains("\"item_stage\""), "the DONE band must read metrics.item_stage ($scope):\n$plan")
+                assertFalse(
+                    Regex("\"Parent Relationship\":\\s*\"SubPlan\"").containsMatchIn(plan),
+                    "a correlated sub-select (SubPlan) is in the DONE band statement ($scope):\n$plan",
+                )
+            }
+        }
     }
 }
