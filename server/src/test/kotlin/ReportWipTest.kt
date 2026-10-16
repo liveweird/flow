@@ -7,6 +7,7 @@ import ch.nokillswit.norm.StatusCategory
 import ch.nokillswit.norm.StatusRef
 import ch.nokillswit.norm.WorkItemStore
 import ch.nokillswit.reports.WipReport
+import ch.nokillswit.reports.derivedCoverage
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
@@ -31,6 +32,15 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 private val STAGES = listOf("NOT_STARTED", "IN_PROGRESS", "WAITING", "DONE", "UNMAPPED")
+
+/**
+ * A `backfill_from` earlier than every day the hand-built tests read, so the backfill rule never touches them. Relative to
+ * today, not a literal: `validateDataSource` refuses a date more than `MAX_BACKFILL_YEARS_BACK` (10) years back.
+ */
+internal val EARLY_BACKFILL: String = java.time.LocalDate.now(java.time.ZoneOffset.UTC).minusYears(9).withDayOfYear(1).toString()
+
+/** The note of a period beginning before the stub connection's `backfill_from` (one connection in scope). */
+private const val BACKFILL_NOTE = "Before ${SyncedStubFixture.BACKFILL_FROM} the connection's history is incomplete (backfill window)"
 
 /** The kinds an `itemKind` value stands for. */
 private fun kindsOf(itemKind: String): Set<String> = if (itemKind == "BOTH") setOf("TASK", "EPIC") else setOf(itemKind)
@@ -72,8 +82,10 @@ class ReportWipTest {
         assertTrue(listedKeys.all { it in keyNames }, "$label: unlisted keys $outsideKeys")
     }
 
+    // The period deliberately begins BEFORE the stub's backfill window (2025-09-01): the series starts at the window.
     private val from = "2025-06-01"
     private val to = "2026-03-05"
+    private val firstListed = SyncedStubFixture.BACKFILL_FROM
 
     @Test
     fun `STAGE series for every item kind equal an independent sum of agg_daily_wip and BOTH is TASK plus EPIC`() = testApplication {
@@ -89,7 +101,8 @@ class ReportWipTest {
                 assertEquals("STAGE", body.by.name)
                 assertEquals(kind, body.itemKind.name)
                 assertEquals(STAGES, body.keys.map { it.key })
-                assertEquals(isoDays(from, to), body.series.map { it.day }, "one point per calendar day of the period")
+                assertEquals(isoDays(firstListed, to), body.series.map { it.day }, "one point per calendar day from the backfill window on")
+                assertEquals(BACKFILL_NOTE, body.note, "the period begins before the backfill window, and the note says why")
                 body.assertCounts(kind, expectedCounts(rows.filter { it.itemKind in kindsOf(kind) }) { it.stage })
                 assertEquals("UNIT", body.meta.level.name)
             }
@@ -202,7 +215,7 @@ class ReportWipTest {
             assertEquals(HttpStatusCode.BadRequest, boardlessColumn.status)
             // ... but a board-less team is fine for the other groupings: an empty-but-listed series.
             val empty = client.wip("connectionId=$connId&from=$from&to=$to&teamId=$boardless")
-            assertEquals(isoDays(from, to), empty.series.map { it.day })
+            assertEquals(isoDays(firstListed, to), empty.series.map { it.day })
             assertTrue(empty.series.all { point -> point.counts.values.all { it == 0 } })
         } finally {
             cleanUpTeams(listOf(boardless))
@@ -317,33 +330,42 @@ class ReportWipTest {
 
     /**
      * Two connections with DIFFERENT last-derived days (A through 2020-01-09, B through 2020-01-07) and a third that never
-     * derived, read together (no `connectionId`) through a domain only they carry. The series ends at the OLDEST derived day
-     * — B's — so A's newer days are not shown against B's missing ones as if B had zeros; the never-derived one is named
-     * in the note. (The days sit in 2020, before every pinned clock in the suite — `IngestWorkerTest`'s early-morning
-     * worker clock (2024-01-01) derives whatever DERIVE jobs are pending for OTHER connections, and each connection's newest
-     * successful run is never pruned — so no other test's connection can have derived earlier than they do.)
+     * derived. The unit-wide cut-off is the OLDEST derived day ([derivedCoverage], graded directly: the suite's other
+     * connections make a unit-wide WIP read start at THEIR backfill dates — `backfill_from` 2025-09-01 and later — so a 2020
+     * series cannot be listed unit-wide any more), and the never-derived connection is named in the unit-wide note. Each
+     * connection read alone lists all of its own days. (The days sit in 2020, before every pinned clock in the suite —
+     * `IngestWorkerTest`'s early-morning worker clock (2024-01-01) derives whatever DERIVE jobs are pending for OTHER
+     * connections, and each connection's newest successful run is never pruned — so no other test's connection can have
+     * derived earlier than they do.) Their backfill is 2019, earlier than every day read.
      */
     @Test
     fun `the cut-off is the oldest last derived day across the connections in scope`() = testApplication {
         usePostgresTestcontainer()
-        val connA = SyncedStubFixture.createConnection(namePrefix = "wip-lag-a", enabled = false)
-        val connB = SyncedStubFixture.createConnection(namePrefix = "wip-lag-b", enabled = false)
-        val connC = SyncedStubFixture.createConnection(namePrefix = "wip-lag-c", enabled = false)
+        val connA = SyncedStubFixture.createConnection(namePrefix = "wip-lag-a", enabled = false, backfillFrom = EARLY_BACKFILL)
+        val connB = SyncedStubFixture.createConnection(namePrefix = "wip-lag-b", enabled = false, backfillFrom = EARLY_BACKFILL)
+        val connC = SyncedStubFixture.createConnection(namePrefix = "wip-lag-c", enabled = false, backfillFrom = EARLY_BACKFILL)
         val domain = "ZZ-lag"
         insertWipRows(connA, (5..9).map { WipRow("DOMAIN", domain, "2020-01-%02d".format(it), "TASK", "s1", "NOT_STARTED", it - 4) })
         insertWipRows(connB, (5..7).map { WipRow("DOMAIN", domain, "2020-01-%02d".format(it), "TASK", "s1", "NOT_STARTED", 100) })
         insertSucceededDerive(connA, noonUtc("2020-01-09"))
         insertSucceededDerive(connB, noonUtc("2020-01-07"))
         try {
+            val calendar = DerivedStubFixture.metricsSettings().readWithCalendar().calendar
+            val coverage = suspendTransaction(sharedDatabaseForTests()) { derivedCoverage(listOf(connA, connB, connC), calendar) }
+            assertEquals(LocalDate.parse("2020-01-07"), coverage.day, "the oldest derived day, so B's missing days are not read as zeros")
+            assertEquals(listOf(connC), coverage.notDerived, "the never-derived connection is reported, not counted")
+
             val client = seededClient("reports-wip-lag")
-            val body = client.wip("from=2020-01-05&to=2020-01-11&domain=$domain")
-            assertEquals(listOf("2020-01-05", "2020-01-06", "2020-01-07"), body.series.map { it.day })
-            assertEquals(listOf(101, 102, 103), body.series.map { it.counts.getValue("NOT_STARTED") })
-            assertTrue(assertNotNull(body.note).contains(connC.toString()), "the never-derived connection is named")
-            // Narrowed to the connection that derived further, its own days are all listed and nothing is noted.
+            val unit = client.wip("from=2020-01-05&to=2020-01-11&domain=$domain")
+            assertTrue(assertNotNull(unit.note).contains(connC.toString()), "the never-derived connection is named")
+            // Each connection read alone lists its own days (its backfill is 2019) and nothing is noted.
             val onlyA = client.wip("connectionId=$connA&from=2020-01-05&to=2020-01-11&domain=$domain")
             assertEquals((5..9).map { "2020-01-%02d".format(it) }, onlyA.series.map { it.day })
+            assertEquals((1..5).toList(), onlyA.series.map { it.counts.getValue("NOT_STARTED") })
             assertNull(onlyA.note)
+            val onlyB = client.wip("connectionId=$connB&from=2020-01-05&to=2020-01-11&domain=$domain")
+            assertEquals((5..7).map { "2020-01-%02d".format(it) }, onlyB.series.map { it.day })
+            assertNull(onlyB.note)
         } finally {
             deleteWipRows(connA)
             deleteWipRows(connB)

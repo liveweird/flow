@@ -258,8 +258,19 @@ export interface ReportControls {
    * (`requiredTeamId`, applied by `useReportFilter`).
    */
   teamRequired?: boolean;
+  /**
+   * With `teamRequired` + `domainExcludesTeam` (WIP): the report needs exactly ONE of a specific team or a specific domain, never neither
+   * (the daily aggregate has no whole-unit view here and no team × domain split). A picked domain stands in for the team — the team
+   * control then shows no team and is still not clearable — and clearing the domain falls back to the default team (`requiredTeamId`).
+   */
+  teamOrDomain?: boolean;
   /** The member control picks up to `MAX_ACCOUNTS` people (`ReportFilterState.accountIds`) instead of one (the reports in `MULTI_ACCOUNT_PATHS`, `reportLinks.ts`). */
   multiMember?: boolean;
+}
+
+/** True while a `teamOrDomain` report is read for a domain alone: the (required) team is legitimately absent. */
+export function domainStandsForTeam(controls: Pick<ReportControls, "teamOrDomain">, filter: ReportFilterState): boolean {
+  return controls.teamOrDomain === true && filter.teamId === undefined && filter.domain !== undefined;
 }
 
 /**

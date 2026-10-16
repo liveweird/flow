@@ -7,7 +7,9 @@ package ch.nokillswit.metrics
  * `item_count` the number of items whose `metrics.item_stage` interval covers the END of that day
  * (`valid_from < day_end_ms AND (valid_to IS NULL OR valid_to >= day_end_ms)`), for every calendar
  * day from the connection's earliest `created_at` day (read straight off `MIN(item_stage.valid_from)`
- * — the first status interval always starts at `created_at`) up to and including the day of the
+ * — the first status interval always starts at `created_at`) OR its `backfill_from` day, whichever is LATER (decision C,
+ * `.claude/docs/metrics.md` "Daily WIP aggregate": before the backfill window the history is incomplete by construction —
+ * an item finished long before and not updated since was never fetched), up to and including the day of the
  * run's own [now]. Only non-zero counts get a row, which a plain `GROUP BY` already guarantees (a
  * group only exists when at least one item landed in it).
  *
@@ -42,15 +44,25 @@ internal suspend fun runWipStep(metricsStore: MetricsStore, connectionId: UInt, 
     return metricsStore.countAggDailyWip(connectionId)
 }
 
-/** Every calendar day from the connection's earliest `created_at` day through the day of [now] (inclusive). */
-internal fun dayRangeCte(connectionId: UInt, now: Long): String = """
+/**
+ * Every calendar day from the connection's earliest `created_at` day through the day of [now] (inclusive). With
+ * [fromBackfill] (the WIP statements) the first day is also floored at the connection's `backfill_from` (an ISO date,
+ * compared with the ISO `dim_date.day` text — the same lexicographic order the report's day filters use): a
+ * connection with no readable `backfill_from` keeps the creation-based start. The backlog statements keep the
+ * creation-based start (decision C covers `agg_daily_wip` only).
+ */
+internal fun dayRangeCte(connectionId: UInt, now: Long, fromBackfill: Boolean = false): String = """
     day_range AS (
         SELECT day, day_end_ms
         FROM metrics.dim_date
         WHERE day_end_ms > (SELECT MIN(valid_from) FROM metrics.item_stage WHERE connection_id = $connectionId)
-          AND day_start_ms <= $now
+          AND day_start_ms <= $now${if (fromBackfill) backfillFloor(connectionId) else ""}
     )
 """.trimIndent()
+
+/** The extra `day_range` predicate of [dayRangeCte]'s `fromBackfill`: `day` no earlier than the connection's `backfill_from`. */
+private fun backfillFloor(connectionId: UInt): String =
+    "\n          AND day >= COALESCE((SELECT backfill_from FROM public.source_connections WHERE id = $connectionId), '')"
 
 /**
  * The end-of-day covering predicate every WIP (and backlog) read shares: the interval `[alias.from,
@@ -76,7 +88,7 @@ private fun wipInsertHead(): String =
  * relies on [coveringAt]'s strict lower bound (`(from, to]`): adjacent intervals never both cover one day-end instant.
  */
 internal fun teamTaskWipSql(connectionId: UInt, now: Long, configRevision: Long): String = """
-    WITH ${dayRangeCte(connectionId, now)},
+    WITH ${dayRangeCte(connectionId, now, fromBackfill = true)},
     sprint_team AS (
         SELECT fi.issue_id, fi.from_at, fi.to_at, ds.team_id, ds.complete_at
         FROM norm.work_item_field_intervals fi
@@ -110,7 +122,7 @@ internal fun teamTaskWipSql(connectionId: UInt, now: Long, configRevision: Long)
 """.trimIndent()
 
 private fun teamEpicWipSql(connectionId: UInt, now: Long, configRevision: Long): String = """
-    WITH ${dayRangeCte(connectionId, now)},
+    WITH ${dayRangeCte(connectionId, now, fromBackfill = true)},
     rows AS (
         SELECT d.day AS day, s.status_id AS status_id, s.stage AS stage, dom.owner_team_id AS team_id
         FROM day_range d
@@ -126,7 +138,7 @@ private fun teamEpicWipSql(connectionId: UInt, now: Long, configRevision: Long):
 """.trimIndent()
 
 private fun domainWipSql(connectionId: UInt, now: Long, configRevision: Long): String = """
-    WITH ${dayRangeCte(connectionId, now)},
+    WITH ${dayRangeCte(connectionId, now, fromBackfill = true)},
     task_rows AS (
         SELECT d.day AS day, s.status_id AS status_id, s.stage AS stage,
                COALESCE(td.domain_key, t.domain_key) AS domain_key
@@ -157,7 +169,7 @@ private fun domainWipSql(connectionId: UInt, now: Long, configRevision: Long): S
 """.trimIndent()
 
 private fun epicWipSql(connectionId: UInt, now: Long, configRevision: Long): String = """
-    WITH ${dayRangeCte(connectionId, now)},
+    WITH ${dayRangeCte(connectionId, now, fromBackfill = true)},
     rows AS (
         SELECT d.day AS day, s.status_id AS status_id, s.stage AS stage, te.epic_id AS epic_id
         FROM day_range d

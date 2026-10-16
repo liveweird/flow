@@ -5,6 +5,7 @@ import {
   applyReportFilter,
   dropDomainWithTeam,
   dropMember,
+  domainStandsForTeam,
   dropReportSpecific,
   hasReportFilterParams,
   normalizeWipFilter,
@@ -271,6 +272,18 @@ describe("withFilterKey", () => {
     expect(withFilterKey(filter, "domain", null)).toEqual({ teamId: 3 });
     expect(withFilterKey(filter, "domain", undefined as unknown as null)).toEqual({ teamId: 3 });
     expect("domain" in withFilterKey(filter, "domain", null)).toBe(false);
+  });
+});
+
+describe("domainStandsForTeam", () => {
+  test("only a teamOrDomain report read for a domain and no team goes without its required team", () => {
+    expect(domainStandsForTeam({ teamOrDomain: true }, { domain: "FLO" })).toBe(true);
+    expect(domainStandsForTeam({ teamOrDomain: true }, { domain: "FLO", lastSprints: 3 })).toBe(true);
+    // A team beside the domain is the team case (the domain is dropped by normalizeWipFilter), neither is the missing-scope case.
+    expect(domainStandsForTeam({ teamOrDomain: true }, { teamId: 1, domain: "FLO" })).toBe(false);
+    expect(domainStandsForTeam({ teamOrDomain: true }, {})).toBe(false);
+    // A report that did not opt in never lets a domain stand in for its team.
+    expect(domainStandsForTeam({}, { domain: "FLO" })).toBe(false);
   });
 });
 
