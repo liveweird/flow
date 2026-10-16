@@ -570,6 +570,12 @@ page-position cursor: an interrupted batch's issues are simply still stale on th
 nothing was marked `changelog_synced_at` until the whole batch (or, in the fallback path, the whole
 issue) committed.
 
+**Slim author.** A history is stored with its `author` reduced to `{accountId, displayName, accountType}` (the rest of the embedded
+Jira user — `emailAddress`, `avatarUrls`, `self`, `timeZone`, `active` — is a denormalized copy of the `USER` entity and is dropped
+before the payload is canonicalized and stored; the `author_account_id` column is unaffected). This is the single exception to
+the raw store's "exactly as Jira returned it" rule; the kept-keys list, the reasons and the no-backfill decision (existing rows
+keep their full author until the install is set up afresh) are in `persistence.md` "The Jira changelog/worklog raw store (V11)".
+
 ## WORKLOGS stream (A1)
 
 `jira/JiraWorklogStream.kt` (v0.2.0 plan §0 A1/§7, plan commit 7, V11) is the direct implementation
@@ -594,6 +600,13 @@ carries no project/scope filter of its own. A1's fix has two parts, run in this 
    RUN's own start time on a connection's very first WORKLOGS run — never `backfillFrom` — so
    `/worklog/updated`/`/worklog/deleted` only ever cover time since Flow started watching this
    connection, not history from before it existed.
+
+**Slim author.** A worklog's `author` and `updateAuthor` are reduced to `{accountId, displayName, accountType}` BEFORE the payload
+is canonicalized and hashed (`persistence.md` "The Jira changelog/worklog raw store (V11)"), so a re-sync of an unchanged worklog
+produces the same sha256 (`UNCHANGED`: `changed_at` and `sha256` stay put; whether the issue is flagged for reprocessing is decided by
+`markWorklogsSynced` on the backfill path, whatever the outcome), and a difference only in
+a dropped key (an avatar URL, an e-mail address, a time zone) is not a change. Existing rows keep their old full author until the
+install is set up afresh (no backfill).
 
 **Scope filtering happens before any write.** `/worklog/updated` returns bare `{worklogId,
 updatedTime}` pairs with no `issueId`, so every id on a page is resolved through `POST

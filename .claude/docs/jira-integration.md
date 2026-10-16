@@ -290,6 +290,13 @@ shrinks; that is not worth it until a real tenant shows the cost.
 
 Pinned by `JiraIssuesPageSizeTest` (the ISSUES stream behaviour above only); the CHANGELOGS/WORKLOGS answer is next.
 
+### Embedded users in changelog/worklog payloads
+
+Jira embeds a full `USER` object as a history's `author` and a worklog's `author`/`updateAuthor`. The client returns it as is;
+the raw writers (`JiraRawWrites.insertChangelog`/`upsertWorklog`) store only `{accountId, displayName, accountType}` of it
+(`jira/JiraUserReferences.kt`; the reasons, the exception to "exactly as Jira returned it" and the no-backfill decision:
+`persistence.md` "The Jira changelog/worklog raw store (V11)"). Every reader takes `author.accountId`, which survives.
+
 ### Oversized changelog/worklog batch (`LIMIT_EXCEEDED`)
 
 The same failure shape on the two batch calls: a `changelog/bulkfetch` answer for a batch of `jira.changelogBulkSize`

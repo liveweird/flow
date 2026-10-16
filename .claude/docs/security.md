@@ -416,6 +416,14 @@ exception CLASS NAME, never the throwable — the cause chain can embed a body e
 decode-error message), the same `errorType`-only rule as `login.mfa_send_failed`/
 `password_reset.send_failed`; covered by `LogoutTest`.
 
+**Data minimization in the raw store.** A changelog history's `author` and a worklog's `author`/`updateAuthor` are stored as
+`{accountId, displayName, accountType}` only (`jira/JiraUserReferences.kt`, `persistence.md` "The Jira changelog/worklog raw
+store (V11)"): the `emailAddress`, avatar URLs and time zone Jira embeds in every one of those payloads are not kept in the
+hundreds of thousands of copies (the full user stays once, as the `USER` entity). This does NOT cover `raw.jira_issues`: the
+issue search requests `fields=*all`, so every issue payload still embeds full user objects (assignee, reporter, creator,
+comment and worklog authors), `emailAddress` included, verbatim. Rows written before this change keep their full
+author until the install is set up afresh (no backfill); covered by `JiraUserReferenceSlimmingTest`.
+
 **Outbound email** (`infra/mail/`, ported from Lettuce): `configureMail` (registered at the top of
 the infrastructure group, before Flyway) publishes `MailerKey` holding a `Mailer` or null.
 `mail.transport` (`$MAIL_TRANSPORT`) selects `log` (dev default — the full message, **including
