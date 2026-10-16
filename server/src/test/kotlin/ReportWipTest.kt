@@ -31,7 +31,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-private val STAGES = listOf("NOT_STARTED", "IN_PROGRESS", "WAITING", "DONE", "UNMAPPED")
+private val STAGES = listOf("NOT_STARTED", "IN_PROGRESS", "WAITING", "BLOCKED", "DONE", "UNMAPPED")
 
 /**
  * A `backfill_from` earlier than every day the hand-built tests read, so the backfill rule never touches them. Relative to
@@ -411,13 +411,14 @@ class ReportWipTest {
         insertWipRows(
             connId,
             listOf(
-                // team X: day 5 = 3 to do, 2 (+1 epic) doing, 1 unmapped; day 6 nothing; day 7 = 4 doing + 1 waiting (A30)
+                // team X: day 5 = 3 to do, 2 (+1 epic) doing, 1 unmapped; day 6 nothing; day 7 = 4 doing + 1 waiting + 2 blocked (A30, A36)
                 cell("TEAM", x, d5, "TASK", "s1", "NOT_STARTED", 3),
                 cell("TEAM", x, d5, "TASK", "s2", "IN_PROGRESS", 2),
                 cell("TEAM", x, d5, "TASK", "s9", "UNMAPPED", 1),
                 cell("TEAM", x, d5, "EPIC", "s2", "IN_PROGRESS", 1),
                 cell("TEAM", x, d7, "TASK", "s2", "IN_PROGRESS", 4),
                 cell("TEAM", x, d7, "TASK", "s3", "WAITING", 1),
+                cell("TEAM", x, d7, "TASK", "s3", "BLOCKED", 2),
                 // another team, the unassigned/unowned buckets, and a domain: never leak into team X
                 cell("TEAM", teamY.toString(), d5, "TASK", "s2", "IN_PROGRESS", 10),
                 cell("TEAM", "UNASSIGNED", d5, "TASK", "s1", "NOT_STARTED", 2),
@@ -455,9 +456,15 @@ class ReportWipTest {
             // Tue 2026-01-06 (Epiphany) is a seeded public holiday (V25), so it is flagged non-working beside the weekend.
             assertEquals(listOf(true, false, true, true, true, false, false), stage.series.map { it.isWorkingDay })
             fun WipReport.day(day: String) = series.single { it.day == day }.counts
-            assertEquals(mapOf("NOT_STARTED" to 3, "IN_PROGRESS" to 3, "WAITING" to 0, "DONE" to 0, "UNMAPPED" to 1), stage.day(d5))
+            assertEquals(
+                mapOf("NOT_STARTED" to 3, "IN_PROGRESS" to 3, "WAITING" to 0, "BLOCKED" to 0, "DONE" to 0, "UNMAPPED" to 1),
+                stage.day(d5),
+            )
             assertEquals(STAGES.associateWith { 0 }, stage.day("2026-01-06"))
-            assertEquals(mapOf("NOT_STARTED" to 0, "IN_PROGRESS" to 4, "WAITING" to 1, "DONE" to 0, "UNMAPPED" to 0), stage.day(d7))
+            assertEquals(
+                mapOf("NOT_STARTED" to 0, "IN_PROGRESS" to 4, "WAITING" to 1, "BLOCKED" to 2, "DONE" to 0, "UNMAPPED" to 0),
+                stage.day(d7),
+            )
             assertEquals(STAGES.associateWith { 0 }, stage.day("2026-01-11"))
             assertEquals(2, client.wip("$base&teamId=$teamX").day(d5).getValue("IN_PROGRESS"), "TASK is the default item kind")
             assertEquals(2, client.wip("$base&teamId=$teamX&itemKind=TASK").day(d5).getValue("IN_PROGRESS"))
@@ -468,13 +475,13 @@ class ReportWipTest {
             assertEquals(listOf("s1", "s2", "s3", "s9"), status.keys.map { it.key })
             assertEquals(listOf("Open", "Dev", "Review", "Weird"), status.keys.map { it.label })
             assertEquals(mapOf("s1" to 3, "s2" to 3, "s3" to 0, "s9" to 1), status.day(d5))
-            assertEquals(mapOf("s1" to 0, "s2" to 4, "s3" to 1, "s9" to 0), status.day(d7))
+            assertEquals(mapOf("s1" to 0, "s2" to 4, "s3" to 3, "s9" to 0), status.day(d7))
 
             // COLUMN: board order, the epic's s2 counts in Doing, s9 has no column.
             val column = client.wip("$both&teamId=$teamX&by=COLUMN")
             assertEquals(listOf("To do", "Doing", "(no column)"), column.keys.map { it.key })
             assertEquals(mapOf("To do" to 3, "Doing" to 3, "(no column)" to 1), column.day(d5))
-            assertEquals(mapOf("To do" to 0, "Doing" to 5, "(no column)" to 0), column.day(d7))
+            assertEquals(mapOf("To do" to 0, "Doing" to 7, "(no column)" to 0), column.day(d7))
             // ... and without any status outside the columns the "(no column)" key is not offered.
             val tasksOnly = client.wip("connectionId=$connId&from=$d7&to=$d7&teamId=$teamX&by=COLUMN&itemKind=BOTH")
             assertEquals(listOf("To do", "Doing"), tasksOnly.keys.map { it.key })
@@ -482,12 +489,18 @@ class ReportWipTest {
             // UNIT sums every TEAM scope (X + Y + UNASSIGNED + UNOWNED) and none of the DOMAIN scopes.
             val unit = client.wip(both)
             assertEquals(
-                mapOf("NOT_STARTED" to 3 + 2 + 5 + 100, "IN_PROGRESS" to 3 + 10, "WAITING" to 0, "DONE" to 0, "UNMAPPED" to 1),
+                mapOf(
+                    "NOT_STARTED" to 3 + 2 + 5 + 100, "IN_PROGRESS" to 3 + 10, "WAITING" to 0, "BLOCKED" to 0, "DONE" to 0,
+                    "UNMAPPED" to 1,
+                ),
                 unit.day(d5),
             )
             // A domain reads its own scope only.
             val domain = client.wip("$both&domain=AAA")
-            assertEquals(mapOf("NOT_STARTED" to 0, "IN_PROGRESS" to 7, "WAITING" to 0, "DONE" to 0, "UNMAPPED" to 0), domain.day(d5))
+            assertEquals(
+                mapOf("NOT_STARTED" to 0, "IN_PROGRESS" to 7, "WAITING" to 0, "BLOCKED" to 0, "DONE" to 0, "UNMAPPED" to 0),
+                domain.day(d5),
+            )
             assertEquals(7, client.wip("$base&domain=AAA&itemKind=TASK").day(d5).getValue("IN_PROGRESS"))
             assertEquals(STAGES.associateWith { 0 }, client.wip("$both&domain=NOPE").day(d5))
 
@@ -510,9 +523,10 @@ class ReportWipTest {
 
     /**
      * A per-domain stage override lets ONE status carry two stages in a scope. The STATUS legend ranks it by its earliest
-     * stage in `NOT_STARTED, IN_PROGRESS, WAITING, DONE, UNMAPPED` order, whatever order the cells come back in: "Xray" is both
+     * stage in `NOT_STARTED, IN_PROGRESS, WAITING, BLOCKED, DONE, UNMAPPED` order, whatever order the cells come back in: "Xray" is both
      * NOT_STARTED and IN_PROGRESS (alphabetically IN_PROGRESS sorts first, so a first-seen rule would rank it by IN_PROGRESS, tie
-     * "Beta" and lose on its name) and must precede "Beta" (IN_PROGRESS); "Alpha" (WAITING) closes; counts of the two-stage
+     * "Beta" and lose on its name) and must precede "Beta" (IN_PROGRESS); "Alpha" (WAITING) then "Zulu" (BLOCKED, A36) close;
+     * counts of the two-stage
      * status sum. (No DONE cell here: DERIVE stores none since decision B.)
      */
     @Test
@@ -531,6 +545,7 @@ class ReportWipTest {
                 WipRow("TEAM", t, day, "TASK", "x", "NOT_STARTED", 2),
                 WipRow("TEAM", t, day, "TASK", "x", "IN_PROGRESS", 3),
                 WipRow("TEAM", t, day, "TASK", "w", "WAITING", 1),
+                WipRow("TEAM", t, day, "TASK", "z", "BLOCKED", 2),
             ),
         )
         suspendTransaction(sharedDatabaseForTests()) {
@@ -538,7 +553,7 @@ class ReportWipTest {
                 connId,
                 listOf(
                     StatusRef("x", "Xray", StatusCategory.IN_PROGRESS), StatusRef("b", "Beta", StatusCategory.IN_PROGRESS),
-                    StatusRef("w", "Alpha", StatusCategory.IN_PROGRESS),
+                    StatusRef("w", "Alpha", StatusCategory.IN_PROGRESS), StatusRef("z", "Zulu", StatusCategory.IN_PROGRESS),
                 ),
             )
         }
@@ -546,8 +561,8 @@ class ReportWipTest {
             val client = seededClient("reports-wip-two-stage")
             repeat(3) {
                 val body = client.wip("connectionId=$connId&from=$day&to=$day&teamId=$team&by=STATUS")
-                assertEquals(listOf("x", "b", "w"), body.keys.map { it.key })
-                assertEquals(mapOf("x" to 5, "b" to 4, "w" to 1), body.series.single().counts)
+                assertEquals(listOf("x", "b", "w", "z"), body.keys.map { it.key })
+                assertEquals(mapOf("x" to 5, "b" to 4, "w" to 1, "z" to 2), body.series.single().counts)
             }
         } finally {
             deleteWipRows(connId)

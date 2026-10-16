@@ -16,8 +16,8 @@ export const DOMAIN_KEY_MAX_LENGTH = 50;
 export const DOMAIN_NAME_MAX_LENGTH = 100;
 export const CATEGORY_MAX_LENGTH = 100;
 
-export type MetricsStage = "NOT_STARTED" | "IN_PROGRESS" | "WAITING" | "DONE";
-export const METRICS_STAGES: MetricsStage[] = ["NOT_STARTED", "IN_PROGRESS", "WAITING", "DONE"];
+export type MetricsStage = "NOT_STARTED" | "IN_PROGRESS" | "WAITING" | "BLOCKED" | "DONE";
+export const METRICS_STAGES: MetricsStage[] = ["NOT_STARTED", "IN_PROGRESS", "WAITING", "BLOCKED", "DONE"];
 
 export interface StatusRowState {
   statusId: string;
@@ -25,7 +25,6 @@ export interface StatusRowState {
   category: string;
   /** "" means unmapped — omitted from the submitted `statusStages` list. */
   stage: MetricsStage | "";
-  blocked: boolean;
   /** Some in-scope project's reference workflow uses the status (options `inWorkflow`) — drives the default Statuses filter. */
   inWorkflow: boolean;
   /** Some work item's status interval carries the status (options `seenInHistory`). */
@@ -101,13 +100,11 @@ export function buildInitialState(
   options: DataSourceMetricsConfigOptions,
 ): MetricsConfigFormState {
   const stageByStatusId = new Map(config.statusStages.map((s) => [s.statusId, s.stage]));
-  const blockedStatusIds = new Set(config.blockedStatuses);
   const statuses: StatusRowState[] = options.statuses.map((s) => ({
     statusId: s.statusId,
     name: s.name,
     category: s.category,
     stage: stageByStatusId.get(s.statusId) ?? "",
-    blocked: blockedStatusIds.has(s.statusId),
     inWorkflow: s.inWorkflow,
     seenInHistory: s.seenInHistory,
     inEpicWorkflow: s.inEpicWorkflow,
@@ -205,7 +202,6 @@ export function buildRequest(state: MetricsConfigFormState): DataSourceMetricsCo
           .filter((w) => w.category !== "")
           .map((w) => ({ valueId: w.valueId, valueName: w.valueName, category: w.category }))
       : [],
-    blockedStatuses: state.statuses.filter((s) => s.blocked).map((s) => s.statusId),
   };
 }
 
@@ -303,9 +299,9 @@ export function defaultStageForCategory(category: string): MetricsStage | "" {
   }
 }
 
-/** Whether the status carries a deliberate admin choice: a non-default stage, the Blocked flag or a per-domain override. */
+/** Whether the status carries a deliberate admin choice: a non-default stage or a per-domain override. */
 function statusHasUserChoice(row: StatusRowState, overrides: DomainStageRowState[]): boolean {
-  return row.stage !== defaultStageForCategory(row.category) || row.blocked || overrides.some((o) => o.statusId === row.statusId);
+  return row.stage !== defaultStageForCategory(row.category) || overrides.some((o) => o.statusId === row.statusId);
 }
 
 /**

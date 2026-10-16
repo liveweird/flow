@@ -1,7 +1,7 @@
 /**
  * The report charts' series colours — the app's colour vocabulary (blue = plan/committed,
- * teal = delivered, orange = carried over / added scope, red = dropped, gray = removed/neutral;
- * no new hue) as concrete Mantine theme shades.
+ * teal = delivered, orange = carried over / added scope, red = dropped (commitments) or blocked (the WIP and aging charts; one shade, `red.7`),
+ * gray = removed/neutral; no new hue) as concrete Mantine theme shades.
  *
  * Every mark must clear WCAG 1.4.11 (≥ 3:1) on every surface a chart sits on: white and the
  * `#f5f7fb` canvas in the light scheme, the `#2e2e2e` paper and the `#1f1f1f` canvas in the dark
@@ -11,7 +11,7 @@
  *   committed  flow.6    3.56 / 3.32 | 3.82 / 4.63
  *   delivered  teal.8    3.95 / 3.68 | 3.44 / 4.18
  *   carried    orange.8  3.58 / 3.34 | 3.79 / 4.60   (added scope uses the same hue: never both in one chart)
- *   dropped    red.7     3.84 / 3.58 | 3.53 / 4.29
+ *   dropped    red.7     3.84 / 3.58 | 3.53 / 4.29   (also the WIP stage band of blocked work, `stageBlocked`)
  *   removed    gray.6    3.32 / 3.10 | 4.09 / 4.96
  *   waiting    grape.6   4.02 / 3.75 | 3.37 / 4.10   (the WIP band of started work with nothing active)
  *   band 3rd   flow.7    4.20 / 3.91 | 3.24 / 3.93   (the WIP band cycle's extra blue: flow.5 fails on white, flow.8 on dark paper)
@@ -49,11 +49,13 @@ export const CHART_COLORS = {
   evmOriginalPlan: "flow.6",
   evmEarned: "teal.8",
   evmActual: "gray.6",
-  /** WIP bands by stage: gray = not started, blue = in progress (active work), grape = waiting (started, nothing active), teal = done, orange = unmapped (a soft configuration finding). */
+  /** WIP bands by stage: gray = not started, blue = in progress (active work), grape = waiting (started, nothing active, a queue), red = blocked (started, held by an impediment), teal = done, orange = unmapped (a soft configuration finding). */
   stageNotStarted: "gray.6",
   stageInProgress: "flow.6",
   /** Waiting = started, nothing actively worked on (A30): grape (purple), a hue none of the other stages or semantic states wears. */
   stageWaiting: "grape.6",
+  /** Blocked = started, held by an impediment (A36): red, which already means blocked in the vocabulary (the same shade as `dropped`, so no new hue). */
+  stageBlocked: "red.7",
   stageDone: "teal.8",
   stageUnmapped: "orange.8",
   /**

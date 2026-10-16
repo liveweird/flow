@@ -6,7 +6,7 @@ reports it serves, its invariants, and how known data imperfections are handled.
 contract the metrics layer and every dashboard are built against. **Status: agreed 2026-09-27
 (D1–D16), validated against the target reports; amended 2026-09-28 (A17–A21, see "Amendments"
 below); implemented in v0.3.0** (the configuration, DERIVE and the star: `.claude/docs/metrics.md`;
-the sixteen reports: `.claude/docs/reports.md`; the deep dive, report 17, is A29 below; the WAITING stage is A30; issues above the epic level are A31; capacity is a team default and a sprint calendar, A32; public holidays are a dictionary and locked off in capacity, A33; report 9's DONE band is computed at query time and attributed as at done, A34; an estimate entered after an item is done is a backfill, not an adjustment, A35). The per-measure operational contract — each
+the sixteen reports: `.claude/docs/reports.md`; the deep dive, report 17, is A29 below; the WAITING stage is A30; issues above the epic level are A31; capacity is a team default and a sprint calendar, A32; public holidays are a dictionary and locked off in capacity, A33; report 9's DONE band is computed at query time and attributed as at done, A34; the BLOCKED stage is A36; an estimate entered after an item is done is a backfill, not an adjustment, A35). The per-measure operational contract — each
 report number's grain, time anchor, attribution, estimate snapshot, missing-data rule,
 frozen/live source and the test that pins it — is `.claude/docs/measures.md`.
 
@@ -95,7 +95,7 @@ below).
 
 **Delivery — EV (earned value).** From the configured status stages, for tasks and epics alike:
 
-- `started_at` = the item's **first** entry into an IN_PROGRESS **or WAITING** status (A30: work that is waiting has started).
+- `started_at` = the item's **first** entry into an IN_PROGRESS, WAITING **or BLOCKED** status (A30, A36: work that is waiting or blocked has started).
 - `done_at` = its **last** entry into a DONE status that it never left afterwards. A reopened item
   is not delivered until it is finally done again; its reopen count is kept.
 - EV(t) = the sum of estimates of items with `done_at` ≤ t.
@@ -103,15 +103,15 @@ below).
   elapsed time **and in working days** (the configured calendar and time zone).
 - An epic's lifecycle comes from **its own status** (D11); where it disagrees with its children,
   the epic is flagged, never re-dated.
-- **Blocked time** = time an item spent Flagged or in a configured **blocked status** (e.g.
-  Blocked, Waiting) between its `started_at` and its `done_at` (or now), in working days — per
+- **Blocked time** = time an item spent Flagged or in a **BLOCKED stage** (A36: a status an admin maps to
+  BLOCKED, e.g. Blocked, On Hold) between its `started_at` and its `done_at` (or now), in working days — per
   item, and as a share of its cycle time.
 - **Flow efficiency** = active time ÷ cycle time, where active time is the time in IN_PROGRESS
   stages inside the cycle minus blocked time, and wait time is the rest of the cycle (A18) — so time in a
-  WAITING stage is wait (A30).
-- **Work in progress (WIP)** = the items in an IN_PROGRESS **or** WAITING stage (A30); the WIP report shows the two as separate bands.
-- **Age** of an IN_PROGRESS or WAITING item = working days since `started_at`, compared with its team's
-  cycle-time percentiles (aging WIP); a WAITING item is marked as waiting (A30).
+  WAITING or BLOCKED stage is wait (A30, A36).
+- **Work in progress (WIP)** = the items in an IN_PROGRESS, WAITING **or** BLOCKED stage (A30, A36); the WIP report shows the three as separate bands.
+- **Age** of an IN_PROGRESS, WAITING or BLOCKED item = working days since `started_at`, compared with its team's
+  cycle-time percentiles (aging WIP); a WAITING item is marked as waiting (A30), a BLOCKED one as blocked (A36).
 
 **Cost — AC (actual cost).** AC(t) = the sum of worklog MD logged up to t, for any scope. A task's
 `actual_md` is its own worklogs plus its sub-tasks'; an epic's is every child's plus any logged on
@@ -159,7 +159,7 @@ layer (of the connections it affects — `metrics.md` "DERIVE fan-out per config
 
 | Setting | Shape | Default |
 |---|---|---|
-| Status → stage | each Jira status id → `NOT_STARTED` / `IN_PROGRESS` / `WAITING` / `DONE`, with an optional per-domain override | seeded from Jira's status category (new / indeterminate / done) — **never** `WAITING`, which Jira has no category for and an admin maps by hand (A30); an unmapped status is flagged, never guessed |
+| Status → stage | each Jira status id → `NOT_STARTED` / `IN_PROGRESS` / `WAITING` / `BLOCKED` / `DONE`, with an optional per-domain override | seeded from Jira's status category (new / indeterminate / done) — **never** `WAITING` or `BLOCKED`, which Jira has no category for and an admin maps by hand (A30, A36); an unmapped status is flagged, never guessed |
 | Estimate field | one field id (tasks) + an optional override for epics | the field the data profile detects as `STORY_POINTS` |
 | Epic start/due fields | two field ids | "Start date" + `duedate`, or Jira Plans' "Target start"/"Target end" |
 | Project → domain (+ owner team, A19) | map | 1:1; owner = the team of the one mapped board on that project, else none |
@@ -170,7 +170,6 @@ layer (of the connections it affects — `metrics.md` "DERIVE fan-out per config
 | Issue type → activity type | map | 1:1 |
 | Work-category field + value → category | one field id + map | none (field must be chosen); 1:1 |
 | Minimum sample size | number | 5 — below it, percentiles and distributions are hidden with a note |
-| Blocked statuses | set of status ids | none (only Flagged counts until set) |
 | Aging-WIP window | N most recent done items + percentiles | 50; p50/p85/p95 |
 | Backlog-in-sprints window | N most recent closed sprints | 3 |
 | Epic drift threshold | days an epic may stay open after its last child is done | 14 |
@@ -183,7 +182,7 @@ counts and sums only.
 
 - **Configuration tables:** `status_stage_map`, `estimate_field`, `epic_date_fields`, `domain_map`,
   `board_team_map`, `team_capacity_defaults`, `sprint_calendars` (A32; `team_sprint_capacity` is legacy, unread), `calendar`, `activity_type_map`,
-  `work_category_field`, `work_category_map`, `blocked_statuses`, `report_windows`,
+  `work_category_field`, `work_category_map`, `report_windows`,
   `config_revision`.
 - **Dimensions:** `dim_org` (unit → team → user, effective-dated through `team_membership`),
   `dim_domain`, `dim_team`, `dim_user`, `dim_epic` (SCD2 on dates and domain), `dim_task` (key,
@@ -267,9 +266,9 @@ user, and slices by domain, activity type and work category.
 | 6.3 | **Added scope** | `fact_sprint` | SP added after sprint start (and removed) |
 | 7 | **Cycle time** | `fact_task_delivery` | per task; elapsed and working days; distribution |
 | 8 | **Reported time ÷ cycle time** | `fact_task_delivery` | `actual_md ÷ cycle time in working days` — how much of the elapsed working time was logged; distinct from the status-based flow efficiency (active ÷ total time in stages) |
-| 9 | **WIP** | `agg_daily_*` over `item_status`/`item_stage` | items in parallel per status (or stage, or board column) over time — tasks and epics; by stage, IN_PROGRESS and WAITING are separate bands and work in progress is their sum (A30); the DONE band is computed at query time and attributed as at done (A34) |
+| 9 | **WIP** | `agg_daily_*` over `item_status`/`item_stage` | items in parallel per status (or stage, or board column) over time — tasks and epics; by stage, IN_PROGRESS, WAITING and BLOCKED are separate bands and work in progress is their sum (A30, A36); the DONE band is computed at query time and attributed as at done (A34) |
 | 10 | **Estimated backlog depth** | `agg_daily_*` | count and SP of estimated tasks ready for planning (D9), now and as a trend; owned by the owner team of the task's domain (A19), `(unowned)` otherwise |
-| 11 | **Aging WIP** | `item_stage` + `fact_task_delivery` | the current age of every IN_PROGRESS or WAITING task and epic (A30; waiting ones marked) against the team's cycle-time p50/p85/p95 over its last N done items; items past p85 highlighted |
+| 11 | **Aging WIP** | `item_stage` + `fact_task_delivery` | the current age of every IN_PROGRESS, WAITING or BLOCKED task and epic (A30, A36; waiting and blocked ones marked) against the team's cycle-time p50/p85/p95 over its last N done items; items past p85 highlighted |
 | 12 | **Blocked time** | `fact_task_delivery`, `fact_epic_delivery` | blocked time per item, as a share of cycle time, and as a distribution |
 | 13 | **Throughput in items; backlog in sprints** | `fact_sprint`, `agg_daily_*` | item counts beside SP in reports 1, 2, 6 and 10; backlog in sprints = estimated backlog SP ÷ mean delivered SP over the team's last N sprints |
 | 14 | **Data quality** | all facts | per team and domain: worklog coverage (DONE tasks with worklogs; logged hours per member per working day vs `hoursPerDay`), late logging (worklog created vs `started`), tasks without an estimate, epic or work category, tasks estimated late or only after they were done (A35), epic drift (D11), unmapped statuses, issues above the epic level (A31: left out of the model, listed with their own logged MD), work done outside any sprint, sprint-snapshot drift (D13) |
@@ -285,8 +284,8 @@ The implementation asserts these as SQL sweeps over the persisted rows (the
 1. A user belongs to ≤1 team at any instant (enforced by the exclusion constraint).
 2. A task belongs to ≤1 epic at any instant; an epic to exactly 1 domain at any instant.
 3. Status and stage intervals tile each item's lifetime (inherited from `norm`'s status tiling); the stages are
-   `NOT_STARTED`, `IN_PROGRESS`, `WAITING`, `DONE` and the derived `UNMAPPED` (A30).
-4. `started_at ≤ done_at` when both are set (`started_at` is the first IN_PROGRESS-or-WAITING entry, A30); `done_at` is set only while
+   `NOT_STARTED`, `IN_PROGRESS`, `WAITING`, `BLOCKED`, `DONE` and the derived `UNMAPPED` (A30, A36).
+4. `started_at ≤ done_at` when both are set (`started_at` is the first IN_PROGRESS-, WAITING- or BLOCKED-stage entry, A30, A36); `done_at` is set only while
    the current stage is DONE.
 5. PV, EV and AC are in MD; unit conversion happens only in the `metrics` layer, under a recorded
    configuration revision.
@@ -296,7 +295,7 @@ The implementation asserts these as SQL sweeps over the persisted rows (the
    **up** the hierarchy (sub-task → task → epic), never sideways — the sum of task `actual_md`
    equals the `fact_worklog` total for the same scope (worklogs on epics and on issues above the epic level, A31, aside).
 8. `fact_sprint`'s totals equal the sums of its `fact_sprint_scope` rows.
-9. Estimated backlog, WIP (IN_PROGRESS or WAITING) and done are mutually exclusive for an item at any instant.
+9. Estimated backlog, WIP (IN_PROGRESS, WAITING or BLOCKED) and done are mutually exclusive for an item at any instant.
 10. A board maps to at most one team (D10).
 11. A `fact_sprint_snapshot` row never changes once written.
 12. Every live number is reproducible from `norm` + one configuration revision.
@@ -481,8 +480,8 @@ carries the per-measure detail).
   - **WIP = IN_PROGRESS + WAITING.** The stage-keyed WIP report gets a fifth key, `WAITING`, a band of its own; work in
     progress is the two bands together. The estimated backlog (NOT_STARTED only) and `done_at` are unaffected.
   - **Flow efficiency's formula is unchanged**: active = IN_PROGRESS time in `[started_at, done_at)` minus blocked time
-    while IN_PROGRESS. WAITING is simply not IN_PROGRESS, so its time is wait. A status can be both WAITING and a
-    configured blocked status ("On Hold"); blocked time is only ever subtracted inside IN_PROGRESS, so nothing is
+    while IN_PROGRESS. WAITING is simply not IN_PROGRESS, so its time is wait. (A36 later replaced the blocked-status tick with
+    the BLOCKED stage, so a status is no longer both.) Blocked time is only ever subtracted inside IN_PROGRESS, so nothing is
     subtracted twice. (The Blocked-time report (12) is NOT unchanged: it clips blocked time to `[started_at, done_at)` and
     divides by `cycle_working_days`, so it follows `started_at`, above.)
   - **Aging WIP keeps waiting items.** An open task or epic whose current stage is IN_PROGRESS or WAITING ages from
@@ -562,7 +561,7 @@ carries the per-measure detail).
   2026-10-16, `briefs/03-STORAGE-OPTIMIZATION.md` decision B). `agg_daily_wip` counted every finished item again on every later day,
   forever (60 % of the table on real data), so DERIVE now writes NO `stage = DONE` row and report 9 reads the band off
   `metrics.item_stage` in one set-based statement per request (`reports/WipDoneBand.kt`, sharing the WIP step's `coveringAt`
-  predicate). The band's attribution **changes the measure**: the stored bands (NOT_STARTED, IN_PROGRESS, WAITING, UNMAPPED) still
+  predicate). The band's attribution **changes the measure**: the stored bands (NOT_STARTED, IN_PROGRESS, WAITING, BLOCKED, UNMAPPED) still
   follow the as-was D5 team / domain of each day (D5, A22), but a DONE item is frozen from its done time on.
   - **TEAM scope.** A task belongs to `fact_task_delivery.credit_team_id` (D5's delivery credit: the sprint's team, else the assignee's
     team, at `done_at`; null -> `UNASSIGNED`), an epic to its domain's owner team (A19, as before; no owner -> `UNOWNED`). A team change
@@ -582,7 +581,7 @@ carries the per-measure detail).
     old rule put 30,681 (99 %) in `UNASSIGNED` and 210 in the board's team; the new rule puts 11,186 (36 %) in the board's team and
     19,705 in `UNASSIGNED` (work in sprints of no mapped board). The DOMAIN split did not move on the stub (no domain changed after done).
   - **What does not move.** The unit-wide DONE band (every TEAM scope summed) counts the very same items per day and status as before;
-    only its split by team and by domain moves. The four stored bands are byte-for-byte what they were. Operational detail:
+    only its split by team and by domain moves. The stored bands are byte-for-byte what they were. Operational detail:
     `.claude/docs/metrics.md` "Daily WIP aggregate", `.claude/docs/measures.md` "Report 9", `.claude/docs/reports.md` "Report 9".
 
 - **A35 — An estimate entered after the item is done is a backfill, not an adjustment** (agreed with the user 2026-10-16;
@@ -627,6 +626,39 @@ carries the per-measure detail).
     metrics derive-version stamp (`derive_runs.processing_version` is `norm`'s and nothing compares it), so V28 does what a
     settings PUT does: it bumps the global `config_revision` and enqueues one DERIVE per enabled, active connection (the V25
     precedent). Operational detail: `.claude/docs/persistence.md` "Estimate after done (V28)", `.claude/docs/metrics.md`.
+
+- **A36 — The BLOCKED stage replaces the "Blocked" status checkbox** (agreed with the user 2026-10-16, `briefs/07-BLOCKED-STAGE.md`;
+  it follows A35). The Statuses tab gave every status a stage AND, independently, a Blocked tick (`metrics.blocked_statuses`). That
+  allowed combinations that mean nothing for a *status*: In progress + blocked (if the status itself means blocked, nobody is actively
+  working on it) and Not started / Done + blocked (blocked time only counts inside `[started_at, done_at)`). The one meaningful
+  combination is "started, not actively worked on, **because of an impediment**" — formerly WAITING + ticked. So it is a stage of its
+  own, and every status has exactly ONE stage; the WIP chart now separates **queues** (WAITING) from **impediments** (BLOCKED).
+  - **Mapped by hand, never defaulted** (like WAITING): `toDefaultStage` never yields it. The stages are now `NOT_STARTED`,
+    `IN_PROGRESS`, `WAITING`, `BLOCKED`, `DONE` and the derived `UNMAPPED`.
+  - **`started_at` = the first entry into IN_PROGRESS, WAITING or BLOCKED**; DONE -> BLOCKED is a reopen (`done_at` clears).
+  - **WIP = IN_PROGRESS + WAITING + BLOCKED**: report 9's stage keying gets a sixth key, `BLOCKED`, a band of its own (red, the
+    vocabulary's "blocked"); the per-person read (brief 04) and Aging WIP's stage/positions carry it too. Backlog, WIP and done stay
+    mutually exclusive (invariant 9).
+  - **Flow efficiency's formula and `activeWaitMs` are unchanged**: BLOCKED is not IN_PROGRESS, so its time is wait.
+  - **Blocked time (report 12)**: `item_blocked` is now the Flagged=true spans UNION the BLOCKED-stage spans (merged, clipped to
+    `[started_at, done_at or the derive clock)`, as before; the `reason` stays `FLAGGED`/`STATUS`, `STATUS` meaning a BLOCKED-stage
+    span). No formula change in the report; its population and figures come from the new `item_blocked`. Because a BLOCKED stage is
+    never IN_PROGRESS, only a Flagged span (an IN_PROGRESS item flagged on the board) is ever subtracted from active time.
+  - **Jira's Flagged marker stays**, as an item-level marker on top of the stage (an item can be IN_PROGRESS on the board and Flagged at
+    the same moment); it can not be a stage, which comes from the status alone.
+  - **Aging WIP lists BLOCKED items** (`stage = BLOCKED`, `blocked = true`, `waiting = false`: a BLOCKED-stage item is never read as
+    waiting); the x-axis orders statuses by stage, BLOCKED after WAITING.
+  - **Deep dive execution does NOT count BLOCKED** (A29: IN_PROGRESS only). This **changes** a figure intentionally: an IN_PROGRESS
+    status that was ticked "blocked" used to be execution; it is now BLOCKED and is not.
+  - **Migration V29** widens the five stage CHECKs, converts every tick and drops the table: per ticked `(connection, status)` an
+    IN_PROGRESS or WAITING `status_stage_map` row (global and per-domain) becomes BLOCKED; with no global row (effectively UNMAPPED until
+    now) and an IN_PROGRESS Jira category a global BLOCKED row is inserted — the tick said "this means blocked" —; a tick on NOT_STARTED / DONE (or any other category) only goes away (it mattered only
+    after a reopen into that status). The shared revision moves and one DERIVE is enqueued per enabled connection that had a tick, so
+    the derived tables rebuild; nothing moves when no status was ticked (the live install had none). The `blockedStatuses` field
+    left the metrics-config API outright (the SPA is the only client). Operational detail: `.claude/docs/persistence.md` "BLOCKED
+    stage (V29)", `.claude/docs/metrics.md`.
+  - **Unchanged by construction**: commitments, velocity, throughput, sprint buckets, backlog and EVM (sprints, `done_at`, worklogs,
+    NOT_STARTED), the frozen sprint snapshots (they hold no stage), and data quality (BLOCKED is a mapped stage).
 
 ## Gaps in `norm` (closed in v0.3.0)
 

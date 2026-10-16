@@ -122,6 +122,20 @@ describe("AgingScatterChart", () => {
     expect(dotOf(container, "TASK:FLO-4")).toHaveAttribute("data-tone", "gray");
   });
 
+  test("a BLOCKED-stage item is ringed as blocked and drawn solid, never hollow like a waiting one (A36)", () => {
+    const held = {
+      ...AGING_UNIT.items[2], issueKey: "FLO-9", blocked: true, waiting: false, stage: "BLOCKED" as const, statusId: "s-prog", position: "s-prog",
+    };
+    const report = { ...AGING_UNIT, items: [...AGING_UNIT.items, held] };
+    const { container } = renderWithProviders(
+      <AgingScatterChart plot={agingPlot(report, "TASK")} thresholds={report.thresholds} selectedKey={null} onSelect={() => {}} />,
+    );
+    const dot = dotOf(container, "TASK:FLO-9");
+    expect(dot.querySelector('[data-mark="blocked"]')).toHaveAttribute("stroke", "var(--mantine-color-red-7)");
+    expect(dot.querySelector('[data-mark="solid"]')).not.toBeNull();
+    expect(dot.querySelector('[data-mark="waiting"]')).toBeNull();
+  });
+
   test("hidden thresholds: every dot is gray, since no band was sent", () => {
     const { container } = renderWithProviders(
       <AgingScatterChart plot={agingPlot(AGING_HIDDEN, "TASK")} thresholds={AGING_HIDDEN.thresholds} selectedKey={null} onSelect={() => {}} />,

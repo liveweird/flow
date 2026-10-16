@@ -48,6 +48,7 @@ class MigrationChecksumTest {
         "V26__drop_redundant_field_interval_index.sql" to -1413802270,
         "V27__sync_jobs_not_before.sql" to -394566444,
         "V28__estimate_after_done.sql" to -1667486527,
+        "V29__blocked_stage.sql" to 1292820822,
     )
 
     @Test

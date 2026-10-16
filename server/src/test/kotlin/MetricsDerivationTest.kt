@@ -635,7 +635,6 @@ class MetricsDerivationTest {
                 boards = listOf(MetricsBoardTeamMapping(1L, teamId)),
                 activityTypes = current.activityTypes,
                 workCategories = current.workCategories,
-                blockedStatuses = current.blockedStatuses,
             ),
         )
     }
@@ -1946,7 +1945,6 @@ class MetricsDerivationTest {
                     boards = boards,
                     activityTypes = current.activityTypes,
                     workCategories = current.workCategories,
-                    blockedStatuses = current.blockedStatuses,
                     ),
             )
 

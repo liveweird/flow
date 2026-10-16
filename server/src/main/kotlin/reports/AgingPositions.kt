@@ -67,7 +67,7 @@ internal suspend fun agingPlaces(filter: ReportFilter, connectionIds: List<UInt>
             mapping != null -> row?.let { mapping.columnOfStatus[it.statusId] } ?: NO_COLUMN_KEY
             else -> row?.statusId ?: NO_STATUS_KEY
         }
-        val stage = row?.stage ?: if (item.waiting) "WAITING" else "IN_PROGRESS"
+        val stage = row?.stage ?: item.stage
         (item.connectionId to item.issueId) to AgingPlace(row?.statusId, row?.statusId?.let { names[it] ?: it }, stage, position)
     }
     val used = places.values.map { it.position }.toSet()

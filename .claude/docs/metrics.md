@@ -23,7 +23,7 @@ lives in `MetricsConfigService.kt`, the editor options in `MetricsConfigOptions.
 - **Per-connection configuration** (`GET/PUT /api/v1/data-sources/{id}/metrics-config`, v0.3.0 M1
   commit 4) — everything that is specific to one Jira connection's own data shape: status → stage,
   the estimate/epic-date/work-category field choices, project → domain, board → team, activity
-  type and work-category maps and blocked statuses. This section covers that resource. (Capacity is
+  type and work-category maps. This section covers that resource. (Capacity is
   no longer part of it: the team default and the per-sprint calendars are `metrics/SprintCalendar*.kt`, A32.)
 
 Both `metrics/TeamMembership*.kt`'s dated Jira-user team membership (D1, v0.3.0 M1 commit 3, its
@@ -86,7 +86,6 @@ DataSourceMetricsConfig {
   boards: [{ boardId, teamId }]                     // metrics.board_team_map
   activityTypes: [{ issueType, activityType }]      // metrics.activity_type_map
   workCategories: [{ valueId, valueName, category }]// metrics.work_category_map
-  blockedStatuses: [statusId]                       // metrics.blocked_statuses
 }
 ```
 
@@ -97,7 +96,7 @@ a `404` and never an empty shell an admin has to fill in from scratch before rep
 | Field | Default |
 |---|---|
 | `domainStatusStages` | empty — no override exists until an admin makes one (see "Per-domain stage overrides") |
-| `statusStages` | seeded from each status's Jira category (`norm.statuses`) — `new → NOT_STARTED`, `indeterminate → IN_PROGRESS`, `done → DONE` (**never `WAITING`** — Jira has no category for it, an admin maps it by hand, A30); a status whose category is `UNKNOWN` is left OUT of this list (flagged, never guessed — `.claude/docs/domain-model.md`'s "an unmapped status is flagged, never guessed"). The `metrics-config/options` endpoint's own `statuses` list still names every status Jira reports, mapped or not, so an admin can see the gap. |
+| `statusStages` | seeded from each status's Jira category (`norm.statuses`) — `new → NOT_STARTED`, `indeterminate → IN_PROGRESS`, `done → DONE` (**never `WAITING` or `BLOCKED`** — Jira has no category for them, an admin maps them by hand, A30, A36); a status whose category is `UNKNOWN` is left OUT of this list (flagged, never guessed — `.claude/docs/domain-model.md`'s "an unmapped status is flagged, never guessed"). The `metrics-config/options` endpoint's own `statuses` list still names every status Jira reports, mapped or not, so an admin can see the gap. |
 | `fields.estimateTask` / `fields.estimateEpic` | the connection's stored data profile's `STORY_POINTS`-detected custom field id (`source_connections.profile.customFields`, `jira/JiraProfile.kt`) — both roles share the one detected field |
 | `fields.epicStart` | the profile's custom field whose name contains "start date" (case-insensitive); if none, the field whose name contains "target start" (Jira Plans' own start-date field, for a company-managed-project tenant using Plans dates instead of a team-managed "Start date" custom field); `null` if neither was detected |
 | `fields.epicDue` | `"duedate"` — Jira's plain system field, always a valid choice, never subject to profile detection |
@@ -106,14 +105,13 @@ a `404` and never an empty shell an admin has to fill in from scratch before rep
 | `boards` | empty — no board → team mapping exists until an admin makes one |
 | `activityTypes` | 1:1 — one row per issue type observed in `norm.work_items` (D6: activity types are standard issue types) |
 | `workCategories` | empty |
-| `blockedStatuses` | empty — only the Flagged field counts as "blocked" until an admin adds statuses here |
 
 **Validation — the client-supplied-FK idiom, `400` never `404`** (there is no path id inside the
 body): every id `DataSourceMetricsConfigRequest` carries is checked against exactly this
 connection's own reference data (`metrics/DataSourceMetricsConfig.kt`'s `MetricsConfigReferenceData`,
 computed by `MetricsConfigService.replaceConfig`/`.referenceData`; the editor's `options` read is `MetricsConfigOptions.options`):
 
-- `statusStages[].statusId` and `blockedStatuses[]` → `norm.statuses` (`WorkItemStore.allStatusRefs`).
+- `statusStages[].statusId` → `norm.statuses` (`WorkItemStore.allStatusRefs`). (`blockedStatuses` left the resource with V29, A36: a body still carrying it is a `400`.)
 - `domainStatusStages[]` (`validateDomainStatusStages`) → `statusId` in `norm.statuses`; `domainKey` must be a domain the
   SAME request defines — a `domains[].domainKey`, or the project key of an observed project the request's `domains` leaves
   unmapped (DERIVE reads such a project as its own domain) — and never `''` (that is the every-domain `statusStages`
@@ -276,6 +274,35 @@ the admin opts a status in on the Statuses tab (globally, or as a per-domain ove
 `MetricsWaitingStageTest` pins it on a private disabled clone of the stub: derive under the default configuration, map "In Review" and
 "Waiting" to WAITING, derive again, and grade active time (each unblocked task drops by exactly its WAITING time inside the cycle), WIP
 (in progress + waiting equals the old in progress, per scope and day) and aging (the same items, the waiting ones marked).
+
+### The BLOCKED stage (A36)
+
+`BLOCKED` is the fifth mappable stage (`MetricsStage`/`ItemStage`; `V29__blocked_stage.sql` widened the five CHECKs the same way V22 did) and
+**replaces the per-connection "Blocked" status tick**: the `metrics.blocked_statuses` table, `MetricsConfigService.BlockedStatuses`, the
+`blockedStatuses` field of the metrics-config resource and `ConfigMaps.blockedStatusIds` are gone. It means "work has started but is held by
+an impediment" (blocked, on hold, waiting for a customer), as opposed to WAITING, a queue. Like WAITING, **no status ever defaults to it**
+(`toDefaultStage`). What it changes in DERIVE:
+
+- **`startedDoneAt`**: `started_at` is the first entry into IN_PROGRESS, WAITING **or** BLOCKED (`STARTED_STAGES`); DONE → BLOCKED is a reopen.
+- **`blockedIntervals(flagged, stages, windowFrom, windowTo)`** now takes the item's `StageInterval`s instead of a set of status ids: the
+  Flagged=true spans UNION the BLOCKED-stage spans, merged and clipped as before; the merged span's `reason` is `"STATUS"` when at least one
+  BLOCKED-stage span contributed (the stored `item_blocked.reason` CHECK is unchanged), else `"FLAGGED"`.
+- **`activeWaitMs`**: unchanged in code — BLOCKED is not IN_PROGRESS, so its time is wait, and the blocked subtraction (which only ever
+  intersects IN_PROGRESS time) can now only subtract a Flagged span of an IN_PROGRESS item.
+- **`epicDriftFlags`**: an epic in BLOCKED counts as started, like IN_PROGRESS.
+- **The WIP step** copies `item_stage.stage` through (`agg_daily_wip` gains `BLOCKED` rows with no SQL change); the per-person read of brief 04
+  (`WipUserReport.kt`) does too. The backlog step reads NOT_STARTED only.
+- **Readers**: report 9 lists `BLOCKED` as the fourth stage key; report 11 takes `current_stage IN (IN_PROGRESS, WAITING, BLOCKED)` (a BLOCKED
+  item is `blocked`, never `waiting`); report 12 follows the new `item_blocked`; the deep dive's execution (IN_PROGRESS only) and data quality
+  are unchanged. **A deliberate figure change**: an IN_PROGRESS status that was ticked blocked used to be execution and active time; now it is
+  BLOCKED and is neither.
+- **Migration**: V29 converts every tick before dropping the table (`.claude/docs/persistence.md` "BLOCKED stage (V29)"); the user's live
+  install had no tick, so it converts nothing.
+
+`MetricsBlockedStageTest` pins it on a private disabled clone of the stub: derive under the default configuration, map "Blocked" and "On Hold"
+to BLOCKED, derive again, and grade `started_at`, `blocked_ms` (the BLOCKED spans union Flagged, no double count where they overlap), active/wait,
+WIP (in progress + blocked equals the old in progress), the untouched backlog and aging (the BLOCKED items are `blocked`, never `waiting`), each
+against an independent recomputation from the persisted `item_stage` and Flagged intervals.
 
 ## The DERIVE run algorithm (v0.3.0 M3 commit 7)
 
@@ -458,17 +485,17 @@ timelines, PV baselines/curve/horizon, `dimDateRange`); the tests stay in `Deriv
 
 - **`stageIntervals`** tiles `norm` status intervals into `item_stage` rows via the configured
   `statusId -> ItemStage` map (the item's own domain's map — every-domain rows overlaid with that domain's overrides, "Per-domain stage overrides" above); an unmapped status becomes `ItemStage.UNMAPPED` (flagged, never
-  guessed). **`startedDoneAt`**: `startedAtMs` = the FIRST-ever entry into `IN_PROGRESS` or `WAITING` (A30; even
+  guessed). **`startedDoneAt`**: `startedAtMs` = the FIRST-ever entry into `IN_PROGRESS`, `WAITING` or `BLOCKED` (A30, A36; even
   across a later reopen); `doneAtMs` is set ONLY while the CURRENT (last, open) stage is `DONE` —
   the start of that trailing unbroken DONE run, not merely the last transition into DONE — so an
   item whose entire history sits in `UNMAPPED` is never started and never done (neither
-  `IN_PROGRESS`, `WAITING` nor `DONE`, per the domain-model rule "an unmapped status is flagged, never
+  `IN_PROGRESS`, `WAITING`, `BLOCKED` nor `DONE`, per the domain-model rule "an unmapped status is flagged, never
   guessed" — `MetricsDerivationTest`'s dedicated UNMAPPED-status test pins this end to end).
-  `reopenCount` = every DONE → non-DONE transition (DONE → WAITING included).
-- **`blockedIntervals`** unions FLAGGED=true spans and configured-blocked-status spans, merges
+  `reopenCount` = every DONE → non-DONE transition (DONE → WAITING and DONE → BLOCKED included).
+- **`blockedIntervals`** unions FLAGGED=true spans and BLOCKED-stage spans (A36; until V29 the configured `blocked_statuses`), merges
   overlapping/adjacent pieces, and clips to `[startedAtMs, doneAtMs ?: now)`. Each merged
   `BlockedInterval` carries a `reason` — `"FLAGGED"` when every raw span folded into it came from
-  the Flagged field alone, `"STATUS"` when AT LEAST ONE came from a configured blocked status
+  the Flagged field alone, `"STATUS"` when AT LEAST ONE came from a BLOCKED-stage span
   (review round 2b fix: the merge used to hardcode `"FLAGGED"` on every `item_blocked` row
   regardless of source, silently losing the blocked-status reason whenever it overlapped or merged
   with a Flagged span). `DeriveKernelsTest` pins all three shapes: FLAGGED-only, STATUS-only, and a
@@ -782,8 +809,8 @@ A18/A19/A21 describe. This commit closes all five, backed by the additive V17 co
   in the first place — subtracting it a second time silently inflated `wait` at `active`'s expense),
   and floors/ceils the result into `[0, cycle]` (now a purely DEFENSIVE backstop, since the
   intersection can never exceed the IN_PROGRESS sum by construction) — `wait = cycle - active`,
-  never negative either. `WAITING` time (A30) is never `IN_PROGRESS`, so it is wait by construction, and a
-  status that is both WAITING and blocked subtracts nothing. A reopened item's earlier `IN_PROGRESS` stretch counts too (the window is
+  never negative either. `WAITING` (A30) and `BLOCKED` (A36) time is never `IN_PROGRESS`, so it is wait by construction, and a
+  BLOCKED-stage span subtracts nothing (only a Flagged span of an IN_PROGRESS item does). A reopened item's earlier `IN_PROGRESS` stretch counts too (the window is
   the WHOLE `[started_at, done_at)`, not just the trailing DONE run's lead-up), and a blocked
   interval spanning a reopen (crossing OUT of and back INTO IN_PROGRESS) is subtracted only for the
   portions that actually overlap an IN_PROGRESS stretch, never the DONE gap in between; an item that
@@ -904,7 +931,7 @@ from the LATER of the connection's earliest `created_at` day and its `backfill_f
 
 **No `stage = DONE` row (decision B, `briefs/03-STORAGE-OPTIMIZATION.md`; domain-model A34).** A finished item used to be counted again on
 every later day, forever — 60 % of the table on real data (298k of 495k rows) — so every statement joins `item_stage` with
-`s.stage <> 'DONE'` (`NOT_DONE`, `DeriveWipStep.kt`) and the table holds NOT_STARTED, IN_PROGRESS, WAITING and UNMAPPED only.
+`s.stage <> 'DONE'` (`NOT_DONE`, `DeriveWipStep.kt`) and the table holds NOT_STARTED, IN_PROGRESS, WAITING, BLOCKED and UNMAPPED only.
 Report 9 computes the DONE band at query time from the DONE-stage `item_stage` intervals, attributed as at the item's done time
 (`reports/WipDoneBand.kt`: the credit team / the fact's done-time domain; `reports.md` "Report 9", `measures.md` "Report 9"), in
 ONE set-based statement per request that shares `coveringAt` with the WIP step. The report ignores any `stage = DONE` row (`fetchWipCells` filters it) so the rows an
@@ -1090,7 +1117,7 @@ table in (`scope_kind, scope_id, day` order).
 
 ## Performance (scale 20)
 
-The v0.3.0 plan's DERIVE budget is **< 3 min on ≈ 24k issues**. Measured 2026-09-29 (v0.3.0 M5 commit 19b, branch `chore/m5-perf` on top of `14089b8` — the M5 head, every server report included; it re-runs M3's commit 9g check), on an Apple M5 Max (18 cores, 128 GB) running the stack in OrbStack (16 GB VM), through `docker-compose.perf.yaml` — its own compose project (`flow-perf`), its own volumes, ports 8184/5535/8194/8128, sized like production (app: `JAVA_OPTS=-Xmx512m` in a 768 MiB container as in `k8s/worker-deployment.yaml`; postgres 1 GiB as in `k8s/postgres-deployment.yaml`; the WireMock stub with 1 GiB heap and no request journal). A fresh database, one enabled connection (FLO/PLT/GTM/OPS), the FLO board (id 1) mapped to one team, everything else the computed defaults — except `blockedStatuses` = Blocked + Waiting (status ids 10003/10004), set in the same PUT so the blocked-time report has something to measure (the 9g run left it empty).
+The v0.3.0 plan's DERIVE budget is **< 3 min on ≈ 24k issues**. Measured 2026-09-29 (v0.3.0 M5 commit 19b, branch `chore/m5-perf` on top of `14089b8` — the M5 head, every server report included; it re-runs M3's commit 9g check), on an Apple M5 Max (18 cores, 128 GB) running the stack in OrbStack (16 GB VM), through `docker-compose.perf.yaml` — its own compose project (`flow-perf`), its own volumes, ports 8184/5535/8194/8128, sized like production (app: `JAVA_OPTS=-Xmx512m` in a 768 MiB container as in `k8s/worker-deployment.yaml`; postgres 1 GiB as in `k8s/postgres-deployment.yaml`; the WireMock stub with 1 GiB heap and no request journal). A fresh database, one enabled connection (FLO/PLT/GTM/OPS), the FLO board (id 1) mapped to one team, everything else the computed defaults — except (pre-V29, A36) `blockedStatuses` = Blocked + Waiting (status ids 10003/10004), set in the same PUT (a re-run today maps those two statuses to the BLOCKED stage instead) so the blocked-time report has something to measure (the 9g run left it empty).
 
 **Reproduce:**
 
@@ -1106,7 +1133,7 @@ docker compose -p flow-perf exec postgres psql -U flow -d flow \
 docker compose -p flow-perf -f docker-compose.yaml -f docker-compose.perf.yaml down -v   # ONLY the perf project
 ```
 
-(The metrics-config PUT body is the GET body minus `configured` (an unknown key is a `400`), with `boards` and `blockedStatuses` filled in. `{"kind":"DERIVE"}` on `.../sync-jobs` re-runs DERIVE on demand. `FLOW_PERF_STUB_DIR` points the stub at another `--out` directory. Access tokens live 15 min — log in again for a long poll. For per-statement times `ALTER SYSTEM SET log_min_duration_statement = 300` on the perf database and read `docker logs flow-perf-postgres`.)
+(The metrics-config PUT body is the GET body minus `configured` (an unknown key is a `400`), with `boards` filled in. `{"kind":"DERIVE"}` on `.../sync-jobs` re-runs DERIVE on demand. `FLOW_PERF_STUB_DIR` points the stub at another `--out` directory. Access tokens live 15 min — log in again for a long poll. For per-statement times `ALTER SYSTEM SET log_min_duration_statement = 300` on the perf database and read `docker logs flow-perf-postgres`.)
 
 | Measure | Value |
 |---|---|

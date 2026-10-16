@@ -150,7 +150,7 @@ class ReportWipDoneBandTest {
             assertTrue(before.any { it.stage == "DONE" }, "the old statements did write the DONE band")
             assertEquals(
                 before.filter { it.stage != "DONE" }.sortedWith(sortKey), stored.sortedWith(sortKey),
-                "NOT_STARTED, IN_PROGRESS, WAITING and UNMAPPED are exactly what they were",
+                "NOT_STARTED, IN_PROGRESS, WAITING, BLOCKED and UNMAPPED are exactly what they were",
             )
 
             // The unit-wide DONE band (every TEAM scope summed) is the same set of items either way; only its team/domain split moves.

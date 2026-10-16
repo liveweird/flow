@@ -273,7 +273,6 @@ export async function configureMetricsViaApi(
         boards: [{ boardId: floBoard?.boardId, teamId }],
         activityTypes: current.activityTypes,
         workCategories: current.workCategories,
-        blockedStatuses: current.blockedStatuses,
       },
     });
     expect(saved.ok(), await saved.text()).toBeTruthy();

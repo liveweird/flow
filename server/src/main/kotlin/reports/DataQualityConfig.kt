@@ -41,7 +41,7 @@ internal class ConnectionMappings(val stageStatusIds: Set<String>, val boardIds:
 
 /**
  * A light reader of exactly those three facts, so a request does not pay `effectiveConfig`'s defaults (DISTINCT scans of the work
- * items). Same rule as `effectiveConfig`: a connection with ANY stored configuration row (in the seven config tables) uses its
+ * items). Same rule as `effectiveConfig`: a connection with ANY stored configuration row (in the six config tables) uses its
  * stored stage map, board map and work-category field; one with none uses the computed defaults — every status whose Jira
  * category has a default stage, no boards, no work-category field.
  */
@@ -88,12 +88,11 @@ private const val WORK_CATEGORY_ROLE = "WORK_CATEGORY"
 /** A Jira status category that maps to a stage by default (`MetricsConfigService.defaultConfig`'s `toDefaultStage`). */
 private fun StatusCategory.hasDefaultStage() = this != StatusCategory.UNKNOWN
 
-/** The connections that store a row in one of the four config tables [readConnectionMappings] does not otherwise read. */
+/** The connections that store a row in one of the three config tables [readConnectionMappings] does not otherwise read. */
 private suspend fun storedElsewhere(connectionIds: List<UInt>): Set<UInt> = listOf(
     MetricsConfigService.DomainMap to MetricsConfigService.DomainMap.connectionId,
     MetricsConfigService.ActivityTypeMap to MetricsConfigService.ActivityTypeMap.connectionId,
     MetricsConfigService.WorkCategoryMap to MetricsConfigService.WorkCategoryMap.connectionId,
-    MetricsConfigService.BlockedStatuses to MetricsConfigService.BlockedStatuses.connectionId,
 ).flatMap { (table, column) ->
     table.select(column).where { column inList connectionIds }.withDistinct().toList().map { it[column].value }
 }.toSet()

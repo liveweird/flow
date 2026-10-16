@@ -51,8 +51,7 @@ internal fun deriveItem(
     val startedDone = startedDoneAt(stages)
     val blocked = blockedIntervals(
         context.flaggedIntervalsByIssue[item.issueId].orEmpty(),
-        statusIntervals,
-        context.blockedStatusIds,
+        stages,
         startedDone.startedAtMs,
         startedDone.doneAtMs ?: context.now,
     )

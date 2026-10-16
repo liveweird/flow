@@ -36,7 +36,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-private val STAGES = listOf("NOT_STARTED", "IN_PROGRESS", "WAITING", "DONE", "UNMAPPED")
+private val STAGES = listOf("NOT_STARTED", "IN_PROGRESS", "WAITING", "BLOCKED", "DONE", "UNMAPPED")
 
 private fun accountParams(accounts: List<String>): String = accounts.joinToString("&") { "accountId=" + URLEncoder.encode(it, "UTF-8") }
 
@@ -122,6 +122,7 @@ class ReportWipUserTest {
      * | 9 | an unassigned interval (null account), `prog` | nobody |
      * | 10 | a4, `prog` | a4 / teamless |
      * | 12 | done on the 5th, credit Y, assignee at done a1 | a1 / Y, DONE 5..11 |
+     * | 13 | a2 the whole time, `blk` (a BLOCKED-stage status, A36) | a2 / X, BLOCKED every day |
      * | epic 20 | `prog` | nobody (an epic has no user) |
      */
     @Test
@@ -155,17 +156,17 @@ class ReportWipUserTest {
             stage(7, "IN_PROGRESS", "prog", null, at("2026-01-05")), stage(7, "DONE", "done", at("2026-01-05"), null),
             stage(9, "IN_PROGRESS", "prog", null, null), stage(10, "IN_PROGRESS", "prog", null, null),
             stage(12, "IN_PROGRESS", "prog", null, at("2026-01-05")), stage(12, "DONE", "done", at("2026-01-05"), null),
-            stage(20, "IN_PROGRESS", "prog", null, null),
+            stage(13, "BLOCKED", "blk", null, null), stage(20, "IN_PROGRESS", "prog", null, null),
         )
         val assignees = listOf(
             TaskAssigneeRow(1, a1, created, null), TaskAssigneeRow(2, a1, created, dayEnd7), TaskAssigneeRow(2, a2, dayEnd7, null),
             TaskAssigneeRow(3, a1, created, null), TaskAssigneeRow(5, a3, created, null), TaskAssigneeRow(6, a1, created, null),
             TaskAssigneeRow(7, a2, created, null), TaskAssigneeRow(9, null, created, null), TaskAssigneeRow(10, a4, created, null),
-            TaskAssigneeRow(12, a1, created, null),
+            TaskAssigneeRow(12, a1, created, null), TaskAssigneeRow(13, a2, created, null),
         )
         suspendTransaction(sharedDatabaseForTests()) {
             store.insertDomains(connId, listOf(DimDomainRow("AAA", "Alpha", listOf("AA"), teamX)), 1L)
-            store.insertTasks(connId, listOf(1L, 2, 5, 6, 7, 9, 10, 12).map { task(it) } + task(3, subtask = true), 1L)
+            store.insertTasks(connId, listOf(1L, 2, 5, 6, 7, 9, 10, 12, 13).map { task(it) } + task(3, subtask = true), 1L)
             store.insertEpics(connId, listOf(DimEpicRow(20, "EP-20", null, "AAA", null, "IN_PROGRESS", null, null)), 1L)
             store.insertItemStage(connId, stages)
             store.insertTaskAssignee(connId, assignees)
@@ -202,7 +203,7 @@ class ReportWipUserTest {
                 connId,
                 listOf(
                     StatusRef("todo", "Open", StatusCategory.TODO), StatusRef("prog", "Dev", StatusCategory.IN_PROGRESS),
-                    StatusRef("done", "Done", StatusCategory.DONE),
+                    StatusRef("blk", "Blocked", StatusCategory.IN_PROGRESS), StatusRef("done", "Done", StatusCategory.DONE),
                 ),
             )
             workItems.replaceBoards(
@@ -235,6 +236,7 @@ class ReportWipUserTest {
             assertEquals(listOf(1, 1, 1, 1, 0, 0, 0), x.counts("NOT_STARTED"))
             assertEquals(listOf(1, 1, 1, 1, 2, 2, 2), x.counts("IN_PROGRESS"))
             assertEquals(none, x.counts("WAITING"))
+            assertEquals(one, x.counts("BLOCKED"), "a2's BLOCKED-stage task 13 is a band of its own (A36)")
             assertEquals(one, x.counts("DONE"))
             assertEquals(none, x.counts("UNMAPPED"))
             assertEquals(listOf(a1, a2), x.series.first().byUser.map { it.accountId })
@@ -245,6 +247,8 @@ class ReportWipUserTest {
             assertEquals(listOf(0, 0, 0, 1, 0, 0, 0), x.userCounts(a2, "NOT_STARTED"))
             assertEquals(listOf(0, 0, 0, 0, 1, 1, 1), x.userCounts(a2, "IN_PROGRESS"))
             assertEquals(one, x.userCounts(a2, "DONE"))
+            assertEquals(one, x.userCounts(a2, "BLOCKED"))
+            assertEquals(none, x.userCounts(a1, "BLOCKED"))
             assertTrue(x.series.all { point -> point.byUser.all { it.counts.keys == point.counts.keys } }, "every share carries every key")
             assertNull(x.note)
 
@@ -282,8 +286,8 @@ class ReportWipUserTest {
 
             // STATUS: the statuses seen in the period, by earliest stage; labelled from norm.statuses.
             val status = client.wip("$base&teamId=$teamX&${accountParams(listOf(a1, a2))}&by=STATUS")
-            assertEquals(listOf("todo", "prog", "done"), status.keys.map { it.key })
-            assertEquals(listOf("Open", "Dev", "Done"), status.keys.map { it.label })
+            assertEquals(listOf("todo", "prog", "blk", "done"), status.keys.map { it.key })
+            assertEquals(listOf("Open", "Dev", "Blocked", "Done"), status.keys.map { it.label })
             assertEquals(x.counts("IN_PROGRESS"), status.counts("prog"))
             assertEquals(one, status.userCounts(a2, "done"))
             // COLUMN: team X's board.
@@ -291,7 +295,7 @@ class ReportWipUserTest {
             assertEquals(listOf("To do", "Doing", "(no column)"), column.keys.map { it.key })
             assertEquals(listOf(1, 1, 1, 1, 0, 0, 0), column.counts("To do"))
             assertEquals(listOf(1, 1, 1, 1, 2, 2, 2), column.counts("Doing"))
-            assertEquals(one, column.counts("(no column)"))
+            assertEquals(listOf(2, 2, 2, 2, 2, 2, 2), column.counts("(no column)"), "the DONE status and the BLOCKED one sit in no column")
             assertEquals(none, column.userCounts(a1, "(no column)"))
             for (query in listOf("teamId=0&by=COLUMN", "teamId=$teamY&by=COLUMN")) {
                 val rejected = client.get("/api/v1/reports/wip?$base&$query&${accountParams(listOf(a1))}")

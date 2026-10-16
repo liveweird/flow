@@ -17,6 +17,22 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "0.17.0",
+    date: "2026-10-16",
+    en: `**Blocked is now a stage of its own, instead of a checkbox on a status.**
+
+- On **Metrics configuration → Statuses**, the Blocked checkbox is gone. A status that means work is held up by an impediment (blocked, on hold, waiting for a customer) is mapped to the new **Blocked** stage, globally or per domain, like any other stage. **Waiting** stays for queues (waiting for review, test, deploy). Jira's Flagged marker still marks an item as blocked whatever its status.
+- **WIP** gets a sixth band, **Blocked**, in red and visible by default, so the chart separates queues from impediments. Work in progress is In progress + Waiting + Blocked.
+- **Aging WIP** lists blocked items with the Blocked badge (and a ring on the aging chart), never as waiting. **Blocked time** counts all Blocked-stage time inside the cycle, together with Flagged spans. A Blocked status starts an item, like Waiting; its time counts as waiting, not active, and the Deep dive does not count it as execution.
+- Any status ticked Blocked before is converted automatically.`,
+    pl: `**Zablokowane to teraz osobny etap, a nie pole wyboru przy statusie.**
+
+- W **Konfiguracja metryk → Statusy** nie ma już pola Zablokowane. Status oznaczający, że pracę wstrzymuje przeszkoda (zablokowane, wstrzymane, czeka na klienta), mapujesz na nowy etap **Zablokowany** — globalnie albo dla domeny, jak każdy inny etap. **Oczekujące** zostaje dla kolejek (czeka na przegląd, test, wdrożenie). Znacznik Flagged z Jiry nadal oznacza pozycję jako zablokowaną niezależnie od statusu.
+- **WIP** dostaje szóste pasmo, **Zablokowane**, na czerwono i widoczne od początku, więc wykres oddziela kolejki od przeszkód. Praca w toku to W toku + Oczekujące + Zablokowane.
+- **Wiek WIP** pokazuje zablokowane pozycje ze znaczkiem Zablokowane (i obwódką na wykresie starzenia), nigdy jako oczekujące. **Czas zablokowania** liczy cały czas w etapie Zablokowane w trakcie cyklu, razem z okresami Flagged. Status Zablokowane rozpoczyna pozycję, jak Oczekujące; jego czas liczy się jako oczekiwanie, a nie praca, a Analiza szczegółowa nie liczy go jako realizacji.
+- Statusy, przy których wcześniej zaznaczono pole Zablokowane, zostają przekształcone automatycznie.`,
+  },
+  {
     version: "0.16.0",
     date: "2026-10-16",
     en: `**An estimate entered after a task was done is a backfill, not an adjustment.**

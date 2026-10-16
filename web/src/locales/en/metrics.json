@@ -142,10 +142,9 @@
     "statuses": {
       "columnStatus": "Status",
       "columnStage": "Stage",
-      "columnBlocked": "Blocked",
       "stageAria": "Stage for {{name}}",
-      "blockedAria": "Blocked for {{name}}",
       "stagePlaceholder": "Unmapped",
+      "stageHint": "Waiting is a queue: waiting for review, test or deploy. Blocked is an impediment: blocked, on hold, waiting for a customer. Both count as work in progress but never as active time. Jira's Flagged marker still marks an item as blocked whatever its status.",
       "workflow": {
         "epic": "Epic",
         "task": "Task",
@@ -157,6 +156,7 @@
         "NOT_STARTED": "Not started",
         "IN_PROGRESS": "In progress",
         "WAITING": "Waiting",
+        "BLOCKED": "Blocked",
         "DONE": "Done"
       },
       "empty": "No statuses observed yet — sync this connection first.",

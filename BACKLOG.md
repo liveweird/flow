@@ -24,7 +24,7 @@ The first real-Jira sync works end to end (2026-10-08, #112–#116): SYNC, PROCE
 - [new] **Finish COOK's metrics configuration** (the user's, on the Metrics configuration page):
   - map the work-category values (none are mapped, so no task has a category);
   - map the waiting statuses (Ready for Review, Ready for Test, On Hold, …) to **Waiting** (A30);
-  - check "Ready" → DONE and whether "On Hold" is also a Blocked status;
+  - check "Ready" → DONE and whether "On Hold" should map to the Blocked stage;
   - add the team's Jira members (Cookiecutter Team has one).
 - [new] **Confirm the search page-size ceiling** on a project with more than 100 issues. COOK's 46 issues fit on one
   page, so the real tenant hasn't shown it yet.
