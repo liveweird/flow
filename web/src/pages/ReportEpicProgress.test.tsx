@@ -502,7 +502,14 @@ describe("ReportEpicProgress page: the basis, this period or since the start (A3
   }
 
   const trendChart = () => screen.getAllByTestId("line-chart").find((chart) => chart.getAttribute("data-series") === "spi,cpi")!;
-  const mdChart = () => screen.getAllByTestId("line-chart").find((chart) => chart.getAttribute("data-series")!.startsWith("pv"))!;
+  // The chart is a lazy chunk: it may not be mounted yet when the page's own controls are, so every read awaits it
+  // (a synchronous `getAllByTestId` right after a control appears fails whenever the chunk loads second).
+  const mdChartRows = () =>
+    waitFor(() => {
+      const chart = screen.getAllByTestId("line-chart").find((c) => c.getAttribute("data-series")!.startsWith("pv"));
+      expect(chart).toBeDefined();
+      return JSON.parse(chart!.getAttribute("data-rows")!) as { pv: number; ev: number; ac: number; pvOriginal?: number }[];
+    });
 
   test("a domain opens on the period the server picked: the control says so, the URL stays bare and the request names no basis", async () => {
     serveByBasis(EPIC_PROGRESS_DOMAIN_PERIOD, { PERIOD: EPIC_PROGRESS_DOMAIN_PERIOD, CUMULATIVE: EPIC_PROGRESS_DOMAIN });
@@ -549,9 +556,9 @@ describe("ReportEpicProgress page: the basis, this period or since the start (A3
     const user = userEvent.setup();
     renderPage("/reports/epic-progress?epicId=FLO-33");
     expect(await screen.findByRole("radio", { name: "Since start" })).toBeChecked();
-    expect(JSON.parse(mdChart().getAttribute("data-rows")!)[0]).toMatchObject({ pv: 8, pvOriginal: 10 });
+    expect((await mdChartRows())[0]).toMatchObject({ pv: 8, pvOriginal: 10 });
     await user.click(screen.getByRole("radio", { name: "This period" }));
-    await waitFor(() => expect(JSON.parse(mdChart().getAttribute("data-rows")!)[0]).toMatchObject({ pv: 2, ev: 2, ac: 2, pvOriginal: 4 }));
+    await waitFor(async () => expect((await mdChartRows())[0]).toMatchObject({ pv: 2, ev: 2, ac: 2, pvOriginal: 4 }));
     expect(calls(mockFetch).at(-1)).toBe(`${URL_PREFIX}epicId=FLO-33&basis=PERIOD`);
   });
 
@@ -559,7 +566,7 @@ describe("ReportEpicProgress page: the basis, this period or since the start (A3
     serve(mockFetch, EPIC_PROGRESS_DOMAIN_PERIOD);
     renderPage("/reports/epic-progress?domain=FLO");
     expect(await screen.findByRole("heading", { level: 3, name: "PV, EV and AC in the period" })).toBeInTheDocument();
-    const rowsOf = JSON.parse(mdChart().getAttribute("data-rows")!) as { pv: number; ev: number; ac: number }[];
+    const rowsOf = await mdChartRows();
     expect(rowsOf.map((r) => [r.pv, r.ev, r.ac])).toEqual([
       [2, 2, 2],
       [4, 4, 4],
