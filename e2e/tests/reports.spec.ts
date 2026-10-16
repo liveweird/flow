@@ -733,10 +733,14 @@ async function readReportedTime(page: Page): Promise<void> {
   expect(await finishedInPeriod(page), "one person's finished work is part of the team's").toBeLessThan(all);
 }
 
-/** The estimated-backlog journey: a team's tiles and trend, the unit's pace note, a domain's empty pace, team replacing domain. */
+/**
+ * The estimated-backlog journey: a team's tiles and trend, the unit's pace note, a domain's empty pace, team replacing domain, no
+ * Member control (a pasted member is dropped), the staleness slider (No limit, then 7 days: shown plus hidden is the unlimited count).
+ */
 async function readEstimatedBacklog(page: Page): Promise<void> {
-  // The team's backlog: its board is mapped, so the pace of its closed sprints turns man-days into sprints.
-  await openReport(page, "/reports/backlog", `&teamId=${teamId}`);
+  // The team's backlog: its board is mapped, so the pace of its closed sprints turns man-days into sprints. Read with no
+  // staleness limit: the stub's history is dated, so the default 90-day window can hide every item on today's derive.
+  await openReport(page, "/reports/backlog", `&teamId=${teamId}&touchedWithinDays=0`);
   await expect(page.getByRole("heading", { level: 2, name: "Estimated backlog", exact: true })).toBeVisible();
   // The card is "as of" the newest derived day inside the window — never later than the window's end.
   const asOf = /^Backlog on (\d{4}-\d{2}-\d{2})$/.exec(await page.getByRole("heading", { level: 3, name: /^Backlog on / }).innerText())?.[1] ?? "";
@@ -777,6 +781,43 @@ async function readEstimatedBacklog(page: Page): Promise<void> {
   await pickFilter(page, "Team", teamName);
   await expect(page).toHaveURL(new RegExp(`teamId=${teamId}`));
   await expect(page).not.toHaveURL(/domain=/);
+
+  // The backlog is a team's: there is no Member control, and a member pasted into the link is read without it and dropped from the URL.
+  await page.goto(`/reports/backlog?connectionId=${dataSourceId}&${WINDOW}&teamId=${teamId}&accountId=nobody`);
+  await expect(page.getByRole("heading", { level: 2, name: "Estimated backlog", exact: true })).toBeVisible();
+  await expect(page).not.toHaveURL(/accountId=/);
+  await openFilters(page);
+  await expect(page.getByRole("combobox", { name: "Team", exact: true })).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "Member", exact: true })).toHaveCount(0);
+
+  // The staleness slider starts on its default (90 days, the URL stays bare). "No limit" is the unfiltered backlog and says nothing
+  // about hidden items; 7 days leaves some out, and what it shows plus what it hides is exactly the unlimited count.
+  const slider = page.getByRole("slider", { name: "Last change within", exact: true });
+  await expect(slider).toHaveAttribute("aria-valuetext", "90 days (default)");
+  await expect(page).not.toHaveURL(/touchedWithinDays=/);
+  await slider.focus();
+  await page.keyboard.press("End");
+  await expect(page).toHaveURL(/touchedWithinDays=0(&|$)/);
+  await expect(slider).toHaveAttribute("aria-valuetext", "No limit");
+  await expect(tile("Items").getByText(/hidden/)).toHaveCount(0);
+  const itemsOff = Number((await tile("Items").locator("p").nth(1).innerText()).trim());
+  expect(itemsOff, "the unlimited backlog").toBeGreaterThan(0);
+  await page.keyboard.press("Home");
+  await expect(page).toHaveURL(/touchedWithinDays=7(&|$)/);
+  await expect(slider).toHaveAttribute("aria-valuetext", "7 days");
+  // The hint names the window ("N items (X MD) hidden: no change in the last 7 days." or "Nothing hidden: … within the last 7 days.").
+  const hint = tile("Items").getByText(/the last 7 days\./);
+  await expect(hint).toBeVisible();
+  const hidden = Number(/^(\d+) items? \(/.exec(await hint.innerText())?.[1] ?? "0");
+  const items7 = Number((await tile("Items").locator("p").nth(1).innerText()).trim());
+  expect(items7, "seven days never shows more than no limit").toBeLessThanOrEqual(itemsOff);
+  expect(items7 + hidden, "shown plus hidden is the unlimited count").toBe(itemsOff);
+
+  // The trend and the tiles agree at 7 days: the daily table's newest row is the tiles' as-of day.
+  await page.getByRole("button", { name: "Show daily figures" }).click();
+  const newest7 = page.getByRole("table", { name: "Backlog by day, as a table" }).getByRole("row").nth(1).getByRole("cell");
+  await expect(newest7.nth(1)).toHaveText((await tile("Backlog (MD)").locator("p").nth(1).innerText()).trim());
+  await expect(newest7.nth(2)).toHaveText(String(items7));
 }
 
 /** Pick `option` in the Deep dive selection panel's searchable dropdown called `label` (a multiple choice stays open, so the list is closed after). */

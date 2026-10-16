@@ -3,6 +3,8 @@ import { epochMillisToIsoDateInZone } from "./isoDate";
 import {
   activePeriodChoice,
   applyReportFilter,
+  snapBacklogStaleness,
+  snapToStalenessStep,
   dropDomainWithTeam,
   dropMember,
   domainStandsForTeam,
@@ -52,6 +54,15 @@ describe("parseReportFilter / serializeReportFilter", () => {
     expect(reportQuery({ tailPercent: 0, teamId: 2 })).toBe("teamId=2&tailPercent=0");
     expect(reportQuery({})).toBe("");
     expect(parseReportFilter(serializeReportFilter({ tailPercent: 15 }))).toEqual({ tailPercent: 15 });
+  });
+
+  test("the backlog's staleness window is an integer 0..3650 (0 = no limit, kept) serialized last; out of range or malformed is dropped", () => {
+    expect(parse("touchedWithinDays=30")).toEqual({ touchedWithinDays: 30 });
+    expect(parse("touchedWithinDays=0")).toEqual({ touchedWithinDays: 0 });
+    expect(parse("touchedWithinDays=3650")).toEqual({ touchedWithinDays: 3650 });
+    for (const bad of ["3651", "-1", "1.5", "abc", ""]) expect(parse(`touchedWithinDays=${bad}`), bad).toEqual({});
+    expect(reportQuery({ touchedWithinDays: 0, teamId: 2, tailPercent: 10 })).toBe("teamId=2&tailPercent=10&touchedWithinDays=0");
+    expect(parseReportFilter(serializeReportFilter({ touchedWithinDays: 180, teamId: 2 }))).toEqual({ touchedWithinDays: 180, teamId: 2 });
   });
 
   test("an epic key is text: kept as written, a blank one dropped, and serialized right after the domain", () => {
@@ -210,6 +221,7 @@ describe("dropReportSpecific", () => {
     by: "STATUS",
     itemKind: "EPIC",
     tailPercent: 10,
+    touchedWithinDays: 30,
   };
 
   test("drops every report-specific param except the kept ones, and never the shared ones", () => {
@@ -323,6 +335,32 @@ describe("requiredTeamId", () => {
 
   test("no teams, no team", () => {
     expect(requiredTeamId({}, [], undefined)).toBeUndefined();
+  });
+});
+
+describe("the backlog's staleness steps", () => {
+  test("a value on a step stays, any other snaps to the nearest step (a tie to the larger), 0 stays no limit", () => {
+    for (const step of [7, 14, 30, 60, 90, 180, 365]) expect(snapToStalenessStep(step), String(step)).toBe(step);
+    expect(snapToStalenessStep(0)).toBe(0);
+    expect(snapToStalenessStep(1)).toBe(7);
+    expect(snapToStalenessStep(10)).toBe(7);
+    expect(snapToStalenessStep(11)).toBe(14);
+    expect(snapToStalenessStep(45)).toBe(60);
+    expect(snapToStalenessStep(120)).toBe(90);
+    expect(snapToStalenessStep(135)).toBe(180);
+    expect(snapToStalenessStep(1000)).toBe(365);
+    expect(snapToStalenessStep(3650)).toBe(365);
+  });
+
+  test("the filter is snapped, the default 90 is dropped, and an untouched filter keeps its identity", () => {
+    expect(snapBacklogStaleness({ teamId: 1, touchedWithinDays: 45 })).toEqual({ teamId: 1, touchedWithinDays: 60 });
+    expect(snapBacklogStaleness({ teamId: 1, touchedWithinDays: 90 })).toEqual({ teamId: 1 });
+    expect(snapBacklogStaleness({ touchedWithinDays: 100 })).toEqual({});
+    expect(snapBacklogStaleness({ touchedWithinDays: 0 })).toEqual({ touchedWithinDays: 0 });
+    const onStep = { touchedWithinDays: 30 };
+    expect(snapBacklogStaleness(onStep)).toBe(onStep);
+    const absent = { teamId: 1 };
+    expect(snapBacklogStaleness(absent)).toBe(absent);
   });
 });
 

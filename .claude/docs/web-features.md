@@ -524,7 +524,19 @@ completed · the report's figures · the orange drift badge with the frozen figu
   (MD, items, "≈ N sprints ahead" — a dash plus the reason when there is no pace (no delivered mean) or the mean is 0,
   "< 0.1" instead of "≈ 0"; at UNIT level the wording says "at least N closed sprints per team", since the pace
   is a sum of team means and `sprintsUsed` their minimum) and a
-  one-series MD `AreaChart` whose tooltip and table add the item count. The server's `note` (not derived yet,
+  one-series MD `AreaChart` whose tooltip and table add the item count. **The backlog is owned by a team, so its page has no Member control**
+  (`CONTROLS.noMember`; `backlogPath` in `NO_MEMBER_PATHS`; `dropMember` in `normalizeBacklogFilter`, so a pasted `accountId` is dropped from the
+  request and the URL like Sprint consistency's and Epic accuracy's — the API itself still answers a member with an empty block and a note). **The
+  staleness slider** (`components/BacklogStalenessControl.tsx`, between the notes and the tiles, outside the filter bar like `ReportTailControl`,
+  A38) narrows every trend day to the items someone touched within N days of it: a Mantine `Slider` over the INDEX of eight stops (7 · 14 · 30 · 60 ·
+  90 · 180 · 365 · No limit, `restrictToMarks`; the label and `aria-valuetext` read "90 days (default)" / "No limit"), committed on `onChangeEnd`
+  only (a drag or one key press = one request; `onChange` just moves the thumb and its label). The managed param is `touchedWithinDays`
+  (`REPORT_SPECIFIC_KEYS`, `reportSpecificKeep(backlogPath)`): absent = the page default 90, **sent explicitly** by the fetch lambda (the URL stays
+  bare for it, the WIP `by` precedent), `0` = No limit and is kept in the URL; a hand-edited value off the steps (or a pasted 90) is snapped by
+  `snapBacklogStaleness` (`snapToStalenessStep`: nearest step, a tie to the larger) and the URL rewritten. The Items tile carries the as-of-day
+  note — "N items (X MD) hidden: no change in the last N days." from `current.hiddenItems`/`hiddenMd`, "Nothing hidden…" when the window is on and
+  hides nothing, nothing when it is off (`touchedWithinDays` null); the per-day `hiddenItems`/`hiddenMd` are in the response but not shown yet. The
+  slider box is `w="100%" maw={400}` with side padding, so the end marks and the value tooltip never widen the page at phone width. The server's `note` (not derived yet,
   USER level, …) is prose in English only: `ReportNote` shows it verbatim under a translated title, except the "Not derived yet" note when
   `meta.derivedAt` is null (the translated meta line already says it).
 - **Aging WIP and blocked time** (`pages/ReportAgingWip.tsx`, `pages/ReportBlockedTime.tsx`, tabs 3 and 4 of

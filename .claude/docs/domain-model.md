@@ -6,7 +6,7 @@ reports it serves, its invariants, and how known data imperfections are handled.
 contract the metrics layer and every dashboard are built against. **Status: agreed 2026-09-27
 (D1–D16), validated against the target reports; amended 2026-09-28 (A17–A21, see "Amendments"
 below); implemented in v0.3.0** (the configuration, DERIVE and the star: `.claude/docs/metrics.md`;
-the sixteen reports: `.claude/docs/reports.md`; the deep dive, report 17, is A29 below; the WAITING stage is A30; issues above the epic level are A31; capacity is a team default and a sprint calendar, A32; public holidays are a dictionary and locked off in capacity, A33; report 9's DONE band is computed at query time and attributed as at done, A34; the BLOCKED stage is A36; an estimate entered after an item is done is a backfill, not an adjustment, A35; report 15 reads a period view, period indices and a weekly trend, A37). The per-measure operational contract — each
+the sixteen reports: `.claude/docs/reports.md`; the deep dive, report 17, is A29 below; the WAITING stage is A30; issues above the epic level are A31; capacity is a team default and a sprint calendar, A32; public holidays are a dictionary and locked off in capacity, A33; report 9's DONE band is computed at query time and attributed as at done, A34; the BLOCKED stage is A36; an estimate entered after an item is done is a backfill, not an adjustment, A35; report 15 reads a period view, period indices and a weekly trend, A37; the estimated backlog can be narrowed to recently touched items, A38). The per-measure operational contract — each
 report number's grain, time anchor, attribution, estimate snapshot, missing-data rule,
 frozen/live source and the test that pins it — is `.claude/docs/measures.md`.
 
@@ -685,6 +685,24 @@ carries the per-measure detail).
     window of the period CPI it qualifies; `foreignWorkShare` keeps the cumulative window.
   - **Drill rows** carry `period` beside the cumulative figures; the UNIT's domain rows sum to the UNIT headline on BOTH bases (the
     headline reads the DOMAIN scopes). Operational detail: `.claude/docs/reports.md` "Report 15", `.claude/docs/measures.md` "Report 15".
+
+- **A38 — The estimated backlog can be narrowed to recently touched items** (agreed with the user 2026-10-17). Long-dead NOT_STARTED
+  items inflate the estimated backlog (D9): nobody has touched them in months, yet they count as depth ahead of the team. Report 10/13 gets
+  an optional window, `touchedWithinDays` (N, `1..3650`; absent or `0` = off), that keeps only the items someone touched recently.
+  **No DERIVE change, no migration, no stored figure moves** — D9 itself is unchanged and `agg_daily_flow.backlog_*` still holds the
+  unfiltered figures; the filter is computed at query time.
+  - **A touch** is any of: the item's creation (`fact_task_delivery.created_at` — a freshly created item nobody has edited yet must not be
+    hidden, so creation is the first touch), any Jira history entry of it, whatever field it changed (`raw.jira_changelogs.created_at`),
+    or any worklog on it, at the worklog's `started_at` (the worklog anchor: late logging counts when the work was done). The item's own
+    history only: a sub-task's change or worklog does not touch its parent.
+  - **Per trend day, at query time.** On day D, with `E` the end instant of D, an item of the backlog at the end of D counts when its LATEST
+    touch strictly before `E` is no older than `N x 24 h` (`MILLIS_PER_DAY`, a fixed-24h window) before `E`; a touch exactly at `E`
+    belongs to the next day (the day-of-an-event rule). So the trend and `current` (its last day) agree, and a long-idle item that gets
+    touched reappears from that day on.
+  - **The complement is reported.** `items`/`md` are the FILTERED figures, `hiddenItems`/`hiddenMd` the items the window leaves out
+    (`items + hiddenItems` is exactly the unfiltered figure, per day and per scope), `touchedWithinDays` echoes the effective window.
+    Who is in the backlog is DERIVE's own rule (`backlogRowsCte`, shared). Operational detail: `.claude/docs/reports.md`
+    "Reports 10, 13", `.claude/docs/measures.md` "Reports 10, 13".
 
 ## Gaps in `norm` (closed in v0.3.0)
 

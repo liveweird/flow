@@ -72,13 +72,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   key, summary, figure), filtered exactly as that bar is (period/sprint/day, team, person, stage or status). The list
   has a **Back** button returning to the chart as it was (same filters, scroll and view). A keyboard and screen-reader
   equivalent is needed too (e.g. a row action in the chart's table), since a double-click on an SVG mark is pointer-only.
-- [new] **Estimated backlog: no User filter, and a staleness slider.** Flow metrics → Estimated backlog:
-  - Remove the User (member) filter: the backlog is owned by a team, not a person (D9), so it adds nothing. Drop it the
-    way Sprint consistency and Epic accuracy did (`NO_MEMBER_PATHS`; a member in a pasted link is dropped from the URL).
-  - Add a slider "last change not older than …" (default 90 days) that leaves out backlog items nobody has touched
-    within that window, so long-dead items stop inflating the estimated backlog. Decide what "last change" reads (the
-    item's last update, or its last status/estimate change) and whether the cut-off is applied per day of the trend or
-    only as of today; say in a note how many items the slider hides.
 - [new] **Cost matrix: individual capacity and a time split.** Two questions to settle, then build:
   - A column with each person's capacity for the period (from the sprint calendars' per-person days and coefficients,
     A32), so logged cost reads against what the person had available. Coefficients are editor-only today; decide who

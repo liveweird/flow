@@ -52,8 +52,11 @@ internal data class WipDoneRequest(
     val accountIds: List<String>? = null,
 )
 
-/** The statement text with `?` markers, and the values bound to them in order (only user-supplied strings are bound). */
-internal class WipDoneSql(val sql: String, val arguments: List<String>)
+/**
+ * A raw SQL statement (WIP DONE band, backlog touches): the text with `?` markers, and the values bound to them in order
+ * (only user-supplied strings are bound).
+ */
+internal class RawSql(val sql: String, val arguments: List<String>)
 
 /** The DONE-stage `item_stage` rows of the connections, joined to each `day_range` day whose end they cover. */
 private fun doneIntervals(connections: String): String = """
@@ -64,7 +67,7 @@ private fun doneIntervals(connections: String): String = """
  * The DONE band as one `UNION ALL` of a task part and an epic part, each already grouped by `(day, status_id)`: rows are
  * `(day, status_id, count)`. Only numbers and validated ISO dates are interpolated; the domain key and the account ids are bound.
  */
-internal fun wipDoneBandSql(request: WipDoneRequest): WipDoneSql {
+internal fun wipDoneBandSql(request: WipDoneRequest): RawSql {
     require(request.connectionIds.isNotEmpty()) { "wipDoneBandSql needs at least one connection" }
     val connections = request.connectionIds.joinToString(", ") { it.toString() }
     val arguments = ArrayList<String>()
@@ -75,10 +78,10 @@ internal fun wipDoneBandSql(request: WipDoneRequest): WipDoneSql {
     val first = isoDay(request.firstDay)
     val last = isoDay(request.lastDay)
     val days = "SELECT day, day_end_ms FROM metrics.dim_date WHERE day >= '$first' AND day <= '$last'"
-    return WipDoneSql("WITH day_range AS ($days)\n" + parts.joinToString("\nUNION ALL\n"), arguments)
+    return RawSql("WITH day_range AS ($days)\n" + parts.joinToString("\nUNION ALL\n"), arguments)
 }
 
-private fun isoDay(day: String): String = java.time.LocalDate.parse(day).toString()
+internal fun isoDay(day: String): String = java.time.LocalDate.parse(day).toString()
 
 private fun taskPart(request: WipDoneRequest, connections: String, arguments: MutableList<String>): String {
     val scope = request.scope

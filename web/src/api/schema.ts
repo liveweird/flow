@@ -1511,6 +1511,12 @@ export interface paths {
          *     DERIVE for any connection in scope gives an empty `trend` with a `note` ("Not derived yet"); connections
          *     that never derived are ignored for the cut-off but named in the `note`. `domainView` is accepted but the report always reads
          *     the task's own domain, so `meta.domainView` is always TASK.
+         *
+         *     `touchedWithinDays` narrows EVERY trend day (so `current` and `trend` agree) to the items someone touched recently
+         *     (domain-model A38): `items` / `md` are then the figures of the items whose latest touch before the day's end is within N × 24 hours of it,
+         *     `hiddenItems` / `hiddenMd` the complement (`items + hiddenItems` is the unfiltered figure) and `touchedWithinDays` echoes the
+         *     effective filter; with the parameter absent or `0` the figures are the stored aggregate, the hidden fields are 0 and
+         *     `touchedWithinDays` is null. Computed at query time, nothing DERIVE stores moves.
          */
         get: operations["getReportBacklog"];
         put?: never;
@@ -3721,12 +3727,20 @@ export interface components {
              * @description ISO date in the configured zone.
              */
             day: string;
+            /** @description Items counted — with `touchedWithinDays`, only those touched within the window. */
             items: number;
             /**
              * Format: double
-             * @description Man-days — the sum of the items' own estimates.
+             * @description Man-days — the sum of the counted items' own estimates.
              */
             md: number;
+            /** @description Items the `touchedWithinDays` filter leaves out that day; 0 when it is off. */
+            hiddenItems: number;
+            /**
+             * Format: double
+             * @description Man-days of those hidden items; 0 when the filter is off.
+             */
+            hiddenMd: number;
         };
         /** @description The backlog on the last listed day, and report 13's backlog in sprints. */
         BacklogCurrent: {
@@ -3738,6 +3752,13 @@ export interface components {
             items: number;
             /** Format: double */
             md: number;
+            /** @description The last day's items the `touchedWithinDays` filter leaves out; 0 when it is off. */
+            hiddenItems: number;
+            /**
+             * Format: double
+             * @description Man-days of those hidden items; 0 when the filter is off.
+             */
+            hiddenMd: number;
             /**
              * Format: double
              * @description Mean `delivered_md` of the team's last `windowSprints` closed sprints as of `asOfDay` (at UNIT level the sum of each team's own mean); null with no closed sprint, or for a scope with no velocity of its own.
@@ -3758,6 +3779,11 @@ export interface components {
             current: components["schemas"]["BacklogCurrent"];
             /** @description One point per calendar day of the period, oldest first, zero-filled, cut off after the last derived day. */
             trend: components["schemas"]["BacklogTrendPoint"][];
+            /**
+             * Format: int32
+             * @description The effective `touchedWithinDays` filter in days; null when it is off (absent or `0`).
+             */
+            touchedWithinDays?: number | null;
             /** @description Why the report is empty or partial — USER level, not derived yet, no sprint resolved (incl. `teamId=0` with a sprint-relative period), connections that never derived and were left out of the cut-off; null otherwise. */
             note?: string | null;
         };
@@ -7234,6 +7260,8 @@ export interface operations {
                 workCategory?: components["parameters"]["ReportWorkCategory"];
                 /** @description Restricts to one data source's own connection. Defaults to every enabled, active connection. */
                 connectionId?: components["parameters"]["ReportConnectionId"];
+                /** @description Count only the items touched within this many days (N × 24 hours) before each day's end: the item's creation, any Jira history entry of it (any field) or any worklog on it (at its `started` time) — the item's own history only. A touch exactly at the day's end belongs to the next day. `0` or absent = no filter (the stored aggregate). Outside `0..3650`, a non-integer or a repeated key is `400`. */
+                touchedWithinDays?: number;
             };
             header?: never;
             path?: never;

@@ -236,7 +236,9 @@ private fun Route.flowRoutes(reportService: ReportService, metricsSettings: Metr
         val itemKind = params.optionalEnum<WipItemKind>("itemKind") ?: WipItemKind.TASK
         reportService.wip(filter, by, itemKind, nowMs)
     }
-    reportGet<ReportBacklogRoute>(metricsSettings, DomainView.TASK) { filter, _, nowMs -> reportService.backlog(filter, nowMs) }
+    reportGet<ReportBacklogRoute>(metricsSettings, DomainView.TASK) { filter, params, nowMs ->
+        reportService.backlog(filter, params.parseTouchedWithinDays(), nowMs)
+    }
     // Aging WIP (report 11) is "as of now" (the period is ignored); blocked time (report 12) is a delivery/flow
     // measure over DONE items, so the task's own domain (D3). Tasks and epics are different grains: the blocked-time
     // `itemKind` defaults to TASK.

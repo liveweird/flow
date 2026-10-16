@@ -567,7 +567,18 @@
     "unitBasis_one": "Recent pace: the sum of each team's own mean delivery per sprint, {{md}} MD, from at least {{count}} closed sprint per team (window: {{window}}).",
     "unitBasis_other": "Recent pace: the sum of each team's own mean delivery per sprint, {{md}} MD, from at least {{count}} closed sprints per team (window: {{window}}).",
     "unitBasisShort": "Some team has fewer closed sprints than the window, so the pace is less certain.",
-    "lessThanTenth": "< 0.1 sprints ahead"
+    "lessThanTenth": "< 0.1 sprints ahead",
+    "staleness": {
+      "label": "Last change within",
+      "help": "Leaves out items nobody touched within the window — no field change and no worklog — day by day, so the trend and the figures agree.",
+      "days_one": "{{count}} day",
+      "days_other": "{{count}} days",
+      "defaultValue": "{{value}} (default)",
+      "noLimit": "No limit",
+      "hidden_one": "{{count}} item ({{md}} MD) hidden: no change in the last {{days}} days.",
+      "hidden_other": "{{count}} items ({{md}} MD) hidden: no change in the last {{days}} days.",
+      "nothingHidden": "Nothing hidden: every item changed within the last {{days}} days."
+    }
   },
   "kind": {
     "TASK": "Task",

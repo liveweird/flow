@@ -217,6 +217,12 @@ place:
   transaction and as raw SQL (`exec`, the `JiraRawViewReads` precedent: it joins the global `metrics.dim_date` with the interval tables
   in one statement), the `metrics` tables `ItemStage`, `DimTask`, `DimEpic`, `DimDomain`, `FactTaskDelivery` (`credit_team_id`, `domain_key`,
   `assignee_account_id_at_done`), and `DimDate`; it imports `coveringAt` from `metrics/DeriveWipStep.kt`.
+  `reports/BacklogTouches.kt` (the backlog report's `touchedWithinDays` filter, A38) reads, read-only in the report's transaction and as
+  raw SQL (`exec`, the `WipDoneBand.kt` precedent), `metrics/DeriveFlowStep.kt`'s `backlogRowsCte` (so `DimDate`, `DimTask`, `ItemStage`,
+  `ItemEstimate`, `TaskDomain`, `TaskEpic`, `TaskSprint`, `DimSprint`) plus `DimDomain` (the owner team), `FactTaskDelivery.created_at`,
+  `norm/WorkItemStore.Worklogs.started_at` and — **the one report read of `raw.*`** — `jira/JiraRawStore.Changelogs` (`issue_id`,
+  `created_at` only, an index-only probe per item through `idx_raw_jira_changelogs_issue`): the "any change of any field" touch cannot
+  come from `norm` (the tiled `work_item_field_changes` keep tracked fields only). No other report reads `raw.*`.
 - `reports/AgingWipReport.kt` and `reports/BlockedTimeReport.kt` (v0.3.0 M5 commit 15 part b, `GET /api/v1/reports/aging-wip`
   and `/blocked-time`) read `norm/WorkItemStore.WorkItems` (issue key and summary, via the shared `workItemLabels`) and
   `norm/WorkItemStore.People`/`teams/TeamService.Teams` (through `orgGroups`/`accountDisplayNames`) directly, plus the
@@ -365,8 +371,8 @@ streams' target (`jira/JiraChangelogStream.kt`, `jira/JiraWorklogStream.kt`).
   ids are numeric and globally unique on a real Jira instance, but the PK still scopes to
   `connection_id` like every other raw table. `idx_raw_jira_changelogs_issue`
   (`connection_id, issue_id, created_at`) backs the normalization layer's future per-issue changelog
-  replay (plan §8) and the pipeline test's own per-issue assertions — every history for one issue,
-  oldest first.
+  replay (plan §8), the pipeline test's own per-issue assertions — every history for one issue,
+  oldest first — and the backlog report's touch read (`reports/BacklogTouches.kt`, A38: an index-only probe per item).
 - **The slim author — the one exception to "exactly as Jira returned it" (`jira/JiraUserReferences.kt`).** Jira inlines a
   whole `USER` object (`self`, four `avatarUrls`, `emailAddress`, `timeZone`, `active`, ...) as a history's `author` and as a
   worklog's `author`/`updateAuthor`: about 75 % of a history's bytes (about 1,350 B a row, 257k rows on a real tenant, where
@@ -463,7 +469,7 @@ the tiling invariants and stream mechanics — this section is the schema/persis
   (`connection_id, issue_id`) backs the per-issue read.
 - **`norm.work_item_worklogs`** — PK `(connection_id, worklog_id)`, mirrored from
   `raw.jira_worklogs` (already in-scope-filtered, A1) — PROCESS's own copy, so a metrics query
-  never has to join back into `raw`. `idx_norm_work_item_worklogs_issue` backs the per-issue read.
+  never has to join back into `raw` (except the backlog report's touch read of `raw.jira_changelogs`, A38). `idx_norm_work_item_worklogs_issue` backs the per-issue read.
 - **Reference rows** (`norm.statuses`, `norm.people`, `norm.boards`, `norm.board_columns`,
   `norm.sprints`) — rebuilt WHOLESALE per connection on every PROCESS run
   (`WorkItemStore.replaceStatuses`/`replacePeople`/`replaceBoards`/`replaceSprints`), never
