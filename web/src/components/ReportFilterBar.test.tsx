@@ -183,7 +183,7 @@ describe("ReportFilterBar", () => {
 
   test("the WIP controls write by and itemKind; board column is disabled until one team is picked", async () => {
     const user = userEvent.setup();
-    await renderOpen(<Harness controls={{ wipBy: true, itemKind: true }} />, { route: "/reports/wip" });
+    await renderOpen(<Harness controls={{ wipBy: true, itemKind: ["TASK", "EPIC"] }} />, { route: "/reports/wip" });
     expect(screen.getByRole("radio", { name: "Stage" })).toBeChecked();
     expect(screen.getByRole("radio", { name: "Tasks" })).toBeChecked();
     expect(screen.getByRole("radio", { name: "Board column" })).toBeDisabled();

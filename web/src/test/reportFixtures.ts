@@ -1225,7 +1225,6 @@ export const WIP_COLUMN: WipReport = {
 };
 
 export const WIP_EPICS: WipReport = { ...WIP_STAGE, itemKind: "EPIC" };
-export const WIP_BOTH: WipReport = { ...WIP_STAGE, itemKind: "BOTH" };
 
 /** No connection has derived: an empty series and the server's explanation. */
 export const WIP_NOT_DERIVED: WipReport = {

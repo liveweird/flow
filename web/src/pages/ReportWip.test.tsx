@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { Route, Routes, useLocation } from "react-router-dom";
 import ReportWip from "./ReportWip";
 import { jsonResponse } from "../test/http";
-import { FILTERS, WIP_BOTH, WIP_COLUMN, WIP_EPICS, WIP_NOT_DERIVED, WIP_STAGE, WIP_STATUS, WIP_USER } from "../test/reportFixtures";
+import { FILTERS, WIP_COLUMN, WIP_EPICS, WIP_NOT_DERIVED, WIP_STAGE, WIP_STATUS, WIP_USER } from "../test/reportFixtures";
 import { openReportFilters } from "../test/reportFilters";
 import { renderWithProviders, screen, waitFor, within } from "../test/render";
 
@@ -33,7 +33,6 @@ function report(url: string) {
   const params = new URL(url, "http://x").searchParams;
   if (params.getAll("accountId").length > 0) return WIP_USER;
   if (params.get("itemKind") === "EPIC") return WIP_EPICS;
-  if (params.get("itemKind") === "BOTH") return WIP_BOTH;
   if (params.get("by") === "STATUS") return WIP_STATUS;
   if (params.get("by") === "COLUMN") return WIP_COLUMN;
   return WIP_STAGE;
@@ -304,19 +303,28 @@ describe("ReportWip page", () => {
     expect(screen.queryByTestId("area-chart")).not.toBeInTheDocument();
   });
 
-  test("the item kind defaults to tasks and switches to epics and to both, which adds the grain warning", async () => {
+  test("the item kind defaults to tasks and switches to epics; there is no combined option", async () => {
     serve(mockFetch);
     const user = userEvent.setup();
     renderPage();
     await screen.findByTestId("area-chart");
     await openReportFilters();
     expect(screen.getByRole("radio", { name: "Tasks" })).toBeChecked();
-    expect(screen.queryByText(/different grains/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("radio", { name: "Tasks and epics" })).not.toBeInTheDocument();
+    expect(screen.getAllByRole("radio", { name: /^(Tasks|Epics)$/ })).toHaveLength(2);
     await user.click(screen.getByText("Epics"));
     await waitFor(() => expect(calls(mockFetch)).toContain(`${URL_PREFIX}teamId=1&by=STAGE&itemKind=EPIC`));
-    await user.click(screen.getByText("Tasks and epics"));
-    await waitFor(() => expect(calls(mockFetch)).toContain(`${URL_PREFIX}teamId=1&by=STAGE&itemKind=BOTH`));
-    expect(await screen.findByText(/different grains/)).toBeInTheDocument();
+  });
+
+  test("a link or stored filter with itemKind=BOTH falls back to tasks, in the request and the URL", async () => {
+    serve(mockFetch);
+    renderPage("/reports/wip?teamId=1&itemKind=BOTH");
+    await screen.findByTestId("area-chart");
+    expect(calls(mockFetch)).toEqual([`${URL_PREFIX}teamId=1&by=STAGE&itemKind=TASK`]);
+    await openReportFilters();
+    expect(screen.getByRole("radio", { name: "Tasks" })).toBeChecked();
+    expect(screen.queryByRole("radio", { name: "Tasks and epics" })).not.toBeInTheDocument();
+    await waitFor(() => expect(search().get("itemKind")).toBeNull());
   });
 
   test("the filters round-trip into the query string, in canonical order", async () => {
@@ -628,10 +636,10 @@ describe("ReportWip page — several people", () => {
     expect(screen.queryByRole("combobox", { name: "Member" })).not.toBeInTheDocument();
   });
 
-  test("an EPIC or BOTH read at USER level shows the server's note about the epics left out", async () => {
+  test("an EPIC read at USER level shows the server's note about the epics left out", async () => {
     const note = "USER level counts the picked people's tasks only: an epic has no assignee, so epics are left out";
-    serve(mockFetch, () => jsonResponse(200, { ...WIP_USER, itemKind: "BOTH", note }));
-    renderPage("/reports/wip?teamId=1&accountId=acc-ann&accountId=acc-bob&itemKind=BOTH");
+    serve(mockFetch, () => jsonResponse(200, { ...WIP_USER, itemKind: "EPIC", note }));
+    renderPage("/reports/wip?teamId=1&accountId=acc-ann&accountId=acc-bob&itemKind=EPIC");
     const box = await screen.findByRole("note");
     expect(within(box).getByText(note)).toBeInTheDocument();
   });

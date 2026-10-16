@@ -258,6 +258,13 @@ describe("dropDomainWithTeam and normalizeWipFilter", () => {
     expect(normalizeWipFilter({ by: "COLUMN", teamId: 1, domain: "FLO" })).toEqual({ by: "COLUMN", teamId: 1 });
     expect(normalizeWipFilter({ by: "STATUS", itemKind: "EPIC" })).toEqual({ by: "STATUS", itemKind: "EPIC" });
   });
+
+  test("WIP drops an itemKind=BOTH (no longer a WIP kind, the server answers 400), so it falls back to the default TASK", () => {
+    expect(normalizeWipFilter({ teamId: 1, itemKind: "BOTH" })).toEqual({ teamId: 1 });
+    expect(normalizeWipFilter({ by: "COLUMN", itemKind: "BOTH" })).toEqual({});
+    const clean: ReportFilterState = { teamId: 1, itemKind: "TASK" };
+    expect(normalizeWipFilter(clean)).toBe(clean);
+  });
 });
 
 describe("withFilterKey", () => {

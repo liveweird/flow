@@ -480,7 +480,6 @@
       "STATUS": "Według statusu, w kolejności etapów, a potem nazw.",
       "COLUMN": "Według kolumn tablicy zespołu, w kolejności z tablicy."
     },
-    "bothNote": "Zadania i epiki to różne poziomy szczegółowości; liczenie obu dodaje je do siebie.",
     "yAxis": "Pozycje",
     "chartLabel": "Wykres: pozycje na koniec każdego dnia, ułożone w pasma",
     "show": "Pokaż na wykresie",

@@ -467,7 +467,6 @@
       "STATUS": "By status, ordered by stage and then by name.",
       "COLUMN": "By column of the team's board, in board order."
     },
-    "bothNote": "Tasks and epics are different grains; counting both adds them together.",
     "yAxis": "Items",
     "chartLabel": "Chart: items at the end of each day, stacked by band",
     "show": "Show in chart",

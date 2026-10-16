@@ -275,13 +275,11 @@ class ReportWipUserTest {
             assertEquals(one, teamless.userCounts(a4, "IN_PROGRESS"))
             assertEquals(none, teamless.userCounts(a1, "IN_PROGRESS"))
 
-            // Item kinds: an epic has no user — EPIC lists nothing, BOTH counts the tasks, both say so in the note.
+            // Item kinds: an epic has no user — EPIC lists nothing and says so in the note.
             val epics = client.wip("$base&teamId=$teamX&${accountParams(listOf(a1))}&itemKind=EPIC")
             assertTrue(epics.series.isEmpty())
             assertTrue(assertNotNull(epics.note).contains("epic"))
-            val both = client.wip("$base&teamId=$teamX&${accountParams(listOf(a1, a2))}&itemKind=BOTH")
-            assertEquals(x.series, both.series)
-            assertTrue(assertNotNull(both.note).contains("epics are left out"))
+            assertTrue(assertNotNull(epics.note).contains("epics are left out"))
             assertNull(client.wip("$base&teamId=$teamX&${accountParams(listOf(a1))}&itemKind=TASK").note)
 
             // STATUS: the statuses seen in the period, by earliest stage; labelled from norm.statuses.

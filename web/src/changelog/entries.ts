@@ -17,6 +17,20 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "0.22.0",
+    date: "2026-10-17",
+    en: `**WIP counts tasks or epics, never both added together.**
+
+- The **Count** control on Flow metrics → WIP now offers **Tasks** and **Epics** only. "Tasks and epics" is gone: an epic and its own tasks in one band counted the same work twice.
+- An older link or bookmark that still asks for both opens on Tasks.
+- Blocked time is unchanged and keeps its "Tasks and epics" option.`,
+    pl: `**WIP liczy zadania albo epiki, nigdy obu naraz.**
+
+- Kontrolka **Licz** w Metrykach przepływu → WIP oferuje teraz tylko **Zadania** i **Epiki**. Opcja „Zadania i epiki” zniknęła: epik i jego własne zadania w jednym paśmie liczyły tę samą pracę dwa razy.
+- Starszy link albo zakładka, która nadal prosi o oba rodzaje, otwiera się na zadaniach.
+- Czas zablokowania się nie zmienia i zachowuje opcję „Zadania i epiki”.`,
+  },
+  {
     version: "0.21.0",
     date: "2026-10-17",
     en: `**Aging WIP shows tasks or epics, one at a time, across the whole page.**

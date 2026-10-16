@@ -25,9 +25,9 @@ import org.jetbrains.exposed.v1.r2dbc.selectAll
 @Serializable
 enum class WipBy { STATUS, STAGE, COLUMN }
 
-/** Which items a WIP report counts (`itemKind`): level-0 tasks, epics, or both added together. */
+/** Which items a WIP report counts (`itemKind`): level-0 tasks or epics — never both summed (different grains, D2). */
 @Serializable
-enum class WipItemKind { TASK, EPIC, BOTH }
+enum class WipItemKind { TASK, EPIC }
 
 /** One legend entry of [WipReport.keys]: a [key] used in every point's `counts`, and its display [label]. */
 @Serializable
@@ -72,7 +72,7 @@ internal val WIP_STAGES = listOf("NOT_STARTED", "IN_PROGRESS", "WAITING", "BLOCK
 /** The `by=COLUMN` key of a status no column of the board holds. */
 internal const val NO_COLUMN_KEY = "(no column)"
 
-/** USER level counts the picked people's tasks only: an epic has no assignee (D2), so `itemKind=EPIC` is empty and `BOTH` is `TASK`. */
+/** USER level counts the picked people's tasks only: an epic has no assignee (D2), so `itemKind=EPIC` is empty. */
 private const val USER_EPICS_NOTE = "USER level counts the picked people's tasks only: an epic has no assignee, so epics are left out"
 
 /**
@@ -87,7 +87,6 @@ internal class ColumnMapping(val connectionIds: List<UInt>, val columns: List<St
 private fun WipItemKind.storedKinds(): List<String> = when (this) {
     WipItemKind.TASK -> listOf(WIP_KIND_TASK)
     WipItemKind.EPIC -> listOf(WIP_KIND_EPIC)
-    WipItemKind.BOTH -> listOf(WIP_KIND_TASK, WIP_KIND_EPIC)
 }
 
 /**
@@ -108,7 +107,7 @@ suspend fun ReportService.wip(filter: ReportFilter, by: WipBy, itemKind: WipItem
         val plan = planSnapshotDays(scope, filter, calendar, userNote = null, startAtBackfill = true)
         val picked = pickedAccounts(filter)
         val user = filter.level == ReportLevel.USER
-        // An epic has no assignee: USER level + EPIC has nothing to read, and BOTH reads the tasks (the note says so).
+        // An epic has no assignee: USER level + EPIC has nothing to read (the note says so).
         val days = if (user && itemKind == WipItemKind.EPIC) emptyList() else plan.days
         val cells = if (days.isEmpty()) {
             emptyList()
@@ -137,7 +136,7 @@ suspend fun ReportService.wip(filter: ReportFilter, by: WipBy, itemKind: WipItem
             val perKey = countsByDay[iso].orEmpty()
             WipPoint(iso, calendar.isWorkingDay(day), keys.associate { it.key to (perKey[it.key] ?: 0) }, byUser)
         }
-        val epicsNote = USER_EPICS_NOTE.takeIf { user && itemKind != WipItemKind.TASK }
+        val epicsNote = USER_EPICS_NOTE.takeIf { user && itemKind == WipItemKind.EPIC }
         val note = listOfNotNull(plan.note, epicsNote).joinToString(". ").ifEmpty { null }
         WipReport(scope.meta.forTaskDomain(), by, itemKind, keys, series, note)
     }
@@ -152,8 +151,8 @@ private suspend fun R2dbcTransaction.fetchDoneCells(
     val request = WipDoneRequest(
         connectionIds = connectionIds,
         scope = scope,
-        includeTasks = itemKind != WipItemKind.EPIC,
-        includeEpics = itemKind != WipItemKind.TASK,
+        includeTasks = itemKind == WipItemKind.TASK,
+        includeEpics = itemKind == WipItemKind.EPIC,
         firstDay = firstDay,
         lastDay = lastDay,
     )
