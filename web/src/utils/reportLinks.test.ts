@@ -131,17 +131,18 @@ describe("reportHref — the long tail", () => {
 describe("reportHref — several members", () => {
   const search = "teamId=2&accountId=a&accountId=b&accountId=c&lastSprints=3";
 
-  test("commitments, throughput, cycle time, reported time, adjustments and task accuracy keep every picked member, so moving between them keeps all the picks", () => {
+  test("commitments, throughput, cycle time, reported time, adjustments, task accuracy and WIP keep every picked member, so moving between them keeps all the picks", () => {
     expect(reportHref("/reports/commitments", search)).toBe(`/reports/commitments?${search}`);
     expect(reportHref("/reports/throughput", search)).toBe(`/reports/throughput?${search}`);
     expect(reportHref("/reports/cycle-time", search)).toBe(`/reports/cycle-time?${search}`);
     expect(reportHref("/reports/task-estimation-accuracy", search)).toBe(`/reports/task-estimation-accuracy?${search}`);
     expect(reportHref("/reports/reported-time-ratio", search)).toBe(`/reports/reported-time-ratio?${search}`);
     expect(reportHref("/reports/estimate-adjustments", search)).toBe(`/reports/estimate-adjustments?${search}`);
+    expect(reportHref("/reports/wip", search)).toBe(`/reports/wip?${search}`);
   });
 
   test("any other report keeps only the FIRST member, in place, so the address bar matches what that page shows", () => {
-    expect(reportHref("/reports/wip", search)).toBe("/reports/wip?teamId=2&accountId=a&lastSprints=3");
+    expect(reportHref("/reports/aging-wip", search)).toBe("/reports/aging-wip?teamId=2&accountId=a&lastSprints=3");
   });
 
   test("a single member is untouched everywhere", () => {

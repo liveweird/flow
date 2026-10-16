@@ -1,7 +1,18 @@
 import { describe, expect, test } from "vitest";
 import i18n from "../i18n";
-import { DEFAULT_HIDDEN_BANDS, paintBands, wipBands, wipBandSummary, wipChartRows } from "./wipReport";
-import { WIP_COLUMN, WIP_STAGE, WIP_STATUS } from "../test/reportFixtures";
+import {
+  DEFAULT_HIDDEN_BANDS,
+  paintBands,
+  paintPeople,
+  wipBands,
+  wipBandSummary,
+  wipChartRows,
+  wipPeople,
+  wipPeopleChartRows,
+  wipPersonSummary,
+  wipPersonTotal,
+} from "./wipReport";
+import { WIP_COLUMN, WIP_STAGE, WIP_STATUS, WIP_USER } from "../test/reportFixtures";
 
 const t = i18n.t.bind(i18n);
 
@@ -71,5 +82,40 @@ describe("wipChartRows and wipBandSummary", () => {
 
   test("only the stage keying starts with bands hidden", () => {
     expect(DEFAULT_HIDDEN_BANDS).toEqual({ STAGE: ["NOT_STARTED", "DONE"], STATUS: [], COLUMN: [] });
+  });
+});
+
+describe("the per-person view of a USER-level series", () => {
+  const WORK = ["IN_PROGRESS", "WAITING"];
+
+  test("the people are the first point's byUser, numbered in request order; none below USER level", () => {
+    expect(wipPeople(WIP_USER.series)).toEqual([
+      { accountId: "acc-ann", label: "Ann Author", position: 1, name: "p0" },
+      { accountId: "acc-bob", label: "Bob Builder", position: 2, name: "p1" },
+    ]);
+    expect(wipPeople(WIP_STAGE.series)).toEqual([]);
+    expect(wipPeople([])).toEqual([]);
+  });
+
+  test("they are painted on the neutral cycle by position and named with their number", () => {
+    const painted = paintPeople(wipPeople(WIP_USER.series));
+    expect(painted.map((p) => [p.name, p.label, p.color])).toEqual([
+      ["p0", "1. Ann Author", "flow.6"],
+      ["p1", "2. Bob Builder", "gray.6"],
+    ]);
+  });
+
+  test("a person's total is the sum of the ticked bands' counts; the rows and the summary follow", () => {
+    const [monday, tuesday] = WIP_USER.series;
+    expect(wipPersonTotal(monday, "acc-ann", WORK)).toBe(2);
+    expect(wipPersonTotal(tuesday, "acc-bob", WORK)).toBe(2);
+    expect(wipPersonTotal(tuesday, "acc-nobody", WORK)).toBe(0);
+    expect(wipPersonTotal(WIP_STAGE.series[0], "acc-ann", WORK)).toBe(0);
+    expect(wipPeopleChartRows(WIP_USER.series, wipPeople(WIP_USER.series), WORK)).toEqual([
+      { day: "2026-09-28", p0: 2, p1: 2 },
+      { day: "2026-09-29", p0: 4, p1: 2 },
+    ]);
+    expect(wipPersonSummary(WIP_USER.series, "acc-ann", WORK)).toEqual({ latest: 4, average: "3", peak: 4 });
+    expect(wipPersonSummary([], "acc-ann", WORK)).toEqual({ latest: 0, average: "0", peak: 0 });
   });
 });

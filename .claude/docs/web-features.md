@@ -508,7 +508,13 @@ completed · the report's figures · the orange drift badge with the frozen figu
   repeats and the legend, tooltip and tables carry identity. The ticked-bands state is per keying (and per team
   for columns); STAGE starts with Not started and Done hidden (Done only
   grows, Not started is the whole backlog). Its text alternatives are a per-band summary table and the full
-  daily table behind `DailyTableDisclosure` (a series can run to ~1100 rows). The backlog page is three tiles
+  daily table behind `DailyTableDisclosure` (a series can run to ~1100 rows). **WIP takes people** (`CONTROLS.multiMember`, `wipPath` in `MULTI_ACCOUNT_PATHS`; the Member control is the same multi-select as cycle time's, up to eight, offered
+  under a team and so never in a domain read): the server computes a person's WIP at query time inside the picked team (`reports.md` "Report 9",
+  USER level) and each point carries `byUser`. The chart stays the union stacked by band (a note under the toggle says whose tasks it counts and that epics are left out;
+  `EPIC`/`BOTH` show the server's `note`); from TWO people a `SegmentedControl` (page-local state, "By band" · "By person") adds the per-person view — the same `WipChart` with one stack
+  segment per person (`utils/wipReport.ts`: `wipPeople`, `paintPeople`, `wipPeopleChartRows`), each segment that person's items over the TICKED bands, people numbered "2. Bob" on the neutral
+  `BAND_CYCLE` (their number, not the hue, carries identity from the fourth person on — Commitments' and Throughput's rule). The text alternatives follow the view: per-person summary
+  (`WipPeopleSummaryTable`) and daily table (`WipPeopleDailyTable`, a column per person) in person view, the band tables otherwise. One person IS the union, so there is no view switch. The backlog page is three tiles
   (MD, items, "≈ N sprints ahead" — a dash plus the reason when there is no pace (no delivered mean) or the mean is 0,
   "< 0.1" instead of "≈ 0"; at UNIT level the wording says "at least N closed sprints per team", since the pace
   is a sum of team means and `sprintsUsed` their minimum) and a

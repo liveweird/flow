@@ -340,7 +340,8 @@ export function dropMember(filter: ReportFilterState): ReportFilterState {
 /**
  * WIP's whole filter, made consistent: the team wins over a domain, and a board-column keying the
  * filter cannot honour is dropped (so it falls back to the default, STAGE, and — being gone from the
- * URL too — cannot come back by itself when a team is picked later).
+ * URL too — cannot come back by itself when a team is picked later). (Picked people need no rule here: the parser
+ * only reads `accountId`s under a `teamId`, so a domain read never carries one.)
  */
 export function normalizeWipFilter(filter: ReportFilterState): ReportFilterState {
   const next = dropDomainWithTeam(filter);

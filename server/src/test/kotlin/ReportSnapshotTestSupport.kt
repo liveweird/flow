@@ -141,3 +141,66 @@ internal suspend fun insertSucceededDerive(connId: UInt, startedAt: Long) = susp
 internal suspend fun deleteDeriveRuns(connId: UInt) = suspendTransaction(sharedDatabaseForTests()) {
     MetricsTables.DeriveRuns.deleteWhere { MetricsTables.DeriveRuns.connectionId eq connId.toInt() }
 }
+
+/*
+ * Independent readers of the per-person WIP read (brief 04, `ReportWipUserTest`): plain JDBC SQL written in a DIFFERENT shape
+ * from `reports/WipUserReport.kt` (correlated `EXISTS` instead of joins), so the endpoint never grades itself.
+ */
+
+private fun <T> withJdbc(block: (java.sql.Connection) -> T): T =
+    java.sql.DriverManager.getConnection(PostgresTestSupport.jdbcUrl, PostgresTestSupport.user, PostgresTestSupport.password).use(block)
+
+/** Every Jira account that holds an assignee interval or finished a task on [connId] — "every assignee account". */
+internal fun readAssigneeAccounts(connId: UInt): List<String> = withJdbc { conn ->
+    conn.prepareStatement(
+        "SELECT account_id FROM metrics.task_assignee WHERE connection_id = ? AND account_id IS NOT NULL " +
+            "UNION SELECT assignee_account_id_at_done FROM metrics.fact_task_delivery " +
+            "WHERE connection_id = ? AND assignee_account_id_at_done IS NOT NULL ORDER BY 1",
+    ).use { st ->
+        st.setInt(1, connId.toInt())
+        st.setInt(2, connId.toInt())
+        st.executeQuery().use { rs -> generateSequence { if (rs.next()) rs.getString(1) else null }.toList() }
+    }
+}
+
+/**
+ * The level-0 tasks NOBODY holds, per `(day, stage)` over [firstDay]..[lastDay]: open stages — no non-null assignee interval covers the
+ * end of the day and the covering sprint (not yet closed) resolves to team [teamId] (`0` = to no team); DONE — finished with no
+ * assignee at done and credited to [teamId] (`0` = no credit team). Added to the per-person counts it must give the TEAM aggregate.
+ */
+internal fun independentUnassignedWip(connId: UInt, teamId: UInt, firstDay: String, lastDay: String): Map<Pair<String, String>, Int> =
+    withJdbc { conn ->
+        val covers = "%s.valid_from < d.day_end_ms AND (%s.valid_to IS NULL OR %s.valid_to >= d.day_end_ms)"
+        fun cover(alias: String) = covers.format(alias, alias, alias)
+        val sprintOfTeam = "EXISTS (SELECT 1 FROM norm.work_item_field_intervals fi JOIN metrics.dim_sprint ds " +
+            "ON ds.connection_id = fi.connection_id AND ds.sprint_id = fi.value_id::bigint " +
+            "WHERE fi.connection_id = t.connection_id AND fi.issue_id = t.issue_id AND fi.field = 'SPRINT' " +
+            "AND fi.from_at < d.day_end_ms AND (fi.to_at IS NULL OR fi.to_at >= d.day_end_ms) " +
+            "AND (ds.complete_at IS NULL OR ds.complete_at > d.day_end_ms) AND ds.team_id %s)"
+        val open = "SELECT d.day, s.stage, COUNT(*) FROM metrics.dim_date d " +
+            "JOIN metrics.dim_task t ON t.connection_id = ? AND t.is_subtask = false " +
+            "JOIN metrics.item_stage s ON s.connection_id = t.connection_id AND s.issue_id = t.issue_id " +
+            "AND s.stage <> 'DONE' AND ${cover("s")} " +
+            "WHERE d.day >= ? AND d.day <= ? " +
+            "AND NOT EXISTS (SELECT 1 FROM metrics.task_assignee ta WHERE ta.connection_id = t.connection_id " +
+            "AND ta.issue_id = t.issue_id AND ta.account_id IS NOT NULL AND ${cover("ta")}) " +
+            "AND " + (if (teamId == 0u) "NOT " + sprintOfTeam.format("IS NOT NULL") else sprintOfTeam.format("= $teamId")) +
+            " GROUP BY d.day, s.stage"
+        val done = "SELECT d.day, 'DONE', COUNT(*) FROM metrics.dim_date d " +
+            "JOIN metrics.dim_task t ON t.connection_id = ? AND t.is_subtask = false " +
+            "JOIN metrics.item_stage s ON s.connection_id = t.connection_id AND s.issue_id = t.issue_id " +
+            "AND s.stage = 'DONE' AND ${cover("s")} " +
+            "LEFT JOIN metrics.fact_task_delivery f ON f.connection_id = t.connection_id AND f.issue_id = t.issue_id " +
+            "WHERE d.day >= ? AND d.day <= ? AND f.assignee_account_id_at_done IS NULL AND f.credit_team_id " +
+            (if (teamId == 0u) "IS NULL" else "= $teamId") + " GROUP BY d.day"
+        val counts = HashMap<Pair<String, String>, Int>()
+        for (sql in listOf(open, done)) {
+            conn.prepareStatement(sql).use { st ->
+                st.setInt(1, connId.toInt())
+                st.setString(2, firstDay)
+                st.setString(3, lastDay)
+                st.executeQuery().use { rs -> while (rs.next()) counts.merge(rs.getString(1) to rs.getString(2), rs.getInt(3), Int::plus) }
+            }
+        }
+        counts
+    }

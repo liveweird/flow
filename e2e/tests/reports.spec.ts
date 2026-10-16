@@ -958,6 +958,36 @@ async function switchThroughputToCumulative(page: Page): Promise<void> {
   await expect(page).not.toHaveURL(/view=/);
 }
 
+/** WIP at USER level: one stub person picked on the team's roster (see the scenario in `scenarios/reports.md`). */
+async function expectOnePersonsWip(page: Page): Promise<void> {
+  await openReport(page, "/reports/wip", `&teamId=${teamId}`);
+  await expect(page.getByRole("heading", { level: 2, name: "WIP", exact: true })).toBeVisible();
+  await openFilters(page);
+
+  // Picking the roster's stub person re-reads WIP at USER level: the request names the account, the answer is a
+  // non-empty daily series with that one person in every point's byUser (computed at query time, inside the team).
+  const answered = page.waitForResponse((r) => {
+    const url = new URL(r.url());
+    return r.request().method() === "GET" && url.pathname === "/api/v1/reports/wip" && url.searchParams.has("accountId") && r.ok();
+  });
+  await pickFilter(page, "Member", memberName);
+  const body = await (await answered).json();
+  await page.keyboard.press("Escape");
+  await expect(page).toHaveURL(/accountId=/);
+  await expect(page).toHaveURL(new RegExp(`teamId=${teamId}`));
+  expect(body.meta.level).toBe("USER");
+  expect(body.series.length, "the person's days are listed").toBeGreaterThan(0);
+  expect(body.series[0].byUser).toHaveLength(1);
+  expect(body.series[0].byUser[0].label).toBe(memberName);
+
+  // The page says whose tasks it counts, keeps its chart and band table, and offers no per-person view for ONE person.
+  await expect(page.getByText(/Counts the tasks the picked people hold at the end of each day/)).toBeVisible();
+  await expect(page.getByRole("group", { name: "Chart: items at the end of each day, stacked by band" })).toBeVisible();
+  const bands = page.getByRole("table", { name: "Latest day, average and peak per band, as a table" });
+  await expect(bands.getByRole("cell", { name: "In progress", exact: true })).toBeVisible();
+  await expect(page.getByRole("radio", { name: "By person", exact: true })).toHaveCount(0);
+}
+
 test.describe("reports, read by a regular user", () => {
   test.beforeAll(async () => {
     // A full stub sync (~1,200 issues) plus the derivation that follows it: the two waits below
@@ -1152,6 +1182,10 @@ test.describe("reports, read by a regular user", () => {
     await expect(page.getByRole("option", { name: teamName, exact: true })).toBeVisible();
     await expect(page.getByRole("option", { name: "All teams", exact: true })).toHaveCount(0);
     await page.keyboard.press("Escape");
+  });
+
+  test("the user reads one person's work in progress inside the team", async ({ page }) => {
+    await expectOnePersonsWip(page);
   });
 
   test("the user reads aging work in progress and blocked time", async ({ page }) => {

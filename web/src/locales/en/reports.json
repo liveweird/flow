@@ -458,7 +458,7 @@
   },
   "wip": {
     "title": "WIP",
-    "description": "How many items sit in each stage, status or board column at the end of every day. The bands are stacked, so the top edge is their total. Read for one team or one domain.",
+    "description": "How many items sit in each stage, status or board column at the end of every day. The bands are stacked, so the top edge is their total. Read for one team or one domain; under a team, pick up to eight people to count only the tasks they hold.",
     "chartTitle": "Items at the end of each day",
     "caption": {
       "STAGE": "By stage. Not started and Done are hidden at first: Not started holds the whole backlog and Done only ever grows. Tick them to see all the work. Waiting is work that has started with nothing actively worked on.",
@@ -471,6 +471,16 @@
     "show": "Show in chart",
     "workingDaysOnly": "Working days only",
     "noneShown": "Tick at least one band to draw the chart.",
+    "view": {
+      "label": "Read the chart by",
+      "bands": "By band",
+      "people": "By person"
+    },
+    "userNote": "Counts the tasks the picked people hold at the end of each day, inside the picked team. Epics have no assignee and are left out. A task that sits in another team's sprint belongs to that team.",
+    "userNotePeople": "One segment per person: the items they hold at the end of each day, counting the ticked bands. The numbers tell people apart where the colours repeat.",
+    "peopleChartLabel": "Chart: items each picked person holds at the end of each day, stacked by person",
+    "peopleSummaryLabel": "Latest day, average and peak per person, as a table",
+    "peopleDailyLabel": "Daily figures per person, as a table",
     "stage": {
       "NOT_STARTED": "Not started",
       "IN_PROGRESS": "In progress",
@@ -483,6 +493,7 @@
     "dailyLabel": "Daily figures, as a table",
     "column": {
       "band": "Band",
+      "person": "Person",
       "latest": "Latest day ({{day}})",
       "average": "Daily average",
       "peak": "Peak"

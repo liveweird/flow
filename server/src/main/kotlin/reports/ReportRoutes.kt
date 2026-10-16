@@ -228,8 +228,9 @@ private fun Route.deliveryRoutes(reportService: ReportService, metricsSettings: 
 /** The flow batch (reports 9–12). */
 private fun Route.flowRoutes(reportService: ReportService, metricsSettings: MetricsSettingsService) {
     // WIP (report 9) and the estimated backlog (reports 10 + 13) read the daily aggregates: delivery/flow
-    // measures, so the task's own domain (D3) — the aggregates carry no activity-type/work-category slice.
-    reportGet<ReportWipRoute>(metricsSettings, DomainView.TASK) { filter, params, nowMs ->
+    // measures, so the task's own domain (D3) — the aggregates carry no activity-type/work-category slice. WIP also takes several
+    // `accountId`s (1..8): USER level is read at query time and every point splits per picked person (`byUser`).
+    reportGet<ReportWipRoute>(metricsSettings, DomainView.TASK, multipleAccounts = true) { filter, params, nowMs ->
         val by = params.optionalEnum<WipBy>("by") ?: WipBy.STAGE
         val itemKind = params.optionalEnum<WipItemKind>("itemKind") ?: WipItemKind.TASK
         reportService.wip(filter, by, itemKind, nowMs)

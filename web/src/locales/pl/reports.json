@@ -471,7 +471,7 @@
   },
   "wip": {
     "title": "WIP",
-    "description": "Ile pozycji znajduje się w każdym etapie, statusie lub kolumnie tablicy na koniec każdego dnia. Pasma są ułożone jedno na drugim, więc górna krawędź to ich suma. Liczone dla jednego zespołu lub jednej domeny.",
+    "description": "Ile pozycji znajduje się w każdym etapie, statusie lub kolumnie tablicy na koniec każdego dnia. Pasma są ułożone jedno na drugim, więc górna krawędź to ich suma. Liczone dla jednego zespołu lub jednej domeny; w zespole można wskazać do ośmiu osób, aby policzyć tylko zadania, które mają.",
     "chartTitle": "Pozycje na koniec każdego dnia",
     "caption": {
       "STAGE": "Według etapu. „Nierozpoczęte” i „Zakończone” są na początku ukryte: „Nierozpoczęte” to cały backlog, a „Zakończone” tylko rośnie. Zaznacz je, aby zobaczyć całą pracę. „Oczekujące” to praca rozpoczęta, przy której nic się teraz aktywnie nie dzieje.",
@@ -484,6 +484,16 @@
     "show": "Pokaż na wykresie",
     "workingDaysOnly": "Tylko dni robocze",
     "noneShown": "Zaznacz co najmniej jedno pasmo, aby narysować wykres.",
+    "view": {
+      "label": "Czytaj wykres według",
+      "bands": "Pasm",
+      "people": "Osób"
+    },
+    "userNote": "Liczy zadania, które wskazane osoby mają na koniec każdego dnia, w wybranym zespole. Epiki nie mają osoby przypisanej, więc są pominięte. Zadanie w sprincie innego zespołu należy do tamtego zespołu.",
+    "userNotePeople": "Jeden segment na osobę: pozycje, które ma na koniec każdego dnia, wśród zaznaczonych pasm. Numery odróżniają osoby tam, gdzie powtarzają się kolory.",
+    "peopleChartLabel": "Wykres: pozycje każdej wskazanej osoby na koniec każdego dnia, ułożone według osób",
+    "peopleSummaryLabel": "Ostatni dzień, średnia i szczyt dla każdej osoby, w tabeli",
+    "peopleDailyLabel": "Wartości dzień po dniu dla każdej osoby, w tabeli",
     "stage": {
       "NOT_STARTED": "Nierozpoczęte",
       "IN_PROGRESS": "W toku",
@@ -496,6 +506,7 @@
     "dailyLabel": "Wartości dzień po dniu, w tabeli",
     "column": {
       "band": "Pasmo",
+      "person": "Osoba",
       "latest": "Ostatni dzień ({{day}})",
       "average": "Średnia dzienna",
       "peak": "Szczyt"

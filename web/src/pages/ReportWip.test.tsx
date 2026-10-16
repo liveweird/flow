@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { Route, Routes, useLocation } from "react-router-dom";
 import ReportWip from "./ReportWip";
 import { jsonResponse } from "../test/http";
-import { FILTERS, WIP_BOTH, WIP_COLUMN, WIP_EPICS, WIP_NOT_DERIVED, WIP_STAGE, WIP_STATUS } from "../test/reportFixtures";
+import { FILTERS, WIP_BOTH, WIP_COLUMN, WIP_EPICS, WIP_NOT_DERIVED, WIP_STAGE, WIP_STATUS, WIP_USER } from "../test/reportFixtures";
 import { openReportFilters } from "../test/reportFilters";
 import { renderWithProviders, screen, waitFor, within } from "../test/render";
 
@@ -31,6 +31,7 @@ const URL_PREFIX = "/api/v1/reports/wip?";
 
 function report(url: string) {
   const params = new URL(url, "http://x").searchParams;
+  if (params.getAll("accountId").length > 0) return WIP_USER;
   if (params.get("itemKind") === "EPIC") return WIP_EPICS;
   if (params.get("itemKind") === "BOTH") return WIP_BOTH;
   if (params.get("by") === "STATUS") return WIP_STATUS;
@@ -528,5 +529,105 @@ describe("ReportWip page — a team or a domain", () => {
     await user.click(await screen.findByRole("option", { name: "Beta" }));
     await waitFor(() => expect(calls(mockFetch).at(-1)).toBe(`${URL_PREFIX}teamId=2&by=STAGE&itemKind=TASK`));
     expect(search().has("domain")).toBe(false);
+  });
+});
+
+/** USER level: the member control picks up to eight people; the server answers their tasks, split per person in `byUser`. */
+describe("ReportWip page — several people", () => {
+  let mockFetch: FetchMock;
+  const chartRows = () => JSON.parse(screen.getByTestId("area-chart").getAttribute("data-rows")!) as Record<string, number | string>[];
+
+  beforeEach(() => {
+    mockFetch = vi.fn();
+    vi.stubGlobal("fetch", mockFetch);
+    localStorage.setItem("flow.auth.token", "fake-token");
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+    localStorage.clear();
+  });
+
+  test("the member control picks several people: repeated accountId in the request, in pick order", async () => {
+    serve(mockFetch);
+    const user = userEvent.setup();
+    renderPage("/reports/wip?teamId=1");
+    await screen.findByTestId("area-chart");
+    await openReportFilters(user);
+    await user.click(screen.getByRole("combobox", { name: "Member" }));
+    await user.click(await screen.findByRole("option", { name: "Bob Builder" }));
+    await waitFor(() => expect(calls(mockFetch)).toContain(`${URL_PREFIX}teamId=1&accountId=acc-bob&by=STAGE&itemKind=TASK`));
+    await user.click(await screen.findByRole("option", { name: "Ann Author" }));
+    await waitFor(() => expect(search().getAll("accountId")).toEqual(["acc-bob", "acc-ann"]));
+    await waitFor(() => expect(calls(mockFetch).at(-1)).toBe(`${URL_PREFIX}teamId=1&accountId=acc-bob&accountId=acc-ann&by=STAGE&itemKind=TASK`));
+  });
+
+  test("two people: the union by band first, then one stacked segment per person over the ticked bands, numbered", async () => {
+    serve(mockFetch);
+    const user = userEvent.setup();
+    renderPage("/reports/wip?teamId=1&accountId=acc-ann&accountId=acc-bob");
+    await screen.findByTestId("area-chart");
+    expect(calls(mockFetch)).toEqual([`${URL_PREFIX}teamId=1&accountId=acc-ann&accountId=acc-bob&by=STAGE&itemKind=TASK`]);
+    // By band (the default): the union, exactly as at the other levels (In progress + Waiting + Unmapped ticked).
+    expect(chartSeries().map((s) => s.label)).toEqual(["In progress", "Waiting", "Unmapped status"]);
+    expect(chartRows()[1]).toEqual({ day: "2026-09-29", b1: 4, b2: 2, b4: 0 });
+    expect(screen.getByText(/Counts the tasks the picked people hold at the end of each day/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("radio", { name: "By person" }));
+    await waitFor(() => expect(chartSeries().map((s) => s.label)).toEqual(["1. Ann Author", "2. Bob Builder"]));
+    expect(chartSeries().map((s) => s.color)).toEqual(["flow.6", "gray.6"]);
+    // Each person's items over the ticked bands (In progress + Waiting): Ann 2 then 4, Bob 2 then 2.
+    expect(chartRows()).toEqual([
+      { day: "2026-09-28", p0: 2, p1: 2 },
+      { day: "2026-09-29", p0: 4, p1: 2 },
+    ]);
+    expect(screen.getByRole("group", { name: /stacked by person/ })).toBeInTheDocument();
+    expect(screen.getByText(/One segment per person/)).toBeInTheDocument();
+
+    // The text alternatives gain the person dimension and follow the ticked bands.
+    const summary = screen.getByRole("table", { name: "Latest day, average and peak per person, as a table" });
+    const rows = within(summary).getAllByRole("row").slice(1).map((r) => within(r).getAllByRole("cell").map((c) => c.textContent));
+    expect(rows).toEqual([
+      ["1. Ann Author", "4", "3", "4"],
+      ["2. Bob Builder", "2", "2", "2"],
+    ]);
+    await user.click(screen.getByRole("button", { name: "Show daily figures" }));
+    const daily = screen.getByRole("table", { name: "Daily figures per person, as a table" });
+    const dailyRows = within(daily).getAllByRole("row").slice(1).map((r) => within(r).getAllByRole("cell").map((c) => c.textContent));
+    expect(dailyRows).toEqual([["2026-09-29", "4", "2"], ["2026-09-28", "2", "2"]]);
+
+    // Ticking Done adds it to every person's total.
+    await user.click(screen.getByRole("checkbox", { name: "Done" }));
+    await waitFor(() => expect(chartRows()[1]).toEqual({ day: "2026-09-29", p0: 7, p1: 5 }));
+    // Back to the bands.
+    await user.click(screen.getByRole("radio", { name: "By band" }));
+    await waitFor(() => expect(chartSeries().map((s) => s.label)).toEqual(["In progress", "Waiting", "Done", "Unmapped status"]));
+  });
+
+  test("one person is the union itself: no view switch, the page reads as at TEAM level", async () => {
+    const one = { ...WIP_USER, series: WIP_USER.series.map((point) => ({ ...point, byUser: point.byUser?.slice(0, 1) })) };
+    serve(mockFetch, () => jsonResponse(200, one));
+    renderPage("/reports/wip?teamId=1&accountId=acc-ann");
+    await screen.findByTestId("area-chart");
+    expect(screen.queryByRole("radio", { name: "By person" })).not.toBeInTheDocument();
+    expect(screen.getByRole("table", { name: "Latest day, average and peak per band, as a table" })).toBeInTheDocument();
+  });
+
+  test("a domain read offers no member control, and a link naming people without a team is asked without them (the server needs a team)", async () => {
+    serve(mockFetch);
+    renderPage("/reports/wip?domain=FLO&accountId=acc-ann");
+    await screen.findByTestId("area-chart");
+    expect(calls(mockFetch)).toEqual([`${URL_PREFIX}domain=FLO&by=STAGE&itemKind=TASK`]);
+    await openReportFilters();
+    expect(screen.queryByRole("combobox", { name: "Member" })).not.toBeInTheDocument();
+  });
+
+  test("an EPIC or BOTH read at USER level shows the server's note about the epics left out", async () => {
+    const note = "USER level counts the picked people's tasks only: an epic has no assignee, so epics are left out";
+    serve(mockFetch, () => jsonResponse(200, { ...WIP_USER, itemKind: "BOTH", note }));
+    renderPage("/reports/wip?teamId=1&accountId=acc-ann&accountId=acc-bob&itemKind=BOTH");
+    const box = await screen.findByRole("note");
+    expect(within(box).getByText(note)).toBeInTheDocument();
   });
 });

@@ -1,6 +1,6 @@
 import { lazy, Suspense, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Alert, Box, Chip, Group, Paper, Stack, Switch, Text } from "@mantine/core";
+import { Alert, Box, Chip, Group, Paper, SegmentedControl, Stack, Switch, Text } from "@mantine/core";
 import { IconInfoCircle, IconUsers } from "@tabler/icons-react";
 import { getWipReport } from "../api/reports";
 import { ApiError } from "../api/http";
@@ -14,19 +14,31 @@ import ReportFiltersStatus from "../components/ReportFiltersStatus";
 import ReportMetaNote from "../components/ReportMetaNote";
 import ReportNote from "../components/ReportNote";
 import ReportTabs from "../components/ReportTabs";
-import { WipDailyTable, WipSummaryTable } from "../components/WipTables";
+import { WipDailyTable, WipPeopleDailyTable, WipPeopleSummaryTable, WipSummaryTable } from "../components/WipTables";
 import { useReportPage } from "../hooks/useReportPage";
 import { dropReportSpecific, normalizeWipFilter, wipColumnAvailable, type ReportFilterState } from "../utils/reportFilter";
 import { FLOW_TABS, reportSpecificKeep, wipPath } from "../utils/reportLinks";
-import { DEFAULT_HIDDEN_BANDS, paintBands, wipBands, wipChartRows } from "../utils/wipReport";
+import { DEFAULT_HIDDEN_BANDS, paintBands, paintPeople, wipBands, wipChartRows, wipPeople, wipPeopleChartRows } from "../utils/wipReport";
 
 // The chart (and with it recharts) rides its own lazy chunk.
 const WipChart = lazy(() => import("../components/WipChart"));
 
 // WIP reads the task's own domain (no domain view), takes a domain but never one WITH a team (the
 // daily aggregate has no team × domain split), and answers 400 to an activity type or work category. It is never read for
-// the whole unit either: exactly one of a specific team or a specific domain (`teamRequired` + `teamOrDomain`).
-const CONTROLS: ReportControls = { teamRequired: true, teamOrDomain: true, domain: true, domainExcludesTeam: true, wipBy: true, itemKind: true };
+// the whole unit either: exactly one of a specific team or a specific domain (`teamRequired` + `teamOrDomain`). Under a team the member
+// control picks up to eight people (`multiMember`): the server computes their WIP at query time, inside that team.
+const CONTROLS: ReportControls = {
+  teamRequired: true,
+  teamOrDomain: true,
+  domain: true,
+  domainExcludesTeam: true,
+  multiMember: true,
+  wipBy: true,
+  itemKind: true,
+};
+
+/** The USER-level chart: the union of the ticked bands (stacked by band) or one stack segment per picked person. */
+type WipView = "bands" | "people";
 
 /** Off the request and the URL: what the page has no control for (a `400` for an activity type or work category), then team-over-domain and the column rule. */
 const normalizeWipPage = (filter: ReportFilterState) => normalizeWipFilter(dropReportSpecific(filter, reportSpecificKeep(wipPath)));
@@ -48,12 +60,17 @@ export default function ReportWip() {
   // list is not a column list, and neither is one board's the next board's).
   const [hiddenState, setHiddenState] = useState<{ scope: string; keys: readonly string[] } | null>(null);
   const [workingDaysOnly, setWorkingDaysOnly] = useState(false);
+  const [view, setView] = useState<WipView>("bands");
 
   const bands = report ? wipBands(report.by, report.keys, t) : [];
   const scope = report ? (report.by === "COLUMN" ? `COLUMN|${filter.teamId}` : report.by) : "";
   const hidden = report ? (hiddenState?.scope === scope ? hiddenState.keys : DEFAULT_HIDDEN_BANDS[report.by]) : [];
   const shown = bands.filter((band) => !hidden.includes(band.key));
   const chartSeries = report && workingDaysOnly ? report.series.filter((point) => point.isWorkingDay) : (report?.series ?? []);
+  // The picked people (USER level only). With two or more the chart can also be read per person; one person IS the union.
+  const people = report ? wipPeople(report.series) : [];
+  const byPerson = view === "people" && people.length > 1;
+  const shownKeys = shown.map((band) => band.key);
 
   // A team whose board is not mapped: the 400 a column request for one team meets. Only a request
   // that WAS for columns can mean it — any other 400 (an unknown sprint, …) is a plain failure.
@@ -130,21 +147,54 @@ export default function ReportWip() {
                       onChange={(event) => setWorkingDaysOnly(event.currentTarget.checked)}
                     />
                   </Group>
+                  {people.length > 1 && (
+                    <SegmentedControl
+                      size="xs"
+                      aria-label={t("reports.wip.view.label")}
+                      value={view}
+                      onChange={(value) => setView(value as WipView)}
+                      data={[
+                        { value: "bands", label: t("reports.wip.view.bands") },
+                        { value: "people", label: t("reports.wip.view.people") },
+                      ]}
+                    />
+                  )}
+                  {report.meta.level === "USER" && (
+                    <Text size="xs" c="dimmed">
+                      {t(byPerson ? "reports.wip.userNotePeople" : "reports.wip.userNote")}
+                    </Text>
+                  )}
                   {shown.length === 0 ? (
                     <Alert color="gray" variant="light" icon={<IconInfoCircle size={16} />} role="note">
                       {t("reports.wip.noneShown")}
                     </Alert>
                   ) : (
                     <Suspense fallback={<LoadingBlock />}>
-                      <WipChart rows={wipChartRows(chartSeries, shown)} bands={paintBands(report.by, shown)} />
+                      {byPerson ? (
+                        <WipChart
+                          rows={wipPeopleChartRows(chartSeries, people, shownKeys)}
+                          bands={paintPeople(people)}
+                          label={t("reports.wip.peopleChartLabel")}
+                        />
+                      ) : (
+                        <WipChart rows={wipChartRows(chartSeries, shown)} bands={paintBands(report.by, shown)} />
+                      )}
                     </Suspense>
                   )}
-                  <WipSummaryTable series={report.series} bands={bands} />
+                  {byPerson ? (
+                    <WipPeopleSummaryTable series={report.series} people={people} keys={shownKeys} />
+                  ) : (
+                    <WipSummaryTable series={report.series} bands={bands} />
+                  )}
                   <Text size="xs" c="dimmed">
                     {t("reports.wip.summaryNote")}
                   </Text>
                   <DailyTableDisclosure>
-                    <WipDailyTable series={report.series} bands={bands} />
+                    {byPerson ? (
+                      <WipPeopleDailyTable series={report.series} people={people} keys={shownKeys} />
+                    ) : (
+                      <WipDailyTable series={report.series} bands={bands} />
+                    )}
                   </DailyTableDisclosure>
                 </Stack>
               )}

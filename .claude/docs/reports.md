@@ -95,7 +95,7 @@ data actually lives.
   alone -> `TEAM` (groups by user); `teamId` AND `accountId` together -> `USER` (the one user).
   `accountId` without `teamId` is `400` -- a user-level read always needs to know within which
   team's roster it is being read. `accountId` REPEATS (1..8 distinct, `parseReportFilter(..., multipleAccounts = true)`) on
-  commitments, throughput, cycle time, reported time, adjustments and task accuracy only; on every other report a repeat is a `400`. `teamId = 0` is the UNASSIGNED sentinel bucket, a real value, not
+  commitments, throughput, cycle time, reported time, adjustments, task accuracy and WIP only; on every other report a repeat is a `400`. `teamId = 0` is the UNASSIGNED sentinel bucket, a real value, not
   "absent" -- never rejected here (a real check that a POSITIVE `teamId` names an actual team is a
   report service's own job, downstream).
 - **Group order.** The org drill (`groups`) of commitments, throughput, sprint consistency and the DONE-item reports is built by
@@ -808,9 +808,10 @@ scope only: never per user, never team x domain. So:
   the backlog's TEAM scope is the owner team (A19).
 - **`teamId=0`** is `UNASSIGNED` on the task side and `UNOWNED` on the epic side of WIP (so an explicit `itemKind=BOTH` adds the two),
   and `UNOWNED` for the backlog.
-- **USER** (`teamId` and `accountId`) has no storage: the answer is an EMPTY series with a `note`, never a team-wide
-  number posing as a user's. `400`, checked first: `domain` together with `teamId` (no team x domain split) and
-  `activityType`/`workCategory` (not stored per day). Unknown `teamId`/`connectionId`/`sprintId` are `400` as elsewhere.
+- **USER** (`teamId` and `accountId`): the daily aggregates have no per-user scope, so the **backlog** answers an EMPTY series with a
+  `note` (never a team-wide number posing as a user's) and **WIP computes the level at query time** (Report 9 below).
+  `400`, checked first: `domain` together with `teamId` (no team x domain split — so a USER request, which always carries `teamId`,
+  has no `domain` either) and `activityType`/`workCategory` (not stored per day). Unknown `teamId`/`connectionId`/`sprintId` are `400` as elsewhere.
 
 **Series days.** One point per calendar day of the period in the configured zone (a `from`/`to` period as parsed; a
 `lastSprints`/`sprintId` period the resolved sprints' envelope, `periodWindow`, as throughput's period view). Days the
@@ -833,7 +834,7 @@ aggregate has no row for are ZERO (the rows are sparse) -- but only days the agg
   left before it are never listed.
 - **Not derived yet.** When NO connection in scope has a successful DERIVE run the answer is an empty series/trend with
   `note` "Not derived yet: ..." -- never a period's worth of zeros.
-- **`note`** carries whatever makes an empty or partial answer explicable: USER level (below), not derived yet, no sprint
+- **`note`** carries whatever makes an empty or partial answer explicable: USER level (the backlog's "not stored"; WIP's "epics are left out"), not derived yet, no sprint
   resolved by a sprint-relative period (`teamId=0` gets its own wording: UNASSIGNED resolves no sprint), connections left out
   of the cut-off. Several apply -> joined by ". "; `null` when there is nothing to say. `meta.derivedAt` still tells a client
   how fresh the numbers are.
@@ -844,7 +845,8 @@ aggregate has no row for are ZERO (the rows are sparse) -- but only days the agg
 WipReport {
   meta, by: STATUS|STAGE|COLUMN, itemKind: TASK|EPIC|BOTH,
   keys:   [{ key, label }],                                   // the legend, in display order
-  series: [{ day, isWorkingDay, counts: { <key>: n } }],      // counts carries EVERY key, zero-filled
+  series: [{ day, isWorkingDay, counts: { <key>: n },         // counts carries EVERY key, zero-filled
+             byUser?: [{ accountId, label, counts: { <key>: n } }] }],   // USER level only, one per pick in request order
   note?:  string                                              // why the series is empty or partial (see "note" above)
 }
 ```
@@ -874,7 +876,40 @@ WipReport {
   are the plan's days).
 - **`by=COLUMN` needs one team's board**: `400` at UNIT level, with `domain`, for `teamId=0` and for a team with no board
   mapped in the connections in scope (a team has at most one board, D10). It reads only the board's connection's rows. A
-  USER-level request still validates the team's board, then answers empty.
+  USER-level request reads that team's board like a TEAM one (so `teamId=0` stays `400`).
+- **USER level (brief 04) — a person's WIP over time, computed at query time** (`reports/WipUserReport.kt`; the eighth consumer of
+  `multipleAccounts`: `accountId` repeats, 1..8 distinct, `teamId` required). `agg_daily_wip` is NOT given a per-user scope (it would add about
+  one row per task-day to the table that is already the biggest, and every DERIVE rewrites it whole): the level-0 tasks a person holds are a small
+  set-based read over the bridges DERIVE already writes. Per picked person and calendar day `d` (the same day list, derived-coverage cut-off, backfill
+  start and notes as every other level): a task counts when an `item_stage` interval covers the END of `d` AND the `task_assignee` interval covering
+  that same instant is the person's — both through `coveringAt`, the WIP step's own predicate, so a reassignment exactly at a day-end instant
+  counts for exactly one person (`(from, to]`). The DONE band is the shared query-time read (`readWipDoneBand` with the account filter, decision B):
+  a done task is attributed AS AT DONE, to its assignee at done (`fact_task_delivery.assignee_account_id_at_done`), not to whoever holds it on a later
+  day. `STAGE`/`STATUS` keys come straight from `item_stage.stage`/`status_id` (the per-domain stage overrides are already in it), `COLUMN` as above.
+  - **Team narrowing — the rule is every other USER-level report's** (`taskFactSlice`: `teamId` AND `accountId` intersect, credit team for done
+    items, current team for open ones): the page's `teamId` is part of the question, not only its context. An open task-day counts when its as-was D5
+    team is `teamId` — the sprint's team while that sprint is not yet closed at `d`, else the assignee's team (the very resolution of `teamTaskWipSql`) —
+    and a done task when its `credit_team_id` is `teamId`. So with `teamId=T`, Σ over every assignee account + the tasks of team T nobody holds (a
+    sprint's team with no assignee) equals the TEAM aggregate of T for every day and stage (`ReportWipUserTest`'s invariant); a person's task that sits
+    in another team's sprint belongs to THAT team's WIP. `teamId=0` is the "no team" bucket (`team_id IS NULL`, `credit_team_id IS NULL`).
+  - **`domain` is not combined with USER level**: `domain` + `teamId` is already a `400` (no team x domain split) and `accountId` requires `teamId`,
+    so the combination stays a `400` — the web hides the member picker while a domain is chosen. (A domain-only person view would need the task's
+    as-was domain through `task_domain`; nothing asks for it.)
+  - **Response**: `series[].counts` is the UNION of the picks (a task is held by one assignee at an instant, so nothing counts twice); each point carries
+    `byUser` — one `{accountId, label, counts}` per pick in request order (label = the Jira display name, else the account id), every key
+    zero-filled, a pick with no task all zeros, a duplicate `accountId` collapsed — and omits it below USER level (`encodeDefaults = false`, like
+    `Distribution.byUser`). One `accountId` is today's shape plus a one-entry `byUser`. `keys` is the legend over the union.
+  - **Item kinds**: an epic has no assignee (D2; Aging WIP's USER level lists tasks only). `itemKind=EPIC` answers an EMPTY series, `BOTH` counts the tasks only,
+    and both say so in `note` ("USER level counts the picked people's tasks only: an epic has no assignee, so epics are left out"); never a `400`.
+  - **Cost**: one statement for the open bands (two `MATERIALIZED` CTEs fix the join order — pair the picks' assignee intervals with their tasks' stage
+    intervals, keep the (day, pair) rows both cover, then resolve the team of those few thousand rows) plus one `readWipDoneBand` per pick (at most eight).
+    Measured with `EXPLAIN ANALYZE` on a synthetic connection of the real size (6,600 tasks, 33,000 stage intervals, 13,200 assignee intervals, 45
+    accounts in two teams, 60 sprints): the open bands for 8 people over 278 days take 80 ms (121-151 ms before the CTEs fixed the order: the
+    planner resolved the team of every (day, assignee interval) pair, done tasks included), ~100 ms projected for 365 days; no index is needed
+    (`task_assignee` is a 2,330-row seq scan for the 8 picks). `WipPlanShapeTest` pins the plan shape (no `SubPlan`). The DONE band's
+    per-statement cost is the one measured for decision B.
+  - **Against Aging WIP**: Aging WIP lists the CURRENT team/assignee as of the last DERIVE, the WIP series the as-was one at each day's end, so on the
+    last day the two can differ slightly (a task reassigned or re-sprinted since the last DERIVE).
 - `isWorkingDay` is the configured calendar's (weekends and holidays are not), so a chart can hide weekends. There is no
   `workingDaysOnly` parameter -- the flag is the contract.
 
@@ -906,7 +941,7 @@ BacklogReport {
   large unowned backlog inflates the unit figure (report 14 lists domains without an owner). A `domain` slice and
   `teamId=0` (UNOWNED) have no velocity of their own: `meanDeliveredMd` and `backlogInSprints` are `null`.
 
-Code: `reports/WipReport.kt`, `reports/BacklogReport.kt`, over `reports/SnapshotSupport.kt` (the scope predicates, the
+Code: `reports/WipReport.kt` (+ `reports/WipUserReport.kt`, the USER level), `reports/BacklogReport.kt`, over `reports/SnapshotSupport.kt` (the scope predicates, the
 working calendar builder, the derived coverage, the day plan and its note) and `reports/WipDoneBand.kt` (the DONE band). Tests -- `ReportWipTest` and `ReportBacklogTest` on
 `DerivedStubFixture`, plus `ReportSnapshotTestSupport.kt` (independent readers of `agg_daily_wip`/`agg_daily_flow`/
 `fact_sprint`, hand-row inserters) and `ReportWipDoneSupport.kt` (the independent DONE-band oracle `ReportWipTest` merges into the stored rows;
@@ -919,7 +954,11 @@ period ends (window full, fewer than N, one sprint), and hand-built rows in fres
 answers (the zero-fill, keys and their order, `(no column)`, the UNASSIGNED/UNOWNED split incl. an epic never being
 UNASSIGNED, scope isolation, the window, fewer than N, a mean of zero, no sprint at all, the UNIT sum). `400`s: a bad
 `by`/`itemKind`, `domain` with `teamId`, `activityType`, `workCategory`, an unknown team/connection/sprint, `by=COLUMN` at
-UNIT level / for `teamId=0` / for a team with no board.
+UNIT level / for `teamId=0` / for a team with no board. USER level: `ReportWipUserTest` — the invariant on the stub (per team, per day and stage: Σ over
+every assignee account in requests of up to 8 + the independent count of the tasks nobody holds, `independentUnassignedWip` in `ReportSnapshotTestSupport.kt`
+written as correlated `EXISTS`, = the TEAM aggregate plus the independent DONE oracle, for the stub's team and for `teamId=0`) and hand-built rows (a reassignment exactly at a day-end
+instant, a sub-task, an epic, a null-assignee interval, the sprint's team over the assignee's, the DONE band at its done-time assignee/credit team, `EPIC`/`BOTH`
+notes, `byUser` order and zero-fill, STATUS and COLUMN keys); `400`s: nine accounts, `accountId` without `teamId`, `domain`/`activityType`/`workCategory` with an account.
 
 ## Reports 11, 12 -- Aging WIP and blocked time
 

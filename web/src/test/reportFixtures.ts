@@ -1166,6 +1166,35 @@ export const WIP_STAGE: WipReport = {
   note: null,
 };
 
+/** USER level, two picked people of team 1 (Ann, Bob): the union under `counts`, each person's own under `byUser`, request order. */
+export const WIP_USER: WipReport = {
+  meta: { ...META, level: "USER" },
+  by: "STAGE",
+  itemKind: "TASK",
+  keys: STAGE_KEYS,
+  series: [
+    {
+      day: "2026-09-28",
+      isWorkingDay: true,
+      counts: { NOT_STARTED: 3, IN_PROGRESS: 3, WAITING: 1, DONE: 5, UNMAPPED: 0 },
+      byUser: [
+        { accountId: "acc-ann", label: "Ann Author", counts: { NOT_STARTED: 1, IN_PROGRESS: 2, WAITING: 0, DONE: 3, UNMAPPED: 0 } },
+        { accountId: "acc-bob", label: "Bob Builder", counts: { NOT_STARTED: 2, IN_PROGRESS: 1, WAITING: 1, DONE: 2, UNMAPPED: 0 } },
+      ],
+    },
+    {
+      day: "2026-09-29",
+      isWorkingDay: true,
+      counts: { NOT_STARTED: 2, IN_PROGRESS: 4, WAITING: 2, DONE: 6, UNMAPPED: 0 },
+      byUser: [
+        { accountId: "acc-ann", label: "Ann Author", counts: { NOT_STARTED: 0, IN_PROGRESS: 3, WAITING: 1, DONE: 3, UNMAPPED: 0 } },
+        { accountId: "acc-bob", label: "Bob Builder", counts: { NOT_STARTED: 2, IN_PROGRESS: 1, WAITING: 1, DONE: 3, UNMAPPED: 0 } },
+      ],
+    },
+  ],
+  note: null,
+};
+
 export const WIP_STATUS: WipReport = {
   meta: META,
   by: "STATUS",
