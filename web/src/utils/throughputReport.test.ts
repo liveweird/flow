@@ -16,6 +16,13 @@ const buckets = [
 ];
 
 describe("throughputReport", () => {
+  test("every slot carries its drill id: a bucket's first day, a sprint's team and id", () => {
+    expect(throughputBuckets(buckets, "MONTH").rows.map((r) => r.id)).toEqual(["2026-09-07", "2026-10-01"]);
+    const sprints = throughputSprints(THROUGHPUT_USERS.bySprint, FILTERS);
+    expect(sprints.rows.map((r) => r.id)).toEqual(THROUGHPUT_USERS.bySprint.map((s) => `${s.teamId}:${s.sprintId}`));
+    expect(throughputPlot(throughputBuckets(buckets, "WEEK"), false).map((r) => r.id)).toEqual(["2026-09-07", "2026-10-01"]);
+  });
+
   test("weeks are labelled by their first day, months by year-month", () => {
     expect(throughputBuckets(buckets, "WEEK").rows.map((r) => r.label)).toEqual(["2026-09-07", "2026-10-01"]);
     expect(throughputBuckets(buckets, "MONTH").rows.map((r) => r.label)).toEqual(["2026-09", "2026-10"]);
@@ -39,7 +46,7 @@ describe("throughputReport", () => {
     });
 
     test("running sums are free of binary noise", () => {
-      const slots = [0.1, 0.2, 0.3].map((md, i) => ({ label: `s${i}`, deliveredMd: md, deliveredItems: 1, byUser: [] }));
+      const slots = [0.1, 0.2, 0.3].map((md, i) => ({ id: `s${i}`, label: `s${i}`, deliveredMd: md, deliveredItems: 1, byUser: [] }));
       expect(throughputSeries(slots).rows.map((r) => r.cumulativeMd)).toEqual([0.1, 0.3, 0.6]);
     });
 
@@ -67,8 +74,9 @@ describe("throughputReport", () => {
 
     test("a person a slot does not list counts 0 there, and one who first appears later is still in the stack", () => {
       const series = throughputSeries([
-        { label: "a", deliveredMd: 2, deliveredItems: 1, byUser: [{ accountId: "x", label: "X", deliveredMd: 2, deliveredItems: 1 }] },
+        { id: "a", label: "a", deliveredMd: 2, deliveredItems: 1, byUser: [{ accountId: "x", label: "X", deliveredMd: 2, deliveredItems: 1 }] },
         {
+          id: "b",
           label: "b",
           deliveredMd: 3,
           deliveredItems: 2,
@@ -91,8 +99,8 @@ describe("throughputReport", () => {
 
   test("the plot carries the per-slot figure or the running total under md, items and each person's key", () => {
     const series = throughputBuckets(THROUGHPUT_USERS.byBucket, "WEEK");
-    expect(throughputPlot(series, false)[2]).toEqual({ label: "2026-09-21", md: 7.5, items: 3, p0: 4.5, p1: 3 });
-    expect(throughputPlot(series, true)[2]).toEqual({ label: "2026-09-21", md: 16.5, items: 7, p0: 10.5, p1: 6 });
+    expect(throughputPlot(series, false)[2]).toEqual({ id: "2026-09-21", label: "2026-09-21", md: 7.5, items: 3, p0: 4.5, p1: 3 });
+    expect(throughputPlot(series, true)[2]).toEqual({ id: "2026-09-21", label: "2026-09-21", md: 16.5, items: 7, p0: 10.5, p1: 6 });
     const team = throughputBuckets(THROUGHPUT_TEAM.byBucket, "WEEK");
     expect(throughputPlot(team, true).map((r) => r.md)).toEqual([12.5, 12.5, 28]);
     expect(throughputPlot(team, false).map((r) => r.md)).toEqual([12.5, 0, 15.5]);
@@ -122,7 +130,7 @@ describe("throughputReport", () => {
   test("share rows are one per slot and person, numbered as in the chart", () => {
     const rows = throughputShareRows(throughputBuckets(THROUGHPUT_USERS.byBucket, "WEEK"));
     expect(rows).toHaveLength(6);
-    expect(rows[1]).toMatchObject({ label: "2026-09-07", person: { position: 2 }, figures: { deliveredMd: 3, cumulativeMd: 3 } });
+    expect(rows[1]).toMatchObject({ slotId: "2026-09-07", label: "2026-09-07", person: { position: 2 }, figures: { deliveredMd: 3, cumulativeMd: 3 } });
     expect(rows[5]).toMatchObject({ label: "2026-09-21", person: { position: 2 }, figures: { deliveredMd: 3, cumulativeMd: 6 } });
     expect(new Set(rows.map((r) => r.key)).size).toBe(6);
     expect(throughputShareRows({ rows: [], people: [] })).toEqual([]);

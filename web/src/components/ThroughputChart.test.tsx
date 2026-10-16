@@ -1,5 +1,6 @@
 import { describe, expect, test, vi } from "vitest";
 import ThroughputChart from "./ThroughputChart";
+import userEvent from "@testing-library/user-event";
 import { renderWithProviders, screen, within } from "../test/render";
 import type { ThroughputPerson, ThroughputPlotRow } from "../utils/throughputReport";
 
@@ -7,6 +8,12 @@ interface TooltipElement {
   props: { label: string; payload: unknown[] };
 }
 type TooltipContent = (props: { label: string; payload: unknown[] }) => TooltipElement;
+
+interface BarProps {
+  maxBarSize?: number;
+  cursor?: string;
+  onDoubleClick?: (entry: { payload: unknown }, index: number, event: unknown) => void;
+}
 
 interface ChartProps {
   data: unknown;
@@ -18,7 +25,7 @@ interface ChartProps {
   withDots?: boolean;
   withGradient?: boolean;
   fillOpacity?: number;
-  barProps?: unknown;
+  barProps?: BarProps | ((series: { name: string }) => BarProps);
   yAxisLabel?: string;
   valueFormatter: (v: number) => string;
   xAxisProps?: unknown;
@@ -26,33 +33,46 @@ interface ChartProps {
 }
 
 // recharts renders nothing under happy-dom, so each chart is a probe carrying its props; the tooltip is exercised by
-// calling the content function the real chart would.
+// calling the content function the real chart would. A bar chart's `barProps(series)` is resolved per series, and each
+// series gets a button that fires the `onDoubleClick` recharts would forward to its rectangles, with the first row as payload.
 const captured = vi.hoisted(() => ({ content: undefined as TooltipContent | undefined }));
 vi.mock("@mantine/charts", () => {
+  const resolve = (props: ChartProps, series: { name: string }): BarProps | null =>
+    typeof props.barProps === "function" ? props.barProps(series) : (props.barProps ?? null);
   const probe = (testId: string) => (props: ChartProps) => {
     captured.content = props.tooltipProps.content;
     return (
-      <div
-        data-testid={testId}
-        data-rows={JSON.stringify(props.data)}
-        data-series={JSON.stringify(props.series)}
-        data-type={props.type ?? ""}
-        data-curve={props.curveType ?? ""}
-        data-legend={String(props.withLegend ?? false)}
-        data-dots={String(props.withDots ?? false)}
-        data-gradient={String(props.withGradient ?? "")}
-        data-fill={String(props.fillOpacity ?? "")}
-        data-bar-props={JSON.stringify(props.barProps ?? null)}
-        data-axis-label={props.yAxisLabel}
-        data-formatted={props.valueFormatter(12.3456)}
-        data-tilted={String(props.xAxisProps !== undefined)}
-      />
+      <div>
+        <div
+          data-testid={testId}
+          data-rows={JSON.stringify(props.data)}
+          data-series={JSON.stringify(props.series)}
+          data-type={props.type ?? ""}
+          data-curve={props.curveType ?? ""}
+          data-legend={String(props.withLegend ?? false)}
+          data-dots={String(props.withDots ?? false)}
+          data-gradient={String(props.withGradient ?? "")}
+          data-fill={String(props.fillOpacity ?? "")}
+          data-bar-props={JSON.stringify(resolve(props, props.series[0]))}
+          data-axis-label={props.yAxisLabel}
+          data-formatted={props.valueFormatter(12.3456)}
+          data-tilted={String(props.xAxisProps !== undefined)}
+        />
+        {props.series.map((series) => (
+          <button
+            key={series.name}
+            data-testid={`bar-${series.name}`}
+            data-cursor={resolve(props, series)?.cursor ?? ""}
+            onClick={() => resolve(props, series)?.onDoubleClick?.({ payload: (props.data as unknown[])[0] }, 0, {})}
+          />
+        ))}
+      </div>
     );
   };
   return { BarChart: probe("bar-chart"), AreaChart: probe("area-chart"), ChartTooltip: () => null };
 });
 
-const row = (label: string, over: Partial<ThroughputPlotRow> = {}): ThroughputPlotRow => ({ label, md: 1, items: 2, ...over });
+const row = (label: string, over: Partial<ThroughputPlotRow> = {}): ThroughputPlotRow => ({ id: `id-${label}`, label, md: 1, items: 2, ...over });
 const person = (position: number, label: string): ThroughputPerson => ({ accountId: `acc-${position}`, label, position, key: `p${position - 1}` });
 const PEOPLE = [person(1, "Ann"), person(2, "Bob"), person(3, "Cy"), person(4, "Di")];
 const peopleRows = [row("a", { p0: 1, p1: 2, p2: 0, p3: 0 }), row("b", { p0: 1, p1: 2, p2: 3, p3: 4 })];
@@ -164,5 +184,40 @@ describe("ThroughputChart — people", () => {
     renderWithProviders(<ThroughputChart scope="period" cumulative={false} rows={[row("a", { p0: 1 })]} people={[PEOPLE[0]]} />);
     expect(series("bar-chart")).toEqual([{ name: "p0", label: "1. Ann · delivered", color: "flow.6" }]);
     expect(screen.queryByRole("list")).not.toBeInTheDocument();
+  });
+});
+
+describe("ThroughputChart — drilling a bar", () => {
+  test("a double-click on a whole-team bar reports the row id and the md series, and the bar shows a pointer", async () => {
+    const onBarDoubleClick = vi.fn();
+    renderWithProviders(
+      <ThroughputChart scope="period" cumulative={false} rows={[row("a"), row("b")]} people={[]} onBarDoubleClick={onBarDoubleClick} />,
+    );
+    expect(screen.getByTestId("bar-md").getAttribute("data-cursor")).toBe("pointer");
+    await userEvent.click(screen.getByTestId("bar-md"));
+    expect(onBarDoubleClick).toHaveBeenCalledExactlyOnceWith({ rowId: "id-a", series: "md" });
+    // The ordinary bar props are unchanged next to the handler.
+    expect(JSON.parse(attr("bar-chart", "data-bar-props")!)).toEqual({ maxBarSize: 28, cursor: "pointer" });
+  });
+
+  test("each stacked segment reports its person's series key", async () => {
+    const onBarDoubleClick = vi.fn();
+    renderWithProviders(
+      <ThroughputChart scope="period" cumulative={false} rows={peopleRows} people={PEOPLE.slice(0, 2)} onBarDoubleClick={onBarDoubleClick} />,
+    );
+    await userEvent.click(screen.getByTestId("bar-p1"));
+    expect(onBarDoubleClick).toHaveBeenCalledExactlyOnceWith({ rowId: "id-a", series: "p1" });
+  });
+
+  test("without a handler the bars are not clickable and the props are exactly the plain ones", () => {
+    renderWithProviders(<ThroughputChart scope="period" cumulative={false} rows={[row("a")]} people={[]} />);
+    expect(screen.getByTestId("bar-md").getAttribute("data-cursor")).toBe("");
+    expect(JSON.parse(attr("bar-chart", "data-bar-props")!)).toEqual({ maxBarSize: 28 });
+  });
+
+  test("the cumulative areas are not bars: no handler is wired", () => {
+    renderWithProviders(<ThroughputChart scope="period" cumulative rows={[row("a")]} people={[]} onBarDoubleClick={vi.fn()} />);
+    expect(screen.getByTestId("area-chart")).toBeInTheDocument();
+    expect(screen.getByTestId("bar-md").getAttribute("data-cursor")).toBe("");
   });
 });

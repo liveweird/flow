@@ -20,6 +20,8 @@ interface ThroughputUserShare {
 
 /** One time slot as the report states it — a week/month or a sprint — before the running totals are added. */
 export interface ThroughputSlot {
+  /** The slot's identity in the drill: a bucket's first day, or `<teamId>:<sprintId>`. */
+  id: string;
   label: string;
   deliveredMd: number;
   deliveredItems: number;
@@ -48,6 +50,7 @@ export interface ThroughputPerson {
 }
 
 interface ThroughputChartRow extends ThroughputFigures {
+  id: string;
   label: string;
   /** Each person's figures in this slot, index-aligned with `ThroughputSeries.people` (a person the slot omits counts 0). */
   shares: ThroughputFigures[];
@@ -101,6 +104,7 @@ export function throughputSeries(slots: readonly ThroughputSlot[]): ThroughputSe
       };
     });
     return {
+      id: slot.id,
       label: slot.label,
       deliveredMd: slot.deliveredMd,
       deliveredItems: slot.deliveredItems,
@@ -114,12 +118,12 @@ export function throughputSeries(slots: readonly ThroughputSlot[]): ThroughputSe
 
 /** The period view's series: one slot per week/month, labelled by `bucketLabel`. */
 export function throughputBuckets(buckets: readonly ThroughputBucketRow[], bucket: Bucket): ThroughputSeries {
-  return throughputSeries(buckets.map((row) => ({ ...row, label: bucketLabel(row.bucketStart, bucket) })));
+  return throughputSeries(buckets.map((row) => ({ ...row, id: row.bucketStart, label: bucketLabel(row.bucketStart, bucket) })));
 }
 
 /** The sprint view's series: one slot per sprint in completion order, labelled like the other sprint charts. */
 export function throughputSprints(sprints: readonly ThroughputSprint[], filters: ReportFilters): ThroughputSeries {
-  return throughputSeries(labelledSprints(sprints, filters).map(({ sprint, label }) => ({ ...sprint, label })));
+  return throughputSeries(labelledSprints(sprints, filters).map(({ sprint, label }) => ({ ...sprint, id: `${sprint.teamId}:${sprint.sprintId}`, label })));
 }
 
 /** The period view's totals — the text alternative to the chart, and the "nothing delivered" test. */
@@ -131,13 +135,13 @@ export function throughputTotals(buckets: readonly ThroughputBucketRow[]): { md:
  * One row of the plotted data: the slot's `label`, its MD under `md` (the single series of a whole team) and its items
  * under `items` (for the tooltip), plus each person's MD under their `key` — the per-slot figure, or the running total.
  */
-export type ThroughputPlotRow = { label: string; md: number; items: number } & Record<string, number | string>;
+export type ThroughputPlotRow = { id: string; label: string; md: number; items: number } & Record<string, number | string>;
 
 /** The chart's rows for the per-period bars or, with `cumulative`, the running-total areas. */
 export function throughputPlot(series: ThroughputSeries, cumulative: boolean): ThroughputPlotRow[] {
   const md = (figures: ThroughputFigures) => (cumulative ? figures.cumulativeMd : figures.deliveredMd);
   return series.rows.map((row) => {
-    const plotted: ThroughputPlotRow = { label: row.label, md: md(row), items: cumulative ? row.cumulativeItems : row.deliveredItems };
+    const plotted: ThroughputPlotRow = { id: row.id, label: row.label, md: md(row), items: cumulative ? row.cumulativeItems : row.deliveredItems };
     series.people.forEach((person, index) => {
       plotted[person.key] = md(row.shares[index]);
     });
@@ -148,6 +152,8 @@ export function throughputPlot(series: ThroughputSeries, cumulative: boolean): T
 /** A flat row of a per-person table: one person's share of one slot. */
 export interface ThroughputShareRow {
   key: string;
+  /** The slot's `id` (what its drill is keyed by). */
+  slotId: string;
   label: string;
   person: ThroughputPerson;
   figures: ThroughputFigures;
@@ -156,7 +162,7 @@ export interface ThroughputShareRow {
 /** The per-person-per-slot rows, slots in time order, people numbered as in the chart. */
 export function throughputShareRows(series: ThroughputSeries): ThroughputShareRow[] {
   return series.rows.flatMap((row, slot) =>
-    series.people.map((person, index) => ({ key: `${slot}:${person.accountId}`, label: row.label, person, figures: row.shares[index] })),
+    series.people.map((person, index) => ({ key: `${slot}:${person.accountId}`, slotId: row.id, label: row.label, person, figures: row.shares[index] })),
   );
 }
 

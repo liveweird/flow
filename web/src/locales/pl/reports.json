@@ -137,6 +137,32 @@
   "items_few": "{{count}} zadania",
   "items_many": "{{count}} zadań",
   "items_other": "{{count}} zadania",
+  "drill": {
+    "hint": "Kliknij dwukrotnie słupek, aby zobaczyć zadania, które go tworzą — albo użyj przycisku „Zadania” w wierszu.",
+    "hintRows": "Użyj przycisku „Zadania” w wierszu, aby zobaczyć zadania, które go tworzą.",
+    "column": "Zadania",
+    "openAria": "Pokaż zadania: {{name}}",
+    "back": "Wróć do wykresu",
+    "everyone": "Wszystkie osoby",
+    "segmentLabel": "Pokaż zadania osoby",
+    "summary": "{{items}} · {{md}} MD",
+    "changed": "Dane zmieniły się od momentu narysowania wykresu.",
+    "truncated": "Pokazano {{count}} największych spośród {{total}} zadań.",
+    "noItems": "Brak zadań dla tego słupka.",
+    "tableAria": "Zadania tworzące słupek",
+    "title": {
+      "bucket": "{{label}} · Dostarczone"
+    },
+    "columns": {
+      "issueKey": "Klucz",
+      "summary": "Podsumowanie",
+      "assignee": "Osoba przypisana",
+      "done": "Zakończono",
+      "figure": {
+        "md": "Dostarczone (MD)"
+      }
+    }
+  },
   "sprints": {
     "sprint": "Sprint",
     "team": "Zespół",

@@ -6,6 +6,7 @@ import { CATEGORY_PALETTE, CHART_COLORS } from "../utils/chartColors";
 import { personLabel } from "../utils/commitmentsReport";
 import { formatMd } from "../utils/reportFormat";
 import type { ThroughputPerson, ThroughputPlotRow } from "../utils/throughputReport";
+import { barDoubleClickProps, type ChartBarHit } from "../utils/chartDrill";
 import ChartLegendList, { PersonSwatch } from "./ChartLegendList";
 
 const MAX_BAR = 28;
@@ -18,6 +19,8 @@ export interface ThroughputChartProps {
   rows: ThroughputPlotRow[];
   /** The picked people, bottom of the stack first; none = the whole team (one teal series). */
   people: ThroughputPerson[];
+  /** A double-click on a bar (the whole team) or on one person's segment: the row's `id` and the series (`md` or the person's `key`). */
+  onBarDoubleClick?: (hit: ChartBarHit) => void;
 }
 
 /**
@@ -28,7 +31,7 @@ export interface ThroughputChartProps {
  * A lazy chunk: recharts never enters the main bundle. The tooltip adds the item count, so an unestimated task (an item
  * worth 0 MD) is never invisible.
  */
-export default function ThroughputChart({ scope, cumulative, rows, people }: ThroughputChartProps) {
+export default function ThroughputChart({ scope, cumulative, rows, people, onBarDoubleClick }: ThroughputChartProps) {
   const { t } = useTranslation();
   const byPerson = people.length > 0;
   const series = byPerson
@@ -74,7 +77,12 @@ export default function ThroughputChart({ scope, cumulative, rows, people }: Thr
     },
   };
   return (
-    <Box role="group" aria-label={byPerson ? t("reports.throughput.chartLabels.byPerson", { label: name }) : name}>
+    <Box
+      role="group"
+      aria-label={byPerson ? t("reports.throughput.chartLabels.byPerson", { label: name }) : name}
+      // A double-click on a drillable bar must not select the axis labels around it.
+      style={onBarDoubleClick && !cumulative ? { userSelect: "none" } : undefined}
+    >
       {people.length > 1 && (
         <ChartLegendList
           label={t("reports.throughput.userLegendLabel")}
@@ -98,11 +106,12 @@ export default function ThroughputChart({ scope, cumulative, rows, people }: Thr
         <BarChart
           {...common}
           type={byPerson ? "stacked" : "default"}
-          barProps={
-            byPerson
+          barProps={(bar) => ({
+            ...(byPerson
               ? { maxBarSize: MAX_BAR, stroke: "var(--mantine-color-body)", strokeOpacity: 1, strokeWidth: 2 }
-              : { maxBarSize: MAX_BAR }
-          }
+              : { maxBarSize: MAX_BAR }),
+            ...barDoubleClickProps(bar.name, onBarDoubleClick),
+          })}
         />
       )}
     </Box>

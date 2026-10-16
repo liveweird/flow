@@ -111,8 +111,21 @@ fun bucketStarts(fromMs: Long, toMsExclusive: Long, zone: ZoneId, bucket: Throug
     return starts
 }
 
-/** One level-0 task done inside the window — just what the period view aggregates. */
-private data class DoneTask(val doneAt: Long, val md: BigDecimal, val creditTeamId: UInt?, val accountId: String?)
+/**
+ * One level-0 task done inside the window — what the period view aggregates and the drill (`ThroughputDrill.kt`) lists.
+ * [estimateMd] is `null` for an unestimated task, which counts as an item worth 0 MD ([md]).
+ */
+internal data class ThroughputTask(
+    val connectionId: UInt,
+    val issueId: Long,
+    val doneAt: Long,
+    val estimateMd: BigDecimal?,
+    val creditTeamId: UInt?,
+    val accountId: String?,
+) {
+    /** Unestimated counts as an item worth 0 MD (measures.md: "unestimated -> 0 MD, counted"). */
+    val md: BigDecimal get() = estimateMd ?: BigDecimal.ZERO
+}
 
 /**
  * `GET /api/v1/reports/throughput` (v0.3.0 M4 commit 10c, Report 2 + the item counts of 13,
@@ -138,7 +151,7 @@ suspend fun ReportService.throughput(
     }.sortedWith(compareBy<ThroughputSprint, Long?>(nullsLast()) { it.completedAt }.thenBy { it.sprintId })
 
     val window = scope.window
-    val tasks = if (window == null) emptyList() else fetchDoneTasks(filter, connectionIds, window)
+    val tasks = if (window == null) emptyList() else fetchThroughputTasks(filter, connectionIds, window)
     val byBucket = if (window == null) emptyList() else bucketRows(tasks, window, zone, bucket, picked)
     val groups = when (filter.level) {
         ReportLevel.UNIT -> teamThroughputGroups(tasks)
@@ -148,16 +161,19 @@ suspend fun ReportService.throughput(
     ThroughputReport(scope.meta, bySprint, byBucket, groups)
 }
 
-private suspend fun fetchDoneTasks(filter: ReportFilter, connectionIds: List<UInt>, window: Pair<Long, Long>): List<DoneTask> {
+internal suspend fun fetchThroughputTasks(filter: ReportFilter, connectionIds: List<UInt>, window: Pair<Long, Long>): List<ThroughputTask> {
     if (connectionIds.isEmpty()) return emptyList()
     val t = MetricsTables.FactTaskDelivery
     val predicate = taskFactSlice(filter, connectionIds) and
         t.doneAt.isNotNull() and (t.doneAt greaterEq window.first) and (t.doneAt less window.second)
-    return t.select(t.doneAt, t.estimateAtDoneMd, t.creditTeamId, t.assigneeAccountIdAtDone).where { predicate }.toList().map {
-        DoneTask(
+    val rows = t.select(t.connectionId, t.issueId, t.doneAt, t.estimateAtDoneMd, t.creditTeamId, t.assigneeAccountIdAtDone)
+        .where { predicate }.toList()
+    return rows.map {
+        ThroughputTask(
+            connectionId = it[t.connectionId].value,
+            issueId = it[t.issueId],
             doneAt = it[t.doneAt]!!,
-            // Unestimated counts as an item worth 0 MD (measures.md: "unestimated -> 0 MD, counted").
-            md = it[t.estimateAtDoneMd] ?: BigDecimal.ZERO,
+            estimateMd = it[t.estimateAtDoneMd],
             creditTeamId = it[t.creditTeamId]?.value,
             accountId = it[t.assigneeAccountIdAtDone],
         )
@@ -165,7 +181,7 @@ private suspend fun fetchDoneTasks(filter: ReportFilter, connectionIds: List<UIn
 }
 
 private fun bucketRows(
-    tasks: List<DoneTask>,
+    tasks: List<ThroughputTask>,
     window: Pair<Long, Long>,
     zone: ZoneId,
     bucket: ThroughputBucket,
@@ -202,25 +218,25 @@ private suspend fun pickedUsers(filter: ReportFilter): PickedUsers {
  * USER-level `groups`: each picked account's period totals (the TEAM-level rule — tasks by `assignee_at_done`), ordered like
  * the other groups (label, then account id); an explicit pick is always listed, a zero entry when it delivered nothing.
  */
-private fun pickedUserGroups(tasks: List<DoneTask>, picked: PickedUsers): List<ThroughputGroup> =
+private fun pickedUserGroups(tasks: List<ThroughputTask>, picked: PickedUsers): List<ThroughputGroup> =
     picked.sharesOf(tasks.mdByAccount()).map {
         ThroughputGroup(
             teamId = null, accountId = it.accountId, label = it.label, deliveredMd = it.deliveredMd, deliveredItems = it.deliveredItems,
         )
     }.sortedWith(byLabelThenId({ it.label }, { null }, { it.accountId }))
 
-private fun List<DoneTask>.deliveredMd(): Double = fold(BigDecimal.ZERO) { acc, row -> acc + row.md }.toDouble()
+private fun List<ThroughputTask>.deliveredMd(): Double = fold(BigDecimal.ZERO) { acc, row -> acc + row.md }.toDouble()
 
-private fun List<DoneTask>.mdByAccount(): Map<String?, List<BigDecimal>> = groupBy({ it.accountId }, { it.md })
+private fun List<ThroughputTask>.mdByAccount(): Map<String?, List<BigDecimal>> = groupBy({ it.accountId }, { it.md })
 
-private suspend fun teamThroughputGroups(tasks: List<DoneTask>): List<ThroughputGroup> =
+private suspend fun teamThroughputGroups(tasks: List<ThroughputTask>): List<ThroughputGroup> =
     orgGroups(ReportLevel.UNIT, tasks, { it.creditTeamId }, { null }).map { (key, rows) ->
         ThroughputGroup(
             teamId = key.teamId, accountId = null, label = key.label, deliveredMd = rows.deliveredMd(), deliveredItems = rows.size,
         )
     }
 
-private suspend fun userThroughputGroups(tasks: List<DoneTask>): List<ThroughputGroup> =
+private suspend fun userThroughputGroups(tasks: List<ThroughputTask>): List<ThroughputGroup> =
     orgGroups(ReportLevel.TEAM, tasks, { null }, { it.accountId }).map { (key, rows) ->
         ThroughputGroup(
             teamId = null, accountId = key.accountId, label = key.label, deliveredMd = rows.deliveredMd(), deliveredItems = rows.size,

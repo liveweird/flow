@@ -133,6 +133,32 @@
   },
   "items_one": "{{count}} item",
   "items_other": "{{count}} items",
+  "drill": {
+    "hint": "Double-click a bar to list the items behind it — or use a row's Items button.",
+    "hintRows": "Use a row's Items button to list the items behind it.",
+    "column": "Items",
+    "openAria": "Show the items of {{name}}",
+    "back": "Back to the chart",
+    "everyone": "Everyone",
+    "segmentLabel": "Show the items of",
+    "summary": "{{items}} · {{md}} MD",
+    "changed": "The data changed since the chart was drawn.",
+    "truncated": "Showing the {{count}} largest of {{total}} items.",
+    "noItems": "No items behind this bar.",
+    "tableAria": "Items behind the bar",
+    "title": {
+      "bucket": "{{label}} · Delivered"
+    },
+    "columns": {
+      "issueKey": "Issue",
+      "summary": "Summary",
+      "assignee": "Assignee",
+      "done": "Done",
+      "figure": {
+        "md": "Delivered (MD)"
+      }
+    }
+  },
   "sprints": {
     "sprint": "Sprint",
     "team": "Team",

@@ -1,4 +1,5 @@
 import type { ParseKeys } from "i18next";
+import { DRILL_PARAM } from "./reportDrill";
 import { REPORT_SPECIFIC_KEYS, type ReportSpecificKey } from "./reportFilter";
 
 /** The ONE place the reports route family is spelled out — never hand-assemble a report URL. */
@@ -115,6 +116,8 @@ export function reportHref(path: string, search: string): string {
   const accounts = params.getAll("accountId");
   if (!MULTI_ACCOUNT_PATHS.has(path) && accounts.length > 1) params.set("accountId", accounts[0]);
   if (NO_MEMBER_PATHS.has(path)) params.delete("accountId");
+  // A drill names a bar of ONE report's chart: it means nothing on another report, so it never follows a tab link.
+  params.delete(DRILL_PARAM);
   const own = PAGE_PARAMS[path] ?? [];
   for (const key of Object.values(PAGE_PARAMS).flat()) {
     if (!own.includes(key)) params.delete(key);

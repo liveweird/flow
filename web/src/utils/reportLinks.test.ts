@@ -176,6 +176,17 @@ describe("reportHref — the aging WIP kind switch", () => {
   });
 });
 
+describe("reportHref — an open drill", () => {
+  test("never follows a tab link, not even to the same report: a bar means nothing anywhere else", () => {
+    const search = "teamId=2&drill=bucket%3A2026-09-07%3Bs%3Dacc-bob&view=cumulative";
+    expect(reportHref("/reports/throughput", search)).toBe("/reports/throughput?teamId=2&view=cumulative");
+    for (const path of ["/reports/commitments", "/reports/cycle-time", "/reports/wip"]) {
+      expect(reportHref(path, search)).toBe(`${path}?teamId=2`);
+    }
+    expect(reportHref("/reports/throughput", "drill=bucket%3A2026-09-07")).toBe("/reports/throughput");
+  });
+});
+
 describe("deepDiveBasePath", () => {
   test("is the Deep dive's own route", () => {
     expect(deepDiveBasePath).toBe("/reports/deep-dive");
