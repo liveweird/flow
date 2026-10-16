@@ -38,7 +38,11 @@ address-range check ported from Toadie as defense in depth.
 `jira/JiraHttp.kt` retries 429/5xx/IOException up to `jira.maxRetries`, backing off
 `min(30s, 2s·2^n) × U(0.7,1.3)` (`JiraBackoff`, pure and clock/random-injectable —
 `JiraBackoffTest`), honouring a `Retry-After` header when present (clamped to 120s, taking
-precedence over the exponential formula). An `X-RateLimit-NearLimit: true` response header adds a
+precedence over the exponential formula). The IOException retry covers a DNS failure too (an allow-listed host the resolver
+cannot resolve is a plain `UnknownHostException`, not a guard rejection - `security.md` "Outbound HTTP calls"): with the default
+`jira.maxRetries` of 4 that is five attempts and about 30s of nominal backoff (2+4+8+16s, each x U(0.7,1.3)) before
+`UPSTREAM_UNAVAILABLE`; every retry goes back through `GuardedDns` (the JVM caches a failed lookup for 10s,
+`networkaddress.cache.negative.ttl`, so the first fresh DNS query is the retry after ~14s). An `X-RateLimit-NearLimit: true` response header adds a
 1s pause before the NEXT call. A `Semaphore(jira.maxConcurrentRequests)` caps concurrent in-flight
 calls per process. A response body is read bounded at `jira.maxResponseBytes` (default 32 MiB,
 Covenant's `ToadieGraphqlClient` shape) — `LIMIT_EXCEEDED` past the cap (the batch streams' answers: "Oversized issue page (`LIMIT_EXCEEDED`)" and "Oversized changelog/worklog batch" below).
@@ -496,13 +500,17 @@ undetected code.
 `AUTHENTICATION_FAILED` (401) · `FORBIDDEN_SCOPE` (403) · `NOT_FOUND` (404) · `RATE_LIMITED` (429,
 retries exhausted, OR a `Retry-After` whose wait alone would cross the remaining
 `jira.requestDeadlineSeconds` budget — reported immediately rather than waited out) ·
-`UPSTREAM_UNAVAILABLE` (5xx or IOException, retries exhausted, OR the next backoff would cross that
-same total-request deadline) · `TIMEOUT` (request/probe timeout) · `INVALID_RESPONSE` (malformed
+`UPSTREAM_UNAVAILABLE` (5xx or IOException - a DNS failure included - retries exhausted, OR the next backoff would cross that
+same total-request deadline. Recorded decision (2026-10-16): a typo'd tenant on Test connection, whose `tenant_info` host does not
+resolve, is retried like any DNS failure, so its `tenant_info` row reads `TIMEOUT` once the 10s probe budget runs out inside the
+backoff (and the later required rows `NOT_FOUND`, there being no gateway) rather than failing at once; there is no separate
+`DNS_UNRESOLVED` code. On the SYNC path, with its longer request deadline, a persistent DNS failure ends as `UPSTREAM_UNAVAILABLE`) · `TIMEOUT` (request/probe timeout) · `INVALID_RESPONSE` (malformed
 JSON, an unexpected shape — every `.jsonObject`/`.jsonArray`/`.jsonPrimitive` cast is routed through
 one decode helper so a mismatch is always this code, never an uncaught exception — an invalid
 `cloudId` shape, or a Jira-supplied issue id/key that doesn't match the expected path shape) ·
 `LIMIT_EXCEEDED` (response over `jira.maxResponseBytes`; the ISSUES stream answers a `search/jql` page with a smaller one, see "Oversized issue page (`LIMIT_EXCEEDED`)" above; CHANGELOGS/WORKLOGS halve their batch, see "Oversized changelog/worklog batch") · `BLOCKED_HOST` (the outbound guard
-refused the resolved host/address — `BlockedHostException` extends `UnknownHostException`, the
+refused the host (not allow-listed) or a resolved address (blocked range) - NEVER a DNS failure, which is retried and ends as
+`UPSTREAM_UNAVAILABLE`; `BlockedHostException` extends `UnknownHostException`, the
 `Dns` contract's own checked type, so OkHttp's async call path delivers it to Ktor unwrapped instead
 of re-wrapping it as a generic `IOException`; a single attempt, never retried) · `REDIRECT` (a 3xx —
 never followed) · `CURSOR_EXPIRED` (a `search/jql` `nextPageToken` page answering 400/410 — see
@@ -530,7 +538,10 @@ never hold the `jira.maxConcurrentRequests` `Semaphore` permit indefinitely.
   set of production-wiring integration tests (`buildGuardedJiraHttpClient`, the SAME builder
   `jira/Jira.kt` uses) against the real, loopback `JiraStubServer` over the real OkHttp engine:
   `BLOCKED_HOST` in one attempt/no retry, a disallowed host never reaching the resolver, `Proxy.
-  NO_PROXY`, and a real 3xx never followed.
+  NO_PROXY`, and a real 3xx never followed; plus the DNS-failure cases: a plain `UnknownHostException` (exact class, no
+  `outbound.blocked` audit, one host-only WARN) for a failing resolver and for an empty answer, a resolver that fails once
+  and then answers (the retry succeeds), and one that always fails (`UPSTREAM_UNAVAILABLE` after `maxRetries` retries, and
+  `skipsProjectFields` true).
 - `JiraConnectorTest` — `testConnection`'s probe loop against a hand-written `JiraClient` fake: a
   raw-cast `IllegalArgumentException` anywhere becomes an `INVALID_RESPONSE` row rather than an
   uncaught crash, a genuine coroutine cancellation is never swallowed as a row, and a probe honours

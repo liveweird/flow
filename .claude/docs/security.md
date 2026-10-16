@@ -272,7 +272,15 @@ OkHttp engine level AND Ktor's own client-side `HttpRedirect` plugin — `HttpCl
 `retryOnConnectionFailure(false)`, no cookies, no proxy authenticator. `jira/JiraHttp.kt` layers a
 bounded response read (Covenant's `ToadieGraphqlClient` shape, capped at `jira.maxResponseBytes`)
 and exponential backoff with jitter (`JiraBackoff`) on top. Every guard rejection is audited as
-`outbound.blocked` (scheme + host ONLY — never the full URL, which may embed a token).
+`outbound.blocked` (scheme + host ONLY — never the full URL, which may embed a token). **A DNS failure is NOT a guard
+rejection**: when the resolver throws `UnknownHostException` or answers with no address for an ALREADY allow-listed host,
+`GuardedDns` throws a plain `UnknownHostException(host)` (never a `BlockedHostException`), audits nothing and logs ONE WARN
+(host only, no stack trace). No security property is in play (the host passed the allow-list, no blocked address was seen), and
+a lost DNS answer is routine on a VPN/forwarding resolver — reporting it as a block made one transient lookup a fatal,
+unretried `BLOCKED_HOST` that failed a 17-minute SYNC and sent whoever read the audit stream chasing a block that never
+happened. It is an `IOException`, so `JiraHttp` retries it with the normal backoff, and every retry re-runs the allow-list
+check and the resolve-check-connect sequence. The allow-list check still runs BEFORE any resolution, so a disallowed host is
+never resolved. Pinned by `OutboundGuardTest`.
 `jira.stubBaseUrl` is fail-closed: production startup refuses a non-blank value (`jira/Jira.kt`,
 pinned by `OutboundGuardTest`'s boot test) — the same shape as the crypto-key/mail-transport
 checks. A Jira Cloud API host is always public, so this guard is a defense-in-depth backstop; the

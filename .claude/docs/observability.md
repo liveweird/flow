@@ -127,9 +127,11 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
   `RETRIES_EXHAUSTED` (`SyncJobLeases.claim`): a WARN `Sync job {id} ({kind}) for data source {id} exhausted its {n} attempts`,
   no `sync_job.failed`. The scheduler back-off it and every failed job record, and the config PUT that lifts it, are state
   of the already-audited mutation (`sync_job.failed`, `data_source.updated`) and add no event of their own.
-- `outbound.blocked` (scheme/host ONLY — never the full URL) — every rejection from
-  `infra/outbound/OutboundGuard.kt`'s host allow-list or address-range check, emitted by
-  `GuardedDns` on the Jira HTTP client's every outbound call (`.claude/docs/jira-integration.md`).
+- `outbound.blocked` (scheme/host ONLY — never the full URL) — a rejection by `infra/outbound/OutboundGuard.kt`'s host
+  allow-list or address-range check ONLY, emitted by `GuardedDns` on the Jira HTTP client's every outbound call
+  (`.claude/docs/jira-integration.md`). A DNS failure (the resolver throwing, or an empty answer, for an allow-listed host) is
+  not a rejection and emits no audit event: `GuardedDns` logs a WARN per attempt, `DNS resolution failed for allow-listed outbound host
+  <host>` (logger `ch.nokillswit.outbound`, host only) and the call is retried like any other IO failure.
 - `metrics_settings.updated` (byUserId/configRevision) — the global `metrics.settings` singleton's
   full-replace PUT (v0.3.0 M1 commit 3, `metrics/Metrics.kt`) / `team.jira_membership_added`
   (byUserId/teamId/accountId/validFrom/validTo) / `.updated` (same fields, the row's NEW values) /
