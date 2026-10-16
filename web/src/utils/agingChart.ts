@@ -2,7 +2,7 @@ import type { AgingItem, AgingPosition, AgingThresholds, AgingWipReport } from "
 import { bandTone, type BandTone } from "./agingReport";
 import { CHART_COLORS } from "./chartColors";
 
-/** The two kinds the aging chart can show — never both on one plot: an epic's cycle is a different scale from a task's. */
+/** The two kinds the page shows, one at a time (the page's Tasks | Epics switch): an epic's cycle is a different scale from a task's. */
 export type AgingKind = "TASK" | "EPIC";
 
 /**
@@ -58,12 +58,6 @@ export interface AgingPlot {
   /** The x-axis categories holding at least one shown item, in the server's order (never re-sorted). */
   categories: AgingPosition[];
   points: AgingPlotPoint[];
-}
-
-/** Which kinds the report has items of — the Tasks | Epics switch appears only when both do. */
-export function agingKinds(report: Pick<AgingWipReport, "items">): AgingKind[] {
-  const kinds = new Set(report.items.map((item) => item.itemKind));
-  return (["TASK", "EPIC"] as const).filter((kind) => kinds.has(kind));
 }
 
 /**

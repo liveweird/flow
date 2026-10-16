@@ -1,9 +1,9 @@
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense } from "react";
 import { useTranslation } from "react-i18next";
-import { Group, SegmentedControl, Stack, Switch, Text } from "@mantine/core";
+import { Stack, Switch, Text } from "@mantine/core";
 import { isBoolean, useStoredState } from "../hooks/useStoredState";
 import type { AgingWipReport } from "../api/reports";
-import { AGING_BAND_COLORS, agingKinds, agingPlot, type AgingKind } from "../utils/agingChart";
+import { AGING_BAND_COLORS, agingPlot, type AgingKind } from "../utils/agingChart";
 import { bandPercentileLabel } from "../utils/agingReport";
 import { AgingDotGlyph } from "./AgingDotMark";
 import ChartLegendList, { type LegendEntry } from "./ChartLegendList";
@@ -13,25 +13,25 @@ import MinSampleNotice from "./MinSampleNotice";
 const AgingScatterChart = lazy(() => import("./AgingScatterChart"));
 
 /**
- * The aging chart's card body: the Tasks | Epics switch and the log-scale switch (remembered per viewer) (only when the list has both — their thresholds are different
- * scales, so they are never one plot), the hidden-thresholds note, the dot legend (bands, waiting, blocked), the lazy chart,
- * and the truncation note. The table below the card is the chart's text alternative and where a clicked dot lands.
+ * The aging chart's card body for the kind the page's Tasks | Epics switch picked (their thresholds are different scales, so they
+ * are never one plot): the log-scale switch (remembered per viewer), the hidden-thresholds note, the dot legend (bands, waiting,
+ * blocked), the lazy chart, and the truncation note. The table below the card is the chart's text alternative and where a clicked
+ * dot lands.
  */
 export default function AgingChartSection({
   report,
+  kind,
   selectedKey,
   onSelect,
 }: {
   report: AgingWipReport;
+  kind: AgingKind;
   selectedKey: string | null;
   onSelect: (key: string) => void;
 }) {
   const { t } = useTranslation();
-  const kinds = agingKinds(report);
-  const [chosen, setChosen] = useState<AgingKind | null>(null);
   // Remembered per viewer: real data has one very old item that squashes a linear axis, so the choice should stick.
   const [logScale, setLogScale] = useStoredState<boolean>("reports.agingWip.logScale", false, isBoolean);
-  const kind = chosen !== null && kinds.includes(chosen) ? chosen : (kinds[0] ?? "TASK");
   const plot = agingPlot(report, kind);
   const thresholds = kind === "EPIC" ? report.epicThresholds : report.thresholds;
 
@@ -59,19 +59,7 @@ export default function AgingChartSection({
 
   return (
     <Stack gap="sm">
-      <Group gap="md">
-        {kinds.length > 1 && (
-          <SegmentedControl
-            size="xs"
-            w="fit-content"
-            aria-label={t("reports.agingWip.chart.kindAria")}
-            value={kind}
-            onChange={(value) => setChosen(value === "EPIC" ? "EPIC" : "TASK")}
-            data={kinds.map((value) => ({ value, label: t(`reports.filters.itemKindOption.${value}`) }))}
-          />
-        )}
-        <Switch size="xs" label={t("reports.agingWip.chart.logScale")} checked={logScale} onChange={(event) => setLogScale(event.currentTarget.checked)} />
-      </Group>
+      <Switch size="xs" label={t("reports.agingWip.chart.logScale")} checked={logScale} onChange={(event) => setLogScale(event.currentTarget.checked)} />
       {thresholds.hidden && <MinSampleNotice n={thresholds.n} minSampleSize={report.meta.minSampleSize} subject="thresholds" />}
       <ChartLegendList label={t("reports.agingWip.chart.legendLabel")} entries={entries} />
       <Suspense fallback={<LoadingBlock />}>
@@ -87,7 +75,7 @@ export default function AgingChartSection({
       )}
       {report.itemsTruncated && (
         <Text size="xs" c="dimmed">
-          {t("reports.agingWip.truncated", { count: report.items.length })}
+          {t("reports.agingWip.truncated", { count: plot.items.length })}
         </Text>
       )}
     </Stack>

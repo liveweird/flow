@@ -240,8 +240,12 @@ unfolds it first (`openFilters`, which leaves an already unfolded bar alone).
    - *Expected*: the "Aging chart" card is shown above the "Open work, oldest first" table; its x axis
      is titled "Workflow position" and lists the team's board columns (the report's `positions` are all
      of kind COLUMN, every one printed as an axis label); its y axis is titled "Age (working days)";
-     there is one dot per task, and the table below has one row per listed item.
-2. They open the same report without a team.
+     there is one dot per task, and the table below has one row per listed task (the page shows tasks
+     by default; epics are behind the page's Tasks | Epics switch).
+2. When the list holds epics, they pick **Epics** in the page's Tasks | Epics switch.
+   - *Expected*: the URL gains `kind=epics`, the table has one row per listed epic, and picking
+     **Tasks** again drops `kind` from the URL and brings the tasks back.
+3. They open the same report without a team.
    - *Expected*: the chart is still shown with its axis title and at least one dot (the axis is the
      statuses now).
 

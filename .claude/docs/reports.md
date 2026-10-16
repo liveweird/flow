@@ -1023,7 +1023,7 @@ AgingWipReport {
   WIP `by=COLUMN` resolves them -- `boardColumnMappingOrNull`, the non-throwing half of `columnMappingFor`), a status on no column under `(no
   column)` last (an epic is placed the same way through its own status); otherwise (UNIT, `teamId=0`, a team with no board) the statuses
   (`kind: STATUS`, `key` = the status id), ordered like WIP `by=STATUS` (`sortStatusIds`: earliest stage in `IN_PROGRESS`, `WAITING`, `BLOCKED` order, then name,
-  then id). Tasks and epics share the one list; the web draws one kind per plot.
+  then id). Tasks and epics share the one list; the web shows one kind at a time (the page's Tasks | Epics switch filters this response client-side: thresholds, chart and table).
 
 ### Report 12 -- `GET /api/v1/reports/blocked-time`
 

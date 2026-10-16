@@ -5,6 +5,7 @@ import AgingChartSection from "./AgingChartSection";
 import { renderWithProviders, screen, within } from "../test/render";
 import { AGING_HIDDEN, AGING_TRUNCATED, AGING_UNIT } from "../test/reportFixtures";
 import type { AgingWipReport } from "../api/reports";
+import type { AgingKind } from "../utils/agingChart";
 
 interface ProbeProps {
   data: { data: { x: number; y: number; i: number }[] }[];
@@ -37,35 +38,30 @@ const WITH_EPIC_THRESHOLDS: AgingWipReport = {
 
 const noop = () => {};
 const probe = () => screen.findByTestId("scatter");
+const renderSection = (report: AgingWipReport, kind: AgingKind = "TASK") =>
+  renderWithProviders(<AgingChartSection report={report} kind={kind} selectedKey={null} onSelect={noop} />);
 
 describe("AgingChartSection", () => {
-  test("tasks by default, with the task thresholds; the Epics segment swaps in the epics and THEIR thresholds", async () => {
-    renderWithProviders(<AgingChartSection report={WITH_EPIC_THRESHOLDS} selectedKey={null} onSelect={noop} />);
+  test("the chart plots the kind it is given, with that kind's thresholds — and has no switch of its own", async () => {
+    const { unmount } = renderSection(WITH_EPIC_THRESHOLDS, "TASK");
     const tasks = await probe();
     expect(tasks).toHaveAttribute("data-count", "4");
     expect(tasks).toHaveAttribute("data-lines", "p50 · 8 wd|p85 · 15 wd|p95 · 25 wd");
     expect(tasks).toHaveAttribute("data-labels", "In progress|In review|On hold");
+    expect(screen.queryByRole("radiogroup")).not.toBeInTheDocument();
+    unmount();
 
-    await userEvent.click(screen.getByRole("radio", { name: "Epics" }));
+    renderSection(WITH_EPIC_THRESHOLDS, "EPIC");
     const epics = await probe();
     expect(epics).toHaveAttribute("data-count", "1");
     expect(epics).toHaveAttribute("data-ages", "40");
     expect(epics).toHaveAttribute("data-lines", "p50 · 3 wd|p85 · 5 wd|p95 · 8 wd");
     expect(epics).toHaveAttribute("data-labels", "Epic doing");
-
-    await userEvent.click(screen.getByRole("radio", { name: "Tasks" }));
-    expect(await probe()).toHaveAttribute("data-count", "4");
-  });
-
-  test("the switch exists only when the list holds both kinds", async () => {
-    renderWithProviders(<AgingChartSection report={AGING_HIDDEN} selectedKey={null} onSelect={noop} />);
-    await probe();
     expect(screen.queryByRole("radiogroup")).not.toBeInTheDocument();
-    expect(screen.getByRole("list", { name: "Dot legend" })).toBeInTheDocument();
   });
 
   test("hidden thresholds: the note says why, no line is drawn, the dots still render", async () => {
-    renderWithProviders(<AgingChartSection report={AGING_HIDDEN} selectedKey={null} onSelect={noop} />);
+    renderSection(AGING_HIDDEN);
     const chart = await probe();
     expect(chart).toHaveAttribute("data-lines", "");
     expect(chart).toHaveAttribute("data-count", "4");
@@ -76,7 +72,7 @@ describe("AgingChartSection", () => {
   });
 
   test("the legend names the bands by rank and the two marker details in words", async () => {
-    renderWithProviders(<AgingChartSection report={AGING_UNIT} selectedKey={null} onSelect={noop} />);
+    renderSection(AGING_UNIT);
     await probe();
     const items = within(screen.getByRole("list", { name: "Dot legend" })).getAllByRole("listitem");
     expect(items.map((item) => item.textContent)).toEqual([
@@ -88,21 +84,20 @@ describe("AgingChartSection", () => {
     ]);
   });
 
-  test("an epics-only list opens on the epics without a switch", async () => {
+  test("an epics-only list plots its epics", async () => {
     const epicsOnly = { ...AGING_UNIT, items: AGING_UNIT.items.filter((item) => item.itemKind === "EPIC") };
-    renderWithProviders(<AgingChartSection report={epicsOnly} selectedKey={null} onSelect={noop} />);
+    renderSection(epicsOnly, "EPIC");
     expect(await probe()).toHaveAttribute("data-count", "1");
-    expect(screen.queryByRole("radiogroup")).not.toBeInTheDocument();
   });
 
   test("a truncated list is plotted as listed and carries the truncation note", async () => {
-    renderWithProviders(<AgingChartSection report={AGING_TRUNCATED} selectedKey={null} onSelect={noop} />);
+    renderSection(AGING_TRUNCATED);
     expect(await probe()).toHaveAttribute("data-count", "4");
-    expect(screen.getByText("Showing the oldest 5 items; more match. Narrow the team or the domain to see the rest.")).toBeInTheDocument();
+    expect(screen.getByText("Showing the oldest 4 items; more match. Narrow the team or the domain to see the rest.")).toBeInTheDocument();
   });
 
   test("the log scale is a Switch, off by default; toggling it sets the log axis, the note and the remembered choice", async () => {
-    renderWithProviders(<AgingChartSection report={AGING_UNIT} selectedKey={null} onSelect={noop} />);
+    renderSection(AGING_UNIT);
     expect(await probe()).toHaveAttribute("data-y-scale", "linear");
     const toggle = screen.getByRole("switch", { name: "Log scale" });
     expect(toggle).not.toBeChecked();
@@ -120,18 +115,19 @@ describe("AgingChartSection", () => {
     expect(await probe()).toHaveAttribute("data-y-scale", "linear");
   });
 
-  test("a stored log choice is restored, and the Tasks | Epics switch keeps it", async () => {
+  test("a stored log choice is restored, for either kind", async () => {
     localStorage.setItem("flow.viewSettings.reports.agingWip.logScale", "true");
-    renderWithProviders(<AgingChartSection report={WITH_EPIC_THRESHOLDS} selectedKey={null} onSelect={noop} />);
+    const { unmount } = renderSection(WITH_EPIC_THRESHOLDS);
     expect(await probe()).toHaveAttribute("data-y-scale", "log");
     expect(screen.getByRole("switch", { name: "Log scale" })).toBeChecked();
-    await userEvent.click(screen.getByRole("radio", { name: "Epics" }));
+    unmount();
+    renderSection(WITH_EPIC_THRESHOLDS, "EPIC");
     expect(await probe()).toHaveAttribute("data-y-scale", "log");
   });
 
   test("a corrupt stored value falls back to linear", async () => {
     localStorage.setItem("flow.viewSettings.reports.agingWip.logScale", '"yes"');
-    renderWithProviders(<AgingChartSection report={AGING_UNIT} selectedKey={null} onSelect={noop} />);
+    renderSection(AGING_UNIT);
     expect(await probe()).toHaveAttribute("data-y-scale", "linear");
   });
 });

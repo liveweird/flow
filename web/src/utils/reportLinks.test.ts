@@ -161,6 +161,21 @@ describe("reportHref — the throughput chart view", () => {
   });
 });
 
+describe("reportHref — the aging WIP kind switch", () => {
+  const search = "teamId=2&kind=epics&domain=FLO";
+
+  test("follows a link only to aging WIP, which reads it; every other report drops it", () => {
+    expect(reportHref("/reports/aging-wip", search)).toBe(`/reports/aging-wip?${search}`);
+    for (const path of ["/reports/wip", "/reports/blocked-time", "/reports/throughput", "/reports/epic-progress"]) {
+      expect(reportHref(path, search), path).not.toContain("kind=");
+    }
+  });
+
+  test("hopping to aging WIP drops the throughput view, and leaving throughput for it keeps nothing of it", () => {
+    expect(reportHref("/reports/aging-wip", "teamId=2&view=cumulative")).toBe("/reports/aging-wip?teamId=2");
+  });
+});
+
 describe("deepDiveBasePath", () => {
   test("is the Deep dive's own route", () => {
     expect(deepDiveBasePath).toBe("/reports/deep-dive");

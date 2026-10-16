@@ -526,9 +526,16 @@ completed · the report's figures · the orange drift badge with the frozen figu
   `meta.derivedAt` is null (the translated meta line already says it).
 - **Aging WIP and blocked time** (`pages/ReportAgingWip.tsx`, `pages/ReportBlockedTime.tsx`, tabs 3 and 4 of
   `FLOW_TABS`). Aging WIP is "as of now": its bar passes `noPeriod` (no period control) and the request drops
-  any period param (`withPeriod(filter, {})`; the URL keeps it so tab hops preserve it). It shows the
-  thresholds as a tile row per kind (`AgingThresholdsRow`; epics only when there are epics or a window; hidden
-  thresholds = a `MinSampleNotice` with `subject="thresholds"`) above the open-work table, in the server's
+  any period param (`withPeriod(filter, {})`; the URL keeps it so tab hops preserve it). **One page-level Tasks | Epics switch**
+  (a `SegmentedControl` under the filter bar and the meta note, the WIP `itemKind` labels; `hooks/useAgingKind.ts`) picks the kind the whole page
+  shows — thresholds, chart and table — because tasks and epics age on different scales. The choice is the page-local URL param `kind=epics`
+  (`AGING_KIND_PARAM`, `reportLinks.ts` `PAGE_PARAMS`: no filter, never in the request or the query key, so a switch refetches nothing, and it
+  follows a tab link only to this page); Tasks is the default and the absent param, and any other value reads as Tasks. The switch is HIDDEN
+  (not disabled) where epics are not offered (`utils/agingReport.ts`'s `offersEpics`: not at USER level, and only when the response lists an
+  epic or has an epic window), and a `kind=epics` link there reads as Tasks. A kind with nothing in progress says so
+  ("No epic is in progress right now.") and drops its chart card. It shows the
+  thresholds as one tile row for the chosen kind (`AgingThresholdsRow`; hidden
+  thresholds = a `MinSampleNotice` with `subject="thresholds"`) above the open-work table (that kind's items only, so there is no "Kind" column), in the server's
   order (never re-sorted). **The band is the SERVER's** (`"P85"`, `"WITHIN"`, `null` = hidden) — never
   recomputed from the age; `utils/agingReport.ts`'s `bandTone` only reads its RANK among the configured
   thresholds of the item's own kind: the top threshold red ("above p95"), the next orange ("above p85"), the
@@ -536,14 +543,13 @@ completed · the report's figures · the orange drift badge with the frozen figu
   badge with the word (`item.blocked`: a Flagged or BLOCKED-stage item, A36); Waiting (`item.waiting`, A30) is a light grape badge with the word in its own "Waiting"
   column, rendered only when some listed item waits (waiting items keep aging). A BLOCKED-stage item shows the Blocked badge and is never read as
   waiting (`waiting` is false for it, the chart's hollow dot keys on `stage === "WAITING"`).
-  **The aging chart** (`components/AgingChartSection.tsx` — the card body: switch, notice, legend, truncation note — over the lazy
+  **The aging chart** (`components/AgingChartSection.tsx` — the card body: log switch, notice, legend, truncation note — over the lazy
   `AgingScatterChart.tsx`, `ScatterChart` of `@mantine/charts`; pure logic in `utils/agingChart.ts`, marks in `AgingDotMark.tsx`) is a
   `ReportChartCard` between the thresholds and the table, absent when nothing is in progress: one dot per listed item, x = where it is in the
   workflow (the report's `positions`, in the server's order, never re-sorted: a team's board columns or the statuses), y = its age in working
   days from 0, extended (6% headroom, rounded up) to the oldest item or the highest threshold — **an outlier is never clipped**; a "Log scale" `Switch`
   (off by default, remembered per viewer under `flow.viewSettings.reports.agingWip.logScale`) turns the y axis logarithmic from 0.5 working days
-  with 1-2-5 ticks — ages under half a day are PLOTTED on the 0.5 line (tooltip and table keep the true age, the axis label and a note say the scale). **Tasks and epics are never on one plot** (different threshold scales): tasks by default, a
-  "Tasks | Epics" `SegmentedControl` (the WIP `itemKind` labels, local state) appears only when the list holds both, and each plot has only the
+  with 1-2-5 ticks — ages under half a day are PLOTTED on the 0.5 line (tooltip and table keep the true age, the axis label and a note say the scale). **Tasks and epics are never on one plot** (different threshold scales): the chart takes the page's chosen `kind` (it has no switch of its own), and each plot has only the
   positions its own items hold. The x axis is a NUMBER axis (the category index plus a deterministic jitter inside the category band —
   `jitterOf`, an FNV-1a hash of `itemKind:issueKey`, never `Math.random()`) whose ticks are the category indexes, labelled by `tickFormatter`
   with the position names (shortened to 12 characters from 7 categories on; the tooltip and table carry the full name) — the category-axis

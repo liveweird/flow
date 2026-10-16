@@ -6,7 +6,6 @@ import {
   AGING_LOG_FLOOR,
   logPlotPoints,
   logPlotted,
-  agingKinds,
   agingPlot,
   agingReferenceLines,
   agingYMax,
@@ -72,12 +71,6 @@ describe("agingPlot", () => {
     expect(plot.categories.at(-1)).toEqual({ key: "ghost", label: "ghost", kind: "STATUS" });
     expect(Math.round(plot.points[3].x)).toBe(plot.categories.length - 1);
   });
-});
-
-test("the Tasks | Epics switch is offered only for the kinds the list holds", () => {
-  expect(agingKinds(AGING_UNIT)).toEqual(["TASK", "EPIC"]);
-  expect(agingKinds(AGING_HIDDEN)).toEqual(["TASK"]);
-  expect(agingKinds({ items: [] })).toEqual([]);
 });
 
 describe("agingReferenceLines", () => {
