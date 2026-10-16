@@ -286,9 +286,9 @@
     "title": "Miary trafności",
     "column": {
       "measure": "Miara",
-      "value": "Wartość",
-      "meaning": "Co to mówi"
+      "value": "Wartość"
     },
+    "about": "O mierze {{measure}}",
     "label": {
       "pred10": "PRED(10)",
       "pred25": "PRED(25)",

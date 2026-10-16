@@ -67,11 +67,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
 
 ## Report follow-ups
 
-- [new] **Task accuracy: the accuracy measures take too much room.** Estimation → Task accuracy lists nine measures
-  (PRED(10/25/50), MdMRE, sMAPE, IQR, IDR, MAD, tail share), each with its one-line description always visible, so the
-  table pushes the rest of the page down. Manage the space better: e.g. show the explanation on demand (a tooltip or an
-  info icon per row, or one "What do these mean?" disclosure for the table), and consider the same for Epic accuracy,
-  which shares the table.
 - [new] **A wider palette for stacked bar charts.** Stacked bars by status, board column or person draw from
   `BAND_CYCLE` (`web/src/utils/chartColors.ts`), which is only blue and gray shades and repeats from the fourth band,
   so neighbouring segments are hard to tell apart and the reader leans on the numbered labels. Expand it to a

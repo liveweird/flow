@@ -257,9 +257,9 @@ describe("ReportTaskAccuracy page", () => {
     expect(screen.queryByText("p90")).not.toBeInTheDocument();
 
     const table = screen.getByRole("table", { name: "Accuracy measures — Against the estimate at start" });
-    expect(within(table).getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Measure", "Value", "What it says"]);
+    expect(within(table).getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Measure", "Value"]);
     const rows = within(table).getAllByRole("row").slice(1).map((r) => within(r).getAllByRole("cell").map((c) => c.textContent));
-    // Fractions read as percentages, spreads as ratios; every row carries its one-line meaning.
+    // Fractions read as percentages, spreads as ratios; the meaning is on demand behind the info icon.
     expect(rows.map((r) => r.slice(0, 2))).toEqual([
       ["PRED(10)", "25%"],
       ["PRED(25)", "50%"],
@@ -271,10 +271,16 @@ describe("ReportTaskAccuracy page", () => {
       ["MAD", "0.25"],
       ["Tail share (beyond ±2σ)", "8.3%"],
     ]);
-    expect(rows.every((r) => (r[2] ?? "").length > 20)).toBe(true);
-    expect(rows[0][2]).toContain("relative to the actual");
-    expect(rows[3][2]).toContain("|actual − estimate| ÷ actual");
-    expect(rows[8][2]).toContain("about 4.6% beyond ±2σ");
+    // The one-line meanings are not row text: each is on demand behind an info icon named after its measure.
+    expect(rows.every((r) => r.length === 2)).toBe(true);
+    expect(screen.queryByText(/relative to the actual/)).not.toBeInTheDocument();
+    const user = userEvent.setup();
+    await user.hover(within(table).getByRole("button", { name: "About PRED(10)" }));
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("relative to the actual");
+    await user.hover(within(table).getByRole("button", { name: "About MdMRE" }));
+    await waitFor(() => expect(screen.getByRole("tooltip")).toHaveTextContent("|actual − estimate| ÷ actual"));
+    await user.hover(within(table).getByRole("button", { name: "About Tail share (beyond ±2σ)" }));
+    await waitFor(() => expect(screen.getByRole("tooltip")).toHaveTextContent("about 4.6% beyond ±2σ"));
     // The at-done view has its own table; its tail share is undefined for this sample and reads a dash.
     const done = screen.getByRole("table", { name: "Accuracy measures — Against the estimate at done" });
     expect(within(within(done).getAllByRole("row")[9]).getAllByRole("cell")[1]).toHaveTextContent("—");

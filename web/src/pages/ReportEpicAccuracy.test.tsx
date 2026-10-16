@@ -172,7 +172,7 @@ describe("ReportEpicAccuracy page", () => {
     expect(screen.queryByText("p90")).not.toBeInTheDocument();
 
     const table = screen.getByRole("table", { name: "Accuracy measures — Against the own estimate at start" });
-    expect(within(table).getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Measure", "Value", "What it says"]);
+    expect(within(table).getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Measure", "Value"]);
     const rows = within(table).getAllByRole("row").slice(1).map((r) => within(r).getAllByRole("cell").map((c) => c.textContent));
     expect(rows.map((r) => r.slice(0, 2))).toEqual([
       ["PRED(10)", "25%"],
@@ -185,7 +185,12 @@ describe("ReportEpicAccuracy page", () => {
       ["MAD", "0.25"],
       ["Tail share (beyond ±2σ)", "16.7%"],
     ]);
-    expect(rows.every((r) => (r[2] ?? "").length > 20)).toBe(true);
+    // The one-line meanings are not row text: each is on demand behind an info icon named after its measure.
+    expect(rows.every((r) => r.length === 2)).toBe(true);
+    expect(screen.queryByText(/relative to the actual/)).not.toBeInTheDocument();
+    const user = userEvent.setup();
+    await user.hover(within(table).getByRole("button", { name: "About PRED(10)" }));
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("relative to the actual");
     // The at-done view has its own table; with five epics (under six) its tail share is undefined and reads a dash.
     const done = screen.getByRole("table", { name: "Accuracy measures — Against the own estimate at done" });
     expect(within(within(done).getAllByRole("row")[9]).getAllByRole("cell")[1]).toHaveTextContent("—");
