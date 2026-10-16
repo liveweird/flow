@@ -908,6 +908,12 @@ prove it is the only change). Measured cost of the query-time read (`EXPLAIN (AN
 the covering predicate as its join filter, hash-aggregated by `(day, status_id)`), 211 ms over the whole 757 days; a team, UNASSIGNED
 or a domain 8-13 ms, because the team/domain predicate filters before the aggregate.
 
+**No per-user scope (brief 04).** The table stays at team and domain scopes: a person's WIP over time is computed at query time by
+`reports/WipUserReport.kt` (`reports.md` "Report 9") from the very bridges and the very predicates this step uses — `item_stage` and
+`task_assignee` through `coveringAt`, the team through the same sprint-then-assignee resolution, the DONE band through `readWipDoneBand` — so a
+change here (the day-end convention, the team resolution) must change that statement too; `ReportWipUserTest`'s invariant (Σ over assignees + the
+tasks nobody holds = the TEAM aggregate, per day and stage) is the tripwire.
+
 **The start (decision C, `briefs/03-STORAGE-OPTIMIZATION.md`).** `dayRangeCte(…, fromBackfill = true)` — the WIP statements only — floors
 `day_range` at `source_connections.backfill_from` (V8, an ISO `YYYY-MM-DD` the column validates; compared with the ISO `dim_date.day` text,
 read by a scalar sub-select on the connection's primary key, so no new parameter travels through the derive model and the statements keep

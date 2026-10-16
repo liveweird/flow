@@ -53,7 +53,8 @@ internal sealed interface SnapshotScope {
  * The scope [filter] selects, or `400` for a combination the aggregates cannot answer: `activityType` and
  * `workCategory` are not stored per day, and `domain` cannot combine with `teamId` (no team × domain split).
  * `domainView` is accepted and ignored, as in the other reports. USER level (`accountId`) is not
- * rejected here — the report answers it empty, with a documented note — but the same combinations still 400.
+ * rejected here — the backlog answers it empty, with a documented note, WIP reads it at query time — but the same combinations
+ * still 400 (and `accountId` requires `teamId`, so USER level never carries a `domain`).
  */
 internal fun snapshotScopeOf(filter: ReportFilter): SnapshotScope {
     if (filter.activityType != null || filter.workCategory != null) {
@@ -140,7 +141,8 @@ private const val UNASSIGNED_SPRINTS_NOTE = "teamId=0 (UNASSIGNED) resolves no s
 private const val NO_SPRINT_NOTE = "The sprint-relative period resolved no sprint, so there is nothing to read"
 
 /**
- * The days a daily-snapshot report lists and the note it carries: USER level is empty by design ([userNote]); no
+ * The days a daily-snapshot report lists and the note it carries: USER level is empty by design with [userNote] (the
+ * estimated backlog), or read like any other level when it is `null` (WIP answers USER level at query time, brief 04); no
  * successful DERIVE for any connection in scope is empty with "not derived yet" (never a series of zeros); otherwise
  * the period's days cut off at [derivedCoverage], with a note when no sprint resolved (`teamId=0` gets its own wording)
  * or when some connections in scope have never derived. With [startAtBackfill] (the WIP report, decision C) the series
@@ -151,10 +153,10 @@ internal suspend fun planSnapshotDays(
     scope: ReportScope,
     filter: ReportFilter,
     calendar: WorkingCalendar,
-    userNote: String,
+    userNote: String?,
     startAtBackfill: Boolean = false,
 ): SnapshotPlan {
-    if (filter.level == ReportLevel.USER) return SnapshotPlan(emptyList(), userNote)
+    if (filter.level == ReportLevel.USER && userNote != null) return SnapshotPlan(emptyList(), userNote)
     val coverage = derivedCoverage(scope.connectionIds, calendar)
     val coveredThrough = coverage.day ?: return SnapshotPlan(emptyList(), NOT_DERIVED_NOTE)
     val notes = snapshotNotes(scope, filter, coverage).toMutableList()

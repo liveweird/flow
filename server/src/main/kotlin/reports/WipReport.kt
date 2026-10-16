@@ -33,9 +33,17 @@ enum class WipItemKind { TASK, EPIC, BOTH }
 @Serializable
 data class WipKey(val key: String, val label: String)
 
-/** One calendar day of the series: [counts] carries EVERY key of [WipReport.keys] (zero-filled). */
+/**
+ * One calendar day of the series: [counts] carries EVERY key of [WipReport.keys] (zero-filled). At USER level [byUser] splits
+ * [counts] per picked person, one entry per pick in request order, every key zero-filled (a pick with no task is all zeros); it is
+ * empty below USER level and then OMITTED on the wire (`encodeDefaults = false`), like `Distribution.byUser`.
+ */
 @Serializable
-data class WipPoint(val day: String, val isWorkingDay: Boolean, val counts: Map<String, Int>)
+data class WipPoint(val day: String, val isWorkingDay: Boolean, val counts: Map<String, Int>, val byUser: List<WipUserShare> = emptyList())
+
+/** One picked person's own [counts] on one day of a USER-level WIP series (the tasks they hold, by the report's `by` key). */
+@Serializable
+data class WipUserShare(val accountId: String, val label: String, val counts: Map<String, Int>)
 
 @Serializable
 data class WipReport(
@@ -50,13 +58,13 @@ data class WipReport(
      */
     val series: List<WipPoint>,
     /**
-     * Why the series is empty or partial (USER level, not derived yet, no sprint resolved, connections left out of the
-     * cut-off, a period that begins before the backfill window); `null` otherwise.
+     * Why the series is empty or partial (not derived yet, no sprint resolved, connections left out of the cut-off, a period
+     * that begins before the backfill window, USER level leaving the epics out); `null` otherwise.
      */
     val note: String?,
 )
 
-private const val STAGE_DONE = "DONE"
+internal const val STAGE_DONE = "DONE"
 
 /** The stages `item_stage` carries, in flow order — also the fixed key set of `by=STAGE`. */
 private val WIP_STAGES = listOf("NOT_STARTED", "IN_PROGRESS", "WAITING", "DONE", "UNMAPPED")
@@ -64,10 +72,14 @@ private val WIP_STAGES = listOf("NOT_STARTED", "IN_PROGRESS", "WAITING", "DONE",
 /** The `by=COLUMN` key of a status no column of the board holds. */
 private const val NO_COLUMN_KEY = "(no column)"
 
-private const val USER_LEVEL_NOTE = "WIP is not stored per user: the daily aggregate has only team and domain scopes"
+/** USER level counts the picked people's tasks only: an epic has no assignee (D2), so `itemKind=EPIC` is empty and `BOTH` is `TASK`. */
+private const val USER_EPICS_NOTE = "USER level counts the picked people's tasks only: an epic has no assignee, so epics are left out"
 
-/** One summed `agg_daily_wip` cell: how many items sat in [statusId] (stage [stage]) at the end of [day]. */
-private data class WipCell(val day: String, val statusId: String, val stage: String, val count: Int)
+/**
+ * One summed cell: how many items sat in [statusId] (stage [stage]) at the end of [day] — an `agg_daily_wip` group, a DONE-band
+ * group, or at USER level one picked person's ([accountId]) tasks, read at query time (`WipUserReport.kt`).
+ */
+internal data class WipCell(val day: String, val statusId: String, val stage: String, val count: Int, val accountId: String? = null)
 
 /** A team's board resolved for `by=COLUMN`: the connections it lives on and its columns' status membership. */
 private class ColumnMapping(val connectionIds: List<UInt>, val columns: List<String>, val columnOfStatus: Map<String, String>)
@@ -83,7 +95,9 @@ private fun WipItemKind.storedKinds(): List<String> = when (this) {
  * parallel per status / stage / board column over time (each day's END-of-day snapshot, a missing cell is zero). The four
  * work-in-progress stages come off `metrics.agg_daily_wip`, one row per non-zero cell; the DONE band is computed AT QUERY
  * TIME from `item_stage` (decision B: DERIVE stores no DONE row), attributed as at the item's done time
- * ([readWipDoneBand]). See `.claude/docs/reports.md` "Reports 9, 10, 13".
+ * ([readWipDoneBand]). USER level (`teamId` + 1..8 `accountId`s) is not stored either: it is read at query time too, from the
+ * same `item_stage` intervals joined to the assignee ones ([readWipUserCells]), and each point carries a `byUser` split. See
+ * `.claude/docs/reports.md` "Reports 9, 10, 13".
  */
 suspend fun ReportService.wip(filter: ReportFilter, by: WipBy, itemKind: WipItemKind, nowMs: Long): WipReport =
     reportTransaction {
@@ -91,24 +105,41 @@ suspend fun ReportService.wip(filter: ReportFilter, by: WipBy, itemKind: WipItem
         val snapshotScope = snapshotScopeOf(filter)
         val mapping = if (by == WipBy.COLUMN) columnMappingFor(snapshotScope, scope.connectionIds) else null
         val calendar = scope.calendar
-        val plan = planSnapshotDays(scope, filter, calendar, USER_LEVEL_NOTE, startAtBackfill = true)
-        val days = plan.days
+        val plan = planSnapshotDays(scope, filter, calendar, userNote = null, startAtBackfill = true)
+        val picked = pickedAccounts(filter)
+        val user = filter.level == ReportLevel.USER
+        // An epic has no assignee: USER level + EPIC has nothing to read, and BOTH reads the tasks (the note says so).
+        val days = if (user && itemKind == WipItemKind.EPIC) emptyList() else plan.days
         val cells = if (days.isEmpty()) {
             emptyList()
         } else {
             val connectionIds = mapping?.connectionIds ?: scope.connectionIds
             val first = days.first().toString()
             val last = days.last().toString()
-            val stored = fetchWipCells(connectionIds, snapshotScope, itemKind, first, last)
-            stored + fetchDoneCells(connectionIds, snapshotScope, itemKind, first, last)
+            if (user) {
+                // Like the aggregate (no rows for a connection that never derived): only connections with a successful DERIVE.
+                val derived = deriveClocks(connectionIds).keys
+                readWipUserCells(WipUserRequest(connectionIds.filter { it in derived }, filter.teamId!!, picked.ids, first, last))
+            } else {
+                fetchWipCells(connectionIds, snapshotScope, itemKind, first, last) +
+                    fetchDoneCells(connectionIds, snapshotScope, itemKind, first, last)
+            }
         }
         val keys = wipKeys(by, cells, mapping, scope.connectionIds)
         val countsByDay = countsByDay(by, cells, mapping)
+        val countsByDayAndAccount = if (user) countsByDayAndAccount(by, cells, mapping) else emptyMap()
         val series = days.map { day ->
-            val perKey = countsByDay[day.toString()].orEmpty()
-            WipPoint(day.toString(), calendar.isWorkingDay(day), keys.associate { it.key to (perKey[it.key] ?: 0) })
+            val iso = day.toString()
+            val byUser = picked.ids.map { id ->
+                val own = countsByDayAndAccount[iso]?.get(id).orEmpty()
+                WipUserShare(id, picked.label(id), keys.associate { it.key to (own[it.key] ?: 0) })
+            }
+            val perKey = countsByDay[iso].orEmpty()
+            WipPoint(iso, calendar.isWorkingDay(day), keys.associate { it.key to (perKey[it.key] ?: 0) }, byUser)
         }
-        WipReport(scope.meta.forTaskDomain(), by, itemKind, keys, series, plan.note)
+        val epicsNote = USER_EPICS_NOTE.takeIf { user && itemKind != WipItemKind.TASK }
+        val note = listOfNotNull(plan.note, epicsNote).joinToString(". ").ifEmpty { null }
+        WipReport(scope.meta.forTaskDomain(), by, itemKind, keys, series, note)
     }
 
 private suspend fun R2dbcTransaction.fetchDoneCells(
@@ -184,6 +215,14 @@ private fun keyOf(by: WipBy, cell: WipCell, mapping: ColumnMapping?): String = w
 private fun countsByDay(by: WipBy, cells: List<WipCell>, mapping: ColumnMapping?): Map<String, Map<String, Int>> =
     cells.groupBy { it.day }.mapValues { (_, dayCells) ->
         dayCells.groupBy { keyOf(by, it, mapping) }.mapValues { (_, group) -> group.sumOf { it.count } }
+    }
+
+/** [countsByDay]'s USER-level twin: day -> account -> key -> count (cells with no account, i.e. every non-USER read, are skipped). */
+private fun countsByDayAndAccount(by: WipBy, cells: List<WipCell>, mapping: ColumnMapping?): Map<String, Map<String, Map<String, Int>>> =
+    cells.filter { it.accountId != null }.groupBy { it.day }.mapValues { (_, dayCells) ->
+        dayCells.groupBy { it.accountId!! }.mapValues { (_, own) ->
+            own.groupBy { keyOf(by, it, mapping) }.mapValues { (_, group) -> group.sumOf { it.count } }
+        }
     }
 
 /** The legend: STAGE is the fixed five stages, COLUMN the board's columns (plus "(no column)" when used), STATUS every status seen. */

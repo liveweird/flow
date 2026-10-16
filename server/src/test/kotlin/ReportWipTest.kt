@@ -276,18 +276,24 @@ class ReportWipTest {
     }
 
     @Test
-    fun `USER level answers an empty series with a note`() = testApplication {
+    fun `USER level reads the picked people at query time, with a one-entry byUser and the board check kept`() = testApplication {
         usePostgresTestcontainer()
         val connId = DerivedStubFixture.connectionId()
         val client = seededClient("reports-wip-user")
         val teamId = fixtureTeamId(readWipRows(connId))
 
+        // The full invariant against the aggregate lives in ReportWipUserTest; here the shape: the days are listed (not an empty
+        // series with a "not stored" note), an unknown person holds nothing, and a TEAM read carries no byUser.
         val user = client.wip("connectionId=$connId&from=$from&to=$to&teamId=$teamId&accountId=nobody")
-        assertTrue(user.series.isEmpty())
-        assertNotNull(user.note)
+        assertEquals(isoDays(firstListed, to), user.series.map { it.day })
         assertEquals("USER", user.meta.level.name)
-        // The same note-and-empty answer for by=COLUMN, whose board check still runs for the team.
-        assertTrue(client.wip("connectionId=$connId&from=$from&to=$to&teamId=$teamId&accountId=nobody&by=COLUMN").series.isEmpty())
+        assertTrue(user.series.all { point -> point.counts.values.all { it == 0 } })
+        assertEquals(listOf("nobody"), user.series.first().byUser.map { it.accountId })
+        assertEquals(BACKFILL_NOTE, user.note, "only the backfill-window note, nothing about USER level being unsupported")
+        assertTrue(client.wip("connectionId=$connId&from=$from&to=$to&teamId=$teamId").series.all { it.byUser.isEmpty() })
+        // by=COLUMN still validates the team's board.
+        val column = client.wip("connectionId=$connId&from=$from&to=$to&teamId=$teamId&accountId=nobody&by=COLUMN")
+        assertTrue(column.series.isNotEmpty() && column.keys.isNotEmpty())
     }
 
     @Test

@@ -1117,7 +1117,7 @@ export interface paths {
          *     per-user split (`fact_sprint_scope.assignee_at_commitment`, Σ committed/final MD — the same
          *     removed-row rule the team total itself follows, so Σ users == the team total); `teamId` AND
          *     `accountId` together narrow to USER level — `accountId` repeats here (and on throughput, cycle time,
-         *     reported time, adjustments and task accuracy, no other report),
+         *     reported time, adjustments, task accuracy and WIP, no other report),
          *     1 to 8 distinct accounts, more is a 400. `sprints` itself narrows to the picked accounts' SUMMED
          *     contribution (its `snapshot` is their summed frozen figures, computed from the sprint's stored
          *     snapshot scope by the same rule as the live ones; null when the sprint has no snapshot);
@@ -1171,7 +1171,7 @@ export interface paths {
          *     (`bySprint` to that team's sprints, the period view to tasks credited to that team — `teamId=0`
          *     selects UNASSIGNED credit for the period view and yields no sprints) and `groups` becomes one per
          *     assignee at done; `teamId` AND `accountId` narrow to USER level — `accountId` repeats here (and on
-         *     commitments, cycle time, reported time, adjustments and task accuracy, no other report), 1 to 8 distinct accounts, more is a 400. `byBucket` sums the tasks
+         *     commitments, cycle time, reported time, adjustments, task accuracy and WIP, no other report), 1 to 8 distinct accounts, more is a 400. `byBucket` sums the tasks
          *     whose assignee at done is one of the picked accounts and `groups` lists each picked account's period
          *     totals (a zero entry when it delivered nothing); `bySprint` is the picked accounts' SUMMED deliveries
          *     by assignee at commitment, its `snapshot` their summed frozen share computed from the sprint's stored
@@ -1250,7 +1250,7 @@ export interface paths {
          *     credit team (`teamId` null = UNASSIGNED); `teamId` narrows to TEAM (`teamId=0` = the UNASSIGNED
          *     credit) and `groups` becomes one per assignee at done (null `accountId` = unassigned); `teamId` AND
          *     `accountId` narrow to USER, where `accountId` repeats (and on commitments, throughput, cycle time, reported
-         *     time and adjustments too, no other report): 1 to 8 distinct accounts, more is a 400. At USER level `atStart` and `atDone` read
+         *     time, adjustments and WIP too, no other report): 1 to 8 distinct accounts, more is a 400. At USER level `atStart` and `atDone` read
          *     the UNION of the picked people (tasks whose assignee at done is one of them) and carry `byUser`, one share per
          *     picked account in request order, splitting every histogram bucket (the open tail bucket included) per person, so
          *     the shares sum to each bucket's count; `groups` lists each picked account with its own plain distributions, an
@@ -1332,7 +1332,7 @@ export interface paths {
          *     legitimately UNASSIGNED). Levels: UNIT (default) — `groups` one per team (both kinds; `teamId` null =
          *     UNASSIGNED tasks / UNOWNED epics); TEAM narrows to that team, `groups` one per assignee at done
          *     (tasks only, `epics` null); `teamId` AND `accountId` narrow to USER, where `accountId` repeats (and on
-         *     commitments, throughput, cycle time, reported time and task accuracy too, no other report): 1 to 8 distinct accounts, more
+         *     commitments, throughput, cycle time, reported time, task accuracy and WIP too, no other report): 1 to 8 distinct accounts, more
          *     is a 400. At USER level `tasks` narrows to the picked accounts, and `tasks.changeDistribution` reads the
          *     UNION of the picked people (tasks whose assignee at done is one of them) and carries `byUser`, one share per
          *     picked account in request order, splitting every histogram bucket (the open tail bucket included) per
@@ -1371,7 +1371,7 @@ export interface paths {
          *     working days: `p50`/`p90` null when the bucket's `n` is below `minSampleSize`. Levels: UNIT (default) —
          *     `groups` one per credit team (`teamId` null = UNASSIGNED); `teamId` narrows to TEAM (`teamId=0` = the
          *     UNASSIGNED credit) and `groups` becomes one per assignee at done; `teamId` AND `accountId` narrow to
-         *     USER, where `accountId` repeats (and on commitments, throughput, reported time, adjustments and task accuracy too, no other report): 1 to 8
+         *     USER, where `accountId` repeats (and on commitments, throughput, reported time, adjustments, task accuracy and WIP too, no other report): 1 to 8
          *     distinct accounts, more is a 400. At USER level `elapsedDays` and `workingDays` read the UNION of the picked
          *     people (tasks whose assignee at done is one of them) and carry `byUser`, one share per picked account in
          *     request order, splitting every histogram bucket (the open tail bucket included) per person, so the shares sum
@@ -1418,9 +1418,14 @@ export interface paths {
          *     UNASSIGNED tasks and UNOWNED epics — or, with `domain`, reads that DOMAIN scope (a task's as-was domain, an
          *     epic's own space); `teamId` reads that team's TEAM scope (tasks: the D5 team as of each day, epics: the
          *     domain's owner team, A19); `teamId=0` is UNASSIGNED on the task side and UNOWNED on the epic side. USER level
-         *     (`teamId` and `accountId`) is answered with an EMPTY `series` and a `note` — the aggregate has no per-user
-         *     scope. `by=COLUMN` needs a `teamId` naming a team with a mapped board (`400` otherwise, and at UNIT level).
-         *     `400` too: `domain` together with `teamId` (no team × domain split) and `activityType` / `workCategory`
+         *     (`teamId` and `accountId`, which repeats — also on commitments, throughput, cycle time, reported time, adjustments and task accuracy, no other report:
+         *     1 to 8 distinct accounts, more is a 400) has no storage in the aggregate and is computed at query time: the level-0 tasks the
+         *     picked people hold at the end of each day (the task's assignee covering that instant), inside the page's team — an open task
+         *     counts when its as-was team (the sprint's, else the assignee's, D5) is `teamId`, a done one when its delivery-credit team
+         *     is — so a person's numbers agree with the other USER-level reports. `counts` is the union of the picks and
+         *     each point's `byUser` splits it per picked account in request order, every key zero-filled. An epic has no assignee: at USER level
+         *     `itemKind=EPIC` is an empty `series` and `BOTH` counts the tasks only, both with a `note`. `by=COLUMN` needs a `teamId` naming a team with a mapped board (`400` otherwise, and at UNIT level).
+         *     `400` too: `domain` together with `teamId` (no team × domain split, so USER level has no `domain` either) and `activityType` / `workCategory`
          *     (not stored per day). Sprint-relative periods use the resolved sprints' envelope. A period reaching past
          *     the last derived day is cut off there rather than read as zero — the OLDEST, over the connections in scope
          *     that have derived, of each one's last successful DERIVE day, so a lagging connection's missing days are not
@@ -1806,7 +1811,7 @@ export interface paths {
          *     0.00), `neverStarted` (no `started_at`, so no cycle), `zeroCycle` (`cycle_working_days = 0`, nothing to
          *     divide by). So `ratio.n + noWorklogs + neverStarted + zeroCycle = population`. Levels: UNIT `groups` per
          *     credit team, TEAM per assignee at done; `teamId` AND `accountId` narrow to USER level — `accountId` repeats
-         *     here (and on commitments, throughput, cycle time, adjustments and task accuracy too, no other report), 1 to 8 distinct accounts, more is a 400.
+         *     here (and on commitments, throughput, cycle time, adjustments, task accuracy and WIP too, no other report), 1 to 8 distinct accounts, more is a 400.
          *     At USER level both distributions read the UNION of the picked people (tasks whose assignee at done is one of
          *     them) and carry `byUser`, one share per picked account in request order, splitting every histogram bucket
          *     (the open tail bucket included) per person, so the shares sum to each bucket's count; `groups` lists each
@@ -3580,6 +3585,18 @@ export interface components {
             counts: {
                 [key: string]: number;
             };
+            /** @description USER level only (omitted below it): one entry per picked account in request order, splitting `counts` per person — every key zero-filled, a pick with no task all zeros. The entries sum to `counts`. */
+            byUser?: components["schemas"]["WipUserShare"][];
+        };
+        /** @description One picked person's own `counts` on one day of a USER-level WIP series. */
+        WipUserShare: {
+            accountId: string;
+            /** @description The Jira display name, the account id when none is known. */
+            label: string;
+            /** @description The person's tasks at the END of the day, per key of `keys`. */
+            counts: {
+                [key: string]: number;
+            };
         };
         WipReport: {
             meta: components["schemas"]["ReportMeta"];
@@ -3595,9 +3612,9 @@ export interface components {
             itemKind: "TASK" | "EPIC" | "BOTH";
             /** @description The legend, in display order — the five stages for STAGE, the statuses seen (ordered by stage, then name) for STATUS, the board's columns in board order (plus "(no column)" when used) for COLUMN. */
             keys: components["schemas"]["WipKey"][];
-            /** @description One point per calendar day of the period, oldest first, cut off after the last derived day and starting no earlier than the latest `backfill_from` of the connections in scope. Empty at USER level (see `note`), for a period with nothing to read, and for a period entirely past the last derived day or before the backfill start. */
+            /** @description One point per calendar day of the period, oldest first, cut off after the last derived day and starting no earlier than the latest `backfill_from` of the connections in scope. Empty at USER level with `itemKind=EPIC` (see `note`), for a period with nothing to read, and for a period entirely past the last derived day or before the backfill start. */
             series: components["schemas"]["WipPoint"][];
-            /** @description Why the series is empty or partial — USER level, not derived yet, no sprint resolved (incl. `teamId=0` with a sprint-relative period), connections that never derived and were left out of the cut-off, a period that begins before the backfill window ("Before <date> the connection's history is incomplete"); null otherwise. */
+            /** @description Why the series is empty or partial — USER level leaving the epics out, not derived yet, no sprint resolved (incl. `teamId=0` with a sprint-relative period), connections that never derived and were left out of the cut-off, a period that begins before the backfill window ("Before <date> the connection's history is incomplete"); null otherwise. */
             note?: string | null;
         };
         /** @description The estimated backlog at the END of one calendar day. */
@@ -6892,8 +6909,8 @@ export interface operations {
                 sprintId?: components["parameters"]["ReportSprintId"];
                 /** @description Sets the level to TEAM (groups by user); `0` is the UNASSIGNED bucket. Combined with `accountId`, sets the level to USER. */
                 teamId?: components["parameters"]["ReportTeamId"];
-                /** @description One Jira account id — sets the level to USER. Requires `teamId`. */
-                accountId?: components["parameters"]["ReportAccountId"];
+                /** @description Repeated — one to eight distinct Jira account ids; sets the level to USER. Requires `teamId`. */
+                accountId?: string[];
                 /** @description D3's two domain views ("delivered in" vs. "earned in"). Defaults per report. */
                 domainView?: components["parameters"]["ReportDomainView"];
                 /** @description Restricts to one domain key. */

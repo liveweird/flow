@@ -212,6 +212,17 @@ unfolds it first (`openFilters`, which leaves an already unfolded bar alone).
    - *Expected*: it shows the seeded team, has no clear button and offers no "All teams" option (WIP is read
      for one team or one domain, never the whole unit).
 
+## Scenario: the user reads one person's work in progress inside the team
+
+1. The user opens the **WIP** report for the seeded team (deep link, fixed window), unfolds the filters and
+   picks the team's stub person in **Member**.
+   - *Expected*: the URL gains `accountId` and keeps the team; the request the page makes names the account and the
+     answer is a USER-level report with a non-empty daily series whose every point carries that one person in `byUser`
+     (labelled with their name).
+2. They read the page.
+   - *Expected*: a note says it counts the tasks the picked people hold at the end of each day; the stacked-bands chart
+     and the per-band table (with an "In progress" row) are shown; there is no "By person" view switch for one person.
+
 ## Scenario: the user reads aging work in progress and blocked time
 
 1. The user opens **WIP** for the seeded team and switches to the **Aging WIP** tab.
