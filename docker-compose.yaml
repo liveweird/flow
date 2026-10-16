@@ -21,8 +21,9 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
-    # Bounded like the app; the demo's data volume is tiny.
-    mem_limit: 512m
+    # Bounded, but sized for real data: two real Jira connections reach ~0.9-1.4 GB on disk, and at
+    # 512m Postgres thrashed its page cache and DERIVE went from seconds to minutes (2026-10-16).
+    mem_limit: 1536m
 
   mailpit:
     # Local mail catcher for the demo: password-reset and MFA email lands here.
