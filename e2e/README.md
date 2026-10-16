@@ -163,7 +163,7 @@ the same commit** — this list is the coverage map, the scenario file is the de
   year-long window, kept without an owner table at team level, and a one-person pick: the URL account and the one-row Totals per person; its histograms' long-tail control — 5% default, 25%, 0, and back, with the URL param and the open "≥ X" row) and Task estimation accuracy
   (a required team with no "All teams", a one-person pick with the one-row Totals per person; each view shows its median/mean/items strip with no p90/p95 and an Accuracy measures table, or the minimum-sample notice, with its accounting); Epic estimation
   accuracy (a required team with no "All teams" and no Member control; the empty window, both views — each a median/mean/items strip with no p90/p95 and an Accuracy measures table, or the minimum-sample notice — the golden epic's ratio against its OWN estimate, then
-  the domain), Estimate adjustments (a required team with no "All teams", tasks and epics blocks, the activity-type filter,
+  the domain), Estimate adjustments (a required team with no "All teams", tasks and epics blocks with their "Not charted: N unchanged" line, the activity-type filter,
   a one-person pick: the URL account and the one-row Totals per person), Reported time beside flow efficiency (reached through the Estimation tab with the spec's own team; domain and
   domain-view controls, no "All teams" on the required team, a one-person pick: the URL account, the "1. <name>" histogram column — or the min-sample note when the stub sample is too small — and the one-row Totals per person) and the Estimated backlog (a team's tiles and trend, the unit's
   pace note, a domain's empty pace, a team replacing the domain). Batch 2 (M5): the

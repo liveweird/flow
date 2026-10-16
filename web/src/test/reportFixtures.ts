@@ -737,7 +737,7 @@ const noAdjustments = (): AdjustmentFigures => ({
   share: null,
   estimatedLate: 0,
   changeDistribution: hiddenDistribution(0),
-  changeExcluded: { population: 0, estimatedLate: 0, estimatedAfterDone: 0, unestimated: 0 },
+  changeExcluded: { population: 0, unchanged: 0, estimatedLate: 0, estimatedAfterDone: 0, unestimated: 0 },
 });
 
 export const ADJUSTMENTS: EstimateAdjustmentsReport = {
@@ -748,7 +748,7 @@ export const ADJUSTMENTS: EstimateAdjustmentsReport = {
     share: 0.2,
     estimatedLate: 2,
     changeDistribution: shownDistribution([1, 4, 3, 2], -0.25, 0.25, { p50: 0.1, p90: 0.6, p95: 0.7, mean: 0.15 }),
-    changeExcluded: { population: 15, estimatedLate: 2, estimatedAfterDone: 1, unestimated: 3 },
+    changeExcluded: { population: 18, unchanged: 3, estimatedLate: 2, estimatedAfterDone: 1, unestimated: 3 },
   },
   epics: {
     started: 3,
@@ -756,7 +756,7 @@ export const ADJUSTMENTS: EstimateAdjustmentsReport = {
     share: null,
     estimatedLate: 0,
     changeDistribution: hiddenDistribution(2),
-    changeExcluded: { population: 4, estimatedLate: 0, estimatedAfterDone: 0, unestimated: 2 },
+    changeExcluded: { population: 5, unchanged: 1, estimatedLate: 0, estimatedAfterDone: 0, unestimated: 2 },
   },
   groups: [
     {
@@ -769,7 +769,7 @@ export const ADJUSTMENTS: EstimateAdjustmentsReport = {
         share: 0.25,
         estimatedLate: 1,
         changeDistribution: shownDistribution([1, 3, 2, 1], -0.25, 0.25, { p50: 0.1, p90: 0.5, p95: 0.7, mean: 0.15 }),
-        changeExcluded: { population: 10, estimatedLate: 1, estimatedAfterDone: 1, unestimated: 2 },
+        changeExcluded: { population: 12, unchanged: 2, estimatedLate: 1, estimatedAfterDone: 1, unestimated: 2 },
       },
       epics: {
         started: 3,
@@ -777,7 +777,7 @@ export const ADJUSTMENTS: EstimateAdjustmentsReport = {
         share: null,
         estimatedLate: 0,
         changeDistribution: hiddenDistribution(2),
-        changeExcluded: { population: 4, estimatedLate: 0, estimatedAfterDone: 0, unestimated: 2 },
+        changeExcluded: { population: 5, unchanged: 1, estimatedLate: 0, estimatedAfterDone: 0, unestimated: 2 },
       },
     },
     {
@@ -790,7 +790,7 @@ export const ADJUSTMENTS: EstimateAdjustmentsReport = {
         share: 0.1,
         estimatedLate: 1,
         changeDistribution: hiddenDistribution(3),
-        changeExcluded: { population: 5, estimatedLate: 1, estimatedAfterDone: 0, unestimated: 1 },
+        changeExcluded: { population: 6, unchanged: 1, estimatedLate: 1, estimatedAfterDone: 0, unestimated: 1 },
       },
       epics: noAdjustments(),
     },
@@ -823,7 +823,7 @@ export const ADJUSTMENTS_USERS: EstimateAdjustmentsReport = {
         { ...BOB, counts: [0, 1, 1, 0] },
       ],
     },
-    changeExcluded: { population: 11, estimatedLate: 1, estimatedAfterDone: 1, unestimated: 3 },
+    changeExcluded: { population: 13, unchanged: 2, estimatedLate: 1, estimatedAfterDone: 1, unestimated: 3 },
   },
   epics: noAdjustments(),
   groups: [
@@ -836,7 +836,7 @@ export const ADJUSTMENTS_USERS: EstimateAdjustmentsReport = {
         share: 3 / 8,
         estimatedLate: 1,
         changeDistribution: shownDistribution([1, 2, 1, 1], -0.25, 0.25, { p50: 0.1, p90: 0.6, p95: 0.7, mean: 0.17 }),
-        changeExcluded: { population: 7, estimatedLate: 1, estimatedAfterDone: 1, unestimated: 1 },
+        changeExcluded: { population: 8, unchanged: 1, estimatedLate: 1, estimatedAfterDone: 1, unestimated: 1 },
       },
       epics: null,
     },
@@ -849,7 +849,7 @@ export const ADJUSTMENTS_USERS: EstimateAdjustmentsReport = {
         share: null,
         estimatedLate: 0,
         changeDistribution: hiddenDistribution(2),
-        changeExcluded: { population: 4, estimatedLate: 0, estimatedAfterDone: 0, unestimated: 2 },
+        changeExcluded: { population: 5, unchanged: 1, estimatedLate: 0, estimatedAfterDone: 0, unestimated: 2 },
       },
       epics: null,
     },

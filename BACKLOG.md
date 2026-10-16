@@ -72,10 +72,6 @@ Plan: `~/.claude/plans/flow-phase3-metrics.md`. The §0 amendments A1–A27 over
   key, summary, figure), filtered exactly as that bar is (period/sprint/day, team, person, stage or status). The list
   has a **Back** button returning to the chart as it was (same filters, scroll and view). A keyboard and screen-reader
   equivalent is needed too (e.g. a row action in the chart's table), since a double-click on an SVG mark is pointer-only.
-- [new] **Adjustments: chart only the adjusted items.** Estimation → Adjustments' change histogram also counts the
-  measurable items whose estimate did not change (a 0 % change), and that one tall bar dwarfs the real adjustments.
-  Plot only the items that changed; keep the unchanged count visible as a figure beside the chart (and in the
-  accounting line) so the population still adds up. Applies to tasks and epics, and to the per-person split.
 - [new] **Estimated backlog: no User filter, and a staleness slider.** Flow metrics → Estimated backlog:
   - Remove the User (member) filter: the backlog is owned by a team, not a person (D9), so it adds nothing. Drop it the
     way Sprint consistency and Epic accuracy did (`NO_MEMBER_PATHS`; a member in a pasted link is dropped from the URL).

@@ -12,16 +12,24 @@ import org.jetbrains.exposed.v1.core.or
 import org.jetbrains.exposed.v1.r2dbc.select
 
 /**
- * The DONE items (by `done_at`) that [AdjustmentFigures.changeDistribution] could NOT take, each in ONE
- * bucket: [estimatedLate] (no estimate at start, one by the time it was done — counted separately, never a `+∞` change),
- * else [unestimated] (either snapshot missing, incl. never started). So
- * `changeDistribution.n + estimatedLate + unestimated == population`. [estimatedAfterDone] is a breakout of [unestimated],
+ * The DONE items (by `done_at`) that [AdjustmentFigures.changeDistribution] did NOT take, each in ONE
+ * bucket: [unchanged] (both estimates present and equal — a 0 % change, MEASURABLE but left out of the histogram so the one
+ * tall zero bar cannot dwarf the real adjustments), else [estimatedLate] (no estimate at start, one by the time it was done —
+ * counted separately, never a `+∞` change), else [unestimated] (either snapshot missing, incl. never started). So
+ * `changeDistribution.n + unchanged + estimatedLate + unestimated == population`, and the measurable items are
+ * `changeDistribution.n + unchanged`. [estimatedAfterDone] is a breakout of [unestimated],
  * not a fourth bucket: the done items whose estimate first appeared AFTER `done_at` (a backfill, domain-model A35 — they have
  * no estimate at start or at done, so they are unestimated for this report), `estimatedAfterDone <= unestimated`.
  * This block counts DONE items (anchor `done_at`), unlike [AdjustmentFigures.estimatedLate], which counts STARTED ones.
  */
 @Serializable
-data class AdjustmentChangeExcluded(val population: Int, val estimatedLate: Int, val estimatedAfterDone: Int, val unestimated: Int)
+data class AdjustmentChangeExcluded(
+    val population: Int,
+    val unchanged: Int,
+    val estimatedLate: Int,
+    val estimatedAfterDone: Int,
+    val unestimated: Int,
+)
 
 /**
  * The adjustment figures of one item kind. [started] items have `started_at` in the period (Anchor:
@@ -31,7 +39,8 @@ data class AdjustmentChangeExcluded(val population: Int, val estimatedLate: Int,
  * one: by now). A change counts as an adjustment only between `started_at` and `done_at`, so a [changedAfterStart] item changed
  * while it was worked on.
  * [changeDistribution] is the fractional change start → done (`(done − start) ÷ start`, so `0.25` is
- * +25 %, negative = shrank) over items DONE in the period with both estimates (Anchor: `done_at`).
+ * +25 %, negative = shrank) over items DONE in the period with both estimates whose estimate actually CHANGED (Anchor: `done_at`);
+ * the items whose estimate did not change are counted in [AdjustmentChangeExcluded.unchanged], not charted.
  */
 @Serializable
 data class AdjustmentFigures(
@@ -105,10 +114,12 @@ private fun figuresOf(
         val start = item.atStart!!.toDouble()
         return (item.atDone!!.toDouble() - start) / start
     }
+    // A 0 % change is measurable but not charted: only the items whose estimate moved enter the distribution.
+    val (unchangedItems, adjusted) = measurable.partition { it.atStart!!.compareTo(it.atDone!!) == 0 }
     val changeDistribution = if (picked == null || picked.ids.isEmpty()) {
-        buildDistribution(measurable.map(::changeOf), minSample, tailPercent)
+        buildDistribution(adjusted.map(::changeOf), minSample, tailPercent)
     } else {
-        val byAccount = measurable.groupBy { it.account }
+        val byAccount = adjusted.groupBy { it.account }
         buildDistributionByUser(
             picked.ids.map { id -> UserValues(id, picked.label(id), byAccount[id].orEmpty().map(::changeOf)) },
             minSample,
@@ -123,6 +134,7 @@ private fun figuresOf(
         changeDistribution = changeDistribution,
         changeExcluded = AdjustmentChangeExcluded(
             population = done.size,
+            unchanged = unchangedItems.size,
             estimatedLate = late.size,
             estimatedAfterDone = done.count { it.estimatedAfterDone },
             unestimated = done.size - late.size - measurable.size,

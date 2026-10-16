@@ -120,11 +120,14 @@ describe("ReportEstimateAdjustments page", () => {
     // Estimated late is counted separately, never as an infinite change.
     expect(within(tasks).getAllByRole("listitem").map((i) => i.textContent?.replace(/\s+/g, " ").trim())).toEqual([
       "10 in the distribution",
+      "3 Estimate unchanged (a 0% change), not charted",
       "2 Estimated late — no estimate at start",
       "3 No estimate at start or at done (or never started)Of these, 1: estimate entered only after the item was done (a backfill)",
     ]);
-    // … and the accounting reconciles: n + late + unestimated = population.
-    expect(within(tasks).getByText("10 + 2 + 3 = 15")).toBeInTheDocument();
+    // The unchanged items are a figure beside the chart and a line of the accounting, so the population still adds up …
+    expect(within(tasks).getByText("Not charted: 3 finished items with an unchanged estimate (a 0% change).")).toBeInTheDocument();
+    // … n + unchanged + late + unestimated = population.
+    expect(within(tasks).getByText("10 + 3 + 2 + 3 = 18")).toBeInTheDocument();
     // An estimated-late item is also a change after start — said where the counts are.
     expect(within(tasks).getByText(/^Estimated late is included in Changed after start\./)).toBeInTheDocument();
     expect(within(tasks).getByText(/an estimate entered after an item was done is a backfill, not an adjustment/)).toBeInTheDocument();
@@ -141,7 +144,9 @@ describe("ReportEstimateAdjustments page", () => {
     expect(notes[0]).toHaveTextContent("Only 3 items started in this selection — at least 5 are needed to show a share.");
     expect(notes[1]).toHaveTextContent("Only 2 items in this selection — at least 5 are needed to show percentiles and a histogram.");
     expect(within(epics).queryByRole("table", { name: /Histogram/ })).not.toBeInTheDocument();
-    expect(within(epics).getByText("Of 4 finished in this period:")).toBeInTheDocument();
+    expect(within(epics).getByText("Of 5 finished in this period:")).toBeInTheDocument();
+    // The unchanged epic is still reported (as a figure) when the histogram is withheld.
+    expect(within(epics).getByText("Not charted: 1 finished item with an unchanged estimate (a 0% change).")).toBeInTheDocument();
   });
 
   test("groups: tasks and epics side by side; a hidden share and an absent kind are dashes", async () => {

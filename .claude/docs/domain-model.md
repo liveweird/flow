@@ -260,7 +260,7 @@ user, and slices by domain, activity type and work category.
 | 2 | **Throughput** | `fact_sprint` (sprint view), `fact_task_delivery` (period view) | delivered SP; for a calendar period: SP of tasks with `done_at` in it |
 | 3 | **Task estimation accuracy** | `fact_task_delivery`, DONE tasks with an estimate and worklogs | `actual_md ÷ estimate at start` (D15; vs estimate at done as a second view); full distribution; unestimated or worklog-less DONE tasks counted beside it, never in it |
 | 4 | **Epic estimation accuracy** | `fact_epic_delivery`, DONE epics | `actual_md ÷ own estimate at start` (D15; at done as a second view); the child-sum estimate shown alongside |
-| 5 | **Estimate adjustments** | `fact_task_delivery`, `fact_epic_delivery` | share of started items whose estimate changed while they were worked on (after start, up to done, A35), and the change start → done as a fraction (`0.25` = +25 %, a distribution); estimated-late items counted separately, and the estimates entered only after done (a backfill, A35) as a breakout of the unestimated |
+| 5 | **Estimate adjustments** | `fact_task_delivery`, `fact_epic_delivery` | share of started items whose estimate changed while they were worked on (after start, up to done, A35), and the change start → done as a fraction (`0.25` = +25 %, a distribution of the items whose estimate changed; the unchanged ones are counted in `changeExcluded.unchanged`, not charted); estimated-late items counted separately, and the estimates entered only after done (a backfill, A35) as a breakout of the unestimated |
 | 6.1 | **Commitments vs velocity** | `fact_sprint` | committed and final vs delivered SP (velocity), sprint over sprint |
 | 6.2 | **Carry-over** | `fact_sprint` | carried-over SP (and dropped SP) per sprint |
 | 6.3 | **Added scope** | `fact_sprint` | SP added after sprint start (and removed) |
@@ -616,7 +616,8 @@ carries the per-measure detail).
     `fact_task_delivery` AND `fact_epic_delivery` store both flags (`estimated_late`, `estimated_after_done`; the epic fact had no
     `estimated_late` column and report 5 re-derived it with the old rule, now deleted).
   - **Reports.** Report 5's `changeExcluded` gains `estimatedAfterDone`, a breakout of `unestimated` (the identity
-    `changeDistribution.n + estimatedLate + unestimated = population` is unchanged). Note `AdjustmentFigures.estimatedLate` counts
+    `changeDistribution.n + estimatedLate + unestimated = population` was unchanged by it; the later `unchanged` bucket, the
+    measurable items left out of the histogram, makes it `n + unchanged + estimatedLate + unestimated = population`). Note `AdjustmentFigures.estimatedLate` counts
     STARTED items while `changeExcluded.estimatedLate` counts DONE ones; both keep their meaning. Data quality (report 14) lists two
     task findings, "estimated late" (done/open) and "estimated after done" (done only; `md` and the list carry the backfilled
     estimate).

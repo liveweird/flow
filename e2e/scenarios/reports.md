@@ -356,8 +356,10 @@ spec's own team.
 2. They read the "Tasks" and "Epics" blocks.
    - *Expected*: each block shows started, changed after start (at most started) and estimated late
      (at most changed); each has a "Change from start to done" percentile strip or the counts-only
-     minimum-sample notice (the seeded team is small), and its accounting line adds up; a "By
-     member" table lists the team's people.
+     minimum-sample notice (the seeded team is small), a "Not charted: N finished items with an unchanged
+     estimate" line when there are any (the histogram charts only the items whose estimate changed), and its accounting
+     line adds up (the unchanged items are one of its terms); a "By member" table lists the team's
+     people.
 3. They narrow **Activity type** to Bug, then clear it.
    - *Expected*: the report is requested again with `activityType=Bug` and the URL gains it; the tasks
      started figure is at most the unfiltered figure; after the clear the URL loses the parameter and

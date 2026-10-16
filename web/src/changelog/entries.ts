@@ -17,6 +17,20 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "0.23.0",
+    date: "2026-10-17",
+    en: `**Adjustments charts only the estimates that changed.**
+
+- On Estimation → Adjustments, the "Change from start to done" histogram now plots only the items whose estimate changed between start and done. Items that kept their estimate (a 0 % change) used to make one tall bar that dwarfed the real adjustments.
+- How many items kept their estimate is shown under the chart and in the accounting list, so the population still adds up. When no estimate changed at all, the page says so instead of drawing an empty chart.
+- The median, mean and percentiles now describe the adjustments themselves, and the same applies to the epics block and the per-person split.`,
+    pl: `**Korekty pokazują na wykresie tylko szacunki, które się zmieniły.**
+
+- W Szacowaniu → Korekty szacunków histogram „Zmiana od startu do zakończenia” pokazuje teraz tylko elementy, których szacunek zmienił się między startem a zakończeniem. Elementy z niezmienionym szacunkiem (zmiana 0 %) tworzyły jeden wysoki słupek, który przyćmiewał prawdziwe korekty.
+- Liczba elementów z niezmienionym szacunkiem jest pod wykresem i na liście rozliczenia, więc populacja nadal się sumuje. Gdy żaden szacunek się nie zmienił, strona mówi to wprost zamiast rysować pusty wykres.
+- Mediana, średnia i percentyle opisują teraz same korekty — tak samo w bloku epików i w podziale na osoby.`,
+  },
+  {
     version: "0.22.0",
     date: "2026-10-17",
     en: `**WIP counts tasks or epics, never both added together.**

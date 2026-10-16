@@ -433,7 +433,9 @@ completed · the report's figures · the orange drift badge with the frozen figu
   block stays the `EpicsPerPersonNote` (epics carry no user, so they are never split). The exclusion list under each block
   (`ExcludedList`) shows the estimates entered only after the item was done (A35, `changeExcluded.estimatedAfterDone`) as an "Of these, N: ..."
   line under the unestimated bucket (`ExcludedItem.ofWhich`): a breakout that stays out of the closing equation. The "Estimated late"
-  note also says that only changes made while the work was going on count.
+  note also says that only changes made while the work was going on count. The change histogram charts only the items whose estimate changed:
+  `AdjustmentsBlock` shows the unchanged ones as a "Not charted: N finished items with an unchanged estimate" line under the chart (shown even while the
+  histogram is withheld, hidden at 0; when `n` is 0 but items are unchanged the panel is replaced by "No estimate changed: …") and as the first line of the exclusion list, so `n + unchanged + late + unestimated = population` still adds up.
 - **Cycle time and reported time**: `DistributionWithAccounting` (panel + its own `n + Σ = population`
   list) is the unit every distribution page composes. Cycle time shows working days (primary) and
   elapsed days, then the trend — a `LineChart` of p50 (solid `flow.6`) and p90 (`gray.6`, DASHED, so

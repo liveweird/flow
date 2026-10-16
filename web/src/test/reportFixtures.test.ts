@@ -229,14 +229,16 @@ describe("estimation fixtures hold the documented partitions", () => {
     expect(EPIC_ACCURACY.accuracyAtDone?.tailShare).toBeNull();
   });
 
-  test("adjustments: change n + estimated late + unestimated == population, late ≤ changed ≤ started, share = changed ÷ started", () => {
+  test("adjustments: change n + unchanged + estimated late + unestimated == population, late ≤ changed ≤ started, share = changed ÷ started", () => {
     const kinds = (report: typeof ADJUSTMENTS) => [
       report.tasks,
       report.epics,
       ...report.groups.flatMap((g) => (g.epics ? [g.tasks, g.epics] : [g.tasks])),
     ];
     for (const f of [...kinds(ADJUSTMENTS), ...kinds(ADJUSTMENTS_EMPTY), ...kinds(ADJUSTMENTS_USERS), ...kinds(ADJUSTMENTS_USER)]) {
-      expect(f.changeDistribution.n + f.changeExcluded.estimatedLate + f.changeExcluded.unestimated).toBe(f.changeExcluded.population);
+      expect(
+        f.changeDistribution.n + f.changeExcluded.unchanged + f.changeExcluded.estimatedLate + f.changeExcluded.unestimated,
+      ).toBe(f.changeExcluded.population);
       // The backfill is a breakout of the unestimated, not a fourth bucket.
       expect(f.changeExcluded.estimatedAfterDone).toBeLessThanOrEqual(f.changeExcluded.unestimated);
       expectWellFormed(f.changeDistribution);
@@ -251,7 +253,9 @@ describe("estimation fixtures hold the documented partitions", () => {
       expect(ADJUSTMENTS.groups.reduce((s, g) => s + g.tasks[key], 0)).toBe(ADJUSTMENTS.tasks[key]);
       expect(ADJUSTMENTS.groups.reduce((s, g) => s + (g.epics?.[key] ?? 0), 0)).toBe(ADJUSTMENTS.epics[key]);
     }
-    expect(ADJUSTMENTS.groups.reduce((s, g) => s + g.tasks.changeExcluded.population, 0)).toBe(ADJUSTMENTS.tasks.changeExcluded.population);
+    for (const key of ["population", "unchanged"] as const) {
+      expect(ADJUSTMENTS.groups.reduce((s, g) => s + g.tasks.changeExcluded[key], 0)).toBe(ADJUSTMENTS.tasks.changeExcluded[key]);
+    }
   });
 
   test("adjustments per person: the groups sum to the tasks block and the shares add up to every bucket and to each person's n", () => {
