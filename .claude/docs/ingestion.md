@@ -121,7 +121,7 @@ race-free by construction. `SyncJobsService.enqueue` (shared by `requestJob` —
 already exists, so it reads that row back and reports `coalesced = true` instead of erroring. The
 web route echoes `{job, coalesced}` (`SyncJobActionResult`) on `202 Accepted`.
 
-**Claiming.** `SyncJobsService.claim` selects PENDING rows plus RUNNING rows whose `lease_until`
+**Claiming.** `SyncJobsService.claim` selects PENDING rows that are DUE (`not_before` null or not in the future — "Debounced DERIVE" below) plus RUNNING rows whose `lease_until`
 has passed, ordered by `(priority, requestedAt, id)` (a total order, the same as `openJob`'s), under
 `FOR UPDATE SKIP LOCKED` — concurrent claimers (multiple worker replicas, or overlapping ticks) never
 block on the same candidate row, they just skip it. A claimer holds the row locks of EVERY candidate its scan
@@ -157,6 +157,43 @@ exhausting jobs of several connections lock them in the same order, so they cann
 writers it can wait on (`DataSourceService.update`'s `FOR NO KEY UPDATE`, the other `ScheduleBackoff` writes) lock the connection
 row alone and then commit, never waiting on a job row the claim holds. The scan holds the job-row `SKIP LOCKED` locks
 first, so the order is always job rows, then connections.
+
+**Debounced DERIVE (V27 `sync_jobs.not_before`).** A configuration change rewrites a connection's whole derived star, so a burst
+of edits (five capacity saves in a minute ran five full DERIVEs per connection) is coalesced rather than re-derived once per edit.
+`not_before BIGINT NULL` (epoch millis) is the earliest time a PENDING job may be claimed; null (every existing row, and every job
+but the one case below) = due at once. The claim's candidate scan skips a PENDING job whose `not_before` is still ahead (neither
+claimed nor row-locked), so a due job behind it is still taken; `idx_sync_jobs_claimable` is unchanged — the condition is a filter
+over the partial index's open rows (at most one per connection and kind). The marker is explicit, never inferred from the job's
+priority or requester (chained and config-caused DERIVEs look alike there): `SyncJobsService.enqueueDebouncedDerive` is the one
+entry point, called by `MetricsSettingsService.bumpRevision` (every config caller that goes through it — settings, membership, capacity,
+per-connection config, sprint calendars, public holidays, the membership seed) and by the worker's post-run stale-revision follow-up.
+(`TeamService.closeOpenJiraMemberships`, a team delete closing its Jira memberships, bumps the shared revision directly and has always
+enqueued no DERIVE; it is not on this path — the next sync's DERIVE picks it up. `teams/` does not import `metrics/`.)
+**There is no maximum wait**: every further edit pushes `not_before` out again, so edits arriving more often than the window keep delaying
+the DERIVE until they pause; a single operator's burst ends, so no cap is applied.
+
+- **Window.** `ingest.deriveQuietSeconds` (`INGEST_DERIVE_QUIET_SECONDS`, default 45, `requireConfigInt` 0..3600, validated on every
+  boot like the rest of `ingest.*`; wired in `infra/db/Database.kt` into `SyncJobsService`, so both roles read it). 0 turns the
+  debounce off (`not_before` stays null). A DERIVE is scheduled at `now + window`.
+- **Coalescing.** With a PENDING DERIVE already queued the enqueue inserts nothing (the unique index) and instead moves its
+  `not_before` out: one conditional UPDATE `SET not_before = GREATEST(not_before, new)` (atomic, no lost push) that also restamps the
+  job with the connection's current `config_revision` (`GREATEST`, never lowered by a concurrent bump). A data-source PUT inside the
+  window (`DataSourceService.update` bumps `source_connections.config_revision`, even on a rename) restamps the delayed PENDING DERIVE
+  in its own transaction while the connection stays enabled, so the claim does not cancel it `CONFIG_CHANGED` and the re-derive still
+  runs at `not_before`. (Chosen over a claim that restamps-and-claims: the PUT is the only writer of that revision, so the fix sits at
+  the write, and the claim's cancel rule stays one rule.) A burst therefore becomes ONE DERIVE, `window` after the last edit. A PENDING DERIVE that is already due
+  (`not_before` null: a chained or manual one) is left alone — it runs sooner than any debounced time anyway.
+- **RUNNING.** A bump while a DERIVE is RUNNING coalesces into it as before; the worker's post-run check
+  (`revision moved while it ran`) then enqueues the follow-up through `enqueueDebouncedDerive`, so it honours the window too —
+  counted from the end of the run, not from the last edit (the edit time is not tracked).
+- **Never delayed.** `enqueueScheduled` (a DERIVE chained after a SYNC/RECONCILE/REPROCESS, and the SYNC/RECONCILE/PURGE schedule) and
+  `requestJob` (a manual request, `POST …/sync-jobs`) insert a due job — and when they coalesce into a PENDING DERIVE that is
+  debounced, they clear its `not_before` (and restamp the revision), pulling it forward to now instead of inheriting the delay.
+- **Visibility.** `SyncJobResponse.notBefore` (nullable, in the sync-jobs list/detail, the action results and the status endpoint's
+  `currentJob`/`lastJobs`). `openJob` ranks RUNNING, then due PENDING, then a delayed PENDING one. The data source details page
+  (`JobScheduledNote`, in the current-job card and the jobs table) shows a PENDING job with a `notBefore` as the neutral gray Pending
+  badge plus "Waiting for further changes — starts after <UTC time>" — a scheduled job is neither stuck nor failed, and the page's
+  5 s open-job poll follows it through to Running.
 
 **Lease and heartbeat.** A claim sets `lease_owner` (the worker's `ingest.workerId`, default
 hostname + a random suffix), `lease_until = now + leaseSeconds * 1000` and `heartbeat_at`, and

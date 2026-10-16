@@ -3398,6 +3398,14 @@ components:
           description: Null for scheduler-enqueued jobs.
         configRevision: { type: integer, format: int64 }
         requestedAt: { type: integer, format: int64, description: Epoch millis }
+        notBefore:
+          type: integer
+          format: int64
+          nullable: true
+          description: >-
+            Epoch millis. Set only on a configuration-caused `DERIVE` that is debounced: the worker does not claim the job
+            before this time, and a further configuration edit pushes it out. A `PENDING` job with a future `notBefore` is
+            scheduled, not stuck or failed. Null (due at once) for every other job.
         startedAt: { type: integer, format: int64, nullable: true, description: Epoch millis }
         finishedAt: { type: integer, format: int64, nullable: true, description: Epoch millis }
         attempt: { type: integer, minimum: 0 }

@@ -46,6 +46,7 @@ class MigrationChecksumTest {
         "V24__capacity_management.sql" to -1133453843,
         "V25__public_holidays.sql" to -626956396,
         "V26__drop_redundant_field_interval_index.sql" to -1413802270,
+        "V27__sync_jobs_not_before.sql" to -394566444,
     )
 
     @Test

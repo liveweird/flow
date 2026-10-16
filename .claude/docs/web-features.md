@@ -65,6 +65,10 @@ endpoint (`requireAdmin` server-side).
   PENDING one) is still followed to Running and on to its terminal state; it also refetches once more when `jobOpen` falls
   (a ref-tracked open→idle transition), so its last row shows the terminal state even if the tick that raced the
   summary read it as Running. `keepPreviousData`/paging are untouched (the interval refetches the current key).
+  A PENDING job whose `notBefore` is set (the debounced re-derive a configuration edit caused, `ingestion.md` "Debounced DERIVE") shows
+  `components/JobScheduledNote.tsx` under its gray Pending badge — "Waiting for further changes — starts after <UTC time>" — in both the
+  current-job card and the jobs table: scheduled, never a failure; the open-job poll above follows it to Running. The "Saved — reports
+  re-derive shortly" toasts stay as they are (the wait is a quiet period of under a minute).
   Header actions
   Sync now / Reconcile (direct, the toast distinguishes `coalesced`), Reprocess (behind
   `ConfirmActionModal` — it rebuilds every normalized row), Cancel on the open job (direct; a `409`

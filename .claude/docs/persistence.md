@@ -727,7 +727,7 @@ migration — the persistence.md cross-feature list above is unchanged.
 
 `MigrationChecksumTest` gains V17's pin.
 
-Current migrations are `V1`–`V26`:
+Current migrations are `V1`–`V27`:
 
 - `V1__init` — the `users` table: `name` (≤50), `email` (≤254), `password_hash`, `role` with
   `CHECK ("role" IN ('ADMIN', 'USER'))` (single-column role storage; the wire shape stays a
@@ -841,6 +841,10 @@ Current migrations are `V1`–`V26`:
 - `V26__drop_redundant_field_interval_index` — drops `norm.idx_norm_work_item_field_intervals_issue (connection_id, issue_id, field)`,
   a strict prefix of the table's unique key `(connection_id, issue_id, field, seq)`, which serves every query it served (~1.7 MB on
   real data). No data change, no digest moves. `MigrationChecksumTest` pins it.
+- `V27__sync_jobs_not_before` — `sync_jobs.not_before BIGINT NULL` (epoch millis, the earliest time a PENDING job may be claimed; null =
+  due at once). Backs the DERIVE debounce (`.claude/docs/ingestion.md` "Debounced DERIVE (V27)"). Nullable, no default, no backfill — a
+  metadata-only change, no data rewrite, no digest moves. `idx_sync_jobs_claimable` is unchanged: the claim's `not_before` condition
+  is a filter over the partial index's open rows. `MigrationChecksumTest` pins it.
 
 The `users`/`teams` tables follow Toadie's dialect (`SERIAL`/`INTEGER` ids, epoch-millis `BIGINT`
 timestamps, `marked_as_deleted` + partial unique indexes over active rows) and its idioms: a

@@ -17,6 +17,20 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "0.13.1",
+    date: "2026-10-16",
+    en: `**A burst of configuration edits recalculates the metrics once, not once per edit.**
+
+- Each change to the metrics settings, capacity, team memberships, public holidays or a data source's metrics configuration used to start a full recalculation of every data source at once. Five quick capacity edits meant five recalculations each. A change now waits 45 seconds for further edits, so a burst becomes one recalculation, about 45 seconds after the last edit.
+- While it waits, the data source's job list says "Waiting for further changes" with the time it will start, instead of looking stuck.
+- Recalculations after a sync and ones you start by hand still begin at once.`,
+    pl: `**Seria zmian w konfiguracji przelicza metryki raz, a nie po każdej zmianie.**
+
+- Każda zmiana ustawień metryk, pojemności, członkostwa w zespołach, świąt państwowych albo konfiguracji metryk źródła danych od razu uruchamiała pełne przeliczanie wszystkich źródeł danych. Pięć szybkich zmian pojemności oznaczało pięć przeliczeń każdego z nich. Teraz zmiana czeka 45 sekund na kolejne, więc seria kończy się jednym przeliczeniem, około 45 sekund po ostatniej zmianie.
+- W tym czasie lista zadań źródła danych pokazuje „Czeka na kolejne zmiany” wraz z godziną startu, zamiast wyglądać na zawieszoną.
+- Przeliczanie po synchronizacji i to uruchomione ręcznie nadal startuje od razu.`,
+  },
+  {
     version: "0.13.0",
     date: "2026-10-16",
     en: `**WIP's Done band counts each finished item for the team and domain that delivered it.**

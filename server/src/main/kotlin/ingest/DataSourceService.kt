@@ -160,9 +160,7 @@ class DataSourceService(private val database: R2dbcDatabase, private val cipher:
         val tokenRotated = request.jira.apiToken != null
         val secretValue = request.jira.apiToken?.let(cipher::encrypt) ?: current[Connections.secret]
         val newSettings = currentSettings.copy(
-            email = request.jira.email,
-            projectKeys = request.jira.projectKeys,
-            authScheme = request.jira.authScheme,
+            email = request.jira.email, projectKeys = request.jira.projectKeys, authScheme = request.jira.authScheme,
         )
         Connections.update({ (Connections.id eq id) and Connections.active() }) {
             it[name] = request.name
@@ -177,6 +175,7 @@ class DataSourceService(private val database: R2dbcDatabase, private val cipher:
             // A save is the operator's fix: lift any failure back-off so the connection is due on the next tick.
             it.clearBackoff(current)
         }
+        if (request.enabled) restampDelayedDerive(id, current[Connections.configRevision] + 1)
         DataSourceUpdateResult(tokenRotated, siteHost(request.jira.siteUrl))
     }
 

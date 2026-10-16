@@ -2211,6 +2211,11 @@ export interface components {
             requestedAt: number;
             /**
              * Format: int64
+             * @description Epoch millis. Set only on a configuration-caused `DERIVE` that is debounced: the worker does not claim the job before this time, and a further configuration edit pushes it out. A `PENDING` job with a future `notBefore` is scheduled, not stuck or failed. Null (due at once) for every other job.
+             */
+            notBefore?: number | null;
+            /**
+             * Format: int64
              * @description Epoch millis
              */
             startedAt?: number | null;

@@ -19,6 +19,8 @@ npm test                      # reuses or starts the stack, runs specs, leaves t
   local `WEB_STATIC_DIR=… ./gradlew :server:run` going and just run `npm test`).
   The nightly `e2e.yml` builds the image and starts the stack in their own workflow steps first (so the
   time is attributable per step, `.claude/docs/build-times.md`), and setup then just reuses it.
+  A stack the setup starts itself gets `INGEST_DERIVE_QUIET_SECONDS=1` (the nightly sets it in `e2e.yml`; start a stack by hand the
+  same way): every configuration edit's DERIVE otherwise waits out the 45 s debounce before the specs can see it.
   Setup never tears down services or volumes, including after a failed start or test run. Tests
   clean up only the records they own; existing demo data stays intact.
 - Docker is needed only when starting the default stack. `E2E_BASE_URL` can target an already

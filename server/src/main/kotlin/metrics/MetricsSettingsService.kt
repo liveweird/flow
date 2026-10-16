@@ -3,7 +3,6 @@ package ch.nokillswit.metrics
 import ch.nokillswit.infra.db.jsonb
 import ch.nokillswit.infra.db.nowMillis
 import ch.nokillswit.ingest.DataSourceService
-import ch.nokillswit.ingest.SyncJobKind
 import ch.nokillswit.ingest.SyncJobsService
 import io.ktor.util.AttributeKey
 import kotlinx.coroutines.flow.toList
@@ -128,9 +127,11 @@ class MetricsSettingsService(
      * metrics-config PUT, a sprint-calendar or team-capacity save): no other column changes, so
      * `updatedAt`/`updatedByUserId` stay whatever the last SETTINGS edit left them — those two describe the
      * settings form itself, not "the last thing that touched the revision". Since v0.3.0 M3 commit 7, ALSO enqueues
-     * `DERIVE` (scheduler priority — `SyncJobsService.enqueueScheduled`), stamped with the connection's OWN
-     * `source_connections.config_revision` (the value `SyncJobsService.claim`'s `CONFIG_CHANGED` check compares
-     * against — a DIFFERENT counter from the metrics settings revision this method itself bumps).
+     * `DERIVE` (scheduler priority — `SyncJobsService.enqueueDebouncedDerive`: no earlier than `ingest.deriveQuietSeconds`
+     * from now, and a further bump inside that window pushes it out, so a burst of edits becomes ONE
+     * DERIVE), stamped with the connection's OWN `source_connections.config_revision` (the value
+     * `SyncJobsService.claim`'s `CONFIG_CHANGED` check compares against —
+     * a DIFFERENT counter from the metrics settings revision this method itself bumps).
      *
      * The DERIVE fan-out is the caller's decision ([onlyConnectionId]):
      * - `null` (default) — EVERY enabled, active connection. For a change every connection's DERIVE reads: the global
@@ -152,7 +153,7 @@ class MetricsSettingsService(
         dataSources.enabledActiveConnections()
             .filter { onlyConnectionId == null || it.id == onlyConnectionId }
             .forEach { connection ->
-                syncJobs.enqueueScheduled(connection.id, SyncJobKind.DERIVE, connection.configRevision)
+                syncJobs.enqueueDebouncedDerive(connection.id, connection.configRevision)
             }
         newRevision
     }
